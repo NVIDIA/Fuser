@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <torch/csrc/jit/python/pybind.h>
 #include <torch/csrc/utils/pybind.h>
 

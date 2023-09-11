@@ -20,6 +20,7 @@
 #include <kernel_ir.h>
 #include <options.h>
 #include <serde/utils.h>
+#include <tensor_metadata.h>
 #include <utils.h>
 
 #include <ATen/core/LegacyTypeDispatch.h>
@@ -56,7 +57,7 @@ static const char* defineIndexType(PrimDataType index_type) {
   } else if (index_type == DataType::Int) {
     return "typedef int64_t nvfuser_index_t;\n";
   } else {
-    TORCH_INTERNAL_ASSERT(false, "invalid indexing type: ", index_type);
+    NVF_ERROR(false, "invalid indexing type: ", index_type);
   }
 }
 
@@ -220,15 +221,14 @@ void FusionExecutor::debugCompileFusionFromStr(
         static_evaluator,
         kernel_summary.static_smem_allocations,
         kernel->indexType());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         static_smem_size < max_static_smem_,
         "The static shared memory allocation is larger than available memory.");
   }
 
   std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
       executor_utils::getCompiledKernel(std::nullopt, code, name, fusion_id_);
-  TORCH_INTERNAL_ASSERT(
-      fusion_id_ > 0, "assign a fusion_id_ <= 0 is not accepted.");
+  NVF_ERROR(fusion_id_ > 0, "assign a fusion_id_ <= 0 is not accepted.");
 }
 
 void FusionExecutor::compileFusion(
@@ -236,13 +236,13 @@ void FusionExecutor::compileFusion(
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {
-  FUSER_PERF_SCOPE("compileFusion");
+  FUSER_PERF_SCOPE("FusionExecutor::compileFusion");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
 
   for (auto out : fusion->outputs()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         out->getValType() == ValType::TensorView,
         "Output types from fusions that are not tensors are not supported at this point.");
 
@@ -293,7 +293,7 @@ void FusionExecutor::compileFusion(
   if (compile_params.index_type.has_value()) {
     // If the int32 compilation is requested, but the arguments demand
     // int64, that's an error
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !(compile_params.index_type.value() == PrimDataType::Int32 &&
           arg_index_type == PrimDataType::Int),
         "Compilation with int32 is requested but int64 is required for the arguments");
@@ -308,7 +308,7 @@ void FusionExecutor::compileFusion(
 
   c10::DeviceGuard dg(options_.device);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       options_.device.is_cuda(), "Provided device to CUDA fuser is the CPU.");
   auto properties = at::cuda::getDeviceProperties(options_.device.index());
   // TODO: These properties should be set as part of the constructor so that it
@@ -371,7 +371,7 @@ void FusionExecutor::compileFusion(
         static_evaluator,
         kernel_summary.static_smem_allocations,
         kernel->indexType());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         static_smem_size < max_static_smem_,
         "The static shared memory allocation is larger than available memory.");
   }
@@ -383,7 +383,7 @@ void FusionExecutor::compileFusion(
       ss << alloc->buffer()->toString() << ", ";
     }
     ss << " have dynamic allocations but are placed in local memory.";
-    TORCH_INTERNAL_ASSERT(false, ss.str());
+    NVF_ERROR(false, ss.str());
   }
 
   // TODO: pass block_size here;
@@ -395,8 +395,7 @@ void FusionExecutor::compileFusion(
         launch_constraints, expr_eval, warp_size_, kernel->indexType());
     block_size = launch_params.nThreads();
     dynamic_smem = launch_params.smem();
-    TORCH_INTERNAL_ASSERT(
-        block_size > 0, "launch param inferred block size < 0");
+    NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
   }
 
   // TODO: high water mark should be computed via occupancy API after
@@ -418,8 +417,7 @@ void FusionExecutor::compileFusion(
           compile_params,
           block_size,
           save_compiled_binary_ || isDebugDumpEnabled(DebugDumpOption::Sass));
-  TORCH_INTERNAL_ASSERT(
-      fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
+  NVF_ERROR(fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
 
   // These should be nullopt at this point, but reset just in case
   resetCompiledKernelProperties();
@@ -469,20 +467,20 @@ void fillTensorWithNan(at::Tensor& t) {
       t.fill_(c10::complex<double>(std::nan(""), std::nan("")));
       break;
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unknown dtype");
+      NVF_ERROR(false, "Unknown dtype");
   }
 }
 
 std::vector<int64_t> getContiguousStrides(
     const std::vector<int64_t>& sizes,
     const std::vector<bool>& expand_flags) {
-  TORCH_INTERNAL_ASSERT(sizes.size() == expand_flags.size());
+  NVF_ERROR(sizes.size() == expand_flags.size());
 
   std::vector<int64_t> strides(sizes.size());
   int64_t cur_stride = 1;
   for (auto i = sizes.size(); i > 0; --i) {
     auto size = sizes.at(i - 1);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         size >= 0,
         "Positive size is assumed non-negative but received: ",
         size);
@@ -524,7 +522,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
   for (const auto i : c10::irange(symbolic_sizes.size())) {
     auto symbolic_size = symbolic_sizes.at(i);
     const auto inferred_val = expr_eval.evaluate(symbolic_size);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         inferred_val.hasValue(),
         "Could not launch kernel as program could not infer ",
         symbolic_size->toInlineString(),
@@ -551,7 +549,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
   // bu its actual allocation size may be different, e.g., for
   // supporting halo accesses. The actual size is currently computed
   // when creating the Allocate expr.
-  TORCH_INTERNAL_ASSERT(alloc != nullptr);
+  NVF_ERROR(alloc != nullptr);
   const auto& symbolic_sizes = alloc->shape();
   // For intermediate tensors, we just need to allocate a memory chunk
   // of the specified size. Broadcast expansion does not need to be considered.
@@ -578,7 +576,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     }
     symbolic_sizes.push_back(id->getMaybeExpandedExtent());
     if (id->hasExpandedExtent()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           id->isBroadcast(),
           "Non-broadcast domain should not have an expanded extent: ",
           id->toString());
@@ -607,7 +605,7 @@ class ForwardTraverseFromAllocToRFactor {
     auto outer = split->outer();
     auto factor = ee_.evaluate(split->factor()).as<int64_t>();
     auto in_it = std::find(frontier_.begin(), frontier_.end(), in);
-    // TORCH_INTERNAL_ASSERT(in_it != frontier_.end());
+    // NVF_ERROR(in_it != frontier_.end());
     if (in_it == frontier_.end()) {
       // TODO: We should get rid of this return and enable the above assert.
       // Note [Allocation domain on both side of rFactor]
@@ -651,8 +649,8 @@ class ForwardTraverseFromAllocToRFactor {
     auto out = merge->out();
     auto inner_it = std::find(frontier_.begin(), frontier_.end(), inner);
     auto outer_it = std::find(frontier_.begin(), frontier_.end(), outer);
-    // TORCH_INTERNAL_ASSERT(inner_it != frontier_.end());
-    // TORCH_INTERNAL_ASSERT(outer_it != frontier_.end());
+    // NVF_ERROR(inner_it != frontier_.end());
+    // NVF_ERROR(outer_it != frontier_.end());
     if (inner_it == frontier_.end() || outer_it == frontier_.end()) {
       // TODO: see [Allocation domain on both side of rFactor]
       return;
@@ -706,8 +704,7 @@ class ForwardTraverseFromAllocToRFactor {
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       handle(merge);
     } else {
-      TORCH_INTERNAL_ASSERT(
-          false, "Unsupported transormation in allocation domain");
+      NVF_ERROR(false, "Unsupported transormation in allocation domain");
     }
   }
 
@@ -749,8 +746,8 @@ class BackwardTraverseFromAllocToRFactor {
     auto in = split->in();
     auto inner_it = std::find(frontier_.begin(), frontier_.end(), inner);
     auto outer_it = std::find(frontier_.begin(), frontier_.end(), outer);
-    // TORCH_INTERNAL_ASSERT(inner_it != frontier_.end());
-    // TORCH_INTERNAL_ASSERT(outer_it != frontier_.end());
+    // NVF_ERROR(inner_it != frontier_.end());
+    // NVF_ERROR(outer_it != frontier_.end());
     if (inner_it == frontier_.end() || outer_it == frontier_.end()) {
       // TODO: see [Allocation domain on both side of rFactor]
       return;
@@ -806,7 +803,7 @@ class BackwardTraverseFromAllocToRFactor {
     auto outer = merge->outer();
     auto factor = ee_.evaluate(inner->extent()).as<int64_t>();
     auto out_it = std::find(frontier_.begin(), frontier_.end(), out);
-    // TORCH_INTERNAL_ASSERT(out_it != frontier_.end());
+    // NVF_ERROR(out_it != frontier_.end());
     if (out_it == frontier_.end()) {
       // TODO: see [Allocation domain on both side of rFactor]
       return;
@@ -835,8 +832,7 @@ class BackwardTraverseFromAllocToRFactor {
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
       handle(merge);
     } else {
-      TORCH_INTERNAL_ASSERT(
-          false, "Unsupported transormation in allocation domain");
+      NVF_ERROR(false, "Unsupported transormation in allocation domain");
     }
   }
 
@@ -883,12 +879,12 @@ at::Tensor transformOutputFromAllocationToRFactor(
   // allocation domain can be before or after the rFactor domain, we need both a
   // forward and a backward traverse.
   std::list<IterDomain*> frontier(alloc.begin(), alloc.end());
-  TORCH_INTERNAL_ASSERT(tensor.dim() == (int64_t)frontier.size());
+  NVF_ERROR(tensor.dim() == (int64_t)frontier.size());
   tensor = ForwardTraverseFromAllocToRFactor(tensor, tv, ee, frontier)
                .run(rfactor, alloc);
   tensor = BackwardTraverseFromAllocToRFactor(tensor, tv, ee, frontier)
                .run(rfactor, alloc);
-  TORCH_INTERNAL_ASSERT(frontier.size() == rfactor.size());
+  NVF_ERROR(frontier.size() == rfactor.size());
   // Now that all affine transformations are handled, and frontiers should
   // contain the same set of IDs as rfactor. We still need to do a final
   // permutation so that their orders are also consistent.
@@ -916,7 +912,7 @@ std::vector<at::Tensor> allocOutputs(
     const KernelArgumentHolder& inputs,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
-  FUSER_PERF_SCOPE("ExecutorRunFusion::OutputAlloc");
+  FUSER_PERF_SCOPE("allocOutput");
 
   std::vector<at::Tensor> outputs;
 
@@ -934,7 +930,7 @@ std::vector<at::Tensor> allocOutputs(
     // for kernel execution, so would need to push them to args
     if (alias_it != output_to_input_aliases.end()) {
       auto aliased_input_index = alias_it->second;
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           inputs[aliased_input_index]->is<at::Tensor>(),
           "alias io only supports tensor");
       outputs.emplace_back(*inputs[aliased_input_index]);
@@ -980,7 +976,7 @@ int64_t FusionExecutor::computeSharedMemory(
     const std::vector<const kir::Allocate*>& buffers,
     DataType index_type,
     int64_t smem_offset) {
-  FUSER_PERF_SCOPE("computeSharedMemory");
+  FUSER_PERF_SCOPE("FusionExecutor::computeSharedMemory");
   int64_t total = smem_offset;
   // align smem_offset at 16 bytes
   smem_offset = (smem_offset + 15) & (~15);
@@ -988,18 +984,18 @@ int64_t FusionExecutor::computeSharedMemory(
     // If this buffer aliases another buffer,
     // then do not allocate memory for this buffer.
     if (smem_alloc->alias() == nullptr) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           smem_alloc->address(),
           "Smem address is not set for buffer T",
           smem_alloc->buffer()->name());
       const auto address_val = expr_eval.evaluate(smem_alloc->address());
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           address_val.hasValue(),
           "Failed to evaluate the address ",
           smem_alloc->address()->toInlineString(),
           " of shared memory buffer T",
           smem_alloc->buffer()->name());
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           address_val.is<int64_t>(),
           "Address val ",
           smem_alloc->address()->toInlineString(),
@@ -1008,7 +1004,7 @@ int64_t FusionExecutor::computeSharedMemory(
           " should be int64 but found ",
           address_val);
       const auto size_val = expr_eval.evaluate(smem_alloc->size());
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           size_val.hasValue(),
           "Failed to evaluate the size ",
           smem_alloc->size(),
@@ -1032,8 +1028,8 @@ LaunchParams FusionExecutor::computeLaunchParams(
     ExpressionEvaluator& expr_eval,
     const int64_t warp_size,
     DataType index_type) {
-  FUSER_PERF_SCOPE("FusionExecutor::ComputeLaunchParams");
-  TORCH_INTERNAL_ASSERT(warp_size > 0, "WARP_SIZE should be larger than 0");
+  FUSER_PERF_SCOPE("FusionExecutor::computeLaunchParams");
+  NVF_ERROR(warp_size > 0, "WARP_SIZE should be larger than 0");
 
   LaunchParams launch_params;
 
@@ -1109,7 +1105,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
   for (auto [p_type, extent] : simplified_parallel_iter_extents) {
     FUSER_PERF_SCOPE("FusionExecutor::ParallelBindingResolution");
     auto val = expr_eval.evaluate(extent);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         val.hasValue(),
         "Tried to evaluate the extent, ",
         extent->toInlineString(),
@@ -1184,7 +1180,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     getIntermediateBufferInfo(
         ExpressionEvaluator& expr_eval,
         DataType index_type) {
-  FUSER_PERF_SCOPE("FusionExecutor::GetIntermediateBufferInfo");
+  FUSER_PERF_SCOPE("FusionExecutor::getIntermediateBufferInfo");
 
   std::vector<GlobalBufferInfo> global_buffers;
 
@@ -1192,7 +1188,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
   const auto& kernel_summary = kernel->summary();
 
   for (auto alloc : kernel_summary.global_allocations) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         alloc->buffer()->isA<TensorView>(),
         "Cannot allocate global buffers that are not tensors.");
     auto tv = alloc->buffer()->as<TensorView>();
@@ -1225,10 +1221,10 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
         ExpressionEvaluator& expr_eval,
         const std::vector<std::pair<int, int>>& output_to_input_aliases,
         DataType index_dtype) {
-  FUSER_PERF_SCOPE("FusionExecutor::GetOutbufferInfo");
+  FUSER_PERF_SCOPE("FusionExecutor::getOutbufferInfo");
   const auto kernel = lowered_->kernel();
   std::vector<GlobalBufferInfo> outputs;
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       args.size() == kernel->inputs().size(),
       "kernel arguments length does not match runtime arguments.");
   for (const auto out_i : c10::irange(kernel->outputs().size())) {
@@ -1241,7 +1237,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
       info.type = at::kFloat;
       info.sizes = {0};
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           info.tv != nullptr, "Cannot allocate outputs that are not tensors.");
       auto output = out_val->as<TensorView>();
       auto alias_it = std::find_if(
@@ -1301,13 +1297,13 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
           fusion->inputs().begin(),
           fusion->inputs().end(),
           fusion->outputs()[out_i]);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           input_it != fusion->inputs().end(),
           "Issue with an input showing up as output but could not find input.");
       auto inp_i = std::distance(fusion->inputs().begin(), input_it);
       ret.push(*args[inp_i]);
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           fusion->outputs()[out_i]->isA<TensorView>(),
           "Cannot allocate outputs that are not tensors.");
       auto output_tv = fusion->outputs()[out_i]->as<TensorView>();
@@ -1335,7 +1331,7 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
 
   for (const auto& [aliased_output_index, aliased_input_index] :
        output_to_input_aliases) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         args[aliased_input_index]->is<at::Tensor>(),
         "alias io only supports tensor");
     *ret[aliased_output_index] = *args[aliased_input_index];
@@ -1349,7 +1345,7 @@ namespace {
 void validateIndexType(
     kir::Kernel* kernel,
     const CompileParams& compile_params) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !compile_params.index_type.has_value() ||
           kernel->indexType() == compile_params.index_type.value(),
       "Kernel index type and compilation index type don't match. Kernel type: ",
@@ -1375,7 +1371,7 @@ void validateCooperativeLaunch(
       launch_params.gdimx() * launch_params.gdimy() * launch_params.gdimz();
   auto max_active_blocks = num_blocks_per_SM *
       at::cuda::getDeviceProperties(device_index)->multiProcessorCount;
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       (int64_t)(max_active_blocks) >= grid_size,
       "Wanted to launch a cooperative kernel, however the number of blocks is greater than ",
       "what can be resident on the GPU at once. Need: ",
@@ -1467,7 +1463,7 @@ void FusionExecutor::initializeExecutorEntry(
     const CompileParams& compile_params,
     const std::vector<at::Tensor>& outputs,
     DataType index_type) {
-  FUSER_PERF_SCOPE("ExecutorRunFusion::InitializeExecutorEntry");
+  FUSER_PERF_SCOPE("FusionExecutor::initializeExecutorEntry");
 
   ExpressionEvaluator expr_eval;
   evaluatorPrecomputedValues()->bindInputs(args);
@@ -1549,7 +1545,7 @@ void FusionExecutor::recompileKernel(
 }
 
 int64_t FusionExecutor::getAvailableDynamicSmemSize() {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       isCompiled(), "Cannot get dynamic smem size unless kernel is compiled");
   if (!available_dynamic_smem_size_.has_value()) {
     int size = 0;
@@ -1563,7 +1559,7 @@ int64_t FusionExecutor::getAvailableDynamicSmemSize() {
 }
 
 int64_t FusionExecutor::getStaticSmemSize() {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       isCompiled(), "Cannot get static smem size unless kernel is compiled");
   if (!static_smem_size_.has_value()) {
     int size = 0;
@@ -1576,7 +1572,7 @@ int64_t FusionExecutor::getStaticSmemSize() {
 }
 
 void FusionExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       getStaticSmemSize() + dynamic_smem_size < device_smem_limit_,
       "The total shared memory allocation is larger than available memory.",
       " Dynamic size: ",
@@ -1591,7 +1587,7 @@ void FusionExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
 
 int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
     int64_t dynamic_smem_size) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       isCompiled(), "Cannot set dynamic smem size unless kernel is compiled");
   if (dynamic_smem_size > getAvailableDynamicSmemSize()) {
     validateDynamicSmemSize(dynamic_smem_size);
@@ -1614,11 +1610,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
     std::vector<at::Tensor> outputs) {
-  FUSER_PERF_SCOPE("FusionExecutor::RunFusion");
-  TORCH_INTERNAL_ASSERT(isCompiled());
-  TORCH_INTERNAL_ASSERT(
-      fusion_id_ > 0, "Cannot run fusion, it was not compiled.");
-  TORCH_INTERNAL_ASSERT(
+  FUSER_PERF_SCOPE("FusionExecutor::runFusion");
+  NVF_ERROR(isCompiled());
+  NVF_ERROR(fusion_id_ > 0, "Cannot run fusion, it was not compiled.");
+  NVF_ERROR(
       !args.getCacheId().has_value() || outputs.empty(),
       "short cut input cache is not compatible with pre-allocated output");
 
@@ -1634,7 +1629,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   c10::DeviceGuard dg(options_.device);
   auto stream = at::cuda::getCurrentCUDAStream();
   at::cuda::jit::initializeCudaContext();
-  TORCH_INTERNAL_ASSERT(lowered_);
+  NVF_ERROR(lowered_);
 
   // Placeholder for the case where parameter cache is not used
   ExecutorEntry temporary_executor_entry;
@@ -1681,7 +1676,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         expr_eval);
   } else {
     // TODO: Use validateKernelOutputs
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         outputs.size() == fusion_->outputs().size(),
         __func__,
         " provided number of outputs does not match fusion output");
@@ -1880,8 +1875,8 @@ void FusionExecutor::compileRtc(
     const std::string& name,
     bool structured,
     PrimDataType index_type) {
-  FUSER_PERF_SCOPE("ExecutorRunFusion::compileRtc");
-  TORCH_INTERNAL_ASSERT(
+  FUSER_PERF_SCOPE("FusionExecutor::compileRtc");
+  NVF_ERROR(
       index_type == PrimDataType::Int || index_type == PrimDataType::Int32 ||
           "Invalid index type: ",
       index_type);
@@ -1901,7 +1896,7 @@ float FusionExecutor::runRtc(
     const LaunchParams& launch_params,
     const std::vector<at::Tensor>& args,
     PrimDataType index_type) {
-  FUSER_PERF_SCOPE("runFusion");
+  FUSER_PERF_SCOPE("FusionExecutor::runRtc");
 
   c10::DeviceGuard dg(options_.device);
   auto stream = at::cuda::getCurrentCUDAStream();
@@ -1918,18 +1913,21 @@ float FusionExecutor::runRtc(
   std::vector<void*> pointers;
 
   for (const auto& input : args) {
-    DataType metadata_type = globalTensorMetaData(
-        std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type),
-        input.dim());
+    auto dtype =
+        std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type);
+    DataType metadata_type = globalTensorMetaData(dtype, input.dim());
 
-    LegacyStruct<PolymorphicValue> concrete_value;
-    concrete_value["data"] = PolymorphicValue(
-        Pointer(input.data_ptr(), aten_to_data_type(input.scalar_type())));
-    concrete_value["logical_size"] = PolymorphicValue(input.sizes().vec());
-    concrete_value["alloc_stride"] = PolymorphicValue(input.strides().vec());
+    std::shared_ptr<Struct> struct_ = std::make_shared<TensorMetaData>();
+    TensorMetaData* metadata = (TensorMetaData*)struct_.get();
+    metadata->dtype = dtype;
+    metadata->data = input.data_ptr();
+    metadata->logical_size = input.sizes();
+    metadata->logical_stride = input.strides();
+    metadata->alloc_size = input.sizes();
+    metadata->alloc_stride = input.strides();
 
-    data.emplace_back(
-        polymorphicValueToBytes(concrete_value, metadata_type, index_type));
+    data.emplace_back(polymorphicValueToBytes(
+        PolymorphicValue(std::move(struct_)), metadata_type, index_type));
     pointers.emplace_back(data.back().data());
   }
 
@@ -2076,7 +2074,7 @@ void FusionExecutor::deserialize(
     CompileParams compile_params) {
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
 
-  TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::FusionExecutor is nullptr.");
+  NVF_ERROR(buffer != nullptr, "serde::FusionExecutor is nullptr.");
 
   // Initialize internal fields
   device_smem_limit_ = buffer->device_smem_limit();
@@ -2116,14 +2114,14 @@ void FusionExecutor::deserialize(
           block_size_high_water_mark_,
           save_compiled_binary_);
 
-  TORCH_INTERNAL_ASSERT(isCompiled(), "Failed to deserialize FusionExecutor");
+  NVF_ERROR(isCompiled(), "Failed to deserialize FusionExecutor");
 }
 
 FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
     const serde::ExecutorEntry* buffer) {
   // See table definition for ExecutorEntry in serde/fusion_cache.fbs
 
-  TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::ExecutorEntry is nullptr.");
+  NVF_ERROR(buffer != nullptr, "serde::ExecutorEntry is nullptr.");
 
   ExecutorEntry entry;
 
@@ -2151,22 +2149,21 @@ FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
     const serde::GlobalBufferInfo* buffer) {
   // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
 
-  TORCH_INTERNAL_ASSERT(
-      buffer != nullptr, "serde::GlobalBufferInfo is nullptr.");
+  NVF_ERROR(buffer != nullptr, "serde::GlobalBufferInfo is nullptr.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       buffer->tv() != -1, "Serialization failed to encode buffer tv position.");
 
-  TORCH_INTERNAL_ASSERT(fusion_ != nullptr, "Fusion is not initialized.");
+  NVF_ERROR(fusion_ != nullptr, "Fusion is not initialized.");
 
   GlobalBufferInfo info;
   if (buffer->is_fusion_output()) {
     auto out_val = fusion_->outputs().at(buffer->tv());
-    TORCH_INTERNAL_ASSERT(out_val != nullptr);
+    NVF_ERROR(out_val != nullptr);
     info.tv = dynamic_cast<TensorView*>(out_val);
   } else {
     auto out_val = kernel()->summary().global_allocations.at(buffer->tv());
-    TORCH_INTERNAL_ASSERT(out_val != nullptr);
+    NVF_ERROR(out_val != nullptr);
     info.tv = dynamic_cast<TensorView*>(out_val->buffer());
   }
 

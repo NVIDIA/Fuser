@@ -129,7 +129,7 @@ class ViewTransform : public Transform {
       IterDomain* id) {
     auto root_domain_it = std::find(root_domain.begin(), root_domain.end(), id);
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         root_domain_it != root_domain.end(),
         "Wanted to replace ",
         id->toString(),
@@ -188,7 +188,7 @@ class MergeTransform final : public ViewTransform {
   void createRfactorDomain(
       std::vector<IterDomain*>& root_domain,
       std::vector<IterDomain*>& current_transformed_domain) override {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         (index_ + 1) < (int64_t)current_transformed_domain.size(),
         "Tried to apply: ",
         toString(),
@@ -206,7 +206,7 @@ class MergeTransform final : public ViewTransform {
       inner_id = replaceRootIdWithRFactor(root_domain, inner_id);
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         outer_id->start()->isZeroInt() && inner_id->start()->isZeroInt(),
         "Didn't expect to apply view transformations on an iter domain",
         " starting at a non-zero position.");
@@ -242,7 +242,7 @@ class SplitTransform final : public ViewTransform {
  public:
   SplitTransform(const int64_t index, int64_t split_factor)
       : ViewTransform(index), split_factor_(split_factor) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         split_factor > 0,
         "Split factors must be greater than 0, but found ",
         split_factor,
@@ -258,7 +258,7 @@ class SplitTransform final : public ViewTransform {
   void createRfactorDomain(
       std::vector<IterDomain*>& root_domain,
       std::vector<IterDomain*>& current_transformed_domain) override {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         index_ < (int64_t)current_transformed_domain.size(),
         "Index: \t",
         index_,
@@ -272,7 +272,7 @@ class SplitTransform final : public ViewTransform {
       id = replaceRootIdWithRFactor(root_domain, id);
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         id->start()->isZeroInt(),
         "Didn't expect to apply view transformations on an iter domain",
         " starting at a non-zero position.");
@@ -360,7 +360,7 @@ class AnalyzeViewTransformation {
         root_is_transformed_(original_view.size(), false),
         original_view_(original_view),
         new_view_(new_view) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         root_domain.empty() || original_view.size() == root_domain.size(),
         "Incoming domain must match the original view sizes for view.");
     // Check that the product of original and new view std::vector<int64_t> are
@@ -369,7 +369,7 @@ class AnalyzeViewTransformation {
         original_view_.begin(), original_view_.end(), 1, std::multiplies<>());
     const int64_t kNewNumElements = std::accumulate(
         new_view_.begin(), new_view.end(), 1, std::multiplies<>());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         kOriginalNumElements == kNewNumElements,
         "Total element counts across view operation must match.");
   }
@@ -410,7 +410,7 @@ class AnalyzeViewTransformation {
             split_merge->as<SplitTransform>()->split_factor());
         constraint.split_merge_string.push_back(-2);
       } else {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             split_merge->isA<MergeTransform>(),
             "Unrecognized transformation found.");
         constraint.split_merge_string.push_back(split_merge->index());
@@ -493,7 +493,7 @@ class AnalyzeViewTransformation {
     if (root_domain_not_provided_) {
       return original_view_.at(original_view_index) == 1;
     } else {
-      TORCH_INTERNAL_ASSERT(original_view_index < (int64_t)root_domain_.size());
+      NVF_ERROR(original_view_index < (int64_t)root_domain_.size());
       auto root_id = root_domain_.at(original_view_index);
       // A symbolic root ID with concrete size of 1 always gets
       // concretized to a broadcast ID
@@ -527,7 +527,7 @@ class AnalyzeViewTransformation {
     int64_t prev_original_view_index = std::numeric_limits<int64_t>::max();
     int64_t prev_new_view_index = std::numeric_limits<int64_t>::max();
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         view_transforms_.empty(),
         "Already ran find transformation pass for View op, cannot run a second time.");
 
@@ -535,7 +535,7 @@ class AnalyzeViewTransformation {
     // completely generated.
     while (original_view_index < (int64_t)original_view_.size() ||
            new_view_index < (int64_t)new_view_.size()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !(prev_new_view_index == new_view_index &&
             prev_original_view_index == original_view_index),
           "Infinite loop detected in AnalyzeViewTransformation::findTransformation(). Bailing.");
@@ -544,7 +544,7 @@ class AnalyzeViewTransformation {
       prev_original_view_index = original_view_index;
 
       if (new_view_index >= (int64_t)new_view_.size()) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             current_size == 1,
             "View is complete, but there's still some elements to distribute.");
       }
@@ -598,7 +598,7 @@ class AnalyzeViewTransformation {
 
       // If we run out of original_view dimensions we could still have broadcast
       // dimensions for new_view, but that should be hit before this point.
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           current_size != 0,
           "View analysis failed, should never process an empty size unless we ",
           "simply need to add broadcasts to the post-view domain.");
@@ -634,7 +634,7 @@ class AnalyzeViewTransformation {
 
       // We're only left with performing transformations to match a new_view
       // dimension, there must be an activew new_view.
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           new_view_index < (int64_t)new_view_.size(),
           "Expecting to still have new dimensions to work on in view, but none left.");
 
@@ -644,7 +644,7 @@ class AnalyzeViewTransformation {
         view_transforms_.push_back(std::make_shared<SplitTransform>(
             transform_view_index, new_view_.at(new_view_index)));
         current_size /= new_view_.at(new_view_index);
-        TORCH_INTERNAL_ASSERT(current_size > 1, "This should be unreachable.");
+        NVF_ERROR(current_size > 1, "This should be unreachable.");
         // Update transform and new since a split doesn't increment from the
         // original domain we're working on.
         ++transform_view_index;
@@ -654,7 +654,7 @@ class AnalyzeViewTransformation {
 
       // Need more of the original_view dimension to resolve the new_view
       // dimension, merge the next dimension in.
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           original_view_index + 1 < (int64_t)original_view_.size(),
           "Expecting to still have original dimensions to work on in view, but none left.",
           " Original view index: ",
@@ -692,7 +692,7 @@ TensorDomain* createViewDomain(
     TensorDomain* original_domain,
     const AnalyzeViewResult& view_analysis) {
   FUSER_PERF_SCOPE("createViewDomain");
-  TORCH_INTERNAL_ASSERT(!view_analysis.transforms.empty());
+  NVF_ERROR(!view_analysis.transforms.empty());
 
   std::vector<IterDomain*> new_root_domain;
   auto orig_root_domain =
@@ -731,7 +731,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferViewShapes(
       original_sizes.begin(), original_sizes.end(), [](int64_t dim) {
         return dim > 0;
       });
-  TORCH_INTERNAL_ASSERT(valid_original_sizes);
+  NVF_ERROR(valid_original_sizes);
 
   std::vector<int64_t> original_view(
       original_sizes.begin(), original_sizes.end());
@@ -742,11 +742,10 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferViewShapes(
   int64_t new_size_num_elements = 1;
   for (int64_t idx = 0; idx < (int64_t)new_sizes.size(); ++idx) {
     if (new_sizes.at(idx) == -1) {
-      TORCH_INTERNAL_ASSERT(
-          dynamic_index == -1, "Only one dimension can by inferred.")
+      NVF_ERROR(dynamic_index == -1, "Only one dimension can by inferred.")
       dynamic_index = idx;
     } else {
-      TORCH_INTERNAL_ASSERT(new_sizes.at(idx) > 0);
+      NVF_ERROR(new_sizes.at(idx) > 0);
       new_size_num_elements *= new_sizes.at(idx);
       new_view.at(idx) = new_sizes.at(idx);
     }
@@ -755,7 +754,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferViewShapes(
   const int64_t kNumElements = std::accumulate(
       original_view.begin(), original_view.end(), 1, std::multiplies<>());
   if (dynamic_index != -1) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         kNumElements % new_size_num_elements == 0,
         "Cannot infer the actual size of -1 output domain as the number of input elements is not divisible by the number of the output elements computed from the other output domains. ",
         "Number of input elements: ",
@@ -776,7 +775,7 @@ AnalyzeViewResult analyzeView(
     const std::vector<int64_t>& new_sizes) {
   FUSER_PERF_SCOPE("analyzeView");
   if (original_sizes.empty()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         std::all_of(
             new_sizes.begin(),
             new_sizes.end(),
@@ -785,7 +784,7 @@ AnalyzeViewResult analyzeView(
     return {std::vector<bool>(new_sizes.size(), true), {}, {}};
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       TensorDomain::noReductions(original_view_tv->getMaybeRFactorDomain())
           .size() == original_sizes.size());
 
@@ -862,7 +861,7 @@ bool AnalyzeViewResult::operator==(const AnalyzeViewResult& other) const {
         return false;
       }
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           transform->isA<MergeTransform>(),
           "Unrecognized transformation found.");
       if (!other_transform->isA<MergeTransform>() ||
@@ -942,16 +941,15 @@ TensorView* applyViewTransforms(
     TensorView* orig_tv,
     TensorView* post_reduce_tv,
     const AnalyzeViewResult& view_analysis) {
-  TORCH_INTERNAL_ASSERT(orig_tv != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(post_reduce_tv != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(orig_tv != nullptr, "Input is invalid.");
+  NVF_ERROR(post_reduce_tv != nullptr, "Input is invalid.");
+  NVF_ERROR(
       !post_reduce_tv->hasComputeAt(),
       "Cannot modify rfactor domain after compute at has been set.");
 
-  TORCH_INTERNAL_ASSERT(
-      post_reduce_tv->nDims() > 0, "Tried to view a 0-dim TensorView");
+  NVF_ERROR(post_reduce_tv->nDims() > 0, "Tried to view a 0-dim TensorView");
 
-  TORCH_INTERNAL_ASSERT(!view_analysis.transforms.empty());
+  NVF_ERROR(!view_analysis.transforms.empty());
 
   TensorView* consumer = IrBuilder::create<TensorView>(
       orig_tv->container(),
@@ -968,7 +966,7 @@ TensorView* applyViewTransforms(
 TensorView* reshape(
     TensorView* inp_tv,
     const AnalyzeViewResult& view_analysis) {
-  TORCH_INTERNAL_ASSERT(inp_tv != nullptr, "Input is invalid.");
+  NVF_ERROR(inp_tv != nullptr, "Input is invalid.");
 
   auto squeezed = std::any_of(
                       view_analysis.squeeze_axes.begin(),

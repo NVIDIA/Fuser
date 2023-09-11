@@ -33,7 +33,7 @@ void MultiDeviceRuntime::validate() const {
   // Checks if all the devices indices involved in the pipeline are
   // associated with a rank in the communicator
   for (auto d_id : device_indices) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         d_id < comm_.size(),
         "device index " + std::to_string(d_id) +
             " is present in the pipeline but no process in the communicator runs it");
@@ -41,7 +41,7 @@ void MultiDeviceRuntime::validate() const {
 
   // Checks that the number of processes within the node is less or equal
   // to the number of available GPUs.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       comm_.local_size() <= at::cuda::getNumGPUs(),
       std::to_string(comm_.local_size()) + " processes are spawn but only " +
           std::to_string(at::cuda::getNumGPUs()) + " GPUs are available");

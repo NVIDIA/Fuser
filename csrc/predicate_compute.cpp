@@ -57,7 +57,7 @@ Val* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
 
   for (const auto& pred_id : ids()) {
     // Just sanity check that pred_id is concrete
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         pred_id ==
         GpuLower::current()->caMap()->getConcreteMappedID(
             pred_id, IdMappingMode::EXACT));
@@ -232,7 +232,7 @@ Val* ParallelizedDomainPredicate::getPredicate(
     }
   }
 
-  TORCH_INTERNAL_ASSERT(pred != nullptr);
+  NVF_ERROR(pred != nullptr);
   return pred;
 }
 
@@ -351,12 +351,12 @@ Val* PredicateCompute::getInlinePredicate(
   }
 
   if (loops.empty()) {
-    TORCH_INTERNAL_ASSERT(thread_pred != nullptr);
+    NVF_ERROR(thread_pred != nullptr);
     return thread_pred;
   }
 
   auto out_tv = ir_utils::getTvOutput(expr);
-  TORCH_INTERNAL_ASSERT(out_tv != nullptr, "Missing TensorView output");
+  NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
   if (gpu_lower->predicateElimination().canOmitPredicate(expr)) {
     return thread_pred;
@@ -411,7 +411,7 @@ Val* PredicateCompute::getInlinePredicate(
 
   auto parallel_dom_pred =
       ParallelizedDomainPredicate::getPredicate(expr, loops);
-  TORCH_INTERNAL_ASSERT(parallel_dom_pred != nullptr);
+  NVF_ERROR(parallel_dom_pred != nullptr);
 
   preds.push_back(parallel_dom_pred);
 
@@ -466,7 +466,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
   }
 
   auto out_tv = ir_utils::getTvOutput(tv_expr);
-  TORCH_INTERNAL_ASSERT(out_tv != nullptr, "Missing TensorView output");
+  NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
   auto ref_pred_info = Index::getReferenceRootPredicates(
       out_tv, for_loops_, rotated_loop_, unrolled_loop_, false);
@@ -480,8 +480,8 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
   // predicates are generated in the finalize function.
 
   for (const auto& pred_info : ref_pred_info) {
-    TORCH_INTERNAL_ASSERT(pred_info.startPredicate() != nullptr);
-    TORCH_INTERNAL_ASSERT(pred_info.stopPredicate() != nullptr);
+    NVF_ERROR(pred_info.startPredicate() != nullptr);
+    NVF_ERROR(pred_info.stopPredicate() != nullptr);
 
     const auto& root_ids = pred_info.rootIds();
 

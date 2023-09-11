@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -295,7 +296,7 @@ TEST_F(NVFuserTest, FusionScheduleTransposeNoReference_CUDA) {
       [&]() {
         scheduleTranspose(&fusion, {input0, input1});
       },
-      testing::ThrowsMessage<c10::Error>(
+      testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("reference tensor")));
 }
 
@@ -626,7 +627,7 @@ TEST_F(NVFuserTest, FusionViewNoTranspose_CUDA) {
   auto tv1 = flatten(tv0, 1, 2);
   fusion.addOutput(tv1);
 
-  TORCH_CHECK(!hasAtLeastTwoValidGroups(&fusion));
+  NVF_CHECK(!hasAtLeastTwoValidGroups(&fusion));
 }
 
 TEST_F(NVFuserTest, FusionTransposeSelfMapping_CUDA) {
@@ -642,7 +643,7 @@ TEST_F(NVFuserTest, FusionTransposeSelfMapping_CUDA) {
 
   EXPECT_THAT(
       [&]() { IterDomainGraph(fusion_ptr.get()); },
-      testing::ThrowsMessage<c10::Error>(
+      testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("Unsupported domain mapping detected")));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -1051,7 +1052,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict8_CUDA) {
   auto bank_conflict_info = fusion.bankConflictInfo();
 
   // no bank confliction
-  TORCH_CHECK(bank_conflict_info.empty());
+  NVF_CHECK(bank_conflict_info.empty());
 }
 
 TEST_F(NVFuserTest, FusionTransposeBankConflict9_CUDA) {
@@ -1120,11 +1121,11 @@ TEST_F(NVFuserTest, UnswitchPredicateIssueRepro667_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
 
   auto ref = t0.transpose(1, 4).transpose(0, 3);
 
-  TORCH_CHECK(ref.equal(cg_outputs.at(0)));
+  NVF_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
 // small transpose dimension with merge but no split
@@ -1150,23 +1151,224 @@ TEST_F(NVFuserTest, TransposeAggregatedVectorizationWidth_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
   auto scheduler = runtime->schedulerHeuristics()->heuristicsList().at(0).get();
   auto heuristic = scheduler->heuristic();
-  TORCH_CHECK(
+  NVF_CHECK(
       heuristic == ScheduleHeuristic::Transpose,
       "Unexpected heuristic: ",
       heuristic);
-  TORCH_CHECK(
+  NVF_CHECK(
       scheduler->transposeParams().vectorize_factor1 == 4,
       "expecting vectorization for group 1 to be 4");
-  TORCH_CHECK(
+  NVF_CHECK(
       scheduler->transposeParams().vectorize_factor2 == 4,
       "expecting vectorization for group 2 to be 4");
 
   auto ref = t0.transpose(0, 4).transpose(1, 3);
 
-  TORCH_CHECK(ref.equal(cg_outputs.at(0)));
+  NVF_CHECK(ref.equal(cg_outputs.at(0)));
+}
+
+TEST_F(NVFuserTest, ViewTransposeReshape_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(3);
+  fusion->addInput(tv0);
+
+  auto tv1 = reshape(tv0, {1024, 2, 6}, {1024, 2, 2, 3});
+  auto tv2 = transpose(tv1, 1, 2);
+  auto tv3 = reshape(tv2, {1024, 2, 2, 3}, {1024, 2, 6});
+  fusion->addOutput(tv3);
+
+  std::vector<int64_t> shape({1024, 2, 6});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+
+  auto t1 = at::native::view(t0, {1024, 2, 2, 3});
+  auto t2 = t1.transpose(1, 2);
+  auto ref = at::reshape(t2, {1024, 2, 6});
+
+  NVF_CHECK(ref.equal(cg_outputs.at(0)));
+}
+
+TEST_F(NVFuserTest, ReshapePermuteTransposeScheduler_CUDA) {
+  // This is extracted from CSA in nanogpt, where we want transpose scheduler
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> shape({8, 1024, 1024});
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion->addInput(tv0);
+
+  auto tv1 = reshape(tv0, {8, 1024, 1024}, {8, 1024, 16, 64});
+  auto tv2 = transpose(tv1, 1, 2);
+  auto tv3 = transpose(tv2, 2, 3);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+
+  auto heuristic =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+  NVF_CHECK(
+      heuristic == ScheduleHeuristic::Transpose,
+      "Unexpected heuristic: ",
+      heuristic);
+
+  auto at_out = t0.reshape({8, 1024, 16, 64}).transpose(1, 2).transpose(2, 3);
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      aten_inputs,
+      {at_out},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(
+    NVFuserTest,
+    ReshapePermuteTransposeSchedulerRejectByTransposeViewPropagator_CUDA) {
+  // This example sets transpose scheduler that requires P2C transform
+  // propagation across a reshape op, which is not currently supported yet.
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> shape({8, 1024, 1024});
+
+  auto tv0 = makeSymbolicTensor(3);
+  fusion->addInput(tv0);
+
+  auto tv1 = reshape(tv0, {8, 1024, 1024}, {8, 1024, 16, 64});
+  auto tv2 = transpose(tv1, 1, 2);
+  auto tv3 = transpose(tv2, 2, 3);
+  fusion->addOutput(tv3);
+  auto tv4 = add(tv0, IrBuilder::create<Val>(1.0));
+  fusion->addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+
+  auto heuristic =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+  NVF_CHECK(
+      heuristic != ScheduleHeuristic::Transpose,
+      "Unexpected heuristic: ",
+      heuristic);
+
+  auto at_out = t0.reshape({8, 1024, 16, 64}).transpose(1, 2).transpose(2, 3);
+  auto at_out_add = t0.add(1.0);
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      aten_inputs,
+      {at_out, at_out_add},
+      __LINE__,
+      __FILE__);
+}
+
+// Test reshape with small transpose dimension
+// This introduces an incoherent transformation that can't currently be
+// replayed. Transpose scheduler should have rejected this
+TEST_F(NVFuserTest, FusionReshapeSmallTransposeDimensionSchedule_CUDA) {
+  int x = 2, y = 1024, z = 128, w = 2;
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(4);
+  fusion.addInput(tv0);
+  auto tv1 = reshape(tv0, {x, y, z, w}, {x, y * z, w});
+  auto tv2 = transpose(tv1, 0, 2);
+  fusion.addOutput(tv1);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor t0 = at::randn({x, y, z, w}, options);
+  auto t1 = at::native::view(t0, {x, y * z, w});
+
+  auto t2 = t1.transpose(0, 2);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  // Collect the heuristic params
+  executor_cache.profile(true);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+
+  NVF_CHECK(!executor_cache.getMostRecentKernelRuntime()->isSegmented());
+  // NOTE: Aggressive check. If a transpose scheduler can handle this, we should
+  // just let it handle this
+  NVF_CHECK(executor_cache.getMostRecentExecutorInfo()
+                .params->isA<PointwiseParams>());
+
+  testValidate(&fusion, cg_outputs, {t0}, {t1, t2}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, ViewTransposeMergedInnermostOnGroupTwo_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(3);
+  fusion->addInput(tv0);
+
+  auto tv1 = reshape(tv0, {8, 64, 1024}, {8, 64, 64, 16});
+  auto tv2 = transpose(tv1, 1, 2);
+  auto tv3 = reshape(tv2, {8, 64, 64, 16}, {8, 64, 1024});
+  fusion->addOutput(tv3);
+
+  auto tv4 = transpose(tv1, 0, 3);
+  fusion->addOutput(tv4);
+
+  std::vector<int64_t> shape({8, 64, 1024});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+
+  auto t1 = at::native::view(t0, {8, 64, 64, 16});
+  auto t2 = t1.transpose(1, 2);
+  auto t3 = at::reshape(t2, {8, 64, 1024});
+  auto t4 = t1.transpose(0, 3);
+
+  NVF_CHECK(t3.equal(cg_outputs.at(0)));
+  NVF_CHECK(t4.equal(cg_outputs.at(1)));
 }
 
 // TODO: we don't yet support vectorization on split dimension
@@ -1193,18 +1395,18 @@ TEST_F(NVFuserTest, TransposeSplitAggregatedVectorizationWidth_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  TORCH_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
   // TODO: check on vectorization!
   auto heuristic =
       runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
-  TORCH_CHECK(
+  NVF_CHECK(
       heuristic == ScheduleHeuristic::Transpose,
       "Unexpected heuristic: ",
       heuristic);
 
   auto ref = t0.transpose(0, 2);
 
-  TORCH_CHECK(ref.equal(cg_outputs.at(0)));
+  NVF_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
 } // namespace nvfuser

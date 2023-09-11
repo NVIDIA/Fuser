@@ -20,6 +20,7 @@
 #include <ir/utils.h>
 #include <kernel_db/kernel_db.h>
 #include <options.h>
+#include <tensor_metadata.h>
 #include <torch/csrc/jit/resource_guard.h>
 #include <utils.h>
 
@@ -119,7 +120,7 @@ TORCH_CUDA_CU_API void queryTargetGPUVersion(
   NVFUSER_NVRTC_SAFE_CALL(
       nvrtcVersion(&nvrtc_version.first, &nvrtc_version.second));
 
-  TORCH_CHECK(
+  NVF_CHECK(
       nvrtc_version.first >= 6,
       "NVRTC versions less than 6 are not supported. Is: ",
       nvrtc_version.first);
@@ -260,7 +261,7 @@ std::vector<std::pair<bool, int>> getVectorizedFusionInputOutput(
   if (producer_tv->isFusionInput()) {
     auto producer_it = std::find(
         fusion->inputs().begin(), fusion->inputs().end(), producer_tv);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         producer_it != fusion->inputs().end(),
         "Could not find ",
         producer_tv,
@@ -273,7 +274,7 @@ std::vector<std::pair<bool, int>> getVectorizedFusionInputOutput(
   if (consumer_tv->isFusionOutput()) {
     auto consumer_it = std::find(
         fusion->outputs().begin(), fusion->outputs().end(), consumer_tv);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         consumer_it != fusion->outputs().end(),
         "Could not find ",
         consumer_tv,
@@ -304,7 +305,7 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
     // Find fusion inputs and outputs that are used with misaligned
     // vectorization.
     if (!is_aligned) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           producer_tv->isFusionInput() || consumer_tv->isFusionOutput(),
           "MisalignedVectorize is assumed to be used with either input or output tensor");
       if (consumer_tv->getMemoryType() == MemoryType::Global &&
@@ -317,7 +318,7 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
         vectorized_tensor_info_ptr->global_inp_misaligned_tv.insert(
             producer_tv);
       } else {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             false,
             "Unsupported memory configuration for misaligned vectorization.");
       }
@@ -337,7 +338,7 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
     // Misaligned vectorize only allows from input to local or local
     // to output
     if (!is_aligned) {
-      TORCH_INTERNAL_ASSERT(inp_or_out_info.size() == 1);
+      NVF_ERROR(inp_or_out_info.size() == 1);
     }
 
     for (const auto& inp_or_out : inp_or_out_info) {
@@ -367,7 +368,7 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
 void validateAlignedVectorizeExtents(
     const VectorizedSetInfo& info,
     ExpressionEvaluator& expr_eval) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !info.contig_alloc_ids.empty(),
       "No root ID found for vectorization with ",
       info.consumer_tv->toString(),
@@ -378,7 +379,7 @@ void validateAlignedVectorizeExtents(
   // int64_t vectorized_merged_domain_extent = 1;
   for (auto id : info.contig_alloc_ids) {
     auto extent_val = expr_eval.evaluate(id->extent());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         extent_val.hasValue(),
         "Error vectorizing, ",
         info.consumer_tv->toString(),
@@ -397,7 +398,7 @@ void validateAlignedVectorizeExtents(
   // rewritten based on updated indexing logic that traverses loop->rfactor
   // domains and tracks partial mappings like scheduler/vectorize_helper.cpp
   //
-  // TORCH_INTERNAL_ASSERT(
+  // NVF_ERROR(
   //     vectorized_merged_domain_extent % info.word_size == 0,
   //     "Error vectorizing, ",
   //     info.consumer_tv->toString(),
@@ -414,7 +415,7 @@ namespace {
 std::pair<std::unordered_set<size_t>, std::unordered_set<IterDomain*>>
 getTensorOffsets(
     TensorView* tv,
-    const std::vector<int64_t>& logical_strides,
+    c10::IntArrayRef logical_strides,
     ExpressionEvaluator& eval) {
   if (!tv->isFusionInput()) {
     return {{0}, {}};
@@ -433,18 +434,18 @@ getTensorOffsets(
       continue;
     }
 
-    TORCH_INTERNAL_ASSERT(logical_strides.size() == root_ids.size());
+    NVF_ERROR(logical_strides.size() == root_ids.size());
     const auto slice_info = slice->getRanges();
 
     size_t offset = 0;
     for (const auto i : c10::irange(root_ids.size())) {
       auto slice_start_eval = eval.evaluate(slice_info.at(i).start);
-      TORCH_INTERNAL_ASSERT(slice_start_eval.hasValue());
+      NVF_ERROR(slice_start_eval.hasValue());
       auto slice_stop_eval = eval.evaluate(slice_info.at(i).stop);
-      TORCH_INTERNAL_ASSERT(slice_stop_eval.hasValue());
+      NVF_ERROR(slice_stop_eval.hasValue());
       auto extent_eval =
           eval.evaluate(root_ids.at(i)->getMaybeExpandedExtent());
-      TORCH_INTERNAL_ASSERT(extent_eval.hasValue());
+      NVF_ERROR(extent_eval.hasValue());
 
       offset += static_cast<size_t>(
           slice_start_eval.as<int64_t>() * logical_strides.at(i));
@@ -473,8 +474,8 @@ void validateAlignedVectorizedFusionInputOutput(
   eval.bind(tv, aten_tensor);
   const auto& metadata = eval.evaluate(IrBuilder::metadataExpr(tv));
 
-  const auto [offsets, sliced_domains] = getTensorOffsets(
-      tv, std::vector<int64_t>(metadata["logical_stride"]), eval);
+  const auto [offsets, sliced_domains] =
+      getTensorOffsets(tv, metadata->*&TensorMetaData::logical_stride, eval);
   const bool is_sliced = !sliced_domains.empty();
 
   const auto& domain_to_validate =
@@ -488,15 +489,15 @@ void validateAlignedVectorizedFusionInputOutput(
     }
   }
 
-  const auto& sizes = is_sliced ? metadata["logical_size"].as<std::vector>()
-                                : metadata["alloc_size"].as<std::vector>();
-  const auto& strides = is_sliced ? metadata["logical_stride"].as<std::vector>()
-                                  : metadata["alloc_stride"].as<std::vector>();
-  TORCH_INTERNAL_ASSERT(sizes.size() == no_reduction_to_full.size());
-  TORCH_INTERNAL_ASSERT(strides.size() == no_reduction_to_full.size());
+  const auto& sizes = is_sliced ? metadata->*&TensorMetaData::logical_size
+                                : metadata->*&TensorMetaData::alloc_size;
+  const auto& strides = is_sliced ? metadata->*&TensorMetaData::logical_stride
+                                  : metadata->*&TensorMetaData::alloc_stride;
+  NVF_ERROR(sizes.size() == no_reduction_to_full.size());
+  NVF_ERROR(strides.size() == no_reduction_to_full.size());
 
   for (auto offset : offsets) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         (reinterpret_cast<size_t>(aten_tensor.data_ptr()) +
          offset * aten_tensor.dtype().itemsize()) %
                 (word_size * aten_tensor.dtype().itemsize()) ==
@@ -520,14 +521,14 @@ void validateAlignedVectorizedFusionInputOutput(
   bool still_rightmost = true;
   bool non_contig_due_to_slice = false;
   for (int64_t i = (int64_t)sizes.size() - 1; i >= 0; --i) {
-    const auto size = sizes.at(i).as<int64_t>();
-    const auto stride = strides.at(i).as<int64_t>();
+    const auto size = sizes.at(i);
+    const auto stride = strides.at(i);
     auto id = domain_to_validate.at(no_reduction_to_full.at(i));
     const auto is_expanded_broadcasting =
         id->isBroadcast() && id->hasExpandedExtent();
 
     if (is_expanded_broadcasting) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           stride == 0,
           "Dimension ",
           i,
@@ -541,7 +542,7 @@ void validateAlignedVectorizedFusionInputOutput(
     bool is_contiguous =
         stride == cur_contig_stride && !non_contig_due_to_slice;
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         is_contiguous || size == 1 || is_expanded_broadcasting ||
             (still_rightmost && stride == 1) ||
             (!still_rightmost && stride % word_size == 0),
@@ -602,8 +603,7 @@ void validateAlignedVectorizedTensors(
                       .aligned_vectorized_inp_tensor_pos) {
     auto tv = kernel->inputs().at(pos)->as<TensorView>();
     auto word_size = kernel->summary().vectorized_accesses.at(tv);
-    TORCH_INTERNAL_ASSERT(
-        args[pos]->is<at::Tensor>(), "alias io only supports tensor");
+    NVF_ERROR(args[pos]->is<at::Tensor>(), "alias io only supports tensor");
     validateAlignedVectorizedFusionInputOutput(
         args[pos]->as<at::Tensor>(), word_size, tv, expr_eval);
   }
@@ -645,8 +645,7 @@ void validateMisalignedVectorizedTensors(
       inp_misaligned_tensors_pos.end(),
       std::back_inserter(inp_misaligned_tensors),
       [&args](int idx) {
-        TORCH_INTERNAL_ASSERT(
-            args[idx]->is<at::Tensor>(), "alias io only supports tensor");
+        NVF_ERROR(args[idx]->is<at::Tensor>(), "alias io only supports tensor");
         return args[idx]->as<at::Tensor>();
       });
 
@@ -661,7 +660,7 @@ void validateMisalignedVectorizedTensors(
         [&outputs](int idx) { return outputs[idx]; });
   }
   // If input stride is non-contiguous + no outputs, return false
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       checkValidMisalignedTensors(
           tensor_vectorization_validation_entry.get().global_inp_misaligned_tv,
           tensor_vectorization_validation_entry.get().global_out_misaligned_tv,
@@ -679,7 +678,7 @@ void validateVectorizedSplits(
     auto input_extent = expr_eval.evaluate(extent_factor.first);
     auto split_factor = expr_eval.evaluate(extent_factor.second);
     auto divisible = (input_extent % split_factor == 0);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         divisible,
         "Non-divisible split with vectorization is detected. ",
         "Extent: ",
@@ -715,7 +714,7 @@ ExpressionEvaluator bindInputs(
 
   // args may contains more than just inputs, but inputs are always at the
   // beginning.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       kernel->inputs().size() <= args.size(),
       "KernelArgumentHolder contains less argument than kernel's input.");
 
@@ -735,7 +734,7 @@ size_t nvrtcGetSize(const nvrtcProgram& program, bool compile_to_sass) {
 #if CUDA_VERSION >= 11010
   const auto getSize = compile_to_sass ? nvrtcGetCUBINSize : nvrtcGetPTXSize;
 #else
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !compile_to_sass, "SASS not supported in CUDA versions older than 11.1");
   const auto getSize = nvrtcGetPTXSize;
 #endif
@@ -753,7 +752,7 @@ std::vector<char> nvrtcGetCode(
 #if CUDA_VERSION >= 11010
   const auto getCode = compile_to_sass ? nvrtcGetCUBIN : nvrtcGetPTX;
 #else
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !compile_to_sass, "SASS not supported in CUDA versions older than 11.1");
   const auto getCode = nvrtcGetPTX;
 #endif
@@ -772,7 +771,7 @@ void dumpCompiledCodeToFile(
             << (dump_cubin ? "cubin" : "ptx");
   debug() << "PRINTING: " << file_name.str() << std::endl;
   std::ofstream out(file_name.str());
-  TORCH_INTERNAL_ASSERT(out.is_open());
+  NVF_ERROR(out.is_open());
   out.write(code.data(), (std::streamsize)code.size());
   out.close();
 }
@@ -810,7 +809,7 @@ std::optional<int64_t> getMaxRegCount(
   // Overwrite the count by the environment variable
   if (auto env_count = getNvFuserEnv("MAX_REG_COUNT")) {
     auto env_max_reg_count = std::atoi(env_count);
-    TORCH_CHECK(
+    NVF_CHECK(
         env_max_reg_count > 0 && env_max_reg_count <= max_register_limit,
         "Invalid max register count specified by NVFUSER_MAX_REG_COUNT: ",
         env_max_reg_count);
@@ -853,8 +852,7 @@ class NvrtcCompileDriver {
     char* log_buf = log_backing_buf.data();
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log_buf));
     if (result != NVRTC_SUCCESS) {
-      TORCH_INTERNAL_ASSERT(
-          false, src, "\nCUDA NVRTC compile error: ", log_buf);
+      NVF_ERROR(false, src, "\nCUDA NVRTC compile error: ", log_buf);
     }
     if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog)) {
       debug() << log_buf << std::endl;
@@ -897,7 +895,7 @@ class CuModuleLoadDataDriver {
   }
 
   const std::string& log() const {
-    TORCH_INTERNAL_ASSERT(logging_enabled_, "Logging not enabled");
+    NVF_ERROR(logging_enabled_, "Logging not enabled");
     return log_;
   }
 
@@ -949,7 +947,7 @@ class CuModuleLoadDataDriver {
       } else if (std::holds_alternative<char*>(opt_val)) {
         opt_val_voidp.at(i) = std::get<char*>(opt_val);
       } else {
-        TORCH_INTERNAL_ASSERT(false, "Invalid option");
+        NVF_ERROR(false, "Invalid option");
       }
     }
 
@@ -1169,7 +1167,7 @@ std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
   // and if we detect that no context exists, we create one manually.
   int device = 0;
   cudaGetDevice(&device);
-  if (!at::detail::getCUDAHooks().hasPrimaryContext(device)) {
+  if (!at::detail::getCUDAHooks().hasPrimaryContext((c10::DeviceIndex)device)) {
     // CUDA>=12 creates a context when cudaSetDevice is called. However, before
     // cu12, that context is not necessarily created. In that case, we create
     // one here implicitly. See https://github.com/NVIDIA/Fuser/issues/429
