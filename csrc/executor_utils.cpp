@@ -1142,16 +1142,14 @@ CompiledKernel compileSource(
   if (compile_to_sass) {
     compiled_kernel.cubin = nvrtcGetCode(program, /*compile_to_sass=*/true);
     if (isDebugDumpEnabled(DebugDumpOption::Cubin)) {
-      dumpCompiledCodeToFile(
-          compiled_kernel.cubin, id, /*dump_cubin=*/true);
+      dumpCompiledCodeToFile(compiled_kernel.cubin, id, /*dump_cubin=*/true);
     }
   }
 
   if (!compile_to_sass || isDebugDumpEnabled(DebugDumpOption::Ptx)) {
     compiled_kernel.ptx = nvrtcGetCode(program, /*compile_to_sass=*/false);
     if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
-      dumpCompiledCodeToFile(
-          compiled_kernel.ptx, id, /*dump_cubin=*/false);
+      dumpCompiledCodeToFile(compiled_kernel.ptx, id, /*dump_cubin=*/false);
     }
   }
 
