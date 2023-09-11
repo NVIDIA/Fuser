@@ -1286,13 +1286,31 @@ getCommonHeuristicParams(
   // (1) check
   NVF_ERROR(!reduction_tvs.empty(), "Need reduction tensor views to schedule.");
 
-  auto first_red_tv = reduction_tvs[0];
+  int64_t n_tensor_inner_reduction = 0;
+  int64_t n_tensor_outer_reduction = 0;
+  TensorView* first_inner_reduction_tv = nullptr;
+  std::vector<TensorView*> outer_reduction_tvs;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      if (!first_inner_reduction_tv) {
+        first_inner_reduction_tv = tv;
+      }
+      n_tensor_inner_reduction++;
+    } else {
+      n_tensor_outer_reduction++;
+      outer_reduction_tvs.emplace_back(tv);
+    }
+  }
+  const bool combined_inner_outer_reduction =
+      n_tensor_inner_reduction && n_tensor_outer_reduction;
 
-  NVF_ERROR(first_red_tv != nullptr, "Reduction TensorView wasn't found.");
+  auto ref_red_tv = combined_inner_outer_reduction ? first_inner_reduction_tv
+                                                   : reduction_tvs[0];
 
-  NVF_ERROR(
-      first_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
-  const auto red_expr = first_red_tv->definition();
+  NVF_ERROR(ref_red_tv != nullptr, "Reduction TensorView wasn't found.");
+
+  NVF_ERROR(ref_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
+  const auto red_expr = ref_red_tv->definition();
 
   NVF_ERROR(
       ir_utils::isReductionOp(red_expr),
