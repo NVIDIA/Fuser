@@ -1012,8 +1012,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     scheduleFusionInputsForEpilogue(roles_map, params.use_smem_epilogue);
   }
 
-  // auto inline for all tensors except register tensors and output tensor
-  inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb, d}));
+  // auto inline for all tensors except register tensors
+  inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb}));
 
   // if auto inline, will inline to position-7, leads to performance regression
   inlineSelectedAt({acr, bcr, ab, bb}, mma_result, num_batch_dims + 6);
