@@ -117,7 +117,8 @@ bool PersistentSchedulerHelper::tailingCommonCompileTimeCheck(
 
     // Persistent scheduler simply uses reference_tv as the reference, if
     // that changes, this needs to be changed.
-    if (registry_utils::reductionInterferingView(fusion, ca_map, reference_tv)) {
+    if (registry_utils::reductionInterferingView(
+            fusion, ca_map, reference_tv)) {
       scheduler_debug_utils::canScheduleRejectReason(
           heuristic, "View may interfere with normalization scheduling.");
       return false;
@@ -164,14 +165,15 @@ bool PersistentSchedulerHelper::tailingCommonCompileTimeCheck(
     return false;
   }
 
-  if (registry_utils::SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(fusion)) {
+  if (registry_utils::SchedulerTopologyChecker::
+          hasNonNormalizePostReductionBCast(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         heuristic, "unsupported post reduction normalization");
     return false;
   }
 
-  if (registry_utils::SchedulerTopologyChecker::hasGatherToBroadcastBeforeReduction(
-          fusion, reduction_tvs)) {
+  if (registry_utils::SchedulerTopologyChecker::
+          hasGatherToBroadcastBeforeReduction(fusion, reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
         heuristic, "has unsupported gather-like ops before normalization");
     return false;
@@ -194,7 +196,9 @@ bool PersistentSchedulerHelper::checkReductionType(
   return true;
 }
 
-bool PersistentSchedulerHelper::commonCompileTimeCheck(Fusion* fusion, ScheduleHeuristic heuristic) {
+bool PersistentSchedulerHelper::commonCompileTimeCheck(
+    Fusion* fusion,
+    ScheduleHeuristic heuristic) {
   // (1) leading common checks for all persistent kernels.
   if (!leadingCommonCompileTimeCheck(fusion, heuristic)) {
     return false;
@@ -207,14 +211,12 @@ bool PersistentSchedulerHelper::commonCompileTimeCheck(Fusion* fusion, ScheduleH
   }
 
   // (3) check reduction axis.
-  if (!compileTimeCheckReductionAxis(
-          fusion, reduction_tvs, heuristic)) {
+  if (!compileTimeCheckReductionAxis(fusion, reduction_tvs, heuristic)) {
     return false;
   }
 
   // (4) tailing common checks for all persistent kernels.
-  if (!tailingCommonCompileTimeCheck(
-          fusion, reduction_tvs, heuristic)) {
+  if (!tailingCommonCompileTimeCheck(fusion, reduction_tvs, heuristic)) {
     return false;
   }
 

@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/persistent_scheduler_helper.h>
 #include <scheduler/inner_outer_persistent_kernel_scheduler.h>
+#include <scheduler/persistent_scheduler_helper.h>
 #include <scheduler/registry_utils.h>
 
 #include <c10/util/irange.h>
@@ -52,22 +52,18 @@ void InnerOuterPersistentKernelScheduler::schedule(Fusion* fusion) {
   scheduleInnerOuterPersistentKernel(fusion, reductionParams());
 }
 
-
-
 bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     Fusion* fusion) {
   auto heuristic = ScheduleHeuristic::InnerOuterPersistent;
 
   // (1) leading common checks for all persistent kernels.
-  if (!leadingCommonCompileTimeCheck(
-          fusion, heuristic)) {
+  if (!leadingCommonCompileTimeCheck(fusion, heuristic)) {
     return false;
   }
 
   // (2) check reduction type.
   const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-  if (!checkReductionType(
-          reduction_tvs, heuristic)) {
+  if (!checkReductionType(reduction_tvs, heuristic)) {
     return false;
   }
 
@@ -81,10 +77,8 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
       outer_reduction_tvs.emplace_back(tv);
     }
   }
-  compileTimeCheckReductionAxis(
-      fusion, inner_reduction_tvs, heuristic);
-  compileTimeCheckReductionAxis(
-      fusion, outer_reduction_tvs, heuristic);
+  compileTimeCheckReductionAxis(fusion, inner_reduction_tvs, heuristic);
+  compileTimeCheckReductionAxis(fusion, outer_reduction_tvs, heuristic);
   if (!normalization_scheduler_utils::checkIfReductionsAreInnerOuter(
           inner_reduction_tvs, outer_reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
@@ -110,8 +104,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   }
 
   // (4) tailing common checks for all persistent kernels.
-  if (!tailingCommonCompileTimeCheck(
-          fusion, reduction_tvs, heuristic)) {
+  if (!tailingCommonCompileTimeCheck(fusion, reduction_tvs, heuristic)) {
     return false;
   }
 

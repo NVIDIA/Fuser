@@ -1322,19 +1322,19 @@ getCommonHeuristicParams(
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
 
   // (2) reduction properties
-  auto properties = scheduler_utils::getReductionProperties(
-      fusion, runtime_info, first_red_tv);
+  auto properties =
+      scheduler_utils::getReductionProperties(fusion, runtime_info, ref_red_tv);
 
   // (3) vectorization factor
-  auto reduced_tv = ir_utils::getSoleProducerTv(first_red_tv);
+  auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
   auto vectorize_factor = vectorize_helper::getVectorizationFactor(
       runtime_info,
       reduced_tv,
       data_cache,
       vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          first_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
+          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
 
-  return {reduced_tv, properties, vectorize_factor};
+  return std::make_tuple(reduced_tv, properties, vectorize_factor);
 }
 
 std::pair<bool, int64_t> checkAndSetPersistentBufferHeuristics(

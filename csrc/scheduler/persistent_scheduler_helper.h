@@ -20,12 +20,11 @@ namespace nvfuser {
 enum class ReductionType { Inner, Outer, InnerOuter, None, NotInitiliazed };
 
 class PersistentSchedulerHelper {
-
  protected:
- static bool compileTimeCheckReductionAxis(
-    Fusion* fusion,
-    const std::vector<TensorView*>& reduction_tvs,
-    ScheduleHeuristic heuristic);
+  static bool compileTimeCheckReductionAxis(
+      Fusion* fusion,
+      const std::vector<TensorView*>& reduction_tvs,
+      ScheduleHeuristic heuristic);
 
   static bool leadingCommonCompileTimeCheck(
       Fusion* fusion,

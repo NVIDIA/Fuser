@@ -7,9 +7,9 @@
 // clang-format on
 #pragma once
 
+#include <scheduler/persistent_scheduler_helper.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
-#include <scheduler/persistent_scheduler_helper.h>
 
 namespace nvfuser {
 

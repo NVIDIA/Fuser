@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/persistent_scheduler_helper.h>
 #include <scheduler/outer_persistent_kernel_scheduler.h>
+#include <scheduler/persistent_scheduler_helper.h>
 #include <scheduler/registry_utils.h>
 
 #include <c10/util/irange.h>
