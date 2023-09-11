@@ -762,7 +762,7 @@ std::vector<char> nvrtcGetCode(
   return code;
 }
 
-void dumpCompiledCodeToFile(
+std::string dumpCompiledCodeToFile(
     const std::vector<char>& code,
     int64_t fusion_id,
     bool dump_cubin) {
@@ -774,6 +774,7 @@ void dumpCompiledCodeToFile(
   NVF_ERROR(out.is_open());
   out.write(code.data(), (std::streamsize)code.size());
   out.close();
+  return file_name.str();
 }
 
 // Get the max register count passed as -maxrregcount ptxas
@@ -1142,14 +1143,16 @@ CompiledKernel compileSource(
   if (compile_to_sass) {
     compiled_kernel.cubin = nvrtcGetCode(program, /*compile_to_sass=*/true);
     if (isDebugDumpEnabled(DebugDumpOption::Cubin)) {
-      dumpCompiledCodeToFile(compiled_kernel.cubin, id, /*dump_cubin=*/true);
+      compiled_kernel.cubin_filename = dumpCompiledCodeToFile(
+          compiled_kernel.cubin, id, /*dump_cubin=*/true);
     }
   }
 
   if (!compile_to_sass || isDebugDumpEnabled(DebugDumpOption::Ptx)) {
     compiled_kernel.ptx = nvrtcGetCode(program, /*compile_to_sass=*/false);
     if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
-      dumpCompiledCodeToFile(compiled_kernel.ptx, id, /*dump_cubin=*/false);
+      compiled_kernel.ptx_filename =
+          dumpCompiledCodeToFile(compiled_kernel.ptx, id, /*dump_cubin=*/false);
     }
   }
 
