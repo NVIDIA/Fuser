@@ -106,9 +106,8 @@ using TensorMap = CUtensorMap;
 
 #else
 
-#define CU_TENSOR_MAP_NUM_QWORDS 16
 struct TensorMap {
-  alignas(64) uint64_t opaque[CU_TENSOR_MAP_NUM_QWORDS];
+  alignas(64) uint64_t opaque[16];
 };
 
 #endif
@@ -318,7 +317,7 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
   }
   if (interleave == CU_TENSOR_MAP_INTERLEAVE_NONE) {
     NVF_ERROR(
-        (box_dim[0] * elem_size) % 16 == 0,
+        (box_dim.at(0) * elem_size) % 16 == 0,
         "When interleave is CU_TENSOR_MAP_INTERLEAVE_NONE, { boxDim[0] * elementSizeInBytes( tensorDataType ) } must be a multiple of 16 bytes.");
   }
 
