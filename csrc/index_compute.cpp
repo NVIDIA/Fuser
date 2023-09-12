@@ -3196,6 +3196,8 @@ Val* Index::cpAsyncBulkIndex(
 
   auto metadata = IrBuilder::metadataExpr(tv);
   auto global_address = IrBuilder::getAttrExpr(metadata, "data");
+  // As required by the hardware, tensors used by TMA must be in column major
+  // that is, stride[0] must be implicitly 1 (therefore omitted)
   auto global_dim =
       // Reverse array to convert from row major to column major
       IrBuilder::reverseArrayExpr(
