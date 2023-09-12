@@ -729,46 +729,32 @@ ExpressionEvaluator bindInputs(
 
 namespace {
 
-// Get the size of the program code in nvrtcProgram, which is either PTX or SASS
-size_t nvrtcGetSize(const nvrtcProgram& program, bool compile_to_sass) {
-#if CUDA_VERSION >= 11010
-  const auto getSize = compile_to_sass ? nvrtcGetCUBINSize : nvrtcGetPTXSize;
-#else
-  NVF_ERROR(
-      !compile_to_sass, "SASS not supported in CUDA versions older than 11.1");
-  const auto getSize = nvrtcGetPTXSize;
-#endif
+std::vector<char> compileNvrtcProgramToPtx(const nvrtcProgram& program) {
   size_t size = 0;
-  NVFUSER_NVRTC_SAFE_CALL(getSize(program, &size));
-  return size;
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTXSize(program, &size));
+  std::vector<char> code(size);
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTX(program, code.data()));
+  return code;
 }
 
-// Get the program code from nvrtcProgram
-std::vector<char> nvrtcGetCode(
-    const nvrtcProgram& program,
-    bool compile_to_sass) {
-  const auto size = nvrtcGetSize(program, compile_to_sass);
-
-#if CUDA_VERSION >= 11010
-  const auto getCode = compile_to_sass ? nvrtcGetCUBIN : nvrtcGetPTX;
-#else
-  NVF_ERROR(
-      !compile_to_sass, "SASS not supported in CUDA versions older than 11.1");
-  const auto getCode = nvrtcGetPTX;
+std::vector<char> compileNvrtcProgramToCubin(const nvrtcProgram& program) {
+#if CUDA_VERSION < 11010
+  NVF_ERROR(false, "SASS not supported in CUDA versions older than 11.1");
 #endif
 
+  size_t size = 0;
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcGetCUBINSize(program, &size));
   std::vector<char> code(size);
-  NVFUSER_NVRTC_SAFE_CALL(getCode(program, code.data()));
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcGetCUBIN(program, code.data()));
   return code;
 }
 
 std::string dumpCompiledCodeToFile(
     const std::vector<char>& code,
-    int64_t fusion_id,
-    bool dump_cubin) {
+    const int64_t fusion_id,
+    const std::string& suffix) {
   std::stringstream file_name;
-  file_name << "__tmp_kernel" << fusion_id << "."
-            << (dump_cubin ? "cubin" : "ptx");
+  file_name << "__tmp_kernel" << fusion_id << suffix;
   debug() << "PRINTING: " << file_name.str() << std::endl;
   std::ofstream out(file_name.str());
   NVF_ERROR(out.is_open());
@@ -1141,18 +1127,18 @@ CompiledKernel compileSource(
   compiled_kernel.compile_log = log.str();
 
   if (compile_to_sass) {
-    compiled_kernel.cubin = nvrtcGetCode(program, /*compile_to_sass=*/true);
+    compiled_kernel.cubin = compileNvrtcProgramToCubin(program);
     if (isDebugDumpEnabled(DebugDumpOption::Cubin)) {
-      compiled_kernel.cubin_filename = dumpCompiledCodeToFile(
-          compiled_kernel.cubin, id, /*dump_cubin=*/true);
+      compiled_kernel.cubin_filename =
+          dumpCompiledCodeToFile(compiled_kernel.cubin, id, ".cubin");
     }
   }
 
   if (!compile_to_sass || isDebugDumpEnabled(DebugDumpOption::Ptx)) {
-    compiled_kernel.ptx = nvrtcGetCode(program, /*compile_to_sass=*/false);
+    compiled_kernel.ptx = compileNvrtcProgramToPtx(program);
     if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
       compiled_kernel.ptx_filename =
-          dumpCompiledCodeToFile(compiled_kernel.ptx, id, /*dump_cubin=*/false);
+          dumpCompiledCodeToFile(compiled_kernel.ptx, id, ".ptx");
     }
   }
 
