@@ -187,27 +187,43 @@ bool isCpAsyncOp(const Expr* expr) {
   return false;
 }
 
-bool isCpAsyncBulk(const Expr* expr) {
+namespace {
+
+enum class CpAsyncBulkTileType { G2S, S2G, NotACpAsyncBulkTile };
+
+inline CpAsyncBulkTileType getCpAsyncBulkTileType(const Expr* expr) {
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
-    return ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile;
+    if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
+      if (ldst->in()->as<TensorView>()->getMemoryType() == MemoryType::Global &&
+          ldst->out()->as<TensorView>()->getMemoryType() ==
+              MemoryType::Shared) {
+        return CpAsyncBulkTileType::G2S;
+      } else if (
+          ldst->in()->as<TensorView>()->getMemoryType() == MemoryType::Shared &&
+          ldst->out()->as<TensorView>()->getMemoryType() ==
+              MemoryType::Global) {
+        return CpAsyncBulkTileType::S2G;
+      } else {
+        NVF_ERROR(false, "Invalid CpAsyncBulkTileType");
+      }
+    }
   }
-  return false;
+  return CpAsyncBulkTileType::NotACpAsyncBulkTile;
+}
+
+} // namespace
+
+bool isCpAsyncBulk(const Expr* expr) {
+  return getCpAsyncBulkTileType(expr) !=
+      CpAsyncBulkTileType::NotACpAsyncBulkTile;
 }
 
 bool isCpAsyncBulkLoad(const Expr* expr) {
-  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
-    return ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile &&
-        ldst->in()->as<TensorView>()->getMemoryType() == MemoryType::Global;
-  }
-  return false;
+  return getCpAsyncBulkTileType(expr) == CpAsyncBulkTileType::G2S;
 }
 
 bool isCpAsyncBulkStore(const Expr* expr) {
-  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
-    return ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile &&
-        ldst->out()->as<TensorView>()->getMemoryType() == MemoryType::Global;
-  }
-  return false;
+  return getCpAsyncBulkTileType(expr) == CpAsyncBulkTileType::S2G;
 }
 
 bool isTensorScalarFillOp(const Expr* expr) {
