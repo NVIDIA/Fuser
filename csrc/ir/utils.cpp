@@ -211,6 +211,12 @@ Expr* transferDefinitionToNewOutputs(
       continue;
     }
     NVF_ERROR(
+        !new_output->isConst(),
+        "Cannot transfer a definition Expr onto a const Val. Found new output ",
+        new_output->toString(),
+        " with constant value ",
+        new_output->value());
+    NVF_ERROR(
         new_output->vtype() == old_output->vtype(),
         "transforDefinitionToNewOutputs cannot change val type. Found ",
         new_output->vtype(),
