@@ -20,7 +20,7 @@ static constexpr DeviceIdxType root = 0;
 static constexpr int tensor_size = 1024;
 static constexpr int number_of_repetitions = 8;
 
-TEST_F(NVFuserTest, FusionMultiGPU_Collective_Gather_CUDA) {
+TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Gather_CUDA) {
   if (!comm.is_available() || comm.size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks";
   }
@@ -31,40 +31,42 @@ TEST_F(NVFuserTest, FusionMultiGPU_Collective_Gather_CUDA) {
   params.root = root;
   params.team = std::vector<DeviceIdxType>(comm.size());
   std::iota(params.team.begin(), params.team.end(), 0);
-  params.src_bufs = {at::ones(tensor_size, options) * comm.deviceId()};
+  params.src_bufs = {at::empty(tensor_size, options)};
   if (comm.deviceId() == root) {
     for (int i = 0; i < comm.size(); i++) {
-      params.dst_bufs.push_back(-at::ones(tensor_size, options));
+      params.dst_bufs.push_back(at::empty(tensor_size, options));
     }
   }
-  for (int i=0; i< number_of_repetitions; i++) {
+  auto coll = Gather(params);
+
+  for (int j : c10::irange(number_of_repetitions)) {
+    params.src_bufs.at(0).copy_(at::arange(tensor_size, options) + (comm.deviceId() + 1) * j);
     for (auto& buf : params.dst_bufs) {
-      buf *= 0;
+      buf.copy_(at::zeros(tensor_size, options));
     }
 
-    auto coll = Gather(params);
     auto work = coll.post(comm);
     work->wait();
 
     if (comm.deviceId() == root) {
       for (int i : c10::irange(comm.size())) {
         auto obtained = params.dst_bufs.at(i);
-        auto ref = at::ones(tensor_size, options) * i;
+        auto ref = at::arange(tensor_size, options) + (i + 1) * j;
         TORCH_INTERNAL_ASSERT(
-            obtained.equal(ref),
-            "Device",
+            at::equal(obtained, ref),
+            "Device ",
             comm.deviceId(),
-            "expected tensor ",
+            " expected tensor:\n",
             ref,
-            "\nbut obtained tensor: ",
+            "\nbut obtained tensor:\n",
             obtained);
       }
     }
-    comm.barrier();
   }
+  comm.barrier();
 }
 
-TEST_F(NVFuserTest, FusionMultiGPU_Collective_Allgather_CUDA) {
+TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Allgather_CUDA) {
   if (!comm.is_available() || comm.size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks";
   }
@@ -74,37 +76,38 @@ TEST_F(NVFuserTest, FusionMultiGPU_Collective_Allgather_CUDA) {
   CommParams params;
   params.team = std::vector<DeviceIdxType>(comm.size());
   std::iota(params.team.begin(), params.team.end(), 0);
-  params.src_bufs = {at::ones(tensor_size, options) * comm.deviceId()};
+  params.src_bufs = {at::empty(tensor_size, options) * comm.deviceId()};
   for (int i = 0; i < comm.size(); i++) {
-    params.dst_bufs.push_back(-at::ones(tensor_size, options));
+    params.dst_bufs.push_back(at::empty(tensor_size, options));
   }
+  auto coll = Allgather(params);
 
-  for (int i=0; i< number_of_repetitions; i++) {
+  for (int j : c10::irange(number_of_repetitions)) {
+    params.src_bufs.at(0).copy_(at::arange(tensor_size, options) + (comm.deviceId() + 1) * j);
     for (auto& buf : params.dst_bufs) {
-      buf *= 0;
+      buf.copy_(at::zeros(tensor_size, options));
     }
 
-    auto coll = Allgather(params);
     auto work = coll.post(comm);
     work->wait();
 
     for (int i : c10::irange(comm.size())) {
       auto obtained = params.dst_bufs.at(i);
-      auto ref = at::ones(tensor_size, options) * i;
+      auto ref = at::arange(tensor_size, options) + (i + 1) * j;
       TORCH_INTERNAL_ASSERT(
           obtained.equal(ref),
           "Device",
           comm.deviceId(),
-          " expected tensor: ",
+          " expected tensor:\n",
           ref,
-          "\n but obtained tensor: ",
+          "\nbut obtained tensor:\n",
           obtained);
     }
-    comm.barrier();
   }
+  comm.barrier();
 }
 
-TEST_F(NVFuserTest, FusionMultiGPU_Collective_Scatter_CUDA) {
+TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Scatter_CUDA) {
   if (!comm.is_available() || comm.size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks";
   }
@@ -117,36 +120,36 @@ TEST_F(NVFuserTest, FusionMultiGPU_Collective_Scatter_CUDA) {
   std::iota(params.team.begin(), params.team.end(), 0);
   if (comm.deviceId() == root) {
     for (int i = 0; i < comm.size(); i++) {
-      params.src_bufs.push_back(at::ones(tensor_size, options) * i);
+      params.src_bufs.push_back(at::empty(tensor_size, options) * i);
     }
   }
-  params.dst_bufs = {at::zeros(tensor_size, options)};
+  params.dst_bufs = {at::empty(tensor_size, options)};
+  auto coll = Scatter(params);
 
-  for (int i=0; i< number_of_repetitions; i++) {
-    for (auto& buf : params.dst_bufs) {
-      buf *= 0;
+  for (int j : c10::irange(number_of_repetitions)) {
+    params.dst_bufs.at(0).copy_(at::zeros(tensor_size, options));
+    for (int i : c10::irange(params.src_bufs.size())) {
+      params.src_bufs.at(i).copy_(at::arange(tensor_size, options) + (i + 1) * j);
     }
 
-    auto coll = Scatter(params);
     auto work = coll.post(comm);
     work->wait();
 
     auto obtained = params.dst_bufs.at(0);
-    auto ref = at::ones(tensor_size, options) * comm.deviceId();
+    auto ref = at::arange(tensor_size, options) + (comm.deviceId() + 1) * j;
     TORCH_INTERNAL_ASSERT(
         obtained.equal(ref),
         "Device",
         comm.deviceId(),
-        " expected tensor: ",
+        " expected tensor:\n",
         ref,
-        "\n but obtained tensor: ",
+        "\nbut obtained tensor:\n",
         obtained);
-
-    comm.barrier();
   }
+  comm.barrier();
 }
 
-TEST_F(NVFuserTest, FusionMultiGPU_Collective_Broadcast_CUDA) {
+TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Broadcast_CUDA) {
   if (!comm.is_available() || comm.size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks";
   }
@@ -158,37 +161,39 @@ TEST_F(NVFuserTest, FusionMultiGPU_Collective_Broadcast_CUDA) {
   params.team = std::vector<DeviceIdxType>(comm.size());
   std::iota(params.team.begin(), params.team.end(), 0);
   if (comm.deviceId() == root) {
-    params.src_bufs = {at::ones(tensor_size, options)};
+    params.src_bufs = {at::empty(tensor_size, options)};
   } else {
-    params.dst_bufs = {at::zeros(tensor_size, options)};
+    params.dst_bufs = {at::empty(tensor_size, options)};
   }
+  auto coll = Broadcast(params);
 
-  for (int i=0; i< number_of_repetitions; i++) {
-    for (auto& buf : params.dst_bufs) {
-      buf *= 0;
+  for (int j : c10::irange(number_of_repetitions)) {
+    if (comm.deviceId() == root) {
+      params.src_bufs.at(0).copy_(at::arange(tensor_size, options) + j);
+    } else {
+      params.dst_bufs.at(0).copy_(at::zeros(tensor_size, options));
     }
 
-    auto coll = Broadcast(params);
     auto work = coll.post(comm);
     work->wait();
 
     if (comm.deviceId() != root) {
       auto obtained = params.dst_bufs.at(0);
-      auto ref = at::ones(tensor_size, options);
+      auto ref = at::arange(tensor_size, options) + j;
       TORCH_INTERNAL_ASSERT(
           obtained.equal(ref),
           "Device",
           comm.deviceId(),
-          " expected tensor: ",
+          " expected tensor:\n",
           ref,
-          "\n but obtained tensor: ",
+          "\nbut obtained tensor:\n",
           obtained);
     }
-    comm.barrier();
   }
+  comm.barrier();
 }
 
-TEST_F(NVFuserTest, FusionMultiGPU_Collective_SendRecv_CUDA) {
+TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_SendRecv_CUDA) {
   DeviceIdxType sender = 0;
   DeviceIdxType receiver = 1;
   if (!comm.is_available() || comm.size() < 2) {
@@ -205,34 +210,34 @@ TEST_F(NVFuserTest, FusionMultiGPU_Collective_SendRecv_CUDA) {
   params.root = sender;
   params.team = {0, 1};
   if (comm.deviceId() == sender) {
-    params.src_bufs.push_back(at::ones(tensor_size, options));
+    params.src_bufs.push_back(at::empty(tensor_size, options));
   } else {
-    params.dst_bufs.push_back(at::zeros(tensor_size, options));
+    params.dst_bufs.push_back(at::empty(tensor_size, options));
   }
+  auto coll = SendRecv(params);
 
-  for (int i=0; i< number_of_repetitions; i++) {
-    for (auto& buf : params.dst_bufs) {
-      buf *= 0;
+  for (int j : c10::irange(number_of_repetitions)) {
+    if (comm.deviceId() == sender) {
+      params.src_bufs.at(0).copy_(at::arange(tensor_size, options) + j);
+    } else {
+      params.dst_bufs.at(0).copy_(at::zeros(tensor_size, options));
     }
 
-    auto coll = SendRecv(params);
     auto work = coll.post(comm);
     work->wait();
 
     if (comm.deviceId() == receiver) {
       auto obtained = params.dst_bufs.at(0);
-      auto ref = at::ones(tensor_size, options);
+      auto ref = at::arange(tensor_size, options) + j;
       TORCH_INTERNAL_ASSERT(
           obtained.equal(ref),
           "Device",
           comm.deviceId(),
-          " expected tensor: ",
+          " expected tensor:\n",
           ref,
-          "\n but obtained tensor: ",
+          "\nbut obtained tensor:\n",
           obtained);
     }
-    comm.getBackendForTeam({0,1})->barrier();
-    // comm.getBackendForTeam({0,1})->barrier();
   }
   comm.barrier();
 }

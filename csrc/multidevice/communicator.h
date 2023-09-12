@@ -75,10 +75,9 @@ class TORCH_CUDA_CU_API Communicator {
     world_->barrier()->wait();
   }
 
-  // returns the backend associated with a subset of devices/ranks given as
-  // arguments
+  // returns the backend associated with a team
   c10::intrusive_ptr<c10d::Backend> getBackendForTeam(
-      const std::vector<DeviceIdxType>& devices);
+      const Team& team);
 
   // returns the device associated with the current process
   auto device() const {
@@ -102,7 +101,7 @@ class TORCH_CUDA_CU_API Communicator {
   }
 
   bool is_available_;
-  CommunicatorBackend backend_;
+  CommunicatorBackend backend_type_;
   RankType rank_;
   int64_t size_;
   RankType local_rank_;
@@ -113,8 +112,8 @@ class TORCH_CUDA_CU_API Communicator {
   c10::intrusive_ptr<c10d::TCPStore> store_;
   // stores the world's backend
   c10::intrusive_ptr<c10d::Backend> world_;
-  // cache for the created teams
-  std::map<std::vector<RankType>, c10::intrusive_ptr<c10d::Backend>> teams_;
+  // cache for the created backends. The keys are strings generated from Teams
+  std::unordered_map<std::string, c10::intrusive_ptr<c10d::Backend>> backends_;
 };
 
 } // namespace nvfuser

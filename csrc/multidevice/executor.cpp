@@ -52,7 +52,7 @@ void PipelineExecutor::handle(PipelineStage* stage) {
 }
 
 struct SendRecvDescriptor {
-  std::vector<DeviceIdxType> team;
+  Team team;
   DeviceIdxType root = 0;
 };
 
@@ -63,7 +63,7 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
      the topology. */
   std::vector<SendRecvDescriptor> communications;
   {
-    std::vector<DeviceIdxType> senders;
+    Team senders;
     for (auto& d_id : c->in()
                           ->as<PipelineVal>()
                           ->getStage()
@@ -72,7 +72,7 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
       senders.push_back(d_id);
     }
 
-    std::vector<DeviceIdxType> receivers;
+    Team receivers;
     for (auto& d_id : c->out()
                           ->as<PipelineVal>()
                           ->getStage()
@@ -111,7 +111,9 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
   for (auto& communication : communications) {
     auto sender_rank = communication.root;
     for (auto receiver_rank : communication.team) {
-      if (sender_rank == receiver_rank)
+      if ((sender_rank == receiver_rank) || 
+            !(runtime_.comm_.deviceId() == sender_rank ||
+                  runtime_.comm_.deviceId() == receiver_rank))
         continue;
       runtime_.comm_.sendRecv(receiver_rank, sender_rank, tensor);
     }

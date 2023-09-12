@@ -453,11 +453,14 @@ class NVFuserTest : public ::testing::Test {
                 << "'" << std::endl;
     }
   }
+};
 
 #ifdef USE_DISTRIBUTED
-  static Communicator comm;
-#endif
+class MultiDeviceTest : public NVFuserTest {
+  protected:
+    static Communicator comm;
 };
+#endif
 
 // assert that the given fusion lowers to the given CUDA kernel
 void assertCUDAKernel(Fusion* fusion, const std::string& expected_kernel);

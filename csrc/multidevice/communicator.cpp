@@ -101,6 +101,16 @@ bool parseEnv(
   return true;
 }
 
+inline std::string getTeamKey(const Team& team){
+     return std::accumulate(
+        std::begin(team),
+        std::end(team),
+        std::string{},
+        [](const std::string& a, const RankType& b) {
+          return a.empty() ? std::to_string(b) : a + ',' + std::to_string(b);
+        });
+}
+
 // creates and return a process group backend
 c10::intrusive_ptr<c10d::Backend> createBackend(
     CommunicatorBackend backend,
@@ -135,7 +145,7 @@ Communicator::Communicator(
     CommunicatorBackend backend,
     RankType server_local_rank)
     : is_available_(false),
-      backend_(backend),
+      backend_type_(backend),
       rank_(0),
       size_(0),
       local_rank_(0),
@@ -170,32 +180,26 @@ Communicator::Communicator(
 }
 
 c10::intrusive_ptr<c10d::Backend> Communicator::getBackendForTeam(
-    const std::vector<DeviceIdxType>& ranks) {
-  // check if backend associated with the ranks is present in the cache
-  if (teams_.find(ranks) == teams_.end()) { // create the backend and cache it
+    const Team& team) {
+  std::string team_key = getTeamKey(team);
+  // check if backend associated with the team is present in the cache
+  if (backends_.find(team_key) == backends_.end()) { // create the backend and cache it
     // check that the caller's rank belongs to the requested team
-    auto rank_it = std::find(ranks.begin(), ranks.end(), rank_);
+    auto rank_it = std::find(team.begin(), team.end(), deviceId());
     NVF_ERROR(
-        rank_it != ranks.end(),
-        "only ranks in the team should participate to its initialization");
+        rank_it != team.end(),
+        "only devices in the team should participate to its initialization");
     // retrieve the caller's rank index/position in the team
-    RankType team_rank = std::distance(ranks.begin(), rank_it);
+    RankType team_rank = std::distance(team.begin(), rank_it);
     // generate a string key which is unique to the team
-    std::string team_key = std::accumulate(
-        std::begin(ranks),
-        std::end(ranks),
-        std::string{},
-        [](const std::string& a, const RankType& b) {
-          return a.empty() ? std::to_string(b) : a + ',' + std::to_string(b);
-        });
     // create the team and cache it
-    teams_[ranks] = createBackend(
-        backend_,
+    backends_[team_key] = createBackend(
+        backend_type_,
         c10::make_intrusive<c10d::PrefixStore>(team_key, store_),
         team_rank,
-        ranks.size());
+        team.size());
   }
-  return teams_.at(ranks);
+  return backends_.at(team_key);
 }
 
 c10::intrusive_ptr<c10d::Work> Communicator::sendRecv(
@@ -203,6 +207,8 @@ c10::intrusive_ptr<c10d::Work> Communicator::sendRecv(
     DeviceIdxType sender,
     std::vector<at::Tensor>& tensors,
     int tag) {
+  NVF_ERROR(deviceId() == sender || deviceId() == receiver,
+                "only sender or receiver should post the sendRecv");
   NVF_ERROR(sender != receiver, "cannot send to self");
   if (deviceId() == sender) {
     return world_->send(tensors, static_cast<int>(dIdToRank(receiver)), tag);

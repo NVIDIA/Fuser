@@ -74,7 +74,9 @@ void testValidateMultidevice(
                       ->mesh.deviceIndices()
                       .at(0);
     buffer = {inputs.at(i).toTensor()};
-    comm.sendRecv(tester, sender, buffer);
+    if (tester != sender && (comm.deviceId() == tester || comm.deviceId() == sender)) {
+      comm.sendRecv(tester, sender, buffer);
+    }
     input_tensors.push_back(buffer.at(0));
   }
 
@@ -90,7 +92,9 @@ void testValidateMultidevice(
                       ->mesh.deviceIndices()
                       .at(0);
     buffer = {outputs.at(i)};
-    comm.sendRecv(tester, sender, buffer);
+    if (tester != sender && (comm.deviceId() == tester || comm.deviceId() == sender)) {
+      comm.sendRecv(tester, sender, buffer);
+    }
     output_tensors.push_back(buffer.at(0));
   }
 
@@ -117,11 +121,11 @@ void testValidateMultidevice(
    with the flag USE_DISTRIBUTED=1 and nccl support.
    Then simply run the tests on several processes, for example using mpirun,
    e.g.: mpirun -np 6 ./build/bin/nvfuser_tests
-   --gtest_filter=NVFuserTest.FusionMultiGPU_CUDA
+   --gtest_filter=MultiDeviceTest.FusionMultiGPU_CUDA
    For now, we only support setups with one node.
 */
 
-TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
+TEST_F(MultiDeviceTest, FusionMultiGPU_CUDA) {
   // ===========================================================
   //        FUSION
   // ===========================================================

@@ -17,7 +17,7 @@
 namespace nvfuser {
 
 #ifdef USE_DISTRIBUTED
-Communicator NVFuserTest::comm = {};
+Communicator MultiDeviceTest::comm = {};
 #endif
 
 int64_t prime_number(int64_t i) {

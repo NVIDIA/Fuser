@@ -21,7 +21,7 @@ struct TORCH_CUDA_CU_API CommParams {
   DeviceIdxType root = -1;
   std::vector<at::Tensor> src_bufs;
   std::vector<at::Tensor> dst_bufs;
-  std::vector<DeviceIdxType> team; // should not have duplicate
+  Team team; // should not have duplicate
 };
 
 /*
@@ -47,6 +47,8 @@ non-blocking. The collective can be posted multiple times.
 It is assumed that the current device_index (given by
 communicator.deviceId()) belongs to the team of the collective,
 otherwise an error is thrown.
+
+NOTE: pytorch's NCCL process group API needs <team_size> buffers on root for scatter/gather operation.
 */
 
 class TORCH_CUDA_CU_API Collective {

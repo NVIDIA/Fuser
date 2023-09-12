@@ -14,4 +14,5 @@ namespace nvfuser {
 using DeviceIdxType = int64_t;
 using DimensionType = int;
 using DeviceType = c10::Device;
+using Team = std::vector<DeviceIdxType>;
 } // namespace nvfuser
