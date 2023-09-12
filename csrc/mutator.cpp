@@ -33,6 +33,26 @@ void OptOutMutator::dispatchMutate(Val* v) {
   Val::mutatorDispatch(this, v);
 }
 
+Val* OptOutMutator::maybeMutated(Val* val) const {
+  const auto val_it = mutations_.find(val);
+  if (val_it == mutations_.end()) {
+    return val;
+  }
+  // Check whether val is further mutated and throw error if so. This is
+  // to prevent errors where we depend on recursive mutation, which can be
+  // confusion/ambiguous to support.
+  const auto two_hop_it = mutations_.find(val_it->second);
+  NVF_ERROR(
+      two_hop_it == mutations_.end(),
+      "Two-hop mutations are not supported. Found registrations from ",
+      val->toString(),
+      " to ",
+      val_it->second->toString(),
+      " to ",
+      two_hop_it->second->toString());
+  return val_it->second;
+}
+
 void OptOutMutator::registerMutation(Val* val, Val* mutation) {
   bool val_is_ns = val->vtype() == ValType::NamedScalar;
   bool mutation_is_ns = mutation->vtype() == ValType::NamedScalar;

@@ -351,15 +351,7 @@ class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
 
   void registerMutation(Val* val, Val* mutation);
 
-  Val* maybeMutated(Val* val) {
-    if (mutations_.find(val) == mutations_.end()) {
-      return val;
-    }
-    // TODO: Check whether val is further mutated and throw error if so. This is
-    // to prevent errors where we depend on recursive mutation, which can be
-    // confusion/ambiguous to support.
-    return mutations_.at(val);
-  }
+  Val* maybeMutated(Val* val) const;
 
   std::unordered_map<Val*, Val*> mutations_;
 
