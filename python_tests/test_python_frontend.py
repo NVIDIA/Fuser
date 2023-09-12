@@ -1308,7 +1308,7 @@ class TestNvFuserFrontend(TestCase):
                 fd.add_output(t2)
             return fd.execute(inputs)
 
-        for correction in range(num_elem+5):
+        for correction in range(num_elem + 5):
             fuser_result = fuser_function(correction)
             torch_result = torch.var_mean(inputs[0], [-1], correction=correction)
             self.assertEqual(fuser_result, torch_result)
@@ -1324,7 +1324,7 @@ class TestNvFuserFrontend(TestCase):
                 fd.add_output(t1)
             return fd.execute(inputs)
 
-        for correction in range(num_elem+5):
+        for correction in range(num_elem + 5):
             fuser_result = fuser_function(correction)
             torch_result = torch.var(inputs[0], [-1], correction=correction)
             self.assertEqual(fuser_result, [torch_result])
