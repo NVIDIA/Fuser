@@ -2069,11 +2069,6 @@ std::vector<Val*> Index::getProducerAllocationIndices(
       alloc_ind = producer_indexing.indexMap().at(alloc_dom[i]);
     }
 
-    if (alloc_dom[i]->isBroadcast()) {
-      alloc_inds.at(i) = alloc_ind;
-      continue;
-    }
-
     NVF_ERROR(
         alloc_ind != nullptr,
         "Couldn't find allocation mapping for ",
@@ -2083,18 +2078,21 @@ std::vector<Val*> Index::getProducerAllocationIndices(
         " id: ",
         alloc_dom[i]->toString());
 
-    alloc_ind = getProducerIndexWithHalo(
-        producer_tv, i, alloc_ind, consumer_tv, is_overriden);
+    if (!alloc_dom[i]->isBroadcast() || !is_overriden) {
+      // This is an Iteration domain or a non-padded broadcast domain
+      alloc_ind = getProducerIndexWithHalo(
+          producer_tv, i, alloc_ind, consumer_tv, is_overriden);
 
-    alloc_ind = getProducerIndexWithGather(
-        alloc_ind,
-        i,
-        producer_tv,
-        consumer_tv,
-        producer_indexing_from_idgraph.concrete_index.indexMap());
+      alloc_ind = getProducerIndexWithGather(
+          alloc_ind,
+          i,
+          producer_tv,
+          consumer_tv,
+          producer_indexing_from_idgraph.concrete_index.indexMap());
 
-    alloc_ind = getProducerIndexWithPartialSplit(
-        alloc_ind, alloc_dom[i], producer_tv, consumer_tv);
+      alloc_ind = getProducerIndexWithPartialSplit(
+          alloc_ind, alloc_dom[i], producer_tv, consumer_tv);
+    }
 
     alloc_inds.at(i) = alloc_ind;
   }
