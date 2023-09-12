@@ -255,39 +255,54 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
 
   NVF_ERROR(
       tensor_rank != 0 && tensor_rank <= 5,
-      "tensorRank must be non-zero and less than or equal to the maximum supported dimensionality of 5");
+      "tensorRank must be non-zero and less than or equal to the maximum supported dimensionality of 5.",
+      " tensor_rank = ",
+      tensor_rank);
   if (interleave != CU_TENSOR_MAP_INTERLEAVE_NONE) {
     NVF_ERROR(
         tensor_rank >= 3,
-        "If interleave is not CU_TENSOR_MAP_INTERLEAVE_NONE, then tensorRank must additionally be greater than or equal to 3.");
+        "If interleave is not CU_TENSOR_MAP_INTERLEAVE_NONE, then tensorRank must additionally be greater than or equal to 3.",
+        " tensor_rank = ",
+        tensor_rank);
   }
 
+  size_t global_address_int = reinterpret_cast<size_t>(global_address);
   if (interleave == CU_TENSOR_MAP_INTERLEAVE_32B) {
     NVF_ERROR(
-        reinterpret_cast<size_t>(global_address) % 32 == 0,
-        "globalAddress, which specifies the starting address of the memory region described, must be 32 byte aligned when interleave is CU_TENSOR_MAP_INTERLEAVE_32B and 16 byte aligned otherwise.");
+        global_address_int % 32 == 0,
+        "globalAddress, which specifies the starting address of the memory region described, must be 32 byte aligned when interleave is CU_TENSOR_MAP_INTERLEAVE_32B and 16 byte aligned otherwise.",
+        " global_address = ",
+        global_address_int);
   } else {
     NVF_ERROR(
-        reinterpret_cast<size_t>(global_address) % 16 == 0,
-        "globalAddress, which specifies the starting address of the memory region described, must be 32 byte aligned when interleave is CU_TENSOR_MAP_INTERLEAVE_32B and 16 byte aligned otherwise.");
+        global_address_int % 16 == 0,
+        "globalAddress, which specifies the starting address of the memory region described, must be 32 byte aligned when interleave is CU_TENSOR_MAP_INTERLEAVE_32B and 16 byte aligned otherwise.",
+        " global_address = ",
+        global_address_int);
   }
 
   for (auto global_dim_val : global_dim) {
     constexpr cuuint64_t max_size = (cuuint64_t)1 << 32;
     NVF_ERROR(
         global_dim_val != 0 && global_dim_val <= max_size,
-        "globalDim array, which specifies tensor size of each of the tensorRank dimensions, must be non-zero and less than or equal to 2^32.");
+        "globalDim array, which specifies tensor size of each of the tensorRank dimensions, must be non-zero and less than or equal to 2^32.",
+        " global_dim_val = ",
+        global_dim_val);
   }
 
   for (auto global_stride_val : global_strides) {
     constexpr cuuint64_t max_stride = (cuuint64_t)1 << 40;
     NVF_ERROR(
         global_stride_val % 16 == 0 && global_stride_val <= max_stride,
-        "globalStrides array, which specifies tensor stride of each of the lower tensorRank - 1 dimensions in bytes, must be a multiple of 16 and less than 2^40.");
+        "globalStrides array, which specifies tensor stride of each of the lower tensorRank - 1 dimensions in bytes, must be a multiple of 16 and less than 2^40.",
+        " global_stride_val = ",
+        global_stride_val);
     if (interleave == CU_TENSOR_MAP_INTERLEAVE_32B) {
       NVF_ERROR(
           global_stride_val % 32 == 0,
-          "The stride must be a multiple of 32 when interleave is CU_TENSOR_MAP_INTERLEAVE_32B.");
+          "The stride must be a multiple of 32 when interleave is CU_TENSOR_MAP_INTERLEAVE_32B.",
+          " global_stride_val = ",
+          global_stride_val);
     }
   }
   int64_t elem_size = (int64_t)dataTypeSize(dataType());
@@ -296,13 +311,17 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
         (int64_t)global_strides.at(0) - (int64_t)global_dim.at(0) * elem_size;
     NVF_ERROR(
         padding0 >= 0,
-        "Negative pad0 for: globalStrides[0] = globalDim[0] * elementSizeInBytes(tensorDataType) + padding[0];");
+        "Negative pad0 for: globalStrides[0] = globalDim[0] * elementSizeInBytes(tensorDataType) + padding[0];"
+        " padding0 = ",
+        padding0);
     for (int i = 1; i < (int64_t)tensor_rank - 1; i++) {
       int64_t stride_mul_pad_i = (int64_t)global_strides.at(i) -
           (int64_t)global_dim.at(i) * (int64_t)global_strides.at(i - 1);
       NVF_ERROR(
           stride_mul_pad_i >= 0,
-          "Negative globalStrides[i – 1] * padding[i] for: globalStrides[i] = globalStrides[i – 1] * (globalDim[i] + padding[i]);");
+          "Negative globalStrides[i – 1] * padding[i] for: globalStrides[i] = globalStrides[i – 1] * (globalDim[i] + padding[i]);",
+          " stride_mul_pad_i = ",
+          stride_mul_pad_i);
       // TODO: the check below is copied from the official doc, but does it
       // really make sense? Strides are in the unit of bytes, but global_dim is
       // in the unit of elements, how can they compare with each other?
@@ -313,18 +332,26 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
   for (auto box_dim_val : box_dim) {
     NVF_ERROR(
         box_dim_val != 0 && box_dim_val <= 256,
-        "boxDim array, which specifies number of elements to be traversed along each of the tensorRank dimensions, must be non-zero and less than or equal to 256.");
+        "boxDim array, which specifies number of elements to be traversed along each of the tensorRank dimensions, must be non-zero and less than or equal to 256.",
+        " box_dim_val = ",
+        box_dim_val);
   }
   if (interleave == CU_TENSOR_MAP_INTERLEAVE_NONE) {
     NVF_ERROR(
         (box_dim.at(0) * elem_size) % 16 == 0,
-        "When interleave is CU_TENSOR_MAP_INTERLEAVE_NONE, { boxDim[0] * elementSizeInBytes( tensorDataType ) } must be a multiple of 16 bytes.");
+        "When interleave is CU_TENSOR_MAP_INTERLEAVE_NONE, { boxDim[0] * elementSizeInBytes( tensorDataType ) } must be a multiple of 16 bytes.",
+        " box_dim[0] = ",
+        box_dim.at(0),
+        " elem_size = ",
+        elem_size);
   }
 
   for (auto element_stride_val : element_strides) {
     NVF_ERROR(
         element_stride_val != 0 && element_stride_val <= 8,
-        "elementStrides array, which specifies the iteration step along each of the tensorRank dimensions, must be non-zero and less than or equal to 8.");
+        "elementStrides array, which specifies the iteration step along each of the tensorRank dimensions, must be non-zero and less than or equal to 8.",
+        " element_stride_val = ",
+        element_stride_val);
   }
 
   if (interleave == CU_TENSOR_MAP_INTERLEAVE_NONE) {
@@ -333,17 +360,23 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
       case CU_TENSOR_MAP_SWIZZLE_32B:
         NVF_ERROR(
             bounding_box_inner_dim <= 32,
-            "CU_TENSOR_MAP_SWIZZLE_32B implies the bounding box inner dimension will be <= 32.");
+            "CU_TENSOR_MAP_SWIZZLE_32B implies the bounding box inner dimension will be <= 32.",
+            " bounding_box_inner_dim = ",
+            bounding_box_inner_dim);
         break;
       case CU_TENSOR_MAP_SWIZZLE_64B:
         NVF_ERROR(
             bounding_box_inner_dim <= 64,
-            "CU_TENSOR_MAP_SWIZZLE_64B implies the bounding box inner dimension will be <= 64.");
+            "CU_TENSOR_MAP_SWIZZLE_64B implies the bounding box inner dimension will be <= 64.",
+            " bounding_box_inner_dim = ",
+            bounding_box_inner_dim);
         break;
       case CU_TENSOR_MAP_SWIZZLE_128B:
         NVF_ERROR(
             bounding_box_inner_dim <= 128,
-            "CU_TENSOR_MAP_SWIZZLE_128B implies the bounding box inner dimension will be <= 128.");
+            "CU_TENSOR_MAP_SWIZZLE_128B implies the bounding box inner dimension will be <= 128.",
+            " bounding_box_inner_dim = ",
+            bounding_box_inner_dim);
         break;
       default:;
     }
@@ -358,7 +391,9 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
   if (oob_fill == CU_TENSOR_MAP_FLOAT_OOB_FILL_NAN_REQUEST_ZERO_FMA) {
     NVF_ERROR(
         isFloatingPointType(dataType()),
-        "CU_TENSOR_MAP_FLOAT_OOB_FILL_NAN_REQUEST_ZERO_FMA can only be used when tensorDataType represents a floating-point data type.");
+        "CU_TENSOR_MAP_FLOAT_OOB_FILL_NAN_REQUEST_ZERO_FMA can only be used when tensorDataType represents a floating-point data type.",
+        " dataType = ",
+        dataType());
   }
   // All check passes
 
