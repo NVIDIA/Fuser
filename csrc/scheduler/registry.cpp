@@ -10,6 +10,7 @@
 #include <instrumentation.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul_utils.h>
+#include <scheduler/normalization.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/pointwise.h>
 #include <scheduler/registry.h>
@@ -17,7 +18,6 @@
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <tensor_metadata.h>
-#include <scheduler/normalization.h>
 
 namespace nvfuser {
 
