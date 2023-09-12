@@ -32,7 +32,6 @@
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
-#include <scheduler/normalization.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
 #include <test/utils.h>

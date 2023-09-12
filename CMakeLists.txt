@@ -164,7 +164,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/register_interface.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/all_schedulers.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/heuristic_types.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp

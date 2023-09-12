@@ -1,5 +1,5 @@
-#include <scheduler/all_schedulers.h>
-
+#include <scheduler/heuristic_types.h>
+#include <exceptions.h>
 namespace nvfuser {
 
 std::string toString(ScheduleHeuristic sh) {
