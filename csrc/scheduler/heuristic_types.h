@@ -6,23 +6,18 @@
  */
 // clang-format on
 #pragma once
-#include <scheduler/matmul.h>
-#include <scheduler/normalization.h>
-#include <scheduler/pointwise.h>
-#include <scheduler/reduction.h>
-#include <scheduler/transpose.h>
-<<<<<<< HEAD
+
+#include <ostream>
+#include <string>
 
 namespace nvfuser {
 
-enum class TORCH_CUDA_CU_API ScheduleHeuristic {
+enum class ScheduleHeuristic {
   None,
   NoOp,
   PointWise,
   Reduction,
-  InnerPersistent,
-  OuterPersistent,
-  InnerOuterPersistent,
+  Persistent,
   Transpose,
   Matmul
 };
@@ -32,5 +27,3 @@ std::string toString(ScheduleHeuristic sh);
 std::ostream& operator<<(std::ostream& os, ScheduleHeuristic sh);
 
 } // namespace nvfuser
-=======
->>>>>>> llu/r1_move_scheduler

@@ -164,7 +164,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/register_interface.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/all_schedulers.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/heuristic_types.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
@@ -451,6 +451,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_pipeline.cpp
     ${NVFUSER_ROOT}/test/test_rng.cpp
     ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
+    ${NVFUSER_ROOT}/test/test_memory.cpp
   )
 
   if(BUILD_PYTHON)
