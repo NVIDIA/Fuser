@@ -8,11 +8,10 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <instrumentation.h>
 #include <scheduler/debug_utils.h>
+#include <scheduler/normalization.h>
 #include <scheduler/normalization_utils.h>
-#include <scheduler/persistent_kernel_scheduler.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
-
 namespace nvfuser {
 
 PersistentKernelScheduler::PersistentKernelScheduler(

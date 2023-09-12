@@ -16,6 +16,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <options.h>
+#include <scheduler/normalization.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry.h>

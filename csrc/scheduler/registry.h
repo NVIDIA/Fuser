@@ -227,12 +227,4 @@ class TORCH_CUDA_CU_API SchedulerEntryHash {
   size_t operator()(const SchedulerEntry& se) const;
 };
 
-//! Debug print function for heuristics
-TORCH_CUDA_CU_API std::string toString(ScheduleHeuristic sh);
-
-//! Debug print function for heuristics
-TORCH_CUDA_CU_API std::ostream& operator<<(
-    std::ostream& os,
-    ScheduleHeuristic sh);
-
 } // namespace nvfuser
