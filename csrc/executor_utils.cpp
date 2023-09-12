@@ -749,6 +749,7 @@ std::vector<char> compileNvrtcProgramToCubin(const nvrtcProgram& program) {
   return code;
 }
 
+// Returns the name of the dumped file.
 std::string dumpCompiledCodeToFile(
     const std::vector<char>& code,
     const int64_t fusion_id,
