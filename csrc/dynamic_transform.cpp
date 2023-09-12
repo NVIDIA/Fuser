@@ -458,6 +458,30 @@ void DynamicTransformConcretizer::concretize() {
       /*traverse_attributes*/ true,
       /*traverse_siblings*/ true);
   for (auto stmt : all_stmts) {
+    // We mutate all scalar and TensorView Vals and Exprs in topological order.
+    // This alone is enough to modify scalars and their Exprs properly. Above,
+    // concretizeEmptyExtents will register some scalar extents as zeroVal(),
+    // and those will be properly propagated in this type of traversal.
+    //
+    // However, an important part of concretization is mutating IterDomains and
+    // IterDomain expressions. To do this, we have registered some mutations in
+    // the above calls; for example concretizeResize registers IterTypes as
+    // Iteration or Broadcast. There may still be many Symbolic IterDomains that
+    // are not yet registered for mutation though; these need to be registered
+    // by propagating the IterTypes and modified extents through the Fusion in
+    // the P2C direction. Importantly, this means traversing across TensorView
+    // expressions and using exact mapping between producer and consumer TVs to
+    // infer IterTypes of consumer root IterDomains from concretized producer
+    // rfactor IterDomains.
+    //
+    // The order of StmtSort::getStmts guarantees a topological ordering with
+    // respect to our IR graph. That IR does not explicitly hold TensorView
+    // dependencies for IterDomains; i.e. we rely on TensorView expressions to
+    // infer that one IterDomain is a producer rfactor which another consumer
+    // root domain depends on. So we avoid processing IterDomains and
+    // TensorDomains until we reach the TensorView that contains them. Otherwise
+    // we would not be able to propagate across exact maps before processing
+    // all root->rfactor IterDomains and expressions.
     if (const auto op = dynamic_cast<Expr*>(stmt); stmt->isA<IterDomain>() ||
         stmt->isA<TensorDomain>() || (op && op->output(0)->isA<IterDomain>())) {
       continue;
