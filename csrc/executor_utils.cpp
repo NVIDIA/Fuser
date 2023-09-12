@@ -762,7 +762,7 @@ std::vector<char> nvrtcGetCode(
   return code;
 }
 
-void dumpCompiledCodeToFile(
+std::string dumpCompiledCodeToFile(
     const std::vector<char>& code,
     int64_t fusion_id,
     bool dump_cubin) {
@@ -774,6 +774,7 @@ void dumpCompiledCodeToFile(
   NVF_ERROR(out.is_open());
   out.write(code.data(), (std::streamsize)code.size());
   out.close();
+  return file_name.str();
 }
 
 // Get the max register count passed as -maxrregcount ptxas
@@ -1151,17 +1152,19 @@ class SourceCompiler {
     compiled_kernel_.kernel_name = lowered_kernel_name;
     compiled_kernel_.compile_log += log.str();
 
-    if (compile_to_sass_) {
-      compiled_kernel_.cubin = nvrtcGetCode(program, true);
+    if (compile_to_sass) {
+      compiled_kernel.cubin = nvrtcGetCode(program, /*compile_to_sass=*/true);
       if (isDebugDumpEnabled(DebugDumpOption::Cubin)) {
-        dumpCompiledCodeToFile(
-            compiled_kernel_.cubin, id, /*compile_to_sass=*/true);
+        compiled_kernel.cubin_filename = dumpCompiledCodeToFile(
+            compiled_kernel.cubin, id, /*dump_cubin=*/true);
       }
-    } else {
-      compiled_kernel_.ptx = nvrtcGetCode(program, false);
+    }
+
+    if (!compile_to_sass || isDebugDumpEnabled(DebugDumpOption::Ptx)) {
+      compiled_kernel.ptx = nvrtcGetCode(program, /*compile_to_sass=*/false);
       if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
-        dumpCompiledCodeToFile(
-            compiled_kernel_.ptx, id, /*compile_to_sass=*/false);
+        compiled_kernel.ptx_filename = dumpCompiledCodeToFile(
+            compiled_kernel.ptx, id, /*dump_cubin=*/false);
       }
     }
   }
@@ -1171,7 +1174,7 @@ class SourceCompiler {
     log << module_load_driver_.invoke(
                compiled_kernel_.module,
                (compile_to_sass_ ? compiled_kernel_.cubin.data()
-                                : compiled_kernel_.ptx.data()))
+                                 : compiled_kernel_.ptx.data()))
         << std::endl;
     compiled_kernel_.compile_log += log.str();
 
@@ -1241,11 +1244,11 @@ CompiledKernel getCompiledKernel(
 #endif
 
   if (isOptionDisabled(DisableOption::CompileToSass)) {
-    // TODO: comment
     compile_to_sass = false;
   }
 
-  SourceCompiler source_compiler(compile_to_sass, major, minor, compile_params, opt_block_size);
+  SourceCompiler source_compiler(
+      compile_to_sass, major, minor, compile_params, opt_block_size);
 
   const auto compile_args =
       toDelimitedString(source_compiler.nvrtc_copmile_options(), " ");

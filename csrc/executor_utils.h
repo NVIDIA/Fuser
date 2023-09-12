@@ -48,7 +48,9 @@ struct CompiledKernel {
   CUfunction function = nullptr;
   std::string compile_log;
   std::vector<char> ptx;
+  std::string ptx_filename;
   std::vector<char> cubin;
+  std::string cubin_filename;
   std::string kernel_name;
 };
 
