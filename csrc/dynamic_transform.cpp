@@ -672,9 +672,27 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
         registerConcretization(out_id, concretized_out_id);
       }
 
+      // At this point, we might have registered both the input and output
+      // IterDomains for concretization, specifying either new extents or
+      // IterTypes or both. In this context, we want to create a new Expr
+      // having the mutations to both inputs and outputs, so that the
+      // concretized IterDomains are connected by the right type of expression.
+      //
+      // Mutating outputs has the effect of redefining the new outputs. That can
+      // be unwanted in the general case since we often mutate a Fusion with the
+      // intention of to changing the definition. For this reason,
+      // OptOutMutator::mutate will only mutate inputs by default. The
+      // mutateExprOutputsOnly call below performs this redefinition which we
+      // desire in the current context.
+      //
+      // Each mutate step below removes the expression so we need to apply the
+      // second step to the replacement Expr. The order of these calls is
+      // unimportant, except that mutate(Expr*) does not return the replacement
+      // Expr*, whereas mutateExprOutputsOnly does.
+
       // Set expr as the definition for concretized outputs
       expr = mutateExprOutputsOnly(expr);
-      // replace inputs and attributes that were concretized
+      // Replace inputs and attributes that were concretized
       mutate(expr);
     }
   }
