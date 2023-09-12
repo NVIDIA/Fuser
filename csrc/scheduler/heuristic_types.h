@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <string>
 #include <ostream>
+#include <string>
 
 namespace nvfuser {
 

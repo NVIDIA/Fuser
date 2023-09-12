@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 #include <scheduler/matmul.h>
+#include <scheduler/normalization.h>
 #include <scheduler/pointwise.h>
 #include <scheduler/reduction.h>
 #include <scheduler/transpose.h>
-#include <scheduler/normalization.h>
