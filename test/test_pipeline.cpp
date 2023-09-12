@@ -81,7 +81,7 @@ TEST_F(NVFuserTest, Pipeline_CUDA) {
       " PipelineVal representing Val T0_g[ iS0{i0}, iS1{i2} ] on stage " +
       std::to_string(stage0.unique_id) +
       "\n"
-      " PipelineVal representing Val T4_g[ iS6{i12}, iS7{i13}, iS8{i14} ] on stage " +
+      " PipelineVal representing Val T4_g[ iS6{i13}, iS7{i14}, iS8{i15} ] on stage " +
       std::to_string(stage2.unique_id) +
       "\n"
       "}\n"
@@ -105,88 +105,88 @@ TEST_F(NVFuserTest, Pipeline_CUDA) {
       ".Inputs={T2_l[ iS4{i2} ], }. Outputs={T3_g[ rS5{i2} ], }.\n"
       "  PipelineStage representing Stage " +
       std::to_string(stage2.unique_id) +
-      ".Inputs={T4_g[ iS6{i12}, iS7{i13}, iS8{i14} ], }. Outputs={T5_l[ rS9{i12}, iS10{i13}, iS11{i14} ], }.\n"
-      "  PipelineVal representing Val T5_l[ rS9{i12}, iS10{i13}, iS11{i14} ] on stage " +
+      ".Inputs={T4_g[ iS6{i13}, iS7{i14}, iS8{i15} ], }. Outputs={T5_l[ rS9{i13}, iS10{i14}, iS11{i15} ], }.\n"
+      "  PipelineVal representing Val T5_l[ rS9{i13}, iS10{i14}, iS11{i15} ] on stage " +
       std::to_string(stage2.unique_id) +
       "\n"
-      "  PipelineCommunication that transfers PipelineVal representing Val T5_l[ rS9{i12}, iS10{i13}, iS11{i14} ] on stage " +
+      "  PipelineCommunication that transfers PipelineVal representing Val T5_l[ rS9{i13}, iS10{i14}, iS11{i15} ] on stage " +
       std::to_string(stage2.unique_id) +
-      " to PipelineVal representing Val T6_l[ iS12{i13}, iS13{i14} ] on stage " +
+      " to PipelineVal representing Val T6_l[ iS12{i14}, iS13{i15} ] on stage " +
       std::to_string(stage3.unique_id) +
       "\n"
-      "  PipelineVal representing Val T6_l[ iS12{i13}, iS13{i14} ] on stage " +
+      "  PipelineVal representing Val T6_l[ iS12{i14}, iS13{i15} ] on stage " +
       std::to_string(stage3.unique_id) +
       "\n"
       "  PipelineStage representing Stage " +
       std::to_string(stage3.unique_id) +
-      ".Inputs={T6_l[ iS12{i13}, iS13{i14} ], }. Outputs={T7_l[ iS14{i13}, iS15{i14} ], T8_l[ rS16{i13}, iS17{i14} ], }.\n"
-      "  PipelineVal representing Val T7_l[ iS14{i13}, iS15{i14} ] on stage " +
+      ".Inputs={T6_l[ iS12{i14}, iS13{i15} ], }. Outputs={T7_l[ iS14{i14}, iS15{i15} ], T8_l[ rS16{i14}, iS17{i15} ], }.\n"
+      "  PipelineVal representing Val T7_l[ iS14{i14}, iS15{i15} ] on stage " +
       std::to_string(stage3.unique_id) +
       "\n"
-      "  PipelineCommunication that transfers PipelineVal representing Val T7_l[ iS14{i13}, iS15{i14} ] on stage " +
+      "  PipelineCommunication that transfers PipelineVal representing Val T7_l[ iS14{i14}, iS15{i15} ] on stage " +
       std::to_string(stage3.unique_id) +
-      " to PipelineVal representing Val T12_l[ iS24{i13}, iS25{i14} ] on stage " +
+      " to PipelineVal representing Val T12_l[ iS24{i14}, iS25{i15} ] on stage " +
       std::to_string(stage5.unique_id) +
       "\n"
-      "  PipelineVal representing Val T12_l[ iS24{i13}, iS25{i14} ] on stage " +
+      "  PipelineVal representing Val T12_l[ iS24{i14}, iS25{i15} ] on stage " +
       std::to_string(stage5.unique_id) +
       "\n"
       "  PipelineStage representing Stage " +
       std::to_string(stage5.unique_id) +
-      ".Inputs={T12_l[ iS24{i13}, iS25{i14} ], }. Outputs={T13_g[ rS26{i13}, iS27{i14} ], }.\n"
-      "  PipelineVal representing Val T8_l[ rS16{i13}, iS17{i14} ] on stage " +
+      ".Inputs={T12_l[ iS24{i14}, iS25{i15} ], }. Outputs={T13_g[ rS26{i14}, iS27{i15} ], }.\n"
+      "  PipelineVal representing Val T8_l[ rS16{i14}, iS17{i15} ] on stage " +
       std::to_string(stage3.unique_id) +
       "\n"
-      "  PipelineCommunication that transfers PipelineVal representing Val T8_l[ rS16{i13}, iS17{i14} ] on stage " +
+      "  PipelineCommunication that transfers PipelineVal representing Val T8_l[ rS16{i14}, iS17{i15} ] on stage " +
       std::to_string(stage3.unique_id) +
-      " to PipelineVal representing Val T14_l[ iS28{i14} ] on stage " +
+      " to PipelineVal representing Val T14_l[ iS28{i15} ] on stage " +
       std::to_string(stage6.unique_id) +
       "\n"
-      "  PipelineVal representing Val T14_l[ iS28{i14} ] on stage " +
+      "  PipelineVal representing Val T14_l[ iS28{i15} ] on stage " +
       std::to_string(stage6.unique_id) +
       "\n"
-      "  PipelineCommunication that transfers PipelineVal representing Val T5_l[ rS9{i12}, iS10{i13}, iS11{i14} ] on stage " +
+      "  PipelineCommunication that transfers PipelineVal representing Val T5_l[ rS9{i13}, iS10{i14}, iS11{i15} ] on stage " +
       std::to_string(stage2.unique_id) +
-      " to PipelineVal representing Val T9_l[ iS18{i13}, iS19{i14} ] on stage " +
+      " to PipelineVal representing Val T9_l[ iS18{i14}, iS19{i15} ] on stage " +
       std::to_string(stage4.unique_id) +
       "\n"
-      "  PipelineVal representing Val T9_l[ iS18{i13}, iS19{i14} ] on stage " +
+      "  PipelineVal representing Val T9_l[ iS18{i14}, iS19{i15} ] on stage " +
       std::to_string(stage4.unique_id) +
       "\n"
       "  PipelineStage representing Stage " +
       std::to_string(stage4.unique_id) +
-      ".Inputs={T9_l[ iS18{i13}, iS19{i14} ], }. Outputs={T11_l[ rS22{i13}, iS23{i14} ], }.\n"
-      "  PipelineVal representing Val T11_l[ rS22{i13}, iS23{i14} ] on stage " +
+      ".Inputs={T9_l[ iS18{i14}, iS19{i15} ], }. Outputs={T11_l[ rS22{i14}, iS23{i15} ], }.\n"
+      "  PipelineVal representing Val T11_l[ rS22{i14}, iS23{i15} ] on stage " +
       std::to_string(stage4.unique_id) +
       "\n"
-      "  PipelineCommunication that transfers PipelineVal representing Val T11_l[ rS22{i13}, iS23{i14} ] on stage " +
+      "  PipelineCommunication that transfers PipelineVal representing Val T11_l[ rS22{i14}, iS23{i15} ] on stage " +
       std::to_string(stage4.unique_id) +
-      " to PipelineVal representing Val T15_l[ iS29{i14} ] on stage " +
+      " to PipelineVal representing Val T15_l[ iS29{i15} ] on stage " +
       std::to_string(stage6.unique_id) +
       "\n"
-      "  PipelineVal representing Val T15_l[ iS29{i14} ] on stage " +
+      "  PipelineVal representing Val T15_l[ iS29{i15} ] on stage " +
       std::to_string(stage6.unique_id) +
       "\n"
-      "  PipelineCommunication that transfers PipelineVal representing Val T13_g[ rS26{i13}, iS27{i14} ] on stage " +
+      "  PipelineCommunication that transfers PipelineVal representing Val T13_g[ rS26{i14}, iS27{i15} ] on stage " +
       std::to_string(stage5.unique_id) +
-      " to PipelineVal representing Val T16_l[ iS30{i14} ] on stage " +
+      " to PipelineVal representing Val T16_l[ iS30{i15} ] on stage " +
       std::to_string(stage6.unique_id) +
       "\n"
-      "  PipelineVal representing Val T16_l[ iS30{i14} ] on stage " +
+      "  PipelineVal representing Val T16_l[ iS30{i15} ] on stage " +
       std::to_string(stage6.unique_id) +
       "\n"
       "  PipelineStage representing Stage " +
       std::to_string(stage6.unique_id) +
-      ".Inputs={T14_l[ iS28{i14} ], T15_l[ iS29{i14} ], T16_l[ iS30{i14} ], }. Outputs={T19_g[ rS33{i14} ], }.\n"
+      ".Inputs={T14_l[ iS28{i15} ], T15_l[ iS29{i15} ], T16_l[ iS30{i15} ], }. Outputs={T19_g[ rS33{i15} ], }.\n"
       "}\n"
       "Pipeline's outputs:{\n"
       " PipelineVal representing Val T3_g[ rS5{i2} ] on stage " +
       std::to_string(stage1.unique_id) +
       "\n"
-      " PipelineVal representing Val T13_g[ rS26{i13}, iS27{i14} ] on stage " +
+      " PipelineVal representing Val T13_g[ rS26{i14}, iS27{i15} ] on stage " +
       std::to_string(stage5.unique_id) +
       "\n"
-      " PipelineVal representing Val T19_g[ rS33{i14} ] on stage " +
+      " PipelineVal representing Val T19_g[ rS33{i15} ] on stage " +
       std::to_string(stage6.unique_id) +
       "\n"
       "}"};
