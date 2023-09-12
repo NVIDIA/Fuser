@@ -1212,6 +1212,12 @@ TEST_F(NVFuserTest, OptOutMutatorMutatedOutput) {
     mut.dispatchMutate(stmt);
   }
 
+  EXPECT_NE(tv3->definition(), nullptr);
+  EXPECT_TRUE(tv3->definition()->isA<LoadStoreOp>());
+  EXPECT_NE(tv2->definition(), nullptr);
+  EXPECT_TRUE(tv2->definition()->isA<LoadStoreOp>());
+  EXPECT_EQ(tv2->definition()->input(0), tv3);
+
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({3}, options);
 
@@ -1241,11 +1247,16 @@ TEST_F(NVFuserTest, OptOutMutatorRedefinedConstant) {
   // After the following mutation, it's reasonable to expect the input scalar s0
   // to be ignored, and the output to just be ones.
   OptOutMutator mut;
-  mut.registerMutation(s1, fusion->oneVal(DataType::Int));
+  auto c = fusion->oneVal(DataType::Int);
+  mut.registerMutation(s1, c);
 
   for (auto stmt : StmtSort::getStmts(fusion)) {
     mut.dispatchMutate(stmt);
   }
+
+  EXPECT_EQ(
+      c->definition(), nullptr); // Replacement value should not be redefined
+  EXPECT_EQ(tv0->definition()->as<FullOp>()->getFillValue(), c);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::full({2}, 1L, options);
