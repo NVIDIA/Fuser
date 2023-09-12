@@ -76,8 +76,7 @@ class TORCH_CUDA_CU_API Communicator {
   }
 
   // returns the backend associated with a team
-  c10::intrusive_ptr<c10d::Backend> getBackendForTeam(
-      const Team& team);
+  c10::intrusive_ptr<c10d::Backend> getBackendForTeam(const Team& team);
 
   // returns the device associated with the current process
   auto device() const {

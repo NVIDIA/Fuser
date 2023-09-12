@@ -457,8 +457,8 @@ class NVFuserTest : public ::testing::Test {
 
 #ifdef USE_DISTRIBUTED
 class MultiDeviceTest : public NVFuserTest {
-  protected:
-    static Communicator comm;
+ protected:
+  static Communicator comm;
 };
 #endif
 

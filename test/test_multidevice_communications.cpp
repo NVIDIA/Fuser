@@ -40,7 +40,8 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Communication_Gather_CUDA) {
   auto communication = Gather(params);
 
   for (int j : c10::irange(number_of_repetitions)) {
-    params.src_bufs.at(0).copy_(at::arange(tensor_size, options) + (comm.deviceId() + 1) * j);
+    params.src_bufs.at(0).copy_(
+        at::arange(tensor_size, options) + (comm.deviceId() + 1) * j);
     for (auto& buf : params.dst_bufs) {
       buf.copy_(at::zeros(tensor_size, options));
     }
@@ -83,7 +84,8 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Communication_Allgather_CUDA) {
   auto communication = Allgather(params);
 
   for (int j : c10::irange(number_of_repetitions)) {
-    params.src_bufs.at(0).copy_(at::arange(tensor_size, options) + (comm.deviceId() + 1) * j);
+    params.src_bufs.at(0).copy_(
+        at::arange(tensor_size, options) + (comm.deviceId() + 1) * j);
     for (auto& buf : params.dst_bufs) {
       buf.copy_(at::zeros(tensor_size, options));
     }
@@ -129,7 +131,8 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Communication_Scatter_CUDA) {
   for (int j : c10::irange(number_of_repetitions)) {
     params.dst_bufs.at(0).copy_(at::zeros(tensor_size, options));
     for (int i : c10::irange(params.src_bufs.size())) {
-      params.src_bufs.at(i).copy_(at::arange(tensor_size, options) + (i + 1) * j);
+      params.src_bufs.at(i).copy_(
+          at::arange(tensor_size, options) + (i + 1) * j);
     }
 
     auto work = communication.post(comm);

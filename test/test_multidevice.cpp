@@ -74,7 +74,8 @@ void testValidateMultidevice(
                       ->mesh.deviceIndices()
                       .at(0);
     buffer = {inputs.at(i).toTensor()};
-    if (tester != sender && (comm.deviceId() == tester || comm.deviceId() == sender)) {
+    if (tester != sender &&
+        (comm.deviceId() == tester || comm.deviceId() == sender)) {
       comm.sendRecv(tester, sender, buffer);
     }
     input_tensors.push_back(buffer.at(0));
@@ -92,7 +93,8 @@ void testValidateMultidevice(
                       ->mesh.deviceIndices()
                       .at(0);
     buffer = {outputs.at(i)};
-    if (tester != sender && (comm.deviceId() == tester || comm.deviceId() == sender)) {
+    if (tester != sender &&
+        (comm.deviceId() == tester || comm.deviceId() == sender)) {
       comm.sendRecv(tester, sender, buffer);
     }
     output_tensors.push_back(buffer.at(0));

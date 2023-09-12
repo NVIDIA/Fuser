@@ -26,8 +26,8 @@ struct TORCH_CUDA_CU_API CommParams {
 
 /*
 The class "Communication" represents a MPI-style communication
-communication operation to be executed on the network. The base class Communication
-should not be used directly but through its derived classes:
+communication operation to be executed on the network. The base class
+Communication should not be used directly but through its derived classes:
 Broadcast, Gather, Scatter, Allgather, and SendRecv. Other collectives will be
 added later.
 
@@ -37,10 +37,10 @@ as a kernel IRs resulting of the lowering of a PipelineCommunication.
 CommParams contains the arguments for the communication constructors.
 Note that each process (associated with a device index given by
 communicator.deviceId()) will fill CommParams with different arguments,
-depending on the role they play in this communication. For example, the root of a
-Gather communication will have <team_size> destination buffers, whereas non-root
-will have no destination buffers. Also, the ranks not participating in the
-communication should not instantiate it.
+depending on the role they play in this communication. For example, the root of
+a Gather communication will have <team_size> destination buffers, whereas
+non-root will have no destination buffers. Also, the ranks not participating in
+the communication should not instantiate it.
 
 The method "post" triggers the execution of the communication. This call is
 non-blocking. The communication can be posted multiple times.
@@ -48,7 +48,8 @@ It is assumed that the current device_index (given by
 communicator.deviceId()) belongs to the team of the communication,
 otherwise an error is thrown.
 
-NOTE: pytorch's NCCL process group API needs <team_size> buffers on root for scatter/gather operation.
+NOTE: pytorch's NCCL process group API needs <team_size> buffers on root for
+scatter/gather operation.
 */
 
 class TORCH_CUDA_CU_API Communication {

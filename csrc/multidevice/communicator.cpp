@@ -101,14 +101,14 @@ bool parseEnv(
   return true;
 }
 
-inline std::string getTeamKey(const Team& team){
-     return std::accumulate(
-        std::begin(team),
-        std::end(team),
-        std::string{},
-        [](const std::string& a, const RankType& b) {
-          return a.empty() ? std::to_string(b) : a + ',' + std::to_string(b);
-        });
+inline std::string getTeamKey(const Team& team) {
+  return std::accumulate(
+      std::begin(team),
+      std::end(team),
+      std::string{},
+      [](const std::string& a, const RankType& b) {
+        return a.empty() ? std::to_string(b) : a + ',' + std::to_string(b);
+      });
 }
 
 // creates and return a process group backend
@@ -183,7 +183,8 @@ c10::intrusive_ptr<c10d::Backend> Communicator::getBackendForTeam(
     const Team& team) {
   std::string team_key = getTeamKey(team);
   // check if backend associated with the team is present in the cache
-  if (backends_.find(team_key) == backends_.end()) { // create the backend and cache it
+  if (backends_.find(team_key) ==
+      backends_.end()) { // create the backend and cache it
     // check that the caller's rank belongs to the requested team
     auto rank_it = std::find(team.begin(), team.end(), deviceId());
     NVF_ERROR(
@@ -207,8 +208,9 @@ c10::intrusive_ptr<c10d::Work> Communicator::sendRecv(
     DeviceIdxType sender,
     std::vector<at::Tensor>& tensors,
     int tag) {
-  NVF_ERROR(deviceId() == sender || deviceId() == receiver,
-                "only sender or receiver should post the sendRecv");
+  NVF_ERROR(
+      deviceId() == sender || deviceId() == receiver,
+      "only sender or receiver should post the sendRecv");
   NVF_ERROR(sender != receiver, "cannot send to self");
   if (deviceId() == sender) {
     return world_->send(tensors, static_cast<int>(dIdToRank(receiver)), tag);
