@@ -20,10 +20,10 @@
 #include <scheduler/matmul_utils.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/pointwise.h>
+#include <scheduler/reduction_utils.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <tensor_metadata.h>
-#include <scheduler/reduction_utils.h>
 #include <limits>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -175,7 +175,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
 
   return rparams;
 }
-
 
 std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const int64_t total_reduction_numel,
@@ -714,7 +713,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
 
   return rparams;
 }
-
 
 } // namespace
 

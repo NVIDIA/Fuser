@@ -5,25 +5,25 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/normalization_inner_outer.h>
-#include <scheduler/registry_utils.h>
-#include <inlining.h>
 #include <c10/util/irange.h>
 #include <disjoint_set.h>
 #include <executor_utils.h>
 #include <expr_evaluator.h>
+#include <inlining.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <root_domain_map.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul_utils.h>
+#include <scheduler/normalization_inner_outer.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/pointwise.h>
+#include <scheduler/reduction_utils.h>
+#include <scheduler/registry_utils.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <tensor_metadata.h>
-#include <scheduler/reduction_utils.h>
 #include <limits>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -200,8 +200,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
   return true;
 }
 
-
-namespace{
+namespace {
 
 // The innerOuterPersistentHeuristic is tuned for layer_norm backward on A100
 // ======= Method if hidden_size > 1024 =======
@@ -466,10 +465,11 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
 
 } // namespace
 
-std::shared_ptr<ReductionParams> InnerOuterPersistentKernelScheduler::getHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+std::shared_ptr<ReductionParams> InnerOuterPersistentKernelScheduler::
+    getHeuristics(
+        Fusion* fusion,
+        SchedulerRuntimeInfo& runtime_info,
+        HeuristicSummary* data_cache) {
   FUSER_PERF_SCOPE("getInnerOuterPersistentHeuristics");
 
   auto reduction_tv_entry =
@@ -504,7 +504,6 @@ std::shared_ptr<ReductionParams> InnerOuterPersistentKernelScheduler::getHeurist
   rparams->cparams.index_type = runtime_info.getIndexType();
   return rparams;
 }
-
 
 namespace {
 

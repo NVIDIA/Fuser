@@ -12,6 +12,7 @@
 #include <disjoint_set.h>
 #include <executor_utils.h>
 #include <expr_evaluator.h>
+#include <grouped_reduction.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -22,7 +23,6 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
 #include <tensor_metadata.h>
-#include <grouped_reduction.h>
 #include <limits>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -246,7 +246,6 @@ bool PersistentSchedulerHelper::runTimeCheckIterSize(
   return true;
 }
 
-
 std::tuple<TensorView*, scheduler_utils::ReductionTvProperties, int64_t>
 PersistentSchedulerHelper::getCommonHeuristicParams(
     Fusion* fusion,
@@ -307,12 +306,13 @@ PersistentSchedulerHelper::getCommonHeuristicParams(
   return std::make_tuple(reduced_tv, properties, vectorize_factor);
 }
 
-std::pair<bool, int64_t> PersistentSchedulerHelper::checkAndSetPersistentBufferHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache,
-    const std::vector<TensorView*>& reduction_tvs ,
-    const bool is_inner_outer) {
+std::pair<bool, int64_t> PersistentSchedulerHelper::
+    checkAndSetPersistentBufferHeuristics(
+        Fusion* fusion,
+        SchedulerRuntimeInfo& runtime_info,
+        HeuristicSummary* data_cache,
+        const std::vector<TensorView*>& reduction_tvs,
+        const bool is_inner_outer) {
   auto persistent_buffer_info_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
           data_cache, [&fusion]() {
@@ -399,10 +399,11 @@ std::pair<bool, int64_t> PersistentSchedulerHelper::checkAndSetPersistentBufferH
   return std::make_pair(project_persistent_buffers, max_persistent_size);
 }
 
-std::pair<int64_t, int64_t> PersistentSchedulerHelper::getTensorInputNumAndMaxTypeSize(
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache,
-    TensorView* reduced_tv) {
+std::pair<int64_t, int64_t> PersistentSchedulerHelper::
+    getTensorInputNumAndMaxTypeSize(
+        SchedulerRuntimeInfo& runtime_info,
+        HeuristicSummary* data_cache,
+        TensorView* reduced_tv) {
   auto unrollable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
           data_cache, [&reduced_tv]() {
@@ -449,9 +450,6 @@ int64_t PersistentSchedulerHelper::getOutReductionDataTypeSize(
       "No outer reduction tv detected in InnerOuterPersistentScheduler.");
   return -1;
 }
-
-
-
 
 // common prepare for all reduction types
 void PersistentSchedulerHelper::beforeSchedule(
@@ -547,6 +545,5 @@ TensorView* PersistentSchedulerHelper::scheduleReductionGeneral(
   return reduction_scheduler_utils::scheduleReductionTV(
       rparams, reduction_tv, has_iter_axis);
 }
-
 
 } // namespace nvfuser

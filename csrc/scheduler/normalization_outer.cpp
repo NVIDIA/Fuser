@@ -20,10 +20,10 @@
 #include <scheduler/matmul_utils.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/pointwise.h>
+#include <scheduler/reduction_utils.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <tensor_metadata.h>
-#include <scheduler/reduction_utils.h>
 #include <limits>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -251,7 +251,6 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
 
   return true;
 }
-
 
 namespace {
 
@@ -625,7 +624,6 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   return rparams;
 }
 
-
 } // namespace
 
 std::shared_ptr<ReductionParams> OuterPersistentKernelScheduler::getHeuristics(
@@ -726,6 +724,5 @@ void OuterPersistentKernelScheduler::scheduleKernel(
 
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 }
-
 
 } // namespace nvfuser
