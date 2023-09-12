@@ -73,10 +73,9 @@ using int64_t = long long int;
 using uint64_t = unsigned long long int;
 
 // Modified from cuda.h
-#define CU_TENSOR_MAP_NUM_QWORDS 16
 struct TensorMap {
   alignas(64)
-  uint64_t opaque[CU_TENSOR_MAP_NUM_QWORDS];
+  uint64_t opaque[16];
 };
 )";
 }
