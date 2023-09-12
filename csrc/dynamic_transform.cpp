@@ -819,8 +819,15 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
       auto input_id = c2p.at(root_id);
       NVF_ERROR(
-          input_id == maybeMutated(input_id) &&
-              input_id->getIterType() != IterType::Symbolic,
+          input_id == maybeMutated(input_id),
+          "Consumer IterDomain ",
+          input_id->toString(),
+          " is still registered for mutation after traversing to ",
+          consumer->toString(),
+          ". Replacement is ",
+          maybeMutated(input_id)->toString());
+      NVF_ERROR(
+          input_id->getIterType() != IterType::Symbolic,
           "Producer ID not concretized: ",
           input_id->toString());
 
