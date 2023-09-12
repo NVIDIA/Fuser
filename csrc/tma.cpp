@@ -41,7 +41,7 @@ inline CUtensorMapDataType getCUtensorMapDataType(DataType dtype) {
     case PrimDataType::Int32:
       return CU_TENSOR_MAP_DATA_TYPE_INT32;
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unknown tensor map data type!");
+      NVF_ERROR(false, "Unknown tensor map data type!");
   }
 }
 
@@ -55,7 +55,7 @@ inline CUtensorMapInterleave getCUtensorMapInterleave(
     case TensorMapInterleave::B32:
       return CU_TENSOR_MAP_INTERLEAVE_32B;
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unknown tensor map interleave type!");
+      NVF_ERROR(false, "Unknown tensor map interleave type!");
   }
 }
 
@@ -70,7 +70,7 @@ inline CUtensorMapSwizzle getCUtensorMapSwizzle(TensorMapSwizzle swizzle) {
     case TensorMapSwizzle::B128:
       return CU_TENSOR_MAP_SWIZZLE_128B;
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unknown tensor map swizzle type!");
+      NVF_ERROR(false, "Unknown tensor map swizzle type!");
   }
 }
 
@@ -86,7 +86,7 @@ inline CUtensorMapL2promotion getCUtensorMapL2Promotion(
     case TensorMapL2Promotion::B256:
       return CU_TENSOR_MAP_L2_PROMOTION_L2_256B;
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unknown tensor map L2 promotion type!");
+      NVF_ERROR(false, "Unknown tensor map L2 promotion type!");
   }
 }
 
@@ -98,7 +98,7 @@ inline CUtensorMapFloatOOBfill getCUtensorMapFloatOOBfill(
     case TensorMapFloatOOBFill::NaN_Request_Zero_FMA:
       return CU_TENSOR_MAP_FLOAT_OOB_FILL_NAN_REQUEST_ZERO_FMA;
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unknown tensor map OOB fill type!");
+      NVF_ERROR(false, "Unknown tensor map OOB fill type!");
   }
 }
 
@@ -224,23 +224,23 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
   using namespace tma;
 #if (CUDA_VERSION >= 12000)
   cuuint32_t tensor_rank = tensorRank();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       inputs.size() == 5,
       "Incorrect number of inputs to EncodeTensorMapTiled!");
 
-  TORCH_INTERNAL_ASSERT(inputs.at(0).is<Pointer>());
+  NVF_ERROR(inputs.at(0).is<Pointer>());
   void* global_address = (void*)inputs.at(0);
 
-  TORCH_INTERNAL_ASSERT(inputs.at(1).is<std::vector>());
+  NVF_ERROR(inputs.at(1).is<std::vector>());
   auto global_dim = (std::vector<cuuint64_t>)inputs.at(1);
 
-  TORCH_INTERNAL_ASSERT(inputs.at(2).is<std::vector>());
+  NVF_ERROR(inputs.at(2).is<std::vector>());
   auto global_strides = (std::vector<cuuint64_t>)inputs.at(2);
 
-  TORCH_INTERNAL_ASSERT(inputs.at(3).is<std::vector>());
+  NVF_ERROR(inputs.at(3).is<std::vector>());
   auto box_dim = (std::vector<cuuint32_t>)inputs.at(3);
 
-  TORCH_INTERNAL_ASSERT(inputs.at(4).is<std::vector>());
+  NVF_ERROR(inputs.at(4).is<std::vector>());
   auto element_strides = (std::vector<cuuint32_t>)inputs.at(4);
 
   CUtensorMapDataType data_type = getCUtensorMapDataType(dataType());
@@ -254,39 +254,39 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
   // Checks based on the documentation of cuTensorMapEncodeTiled, error messages
   // are mostly directly copied from the doc
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       tensor_rank != 0 && tensor_rank <= 5,
       "tensorRank must be non-zero and less than or equal to the maximum supported dimensionality of 5");
   if (interleave != CU_TENSOR_MAP_INTERLEAVE_NONE) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         tensor_rank >= 3,
         "If interleave is not CU_TENSOR_MAP_INTERLEAVE_NONE, then tensorRank must additionally be greater than or equal to 3.");
   }
 
   if (interleave == CU_TENSOR_MAP_INTERLEAVE_32B) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         reinterpret_cast<size_t>(global_address) % 32 == 0,
         "globalAddress, which specifies the starting address of the memory region described, must be 32 byte aligned when interleave is CU_TENSOR_MAP_INTERLEAVE_32B and 16 byte aligned otherwise.");
   } else {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         reinterpret_cast<size_t>(global_address) % 16 == 0,
         "globalAddress, which specifies the starting address of the memory region described, must be 32 byte aligned when interleave is CU_TENSOR_MAP_INTERLEAVE_32B and 16 byte aligned otherwise.");
   }
 
   for (auto global_dim_val : global_dim) {
     constexpr cuuint64_t max_size = (cuuint64_t)1 << 32;
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         global_dim_val != 0 && global_dim_val <= max_size,
         "globalDim array, which specifies tensor size of each of the tensorRank dimensions, must be non-zero and less than or equal to 2^32.");
   }
 
   for (auto global_stride_val : global_strides) {
     constexpr cuuint64_t max_stride = (cuuint64_t)1 << 40;
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         global_stride_val % 16 == 0 && global_stride_val <= max_stride,
         "globalStrides array, which specifies tensor stride of each of the lower tensorRank - 1 dimensions in bytes, must be a multiple of 16 and less than 2^40.");
     if (interleave == CU_TENSOR_MAP_INTERLEAVE_32B) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           global_stride_val % 32 == 0,
           "The stride must be a multiple of 32 when interleave is CU_TENSOR_MAP_INTERLEAVE_32B.");
     }
@@ -295,35 +295,35 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
   if (tensor_rank > 1) {
     int64_t padding0 =
         (int64_t)global_strides.at(0) - (int64_t)global_dim.at(0) * elem_size;
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         padding0 >= 0,
         "Negative pad0 for: globalStrides[0] = globalDim[0] * elementSizeInBytes(tensorDataType) + padding[0];");
     for (int i = 1; i < (int64_t)tensor_rank - 1; i++) {
       int64_t stride_mul_pad_i = (int64_t)global_strides.at(i) -
           (int64_t)global_dim.at(i) * (int64_t)global_strides.at(i - 1);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           stride_mul_pad_i >= 0,
           "Negative globalStrides[i – 1] * padding[i] for: globalStrides[i] = globalStrides[i – 1] * (globalDim[i] + padding[i]);");
       // TODO: the check below is copied from the official doc, but does it
       // really make sense? Strides are in the unit of bytes, but global_dim is
       // in the unit of elements, how can they compare with each other?
-      TORCH_INTERNAL_ASSERT(global_strides.at(i) >= global_dim.at(i));
+      NVF_ERROR(global_strides.at(i) >= global_dim.at(i));
     }
   }
 
   for (auto box_dim_val : box_dim) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         box_dim_val != 0 && box_dim_val <= 256,
         "boxDim array, which specifies number of elements to be traversed along each of the tensorRank dimensions, must be non-zero and less than or equal to 256.");
   }
   if (interleave == CU_TENSOR_MAP_INTERLEAVE_NONE) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         (box_dim[0] * elem_size) % 16 == 0,
         "When interleave is CU_TENSOR_MAP_INTERLEAVE_NONE, { boxDim[0] * elementSizeInBytes( tensorDataType ) } must be a multiple of 16 bytes.");
   }
 
   for (auto element_stride_val : element_strides) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         element_stride_val != 0 && element_stride_val <= 8,
         "elementStrides array, which specifies the iteration step along each of the tensorRank dimensions, must be non-zero and less than or equal to 8.");
   }
@@ -332,17 +332,17 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
     auto bounding_box_inner_dim = box_dim.at(0) * elem_size;
     switch (swizzle) {
       case CU_TENSOR_MAP_SWIZZLE_32B:
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             bounding_box_inner_dim <= 32,
             "CU_TENSOR_MAP_SWIZZLE_32B implies the bounding box inner dimension will be <= 32.");
         break;
       case CU_TENSOR_MAP_SWIZZLE_64B:
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             bounding_box_inner_dim <= 64,
             "CU_TENSOR_MAP_SWIZZLE_64B implies the bounding box inner dimension will be <= 64.");
         break;
       case CU_TENSOR_MAP_SWIZZLE_128B:
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             bounding_box_inner_dim <= 128,
             "CU_TENSOR_MAP_SWIZZLE_128B implies the bounding box inner dimension will be <= 128.");
         break;
@@ -351,13 +351,13 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
   }
 
   if (interleave == CU_TENSOR_MAP_INTERLEAVE_32B) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         swizzle == CU_TENSOR_MAP_SWIZZLE_32B,
         "When interleave is CU_TENSOR_MAP_INTERLEAVE_32B, swizzle must be CU_TENSOR_MAP_SWIZZLE_32B.");
   }
 
   if (oob_fill == CU_TENSOR_MAP_FLOAT_OOB_FILL_NAN_REQUEST_ZERO_FMA) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         isFloatingPointType(dataType()),
         "CU_TENSOR_MAP_FLOAT_OOB_FILL_NAN_REQUEST_ZERO_FMA can only be used when tensorDataType represents a floating-point data type.");
   }
@@ -384,7 +384,7 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
 
   return {Opaque{tensor_map}};
 #else
-  TORCH_INTERNAL_ASSERT(false, "TMA is only supported on CUDA 12 and above!");
+  NVF_ERROR(false, "TMA is only supported on CUDA 12 and above!");
 #endif
 }
 
