@@ -54,6 +54,11 @@ Val* OptOutMutator::maybeMutated(Val* val) const {
 }
 
 void OptOutMutator::registerMutation(Val* val, Val* mutation) {
+  if (val == mutation) {
+    // Avoid registering trivial mutations since they are wasteful and
+    // complicate the two-hop check in maybeMutated
+    return;
+  }
   bool val_is_ns = val->vtype() == ValType::NamedScalar;
   bool mutation_is_ns = mutation->vtype() == ValType::NamedScalar;
   bool val_is_scalar = val->vtype() == ValType::Others;
