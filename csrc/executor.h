@@ -196,14 +196,9 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   std::string getStructuredCode() const;
 
-  //! Returns the latest compile log
-  std::string compilerLog() const {
-    return compiled_kernel_.compile_log;
-  }
-
-  //! Returns the latest compiled PTX.
-  std::vector<char> compiledPtx() const {
-    return compiled_kernel_.ptx;
+  //! Returns a const reference to the latest compiled kernel.
+  const executor_utils::CompiledKernel& compiledKernel() const {
+    return compiled_kernel_;
   }
 
   //! Returns the disassembled latest compiled binary

@@ -762,7 +762,7 @@ std::vector<char> nvrtcGetCode(
   return code;
 }
 
-void dumpCompiledCodeToFile(
+std::string dumpCompiledCodeToFile(
     const std::vector<char>& code,
     int64_t fusion_id,
     bool dump_cubin) {
@@ -774,6 +774,7 @@ void dumpCompiledCodeToFile(
   NVF_ERROR(out.is_open());
   out.write(code.data(), (std::streamsize)code.size());
   out.close();
+  return file_name.str();
 }
 
 // Get the max register count passed as -maxrregcount ptxas
@@ -1116,8 +1117,8 @@ void createNvrtcProgram(
 CompiledKernel compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
-    int64_t id,
-    bool compile_to_sass,
+    const int64_t id,
+    const bool compile_to_sass,
     NvrtcCompileDriver& nvrtc_compile) {
   std::stringstream log;
 
@@ -1140,18 +1141,19 @@ CompiledKernel compileSource(
   compiled_kernel.compile_log = log.str();
 
   if (compile_to_sass) {
-    compiled_kernel.cubin = nvrtcGetCode(program, true);
-  } else {
-    compiled_kernel.ptx = nvrtcGetCode(program, false);
+    compiled_kernel.cubin = nvrtcGetCode(program, /*compile_to_sass=*/true);
+    if (isDebugDumpEnabled(DebugDumpOption::Cubin)) {
+      compiled_kernel.cubin_filename = dumpCompiledCodeToFile(
+          compiled_kernel.cubin, id, /*dump_cubin=*/true);
+    }
   }
 
-  if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
-    NVF_ERROR(!compiled_kernel.ptx.empty());
-    dumpCompiledCodeToFile(compiled_kernel.ptx, id, /*dump_cubin=*/false);
-  }
-  if (isDebugDumpEnabled(DebugDumpOption::Cubin)) {
-    NVF_ERROR(!compiled_kernel.cubin.empty());
-    dumpCompiledCodeToFile(compiled_kernel.cubin, id, /*dump_cubin=*/true);
+  if (!compile_to_sass || isDebugDumpEnabled(DebugDumpOption::Ptx)) {
+    compiled_kernel.ptx = nvrtcGetCode(program, /*compile_to_sass=*/false);
+    if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
+      compiled_kernel.ptx_filename =
+          dumpCompiledCodeToFile(compiled_kernel.ptx, id, /*dump_cubin=*/false);
+    }
   }
 
   return compiled_kernel;
@@ -1195,10 +1197,7 @@ CompiledKernel getCompiledKernel(
   compile_to_sass = false;
 #endif
 
-  if (isOptionDisabled(DisableOption::CompileToSass) ||
-      isDebugDumpEnabled(DebugDumpOption::Ptx)) {
-    // Allows manually disabling compilation to sass
-    //  so the intermediate ptx could be checked.
+  if (isOptionDisabled(DisableOption::CompileToSass)) {
     compile_to_sass = false;
   }
 
