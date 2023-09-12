@@ -43,13 +43,19 @@ std::string disassembleBinary(
     const std::vector<char>& cubin,
     const std::string& nvdisasm_args);
 
-struct NvrtcFunction {
+struct CompiledKernel {
   CUmodule module = nullptr;
   CUfunction function = nullptr;
+  std::string compile_log;
+  std::vector<char> ptx;
+  std::string ptx_filename;
+  std::vector<char> cubin;
+  std::string cubin_filename;
+  std::string kernel_name;
 };
 
 // Returns executable function and the ptxas log from compilation
-std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
+CompiledKernel getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& code,
     const std::string& func_name,

@@ -8,14 +8,17 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <filesystem>
 #include <regex>
 
+#include <debug.h>
 #include <fusion.h>
 #include <inlining.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
+#include <options.h>
 #include <test/utils.h>
 #include <test/validator.h>
 #include <type.h>
@@ -58,18 +61,24 @@ TEST_F(MemoryTest, LoadCache) {
   FusionExecutor fe;
   fe.setSaveCompiledBinaryFlag(true);
   {
-    DisableOptionsGuard og;
-    DisableOptionsGuard::getCurOptions().set(DisableOption::CompileToSass);
+    DebugDumpOptionsGuard debug_dump_options_guard;
+    DebugDumpOptionsGuard::getCurOptions().set(DebugDumpOption::Ptx);
     fe.compileFusion(&fusion, {input});
   }
-  std::vector<char> compiled_binary = fe.compiledBinary();
-  std::string ptx(compiled_binary.begin(), compiled_binary.end());
 
+  // Verify PTX.
+  const executor_utils::CompiledKernel compiled_kernel = fe.compiledKernel();
+  std::string ptx(compiled_kernel.ptx.begin(), compiled_kernel.ptx.end());
   std::regex regex(R"(ld\.global\.ca\.\S+)");
   std::smatch match;
   std::regex_search(ptx, match, regex);
   EXPECT_EQ(match.size(), 1);
 
+  // Clean up the dumped PTX file.
+  debug() << "Removing " << compiled_kernel.ptx_filename << std::endl;
+  std::filesystem::remove(compiled_kernel.ptx_filename);
+
+  // Verify output tensors.
   std::vector<at::Tensor> actual_ts = fe.runFusion({input});
   testValidate(
       &fusion, actual_ts, {input}, {expected_output}, __LINE__, __FILE__);
