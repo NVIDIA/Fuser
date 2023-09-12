@@ -2791,6 +2791,12 @@ TEST_F(ResizeTest, ReshapeToPad) {
 
   auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
 
+  // Assert that we segmented into two segments
+  auto seg_fusion =
+      fusion_executor_cache.getMostRecentKernelRuntime()->fusionSegments();
+  EXPECT_TRUE(seg_fusion->isSegmented());
+  EXPECT_EQ(seg_fusion->groups().size(), 2);
+
   testValidate(
       fusion_executor_cache.fusion(),
       outputs,
@@ -2829,6 +2835,12 @@ TEST_F(ResizeTest, ReshapeToSlice) {
   auto at_y = at::slice(at::slice(at_x.reshape({3, 4}), 0, 0, 3), 1, 0, 2);
 
   auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
+
+  // Assert that we segmented into two segments
+  auto seg_fusion =
+      fusion_executor_cache.getMostRecentKernelRuntime()->fusionSegments();
+  EXPECT_TRUE(seg_fusion->isSegmented());
+  EXPECT_EQ(seg_fusion->groups().size(), 2);
 
   testValidate(
       fusion_executor_cache.fusion(),
