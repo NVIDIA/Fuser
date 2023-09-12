@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <scheduler/persistent_scheduler_helper.h>
+#include <scheduler/normalization_helper.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
 
@@ -31,6 +31,15 @@ class OuterPersistentKernelScheduler : public SchedulerEntry,
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
+
+  static std::shared_ptr<ReductionParams> getHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache = nullptr);
+
+  static void scheduleKernel(
+    Fusion* fusion,
+    const ReductionParams& rparams);
 
  private:
   void computeHeuristics(

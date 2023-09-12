@@ -10,11 +10,8 @@
 #include <instrumentation.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/debug_utils.h>
-#include <scheduler/inner_outer_persistent_kernel_scheduler.h>
-#include <scheduler/inner_persistent_kernel_scheduler.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/normalization_utils.h>
-#include <scheduler/outer_persistent_kernel_scheduler.h>
 #include <scheduler/pointwise.h>
 #include <scheduler/registry.h>
 #include <scheduler/registry_utils.h>
@@ -903,17 +900,18 @@ HeuristicSummary::HeuristicSummary(
       ReductionScheduler::canScheduleRunTime(fusion, runtime_info, this);
       break;
     case ScheduleHeuristic::InnerPersistent:
-      getInnerPersistentHeuristics(fusion, runtime_info, this);
+      InnerPersistentKernelScheduler::getHeuristics(fusion, runtime_info, this);
       InnerPersistentKernelScheduler::canScheduleRunTime(
           fusion, runtime_info, this);
       break;
     case ScheduleHeuristic::OuterPersistent:
-      getOuterPersistentHeuristics(fusion, runtime_info, this);
+      OuterPersistentKernelScheduler::getHeuristics(fusion, runtime_info, this);
       OuterPersistentKernelScheduler::canScheduleRunTime(
           fusion, runtime_info, this);
       break;
     case ScheduleHeuristic::InnerOuterPersistent:
-      getInnerOuterPersistentHeuristics(fusion, runtime_info, this);
+      InnerOuterPersistentKernelScheduler::getHeuristics(
+          fusion, runtime_info, this);
       InnerOuterPersistentKernelScheduler::canScheduleRunTime(
           fusion, runtime_info, this);
       break;

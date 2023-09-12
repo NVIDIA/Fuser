@@ -17,7 +17,9 @@ enum class ScheduleHeuristic {
   NoOp,
   PointWise,
   Reduction,
-  Persistent,
+  InnerPersistent,
+  OuterPersistent,
+  InnerOuterPersistent,
   Transpose,
   Matmul
 };
