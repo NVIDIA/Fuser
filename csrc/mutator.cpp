@@ -199,7 +199,6 @@ Expr* OptOutMutator::mutateExpr(
 
   auto container = op->container();
   auto newObjectFunc = op->newObjectFunc();
-  const auto op_outputs = op->outputs();
   removeExpr(container, op);
   auto new_expr =
       newObjectFunc(container, mutated_inputs, mutated_outputs, mutated_attrs);
