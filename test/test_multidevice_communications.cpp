@@ -8,7 +8,7 @@
 #ifdef USE_DISTRIBUTED
 #include <gtest/gtest.h>
 
-#include <multidevice/collective.h>
+#include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <test/utils.h>
 
@@ -20,7 +20,7 @@ static constexpr DeviceIdxType root = 0;
 static constexpr int tensor_size = 1024;
 static constexpr int number_of_repetitions = 8;
 
-TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Gather_CUDA) {
+TEST_F(MultiDeviceTest, FusionMultiGPU_Communication_Gather_CUDA) {
   if (!comm.is_available() || comm.size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks";
   }
@@ -37,7 +37,7 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Gather_CUDA) {
       params.dst_bufs.push_back(at::empty(tensor_size, options));
     }
   }
-  auto coll = Gather(params);
+  auto communication = Gather(params);
 
   for (int j : c10::irange(number_of_repetitions)) {
     params.src_bufs.at(0).copy_(at::arange(tensor_size, options) + (comm.deviceId() + 1) * j);
@@ -45,7 +45,7 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Gather_CUDA) {
       buf.copy_(at::zeros(tensor_size, options));
     }
 
-    auto work = coll.post(comm);
+    auto work = communication.post(comm);
     work->wait();
 
     if (comm.deviceId() == root) {
@@ -66,7 +66,7 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Gather_CUDA) {
   comm.barrier();
 }
 
-TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Allgather_CUDA) {
+TEST_F(MultiDeviceTest, FusionMultiGPU_Communication_Allgather_CUDA) {
   if (!comm.is_available() || comm.size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks";
   }
@@ -80,7 +80,7 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Allgather_CUDA) {
   for (int i = 0; i < comm.size(); i++) {
     params.dst_bufs.push_back(at::empty(tensor_size, options));
   }
-  auto coll = Allgather(params);
+  auto communication = Allgather(params);
 
   for (int j : c10::irange(number_of_repetitions)) {
     params.src_bufs.at(0).copy_(at::arange(tensor_size, options) + (comm.deviceId() + 1) * j);
@@ -88,7 +88,7 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Allgather_CUDA) {
       buf.copy_(at::zeros(tensor_size, options));
     }
 
-    auto work = coll.post(comm);
+    auto work = communication.post(comm);
     work->wait();
 
     for (int i : c10::irange(comm.size())) {
@@ -107,7 +107,7 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Allgather_CUDA) {
   comm.barrier();
 }
 
-TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Scatter_CUDA) {
+TEST_F(MultiDeviceTest, FusionMultiGPU_Communication_Scatter_CUDA) {
   if (!comm.is_available() || comm.size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks";
   }
@@ -124,7 +124,7 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Scatter_CUDA) {
     }
   }
   params.dst_bufs = {at::empty(tensor_size, options)};
-  auto coll = Scatter(params);
+  auto communication = Scatter(params);
 
   for (int j : c10::irange(number_of_repetitions)) {
     params.dst_bufs.at(0).copy_(at::zeros(tensor_size, options));
@@ -132,7 +132,7 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Scatter_CUDA) {
       params.src_bufs.at(i).copy_(at::arange(tensor_size, options) + (i + 1) * j);
     }
 
-    auto work = coll.post(comm);
+    auto work = communication.post(comm);
     work->wait();
 
     auto obtained = params.dst_bufs.at(0);
@@ -149,7 +149,7 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Scatter_CUDA) {
   comm.barrier();
 }
 
-TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Broadcast_CUDA) {
+TEST_F(MultiDeviceTest, FusionMultiGPU_Communication_Broadcast_CUDA) {
   if (!comm.is_available() || comm.size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks";
   }
@@ -165,7 +165,7 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Broadcast_CUDA) {
   } else {
     params.dst_bufs = {at::empty(tensor_size, options)};
   }
-  auto coll = Broadcast(params);
+  auto communication = Broadcast(params);
 
   for (int j : c10::irange(number_of_repetitions)) {
     if (comm.deviceId() == root) {
@@ -174,7 +174,7 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Broadcast_CUDA) {
       params.dst_bufs.at(0).copy_(at::zeros(tensor_size, options));
     }
 
-    auto work = coll.post(comm);
+    auto work = communication.post(comm);
     work->wait();
 
     if (comm.deviceId() != root) {
@@ -193,7 +193,7 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_Broadcast_CUDA) {
   comm.barrier();
 }
 
-TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_SendRecv_CUDA) {
+TEST_F(MultiDeviceTest, FusionMultiGPU_Communication_SendRecv_CUDA) {
   DeviceIdxType sender = 0;
   DeviceIdxType receiver = 1;
   if (!comm.is_available() || comm.size() < 2) {
@@ -214,7 +214,7 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_SendRecv_CUDA) {
   } else {
     params.dst_bufs.push_back(at::empty(tensor_size, options));
   }
-  auto coll = SendRecv(params);
+  auto communication = SendRecv(params);
 
   for (int j : c10::irange(number_of_repetitions)) {
     if (comm.deviceId() == sender) {
@@ -223,7 +223,7 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Collective_SendRecv_CUDA) {
       params.dst_bufs.at(0).copy_(at::zeros(tensor_size, options));
     }
 
-    auto work = coll.post(comm);
+    auto work = communication.post(comm);
     work->wait();
 
     if (comm.deviceId() == receiver) {

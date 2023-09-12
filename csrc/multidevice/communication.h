@@ -15,7 +15,7 @@ namespace nvfuser {
 
 /*
   This struct gathers all the parameters necessary for the
-  construction a collective
+  construction a communication
 */
 struct TORCH_CUDA_CU_API CommParams {
   DeviceIdxType root = -1;
@@ -25,35 +25,35 @@ struct TORCH_CUDA_CU_API CommParams {
 };
 
 /*
-The class "Collective" represents a MPI-style collective
-communication operation to be executed on the network. The base class Collective
+The class "Communication" represents a MPI-style communication
+communication operation to be executed on the network. The base class Communication
 should not be used directly but through its derived classes:
 Broadcast, Gather, Scatter, Allgather, and SendRecv. Other collectives will be
 added later.
 
-Later, Collective could be made a derived class of Expr and be thought
+Later, Communication could be made a derived class of Expr and be thought
 as a kernel IRs resulting of the lowering of a PipelineCommunication.
 
-CommParams contains the arguments for the collective constructors.
+CommParams contains the arguments for the communication constructors.
 Note that each process (associated with a device index given by
 communicator.deviceId()) will fill CommParams with different arguments,
-depending on the role they play in this collective. For example, the root of a
-Gather collective will have <team_size> destination buffers, whereas non-root
+depending on the role they play in this communication. For example, the root of a
+Gather communication will have <team_size> destination buffers, whereas non-root
 will have no destination buffers. Also, the ranks not participating in the
-collective should not instantiate it.
+communication should not instantiate it.
 
-The method "post" triggers the execution of the collective. This call is
-non-blocking. The collective can be posted multiple times.
+The method "post" triggers the execution of the communication. This call is
+non-blocking. The communication can be posted multiple times.
 It is assumed that the current device_index (given by
-communicator.deviceId()) belongs to the team of the collective,
+communicator.deviceId()) belongs to the team of the communication,
 otherwise an error is thrown.
 
 NOTE: pytorch's NCCL process group API needs <team_size> buffers on root for scatter/gather operation.
 */
 
-class TORCH_CUDA_CU_API Collective {
+class TORCH_CUDA_CU_API Communication {
  public:
-  virtual ~Collective() = default;
+  virtual ~Communication() = default;
 
   std::string toString(int indent = 0) const;
 
@@ -61,16 +61,16 @@ class TORCH_CUDA_CU_API Collective {
     return params_;
   }
 
-  // Triggers the execution of the collective. This is a non-blocking call.
-  // The collective can be posted multiple times
+  // Triggers the execution of the communication. This is a non-blocking call.
+  // The communication can be posted multiple times
   virtual c10::intrusive_ptr<c10d::Work> post(Communicator& comm) = 0;
 
  protected:
   // argument "name" is only used for printing
-  // argument "has_root" indicates if the collective is rooted
-  Collective(CommParams params, std::string name, bool has_root = true);
+  // argument "has_root" indicates if the communication is rooted
+  Communication(CommParams params, std::string name, bool has_root = true);
 
-  // store the arguments of the collective
+  // store the arguments of the communication
   CommParams params_;
   // stores the relative index of the root in the team
   DeviceIdxType root_relative_index_ = -1;
@@ -80,7 +80,7 @@ class TORCH_CUDA_CU_API Collective {
  private:
   // used for printing
   std::string collective_type_;
-  // indicates if the collective is rooted
+  // indicates if the communication is rooted
   bool has_root_ = true;
 };
 
@@ -93,7 +93,7 @@ Requirements:
   - non-roots have no src buffer and one dst buffer
   - all buffers have the same size
 */
-class TORCH_CUDA_CU_API Broadcast : public Collective {
+class TORCH_CUDA_CU_API Broadcast : public Communication {
  public:
   Broadcast(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
@@ -110,7 +110,7 @@ Requirements:
   - non-roots have one src buffer and no dst buffer
   - all buffers have the same size
 */
-class TORCH_CUDA_CU_API Gather : public Collective {
+class TORCH_CUDA_CU_API Gather : public Communication {
  public:
   Gather(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
@@ -125,7 +125,7 @@ Requirements:
   - all device have one src buffer and <team_size> dst buffers
   - all buffers have the same size
 */
-class TORCH_CUDA_CU_API Allgather : public Collective {
+class TORCH_CUDA_CU_API Allgather : public Communication {
  public:
   Allgather(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
@@ -141,7 +141,7 @@ Requirements:
   - non-roots have no src buffer and one dst buffer
   - all buffers have the same size
 */
-class TORCH_CUDA_CU_API Scatter : public Collective {
+class TORCH_CUDA_CU_API Scatter : public Communication {
  public:
   Scatter(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
@@ -159,7 +159,7 @@ sender
   - the unique non-root have no src buffer and one dst buffer
   - all buffers have the same size
 */
-class TORCH_CUDA_CU_API SendRecv : public Collective {
+class TORCH_CUDA_CU_API SendRecv : public Communication {
  public:
   SendRecv(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;

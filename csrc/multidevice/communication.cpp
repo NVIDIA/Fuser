@@ -7,7 +7,7 @@
 // clang-format on
 #ifdef USE_DISTRIBUTED
 
-#include <multidevice/collective.h>
+#include <multidevice/communication.h>
 
 namespace nvfuser {
 namespace {
@@ -44,7 +44,7 @@ inline void assertBuffersHaveSameSize(
   }
 }
 
-inline void post_common(Collective& self, Communicator& comm) {
+inline void post_common(Communication& self, Communicator& comm) {
   NVF_ERROR(
       std::find(
           self.params().team.begin(),
@@ -52,12 +52,12 @@ inline void post_common(Collective& self, Communicator& comm) {
           comm.deviceId()) != self.params().team.end(),
       "current device index ",
       comm.deviceId(),
-      " must be present in the collective's team");
+      " must be present in the communication's team");
 }
 
 } // namespace
 
-Collective::Collective(CommParams params, std::string name, bool has_root)
+Communication::Communication(CommParams params, std::string name, bool has_root)
     : params_(std::move(params)),
       collective_type_(std::move(name)),
       has_root_(has_root) {
@@ -65,7 +65,7 @@ Collective::Collective(CommParams params, std::string name, bool has_root)
   NVF_ERROR(
       std::unique(params_.team.begin(), params_.team.end()) ==
           params_.team.end(),
-      "the collective must not involve the same device more than once");
+      "the communication must not involve the same device more than once");
   NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
   if (has_root_) {
     auto it = std::find(params_.team.begin(), params_.team.end(), params_.root);
@@ -73,7 +73,7 @@ Collective::Collective(CommParams params, std::string name, bool has_root)
         it != params_.team.end(),
         "root (device ",
         params_.root,
-        ") must be present in the collective's team");
+        ") must be present in the communication's team");
     // pytorch's process group expects the root to be specified
     // as an integer between 0 and world_size-1. We choose it to be
     // the device's relative index within the team
@@ -81,13 +81,13 @@ Collective::Collective(CommParams params, std::string name, bool has_root)
   }
 }
 
-std::string Collective::toString(int indent) const {
+std::string Communication::toString(int indent) const {
   std::stringstream ss;
   std::string ext_indent(" ", indent);
   std::string indent1 = ext_indent + "  ";
   std::string indent2 = ext_indent + "    ";
 
-  ss << ext_indent << "Collective " << collective_type_ << ": {\n";
+  ss << ext_indent << "Communication " << collective_type_ << ": {\n";
 
   if (has_root_) {
     ss << indent1 << "root: " << params_.root << ",\n";
@@ -107,7 +107,7 @@ std::string Collective::toString(int indent) const {
   return ss.str();
 }
 
-Broadcast::Broadcast(CommParams params) : Collective(params, "broadcast") {}
+Broadcast::Broadcast(CommParams params) : Communication(params, "broadcast") {}
 
 c10::intrusive_ptr<c10d::Work> Broadcast::post(Communicator& comm) {
   post_common(*this, comm);
@@ -126,7 +126,7 @@ c10::intrusive_ptr<c10d::Work> Broadcast::post(Communicator& comm) {
           {.rootRank = root_relative_index_});
 }
 
-Gather::Gather(CommParams params) : Collective(params, "gather") {
+Gather::Gather(CommParams params) : Communication(params, "gather") {
   assertBufferCount(params_.src_bufs, 1);
   buf_list_ = setBufList(params_.dst_bufs);
 }
@@ -144,7 +144,7 @@ c10::intrusive_ptr<c10d::Work> Gather::post(Communicator& comm) {
 }
 
 Allgather::Allgather(CommParams params)
-    : Collective(params, "allgather", false) {
+    : Communication(params, "allgather", false) {
   assertBufferCount(params_.src_bufs, 1);
   assertBufferCount(params_.dst_bufs, params_.team.size());
   buf_list_ = setBufList(params_.dst_bufs);
@@ -156,7 +156,7 @@ c10::intrusive_ptr<c10d::Work> Allgather::post(Communicator& comm) {
       ->allgather(buf_list_, params_.src_bufs, {});
 }
 
-Scatter::Scatter(CommParams params) : Collective(params, "scatter") {
+Scatter::Scatter(CommParams params) : Communication(params, "scatter") {
   assertBufferCount(params_.dst_bufs, 1);
   buf_list_ = setBufList(params_.src_bufs);
 }
@@ -173,7 +173,7 @@ c10::intrusive_ptr<c10d::Work> Scatter::post(Communicator& comm) {
           params_.dst_bufs, buf_list_, {.rootRank = root_relative_index_});
 }
 
-SendRecv::SendRecv(CommParams params) : Collective(params, "send/recv") {
+SendRecv::SendRecv(CommParams params) : Communication(params, "send/recv") {
   NVF_ERROR(params_.team.size() == 2, "the team size should be 2");
 }
 
