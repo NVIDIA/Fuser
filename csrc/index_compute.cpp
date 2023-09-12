@@ -2054,7 +2054,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
 
   for (const auto i : c10::irange(alloc_dom.size())) {
-    if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast()) {
+    if (alloc_dom[i]->isReduction()) {
       continue;
     }
 
@@ -2067,6 +2067,11 @@ std::vector<Val*> Index::getProducerAllocationIndices(
         producer_indexing.indexMap().find(alloc_dom[i]) !=
         producer_indexing.indexMap().end()) {
       alloc_ind = producer_indexing.indexMap().at(alloc_dom[i]);
+    }
+
+    if (alloc_dom[i]->isBroadcast()) {
+      alloc_inds.at(i) = alloc_ind;
+      continue;
     }
 
     NVF_ERROR(

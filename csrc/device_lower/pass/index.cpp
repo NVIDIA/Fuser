@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <index_compute.h>
@@ -13,6 +14,7 @@
 #include <ops/arith.h>
 #include <options.h>
 #include <predicate_compute.h>
+#include <transform_iter.h>
 
 #include <device_lower/pass/index.h>
 
@@ -1456,7 +1458,7 @@ void IndexLowering::allocateUniqueFusedReduction(
 
 void IndexLowering::handle(const PadOp* pad) {
   // Convert to a where op as:
-  // consumer[consumer_idx] = (produer_idx >= 0 && produer_idx <
+  // consumer[consumer_idx] = (producer_idx >= 0 && producer_idx <
   //                           producer_extent) ?
   //     producer[producer_idx] :
   //     0;
@@ -1471,8 +1473,54 @@ void IndexLowering::handle(const PadOp* pad) {
 
   const auto pad_val = pad->value();
 
+  std::unordered_map<IterDomain*, Val*> override_index;
+  for (auto padded_axis : pad->getPaddedAxes()) {
+    auto padded_id = producer_doms.at(padded_axis);
+    if (padded_id->isBroadcast()) {
+      // When we pad a Broadcast IterDomain, we should not treat it as a
+      // Broadcast as we normally would. Instead, we will treat it as a regular
+      // Iteration domain with extent 1.
+      //
+      // The following is copied from Index::getProducerPerDimLogicalIndex()
+      // TODO: clean this up and get the producer index in a more direct way
+
+      auto c2p_root_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
+                              .mapBroadcast(false)
+                              .mapConsumerToProducer(
+                                  consumer_tv->domain(), producer_tv->domain());
+
+      // This replay has to be consistent with compute at index map.
+      BestEffortReplay replay_producer_as_consumer(
+          producer_tv->getLeafDomain(),
+          consumer_tv->getLeafDomain(),
+          c2p_root_map);
+
+      auto c2p_map = replay_producer_as_consumer.getReplay();
+      auto producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
+          for_loops_,
+          getRotatedLoop(),
+          consumer_tv,
+          producer_tv,
+          true,
+          c2p_map);
+
+      auto producer_indexing = producer_indexing_from_idgraph.index;
+
+      const auto& index_map = producer_indexing.indexMap();
+      const auto index_it = index_map.find(padded_id);
+      if (index_it != index_map.end()) {
+        std::cout << "Overriding index for " << padded_id->toString() << " as "
+                  << index_it->second->toInlineString() << std::endl;
+        override_index.emplace(padded_id, index_it->second);
+      } else {
+        std::cout << "Couldn't find index for " << padded_id->toString()
+                  << std::endl;
+      }
+    }
+  }
+
   const auto producer_root_indices = Index::getProducerPerDimLogicalIndex(
-      producer_tv, consumer_tv, for_loops_, getRotatedLoop());
+      producer_tv, consumer_tv, for_loops_, getRotatedLoop(), override_index);
 
   // Build a predicate for where
   Val* pred = IrBuilder::create<Val>(true);
