@@ -1,5 +1,14 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
+
 #include <exceptions.h>
 #include <scheduler/heuristic_types.h>
+
 namespace nvfuser {
 
 std::string toString(ScheduleHeuristic sh) {
