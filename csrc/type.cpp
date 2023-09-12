@@ -702,6 +702,8 @@ static const char* parallel_type2string(ParallelType t) {
       return "G";
     case ParallelType::Serial:
       return "S";
+    case ParallelType::Bulk:
+      return "B";
     default:
       NVF_ERROR(false, "Unexpected ParallelType");
   }
@@ -722,7 +724,8 @@ std::unordered_set<ParallelType> allParallelTypesExcept(
       ParallelType::Unswitch,
       ParallelType::Mma,
       ParallelType::Group,
-      ParallelType::Serial};
+      ParallelType::Serial,
+      ParallelType::Bulk};
   for (auto t : except) {
     result.erase(t);
   }
@@ -815,6 +818,8 @@ const char* load_store_type2string(LoadStoreOpType t) {
       return "CpAsyncCa";
     case LoadStoreOpType::CpAsyncCg:
       return "CpAsyncCg";
+    case LoadStoreOpType::CpAsyncBulkTensorTile:
+      return "CpAsyncBulkTensorTile";
     default:
       NVF_ERROR(false, "Unexpected parallel type");
   }
