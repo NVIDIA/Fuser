@@ -305,7 +305,7 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
         "Found non-dynamic Resize in initial concretization info: ",
         op->toString());
 
-    auto extent_val = expr_eval->evaluate(out_id->extent());
+    auto extent_val = expr_eval->evaluate(out_id->getMaybeExpandedExtent());
     NVF_ERROR(
         extent_val.hasValue(),
         "Cannot evaluate the extent of a resized domain: ",
@@ -678,7 +678,8 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
       }
       // Update the IterType of each output
       for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
-        if (!out_id->isSymbolic()) {
+        auto mut_id = maybeMutated(out_id)->as<IterDomain>();
+        if (!mut_id->isSymbolic()) {
           continue;
         }
 
@@ -690,9 +691,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
             expr->toString());
 
         auto concretized_out_id =
-            IterDomainBuilder(maybeMutated(out_id)->as<IterDomain>())
-                .iter_type(iter_type)
-                .build();
+            IterDomainBuilder(mut_id).iter_type(iter_type).build();
         registerConcretization(out_id, concretized_out_id);
       }
 
