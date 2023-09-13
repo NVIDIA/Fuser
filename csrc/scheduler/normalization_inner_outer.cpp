@@ -476,6 +476,50 @@ int64_t getOutReductionDataTypeSize(
   return -1;
 }
 
+std::pair<bool, int64_t> try_enforce_buffer_projection(
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache,
+    const std::vector<TensorView*>& reduction_tvs,
+    bool& project_persistent_buffers,
+    PersistentBufferSizeReturn persistent_buffer_size_info) {
+  NVF_ERROR(
+      !reduction_tvs.empty(),
+      "Need reduction_tvs in checkAndSetPersistentBufferHeuristics for InnerOuterPersistentScheduler.");
+  int64_t outer_reduction_buffer_size =
+      normalization_scheduler_utils::partialReductionBufferSize(
+          reduction_tvs, runtime_info);
+
+  // for layer_norm backward, enable project to input can reuse weight shared
+  // among different rows. Although it increased register usage and may lead
+  // to register spills, the overall performance is increased. The following
+  // code will check if we can do this projection by allowing more registers.
+  // This is a temporary solution, the issue is tracked by
+  // https://github.com/csarofeen/pytorch/issues/2525
+  if (!project_persistent_buffers) {
+    int64_t total_projected_buffer_size =
+        persistent_buffer_size_info.projected_persistent_buffer_size +
+        outer_reduction_buffer_size;
+    // allow 10% more to allow project to input, 14K float should do project
+    // and 16K float should't do. more_register_factor >= 14*1024*5(three
+    // inputs, two outer reduction results)*sizeof(float) /
+    // register_file_size_full
+    constexpr float more_register_factor = 1.1;
+    const int64_t avilable_register_file_size = static_cast<int64_t>(
+        scheduler_utils::register_file_size_full * more_register_factor);
+    if (avilable_register_file_size >= total_projected_buffer_size) {
+      project_persistent_buffers = true;
+    }
+  }
+  // now we have the final decision on whether we project to input or not.
+  if (project_persistent_buffers) {
+    max_persistent_size =
+        persistent_buffer_size_info.projected_persistent_buffer_size +
+        outer_reduction_buffer_size;
+  } else {
+    max_persistent_size = persistent_buffer_size_info.persistent_buffer_size +
+        outer_reduction_buffer_size;
+  }
+}
 } // namespace
 
 std::shared_ptr<ReductionParams> InnerOuterPersistentKernelScheduler::
@@ -493,9 +537,19 @@ std::shared_ptr<ReductionParams> InnerOuterPersistentKernelScheduler::
           });
   auto& reduction_tvs = reduction_tv_entry.get();
 
+  NVF_ERROR(!reduction_tvs.empty(), "Need reduction tensor views to schedule.");
+  TensorView* first_inner_reduction_tv = nullptr;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      first_inner_reduction_tv = tv;
+      break;
+    }
+  }
+  auto ref_red_tv = first_inner_reduction_tv;
+
   // (1) reduction properties and vectorization factor
-  auto [reduced_tv, properties, vectorize_factor] =
-      getCommonHeuristicParams(fusion, runtime_info, data_cache, reduction_tvs);
+  auto [reduced_tv, properties, vectorize_factor] = getCommonHeuristicParams(
+      fusion, runtime_info, data_cache, reduction_tvs, ref_red_tv);
 
   // (2) info about persistent buffer.
   // add additional buffers for partial results of outer reductions.

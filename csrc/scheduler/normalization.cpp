@@ -57,6 +57,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   }
 }
 
+// used by all persistent kernels
 bool PersistentSchedulerHelper::compileTimeCheckReductionAxis(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
@@ -80,6 +81,7 @@ bool PersistentSchedulerHelper::compileTimeCheckReductionAxis(
   return true;
 }
 
+// used by all persistent kernels
 bool PersistentSchedulerHelper::leadingCommonCompileTimeCheck(
     Fusion* fusion,
     ScheduleHeuristic heuristic) {
@@ -118,23 +120,12 @@ bool PersistentSchedulerHelper::leadingCommonCompileTimeCheck(
   return true;
 }
 
+// used by all persistent kernels
 bool PersistentSchedulerHelper::tailingCommonCompileTimeCheck(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
+    const TensorView* reference_tv,
     ScheduleHeuristic heuristic) {
-  std::vector<TensorView*> inner_reduction_tvs;
-  std::vector<TensorView*> outer_reduction_tvs;
-  for (auto tv : reduction_tvs) {
-    if (scheduler_utils::isFastestDimReduction(tv)) {
-      inner_reduction_tvs.emplace_back(tv);
-    } else {
-      outer_reduction_tvs.emplace_back(tv);
-    }
-  }
-  bool combined_inner_outer =
-      !inner_reduction_tvs.empty() && !outer_reduction_tvs.empty();
-  TensorView* reference_tv =
-      combined_inner_outer ? inner_reduction_tvs[0] : reduction_tvs[0];
   if (!ir_utils::getViewOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
     if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
@@ -209,6 +200,7 @@ bool PersistentSchedulerHelper::tailingCommonCompileTimeCheck(
   return true;
 }
 
+// used by all persistent kernels
 bool PersistentSchedulerHelper::checkReductionType(
     const std::vector<TensorView*>& reduction_tvs,
     ScheduleHeuristic heuristic) {
@@ -224,9 +216,15 @@ bool PersistentSchedulerHelper::checkReductionType(
   return true;
 }
 
-bool PersistentSchedulerHelper::commonCompileTimeCheck(
+// used by inner persistent kernel and outer persistent kernel
+bool PersistentSchedulerHelper::innerOrOuterCompileTimeCheck(
     Fusion* fusion,
     ScheduleHeuristic heuristic) {
+  NVF_ERROR(
+      heuristic == ScheduleHeuristic::PersistentKernelInner ||
+          heuristic == ScheduleHeuristic::PersistentKernelOuter,
+      "innerOrOuterCompileTimeCheck should only be used by PersistentKernelInner or PersistentKernelOuter.");
+
   // (1) leading common checks for all persistent kernels.
   if (!leadingCommonCompileTimeCheck(fusion, heuristic)) {
     return false;
@@ -244,13 +242,15 @@ bool PersistentSchedulerHelper::commonCompileTimeCheck(
   }
 
   // (4) tailing common checks for all persistent kernels.
-  if (!tailingCommonCompileTimeCheck(fusion, reduction_tvs, heuristic)) {
+  if (!tailingCommonCompileTimeCheck(
+          fusion, reduction_tvs, reduction_tvs[0], heuristic)) {
     return false;
   }
 
   return true;
 }
 
+// used by inner persistent kernel and innerOuter persistent kernel
 bool PersistentSchedulerHelper::runTimeCheckIterSize(
     const scheduler_utils::ReductionTvProperties& properties,
     ScheduleHeuristic heuristic) {
@@ -274,45 +274,20 @@ bool PersistentSchedulerHelper::runTimeCheckIterSize(
   return true;
 }
 
+// used by all persistent kernels through getHeuristics
 std::tuple<TensorView*, scheduler_utils::ReductionTvProperties, int64_t>
 PersistentSchedulerHelper::getCommonHeuristicParams(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
-    const std::vector<TensorView*>& reduction_tvs) {
+    const std::vector<TensorView*>& reduction_tvs,
+    const TensorView* ref_red_tv) {
   // (1) check
-  NVF_ERROR(!reduction_tvs.empty(), "Need reduction tensor views to schedule.");
-
-  int64_t n_tensor_inner_reduction = 0;
-  int64_t n_tensor_outer_reduction = 0;
-  TensorView* first_inner_reduction_tv = nullptr;
-  std::vector<TensorView*> outer_reduction_tvs;
-  for (auto tv : reduction_tvs) {
-    if (scheduler_utils::isFastestDimReduction(tv)) {
-      if (!first_inner_reduction_tv) {
-        first_inner_reduction_tv = tv;
-      }
-      n_tensor_inner_reduction++;
-    } else {
-      n_tensor_outer_reduction++;
-      outer_reduction_tvs.emplace_back(tv);
-    }
-  }
-  const bool combined_inner_outer_reduction =
-      n_tensor_inner_reduction && n_tensor_outer_reduction;
-
-  auto ref_red_tv = combined_inner_outer_reduction ? first_inner_reduction_tv
-                                                   : reduction_tvs[0];
-
   NVF_ERROR(ref_red_tv != nullptr, "Reduction TensorView wasn't found.");
-
   NVF_ERROR(ref_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
-  const auto red_expr = ref_red_tv->definition();
-
   NVF_ERROR(
-      ir_utils::isReductionOp(red_expr),
+      ir_utils::isReductionOp(ref_red_tv->definition()),
       "TensorView doesn't have a reduction.");
-
   auto tv_inps = ir_utils::filterByType<TensorView>(fusion->inputs());
   NVF_ERROR(
       std::distance(tv_inps.begin(), tv_inps.end()) > 0,
@@ -334,7 +309,8 @@ PersistentSchedulerHelper::getCommonHeuristicParams(
   return std::make_tuple(reduced_tv, properties, vectorize_factor);
 }
 
-std::pair<bool, int64_t> PersistentSchedulerHelper::
+// used by all persistent kernels through getHeuristics
+std::pair<bool, int64_t, PersistentBufferSizeReturn> PersistentSchedulerHelper::
     checkAndSetPersistentBufferHeuristics(
         Fusion* fusion,
         SchedulerRuntimeInfo& runtime_info,
@@ -383,48 +359,7 @@ std::pair<bool, int64_t> PersistentSchedulerHelper::
       persistent_buffer_size_info.projected_persistent_buffer_size <
       persistent_buffer_size_info.persistent_buffer_size;
 
-  // special treatment for inner outer persistent
-  if (is_inner_outer) {
-    NVF_ERROR(
-        !reduction_tvs.empty(),
-        "Need reduction_tvs in checkAndSetPersistentBufferHeuristics for InnerOuterPersistentScheduler.");
-    int64_t outer_reduction_buffer_size =
-        normalization_scheduler_utils::partialReductionBufferSize(
-            reduction_tvs, runtime_info);
-
-    // for layer_norm backward, enable project to input can reuse weight shared
-    // among different rows. Although it increased register usage and may lead
-    // to register spills, the overall performance is increased. The following
-    // code will check if we can do this projection by allowing more registers.
-    // This is a temporary solution, the issue is tracked by
-    // https://github.com/csarofeen/pytorch/issues/2525
-    if (!project_persistent_buffers) {
-      int64_t total_projected_buffer_size =
-          persistent_buffer_size_info.projected_persistent_buffer_size +
-          outer_reduction_buffer_size;
-      // allow 10% more to allow project to input, 14K float should do project
-      // and 16K float should't do. more_register_factor >= 14*1024*5(three
-      // inputs, two outer reduction results)*sizeof(float) /
-      // register_file_size_full
-      constexpr float more_register_factor = 1.1;
-      const int64_t avilable_register_file_size = static_cast<int64_t>(
-          scheduler_utils::register_file_size_full * more_register_factor);
-      if (avilable_register_file_size >= total_projected_buffer_size) {
-        project_persistent_buffers = true;
-      }
-    }
-    // now we have the final decision on whether we project to input or not.
-    if (project_persistent_buffers) {
-      max_persistent_size =
-          persistent_buffer_size_info.projected_persistent_buffer_size +
-          outer_reduction_buffer_size;
-    } else {
-      max_persistent_size = persistent_buffer_size_info.persistent_buffer_size +
-          outer_reduction_buffer_size;
-    }
-  }
-
-  return std::make_pair(project_persistent_buffers, max_persistent_size);
+  return std::make_pair(project_persistent_buffers, max_persistent_size, persistent_buffer_size_info);
 }
 
 std::pair<int64_t, int64_t> PersistentSchedulerHelper::
@@ -465,8 +400,6 @@ std::pair<int64_t, int64_t> PersistentSchedulerHelper::
 
   return std::make_pair(n_tensor_inputs, max_dtype_size);
 }
-
-
 
 // common prepare for all reduction types
 void PersistentSchedulerHelper::beforeSchedule(
@@ -514,10 +447,7 @@ void PersistentSchedulerHelper::beforeSchedule(
   reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 }
 
-// If called from schedulePersistentKernel, reduction_tvs are either inner
-// reductions or outer reductions. If called from
-// schedulePersistentKernelInnerOuter, reduction_tvs are inner reductions, outer
-// reductions are handled by scheduleCombinedOuter.
+// schedule inner or outer reduction tv
 TensorView* PersistentSchedulerHelper::scheduleReductionGeneral(
     Fusion* fusion,
     const ReductionParams& rparams,

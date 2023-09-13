@@ -52,7 +52,7 @@ void InnerPersistentKernelScheduler::schedule(Fusion* fusion) {
 }
 
 bool InnerPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
-  return commonCompileTimeCheck(fusion, ScheduleHeuristic::InnerPersistent);
+  return innerOrOuterCompileTimeCheck(fusion, ScheduleHeuristic::InnerPersistent);
 }
 
 bool InnerPersistentKernelScheduler::canScheduleRunTime(
@@ -733,7 +733,7 @@ std::shared_ptr<ReductionParams> InnerPersistentKernelScheduler::getHeuristics(
 
   // (1) reduction properties and vectorization factor
   auto [reduced_tv, properties, vectorize_factor] =
-      getCommonHeuristicParams(fusion, runtime_info, data_cache, reduction_tvs);
+      getCommonHeuristicParams(fusion, runtime_info, data_cache, reduction_tvs, reduction_tvs[0]);
 
   // (2) info about persistent buffer
   auto [project_persistent_buffers, max_persistent_buffer_size] =

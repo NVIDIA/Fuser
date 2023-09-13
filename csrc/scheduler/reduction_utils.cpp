@@ -1013,7 +1013,7 @@ std::ostream& operator<<(std::ostream& os, ReductionType reduction_type) {
 }
 
 // Get the appropriate scheduler based on reduction type
-std::optional<ScheduleHeuristic> getOptionalPersistentScheduler(
+std::optional<ScheduleHeuristic> getOptionalPersistentScheduleHeuristic(
     Fusion* fusion) {
   auto reduction_type = reduction_scheduler_utils::getReductionType(fusion);
   switch (reduction_type) {
