@@ -768,6 +768,27 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP("imag", imag)
 #undef NVFUSER_PYTHON_BINDING_UNARY_OP
 
+  // overload to
+  nvf_ops.def(
+      "set",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         std::vector<int64_t>& stride_order) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.set_stride_order");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(input.dims);
+        fd->defineRecord(new SetStrideOrderOpRecord(
+            {fd->recordingState(arg())},
+            {fd->recordingState(output())},
+            std::move(stride_order)));
+        return output;
+      },
+      py::arg("arg"),
+      py::arg("stride_order"),
+      py::return_value_policy::reference);
+
 // rand_like and randn_like are normally used with a single TensorView argument,
 // like a UnaryOp. However, they also take an optional pair (rng_seed,
 // rng_offset) which converts them to deterministic ops. When those args are

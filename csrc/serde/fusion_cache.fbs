@@ -88,6 +88,7 @@ enum RecordType : int {
     OutputVal,
     PadOp,
     PermuteOp,
+    SetStrideOrderOp,
     RandomOp,
     ReductionMax,
     ReductionMin,
@@ -122,6 +123,7 @@ union RecordData {
   Output,
   Pad,
   Permute,
+  SetStrideOrder,
   Slice,
   Squeeze,
   Reduction,
@@ -296,6 +298,11 @@ table Pad {
 // Data for PermuteOpRecord
 table Permute {
   dims: [long];
+}
+
+// Data for SetStrideOrderOpRecord
+table SetStrideOrder {
+  stride_order: [long];
 }
 
 // Data for ReductionOpRecord
