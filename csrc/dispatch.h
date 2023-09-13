@@ -370,8 +370,8 @@ class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
 
   //! This method replaces e if any inputs or attributes are registered for
   //! mutation.
-  virtual Expr* mutate(Expr* e) {
-    return mutateExpr(
+  virtual void mutate(Expr* e) {
+    mutateExpr(
         e,
         /*replace_outputs*/ false,
         /*replace_inputs*/ true,
