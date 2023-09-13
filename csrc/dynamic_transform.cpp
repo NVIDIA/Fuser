@@ -678,8 +678,8 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
       }
       // Update the IterType of each output
       for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
-        out_id = maybeMutated(out_id)->as<IterDomain>();
-        if (!out_id->isSymbolic()) {
+        auto mut_id = maybeMutated(out_id)->as<IterDomain>();
+        if (!mut_id->isSymbolic()) {
           // We are only concretizing IterType here, so if we have already
           // concretized the iter_type for this ID, we can skip this.
           continue;
@@ -693,7 +693,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
             expr->toString());
 
         auto concretized_out_id =
-            IterDomainBuilder(out_id).iter_type(iter_type).build();
+            IterDomainBuilder(mut_id).iter_type(iter_type).build();
         registerConcretization(out_id, concretized_out_id);
       }
 
