@@ -310,7 +310,7 @@ PersistentSchedulerHelper::getCommonHeuristicParams(
 }
 
 // used by all persistent kernels through getHeuristics
-std::tuple<bool, int64_t, PersistentBufferSizeReturn> PersistentSchedulerHelper::
+std::tuple<bool, int64_t, scheduler_utils::PersistentBufferSizeReturn> PersistentSchedulerHelper::
     checkAndSetPersistentBufferHeuristics(
         Fusion* fusion,
         SchedulerRuntimeInfo& runtime_info,
@@ -357,7 +357,7 @@ std::tuple<bool, int64_t, PersistentBufferSizeReturn> PersistentSchedulerHelper:
       persistent_buffer_size_info.projected_persistent_buffer_size <
       persistent_buffer_size_info.persistent_buffer_size;
 
-  return std::make_uple(
+  return std::make_tuple(
       project_persistent_buffers,
       max_persistent_size,
       persistent_buffer_size_info);
