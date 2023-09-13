@@ -519,7 +519,7 @@ void RecordFunctorFactory::registerAllParsers() {
     return new python_frontend::SetStrideOrderOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        parseVector(buffer->data_as_SetStrideOrder()->dims()));
+        parseVector(buffer->data_as_SetStrideOrder()->stride_order()));
   };
   registerParser(serde::RecordType_SetStrideOrderOp, deserializeSetStrideOrderRecord);
 

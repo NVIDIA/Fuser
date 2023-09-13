@@ -778,7 +778,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(input.dims);
+        Tensor output = fd->defineTensor(arg.dims);
         fd->defineRecord(new SetStrideOrderOpRecord(
             {fd->recordingState(arg())},
             {fd->recordingState(output())},
