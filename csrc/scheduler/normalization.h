@@ -45,6 +45,15 @@ bool runTimeCheckIterSize(
     const scheduler_utils::ReductionTvProperties& properties,
     ScheduleHeuristic heuristic);
 
+// argument passed to 
+sturct HeuristicArgs {
+  scheduler_utils::ReductionTvProperties properties;
+  int64_t max_persistent_buffer_size;
+  bool project_persistent_buffers;
+  int64_t n_tensor_inputs;
+  int64_t max_input_dtype_size;
+  int64_t vectorize_factor;
+};
 //! helper functions used by getHeuristics
 std::tuple<TensorView*, scheduler_utils::ReductionTvProperties, int64_t>
 getCommonHeuristicParams(
