@@ -953,7 +953,8 @@ class PersistentBufferProjector {
       // `T2->T1->T7->T6->T4->T5` which has all root domain information.
       // See FusionBroadcastPersistentReduction_CUDA for an example
       dummy_outputs_.emplace_back(add(buffer_replicate, buffer));
-      ir_utils::replaceValInExpr(use->definition(), buffer, buffer_replicate);
+      ir_utils::replaceValInExprInputs(
+          use->definition(), buffer, buffer_replicate);
     }
   }
 };

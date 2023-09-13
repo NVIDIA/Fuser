@@ -521,7 +521,8 @@ class DeadCodeRemover : BackwardVisitor {
   //! Statements are marked dead by removing them from this set
   std::unordered_set<Statement*> live_statements_;
 
-  //! Vals to be replaced in outputs and with replaceValInExpr in all uses.
+  //! Vals to be replaced in outputs and with replaceValInExprInputs in all
+  //! uses.
   std::vector<std::pair<Val*, Val*>> vals_to_replace_;
 
   //! Statements that will be removed. We remove Vals before Exprs, so we track

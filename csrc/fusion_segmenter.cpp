@@ -810,8 +810,8 @@ TensorView* castIntermediateValueInCompleteFusion(
     if (reverted_fp32_tv == nullptr) {
       reverted_fp32_tv = make_consumer_tv(original_fp32_tv, DataType::Float);
     }
-    auto replaced =
-        ir_utils::replaceValInExpr(expr, original_fp32_tv, reverted_fp32_tv);
+    auto replaced = ir_utils::replaceValInExprInputs(
+        expr, original_fp32_tv, reverted_fp32_tv);
     NVF_ERROR(replaced != expr);
     is_replaced = true;
   }
@@ -994,7 +994,7 @@ std::vector<SegmentedEdge*> SegmentedFusion::castInputOutputToLowerPrecision(
       edge_to_update->val = cast_tv;
 
       // The expr pointers on the group's expr list might have been freed
-      //  by now after `ir_utils::replaceValInExpr`.
+      //  by now after `ir_utils::replaceValInExprInputs`.
       // Need a valid expression list to continue. Update from and to group.
       edge_to_update->from->resetExprList();
       edge_to_update->to->resetExprList();
@@ -1027,7 +1027,7 @@ void SegmentedFusion::revertInputOutputPrecisionChanges(
           cast_back_expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast);
       auto same_precision_tv = cast_back_expr->outputs().at(0);
       for (auto expr : complete_fusion_->unordered_uses(same_precision_tv)) {
-        ir_utils::replaceValInExpr(expr, same_precision_tv, original_tv);
+        ir_utils::replaceValInExprInputs(expr, same_precision_tv, original_tv);
       }
       same_precision_tv_to_remove.insert(same_precision_tv);
     }

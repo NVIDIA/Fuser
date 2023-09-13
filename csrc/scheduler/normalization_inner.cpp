@@ -738,12 +738,15 @@ std::shared_ptr<ReductionParams> InnerPersistentKernelScheduler::getHeuristics(
           fusion, runtime_info, data_cache, reduction_tvs, reduction_tvs[0]);
 
   // (2) info about persistent buffer
-  auto
-      [project_persistent_buffers,
-       max_persistent_buffer_size,
-       persistent_buffer_size_info] =
-          PersistentSchedulerHelper::checkAndSetPersistentBufferHeuristics(
-              fusion, runtime_info, data_cache);
+  auto [can_project, persistent_buffer_size_info] =
+      PersistentSchedulerHelper::checkAndSetPersistentBufferHeuristics(
+          fusion, runtime_info, data_cache);
+  bool project_persistent_buffers = can_project &&
+      persistent_buffer_size_info.projected_persistent_buffer_size <
+          persistent_buffer_size_info.persistent_buffer_size;
+  auto max_persistent_buffer_size = project_persistent_buffers
+      ? persistent_buffer_size_info.projected_persistent_buffer_size
+      : persistent_buffer_size_info.persistent_buffer_size;
 
   // (3) info about input tensors
   auto [n_tensor_inputs, max_input_dtype_size] =

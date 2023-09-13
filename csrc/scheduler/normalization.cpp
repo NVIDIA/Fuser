@@ -314,7 +314,7 @@ getCommonHeuristicParams(
 }
 
 // used by all persistent kernels through getHeuristics
-std::tuple<bool, int64_t, scheduler_utils::PersistentBufferSizeReturn>
+std::tuple<bool, scheduler_utils::PersistentBufferSizeReturn>
 checkAndSetPersistentBufferHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -333,14 +333,6 @@ checkAndSetPersistentBufferHeuristics(
   // Grab persistent buffer sizes
   auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
       fusion, runtime_info, persistent_buffer_info, data_cache);
-  // If projected persistent buffers are smaller, they will be used.
-  // TODO: Fix projected persistent buffers with view
-  // https://github.com/csarofeen/pytorch/issues/2054
-  auto max_persistent_size = !ir_utils::getViewOps(fusion).empty()
-      ? persistent_buffer_size_info.persistent_buffer_size
-      : std::min(
-            persistent_buffer_size_info.persistent_buffer_size,
-            persistent_buffer_size_info.projected_persistent_buffer_size);
 
   // Figure out if we want to projet persistent buffers to the inputs for
   // exmaple if we have an input tensor t0 that's fp16:
@@ -357,13 +349,17 @@ checkAndSetPersistentBufferHeuristics(
   // persistent buffer as a float, however we could obviously just save t0 which
   // is half and would take half the memory. A more complex scenario of this
   // which requires more advanced analysis is batch norm backwards.
-  bool project_persistent_buffers =
+  // TODO: Fix projected persistent buffers with view
+  // https://github.com/csarofeen/pytorch/issues/2054
+  // If projected persistent buffers are smaller, they will be used.
+  bool can_project = ir_utils::getViewOps(fusion).empty() &&
+      persistent_buffer_size_info.projected_persistent_buffer_size > 0;
+  bool project_persistent_buffers = can_project &&
       persistent_buffer_size_info.projected_persistent_buffer_size <
-      persistent_buffer_size_info.persistent_buffer_size;
+          persistent_buffer_size_info.persistent_buffer_size;
 
   return std::make_tuple(
       project_persistent_buffers,
-      max_persistent_size,
       persistent_buffer_size_info);
 }
 
@@ -418,12 +414,9 @@ void beforeSchedule(
   // later step, this will move them to be in a register buffer as expected.
   // dummy outputs are helper tensors to make sure persistent buffer projection
   // does not create trouble for transform propagation.
-  // TODO: Fix projected persistent buffers with view
-  // https://github.com/csarofeen/pytorch/issues/2054
-  const bool project_to_inputs = rparams.project_persistent_buffers &&
-      ir_utils::getViewOps(fusion).empty();
   dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
-      fusion, project_to_inputs);
+      fusion, rparams.project_persistent_buffers);
+
   // Cache tensors before grabbing any references to reductions as cache_before
   // can invalidate the references since when applied to a reduction tensor view
   // the new tensor view contains the reduction and original doesn't.

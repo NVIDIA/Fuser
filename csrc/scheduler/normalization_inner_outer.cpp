@@ -485,6 +485,7 @@ int64_t tryEnforceBufferProjection(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
     const std::vector<TensorView*>& reduction_tvs,
+    const bool can_project,
     bool& project_persistent_buffers,
     scheduler_utils::PersistentBufferSizeReturn persistent_buffer_size_info) {
   int64_t outer_reduction_buffer_size =
@@ -497,7 +498,7 @@ int64_t tryEnforceBufferProjection(
   // code will check if we can do this projection by allowing more registers.
   // This is a temporary solution, the issue is tracked by
   // https://github.com/csarofeen/pytorch/issues/2525
-  if (!project_persistent_buffers) {
+  if (can_project && !project_persistent_buffers) {
     int64_t total_projected_buffer_size =
         persistent_buffer_size_info.projected_persistent_buffer_size +
         outer_reduction_buffer_size;
@@ -554,19 +555,19 @@ std::shared_ptr<ReductionParams> InnerOuterPersistentKernelScheduler::
           fusion, runtime_info, data_cache, reduction_tvs, ref_red_tv);
 
   // (2) info about persistent buffer.
-  auto
-      [project_persistent_buffers,
-       max_persistent_buffer_size,
-       persistent_buffer_size_info] =
-          PersistentSchedulerHelper::checkAndSetPersistentBufferHeuristics(
-              fusion, runtime_info, data_cache);
-
+  auto [can_project, persistent_buffer_size_info] =
+      PersistentSchedulerHelper::checkAndSetPersistentBufferHeuristics(
+          fusion, runtime_info, data_cache);
+  bool project_persistent_buffers = can_project &&
+      persistent_buffer_size_info.projected_persistent_buffer_size <
+          persistent_buffer_size_info.persistent_buffer_size;
   // add additional buffers for partial results of outer reductions.
   // reconsider whether project persistent buffers to inputs or not.
-  max_persistent_buffer_size = tryEnforceBufferProjection(
+  auto max_persistent_buffer_size = tryEnforceBufferProjection(
       runtime_info,
       data_cache,
       reduction_tvs,
+      can_project,
       project_persistent_buffers,
       persistent_buffer_size_info);
 
