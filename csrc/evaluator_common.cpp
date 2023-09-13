@@ -170,9 +170,8 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
       if (!tensor.is_cpu()) {
         bindTensorMetaData(tensor_input, tensor);
       }
-    } else {
-      bindValue(input->evaluatorIndex(), *args[i]);
     }
+    bindValue(input->evaluatorIndex(), *args[i]);
   }
 }
 
