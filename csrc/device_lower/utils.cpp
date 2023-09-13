@@ -431,6 +431,13 @@ class ReplaceExprInput : private kir::ExprMutator {
   using kir::ExprMutator::handle;
 
   void dispatch(Expr* expr) final {
+    // special cases only for IfThenElse and ForLoop
+    if (auto loop = dynamic_cast<kir::ForLoop*>(expr)) {
+      return kir::ExprMutator::dispatch(loop);
+    } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
+      return kir::ExprMutator::dispatch(ite);
+    }
+    // For non-control flow expressions, use mutator_
     auto pred = expr->predicate();
     auto write_pred = expr->writePredicate();
     auto new_expr =
