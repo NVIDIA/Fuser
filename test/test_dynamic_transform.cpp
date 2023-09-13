@@ -1188,4 +1188,87 @@ TEST_F(NVFuserTest, Issue249InputNegative1_CUDA) {
       __FILE__);
 }
 
+// Test that OptOutMutator mutates expressions in a predictable way
+// See https://github.com/NVIDIA/Fuser/issues/852
+TEST_F(NVFuserTest, OptOutMutatorMutatedOutput) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(1);
+  fusion->addInput(tv0);
+
+  auto tv1 = neg(tv0);
+
+  auto tv2 = set(tv1);
+  fusion->addOutput(tv2);
+
+  auto tv3 = set(tv0);
+
+  OptOutMutator mut;
+  mut.registerMutation(tv1, tv3);
+
+  for (auto stmt : StmtSort::getStmts(fusion)) {
+    mut.dispatchMutate(stmt);
+  }
+
+  EXPECT_NE(tv3->definition(), nullptr);
+  EXPECT_TRUE(tv3->definition()->isA<LoadStoreOp>());
+  EXPECT_NE(tv2->definition(), nullptr);
+  EXPECT_TRUE(tv2->definition()->isA<LoadStoreOp>());
+  EXPECT_EQ(tv2->definition()->input(0), tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({3}, options);
+
+  inlineMost();
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion);
+
+  auto outputs = fe.runFusion({t0});
+
+  testValidate(fusion, outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+// Another test related to https://github.com/NVIDIA/Fuser/issues/852
+TEST_F(NVFuserTest, OptOutMutatorRedefinedConstant) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto s0 = IrBuilder::create<Val>(DataType::Int);
+  fusion->addInput(s0);
+  auto s1 = neg(s0);
+
+  auto tv0 = full({IrBuilder::create<Val>(2L)}, s1, DataType::Int);
+  fusion->addOutput(tv0);
+
+  // After the following mutation, it's reasonable to expect the input scalar s0
+  // to be ignored, and the output to just be ones.
+  OptOutMutator mut;
+  auto c = fusion->oneVal(DataType::Int);
+  mut.registerMutation(s1, c);
+
+  for (auto stmt : StmtSort::getStmts(fusion)) {
+    mut.dispatchMutate(stmt);
+  }
+
+  EXPECT_EQ(
+      c->definition(), nullptr); // Replacement value should not be redefined
+  EXPECT_EQ(tv0->definition()->as<FullOp>()->getFillValue(), c);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::full({2}, 1L, options);
+
+  inlineMost();
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion);
+
+  auto outputs = fe.runFusion({3L});
+
+  testValidate(fusion, outputs, {3L}, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

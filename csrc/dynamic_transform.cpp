@@ -457,8 +457,36 @@ void DynamicTransformConcretizer::concretize() {
       /*traverse_members*/ true,
       /*traverse_attributes*/ true,
       /*traverse_siblings*/ true);
-  for (auto tv : ir_utils::filterByType<TensorView>(all_stmts)) {
-    mutate(tv);
+  for (auto stmt : all_stmts) {
+    // We mutate all scalar and TensorView Vals and Exprs in topological order.
+    // This alone is enough to modify scalars and their Exprs properly. Above,
+    // concretizeEmptyExtents will register some scalar extents as zeroVal(),
+    // and those will be properly propagated in this type of traversal.
+    //
+    // However, an important part of concretization is mutating IterDomains and
+    // IterDomain expressions. To do this, we have registered some mutations in
+    // the above calls; for example concretizeResize registers IterTypes as
+    // Iteration or Broadcast. There may still be many Symbolic IterDomains that
+    // are not yet registered for mutation though; these need to be registered
+    // by propagating the IterTypes and modified extents through the Fusion in
+    // the P2C direction. Importantly, this means traversing across TensorView
+    // expressions and using exact mapping between producer and consumer TVs to
+    // infer IterTypes of consumer root IterDomains from concretized producer
+    // rfactor IterDomains.
+    //
+    // The order of StmtSort::getStmts guarantees a topological ordering with
+    // respect to our IR graph. That IR does not explicitly hold TensorView
+    // dependencies for IterDomains; i.e. we rely on TensorView expressions to
+    // infer that one IterDomain is a producer rfactor which another consumer
+    // root domain depends on. So we avoid processing IterDomains and
+    // TensorDomains until we reach the TensorView that contains them. Otherwise
+    // we would not be able to propagate across exact maps before processing
+    // all root->rfactor IterDomains and expressions.
+    if (const auto op = dynamic_cast<Expr*>(stmt); stmt->isA<IterDomain>() ||
+        stmt->isA<TensorDomain>() || (op && op->output(0)->isA<IterDomain>())) {
+      continue;
+    }
+    OptOutMutator::dispatchMutate(stmt);
   }
 }
 
@@ -469,7 +497,7 @@ void DynamicTransformConcretizer::concretizeEmptyExtents() {
     auto zero = fusion->zeroVal(ext->getDataType().value());
     auto uses = ext->uses();
     for (auto use : uses) {
-      ir_utils::replaceValInExpr(use, ext, zero);
+      ir_utils::replaceValInExprInputs(use, ext, zero);
     }
     // Register the concretization of this scalar, which allows us to replace it
     // whenever it is used as an extent member of an IterDomain.
@@ -519,7 +547,7 @@ void DynamicTransformConcretizer::concretizeReshape() {
     // Replace the old tensor with the new concretized tensor
     auto uses = incomplete_out_tv->uses();
     for (auto use_of_old_tv : uses) {
-      ir_utils::replaceValInExpr(
+      ir_utils::replaceValInExprInputs(
           use_of_old_tv, incomplete_out_tv, concrete_reshape_out_tv);
     }
 
@@ -668,9 +696,28 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
         registerConcretization(out_id, concretized_out_id);
       }
 
-      // expr must be mutated in order to set it as the definition for the
-      // concretized outputs.
-      OptOutMutator::mutate(expr);
+      // At this point, we might have registered both the input and output
+      // IterDomains for concretization, specifying either new extents or
+      // IterTypes or both. In this context, we want to create a new Expr
+      // having the mutations to both inputs and outputs, so that the
+      // concretized IterDomains are connected by the right type of expression.
+      //
+      // Mutating outputs has the effect of redefining the new outputs. That can
+      // be unwanted in the general case since we often mutate a Fusion with the
+      // intention of to changing the definition. For this reason,
+      // OptOutMutator::mutate will only mutate inputs by default. The
+      // mutateExprOutputsOnly call below performs this redefinition which we
+      // desire in the current context.
+      //
+      // Each mutate step below removes the expression so we need to apply the
+      // second step to the replacement Expr. The order of these calls is
+      // unimportant, except that mutate(Expr*) does not return the replacement
+      // Expr*, whereas mutateExprOutputsOnly does.
+
+      // Set expr as the definition for concretized outputs
+      expr = mutateExprOutputsOnly(expr);
+      // Replace inputs and attributes that were concretized
+      mutate(expr);
     }
   }
 
@@ -771,6 +818,14 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
           root_id->toString());
 
       auto input_id = c2p.at(root_id);
+      NVF_ERROR(
+          input_id == maybeMutated(input_id),
+          "Consumer IterDomain ",
+          input_id->toString(),
+          " is still registered for mutation after traversing to ",
+          consumer->toString(),
+          ". Replacement is ",
+          maybeMutated(input_id)->toString());
       NVF_ERROR(
           input_id->getIterType() != IterType::Symbolic,
           "Producer ID not concretized: ",
