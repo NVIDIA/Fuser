@@ -736,7 +736,7 @@ std::shared_ptr<ReductionParams> InnerPersistentKernelScheduler::getHeuristics(
       getCommonHeuristicParams(fusion, runtime_info, data_cache, reduction_tvs, reduction_tvs[0]);
 
   // (2) info about persistent buffer
-  auto [project_persistent_buffers, max_persistent_buffer_size] =
+  auto [project_persistent_buffers, max_persistent_buffer_size, persistent_buffer_size_info] =
       checkAndSetPersistentBufferHeuristics(fusion, runtime_info, data_cache);
 
   // (3) info about input tensors

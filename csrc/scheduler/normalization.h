@@ -12,8 +12,8 @@
 
 namespace nvfuser {
 
-// convenience function to get persistent kernel heuristics using runtime_inputs.
-// used in cpp tests.
+// convenience function to get persistent kernel heuristics using
+// runtime_inputs. used in cpp tests.
 TORCH_CUDA_CU_API std::shared_ptr<ReductionParams> getPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
@@ -35,13 +35,14 @@ class PersistentSchedulerHelper {
   static bool tailingCommonCompileTimeCheck(
       Fusion* fusion,
       const std::vector<TensorView*>& reduction_tvs,
+      TensorView* reference_tv,
       ScheduleHeuristic heuristic);
 
   static bool checkReductionType(
       const std::vector<TensorView*>& reduction_tvs,
       ScheduleHeuristic heuristic);
 
-  static bool commonCompileTimeCheck(
+  static bool innerOrOuterCompileTimeCheck(
       Fusion* fusion,
       ScheduleHeuristic heuristic);
 
@@ -56,14 +57,14 @@ class PersistentSchedulerHelper {
           Fusion* fusion,
           SchedulerRuntimeInfo& runtime_info,
           HeuristicSummary* data_cache,
-          const std::vector<TensorView*>& reduction_tvs);
+          const std::vector<TensorView*>& reduction_tvs,
+          TensorView* reference_tv);
 
-  static std::pair<bool, int64_t> checkAndSetPersistentBufferHeuristics(
+  static std::tuple<bool, int64_t, scheduler_utils::PersistentBufferSizeReturn>
+  checkAndSetPersistentBufferHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache,
-      const std::vector<TensorView*>& reduction_tvs = {},
-      const bool is_inner_outer = false);
+      HeuristicSummary* data_cache);
 
   static std::pair<int64_t, int64_t> getTensorInputNumAndMaxTypeSize(
       SchedulerRuntimeInfo& runtime_info,

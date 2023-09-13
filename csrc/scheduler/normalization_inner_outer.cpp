@@ -103,7 +103,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   }
 
   // (4) tailing common checks for all persistent kernels.
-  if (!tailingCommonCompileTimeCheck(fusion, reduction_tvs, heuristic)) {
+  if (!tailingCommonCompileTimeCheck(fusion, reduction_tvs, inner_reduction_tvs[0], heuristic)) {
     return false;
   }
 
@@ -476,15 +476,12 @@ int64_t getOutReductionDataTypeSize(
   return -1;
 }
 
-std::pair<bool, int64_t> try_enforce_buffer_projection(
+int64_t tryEnforceBufferProjection(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
     const std::vector<TensorView*>& reduction_tvs,
     bool& project_persistent_buffers,
-    PersistentBufferSizeReturn persistent_buffer_size_info) {
-  NVF_ERROR(
-      !reduction_tvs.empty(),
-      "Need reduction_tvs in checkAndSetPersistentBufferHeuristics for InnerOuterPersistentScheduler.");
+    scheduler_utils::PersistentBufferSizeReturn persistent_buffer_size_info) {
   int64_t outer_reduction_buffer_size =
       normalization_scheduler_utils::partialReductionBufferSize(
           reduction_tvs, runtime_info);
@@ -512,11 +509,11 @@ std::pair<bool, int64_t> try_enforce_buffer_projection(
   }
   // now we have the final decision on whether we project to input or not.
   if (project_persistent_buffers) {
-    max_persistent_size =
+    return 
         persistent_buffer_size_info.projected_persistent_buffer_size +
         outer_reduction_buffer_size;
   } else {
-    max_persistent_size = persistent_buffer_size_info.persistent_buffer_size +
+    return persistent_buffer_size_info.persistent_buffer_size +
         outer_reduction_buffer_size;
   }
 }
@@ -552,11 +549,15 @@ std::shared_ptr<ReductionParams> InnerOuterPersistentKernelScheduler::
       fusion, runtime_info, data_cache, reduction_tvs, ref_red_tv);
 
   // (2) info about persistent buffer.
+  auto [project_persistent_buffers, max_persistent_buffer_size, persistent_buffer_size_info] =
+      checkAndSetPersistentBufferHeuristics(
+          fusion, runtime_info, data_cache);
+
   // add additional buffers for partial results of outer reductions.
   // reconsider whether project persistent buffers to inputs or not.
-  auto [project_persistent_buffers, max_persistent_buffer_size] =
-      checkAndSetPersistentBufferHeuristics(
-          fusion, runtime_info, data_cache, reduction_tvs, true);
+    max_persistent_buffer_size =
+      tryEnforceBufferProjection(
+           runtime_info, data_cache, reduction_tvs, project_persistent_buffers, persistent_buffer_size_info);
 
   // (3) dtype used to store partial outer reduction in combined reduction
   const int64_t tmp_gmem_dtype_size =

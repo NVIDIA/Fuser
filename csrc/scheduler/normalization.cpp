@@ -124,7 +124,7 @@ bool PersistentSchedulerHelper::leadingCommonCompileTimeCheck(
 bool PersistentSchedulerHelper::tailingCommonCompileTimeCheck(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
-    const TensorView* reference_tv,
+    TensorView* reference_tv,
     ScheduleHeuristic heuristic) {
   if (!ir_utils::getViewOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
@@ -221,9 +221,9 @@ bool PersistentSchedulerHelper::innerOrOuterCompileTimeCheck(
     Fusion* fusion,
     ScheduleHeuristic heuristic) {
   NVF_ERROR(
-      heuristic == ScheduleHeuristic::PersistentKernelInner ||
-          heuristic == ScheduleHeuristic::PersistentKernelOuter,
-      "innerOrOuterCompileTimeCheck should only be used by PersistentKernelInner or PersistentKernelOuter.");
+      heuristic == ScheduleHeuristic::InnerPersistent ||
+          heuristic == ScheduleHeuristic::OuterPersistent,
+      "innerOrOuterCompileTimeCheck should only be used by inner or outer persistent schedulers.");
 
   // (1) leading common checks for all persistent kernels.
   if (!leadingCommonCompileTimeCheck(fusion, heuristic)) {
@@ -281,7 +281,7 @@ PersistentSchedulerHelper::getCommonHeuristicParams(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
     const std::vector<TensorView*>& reduction_tvs,
-    const TensorView* ref_red_tv) {
+    TensorView* ref_red_tv) {
   // (1) check
   NVF_ERROR(ref_red_tv != nullptr, "Reduction TensorView wasn't found.");
   NVF_ERROR(ref_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
@@ -310,13 +310,11 @@ PersistentSchedulerHelper::getCommonHeuristicParams(
 }
 
 // used by all persistent kernels through getHeuristics
-std::pair<bool, int64_t, PersistentBufferSizeReturn> PersistentSchedulerHelper::
+std::tuple<bool, int64_t, PersistentBufferSizeReturn> PersistentSchedulerHelper::
     checkAndSetPersistentBufferHeuristics(
         Fusion* fusion,
         SchedulerRuntimeInfo& runtime_info,
-        HeuristicSummary* data_cache,
-        const std::vector<TensorView*>& reduction_tvs,
-        const bool is_inner_outer) {
+        HeuristicSummary* data_cache) {
   auto persistent_buffer_info_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
           data_cache, [&fusion]() {
@@ -359,7 +357,10 @@ std::pair<bool, int64_t, PersistentBufferSizeReturn> PersistentSchedulerHelper::
       persistent_buffer_size_info.projected_persistent_buffer_size <
       persistent_buffer_size_info.persistent_buffer_size;
 
-  return std::make_pair(project_persistent_buffers, max_persistent_size, persistent_buffer_size_info);
+  return std::make_uple(
+      project_persistent_buffers,
+      max_persistent_size,
+      persistent_buffer_size_info);
 }
 
 std::pair<int64_t, int64_t> PersistentSchedulerHelper::
