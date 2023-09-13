@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <scheduler/normalization_helper.h>
+#include <scheduler/normalization.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
 

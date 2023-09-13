@@ -463,6 +463,19 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
   return rparams;
 }
 
+int64_t getOutReductionDataTypeSize(
+    const std::vector<TensorView*>& reduction_tvs) {
+  for (auto tv : reduction_tvs) {
+    if (!scheduler_utils::isFastestDimReduction(tv)) {
+      return dataTypeSize(tv->getDataType().value());
+    }
+  }
+  NVF_ERROR(
+      false,
+      "No outer reduction tv detected in InnerOuterPersistentScheduler.");
+  return -1;
+}
+
 } // namespace
 
 std::shared_ptr<ReductionParams> InnerOuterPersistentKernelScheduler::
