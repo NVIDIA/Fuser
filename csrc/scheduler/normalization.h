@@ -54,7 +54,7 @@ getCommonHeuristicParams(
     const std::vector<TensorView*>& reduction_tvs,
     TensorView* reference_tv);
 
-std::tuple<bool, int64_t, scheduler_utils::PersistentBufferSizeReturn>
+std::tuple<bool, scheduler_utils::PersistentBufferSizeReturn>
 checkAndSetPersistentBufferHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,

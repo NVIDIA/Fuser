@@ -354,12 +354,9 @@ checkAndSetPersistentBufferHeuristics(
   // If projected persistent buffers are smaller, they will be used.
   bool can_project = ir_utils::getViewOps(fusion).empty() &&
       persistent_buffer_size_info.projected_persistent_buffer_size > 0;
-  bool project_persistent_buffers = can_project &&
-      persistent_buffer_size_info.projected_persistent_buffer_size <
-          persistent_buffer_size_info.persistent_buffer_size;
 
   return std::make_tuple(
-      project_persistent_buffers,
+      can_project,
       persistent_buffer_size_info);
 }
 
