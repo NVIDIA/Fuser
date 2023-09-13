@@ -2052,8 +2052,9 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   // TODO: Fix projected persistent buffers with view
   // https://github.com/csarofeen/pytorch/issues/2054
   // If projected persistent buffers are smaller, they will be used.
-  bool project_persistent_buffers = ir_utils::getViewOps(fusion).empty() &&
-      persistent_buffer_size_info.projected_persistent_buffer_size > 0 &&
+  bool can_project = ir_utils::getViewOps(fusion).empty() &&
+      persistent_buffer_size_info.projected_persistent_buffer_size > 0;
+  bool project_persistent_buffers = can_project &&
       persistent_buffer_size_info.projected_persistent_buffer_size <
           persistent_buffer_size_info.persistent_buffer_size;
 
@@ -2061,7 +2062,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;
 
-  if (combined_inner_outer_reduction) {
+  if (can_project && combined_inner_outer_reduction) {
     // In combined_inner_outer_reduction, we have additional buffers for partial
     // results of outer reductions.
     int64_t outer_reduction_buffer_size =
