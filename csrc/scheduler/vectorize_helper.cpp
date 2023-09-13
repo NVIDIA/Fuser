@@ -889,7 +889,7 @@ int64_t getVectorizationFactorTransposeGroup(
   for (auto tv : vec_tv) {
     auto inner_size_it = contig_inner_map.find(tv);
     auto tv_vectorize_factor_opt = inner_size_it == contig_inner_map.end()
-        ? 1
+        ? 1L
         : runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
     // TODO: Do not assert here. we can just reduce vectorization size to 1 if
     // we can't infer an inner size.

@@ -673,7 +673,7 @@ class MatmulScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr)
       : SchedulerEntry(ScheduleHeuristic::Matmul) {
-    computeHeuristics(fusion, runtime_info);
+    computeHeuristics(fusion, runtime_info, data_cache);
   }
 
   void schedule(Fusion* fusion) override {
@@ -711,7 +711,7 @@ class MatmulScheduler : public SchedulerEntry {
   void computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr) {
+      HeuristicSummary* data_cache) {
     params_ = getMatmulHeuristics(fusion, runtime_info, data_cache);
     NVF_ERROR(params_ != nullptr);
   }

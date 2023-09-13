@@ -1430,10 +1430,11 @@ ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
   }
   const auto mma_output = mma_exprs.front()->out();
 
-  // NOTE: the iter domains of MMA output should be [...,M,K,N]
+  // NOTE: the iter domains of MMA output should be [...,batch,M,K,N]
   IterDomain* m = nullptr;
   IterDomain* n = nullptr;
   IterDomain* k = nullptr;
+  IterDomain* batch = nullptr;
 
   const auto leaf_domains =
       static_cast<const TensorView*>(mma_output)->getLeafDomain();
@@ -1446,9 +1447,17 @@ ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
     return ss.str();
   }
 
-  // M,N are inner most concrete iter domains
-  m = concrete.rbegin()[1];
-  n = concrete.rbegin()[0];
+  using Pos_t = decltype(leaf_domains)::size_type;
+
+  // N,M,B are the inner most concrete iter domains in tv, so positions are
+  //  counted from the end of the container
+  constexpr Pos_t POS_N = 0, POS_M = 1, POS_BATCH = 2;
+
+  m = concrete.rbegin()[POS_M];
+  n = concrete.rbegin()[POS_N];
+  if (concrete.size() > POS_BATCH) {
+    batch = concrete.rbegin()[POS_BATCH];
+  }
 
   // K is a reduction domain, search for the inner most reduction domain
   for (auto iter_domain = leaf_domains.rbegin();
@@ -1461,7 +1470,7 @@ ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
   }
   NVF_ERROR(k != nullptr, "Failed to find K domain in MMA output");
 
-  return ProblemIterDomains{m, n, k};
+  return ProblemIterDomains{m, n, k, batch};
 }
 
 MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion) {
@@ -1560,9 +1569,11 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
     return mma_output_domains.getErrorMsg();
   }
 
-  const auto findRolesByDomains = [](const DependenciesMap& deps_map,
-                                     RolesMap& roles_map,
-                                     const bool processing_output) {
+  TensorView* invalid_tv = nullptr;
+  const auto findRolesByDomains = [&invalid_tv](
+                                      const DependenciesMap& deps_map,
+                                      RolesMap& roles_map,
+                                      const bool processing_output) {
     for (const auto& entry : deps_map) {
       const auto& domains = entry.second;
       const auto begin = domains.begin();
@@ -1598,6 +1609,9 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
         roles_map[MatmulRole::OUTPUT_D].push_back(entry.first);
         continue;
       }
+
+      invalid_tv = entry.first;
+      break;
     }
   };
 
@@ -1614,6 +1628,12 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
   resolveTvToMatmulDomainsMapping(
       deps_map, mma_input_candidates, m, n, k, ca_map);
   findRolesByDomains(deps_map, roles_map, handling_output);
+  if (invalid_tv) {
+    std::stringstream ss;
+    ss << "One of fusion inputs cannot have role assigned! TV details: "
+       << invalid_tv->toString() << "\n";
+    return {ss.str()};
+  }
 
   deps_map.clear();
 
@@ -1622,6 +1642,12 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
   resolveTvToMatmulDomainsMapping(
       deps_map, mma_output_candidates, m, n, k, ca_map);
   findRolesByDomains(deps_map, roles_map, handling_output);
+  if (invalid_tv) {
+    std::stringstream ss;
+    ss << "One of fusion outputs cannot have role assigned! TV details: "
+       << invalid_tv->toString() << "\n";
+    return {ss.str()};
+  }
 
   return roles_map;
 }
