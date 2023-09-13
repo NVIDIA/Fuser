@@ -29,6 +29,7 @@
 #include <ATen/cuda/CUDAContext.h>
 
 namespace nvfuser {
+
 OuterPersistentKernelScheduler::OuterPersistentKernelScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -51,7 +52,7 @@ void OuterPersistentKernelScheduler::schedule(Fusion* fusion) {
 }
 
 bool OuterPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
-  return innerOrOuterCompileTimeCheck(
+  return PersistentSchedulerHelper::innerOrOuterCompileTimeCheck(
       fusion, ScheduleHeuristic::OuterPersistent);
 }
 
@@ -643,20 +644,22 @@ std::shared_ptr<ReductionParams> OuterPersistentKernelScheduler::getHeuristics(
   auto& reduction_tvs = reduction_tv_entry.get();
 
   // (1) reduction properties and vectorization factor
-  auto [reduced_tv, properties, vectorize_factor] = getCommonHeuristicParams(
-      fusion, runtime_info, data_cache, reduction_tvs, reduction_tvs[0]);
+  auto [reduced_tv, properties, vectorize_factor] =
+      PersistentSchedulerHelper::getCommonHeuristicParams(
+          fusion, runtime_info, data_cache, reduction_tvs, reduction_tvs[0]);
 
   // (2) info about persistent buffer
   auto
       [project_persistent_buffers,
        max_persistent_buffer_size,
        persistent_buffer_size_info] =
-          checkAndSetPersistentBufferHeuristics(
+          PersistentSchedulerHelper::checkAndSetPersistentBufferHeuristics(
               fusion, runtime_info, data_cache);
 
   // (3) info about input tensors
   auto [n_tensor_inputs, max_input_dtype_size] =
-      getTensorInputNumAndMaxTypeSize(runtime_info, data_cache, reduced_tv);
+      PersistentSchedulerHelper::getTensorInputNumAndMaxTypeSize(
+          runtime_info, data_cache, reduced_tv);
 
   std::shared_ptr<ReductionParams> rparams = outerPersistentHeuristic(
       properties.total_reduction_numel,
@@ -680,7 +683,7 @@ void OuterPersistentKernelScheduler::scheduleKernel(
   // helper tensors for persistent buffer projection.
   std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
-  beforeSchedule(
+  PersistentSchedulerHelper::beforeSchedule(
       fusion,
       rparams,
       dummy_outputs,
@@ -689,7 +692,8 @@ void OuterPersistentKernelScheduler::scheduleKernel(
       cached_outputs);
 
   TensorView* reference_tv =
-      scheduleReductionGeneral(fusion, rparams, reduction_tvs);
+      PersistentSchedulerHelper::scheduleReductionGeneral(
+          fusion, rparams, reduction_tvs);
 
   // Reduction tensor views and rfactor tensor views are setup. Let's finish off
   // the scheduling, particularly inlining and unrolling.

@@ -15,8 +15,7 @@ namespace nvfuser {
 
 class HeuristicSummary;
 
-class InnerOuterPersistentKernelScheduler : public SchedulerEntry,
-                                            public PersistentSchedulerHelper {
+class InnerOuterPersistentKernelScheduler : public SchedulerEntry {
  public:
   explicit InnerOuterPersistentKernelScheduler(
       Fusion* fusion,
