@@ -185,8 +185,11 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
 
     // Condition 5
     // At least one ID is symbolic.
-    // If map_symbolic_ is true: map these IDs regardless of other
-    // considerations. If map_symbolic_ is false (default):
+    //
+    // If map_symbolic_ is true:
+    //   Map these IDs regardless of other considerations.
+    //
+    // If map_symbolic_ is false (default):
     //   Map these only if their extents are identical. IterType::Symbolic
     //   reflects that the extent might evaluate to 1 for some inputs, in which
     //   case it may be valid to use those domains in a broadcast op. If the
