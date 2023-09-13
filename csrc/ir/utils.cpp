@@ -191,10 +191,51 @@ struct SubstituteInExpr : public OptOutMutator {
 
 } // namespace ValReplacement
 
-Expr* replaceValInExpr(Expr* expr, Val* reference, Val* substitute) {
+Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute) {
   FusionGuard fg(expr->fusion());
   return ValReplacement::SubstituteInExpr::subsitute(
       expr, reference, substitute);
+}
+
+Expr* transferDefinitionToNewOutputs(
+    Expr* expr,
+    const std::vector<Val*>& new_outputs) {
+  NVF_ERROR(
+      new_outputs.size() == expr->outputs().size(),
+      "Number of new outputs must match old outputs");
+  OptOutMutator mutator;
+  for (const auto i : c10::irange(new_outputs.size())) {
+    auto old_output = expr->outputs().at(i);
+    auto new_output = new_outputs.at(i);
+    if (new_output == old_output) {
+      continue;
+    }
+    NVF_ERROR(
+        !new_output->isConst(),
+        "Cannot transfer a definition Expr onto a const Val. Found new output ",
+        new_output->toString(),
+        " with constant value ",
+        new_output->value());
+    NVF_ERROR(
+        new_output->vtype() == old_output->vtype(),
+        "transforDefinitionToNewOutputs cannot change val type. Found ",
+        new_output->vtype(),
+        " and ",
+        old_output->vtype());
+    NVF_ERROR(
+        new_output->dtype() == old_output->dtype(),
+        "transforDefinitionToNewOutputs cannot change data type. Found ",
+        new_output->dtype(),
+        " and ",
+        old_output->dtype());
+    NVF_ERROR(
+        new_output->definition() == nullptr,
+        "New output ",
+        new_output->toString(),
+        " must not already have a definition.");
+    mutator.registerMutation(old_output, new_output);
+  }
+  return mutator.mutateExprOutputsOnly(expr);
 }
 
 TensorView* rfactorHelper(

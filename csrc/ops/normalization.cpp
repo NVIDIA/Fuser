@@ -55,20 +55,24 @@ TensorView* variance(
   NVF_CHECK(
       correction >= 0, "correction must be non-negative, but got ", correction);
 
-  const size_t kNumberOfDims =
-      TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
-
   auto bcast_mean = mean(x, dims, true /* keepdim */);
   auto x_mean_sub = sub(x, bcast_mean);
   auto x_mean_sub_sq = mul(x_mean_sub, x_mean_sub);
   auto sum_x_mean_sub_sq = sum(x_mean_sub_sq, dims, keepdim);
 
+  const size_t kNumberOfDims =
+      TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
   auto num_features = numFeatures(x, dims, kNumberOfDims);
-  if (correction > 0) {
-    num_features =
-        sub(num_features, IrBuilder::create<Val>(x->container(), correction));
-  }
-  auto y = div(sum_x_mean_sub_sq, num_features);
+
+  // NOTE PyTorch returns 'inf' for the variance if correction is greater than
+  // the number of elements. Reference: 'std_var_all_cpu' function in
+  // aten/src/ATen/native/ReduceOps.cpp.
+  auto correction_val = IrBuilder::create<Val>(x->container(), correction);
+  auto zero_val = IrBuilder::create<Val>(x->container(), 0);
+  auto denom = sub(num_features, correction_val);
+  denom = where(ge(denom, zero_val), denom, zero_val);
+
+  auto y = mul(sum_x_mean_sub_sq, reciprocal(denom));
 
   return y;
 }
@@ -105,14 +109,18 @@ VarMeanResult variance_mean(
   const size_t kNumberOfDims =
       TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
   auto num_features = numFeatures(x, dims, kNumberOfDims);
-  if (correction > 0) {
-    num_features =
-        sub(num_features, IrBuilder::create<Val>(x->container(), correction));
-  }
+
+  // NOTE PyTorch returns 'inf' for the variance if correction is greater than
+  // the number of elements. Reference: 'std_var_all_cpu' function in
+  // aten/src/ATen/native/ReduceOps.cpp.
+  auto correction_val = IrBuilder::create<Val>(x->container(), correction);
+  auto zero_val = IrBuilder::create<Val>(x->container(), 0);
+  auto denom = sub(num_features, correction_val);
+  denom = where(ge(denom, zero_val), denom, zero_val);
 
   auto welford_out = Welford(x, dims);
   auto mean = welford_out.avg;
-  auto var = mul(welford_out.var_sum, reciprocal(num_features));
+  auto var = mul(welford_out.var_sum, reciprocal(denom));
 
   if (keepdim) {
     std::vector<bool> is_broadcast(kNumberOfDims, false);
