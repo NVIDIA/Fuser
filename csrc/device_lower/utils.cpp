@@ -431,6 +431,8 @@ class ReplaceExprInput : private kir::ExprMutator {
   using kir::ExprMutator::handle;
 
   void dispatch(Expr* expr) final {
+    NVF_ERROR(
+        expr != nullptr, "expr must be non-null in ReplaceExprInput::dispatch");
     // special cases only for IfThenElse and ForLoop
     if (auto loop = dynamic_cast<kir::ForLoop*>(expr)) {
       return kir::ExprMutator::dispatch(loop);
