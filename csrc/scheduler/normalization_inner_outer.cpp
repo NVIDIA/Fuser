@@ -103,7 +103,8 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   }
 
   // (4) tailing common checks for all persistent kernels.
-  if (!tailingCommonCompileTimeCheck(fusion, reduction_tvs, inner_reduction_tvs[0], heuristic)) {
+  if (!tailingCommonCompileTimeCheck(
+          fusion, reduction_tvs, inner_reduction_tvs[0], heuristic)) {
     return false;
   }
 
@@ -509,8 +510,7 @@ int64_t tryEnforceBufferProjection(
   }
   // now we have the final decision on whether we project to input or not.
   if (project_persistent_buffers) {
-    return 
-        persistent_buffer_size_info.projected_persistent_buffer_size +
+    return persistent_buffer_size_info.projected_persistent_buffer_size +
         outer_reduction_buffer_size;
   } else {
     return persistent_buffer_size_info.persistent_buffer_size +
@@ -549,15 +549,21 @@ std::shared_ptr<ReductionParams> InnerOuterPersistentKernelScheduler::
       fusion, runtime_info, data_cache, reduction_tvs, ref_red_tv);
 
   // (2) info about persistent buffer.
-  auto [project_persistent_buffers, max_persistent_buffer_size, persistent_buffer_size_info] =
-      checkAndSetPersistentBufferHeuristics(
-          fusion, runtime_info, data_cache);
+  auto
+      [project_persistent_buffers,
+       max_persistent_buffer_size,
+       persistent_buffer_size_info] =
+          checkAndSetPersistentBufferHeuristics(
+              fusion, runtime_info, data_cache);
 
   // add additional buffers for partial results of outer reductions.
   // reconsider whether project persistent buffers to inputs or not.
-    max_persistent_buffer_size =
-      tryEnforceBufferProjection(
-           runtime_info, data_cache, reduction_tvs, project_persistent_buffers, persistent_buffer_size_info);
+  max_persistent_buffer_size = tryEnforceBufferProjection(
+      runtime_info,
+      data_cache,
+      reduction_tvs,
+      project_persistent_buffers,
+      persistent_buffer_size_info);
 
   // (3) dtype used to store partial outer reduction in combined reduction
   const int64_t tmp_gmem_dtype_size =

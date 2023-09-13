@@ -57,31 +57,8 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   }
 }
 
-// used by all persistent kernels
-bool PersistentSchedulerHelper::compileTimeCheckReductionAxis(
-    Fusion* fusion,
-    const std::vector<TensorView*>& reduction_tvs,
-    ScheduleHeuristic heuristic) {
-  // Use root domain map to check the reduction ops have the same axes
-  FusionGuard fg(fusion);
-  ComputeAtRootDomainMap root_map;
-  root_map.build(true);
-  for (const auto it : c10::irange(1, reduction_tvs.size())) {
-    if (!registry_utils::checkPatternEquivalence(
-            reduction_tvs[it - 1], reduction_tvs[it], root_map)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          heuristic,
-          "unmapped reduction ",
-          reduction_tvs[it - 1],
-          " and ",
-          reduction_tvs[it]);
-      return false;
-    }
-  }
-  return true;
-}
-
-// used by all persistent kernels
+// used by all persistent kernels in compile time check.
+// This is the first part of the compile time check.
 bool PersistentSchedulerHelper::leadingCommonCompileTimeCheck(
     Fusion* fusion,
     ScheduleHeuristic heuristic) {
@@ -120,7 +97,48 @@ bool PersistentSchedulerHelper::leadingCommonCompileTimeCheck(
   return true;
 }
 
-// used by all persistent kernels
+// used by all persistent kernels in compile time check.
+bool PersistentSchedulerHelper::checkReductionType(
+    const std::vector<TensorView*>& reduction_tvs,
+    ScheduleHeuristic heuristic) {
+  auto reduction_type =
+      reduction_scheduler_utils::getReductionType(reduction_tvs);
+  auto expected_type =
+      reduction_scheduler_utils::mapScheduleHeuristicToReductionType(heuristic);
+  if (reduction_type != expected_type) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristic, "ReductionType and heuristic doesn't match.");
+    return false;
+  }
+  return true;
+}
+
+// used by all persistent kernels in compile time check
+bool PersistentSchedulerHelper::compileTimeCheckReductionAxis(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs,
+    ScheduleHeuristic heuristic) {
+  // Use root domain map to check the reduction ops have the same axes
+  FusionGuard fg(fusion);
+  ComputeAtRootDomainMap root_map;
+  root_map.build(true);
+  for (const auto it : c10::irange(1, reduction_tvs.size())) {
+    if (!registry_utils::checkPatternEquivalence(
+            reduction_tvs[it - 1], reduction_tvs[it], root_map)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          heuristic,
+          "unmapped reduction ",
+          reduction_tvs[it - 1],
+          " and ",
+          reduction_tvs[it]);
+      return false;
+    }
+  }
+  return true;
+}
+
+// used by all persistent kernels in compile time check.
+// This is the last part of the compile time check.
 bool PersistentSchedulerHelper::tailingCommonCompileTimeCheck(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
@@ -200,23 +218,9 @@ bool PersistentSchedulerHelper::tailingCommonCompileTimeCheck(
   return true;
 }
 
-// used by all persistent kernels
-bool PersistentSchedulerHelper::checkReductionType(
-    const std::vector<TensorView*>& reduction_tvs,
-    ScheduleHeuristic heuristic) {
-  auto reduction_type =
-      reduction_scheduler_utils::getReductionType(reduction_tvs);
-  auto expected_type =
-      reduction_scheduler_utils::mapScheduleHeuristicToReductionType(heuristic);
-  if (reduction_type != expected_type) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        heuristic, "ReductionType and heuristic doesn't match.");
-    return false;
-  }
-  return true;
-}
-
-// used by inner persistent kernel and outer persistent kernel
+// used by inner persistent kernel and outer persistent kernel.
+// This function wraps the common compile time check for inner and outer
+// persistent kernels using the above 4 functions.
 bool PersistentSchedulerHelper::innerOrOuterCompileTimeCheck(
     Fusion* fusion,
     ScheduleHeuristic heuristic) {
@@ -250,7 +254,8 @@ bool PersistentSchedulerHelper::innerOrOuterCompileTimeCheck(
   return true;
 }
 
-// used by inner persistent kernel and innerOuter persistent kernel
+// used by inner persistent kernel and innerOuter persistent kernel for run time
+// check.
 bool PersistentSchedulerHelper::runTimeCheckIterSize(
     const scheduler_utils::ReductionTvProperties& properties,
     ScheduleHeuristic heuristic) {
@@ -310,11 +315,11 @@ PersistentSchedulerHelper::getCommonHeuristicParams(
 }
 
 // used by all persistent kernels through getHeuristics
-std::tuple<bool, int64_t, scheduler_utils::PersistentBufferSizeReturn> PersistentSchedulerHelper::
-    checkAndSetPersistentBufferHeuristics(
-        Fusion* fusion,
-        SchedulerRuntimeInfo& runtime_info,
-        HeuristicSummary* data_cache) {
+std::tuple<bool, int64_t, scheduler_utils::PersistentBufferSizeReturn>
+PersistentSchedulerHelper::checkAndSetPersistentBufferHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache) {
   auto persistent_buffer_info_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
           data_cache, [&fusion]() {
@@ -363,6 +368,7 @@ std::tuple<bool, int64_t, scheduler_utils::PersistentBufferSizeReturn> Persisten
       persistent_buffer_size_info);
 }
 
+// used by inner and outer persistent kernels through getHeuristi
 std::pair<int64_t, int64_t> PersistentSchedulerHelper::
     getTensorInputNumAndMaxTypeSize(
         SchedulerRuntimeInfo& runtime_info,

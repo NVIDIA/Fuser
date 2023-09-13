@@ -2346,7 +2346,6 @@ TranslateApplicableWelford::TranslateApplicableWelford(
 bool TranslateApplicableWelford::isValidPersistentFusion(
     Fusion* translated_fusion,
     SchedulerRuntimeInfo& runtime_info) {
-  
   // Get the appropriate heuristic based on reduciton types.
   auto maybe_persistent_sh =
       reduction_scheduler_utils::getOptionalPersistentScheduleHeuristic(

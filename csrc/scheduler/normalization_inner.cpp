@@ -52,7 +52,8 @@ void InnerPersistentKernelScheduler::schedule(Fusion* fusion) {
 }
 
 bool InnerPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
-  return innerOrOuterCompileTimeCheck(fusion, ScheduleHeuristic::InnerPersistent);
+  return innerOrOuterCompileTimeCheck(
+      fusion, ScheduleHeuristic::InnerPersistent);
 }
 
 bool InnerPersistentKernelScheduler::canScheduleRunTime(
@@ -732,12 +733,16 @@ std::shared_ptr<ReductionParams> InnerPersistentKernelScheduler::getHeuristics(
   auto& reduction_tvs = reduction_tv_entry.get();
 
   // (1) reduction properties and vectorization factor
-  auto [reduced_tv, properties, vectorize_factor] =
-      getCommonHeuristicParams(fusion, runtime_info, data_cache, reduction_tvs, reduction_tvs[0]);
+  auto [reduced_tv, properties, vectorize_factor] = getCommonHeuristicParams(
+      fusion, runtime_info, data_cache, reduction_tvs, reduction_tvs[0]);
 
   // (2) info about persistent buffer
-  auto [project_persistent_buffers, max_persistent_buffer_size, persistent_buffer_size_info] =
-      checkAndSetPersistentBufferHeuristics(fusion, runtime_info, data_cache);
+  auto
+      [project_persistent_buffers,
+       max_persistent_buffer_size,
+       persistent_buffer_size_info] =
+          checkAndSetPersistentBufferHeuristics(
+              fusion, runtime_info, data_cache);
 
   // (3) info about input tensors
   auto [n_tensor_inputs, max_input_dtype_size] =
