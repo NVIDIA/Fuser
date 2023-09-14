@@ -1016,7 +1016,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     for (auto i : c10::irange(args.size())) {
       debug() << "  " << args[i] << std::endl;
     }
-    debug() << "Compiler log: " << executor.compilerLog() << "\n";
+    debug() << "Compiler log: " << executor.compiledKernel().compile_log
+            << "\n";
     debug() << scheduler_entry->params()->toString() << "\n";
     debug() << "With arguments: " << executor.lastLaunchParams().toString();
     debug() << executor.kernelName() << " " << executor.bytesProcessed()

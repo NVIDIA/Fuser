@@ -1289,8 +1289,9 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       {},
       ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
   const auto out = lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst));
-  auto new_ldst = IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in)
-                      ->withPredicate(ldst->predicate());
+  auto new_ldst =
+      IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
+          ->withPredicate(ldst->predicate());
   pushBack(new_ldst);
   GpuLower::current()->propagateExprInfo(ldst, back());
 }

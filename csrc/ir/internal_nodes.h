@@ -741,7 +741,8 @@ class TORCH_CUDA_CU_API RNGOp : public Expr {
   }
 };
 
-//! Broadcast in to match out. is_broadcast_dims are relative to out. Where
+//! Broadcast in to match out. The semantics are identical to torch.unsqueeze.
+//! is_broadcast_dims are relative to out. Where
 //! is_broadcast_dims.size() == out->nDims().
 class TORCH_CUDA_CU_API BroadcastOp : public Expr {
  public:
@@ -1406,6 +1407,7 @@ class TORCH_CUDA_CU_API MmaOp : public Expr {
   static constexpr size_t ATTR_POS_INPUT_LAYOUT = 6;
 };
 
+//! The semantics are identical to torch.broadcast_to.
 class TORCH_CUDA_CU_API ExpandOp : public Expr {
  public:
   using Expr::Expr;
@@ -1601,7 +1603,12 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
  public:
   using Expr::Expr;
 
-  LoadStoreOp(IrBuilderPasskey, LoadStoreOpType op_type, Val* out, Val* in);
+  LoadStoreOp(
+      IrBuilderPasskey,
+      LoadStoreOpType op_type,
+      Val* out,
+      Val* in,
+      CacheOp cache_op = CacheOp::Streaming);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1626,6 +1633,10 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
 
   LoadStoreOpType opType() const {
     return attribute<LoadStoreOpType>(0);
+  }
+
+  CacheOp cacheOp() const {
+    return attribute<CacheOp>(1);
   }
 
   bool hasInnerTranspose() const;

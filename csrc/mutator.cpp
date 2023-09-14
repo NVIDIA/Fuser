@@ -33,7 +33,32 @@ void OptOutMutator::dispatchMutate(Val* v) {
   Val::mutatorDispatch(this, v);
 }
 
+Val* OptOutMutator::maybeMutated(Val* val) const {
+  const auto val_it = mutations_.find(val);
+  if (val_it == mutations_.end()) {
+    return val;
+  }
+  // Check whether val is further mutated and throw error if so. This is
+  // to prevent errors where we depend on recursive mutation, which can be
+  // confusion/ambiguous to support.
+  const auto two_hop_it = mutations_.find(val_it->second);
+  NVF_ERROR(
+      two_hop_it == mutations_.end(),
+      "Two-hop mutations are not supported. Found registrations from ",
+      val->toString(),
+      " to ",
+      val_it->second->toString(),
+      " to ",
+      two_hop_it->second->toString());
+  return val_it->second;
+}
+
 void OptOutMutator::registerMutation(Val* val, Val* mutation) {
+  if (val == mutation) {
+    // Avoid registering trivial mutations since they are wasteful and
+    // complicate the two-hop check in maybeMutated
+    return;
+  }
   bool val_is_ns = val->vtype() == ValType::NamedScalar;
   bool mutation_is_ns = mutation->vtype() == ValType::NamedScalar;
   bool val_is_scalar = val->vtype() == ValType::Others;
@@ -141,24 +166,30 @@ void OptOutMutator::mutate(PipelineVal*) {
   NVF_ERROR(false, "Not implemented yet.");
 }
 
-void OptOutMutator::mutate(Expr* op) {
-  std::vector<Val*> mutated_inputs;
-  mutated_inputs.reserve(op->inputs().size());
-  for (auto input : op->inputs()) {
-    mutated_inputs.emplace_back(maybeMutated(input));
-  }
-
+Expr* OptOutMutator::mutateExpr(
+    Expr* op,
+    bool replace_outputs,
+    bool replace_inputs,
+    bool replace_attrs) {
   std::vector<Val*> mutated_outputs;
   mutated_outputs.reserve(op->outputs().size());
   for (auto output : op->outputs()) {
-    mutated_outputs.emplace_back(maybeMutated(output));
+    mutated_outputs.emplace_back(
+        replace_outputs ? maybeMutated(output) : output);
+  }
+
+  std::vector<Val*> mutated_inputs;
+  mutated_inputs.reserve(op->inputs().size());
+  for (auto input : op->inputs()) {
+    mutated_inputs.emplace_back(replace_inputs ? maybeMutated(input) : input);
   }
 
   std::vector<Statement*> mutated_attrs;
   mutated_attrs.reserve(op->attributes().size());
   for (auto attr : op->attributes()) {
     if (auto attr_val = dynamic_cast<Val*>(attr)) {
-      mutated_attrs.emplace_back(maybeMutated(attr_val));
+      mutated_attrs.emplace_back(
+          replace_inputs ? maybeMutated(attr_val) : attr_val);
     } else {
       mutated_attrs.emplace_back(attr);
     }
@@ -188,7 +219,7 @@ void OptOutMutator::mutate(Expr* op) {
   }
 
   if (all_same) {
-    return;
+    return op;
   }
 
   auto container = op->container();
@@ -197,6 +228,8 @@ void OptOutMutator::mutate(Expr* op) {
   auto new_expr =
       newObjectFunc(container, mutated_inputs, mutated_outputs, mutated_attrs);
   registerNewExpr(new_expr);
+
+  return new_expr;
 }
 
 void OptOutMutator::removeExpr(IrContainer* container, Expr* expr) const {

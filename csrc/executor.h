@@ -196,26 +196,21 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   std::string getStructuredCode() const;
 
-  //! Returns the latest compile log
-  std::string compilerLog() const {
-    return last_compiler_log_;
-  }
-
-  //! Returns the latest compiled binary
-  std::vector<char> compiledBinary() const {
-    return last_compiled_binary_;
+  //! Returns a const reference to the latest compiled kernel.
+  const executor_utils::CompiledKernel& compiledKernel() const {
+    return compiled_kernel_;
   }
 
   //! Returns the disassembled latest compiled binary
   std::string disassembledBinary(const std::string& nvdisasm_args = "") const {
     return executor_utils::disassembleBinary(
-        last_compiled_binary_, nvdisasm_args);
+        compiled_kernel_.cubin, nvdisasm_args);
   }
 
   //! Returns the disassembled latest compiled binary
   std::string disassembledKernelSASS() const {
     return executor_utils::disassembleBinary(
-        last_compiled_binary_, "-fun 1 -c");
+        compiled_kernel_.cubin, "-fun 1 -c");
   }
 
   std::string getCanonicalKernelName() const {
@@ -382,7 +377,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   const int64_t max_static_smem_ = 48 << 10;
 
   int64_t warp_size_ = 0;
-  executor_utils::NvrtcFunction compiled_kernel_;
+  executor_utils::CompiledKernel compiled_kernel_;
 
   // TensorViews actually used in the kernel.
   std::vector<TensorView*> used_tvs_;
@@ -439,14 +434,8 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   // Profiling support: kept copy of the cuda kernel
   std::string kernel_code_;
 
-  // Profiling support: nvrtc log for debugging
-  std::string last_compiler_log_;
-
   // save compiled binary
   bool save_compiled_binary_ = false;
-
-  // nvrtc compiled binary
-  std::vector<char> last_compiled_binary_;
 };
 
 } // namespace nvfuser

@@ -89,17 +89,24 @@ void IrTransformPrinter::handle(Fusion* f) {
 }
 
 void IrTransformPrinter::printTransforms(TensorView* tv) {
-  auto root_domain = tv->getRootDomain();
+  const auto& root_domain = tv->getRootDomain();
   os() << " root domain : (" << toDelimitedString(root_domain) << ")\n";
 
-  if (tv->hasRFactor()) {
-    auto rfactor_domain = tv->getRFactorDomain();
+  if (tv->hasAllocation()) {
+    const auto& alloc_domain = tv->getAllocationDomain();
 
-    auto all_exp = DependencyCheck::getAllExprsBetween(
+    os() << " allocation domain : (" << toDelimitedString(alloc_domain)
+         << ")\n";
+  }
+
+  if (tv->hasRFactor()) {
+    const auto& rfactor_domain = tv->getRFactorDomain();
+
+    const auto all_exp = DependencyCheck::getAllExprsBetween(
         {root_domain.begin(), root_domain.end()},
         {rfactor_domain.begin(), rfactor_domain.end()});
 
-    for (auto exp : all_exp) {
+    for (const auto exp : all_exp) {
       os() << "  " << exp->toString();
     }
 
@@ -110,10 +117,10 @@ void IrTransformPrinter::printTransforms(TensorView* tv) {
 
   const auto& from = tv->getMaybeRFactorDomain();
   const auto& leaf = tv->getLeafDomain();
-  auto all_exp = DependencyCheck::getAllExprsBetween(
+  const auto all_exp = DependencyCheck::getAllExprsBetween(
       {from.begin(), from.end()}, {leaf.begin(), leaf.end()});
 
-  for (auto exp : all_exp) {
+  for (const auto exp : all_exp) {
     os() << "  " << exp->toString();
   }
   os() << " leaf domain : (" << toDelimitedString(leaf) << ")\n";
