@@ -1141,8 +1141,8 @@ TEST_F(ResizeTest, FusionResizeSlice5) {
   testValidate(&fusion, cg_outputs, aten_inputs, {t2, t4}, __LINE__, __FILE__);
 }
 
-// Test slice with a variety of (constant) inputs
-TEST_F(NVFuserTest, FusionResizeSliceShmoo_CUDA) {
+// Test slice with a variety of constant ranges
+TEST_F(NVFuserTest, FusionResizeSliceConstantShmoo_CUDA) {
   for (auto [start, stop] : std::vector<std::pair<int64_t, int64_t>>(
            {// Slice with end beyond size of input. This should clip to input,
             // not pad.
@@ -1179,8 +1179,8 @@ TEST_F(NVFuserTest, FusionResizeSliceShmoo_CUDA) {
   }
 }
 
-// Slice with start beyond size of input. This should produce zero-size tensor.
-TEST_F(NVFuserTest, FusionResizeSlice7_CUDA) {
+// Test slice with a variety of non-constant input ranges
+TEST_F(NVFuserTest, FusionResizeSliceInputShmoo_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1188,24 +1188,72 @@ TEST_F(NVFuserTest, FusionResizeSlice7_CUDA) {
 
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeConcreteTensor(shape);
+  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s1 = IrBuilder::create<Val>(DataType::Index);
   fusion.addInput(tv0);
+  fusion.addInput(s0);
+  fusion.addInput(s1);
 
-  auto tv1 =
-      slice(tv0, {{IrBuilder::create<Val>(11), IrBuilder::create<Val>(13)}});
+  auto tv1 = slice(tv0, {{s0, s1}});
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-  auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
+  {
+    // Concretize so that we set output IterType as Iteration. We should now
+    // have expressions that work with any input range.
+    ExpressionEvaluator expr_eval;
+
+    expr_eval.bind(tv0->axis(0)->extent(), 9);
+    expr_eval.bind(s0, 0);
+    expr_eval.bind(s1, 9);
+
+    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+    auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
+
+    DynamicTransform::concretizeFusion(&fusion, &info);
+    NVF_CHECK(
+        !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
+  }
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, aten_inputs);
-  auto cg_outputs = fe.runFusion(aten_inputs);
+  fe.compileFusion(&fusion);
 
-  auto ref = t0.index({at::indexing::Slice(11, 13)});
+  auto t0 = at::randn(shape, options);
+  for (auto [start, stop] : std::vector<std::pair<int64_t, int64_t>>({
+           // Slice with end beyond size of input. This should clip to input,
+           // not pad.
+           {0, 5},
+           3, 9},
 
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+           , 4},
+ 
+            5},
+  
+            11},
+  
+            13},
+   
+            8},
+   
+            -1},
+   
+            -5},
+   
+            -1},
+   
+           , 9},
+   
+           , 0},
+   
+       {
+    std::vector<c10::IValue> aten_inputs({t0, start, stop});
+    auto cg_outputs = fe.runFusion(aten_inputs);
+
+    auto ref = t0.index({at::indexing::Slice(start, stop)});
+
+    testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  }
 }
 
 // Auto scheduled version of Slice1
@@ -2896,3 +2944,4 @@ TEST_F(ResizeTest, CatOfExpandedBroadcast) {
 }
 
 } // namespace nvfuser
+    
