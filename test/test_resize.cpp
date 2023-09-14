@@ -1220,33 +1220,21 @@ TEST_F(NVFuserTest, FusionResizeSliceInputShmoo_CUDA) {
   fe.compileFusion(&fusion);
 
   auto t0 = at::randn(shape, options);
-  for (auto [start, stop] : std::vector<std::pair<int64_t, int64_t>>({
-           // Slice with end beyond size of input. This should clip to input,
-           // not pad.
-           {0, 5},
-           3, 9},
-
-           , 4},
- 
-            5},
-  
-            11},
-  
-            13},
-   
-            8},
-   
-            -1},
-   
-            -5},
-   
-            -1},
-   
-           , 9},
-   
-           , 0},
-   
-       {
+  for (auto [start, stop] : std::vector<std::pair<int64_t, int64_t>>(
+           {// Slice with end beyond size of input. This should clip to input,
+            // not pad.
+            {0, 5},
+            {3, 9},
+            {3, 4},
+            {7, 5},
+            {0, 11},
+            {11, 13},
+            {-3, 8},
+            {-3, -1},
+            {-3, -5},
+            {13, -1},
+            {-11, 9},
+            {-11, 0}})) {
     std::vector<c10::IValue> aten_inputs({t0, start, stop});
     auto cg_outputs = fe.runFusion(aten_inputs);
 
@@ -2944,4 +2932,3 @@ TEST_F(ResizeTest, CatOfExpandedBroadcast) {
 }
 
 } // namespace nvfuser
-    
