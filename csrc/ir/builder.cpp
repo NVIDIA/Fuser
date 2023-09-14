@@ -330,6 +330,9 @@ Val* SimplifyingIrBuilder::addExpr(Val* lhs, Val* rhs) {
 }
 
 Val* SimplifyingIrBuilder::subExpr(Val* lhs, Val* rhs) {
+  if (lhs->sameAs(rhs)) {
+    return lhs->fusion()->zeroVal(lhs->dtype());
+  }
   return addExpr(lhs, negExpr(rhs));
 }
 
@@ -372,6 +375,9 @@ Val* SimplifyingIrBuilder::mulExpr(Val* lhs, Val* rhs) {
 Val* SimplifyingIrBuilder::divExpr(Val* lhs, Val* rhs) {
   if (rhs->isOneInt()) {
     return lhs;
+  }
+  if (lhs->sameAs(rhs)) {
+    return lhs->fusion()->oneVal(lhs->dtype());
   }
   return IrBuilder::divExpr(lhs, rhs);
 }
@@ -604,6 +610,90 @@ Val* SimplifyingIrBuilder::gcdExpr(Val* lhs, Val* rhs) {
     return lhs->container()->oneVal(promoteType(lhs->dtype(), rhs->dtype()));
   }
   return IrBuilder::gcdExpr(lhs, rhs);
+}
+
+Val* SimplifyingIrBuilder::ltExpr(Val* lhs, Val* rhs) {
+  NVF_ERROR(
+      lhs->dtype() == rhs->dtype(),
+      "Comparison expressions require same dtype for inputs");
+
+  if (lhs->isConstScalar() && rhs->isConstScalar()) {
+    return (lhs->evaluateBool() < rhs->evaluateBool())
+        ? lhs->fusion()->trueVal()
+        : lhs->fusion()->falseVal();
+  }
+
+  return IrBuilder::ltExpr(lhs, rhs);
+}
+
+Val* SimplifyingIrBuilder::leExpr(Val* lhs, Val* rhs) {
+  NVF_ERROR(
+      lhs->dtype() == rhs->dtype(),
+      "Comparison expressions require same dtype for inputs");
+
+  if (lhs->isConstScalar() && rhs->isConstScalar()) {
+    return (lhs->evaluateBool() <= rhs->evaluateBool())
+        ? lhs->fusion()->trueVal()
+        : lhs->fusion()->falseVal();
+  }
+
+  return IrBuilder::leExpr(lhs, rhs);
+}
+
+Val* SimplifyingIrBuilder::eqExpr(Val* lhs, Val* rhs) {
+  NVF_ERROR(
+      lhs->dtype() == rhs->dtype(),
+      "Comparison expressions require same dtype for inputs");
+
+  if (lhs->isConstScalar() && rhs->isConstScalar()) {
+    return (lhs->evaluateBool() == rhs->evaluateBool())
+        ? lhs->fusion()->trueVal()
+        : lhs->fusion()->falseVal();
+  }
+
+  return IrBuilder::eqExpr(lhs, rhs);
+}
+
+Val* SimplifyingIrBuilder::neExpr(Val* lhs, Val* rhs) {
+  NVF_ERROR(
+      lhs->dtype() == rhs->dtype(),
+      "Comparison expressions require same dtype for inputs");
+
+  if (lhs->isConstScalar() && rhs->isConstScalar()) {
+    return (lhs->evaluateBool() != rhs->evaluateBool())
+        ? lhs->fusion()->trueVal()
+        : lhs->fusion()->falseVal();
+  }
+
+  return IrBuilder::neExpr(lhs, rhs);
+}
+
+Val* SimplifyingIrBuilder::geExpr(Val* lhs, Val* rhs) {
+  NVF_ERROR(
+      lhs->dtype() == rhs->dtype(),
+      "Comparison expressions require same dtype for inputs");
+
+  if (lhs->isConstScalar() && rhs->isConstScalar()) {
+    return (lhs->evaluateBool() >= rhs->evaluateBool())
+        ? lhs->fusion()->trueVal()
+        : lhs->fusion()->falseVal();
+  }
+
+  return IrBuilder::geExpr(lhs, rhs);
+}
+
+Val* SimplifyingIrBuilder::gtExpr(Val* lhs, Val* rhs) {
+  NVF_ERROR(
+      lhs->dtype() == rhs->dtype(),
+      "Comparison expressions require same dtype for inputs");
+
+  if (lhs->isConstScalar() && rhs->isConstScalar()) {
+    return (lhs->evaluateBool() > rhs->evaluateBool())
+        ? lhs->fusion()->trueVal()
+        : lhs->fusion()->falseVal();
+  }
+
+  return IrBuilder::gtExpr(lhs, rhs);
 }
 
 Val* SimplifyingIrBuilder::whereExpr(Val* pred, Val* lhs, Val* rhs) {
