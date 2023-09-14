@@ -50,11 +50,16 @@ bool checkViewRootPersistentTopology(
 //! and checkViewRootPersistentTopology
 bool innerOrOuterCompileTimeCheck(Fusion* fusion, ScheduleHeuristic heuristic);
 
+//! Don't go persistent if we can't use a small fraction of the
+//! available SMs yet have a large reduction size.
+//! used by inner persistent kernel and innerOuter persistent kernel for run
+//! time check.
 bool runTimeCheckIterSize(
     const scheduler_utils::ReductionTvProperties& properties,
     ScheduleHeuristic heuristic);
 
 //! helper functions used by getPersistentHeuristic
+//! returns reduced tensor, reduction properties, and vectorize factor
 std::tuple<TensorView*, scheduler_utils::ReductionTvProperties, int64_t>
 getReductionPropertiesVectFactor(
     Fusion* fusion,
@@ -63,17 +68,21 @@ getReductionPropertiesVectFactor(
     const std::vector<TensorView*>& reduction_tvs,
     TensorView* reference_tv);
 
+//! returns whether buffer projection is allowed and buffer size.
 std::tuple<bool, scheduler_utils::PersistentBufferSizeReturn> getBufferSizeInfo(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache);
 
+//! returns number of tensor inputs and max type size of tensor inputs.
 std::pair<int64_t, int64_t> getTensorInputNumAndMaxTypeSize(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
     TensorView* reduced_tv);
 
 //! helper functions used by schedulePersistentKernel
+//! Grab the reduction, input, and output tensor views.
+//! dummy_outputs are helper tensors for persistent buffer projection.
 void beforeSchedule(
     Fusion* fusion,
     const ReductionParams& rparams,
