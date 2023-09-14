@@ -1485,12 +1485,12 @@ struct OutputRecord : RecordFunctor {
       if (std::is_same<OutputType, TensorView>::value) {
         auto tv_output = output->template as<TensorView>();
         if (!stride_order_.empty()) {
-	  size_t rank = stride_order_.size();
-	  std::vector<IterDomain*> allocation_domain(rank);
-	  for (auto i : c10::irange(rank)) {
-	  	  allocation_domain[rank - 1 - stride_order_[i]] = tv_output->axis(i);
-	  }
-	  tv_output->setAllocationDomain(allocation_domain, true);
+          size_t rank = stride_order_.size();
+          std::vector<IterDomain*> allocation_domain(rank);
+          for (auto i : c10::irange(rank)) {
+            allocation_domain[rank - 1 - stride_order_[i]] = tv_output->axis(i);
+          }
+          tv_output->setAllocationDomain(allocation_domain, true);
         }
         fd.addOutput(tv_output);
       } else {

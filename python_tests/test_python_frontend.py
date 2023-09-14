@@ -1420,7 +1420,6 @@ class TestNvFuserFrontend(TestCase):
         eager_out = inputs[0] + 3.0
 
         for perm in itertools.permutations(range(4), 4):
-
             # testing stride_order in add_output
             def fusion_func(fd: FusionDefinition):
                 t0 = fd.from_pytorch(inputs[0])
@@ -1435,7 +1434,7 @@ class TestNvFuserFrontend(TestCase):
             sorted_stride = list(nvf_stride)
             rank = len(nvf_stride)
             for idx, axis in enumerate(perm):
-                sorted_stride[rank-1-axis] = nvf_stride[idx]
+                sorted_stride[rank - 1 - axis] = nvf_stride[idx]
             self.assertTrue(sorted(sorted_stride, reverse=True) == sorted_stride)
 
             # testing stride_order in set
@@ -1453,7 +1452,7 @@ class TestNvFuserFrontend(TestCase):
             sorted_stride = list(nvf_stride)
             rank = len(nvf_stride)
             for idx, axis in enumerate(perm):
-                sorted_stride[rank-1-axis] = nvf_stride[idx]
+                sorted_stride[rank - 1 - axis] = nvf_stride[idx]
             self.assertTrue(sorted(sorted_stride, reverse=True) == sorted_stride)
 
     def test_expanded_bcast_tensor(self):
