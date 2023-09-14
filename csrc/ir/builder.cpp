@@ -612,95 +612,116 @@ Val* SimplifyingIrBuilder::gcdExpr(Val* lhs, Val* rhs) {
   return IrBuilder::gcdExpr(lhs, rhs);
 }
 
-Val* SimplifyingIrBuilder::ltExpr(Val* lhs, Val* rhs) {
+namespace {
+enum class ScalarComparisonResult { LT, EQ, GT, NONCONST };
+
+double evaluateAsDouble(Val* a) {
   NVF_ERROR(
-      lhs->dtype() == rhs->dtype(),
-      "Comparison expressions require same dtype for inputs");
-
-  if (lhs->isConstScalar() && rhs->isConstScalar()) {
-    return (lhs->evaluateBool() < rhs->evaluateBool())
-        ? lhs->fusion()->trueVal()
-        : lhs->fusion()->falseVal();
+      a->isScalar(),
+      "evaluateAsDouble expects scalar but found ",
+      a->toString());
+  if (a->isIntegralScalar()) {
+    return static_cast<double>(a->evaluateInt());
+  } else if (a->isABool()) {
+    return static_cast<double>(a->evaluateBool());
+  } else if (a->isFloatingPointScalar()) {
+    return a->evaluateDouble();
+  } else {
+    NVF_ERROR(
+        false,
+        "Unhandled dtype ",
+        a->dtype(),
+        " in evaluateAsDouble for input ",
+        a->toInlineString());
   }
+}
 
-  return IrBuilder::ltExpr(lhs, rhs);
+//! Compares a to b after evaluation and conversion to double
+ScalarComparisonResult compareConstScalars(Val* a, Val* b) {
+  if (!a->isConstScalar() || !b->isConstScalar()) {
+    return ScalarComparisonResult::NONCONST;
+  }
+  auto ad = evaluateAsDouble(a);
+  auto bd = evaluateAsDouble(b);
+  if (ad < bd) {
+    return ScalarComparisonResult::LT;
+  } else if (ad == bd) {
+    return ScalarComparisonResult::EQ;
+  } else {
+    return ScalarComparisonResult::GT;
+  }
+}
+} // namespace
+
+Val* SimplifyingIrBuilder::ltExpr(Val* lhs, Val* rhs) {
+  switch (compareConstScalars(lhs, rhs)) {
+    case ScalarComparisonResult::NONCONST:
+      return IrBuilder::ltExpr(lhs, rhs);
+    case ScalarComparisonResult::LT:
+      return lhs->fusion()->trueVal();
+    default:
+      return lhs->fusion()->falseVal();
+  }
 }
 
 Val* SimplifyingIrBuilder::leExpr(Val* lhs, Val* rhs) {
-  NVF_ERROR(
-      lhs->dtype() == rhs->dtype(),
-      "Comparison expressions require same dtype for inputs");
-
-  if (lhs->isConstScalar() && rhs->isConstScalar()) {
-    return (lhs->evaluateBool() <= rhs->evaluateBool())
-        ? lhs->fusion()->trueVal()
-        : lhs->fusion()->falseVal();
+  switch (compareConstScalars(lhs, rhs)) {
+    case ScalarComparisonResult::NONCONST:
+      return IrBuilder::leExpr(lhs, rhs);
+    case ScalarComparisonResult::LT:
+    case ScalarComparisonResult::EQ:
+      return lhs->fusion()->trueVal();
+    default:
+      return lhs->fusion()->falseVal();
   }
-
-  return IrBuilder::leExpr(lhs, rhs);
 }
 
 Val* SimplifyingIrBuilder::eqExpr(Val* lhs, Val* rhs) {
-  NVF_ERROR(
-      lhs->dtype() == rhs->dtype(),
-      "Comparison expressions require same dtype for inputs");
-
-  if (lhs->isConstScalar() && rhs->isConstScalar()) {
-    return (lhs->evaluateBool() == rhs->evaluateBool())
-        ? lhs->fusion()->trueVal()
-        : lhs->fusion()->falseVal();
+  switch (compareConstScalars(lhs, rhs)) {
+    case ScalarComparisonResult::NONCONST:
+      return IrBuilder::eqExpr(lhs, rhs);
+    case ScalarComparisonResult::EQ:
+      return lhs->fusion()->trueVal();
+    default:
+      return lhs->fusion()->falseVal();
   }
-
-  return IrBuilder::eqExpr(lhs, rhs);
 }
 
 Val* SimplifyingIrBuilder::neExpr(Val* lhs, Val* rhs) {
-  NVF_ERROR(
-      lhs->dtype() == rhs->dtype(),
-      "Comparison expressions require same dtype for inputs");
-
-  if (lhs->isConstScalar() && rhs->isConstScalar()) {
-    return (lhs->evaluateBool() != rhs->evaluateBool())
-        ? lhs->fusion()->trueVal()
-        : lhs->fusion()->falseVal();
+  switch (compareConstScalars(lhs, rhs)) {
+    case ScalarComparisonResult::NONCONST:
+      return IrBuilder::neExpr(lhs, rhs);
+    case ScalarComparisonResult::EQ:
+      return lhs->fusion()->falseVal();
+    default:
+      return lhs->fusion()->trueVal();
   }
-
-  return IrBuilder::neExpr(lhs, rhs);
 }
 
 Val* SimplifyingIrBuilder::geExpr(Val* lhs, Val* rhs) {
-  NVF_ERROR(
-      lhs->dtype() == rhs->dtype(),
-      "Comparison expressions require same dtype for inputs");
-
-  if (lhs->isConstScalar() && rhs->isConstScalar()) {
-    return (lhs->evaluateBool() >= rhs->evaluateBool())
-        ? lhs->fusion()->trueVal()
-        : lhs->fusion()->falseVal();
+  switch (compareConstScalars(lhs, rhs)) {
+    case ScalarComparisonResult::NONCONST:
+      return IrBuilder::geExpr(lhs, rhs);
+    case ScalarComparisonResult::GT:
+    case ScalarComparisonResult::EQ:
+      return lhs->fusion()->trueVal();
+    default:
+      return lhs->fusion()->falseVal();
   }
-
-  return IrBuilder::geExpr(lhs, rhs);
 }
 
 Val* SimplifyingIrBuilder::gtExpr(Val* lhs, Val* rhs) {
-  NVF_ERROR(
-      lhs->dtype() == rhs->dtype(),
-      "Comparison expressions require same dtype for inputs");
-
-  if (lhs->isConstScalar() && rhs->isConstScalar()) {
-    return (lhs->evaluateBool() > rhs->evaluateBool())
-        ? lhs->fusion()->trueVal()
-        : lhs->fusion()->falseVal();
+  switch (compareConstScalars(lhs, rhs)) {
+    case ScalarComparisonResult::NONCONST:
+      return IrBuilder::gtExpr(lhs, rhs);
+    case ScalarComparisonResult::GT:
+      return lhs->fusion()->trueVal();
+    default:
+      return lhs->fusion()->falseVal();
   }
-
-  return IrBuilder::gtExpr(lhs, rhs);
 }
 
 Val* SimplifyingIrBuilder::whereExpr(Val* pred, Val* lhs, Val* rhs) {
-  NVF_ERROR(
-      pred->dtype() == DataType::Bool,
-      "Where requires a predicate as an input, but received");
-
   if (pred->isConstScalar() && pred->isABool()) {
     if (pred->evaluateBool()) {
       return lhs;
@@ -708,7 +729,6 @@ Val* SimplifyingIrBuilder::whereExpr(Val* pred, Val* lhs, Val* rhs) {
       return rhs;
     }
   }
-
   return IrBuilder::whereExpr(pred, lhs, rhs);
 }
 
