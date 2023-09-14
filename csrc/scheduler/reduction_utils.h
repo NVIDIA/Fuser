@@ -102,11 +102,6 @@ enum class ReductionType { Inner, Outer, InnerOuter, None };
 ReductionType getReductionType(Fusion* fusion);
 ReductionType getReductionType(const std::vector<TensorView*>& reduction_tvs);
 
-// Return a InnerPersistent, OuterPersistent, or InnerOuterPersistent
-// ScheduleHeuristic based on reduction types. If no reduction, returns nullptr.
-std::optional<ScheduleHeuristic> getOptionalPersistentScheduleHeuristic(
-    Fusion* fusion);
-
 // Return the corresponding reduction types given a ScheduleHeuristic
 ReductionType mapScheduleHeuristicToReductionType(ScheduleHeuristic sh);
 

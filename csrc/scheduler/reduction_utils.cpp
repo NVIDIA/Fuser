@@ -1013,25 +1013,6 @@ std::ostream& operator<<(std::ostream& os, ReductionType reduction_type) {
   return os;
 }
 
-// Get the appropriate scheduler based on reduction type
-std::optional<ScheduleHeuristic> getOptionalPersistentScheduleHeuristic(
-    Fusion* fusion) {
-  auto reduction_type = reduction_scheduler_utils::getReductionType(fusion);
-  switch (reduction_type) {
-    case ReductionType::Inner:
-      return ScheduleHeuristic::InnerPersistent;
-    case ReductionType::Outer:
-      return ScheduleHeuristic::OuterPersistent;
-    case ReductionType::InnerOuter:
-      return ScheduleHeuristic::InnerOuterPersistent;
-    case ReductionType::None:
-      return std::nullopt;
-    default:
-      NVF_ERROR(false, "Reduction type not defined!");
-      return std::nullopt;
-  }
-}
-
 ReductionType mapScheduleHeuristicToReductionType(ScheduleHeuristic sh) {
   switch (sh) {
     case ScheduleHeuristic::InnerPersistent:

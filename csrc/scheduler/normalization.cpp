@@ -511,8 +511,7 @@ PersistentHeuristicArgs getInnerOrOuterPersistentHeuristicArgs(
 
   // (2) info about persistent buffer
   auto [can_project, persistent_buffer_size_info] =
-      persistent_scheduler::getBufferSizeInfo(
-          fusion, runtime_info, data_cache);
+      persistent_scheduler::getBufferSizeInfo(fusion, runtime_info, data_cache);
   bool project_persistent_buffers = can_project &&
       persistent_buffer_size_info.projected_persistent_buffer_size <
           persistent_buffer_size_info.persistent_buffer_size;
@@ -554,9 +553,8 @@ void scheduleInnerOrOuterPersistentKernel(
       reduction_tvs,
       cached_outputs);
 
-  TensorView* reference_tv =
-      persistent_scheduler::scheduleReductionGeneral(
-          fusion, rparams, reduction_tvs);
+  TensorView* reference_tv = persistent_scheduler::scheduleReductionGeneral(
+      fusion, rparams, reduction_tvs);
 
   // Reduction tensor views and rfactor tensor views are setup. Let's finish off
   // the scheduling, particularly inlining and unrolling.

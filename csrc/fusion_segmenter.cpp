@@ -16,6 +16,7 @@
 #include <ir/utils.h>
 #include <ops/arith.h>
 #include <scheduler/debug_utils.h>
+#include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
 
 #include <sstream>
@@ -2348,7 +2349,7 @@ bool TranslateApplicableWelford::isValidPersistentFusion(
     SchedulerRuntimeInfo& runtime_info) {
   // Get the appropriate heuristic based on reduciton types.
   auto maybe_persistent_sh =
-      reduction_scheduler_utils::getOptionalPersistentScheduleHeuristic(
+      normalization_scheduler_utils::getOptionalPersistentScheduleHeuristic(
           translated_fusion);
   if (!maybe_persistent_sh.has_value()) {
     return false;

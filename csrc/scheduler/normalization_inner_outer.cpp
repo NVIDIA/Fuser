@@ -62,8 +62,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
 
   // (2) check reduction type.
   const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-  if (!persistent_scheduler::checkReductionType(
-          reduction_tvs, heuristic)) {
+  if (!persistent_scheduler::checkReductionType(reduction_tvs, heuristic)) {
     return false;
   }
 
@@ -555,8 +554,7 @@ std::shared_ptr<ReductionParams> InnerOuterPersistentKernelScheduler::
 
   // (2) info about persistent buffer.
   auto [can_project, persistent_buffer_size_info] =
-      persistent_scheduler::getBufferSizeInfo(
-          fusion, runtime_info, data_cache);
+      persistent_scheduler::getBufferSizeInfo(fusion, runtime_info, data_cache);
   bool project_persistent_buffers = can_project &&
       persistent_buffer_size_info.projected_persistent_buffer_size <
           persistent_buffer_size_info.persistent_buffer_size;

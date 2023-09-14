@@ -10,8 +10,8 @@
 #include <exceptions.h>
 #include <executor_params.h>
 #include <ir/all_nodes.h>
+#include <scheduler/heuristic_types.h>
 #include <scheduler/utils.h>
-
 #include <cmath>
 #include <optional>
 #include <ostream>
@@ -228,6 +228,11 @@ scheduler_utils::PersistentBufferInfo& getMaybeCachedPersistentBufferInfo(
 //! reduction tv as the reference tv, otherwise use the first reduction tv.
 TensorView* getReferenceReductionTv(
     const std::vector<TensorView*>& reduction_tvs);
+
+// Return a InnerPersistent, OuterPersistent, or InnerOuterPersistent
+// ScheduleHeuristic based on reduction types. If no reduction, returns nullptr.
+std::optional<ScheduleHeuristic> getOptionalPersistentScheduleHeuristic(
+    Fusion* fusion);
 
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

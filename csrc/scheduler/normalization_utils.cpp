@@ -8,6 +8,7 @@
 #include <expr_evaluator.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
+#include <scheduler/reduction_utils.h>
 #include <scheduler/registry.h>
 #include <utils.h>
 
@@ -790,6 +791,27 @@ TensorView* getReferenceReductionTv(
   }
 
   return reduction_tvs.at(0);
+}
+
+// Get the appropriate scheduler based on reduction type
+std::optional<ScheduleHeuristic> getOptionalPersistentScheduleHeuristic(
+    Fusion* fusion) {
+  auto reduction_type = reduction_scheduler_utils::getReductionType(fusion);
+  using ReductionType = reduction_scheduler_utils::ReductionType;
+
+  switch (reduction_type) {
+    case ReductionType::Inner:
+      return ScheduleHeuristic::InnerPersistent;
+    case ReductionType::Outer:
+      return ScheduleHeuristic::OuterPersistent;
+    case ReductionType::InnerOuter:
+      return ScheduleHeuristic::InnerOuterPersistent;
+    case ReductionType::None:
+      return std::nullopt;
+    default:
+      NVF_ERROR(false, "Reduction type not defined!");
+      return std::nullopt;
+  }
 }
 
 } // namespace normalization_scheduler_utils
