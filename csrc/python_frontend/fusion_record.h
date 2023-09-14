@@ -1425,16 +1425,7 @@ struct OutputRecord : RecordFunctor {
       std::vector<int64_t> stride_order = {})
       : RecordFunctor(std::move(_args), {}, "add_output", record_type) {
     if (!stride_order.empty()) {
-      bool requires_permutation = false;
-      for (const auto i : c10::irange(stride_order.size())) {
-        if (stride_order[i] != (int64_t)i) {
-          requires_permutation = true;
-          break;
-        }
-      }
-      if (requires_permutation) {
-        stride_order_ = stride_order;
-      }
+      stride_order_ = stride_order;
     }
   }
   ~OutputRecord() override = default;
