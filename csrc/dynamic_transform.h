@@ -104,7 +104,7 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
   // We hold vectors of the _outputs_ of dynamic ops. The reason we don't hold
   // the ops themselves is that during concretization, the ops will actually be
-  // removed by ir_utils::replaceValInExpr. The outputs will not: their
+  // removed by ir_utils::replaceValInExprInputs. The outputs will not: their
   // definitions will merely be altered. When the ops are replaced, if we had
   // referred to them directly here, we would run into segfaults. Referring only
   // to the outputs avoids this issue.
