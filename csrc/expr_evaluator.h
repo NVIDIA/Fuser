@@ -56,6 +56,9 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
   //! Try to evaluate a parallel dimension
   const PolymorphicValue& evaluate(ParallelType pt);
 
+  //! Try to evaluate a known value using const evaluator ref
+  const PolymorphicValue& evaluate(const Val* value) const;
+
   //! Debugging helper, prints all the currently known values
   void print() const;
 

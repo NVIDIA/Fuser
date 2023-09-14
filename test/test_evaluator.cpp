@@ -16,6 +16,8 @@
 #include <fusion.h>
 #include <ops/all_ops.h>
 
+#include <typeinfo>
+
 namespace nvfuser {
 
 class ExprEvalTest : public NVFuserTest {};
@@ -30,6 +32,14 @@ inline void checkIntValue(
   const auto actual_value = evaluator.evaluate(val);
   EXPECT_TRUE(actual_value.hasValue());
   EXPECT_EQ(actual_value, expected_value);
+}
+
+inline void checkValue(
+    const ExpressionEvaluator& evaluator,
+    Val* val,
+    at::Tensor expected_value) {
+  auto actual_value = evaluator.evaluate(val);
+  NVF_CHECK(expected_value.equal(actual_value.as<at::Tensor>()));
 }
 
 } // namespace
@@ -103,6 +113,21 @@ TEST_F(ExprEvalTest, Bindings) {
   checkIntValue(evaluator, mod(a, b), 2);
   checkIntValue(evaluator, ceilDiv(a, b), 1);
   checkIntValue(evaluator, d, -2);
+}
+
+// Evaluate known values with const expression evaluator reference
+TEST_F(ExprEvalTest, ConstReference) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  ExpressionEvaluator evaluator;
+  auto tv0 = makeContigTensor(1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({3}, options);
+
+  evaluator.bind(tv0, t0);
+  checkValue(evaluator, tv0, t0);
 }
 
 // Evaluate expressions in a simple IR

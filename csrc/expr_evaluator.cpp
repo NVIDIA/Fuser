@@ -197,6 +197,11 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(ParallelType pt) {
   return null_;
 }
 
+const PolymorphicValue& ExpressionEvaluator::evaluate(const Val* value) const {
+  const auto it = known_values_.find(value);
+  return it != known_values_.end() ? it->second : null_;
+}
+
 const PolymorphicValue& ExpressionEvaluator::getValue(const Val* value) {
   if (value->isScalar() && value->isConst()) {
     return value->value();
