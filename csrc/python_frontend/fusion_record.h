@@ -662,7 +662,8 @@ struct SetStrideOrderOpRecord : RecordFunctor {
     int rank = static_cast<int>(stride_order_.size());
     std::vector<IterDomain*> allocation_domain(rank);
     for (int i : c10::irange(rank)) {
-      allocation_domain[rank - 1 - static_cast<int>(stride_order_[i])] = output->axis(i);
+      allocation_domain[rank - 1 - static_cast<int>(stride_order_[i])] =
+          output->axis(i);
     }
     output->setAllocationDomain(allocation_domain, true);
     fd.setFusionState(outputs_.at(0).index, output);
