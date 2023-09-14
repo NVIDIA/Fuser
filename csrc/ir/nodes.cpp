@@ -2846,9 +2846,8 @@ IterDomain* IterDomain::resize(
     }
   }
 
-  if (resized_id_size->dtype() != DataType::Index) {
-    resized_id_size = castOp(DataType::Index, resized_id_size);
-  }
+  resized_id_size =
+      SimplifyingIrBuilder::maybeCastExpr(DataType::Index, resized_id_size);
 
   auto resized_id =
       IterDomainBuilder(in->container()->zeroVal(), resized_id_size)
