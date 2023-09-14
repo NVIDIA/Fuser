@@ -629,6 +629,9 @@ void NaiveValueMachine::runBinaryOp(int index) {
     case BinaryOpType::Eq:
       dest = lhs == rhs;
       break;
+    case BinaryOpType::NE:
+      dest = lhs != rhs;
+      break;
     case BinaryOpType::GE:
       dest = lhs >= rhs;
       break;
