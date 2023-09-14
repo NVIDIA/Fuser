@@ -1443,7 +1443,7 @@ class TestNvFuserFrontend(TestCase):
                 t0 = fd.from_pytorch(inputs[0])
                 c0 = fd.define_scalar(3.0)
                 t1 = fd.ops.add(t0, c0)
-                t2 = fd.ops.set(t2, perm)
+                t2 = fd.ops.set(t1, perm)
                 fd.add_output(t2)
 
             nvf_out, _ = self.exec_nvfuser(fusion_set_func, inputs)

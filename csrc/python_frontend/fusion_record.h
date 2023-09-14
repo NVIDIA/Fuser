@@ -620,7 +620,7 @@ struct SetStrideOrderOpRecord : RecordFunctor {
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
-            "ops.set_stride_order",
+            "ops.set",
             serde::RecordType_SetStrideOrderOp),
         stride_order_(std::move(stride_order)) {}
   ~SetStrideOrderOpRecord() override = default;
