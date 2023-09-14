@@ -895,8 +895,8 @@ FusionKernelRuntime::FusionKernelRuntime(
       fusion.get());
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
-    std::cout << "Fusion IR after pre-segmenter optimization passes:"
-              << std::endl;
+    debug() << "Fusion IR after pre-segmenter optimization passes:"
+            << std::endl;
     fusion->printMath();
   }
 
