@@ -551,7 +551,7 @@ struct PermuteOpRecord : RecordFunctor {
     auto result = RecordFunctor::hash();
     size_t dims_hash = 0;
     for (auto dim : dims_) {
-      dims_hash ^= static_cast<size_t>(dim);
+      hashCombine(dims_hash, static_cast<size_t>(dim));
     }
     return result | (dims_hash & 0xffff);
   }
@@ -632,7 +632,7 @@ struct SetStrideOrderOpRecord : RecordFunctor {
     auto result = RecordFunctor::hash();
     size_t dims_hash = 0;
     for (auto dim : stride_order_) {
-      dims_hash ^= static_cast<size_t>(dim);
+      hashCombine(dims_hash, static_cast<size_t>(dim));
     }
     return result | (dims_hash & 0xffff);
   }
@@ -1493,26 +1493,15 @@ struct OutputRecord : RecordFunctor {
       // With C++17, this statement should be "if constexpr"
       if (std::is_same<OutputType, TensorView>::value) {
         auto tv_output = output->template as<TensorView>();
-
         if (!stride_order_.empty()) {
-          std::vector<int64_t> reverse_perm(stride_order_.size());
-          int64_t duplicate_check = 0;
-          for (const auto i : c10::irange((int64_t)stride_order_.size())) {
-            NVF_CHECK(
-                stride_order_[i] >= 0 &&
-                    stride_order_[i] < (int64_t)reverse_perm.size(),
-                "stride_order elements need to be within [0, stride_order.size())!");
-            reverse_perm[stride_order_[i]] = i;
-            duplicate_check |= 1 << stride_order_[i];
-          }
-          NVF_CHECK(
-              duplicate_check == (1 << reverse_perm.size()) - 1,
-              "duplicated elements in stride_order detected!");
-          tv_output = permute(tv_output, reverse_perm);
-          fd.addOutput(tv_output, stride_order_);
-        } else {
-          fd.addOutput(tv_output);
+	  size_t rank = stride_order_.size();
+	  std::vector<IterDomain*> allocation_domain(rank);
+	  for (auto i : c10::irange(rank)) {
+	  	  allocation_domain[rank - 1 - stride_order_[i]] = tv_output->axis(i);
+	  }
+	  tv_output->setAllocationDomain(allocation_domain, true);
         }
+        fd.addOutput(tv_output);
       } else {
         NVF_CHECK(
             stride_order_.empty(),
