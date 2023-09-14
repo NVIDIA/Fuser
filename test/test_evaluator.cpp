@@ -16,8 +16,6 @@
 #include <fusion.h>
 #include <ops/all_ops.h>
 
-#include <typeinfo>
-
 namespace nvfuser {
 
 class ExprEvalTest : public NVFuserTest {};
