@@ -758,20 +758,27 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
       out_rf_id = out_root_id;
     } else {
       // Clip the start and stop values to the extent of the input
-      auto clipped_start =
-          SimplifyingIrBuilder::minExpr(inp_root_id->extent(), range.start);
+      auto zero = FusionGuard::getCurFusion()->zeroVal(DataType::Index);
+      const auto clip_to_extent = [&zero](Val* a, Val* ext) {
+        return SimplifyingIrBuilder::minExpr(
+            ext,
+            SimplifyingIrBuilder::whereExpr(
+                SimplifyingIrBuilder::ltExpr(a, zero),
+                SimplifyingIrBuilder::maxExpr(a, zero),
+                a));
+      };
+      auto clipped_start = clip_to_extent(range.start, inp_root_id->extent());
       // stop is clipped the same as start, then we additionally clip so that
       // stop >= start
       auto clipped_stop = SimplifyingIrBuilder::maxExpr(
-          SimplifyingIrBuilder::minExpr(inp_root_id->extent(), range.stop),
-          clipped_start);
+          clip_to_extent(range.stop, inp_root_id->extent()), clipped_start);
 
       out_root_id =
           IterDomainBuilder(inp_root_id).is_rfactor_domain(true).build();
       out_rf_id = IterDomain::resize(
           out_root_id,
           SimplifyingIrBuilder::negExpr(clipped_start),
-          sub(clipped_stop, inp_root_id->extent()),
+          SimplifyingIrBuilder::subExpr(clipped_stop, inp_root_id->extent()),
           true);
       needs_real_slicing = true;
     }
