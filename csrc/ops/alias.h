@@ -108,7 +108,9 @@ TORCH_CUDA_CU_API TensorView* cat(
     std::optional<IterType> iter_type_opt = std::nullopt);
 
 //! Return a tensor where each dimension is sliced as specified by the
-//! ranges parameter. Stepping must be one at this moment.
+//! ranges parameter. Stepping must be one at this moment. The semantics of
+//! slicing with negative values and values >= extent follow those of numpy and
+//! PyTorch.
 TORCH_CUDA_CU_API TensorView* slice(
     TensorView* inp,
     const std::vector<Slice>& ranges);
