@@ -31,12 +31,14 @@ class InnerPersistentKernelScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
 
-  static std::shared_ptr<ReductionParams> getHeuristics(
+  static std::shared_ptr<ReductionParams> getPersistentHeuristic(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
 
-  static void scheduleKernel(Fusion* fusion, const ReductionParams& rparams);
+  static void schedulePersistentKernel(
+      Fusion* fusion,
+      const ReductionParams& rparams);
 
  private:
   void computeHeuristics(

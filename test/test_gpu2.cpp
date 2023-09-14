@@ -6061,7 +6061,8 @@ TEST_F(NVFuserTest, FusionZeroSizeTensorNormalization_CUDA) {
 
   auto reduction_params = getPersistentHeuristics(&fusion, {input0, input1});
   NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-  OuterPersistentKernelScheduler::scheduleKernel(&fusion, *reduction_params);
+  OuterPersistentKernelScheduler::schedulePersistentKernel(
+      &fusion, *reduction_params);
 
   auto lparams = reduction_params->lparams;
   FusionExecutor fe;

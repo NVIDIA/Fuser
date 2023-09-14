@@ -42,13 +42,13 @@ void OuterPersistentKernelScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  params_ = getHeuristics(fusion, runtime_info, data_cache);
+  params_ = getPersistentHeuristic(fusion, runtime_info, data_cache);
   NVF_ERROR(params_ != nullptr);
 }
 
 void OuterPersistentKernelScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("Schedule OuterPersistent Fusion");
-  scheduleKernel(fusion, reductionParams());
+  schedulePersistentKernel(fusion, reductionParams());
 }
 
 bool OuterPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
@@ -628,113 +628,35 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
 
 } // namespace
 
-std::shared_ptr<ReductionParams> OuterPersistentKernelScheduler::getHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
+std::shared_ptr<ReductionParams> OuterPersistentKernelScheduler::
+    getPersistentHeuristic(
+        Fusion* fusion,
+        SchedulerRuntimeInfo& runtime_info,
+        HeuristicSummary* data_cache) {
   FUSER_PERF_SCOPE("getOuterPersistentHeuristics");
   FusionGuard fg(fusion);
 
-  auto reduction_tv_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
-          data_cache, [&fusion]() {
-            return std::make_unique<std::vector<TensorView*>>(
-                scheduler_utils::getReductionTvs(fusion));
-          });
-  auto& reduction_tvs = reduction_tv_entry.get();
-
-  // (1) reduction properties and vectorization factor
-  auto [reduced_tv, properties, vectorize_factor] =
-      PersistentSchedulerHelper::getCommonHeuristicParams(
-          fusion, runtime_info, data_cache, reduction_tvs, reduction_tvs[0]);
-
-  // (2) info about persistent buffer
-  auto [can_project, persistent_buffer_size_info] =
-      PersistentSchedulerHelper::checkAndSetPersistentBufferHeuristics(
-          fusion, runtime_info, data_cache);
-  bool project_persistent_buffers = can_project &&
-      persistent_buffer_size_info.projected_persistent_buffer_size <
-          persistent_buffer_size_info.persistent_buffer_size;
-  auto max_persistent_buffer_size = project_persistent_buffers
-      ? persistent_buffer_size_info.projected_persistent_buffer_size
-      : persistent_buffer_size_info.persistent_buffer_size;
-
-  // (3) info about input tensors
-  auto [n_tensor_inputs, max_input_dtype_size] =
-      PersistentSchedulerHelper::getTensorInputNumAndMaxTypeSize(
-          runtime_info, data_cache, reduced_tv);
+  const auto& args =
+      PersistentSchedulerHelper::getInnerOrOuterPersistentHeuristicArgs(
+          fusion, runtime_info, data_cache, ScheduleHeuristic::OuterPersistent);
 
   std::shared_ptr<ReductionParams> rparams = outerPersistentHeuristic(
-      properties.total_reduction_numel,
-      properties.total_iteration_numel,
-      n_tensor_inputs,
-      max_input_dtype_size,
-      max_persistent_buffer_size,
-      vectorize_factor);
-  rparams->project_persistent_buffers = project_persistent_buffers;
+      args.properties.total_reduction_numel,
+      args.properties.total_iteration_numel,
+      args.n_tensor_inputs,
+      args.max_input_dtype_size,
+      args.max_persistent_buffer_size,
+      args.vectorize_factor);
+  rparams->project_persistent_buffers = args.project_persistent_buffers;
   rparams->cparams.index_type = runtime_info.getIndexType();
   return rparams;
 }
 
-void OuterPersistentKernelScheduler::scheduleKernel(
+void OuterPersistentKernelScheduler::schedulePersistentKernel(
     Fusion* fusion,
     const ReductionParams& rparams) {
-  FUSER_PERF_SCOPE("scheduleOuterPersistentKernel");
-  FusionGuard fg(fusion);
-
-  // Grab the reduction, input, and output tensor views. dummy_outputs are
-  // helper tensors for persistent buffer projection.
-  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
-  PersistentSchedulerHelper::beforeSchedule(
-      fusion,
-      rparams,
-      dummy_outputs,
-      cached_inputs,
-      reduction_tvs,
-      cached_outputs);
-
-  TensorView* reference_tv =
-      PersistentSchedulerHelper::scheduleReductionGeneral(
-          fusion, rparams, reduction_tvs);
-
-  // Reduction tensor views and rfactor tensor views are setup. Let's finish off
-  // the scheduling, particularly inlining and unrolling.
-  NVF_ERROR(
-      reference_tv != nullptr && reduction_tvs[0] != nullptr,
-      "Need these two tensor views to finish the scheduling.");
-
-  for (auto output : dummy_outputs) {
-    fusion->addOutput(output);
-  }
-
-  const bool unroll = rparams.isUnrolled();
-  const bool vectorize =
-      rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
-  const bool is_outer_grid_persistence = rparams.persistent_kernel &&
-      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
-  reduction_scheduler_utils::multiReductionInliner(
-      fusion,
-      reduction_tvs[0],
-      reference_tv,
-      unroll,
-      vectorize,
-      is_outer_grid_persistence,
-      reduction_tvs,
-      cached_inputs,
-      cached_outputs,
-      dummy_outputs);
-
-  if (rparams.compute_persistent_buffer_with_first_consumer) {
-    NVF_ERROR(
-        rparams.persistent_kernel,
-        "computeWith should be only used with persistent kernels");
-    for (const auto persistent_buffer : cached_inputs) {
-      persistent_buffer->computeWith(-1, true);
-    }
-  }
-
-  scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
+  PersistentSchedulerHelper::scheduleInnerOrOuterPersistentKernel(
+      fusion, rparams, ScheduleHeuristic::OuterPersistent);
 }
 
 } // namespace nvfuser

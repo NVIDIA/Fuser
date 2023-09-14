@@ -40,13 +40,13 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   auto reduction_type = reduction_scheduler_utils::getReductionType(fusion);
   switch (reduction_type) {
     case ReductionType::Inner:
-      return InnerPersistentKernelScheduler::getHeuristics(
+      return InnerPersistentKernelScheduler::getPersistentHeuristic(
           fusion, runtime_info, data_cache);
     case ReductionType::Outer:
-      return OuterPersistentKernelScheduler::getHeuristics(
+      return OuterPersistentKernelScheduler::getPersistentHeuristic(
           fusion, runtime_info, data_cache);
     case ReductionType::InnerOuter:
-      return InnerOuterPersistentKernelScheduler::getHeuristics(
+      return InnerOuterPersistentKernelScheduler::getPersistentHeuristic(
           fusion, runtime_info, data_cache);
     case ReductionType::None:
       NVF_ERROR(false, "No reduction detected.");
@@ -58,11 +58,10 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
 }
 
 namespace PersistentSchedulerHelper {
+
 // used by all persistent kernels in compile time check.
 // This is the first part of the compile time check.
-bool leadingCommonCompileTimeCheck(
-    Fusion* fusion,
-    ScheduleHeuristic heuristic) {
+bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic heuristic) {
   // Needs at least one reduction to consider.
   auto reduction_ops = ir_utils::getReductionOps(fusion);
   if (reduction_ops.empty()) {
@@ -115,7 +114,7 @@ bool checkReductionType(
 }
 
 // used by all persistent kernels in compile time check
-bool compileTimeCheckReductionAxis(
+bool checkReductionAxis(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
     ScheduleHeuristic heuristic) {
@@ -140,7 +139,7 @@ bool compileTimeCheckReductionAxis(
 
 // used by all persistent kernels in compile time check.
 // This is the last part of the compile time check.
-bool tailingCommonCompileTimeCheck(
+bool checkViewRootPersistentTopology(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
     TensorView* reference_tv,
@@ -219,40 +218,6 @@ bool tailingCommonCompileTimeCheck(
   return true;
 }
 
-// used by inner persistent kernel and outer persistent kernel.
-// This function wraps the common compile time check for inner and outer
-// persistent kernels using the above 4 functions.
-bool innerOrOuterCompileTimeCheck(Fusion* fusion, ScheduleHeuristic heuristic) {
-  NVF_ERROR(
-      heuristic == ScheduleHeuristic::InnerPersistent ||
-          heuristic == ScheduleHeuristic::OuterPersistent,
-      "innerOrOuterCompileTimeCheck should only be used by inner or outer persistent schedulers.");
-
-  // (1) leading common checks for all persistent kernels.
-  if (!leadingCommonCompileTimeCheck(fusion, heuristic)) {
-    return false;
-  }
-
-  // (2) check reduction type.
-  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-  if (!checkReductionType(reduction_tvs, heuristic)) {
-    return false;
-  }
-
-  // (3) check reduction axis.
-  if (!compileTimeCheckReductionAxis(fusion, reduction_tvs, heuristic)) {
-    return false;
-  }
-
-  // (4) tailing common checks for all persistent kernels.
-  if (!tailingCommonCompileTimeCheck(
-          fusion, reduction_tvs, reduction_tvs[0], heuristic)) {
-    return false;
-  }
-
-  return true;
-}
-
 // used by inner persistent kernel and innerOuter persistent kernel for run time
 // check.
 bool runTimeCheckIterSize(
@@ -278,9 +243,9 @@ bool runTimeCheckIterSize(
   return true;
 }
 
-// used by all persistent kernels through getHeuristics
+// used by all persistent kernels through getPersistentHeuristic
 std::tuple<TensorView*, scheduler_utils::ReductionTvProperties, int64_t>
-getCommonHeuristicParams(
+getReductionPropertiesVectFactor(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
@@ -313,9 +278,8 @@ getCommonHeuristicParams(
   return std::make_tuple(reduced_tv, properties, vectorize_factor);
 }
 
-// used by all persistent kernels through getHeuristics
-std::tuple<bool, scheduler_utils::PersistentBufferSizeReturn>
-checkAndSetPersistentBufferHeuristics(
+// used by all persistent kernels through getPersistentHeuristic
+std::tuple<bool, scheduler_utils::PersistentBufferSizeReturn> getBufferSizeInfo(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
@@ -355,9 +319,7 @@ checkAndSetPersistentBufferHeuristics(
   bool can_project = ir_utils::getViewOps(fusion).empty() &&
       persistent_buffer_size_info.projected_persistent_buffer_size > 0;
 
-  return std::make_tuple(
-      can_project,
-      persistent_buffer_size_info);
+  return std::make_tuple(can_project, persistent_buffer_size_info);
 }
 
 // used by inner and outer persistent kernels through getHeuristi
@@ -486,6 +448,153 @@ TensorView* scheduleReductionGeneral(
 
   return reduction_scheduler_utils::scheduleReductionTV(
       rparams, reduction_tv, has_iter_axis);
+}
+
+// used by inner persistent kernel and outer persistent kernel.
+// This function wraps the common compile time check for inner and outer
+// persistent kernels using the above 4 functions.
+bool innerOrOuterCompileTimeCheck(Fusion* fusion, ScheduleHeuristic heuristic) {
+  NVF_ERROR(
+      heuristic == ScheduleHeuristic::InnerPersistent ||
+          heuristic == ScheduleHeuristic::OuterPersistent,
+      "innerOrOuterCompileTimeCheck should only be used by inner or outer persistent schedulers.");
+
+  // (1) leading common checks for all persistent kernels.
+  if (!checkOpsAndInputs(fusion, heuristic)) {
+    return false;
+  }
+
+  // (2) check reduction type.
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  if (!checkReductionType(reduction_tvs, heuristic)) {
+    return false;
+  }
+
+  // (3) check reduction axis.
+  if (!checkReductionAxis(fusion, reduction_tvs, heuristic)) {
+    return false;
+  }
+
+  // (4) tailing common checks for all persistent kernels.
+  if (!checkViewRootPersistentTopology(
+          fusion, reduction_tvs, reduction_tvs[0], heuristic)) {
+    return false;
+  }
+
+  return true;
+}
+
+PersistentHeuristicArgs getInnerOrOuterPersistentHeuristicArgs(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache,
+    ScheduleHeuristic heuristic) {
+  FUSER_PERF_SCOPE("getInnerOrOuterPersistentHeuristicArgs");
+  FusionGuard fg(fusion);
+  NVF_ERROR(
+      heuristic == ScheduleHeuristic::InnerPersistent ||
+          heuristic == ScheduleHeuristic::OuterPersistent,
+      "getInnerOrOuterPersistentHeuristicArgs should only be used by inner or outer persistent schedulers.");
+
+  auto reduction_tv_entry =
+      HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
+          data_cache, [&fusion]() {
+            return std::make_unique<std::vector<TensorView*>>(
+                scheduler_utils::getReductionTvs(fusion));
+          });
+  auto& reduction_tvs = reduction_tv_entry.get();
+
+  // (1) reduction properties and vectorization factor
+  auto [reduced_tv, properties, vectorize_factor] =
+      PersistentSchedulerHelper::getReductionPropertiesVectFactor(
+          fusion, runtime_info, data_cache, reduction_tvs, reduction_tvs[0]);
+
+  // (2) info about persistent buffer
+  auto [can_project, persistent_buffer_size_info] =
+      PersistentSchedulerHelper::getBufferSizeInfo(
+          fusion, runtime_info, data_cache);
+  bool project_persistent_buffers = can_project &&
+      persistent_buffer_size_info.projected_persistent_buffer_size <
+          persistent_buffer_size_info.persistent_buffer_size;
+  auto max_persistent_buffer_size = project_persistent_buffers
+      ? persistent_buffer_size_info.projected_persistent_buffer_size
+      : persistent_buffer_size_info.persistent_buffer_size;
+
+  // (3) info about input tensors
+  auto [n_tensor_inputs, max_input_dtype_size] =
+      PersistentSchedulerHelper::getTensorInputNumAndMaxTypeSize(
+          runtime_info, data_cache, reduced_tv);
+
+  return PersistentHeuristicArgs{
+      properties,
+      max_persistent_buffer_size,
+      project_persistent_buffers,
+      n_tensor_inputs,
+      max_input_dtype_size,
+      vectorize_factor};
+}
+
+// schedule inner or outer persistent kernel
+void scheduleInnerOrOuterPersistentKernel(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    ScheduleHeuristic heuristic) {
+  FUSER_PERF_SCOPE("schedulePersistentKernel");
+  FusionGuard fg(fusion);
+
+  // Grab the reduction, input, and output tensor views. dummy_outputs are
+  // helper tensors for persistent buffer projection.
+  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
+  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
+  PersistentSchedulerHelper::beforeSchedule(
+      fusion,
+      rparams,
+      dummy_outputs,
+      cached_inputs,
+      reduction_tvs,
+      cached_outputs);
+
+  TensorView* reference_tv =
+      PersistentSchedulerHelper::scheduleReductionGeneral(
+          fusion, rparams, reduction_tvs);
+
+  // Reduction tensor views and rfactor tensor views are setup. Let's finish off
+  // the scheduling, particularly inlining and unrolling.
+  NVF_ERROR(
+      reference_tv != nullptr && reduction_tvs[0] != nullptr,
+      "Need these two tensor views to finish the scheduling.");
+
+  for (auto output : dummy_outputs) {
+    fusion->addOutput(output);
+  }
+
+  const bool unroll = rparams.isUnrolled();
+  const bool vectorize =
+      rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
+  const bool is_outer_grid_persistence = rparams.persistent_kernel &&
+      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
+  reduction_scheduler_utils::multiReductionInliner(
+      fusion,
+      reduction_tvs[0],
+      reference_tv,
+      unroll,
+      vectorize,
+      is_outer_grid_persistence,
+      reduction_tvs,
+      cached_inputs,
+      cached_outputs,
+      dummy_outputs);
+
+  if (rparams.compute_persistent_buffer_with_first_consumer) {
+    NVF_ERROR(
+        rparams.persistent_kernel,
+        "computeWith should be only used with persistent kernels");
+    for (const auto persistent_buffer : cached_inputs) {
+      persistent_buffer->computeWith(-1, true);
+    }
+  }
+
+  scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 }
 
 } // namespace PersistentSchedulerHelper

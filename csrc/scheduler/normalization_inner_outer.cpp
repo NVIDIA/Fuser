@@ -42,13 +42,13 @@ void InnerOuterPersistentKernelScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  params_ = getHeuristics(fusion, runtime_info, data_cache);
+  params_ = getPersistentHeuristic(fusion, runtime_info, data_cache);
   NVF_ERROR(params_ != nullptr);
 }
 
 void InnerOuterPersistentKernelScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("Schedule InnerOuterPersistent Fusion");
-  scheduleKernel(fusion, reductionParams());
+  schedulePersistentKernel(fusion, reductionParams());
 }
 
 bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
@@ -56,8 +56,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   auto heuristic = ScheduleHeuristic::InnerOuterPersistent;
 
   // (1) leading common checks for all persistent kernels.
-  if (!PersistentSchedulerHelper::leadingCommonCompileTimeCheck(
-          fusion, heuristic)) {
+  if (!PersistentSchedulerHelper::checkOpsAndInputs(fusion, heuristic)) {
     return false;
   }
 
@@ -78,9 +77,9 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
       outer_reduction_tvs.emplace_back(tv);
     }
   }
-  PersistentSchedulerHelper::compileTimeCheckReductionAxis(
+  PersistentSchedulerHelper::checkReductionAxis(
       fusion, inner_reduction_tvs, heuristic);
-  PersistentSchedulerHelper::compileTimeCheckReductionAxis(
+  PersistentSchedulerHelper::checkReductionAxis(
       fusion, outer_reduction_tvs, heuristic);
   if (!normalization_scheduler_utils::checkIfReductionsAreInnerOuter(
           inner_reduction_tvs, outer_reduction_tvs)) {
@@ -107,7 +106,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   }
 
   // (4) tailing common checks for all persistent kernels.
-  if (!PersistentSchedulerHelper::tailingCommonCompileTimeCheck(
+  if (!PersistentSchedulerHelper::checkViewRootPersistentTopology(
           fusion, reduction_tvs, inner_reduction_tvs[0], heuristic)) {
     return false;
   }
@@ -525,7 +524,7 @@ int64_t tryEnforceBufferProjection(
 } // namespace
 
 std::shared_ptr<ReductionParams> InnerOuterPersistentKernelScheduler::
-    getHeuristics(
+    getPersistentHeuristic(
         Fusion* fusion,
         SchedulerRuntimeInfo& runtime_info,
         HeuristicSummary* data_cache) {
@@ -551,12 +550,12 @@ std::shared_ptr<ReductionParams> InnerOuterPersistentKernelScheduler::
 
   // (1) reduction properties and vectorization factor
   auto [reduced_tv, properties, vectorize_factor] =
-      PersistentSchedulerHelper::getCommonHeuristicParams(
+      PersistentSchedulerHelper::getReductionPropertiesVectFactor(
           fusion, runtime_info, data_cache, reduction_tvs, ref_red_tv);
 
   // (2) info about persistent buffer.
   auto [can_project, persistent_buffer_size_info] =
-      PersistentSchedulerHelper::checkAndSetPersistentBufferHeuristics(
+      PersistentSchedulerHelper::getBufferSizeInfo(
           fusion, runtime_info, data_cache);
   bool project_persistent_buffers = can_project &&
       persistent_buffer_size_info.projected_persistent_buffer_size <
@@ -700,7 +699,7 @@ void scheduleReductionCombinedOuter(
 
 } // namespace
 
-void InnerOuterPersistentKernelScheduler::scheduleKernel(
+void InnerOuterPersistentKernelScheduler::schedulePersistentKernel(
     Fusion* fusion,
     const ReductionParams& rparams) {
   FUSER_PERF_SCOPE("schedulePersistentKernelInnerOuter");

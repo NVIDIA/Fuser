@@ -900,17 +900,19 @@ HeuristicSummary::HeuristicSummary(
       ReductionScheduler::canScheduleRunTime(fusion, runtime_info, this);
       break;
     case ScheduleHeuristic::InnerPersistent:
-      InnerPersistentKernelScheduler::getHeuristics(fusion, runtime_info, this);
+      InnerPersistentKernelScheduler::getPersistentHeuristic(
+          fusion, runtime_info, this);
       InnerPersistentKernelScheduler::canScheduleRunTime(
           fusion, runtime_info, this);
       break;
     case ScheduleHeuristic::OuterPersistent:
-      OuterPersistentKernelScheduler::getHeuristics(fusion, runtime_info, this);
+      OuterPersistentKernelScheduler::getPersistentHeuristic(
+          fusion, runtime_info, this);
       OuterPersistentKernelScheduler::canScheduleRunTime(
           fusion, runtime_info, this);
       break;
     case ScheduleHeuristic::InnerOuterPersistent:
-      InnerOuterPersistentKernelScheduler::getHeuristics(
+      InnerOuterPersistentKernelScheduler::getPersistentHeuristic(
           fusion, runtime_info, this);
       InnerOuterPersistentKernelScheduler::canScheduleRunTime(
           fusion, runtime_info, this);

@@ -13,58 +13,57 @@
 namespace nvfuser {
 
 // convenience function to get persistent kernel heuristics using
-// runtime_inputs. used in cpp tests.
+// runtime_inputs. Used in cpp tests.
 TORCH_CUDA_CU_API std::shared_ptr<ReductionParams> getPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache = nullptr);
 
-// defines utility functions used by persistent kernel schedulers
+// Defines utility functions used by persistent kernel schedulers
 namespace PersistentSchedulerHelper {
-//! helper functions used by compileTime and runTime checks
-bool compileTimeCheckReductionAxis(
+
+//! Check ops and inputs of the given fusion.
+//! Used by all persistent kernels in compile time check.
+//! This is the first part of the compile time check.
+bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic heuristic);
+
+//! Check reduction types, inner, outer, or innerOuter
+bool checkReductionType(
+    const std::vector<TensorView*>& reduction_tvs,
+    ScheduleHeuristic heuristic);
+
+//! Check reduction ops have the same axes.
+bool checkReductionAxis(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
     ScheduleHeuristic heuristic);
 
-bool leadingCommonCompileTimeCheck(Fusion* fusion, ScheduleHeuristic heuristic);
-
-bool tailingCommonCompileTimeCheck(
+//! Check view ops, reduction root size, persistent buffer, and fusion topology.
+bool checkViewRootPersistentTopology(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
     TensorView* reference_tv,
     ScheduleHeuristic heuristic);
 
-bool checkReductionType(
-    const std::vector<TensorView*>& reduction_tvs,
-    ScheduleHeuristic heuristic);
-
+//! compile time check for inner or outer persistent kernel.
+//! constructed using checkOpsAndInputs, checkReductionType, checkReductionAxis,
+//! and checkViewRootPersistentTopology
 bool innerOrOuterCompileTimeCheck(Fusion* fusion, ScheduleHeuristic heuristic);
 
 bool runTimeCheckIterSize(
     const scheduler_utils::ReductionTvProperties& properties,
     ScheduleHeuristic heuristic);
 
-// argument passed to 
-sturct HeuristicArgs {
-  scheduler_utils::ReductionTvProperties properties;
-  int64_t max_persistent_buffer_size;
-  bool project_persistent_buffers;
-  int64_t n_tensor_inputs;
-  int64_t max_input_dtype_size;
-  int64_t vectorize_factor;
-};
-//! helper functions used by getHeuristics
+//! helper functions used by getPersistentHeuristic
 std::tuple<TensorView*, scheduler_utils::ReductionTvProperties, int64_t>
-getCommonHeuristicParams(
+getReductionPropertiesVectFactor(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
     const std::vector<TensorView*>& reduction_tvs,
     TensorView* reference_tv);
 
-std::tuple<bool, scheduler_utils::PersistentBufferSizeReturn>
-checkAndSetPersistentBufferHeuristics(
+std::tuple<bool, scheduler_utils::PersistentBufferSizeReturn> getBufferSizeInfo(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache);
@@ -74,7 +73,7 @@ std::pair<int64_t, int64_t> getTensorInputNumAndMaxTypeSize(
     HeuristicSummary* data_cache,
     TensorView* reduced_tv);
 
-//! helper functions used by scheduleKernel
+//! helper functions used by schedulePersistentKernel
 void beforeSchedule(
     Fusion* fusion,
     const ReductionParams& rparams,
@@ -83,11 +82,32 @@ void beforeSchedule(
     std::vector<TensorView*>& reduction_tvs,
     std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs);
 
-// schedule inner or outer reduction tv
+//! schedule inner or outer reduction tv
 TensorView* scheduleReductionGeneral(
     Fusion* fusion,
     const ReductionParams& rparams,
     std::vector<TensorView*>& reduction_tvs);
-}; // namespace PersistentSchedulerHelper
 
+// get argument passed to innerPersistentHeuristic and outerPersistentHeuristic
+struct PersistentHeuristicArgs {
+  scheduler_utils::ReductionTvProperties properties;
+  int64_t max_persistent_buffer_size;
+  bool project_persistent_buffers;
+  int64_t n_tensor_inputs;
+  int64_t max_input_dtype_size;
+  int64_t vectorize_factor;
+};
+PersistentHeuristicArgs getInnerOrOuterPersistentHeuristicArgs(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache,
+    ScheduleHeuristic heuristic);
+
+//! schedule inner or outer persistent kernel
+void scheduleInnerOrOuterPersistentKernel(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    ScheduleHeuristic heuristic);
+
+} // namespace PersistentSchedulerHelper
 } // namespace nvfuser

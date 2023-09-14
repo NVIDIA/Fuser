@@ -203,7 +203,7 @@ class CompileTimeInfoBase : public PolymorphicBase {
 // Note: Do NOT export this class. MSVC issue with exported class that contains
 // std::vector<unique_ptr<xxx>>: https://godbolt.org/z/3E4e8T1P1
 //! Compile-time information cache for `canSchedule` and
-//!  `getHeuristics` interfaces. Each cache instance
+//!  `getPersistentHeuristic` interfaces. Each cache instance
 //!  stores information that could be inferred at compile
 //!  time in a fusion and therefore corresponds to an
 //!   instance of FusionExecutor.
