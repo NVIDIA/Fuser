@@ -708,6 +708,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
         debug() << "Fusion before concretization:" << std::endl;
         conc_fusion->printMath();
+        debug() << "Concretization Info:" << conc_info->toString() << std::endl;
       }
 
       DynamicTransform::concretizeFusion(conc_fusion.get(), conc_info);

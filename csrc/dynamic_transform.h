@@ -62,6 +62,11 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
     return root_dynamic_vals_;
   }
 
+  //! Return getRootDynamicVals() sorted by name()
+  const std::vector<Val*>& getSortedRootDynamicVals() const {
+    return sorted_root_dynamic_vals_;
+  }
+
   //! Return a set of scalars that appear as extents in TensorViews in the
   //! Fusion. If any of these evaluate to zero, there is at least one empty
   //! TensorView present.
@@ -121,6 +126,9 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
   // Root Vals that determine concretization
   std::unordered_set<Val*> root_dynamic_vals_;
 
+  // Sorted version of above, computed only if requested
+  std::vector<Val*> sorted_root_dynamic_vals_;
+
   friend class DynamicTransformInitialInfoBuilder;
 };
 
@@ -132,8 +140,20 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
       const DynamicTransformInitialInfo* initial_info,
       ExpressionEvaluator* expr_eval);
 
+  //! Return a vector holding indices in the vector returned by
+  //! initialInfo->getMaybeZeroExtents(). Each element is an extent that
+  //! evaluates to zero.
   const std::vector<size_t>& getEmptyExtents() const {
     return empty_extents_;
+  }
+
+  //! Return a vector holding concrete tensor sizes. If
+  //! EnableOption::StaticShapes is not enabled, this vector will always be
+  //! empty. Otherwise, it will be the same size as
+  //! initialInfo->getRootDynamicVals(). Each element is the concrete value of
+  //! the associated scalar.
+  const std::vector<int64_t>& getRootStaticVals() const {
+    return root_static_vals_;
   }
 
   //! Return a vector of pairs holding the index of each reshaped TensorView in
@@ -172,6 +192,15 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   //! determine the concrete IterType of each resized IterDomain.
   void analyzeResizes(ExpressionEvaluator* expr_eval);
 
+  //! Given an ExpressionEvaluator which already has input scalars bound to it,
+  //! evaluate TensorView extents to find empty tensors.
+  void analyzeEmptyExtents(ExpressionEvaluator* expr_eval);
+
+  //! Given an ExpressionEvaluator which already has input scalars bound to it,
+  //! evaluate root dynamic scalars so that we can later replace them with
+  //! constants.
+  void analyzeStaticShapes(ExpressionEvaluator* expr_eval);
+
   const DynamicTransformInitialInfo* initialInfo() const {
     return initial_info_;
   }
@@ -209,6 +238,10 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   //! vector returned by initial_info_->getDynamicResizedIterDomains() along
   //! with its concretized IterType
   std::vector<std::pair<size_t, IterType>> resize_itertypes_;
+
+  //! If EnableOption::StaticShapes is enabled, we will replace each
+  //! possibly-empty dynamic root val with the corresponding static one.
+  std::vector<int64_t> root_static_vals_;
 
   friend class DynamicTransformInfoBuilder;
 };

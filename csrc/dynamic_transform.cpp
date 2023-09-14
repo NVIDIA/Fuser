@@ -27,33 +27,28 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
       static_cast<Fusion*>(ir_cloner.container()));
   cloned_info.dynamic_reshaped_tvs_.reserve(dynamic_reshaped_tvs_.size());
   for (const auto op : dynamic_reshaped_tvs_) {
-    if (op) {
-      cloned_info.dynamic_reshaped_tvs_.push_back(ir_cloner.clone(op));
-    }
+    cloned_info.dynamic_reshaped_tvs_.push_back(ir_cloner.clone(op));
   }
   cloned_info.dynamic_resized_ids_.reserve(dynamic_resized_ids_.size());
   for (const auto op : dynamic_resized_ids_) {
-    if (op) {
-      cloned_info.dynamic_resized_ids_.push_back(ir_cloner.clone(op));
-    }
+    cloned_info.dynamic_resized_ids_.push_back(ir_cloner.clone(op));
   }
   cloned_info.maybe_zero_extents_set_.reserve(maybe_zero_extents_set_.size());
   for (const auto v : maybe_zero_extents_set_) {
-    if (v) {
-      cloned_info.maybe_zero_extents_set_.insert(ir_cloner.clone(v));
-    }
+    cloned_info.maybe_zero_extents_set_.insert(ir_cloner.clone(v));
   }
   cloned_info.maybe_zero_extents_.reserve(maybe_zero_extents_.size());
   for (const auto v : maybe_zero_extents_) {
-    if (v) {
-      cloned_info.maybe_zero_extents_.push_back(ir_cloner.clone(v));
-    }
+    cloned_info.maybe_zero_extents_.push_back(ir_cloner.clone(v));
   }
   cloned_info.root_dynamic_vals_.reserve(root_dynamic_vals_.size());
   for (const auto v : root_dynamic_vals_) {
-    if (v) {
-      cloned_info.root_dynamic_vals_.insert(ir_cloner.clone(v));
-    }
+    cloned_info.root_dynamic_vals_.insert(ir_cloner.clone(v));
+  }
+  cloned_info.sorted_root_dynamic_vals_.reserve(
+      sorted_root_dynamic_vals_.size());
+  for (const auto v : sorted_root_dynamic_vals_) {
+    cloned_info.sorted_root_dynamic_vals_.push_back(ir_cloner.clone(v));
   }
   return cloned_info;
 }
@@ -160,6 +155,19 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
         info_.scalar_inputs_affecting_concretization_.insert(i);
       }
     }
+    if (isOptionEnabled(EnableOption::StaticShapes)) {
+      info_.sorted_root_dynamic_vals_.reserve(info_.root_dynamic_vals_.size());
+      info_.sorted_root_dynamic_vals_.insert(
+          info_.sorted_root_dynamic_vals_.end(),
+          info_.root_dynamic_vals_.begin(),
+          info_.root_dynamic_vals_.end());
+      std::sort(
+          info_.sorted_root_dynamic_vals_.begin(),
+          info_.sorted_root_dynamic_vals_.end(),
+          [](const Val* a, const Val* b) -> bool {
+            return a->name() < b->name();
+          });
+    }
   }
 
   //! Convert maybe_zero_extents_set_ to a vector so we can index it reliably
@@ -200,17 +208,10 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
 
   analyzeResizes(expr_eval);
 
-  auto maybe_zero_extents = initial_info_->getMaybeZeroExtents();
-  for (auto i : c10::irange(maybe_zero_extents.size())) {
-    auto ext = maybe_zero_extents.at(i);
-    auto ext_opt = expr_eval->evaluate(ext);
-    NVF_ERROR(
-        ext_opt.hasValue(),
-        "Could not evaluate dynamic extent: ",
-        ext->toString());
-    if (ext_opt == 0) {
-      empty_extents_.push_back(i);
-    }
+  analyzeEmptyExtents(expr_eval);
+
+  if (isOptionEnabled(EnableOption::StaticShapes)) {
+    analyzeStaticShapes(expr_eval);
   }
 }
 
@@ -329,6 +330,36 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
   }
 }
 
+void DynamicTransformConcretizationInfo::analyzeEmptyExtents(
+    ExpressionEvaluator* expr_eval) {
+  const auto& maybe_zero_extents = initialInfo()->getMaybeZeroExtents();
+  for (auto i : c10::irange(maybe_zero_extents.size())) {
+    auto ext = maybe_zero_extents.at(i);
+    auto ext_opt = expr_eval->evaluate(ext);
+    NVF_ERROR(
+        ext_opt.hasValue(),
+        "Could not evaluate dynamic extent: ",
+        ext->toString());
+    if (ext_opt == 0) {
+      empty_extents_.push_back(i);
+    }
+  }
+}
+
+void DynamicTransformConcretizationInfo::analyzeStaticShapes(
+    ExpressionEvaluator* expr_eval) {
+  const auto& root_dynamic_vals = initial_info_->getSortedRootDynamicVals();
+  root_static_vals_.reserve(root_dynamic_vals.size());
+  for (auto rv : root_dynamic_vals) {
+    auto rv_opt = expr_eval->evaluate(rv);
+    NVF_ERROR(
+        rv_opt.hasValue(),
+        "Could not evaluate root dynamic val ",
+        rv->toInlineString());
+    root_static_vals_.push_back(rv_opt.as<int64_t>());
+  }
+}
+
 bool DynamicTransformConcretizationInfo::operator==(
     const DynamicTransformConcretizationInfo& other) const {
   if (this == &other) {
@@ -337,7 +368,8 @@ bool DynamicTransformConcretizationInfo::operator==(
 
   if (reshape_transforms_.size() != other.reshape_transforms_.size() ||
       resize_itertypes_.size() != other.resize_itertypes_.size() ||
-      empty_extents_.size() != other.empty_extents_.size()) {
+      empty_extents_.size() != other.empty_extents_.size() ||
+      root_static_vals_.size() != other.root_static_vals_.size()) {
     return false;
   }
 
@@ -365,6 +397,14 @@ bool DynamicTransformConcretizationInfo::operator==(
     }
   }
 
+  for (const auto i : c10::irange(root_static_vals_.size())) {
+    const auto& sv = root_static_vals_.at(i);
+    const auto& other_sv = other.root_static_vals_.at(i);
+    if (sv != other_sv) {
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -376,6 +416,15 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   for (const auto& i : empty_extents_) {
     auto ext = initial_info_->getMaybeZeroExtents().at(i);
     ss << indent << indent << ext->toString() << " is zero\n";
+  }
+  if (!root_static_vals_.empty()) {
+    const auto& root_dynamic_vals = initial_info_->getSortedRootDynamicVals();
+    NVF_ERROR(root_static_vals_.size() == root_dynamic_vals.size());
+    ss << indent << "Static \"root dynamic vals\":\n";
+    for (const auto& i : c10::irange(root_static_vals_.size())) {
+      ss << indent << indent << root_dynamic_vals.at(i)->toString() << " = "
+         << root_static_vals_.at(i) << "\n";
+    }
   }
   ss << indent << "Reshape:\n";
   for (const auto& [tv_index, analyze_result] : reshape_transforms_) {
@@ -415,6 +464,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void concretizeEmptyExtents();
 
+  void concretizeStaticShapes();
+
   //! Use this instead of calling registerMutation directly, since it will also
   //! check that the concretized value is a valid input to all of its uses.
   void registerConcretization(Val* old_val, Val* new_val) {
@@ -450,6 +501,9 @@ void DynamicTransformConcretizer::concretize() {
 
   // Registers replacement of all empty extents with zeroVal()
   concretizeEmptyExtents();
+
+  // Concretize static shapes if applicable
+  concretizeStaticShapes();
 
   // Finally, propagate concretized domains
   auto all_stmts = StmtSort::getStmts(
@@ -508,6 +562,34 @@ void DynamicTransformConcretizer::concretizeEmptyExtents() {
     // in an IterDomain, so we register the concretization here so that we can
     // replace these values whenever we encounter them.
     registerConcretization(ext, zero);
+  }
+}
+
+void DynamicTransformConcretizer::concretizeStaticShapes() {
+  const auto& static_vals = info_->getRootStaticVals();
+  if (static_vals.empty()) {
+    return; // Static shapes are disabled. Nothing to do
+  }
+  const auto& dynamic_vals = info_->initialInfo()->getSortedRootDynamicVals();
+  NVF_ERROR(static_vals.size() == dynamic_vals.size());
+  auto fusion = FusionGuard::getCurFusion();
+  for (const auto i : c10::irange(static_vals.size())) {
+    auto dyn_val = dynamic_vals.at(i);
+    auto value = static_vals.at(i);
+    Val* constant_val = nullptr;
+    if (value == 0) {
+      constant_val = fusion->zeroVal(dyn_val->dtype());
+    } else if (value == 1) {
+      constant_val = fusion->oneVal(dyn_val->dtype());
+    } else {
+      constant_val = IrBuilder::create<Val>(value, dyn_val->dtype());
+    }
+    registerConcretization(dyn_val, constant_val);
+  }
+  // Mutate fusion inputs, which will not be mutated in the traversal that
+  // follows
+  for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+    mutate(tv);
   }
 }
 
@@ -882,6 +964,9 @@ size_t DynamicTransformConcretizationInfo::hash() const {
   }
   for (const auto& [id, iter_type] : getResizeIterTypes()) {
     hashCombine(hash, (size_t)iter_type);
+  }
+  for (const auto val : root_static_vals_) {
+    hashCombine(hash, (size_t)val);
   }
   return hash;
 }
