@@ -2847,8 +2847,6 @@ IterDomain* IterDomain::resize(
   }
 
   if (resized_id_size->dtype() != DataType::Index) {
-    std::cout << "Casting resized extent " << resized_id_size->toInlineString()
-              << " to Index" << std::endl;
     resized_id_size = castOp(DataType::Index, resized_id_size);
   }
 
