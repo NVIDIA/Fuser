@@ -584,6 +584,9 @@ void DynamicTransformConcretizer::concretizeStaticShapes() {
     } else {
       constant_val = IrBuilder::create<Val>(value, dyn_val->dtype());
     }
+    for (auto use : dyn_val->uses()) {
+      ir_utils::replaceValInExprInputs(use, dyn_val, constant_val);
+    }
     registerConcretization(dyn_val, constant_val);
   }
   // Mutate fusion inputs, which will not be mutated in the traversal that
