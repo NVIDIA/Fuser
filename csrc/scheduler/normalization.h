@@ -20,7 +20,7 @@ TORCH_CUDA_CU_API std::shared_ptr<ReductionParams> getPersistentHeuristics(
     HeuristicSummary* data_cache = nullptr);
 
 // Defines utility functions used by persistent kernel schedulers
-namespace PersistentSchedulerHelper {
+namespace persistent_scheduler {
 
 //! Check ops and inputs of the given fusion.
 //! Used by all persistent kernels in compile time check.
@@ -118,5 +118,5 @@ void scheduleInnerOrOuterPersistentKernel(
     const ReductionParams& rparams,
     ScheduleHeuristic heuristic);
 
-} // namespace PersistentSchedulerHelper
+} // namespace persistent_scheduler
 } // namespace nvfuser

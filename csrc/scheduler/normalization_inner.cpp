@@ -52,7 +52,7 @@ void InnerPersistentKernelScheduler::schedule(Fusion* fusion) {
 }
 
 bool InnerPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
-  return PersistentSchedulerHelper::innerOrOuterCompileTimeCheck(
+  return persistent_scheduler::innerOrOuterCompileTimeCheck(
       fusion, ScheduleHeuristic::InnerPersistent);
 }
 
@@ -99,7 +99,7 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
   auto properties = scheduler_utils::getReductionProperties(
       fusion, runtime_info, reduction_tvs[0]);
 
-  if (!PersistentSchedulerHelper::runTimeCheckIterSize(
+  if (!persistent_scheduler::runTimeCheckIterSize(
           properties, ScheduleHeuristic::InnerPersistent)) {
     return false;
   }
@@ -726,7 +726,7 @@ std::shared_ptr<ReductionParams> InnerPersistentKernelScheduler::
   FusionGuard fg(fusion);
 
   const auto& args =
-      PersistentSchedulerHelper::getInnerOrOuterPersistentHeuristicArgs(
+      persistent_scheduler::getInnerOrOuterPersistentHeuristicArgs(
           fusion, runtime_info, data_cache, ScheduleHeuristic::InnerPersistent);
 
   std::shared_ptr<ReductionParams> rparams = innerPersistentHeuristic(
@@ -745,7 +745,7 @@ std::shared_ptr<ReductionParams> InnerPersistentKernelScheduler::
 void InnerPersistentKernelScheduler::schedulePersistentKernel(
     Fusion* fusion,
     const ReductionParams& rparams) {
-  PersistentSchedulerHelper::scheduleInnerOrOuterPersistentKernel(
+  persistent_scheduler::scheduleInnerOrOuterPersistentKernel(
       fusion, rparams, ScheduleHeuristic::InnerPersistent);
 }
 

@@ -57,7 +57,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   }
 }
 
-namespace PersistentSchedulerHelper {
+namespace persistent_scheduler {
 
 // used by all persistent kernels in compile time check.
 // This is the first part of the compile time check.
@@ -506,12 +506,12 @@ PersistentHeuristicArgs getInnerOrOuterPersistentHeuristicArgs(
 
   // (1) reduction properties and vectorization factor
   auto [reduced_tv, properties, vectorize_factor] =
-      PersistentSchedulerHelper::getReductionPropertiesVectFactor(
+      persistent_scheduler::getReductionPropertiesVectFactor(
           fusion, runtime_info, data_cache, reduction_tvs, reduction_tvs[0]);
 
   // (2) info about persistent buffer
   auto [can_project, persistent_buffer_size_info] =
-      PersistentSchedulerHelper::getBufferSizeInfo(
+      persistent_scheduler::getBufferSizeInfo(
           fusion, runtime_info, data_cache);
   bool project_persistent_buffers = can_project &&
       persistent_buffer_size_info.projected_persistent_buffer_size <
@@ -522,7 +522,7 @@ PersistentHeuristicArgs getInnerOrOuterPersistentHeuristicArgs(
 
   // (3) info about input tensors
   auto [n_tensor_inputs, max_input_dtype_size] =
-      PersistentSchedulerHelper::getTensorInputNumAndMaxTypeSize(
+      persistent_scheduler::getTensorInputNumAndMaxTypeSize(
           runtime_info, data_cache, reduced_tv);
 
   return PersistentHeuristicArgs{
@@ -546,7 +546,7 @@ void scheduleInnerOrOuterPersistentKernel(
   // helper tensors for persistent buffer projection.
   std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
-  PersistentSchedulerHelper::beforeSchedule(
+  persistent_scheduler::beforeSchedule(
       fusion,
       rparams,
       dummy_outputs,
@@ -555,7 +555,7 @@ void scheduleInnerOrOuterPersistentKernel(
       cached_outputs);
 
   TensorView* reference_tv =
-      PersistentSchedulerHelper::scheduleReductionGeneral(
+      persistent_scheduler::scheduleReductionGeneral(
           fusion, rparams, reduction_tvs);
 
   // Reduction tensor views and rfactor tensor views are setup. Let's finish off
@@ -597,5 +597,5 @@ void scheduleInnerOrOuterPersistentKernel(
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 }
 
-} // namespace PersistentSchedulerHelper
+} // namespace persistent_scheduler
 } // namespace nvfuser
