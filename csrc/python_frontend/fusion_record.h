@@ -659,10 +659,10 @@ struct SetStrideOrderOpRecord : RecordFunctor {
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     auto output = set(arg);
-    int64_t rank = static_cast<int>(stride_order_.size());
+    int rank = static_cast<int>(stride_order_.size());
     std::vector<IterDomain*> allocation_domain(rank);
-    for (auto i : c10::irange(rank)) {
-      allocation_domain[rank - 1l - stride_order_[i]] = output->axis(i);
+    for (int i : c10::irange(rank)) {
+      allocation_domain[rank - 1 - static_cast<int>(stride_order_[i])] = output->axis(i);
     }
     output->setAllocationDomain(allocation_domain, true);
     fd.setFusionState(outputs_.at(0).index, output);
