@@ -9,7 +9,6 @@
 
 #include <scheduler/normalization.h>
 #include <scheduler/registry.h>
-#include <scheduler/utils.h>
 
 namespace nvfuser {
 
