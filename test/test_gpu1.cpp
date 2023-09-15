@@ -7183,7 +7183,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerSoftmax_CUDA) {
     auto aten_output =
         at::_softmax(aten_input.to(at::kDouble), kReductionAxis, false);
 
-    auto reduction_params = getPersistentHeuristics(&fusion, {aten_input});
+    auto reduction_params = getInnerPersistentHeuristics(&fusion, {aten_input});
     NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
 
     InnerPersistentKernelScheduler::schedulePersistentKernel(
@@ -7252,7 +7252,7 @@ TEST_F(NVFuserTest, FusionTestMaskSoftmax_CUDA) {
   auto aten_output = at::_softmax(aten_out1, kReductionAxis, false);
 
   auto reduction_params =
-      getPersistentHeuristics(&fusion, {aten_input, aten_mask});
+      getInnerPersistentHeuristics(&fusion, {aten_input, aten_mask});
   NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
 
   InnerPersistentKernelScheduler::schedulePersistentKernel(
@@ -7472,7 +7472,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
 
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
-  auto reduction_params = getPersistentHeuristics(&fusion, {aten_input});
+  auto reduction_params = getInnerPersistentHeuristics(&fusion, {aten_input});
   ASSERT_TRUE(reduction_params) << "Reduction schedule was not generated!";
 
   FusionExecutorCache fec(std::move(fusion_ptr));
@@ -7529,7 +7529,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormalization_CUDA) {
   auto output = at::mul(aten_input, invstd);
   //// Check reduction axis is same for all reductions
   //// Generate Launch Parameters
-  auto reduction_params = getPersistentHeuristics(&fusion, {aten_input});
+  auto reduction_params = getInnerPersistentHeuristics(&fusion, {aten_input});
   NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
 
   FusionExecutorCache fec(std::move(fusion_ptr));

@@ -30,11 +30,27 @@
 
 namespace nvfuser {
 
+constexpr auto schedule_heuristic = ScheduleHeuristic::InnerPersistent;
+
+std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
+    Fusion* fusion,
+    const at::ArrayRef<c10::IValue>& runtime_inputs,
+    HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("getInnerPersistentHeuristicsFromIValue");
+  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
+  auto reduction_type = reduction_scheduler_utils::getReductionType(fusion);
+  NVF_CHECK(
+      reduction_type == reduction_scheduler_utils::ReductionType::Inner,
+      "Reduction type should be ReductionType::Inner.");
+  return InnerPersistentKernelScheduler::getPersistentHeuristic(
+      fusion, runtime_info, data_cache);
+}
+
 InnerPersistentKernelScheduler::InnerPersistentKernelScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
-    : SchedulerEntry(ScheduleHeuristic::InnerPersistent) {
+    : SchedulerEntry(schedule_heuristic) {
   computeHeuristics(fusion, runtime_info, data_cache);
 }
 
@@ -53,7 +69,7 @@ void InnerPersistentKernelScheduler::schedule(Fusion* fusion) {
 
 bool InnerPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
   return normalization_scheduler_utils::innerOrOuterCompileTimeCheck(
-      fusion, ScheduleHeuristic::InnerPersistent);
+      fusion, schedule_heuristic);
 }
 
 bool InnerPersistentKernelScheduler::canScheduleRunTime(
@@ -83,7 +99,7 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
 
   if (persistent_buffer_size > available_persistent_buffer_size) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent,
+        schedule_heuristic,
         "not enough registers or shared memory for persistence");
     return false;
   }
@@ -100,7 +116,7 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
       fusion, runtime_info, reduction_tvs[0]);
 
   if (!normalization_scheduler_utils::runTimeCheckIterSize(
-          properties, ScheduleHeuristic::InnerPersistent)) {
+          properties, schedule_heuristic)) {
     return false;
   }
 
@@ -727,7 +743,7 @@ std::shared_ptr<ReductionParams> InnerPersistentKernelScheduler::
 
   const auto& args =
       normalization_scheduler_utils::getInnerOrOuterPersistentHeuristicArgs(
-          fusion, runtime_info, data_cache, ScheduleHeuristic::InnerPersistent);
+          fusion, runtime_info, data_cache, schedule_heuristic);
 
   std::shared_ptr<ReductionParams> rparams = innerPersistentHeuristic(
       args.total_reduction_numel,
@@ -746,7 +762,7 @@ void InnerPersistentKernelScheduler::schedulePersistentKernel(
     Fusion* fusion,
     const ReductionParams& rparams) {
   normalization_scheduler_utils::scheduleInnerOrOuterPersistentKernel(
-      fusion, rparams, ScheduleHeuristic::InnerPersistent);
+      fusion, rparams, schedule_heuristic);
 }
 
 } // namespace nvfuser

@@ -30,11 +30,27 @@
 
 namespace nvfuser {
 
+constexpr auto schedule_heuristic = ScheduleHeuristic::InnerOuterPersistent;
+
+std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
+    Fusion* fusion,
+    const at::ArrayRef<c10::IValue>& runtime_inputs,
+    HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("getInnerOuterPersistentHeuristicsFromIValue");
+  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
+  auto reduction_type = reduction_scheduler_utils::getReductionType(fusion);
+  NVF_CHECK(
+      reduction_type == reduction_scheduler_utils::ReductionType::InnerOuter,
+      "Reduction type should be ReductionType::InnerOuter.");
+  return InnerOuterPersistentKernelScheduler::getPersistentHeuristic(
+      fusion, runtime_info, data_cache);
+}
+
 InnerOuterPersistentKernelScheduler::InnerOuterPersistentKernelScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
-    : SchedulerEntry(ScheduleHeuristic::InnerOuterPersistent) {
+    : SchedulerEntry(schedule_heuristic) {
   computeHeuristics(fusion, runtime_info, data_cache);
 }
 
@@ -53,7 +69,7 @@ void InnerOuterPersistentKernelScheduler::schedule(Fusion* fusion) {
 
 bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     Fusion* fusion) {
-  auto heuristic = ScheduleHeuristic::InnerOuterPersistent;
+  auto heuristic = schedule_heuristic;
 
   // (1) leading common checks for all persistent kernels.
   if (!normalization_scheduler_utils::checkOpsAndInputs(fusion, heuristic)) {
@@ -152,7 +168,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
 
   if (persistent_buffer_size > available_persistent_buffer_size) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerOuterPersistent,
+        schedule_heuristic,
         "not enough registers or shared memory for persistence");
     return false;
   }
@@ -188,7 +204,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
                false)
                .first.has_value()) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerOuterPersistent,
+        schedule_heuristic,
         "Required batch number is larger than available batch number! Will cause register spills!");
     return false;
   }
@@ -197,7 +213,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
   // TODO: Needs check whether we need this check for innerOuter scheduler or
   // not.
   if (!normalization_scheduler_utils::runTimeCheckIterSize(
-          properties, ScheduleHeuristic::InnerOuterPersistent)) {
+          properties, schedule_heuristic)) {
     return false;
   }
 

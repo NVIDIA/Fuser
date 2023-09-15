@@ -6998,8 +6998,8 @@ TEST_F(
 
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
-  auto reduction_params =
-      getPersistentHeuristics(&fusion, {aten_input, aten_weight, aten_bias});
+  auto reduction_params = getInnerPersistentHeuristics(
+      &fusion, {aten_input, aten_weight, aten_bias});
   NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
 
   FusionExecutorCache fec(std::move(fusion_ptr));
@@ -8462,7 +8462,8 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
   testing::internal::CaptureStdout();
   {
     // generate persistent kernel
-    auto persistent_params = getPersistentHeuristics(&fusion, {aten_input});
+    auto persistent_params =
+        getInnerPersistentHeuristics(&fusion, {aten_input});
     NVF_CHECK(persistent_params, "Persistent schedule was not generated!");
     InnerPersistentKernelScheduler::schedulePersistentKernel(
         &fusion, *persistent_params);
@@ -8866,7 +8867,7 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
       aten_input, norm_shape, aten_weight, aten_bias, kEps);
 
   // generate persistent kernel
-  auto persistent_params = getPersistentHeuristics(&fusion, {aten_input});
+  auto persistent_params = getInnerPersistentHeuristics(&fusion, {aten_input});
   ASSERT_TRUE(persistent_params) << "Persistent schedule was not generated!";
   InnerPersistentKernelScheduler::schedulePersistentKernel(
       &fusion, *persistent_params);
@@ -9073,8 +9074,8 @@ TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
         at::randn({input_shape[1]}, options);
     c10::optional<at::Tensor> aten_bias = at::randn({input_shape[1]}, options);
 
-    auto persistent_params =
-        getPersistentHeuristics(&fusion, {aten_input, aten_weight, aten_bias});
+    auto persistent_params = getInnerPersistentHeuristics(
+        &fusion, {aten_input, aten_weight, aten_bias});
     NVF_CHECK(persistent_params, "Persistent schedule was not generated!");
     if (hidden_size * dataTypeSize(dtype) >
         scheduler_utils::register_file_size) {
