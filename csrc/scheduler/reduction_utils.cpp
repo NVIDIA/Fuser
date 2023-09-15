@@ -5,8 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/reduction_utils.h>
-
 #include <expr_evaluator.h>
 #include <inlining.h>
 #include <ir/cloner.h>
@@ -14,6 +12,7 @@
 #include <maxinfo_propagator.h>
 #include <ops/arith.h>
 #include <scheduler/debug_utils.h>
+#include <scheduler/reduction_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>

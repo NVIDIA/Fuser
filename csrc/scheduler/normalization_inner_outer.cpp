@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ATen/cuda/CUDAContext.h>
 #include <c10/util/irange.h>
 #include <disjoint_set.h>
 #include <executor_utils.h>
@@ -25,8 +26,6 @@
 #include <scheduler/utils.h>
 #include <tensor_metadata.h>
 #include <limits>
-
-#include <ATen/cuda/CUDAContext.h>
 
 namespace nvfuser {
 
