@@ -4060,6 +4060,22 @@ std::vector<Slice> SliceOp::getRanges() const {
   return ranges;
 }
 
+std::vector<PolymorphicValue> SliceOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  std::vector<at::indexing::TensorIndex> ranges;
+  auto ranges_offset = getRangeInputOffset();
+  auto num_dims = in.dim();
+  for (const auto i : c10::irange(num_dims)) {
+    auto start = (int64_t)inputs.at(ranges_offset + 3 * i);
+    auto stop = (int64_t)inputs.at(ranges_offset + 3 * i + 1);
+    auto step = (int64_t)inputs.at(ranges_offset + 3 * i + 2);
+    ranges.push_back(at::indexing::Slice(start, stop, step));
+  }
+  return {in.index(ranges)};
+}
+
 CatOp::CatOp(
     IrBuilderPasskey passkey,
     Val* out,
@@ -4153,6 +4169,18 @@ Val* CatOp::getPred(int input_idx) const {
       attr->toInlineString());
   auto pred = attr;
   return pred;
+}
+
+std::vector<PolymorphicValue> CatOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  std::vector<at::Tensor> in;
+  int64_t concat_dim = concatenatedDim();
+  for (auto i : c10::irange(inputs.size())) {
+    auto unpadded_inp = ee.evaluate(input(i)->definition()->input(0));
+    in.push_back(unpadded_inp.as<at::Tensor>());
+  }
+  return {at::cat(in, concat_dim)};
 }
 
 } // namespace nvfuser

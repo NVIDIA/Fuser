@@ -695,7 +695,7 @@ TEST_F(ResizeTest, FusionResizeCat5) {
 
   auto ref = at::cat({t0, t1}, 1) + t2;
 
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Cat 3 tensors
@@ -867,12 +867,7 @@ TEST_F(ResizeTest, FusionResizeCatScheduler2) {
   auto ref = at::cat({t0, t1}, 1) + t2;
 
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {ref},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Auto scheduled version of Cat6
@@ -978,7 +973,7 @@ TEST_F(ResizeTest, FusionResizeSlice2) {
        at::indexing::Slice(shape[1] / 2)});
   auto ref = t1 + t2;
 
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // "Trivial" slice is converted to Set
@@ -1709,12 +1704,7 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT1) {
   auto aten_t3 = torch::add(aten_t0_slice, t1);
 
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {aten_t3, aten_t3},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Similar to FusionSliceForNanoGPT1 but the input to slice is an
@@ -1838,12 +1828,7 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT2) {
   auto aten_t7 = aten_t2 + 1;
 
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {aten_t4, aten_t4, aten_t7},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // C++ version of TestNvFuserFrontend.test_nanogpt_split_mha_linears
