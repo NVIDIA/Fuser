@@ -1013,18 +1013,5 @@ std::ostream& operator<<(std::ostream& os, ReductionType reduction_type) {
   return os;
 }
 
-ReductionType mapScheduleHeuristicToReductionType(ScheduleHeuristic sh) {
-  switch (sh) {
-    case ScheduleHeuristic::InnerPersistent:
-      return ReductionType::Inner;
-    case ScheduleHeuristic::OuterPersistent:
-      return ReductionType::Outer;
-    case ScheduleHeuristic::InnerOuterPersistent:
-      return ReductionType::InnerOuter;
-    default:
-      return ReductionType::None;
-  }
-}
-
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

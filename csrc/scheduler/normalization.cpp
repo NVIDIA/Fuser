@@ -101,11 +101,21 @@ bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic heuristic) {
 bool checkReductionType(
     const std::vector<TensorView*>& reduction_tvs,
     ScheduleHeuristic heuristic) {
+  auto getExpectedType = [&heuristic]() {
+    switch (heuristic) {
+      case ScheduleHeuristic::InnerPersistent:
+        return ReductionType::Inner;
+      case ScheduleHeuristic::OuterPersistent:
+        return ReductionType::Outer;
+      case ScheduleHeuristic::InnerOuterPersistent:
+        return ReductionType::InnerOuter;
+      default:
+        return ReductionType::None;
+    }
+  };
   auto reduction_type =
       reduction_scheduler_utils::getReductionType(reduction_tvs);
-  auto expected_type =
-      reduction_scheduler_utils::mapScheduleHeuristicToReductionType(heuristic);
-  if (reduction_type != expected_type) {
+  if (reduction_type != getExpectedType()) {
     scheduler_debug_utils::canScheduleRejectReason(
         heuristic, "ReductionType and heuristic doesn't match.");
     return false;

@@ -102,8 +102,5 @@ enum class ReductionType { Inner, Outer, InnerOuter, None };
 ReductionType getReductionType(Fusion* fusion);
 ReductionType getReductionType(const std::vector<TensorView*>& reduction_tvs);
 
-// Return the corresponding reduction types given a ScheduleHeuristic
-ReductionType mapScheduleHeuristicToReductionType(ScheduleHeuristic sh);
-
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

@@ -770,29 +770,6 @@ int64_t getPersistentBufferSize(
   return persistent_buffer_size;
 }
 
-//! If the fusion has both inner and outer reductions, use the first inner
-//! reduction tv as the reference tv, otherwise use the first reduction tv.
-TensorView* getReferenceReductionTv(
-    const std::vector<TensorView*>& reduction_tvs) {
-  TensorView* first_inner_tv = nullptr;
-  TensorView* first_outer_tv = nullptr;
-  for (auto tv : reduction_tvs) {
-    bool is_inner = scheduler_utils::isFastestDimReduction(tv);
-
-    if (is_inner && !first_inner_tv) {
-      first_inner_tv = tv;
-    } else if (!is_inner && !first_outer_tv) {
-      first_outer_tv = tv;
-    }
-
-    if (first_inner_tv && first_outer_tv) {
-      return first_inner_tv;
-    }
-  }
-
-  return reduction_tvs.at(0);
-}
-
 // Get the appropriate scheduler based on reduction type
 std::optional<ScheduleHeuristic> getOptionalPersistentScheduleHeuristic(
     Fusion* fusion) {
