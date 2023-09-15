@@ -52,7 +52,7 @@ void OuterPersistentKernelScheduler::schedule(Fusion* fusion) {
 }
 
 bool OuterPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
-  return persistent_scheduler::innerOrOuterCompileTimeCheck(
+  return normalization_scheduler_utils::innerOrOuterCompileTimeCheck(
       fusion, ScheduleHeuristic::OuterPersistent);
 }
 
@@ -637,7 +637,7 @@ std::shared_ptr<ReductionParams> OuterPersistentKernelScheduler::
   FusionGuard fg(fusion);
 
   const auto& args =
-      persistent_scheduler::getInnerOrOuterPersistentHeuristicArgs(
+      normalization_scheduler_utils::getInnerOrOuterPersistentHeuristicArgs(
           fusion, runtime_info, data_cache, ScheduleHeuristic::OuterPersistent);
 
   std::shared_ptr<ReductionParams> rparams = outerPersistentHeuristic(
@@ -655,7 +655,7 @@ std::shared_ptr<ReductionParams> OuterPersistentKernelScheduler::
 void OuterPersistentKernelScheduler::schedulePersistentKernel(
     Fusion* fusion,
     const ReductionParams& rparams) {
-  persistent_scheduler::scheduleInnerOrOuterPersistentKernel(
+  normalization_scheduler_utils::scheduleInnerOrOuterPersistentKernel(
       fusion, rparams, ScheduleHeuristic::OuterPersistent);
 }
 

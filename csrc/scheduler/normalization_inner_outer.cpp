@@ -56,13 +56,14 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   auto heuristic = ScheduleHeuristic::InnerOuterPersistent;
 
   // (1) leading common checks for all persistent kernels.
-  if (!persistent_scheduler::checkOpsAndInputs(fusion, heuristic)) {
+  if (!normalization_scheduler_utils::checkOpsAndInputs(fusion, heuristic)) {
     return false;
   }
 
   // (2) check reduction type.
   const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-  if (!persistent_scheduler::checkReductionType(reduction_tvs, heuristic)) {
+  if (!normalization_scheduler_utils::checkReductionType(
+          reduction_tvs, heuristic)) {
     return false;
   }
 
@@ -76,9 +77,9 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
       outer_reduction_tvs.emplace_back(tv);
     }
   }
-  persistent_scheduler::checkReductionAxis(
+  normalization_scheduler_utils::checkReductionAxis(
       fusion, inner_reduction_tvs, heuristic);
-  persistent_scheduler::checkReductionAxis(
+  normalization_scheduler_utils::checkReductionAxis(
       fusion, outer_reduction_tvs, heuristic);
   if (!normalization_scheduler_utils::checkIfReductionsAreInnerOuter(
           inner_reduction_tvs, outer_reduction_tvs)) {
@@ -105,7 +106,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   }
 
   // (4) tailing common checks for all persistent kernels.
-  if (!persistent_scheduler::checkViewRootPersistentTopology(
+  if (!normalization_scheduler_utils::checkViewRootPersistentTopology(
           fusion, reduction_tvs, inner_reduction_tvs[0], heuristic)) {
     return false;
   }
@@ -195,7 +196,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
   // (3) check iteration size
   // TODO: Needs check whether we need this check for innerOuter scheduler or
   // not.
-  if (!persistent_scheduler::runTimeCheckIterSize(
+  if (!normalization_scheduler_utils::runTimeCheckIterSize(
           properties, ScheduleHeuristic::InnerOuterPersistent)) {
     return false;
   }
@@ -549,12 +550,13 @@ std::shared_ptr<ReductionParams> InnerOuterPersistentKernelScheduler::
 
   // (1) reduction properties and vectorization factor
   auto [reduced_tv, properties, vectorize_factor] =
-      persistent_scheduler::getReductionPropertiesVectFactor(
+      normalization_scheduler_utils::getReductionPropertiesVectFactor(
           fusion, runtime_info, data_cache, reduction_tvs, ref_red_tv);
 
   // (2) info about persistent buffer.
   auto [can_project, persistent_buffer_size_info] =
-      persistent_scheduler::getBufferSizeInfo(fusion, runtime_info, data_cache);
+      normalization_scheduler_utils::getBufferSizeInfo(
+          fusion, runtime_info, data_cache);
   bool project_persistent_buffers = can_project &&
       persistent_buffer_size_info.projected_persistent_buffer_size <
           persistent_buffer_size_info.persistent_buffer_size;
@@ -708,7 +710,7 @@ void InnerOuterPersistentKernelScheduler::schedulePersistentKernel(
   // helper tensors for persistent buffer projection.
   std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
-  persistent_scheduler::beforeSchedule(
+  normalization_scheduler_utils::beforeSchedule(
       fusion,
       rparams,
       dummy_outputs,
@@ -735,7 +737,7 @@ void InnerOuterPersistentKernelScheduler::schedulePersistentKernel(
   // schedule inner reduction, only schedule the first inner reduction tv, then
   // will be propagated to other inner reduction tvs.
   TensorView* inner_reference_tv =
-      persistent_scheduler::scheduleReductionGeneral(
+      normalization_scheduler_utils::scheduleReductionGeneral(
           fusion, rparams, inner_reduction_tvs);
 
   // schedule outer reduction, schedule all the outer reduction tvs since we
