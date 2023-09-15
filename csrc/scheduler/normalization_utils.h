@@ -220,15 +220,6 @@ int64_t getPersistentBufferSize(
     HeuristicSummary* data_cache,
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info);
 
-scheduler_utils::PersistentBufferInfo& getMaybeCachedPersistentBufferInfo(
-    Fusion* fusion,
-    HeuristicSummary* data_cache);
-
-//! If the fusion has both inner and outer reductions, use the first inner
-//! reduction tv as the reference tv, otherwise use the first reduction tv.
-TensorView* getReferenceReductionTv(
-    const std::vector<TensorView*>& reduction_tvs);
-
 // Return a InnerPersistent, OuterPersistent, or InnerOuterPersistent
 // ScheduleHeuristic based on reduction types. If no reduction, returns nullptr.
 std::optional<ScheduleHeuristic> getOptionalPersistentScheduleHeuristic(
