@@ -525,12 +525,14 @@ PersistentHeuristicArgs getInnerOrOuterPersistentHeuristicArgs(
           runtime_info, data_cache, reduced_tv);
 
   return PersistentHeuristicArgs{
-      properties,
+      properties.inner_most_dimension_numel,
+      properties.total_reduction_numel,
+      properties.total_iteration_numel,
       max_persistent_buffer_size,
-      project_persistent_buffers,
       n_tensor_inputs,
       max_input_dtype_size,
-      vectorize_factor};
+      vectorize_factor,
+      project_persistent_buffers};
 }
 
 // schedule inner or outer persistent kernel

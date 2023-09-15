@@ -641,8 +641,8 @@ std::shared_ptr<ReductionParams> OuterPersistentKernelScheduler::
           fusion, runtime_info, data_cache, ScheduleHeuristic::OuterPersistent);
 
   std::shared_ptr<ReductionParams> rparams = outerPersistentHeuristic(
-      args.properties.total_reduction_numel,
-      args.properties.total_iteration_numel,
+      args.total_reduction_numel,
+      args.total_iteration_numel,
       args.n_tensor_inputs,
       args.max_input_dtype_size,
       args.max_persistent_buffer_size,

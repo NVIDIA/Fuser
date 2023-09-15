@@ -99,12 +99,14 @@ TensorView* scheduleReductionGeneral(
 
 // get argument passed to innerPersistentHeuristic and outerPersistentHeuristic
 struct PersistentHeuristicArgs {
-  scheduler_utils::ReductionTvProperties properties;
+  int64_t inner_most_dimension_numel;
+  int64_t total_reduction_numel;
+  int64_t total_iteration_numel;
   int64_t max_persistent_buffer_size;
-  bool project_persistent_buffers;
   int64_t n_tensor_inputs;
   int64_t max_input_dtype_size;
   int64_t vectorize_factor;
+  bool project_persistent_buffers;
 };
 PersistentHeuristicArgs getInnerOrOuterPersistentHeuristicArgs(
     Fusion* fusion,

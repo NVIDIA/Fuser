@@ -730,9 +730,9 @@ std::shared_ptr<ReductionParams> InnerPersistentKernelScheduler::
           fusion, runtime_info, data_cache, ScheduleHeuristic::InnerPersistent);
 
   std::shared_ptr<ReductionParams> rparams = innerPersistentHeuristic(
-      args.properties.total_reduction_numel,
-      args.properties.total_iteration_numel,
-      args.properties.inner_most_dimension_numel,
+      args.total_reduction_numel,
+      args.total_iteration_numel,
+      args.inner_most_dimension_numel,
       args.n_tensor_inputs,
       args.max_input_dtype_size,
       args.max_persistent_buffer_size,
