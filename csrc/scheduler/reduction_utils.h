@@ -10,11 +10,9 @@
 #include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
-#include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_heuristic.h>
 
 namespace nvfuser {
-class HeuristicSummary;
 
 namespace reduction_scheduler_utils {
 // Consistent parallelization based on provided reduction parameters. Provided
