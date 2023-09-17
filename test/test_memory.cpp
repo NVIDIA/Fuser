@@ -25,9 +25,13 @@
 
 namespace nvfuser {
 
-class MemoryTest : public NVFuserTest {};
+class MemoryTest
+    : public testing::TestWithParam<std::tuple<CacheOp, std::string>> {};
 
-TEST_F(MemoryTest, LoadCache) {
+TEST_P(MemoryTest, LoadCache) {
+  CacheOp cache_op = std::get<0>(GetParam());
+  std::string cache_op_str = std::get<1>(GetParam());
+
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -35,8 +39,7 @@ TEST_F(MemoryTest, LoadCache) {
   fusion.addInput(tv0);
   TensorView* tv1 =
       ops::newValLike(tv0, tv0->getDataType().value())->as<TensorView>();
-  IrBuilder::create<LoadStoreOp>(
-      LoadStoreOpType::Set, tv1, tv0, CacheOp::AllLevels);
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, tv1, tv0, cache_op);
   TensorView* tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   TensorView* tv3 = set(tv2);
   fusion.addOutput(tv3);
@@ -69,7 +72,7 @@ TEST_F(MemoryTest, LoadCache) {
   // Verify PTX.
   const executor_utils::CompiledKernel compiled_kernel = fe.compiledKernel();
   std::string ptx(compiled_kernel.ptx.begin(), compiled_kernel.ptx.end());
-  std::regex regex(R"(ld\.global\.ca\.\S+)");
+  std::regex regex(R"(ld\.global\.)" + cache_op_str + R"(\.\S+)");
   std::smatch match;
   std::regex_search(ptx, match, regex);
   EXPECT_EQ(match.size(), 1);
@@ -83,5 +86,18 @@ TEST_F(MemoryTest, LoadCache) {
   testValidate(
       &fusion, actual_ts, {input}, {expected_output}, __LINE__, __FILE__);
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    MemoryTests,
+    MemoryTest,
+    testing::Values(
+        std::make_tuple(CacheOp::AllLevels, "ca"),
+        std::make_tuple(CacheOp::Global, "cg"),
+        std::make_tuple(CacheOp::Streaming, "cs")),
+    [](const testing::TestParamInfo<std::tuple<CacheOp, std::string>>& info) {
+      std::ostringstream os;
+      os << std::get<0>(info.param);
+      return os.str();
+    });
 
 } // namespace nvfuser
