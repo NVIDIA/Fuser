@@ -55,17 +55,16 @@ void InnerOuterPersistentKernelScheduler::schedule(Fusion* fusion) {
 
 bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     Fusion* fusion) {
-  auto heuristic = schedule_heuristic;
-
   // (1) leading common checks for all persistent kernels.
-  if (!normalization_scheduler_utils::checkOpsAndInputs(fusion, heuristic)) {
+  if (!normalization_scheduler_utils::checkOpsAndInputs(
+          fusion, schedule_heuristic)) {
     return false;
   }
 
   // (2) check reduction type.
   const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
   if (!normalization_scheduler_utils::checkReductionType(
-          reduction_tvs, heuristic)) {
+          reduction_tvs, schedule_heuristic)) {
     return false;
   }
 
@@ -80,13 +79,13 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     }
   }
   normalization_scheduler_utils::checkReductionAxis(
-      fusion, inner_reduction_tvs, heuristic);
+      fusion, inner_reduction_tvs, schedule_heuristic);
   normalization_scheduler_utils::checkReductionAxis(
-      fusion, outer_reduction_tvs, heuristic);
+      fusion, outer_reduction_tvs, schedule_heuristic);
   if (!normalization_scheduler_utils::checkIfReductionsAreInnerOuter(
           inner_reduction_tvs, outer_reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristic,
+        schedule_heuristic,
         "to use combined reduction, inner reduction tensor should be [I,I,...,R,R] and outer reduction tensor should be [R,R,...,I,I]");
     return false;
   }
@@ -94,7 +93,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   if (!normalization_scheduler_utils::hasSharedInput(
           inner_reduction_tvs, outer_reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristic,
+        schedule_heuristic,
         "to use combined reduction, inner reduction and outer reduction should have shared input.");
     return false;
   }
@@ -102,14 +101,14 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   if (!normalization_scheduler_utils::isConnectedOnlyThroughReductionProducer(
           inner_reduction_tvs, outer_reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        heuristic,
+        schedule_heuristic,
         "to use combined reduction, inner reduction and outer reduction should not have shared consumer, their consumers should not have shared non-outer-reduction producer.");
     return false;
   }
 
   // (4) tailing common checks for all persistent kernels.
   if (!normalization_scheduler_utils::checkViewRootPersistentTopology(
-          fusion, reduction_tvs, inner_reduction_tvs[0], heuristic)) {
+          fusion, reduction_tvs, inner_reduction_tvs[0], schedule_heuristic)) {
     return false;
   }
 
