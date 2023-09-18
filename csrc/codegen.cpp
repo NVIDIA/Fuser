@@ -545,7 +545,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void genCpAsync(const LoadStoreOp* ldst, size_t vec_size) {
     auto dtype = ldst->in()->getDataType().value();
 
-    bool is_cg = ldst->opType() == LoadStoreOpType::CpAsyncCg;
+    bool is_cg = ldst->opType() == LoadStoreOpType::CpAsync &&
+        ldst->cacheOp() == CacheOp::Global;
     std::string name = (is_cg ? "Ampere::cpAsyncCg" : "Ampere::cpAsyncCa");
 
     ArgumentBuilder template_args;
@@ -1288,9 +1289,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
 
       // dispatch cp.async
-      if (optype == LoadStoreOpType::CpAsyncCa ||
-          optype == LoadStoreOpType::CpAsyncCg) {
-        if (optype == LoadStoreOpType::CpAsyncCg) {
+      if (optype == LoadStoreOpType::CpAsync) {
+        if (ldst->cacheOp() == CacheOp::Global) {
           NVF_ERROR(
               is_vector_op && vector_word_size == 8,
               "cp.async.cg only support vectorize 8");
