@@ -11,14 +11,6 @@
 
 namespace nvfuser {
 
-// convenience function to get persistent kernel heuristics using
-// runtime_inputs. Used in cpp tests.
-TORCH_CUDA_CU_API std::shared_ptr<ReductionParams>
-getInnerOuterPersistentHeuristics(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicSummary* data_cache = nullptr);
-
 class HeuristicSummary;
 
 class InnerOuterPersistentKernelScheduler : public SchedulerEntry {

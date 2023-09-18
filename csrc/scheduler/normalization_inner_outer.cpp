@@ -18,20 +18,6 @@ namespace nvfuser {
 
 constexpr auto schedule_heuristic = ScheduleHeuristic::InnerOuterPersistent;
 
-std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getInnerOuterPersistentHeuristicsFromIValue");
-  SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
-  auto reduction_type = reduction_scheduler_utils::getReductionType(fusion);
-  NVF_CHECK(
-      reduction_type == reduction_scheduler_utils::ReductionType::InnerOuter,
-      "Reduction type should be ReductionType::InnerOuter.");
-  return InnerOuterPersistentKernelScheduler::getPersistentHeuristic(
-      fusion, runtime_info, data_cache);
-}
-
 InnerOuterPersistentKernelScheduler::InnerOuterPersistentKernelScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
