@@ -9,8 +9,8 @@
 
 #include <ATen/core/ivalue.h>
 #include <exceptions.h>
-
 #include <fusion.h>
+#include <scheduler/registry.h>
 #include <scheduler/transpose_heuristic.h>
 
 #define SUPPORT_SPLITTING_INNERMOST_DIM 0
@@ -113,5 +113,28 @@ TORCH_CUDA_CU_API std::string getTransposeRuntimeRejectReason(
     Fusion* fusion,
     HeuristicSummary* data_cache,
     SchedulerRuntimeInfo& runtime_info);
+
+class TransposeScheduler : public SchedulerEntry {
+ public:
+  explicit TransposeScheduler(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr);
+
+  static bool canScheduleCompileTime(Fusion* fusion);
+
+  static bool canScheduleRunTime(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr);
+
+  void schedule(Fusion* fusion) override;
+
+ private:
+  void computeHeuristics(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr);
+};
 
 } // namespace nvfuser
