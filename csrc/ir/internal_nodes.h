@@ -1608,7 +1608,7 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
       LoadStoreOpType op_type,
       Val* out,
       Val* in,
-      CacheOp cache_op = CacheOp::Streaming);
+      CacheOp cache_op = CacheOp::Unspecified);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
