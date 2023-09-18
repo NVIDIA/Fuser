@@ -861,12 +861,14 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   } else {
     // Use cp.async as requested in scheduler params.
     LoadStoreOpType load_op = LoadStoreOpType::Set;
+    CacheOp cache_op = CacheOp::Unspecified;
     if (params.async_gmem_load_operands) {
-      load_op = LoadStoreOpType::CpAsyncCg;
+      load_op = LoadStoreOpType::CpAsync;
+      cache_op = CacheOp::Global;
     }
 
-    acw_smem = ar->cacheAfter(load_op);
-    bcw_smem = br->cacheAfter(load_op);
+    acw_smem = ar->cacheAfter(load_op, cache_op);
+    bcw_smem = br->cacheAfter(load_op, cache_op);
     NVF_ERROR(acw_smem->uses().size() == 1);
     NVF_ERROR(bcw_smem->uses().size() == 1);
     if (auto ldst = dynamic_cast<LoadStoreOp*>(acw_smem->uses().at(0))) {
