@@ -666,57 +666,6 @@ class PointWiseScheduler : public SchedulerEntry {
   }
 };
 
-class MatmulScheduler : public SchedulerEntry {
- public:
-  explicit MatmulScheduler(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr)
-      : SchedulerEntry(ScheduleHeuristic::Matmul) {
-    computeHeuristics(fusion, runtime_info);
-  }
-
-  void schedule(Fusion* fusion) override {
-    FUSER_PERF_SCOPE("Schedule Matmul Fusion");
-    scheduleMatmul(fusion, matmulParams());
-  }
-
-  static bool canScheduleCompileTime(Fusion* fusion) {
-    const auto msg = getMatmulCompileTimeRejectReason(fusion);
-    if (!msg.empty()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Matmul, msg);
-      return false;
-    }
-
-    return true;
-  }
-
-  static bool canScheduleRunTime(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr) {
-    FUSER_PERF_SCOPE("MatmulScheduler::canSchedule");
-    auto reason =
-        getMatmulRunTimeRejectReason(fusion, data_cache, runtime_info);
-    if (!reason.empty()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Matmul, reason);
-      return false;
-    }
-    return true;
-  }
-
- private:
-  void computeHeuristics(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr) {
-    params_ = getMatmulHeuristics(fusion, runtime_info, data_cache);
-    NVF_ERROR(params_ != nullptr);
-  }
-};
-
 // Schedule Table
 const std::vector<ScheduleHeuristic>& all_heuristics() {
   static const std::vector<ScheduleHeuristic> hlist = {
