@@ -32,12 +32,12 @@ inline void checkIntValue(
   EXPECT_EQ(actual_value, expected_value);
 }
 
-inline void checkValue(
+inline void checkConstEvaluate(
     const ExpressionEvaluator& evaluator,
     Val* val,
     at::Tensor expected_value) {
   auto actual_value = evaluator.evaluate(val);
-  NVF_CHECK(expected_value.equal(actual_value.as<at::Tensor>()));
+  EXPECT_TRUE(expected_value.equal(actual_value.as<at::Tensor>()));
 }
 
 } // namespace
