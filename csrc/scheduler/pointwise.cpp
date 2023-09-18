@@ -5,37 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/pointwise.h>
-#include <scheduler/transpose.h>
 
-// #include <debug.h>
-// #include <device_lower/utils.h>
-// #include <executor_utils.h>
-// #include <inlining.h>
-// #include <instrumentation.h>
-// #include <ir/iostream.h>
-// #include <ir/utils.h>
-// #include <options.h>
-// #include <scheduler/pointwise_utils.h>
-// #include <scheduler/registry.h>
-// #include <scheduler/utils.h>
-// #include <scheduler/vectorize_helper.h>
-// #include <transform_replay.h>
-// #include <utils.h>
-
-// #include <ATen/cuda/CUDAContext.h>
-
-// #include <algorithm>
-// #include <unordered_map>
 #include <ATen/cuda/CUDAContext.h>
 #include <debug.h>
 #include <inlining.h>
 #include <instrumentation.h>
 #include <scheduler/debug_utils.h>
+#include <scheduler/pointwise.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
+#include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
+
 namespace nvfuser {
 
 PointWiseScheduler::PointWiseScheduler(
