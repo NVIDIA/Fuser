@@ -7,19 +7,13 @@
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
 #include <debug.h>
-#include <executor_utils.h>
 #include <instrumentation.h>
-#include <ir/all_nodes.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <options.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/reduction.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
-#include <transform_replay.h>
 
 namespace nvfuser {
 
