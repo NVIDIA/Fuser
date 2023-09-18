@@ -75,8 +75,6 @@ class TORCH_CUDA_CU_API Communication {
   CommParams params_;
   // stores the relative index of the root in the team
   DeviceIdxType root_relative_index_ = -1;
-  // utility buffer used in Gather and Scatter derived classes
-  std::vector<std::vector<at::Tensor>> buf_list_;
 
  private:
   // used for printing
