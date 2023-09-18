@@ -10,15 +10,15 @@
 #include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <scheduler/all_schedulers.h>
 #include <scheduler/compile_time_info.h>
 #include <scheduler/heuristic.h>
+#include <scheduler/heuristic_types.h>
 #include <scheduler/matmul_heuristic.h>
 #include <scheduler/pointwise_heuristic.h>
 #include <scheduler/reduction_heuristic.h>
+#include <scheduler/transpose_heuristic.h>
 #include <scheduler/utils.h>
 #include <utils.h>
-
 namespace nvfuser {
 
 class SegmentedGroup;
@@ -226,13 +226,5 @@ class TORCH_CUDA_CU_API SchedulerEntryHash {
  public:
   size_t operator()(const SchedulerEntry& se) const;
 };
-
-//! Debug print function for heuristics
-TORCH_CUDA_CU_API std::string toString(ScheduleHeuristic sh);
-
-//! Debug print function for heuristics
-TORCH_CUDA_CU_API std::ostream& operator<<(
-    std::ostream& os,
-    ScheduleHeuristic sh);
 
 } // namespace nvfuser

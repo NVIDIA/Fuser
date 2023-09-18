@@ -464,12 +464,13 @@ struct Instruction {
   std::string str;
   size_t address;
 
-  std::string predicate();
-  std::string action(); // The part of the string that is not predicate
-  std::string op(); // Some thing like: LDGSTS.E.128
-  std::string opCode(); // Something like LDGSTS
-  std::vector<std::string> modifiers(); // Something like {E, 128}
-  std::vector<std::string> args(); // Something like {[R217+0x1800], [R202.64]}
+  std::string predicate() const;
+  std::string action() const; // The part of the string that is not predicate
+  std::string op() const; // Some thing like: LDGSTS.E.128
+  std::string opCode() const; // Something like LDGSTS
+  std::vector<std::string> modifiers() const; // Something like {E, 128}
+  std::vector<std::string> args()
+      const; // Something like {[R217+0x1800], [R202.64]}
 };
 
 struct Label {
