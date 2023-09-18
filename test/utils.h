@@ -16,9 +16,6 @@
 #include <ir/all_nodes.h>
 #include <kernel_cache.h>
 #include <kernel_ir_dispatch.h>
-#ifdef USE_DISTRIBUTED
-#include <multidevice/communicator.h>
-#endif
 #include <transform_replay.h>
 
 #include <ATen/Context.h>
@@ -454,13 +451,6 @@ class NVFuserTest : public ::testing::Test {
     }
   }
 };
-
-#ifdef USE_DISTRIBUTED
-class MultiDeviceTest : public NVFuserTest {
- protected:
-  static Communicator comm;
-};
-#endif
 
 // assert that the given fusion lowers to the given CUDA kernel
 void assertCUDAKernel(Fusion* fusion, const std::string& expected_kernel);

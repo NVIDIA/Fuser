@@ -126,7 +126,8 @@ Gather::Gather(CommParams params) : Communication(params, "gather") {
 
 c10::intrusive_ptr<c10d::Work> Gather::post(Communicator& comm) {
   post_common(*this, comm);
-  // This is used to change the representation of the buffers to match c10d ProcessGroup API
+  // This is used to change the representation of the buffers to match c10d
+  // ProcessGroup API
   std::vector<std::vector<at::Tensor>> buf_list;
   if (comm.deviceId() == params_.root) {
     assertBufferCount(params_.dst_bufs, params_.team.size());
@@ -134,8 +135,10 @@ c10::intrusive_ptr<c10d::Work> Gather::post(Communicator& comm) {
   } else {
     assertBufferCount(params_.dst_bufs, 0);
   }
-  auto work = comm.getBackendForTeam(params_.team)
-      ->gather(buf_list, params_.src_bufs, {.rootRank = root_relative_index_});
+  auto work =
+      comm.getBackendForTeam(params_.team)
+          ->gather(
+              buf_list, params_.src_bufs, {.rootRank = root_relative_index_});
   if (comm.deviceId() == params_.root) {
     params_.dst_bufs = std::move(buf_list.back());
   }
@@ -150,11 +153,12 @@ Allgather::Allgather(CommParams params)
 
 c10::intrusive_ptr<c10d::Work> Allgather::post(Communicator& comm) {
   post_common(*this, comm);
-  // This is used to change the representation of the buffers to match c10d ProcessGroup API
+  // This is used to change the representation of the buffers to match c10d
+  // ProcessGroup API
   std::vector<std::vector<at::Tensor>> buf_list;
   buf_list = {std::move(params_.dst_bufs)};
   auto work = comm.getBackendForTeam(params_.team)
-      ->allgather(buf_list, params_.src_bufs, {});
+                  ->allgather(buf_list, params_.src_bufs, {});
   params_.dst_bufs = std::move(buf_list.back());
   return work;
 }
@@ -165,7 +169,8 @@ Scatter::Scatter(CommParams params) : Communication(params, "scatter") {
 
 c10::intrusive_ptr<c10d::Work> Scatter::post(Communicator& comm) {
   post_common(*this, comm);
-  // This is used to change the representation of the buffers to match c10d ProcessGroup API
+  // This is used to change the representation of the buffers to match c10d
+  // ProcessGroup API
   std::vector<std::vector<at::Tensor>> buf_list;
   if (comm.deviceId() == params_.root) {
     assertBufferCount(params_.src_bufs, params_.team.size());
@@ -173,9 +178,10 @@ c10::intrusive_ptr<c10d::Work> Scatter::post(Communicator& comm) {
   } else {
     assertBufferCount(params_.src_bufs, 0);
   }
-  auto work = comm.getBackendForTeam(params_.team)
-      ->scatter(
-          params_.dst_bufs, buf_list, {.rootRank = root_relative_index_});
+  auto work =
+      comm.getBackendForTeam(params_.team)
+          ->scatter(
+              params_.dst_bufs, buf_list, {.rootRank = root_relative_index_});
   if (comm.deviceId() == params_.root) {
     params_.src_bufs = std::move(buf_list.back());
   }

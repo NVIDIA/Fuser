@@ -10,7 +10,7 @@
 
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
-#include <test/utils.h>
+#include <test/multidevice.h>
 
 #include <iostream>
 
@@ -20,7 +20,7 @@ static constexpr DeviceIdxType root = 0;
 static constexpr int tensor_size = 1024;
 static constexpr int number_of_repetitions = 8;
 
-TEST_F(MultiDeviceTest, FusionMultiGPU_Communication_Gather_CUDA) {
+TEST_F(MultiDeviceTest, Communication_Gather) {
   if (!comm.is_available() || comm.size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks";
   }
@@ -67,7 +67,7 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Communication_Gather_CUDA) {
   comm.barrier();
 }
 
-TEST_F(MultiDeviceTest, FusionMultiGPU_Communication_Allgather_CUDA) {
+TEST_F(MultiDeviceTest, Communication_Allgather) {
   if (!comm.is_available() || comm.size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks";
   }
@@ -109,7 +109,7 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Communication_Allgather_CUDA) {
   comm.barrier();
 }
 
-TEST_F(MultiDeviceTest, FusionMultiGPU_Communication_Scatter_CUDA) {
+TEST_F(MultiDeviceTest, Communication_Scatter) {
   if (!comm.is_available() || comm.size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks";
   }
@@ -152,7 +152,7 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Communication_Scatter_CUDA) {
   comm.barrier();
 }
 
-TEST_F(MultiDeviceTest, FusionMultiGPU_Communication_Broadcast_CUDA) {
+TEST_F(MultiDeviceTest, Communication_Broadcast) {
   if (!comm.is_available() || comm.size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks";
   }
@@ -196,7 +196,7 @@ TEST_F(MultiDeviceTest, FusionMultiGPU_Communication_Broadcast_CUDA) {
   comm.barrier();
 }
 
-TEST_F(MultiDeviceTest, FusionMultiGPU_Communication_SendRecv_CUDA) {
+TEST_F(MultiDeviceTest, Communication_SendRecv) {
   DeviceIdxType sender = 0;
   DeviceIdxType receiver = 1;
   if (!comm.is_available() || comm.size() < 2) {

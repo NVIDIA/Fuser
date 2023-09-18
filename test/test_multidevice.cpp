@@ -33,7 +33,7 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
-#include <test/utils.h>
+#include <test/multidevice.h>
 #include <test/validator.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
 #include <transform_replay.h>
@@ -51,6 +51,8 @@ namespace nvfuser {
 
 using namespace torch::jit::fuser::cuda;
 using namespace at::indexing;
+
+Communicator MultiDeviceTest::comm = {};
 
 // utility function for validation
 void testValidateMultidevice(
@@ -121,13 +123,13 @@ void testValidateMultidevice(
 
 /* To run the following tests on several devices, pytorch must be installed
    with the flag USE_DISTRIBUTED=1 and nccl support.
-   Then simply run the tests on several processes, for example using mpirun,
-   e.g.: mpirun -np 6 ./build/bin/nvfuser_tests
-   --gtest_filter=MultiDeviceTest.FusionMultiGPU_CUDA
-   For now, we only support setups with one node.
+   Then simply run the tests on several processes, for example using mpirun
+   on a node having at least 6 GPUs,
+   e.g.: mpirun -np 6 build/nvfuser_tests
+   --gtest_filter=MultiDeviceTest.Pipeline
 */
 
-TEST_F(MultiDeviceTest, FusionMultiGPU_CUDA) {
+TEST_F(MultiDeviceTest, Pipeline) {
   // ===========================================================
   //        FUSION
   // ===========================================================
