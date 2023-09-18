@@ -332,6 +332,9 @@ Val* SimplifyingIrBuilder::addExpr(Val* lhs, Val* rhs) {
 }
 
 Val* SimplifyingIrBuilder::subExpr(Val* lhs, Val* rhs) {
+  if (lhs->sameAs(rhs)) {
+    return lhs->fusion()->zeroVal(lhs->dtype());
+  }
   return addExpr(lhs, negExpr(rhs));
 }
 
@@ -375,12 +378,17 @@ Val* SimplifyingIrBuilder::divExpr(Val* lhs, Val* rhs) {
   if (rhs->isOneInt()) {
     return lhs;
   }
+  if (lhs->sameAs(rhs)) {
+    return lhs->fusion()->oneVal(lhs->dtype());
+  }
   return IrBuilder::divExpr(lhs, rhs);
 }
 
 Val* SimplifyingIrBuilder::ceilDivExpr(Val* lhs, Val* rhs) {
   if (rhs->isOneInt()) {
     return lhs;
+  } else if (lhs->sameAs(rhs)) {
+    return lhs->fusion()->oneVal(lhs->dtype());
   } else if (lhs->isConst() && rhs->isConst()) {
     auto l = lhs->value();
     auto r = rhs->value();
@@ -393,7 +401,7 @@ Val* SimplifyingIrBuilder::ceilDivExpr(Val* lhs, Val* rhs) {
 }
 
 Val* SimplifyingIrBuilder::modExpr(Val* lhs, Val* rhs) {
-  if (rhs->isOneInt()) {
+  if (rhs->isOneInt() || lhs->isZeroInt() || lhs->sameAs(rhs)) {
     return FusionGuard::getCurFusion()->zeroVal(
         promoteType(lhs->dtype(), rhs->dtype()));
   }
@@ -568,6 +576,8 @@ Val* minOrMaxExpr(
     return lhs;
   } else if (lhs == nullptr) {
     return rhs;
+  } else if (lhs->sameAs(rhs)) {
+    return lhs;
   } else if (lhs->isConst() && rhs->isConst()) {
     return IrBuilder::create<Val>(func(lhs->value(), rhs->value()));
   } else {
@@ -600,6 +610,9 @@ Val* SimplifyingIrBuilder::gcdExpr(Val* lhs, Val* rhs) {
     return rhs;
   }
   if (rhs->isZeroInt()) {
+    return lhs;
+  }
+  if (lhs->sameAs(rhs)) {
     return lhs;
   }
   if (lhs->isOneInt() || rhs->isOneInt()) {
@@ -701,6 +714,9 @@ Val* SimplifyingIrBuilder::whereExpr(Val* pred, Val* lhs, Val* rhs) {
   NVF_ERROR(
       pred->dtype() == DataType::Bool,
       "Where requires a predicate as an input, but received");
+  if (lhs->sameAs(rhs)) {
+    return lhs;  // return value is independent of predicate
+  }
   if (pred->isConstScalar() && pred->isABool()) {
     if (pred->evaluateBool()) {
       return lhs;
