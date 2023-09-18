@@ -26,7 +26,8 @@
 namespace nvfuser {
 
 class MemoryTest
-    : public testing::TestWithParam<std::tuple<CacheOp, std::string>> {};
+    : public NVFuserTest,
+      public testing::WithParamInterface<std::tuple<CacheOp, std::string>> {};
 
 TEST_P(MemoryTest, LoadCache) {
   CacheOp cache_op = std::get<0>(GetParam());
