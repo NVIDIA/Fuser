@@ -28,7 +28,7 @@ Val* replaceInputInCast(Val* cast_output, Val* new_input) {
   if (cast_output == new_input || new_input == tmp_expr->input(0)) {
     return cast_output;
   }
-  auto new_expr = nvfuser::ir_utils::replaceValInExpr(
+  auto new_expr = nvfuser::ir_utils::replaceValInExprInputs(
       tmp_expr, tmp_expr->input(0), new_input);
   return new_expr->output(0);
 }

@@ -164,20 +164,31 @@ std::vector<int> normalizeOld2New(
     const std::unordered_map<int, int>& old2new_in,
     size_t ndims);
 
-// Replace all uses of reference with substitute in expr. Return the Expr.
-// Warning: Invalidates provided Expr.
-// Warning: Removes connection of reference through provided Expr.
-// Warning: Creates new Expr connecting substitue.
-// Reference is found through direct pointer comparison.
-TORCH_CUDA_CU_API Expr* replaceValInExpr(
+//! Replaces reference Val with substitute in all Expr inputs and attributes.
+//! Warning: Invalidates provided Expr.
+//! Warning: Removes connection of reference through provided Expr.
+//! Warning: Creates new Expr defining substitute.
+TORCH_CUDA_CU_API Expr* replaceValInExprInputs(
     Expr* expr,
     Val* reference,
     Val* substitute);
 
+//! Removes the given expression and creates a new expression that is identical
+//! to expr, but whose outputs are given by the new_outputs argument. It is an
+//! error for Vals in new_outputs that are not equal to their old equivalents to
+//! have a definition as these should be freshly-created Vals that are not yet
+//! defined.
+//!
+//! Warning: Invalidates provided Expr.
+//! Warning: Creates new Expr defining substitutes.
+TORCH_CUDA_CU_API Expr* transferDefinitionToNewOutputs(
+    Expr* expr,
+    const std::vector<Val*>& new_outputs);
+
 //! Recursively goes to the definition of the given Val and replace the Vals as
 //! specified by replacement_map while cloning the given Val.
 //!
-//! This is similar to replaceValInExpr but is different as Vals are
+//! This is similar to replaceValInExprInputs but is different as Vals are
 //! cloned such that no other exprs using the same leaf Vals are not
 //! modified. TODO: Consider cleaning up the multiple replacement
 //! routines.
