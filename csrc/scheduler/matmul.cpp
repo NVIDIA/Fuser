@@ -6,9 +6,11 @@
  */
 // clang-format on
 #include <inlining.h>
+#include <instrumentation.h>
+#include <scheduler/debug_utils.h>
 #include <scheduler/matmul.h>
+#include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
-#include <scheduler/registry.h>
 #include <scheduler/utils.h>
 
 // NOTE: included to avoid compilation error caused by missing destructor in
@@ -17,6 +19,52 @@
 #include "mma_type.h"
 
 namespace nvfuser {
+
+MatmulScheduler::MatmulScheduler(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache)
+    : SchedulerEntry(ScheduleHeuristic::Matmul) {
+  computeHeuristics(fusion, runtime_info);
+}
+
+void MatmulScheduler::schedule(Fusion* fusion) {
+  FUSER_PERF_SCOPE("Schedule Matmul Fusion");
+  scheduleMatmul(fusion, matmulParams());
+}
+
+bool MatmulScheduler::canScheduleCompileTime(Fusion* fusion) {
+  const auto msg = getMatmulCompileTimeRejectReason(fusion);
+  if (!msg.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::Matmul, msg);
+    return false;
+  }
+
+  return true;
+}
+
+bool MatmulScheduler::canScheduleRunTime(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("MatmulScheduler::canSchedule");
+  auto reason = getMatmulRunTimeRejectReason(fusion, data_cache, runtime_info);
+  if (!reason.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::Matmul, reason);
+    return false;
+  }
+  return true;
+}
+
+void MatmulScheduler::computeHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache) {
+  params_ = getMatmulHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(params_ != nullptr);
+}
 
 namespace {
 
