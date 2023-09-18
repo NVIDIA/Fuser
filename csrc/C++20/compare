@@ -1,0 +1,40 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
+#pragma once
+
+namespace std {
+
+// See https://en.cppreference.com/w/cpp/utility/compare/partial_ordering
+class partial_ordering {
+  int value;
+  bool is_ordered;
+
+  explicit constexpr partial_ordering(int v, bool o) noexcept
+      : value(v), is_ordered(o) {}
+ public:
+  // valid values
+  static const partial_ordering less;
+  static const partial_ordering equivalent;
+  static const partial_ordering greater;
+  static const partial_ordering unordered;
+
+  // conversion to std::weak_equality should be supported if we also backport
+  // std::weak_equality
+  // constexpr operator weak_equality() const noexcept;
+
+  bool operator==(const partial_ordering& other) const {
+    return is_ordered == other.is_ordered && value == other.value;
+  }
+};
+// valid values’ definitions
+inline constexpr partial_ordering partial_ordering::less(-1, true);
+inline constexpr partial_ordering partial_ordering::equivalent(0, true);
+inline constexpr partial_ordering partial_ordering::greater(1, true);
+inline constexpr partial_ordering partial_ordering::unordered(0, false);
+
+} // namespace std
