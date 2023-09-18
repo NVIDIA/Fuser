@@ -164,6 +164,8 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/register_interface.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
+  ${NVFUSER_SRCS_DIR}/serde/polymorphic_value_serde.cpp
+  ${NVFUSER_SRCS_DIR}/serde/utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic_types.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
@@ -206,8 +208,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_definition.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
     ${NVFUSER_SRCS_DIR}/serde/fusion_record_serde.cpp
-    ${NVFUSER_SRCS_DIR}/serde/polymorphic_value_serde.cpp
-    ${NVFUSER_SRCS_DIR}/serde/utils.cpp)
+  )
 endif()
 
 set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
