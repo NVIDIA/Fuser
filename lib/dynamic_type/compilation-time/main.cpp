@@ -5,9 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#pragma once
-#include <scheduler/matmul.h>
-#include <scheduler/normalization.h>
-#include <scheduler/pointwise.h>
-#include <scheduler/reduction.h>
-#include <scheduler/transpose.h>
+#include "fg.h"
+
+#include <deque>
+#include <list>
+#include <string>
+#include <vector>
+
+int main() {
+  // TYPE is defined by compiler flags
+  gggg<TYPE>(10);
+}

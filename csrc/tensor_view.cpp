@@ -1114,13 +1114,11 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
 
   // It also did additional transformation when a producer tensor has computeAt.
   // Make sure we no longer rely on that behavior.
-  if (definition() != nullptr) {
-    for (TensorView* producer_of_producer :
-         ir_utils::filterByType<TensorView>(definition()->inputs())) {
-      NVF_CHECK(
-          !producer_of_producer->hasComputeAt(),
-          "Potentially invalid computeAt and caching detected. Apply caching before computeAt.");
-    }
+  for (TensorView* producer_of_producer :
+       ir_utils::filterByType<TensorView>(definition()->inputs())) {
+    NVF_CHECK(
+        !producer_of_producer->hasComputeAt(),
+        "Potentially invalid computeAt and caching detected. Apply caching before computeAt.");
   }
 
   // Create Producer Domain
@@ -1160,12 +1158,13 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
   // Before: Prev TV -> [Definition Op] -> This TV
   // After:  Prev TV -> [Definition Op] -> New CB TV -> [Set Op] -> This TV
 
-  // Get inputs for origin expression
-  auto expr_inputs = definition()->inputs();
-  // Expr* producer_definition =
-  ir_utils::replaceValInExpr(definition(), this, producer);
+  std::vector<Val*> replaced_siblings;
+  replaced_siblings.reserve(definition()->outputs().size());
+  for (auto outp : definition()->outputs()) {
+    replaced_siblings.push_back(outp == this ? producer : outp);
+  }
+  ir_utils::transferDefinitionToNewOutputs(definition(), replaced_siblings);
 
-  // Expr* producer_uses =
   IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
 
   // definition_ is no longer valid
@@ -1295,7 +1294,7 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType cache_op) {
 
   // Expr* consumer_uses =
   for (auto expr : fusion()->unordered_uses(this)) {
-    ir_utils::replaceValInExpr(expr, this, consumer);
+    ir_utils::replaceValInExprInputs(expr, this, consumer);
   }
 
   // Expr* consumer_definition =
