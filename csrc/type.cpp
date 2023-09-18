@@ -1148,6 +1148,9 @@ std::ostream& operator<<(std::ostream& os, const CacheOp& cache_op) {
     case CacheOp::Streaming:
       os << "Streaming";
       break;
+    case CacheOp::Global:
+      os << "Global";
+      break;
     default:
       NVF_ERROR(false, "undefined cache operator");
       break;

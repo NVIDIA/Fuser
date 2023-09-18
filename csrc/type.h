@@ -720,6 +720,7 @@ static constexpr std::array<IdMappingMode, 6> kIdMappingModes = {
 enum class CacheOp {
   AllLevels,
   Streaming,
+  Global,
 };
 
 //! Used to annotate the special memory intrinsics that a loadstore op will be
