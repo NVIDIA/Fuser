@@ -371,7 +371,9 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //!
   //! @param op_type: memory operator to use for the inserted op between
   //!   the the data tensor and the cache tensor
-  TensorView* cacheAfter(LoadStoreOpType op_type = LoadStoreOpType::Set);
+  TensorView* cacheAfter(
+      LoadStoreOpType op_type = LoadStoreOpType::Set,
+      CacheOp cache_op = CacheOp::Unspecified);
 
   // For a fusion output with other uses, we want to avoid writing to global
   // memory and then reading the output again. We write to global memory
