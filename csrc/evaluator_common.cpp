@@ -670,6 +670,17 @@ void NaiveValueMachine::runTernaryOp(int index) {
   auto& dest = precomputed_values_.values_[dest_index];
 
   switch (top_type_[index]) {
+    case TernaryOpType::Clamp:
+      dest = std::min(std::max(a, b), c);
+      break;
+    case TernaryOpType::Lerp:
+      // This is the same lerp computed in helpers.cu
+      // https://math.stackexchange.com/a/1798323
+      dest = (c < 0.5) ? a + c * (b - a) : b - (b - a) * (1.0 - c);
+      break;
+    case TernaryOpType::Threshold:
+      dest = a <= b ? c : a;
+      break;
     case TernaryOpType::Where:
       dest = a ? b : c;
       break;
