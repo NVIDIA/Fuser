@@ -461,4 +461,41 @@ TEST_F(ExprEvalTest, ReverseArray) {
   EXPECT_EQ((std::vector<int64_t>)evaluator.evaluate(output), expect);
 }
 
+//! Test evaluating ternary ops
+TEST_F(ExprEvalTest, TernaryOps) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  ExpressionEvaluator evaluator;
+
+  auto* a = IrBuilder::create<Val>(7.0);
+  auto* b = IrBuilder::create<Val>(3.8);
+  auto* c = IrBuilder::create<Val>(0.8);
+  auto* d = IrBuilder::create<Val>(0.2);
+  auto* t = IrBuilder::create<Val>(true);
+  auto* f = IrBuilder::create<Val>(false);
+
+  EXPECT_EQ(evaluator.evaluate(clamp(b, c, a)), b->value());
+  EXPECT_EQ(evaluator.evaluate(clamp(a, c, b)), b->value());
+  EXPECT_EQ(evaluator.evaluate(clamp(d, c, b)), c->value());
+
+  EXPECT_EQ(
+      evaluator.evaluate(lerp(a, b, d)),
+      a->value() + d->value() * (b->value() - a->value()));
+
+  EXPECT_EQ(
+      evaluator.evaluate(lerp(a, b, c)),
+      a->value() + c->value() * (b->value() - a->value()));
+  EXPECT_EQ(
+      evaluator.evaluate(lerp(a, b, d)),
+      a->value() + d->value() * (b->value() - a->value()));
+
+  EXPECT_EQ(evaluator.evaluate(threshold(a, c, b)), a->value());
+  EXPECT_EQ(evaluator.evaluate(threshold(d, c, b)), b->value());
+  EXPECT_EQ(evaluator.evaluate(threshold(d, d, b)), b->value());
+
+  EXPECT_EQ(evaluator.evaluate(where(t, a, b)), a->value());
+  EXPECT_EQ(evaluator.evaluate(where(f, a, b)), b->value());
+}
+
 } // namespace nvfuser
