@@ -9,7 +9,6 @@
 
 #include <ATen/core/ivalue.h>
 #include <exceptions.h>
-
 #include <fusion.h>
 #include <scheduler/reduction_heuristic.h>
 
@@ -31,4 +30,28 @@ TORCH_CUDA_CU_API std::shared_ptr<ReductionParams> getReductionHeuristics(
 TORCH_CUDA_CU_API void scheduleReduction(
     Fusion* fusion,
     const ReductionParams& rparams);
+
+class ReductionScheduler : public SchedulerEntry {
+ public:
+  explicit ReductionScheduler(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr);
+
+  void schedule(Fusion* fusion) override;
+
+  static bool canScheduleCompileTime(Fusion* fusion);
+
+  static bool canScheduleRunTime(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr);
+
+ private:
+  void computeHeuristics(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr);
+};
+
 } // namespace nvfuser

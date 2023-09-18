@@ -164,11 +164,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/register_interface.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
-<<<<<<< HEAD
-  ${NVFUSER_SRCS_DIR}/scheduler/all_schedulers.cpp
-=======
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic_types.cpp
->>>>>>> main
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
@@ -177,14 +173,9 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/normalization.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/reduction_scheduler.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/registry.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/registry_utils.cpp
-<<<<<<< HEAD
-  ${NVFUSER_SRCS_DIR}/scheduler/persistent_kernel_scheduler.cpp
-=======
->>>>>>> main
   ${NVFUSER_SRCS_DIR}/scheduler/utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/vectorize_helper.cpp
   ${NVFUSER_SRCS_DIR}/swizzle.cpp
