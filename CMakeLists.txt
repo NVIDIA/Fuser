@@ -172,6 +172,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_utils.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/no_op.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/registry.cpp
