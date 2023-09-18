@@ -1643,6 +1643,9 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
 
   void setOpType(LoadStoreOpType op) {
     attribute<LoadStoreOpType>(0) = op;
+    if (op != LoadStoreOpType::Set && op != LoadStoreOpType::CpAsync) {
+      attribute<CacheOp>(1) = CacheOp::Unspecified;
+    }
   }
 };
 
