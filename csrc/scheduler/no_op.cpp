@@ -6,8 +6,8 @@
  */
 // clang-format on
 
-#include <scheduler/no_op.h>
 #include <scheduler/debug_utils.h>
+#include <scheduler/no_op.h>
 #include <scheduler/registry_utils.h>
 
 namespace nvfuser {
@@ -15,7 +15,7 @@ namespace nvfuser {
 NoOpScheduler::NoOpScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache )
+    HeuristicSummary* data_cache)
     : SchedulerEntry(ScheduleHeuristic::NoOp) {
   params_ = std::make_shared<NoOpHeuristic>("", runtime_info.getIndexType());
 }
