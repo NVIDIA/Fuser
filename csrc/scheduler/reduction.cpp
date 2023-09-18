@@ -13,9 +13,10 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <options.h>
+#include <scheduler/debug_utils.h>
 #include <scheduler/reduction.h>
 #include <scheduler/reduction_utils.h>
-#include <scheduler/registry.h>
+#include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 #include <transform_replay.h>

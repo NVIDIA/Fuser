@@ -11,6 +11,7 @@
 #include <exceptions.h>
 #include <fusion.h>
 #include <scheduler/reduction_heuristic.h>
+#include <scheduler/registry.h>
 
 namespace nvfuser {
 
