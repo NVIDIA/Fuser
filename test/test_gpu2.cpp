@@ -6603,7 +6603,7 @@ TEST_F(NVFuserTest, FusionSerialWarpReduction_CUDA) {
     // There should be warp reduction no matter pad_to_warps is true or false
     const std::string kernel_string =
         codegen::generateCudaKernel(GpuLower(fusion.get()).kernel());
-    TORCH_CHECK(
+    NVF_CHECK(
         kernel_string.find("warp::warpReduceTIDX") != std::string::npos,
         "warpReduceTIDX not found in:\n",
         kernel_string);
