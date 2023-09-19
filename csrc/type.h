@@ -289,6 +289,11 @@ TORCH_CUDA_CU_API inline bool isComplexType(DataType dtype) {
   return dtype == DataType::ComplexFloat || dtype == DataType::ComplexDouble;
 }
 
+// Returns if the datatype is a complex type
+TORCH_CUDA_CU_API inline bool isStructType(DataType dtype) {
+  return std::holds_alternative<StructType>(dtype.type);
+}
+
 // Return the corresponding scalar of a complex type
 DataType getTypeFromComplexType(DataType dtype);
 // Return the corresponding complex type of a scalar

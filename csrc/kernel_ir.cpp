@@ -93,7 +93,7 @@ TensorIndex::TensorIndex(
       "IR type only valid for Kernel container.");
   NVF_ERROR(
       isPointerType(index->dtype()) || index->dtype() == DataType::Index ||
-          std::holds_alternative<StructType>(index->dtype().type),
+          isStructType(index->dtype()),
       "Cannot index with a value other than an int.");
 }
 
