@@ -231,7 +231,7 @@ Val* IrBuilder::getItemExpr(Val* array, PolymorphicValue index) {
   auto item_dtype = std::get<ArrayType>(array->dtype().type).type;
   auto out = create<Val>(*item_dtype);
   create<GetItem>(
-      array->container(), out, array, newConstant(index, DataType::Int));
+      array->container(), out, array, create<Val>(index, DataType::Int));
   return out;
 }
 

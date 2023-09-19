@@ -9584,7 +9584,7 @@ TEST_F(NVFuserTest, OpaqueTupleAsComplex) {
   auto complex = bitCastOp(DataType::ComplexFloat, tuple);
 
   auto tv = full(
-      {IrBuilder::newConstant(1L, DataType::Index)},
+      {IrBuilder::create<Val>(1L, DataType::Index)},
       complex,
       DataType::ComplexFloat);
 
@@ -9614,7 +9614,7 @@ TEST_F(NVFuserTest, StructConstruct) {
   auto complex = bitCastOp(DataType::ComplexFloat, struct_);
 
   auto tv = full(
-      {IrBuilder::newConstant(1L, DataType::Index)},
+      {IrBuilder::create<Val>(1L, DataType::Index)},
       complex,
       DataType::ComplexFloat);
 

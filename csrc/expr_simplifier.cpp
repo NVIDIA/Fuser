@@ -274,15 +274,15 @@ Val* foldConstants(Val* value) {
   }
   if (value->isConstScalar()) {
     if (value->isIntegralScalar()) {
-      return IrBuilder::newConstant(
+      return IrBuilder::create<Val>(
           value->evaluateInt(), *value->getDataType());
     }
     if (value->isFloatingPointScalar()) {
-      return IrBuilder::newConstant(
+      return IrBuilder::create<Val>(
           value->evaluateDouble(), *value->getDataType());
     }
     if (value->isABool()) {
-      return IrBuilder::newConstant(
+      return IrBuilder::create<Val>(
           value->evaluateBool(), *value->getDataType());
     }
     // TODO: support complex double
@@ -1023,7 +1023,7 @@ inline Val* getConstOrNullptr(T value, DataType dtype) {
   if (dtype == DataType::Null) {
     return nullptr;
   }
-  return IrBuilder::newConstant(value, dtype);
+  return IrBuilder::create<Val>(value, dtype);
 }
 
 FOp* toFlattenedAdd(Expr* expr) {
@@ -1126,7 +1126,7 @@ Val* productOfFactors(
     DataType default_dtype) {
   if (const_factor == nullptr) {
     if (symbolic_factors.empty()) {
-      return IrBuilder::newConstant(1L, default_dtype);
+      return IrBuilder::create<Val>(1L, default_dtype);
     }
     return assoc_comm::maybeFlattenedOpOf(
         BinaryOpType::Mul, std::move(symbolic_factors));
@@ -1403,12 +1403,12 @@ bool greaterEqual(Val* x, Val* y, const Context& context) {
 }
 
 bool isPositive(Val* value, const Context& context) {
-  auto zero = IrBuilder::newConstant(0L, *value->getDataType());
+  auto zero = IrBuilder::create<Val>(0L, *value->getDataType());
   return greaterThan(value, zero, context);
 }
 
 bool isNonNegative(Val* value, const Context& context) {
-  auto zero = IrBuilder::newConstant(0L, *value->getDataType());
+  auto zero = IrBuilder::create<Val>(0L, *value->getDataType());
   return greaterEqual(value, zero, context);
 }
 
@@ -1614,11 +1614,11 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
       remaining_inputs.emplace_back(inp);
     }
     if (found) {
-      auto zero = IrBuilder::newConstant(0L, *x->getDataType());
+      auto zero = IrBuilder::create<Val>(0L, *x->getDataType());
       if (lessEqual(zero, x, context)) {
         auto remaining =
             maybeFlattenedOpOf(BinaryOpType::Mul, std::move(remaining_inputs));
-        auto one = IrBuilder::newConstant(1L, *remaining->getDataType());
+        auto one = IrBuilder::create<Val>(1L, *remaining->getDataType());
         if (lessEqual(one, remaining, context)) {
           return true;
         }
@@ -1638,11 +1638,11 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
       remaining_inputs.emplace_back(inp);
     }
     if (found) {
-      auto zero = IrBuilder::newConstant(0L, *y->getDataType());
+      auto zero = IrBuilder::create<Val>(0L, *y->getDataType());
       if (lessEqual(y, zero, context)) {
         auto remaining =
             maybeFlattenedOpOf(BinaryOpType::Mul, std::move(remaining_inputs));
-        auto one = IrBuilder::newConstant(1L, *remaining->getDataType());
+        auto one = IrBuilder::create<Val>(1L, *remaining->getDataType());
         if (lessEqual(one, remaining, context)) {
           return true;
         }
@@ -1879,7 +1879,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
     if (bop->getBinaryOpType() == BinaryOpType::Mod) {
       // a % 1 -> 0
       if (rhs->isOneInt()) {
-        return IrBuilder::newConstant(0L, *value->getDataType());
+        return IrBuilder::create<Val>(0L, *value->getDataType());
       }
     } else if (
         bop->getBinaryOpType() == BinaryOpType::Div ||
@@ -2033,7 +2033,7 @@ Val* simplifyDivisibleDivMod(Val* value, const Context& context) {
   }
   if (bop->getBinaryOpType() == BinaryOpType::Mod) {
     if (prove::isMultipleOf(bop->lhs(), bop->rhs())) {
-      return IrBuilder::newConstant(0L, *value->getDataType());
+      return IrBuilder::create<Val>(0L, *value->getDataType());
     }
   } else if (bop->getBinaryOpType() == BinaryOpType::Div) {
     auto lhs = sym_algebra::factorize(bop->lhs());
@@ -2456,12 +2456,12 @@ Val* reducePredicateRegisterUsage(Val* value, const Context& context) {
   Val* lhs = nullptr;
   Val* rhs = nullptr;
   if (new_lhs.empty()) {
-    lhs = IrBuilder::newConstant(0L, ltype);
+    lhs = IrBuilder::create<Val>(0L, ltype);
   } else {
     lhs = maybeFlattenedOpOf(BinaryOpType::Add, std::move(new_lhs));
   }
   if (new_rhs.empty()) {
-    rhs = IrBuilder::newConstant(0L, rtype);
+    rhs = IrBuilder::create<Val>(0L, rtype);
   } else {
     rhs = maybeFlattenedOpOf(BinaryOpType::Add, std::move(new_rhs));
   }
@@ -2554,7 +2554,7 @@ Val* fundamentalDivisionWithRemainderProperty(
           i,
           bop->lhs(),
           bop->rhs(),
-          IrBuilder::newConstant(1L, *vadd->getDataType()));
+          IrBuilder::create<Val>(1L, *vadd->getDataType()));
     }
     for (auto& [a, b, c] : get_a_op_b_mul_c(BinaryOpType::Mod, vadd)) {
       modmuls.emplace_back(i, a, b, c);

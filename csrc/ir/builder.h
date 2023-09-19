@@ -143,10 +143,6 @@ class TORCH_CUDA_CU_API IrBuilder {
     return out;
   }
 
-  static Val* newConstant(PolymorphicValue value, DataType dtype) {
-    return IrBuilder::create<Val>(value, dtype);
-  }
-
  private:
   static Val* newArithmeticExpr(BinaryOpType op_type, Val* lhs, Val* rhs);
   static Val* newLogicExpr(BinaryOpType op_type, Val* lhs, Val* rhs);

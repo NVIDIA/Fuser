@@ -321,10 +321,10 @@ Val* ones_like(Val* v) {
 
 TensorView* iota(Val* length, Val* start, Val* step, DataType dtype) {
   if (start == nullptr) {
-    start = IrBuilder::newConstant(0L, dtype);
+    start = IrBuilder::create<Val>(0L, dtype);
   }
   if (step == nullptr) {
-    step = IrBuilder::newConstant(1L, dtype);
+    step = IrBuilder::create<Val>(1L, dtype);
   }
   NVF_CHECK(
       isIntegralType(*length->getDataType()),

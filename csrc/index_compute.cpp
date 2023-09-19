@@ -2340,7 +2340,7 @@ Val* Index::getProducerStridedIndices(
     if (generate_pointer) {
       auto index_bytes = IrBuilder::mulExpr(
           index,
-          IrBuilder::newConstant(
+          IrBuilder::create<Val>(
               dataTypeSize(*producer->getDataType()), *index->getDataType()));
       return IrBuilder::addExpr(getTensorBaseAddress(producer), index_bytes);
     } else {
@@ -2398,7 +2398,7 @@ Val* Index::getConsumerStridedIndices(
     if (generate_pointer) {
       auto index_bytes = IrBuilder::mulExpr(
           index,
-          IrBuilder::newConstant(
+          IrBuilder::create<Val>(
               dataTypeSize(*consumer->getDataType()), *index->getDataType()));
       return IrBuilder::addExpr(getTensorBaseAddress(consumer), index_bytes);
     } else {
@@ -2918,7 +2918,7 @@ bool canOmitStopPredicate(
     // Stop predicate: stop_index + stop_offset < extent
     auto lhs = stop_index_val + stop_offset_val;
     auto in_extent = IrBuilder::ltExpr(
-        IrBuilder::newConstant(lhs, *stop_index->getDataType()),
+        IrBuilder::create<Val>(lhs, *stop_index->getDataType()),
         contig_id->getMaybeExpandedExtent());
     if (simplifyExpr(in_extent)->getBool() == true) {
       return true;

@@ -63,7 +63,7 @@ getRNGSeedAndOffsetFromHost() {
   // shift the host offset by
   //   4 * num_rng_ops
   offset =
-      IrBuilder::divExpr(offset, IrBuilder::newConstant(4L, DataType::Int));
+      IrBuilder::divExpr(offset, IrBuilder::create<Val>(4L, DataType::Int));
   return std::make_tuple(seed, offset, expr);
 }
 
