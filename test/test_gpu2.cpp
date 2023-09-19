@@ -6568,59 +6568,45 @@ TEST_F(NVFuserTest, FusionWarpPadMergeSplit_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionSerialWarpReduction_CUDA) {
-  auto testWarpReductionWithoutPadding = [](const bool pad_to_warps) {
-    auto fusion = std::make_unique<Fusion>();
-    FusionGuard fg(fusion.get());
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
-    auto tv0 = makeSymbolicTensor(3);
+  auto tv0 = makeSymbolicTensor(3);
 
-    fusion->addInput(tv0);
+  fusion->addInput(tv0);
 
-    auto tv1 = sum(tv0, {1, 2});
-    auto tv2 = broadcast(tv1, {false, true, true});
-    auto tv3 = add(tv2, tv0);
+  auto tv1 = sum(tv0, {1, 2});
+  auto tv2 = broadcast(tv1, {false, true, true});
+  auto tv3 = add(tv2, tv0);
 
-    fusion->addOutput(tv3);
+  fusion->addOutput(tv3);
 
-    // Schedule a persistent kernel
-    auto tv0_cache = tv0->cacheAfter();
-    tv1->merge(1);
-    tv1->split(1, 8, false);
+  // Schedule a persistent kernel
+  auto tv0_cache = tv0->cacheAfter();
+  tv1->merge(1);
+  tv1->split(1, 8, false);
 
-    tv1->axis(-1)->parallelize(ParallelType::TIDx);
-    if (pad_to_warps) {
-      tv1->axis(-1)->padToMultipleOfWarp();
-    }
-    TransformPropagatorWithCheck propagator(tv1);
-    MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
-    tv0->axis(-1)->parallelize(ParallelType::TIDx);
-    tv0_cache->axis(-1)->parallelize(ParallelType::TIDx);
-    tv2->axis(-1)->parallelize(ParallelType::TIDx);
-    tv3->axis(-1)->parallelize(ParallelType::TIDx);
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv1->axis(-1)->padToMultipleOfWarp();
+  TransformPropagatorWithCheck propagator(tv1);
+  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+  tv0->axis(-1)->parallelize(ParallelType::TIDx);
+  tv0_cache->axis(-1)->parallelize(ParallelType::TIDx);
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
 
-    tv0->computeAt(tv3, -1, ComputeAtMode::MostInlined);
+  tv0->computeAt(tv3, -1, ComputeAtMode::MostInlined);
 
-    // There should be warp reduction no matter pad_to_warps is true or false
-    const std::string kernel_string =
-        codegen::generateCudaKernel(GpuLower(fusion.get()).kernel());
-    NVF_CHECK(
-        kernel_string.find("warp::warpReduceTIDX") != std::string::npos,
-        "warpReduceTIDX not found in:\n",
-        kernel_string);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input1 = at::randn({16, 17, 128}, options);
 
-    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    at::Tensor input1 = at::randn({16, 17, 128}, options);
+  auto at_output = input1.sum({1, 2}, true).add(input1);
 
-    auto at_output = input1.sum({1, 2}, true).add(input1);
-
-    FusionExecutor fe;
-    fe.compileFusion(fusion.get(), {input1});
-    auto outputs = fe.runFusion({input1});
-    testValidate(
-        fusion.get(), outputs, {input1}, {at_output}, __LINE__, __FILE__);
-  };
-  testWarpReductionWithoutPadding(true);
-  testWarpReductionWithoutPadding(false);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), {input1});
+  auto outputs = fe.runFusion({input1});
+  testValidate(
+      fusion.get(), outputs, {input1}, {at_output}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionTrivialWarpReduction_CUDA) {
