@@ -88,7 +88,7 @@ Copies the root's src buffer to each device's dst buffer
 
 Requirements:
   - the root is set and belongs to the team
-  - the root has one src buffer, and no dst buffer
+  - the root has one src buffer, and no or one dst buffer
   - non-roots have no src buffer and one dst buffer
   - all buffers have the same size
 */
@@ -151,12 +151,15 @@ Copies the sender's src buffers to the receiver's dst buffer
 It is equivalent to a Broadcast with a team of size == 2
 
 Requirements:
-  - the team must be of size 2
+  - the team must be of size 2 or 1 (in which case the SendRecv reduces to a
+local copy)
+  - all buffers have the same size
   - the root is set and belongs to the team. The "root" corresponds to the
 sender
-  - the root has one src buffers and no dst buffer
-  - the unique non-root have no src buffer and one dst buffer
-  - all buffers have the same size
+  - If the team size the root has one src buffers and no dst buffer (or one in
+case of a local copy)
+  - If team is of size 2, the unique non-root have no src buffer and one dst
+buffer
 */
 class TORCH_CUDA_CU_API SendRecv : public Communication {
  public:

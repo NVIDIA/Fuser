@@ -49,6 +49,10 @@ inline void post_common(Communication& self, Communicator& comm) {
       " must be present in the communication's team");
 }
 
+inline void doLocalCopy(const at::Tensor& dst, const at::Tensor& src) {
+  dst.copy_(src, /* non-blocking */ true);
+}
+
 } // namespace
 
 Communication::Communication(CommParams params, std::string name, bool has_root)
@@ -60,7 +64,7 @@ Communication::Communication(CommParams params, std::string name, bool has_root)
       std::unique(params_.team.begin(), params_.team.end()) ==
           params_.team.end(),
       "the communication must not involve the same device more than once");
-  NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
+  NVF_ERROR(!params_.team.empty(), "the team size must be greater than 0");
   if (has_root_) {
     auto it = std::find(params_.team.begin(), params_.team.end(), params_.root);
     NVF_ERROR(
@@ -108,10 +112,18 @@ c10::intrusive_ptr<c10d::Work> Broadcast::post(Communicator& comm) {
 
   if (comm.deviceId() == params_.root) {
     assertBufferCount(params_.src_bufs, 1);
-    assertBufferCount(params_.dst_bufs, 0);
+    if (params_.dst_bufs.size() == 1) {
+      doLocalCopy(params_.dst_bufs.at(0), params_.src_bufs.at(0));
+    } else {
+      assertBufferCount(params_.dst_bufs, 0);
+    }
   } else {
     assertBufferCount(params_.src_bufs, 0);
     assertBufferCount(params_.dst_bufs, 1);
+  }
+
+  if (params_.team.size() == 1) {
+    return nullptr;
   }
 
   return comm.getBackendForTeam(params_.team)
@@ -122,6 +134,7 @@ c10::intrusive_ptr<c10d::Work> Broadcast::post(Communicator& comm) {
 
 Gather::Gather(CommParams params) : Communication(params, "gather") {
   assertBufferCount(params_.src_bufs, 1);
+  NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
 }
 
 c10::intrusive_ptr<c10d::Work> Gather::post(Communicator& comm) {
@@ -149,6 +162,7 @@ Allgather::Allgather(CommParams params)
     : Communication(params, "allgather", false) {
   assertBufferCount(params_.src_bufs, 1);
   assertBufferCount(params_.dst_bufs, params_.team.size());
+  NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
 }
 
 c10::intrusive_ptr<c10d::Work> Allgather::post(Communicator& comm) {
@@ -165,6 +179,7 @@ c10::intrusive_ptr<c10d::Work> Allgather::post(Communicator& comm) {
 
 Scatter::Scatter(CommParams params) : Communication(params, "scatter") {
   assertBufferCount(params_.dst_bufs, 1);
+  NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
 }
 
 c10::intrusive_ptr<c10d::Work> Scatter::post(Communicator& comm) {
@@ -189,7 +204,9 @@ c10::intrusive_ptr<c10d::Work> Scatter::post(Communicator& comm) {
 }
 
 SendRecv::SendRecv(CommParams params) : Communication(params, "send/recv") {
-  NVF_ERROR(params_.team.size() == 2, "the team size should be 2");
+  NVF_ERROR(
+      params_.team.size() == 1 || params_.team.size() == 2,
+      "the team size should be 1 or 2");
 }
 
 c10::intrusive_ptr<c10d::Work> SendRecv::post(Communicator& comm) {
@@ -197,7 +214,13 @@ c10::intrusive_ptr<c10d::Work> SendRecv::post(Communicator& comm) {
 
   if (comm.deviceId() == params_.root) {
     assertBufferCount(params_.src_bufs, 1);
-    assertBufferCount(params_.dst_bufs, 0);
+    if (params_.team.size() == 1) {
+      assertBufferCount(params_.dst_bufs, 1);
+      doLocalCopy(params_.dst_bufs.at(0), params_.src_bufs.at(0));
+      return nullptr;
+    } else {
+      assertBufferCount(params_.dst_bufs, 0);
+    }
   } else {
     assertBufferCount(params_.src_bufs, 0);
     assertBufferCount(params_.dst_bufs, 1);

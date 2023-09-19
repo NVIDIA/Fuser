@@ -53,7 +53,7 @@ TEST_F(MultiDeviceTest, Communication_Gather) {
       for (int i : c10::irange(comm.size())) {
         auto obtained = params.dst_bufs.at(i);
         auto ref = at::arange(tensor_size, options) + (i + 1) * j;
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             at::equal(obtained, ref),
             "Device ",
             comm.deviceId(),
@@ -96,7 +96,7 @@ TEST_F(MultiDeviceTest, Communication_Allgather) {
     for (int i : c10::irange(comm.size())) {
       auto obtained = params.dst_bufs.at(i);
       auto ref = at::arange(tensor_size, options) + (i + 1) * j;
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           obtained.equal(ref),
           "Device",
           comm.deviceId(),
@@ -140,7 +140,7 @@ TEST_F(MultiDeviceTest, Communication_Scatter) {
 
     auto obtained = params.dst_bufs.at(0);
     auto ref = at::arange(tensor_size, options) + (comm.deviceId() + 1) * j;
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         obtained.equal(ref),
         "Device",
         comm.deviceId(),
@@ -153,8 +153,8 @@ TEST_F(MultiDeviceTest, Communication_Scatter) {
 }
 
 TEST_F(MultiDeviceTest, Communication_Broadcast) {
-  if (!comm.is_available() || comm.size() < 2) {
-    GTEST_SKIP() << "This test needs at least 2 ranks";
+  if (!comm.is_available()) {
+    GTEST_SKIP() << "This test needs distributed setting";
   }
   c10::TensorOptions options =
       at::TensorOptions().dtype(at::kFloat).device(comm.device());
@@ -165,33 +165,32 @@ TEST_F(MultiDeviceTest, Communication_Broadcast) {
   std::iota(params.team.begin(), params.team.end(), 0);
   if (comm.deviceId() == root) {
     params.src_bufs = {at::empty(tensor_size, options)};
-  } else {
-    params.dst_bufs = {at::empty(tensor_size, options)};
   }
+  params.dst_bufs = {at::empty(tensor_size, options)};
+
   auto communication = Broadcast(params);
 
   for (int j : c10::irange(number_of_repetitions)) {
     if (comm.deviceId() == root) {
       params.src_bufs.at(0).copy_(at::arange(tensor_size, options) + j);
-    } else {
-      params.dst_bufs.at(0).copy_(at::zeros(tensor_size, options));
     }
+    params.dst_bufs.at(0).copy_(at::zeros(tensor_size, options));
 
     auto work = communication.post(comm);
-    work->wait();
-
-    if (comm.deviceId() != root) {
-      auto obtained = params.dst_bufs.at(0);
-      auto ref = at::arange(tensor_size, options) + j;
-      TORCH_INTERNAL_ASSERT(
-          obtained.equal(ref),
-          "Device",
-          comm.deviceId(),
-          " expected tensor:\n",
-          ref,
-          "\nbut obtained tensor:\n",
-          obtained);
+    if (comm.size() > 1) {
+      work->wait();
     }
+
+    auto obtained = params.dst_bufs.at(0);
+    auto ref = at::arange(tensor_size, options) + j;
+    NVF_ERROR(
+        obtained.equal(ref),
+        "Device",
+        comm.deviceId(),
+        " expected tensor:\n",
+        ref,
+        "\nbut obtained tensor:\n",
+        obtained);
   }
   comm.barrier();
 }
@@ -232,7 +231,7 @@ TEST_F(MultiDeviceTest, Communication_SendRecv) {
     if (comm.deviceId() == receiver) {
       auto obtained = params.dst_bufs.at(0);
       auto ref = at::arange(tensor_size, options) + j;
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           obtained.equal(ref),
           "Device",
           comm.deviceId(),
@@ -241,6 +240,45 @@ TEST_F(MultiDeviceTest, Communication_SendRecv) {
           "\nbut obtained tensor:\n",
           obtained);
     }
+  }
+  comm.barrier();
+}
+
+TEST_F(MultiDeviceTest, Communication_SendRecvToSelf) {
+  DeviceIdxType sender = 0;
+  if (!comm.is_available()) {
+    GTEST_SKIP() << "This test needs distributed setting";
+  }
+  if (comm.deviceId() > 0) { // only device 0 participates
+    comm.barrier();
+    return;
+  }
+  c10::TensorOptions options =
+      at::TensorOptions().dtype(at::kFloat).device(comm.device());
+
+  CommParams params;
+  params.root = sender;
+  params.team = {0};
+  params.src_bufs.push_back(at::empty(tensor_size, options));
+  params.dst_bufs.push_back(at::empty(tensor_size, options));
+  auto communication = SendRecv(params);
+
+  for (int j : c10::irange(number_of_repetitions)) {
+    params.src_bufs.at(0).copy_(at::arange(tensor_size, options) + j);
+    params.dst_bufs.at(0).copy_(at::zeros(tensor_size, options));
+
+    communication.post(comm);
+
+    auto obtained = params.dst_bufs.at(0);
+    auto ref = at::arange(tensor_size, options) + j;
+    NVF_ERROR(
+        obtained.equal(ref),
+        "Device",
+        comm.deviceId(),
+        " expected tensor:\n",
+        ref,
+        "\nbut obtained tensor:\n",
+        obtained);
   }
   comm.barrier();
 }
