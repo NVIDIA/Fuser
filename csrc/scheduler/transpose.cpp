@@ -196,13 +196,13 @@ class DomainMap : public pointwise_utils::DomainMap {
     return result;
   }
 
-  IterDomain* getMappedRootDimIn(TensorView* tv, IterDomain* root_dim) const {
-    // Find the root id mapped to `root_dim`
-    const auto& root_dom = tv->getRootDomain();
+  IterDomain* getMappedAllocDimIn(TensorView* tv, IterDomain* root_dim) const {
+    // Find the id mapped to `Allocation Domain`
+    const auto& alloc_dom = tv->getMaybeAllocationDomain();
     IterDomain* mapped_id = nullptr;
-    for (auto i : c10::irange(root_dom.size())) {
-      if (ca_map_.areMapped(root_dom[i], root_dim, IdMappingMode::INNERMOST)) {
-        mapped_id = root_dom[i];
+    for (auto i : c10::irange(alloc_dom.size())) {
+      if (ca_map_.areMapped(alloc_dom[i], root_dim, IdMappingMode::INNERMOST)) {
+        mapped_id = alloc_dom[i];
         break;
       }
     }
@@ -224,7 +224,7 @@ class DomainMap : public pointwise_utils::DomainMap {
     // reference 1 is the global reference, so it must have dim mapped the
     // innermost dim of both groups
     auto innermost2 = scheduler_utils::innerMostRootDim(ref2);
-    return domain_map.getMappedRootDimIn(ref1, innermost2) != nullptr;
+    return domain_map.getMappedAllocDimIn(ref1, innermost2) != nullptr;
   }
 
   // scheduler assumes inner leaf dimension on tv is an exact mapping, when the
@@ -235,7 +235,7 @@ class DomainMap : public pointwise_utils::DomainMap {
     // transformed. So the mapping here would require a new compute at map to be
     // constructed from the updated fusion. We'll revisit this once our id graph
     // refactor is done.
-    auto mapped_id = getMappedRootDimIn(tv, root_dim);
+    auto mapped_id = getMappedAllocDimIn(tv, root_dim);
     NVF_ERROR(
         mapped_id != nullptr,
         "Can not find ID mapped to ",

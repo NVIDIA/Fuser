@@ -1202,7 +1202,7 @@ IterDomain* projectIdToRFactor(
 } // namespace
 
 IterDomain* innerMostRootDim(TensorView* tv) {
-  const auto& root_domain = tv->getMaybeRFactorDomain();
+  const auto& root_domain = tv->getMaybeAllocationDomain();
 
   if (tv->nDims() == 0) {
     return nullptr;
