@@ -721,7 +721,35 @@ ExpressionEvaluator bindInputs(
   ExpressionEvaluator expr_eval;
   const auto& inputs = kernel->inputs();
   for (const auto i : c10::irange(inputs.size())) {
-    expr_eval.bind(inputs[i], *args[i], true);
+    if (auto tv = dynamic_cast<TensorView*>(inputs[i])) {
+      const auto& input = args[i]->as<at::Tensor>();
+
+      // bind all extents
+      const auto& root_dom =
+          TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+      NVF_ERROR(root_dom.size() == input.sizes().size());
+      for (const auto j : c10::irange(input.sizes().size())) {
+        expr_eval.bind(
+            root_dom.at(j)->getMaybeExpandedExtent(),
+            input.sizes().at(j),
+            true);
+      }
+
+      // bind TensorMetaData so that GetMetaData expressions can be evaluated
+      std::shared_ptr<Struct> struct_ = std::make_shared<TensorMetaData>();
+      TensorMetaData* metadata = (TensorMetaData*)struct_.get();
+      metadata->dtype =
+          std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type);
+      metadata->data = input.data_ptr();
+      metadata->logical_size = input.sizes();
+      metadata->logical_stride = input.strides();
+      metadata->alloc_size = input.sizes();
+      metadata->alloc_stride = input.strides();
+      PolymorphicValue pv(std::move(struct_));
+      expr_eval.bind(IrBuilder::metadataExpr(tv), pv, true);
+    } else {
+      expr_eval.bind(inputs[i], *args[i], true);
+    }
   }
 
   return expr_eval;
