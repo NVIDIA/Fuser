@@ -7,15 +7,11 @@
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
 #include <executor_utils.h>
-#include <instrumentation.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul_utils.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/pointwise.h>
 #include <scheduler/registry.h>
 #include <scheduler/registry_utils.h>
-#include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <tensor_metadata.h>
 
@@ -142,48 +138,6 @@ bool SchedulerEntry::sameAs(const SchedulerEntry* other) {
 }
 
 namespace {
-
-//! Scheduler interface:
-//!    Each of the scheduler needs to provide 3 interface functions:
-//!
-//!      1. canScheduleCompileTime(Fusion* fusion) :
-//!
-//!        This function contains compiled-time checks on the graph itself
-//!        without runtime input information. Only `fusion` is given in the
-//!        argument to make sure only compile-time available info is needed in
-//!        the check.
-//!
-//!        This function is to be called exactly once on each segmented group
-//!        created in a segmented fusion so this part will not contribute to
-//!        dynamic shape latency.
-//!
-//!     2. canScheduleRunTime(
-//!            Fusion* fusion,
-//!            SchedulerRuntimeInfo& runtime_info,
-//!           HeuristicSummary* data_cache = nullptr):
-//!        This function contains all canSchedule checks that will have to
-//!        involve runtime input information, and will be run both by the
-//!        segmenter and the kernel cache. The latency of this function will
-//!        contribute to dynamic shape latency so `data_cache` should be used as
-//!        much as possible to save re-computation.
-//!
-//!     3. schedule(fusion):
-//!
-//!        This function will be called when compiling a kernel. It should apply
-//!        scheduling to the given fusion
-
-// Schedule Table
-const std::vector<ScheduleHeuristic>& all_heuristics() {
-  static const std::vector<ScheduleHeuristic> hlist = {
-      ScheduleHeuristic::NoOp,
-      ScheduleHeuristic::Reduction,
-      ScheduleHeuristic::Transpose,
-      ScheduleHeuristic::PointWise,
-      ScheduleHeuristic::Persistent,
-      ScheduleHeuristic::Matmul};
-  return hlist;
-}
-
 //! A Utility for checking both dynamic and static part of
 //!  can schedule
 template <typename SchedulerType>
@@ -286,7 +240,7 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
 std::optional<ScheduleHeuristic> SchedulerEntry::proposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info) {
-  for (auto sh : all_heuristics()) {
+  for (const auto& sh : all_schedule_heuristics) {
     if (canSchedule(sh, fusion, runtime_info)) {
       scheduler_debug_utils::canScheduleMessage("***Accepted*** as: ", sh);
       return sh;
