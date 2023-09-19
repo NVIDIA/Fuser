@@ -355,12 +355,6 @@ NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)
         makeBinaryOp(bop);
       } else if (auto top = dynamic_cast<TernaryOp*>(def)) {
         makeTernaryOp(top);
-      } else if (auto lsop = dynamic_cast<LoadStoreOp*>(def)) {
-        NVF_ERROR(
-            lsop->opType() == LoadStoreOpType::Set,
-            "NaiveValueMachine: unsupported LoadStoreOpType: ",
-            lsop->opType());
-        makeSetOp(lsop);
       } else {
         // There could be some ops not supported yet. For these ops, we will
         // bind their outputs. So ignoring them here.
@@ -460,19 +454,6 @@ void NaiveValueMachine::makeTernaryOp(TernaryOp* top) {
   src0_[index] = in0;
   src1_[index] = in1;
   src2_[index] = in2;
-  dest_[index] = out;
-}
-
-void NaiveValueMachine::makeSetOp(LoadStoreOp* lsop) {
-  int in = lsop->in()->evaluatorIndex();
-  int out = lsop->out()->evaluatorIndex();
-
-  NVF_ERROR(in >= 0, "Integer Machine: unknown input: ", lsop);
-  NVF_ERROR(out >= 0, "Integer Machine: unknown out: ", lsop);
-
-  int index = makeInstructionEntry();
-  inst_type_[index] = InstructionType::SET_OP;
-  src0_[index] = in;
   dest_[index] = out;
 }
 

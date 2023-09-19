@@ -58,10 +58,6 @@ class NaiveValueMachine {
   //! Convert an ternary IR expr to an instruction
   void makeTernaryOp(TernaryOp* bop);
 
-  //! Convert a LoadStoreOp expr to an instruction. This assumes lsop->opType()
-  //! is equal to LoadStoreOpType::Set.
-  void makeSetOp(LoadStoreOp* lsop);
-
   //! Create an empty instruction with all default values
   //!  and place it at the end of the instruction buffer.
   int makeInstructionEntry();
