@@ -8,7 +8,7 @@
 #pragma once
 
 #include <fusion.h>
-#include <scheduler/all_schedulers.h>
+#include <scheduler/heuristic_types.h>
 #include <scheduler/pointwise_utils.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>

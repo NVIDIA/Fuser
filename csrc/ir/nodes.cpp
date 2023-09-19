@@ -2244,11 +2244,31 @@ LoadStoreOp::LoadStoreOp(
     IrBuilderPasskey passkey,
     LoadStoreOpType op_type,
     Val* out,
-    Val* in)
+    Val* in,
+    CacheOp cache_op)
     : Expr(passkey) {
+  // Pick the default cache operator.
+  if (op_type == LoadStoreOpType::CpAsync) {
+    if (cache_op == CacheOp::Unspecified) {
+      cache_op = CacheOp::AllLevels;
+    }
+    NVF_CHECK(
+        cache_op == CacheOp::Global || cache_op == CacheOp::AllLevels,
+        "cp.async only takes .ca or .cg. as cache operator");
+  } else if (op_type == LoadStoreOpType::Set) {
+    if (cache_op == CacheOp::Unspecified) {
+      cache_op = CacheOp::Streaming;
+    }
+  } else {
+    NVF_CHECK(
+        cache_op == CacheOp::Unspecified,
+        "Only Set and CpAsync take a cache operator.");
+  }
+
   addOutput(out);
   addInput(in);
   addDataAttribute(op_type);
+  addDataAttribute(cache_op);
 }
 
 std::vector<PolymorphicValue> LoadStoreOp::evaluate(

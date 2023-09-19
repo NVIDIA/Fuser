@@ -9,9 +9,9 @@
 
 #include <ATen/core/ivalue.h>
 #include <exceptions.h>
-
 #include <fusion.h>
 #include <scheduler/pointwise_heuristic.h>
+#include <scheduler/registry.h>
 
 namespace nvfuser {
 
@@ -178,5 +178,26 @@ bool hasReferenceTensorView(Fusion* fusion);
 
 // Return reference tensor view.
 TensorView* getReferenceTensorView(Fusion* fusion);
+
+class PointWiseScheduler : public SchedulerEntry {
+ public:
+  explicit PointWiseScheduler(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr);
+
+  static bool canScheduleCompileTime(Fusion* fusion);
+  static bool canScheduleRunTime(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr);
+
+  void schedule(Fusion* fusion) override;
+
+  void computeHeuristics(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr);
+};
 
 } // namespace nvfuser

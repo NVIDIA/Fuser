@@ -424,7 +424,7 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
       auto cast_tv_use_exprs = cast_tv->uses();
       for (auto use : cast_tv_use_exprs) {
         auto replica = RecomputeTv::recompute(cast_tv);
-        ir_utils::replaceValInExpr(use, cast_tv, replica);
+        ir_utils::replaceValInExprInputs(use, cast_tv, replica);
       }
     }
     input_caches.push_back(input_tv->cacheAfter());
