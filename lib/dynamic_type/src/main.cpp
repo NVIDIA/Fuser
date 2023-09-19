@@ -13,18 +13,15 @@
 
 namespace dynamic_type {
 
-template <template <typename...> typename... Templates>
+template <template <typename...> typename Templates>
 // Note: `Templates` is a list of templates, not a list of types.
 // Just like std::vector is a template, std::vector<int> is a type.
 struct Containers {
   template <typename DynamicType, typename... MemberTypes>
   using TypeIdentitiesAsTuple = std::tuple<
-      std::type_identity<std::monostate>,
       std::type_identity<MemberTypes>...,
-      std::type_identity<Templates<DynamicType>>...>;
+      std::type_identity<Templates<DynamicType>>>;
 };
-
-using NoContainers = Containers<>;
 
 template <typename Containers, typename... Ts>
 struct DynamicType {
