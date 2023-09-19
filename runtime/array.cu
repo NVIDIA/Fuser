@@ -174,6 +174,7 @@ __device__ void loadLocalToGlobal(
 enum class CacheOp {
   AllLevels,
   Streaming,
+  Global,
 };
 
 // For simplicity, cache_op is only used for non-volatile loads written in
@@ -209,6 +210,11 @@ __device__ void loadGlobalToLocal(
                          : "=r"(data.x), "=r"(data.y)
                          : "l"((uint2*)from));
             break;
+          case CacheOp::Global:
+            asm volatile("ld.global.cg.v2.s32 {%0,%1}, [%2];"
+                         : "=r"(data.x), "=r"(data.y)
+                         : "l"((uint2*)from));
+            break;
         }
       }
       break;
@@ -231,6 +237,12 @@ __device__ void loadGlobalToLocal(
           case CacheOp::Streaming:
             asm volatile(
                 "ld.global.cs.v4.s32 {%0,%1,%2,%3}, [%4];"
+                : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
+                : "l"((uint4*)from));
+            break;
+          case CacheOp::Global:
+            asm volatile(
+                "ld.global.cg.v4.s32 {%0,%1,%2,%3}, [%4];"
                 : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
                 : "l"((uint4*)from));
             break;
