@@ -18,41 +18,19 @@ template <template <typename...> typename... Templates>
 // Just like std::vector is a template, std::vector<int> is a type.
 struct Containers {
   template <typename DynamicType, typename... MemberTypes>
-  using VariantType =
-      std::variant<std::monostate, MemberTypes..., Templates<DynamicType>...>;
-
-  template <typename DynamicType, typename... MemberTypes>
   using TypeIdentitiesAsTuple = std::tuple<
       std::type_identity<std::monostate>,
       std::type_identity<MemberTypes>...,
       std::type_identity<Templates<DynamicType>>...>;
-
-  template <typename DynamicType, typename... MemberTypes>
-  using ForAllTypes = dynamic_type::
-      ForAllTypes<std::monostate, MemberTypes..., Templates<DynamicType>...>;
-
-  // Check if T is one of the types in the type list MemberTypes..., or a
-  // container
-  template <typename T, typename DynamicType, typename... MemberTypes>
-  static constexpr auto is_candidate_type = dynamic_type::
-      belongs_to<T, std::monostate, MemberTypes..., Templates<DynamicType>...>;
 };
 
 using NoContainers = Containers<>;
 
 template <typename Containers, typename... Ts>
 struct DynamicType {
-  using VariantType =
-      typename Containers::template VariantType<DynamicType, Ts...>;
-  VariantType value;
-
   using TypeIdentitiesAsTuple =
       typename Containers::template TypeIdentitiesAsTuple<DynamicType, Ts...>;
   static constexpr TypeIdentitiesAsTuple type_identities_as_tuple{};
-
-  using ForAllTypes =
-      typename Containers::template ForAllTypes<DynamicType, Ts...>;
-  static constexpr ForAllTypes for_all_types{};
 };
 
 constexpr auto lt_defined_checker = [](auto x, auto y) constexpr {
