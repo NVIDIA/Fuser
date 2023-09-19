@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
+#include <expr_evaluator.h>
 #include <index_compute.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -1490,8 +1491,16 @@ void IndexLowering::handle(const PadOp* pad) {
                 producer_idx, producer_root_id->extent())));
   }
 
-  pushBack(IrBuilder::create<TernaryOp>(
-      TernaryOpType::Where, out, pred, in, pad_val));
+  auto pred_opt = ExpressionEvaluator().evaluate(pred);
+  if (!pred_opt.hasValue()) {
+    pushBack(IrBuilder::create<TernaryOp>(
+        TernaryOpType::Where, out, pred, in, pad_val));
+  } else {
+    // Simplify where expression when predicate is constant
+    pushBack(IrBuilder::create<LoadStoreOp>(
+        LoadStoreOpType::Set, out, pred_opt.as<bool>() ? in : pad_val));
+  }
+
   GpuLower::current()->propagateExprInfo(pad, back());
 }
 
