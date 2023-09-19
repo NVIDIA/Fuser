@@ -32,10 +32,10 @@ getRNGSeedAndOffsetFromHost() {
   // the host is the intra-cuda-graph offset, and the offset value on the device
   // is the base offset for this entire CUDA graph.
   auto intptr = PointerType{std::make_shared<DataType>(DataType::Int)};
-  Val* seed_ptr = IrBuilder::newScalar(intptr);
-  Val* seed_val = IrBuilder::newScalar(DataType::Int);
-  Val* offset_ptr = IrBuilder::newScalar(intptr);
-  Val* offset_val = IrBuilder::newScalar(DataType::Int);
+  Val* seed_ptr = IrBuilder::create<Val>(intptr);
+  Val* seed_val = IrBuilder::create<Val>(DataType::Int);
+  Val* offset_ptr = IrBuilder::create<Val>(intptr);
+  Val* offset_val = IrBuilder::create<Val>(DataType::Int);
   auto expr = IrBuilder::create<kir::GetRNGSeedAndOffsetFromHost>(
       seed_ptr, seed_val, offset_ptr, offset_val);
   GpuLower::current()->allKnownVals().push_back(seed_ptr);

@@ -332,7 +332,7 @@ Val* getTensorBaseAddress(TensorView* tv) {
     case MemoryType::Global:
       return IrBuilder::getAttrExpr(metadata, "data");
     case MemoryType::Shared: {
-      auto output = IrBuilder::newScalar(DataType::SMemAddress);
+      auto output = IrBuilder::create<Val>(DataType::SMemAddress);
       IrBuilder::create<UnaryOp>(
           UnaryOpType::ToUnsignedSmemAddr, output, metadata);
       return output;

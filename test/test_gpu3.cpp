@@ -6266,7 +6266,7 @@ TEST_F(NVFuserTest, FusionIssue2372_CUDA) {
   fusion.addInput(tmean);
   auto tvar = makeContigTensor(1, DataType::Float);
   fusion.addInput(tvar);
-  auto seps = IrBuilder::newScalar(DataType::Double);
+  auto seps = IrBuilder::create<Val>(DataType::Double);
   fusion.addInput(seps);
 
   auto tmean_bcast = broadcast(tmean, {true, true, true, true, false});

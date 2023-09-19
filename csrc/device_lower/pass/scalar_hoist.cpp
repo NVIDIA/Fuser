@@ -207,7 +207,7 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
   // If any of the inputs is replaced, then create a new expression whose inputs
   // are replaced with hoisted input
   if (changed) {
-    value = IrBuilder::newScalar(*value->getDataType());
+    value = IrBuilder::create<Val>(*value->getDataType());
     NVF_ERROR(def->outputs().size() == 1);
     auto create_fn = def->newObjectFunc();
     create_fn(value->container(), inputs, {value}, def->attributes());
