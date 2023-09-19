@@ -193,9 +193,11 @@ class TORCH_CUDA_CU_API Statement : public NonCopyable, public PolymorphicBase {
 //!
 //! Vals are constant and unique and should always be passed
 //! around as a pointer. Val can generally be thought of as representing any
-//! type of data. Some examples: a constant size like convolution filter width a
-//! runtime constant like batch normalizations momentum a "symbolic" tensor like
-//! one passed down from the JIT a memory buffer used in device code
+//! type of data. Some examples:
+//!   * a constant size like convolution filter width
+//!   * a runtime constant like batch normalizations momentum
+//!   * a "symbolic" tensor like one passed down from the JIT
+//!   * a memory buffer used in device code
 //!
 //! Adding a Val:
 //! Right now adding a Val is quite involved. Val's can be defined in ir.h or in
