@@ -3176,22 +3176,22 @@ Val* Index::cpAsyncBulkIndex(
     const std::vector<kir::ForLoop*>& loops) {
   using namespace tma;
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       tv->getMemoryType() == MemoryType::Global,
       "cpAsyncBulkIndex is only for global memory tensors");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       tv->getMaybeRFactorDomain() == tv->getLeafDomain(), "not supported yet");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       tv->getMaybeAllocationDomain() == tv->getLeafDomain(),
       "not supported yet");
   for (auto id : tv->getMaybeRFactorDomain()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         id->isBulk(),
         "cpAsyncBulkIndex only support whole tensor copy for now.");
   }
 
   int64_t dim = (int64_t)tv->nDims();
-  TORCH_INTERNAL_ASSERT(dim > 0);
+  NVF_ERROR(dim > 0);
   int64_t itemsize = dataTypeSize(tv->dtype());
 
   auto metadata = IrBuilder::metadataExpr(tv);

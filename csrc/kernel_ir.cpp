@@ -1252,34 +1252,34 @@ EncodeTensorMapTiled::EncodeTensorMapTiled(
     tma::TensorMapFloatOOBFill oob_fill)
     : Expr(passkey) {
   auto out_dtype = output->dtype();
-  TORCH_CHECK(std::holds_alternative<OpaqueType>(out_dtype.type));
+  NVF_CHECK(std::holds_alternative<OpaqueType>(out_dtype.type));
   addOutput(output);
 
-  TORCH_CHECK(
+  NVF_CHECK(
       global_address->dtype() ==
       PointerType{std::make_shared<DataType>(data_type)});
   addInput(global_address);
 
-  TORCH_CHECK(std::holds_alternative<ArrayType>(global_dim->dtype().type));
+  NVF_CHECK(std::holds_alternative<ArrayType>(global_dim->dtype().type));
   size_t tensor_rank = std::get<ArrayType>(global_dim->dtype().type).size;
   ArrayType expect_global_dim_type{
       std::make_shared<DataType>(DataType::Index), tensor_rank};
-  TORCH_CHECK(global_dim->dtype() == expect_global_dim_type);
+  NVF_CHECK(global_dim->dtype() == expect_global_dim_type);
   addInput(global_dim);
 
   ArrayType expect_global_strides_type{
       std::make_shared<DataType>(DataType::Index), tensor_rank - 1};
-  TORCH_CHECK(global_strides->dtype() == expect_global_strides_type);
+  NVF_CHECK(global_strides->dtype() == expect_global_strides_type);
   addInput(global_strides);
 
   ArrayType expect_box_dim_type{
       std::make_shared<DataType>(DataType::Index), tensor_rank};
-  TORCH_CHECK(box_dim->dtype() == expect_box_dim_type);
+  NVF_CHECK(box_dim->dtype() == expect_box_dim_type);
   addInput(box_dim);
 
   ArrayType expect_element_strides_type{
       std::make_shared<DataType>(DataType::Index), tensor_rank};
-  TORCH_CHECK(element_strides->dtype() == expect_element_strides_type);
+  NVF_CHECK(element_strides->dtype() == expect_element_strides_type);
   addInput(element_strides);
 
   addDataAttribute(data_type);

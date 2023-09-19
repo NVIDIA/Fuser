@@ -1286,7 +1286,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
   Val* in = nullptr;
   Val* out = nullptr;
   if (ir_utils::isCpAsyncBulk(ldst)) {
-    TORCH_INTERNAL_ASSERT(ir_utils::isCpAsyncBulkStore(ldst));
+    NVF_ERROR(ir_utils::isCpAsyncBulkStore(ldst));
     in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
     out = Index::cpAsyncBulkIndex(ldst->out()->as<TensorView>(), for_loops_);
   } else {

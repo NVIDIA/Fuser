@@ -565,7 +565,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void genCpAsyncBulkTensorTile(const LoadStoreOp* ldst) {
     auto in = ldst->in()->as<kir::TensorIndex>();
     auto out = ldst->out()->as<kir::TensorIndex>();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         in->view()->getMemoryType() == MemoryType::Shared &&
             out->view()->getMemoryType() == MemoryType::Global,
         "Expected shared to global copy");

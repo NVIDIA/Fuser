@@ -124,7 +124,7 @@ std::ostream& operator<<(std::ostream& os, TensorMapInterleave interleave) {
       os << "32B";
       break;
     default:
-      TORCH_CHECK(false, "Unknown tensor map interleave type!");
+      NVF_CHECK(false, "Unknown tensor map interleave type!");
       break;
   }
   return os;
@@ -145,7 +145,7 @@ std::ostream& operator<<(std::ostream& os, TensorMapSwizzle swizzle) {
       os << "128B";
       break;
     default:
-      TORCH_CHECK(false, "Unknown tensor map swizzle type!");
+      NVF_CHECK(false, "Unknown tensor map swizzle type!");
       break;
   }
   return os;
@@ -166,7 +166,7 @@ std::ostream& operator<<(std::ostream& os, TensorMapL2Promotion l2_promotion) {
       os << "256B";
       break;
     default:
-      TORCH_CHECK(false, "Unknown tensor map L2 promotion type!");
+      NVF_CHECK(false, "Unknown tensor map L2 promotion type!");
       break;
   }
   return os;
@@ -181,7 +181,7 @@ std::ostream& operator<<(std::ostream& os, TensorMapFloatOOBFill oob_fill) {
       os << "NaN_Request_Zero_FMA";
       break;
     default:
-      TORCH_CHECK(false, "Unknown tensor map float OOB fill type!");
+      NVF_CHECK(false, "Unknown tensor map float OOB fill type!");
       break;
   }
   return os;
