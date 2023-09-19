@@ -4071,7 +4071,7 @@ std::vector<PolymorphicValue> SliceOp::evaluate(
     auto start = (int64_t)inputs.at(ranges_offset + 3 * i);
     auto stop = (int64_t)inputs.at(ranges_offset + 3 * i + 1);
     auto step = (int64_t)inputs.at(ranges_offset + 3 * i + 2);
-    ranges.push_back(at::indexing::Slice(start, stop, step));
+    ranges.emplace_back(at::indexing::Slice(start, stop, step));
   }
   return {in.index(ranges)};
 }
