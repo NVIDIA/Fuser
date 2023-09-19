@@ -102,6 +102,15 @@ IterDomain* SelectOp::getIndexedID() const {
       .at(dim());
 }
 
+std::vector<PolymorphicValue> SelectOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  int64_t dimension = dim();
+  int64_t index = (int64_t)inputs.at(1);
+  return {in.select(dimension, index)};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(SelectOp)
 
 IndexSelectOp::IndexSelectOp(
@@ -139,6 +148,15 @@ IterDomain* IndexSelectOp::getIndexedID() const {
 
 IterDomain* IndexSelectOp::getConsumerOfIndexedID() const {
   return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
+}
+
+std::vector<PolymorphicValue> IndexSelectOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  int64_t dimension = dim();
+  const auto& indices = inputs.at(1).as<at::Tensor>().squeeze();
+  return {at::index_select(in, dimension, indices)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IndexSelectOp)
