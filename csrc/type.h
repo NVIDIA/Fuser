@@ -719,6 +719,8 @@ static constexpr std::array<IdMappingMode, 6> kIdMappingModes = {
 // for what each option means. Will also consider .L1::no_allocate because .cs
 // still pollutes cache to some extent.
 enum class CacheOp {
+  Unspecified, // Opt in for the default cache operator or when the LoadStoreOp
+               // doesn't take a cache operator.
   AllLevels,
   Streaming,
   Global,
@@ -734,8 +736,7 @@ enum class LoadStoreOpType {
   SegmenterSet,
   LdMatrix,
   LdMatrixTranspose,
-  CpAsyncCa,
-  CpAsyncCg,
+  CpAsync,
   CpAsyncBulkTensorTile
 };
 

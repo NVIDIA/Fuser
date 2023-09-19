@@ -814,10 +814,8 @@ const char* load_store_type2string(LoadStoreOpType t) {
       return "LdMatrix";
     case LoadStoreOpType::LdMatrixTranspose:
       return "LdMatrixTranspose";
-    case LoadStoreOpType::CpAsyncCa:
-      return "CpAsyncCa";
-    case LoadStoreOpType::CpAsyncCg:
-      return "CpAsyncCg";
+    case LoadStoreOpType::CpAsync:
+      return "CpAsync";
     case LoadStoreOpType::CpAsyncBulkTensorTile:
       return "CpAsyncBulkTensorTile";
     default:
@@ -1147,6 +1145,9 @@ std::ostream& operator<<(std::ostream& os, const KernelIndexMode& index_mode) {
 
 std::ostream& operator<<(std::ostream& os, const CacheOp& cache_op) {
   switch (cache_op) {
+    case CacheOp::Unspecified:
+      os << "Unspecified";
+      break;
     case CacheOp::AllLevels:
       os << "AllLevels";
       break;
