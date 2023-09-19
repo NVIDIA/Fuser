@@ -104,12 +104,6 @@ inline CUtensorMapFloatOOBfill getCUtensorMapFloatOOBfill(
 
 using TensorMap = CUtensorMap;
 
-#else
-
-struct TensorMap {
-  alignas(64) uint64_t opaque[16];
-};
-
 #endif
 
 std::ostream& operator<<(std::ostream& os, TensorMapInterleave interleave) {
