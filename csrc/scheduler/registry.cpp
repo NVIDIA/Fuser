@@ -240,7 +240,7 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
 std::optional<ScheduleHeuristic> SchedulerEntry::proposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info) {
-  for (const auto& sh : all_schedule_heuristics) {
+  for (const auto& sh : all_heuristics_in_priority_order) {
     if (canSchedule(sh, fusion, runtime_info)) {
       scheduler_debug_utils::canScheduleMessage("***Accepted*** as: ", sh);
       return sh;

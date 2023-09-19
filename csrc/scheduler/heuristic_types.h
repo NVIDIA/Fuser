@@ -55,10 +55,8 @@ enum class ScheduleHeuristic {
   Matmul
 };
 
-//! Define a schedule table to loop over all the schedule heuristics.
-//! The order reflects the priority of the heuristics and shouldn't be changed
-//! without a good reason.
-constexpr std::array<ScheduleHeuristic, 6> all_schedule_heuristics = {
+//! Define a schedule table to loop over all the heuristics in priority order.
+constexpr std::array<ScheduleHeuristic, 6> all_heuristics_in_priority_order = {
     ScheduleHeuristic::NoOp,
     ScheduleHeuristic::Reduction,
     ScheduleHeuristic::Transpose,
