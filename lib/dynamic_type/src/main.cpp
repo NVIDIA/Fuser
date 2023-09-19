@@ -13,20 +13,11 @@
 
 namespace dynamic_type {
 
-template <template <typename...> typename Templates>
-// Note: `Templates` is a list of templates, not a list of types.
-// Just like std::vector is a template, std::vector<int> is a type.
-struct Containers {
-  template <typename DynamicType, typename... MemberTypes>
-  using TypeIdentitiesAsTuple = std::tuple<
-      std::type_identity<MemberTypes>...,
-      std::type_identity<Templates<DynamicType>>>;
-};
-
-template <typename Containers, typename... Ts>
+template <typename T>
 struct DynamicType {
-  using TypeIdentitiesAsTuple =
-      typename Containers::template TypeIdentitiesAsTuple<DynamicType, Ts...>;
+  using TypeIdentitiesAsTuple = std::tuple<
+      std::type_identity<T>,
+      std::type_identity<std::vector<DynamicType>>>;
   static constexpr TypeIdentitiesAsTuple type_identities_as_tuple{};
 };
 
@@ -38,11 +29,10 @@ constexpr auto lt_defined_checker = [](auto x, auto y) constexpr {
 
 template <
     typename DT,
-    typename = std::enable_if_t<
-        any_check(
-            lt_defined_checker,
-            DT::type_identities_as_tuple,
-            DT::type_identities_as_tuple)>>
+    typename = std::enable_if_t<any_check(
+        lt_defined_checker,
+        DT::type_identities_as_tuple,
+        DT::type_identities_as_tuple)>>
 inline constexpr bool operator<(
     const DT& x,
     const std::type_identity_t<DT>& y) {
@@ -54,6 +44,6 @@ inline constexpr bool operator<(
 using namespace dynamic_type;
 
 int main() {
-  using DT = DynamicType<Containers<std::vector>, int64_t>;
+  using DT = DynamicType<int64_t>;
   static_assert(opcheck<std::vector<DT>> < opcheck<std::vector<DT>>);
 }
