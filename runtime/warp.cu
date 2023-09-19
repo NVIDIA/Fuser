@@ -45,9 +45,8 @@ __device__ void warpReduceTIDX(
   unsigned int lane_idx = threadIdx.x % WARP_SIZE;
   unsigned int num_of_warps = (reduction_size + WARP_SIZE - 1) / WARP_SIZE;
 
-  // bdimx is a multiple of warp size or not the last warp
-  if (num_of_warps * WARP_SIZE == reduction_size ||
-      warp_idx < num_of_warps - 1) {
+  // bdimx is divisible by warp size
+  if (num_of_warps * WARP_SIZE == reduction_size) {
     for (int i = 16; i >= 1; i /= 2) {
       reduction_op(reduce_val, shfl_xor(reduce_val, i, WARP_SIZE));
     }
@@ -55,9 +54,8 @@ __device__ void warpReduceTIDX(
     // warp reduction is only allowed across the x dimension, y and z dimensions
     // are reserved for batch warp reductions. If bdimx is not multiple of warp
     // size, batch size must be 1. The last warp has less than 32 valid threads.
-    assert(blockDim.y == 1);
-    assert(blockDim.z == 1);
-    unsigned int valid_lanes = reduction_size % WARP_SIZE;
+    unsigned int valid_lanes =
+        warp_idx < num_of_warps - 1 ? WARP_SIZE : reduction_size % WARP_SIZE;
     for (int i = 16; i >= 1; i /= 2) {
       T shuffled_value = shfl_xor(reduce_val, i, WARP_SIZE);
       // Only add value shuffled from valid lanes
