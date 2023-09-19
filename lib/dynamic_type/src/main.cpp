@@ -7,11 +7,118 @@
 #include <variant>
 #include <vector>
 
-#include "dynamic_type/C++20/type_traits"
-#include "dynamic_type/error.h"
-#include "dynamic_type/type_traits.h"
+#if __has_include(<bits/c++config.h>)
+#include <bits/c++config.h>
+#endif
+
+namespace std {
+
+#if !__cpp_lib_type_identity
+template <typename T>
+struct type_identity {
+  using type = T;
+};
+
+template <typename T>
+using type_identity_t = typename type_identity<T>::type;
+#endif
+
+} // namespace std
 
 namespace dynamic_type {
+
+// Implementation detail for opcheck. This implementation is very long, I
+// recommend read the usage doc below first before reading this implementation.
+namespace opcheck_impl {
+
+// A type that is purposely made implicitly convertible from OperatorChecker
+struct CastableFromOperatorChecker {};
+
+template <typename T>
+struct OperatorChecker {
+  constexpr operator CastableFromOperatorChecker() const {
+    return {};
+  }
+};
+
+#define DEFINE_BINARY_OP(op)                                           \
+  template <typename T1, typename T2>                                  \
+  constexpr auto operator op(OperatorChecker<T1>, OperatorChecker<T2>) \
+      ->decltype((std::declval<T1>() op std::declval<T2>()), true) {   \
+    return true;                                                       \
+  }                                                                    \
+                                                                       \
+  constexpr bool operator op(                                          \
+      CastableFromOperatorChecker, CastableFromOperatorChecker) {      \
+    return false;                                                      \
+  }
+
+DEFINE_BINARY_OP(<);
+#undef DEFINE_BINARY_OP
+
+} // namespace opcheck_impl
+
+// Note [Operator checker]
+//
+// "opcheck" is a utility to check if an operator for certain type is defined.
+template <typename T>
+constexpr opcheck_impl::OperatorChecker<T> opcheck;
+
+// Take the cartesion product of two tuples.
+// For example:
+// cartesian_product((1, 2), (3, 4)) = ((1, 3), (1, 4), (2, 3), (2, 4))
+template <typename Tuple>
+constexpr auto cartesian_product(Tuple t) {
+  return std::apply(
+      [](auto... ts) constexpr {
+        return std::make_tuple(std::make_tuple(ts)...);
+      },
+      t);
+}
+
+template <typename Tuple1, typename... OtherTuples>
+constexpr auto cartesian_product(Tuple1 first, OtherTuples... others) {
+  auto c_first = cartesian_product(first);
+  auto c_others = cartesian_product(others...);
+  // cat one item in c_first with all the items in c_others
+  auto cat_one_first_all_others = [c_others](auto first_item) {
+    return std::apply(
+        [first_item](auto... other_item) constexpr {
+          return std::make_tuple(std::tuple_cat(first_item, other_item)...);
+        },
+        c_others);
+  };
+  return std::apply(
+      [cat_one_first_all_others](auto... first_items) constexpr {
+        return std::tuple_cat(cat_one_first_all_others(first_items)...);
+      },
+      c_first);
+}
+
+// Check if all the booleans in the arguments are true. There are two versions:
+// one for variadic arguments, and one for std::tuple.
+
+template <typename... Ts>
+constexpr bool any(Ts... bs) {
+  return (bs || ...);
+}
+
+template <typename... Ts>
+constexpr bool any(std::tuple<Ts...> bs) {
+  return std::apply([](auto... bs) { return any(bs...); }, bs);
+}
+
+// Can I find an x from tuple1 and a y from tuple12 such that f(x, y) is
+// true? f(x, y) must be defined for all x in tuple1 and y in tuple2.
+template <typename... Tuples, typename Fun>
+constexpr bool any_check(Fun f, Tuples... tuples) {
+  auto c = cartesian_product(tuples...);
+  return std::apply(
+      [f](auto... candidates) constexpr {
+        return any(std::apply(f, candidates)...);
+      },
+      c);
+}
 
 template <typename T>
 struct DynamicType {
