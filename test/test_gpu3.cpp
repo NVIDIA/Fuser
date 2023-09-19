@@ -8616,12 +8616,12 @@ TEST_F(NVFuserTest, AlignedSyncReduction1_CUDA) {
   fusion.addOutput(tv1);
 
   const int gdimx = 16;
-  const int bdimx = 100;
+  const int bdimy = 100;
   const int per_thread_reductions = 8;
 
-  std::vector<int64_t> shape({gdimx * bdimx * per_thread_reductions});
+  std::vector<int64_t> shape({gdimx * bdimy * per_thread_reductions});
 
-  tv1->split(0, bdimx);
+  tv1->split(0, bdimy);
   tv1->split(0, per_thread_reductions);
 
   // Serial reduction
@@ -8630,7 +8630,9 @@ TEST_F(NVFuserTest, AlignedSyncReduction1_CUDA) {
   tv1->rFactor({1});
 
   tv2->axis(0)->parallelize(ParallelType::BIDx);
-  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+  // if parallelized by TIDx, warp reduction will be used in place of block
+  // reduction.
+  tv2->axis(-1)->parallelize(ParallelType::TIDy);
 
   scheduler_utils::parallelizeAllLike(tv2);
 
@@ -8639,7 +8641,7 @@ TEST_F(NVFuserTest, AlignedSyncReduction1_CUDA) {
 
   // The block reduction should use the aligned sync
   NVF_CHECK(
-      kernel_string.find("blockReduce<true, false, false, true>(") !=
+      kernel_string.find("blockReduce<false, true, false, true>(") !=
           std::string::npos,
       "blockReduce with aligned sync not found: ",
       kernel_string);
