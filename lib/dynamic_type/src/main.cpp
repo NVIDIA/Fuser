@@ -1,10 +1,5 @@
-#include <algorithm>
 #include <iostream>
-#include <optional>
-#include <ostream>
 #include <type_traits>
-#include <typeinfo>
-#include <variant>
 #include <vector>
 
 #if __has_include(<bits/c++config.h>)
