@@ -1012,10 +1012,15 @@ void validateLdMatrixOutput(TensorView* tv) {
 }
 
 void validateSizeMemoryOp(LoadStoreOp* ldst) {
-  int byte_size = 1;
   if (!ldst->out()->isA<TensorView>()) {
     return;
   }
+
+  if (ldst->opType() != LoadStoreOpType::CpAsync) {
+    return;
+  }
+
+  int byte_size = 1;
   auto output = ldst->out()->as<TensorView>();
   for (auto id : output->getLeafDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
@@ -1025,11 +1030,12 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
   }
   byte_size *= (int)dataTypeSize(
       *output->getDataType(), GpuLower::current()->indexType());
-  switch (ldst->opType()) {
-    case LoadStoreOpType::CpAsyncCg:
+
+  switch (ldst->cacheOp()) {
+    case CacheOp::Global:
       NVF_CHECK(byte_size == 16, "Not supported byte size for cp.async.cg");
       break;
-    case LoadStoreOpType::CpAsyncCa:
+    case CacheOp::AllLevels:
       NVF_CHECK(
           byte_size == 4 || byte_size == 8 || byte_size == 16,
           "Not supported byte size for cp.async.ca");
@@ -1046,8 +1052,6 @@ void validateArchMemoryOp(LoadStoreOp* ldst) {
     case LoadStoreOpType::LdMatrixTranspose:
       validateLdMatrixOutput(ldst->out()->as<TensorView>());
       return;
-    case LoadStoreOpType::CpAsyncCg:
-    case LoadStoreOpType::CpAsyncCa:
     default:
       return;
   }
