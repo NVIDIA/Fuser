@@ -125,7 +125,7 @@ TEST_F(ExprEvalTest, ConstReference) {
   auto t0 = at::randn({3}, options);
 
   evaluator.bind(tv0, t0);
-  checkValue(evaluator, tv0, t0);
+  checkConstEvaluate(evaluator, tv0, t0);
 }
 
 // Evaluate expressions in a simple IR
