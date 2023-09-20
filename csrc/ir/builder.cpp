@@ -332,7 +332,7 @@ Val* SimplifyingIrBuilder::addExpr(Val* lhs, Val* rhs) {
 }
 
 Val* SimplifyingIrBuilder::subExpr(Val* lhs, Val* rhs) {
-  if (lhs->sameAs(rhs)) {
+  if (lhs->isIntegralScalar() && lhs->sameAs(rhs)) {
     return lhs->fusion()->zeroVal(lhs->dtype());
   }
   return addExpr(lhs, negExpr(rhs));
@@ -378,17 +378,12 @@ Val* SimplifyingIrBuilder::divExpr(Val* lhs, Val* rhs) {
   if (rhs->isOneInt()) {
     return lhs;
   }
-  if (lhs->sameAs(rhs)) {
-    return lhs->fusion()->oneVal(lhs->dtype());
-  }
   return IrBuilder::divExpr(lhs, rhs);
 }
 
 Val* SimplifyingIrBuilder::ceilDivExpr(Val* lhs, Val* rhs) {
   if (rhs->isOneInt()) {
     return lhs;
-  } else if (lhs->sameAs(rhs)) {
-    return lhs->fusion()->oneVal(lhs->dtype());
   } else if (lhs->isConst() && rhs->isConst()) {
     auto l = lhs->value();
     auto r = rhs->value();
@@ -401,6 +396,8 @@ Val* SimplifyingIrBuilder::ceilDivExpr(Val* lhs, Val* rhs) {
 }
 
 Val* SimplifyingIrBuilder::modExpr(Val* lhs, Val* rhs) {
+  NVF_ERROR(isIntegralType(lhs->dtype()));
+  NVF_ERROR(isIntegralType(rhs->dtype()));
   if (rhs->isOneInt() || lhs->isZeroInt() || lhs->sameAs(rhs)) {
     return FusionGuard::getCurFusion()->zeroVal(
         promoteType(lhs->dtype(), rhs->dtype()));
@@ -606,6 +603,8 @@ Val* SimplifyingIrBuilder::minExpr(Val* lhs, Val* rhs) {
 }
 
 Val* SimplifyingIrBuilder::gcdExpr(Val* lhs, Val* rhs) {
+  NVF_ERROR(isIntegralType(lhs->dtype()));
+  NVF_ERROR(isIntegralType(rhs->dtype()));
   if (lhs->isZeroInt()) {
     return rhs;
   }
@@ -715,7 +714,7 @@ Val* SimplifyingIrBuilder::whereExpr(Val* pred, Val* lhs, Val* rhs) {
       pred->dtype() == DataType::Bool,
       "Where requires a predicate as an input, but received");
   if (lhs->sameAs(rhs)) {
-    return lhs;  // return value is independent of predicate
+    return lhs; // return value is independent of predicate
   }
   if (pred->isConstScalar() && pred->isABool()) {
     if (pred->evaluateBool()) {
