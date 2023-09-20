@@ -1224,17 +1224,17 @@ bool innerOrOuterCompileTimeCheck(Fusion* fusion, ScheduleHeuristic heuristic) {
   return true;
 }
 
-PersistentHeuristicArgs getInnerOrOuterPersistentHeuristicArgs(
+PersistentKernelProperties getPersistentKernelProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
     ScheduleHeuristic heuristic) {
-  FUSER_PERF_SCOPE("getInnerOrOuterPersistentHeuristicArgs");
+  FUSER_PERF_SCOPE("getPersistentKernelProperties");
   FusionGuard fg(fusion);
   NVF_ERROR(
       heuristic == ScheduleHeuristic::InnerPersistent ||
           heuristic == ScheduleHeuristic::OuterPersistent,
-      "getInnerOrOuterPersistentHeuristicArgs should only be used by inner or outer persistent schedulers.");
+      "getPersistentKernelProperties should only be used by inner or outer persistent schedulers.");
 
   auto reduction_tv_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
@@ -1258,13 +1258,12 @@ PersistentHeuristicArgs getInnerOrOuterPersistentHeuristicArgs(
           ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
 
   // (2) info about persistent buffer
-  auto persistent_buffer_size_info = normalization_scheduler_utils::getBufferSizeInfo(
-      fusion,
-      runtime_info,
-      data_cache);
+  auto persistent_buffer_size_info =
+      normalization_scheduler_utils::getBufferSizeInfo(
+          fusion, runtime_info, data_cache);
 
   // TODO: Fix projected persistent buffers with view
-  // https://github.com/csarofeen/pytorch/issues/2054  
+  // https://github.com/csarofeen/pytorch/issues/2054
   bool can_project = ir_utils::getViewOps(fusion).empty() &&
       persistent_buffer_size_info.projected_persistent_buffer_size > 0;
 
@@ -1280,7 +1279,7 @@ PersistentHeuristicArgs getInnerOrOuterPersistentHeuristicArgs(
       normalization_scheduler_utils::getTensorInputNumAndMaxTypeSize(
           runtime_info, data_cache, reduced_tv);
 
-  return PersistentHeuristicArgs{
+  return PersistentKernelProperties{
       properties.inner_most_dimension_numel,
       properties.total_reduction_numel,
       properties.total_iteration_numel,

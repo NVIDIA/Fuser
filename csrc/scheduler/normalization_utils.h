@@ -301,7 +301,7 @@ TensorView* scheduleReductionGeneral(
     std::vector<TensorView*>& reduction_tvs);
 
 // get argument passed to innerPersistentHeuristic and outerPersistentHeuristic
-struct PersistentHeuristicArgs {
+struct PersistentKernelProperties {
   int64_t inner_most_dimension_numel;
   int64_t total_reduction_numel;
   int64_t total_iteration_numel;
@@ -311,7 +311,7 @@ struct PersistentHeuristicArgs {
   int64_t vectorize_factor;
   bool project_persistent_buffers;
 };
-PersistentHeuristicArgs getInnerOrOuterPersistentHeuristicArgs(
+PersistentKernelProperties getPersistentKernelProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,

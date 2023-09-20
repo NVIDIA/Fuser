@@ -735,7 +735,7 @@ std::shared_ptr<ReductionParams> InnerPersistentKernelScheduler::
   FusionGuard fg(fusion);
 
   const auto& args =
-      normalization_scheduler_utils::getInnerOrOuterPersistentHeuristicArgs(
+      normalization_scheduler_utils::getPersistentKernelProperties(
           fusion, runtime_info, data_cache, schedule_heuristic);
 
   std::shared_ptr<ReductionParams> rparams = innerPersistentHeuristic(
