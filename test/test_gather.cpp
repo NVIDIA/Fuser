@@ -122,8 +122,7 @@ TEST_F(IndexingOpTest, Scatter1DIndexZerosSelfTvSameShape_CUDA) {
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-    testValidate(
-        &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
 
@@ -163,8 +162,7 @@ TEST_F(IndexingOpTest, TorchGatherAllRankAllSelectedDim_CUDA) {
 
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
         auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-        testValidate(
-            &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+        testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
       }
     }
   }
@@ -208,8 +206,7 @@ TEST_F(IndexingOpTest, TorchGatherAddMul_CUDA) {
 
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
         auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-        testValidate(
-            &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+        testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
       }
     }
   }
@@ -256,8 +253,7 @@ TEST_F(IndexingOpTest, AddGatherSumAdd_CUDA) {
         std::vector<c10::IValue> aten_inputs = {t_lookup, t_idx_1, t_idx_2};
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
         auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-        testValidate(
-            &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+        testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
       }
     }
   }
@@ -357,8 +353,7 @@ TEST_F(IndexingOpTest, TorchGatherAddMulHugeSize_CUDA) {
 
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
         auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-        testValidate(
-            &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+        testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
       }
     }
   }
