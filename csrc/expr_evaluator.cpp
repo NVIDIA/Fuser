@@ -198,11 +198,34 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(ParallelType pt) {
 }
 
 const PolymorphicValue& ExpressionEvaluator::evaluate(const Val* value) const {
-  const auto it = known_values_.find(value);
-  return it != known_values_.end() ? it->second : null_;
+  if (precomputed_values_ && precomputed_values_->ready()) {
+    if (precomputed_values_->getMaybeValueFor(value).hasValue()) {
+      return precomputed_values_->getMaybeValueFor(value);
+    }
+  }
+
+  std::reference_wrapper<const PolymorphicValue> maybe_concrete_value =
+      getValue(value);
+  if (!maybe_concrete_value.get().hasValue()) {
+    if (auto def = value->definition()) {
+      FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
+      std::vector<PolymorphicValue> inputs;
+      inputs.reserve(def->inputs().size());
+      for (auto i : def->inputs()) {
+        const auto& eval_i = evaluate(i);
+        if (!eval_i.hasValue()) {
+          return null_;
+        }
+        inputs.emplace_back(eval_i);
+      }
+      auto outputs = def->evaluate(*this, inputs);
+      maybe_concrete_value = getValue(value);
+    }
+  }
+  return maybe_concrete_value;
 }
 
-const PolymorphicValue& ExpressionEvaluator::getValue(const Val* value) {
+const PolymorphicValue& ExpressionEvaluator::getValue(const Val* value) const {
   if (value->isScalar() && value->isConst()) {
     return value->value();
   }

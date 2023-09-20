@@ -80,7 +80,7 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
   ExpressionEvaluator clone(IrCloner& ir_cloner) const;
 
  private:
-  const PolymorphicValue& getValue(const Val* value);
+  const PolymorphicValue& getValue(const Val* value) const;
 
  private:
   // TODO: Consider make this const. It can't be const as bind() of
