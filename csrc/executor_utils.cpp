@@ -1210,18 +1210,18 @@ CompiledKernel getCompiledKernel(
     }
   }
 
-  const auto compile_args =
+  CompiledKernel compiled_kernel;
+  compiled_kernel.compile_args =
       toDelimitedString(nvrtc_compile_driver.options(), " ");
 
   auto& kernel_db = KernelDb::get();
   const auto use_kernel_db = kernel_db.enabled() && kernel_code.has_value();
 
-  CompiledKernel compiled_kernel;
   // If the Kernel Query fails, the Kernel is recompiled
   if (!(use_kernel_db &&
         kernel_db.query(
             kernel_code.value(),
-            compile_args,
+            compiled_kernel.compile_args,
             compiled_kernel.kernel_name,
             (compile_to_sass ? compiled_kernel.cubin : compiled_kernel.ptx)))) {
     compiled_kernel = compileSource(
@@ -1230,7 +1230,7 @@ CompiledKernel getCompiledKernel(
     if (use_kernel_db) {
       auto result = kernel_db.write(
           kernel_code.value(),
-          compile_args,
+          compiled_kernel.compile_args,
           compiled_kernel.kernel_name,
           (compile_to_sass ? compiled_kernel.cubin : compiled_kernel.ptx));
       if (!result) {
@@ -1259,20 +1259,36 @@ CompiledKernel getCompiledKernel(
       compiled_kernel.kernel_name.c_str()));
 
   // Store block size used to generate compile arguments
-  /*
   if (opt_block_size.has_value()) {
-    compiled_binary.block_size = opt_block_size.value();
+    compiled_kernel.block_size = opt_block_size.value();
   }
-  */
 
   return compiled_kernel;
 }
 
-/*
 std::tuple<NvrtcFunction, std::string> getCompiledKernel(
-    const serde::CudaKernelT& compiled_binary,
+    const serde::CudaKernel* buffer,
     const CompileParams& compile_params) {
   FUSER_PERF_SCOPE("executor_utils::serde_NVRTC");
+
+  NVF_ERROR(buffer != nullptr, "serde::CudaKernel is nullptr.");
+
+  // Deserialize flatbuffer into CompiledKernel
+  CompiledKernel compiled_kernel;
+  if (buffer->ptx() != nullptr) {
+    compiled_kernel.ptx.reserve(buffer->ptx()->size());
+    std::copy(buffer->ptx()->begin(), buffer->ptx()->end(), (uint8_t*) compiled_kernel.ptx.data());
+    compiled_kernel.ptx_filename = buffer->ptx_filename->str();
+  }
+
+  if (buffer->cubin() != nullptr) {
+    compiled_kernel.cubin.reserve(buffer->cubin()->size());
+    std::copy(buffer->cubin()->begin(), buffer->cubin()->end(), (uint8_t*) compiled_kernel.cubin.data());
+    compiled_kernel.cubin_filename = buffer->cubin_filename->str();
+  }
+  compiled_kernel.kernel_name = buffer->kernel_name()->str();
+  compiled_kernel.compile_args = buffer->compile_args()->str();
+  compiled_kernel.block_size = buffer->block_size();
 
   at::cuda::jit::initializeCudaContext();
 
@@ -1325,19 +1341,20 @@ std::tuple<NvrtcFunction, std::string> getCompiledKernel(
   std::stringstream log;
   NvrtcFunction compiled_kernel;
 
-  auto object_code_ptr =
-      reinterpret_cast<const char*>(compiled_binary.object_code.data());
-  log << module_load_driver.invoke(compiled_kernel.module, object_code_ptr)
+  log << module_load_driver.invoke(
+             compiled_kernel.module,
+             (compile_to_sass ? compiled_kernel.cubin.data()
+                              : compiled_kernel.ptx.data()))
       << std::endl;
+  compiled_kernel.compile_log = log.str();
 
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
       &(compiled_kernel.function),
       compiled_kernel.module,
-      compiled_binary.name.c_str()));
+      compiled_kernel.kernel_name.c_str()));
 
-  return {compiled_kernel, log.str()};
+  return compiled_kernel;
 }
-*/
 
 namespace caching {
 

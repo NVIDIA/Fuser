@@ -311,6 +311,11 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const LaunchParams& new_launch_params,
       const CompileParams& new_compile_params);
 
+  //! Serialize CompiledKernel using flatbuffers
+  flatbuffers::Offset<serde::CudaKernel> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const executor_utils::CompiledKernel& kernel) const;
+
   // ExecutorEntry is an internal POD struct for the FusionExecutor class.
   // We define ExecutorEntry's serialize and deserialize as private methods in
   // FusionExecutor.
