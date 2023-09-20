@@ -571,10 +571,8 @@ Val* minOrMaxExpr(
     Fimc func) {
   if (rhs == nullptr) {
     return lhs;
-  } else if (lhs == nullptr) {
+  } else if (lhs == nullptr || lhs->sameAs(rhs)) {
     return rhs;
-  } else if (lhs->sameAs(rhs)) {
-    return lhs;
   } else if (lhs->isConst() && rhs->isConst()) {
     return IrBuilder::create<Val>(func(lhs->value(), rhs->value()));
   } else {
