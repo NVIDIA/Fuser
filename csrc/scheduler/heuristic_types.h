@@ -51,6 +51,7 @@ enum class ScheduleHeuristic {
   PointWise,
   Reduction,
   Persistent,
+  OuterPersistent,
   Transpose,
   Matmul
 };
@@ -61,6 +62,7 @@ constexpr std::array<ScheduleHeuristic, 6> all_heuristics_in_priority_order = {
     ScheduleHeuristic::Reduction,
     ScheduleHeuristic::Transpose,
     ScheduleHeuristic::PointWise,
+    ScheduleHeuristic::OuterPersistent,
     ScheduleHeuristic::Persistent,
     ScheduleHeuristic::Matmul};
 

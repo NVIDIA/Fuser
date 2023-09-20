@@ -19,6 +19,8 @@ std::string toString(ScheduleHeuristic sh) {
       return "pointwise";
     case ScheduleHeuristic::Reduction:
       return "reduction";
+    case ScheduleHeuristic::OuterPersistent:
+      return "outer persistent";
     case ScheduleHeuristic::Persistent:
       return "persistent";
     case ScheduleHeuristic::Transpose:
