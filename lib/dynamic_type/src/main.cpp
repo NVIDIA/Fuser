@@ -36,20 +36,17 @@ struct OperatorChecker {
   }
 };
 
-#define DEFINE_BINARY_OP(op)                                           \
-  template <typename T1, typename T2>                                  \
-  constexpr auto operator op(OperatorChecker<T1>, OperatorChecker<T2>) \
-      ->decltype((std::declval<T1>() op std::declval<T2>()), true) {   \
-    return true;                                                       \
-  }                                                                    \
-                                                                       \
-  constexpr bool operator op(                                          \
-      CastableFromOperatorChecker, CastableFromOperatorChecker) {      \
-    return false;                                                      \
-  }
+template <typename T1, typename T2>
+constexpr auto operator<(OperatorChecker<T1>, OperatorChecker<T2>)
+    -> decltype((std::declval<T1>() < std::declval<T2>()), true) {
+  return true;
+}
 
-DEFINE_BINARY_OP(<);
-#undef DEFINE_BINARY_OP
+constexpr bool operator<(
+    CastableFromOperatorChecker,
+    CastableFromOperatorChecker) {
+  return false;
+}
 
 } // namespace opcheck_impl
 
@@ -96,11 +93,6 @@ constexpr auto cartesian_product(Tuple1 first, OtherTuples... others) {
 template <typename... Ts>
 constexpr bool any(Ts... bs) {
   return (bs || ...);
-}
-
-template <typename... Ts>
-constexpr bool any(std::tuple<Ts...> bs) {
-  return std::apply([](auto... bs) { return any(bs...); }, bs);
 }
 
 // Can I find an x from tuple1 and a y from tuple12 such that f(x, y) is
