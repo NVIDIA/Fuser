@@ -182,6 +182,9 @@ bool SchedulerEntry::canSchedule(
     case ScheduleHeuristic::Reduction:
       return checkCanSchedule<ReductionScheduler>(
           fusion, runtime_info, data_cache);
+    case ScheduleHeuristic::InnerPersistent:
+      return checkCanSchedule<InnerPersistentKernelScheduler>(
+          fusion, runtime_info, data_cache);
     case ScheduleHeuristic::Persistent:
       return checkCanSchedule<PersistentKernelScheduler>(
           fusion, runtime_info, data_cache);
@@ -215,6 +218,10 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
       break;
     case ScheduleHeuristic::Reduction:
       scheduler_entry = std::make_unique<ReductionScheduler>(
+          fusion, runtime_info, data_cache);
+      break;
+    case ScheduleHeuristic::InnerPersistent:
+      scheduler_entry = std::make_unique<InnerPersistentKernelScheduler>(
           fusion, runtime_info, data_cache);
       break;
     case ScheduleHeuristic::Persistent:
@@ -292,6 +299,11 @@ HeuristicSummary::HeuristicSummary(
       getReductionHeuristics(fusion, runtime_info, this);
       ReductionScheduler::canScheduleRunTime(fusion, runtime_info, this);
       break;
+    case ScheduleHeuristic::InnerPersistent:
+      getInnerPersistentHeuristics(fusion, runtime_info, this);
+      InnerPersistentKernelScheduler::canScheduleRunTime(
+          fusion, runtime_info, this);
+      break;
     case ScheduleHeuristic::Persistent:
       getPersistentHeuristics(fusion, runtime_info, this);
       PersistentKernelScheduler::canScheduleRunTime(fusion, runtime_info, this);
@@ -355,6 +367,25 @@ void HeuristicSummary::validate() const {
       NVF_ERROR(entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
       NVF_ERROR(
           entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
+      break;
+    }
+    case ScheduleHeuristic::InnerPersistent: {
+      NVF_ERROR(entry_type_map_.count(EntryType::REDUCTION_TVS));
+      NVF_ERROR(
+          entry_type_map_.count(EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));
+      NVF_ERROR(entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
+      NVF_ERROR(
+          entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
+      NVF_ERROR(entry_type_map_.count(EntryType::PERSISTENT_BUFFER_INFO));
+      // If check persistent factor only when persistent buffers needed.
+      auto persistent_buffer_info =
+          entry_type_map_.at(EntryType::PERSISTENT_BUFFER_INFO)
+              ->as<
+                  CompileTimeInfo<HeuristicCompileTime::PersistentBufferInfo>>()
+              ->get();
+      NVF_ERROR(
+          !persistent_buffer_info->persistent_buffers.empty() &&
+          entry_type_map_.count(EntryType::SCOPE_PERSISTENT_FACTOR_INFO));
       break;
     }
     case ScheduleHeuristic::Persistent: {
