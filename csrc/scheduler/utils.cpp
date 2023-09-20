@@ -1330,9 +1330,9 @@ bool hasInnerDim(
   auto alloc_dom = tv->getMaybeAllocationDomain();
 
   auto root_pos_it = std::find_if(
-      alloc_dom.begin(),
-      alloc_dom.end(),
-      [&inner_most_dim](IterDomain* id) { return inner_most_dim == id; });
+      alloc_dom.begin(), alloc_dom.end(), [&inner_most_dim](IterDomain* id) {
+        return inner_most_dim == id;
+      });
 
   if (root_pos_it == alloc_dom.end()) {
     return false;
