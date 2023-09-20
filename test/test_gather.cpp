@@ -123,7 +123,7 @@ TEST_F(IndexingOpTest, Scatter1DIndexZerosSelfTvSameShape_CUDA) {
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
     testValidate(
-        &fusion, cg_outputs, aten_inputs, {out_ref}, __LINE__, __FILE__);
+        &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
 
@@ -164,7 +164,7 @@ TEST_F(IndexingOpTest, TorchGatherAllRankAllSelectedDim_CUDA) {
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
         auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
         testValidate(
-            &fusion, cg_outputs, aten_inputs, {tv_out_ref}, __LINE__, __FILE__);
+            &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
       }
     }
   }
@@ -209,7 +209,7 @@ TEST_F(IndexingOpTest, TorchGatherAddMul_CUDA) {
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
         auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
         testValidate(
-            &fusion, cg_outputs, aten_inputs, {tv_out_ref}, __LINE__, __FILE__);
+            &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
       }
     }
   }
@@ -257,7 +257,7 @@ TEST_F(IndexingOpTest, AddGatherSumAdd_CUDA) {
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
         auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
         testValidate(
-            &fusion, cg_outputs, aten_inputs, {t_out}, __LINE__, __FILE__);
+            &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
       }
     }
   }
@@ -358,7 +358,7 @@ TEST_F(IndexingOpTest, TorchGatherAddMulHugeSize_CUDA) {
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
         auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
         testValidate(
-            &fusion, cg_outputs, aten_inputs, {tv_out_ref}, __LINE__, __FILE__);
+            &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
       }
     }
   }
@@ -627,7 +627,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise1_CUDA) {
 
   auto ref = at::take_along_dim(t0 + 1, t1.unsqueeze(-1), 1);
 
-  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Same as the above but with the pointwise scheduler
@@ -665,7 +665,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise2_CUDA) {
 
   auto ref = at::take_along_dim(t0 + 1, t1.unsqueeze(-1), 1);
 
-  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Reduction then take_along_axis. This is currently segmented due to
