@@ -105,6 +105,14 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
     return false;
   }
 
+  // (3) check required SMs per normalizaiton.
+  constexpr bool is_inner_grid_persistent = false;
+  if (is_inner_grid_persistent &&
+      !normalization_scheduler_utils::runTimeCheckSmPerNorm(
+          persistent_buffer_size, schedule_heuristic)) {
+    return false;
+  }
+
   return true;
 }
 

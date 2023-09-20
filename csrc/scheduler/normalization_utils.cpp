@@ -773,7 +773,7 @@ int64_t getPersistentBufferSize(
 }
 
 // Get the appropriate scheduler based on reduction type
-std::optional<ScheduleHeuristic> getOptionalPersistentScheduleHeuristic(
+std::optional<ScheduleHeuristic> getMaybePersistentScheduleHeuristic(
     Fusion* fusion) {
   auto reduction_type = reduction_scheduler_utils::getReductionType(fusion);
   using ReductionType = reduction_scheduler_utils::ReductionType;
@@ -962,7 +962,7 @@ bool checkViewRootPersistentTopology(
   return true;
 }
 
-// used by inner persistent kernel and innerOuter persistent kernel for run time
+// used by inner persistent kernel and innerOuter persistent kernel for runtime
 // check.
 bool runTimeCheckIterSize(
     const scheduler_utils::ReductionTvProperties& properties,
@@ -982,6 +982,27 @@ bool runTimeCheckIterSize(
           scheduler_utils::safeDiv(device_multiprocessor_count, 8)) {
     scheduler_debug_utils::canScheduleRejectReason(
         heuristic, "not enough blocks");
+    return false;
+  }
+  return true;
+}
+
+// used by inner persistent kernel runtime check.
+bool runTimeCheckSmPerNorm(
+    const int64_t persistent_buffer_size,
+    ScheduleHeuristic heuristic) {
+  // If the persistence requires over half the device don't do grid
+  // persistence as we can't overlap the grid comms.
+  const int64_t required_sm_per_norm =
+      ceilDiv(persistent_buffer_size, scheduler_utils::register_file_size);
+
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+  const int64_t device_multiprocessor_count =
+      (int64_t)device_prop->multiProcessorCount;
+  if (required_sm_per_norm >
+      scheduler_utils::safeDiv(device_multiprocessor_count, 2)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        heuristic, "requires over half GPU persistence.");
     return false;
   }
   return true;

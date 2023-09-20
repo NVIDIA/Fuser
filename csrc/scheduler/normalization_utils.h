@@ -222,7 +222,7 @@ int64_t getPersistentBufferSize(
 
 // Return a InnerPersistent, OuterPersistent, or InnerOuterPersistent
 // ScheduleHeuristic based on reduction types. If no reduction, returns nullptr.
-std::optional<ScheduleHeuristic> getOptionalPersistentScheduleHeuristic(
+std::optional<ScheduleHeuristic> getMaybePersistentScheduleHeuristic(
     Fusion* fusion);
 
 //! Check ops and inputs of the given fusion.
@@ -259,6 +259,12 @@ bool innerOrOuterCompileTimeCheck(Fusion* fusion, ScheduleHeuristic heuristic);
 //! time check.
 bool runTimeCheckIterSize(
     const scheduler_utils::ReductionTvProperties& properties,
+    ScheduleHeuristic heuristic);
+
+//! Don't go grid persistent if the persistence requires over half the device,
+//! as we can't overlap the grid comms.
+bool runTimeCheckSmPerNorm(
+    const int64_t persistent_buffer_size,
     ScheduleHeuristic heuristic);
 
 //! helper functions used by getPersistentHeuristic
