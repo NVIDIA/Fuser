@@ -268,14 +268,8 @@ bool runTimeCheckSmPerNorm(
     ScheduleHeuristic heuristic);
 
 //! helper functions used by getPersistentHeuristic
-//! returns reduced tensor, reduction properties, and vectorize factor
-std::tuple<TensorView*, scheduler_utils::ReductionTvProperties, int64_t>
-getReductionPropertiesVectFactor(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache,
-    const std::vector<TensorView*>& reduction_tvs,
-    TensorView* reference_tv);
+//! These checks seems redundant and can be safely removed.
+void fusionChecks(Fusion* fusion, TensorView* ref_red_tv);
 
 //! returns whether buffer projection is allowed and buffer size.
 std::tuple<bool, scheduler_utils::PersistentBufferSizeReturn> getBufferSizeInfo(

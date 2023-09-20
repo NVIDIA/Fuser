@@ -1008,14 +1008,9 @@ bool runTimeCheckSmPerNorm(
   return true;
 }
 
-// used by all persistent kernels through getPersistentHeuristic
-std::tuple<TensorView*, scheduler_utils::ReductionTvProperties, int64_t>
-getReductionPropertiesVectFactor(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache,
-    const std::vector<TensorView*>& reduction_tvs,
-    TensorView* ref_red_tv) {
+// Used by all persistent kernels through getPersistentHeuristic
+// These checks seems redundant and can be safely removed.
+void fusionChecks(Fusion* fusion, TensorView* ref_red_tv) {
   // (1) check
   NVF_ERROR(ref_red_tv != nullptr, "Reduction TensorView wasn't found.");
   NVF_ERROR(ref_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
@@ -1026,21 +1021,6 @@ getReductionPropertiesVectFactor(
   NVF_ERROR(
       std::distance(tv_inps.begin(), tv_inps.end()) > 0,
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
-
-  // (2) reduction properties
-  auto properties =
-      scheduler_utils::getReductionProperties(fusion, runtime_info, ref_red_tv);
-
-  // (3) vectorization factor
-  auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
-  auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-      runtime_info,
-      reduced_tv,
-      data_cache,
-      vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
-
-  return std::make_tuple(reduced_tv, properties, vectorize_factor);
 }
 
 // used by all persistent kernels through getPersistentHeuristic
@@ -1270,9 +1250,17 @@ PersistentHeuristicArgs getInnerOrOuterPersistentHeuristicArgs(
   auto& reduction_tvs = reduction_tv_entry.get();
 
   // (1) reduction properties and vectorization factor
-  auto [reduced_tv, properties, vectorize_factor] =
-      normalization_scheduler_utils::getReductionPropertiesVectFactor(
-          fusion, runtime_info, data_cache, reduction_tvs, reduction_tvs[0]);
+  auto ref_red_tv = reduction_tvs[0];
+  fusionChecks(fusion, ref_red_tv);
+  auto properties =
+      scheduler_utils::getReductionProperties(fusion, runtime_info, ref_red_tv);
+  auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
+  auto vectorize_factor = vectorize_helper::getVectorizationFactor(
+      runtime_info,
+      reduced_tv,
+      data_cache,
+      vectorize_helper::getVectorizationBreakPointOfReductionProducer(
+          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
 
   // (2) info about persistent buffer
   auto [can_project, persistent_buffer_size_info] =

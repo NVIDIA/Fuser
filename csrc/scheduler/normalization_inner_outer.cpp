@@ -536,9 +536,16 @@ std::shared_ptr<ReductionParams> InnerOuterPersistentKernelScheduler::
   auto ref_red_tv = first_inner_reduction_tv;
 
   // (1) reduction properties and vectorization factor
-  auto [reduced_tv, properties, vectorize_factor] =
-      normalization_scheduler_utils::getReductionPropertiesVectFactor(
-          fusion, runtime_info, data_cache, reduction_tvs, ref_red_tv);
+  normalization_scheduler_utils::fusionChecks(fusion, ref_red_tv);
+  auto properties =
+      scheduler_utils::getReductionProperties(fusion, runtime_info, ref_red_tv);
+  auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
+  auto vectorize_factor = vectorize_helper::getVectorizationFactor(
+      runtime_info,
+      reduced_tv,
+      data_cache,
+      vectorize_helper::getVectorizationBreakPointOfReductionProducer(
+          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
 
   // (2) info about persistent buffer.
   auto [can_project, persistent_buffer_size_info] =
