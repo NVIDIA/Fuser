@@ -1952,7 +1952,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
   TORCH_INTERNAL_ASSERT(
-      !last_compiled_binary_.object_code.empty(),
+      !last_compiled_binary_.cubin.empty() || !last_compiled_binary_.ptx.empty(),
       "Expected compiled cuda kernel before serializing FusionExecutor.");
 
   using fb_executor_entry = flatbuffers::Offset<serde::ExecutorEntry>;
