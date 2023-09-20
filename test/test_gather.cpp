@@ -115,8 +115,6 @@ TEST_F(IndexingOpTest, Scatter1DIndexZerosSelfTvSameShape_CUDA) {
     at::Tensor idx_2 = idx - idx_1;
     at::Tensor input = at::randn(input_dims[test_id], options);
     at::Tensor src = at::randn(src_dims[test_id], options);
-    auto t_index = at::add(idx_1, idx_2);
-    auto out_ref = at::scatter(input, 0, t_index, src);
 
     std::vector<c10::IValue> aten_inputs = {input, idx_1, idx_2, src};
 
@@ -157,7 +155,6 @@ TEST_F(IndexingOpTest, TorchGatherAllRankAllSelectedDim_CUDA) {
             at::randint(0, input_dims[dim], index_dims, options_i);
         at::Tensor output = at::zeros(index_dims, options);
 
-        auto tv_out_ref = at::gather(input, dim, input_idx);
         std::vector<c10::IValue> aten_inputs = {input, input_idx};
 
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
@@ -196,11 +193,6 @@ TEST_F(IndexingOpTest, TorchGatherAddMul_CUDA) {
         at::Tensor input = at::randn(input_dims, options); // lookup
         at::Tensor input_idx =
             at::randint(0, input_dims[dim], index_dims, options_i);
-        at::Tensor output = at::zeros(index_dims, options);
-
-        auto t_gather = at::gather(input, dim, input_idx);
-        auto t_add = at::add(t_gather, t_gather);
-        auto tv_out_ref = at::mul(t_gather, t_add);
 
         std::vector<c10::IValue> aten_inputs = {input, input_idx};
 
@@ -246,9 +238,6 @@ TEST_F(IndexingOpTest, AddGatherSumAdd_CUDA) {
             at::randint(0, input_dims[dim] / 2, index_dims, options_i);
         at::Tensor t_idx_2 =
             at::randint(0, input_dims[dim] / 2, index_dims, options_i);
-
-        auto t_index = at::add(t_idx_1, t_idx_2);
-        auto t_out = at::gather(t_lookup, dim, t_index);
 
         std::vector<c10::IValue> aten_inputs = {t_lookup, t_idx_1, t_idx_2};
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
@@ -343,11 +332,6 @@ TEST_F(IndexingOpTest, TorchGatherAddMulHugeSize_CUDA) {
         at::Tensor input = at::randn(input_dims, options); // lookup
         at::Tensor input_idx =
             at::randint(0, input_dims[dim], index_dims, options_i);
-        at::Tensor output = at::zeros(index_dims, options);
-
-        auto t_gather = at::gather(input, dim, input_idx);
-        auto t_add = at::add(t_gather, t_gather);
-        auto tv_out_ref = at::mul(t_gather, t_add);
 
         std::vector<c10::IValue> aten_inputs = {input, input_idx};
 
