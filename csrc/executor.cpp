@@ -1951,10 +1951,6 @@ float FusionExecutor::runRtc(
 flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
-  TORCH_INTERNAL_ASSERT(
-      !last_compiled_binary_.object_code.empty(),
-      "Expected compiled cuda kernel before serializing FusionExecutor.");
-
   using fb_executor_entry = flatbuffers::Offset<serde::ExecutorEntry>;
 
   // Separate unordered_map for executor_entry_lookup into key and value
@@ -1977,7 +1973,51 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       kernel_code_.c_str(),
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
-      serde::mapToSerdeDtype(kernel()->indexType()));
+      serde::mapToSerdeDtype(kernel()->indexType()),
+      serialize(builder, compiled_kernel_));
+}
+
+flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
+    flatbuffers::FlatBufferBuilder& builder,
+    const executor_utils::CompiledKernel& compiled_kernel) const {
+  NVF_ERROR(
+      !compiled_kernel.cubin.empty() || !compiled_kernel.ptx.empty(),
+      "Expected compiled cuda kernel before serializing FusionExecutor.");
+
+  auto fb_kernel_name = builder.CreateString(compiled_kernel.kernel_name);
+  auto fb_compile_args = builder.CreateString(compiled_kernel.compile_args);
+
+  flatbuffers::Offset<flatbuffers::Vector<uint8_t>> fb_cubin = 0;
+  flatbuffers::Offset<flatbuffers::Vector<uint8_t>> fb_ptx = 0;
+  flatbuffers::Offset<flatbuffers::String> fb_cubin_filename = 0;
+  flatbuffers::Offset<flatbuffers::String> fb_ptx_filename = 0;
+
+  if (!compiled_kernel.cubin.empty()) {
+    uint8_t* dst_ptr = nullptr;
+    fb_cubin = builder.CreateUninitializedVector(
+        compiled_kernel.cubin.size(), &dst_ptr);
+    std::copy(
+        compiled_kernel.cubin.begin(), compiled_kernel.cubin.end(), dst_ptr);
+    fb_cubin_filename = builder.CreateString(compiled_kernel.cubin_filename);
+  }
+
+  if (!compiled_kernel.ptx.empty()) {
+    uint8_t* dst_ptr = nullptr;
+    fb_ptx =
+        builder.CreateUninitializedVector(compiled_kernel.ptx.size(), &dst_ptr);
+    std::copy(compiled_kernel_.ptx.begin(), compiled_kernel.ptx.end(), dst_ptr);
+    fb_ptx_filename = builder.CreateString(compiled_kernel.ptx_filename);
+  }
+
+  serde::CudaKernelBuilder ckb(builder);
+  ckb.add_cubin(fb_cubin);
+  ckb.add_cubin_filename(fb_cubin_filename);
+  ckb.add_cubin(fb_ptx);
+  ckb.add_ptx_filename(fb_ptx_filename);
+  ckb.add_kernel_name(fb_kernel_name);
+  ckb.add_compile_args(fb_compile_args);
+  ckb.add_block_size(compiled_kernel.block_size);
+  return ckb.Finish();
 }
 
 flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
@@ -2099,12 +2139,7 @@ void FusionExecutor::deserialize(
   }
 
   compiled_kernel_ = executor_utils::getCompiledKernel(
-      kernel_code_,
-      getStructuredCode(),
-      getCanonicalKernelName(),
-      fusion_id_,
-      compile_params,
-      block_size_high_water_mark_);
+      buffer->compiled_kernel(), compile_params);
 
   NVF_ERROR(isCompiled(), "Failed to deserialize FusionExecutor");
 }

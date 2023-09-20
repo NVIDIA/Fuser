@@ -41,7 +41,7 @@ TORCH_CUDA_CU_API ExpressionEvaluator
 bindInputs(const KernelArgumentHolder& args, Fusion* fusion);
 
 std::string disassembleBinary(
-    const serde::CudaKernelT& cubin,
+    const std::vector<char>& cubin,
     const std::string& nvdisasm_args);
 
 struct CompiledKernel {
@@ -53,6 +53,8 @@ struct CompiledKernel {
   std::vector<char> cubin;
   std::string cubin_filename;
   std::string kernel_name;
+  std::string compile_args;
+  long block_size = -1;
 };
 
 // Returns executable function and the ptxas log from compilation
@@ -64,12 +66,10 @@ CompiledKernel getCompiledKernel(
     const CompileParams& compile_params = CompileParams(),
     std::optional<int64_t> opt_block_size = std::nullopt);
 
-/*
 // Returns executable function using flatbuffer object
-std::tuple<NvrtcFunction, std::string> getCompiledKernel(
-    const serde::CudaKernelT& buffer,
+CompiledKernel getCompiledKernel(
+    const serde::CudaKernel* buffer,
     const CompileParams& compile_params);
-*/
 
 namespace caching {
 // TODO: Could consider putting some of

@@ -37,7 +37,7 @@ TEST_F(NVFuserTest, KernelDb_Query_CUDA) {
   try {
     const std::string bad_text("blahblahblah");
     std::string dummy_name;
-    std::vector<int8_t> dummy_cubin(0);
+    std::vector<char> dummy_cubin(0);
 
     ASSERT_FALSE(kernel_db.query(bad_text, bad_text, dummy_name, dummy_cubin));
     SUCCEED();
@@ -53,7 +53,7 @@ TEST_F(NVFuserTest, KernelDb_Query_CUDA) {
     ASSERT_TRUE(copy_from_text_file(code_path, code));
     const std::string bad_text("blahblahblah");
     std::string dummy_name;
-    std::vector<int8_t> dummy_cubin(0);
+    std::vector<char> dummy_cubin(0);
 
     ASSERT_FALSE(kernel_db.query(code, bad_text, dummy_name, dummy_cubin));
     SUCCEED();
@@ -70,7 +70,7 @@ TEST_F(NVFuserTest, KernelDb_Query_CUDA) {
     const std::string compiler_args(
         "--std=c++14 --gpu-architecture=sm_80 -default-device --fmad=true -DNDEBUG --ptxas-options --maxrregcount=255");
     std::string dummy_name;
-    std::vector<int8_t> dummy_cubin(0);
+    std::vector<char> dummy_cubin(0);
 
     ASSERT_TRUE(kernel_db.query(code, compiler_args, dummy_name, dummy_cubin));
     SUCCEED();
