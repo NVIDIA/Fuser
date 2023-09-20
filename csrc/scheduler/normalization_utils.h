@@ -271,8 +271,8 @@ bool runTimeCheckSmPerNorm(
 //! These checks seems redundant and can be safely removed.
 void fusionChecks(Fusion* fusion, TensorView* ref_red_tv);
 
-//! returns whether buffer projection is allowed and buffer size.
-std::tuple<bool, scheduler_utils::PersistentBufferSizeReturn> getBufferSizeInfo(
+//! find and cache persistent buffer, calculate and return buffer size.
+scheduler_utils::PersistentBufferSizeReturn getBufferSizeInfo(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache);

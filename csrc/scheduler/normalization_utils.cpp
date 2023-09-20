@@ -1024,7 +1024,7 @@ void fusionChecks(Fusion* fusion, TensorView* ref_red_tv) {
 }
 
 // used by all persistent kernels through getPersistentHeuristic
-std::tuple<bool, scheduler_utils::PersistentBufferSizeReturn> getBufferSizeInfo(
+scheduler_utils::PersistentBufferSizeReturn getBufferSizeInfo(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
@@ -1058,13 +1058,8 @@ std::tuple<bool, scheduler_utils::PersistentBufferSizeReturn> getBufferSizeInfo(
   // persistent buffer as a float, however we could obviously just save t0 which
   // is half and would take half the memory. A more complex scenario of this
   // which requires more advanced analysis is batch norm backwards.
-  // TODO: Fix projected persistent buffers with view
-  // https://github.com/csarofeen/pytorch/issues/2054
-  // If projected persistent buffers are smaller, they will be used.
-  bool can_project = ir_utils::getViewOps(fusion).empty() &&
-      persistent_buffer_size_info.projected_persistent_buffer_size > 0;
 
-  return std::make_tuple(can_project, persistent_buffer_size_info);
+  return persistent_buffer_size_info;
 }
 
 // used by inner and outer persistent kernels through getHeuristi
@@ -1263,9 +1258,16 @@ PersistentHeuristicArgs getInnerOrOuterPersistentHeuristicArgs(
           ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
 
   // (2) info about persistent buffer
-  auto [can_project, persistent_buffer_size_info] =
-      normalization_scheduler_utils::getBufferSizeInfo(
-          fusion, runtime_info, data_cache);
+  auto persistent_buffer_size_info = normalization_scheduler_utils::getBufferSizeInfo(
+      fusion,
+      runtime_info,
+      data_cache);
+
+  // TODO: Fix projected persistent buffers with view
+  // https://github.com/csarofeen/pytorch/issues/2054  
+  bool can_project = ir_utils::getViewOps(fusion).empty() &&
+      persistent_buffer_size_info.projected_persistent_buffer_size > 0;
+
   bool project_persistent_buffers = can_project &&
       persistent_buffer_size_info.projected_persistent_buffer_size <
           persistent_buffer_size_info.persistent_buffer_size;
