@@ -247,7 +247,7 @@ static void NvFuserScheduler_Transpose(
       ->Unit(benchmark::kMicrosecond)
 
 NVFUSER_TRANSPOSE_SQUARE_RUN(
-    NF_Transpose_Random_fp32_Inner_2D_01_Axis,
+    NvFuserScheduler_Transpose_Random_fp32_Inner_2D_01_Axis,
     DataType::Float,
     2 /* num_dims */,
     0 /* axis1 */,
@@ -255,7 +255,7 @@ NVFUSER_TRANSPOSE_SQUARE_RUN(
     TransposeConfig(TRANSPOSE_CONFIG));
 
 NVFUSER_TRANSPOSE_SQUARE_RUN(
-    NF_Transpose_Random_fp32_Inner_3D_02_Axis,
+    NvFuserScheduler_Transpose_Random_fp32_Inner_3D_02_Axis,
     DataType::Float,
     3 /* num_dims */,
     0 /* axis1 */,
@@ -263,7 +263,7 @@ NVFUSER_TRANSPOSE_SQUARE_RUN(
     TransposeConfig(TRANSPOSE_CONFIG));
 
 NVFUSER_TRANSPOSE_SQUARE_RUN(
-    NF_Transpose_Random_fp32_Inner_3D_12_Axis,
+    NvFuserScheduler_Transpose_Random_fp32_Inner_3D_12_Axis,
     DataType::Float,
     3 /* num_dims */,
     1 /* axis1 */,
@@ -271,7 +271,7 @@ NVFUSER_TRANSPOSE_SQUARE_RUN(
     TransposeConfig(TRANSPOSE_CONFIG));
 
 NVFUSER_TRANSPOSE_SQUARE_RUN(
-    NF_Transpose_Random_fp32_Outer_3D_01_Axis,
+    NvFuserScheduler_Transpose_Random_fp32_Outer_3D_01_Axis,
     DataType::Float,
     3 /* num_dims */,
     0 /* axis1 */,
@@ -281,7 +281,7 @@ NVFUSER_TRANSPOSE_SQUARE_RUN(
 //------------------------------------------------------------------------------
 
 NVFUSER_TRANSPOSE_SQUARE_RUN(
-    NF_Transpose_Random_fp16_Inner_2D_01_Axis,
+    NvFuserScheduler_Transpose_Random_fp16_Inner_2D_01_Axis,
     DataType::Half,
     2 /* num_dims */,
     0 /* axis1 */,
@@ -289,7 +289,7 @@ NVFUSER_TRANSPOSE_SQUARE_RUN(
     TransposeConfig(TRANSPOSE_CONFIG));
 
 NVFUSER_TRANSPOSE_SQUARE_RUN(
-    NF_Transpose_Random_fp16_Inner_3D_02_Axis,
+    NvFuserScheduler_Transpose_Random_fp16_Inner_3D_02_Axis,
     DataType::Half,
     3 /* num_dims */,
     0 /* axis1 */,
@@ -297,7 +297,7 @@ NVFUSER_TRANSPOSE_SQUARE_RUN(
     TransposeConfig(TRANSPOSE_CONFIG));
 
 NVFUSER_TRANSPOSE_SQUARE_RUN(
-    NF_Transpose_Random_fp16_Inner_3D_12_Axis,
+    NvFuserScheduler_Transpose_Random_fp16_Inner_3D_12_Axis,
     DataType::Half,
     3 /* num_dims */,
     1 /* axis1 */,
@@ -305,7 +305,7 @@ NVFUSER_TRANSPOSE_SQUARE_RUN(
     TransposeConfig(TRANSPOSE_CONFIG));
 
 NVFUSER_TRANSPOSE_SQUARE_RUN(
-    NF_Transpose_Random_fp16_Outer_3D_01_Axis,
+    NvFuserScheduler_Transpose_Random_fp16_Outer_3D_01_Axis,
     DataType::Half,
     3 /* num_dims */,
     0 /* axis1 */,
