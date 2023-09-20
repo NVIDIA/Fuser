@@ -191,16 +191,9 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   std::string getStructuredCode() const;
 
-  //! Returns the latest compiled binary
-  const serde::CudaKernelT& compiledBinary() const {
-    // See table definition for CudaKernel in serde/fusion_cache.fbs
-    // struct CudaKernelT {
-    //   std::string name;
-    //   std::string compile_args;
-    //   std::vector<int8_t> object_code;
-    //   long block_size;
-    // }
-    return last_compiled_binary_;
+  //! Returns a const reference to the latest compiled kernel.
+  const executor_utils::CompiledKernel& compiledKernel() const {
+    return compiled_kernel_;
   }
 
   //! Returns the disassembled latest compiled binary

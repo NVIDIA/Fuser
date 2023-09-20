@@ -41,7 +41,7 @@ TORCH_CUDA_CU_API ExpressionEvaluator
 bindInputs(const KernelArgumentHolder& args, Fusion* fusion);
 
 std::string disassembleBinary(
-    const serde::CudaKernelT& cubin,
+    const std::vector<char>& cubin,
     const std::string& nvdisasm_args);
 
 struct CompiledKernel {
