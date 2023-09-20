@@ -20,8 +20,6 @@ using type_identity_t = typename type_identity<T>::type;
 
 } // namespace std
 
-namespace dynamic_type {
-
 // Implementation detail for opcheck. This implementation is very long, I
 // recommend read the usage doc below first before reading this implementation.
 namespace opcheck_impl {
@@ -132,10 +130,6 @@ inline constexpr bool operator<(
     const std::type_identity_t<DT>& y) {
   return true;
 }
-
-} // namespace dynamic_type
-
-using namespace dynamic_type;
 
 int main() {
   using DT = DynamicType<int64_t>;
