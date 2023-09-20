@@ -204,6 +204,15 @@ IterDomain* TorchGatherOp::getConsumerOfIndexedID() const {
   return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
 }
 
+std::vector<PolymorphicValue> TorchGatherOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& input = inputs.at(0).as<at::Tensor>();
+  const auto& index = inputs.at(1).as<at::Tensor>();
+  auto dimension = dim();
+  return {at::gather(input, dimension, index)};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(TorchGatherOp)
 
 ScatterOp::ScatterOp(
@@ -240,6 +249,16 @@ std::string ScatterOp::toInlineString(int indent_size) const {
 
 IterDomain* ScatterOp::getIndexedID() const {
   return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
+}
+
+std::vector<PolymorphicValue> ScatterOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& input = inputs.at(0).as<at::Tensor>();
+  const auto& index = inputs.at(1).as<at::Tensor>();
+  const auto& src = inputs.at(2).as<at::Tensor>();
+  auto dimension = dim();
+  return {at::scatter(input, dimension, index, src)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScatterOp)
