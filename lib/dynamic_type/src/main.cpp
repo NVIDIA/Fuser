@@ -12,9 +12,8 @@ static auto hasLessThanHelper(long) -> std::false_type;
 template <typename T1, typename T2>
 struct hasLessThan : decltype(hasLessThanHelper<T1, T2>(0)) {};
 
-template <typename T>
 struct DynamicType {
-  using T1 = T;
+  using T1 = int64_t;
   using T2 = std::vector<DynamicType>;
 };
 
@@ -31,6 +30,6 @@ inline constexpr bool operator<(const DT& x, const DT& y) {
 }
 
 int main() {
-  using DT = DynamicType<int64_t>;
+  using DT = DynamicType;
   static_assert(hasLessThan<std::vector<DT>, std::vector<DT>>::value);
 }
