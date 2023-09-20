@@ -141,6 +141,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/lower2device.cpp
   ${NVFUSER_SRCS_DIR}/manager.cpp
   ${NVFUSER_SRCS_DIR}/maxinfo_propagator.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/communication.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communicator.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/executor.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/runtime.cpp
@@ -444,7 +445,8 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
     ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
     ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_multidevice.cpp
+    ${NVFUSER_ROOT}/test/test_multidevice.cpp
+    ${NVFUSER_ROOT}/test/test_multidevice_communications.cpp
     ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
     ${NVFUSER_ROOT}/test/test_optimization_pass.cpp
     ${NVFUSER_ROOT}/test/test_pipeline.cpp
