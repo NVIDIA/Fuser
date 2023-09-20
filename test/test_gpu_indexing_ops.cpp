@@ -44,8 +44,7 @@ TEST_F(NVFuserTest, FusionSelectOpPointwise_CUDA) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, idx});
 
-  testValidate(
-      &fusion, cg_outputs, {t0, idx}, {t1, t2, t3}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0, idx}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionSelectOpReduction_CUDA) {
@@ -170,8 +169,7 @@ TEST_F(NVFuserTest, FusionIndexSelectSimple_CUDA) {
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-    testValidate(
-        &fusion, cg_outputs, aten_inputs, {output_ref}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
 
@@ -213,8 +211,7 @@ TEST_F(NVFuserTest, FusionIndexSelect_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, {output_ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test 1D schedule
@@ -256,8 +253,7 @@ TEST_F(NVFuserTest, FusionIndexSelect1DSch_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, {output_ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionIndexSelect3DTv_CUDA) {
@@ -298,8 +294,7 @@ TEST_F(NVFuserTest, FusionIndexSelect3DTv_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, {output_ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
@@ -487,8 +482,7 @@ TEST_F(NVFuserTest, FusionIndexSelectIdxTvFuseable_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, {output_ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionIndexSelectDim1InRank2_CUDA) {
@@ -533,8 +527,7 @@ TEST_F(NVFuserTest, FusionIndexSelectDim1InRank2_CUDA) {
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-    testValidate(
-        &fusion, cg_outputs, aten_inputs, {output_ref}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
 
@@ -576,8 +569,7 @@ TEST_F(NVFuserTest, FusionIndexSelectDim2InRank3_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, {output_ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionIndexSelectDim1InRank3_CUDA) {
@@ -618,8 +610,7 @@ TEST_F(NVFuserTest, FusionIndexSelectDim1InRank3_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, {output_ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionIndexSelectDim2InRank4_CUDA) {
@@ -663,8 +654,7 @@ TEST_F(NVFuserTest, FusionIndexSelectDim2InRank4_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, {output_ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

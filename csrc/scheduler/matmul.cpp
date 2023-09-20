@@ -6,9 +6,11 @@
  */
 // clang-format on
 #include <inlining.h>
+#include <instrumentation.h>
+#include <scheduler/debug_utils.h>
 #include <scheduler/matmul.h>
+#include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
-#include <scheduler/registry.h>
 #include <scheduler/utils.h>
 
 // NOTE: included to avoid compilation error caused by missing destructor in
@@ -17,6 +19,52 @@
 #include "mma_type.h"
 
 namespace nvfuser {
+
+MatmulScheduler::MatmulScheduler(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache)
+    : SchedulerEntry(ScheduleHeuristic::Matmul) {
+  computeHeuristics(fusion, runtime_info);
+}
+
+void MatmulScheduler::schedule(Fusion* fusion) {
+  FUSER_PERF_SCOPE("Schedule Matmul Fusion");
+  scheduleMatmul(fusion, matmulParams());
+}
+
+bool MatmulScheduler::canScheduleCompileTime(Fusion* fusion) {
+  const auto msg = getMatmulCompileTimeRejectReason(fusion);
+  if (!msg.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::Matmul, msg);
+    return false;
+  }
+
+  return true;
+}
+
+bool MatmulScheduler::canScheduleRunTime(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("MatmulScheduler::canSchedule");
+  auto reason = getMatmulRunTimeRejectReason(fusion, data_cache, runtime_info);
+  if (!reason.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::Matmul, reason);
+    return false;
+  }
+  return true;
+}
+
+void MatmulScheduler::computeHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache) {
+  params_ = getMatmulHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(params_ != nullptr);
+}
 
 namespace {
 
@@ -813,12 +861,14 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   } else {
     // Use cp.async as requested in scheduler params.
     LoadStoreOpType load_op = LoadStoreOpType::Set;
+    CacheOp cache_op = CacheOp::Unspecified;
     if (params.async_gmem_load_operands) {
-      load_op = LoadStoreOpType::CpAsyncCg;
+      load_op = LoadStoreOpType::CpAsync;
+      cache_op = CacheOp::Global;
     }
 
-    acw_smem = ar->cacheAfter(load_op);
-    bcw_smem = br->cacheAfter(load_op);
+    acw_smem = ar->cacheAfter(load_op, cache_op);
+    bcw_smem = br->cacheAfter(load_op, cache_op);
     NVF_ERROR(acw_smem->uses().size() == 1);
     NVF_ERROR(bcw_smem->uses().size() == 1);
     if (auto ldst = dynamic_cast<LoadStoreOp*>(acw_smem->uses().at(0))) {
