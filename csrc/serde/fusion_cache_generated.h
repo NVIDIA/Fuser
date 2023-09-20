@@ -3405,6 +3405,7 @@ struct CudaKernelT : public ::flatbuffers::NativeTable {
   std::string compile_args{};
   std::vector<int8_t> object_code{};
   int64_t block_size = -1LL;
+  bool is_ptx = false;
 };
 
 struct CudaKernel FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
@@ -3414,7 +3415,8 @@ struct CudaKernel FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     VT_NAME = 4,
     VT_COMPILE_ARGS = 6,
     VT_OBJECT_CODE = 8,
-    VT_BLOCK_SIZE = 10
+    VT_BLOCK_SIZE = 10,
+    VT_IS_PTX = 12
   };
   const ::flatbuffers::String *name() const {
     return GetPointer<const ::flatbuffers::String *>(VT_NAME);
@@ -3428,6 +3430,9 @@ struct CudaKernel FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   int64_t block_size() const {
     return GetField<int64_t>(VT_BLOCK_SIZE, -1LL);
   }
+  bool is_ptx() const {
+    return GetField<uint8_t>(VT_IS_PTX, 0) != 0;
+  }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyOffset(verifier, VT_NAME) &&
@@ -3437,6 +3442,7 @@ struct CudaKernel FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            VerifyOffset(verifier, VT_OBJECT_CODE) &&
            verifier.VerifyVector(object_code()) &&
            VerifyField<int64_t>(verifier, VT_BLOCK_SIZE, 8) &&
+           VerifyField<uint8_t>(verifier, VT_IS_PTX, 1) &&
            verifier.EndTable();
   }
   CudaKernelT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3460,6 +3466,9 @@ struct CudaKernelBuilder {
   void add_block_size(int64_t block_size) {
     fbb_.AddElement<int64_t>(CudaKernel::VT_BLOCK_SIZE, block_size, -1LL);
   }
+  void add_is_ptx(bool is_ptx) {
+    fbb_.AddElement<uint8_t>(CudaKernel::VT_IS_PTX, static_cast<uint8_t>(is_ptx), 0);
+  }
   explicit CudaKernelBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -3476,12 +3485,14 @@ inline ::flatbuffers::Offset<CudaKernel> CreateCudaKernel(
     ::flatbuffers::Offset<::flatbuffers::String> name = 0,
     ::flatbuffers::Offset<::flatbuffers::String> compile_args = 0,
     ::flatbuffers::Offset<::flatbuffers::Vector<int8_t>> object_code = 0,
-    int64_t block_size = -1LL) {
+    int64_t block_size = -1LL,
+    bool is_ptx = false) {
   CudaKernelBuilder builder_(_fbb);
   builder_.add_block_size(block_size);
   builder_.add_object_code(object_code);
   builder_.add_compile_args(compile_args);
   builder_.add_name(name);
+  builder_.add_is_ptx(is_ptx);
   return builder_.Finish();
 }
 
@@ -3490,7 +3501,8 @@ inline ::flatbuffers::Offset<CudaKernel> CreateCudaKernelDirect(
     const char *name = nullptr,
     const char *compile_args = nullptr,
     const std::vector<int8_t> *object_code = nullptr,
-    int64_t block_size = -1LL) {
+    int64_t block_size = -1LL,
+    bool is_ptx = false) {
   auto name__ = name ? _fbb.CreateString(name) : 0;
   auto compile_args__ = compile_args ? _fbb.CreateString(compile_args) : 0;
   auto object_code__ = object_code ? _fbb.CreateVector<int8_t>(*object_code) : 0;
@@ -3499,7 +3511,8 @@ inline ::flatbuffers::Offset<CudaKernel> CreateCudaKernelDirect(
       name__,
       compile_args__,
       object_code__,
-      block_size);
+      block_size,
+      is_ptx);
 }
 
 ::flatbuffers::Offset<CudaKernel> CreateCudaKernel(::flatbuffers::FlatBufferBuilder &_fbb, const CudaKernelT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
@@ -5560,6 +5573,7 @@ inline void CudaKernel::UnPackTo(CudaKernelT *_o, const ::flatbuffers::resolver_
   { auto _e = compile_args(); if (_e) _o->compile_args = _e->str(); }
   { auto _e = object_code(); if (_e) { _o->object_code.resize(_e->size()); std::copy(_e->begin(), _e->end(), _o->object_code.begin()); } }
   { auto _e = block_size(); _o->block_size = _e; }
+  { auto _e = is_ptx(); _o->is_ptx = _e; }
 }
 
 inline ::flatbuffers::Offset<CudaKernel> CudaKernel::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const CudaKernelT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
@@ -5574,12 +5588,14 @@ inline ::flatbuffers::Offset<CudaKernel> CreateCudaKernel(::flatbuffers::FlatBuf
   auto _compile_args = _o->compile_args.empty() ? 0 : _fbb.CreateString(_o->compile_args);
   auto _object_code = _o->object_code.size() ? _fbb.CreateVector(_o->object_code) : 0;
   auto _block_size = _o->block_size;
+  auto _is_ptx = _o->is_ptx;
   return nvfuser::serde::CreateCudaKernel(
       _fbb,
       _name,
       _compile_args,
       _object_code,
-      _block_size);
+      _block_size,
+      _is_ptx);
 }
 
 inline FusionExecutorT::FusionExecutorT(const FusionExecutorT &o)
