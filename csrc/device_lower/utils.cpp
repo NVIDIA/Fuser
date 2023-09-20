@@ -181,8 +181,7 @@ bool isLdMatrixOp(const Expr* expr) {
 
 bool isCpAsyncOp(const Expr* expr) {
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
-    return ldst->opType() == LoadStoreOpType::CpAsyncCa ||
-        ldst->opType() == LoadStoreOpType::CpAsyncCg;
+    return ldst->opType() == LoadStoreOpType::CpAsync;
   }
   return false;
 }
@@ -575,7 +574,7 @@ class ReplaceExprInput : private kir::ExprMutator {
     auto replaced_inputs = getMaybeInputReplacementMap(node);
     if (replaced_inputs.has_value()) {
       auto replacement = IrBuilder::create<LoadStoreOp>(
-          node->opType(), node->out(), node->in());
+          node->opType(), node->out(), node->in(), node->cacheOp());
       registerReplaceWithPredicate(node, replacement);
     }
   }

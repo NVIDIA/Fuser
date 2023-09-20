@@ -82,14 +82,14 @@ class TORCH_CUDA_CU_API KernelDb {
       const std::string& kernel_code,
       const std::string& compile_args,
       std::string& kernel_signature,
-      std::vector<int8_t>& cubin) const;
+      std::vector<char>& cubin) const;
   //! Write is used to write a new entry to the db upon compilation of a
   //! new fusion
   bool write(
       const std::string& kernel_code,
       const std::string& compile_args,
       const std::string& kernel_signature,
-      const std::vector<int8_t>& cubin);
+      const std::vector<char>& cubin);
 
  private:
   //! Disablement is specified by the user and can also be set by a

@@ -368,6 +368,8 @@ table CudaKernel {
   // We compare the generated compile args against those stored in this table
   // when deserializing this cuda kernel.
   block_size: long = -1;
+  // Does this table contain a cubin or ptx?
+  is_ptx: bool;
 }
 
 // Each Fusion Executor maps to a lowered and compiled kernel.

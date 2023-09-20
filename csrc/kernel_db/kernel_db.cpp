@@ -201,7 +201,7 @@ bool KernelDb::query(
     const std::string& kernel_code,
     const std::string& compile_args,
     std::string& kernel_signature,
-    std::vector<int8_t>& cubin) const {
+    std::vector<char>& cubin) const {
   FUSER_PERF_SCOPE("KernelDb::query");
   bool status = false;
   auto db_entry = kernel_map_.find(kernel_code);
@@ -228,7 +228,7 @@ bool KernelDb::write(
     const std::string& kernel_code,
     const std::string& compile_args,
     const std::string& kernel_signature,
-    const std::vector<int8_t>& cubin) {
+    const std::vector<char>& cubin) {
   FUSER_PERF_SCOPE("KernelDb::write");
   std::lock_guard<std::mutex> guard(kernel_db_lock);
 

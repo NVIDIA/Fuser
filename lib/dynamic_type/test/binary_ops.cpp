@@ -25,15 +25,35 @@
     static_assert(opcheck<DoubleInt64BoolVec> op opcheck<DoubleInt64BoolVec>); \
     static_assert(opcheck<DoubleInt64Bool> op opcheck<int>);                   \
     static_assert(opcheck<DoubleInt64BoolVec> op opcheck<int>);                \
+    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64BoolTwo>);    \
+    static_assert(                                                             \
+        opcheck<DoubleInt64BoolVec> op opcheck<DoubleInt64BoolVecTwo>);        \
     static_assert(opcheck<int> op opcheck<DoubleInt64Bool>);                   \
     static_assert(opcheck<int> op opcheck<DoubleInt64BoolVec>);                \
+    static_assert(opcheck<DoubleInt64BoolTwo> op opcheck<DoubleInt64Bool>);    \
+    static_assert(                                                             \
+        opcheck<DoubleInt64BoolVecTwo> op opcheck<DoubleInt64BoolVec>);        \
     static_assert(                                                             \
         (DoubleInt64Bool(2L) op DoubleInt64Bool(2.5))                          \
             .as<decltype(2L op 2.5)>() == (2L op 2.5));                        \
+    static_assert(                                                             \
+        (DoubleInt64Bool(2L) op DoubleInt64BoolTwo{})                          \
+            .as<decltype(2L op 2L)>() == (2L op 2L));                          \
+    static_assert(                                                             \
+        (DoubleInt64BoolTwo {} op DoubleInt64Bool(2L))                         \
+            .as<decltype(2L op 2L)>() == (2L op 2L));                          \
     EXPECT_EQ(                                                                 \
         (DoubleInt64BoolVec(2L) op DoubleInt64BoolVec(2.5))                    \
             .as<decltype(2L op 2.5)>(),                                        \
         (2L op 2.5));                                                          \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVec(2L) op DoubleInt64BoolVecTwo{})                    \
+            .as<decltype(2L op 2L)>(),                                         \
+        (2L op 2L));                                                           \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVecTwo {} op DoubleInt64BoolVec(2L))                   \
+            .as<decltype(2L op 2L)>(),                                         \
+        (2L op 2L));                                                           \
     static_assert(                                                             \
         (DoubleInt64Bool(3L) op 2L).as<decltype((3L op 2L))>() == (3L op 2L)); \
     EXPECT_EQ(                                                                 \
@@ -76,12 +96,42 @@ TEST_BINARY_OP_ALLTYPE(LogicalOr, ||);
     static_assert(opcheck<DoubleInt64BoolVec> op opcheck<DoubleInt64BoolVec>); \
     static_assert(opcheck<DoubleInt64Bool> op opcheck<int>);                   \
     static_assert(opcheck<DoubleInt64BoolVec> op opcheck<int>);                \
+    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64BoolTwo>);    \
+    static_assert(                                                             \
+        opcheck<DoubleInt64BoolVec> op opcheck<DoubleInt64BoolVecTwo>);        \
     static_assert(opcheck<int> op opcheck<DoubleInt64Bool>);                   \
     static_assert(opcheck<int> op opcheck<DoubleInt64BoolVec>);                \
+    static_assert(opcheck<DoubleInt64BoolTwo> op opcheck<DoubleInt64Bool>);    \
+    static_assert(                                                             \
+        opcheck<DoubleInt64BoolVecTwo> op opcheck<DoubleInt64BoolVec>);        \
     static_assert(                                                             \
         (DoubleInt64Bool(2L) op DoubleInt64Bool(2.0)) == (2L op 2.0));         \
+    static_assert(                                                             \
+        (DoubleInt64Bool(2L) op DoubleInt64BoolTwo{}) == (2L op 2L));          \
+    static_assert(                                                             \
+        (DoubleInt64Bool(1L) op DoubleInt64BoolTwo{}) == (1L op 2L));          \
+    static_assert(                                                             \
+        (DoubleInt64Bool(3L) op DoubleInt64BoolTwo{}) == (3L op 2L));          \
+    static_assert(                                                             \
+        (DoubleInt64BoolTwo {} op DoubleInt64Bool(2L)) == (2L op 2L));         \
+    static_assert(                                                             \
+        (DoubleInt64BoolTwo {} op DoubleInt64Bool(1L)) == (2L op 1L));         \
+    static_assert(                                                             \
+        (DoubleInt64BoolTwo {} op DoubleInt64Bool(3L)) == (2L op 3L));         \
     EXPECT_EQ(                                                                 \
         (DoubleInt64BoolVec(2L) op DoubleInt64BoolVec(2.0)), (2L op 2.0));     \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVec(2L) op DoubleInt64BoolVecTwo{}), (2L op 2L));      \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVec(1L) op DoubleInt64BoolVecTwo{}), (1L op 2L));      \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVec(3L) op DoubleInt64BoolVecTwo{}), (3L op 2L));      \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVecTwo {} op DoubleInt64BoolVec(2L)), (2L op 2L));     \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVecTwo {} op DoubleInt64BoolVec(1L)), (2L op 1L));     \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVecTwo {} op DoubleInt64BoolVec(3L)), (2L op 3L));     \
     EXPECT_EQ(                                                                 \
         (DoubleInt64BoolVec(std::vector<int64_t>{2})                           \
              op DoubleInt64BoolVec(std::vector<double>{2.0})),                 \
@@ -130,14 +180,34 @@ TEST_COMPARE_OP(Ge, >=);
     static_assert(opcheck<DoubleInt64BoolVec> op opcheck<DoubleInt64BoolVec>); \
     static_assert(opcheck<DoubleInt64Bool> op opcheck<int64_t>);               \
     static_assert(opcheck<DoubleInt64BoolVec> op opcheck<int64_t>);            \
+    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64BoolTwo>);    \
+    static_assert(                                                             \
+        opcheck<DoubleInt64BoolVec> op opcheck<DoubleInt64BoolVecTwo>);        \
     static_assert(opcheck<int64_t> op opcheck<DoubleInt64Bool>);               \
     static_assert(opcheck<int64_t> op opcheck<DoubleInt64BoolVec>);            \
+    static_assert(opcheck<DoubleInt64BoolTwo> op opcheck<DoubleInt64Bool>);    \
+    static_assert(                                                             \
+        opcheck<DoubleInt64BoolVecTwo> op opcheck<DoubleInt64BoolVec>);        \
     static_assert(                                                             \
         (DoubleInt64Bool(3L) op DoubleInt64Bool(2L)).as<int64_t>() ==          \
         (3L op 2L));                                                           \
+    static_assert(                                                             \
+        (DoubleInt64Bool(3L) op DoubleInt64BoolTwo{})                          \
+            .as<decltype(3L op 2L)>() == (3L op 2L));                          \
+    static_assert(                                                             \
+        (DoubleInt64BoolTwo {} op DoubleInt64Bool(3L))                         \
+            .as<decltype(2L op 3L)>() == (2L op 3L));                          \
     EXPECT_EQ(                                                                 \
         (DoubleInt64BoolVec(3L) op DoubleInt64BoolVec(2L)).as<int64_t>(),      \
         (3L op 2L));                                                           \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVec(3L) op DoubleInt64BoolVecTwo{})                    \
+            .as<decltype(3L op 2L)>(),                                         \
+        (3L op 2L));                                                           \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVecTwo {} op DoubleInt64BoolVec(3L))                   \
+            .as<decltype(2L op 3L)>(),                                         \
+        (2L op 3L));                                                           \
     static_assert((DoubleInt64Bool(3L) op 2L).as<int64_t>() == (3L op 2L));    \
     EXPECT_EQ((DoubleInt64BoolVec(3L) op 2L).as<int64_t>(), (3L op 2L));       \
     static_assert((3L op DoubleInt64Bool(2L)).as<int64_t>() == (3L op 2L));    \

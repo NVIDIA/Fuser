@@ -44,13 +44,19 @@ std::string disassembleBinary(
     const serde::CudaKernelT& cubin,
     const std::string& nvdisasm_args);
 
-struct NvrtcFunction {
+struct CompiledKernel {
   CUmodule module = nullptr;
   CUfunction function = nullptr;
+  std::string compile_log;
+  std::vector<char> ptx;
+  std::string ptx_filename;
+  std::vector<char> cubin;
+  std::string cubin_filename;
+  std::string kernel_name;
 };
 
 // Returns executable function and the ptxas log from compilation
-std::tuple<NvrtcFunction, std::string, serde::CudaKernelT> getCompiledKernel(
+CompiledKernel getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& code,
     const std::string& func_name,
@@ -58,10 +64,12 @@ std::tuple<NvrtcFunction, std::string, serde::CudaKernelT> getCompiledKernel(
     const CompileParams& compile_params = CompileParams(),
     std::optional<int64_t> opt_block_size = std::nullopt);
 
+/*
 // Returns executable function using flatbuffer object
 std::tuple<NvrtcFunction, std::string> getCompiledKernel(
     const serde::CudaKernelT& buffer,
     const CompileParams& compile_params);
+*/
 
 namespace caching {
 // TODO: Could consider putting some of

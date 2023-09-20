@@ -226,7 +226,7 @@ void FusionExecutor::debugCompileFusionFromStr(
         "The static shared memory allocation is larger than available memory.");
   }
 
-  std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
+  compiled_kernel_ =
       executor_utils::getCompiledKernel(std::nullopt, code, name, fusion_id_);
   NVF_ERROR(fusion_id_ > 0, "assign a fusion_id_ <= 0 is not accepted.");
 }
@@ -408,14 +408,13 @@ void FusionExecutor::compileFusion(
       (block_size.has_value() ? block_size.value() : 1),
       block_size_high_water_mark_);
   maxrregcount_high_water_mark_ = compile_params.maxrregcount;
-  std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
-      executor_utils::getCompiledKernel(
-          kernel_code_,
-          structured_code,
-          getCanonicalKernelName(),
-          fusion_id_,
-          compile_params,
-          block_size);
+  compiled_kernel_ = executor_utils::getCompiledKernel(
+      kernel_code_,
+      structured_code,
+      getCanonicalKernelName(),
+      fusion_id_,
+      compile_params,
+      block_size);
   NVF_ERROR(fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
 
   // These should be nullopt at this point, but reset just in case
@@ -1520,14 +1519,13 @@ void FusionExecutor::recompileKernel(
   block_size_high_water_mark_ = new_launch_params.nThreads();
   maxrregcount_high_water_mark_ = new_compile_params.maxrregcount;
 
-  std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
-      executor_utils::getCompiledKernel(
-          kernel_code_,
-          structured_code,
-          getCanonicalKernelName(),
-          fusion_id_,
-          new_compile_params,
-          block_size_high_water_mark_);
+  compiled_kernel_ = executor_utils::getCompiledKernel(
+      kernel_code_,
+      structured_code,
+      getCanonicalKernelName(),
+      fusion_id_,
+      new_compile_params,
+      block_size_high_water_mark_);
 
   resetCompiledKernelProperties();
 
@@ -1881,7 +1879,7 @@ void FusionExecutor::compileRtc(
   }
   fusion_id_ = 1;
 
-  std::tie(compiled_kernel_, last_compiler_log_, last_compiled_binary_) =
+  compiled_kernel_ =
       executor_utils::getCompiledKernel(std::nullopt, scode, name, fusion_id_);
 }
 
@@ -1979,8 +1977,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       kernel_code_.c_str(),
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
-      serde::mapToSerdeDtype(kernel()->indexType()),
-      serde::CreateCudaKernel(builder, &last_compiled_binary_));
+      serde::mapToSerdeDtype(kernel()->indexType()));
 }
 
 flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
@@ -2101,10 +2098,13 @@ void FusionExecutor::deserialize(
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
   }
 
-  // Load compiled cuda kernel from flatbuffer
-  buffer->compiled_kernel()->UnPackTo(&last_compiled_binary_);
-  std::tie(compiled_kernel_, last_compiler_log_) =
-      executor_utils::getCompiledKernel(last_compiled_binary_, compile_params);
+  compiled_kernel_ = executor_utils::getCompiledKernel(
+      kernel_code_,
+      getStructuredCode(),
+      getCanonicalKernelName(),
+      fusion_id_,
+      compile_params,
+      block_size_high_water_mark_);
 
   NVF_ERROR(isCompiled(), "Failed to deserialize FusionExecutor");
 }

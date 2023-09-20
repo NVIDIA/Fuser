@@ -23,14 +23,14 @@ bool append_to_text_file(const std::string& file_path, const std::string& src) {
 
 bool copy_from_binary_file(
     const std::string& file_path,
-    std::vector<int8_t>& dst) {
+    std::vector<char>& dst) {
   bool status = false;
   std::ifstream file(file_path, std::ios::in | std::ios::binary);
   if (file) {
     file.seekg(0, std::ios::end);
     dst.resize(file.tellg());
     file.seekg(0, std::ios::beg);
-    file.read((char*)dst.data(), (std::streamsize)dst.size());
+    file.read(dst.data(), (std::streamsize)dst.size());
 
     file.close();
     status = true;
@@ -55,11 +55,11 @@ bool copy_from_text_file(const std::string& file_path, std::string& dst) {
 
 bool copy_to_binary_file(
     const std::string& file_path,
-    const std::vector<int8_t>& src) {
+    const std::vector<char>& src) {
   bool status = false;
   std::ofstream file(file_path, std::ios::out | std::ios::binary);
   if (file) {
-    file.write((char*)src.data(), (std::streamsize)src.size());
+    file.write(src.data(), (std::streamsize)src.size());
     file.close();
     status = true;
   }

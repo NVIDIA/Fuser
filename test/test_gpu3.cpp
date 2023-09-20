@@ -2430,7 +2430,7 @@ TEST_F(NVFuserTest, FusionSimpleCpAsync_CUDA) {
 
   fusion.addOutput(tv2);
 
-  auto tv0_shared = tv0->cacheAfter(LoadStoreOpType::CpAsyncCa);
+  auto tv0_shared = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   tv0_shared->setMemoryType(MemoryType::Shared);
 
   tv0->computeAt(tv2, 1);
@@ -2476,7 +2476,7 @@ TEST_F(NVFuserTest, FusionDoubleBufferCpAsync1_CUDA) {
 
   fusion.addOutput(tv2);
 
-  auto tv0_shared = tv0->cacheAfter(LoadStoreOpType::CpAsyncCa);
+  auto tv0_shared = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   tv0_shared->setMemoryType(MemoryType::Shared);
   tv0->computeAt(tv2, 1);
 
@@ -2530,7 +2530,7 @@ TEST_F(NVFuserTest, FusionDoubleBufferCpAsync2_CUDA) {
 
   fusion.addOutput(tv2);
 
-  auto tv0_shared = tv0->cacheAfter(LoadStoreOpType::CpAsyncCa);
+  auto tv0_shared = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   tv0_shared->setMemoryType(MemoryType::Shared);
   tv0->computeAt(tv2, 1);
 
@@ -2638,7 +2638,7 @@ TEST_F(NVFuserTest, FusionCpAsyncPredicate_CUDA) {
   auto tv1 = sum(tv0, {1});
   fusion.addOutput(tv1);
 
-  auto tv0_shared = tv0->cacheAfter(LoadStoreOpType::CpAsyncCa);
+  auto tv0_shared = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   tv0_shared->cacheAfter();
   tv0_shared->setMemoryType(MemoryType::Shared);
   tv0->computeAt(tv1, 1);
@@ -5591,7 +5591,7 @@ TEST_F(NVFuserTest, FusionSimpleAmperePipeline_CUDA) {
 
   fusion.addOutput(tv1);
 
-  auto tv_cache = tv0->cacheAfter(LoadStoreOpType::CpAsyncCa);
+  auto tv_cache = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   tv_cache->setMemoryType(MemoryType::Shared);
 
   tv1->split(0, 16);
@@ -5616,7 +5616,8 @@ TEST_F(NVFuserTest, FusionSimpleAmperePipeline_CUDA) {
     }
 
     void handle(LoadStoreOp* ldst) final {
-      if (ldst->opType() == LoadStoreOpType::CpAsyncCa) {
+      if (ldst->opType() == LoadStoreOpType::CpAsync &&
+          ldst->cacheOp() == CacheOp::AllLevels) {
         NVF_ERROR(!within_ite_, "CPASYNC predicate not inlined");
         NVF_ERROR(
             ldst->predicate()->hasValue() &&
@@ -7114,7 +7115,7 @@ TEST_F(NVFuserTest, FusionCpAsyncCommitWait_CUDA) {
   tv1->axis(1)->parallelize(ParallelType::TIDy);
   tv1->axis(2)->parallelize(ParallelType::TIDx);
 
-  auto tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncCa);
+  auto tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   tv2->axis(-1)->parallelize(ParallelType::Vectorize);
   tv2->axis(1)->parallelize(ParallelType::TIDx);
   tv2->axis(2)->parallelize(ParallelType::TIDy);

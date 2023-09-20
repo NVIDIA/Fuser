@@ -180,7 +180,7 @@ TEST_F(MatmulSASSTest, AmpereSanity_CUDA) {
             M,
             N,
             K));
-    for (auto inst : sass.code) {
+    for (const auto& inst : sass.code) {
       std::visit(
           [&](auto&& i) {
             using T = std::decay_t<decltype(i)>;
@@ -230,7 +230,7 @@ TEST_F(MatmulSASSTest, AmpereModifiers_CUDA) {
             M,
             N,
             K));
-    for (auto inst : sass.code) {
+    for (const auto& inst : sass.code) {
       std::visit(
           [&](auto&& i) {
             using T = std::decay_t<decltype(i)>;
@@ -367,7 +367,7 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
             smem_double_buffer_stage,
             use_smem_epilogue,
             promote_prologue_smem_reuse));
-    for (auto inst : sass.code) {
+    for (const auto& inst : sass.code) {
       std::visit(
           [&](auto&& i) {
             using T = std::decay_t<decltype(i)>;
@@ -483,7 +483,7 @@ TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul_CUDA) {
             M,
             N,
             K));
-    for (auto inst : sass.code) {
+    for (const auto& inst : sass.code) {
       std::visit(
           [&](auto&& i) {
             using T = std::decay_t<decltype(i)>;
@@ -613,7 +613,7 @@ TEST_F(MatmulSASSTest, AmpereRegisterUsageLDSM_CUDA) {
             M,
             N,
             K));
-    for (auto inst : sass.code) {
+    for (const auto& inst : sass.code) {
       std::visit(
           [&](auto&& i) {
             using T = std::decay_t<decltype(i)>;
