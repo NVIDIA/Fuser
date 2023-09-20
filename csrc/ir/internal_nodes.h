@@ -72,6 +72,9 @@ class TORCH_CUDA_CU_API SelectOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   TensorView* lookupTv() const {
     return input(0)->as<TensorView>();
@@ -102,6 +105,9 @@ class TORCH_CUDA_CU_API IndexSelectOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   TensorView* lookupTv() const {
     return input(0)->as<TensorView>();
@@ -1608,7 +1614,7 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
       LoadStoreOpType op_type,
       Val* out,
       Val* in,
-      CacheOp cache_op = CacheOp::Streaming);
+      CacheOp cache_op = CacheOp::Unspecified);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1643,6 +1649,9 @@ class TORCH_CUDA_CU_API LoadStoreOp : public Expr {
 
   void setOpType(LoadStoreOpType op) {
     attribute<LoadStoreOpType>(0) = op;
+    if (op != LoadStoreOpType::Set && op != LoadStoreOpType::CpAsync) {
+      attribute<CacheOp>(1) = CacheOp::Unspecified;
+    }
   }
 };
 
