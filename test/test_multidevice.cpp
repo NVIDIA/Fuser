@@ -67,12 +67,16 @@ void SendToTester(
     for (DeviceIdxType j : c10::irange(mesh.vector().size())) {
       buffer = {tensor.index({j, "..."})};
       auto sender = mesh.vector().at(j);
-      comm.sendRecv(tester, sender, buffer);
+      if (tester != sender && (comm.deviceId() == sender || comm.deviceId() == tester)) {
+        comm.sendRecv(tester, sender, buffer);
+      }
     }
   } else {
     buffer = {tensor};
     auto sender = mesh.vector().at(0);
-    comm.sendRecv(tester, sender, buffer);
+    if (tester != sender && (comm.deviceId() == sender || comm.deviceId() == tester)) {
+      comm.sendRecv(tester, sender, buffer);
+    }
   }
 }
 
@@ -289,7 +293,7 @@ TEST_F(MultiDeviceTest, Pipeline) {
   executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
 }
 
-TEST_F(NVFuserTest, FusionDidx_CUDA) {
+TEST_F(MultiDeviceTest, Didx) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -319,7 +323,7 @@ TEST_F(NVFuserTest, FusionDidx_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionMultiGPU_Gather_CUDA) {
+TEST_F(MultiDeviceTest, Pipeline_Gather) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -352,7 +356,7 @@ TEST_F(NVFuserTest, FusionMultiGPU_Gather_CUDA) {
   executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
 }
 
-TEST_F(NVFuserTest, FusionMultiGPU_Gather2_CUDA) {
+TEST_F(MultiDeviceTest, Pipeline_Gather2) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -389,7 +393,7 @@ TEST_F(NVFuserTest, FusionMultiGPU_Gather2_CUDA) {
   executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
 }
 
-TEST_F(NVFuserTest, FusionMultiGPU_GatherMultipleDestinations_CUDA) {
+TEST_F(MultiDeviceTest, Pipeline_GatherMultipleDestinations) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -425,7 +429,7 @@ TEST_F(NVFuserTest, FusionMultiGPU_GatherMultipleDestinations_CUDA) {
   executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
 }
 
-TEST_F(NVFuserTest, FusionMultiGPU_GatherToExternalRoot_CUDA) {
+TEST_F(MultiDeviceTest, Pipeline_GatherToExternalRoot) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -462,7 +466,7 @@ TEST_F(NVFuserTest, FusionMultiGPU_GatherToExternalRoot_CUDA) {
   executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
 }
 
-TEST_F(NVFuserTest, FusionMultiGPU_AllGather_CUDA) {
+TEST_F(MultiDeviceTest, Pipeline_AllGather) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -499,7 +503,7 @@ TEST_F(NVFuserTest, FusionMultiGPU_AllGather_CUDA) {
   executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
 }
 
-TEST_F(NVFuserTest, FusionMultiGPU_Scatter_CUDA) {
+TEST_F(MultiDeviceTest, Pipeline_Scatter) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -531,7 +535,7 @@ TEST_F(NVFuserTest, FusionMultiGPU_Scatter_CUDA) {
   executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
 }
 
-TEST_F(NVFuserTest, FusionMultiGPU_ScatterToExternalRoot_CUDA) {
+TEST_F(MultiDeviceTest, Pipeline_ScatterToExternalRoot) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -563,7 +567,7 @@ TEST_F(NVFuserTest, FusionMultiGPU_ScatterToExternalRoot_CUDA) {
   executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
 }
 
-TEST_F(NVFuserTest, FusionMultiGPU_BcastBothSidesParallelized_CUDA) {
+TEST_F(MultiDeviceTest, Pipeline_BcastBothSidesParallelized) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -596,7 +600,7 @@ TEST_F(NVFuserTest, FusionMultiGPU_BcastBothSidesParallelized_CUDA) {
   executeAndTestPipeline(std::move(fusion_ptr), pipeline, comm, inputs);
 }
 
-TEST_F(NVFuserTest, FusionMultiGPU_BcastLocalCopies_CUDA) {
+TEST_F(MultiDeviceTest, Pipeline_BcastLocalCopies) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);

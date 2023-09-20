@@ -452,8 +452,6 @@ class NVFuserTest : public ::testing::Test {
                 << "'" << std::endl;
     }
   }
-
-  static Communicator comm;
 };
 
 // assert that the given fusion lowers to the given CUDA kernel

@@ -79,20 +79,19 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
   at::Tensor output_tensor =
       val_to_IValue_.at(c->out()).toTensor(); // shallow copy
 
-  // Lower the Communication into a vector of Collectives
-  if (colls_.find(c) == colls_.end()) { // check if cached
-    colls_.emplace(
+  // Lower the Communication into a vector of Communications
+  if (communications_.find(c) == communications_.end()) { // check if cached
+    communications_.emplace(
         c,
         lowerCommunication(
             runtime_.comm_.deviceId(), c, input_tensor, output_tensor));
   }
-  auto& colls = colls_[c];
+  auto& communications = communications_[c];
 
-  // post and wait collectives
-  for (auto& coll : colls) {
-    coll->setCommunicator(&runtime_.comm_);
-    coll->post();
-    coll->wait();
+  // post and wait communications
+  for (auto& communication : communications) {
+    auto work = communication->post(runtime_.comm_);
+    if (work) work->wait();
   }
 }
 

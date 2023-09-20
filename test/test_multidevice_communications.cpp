@@ -33,7 +33,7 @@ TEST_F(MultiDeviceTest, Communication_Gather) {
   std::iota(params.team.begin(), params.team.end(), 0);
   params.src_bufs = {at::empty(tensor_size, options)};
   if (comm.deviceId() == root) {
-    for (int i = 0; i < comm.size(); i++) {
+    for (uint64_t i = 0; i < comm.size(); i++) {
       params.dst_bufs.push_back(at::empty(tensor_size, options));
     }
   }
@@ -78,7 +78,7 @@ TEST_F(MultiDeviceTest, Communication_Allgather) {
   params.team = std::vector<DeviceIdxType>(comm.size());
   std::iota(params.team.begin(), params.team.end(), 0);
   params.src_bufs = {at::empty(tensor_size, options) * comm.deviceId()};
-  for (int i = 0; i < comm.size(); i++) {
+  for (uint64_t i = 0; i < comm.size(); i++) {
     params.dst_bufs.push_back(at::empty(tensor_size, options));
   }
   auto communication = Allgather(params);
@@ -121,8 +121,8 @@ TEST_F(MultiDeviceTest, Communication_Scatter) {
   params.team = std::vector<DeviceIdxType>(comm.size());
   std::iota(params.team.begin(), params.team.end(), 0);
   if (comm.deviceId() == root) {
-    for (int i = 0; i < comm.size(); i++) {
-      params.src_bufs.push_back(at::empty(tensor_size, options) * i);
+    for (uint64_t i = 0; i < comm.size(); i++) {
+      params.src_bufs.push_back(at::empty(tensor_size, options) * static_cast<int>(i));
     }
   }
   params.dst_bufs = {at::empty(tensor_size, options)};

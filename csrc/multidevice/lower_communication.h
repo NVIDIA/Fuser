@@ -21,7 +21,6 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
     PipelineCommunication* c,
     at::Tensor input_tensor,
     at::Tensor output_tensor);
-
 } // namespace nvfuser
 
 #endif
