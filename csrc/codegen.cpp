@@ -1140,10 +1140,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const kir::TensorIndex* input,
       const Val* init,
       BinaryOpType reduction_op_type,
-      kir::Predicate* read_pred) {
+      kir::Predicate* read_pred,
+      const bool is_padded_to_multiple_of_warp) {
     ArgumentBuilder template_args;
     template_args.arg(kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
     template_args.arg(isAligned());
+    template_args.arg(is_padded_to_multiple_of_warp);
 
     ArgumentBuilder func_args;
     func_args.arg(gen(output));
@@ -1223,7 +1225,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       genSerialReduction(output, input, op_type);
     } else if (
         auto reduction_id = ir_utils::getMaybeWarpReductionDim(output, input)) {
-      genWarpReduction(output, input, rop->init(), op_type, rop->predicate());
+      genWarpReduction(
+          output,
+          input,
+          rop->init(),
+          op_type,
+          rop->predicate(),
+          reduction_id.value()->hasPaddingToMultipleOfWarp());
     } else {
       genBlockReduction(
           output,
@@ -2629,7 +2637,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             input,
             grouped_rop->initVal(i),
             op_type,
-            grouped_rop->predicate());
+            grouped_rop->predicate(),
+            reduction_id.value()->hasPaddingToMultipleOfWarp());
       } else {
         genBlockReduction(
             output,

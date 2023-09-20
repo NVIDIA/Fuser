@@ -21,7 +21,12 @@ __device__ __forceinline__ std::complex<T> shfl_xor(
   return std::complex<T>(real, imag);
 }
 
-template <bool SINGLE_WARP, bool Aligned, typename T, typename Func>
+template <
+    bool SINGLE_WARP,
+    bool Aligned,
+    bool Padded,
+    typename T,
+    typename Func>
 __device__ void warpReduceTIDX(
     T& out,
     const T& inp_val,
@@ -31,7 +36,6 @@ __device__ void warpReduceTIDX(
     T init_val) {
   constexpr int WARP_SIZE = 32;
 
-  // Assume input padded to multiples of a warp
   T reduce_val = init_val;
 
   // Do warp reduction
@@ -40,89 +44,16 @@ __device__ void warpReduceTIDX(
   }
 
   // Reduce within each warp
-  unsigned int warp_idx = threadIdx.x / WARP_SIZE;
-  unsigned int lane_idx = threadIdx.x % WARP_SIZE;  
-  unsigned int reduction_size = blockDim.x;
-  unsigned int num_of_warps = ( reduction_size + WARP_SIZE - 1 ) / WARP_SIZE;
-  for (int i = 16; i >= 1; i /= 2) {
-    T shuffled_value = shfl_xor(reduce_val, i, WARP_SIZE);
-    if(lane_idx + i + warp_idx * WARP_SIZE < reduction_size){
-      reduction_op(reduce_val, shuffled_value);
-    }
-  }
-
-  // Reduce across warp if needed
-  // Load value to shared mem
-  if (!SINGLE_WARP) {
-
-    unsigned int reduce_group_id = threadIdx.z * blockDim.y + threadIdx.y;
-    bool is_warp_head = lane_idx == 0;
-
-    unsigned int smem_offset = reduce_group_id * num_of_warps;
-
-    block_sync::sync<Aligned>();
-
-    if (is_warp_head) {
-      shared_mem[smem_offset + warp_idx] = reduce_val;
-    }
-
-    block_sync::sync<Aligned>();
-
-    if (warp_idx == 0) {
-      // This assumes num_of_warps will be < 32, meaning < 1024 threads.
-      //  Should be true for long enough.
-      assert(num_of_warps <= 32);
-
-      reduce_val = lane_idx < num_of_warps ? shared_mem[smem_offset + lane_idx]
-                                           : init_val;
-
-      // Reduce within warp 0
-      for (int i = 16; i >= 1; i /= 2) {
-        reduction_op(reduce_val, shfl_xor(reduce_val, i, 32));
-      }
-    }
-
-    if (is_warp_head) {
-      reduction_op(out, reduce_val);
-    }
-    // needs sync, otherwise other warps may access shared memory before this
-    // reduction is done.
-    block_sync::sync<Aligned>();
-  } else {
-    reduction_op(out, reduce_val);
-  }
-}
-
-template <bool SINGLE_WARP, bool Aligned, typename T, typename Func>
-__device__ void warpReduceTidxNotPadded(
-    T& out,
-    const T& inp_val,
-    Func reduction_op,
-    T* shared_mem,
-    bool read_write_pred,
-    T init_val) {
-  constexpr int WARP_SIZE = 32;
-
-  // Assume input padded to multiples of a warp
-  T reduce_val = init_val;
-
-  // Do warp reduction
-  if (read_write_pred) {
-    reduce_val = inp_val;
-  }
-
-  // Reduce within each warp
-  unsigned int reduction_size = blockDim.x;
+  // Register usage is reduced when Padded is true due to the elimination of the
+  // if-statement.
   unsigned int warp_idx = threadIdx.x / WARP_SIZE;
   unsigned int lane_idx = threadIdx.x % WARP_SIZE;
+  unsigned int reduction_size = blockDim.x;
   unsigned int num_of_warps = (reduction_size + WARP_SIZE - 1) / WARP_SIZE;
-  unsigned int valid_lanes =
-  warp_idx < num_of_warps - 1 ? WARP_SIZE : reduction_size % WARP_SIZE;
-
+  int hoist_idx = reduction_size - lane_idx - warp_idx * WARP_SIZE;
   for (int i = 16; i >= 1; i /= 2) {
     T shuffled_value = shfl_xor(reduce_val, i, WARP_SIZE);
-    // Only add value shuffled from valid lanes
-    if (lane_idx + i < valid_lanes) {
+    if (Padded || i < hoist_idx) {
       reduction_op(reduce_val, shuffled_value);
     }
   }
@@ -132,6 +63,7 @@ __device__ void warpReduceTidxNotPadded(
   if (!SINGLE_WARP) {
     unsigned int reduce_group_id = threadIdx.z * blockDim.y + threadIdx.y;
     bool is_warp_head = lane_idx == 0;
+
     unsigned int smem_offset = reduce_group_id * num_of_warps;
 
     block_sync::sync<Aligned>();

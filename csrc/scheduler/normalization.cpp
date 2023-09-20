@@ -1007,6 +1007,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
       ceilDiv(total_reduction_numel, vectorize_factor * bdimx);
   rparams->cross_block_inner_reduction = true;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
+  rparams->pad_inner_reduction_to_warp = bdimx % dev_prop->warpSize == 0;
   rparams->batches_per_block_inner_reduction = persistent_batch;
   rparams->unroll_factor_inner_reduction = vectorize_factor;
   rparams->vectorize_inner_reduction = vectorize_factor > 1;
@@ -1502,6 +1503,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // Inner reduction domain
   rparams->cross_block_inner_reduction = true;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
+  rparams->pad_inner_reduction_to_warp = bdimx % dev_prop->warpSize == 0;
   rparams->batches_per_block_inner_reduction =
       batches_per_block_inner_reduction;
 
@@ -1514,10 +1516,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   rparams->multiple_reds_per_blk = bdimy > 1;
   if (rparams->multiple_reds_per_blk) {
     rparams->block_dim_iter_dom = ParallelType::TIDy;
-    // TIDy is used for multiple reductions, must pad bidx to use warp
-    // reduction.
-    rparams->pad_inner_reduction_to_warp =
-        bdimx % (int64_t)dev_prop->warpSize == 0;
   }
 
   if (godim > 1) {

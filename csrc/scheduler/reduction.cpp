@@ -382,6 +382,8 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
   rparams->cross_grid_inner_reduction = gridim > 1;
   rparams->multiple_reds_per_blk = bdimy > 1;
+  rparams->pad_inner_reduction_to_warp =
+      bdimx % (int64_t)at::cuda::getCurrentDeviceProperties()->warpSize == 0;
   rparams->unroll_factor_inner_reduction = inner_reduction_unroll_factor;
   rparams->vectorize_inner_reduction = vectorize;
 
