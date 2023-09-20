@@ -54,35 +54,18 @@ constexpr bool operator<(
 template <typename T>
 constexpr opcheck_impl::OperatorChecker<T> opcheck;
 
-// Take the cartesion product of two tuples.
-// For example:
-// cartesian_product((1, 2), (3, 4)) = ((1, 3), (1, 4), (2, 3), (2, 4))
-template <typename Tuple>
-constexpr auto cartesian_product(Tuple t) {
-  return std::apply(
-      [](auto... ts) constexpr {
-        return std::make_tuple(std::make_tuple(ts)...);
-      },
-      t);
-}
-
-template <typename Tuple1, typename... OtherTuples>
-constexpr auto cartesian_product(Tuple1 first, OtherTuples... others) {
-  auto c_first = cartesian_product(first);
-  auto c_others = cartesian_product(others...);
-  // cat one item in c_first with all the items in c_others
-  auto cat_one_first_all_others = [c_others](auto first_item) {
-    return std::apply(
-        [first_item](auto... other_item) constexpr {
-          return std::make_tuple(std::tuple_cat(first_item, other_item)...);
-        },
-        c_others);
-  };
-  return std::apply(
-      [cat_one_first_all_others](auto... first_items) constexpr {
-        return std::tuple_cat(cat_one_first_all_others(first_items)...);
-      },
-      c_first);
+template <typename T1, typename T2, typename T3, typename T4>
+constexpr std::tuple<
+    std::tuple<T1, T3>,
+    std::tuple<T1, T4>,
+    std::tuple<T2, T3>,
+    std::tuple<T2, T4>>
+cartesian_product(std::tuple<T1, T2> tuple1, std::tuple<T3, T4> tuple2) {
+  return {
+      std::make_tuple(std::get<0>(tuple1), std::get<0>(tuple2)),
+      std::make_tuple(std::get<0>(tuple1), std::get<1>(tuple2)),
+      std::make_tuple(std::get<1>(tuple1), std::get<0>(tuple2)),
+      std::make_tuple(std::get<1>(tuple1), std::get<1>(tuple2))};
 }
 
 // Check if all the booleans in the arguments are true. There are two versions:
