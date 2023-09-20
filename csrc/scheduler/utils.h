@@ -269,9 +269,9 @@ TORCH_CUDA_CU_API std::vector<TensorView*> cacheInputs(
 TORCH_CUDA_CU_API std::vector<std::pair<TensorView*, TensorView*>>
 cacheAndForkOutputs(Fusion* fusion, bool unroll);
 
-// Ignores broadcast and reduction, returns iter domain in root domain that's
-// "inner most".
-IterDomain* innerMostRootDim(TensorView* tv);
+// Ignores broadcast and reduction, returns iter domain in allocation domain
+// that's "inner most".
+IterDomain* innerMostAllocDim(TensorView* tv);
 
 // Looks through fusion and finds all dims that match to the one provided in
 // the tensorview provided. Iter domain must be a root domain. If inner_only,

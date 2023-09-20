@@ -1072,7 +1072,7 @@ std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
 
 namespace {
 
-// Take the inner most rfactor id from innerMostRootDim and project it to the
+// Take the inner most rfactor id from innerMostAllocDim and project it to the
 // root domain if the provided domain is on the rfactor domain. If vectorize,
 // will not project if not following the inner most path.
 IterDomain* projectIdToRoot(
@@ -1137,7 +1137,7 @@ IterDomain* projectIdToRoot(
   return projected_id;
 }
 
-// Take the inner most root id from innerMostRootDim and project it to the
+// Take the inner most root id from innerMostAllocDim and project it to the
 // rfactor domain if the provided domain is on the rfactor domain. If vectorize,
 // will not project if not following the inner most path.
 IterDomain* projectIdToRFactor(
@@ -1201,8 +1201,8 @@ IterDomain* projectIdToRFactor(
 
 } // namespace
 
-IterDomain* innerMostRootDim(TensorView* tv) {
-  const auto& root_domain = tv->getMaybeAllocationDomain();
+IterDomain* innerMostAllocDim(TensorView* tv) {
+  const auto& alloc_domain = tv->getMaybeAllocationDomain();
 
   if (tv->nDims() == 0) {
     return nullptr;
@@ -1210,7 +1210,7 @@ IterDomain* innerMostRootDim(TensorView* tv) {
 
   IterDomain* inner_most_id = nullptr;
 
-  for (auto it = root_domain.rbegin(); it != root_domain.rend(); it++) {
+  for (auto it = alloc_domain.rbegin(); it != alloc_domain.rend(); it++) {
     if ((*it)->isReduction() || (*it)->isBroadcast()) {
       continue;
     }
@@ -1313,7 +1313,7 @@ bool hasInnerDim(
     TensorView* tv,
     std::unordered_set<IterDomain*> inner_dims,
     bool should_vectorize) {
-  const auto& inner_most_dim = innerMostRootDim(tv);
+  const auto& inner_most_dim = innerMostAllocDim(tv);
   if (inner_most_dim == nullptr) {
     return false;
   }
@@ -1327,22 +1327,22 @@ bool hasInnerDim(
     return true;
   }
 
-  auto rfactor_dom = tv->getMaybeRFactorDomain();
+  auto alloc_dom = tv->getMaybeAllocationDomain();
 
   auto root_pos_it = std::find_if(
-      rfactor_dom.begin(),
-      rfactor_dom.end(),
+      alloc_dom.begin(),
+      alloc_dom.end(),
       [&inner_most_dim](IterDomain* id) { return inner_most_dim == id; });
 
-  if (root_pos_it == rfactor_dom.end()) {
+  if (root_pos_it == alloc_dom.end()) {
     return false;
   }
 
-  auto inner_most_dim_pos = std::distance(rfactor_dom.begin(), root_pos_it);
+  auto inner_most_dim_pos = std::distance(alloc_dom.begin(), root_pos_it);
 
   const auto& contiguity = tv->domain()->contiguity();
 
-  NVF_ERROR(contiguity.size() == rfactor_dom.size());
+  NVF_ERROR(contiguity.size() == alloc_dom.size());
 
   // Don't vectorize if inner most dimension is not contiguous
   auto contiguity_opt = contiguity.at(inner_most_dim_pos);
@@ -1362,7 +1362,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
     NVF_ERROR(inner_only, "Can only vectorize inner-most dimensions");
   }
 
-  auto inner_most_id = innerMostRootDim(reference_tv);
+  auto inner_most_id = innerMostAllocDim(reference_tv);
 
   if (inner_most_id == nullptr) {
     return {};
