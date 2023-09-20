@@ -102,6 +102,15 @@ IterDomain* SelectOp::getIndexedID() const {
       .at(dim());
 }
 
+std::vector<PolymorphicValue> SelectOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  int64_t dimension = dim();
+  int64_t index = (int64_t)inputs.at(1);
+  return {in.select(dimension, index)};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(SelectOp)
 
 IndexSelectOp::IndexSelectOp(
@@ -139,6 +148,15 @@ IterDomain* IndexSelectOp::getIndexedID() const {
 
 IterDomain* IndexSelectOp::getConsumerOfIndexedID() const {
   return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
+}
+
+std::vector<PolymorphicValue> IndexSelectOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  int64_t dimension = dim();
+  const auto& indices = inputs.at(1).as<at::Tensor>().squeeze();
+  return {at::index_select(in, dimension, indices)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IndexSelectOp)
@@ -570,12 +588,23 @@ std::vector<PolymorphicValue> TernaryOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   using namespace PolymorphicValue_functions;
-  const auto& in1 = inputs.at(0);
-  const auto& in2 = inputs.at(1);
-  const auto& in3 = inputs.at(2);
+  const auto& a = inputs.at(0);
+  const auto& b = inputs.at(1);
+  const auto& c = inputs.at(2);
   switch (getTernaryOpType()) {
+    case TernaryOpType::Clamp:
+      return {std::min(std::max(a, b), c)};
+      break;
+    case TernaryOpType::Lerp:
+      // This is the same lerp computed in helpers.cu
+      // https://math.stackexchange.com/a/1798323
+      return {(c < 0.5) ? a + c * (b - a) : b - (b - a) * (1.0 - c)};
+      break;
+    case TernaryOpType::Threshold:
+      return {(a <= b) ? c : a};
+      break;
     case TernaryOpType::Where:
-      return {in1.as<bool>() ? in2 : in3};
+      return {a.as<bool>() ? b : c};
       break;
     default:
       NVF_CHECK(

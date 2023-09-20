@@ -511,12 +511,6 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
 
-  // maybe has_reduction for scheduling should be done on a per output tensor
-  // basis.
-  NVF_ERROR(
-      ir_utils::getReductionOps(fusion).empty(),
-      "This scheduler only handles pointwise ops.");
-
   // Cache inputs
   auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
 
