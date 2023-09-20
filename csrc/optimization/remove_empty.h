@@ -12,7 +12,7 @@ namespace nvfuser::optimization {
 
 //! RemoveEmptyPass removes intermediate empty tensors (those with at least one
 //! extent zero thar are neither a fusion output or input).
-class TORCH_CUDA_CU_API RemoveEmptyPass
+class RemoveEmptyPass
     : public OptimizationPass<RemoveEmptyPass> {
   friend class OptimizationPass<RemoveEmptyPass>;
 

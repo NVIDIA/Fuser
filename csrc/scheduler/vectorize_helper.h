@@ -134,7 +134,7 @@ namespace vectorize_helper {
 // MaxInfoSpanningTree::computeInfoC2P with recording_=true where it will
 // actually record the computed information since it will be then projected
 // through the DAG maximizing saving information.
-class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
+class ContiguousInnerDimensionsMapper
     : public MaxInfoSpanningTree,
       MaxInfoSpanningTree::Propagator {
  public:

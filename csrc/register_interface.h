@@ -26,11 +26,11 @@
 
 namespace nvfuser {
 
-TORCH_CUDA_CU_API bool complyWith(
+bool complyWith(
     const at::Tensor& tensor,
     const c10::TensorTypePtr& guard_tensor_type);
 
-struct TORCH_CUDA_CU_API NVFuserPassManager
+struct NVFuserPassManager
     : public torch::jit::PassManager<NVFuserPassManager> {
   static bool registerPass(bool enabled) {
     bool old_value = PassManager::isRegistered();

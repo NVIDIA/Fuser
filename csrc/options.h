@@ -147,7 +147,7 @@ class Options {
 //! Utility class to temporarily overrride the Enable options,
 //! including those provided by the environment variable
 template <typename OptionEnum>
-class TORCH_CUDA_CU_API OptionsGuard {
+class OptionsGuard {
  public:
   OptionsGuard() : prev_options_(getCurOptions()) {}
 
@@ -173,9 +173,9 @@ Options<DebugDumpOption>& OptionsGuard<DebugDumpOption>::getCurOptions();
 
 using DebugDumpOptionsGuard = OptionsGuard<DebugDumpOption>;
 
-TORCH_CUDA_CU_API bool isDebugDumpEnabled(DebugDumpOption option);
+bool isDebugDumpEnabled(DebugDumpOption option);
 
-TORCH_CUDA_CU_API const std::vector<std::string>& getDebugDumpArguments(
+const std::vector<std::string>& getDebugDumpArguments(
     DebugDumpOption option);
 
 // Enable options
@@ -185,9 +185,9 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
 
 using EnableOptions = Options<EnableOption>;
 
-TORCH_CUDA_CU_API bool isOptionEnabled(EnableOption option);
+bool isOptionEnabled(EnableOption option);
 
-TORCH_CUDA_CU_API const std::vector<std::string>& getEnableOptionArguments(
+const std::vector<std::string>& getEnableOptionArguments(
     EnableOption option);
 
 template <>
@@ -202,9 +202,9 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
 
 using DisableOptions = Options<DisableOption>;
 
-TORCH_CUDA_CU_API bool isOptionDisabled(DisableOption option);
+bool isOptionDisabled(DisableOption option);
 
-TORCH_CUDA_CU_API const std::vector<std::string>& getDisableOptionArguments(
+const std::vector<std::string>& getDisableOptionArguments(
     DisableOption option);
 
 template <>

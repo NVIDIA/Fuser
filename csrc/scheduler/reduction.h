@@ -18,17 +18,17 @@ namespace nvfuser {
 class SchedulerRuntimeInfo;
 class HeuristicSummary;
 
-TORCH_CUDA_CU_API std::shared_ptr<ReductionParams> getReductionHeuristics(
+std::shared_ptr<ReductionParams> getReductionHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache = nullptr);
 
-TORCH_CUDA_CU_API std::shared_ptr<ReductionParams> getReductionHeuristics(
+std::shared_ptr<ReductionParams> getReductionHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-TORCH_CUDA_CU_API void scheduleReduction(
+void scheduleReduction(
     Fusion* fusion,
     const ReductionParams& rparams);
 

@@ -55,10 +55,10 @@ int8_t getCommonDeviceCUDA(
     const at::ArrayRef<c10::IValue>& inputs,
     std::optional<int8_t> selected_device = std::nullopt);
 
-TORCH_CUDA_CU_API int64_t
+int64_t
 getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);
 
-TORCH_CUDA_CU_API int64_t
+int64_t
 getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread);
 
 // Check if fallback path should be used which will dispatch to eager mode if

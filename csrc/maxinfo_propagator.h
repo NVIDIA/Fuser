@@ -40,7 +40,7 @@ namespace nvfuser {
  * the `from` tensor.
  */
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class TORCH_CUDA_CU_API MaxInfoSpanningTree {
+class MaxInfoSpanningTree {
  public:
   // Class to subclass in order to stop traversal, by which limits the nodes in
   // the spanning tree.
@@ -163,7 +163,7 @@ class TORCH_CUDA_CU_API MaxInfoSpanningTree {
 // level. This information is stored as a vector of `RootIDInfo`, where each
 // item in the vector corresponds to one ID in the reference tensor's root
 // domain.
-class TORCH_CUDA_CU_API MaxRootDomainInfoSpanningTree
+class MaxRootDomainInfoSpanningTree
     : public MaxInfoSpanningTree {
  protected:
   // This is a struct storing how the information about a root ID in the
@@ -257,7 +257,7 @@ class TORCH_CUDA_CU_API MaxRootDomainInfoSpanningTree
             selector) {}
 };
 
-class TORCH_CUDA_CU_API SpanningTreePrinter
+class SpanningTreePrinter
     : public MaxInfoSpanningTree::Propagator {
   std::ostream& stream_;
 
@@ -272,7 +272,7 @@ class TORCH_CUDA_CU_API SpanningTreePrinter
 // Simple selector for selecting subgraphs to build spanning trees. The selector
 // allows propagation only to the given set of selected tensorviews, except for
 // sibiling propagation, which we should never block.
-class TORCH_CUDA_CU_API SetSelector : public MaxInfoSpanningTree::Selector {
+class SetSelector : public MaxInfoSpanningTree::Selector {
   std::unordered_set<TensorView*> selected_;
 
  public:

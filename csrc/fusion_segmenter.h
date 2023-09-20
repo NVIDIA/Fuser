@@ -45,7 +45,7 @@ std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge);
 
 //! Groups together expressions which create a segmented group
 //! Can be used to produce fusions
-class TORCH_CUDA_CU_API SegmentedGroup {
+class SegmentedGroup {
  public:
   //! Utility struct to represent a group connection
   //!  both the group to connect with and the edge
@@ -227,7 +227,7 @@ std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group);
 //! Auxiliary class for storing heuristics. The managed data is either
 //!  a single scheduler entry for complete fusion,
 //!  or a vector of schedulers, one for each segment, for segmented fusion.
-class TORCH_CUDA_CU_API FusionHeuristics {
+class FusionHeuristics {
   using SchedulerEntryOwningPtr = std::unique_ptr<SchedulerEntry>;
 
  public:
@@ -273,7 +273,7 @@ class TORCH_CUDA_CU_API FusionHeuristics {
 
 //! Exported Interface for representing segmented fusion graph
 //!   this class owns the segmented groups
-class TORCH_CUDA_CU_API SegmentedFusion {
+class SegmentedFusion {
  public:
   explicit SegmentedFusion(std::unique_ptr<Fusion> fusion);
 
@@ -486,7 +486,7 @@ class GroupDependencyAnalysis;
 class CombineReductions;
 
 //! Options to configure/debug candidate finder
-struct TORCH_CUDA_CU_API SegmentCandidateFinderOptions {
+struct SegmentCandidateFinderOptions {
   bool run_translate_welford = true;
   bool run_combine_reductions = true;
   bool run_herrmann_merge = true;
@@ -516,7 +516,7 @@ struct TORCH_CUDA_CU_API SegmentCandidateFinderOptions {
 //! SIAM Journal on Scientific Computing, Society for Industrial and Applied
 //! Mathematics, 2019, 41 (4), pp.A2117-A2145. ff10.1137/18M1176865ff.
 //! ffhal02306566f
-class TORCH_CUDA_CU_API SegmentCandidateFinder {
+class SegmentCandidateFinder {
  public:
   // Perform segmentation on a copy of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
@@ -742,10 +742,10 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
 };
 
 // TODO: Make as member functions on classes instead of global scope
-TORCH_CUDA_CU_API std::string toString(const SegmentedGroup* group);
-TORCH_CUDA_CU_API std::string toString(const SegmentedEdge* edge);
-TORCH_CUDA_CU_API std::string toString(const SegmentedFusion* segmented_fusion);
-TORCH_CUDA_CU_API std::string toString(
+std::string toString(const SegmentedGroup* group);
+std::string toString(const SegmentedEdge* edge);
+std::string toString(const SegmentedFusion* segmented_fusion);
+std::string toString(
     const SegmentCandidateFinderOptions& segment_options);
 
 } // namespace nvfuser

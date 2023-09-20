@@ -41,7 +41,7 @@ class ViewTransform;
 class IrCloner;
 
 namespace ir_utils {
-TORCH_CUDA_CU_API std::string varName(const Val* val);
+std::string varName(const Val* val);
 }
 
 template <typename T>
@@ -96,7 +96,7 @@ class TVDomainGuard;
 //! getComputeAtAxis not being const because it can return a TV that some expect
 //! to be non-const is the biggest headache.
 //!
-class TORCH_CUDA_CU_API TensorView : public Val {
+class TensorView : public Val {
  public:
   TensorView(
       IrBuilderPasskey passkey,
@@ -423,10 +423,10 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return has_swizzle_op_;
   }
 
-  friend TORCH_CUDA_CU_API TransformPropagator;
-  friend TORCH_CUDA_CU_API MostInlinedTransformPropagator;
-  friend TORCH_CUDA_CU_API TransformReplay;
-  friend TORCH_CUDA_CU_API OptOutMutator;
+  friend TransformPropagator;
+  friend MostInlinedTransformPropagator;
+  friend TransformReplay;
+  friend OptOutMutator;
   friend class InlineBatchingGuard;
   friend class ir_utils::TVDomainGuard;
 
@@ -610,7 +610,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 //!       .contiguity(contiguity)
 //!       .build();
 //!
-class TORCH_CUDA_CU_API TensorViewBuilder {
+class TensorViewBuilder {
  public:
   //! Set the number of dimensions of the tensor (default 0, meaning scalar)
   TensorViewBuilder& ndims(size_t ndims);

@@ -41,7 +41,7 @@ struct KernelDbEntry {
 //! KernelDb class is a singleton structure that is used to open, query, and
 //! write to the the database that is held in a hash map.  The kernel code is
 //! used as string key to the hash map.
-class TORCH_CUDA_CU_API KernelDb {
+class KernelDb {
   KernelDb(bool _disabled);
 
   KernelDb(const KernelDb&) = delete;

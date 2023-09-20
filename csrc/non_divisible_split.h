@@ -30,7 +30,7 @@ namespace nvfuser {
 //! a vectoried operation is predicated out entirely since we do not
 //! generate a fall-back non-vectorized else path. Runtime check is
 //! done for those domains.
-class TORCH_CUDA_CU_API NonDivisibleSplitInfo : public IterVisitor {
+class NonDivisibleSplitInfo : public IterVisitor {
  public:
   void build(Fusion* fusion);
 
