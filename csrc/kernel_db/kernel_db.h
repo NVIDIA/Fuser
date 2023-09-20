@@ -44,9 +44,6 @@ struct KernelDbEntry {
 class KernelDb {
   KernelDb(bool _disabled);
 
-  KernelDb(const KernelDb&) = delete;
-  KernelDb& operator=(const KernelDb&) = delete;
-
   //! Open is private because this method should only be called once by the
   //! singleton upon creation to create a new db or restore an existing one.
   bool open(
@@ -55,6 +52,9 @@ class KernelDb {
       bool use_temp_dir);
 
  public:
+  KernelDb(const KernelDb&) = delete;
+  KernelDb& operator=(const KernelDb&) = delete;
+
   //! Thread-Safe method to get the Meyer's singleton -- Interface
   static KernelDb& get();
   //! Thread-Safe method to get the Meyer's singleton -- For testing
