@@ -9,6 +9,8 @@
 
 namespace std {
 
+#if __cplusplus < 202002L
+
 // See https://en.cppreference.com/w/cpp/utility/compare/partial_ordering
 class partial_ordering {
   int value;
@@ -16,6 +18,7 @@ class partial_ordering {
 
   explicit constexpr partial_ordering(int v, bool o) noexcept
       : value(v), is_ordered(o) {}
+
  public:
   // valid values
   static const partial_ordering less;
@@ -36,5 +39,7 @@ inline constexpr partial_ordering partial_ordering::less(-1, true);
 inline constexpr partial_ordering partial_ordering::equivalent(0, true);
 inline constexpr partial_ordering partial_ordering::greater(1, true);
 inline constexpr partial_ordering partial_ordering::unordered(0, false);
+
+#endif // __cplusplus < 202002L
 
 } // namespace std
