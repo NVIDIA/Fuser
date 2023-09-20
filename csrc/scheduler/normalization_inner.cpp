@@ -7,6 +7,7 @@
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
 #include <instrumentation.h>
+#include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_inner.h>
 #include <scheduler/reduction_utils.h>
@@ -1228,6 +1229,8 @@ void scheduleInnerPersistentKernel(
   for (auto output : dummy_outputs) {
     fusion->addOutput(output);
   }
+
+  refineCachePolicy(fusion);
 
   const bool unroll = rparams.isUnrolled();
   const bool vectorize =
