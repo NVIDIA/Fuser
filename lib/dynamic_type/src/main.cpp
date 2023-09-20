@@ -54,38 +54,17 @@ constexpr bool operator<(
 template <typename T>
 constexpr opcheck_impl::OperatorChecker<T> opcheck;
 
-template <typename T1, typename T2, typename T3, typename T4>
-constexpr std::tuple<
-    std::tuple<T1, T3>,
-    std::tuple<T1, T4>,
-    std::tuple<T2, T3>,
-    std::tuple<T2, T4>>
-cartesian_product(std::tuple<T1, T2> tuple1, std::tuple<T3, T4> tuple2) {
-  return {
-      std::make_tuple(std::get<0>(tuple1), std::get<0>(tuple2)),
-      std::make_tuple(std::get<0>(tuple1), std::get<1>(tuple2)),
-      std::make_tuple(std::get<1>(tuple1), std::get<0>(tuple2)),
-      std::make_tuple(std::get<1>(tuple1), std::get<1>(tuple2))};
-}
-
-// Check if all the booleans in the arguments are true. There are two versions:
-// one for variadic arguments, and one for std::tuple.
-
-template <typename... Ts>
-constexpr bool any(Ts... bs) {
-  return (bs || ...);
-}
-
 // Can I find an x from tuple1 and a y from tuple12 such that f(x, y) is
 // true? f(x, y) must be defined for all x in tuple1 and y in tuple2.
-template <typename... Tuples, typename Fun>
-constexpr bool any_check(Fun f, Tuples... tuples) {
-  auto c = cartesian_product(tuples...);
-  return std::apply(
-      [f](auto... candidates) constexpr {
-        return any(std::apply(f, candidates)...);
-      },
-      c);
+template <typename T1, typename T2, typename T3, typename T4, typename Fun>
+constexpr bool any_check(
+    Fun f,
+    std::tuple<T1, T2> tuple1,
+    std::tuple<T3, T4> tuple2) {
+  return f(std::get<0>(tuple1), std::get<0>(tuple2)) ||
+      f(std::get<0>(tuple1), std::get<1>(tuple2)) ||
+      f(std::get<1>(tuple1), std::get<0>(tuple2)) ||
+      f(std::get<1>(tuple1), std::get<1>(tuple2));
 }
 
 template <typename T>
