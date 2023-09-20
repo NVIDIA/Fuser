@@ -525,24 +525,53 @@ void DynamicTransformConcretizer::concretizeReshape() {
     // replacement is valid
     checkConcretizedUses(incomplete_out_tv, concrete_reshape_out_tv);
 
-    // Extent expressions often change when concretizing a reshape. Here we
-    // replace these in all downstream expressions so that the Fusion looks just
-    // like it would have if we had used a static reshape instead.
+    // Extent expressions can differ since the static reshape will have constant
+    // splits and ceilDiv expressions instead of the original symbolic shapes.
+    // Here we replace those new expressions with the originals so that extents
+    // will match those in the dynamic fusion.
     auto old_rfactor = incomplete_out_tv->getMaybeRFactorDomain();
     auto new_rfactor = concrete_reshape_out_tv->getMaybeRFactorDomain();
     NVF_ERROR(
         old_rfactor.size() == new_rfactor.size(),
         "Concretized reshape rfactor size does not match symbolic rfactor");
+    // For each rfactor ID, if the new and old extents don't match, we need to
+    // create a new ID like the new one, but with the old extent. Then we will
+    // transfer the definitions of the static reshaped IDs onto those new IDs,
+    // and use all of those to create a new TV with that rfactor. Then we'll
+    // transfer the definition of concrete_reshape_out_tv to that replacement
+    // TV.
+    std::vector<IterDomain*> final_rfactor;
+    final_rfactor.reserve(old_rfactor.size());
+    std::unordered_set<Expr*> id_defs;
+    OptOutMutator oom;
     for (auto idx : c10::irange(new_rfactor.size())) {
-      auto old_extent = old_rfactor.at(idx)->extent();
-      auto new_extent = new_rfactor.at(idx)->extent();
-      // If the old extent did not have a definition, we don't need to replace
-      // it, since it will get bound whenever this tensor is a segmentation
-      // edge.
-      if (old_extent->definition() && !new_extent->sameAs(old_extent)) {
-        registerConcretization(old_extent, new_extent);
+      auto old_id = old_rfactor.at(idx);
+      auto new_id = new_rfactor.at(idx);
+      if (old_id->extent()->sameAs(new_id->extent())) {
+        final_rfactor.push_back(new_id);
+      } else {
+        auto final_id =
+            IterDomainBuilder(new_id).extent(old_id->extent()).build();
+        oom.registerMutation(new_id, final_id);
+        id_defs.insert(new_id->definition());
+        final_rfactor.push_back(final_id);
       }
     }
+    // TODO: verify that order doesn't matter here in cases where one ID is a
+    // consumer of another
+    for (auto expr : id_defs) {
+      oom.mutate(
+          expr); // this transfers all the new ID definitions to the final IDs
+    }
+
+    // Create the final TensorDomain and swap it into our replacement tensor
+    std::vector<IterDomain*> new_leaf;
+    auto final_td = IrBuilder::create<TensorDomain>(
+        concrete_reshape_out_tv->getRootDomain(),
+        final_rfactor,
+        new_leaf,
+        concrete_reshape_out_tv->getContiguity());
+    concrete_reshape_out_tv->setDomain(final_td);
 
     // Replace the old tensor with the new concretized tensor
     auto uses = incomplete_out_tv->uses();
@@ -557,6 +586,7 @@ void DynamicTransformConcretizer::concretizeReshape() {
     }
 
     info_->fusion()->removeVal(incomplete_out_tv);
+    info_->fusion()->removeVal(concrete_reshape_out_tv);
   }
 }
 
