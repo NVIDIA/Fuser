@@ -5,14 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-
+#ifdef USE_DISTRIBUTED
 #pragma once
 
-#include <c10/core/Device.h>
+#include <multidevice/communicator.h>
+#include <test/utils.h>
 
 namespace nvfuser {
-using DeviceIdxType = int64_t;
-using DimensionType = int;
-using DeviceType = c10::Device;
-using Team = std::vector<DeviceIdxType>;
+
+class MultiDeviceTest : public NVFuserTest {
+ protected:
+  static Communicator comm;
+};
+
 } // namespace nvfuser
+
+#endif
