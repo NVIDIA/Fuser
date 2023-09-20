@@ -266,13 +266,17 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
         global_address_int % 32 == 0,
         "globalAddress, which specifies the starting address of the memory region described, must be 32 byte aligned when interleave is CU_TENSOR_MAP_INTERLEAVE_32B and 16 byte aligned otherwise.",
         " global_address = ",
-        global_address_int);
+        global_address_int,
+        ", interleave mode = ",
+        interleave);
   } else {
     NVF_ERROR(
         global_address_int % 16 == 0,
         "globalAddress, which specifies the starting address of the memory region described, must be 32 byte aligned when interleave is CU_TENSOR_MAP_INTERLEAVE_32B and 16 byte aligned otherwise.",
         " global_address = ",
-        global_address_int);
+        global_address_int,
+        ", interleave mode = ",
+        interleave);
   }
 
   for (auto global_dim_val : global_dim) {

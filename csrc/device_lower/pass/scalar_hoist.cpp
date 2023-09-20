@@ -221,7 +221,8 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
     create_fn(value->container(), inputs, {value}, def->attributes());
   }
 
-  // TODO: this is only a temoprary hack, will be removed in a follow-up PR
+  // TODO: this is only a temoprary hack to make sure that TensorMap for TMA is
+  // evaluated on the host. This will be removed in a follow-up PR
   if (shouldHoistToHost(value)) {
     GpuLower::current()->allKnownVals().emplace_back(value);
     return {value, has_tensor_index_dependency};

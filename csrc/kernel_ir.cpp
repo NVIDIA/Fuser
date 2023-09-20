@@ -1296,7 +1296,7 @@ std::string EncodeTensorMapTiled::toString(int indent_size) const {
                           << "(dtype=" << dataType()
                           << ", global_address=" << globalAddress()->toString()
                           << ", global_dim=" << globalDim()->toString()
-                          << ",  global_strides=" << globalStrides()
+                          << ", global_strides=" << globalStrides()
                           << ", box_dim=" << boxDim()->toString()
                           << ", element_strides="
                           << elementStrides()->toString()
@@ -1312,7 +1312,7 @@ std::string EncodeTensorMapTiled::toInlineString(int indent_size) const {
   ss << getOpString() << "(dtype=" << dataType()
      << ", global_address=" << globalAddress()->toInlineString()
      << ", global_dim=" << globalDim()->toInlineString()
-     << ",  global_strides=" << globalStrides()->toInlineString()
+     << ", global_strides=" << globalStrides()->toInlineString()
      << ", box_dim=" << boxDim()->toInlineString()
      << ", element_strides=" << elementStrides()->toInlineString()
      << ", interleave=" << interleave() << ", swizzle=" << swizzle()
