@@ -36,8 +36,9 @@ namespace executor_utils {
 std::string kernelPreamble();
 
 //! Bind input values to runtime values
-ExpressionEvaluator
-bindInputs(const KernelArgumentHolder& args, Fusion* fusion);
+ExpressionEvaluator bindInputs(
+    const KernelArgumentHolder& args,
+    Fusion* fusion);
 
 std::string disassembleBinary(
     const std::vector<char>& cubin,

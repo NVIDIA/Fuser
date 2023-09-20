@@ -105,8 +105,7 @@ struct AnalyzeViewConstraint {
 //! Infer -1 value in new view std::vector<int64_t> based on original view
 //! std::vector<int64_t>. This shouldn't generally be used directly but is
 //! useful for testing.
-std::pair<std::vector<int64_t>, std::vector<int64_t>>
-inferViewShapes(
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferViewShapes(
     const std::vector<int64_t>& original_sizes,
     const std::vector<int64_t>& new_sizes);
 

@@ -35,17 +35,13 @@ void scheduleContiguousVectorLoad(
 //! Schedule utility for mma output in matmul main loop:
 //!  Realize the hierarchical tiling based on the given tiling options.
 //! TODO: rewrite this one with makeTile
-void scheduleWarpTileWithReduction(
-    TensorView* tv,
-    MatMulTileOptions tile);
+void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile);
 
 //! Schedule utility for mma output in matmul main loop:
 //!  Realize the hierarchical tiling based on the given tiling options
 //! on consumers of mma ops in epilog.
 //! TODO: remove this one eventually.
-void scheduleWarpTileWithNoReduction(
-    TensorView* tv,
-    MatMulTileOptions tile);
+void scheduleWarpTileWithNoReduction(TensorView* tv, MatMulTileOptions tile);
 
 //! Lower level primitive spliting inner iterdomains into tiles:
 //! Eg.

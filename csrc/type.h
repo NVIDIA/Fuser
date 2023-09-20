@@ -880,17 +880,11 @@ std::ostream& operator<<(std::ostream&, const ParallelType);
 std::ostream& operator<<(std::ostream&, const MemoryType);
 std::ostream& operator<<(std::ostream&, const IterType);
 std::ostream& operator<<(std::ostream&, const IdMappingMode);
-std::ostream& operator<<(
-    std::ostream&,
-    const LoadStoreOpType);
-std::ostream& operator<<(
-    std::ostream&,
-    const DoubleBufferLoopStage);
+std::ostream& operator<<(std::ostream&, const LoadStoreOpType);
+std::ostream& operator<<(std::ostream&, const DoubleBufferLoopStage);
 std::ostream& operator<<(std::ostream&, const Swizzle2DType&);
 std::ostream& operator<<(std::ostream&, const SwizzleMode&);
-std::ostream& operator<<(
-    std::ostream&,
-    const KernelIndexMode&);
+std::ostream& operator<<(std::ostream&, const KernelIndexMode&);
 std::ostream& operator<<(std::ostream&, const CacheOp&);
 
 std::string stringifyThreadSize(const ParallelType);
@@ -915,8 +909,7 @@ std::optional<std::string> bool_op_str(const BinaryOpType);
 const char* predicate_type2string(PredicateType t);
 const char* load_store_type2string(LoadStoreOpType t);
 
-std::optional<std::string> cast_func_str(
-    const std::pair<DataType, DataType>&);
+std::optional<std::string> cast_func_str(const std::pair<DataType, DataType>&);
 
 constexpr inline size_t primDataTypeSize(PrimDataType type) {
   switch (type) {

@@ -175,8 +175,7 @@ using DebugDumpOptionsGuard = OptionsGuard<DebugDumpOption>;
 
 bool isDebugDumpEnabled(DebugDumpOption option);
 
-const std::vector<std::string>& getDebugDumpArguments(
-    DebugDumpOption option);
+const std::vector<std::string>& getDebugDumpArguments(DebugDumpOption option);
 
 // Enable options
 template <>
@@ -187,8 +186,7 @@ using EnableOptions = Options<EnableOption>;
 
 bool isOptionEnabled(EnableOption option);
 
-const std::vector<std::string>& getEnableOptionArguments(
-    EnableOption option);
+const std::vector<std::string>& getEnableOptionArguments(EnableOption option);
 
 template <>
 Options<EnableOption>& OptionsGuard<EnableOption>::getCurOptions();
@@ -204,8 +202,7 @@ using DisableOptions = Options<DisableOption>;
 
 bool isOptionDisabled(DisableOption option);
 
-const std::vector<std::string>& getDisableOptionArguments(
-    DisableOption option);
+const std::vector<std::string>& getDisableOptionArguments(DisableOption option);
 
 template <>
 Options<DisableOption>& OptionsGuard<DisableOption>::getCurOptions();

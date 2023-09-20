@@ -745,7 +745,6 @@ class SegmentCandidateFinder {
 std::string toString(const SegmentedGroup* group);
 std::string toString(const SegmentedEdge* edge);
 std::string toString(const SegmentedFusion* segmented_fusion);
-std::string toString(
-    const SegmentCandidateFinderOptions& segment_options);
+std::string toString(const SegmentCandidateFinderOptions& segment_options);
 
 } // namespace nvfuser

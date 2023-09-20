@@ -40,10 +40,7 @@ Val* unaryOp(UnaryOpType type, Val* v1);
 TensorView* unaryOp(UnaryOpType type, TensorView* v1);
 Val* unaryIsOp(UnaryOpType type, Val* v1);
 TensorView* unaryIsOp(UnaryOpType type, TensorView* v1);
-Val* unaryOp(
-    UnaryOpType type,
-    Val* v1,
-    const TypePromotionConfig& config);
+Val* unaryOp(UnaryOpType type, Val* v1, const TypePromotionConfig& config);
 TensorView* unaryOp(
     UnaryOpType type,
     TensorView* v1,
@@ -158,10 +155,7 @@ TensorView* rand(
     DataType dtype,
     Val* philox_seed = nullptr,
     Val* philox_offset = nullptr);
-TensorView* rand_like(
-    TensorView*,
-    Val* philox_seed,
-    Val* philox_offset);
+TensorView* rand_like(TensorView*, Val* philox_seed, Val* philox_offset);
 // Note that overloading these would be convenient, but overloaded functions are
 // difficult to cast correctly. In the serde method
 // RecordFunctorFactory::setupFunctionMaps(), the op is cast to, for example
@@ -177,10 +171,7 @@ TensorView* randn(
     DataType dtype,
     Val* philox_seed = nullptr,
     Val* philox_offset = nullptr);
-TensorView* randn_like(
-    TensorView*,
-    Val* philox_seed,
-    Val* philox_offset);
+TensorView* randn_like(TensorView*, Val* philox_seed, Val* philox_offset);
 Val* randn_like(Val*, Val* philox_seed, Val* philox_offset);
 TensorView* randn_like(TensorView* tv);
 Val* randn_like(Val* val);
@@ -205,20 +196,13 @@ TensorView* full(
     const std::vector<Val*>& shape,
     Val* fill_value,
     DataType dtype);
-TensorView* full_like(
-    TensorView* tv,
-    Val* fill_value,
-    DataType dtype);
+TensorView* full_like(TensorView* tv, Val* fill_value, DataType dtype);
 TensorView* full_like(TensorView* tv, Val* fill_value);
 Val* full_like(Val* tv, Val* fill_value);
-TensorView* zeros(
-    const std::vector<Val*>& shape,
-    DataType dtype);
+TensorView* zeros(const std::vector<Val*>& shape, DataType dtype);
 TensorView* zeros_like(TensorView*);
 Val* zeros_like(Val*);
-TensorView* ones(
-    const std::vector<Val*>& shape,
-    DataType dtype);
+TensorView* ones(const std::vector<Val*>& shape, DataType dtype);
 TensorView* ones_like(TensorView*);
 Val* ones_like(Val*);
 TensorView* iota(
@@ -230,10 +214,7 @@ TensorView* iota(
 //! arguments can result in undefined behavior. Specifically, the
 //! signs of `end - start` and step must be the same.
 TensorView* arange(Val* end, DataType dtype = DataType::Int);
-TensorView* arange(
-    Val* start,
-    Val* end,
-    DataType dtype = DataType::Int);
+TensorView* arange(Val* start, Val* end, DataType dtype = DataType::Int);
 TensorView* arange(
     Val* start,
     Val* end,
@@ -410,9 +391,7 @@ TensorView* broadcast(
 // the input and will be expanded to the provided constant size. Any dimension
 // that's symbolic in the input but specified as a non -1 value will be set to
 // that constant value.
-TensorView* expand(
-    TensorView* inp,
-    const std::vector<Val*>& expanded_sizes);
+TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes);
 
 // Expands input based on other. For dimensions in inp that are broadcast with a
 // matching entry in other that's either a broadcast with expanded extent or a
@@ -511,20 +490,14 @@ TensorView* logical_and(TensorView* v1, TensorView* v2);
 Val* bitwise_left_shift(Val* v1, Val* v2);
 TensorView* bitwise_left_shift(TensorView* v1, Val* v2);
 TensorView* bitwise_left_shift(Val* v1, TensorView* v2);
-TensorView* bitwise_left_shift(
-    TensorView* v1,
-    TensorView* v2);
+TensorView* bitwise_left_shift(TensorView* v1, TensorView* v2);
 // bitwise_right_shift
 Val* bitwise_right_shift(Val* v1, Val* v2);
 TensorView* bitwise_right_shift(TensorView* v1, Val* v2);
 TensorView* bitwise_right_shift(Val* v1, TensorView* v2);
-TensorView* bitwise_right_shift(
-    TensorView* v1,
-    TensorView* v2);
+TensorView* bitwise_right_shift(TensorView* v1, TensorView* v2);
 // logical_right_shift
-TensorView* logical_right_shift(
-    TensorView* x,
-    TensorView* shift);
+TensorView* logical_right_shift(TensorView* x, TensorView* shift);
 TensorView* logical_right_shift(TensorView* x, Val* shift);
 TensorView* logical_right_shift(Val* x, TensorView* shift);
 Val* logical_right_shift(Val* x, Val* shift);
@@ -627,48 +600,20 @@ Val* lerp(Val* start, Val* end, Val* weight);
 TensorView* lerp(TensorView* start, Val* end, Val* weight);
 TensorView* lerp(Val* start, TensorView* end, Val* weight);
 TensorView* lerp(Val* start, Val* end, TensorView* weight);
-TensorView* lerp(
-    TensorView* start,
-    TensorView* end,
-    Val* weight);
-TensorView* lerp(
-    TensorView* start,
-    Val* end,
-    TensorView* weight);
-TensorView* lerp(
-    Val* start,
-    TensorView* end,
-    TensorView* weight);
-TensorView* lerp(
-    TensorView* start,
-    TensorView* end,
-    TensorView* weight);
+TensorView* lerp(TensorView* start, TensorView* end, Val* weight);
+TensorView* lerp(TensorView* start, Val* end, TensorView* weight);
+TensorView* lerp(Val* start, TensorView* end, TensorView* weight);
+TensorView* lerp(TensorView* start, TensorView* end, TensorView* weight);
 
 // addcmul
 Val* addcmul(Val* v1, Val* v2, Val* v3, Val* s);
 TensorView* addcmul(TensorView* v1, Val* v2, Val* v3, Val* s);
 TensorView* addcmul(Val* v1, TensorView* v2, Val* v3, Val* s);
 TensorView* addcmul(Val* v1, Val* v2, TensorView* v3, Val* s);
-TensorView* addcmul(
-    TensorView* v1,
-    TensorView* v2,
-    Val* v3,
-    Val* s);
-TensorView* addcmul(
-    TensorView* v1,
-    Val* v2,
-    TensorView* v3,
-    Val* s);
-TensorView* addcmul(
-    Val* v1,
-    TensorView* v2,
-    TensorView* v3,
-    Val* s);
-TensorView* addcmul(
-    TensorView* v1,
-    TensorView* v2,
-    TensorView* v3,
-    Val* s);
+TensorView* addcmul(TensorView* v1, TensorView* v2, Val* v3, Val* s);
+TensorView* addcmul(TensorView* v1, Val* v2, TensorView* v3, Val* s);
+TensorView* addcmul(Val* v1, TensorView* v2, TensorView* v3, Val* s);
+TensorView* addcmul(TensorView* v1, TensorView* v2, TensorView* v3, Val* s);
 
 // TERNARY OPERATIONS
 // where
@@ -679,16 +624,10 @@ TensorView* where(Val* c, Val* v1, TensorView* v2);
 TensorView* where(TensorView* c, TensorView* v1, Val* v2);
 TensorView* where(TensorView* c, Val* v1, TensorView* v2);
 TensorView* where(Val* c, TensorView* v1, TensorView* v2);
-TensorView* where(
-    TensorView* c,
-    TensorView* v1,
-    TensorView* v2);
+TensorView* where(TensorView* c, TensorView* v1, TensorView* v2);
 // threshold
 Val* threshold(Val* in, Val* thresh, Val* value);
-TensorView* threshold(
-    TensorView* in,
-    Val* thresh,
-    Val* value);
+TensorView* threshold(TensorView* in, Val* thresh, Val* value);
 // clamp
 Val* clamp(Val* in, Val* min_val, Val* max_val);
 TensorView* clamp(TensorView* in, Val* min_val, Val* max_val);
@@ -705,13 +644,9 @@ TensorView* clamp(TensorView* in, Val* min_val, Val* max_val);
 //!  Name of sum_to is different from NV fuser naming,
 //!  this is to align with the operator name of at::sum_to.
 
-TensorView* sum_to(
-    TensorView* v1,
-    const std::vector<Val*>& sum_to_size);
+TensorView* sum_to(TensorView* v1, const std::vector<Val*>& sum_to_size);
 
-TensorView* sum_to(
-    TensorView* v1,
-    const std::vector<int64_t>& sum_to_size);
+TensorView* sum_to(TensorView* v1, const std::vector<int64_t>& sum_to_size);
 
 //! Shift a tensor to a direction specified by offsets.
 //!
@@ -741,10 +676,7 @@ TensorView* shift(
     const std::vector<int>& offsets,
     const std::vector<int>& pad_width = {});
 
-TensorView* shift(
-    TensorView* inp,
-    const std::vector<int>& offsets,
-    bool pad);
+TensorView* shift(TensorView* inp, const std::vector<int>& offsets, bool pad);
 
 //! Gather a window of nearby elements for each element.
 //!

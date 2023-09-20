@@ -75,9 +75,7 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-void schedulePersistentKernel(
-    Fusion* fusion,
-    const ReductionParams& rparams);
+void schedulePersistentKernel(Fusion* fusion, const ReductionParams& rparams);
 
 void schedulePersistentKernelInnerOuter(
     Fusion* fusion,

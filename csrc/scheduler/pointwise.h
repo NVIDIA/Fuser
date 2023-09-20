@@ -163,9 +163,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-void schedulePointwise(
-    Fusion* fusion,
-    const PointwiseParams& params);
+void schedulePointwise(Fusion* fusion, const PointwiseParams& params);
 
 LaunchParams schedulePointwise(
     Fusion* fusion,

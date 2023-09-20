@@ -28,9 +28,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-void scheduleReduction(
-    Fusion* fusion,
-    const ReductionParams& rparams);
+void scheduleReduction(Fusion* fusion, const ReductionParams& rparams);
 
 class ReductionScheduler : public SchedulerEntry {
  public:

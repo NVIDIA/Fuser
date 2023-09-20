@@ -156,8 +156,7 @@ bool isTensorScalarFillOp(const Expr* expr);
 //! Flattens all the scoped exprs, i.e. ForLoop and IfThenElse,
 //!  and returns all the exprs in all scopes in the original
 //!  linear textural order.
-std::vector<Expr*> flattenScopedExprs(
-    const std::vector<Expr*>& loop_nests);
+std::vector<Expr*> flattenScopedExprs(const std::vector<Expr*>& loop_nests);
 
 //! Returns all swizzle ops between the set of iterdomains
 //!  in `from` and `to`.

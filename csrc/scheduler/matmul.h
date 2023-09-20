@@ -16,9 +16,7 @@
 
 namespace nvfuser {
 
-void scheduleMatmul(
-    Fusion* fusion,
-    const MatmulParams& params);
+void scheduleMatmul(Fusion* fusion, const MatmulParams& params);
 
 class MatmulScheduler : public SchedulerEntry {
  public:

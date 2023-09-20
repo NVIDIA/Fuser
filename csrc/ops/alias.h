@@ -39,27 +39,15 @@ TensorView* reshape(
 //! fixed as the length of the new_sizes vector, but the size Vals can be
 //! symbolic, which are then concretized at run time with actual
 //! fusion inputs.
-TensorView* reshape(
-    TensorView* x,
-    const std::vector<Val*>& new_sizes);
+TensorView* reshape(TensorView* x, const std::vector<Val*>& new_sizes);
 
-TensorView* flatten(
-    TensorView* x,
-    int64_t start_dim = 0,
-    int64_t end_dim = -1);
+TensorView* flatten(TensorView* x, int64_t start_dim = 0, int64_t end_dim = -1);
 
-TensorView* squeeze(
-    TensorView* x,
-    const std::vector<bool>& to_squeeze);
+TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze);
 
-TensorView* squeeze(
-    TensorView* x,
-    const std::vector<int64_t>& sizes);
+TensorView* squeeze(TensorView* x, const std::vector<int64_t>& sizes);
 
-TensorView* squeeze(
-    TensorView* x,
-    const std::vector<int64_t>& sizes,
-    int dim);
+TensorView* squeeze(TensorView* x, const std::vector<int64_t>& sizes, int dim);
 
 TensorView* squeeze(
     TensorView* x,
@@ -76,15 +64,10 @@ TensorView* unsqueeze(TensorView* x, int dim);
 //!
 //! \param inp Tensor to transpose
 //! \param new2old vector mapping from new to old positions.
-TensorView* permute(
-    TensorView* x,
-    const std::vector<int64_t>& new2old);
+TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old);
 
 //! Transpose a tensor by swapping the two dimensions.
-TensorView* transpose(
-    TensorView* x,
-    int64_t dim0,
-    int64_t dim1);
+TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1);
 
 //! Transpose a 2D tensor.
 TensorView* transpose(TensorView* x);
@@ -109,8 +92,6 @@ TensorView* cat(
 
 //! Return a tensor where each dimension is sliced as specified by the
 //! ranges parameter. Stepping must be one at this moment.
-TensorView* slice(
-    TensorView* inp,
-    const std::vector<Slice>& ranges);
+TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges);
 
 } // namespace nvfuser

@@ -27,9 +27,7 @@ struct State {
   serde::StateType stype;
 };
 
-std::ostream& operator<<(
-    std::ostream& os,
-    const State& state);
+std::ostream& operator<<(std::ostream& os, const State& state);
 
 //! FusionState contains the information used to build a new cpp Fusion object.
 //! Unlike FusionDefinition, it does not modify the FusionCache Trie structure.

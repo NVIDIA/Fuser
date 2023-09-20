@@ -168,10 +168,7 @@ std::vector<int> normalizeOld2New(
 //! Warning: Invalidates provided Expr.
 //! Warning: Removes connection of reference through provided Expr.
 //! Warning: Creates new Expr defining substitute.
-Expr* replaceValInExprInputs(
-    Expr* expr,
-    Val* reference,
-    Val* substitute);
+Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute);
 
 //! Removes the given expression and creates a new expression that is identical
 //! to expr, but whose outputs are given by the new_outputs argument. It is an
@@ -197,9 +194,7 @@ Val* replaceValRecursively(
     const std::unordered_map<Val*, Val*>& replacement_map);
 
 // Makes rfactor generic with reduction ops and Welford
-TensorView* rfactorHelper(
-    TensorView* red_tv,
-    const std::vector<int>& axes);
+TensorView* rfactorHelper(TensorView* red_tv, const std::vector<int>& axes);
 
 // Return immediate producers of val, this function can be used on any Val and
 // will return producers through Exprs.
@@ -239,8 +234,7 @@ std::vector<Val*> siblingValsOf(const Val* val);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-std::vector<Val*> producerValsOf(
-    const std::vector<Val*>& vals);
+std::vector<Val*> producerValsOf(const std::vector<Val*>& vals);
 
 // Return immediate consumers of vals, this function can be used on any vals and
 // will return consumers through Exprs.
@@ -250,8 +244,7 @@ std::vector<Val*> producerValsOf(
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-std::vector<Val*> consumerValsOf(
-    const std::vector<Val*>& vals);
+std::vector<Val*> consumerValsOf(const std::vector<Val*>& vals);
 
 // Return immediate producers of tv, this function will return all immediate
 // producers of tv through Exprs.
@@ -291,8 +284,7 @@ std::vector<TensorView*> siblingTvsOf(const TensorView* tv);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-std::vector<TensorView*> producerTvsOf(
-    const std::vector<TensorView*>& tvs);
+std::vector<TensorView*> producerTvsOf(const std::vector<TensorView*>& tvs);
 
 // Return immediate consumers of tvs, this function will return all immediate
 // consumers of tvs through Exprs.
@@ -302,8 +294,7 @@ std::vector<TensorView*> producerTvsOf(
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-std::vector<TensorView*> consumerTvsOf(
-    const std::vector<TensorView*>& tvs);
+std::vector<TensorView*> consumerTvsOf(const std::vector<TensorView*>& tvs);
 
 // Returns producers of tv that are inputs of fusion
 std::vector<TensorView*> inputTvsOf(TensorView* tv);
@@ -312,12 +303,10 @@ std::vector<TensorView*> inputTvsOf(TensorView* tv);
 std::vector<TensorView*> outputTvsOf(TensorView* tv);
 
 // Returns producers of tvs that are inputs of fusion
-std::vector<TensorView*> inputTvsOf(
-    std::vector<TensorView*> tvs);
+std::vector<TensorView*> inputTvsOf(std::vector<TensorView*> tvs);
 
 // Returns consumers of tvs that are outputs of fusion
-std::vector<TensorView*> outputTvsOf(
-    std::vector<TensorView*> tvs);
+std::vector<TensorView*> outputTvsOf(std::vector<TensorView*> tvs);
 
 // returns all tensor views in fusion that are used between outputs and inputs.
 std::vector<TensorView*> allTvs(Fusion* fusion);
@@ -379,15 +368,11 @@ bool isIndexedID(const TensorView* tv, const IterDomain* id);
 
 // Test if the given ID in the given tensor is indirectly read by,
 // e.g., index_select and torch_gather
-bool isIndexedProducerID(
-    const TensorView* tv,
-    const IterDomain* id);
+bool isIndexedProducerID(const TensorView* tv, const IterDomain* id);
 
 // Test if the given ID in the given tensor is indirectly written to by,
 // e.g., scatter
-bool isIndexedConsumerID(
-    const TensorView* tv,
-    const IterDomain* id);
+bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id);
 
 // Return a producer ID, if any, that is indirectly accessed by, e.g.,
 // index_select and torch_gather.

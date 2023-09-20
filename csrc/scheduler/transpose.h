@@ -95,9 +95,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-void scheduleTranspose(
-    Fusion* fusion,
-    TransposeParams params);
+void scheduleTranspose(Fusion* fusion, TransposeParams params);
 
 LaunchParams scheduleTranspose(
     Fusion* fusion,

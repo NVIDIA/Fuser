@@ -134,9 +134,8 @@ namespace vectorize_helper {
 // MaxInfoSpanningTree::computeInfoC2P with recording_=true where it will
 // actually record the computed information since it will be then projected
 // through the DAG maximizing saving information.
-class ContiguousInnerDimensionsMapper
-    : public MaxInfoSpanningTree,
-      MaxInfoSpanningTree::Propagator {
+class ContiguousInnerDimensionsMapper : public MaxInfoSpanningTree,
+                                        MaxInfoSpanningTree::Propagator {
  public:
   ContiguousInnerDimensionsMapper() = delete;
 

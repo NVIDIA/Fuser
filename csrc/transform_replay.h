@@ -269,8 +269,7 @@ class TransformReplay {
       const TensorView* target);
 };
 
-class TransformPropagator
-    : public MaxRootDomainInfoSpanningTree::Propagator {
+class TransformPropagator : public MaxRootDomainInfoSpanningTree::Propagator {
  protected:
   std::unordered_map<TensorView*, int64_t> replayed_pos_;
 

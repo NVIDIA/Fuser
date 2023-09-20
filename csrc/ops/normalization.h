@@ -128,10 +128,7 @@ constexpr TensorView* get(const VarMeanResult& results) {
 
 namespace nvfuser {
 
-TensorView* mean(
-    TensorView* x,
-    const std::vector<int>& dims,
-    bool keepdim);
+TensorView* mean(TensorView* x, const std::vector<int>& dims, bool keepdim);
 
 TensorView* variance(
     TensorView* x,
@@ -159,17 +156,11 @@ TensorView* standard_deviation(
 
 TensorView* softmax(TensorView* x, int dim);
 
-TensorView* softmax_backward(
-    TensorView* dy,
-    TensorView* y,
-    const int dim);
+TensorView* softmax_backward(TensorView* dy, TensorView* y, const int dim);
 
 TensorView* log_softmax(TensorView* x, int dim);
 
-TensorView* log_softmax_backward(
-    TensorView* dy,
-    TensorView* y,
-    const int dim);
+TensorView* log_softmax_backward(TensorView* dy, TensorView* y, const int dim);
 
 ForwardNormResult layer_norm(
     TensorView* x,

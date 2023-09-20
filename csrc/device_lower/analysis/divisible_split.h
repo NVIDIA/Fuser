@@ -19,8 +19,7 @@ namespace nvfuser {
 // vectorization splits and gathers all splits that provably don't have a
 // remainder, therefore the extents of the associated IterDomains do not require
 // a ceilDiv expressions.
-std::unordered_set<Split*> getAllDivisibleSplits(
-    Fusion* fusion);
+std::unordered_set<Split*> getAllDivisibleSplits(Fusion* fusion);
 
 // Same as above but will use provided ComputeAtMap instead of building its own.
 std::unordered_set<Split*> getAllDivisibleSplits(

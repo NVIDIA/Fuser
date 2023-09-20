@@ -70,8 +70,7 @@ class MaxPosCalculator {
 
 // Inline to the right most allowed position for all tensors in the current
 // fusion.
-void inlineMost(
-    const std::unordered_set<IterDomain*>& uninlinable_ids = {});
+void inlineMost(const std::unordered_set<IterDomain*>& uninlinable_ids = {});
 // Inline to the right most allowed position for the selected tensors in the
 // current fusion.
 void inlineMost(

@@ -28,13 +28,9 @@ struct ForwardDropoutResult {
 
 ForwardDropoutResult dropout(TensorView* x, Val* prob);
 
-ForwardDropoutResult
-dropout(TensorView* x, Val* prob, Val* scale);
+ForwardDropoutResult dropout(TensorView* x, Val* prob, Val* scale);
 
-TensorView* dropout_backward(
-    TensorView* dy,
-    TensorView* mask,
-    Val* scale);
+TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale);
 
 struct LstmResult {
   TensorView* cell = nullptr;
@@ -61,10 +57,7 @@ TensorView* _matmul_tt(TensorView* a, TensorView* b);
 
 TensorView* sign(TensorView* x);
 Val* sign(Val* x);
-TensorView* softplus(
-    TensorView* x,
-    Val* beta,
-    Val* threshold);
+TensorView* softplus(TensorView* x, Val* beta, Val* threshold);
 TensorView* gelu(TensorView* x);
 TensorView* gelu_backward(TensorView* dy, TensorView* x);
 TensorView* tanh_gelu(TensorView* x);

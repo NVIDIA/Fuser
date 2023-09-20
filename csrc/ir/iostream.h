@@ -83,9 +83,7 @@ class IrPrinter {
   int indent_size_ = 0;
 };
 
-std::ostream& operator<<(
-    std::ostream& os,
-    const Statement* stmt);
+std::ostream& operator<<(std::ostream& os, const Statement* stmt);
 
 std::ostream& operator<<(std::ostream& os, Fusion* f);
 std::ostream& operator<<(std::ostream& os, Fusion& f);

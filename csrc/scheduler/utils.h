@@ -260,14 +260,13 @@ void clearMemorySpace(Fusion* fusion);
 
 // Returns cached after tensors of the fusion inputs if unrolled. Otherwise
 // return empty vector.
-std::vector<TensorView*> cacheInputs(
-    Fusion* fusion,
-    bool unroll);
+std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll);
 
 // Returns the pairs of <cache of each fusion output, corresponding output> for
 // all outputs.
-std::vector<std::pair<TensorView*, TensorView*>>
-cacheAndForkOutputs(Fusion* fusion, bool unroll);
+std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
+    Fusion* fusion,
+    bool unroll);
 
 // Ignores broadcast and reduction, returns iter domain in root domain that's
 // "inner most".
@@ -393,15 +392,14 @@ struct BroadcastMultipleInformation {
 // non-broadcast dimension in the given input/output. Otherwise if all
 // dimensions are broadcast that input/output will not contribute to the
 // multiple.
-BroadcastMultipleInformation
-getBroadcastMultiples(TensorView* reference_tv, DataType index_type);
+BroadcastMultipleInformation getBroadcastMultiples(
+    TensorView* reference_tv,
+    DataType index_type);
 
 //! Propagate current transformations on from_tv up to the given
 //!  position, to all tensorviews on the owning fusion that has
 //!  a connection with `from_tv` on the fusion graph.
-void transformPropagateToAllFrom(
-    TensorView* from_tv,
-    int pos);
+void transformPropagateToAllFrom(TensorView* from_tv, int pos);
 
 //! A type of custom transform propagator that propagates iterdomain
 //!  transforms from a source tv to all tvs that are selected
@@ -535,8 +533,7 @@ bool breakIsDisjoint(std::vector<int> group_ids, int pos);
 // domain [i0*i2, i1]
 // will produce the map {{0, 1}, {1, 0}}
 // This is somewhat similar to orderTiledConcreteIdAsRoot
-std::unordered_map<int, int> domainReorderAsRfactorMap(
-    TensorView* tv);
+std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv);
 
 // Assumes view's are consistent as detected by
 // registery.cpp::requiresForwardViewReplay returning false

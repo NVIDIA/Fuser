@@ -30,8 +30,7 @@ bool complyWith(
     const at::Tensor& tensor,
     const c10::TensorTypePtr& guard_tensor_type);
 
-struct NVFuserPassManager
-    : public torch::jit::PassManager<NVFuserPassManager> {
+struct NVFuserPassManager : public torch::jit::PassManager<NVFuserPassManager> {
   static bool registerPass(bool enabled) {
     bool old_value = PassManager::isRegistered();
     if (enabled) {
