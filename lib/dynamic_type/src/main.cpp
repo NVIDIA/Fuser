@@ -1,4 +1,4 @@
-#include <iostream>
+#include <cstdint>
 #include <type_traits>
 #include <vector>
 
@@ -26,6 +26,7 @@ template <
          hasLessThan<typename DT::T2, typename DT::T1>::value ||
          hasLessThan<typename DT::T2, typename DT::T2>::value)>>
 inline constexpr bool operator<(const DT& x, const DT& y) {
+  // implementation omitted
   return true;
 }
 
