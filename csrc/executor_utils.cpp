@@ -1278,13 +1278,13 @@ std::tuple<NvrtcFunction, std::string> getCompiledKernel(
   if (buffer->ptx() != nullptr) {
     compiled_kernel.ptx.reserve(buffer->ptx()->size());
     std::copy(buffer->ptx()->begin(), buffer->ptx()->end(), (uint8_t*) compiled_kernel.ptx.data());
-    compiled_kernel.ptx_filename = buffer->ptx_filename->str();
+    compiled_kernel.ptx_filename = buffer->ptx_filename()->str();
   }
 
   if (buffer->cubin() != nullptr) {
     compiled_kernel.cubin.reserve(buffer->cubin()->size());
     std::copy(buffer->cubin()->begin(), buffer->cubin()->end(), (uint8_t*) compiled_kernel.cubin.data());
-    compiled_kernel.cubin_filename = buffer->cubin_filename->str();
+    compiled_kernel.cubin_filename = buffer->cubin_filename()->str();
   }
   compiled_kernel.kernel_name = buffer->kernel_name()->str();
   compiled_kernel.compile_args = buffer->compile_args()->str();
@@ -1306,7 +1306,7 @@ std::tuple<NvrtcFunction, std::string> getCompiledKernel(
 
   const auto prop = at::cuda::getCurrentDeviceProperties();
 
-  // Generate compile args and compare against saved args in compiled_binary
+  // Generate compile args and compare against saved args in compiled_kernel
   NvrtcCompileDriver nvrtc_compile_driver;
   CuModuleLoadDataDriver module_load_driver;
 
@@ -1315,8 +1315,8 @@ std::tuple<NvrtcFunction, std::string> getCompiledKernel(
   queryTargetGPUVersion(prop, major, minor, compile_to_sass);
 
   std::optional<int64_t> opt_block_size;
-  if (compiled_binary.block_size >= -1) {
-    opt_block_size = compiled_binary.block_size;
+  if (compiled_kernel.block_size >= -1) {
+    opt_block_size = compiled_kernel.block_size;
   }
 
   fillCompileOptions(
@@ -1331,12 +1331,12 @@ std::tuple<NvrtcFunction, std::string> getCompiledKernel(
   const auto latest_compile_args =
       toDelimitedString(nvrtc_compile_driver.options(), " ");
   TORCH_INTERNAL_ASSERT(
-      latest_compile_args == compiled_binary.compile_args,
+      latest_compile_args == compiled_kernel.compile_args,
       "The compile arguments for the serialized cuda kernel does not ",
       "match the latest generated compile args.\t",
       latest_compile_args,
       "\t",
-      compiled_binary.compile_args);
+      compiled_kernel.compile_args);
 
   std::stringstream log;
   NvrtcFunction compiled_kernel;
