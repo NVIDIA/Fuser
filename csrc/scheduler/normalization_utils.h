@@ -10,6 +10,8 @@
 #include <exceptions.h>
 #include <executor_params.h>
 #include <ir/all_nodes.h>
+#include <scheduler/heuristic_types.h>
+#include <scheduler/reduction_utils.h>
 #include <cmath>
 #include <optional>
 #include <ostream>
@@ -205,6 +207,10 @@ getOptionalInnerOuterPersistentBufferBatches(
     const int64_t vectorize_factor,
     const int64_t warp_size,
     const bool ignore_register_size_limit);
+
+// Return a scheduleHeuristic based on reduction types.
+using ReductionType = reduction_scheduler_utils::ReductionType;
+ScheduleHeuristic getPersistentHeuristicFor(ReductionType reduction_type);
 
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

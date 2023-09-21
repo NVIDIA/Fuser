@@ -22,7 +22,7 @@ namespace nvfuser {
   Communicator (a default Communicator is built at initialization if none is
   provided).
 */
-class TORCH_CUDA_CU_API MultiDeviceRuntime {
+class MultiDeviceRuntime {
  public:
   explicit MultiDeviceRuntime(Pipeline* pipeline, Communicator& comm)
       : pipeline_(pipeline), comm_(comm) {

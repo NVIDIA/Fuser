@@ -37,8 +37,9 @@ namespace executor_utils {
 std::string kernelPreamble();
 
 //! Bind input values to runtime values
-TORCH_CUDA_CU_API ExpressionEvaluator
-bindInputs(const KernelArgumentHolder& args, Fusion* fusion);
+ExpressionEvaluator bindInputs(
+    const KernelArgumentHolder& args,
+    Fusion* fusion);
 
 std::string disassembleBinary(
     const std::vector<char>& cubin,

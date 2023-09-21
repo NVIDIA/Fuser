@@ -35,7 +35,7 @@ class ExpressionEvaluator;
 //!  It is important that input id encoding should be up to date with any change
 //!   of this class to avoid launching compiled kernels with illegal inputs.
 
-class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
+class SchedulerRuntimeInfo : public NonCopyable {
  public:
   // Max vector size we will consider, in bytes,
   //  currently set to 16B = 128b
@@ -133,7 +133,7 @@ class HeuristicSummary;
 //!   heuristic implementations derive from this
 //!   class and implement a schedule(Fusion*)
 //!   and a bool canSchedule(Fusion*) interface
-class TORCH_CUDA_CU_API SchedulerEntry {
+class SchedulerEntry {
  public:
   //! Fusion runtime facing API,
   //!   builds a new entry with the given heuristics
@@ -222,7 +222,7 @@ class TORCH_CUDA_CU_API SchedulerEntry {
 };
 
 //! Hash function for a scheduler entry
-class TORCH_CUDA_CU_API SchedulerEntryHash {
+class SchedulerEntryHash {
  public:
   size_t operator()(const SchedulerEntry& se) const;
 };

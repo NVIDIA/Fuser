@@ -17,7 +17,7 @@ namespace nvfuser {
   This struct gathers all the parameters necessary for the
   construction a communication
 */
-struct TORCH_CUDA_CU_API CommParams {
+struct CommParams {
   DeviceIdxType root = -1;
   std::vector<at::Tensor> src_bufs;
   std::vector<at::Tensor> dst_bufs;
@@ -52,7 +52,7 @@ NOTE: pytorch's NCCL process group API needs <team_size> buffers on root for
 scatter/gather operation.
 */
 
-class TORCH_CUDA_CU_API Communication {
+class Communication {
  public:
   virtual ~Communication() = default;
 
@@ -92,7 +92,7 @@ Requirements:
   - non-roots have no src buffer and one dst buffer
   - all buffers have the same size
 */
-class TORCH_CUDA_CU_API Broadcast : public Communication {
+class Broadcast : public Communication {
  public:
   Broadcast(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
@@ -109,7 +109,7 @@ Requirements:
   - non-roots have one src buffer and no dst buffer
   - all buffers have the same size
 */
-class TORCH_CUDA_CU_API Gather : public Communication {
+class Gather : public Communication {
  public:
   Gather(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
@@ -124,7 +124,7 @@ Requirements:
   - all device have one src buffer and <team_size> dst buffers
   - all buffers have the same size
 */
-class TORCH_CUDA_CU_API Allgather : public Communication {
+class Allgather : public Communication {
  public:
   Allgather(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
@@ -140,7 +140,7 @@ Requirements:
   - non-roots have no src buffer and one dst buffer
   - all buffers have the same size
 */
-class TORCH_CUDA_CU_API Scatter : public Communication {
+class Scatter : public Communication {
  public:
   Scatter(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
@@ -161,7 +161,7 @@ case of a local copy)
   - If team is of size 2, the unique non-root have no src buffer and one dst
 buffer
 */
-class TORCH_CUDA_CU_API SendRecv : public Communication {
+class SendRecv : public Communication {
  public:
   SendRecv(CommParams params);
   c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
