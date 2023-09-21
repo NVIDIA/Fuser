@@ -128,23 +128,20 @@ TEST_F(MemoryTest, RefineCachePolicy) {
   TensorView* tv_c2 = set(tv_c);
   fusion.addOutput(tv_c2);
 
-  tv_a2->split(1, 4); // Vector.
-  tv_a2->split(1, 32); // Thread.
+  tv_a2->merge(0);
+  tv_a2->split(0, 4); // Vector.
+  tv_a2->split(0, 32); // Thread.
   // TODO: can the propagator automatically split tv_b2?
   tv_b2->split(0, 4); // Vector.
   tv_b2->split(0, 32); // Thread.
   TransformPropagatorWithCheck propagator(tv_a2);
   MaxRootDomainInfoSpanningTree(tv_a2).traverse(&propagator);
 
-  tv_a2->axis(0)->parallelize(ParallelType::BIDy);
-  tv_a2->axis(1)->parallelize(ParallelType::BIDx);
-  tv_a2->axis(2)->parallelize(ParallelType::TIDx);
-  tv_a2->axis(3)->parallelize(ParallelType::Vectorize);
-  // TODO: can parallelizeAllLike parallelize b2 automatically?
-  tv_b2->axis(0)->parallelize(ParallelType::BIDx);
-  tv_b2->axis(1)->parallelize(ParallelType::TIDx);
+  tv_a2->axis(0)->parallelize(ParallelType::BIDx);
+  tv_a2->axis(1)->parallelize(ParallelType::TIDx);
+  tv_a2->axis(2)->parallelize(ParallelType::Vectorize);
   tv_b2->axis(2)->parallelize(ParallelType::Vectorize);
-  scheduler_utils::parallelizeAllLike(tv_a2, {tv_c2});
+  tv_c2->axis(2)->parallelize(ParallelType::Vectorize);
 
   refineCachePolicy(&fusion);
 

@@ -22,15 +22,15 @@ static bool expands(const Expr* expr, const TensorView* in_tv) {
   }
   const auto* out_tv = out->as<TensorView>();
 
-  const size_t n_dims = in_tv->nDims();
-  if (n_dims != out_tv->nDims()) {
+  const size_t n_dims = in_tv->getRootDomain().size();
+  if (n_dims != out_tv->getRootDomain().size()) {
     return false;
   }
 
   int num_expands = 0;
   for (size_t i = 0; i < n_dims; i++) {
-    const Val* in_extent = in_tv->axis(i)->extent();
-    const Val* out_extent = out_tv->axis(i)->extent();
+    const Val* in_extent = in_tv->getRootDomain()[i]->extent();
+    const Val* out_extent = out_tv->getRootDomain()[i]->extent();
     if (in_extent->isOneInt() && !out_extent->isOneInt()) {
       num_expands++;
     }
