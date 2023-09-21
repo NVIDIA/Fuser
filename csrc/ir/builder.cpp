@@ -5,10 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <expr_evaluator.h>
 #include <fusion.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <kernel.h>
+#include <C++20/compare>
 
 #include <ir/all_nodes.h>
 #include <ir/container.h>
@@ -330,6 +332,9 @@ Val* SimplifyingIrBuilder::addExpr(Val* lhs, Val* rhs) {
 }
 
 Val* SimplifyingIrBuilder::subExpr(Val* lhs, Val* rhs) {
+  if (lhs->isIntegralScalar() && lhs->sameAs(rhs)) {
+    return lhs->fusion()->zeroVal(lhs->dtype());
+  }
   return addExpr(lhs, negExpr(rhs));
 }
 
@@ -391,7 +396,9 @@ Val* SimplifyingIrBuilder::ceilDivExpr(Val* lhs, Val* rhs) {
 }
 
 Val* SimplifyingIrBuilder::modExpr(Val* lhs, Val* rhs) {
-  if (rhs->isOneInt()) {
+  NVF_ERROR(isIntegralType(lhs->dtype()));
+  NVF_ERROR(isIntegralType(rhs->dtype()));
+  if (rhs->isOneInt() || lhs->isZeroInt() || lhs->sameAs(rhs)) {
     return FusionGuard::getCurFusion()->zeroVal(
         promoteType(lhs->dtype(), rhs->dtype()));
   }
@@ -564,7 +571,7 @@ Val* minOrMaxExpr(
     Fimc func) {
   if (rhs == nullptr) {
     return lhs;
-  } else if (lhs == nullptr) {
+  } else if (lhs == nullptr || lhs->sameAs(rhs)) {
     return rhs;
   } else if (lhs->isConst() && rhs->isConst()) {
     return IrBuilder::create<Val>(func(lhs->value(), rhs->value()));
@@ -594,10 +601,15 @@ Val* SimplifyingIrBuilder::minExpr(Val* lhs, Val* rhs) {
 }
 
 Val* SimplifyingIrBuilder::gcdExpr(Val* lhs, Val* rhs) {
+  NVF_ERROR(isIntegralType(lhs->dtype()));
+  NVF_ERROR(isIntegralType(rhs->dtype()));
   if (lhs->isZeroInt()) {
     return rhs;
   }
   if (rhs->isZeroInt()) {
+    return lhs;
+  }
+  if (lhs->sameAs(rhs)) {
     return lhs;
   }
   if (lhs->isOneInt() || rhs->isOneInt()) {
@@ -606,11 +618,102 @@ Val* SimplifyingIrBuilder::gcdExpr(Val* lhs, Val* rhs) {
   return IrBuilder::gcdExpr(lhs, rhs);
 }
 
+namespace {
+
+//! Compares a to b if they are both const scalars convertible to double
+std::partial_ordering compareScalars(Val* a, Val* b) {
+  ExpressionEvaluator ee;
+  auto a_val = ee.evaluate(a);
+  if (!a_val.hasValue()) {
+    return std::partial_ordering::unordered;
+  }
+  auto b_val = ee.evaluate(b);
+  if (!b_val.hasValue()) {
+    return std::partial_ordering::unordered;
+  }
+  if (a_val < b_val) {
+    return std::partial_ordering::less;
+  } else if (a_val == b_val) {
+    return std::partial_ordering::equivalent;
+  } else {
+    return std::partial_ordering::greater;
+  }
+}
+} // namespace
+
+Val* SimplifyingIrBuilder::ltExpr(Val* lhs, Val* rhs) {
+  auto c = compareScalars(lhs, rhs);
+  if (c == std::partial_ordering::unordered) {
+    return IrBuilder::ltExpr(lhs, rhs);
+  } else if (c == std::partial_ordering::less) {
+    return lhs->fusion()->trueVal();
+  } else {
+    return lhs->fusion()->falseVal();
+  }
+}
+
+Val* SimplifyingIrBuilder::leExpr(Val* lhs, Val* rhs) {
+  auto c = compareScalars(lhs, rhs);
+  if (c == std::partial_ordering::unordered) {
+    return IrBuilder::leExpr(lhs, rhs);
+  } else if (c == std::partial_ordering::greater) {
+    return lhs->fusion()->falseVal();
+  } else {
+    return lhs->fusion()->trueVal();
+  }
+}
+
+Val* SimplifyingIrBuilder::eqExpr(Val* lhs, Val* rhs) {
+  auto c = compareScalars(lhs, rhs);
+  if (c == std::partial_ordering::unordered) {
+    return IrBuilder::eqExpr(lhs, rhs);
+  } else if (c == std::partial_ordering::equivalent) {
+    return lhs->fusion()->trueVal();
+  } else {
+    return lhs->fusion()->falseVal();
+  }
+}
+
+Val* SimplifyingIrBuilder::neExpr(Val* lhs, Val* rhs) {
+  auto c = compareScalars(lhs, rhs);
+  if (c == std::partial_ordering::unordered) {
+    return IrBuilder::neExpr(lhs, rhs);
+  } else if (c == std::partial_ordering::equivalent) {
+    return lhs->fusion()->falseVal();
+  } else {
+    return lhs->fusion()->trueVal();
+  }
+}
+
+Val* SimplifyingIrBuilder::geExpr(Val* lhs, Val* rhs) {
+  auto c = compareScalars(lhs, rhs);
+  if (c == std::partial_ordering::unordered) {
+    return IrBuilder::geExpr(lhs, rhs);
+  } else if (c == std::partial_ordering::less) {
+    return lhs->fusion()->falseVal();
+  } else {
+    return lhs->fusion()->trueVal();
+  }
+}
+
+Val* SimplifyingIrBuilder::gtExpr(Val* lhs, Val* rhs) {
+  auto c = compareScalars(lhs, rhs);
+  if (c == std::partial_ordering::unordered) {
+    return IrBuilder::gtExpr(lhs, rhs);
+  } else if (c == std::partial_ordering::greater) {
+    return lhs->fusion()->trueVal();
+  } else {
+    return lhs->fusion()->falseVal();
+  }
+}
+
 Val* SimplifyingIrBuilder::whereExpr(Val* pred, Val* lhs, Val* rhs) {
   NVF_ERROR(
       pred->dtype() == DataType::Bool,
       "Where requires a predicate as an input, but received");
-
+  if (lhs->sameAs(rhs)) {
+    return lhs; // return value is independent of predicate
+  }
   if (pred->isConstScalar() && pred->isABool()) {
     if (pred->evaluateBool()) {
       return lhs;
@@ -618,7 +721,6 @@ Val* SimplifyingIrBuilder::whereExpr(Val* pred, Val* lhs, Val* rhs) {
       return rhs;
     }
   }
-
   return IrBuilder::whereExpr(pred, lhs, rhs);
 }
 

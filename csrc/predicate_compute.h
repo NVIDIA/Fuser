@@ -124,7 +124,7 @@ struct UnswitchPredicateKeyHash {
   std::size_t operator()(const UnswitchPredicateKey& key) const;
 };
 
-class TORCH_CUDA_CU_API UnswitchPredicate {
+class UnswitchPredicate {
  public:
   static Val* get(
       const std::vector<kir::ForLoop*>& outer_loops,

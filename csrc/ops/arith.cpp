@@ -988,7 +988,7 @@ NVFUSER_DEFINE_INT_ONLY_OP(gcd, Gcd)
 // the right shift, and then cast back to the original value. In C++, unsigned
 // integers are shifted with logical right shift.
 template <typename LHS, typename RHS>
-TORCH_CUDA_CU_API typename std::conditional<
+typename std::conditional<
     std::is_same<LHS, TensorView*>::value ||
         std::is_same<RHS, TensorView*>::value,
     TensorView*,

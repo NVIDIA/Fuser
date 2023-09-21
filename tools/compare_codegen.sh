@@ -117,7 +117,7 @@ cleanup() {
 trap "cleanup" EXIT
 
 run_test() {
-    testdir=$1
+    export testdir=$1
     if [[ -d "$testdir/cuda" ]]
     then
         echo "Skipping since $testdir/cuda exists"

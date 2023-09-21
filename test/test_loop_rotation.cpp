@@ -552,7 +552,7 @@ TEST_F(LoopRotationTest, MultipleDoubleBuffer) {
   auto tv3 = set(tv2);
   fusion.addOutput(tv3);
 
-  auto tv4 = tv0->cacheAfter(LoadStoreOpType::CpAsyncCa);
+  auto tv4 = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   tv4->setMemoryType(MemoryType::Shared);
 
   inlineAllAt(tv3, 1);
