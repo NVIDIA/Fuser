@@ -1128,7 +1128,7 @@ class GetRNGSeedAndOffsetFromHost : public Expr {
 };
 
 // Expr for driver API cuTensorMapEncodeTiled
-class  EncodeTensorMapTiled : public Expr {
+class EncodeTensorMapTiled : public Expr {
  public:
   using Expr::Expr;
 

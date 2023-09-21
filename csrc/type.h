@@ -290,7 +290,7 @@ inline bool isComplexType(DataType dtype) {
 }
 
 // Returns if the datatype is a complex type
- inline bool isStructType(DataType dtype) {
+inline bool isStructType(DataType dtype) {
   return std::holds_alternative<StructType>(dtype.type);
 }
 
