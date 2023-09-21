@@ -20,7 +20,7 @@ std::string toString(ScheduleHeuristic sh) {
     case ScheduleHeuristic::Reduction:
       return "reduction";
     case ScheduleHeuristic::InnerPersistent:
-      return "inner persistent";
+      return "inner_persistent";
     case ScheduleHeuristic::InnerOuterPersistent:
       return "inner_outer_persistent";
     case ScheduleHeuristic::Persistent:

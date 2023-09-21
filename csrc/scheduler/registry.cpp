@@ -226,6 +226,7 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
     case ScheduleHeuristic::InnerPersistent:
       scheduler_entry = std::make_unique<InnerPersistentKernelScheduler>(
           fusion, runtime_info, data_cache);
+      break;
     case ScheduleHeuristic::InnerOuterPersistent:
       scheduler_entry = std::make_unique<InnerOuterPersistentKernelScheduler>(
           fusion, runtime_info, data_cache);
@@ -309,6 +310,7 @@ HeuristicSummary::HeuristicSummary(
       getInnerPersistentHeuristics(fusion, runtime_info, this);
       InnerPersistentKernelScheduler::canScheduleRunTime(
           fusion, runtime_info, this);
+      break;
     case ScheduleHeuristic::InnerOuterPersistent:
       getInnerOuterPersistentHeuristics(fusion, runtime_info, this);
       InnerOuterPersistentKernelScheduler::canScheduleRunTime(
@@ -323,12 +325,12 @@ HeuristicSummary::HeuristicSummary(
       TransposeScheduler::canScheduleRunTime(fusion, runtime_info, this);
       break;
     case ScheduleHeuristic::Matmul: {
-        const auto heuristics = getMatmulHeuristics(fusion, runtime_info, this);
-        NVF_ERROR(heuristics, "Failed to get matmul heuristics");
-        const auto canSchedule =
-            MatmulScheduler::canScheduleRunTime(fusion, runtime_info, this);
-        NVF_ERROR(canSchedule, "Could not schedule matmul (run time)");
-        break;
+      const auto heuristics = getMatmulHeuristics(fusion, runtime_info, this);
+      NVF_ERROR(heuristics, "Failed to get matmul heuristics");
+      const auto canSchedule =
+          MatmulScheduler::canScheduleRunTime(fusion, runtime_info, this);
+      NVF_ERROR(canSchedule, "Could not schedule matmul (run time)");
+      break;
     }
     default:
       NVF_ERROR(false, "unknown heuristic");
