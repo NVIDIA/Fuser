@@ -349,17 +349,19 @@ void PrecomputedValues::bindTensorMetaData(
   // would mean PrecomputedValues will own the tensor. Unlike
   // ExpressionEvaluator, PrecomputedValues objects are typically long-lived, so
   // we do not want them to own large objects.
-  std::shared_ptr<Struct> struct_ = std::make_shared<TensorMetaData>();
-  TensorMetaData* metadata = (TensorMetaData*)struct_.get();
-  metadata->dtype =
-      std::get<PrimDataType>(aten_to_data_type(tensor.scalar_type()).type);
-  metadata->data = tensor.data_ptr();
-  metadata->logical_size = tensor.sizes();
-  metadata->logical_stride = tensor.strides();
-  metadata->alloc_size = tensor.sizes();
-  metadata->alloc_stride = tensor.strides();
-  PolymorphicValue pv(std::move(struct_));
-  bindValue(IrBuilder::metadataExpr(tv)->evaluatorIndex(), pv);
+  // To do this we create a temporary ExpressionEvaluator so that we can compute
+  // the metadata once, then save it
+  ExpressionEvaluator ee;
+  ee.bind(tv, tensor);
+  auto metadata_val = IrBuilder::metadataExpr(tv);
+  auto metadata = ee.evaluate(metadata_val);
+  NVF_ERROR(
+      metadata.hasValue(),
+      "Could not evaluate metadata expression for ",
+      tv->toString(),
+      " with input tensor ",
+      tensor);
+  bindValue(metadata_val->evaluatorIndex(), metadata);
 }
 
 NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)
