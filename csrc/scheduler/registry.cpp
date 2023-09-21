@@ -184,6 +184,7 @@ bool SchedulerEntry::canSchedule(
           fusion, runtime_info, data_cache);
     case ScheduleHeuristic::InnerPersistent:
       return checkCanSchedule<InnerPersistentKernelScheduler>(
+          fusion, runtime_info, data_cache);
     case ScheduleHeuristic::InnerOuterPersistent:
       return checkCanSchedule<InnerOuterPersistentKernelScheduler>(
           fusion, runtime_info, data_cache);
@@ -224,6 +225,7 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
       break;
     case ScheduleHeuristic::InnerPersistent:
       scheduler_entry = std::make_unique<InnerPersistentKernelScheduler>(
+          fusion, runtime_info, data_cache);
     case ScheduleHeuristic::InnerOuterPersistent:
       scheduler_entry = std::make_unique<InnerOuterPersistentKernelScheduler>(
           fusion, runtime_info, data_cache);
@@ -306,6 +308,7 @@ HeuristicSummary::HeuristicSummary(
     case ScheduleHeuristic::InnerPersistent:
       getInnerPersistentHeuristics(fusion, runtime_info, this);
       InnerPersistentKernelScheduler::canScheduleRunTime(
+          fusion, runtime_info, this);
     case ScheduleHeuristic::InnerOuterPersistent:
       getInnerOuterPersistentHeuristics(fusion, runtime_info, this);
       InnerOuterPersistentKernelScheduler::canScheduleRunTime(
@@ -320,12 +323,12 @@ HeuristicSummary::HeuristicSummary(
       TransposeScheduler::canScheduleRunTime(fusion, runtime_info, this);
       break;
     case ScheduleHeuristic::Matmul: {
-      const auto heuristics = getMatmulHeuristics(fusion, runtime_info, this);
-      NVF_ERROR(heuristics, "Failed to get matmul heuristics");
-      const auto canSchedule =
-          MatmulScheduler::canScheduleRunTime(fusion, runtime_info, this);
-      NVF_ERROR(canSchedule, "Could not schedule matmul (run time)");
-      break;
+        const auto heuristics = getMatmulHeuristics(fusion, runtime_info, this);
+        NVF_ERROR(heuristics, "Failed to get matmul heuristics");
+        const auto canSchedule =
+            MatmulScheduler::canScheduleRunTime(fusion, runtime_info, this);
+        NVF_ERROR(canSchedule, "Could not schedule matmul (run time)");
+        break;
     }
     default:
       NVF_ERROR(false, "unknown heuristic");

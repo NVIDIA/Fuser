@@ -58,7 +58,7 @@ enum class ScheduleHeuristic {
 };
 
 //! Define a schedule table to loop over all the heuristics in priority order.
-constexpr std::array<ScheduleHeuristic, 7> all_heuristics_in_priority_order = {
+constexpr std::array<ScheduleHeuristic, 8> all_heuristics_in_priority_order = {
     ScheduleHeuristic::NoOp,
     ScheduleHeuristic::Reduction,
     ScheduleHeuristic::Transpose,
