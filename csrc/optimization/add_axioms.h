@@ -10,7 +10,7 @@
 namespace nvfuser::optimization {
 
 //! AddAxiomsPass adds extent > 0 as axioms of the IR container for all tensors
-class TORCH_CUDA_CU_API AddAxiomsPass : public OptimizationPass<AddAxiomsPass> {
+class AddAxiomsPass : public OptimizationPass<AddAxiomsPass> {
   friend class OptimizationPass<AddAxiomsPass>;
 
  protected:

@@ -87,7 +87,7 @@ struct PairPointerEquals {
 //!  and one for segmented/multi-kernel fusion.
 //! Conceptually this is a generalization of FusionExecutor that supports both
 //!  single-kernel and multi-kernel caching/compiling/launching
-class TORCH_CUDA_CU_API FusionKernelRuntime {
+class FusionKernelRuntime {
  public:
   explicit FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
@@ -312,7 +312,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
 //! \note the uniqueness of the ide generated for a given input set is only
 //!   local to the instance of `InputsIdLookup`.
 //!
-class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
+class InputsIdLookup : public NonCopyable {
  public:
   //! constructor where maximum cache size is fixed during init
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init,cppcoreguidelines-avoid-magic-numbers)
@@ -485,7 +485,7 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
 //! assumed graph partition strategy is independent of input pattern, which we
 //! can revisit once we have more advanced graph segmentation logic Each
 //! FusionExecutorCache corresponds to one graph and one graph segmentation.
-class TORCH_CUDA_CU_API FusionExecutorCache {
+class FusionExecutorCache {
  public:
   //! create new fusion executor cache at a given device to handle kernel
   //! generation of dynamic sizes

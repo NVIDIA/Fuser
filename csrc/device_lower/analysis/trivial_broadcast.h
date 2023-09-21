@@ -26,7 +26,7 @@ namespace nvfuser {
 //! When the mapped consumer domain is not broadcast, it means the
 //! producer broadcast domain is concretized, and its origin broadcast
 //! domains are marked as concretized.
-class TORCH_CUDA_CU_API ConcretizedBroadcastDomains : private IterVisitor {
+class ConcretizedBroadcastDomains : private IterVisitor {
  public:
   ConcretizedBroadcastDomains() = delete;
   ConcretizedBroadcastDomains(Fusion* fusion);

@@ -33,7 +33,7 @@ class IrContainerPasskey {
   explicit IrContainerPasskey() = default;
 };
 
-class TORCH_CUDA_CU_API IrContainer : public PolymorphicBase {
+class IrContainer : public PolymorphicBase {
  public:
   IrContainer();
 
