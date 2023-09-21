@@ -61,16 +61,22 @@ static const char* defineIndexType(PrimDataType index_type) {
   }
 }
 
-static const char* defineIntegerTypes() {
+static const char* defineTypes() {
   return R"(
-typedef signed char int8_t;
-typedef unsigned char uint8_t;
-typedef short int int16_t;
-typedef unsigned short int uint16_t;
-typedef int int32_t;
-typedef unsigned int uint32_t;
-typedef long long int int64_t;
-typedef unsigned long long int uint64_t;
+using int8_t = signed char;
+using uint8_t = unsigned char;
+using int16_t = short int;
+using uint16_t = unsigned short int;
+using int32_t = int;
+using uint32_t = unsigned int;
+using int64_t = long long int;
+using uint64_t = unsigned long long int;
+
+// Modified from cuda.h
+struct TensorMap {
+  alignas(64)
+  uint64_t opaque[16];
+};
 )";
 }
 
@@ -150,7 +156,7 @@ std::string FusionExecutor::getStructuredCode(
   std::string code = "";
   code += includeStdComplex();
   code += std::string("namespace ") + FusionExecutor::kernelNamespace() +
-      " {\n" + defineIntegerTypes() + defineIndexType(index_type) +
+      " {\n" + defineTypes() + defineIndexType(index_type) +
       executor_utils::kernelPreamble() + kernel_str + "}\n";
 
   if (isDebugDumpEnabled(DebugDumpOption::CudaKernel)) {
@@ -1832,23 +1838,28 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     if (measure_kernel_time) {
       kernel_time_ms_ = timer.elapsed();
 
-      bytes_processed_ = 0;
+      bytes_processed_per_input_.resize(num_inputs, 0);
       // Figure how many bytes are inputs, outputs, and temporary buffers
       for (auto i : c10::irange(num_inputs)) {
         if (args[i]->is<at::Tensor>()) {
-          bytes_processed_ += args[i]->as<at::Tensor>().numel() *
-              (int64_t)dataTypeSize(aten_to_data_type(
-                  args[i]->as<at::Tensor>().scalar_type()));
+          auto t = args[i]->as<at::Tensor>();
+          auto num_bytes = t.numel() *
+              (int64_t)dataTypeSize(aten_to_data_type(t.scalar_type()));
+          bytes_processed_per_input_.at(i) = num_bytes;
         }
       }
-      for (const auto& output : outputs) {
-        bytes_processed_ += output.numel() *
+      bytes_processed_per_output_.resize(outputs.size(), 0);
+      for (auto i : c10::irange(outputs.size())) {
+        const auto& output = outputs.at(i);
+        // NOTE: this assumes that all output elements correspond to a single
+        // store
+        bytes_processed_per_output_.at(i) = output.numel() *
             (int64_t)dataTypeSize(aten_to_data_type(output.scalar_type()));
       }
 
       if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth)) {
         double gb_per_s =
-            ((double)bytes_processed_ / ((double)kernel_time_ms_ / 1000)) /
+            ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
             (double)1.0e9;
         debug() << "kernel" << fusion_id_ << " run in " << kernel_time_ms_
                 << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
