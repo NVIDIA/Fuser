@@ -65,17 +65,17 @@ class InnerPersistentKernelScheduler : public SchedulerEntry {
       const scheduler_utils::ReductionTvProperties& properties);
 };
 
-TORCH_CUDA_CU_API std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
+ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache = nullptr);
 
-TORCH_CUDA_CU_API std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
+ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-TORCH_CUDA_CU_API void scheduleInnerPersistentKernel(
+ void scheduleInnerPersistentKernel(
     Fusion* fusion,
     const ReductionParams& rparams);
 
