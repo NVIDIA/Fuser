@@ -33,7 +33,7 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
-#include <test/utils.h>
+#include <test/multidevice.h>
 #include <test/validator.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
 #include <transform_replay.h>
@@ -52,48 +52,57 @@ namespace nvfuser {
 using namespace torch::jit::fuser::cuda;
 using namespace at::indexing;
 
+Communicator MultiDeviceTest::comm = {};
+
 // utility function for validation
 void testValidateMultidevice(
     std::unique_ptr<Fusion> fusion_ptr,
     MultiDeviceRuntime& runtime,
     const at::ArrayRef<c10::IValue>& inputs,
     const std::vector<at::Tensor>& outputs,
-    RankType tester_rank = 0) {
+    DeviceIdxType tester = 0) {
+  Communicator& comm = runtime.comm();
   std::vector<at::Tensor> buffer;
 
-  // gathering all the inputs at tester_rank
+  // gathering all the inputs at tester
   std::vector<c10::IValue> input_tensors;
   for (auto i : c10::irange(inputs.size())) {
-    auto sender_rank = runtime.dIdToRank(runtime.pipeline()
-                                             ->inputs()
-                                             .at(i)
-                                             ->as<PipelineVal>()
-                                             ->getStage()
-                                             ->descriptor()
-                                             ->mesh.deviceIndices()
-                                             .at(0));
+    auto sender = runtime.pipeline()
+                      ->inputs()
+                      .at(i)
+                      ->as<PipelineVal>()
+                      ->getStage()
+                      ->descriptor()
+                      ->mesh.deviceIndices()
+                      .at(0);
     buffer = {inputs.at(i).toTensor()};
-    runtime.comm().sendRecv(tester_rank, sender_rank, buffer);
+    if (tester != sender &&
+        (comm.deviceId() == tester || comm.deviceId() == sender)) {
+      comm.sendRecv(tester, sender, buffer);
+    }
     input_tensors.push_back(buffer.at(0));
   }
 
-  // gathering all the outputs at tester_rank
+  // gathering all the outputs at tester
   std::vector<at::Tensor> output_tensors;
   for (auto i : c10::irange(outputs.size())) {
-    auto sender_rank = runtime.dIdToRank(runtime.pipeline()
-                                             ->outputs()
-                                             .at(i)
-                                             ->as<PipelineVal>()
-                                             ->getStage()
-                                             ->descriptor()
-                                             ->mesh.deviceIndices()
-                                             .at(0));
+    auto sender = runtime.pipeline()
+                      ->outputs()
+                      .at(i)
+                      ->as<PipelineVal>()
+                      ->getStage()
+                      ->descriptor()
+                      ->mesh.deviceIndices()
+                      .at(0);
     buffer = {outputs.at(i)};
-    runtime.comm().sendRecv(tester_rank, sender_rank, buffer);
+    if (tester != sender &&
+        (comm.deviceId() == tester || comm.deviceId() == sender)) {
+      comm.sendRecv(tester, sender, buffer);
+    }
     output_tensors.push_back(buffer.at(0));
   }
 
-  if (runtime.rank() == tester_rank) {
+  if (comm.deviceId() == tester) {
     // execute the fusion on one device without pipeline scheduling
     Fusion& fusion = *fusion_ptr.get();
     FusionExecutorCache fec(std::move(fusion_ptr));
@@ -109,18 +118,18 @@ void testValidateMultidevice(
         __FILE__);
   }
 
-  runtime.comm().barrier();
+  comm.barrier();
 }
 
 /* To run the following tests on several devices, pytorch must be installed
    with the flag USE_DISTRIBUTED=1 and nccl support.
-   Then simply run the tests on several processes, for example using mpirun,
-   e.g.: mpirun -np 6 ./build/bin/nvfuser_tests
-   --gtest_filter=NVFuserTest.FusionMultiGPU_CUDA
-   For now, we only support setups with one node.
+   Then simply run the tests on several processes, for example using mpirun
+   on a node having at least 6 GPUs,
+   e.g.: mpirun -np 6 build/nvfuser_tests
+   --gtest_filter=MultiDeviceTest.Pipeline
 */
 
-TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
+TEST_F(MultiDeviceTest, Pipeline) {
   // ===========================================================
   //        FUSION
   // ===========================================================
@@ -201,8 +210,6 @@ TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
   //        COMMUNICATOR
   // ===========================================================
 
-  Communicator comm;
-
   int requested_world_size = 6;
   if (!comm.is_available() || comm.size() < requested_world_size) {
     GTEST_SKIP() << "This test needs distributed setting with at least "
@@ -218,7 +225,7 @@ TEST_F(NVFuserTest, FusionMultiGPU_CUDA) {
   // Create input tensors.
   // Note: each rank is binded to a different GPU
   c10::TensorOptions options =
-      at::TensorOptions().dtype(at::kFloat).device(runtime.device());
+      at::TensorOptions().dtype(at::kFloat).device(comm.device());
   // Note: the concrete values are only used at the relevant ranks
   std::vector<c10::IValue> inputs{
       at::randn({3, 11}, options), at::randn({2, 7, 8}, options)};

@@ -17,7 +17,7 @@ namespace nvfuser {
 namespace codegen {
 
 //! Generates a CUDA kernel definition for the given kernel
-TORCH_CUDA_CU_API std::string generateCudaKernel(
+std::string generateCudaKernel(
     const kir::Kernel* kernel,
     const std::string& kernel_name = "CUDAGeneratedKernel");
 

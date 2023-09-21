@@ -28,7 +28,7 @@ class DynamicTransformInitialInfoBuilder;
 
 //! Initial information derived only from the symbolic Fusion without input
 //! sizes
-class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
+class DynamicTransformInitialInfo {
  public:
   bool operator==(const DynamicTransformConcretizationInfo& other) const;
 
@@ -126,7 +126,7 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
 //! A set of transformations for a symbolic fusion with concrete sizes
 //! of the fusion inputs
-class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
+class DynamicTransformConcretizationInfo {
  public:
   DynamicTransformConcretizationInfo(
       const DynamicTransformInitialInfo* initial_info,
@@ -213,7 +213,7 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   friend class DynamicTransformInfoBuilder;
 };
 
-class TORCH_CUDA_CU_API DynamicTransform {
+class DynamicTransform {
  public:
   //! Get initial information before we have inputs. This analyzes the Fusion to
   //! determine whether it has dynamic operations, and caches their position for

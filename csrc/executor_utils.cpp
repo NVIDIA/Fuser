@@ -110,7 +110,7 @@ std::string kernelPreamble() {
 namespace {
 
 // Query the target GPU version number NVRTC compiles CUDA kernels for
-TORCH_CUDA_CU_API void queryTargetGPUVersion(
+void queryTargetGPUVersion(
     const cudaDeviceProp* const prop,
     int& major,
     int& minor,

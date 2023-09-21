@@ -27,7 +27,7 @@ TensorView* scheduleReductionTV(
     bool has_iter_axis);
 
 // Inlining function intended for single or multi reduction fusions.
-TORCH_CUDA_CU_API void multiReductionInliner(
+void multiReductionInliner(
     Fusion* fusion,
     TensorView* reduction_tv,
     TensorView* reference_tv,
@@ -43,13 +43,13 @@ TORCH_CUDA_CU_API void multiReductionInliner(
 // in P2C forward propagate, disable propagation to TensorView in
 // boundaryNodesSet in C2P backward propagate, disable propagation from
 // TensorView in boundaryNodesSet
-TORCH_CUDA_CU_API void propagateTransformation(
+void propagateTransformation(
     TensorView* reference_tv,
     const std::unordered_set<TensorView*>& boundaryNodesSet =
         std::unordered_set<TensorView*>());
 
 // Propagate RFactor from first reduction TensorView to others
-TORCH_CUDA_CU_API void propagateRFactor(
+void propagateRFactor(
     TensorView* reference_tv,
     TensorView* reduction_tv,
     const std::vector<TensorView*>& reduction_tvs);
@@ -59,7 +59,7 @@ TORCH_CUDA_CU_API void propagateRFactor(
 // handled for tensorviews in cached_inputs and cached_outputs.
 // If reduction_tv and reference_tv shouldn't be unrolled, clear that parallel
 // type. unroll and vectorize are members of ReductionParams
-TORCH_CUDA_CU_API void propagateParallelization(
+void propagateParallelization(
     Fusion* fusion,
     TensorView* reduction_tv,
     TensorView* reference_tv,
@@ -81,14 +81,14 @@ TORCH_CUDA_CU_API void propagateParallelization(
 // Rfactored axes are reductions bound to grid or blocks. If no axes are bound
 // to a grid or block dimension it will rfactor the r-unswitch dimension.
 // Reduction inliner expects an rfactored domain.
-TORCH_CUDA_CU_API TensorView* sortAndRFactor(TensorView* reference_tv);
+TensorView* sortAndRFactor(TensorView* reference_tv);
 
 // If project_to_inputs is true, take all projectable persistent buffers,
 // and move them to the inputs. Otherwise, try to project to their immediate
 // producers if these producers are persistent buffers.
 // This function create dummy outputs which should be used in later stages of
 // the scheduling.
-TORCH_CUDA_CU_API std::vector<TensorView*> projectPersistentBuffers(
+std::vector<TensorView*> projectPersistentBuffers(
     Fusion* fusion,
     const bool project_to_inputs);
 
