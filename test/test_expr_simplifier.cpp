@@ -118,9 +118,9 @@ Val* randomlyReuseOrCreateNamedScalar(
 
 Val* parseIdentifier(std::string_view token_str) {
   if (token_str == "true") {
-    return IrBuilder::newConstant(true, DataType::Bool);
+    return IrBuilder::create<Val>(true, DataType::Bool);
   } else if (token_str == "false") {
-    return IrBuilder::newConstant(false, DataType::Bool);
+    return IrBuilder::create<Val>(false, DataType::Bool);
   } else if (token_str.at(0) == 'T') {
     std::string s(token_str);
     std::regex regex(R"((T\d+)\.(\w+)\[(\d+)\])");
@@ -179,7 +179,7 @@ Val* parseNumber(std::string_view token_str) {
     if (neg) {
       i = -i;
     }
-    return IrBuilder::newConstant(i, DataType::Int);
+    return IrBuilder::create<Val>(i, DataType::Int);
   } else {
     s = s.substr(1);
     double d = i;
@@ -194,7 +194,7 @@ Val* parseNumber(std::string_view token_str) {
     if (neg) {
       d = -d;
     }
-    return IrBuilder::newConstant(d, DataType::Double);
+    return IrBuilder::create<Val>(d, DataType::Double);
   }
 }
 

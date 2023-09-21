@@ -107,7 +107,7 @@ class IrBuilder {
       auto in_dtype = members.at(0)->dtype();
       auto out_dtype =
           ArrayType{std::make_shared<DataType>(in_dtype), members.size()};
-      auto out = newScalar(out_dtype);
+      auto out = create<Val>(out_dtype);
       create<ArrayConstruct>(out, members);
       return out;
     } else {
@@ -138,15 +138,9 @@ class IrBuilder {
     }
     DataType dtype =
         StructType::make<T>(std::move(field_infos), std::move(name));
-    auto out = newScalar(dtype);
+    auto out = create<Val>(dtype);
     create<StructConstruct>(out, fields);
     return out;
-  }
-
-  static Val* newScalar(DataType dtype);
-
-  static Val* newConstant(PolymorphicValue value, DataType dtype) {
-    return IrBuilder::create<Val>(value, dtype);
   }
 
  private:
