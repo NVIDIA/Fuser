@@ -3171,4 +3171,85 @@ Val* Index::eye(
   return GpuLower::current()->commonScalarMap().hoistScalar(result, loops);
 }
 
+Val* Index::cpAsyncBulkIndex(
+    TensorView* tv,
+    const std::vector<kir::ForLoop*>& loops) {
+  using namespace tma;
+
+  NVF_ERROR(
+      tv->getMemoryType() == MemoryType::Global,
+      "cpAsyncBulkIndex is only for global memory tensors");
+  NVF_ERROR(
+      tv->getMaybeRFactorDomain() == tv->getLeafDomain(), "not supported yet");
+  NVF_ERROR(
+      tv->getMaybeAllocationDomain() == tv->getLeafDomain(),
+      "not supported yet");
+  for (auto id : tv->getMaybeRFactorDomain()) {
+    NVF_ERROR(
+        id->isBulk(),
+        "cpAsyncBulkIndex only support whole tensor copy for now.");
+  }
+
+  int64_t dim = (int64_t)tv->nDims();
+  NVF_ERROR(dim > 0);
+  int64_t itemsize = dataTypeSize(tv->dtype());
+
+  auto metadata = IrBuilder::metadataExpr(tv);
+  auto global_address = IrBuilder::getAttrExpr(metadata, "data");
+  // As required by the hardware, tensors used by TMA must be in column major
+  // that is, stride[0] must be implicitly 1 (therefore omitted)
+  auto global_dim =
+      // Reverse array to convert from row major to column major
+      IrBuilder::reverseArrayExpr(
+          IrBuilder::getAttrExpr(metadata, "alloc_size"));
+  auto global_strides = IrBuilder::getAttrExpr(metadata, "alloc_stride");
+  if (dim > 1) {
+    // Reverse array to convert from row major to column major, multiply by
+    // element size to convert to bytes, and remove fastest dim as it is assumed
+    // to be one.
+    std::vector<Val*> strides;
+    for (auto i : c10::irange(dim - 1)) {
+      strides.push_back(SimplifyingIrBuilder::mulExpr(
+          IrBuilder::getItemExpr(global_strides, dim - 2 - i), itemsize));
+    }
+    global_strides = IrBuilder::arrayExpr(strides);
+  } else {
+    global_strides = IrBuilder::create<Val>(
+        std::vector<int64_t>{},
+        ArrayType{std::make_shared<DataType>(DataType::Index), 0});
+  }
+  auto box_dim =
+      // Reverse array to convert from row major to column major
+      IrBuilder::reverseArrayExpr(
+          IrBuilder::getAttrExpr(metadata, "alloc_size"));
+  auto element_strides =
+      IrBuilder::arrayExpr(std::vector<Val*>(dim, tv->fusion()->oneVal()));
+  auto descriptor = encodeTensorMapTiled(
+      tv->dtype(),
+      global_address,
+      global_dim,
+      global_strides,
+      box_dim,
+      element_strides,
+      TensorMapInterleave::NoInterleave,
+      TensorMapSwizzle::NoSwizzle,
+      TensorMapL2Promotion::NoL2Promotion,
+      TensorMapFloatOOBFill::NoOOBFill);
+
+  auto coordinate =
+      IrBuilder::arrayExpr(std::vector<Val*>(dim, tv->fusion()->zeroVal()));
+
+  std::stringstream ss;
+  ss << "Hopper::CpAsyncBulkTensorTileIndex<" << dim << ">";
+
+  auto index = IrBuilder::structExpr(
+      {{"descriptor", IrBuilder::addressExpr(descriptor)},
+       {"coordinate", coordinate}},
+      ss.str());
+
+  index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
+
+  return IrBuilder::create<kir::TensorIndex>(tv, index);
+}
+
 } // namespace nvfuser

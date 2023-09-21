@@ -18,6 +18,14 @@ namespace nvfuser {
 
 namespace {
 
+bool shouldHoistToHost(Val* value) {
+  if (value->definition() == nullptr) {
+    return false;
+  }
+  auto def = value->definition();
+  return def->isA<kir::EncodeTensorMapTiled>();
+}
+
 // Get the position of the innermost non-trivial loop
 int64_t getInnermostNonTrivialLoop(const std::vector<kir::ForLoop*>& loops) {
   int64_t position = -1;
@@ -211,6 +219,13 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
     NVF_ERROR(def->outputs().size() == 1);
     auto create_fn = def->newObjectFunc();
     create_fn(value->container(), inputs, {value}, def->attributes());
+  }
+
+  // TODO: this is only a temoprary hack to make sure that TensorMap for TMA is
+  // evaluated on the host. This will be removed in a follow-up PR
+  if (shouldHoistToHost(value)) {
+    GpuLower::current()->allKnownVals().emplace_back(value);
+    return {value, has_tensor_index_dependency};
   }
 
   // hoist subexpression to outer loop. If `value` depends on a tensor, then we
