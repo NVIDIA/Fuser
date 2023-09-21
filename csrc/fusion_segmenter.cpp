@@ -16,6 +16,7 @@
 #include <ir/utils.h>
 #include <ops/arith.h>
 #include <scheduler/debug_utils.h>
+#include <scheduler/normalization_utils.h>
 
 #include <sstream>
 
@@ -285,9 +286,13 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
 
   // convert Welford to two-pass if option is enabled and the original heuristic
   // is persistent
+  auto isPersistentHeuristic = [&heuristic]() {
+    return heuristic == ScheduleHeuristic::InnerPersistent ||
+        heuristic == ScheduleHeuristic::Persistent ||
+        heuristic == ScheduleHeuristic::InnerOuterPersistent;
+  };
   SegmentCandidateFinderOptions scfo;
-  if (scfo.run_translate_welford &&
-      heuristic == ScheduleHeuristic::Persistent) {
+  if (scfo.run_translate_welford && isPersistentHeuristic()) {
     SegmentCandidateFinder::translateWelfordInFusion(fusion, runtime_inputs);
   }
 
@@ -2341,13 +2346,22 @@ TranslateApplicableWelford::TranslateApplicableWelford(
 bool TranslateApplicableWelford::isValidPersistentFusion(
     Fusion* translated_fusion,
     SchedulerRuntimeInfo& runtime_info) {
+  // Get the appropriate heuristic based on reduciton types.
+  auto maybe_persistent_sh =
+      normalization_scheduler_utils::getMaybePersistentScheduleHeuristic(
+          translated_fusion);
+  if (!maybe_persistent_sh.has_value()) {
+    return false;
+  }
+
   if (!SchedulerEntry::canSchedule(
-          ScheduleHeuristic::Persistent, translated_fusion, runtime_info)) {
+          maybe_persistent_sh.value(), translated_fusion, runtime_info)) {
     return false;
   }
 
   auto scheduler = SchedulerEntry::makeEntry(
-      ScheduleHeuristic::Persistent, translated_fusion, runtime_info);
+      maybe_persistent_sh.value(), translated_fusion, runtime_info);
+
   // Translate welford to two-pass enhances performance for block
   // reductions by reducing instructions and the impact of an extra block
   // synchronization has negligible overhead.

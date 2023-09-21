@@ -8,6 +8,7 @@
 #include <expr_evaluator.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
+#include <scheduler/reduction_utils.h>
 #include <scheduler/registry.h>
 #include <utils.h>
 
@@ -718,6 +719,28 @@ getOptionalInnerOuterPersistentBufferBatches(
     return std::make_pair(inner_batch, threads_per_block);
   } else {
     return std::make_pair(std::nullopt, -1);
+  }
+}
+
+// Get the appropriate scheduler based on reduction type
+std::optional<ScheduleHeuristic> getMaybePersistentScheduleHeuristic(
+    Fusion* fusion) {
+  auto reduction_type = reduction_scheduler_utils::getReductionType(fusion);
+  using ReductionType = reduction_scheduler_utils::ReductionType;
+
+  switch (reduction_type) {
+    case ReductionType::Inner:
+      return ScheduleHeuristic::InnerPersistent;
+    // OuterPersistent is not added yet, use Persistent for now.
+    case ReductionType::Outer:
+      return ScheduleHeuristic::Persistent;
+    case ReductionType::InnerOuter:
+      return ScheduleHeuristic::InnerOuterPersistent;
+    case ReductionType::None:
+      return std::nullopt;
+    default:
+      NVF_ERROR(false, "Reduction type not defined!");
+      return std::nullopt;
   }
 }
 
