@@ -363,11 +363,11 @@ table Vector {
 table CudaKernel {
   kernel_name: string;
   compile_args: string;
-  cubin: [byte];
+  cubin: [ubyte];
   cubin_filename: string;
-  ptx: [byte];
+  ptx: [ubyte];
   ptx_filename: string;
-  // Block size is used to generate compile arguments.
+  // The block size field is used to generate compile arguments.
   // We compare the generated compile args against those stored in this table
   // when deserializing this cuda kernel.
   block_size: long = -1;

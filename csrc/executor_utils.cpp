@@ -1211,8 +1211,9 @@ CompiledKernel getCompiledKernel(
   }
 
   CompiledKernel compiled_kernel;
-  compiled_kernel.compile_args =
+  const auto compile_args =
       toDelimitedString(nvrtc_compile_driver.options(), " ");
+  compiled_kernel.compile_args = compile_args;
 
   auto& kernel_db = KernelDb::get();
   const auto use_kernel_db = kernel_db.enabled() && kernel_code.has_value();
@@ -1266,7 +1267,7 @@ CompiledKernel getCompiledKernel(
   return compiled_kernel;
 }
 
-std::tuple<NvrtcFunction, std::string> getCompiledKernel(
+CompiledKernel getCompiledKernel(
     const serde::CudaKernel* buffer,
     const CompileParams& compile_params) {
   FUSER_PERF_SCOPE("executor_utils::serde_NVRTC");
@@ -1277,13 +1278,19 @@ std::tuple<NvrtcFunction, std::string> getCompiledKernel(
   CompiledKernel compiled_kernel;
   if (buffer->ptx() != nullptr) {
     compiled_kernel.ptx.reserve(buffer->ptx()->size());
-    std::copy(buffer->ptx()->begin(), buffer->ptx()->end(), (uint8_t*) compiled_kernel.ptx.data());
+    std::copy(
+        buffer->ptx()->begin(),
+        buffer->ptx()->end(),
+        (uint8_t*)compiled_kernel.ptx.data());
     compiled_kernel.ptx_filename = buffer->ptx_filename()->str();
   }
 
   if (buffer->cubin() != nullptr) {
     compiled_kernel.cubin.reserve(buffer->cubin()->size());
-    std::copy(buffer->cubin()->begin(), buffer->cubin()->end(), (uint8_t*) compiled_kernel.cubin.data());
+    std::copy(
+        buffer->cubin()->begin(),
+        buffer->cubin()->end(),
+        (uint8_t*)compiled_kernel.cubin.data());
     compiled_kernel.cubin_filename = buffer->cubin_filename()->str();
   }
   compiled_kernel.kernel_name = buffer->kernel_name()->str();
@@ -1330,7 +1337,7 @@ std::tuple<NvrtcFunction, std::string> getCompiledKernel(
 
   const auto latest_compile_args =
       toDelimitedString(nvrtc_compile_driver.options(), " ");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       latest_compile_args == compiled_kernel.compile_args,
       "The compile arguments for the serialized cuda kernel does not ",
       "match the latest generated compile args.\t",
@@ -1339,7 +1346,6 @@ std::tuple<NvrtcFunction, std::string> getCompiledKernel(
       compiled_kernel.compile_args);
 
   std::stringstream log;
-  NvrtcFunction compiled_kernel;
 
   log << module_load_driver.invoke(
              compiled_kernel.module,

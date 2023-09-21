@@ -53,8 +53,8 @@ struct CompiledKernel {
   std::vector<char> cubin;
   std::string cubin_filename;
   std::string kernel_name;
-  long block_size = -1;
   std::string compile_args;
+  long block_size = -1;
 };
 
 // Returns executable function and the ptxas log from compilation
