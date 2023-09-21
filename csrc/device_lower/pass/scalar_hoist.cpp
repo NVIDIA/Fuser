@@ -200,7 +200,8 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
   // kir::EncodeTensorMapTiled. For these expressions, we should add them to
   // known values of the kernel. Also, reusing subexpressions of these exprs
   // are disabled, because the subexpressions on the host is not accessible to
-  // the device.
+  // the device. This must happen before reusing, because we can not reuse
+  // values on the host for device.
   if (shouldHoistToHost(value)) {
     if (auto known_val = reuseValsKnownToKernel(value)) {
       return {known_val, false};
