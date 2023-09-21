@@ -73,7 +73,7 @@ namespace nvfuser {
 //          PERMISSIVE)
 //   Forward through split one axes, i.e. id{ceilDiv(i0, 1)}, id{i0} are mapped
 //
-class TORCH_CUDA_CU_API IterDomainGraph {
+class IterDomainGraph {
  public:
   IterDomainGraph(Fusion* fusion, bool allow_self_mapping = false);
 
@@ -173,7 +173,7 @@ class TORCH_CUDA_CU_API IterDomainGraph {
 
 using DoubleBufferIndices = std::unordered_map<DoubleBufferLoopStage, Val*>;
 
-class TORCH_CUDA_CU_API ComputeAtMap {
+class ComputeAtMap {
  public:
   ComputeAtMap() = delete;
   ComputeAtMap(const ComputeAtMap&) = delete;

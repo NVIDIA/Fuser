@@ -22,15 +22,15 @@
 
 namespace nvfuser {
 
-TORCH_CUDA_CU_API bool shouldFillAllocationWithNan();
-TORCH_CUDA_CU_API void setFillAllocationWithNan(bool value);
+bool shouldFillAllocationWithNan();
+void setFillAllocationWithNan(bool value);
 
 // TODO: Should this actually be in launch params?
-struct TORCH_CUDA_CU_API CompileOptions {
+struct CompileOptions {
   c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
 };
 
-class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
+class FusionExecutor : public NonCopyable {
  public:
   struct GlobalBufferInfo {
     TensorView* tv = nullptr;

@@ -88,9 +88,6 @@ struct DynamicType {
       typename Containers::template VariantType<DynamicType, Ts...>;
   VariantType value;
 
-  // TODO: Not supporting operators for containers for now, because containers
-  // has nested DynamicType, trying to support operators for containers will
-  // make the template deduction an infinite loop.
   using TypeIdentitiesAsTuple =
       typename Containers::template TypeIdentitiesAsTuple<DynamicType, Ts...>;
   static constexpr TypeIdentitiesAsTuple type_identities_as_tuple{};

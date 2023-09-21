@@ -26,7 +26,7 @@ struct TrieNode;
 //! This is helper function used to print a python formated
 //! Fusion IR DataType when printing a fusion definition.
 
-TORCH_CUDA_CU_API const char* dtypeToPyString(PrimDataType t);
+const char* dtypeToPyString(PrimDataType t);
 
 //! The Tensor and Scalar classes are used to define separate function signtures
 //! in the FusionDefinition to identify the appropriate Operator function.
@@ -36,7 +36,7 @@ TORCH_CUDA_CU_API const char* dtypeToPyString(PrimDataType t);
 //!   add(Tensor* arg1, Tensor* arg2) -> Tensor*
 //!   add(Tensor* arg1, Val* arg2) -> Tensor*
 //!   add(Val* arg1, Val* arg2) -> Val*
-struct TORCH_CUDA_CU_API Tensor {
+struct Tensor {
   Tensor(size_t _index, size_t _dims, FusionDefinition* _fd)
       : index(_index), dims(_dims), fusion_definition(_fd) {}
 
@@ -54,7 +54,7 @@ struct TORCH_CUDA_CU_API Tensor {
   FusionDefinition* fusion_definition;
 };
 
-struct TORCH_CUDA_CU_API Scalar {
+struct Scalar {
   Scalar(size_t _index, FusionDefinition* _fd)
       : index(_index), fusion_definition(_fd) {}
 
@@ -71,7 +71,7 @@ struct TORCH_CUDA_CU_API Scalar {
   FusionDefinition* fusion_definition;
 };
 
-struct TORCH_CUDA_CU_API Vector {
+struct Vector {
   Vector(size_t _index, size_t _size, FusionDefinition* _fd)
       : index(_index), size(_size), fusion_definition(_fd) {}
 
@@ -101,7 +101,7 @@ struct TORCH_CUDA_CU_API Vector {
 //!
 //! Example:
 //!   help(FusionDefinition.Operators)
-class TORCH_CUDA_CU_API FusionDefinition : public FusionState {
+class FusionDefinition : public FusionState {
  public:
   FusionDefinition(std::optional<size_t> id, size_t max_length = 256);
 

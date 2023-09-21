@@ -21,7 +21,7 @@ class Kernel;
 class IrCloner;
 
 //! IR builder interface
-class TORCH_CUDA_CU_API IrBuilder {
+class IrBuilder {
  public:
   //! Allocate a new IR node, forwarding the arguments to the appropriate
   //! constructor and registering with the container
@@ -165,7 +165,7 @@ class TORCH_CUDA_CU_API IrBuilder {
 //! Designed to be used to simplify predicate and index expressions in
 //! generated code. Also, the shift validation may fail without
 //! this simplification.
-class TORCH_CUDA_CU_API SimplifyingIrBuilder : public IrBuilder {
+class SimplifyingIrBuilder : public IrBuilder {
  public:
   static Val* negExpr(Val* val);
   static Val* logicalNotExpr(Val* val);
@@ -197,6 +197,13 @@ class TORCH_CUDA_CU_API SimplifyingIrBuilder : public IrBuilder {
   static Val* maxExpr(Val* lhs, Val* rhs);
   static Val* minExpr(Val* lhs, Val* rhs);
   static Val* gcdExpr(Val* lhs, Val* rhs);
+
+  static Val* ltExpr(Val* lhs, Val* rhs);
+  static Val* leExpr(Val* lhs, Val* rhs);
+  static Val* eqExpr(Val* lhs, Val* rhs);
+  static Val* neExpr(Val* lhs, Val* rhs);
+  static Val* geExpr(Val* lhs, Val* rhs);
+  static Val* gtExpr(Val* lhs, Val* rhs);
 
   static Val* whereExpr(Val* pred, Val* lhs, Val* rhs);
 };
