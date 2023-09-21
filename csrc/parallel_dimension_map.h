@@ -18,7 +18,7 @@
 namespace nvfuser {
 
 //! Maps TID/BID to its dimension.
-class TORCH_CUDA_CU_API ParallelDimensionMap {
+class ParallelDimensionMap {
  public:
   void build(Fusion* fusion);
 

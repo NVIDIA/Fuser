@@ -142,7 +142,7 @@ class GetRNGSeedAndOffsetFromHost;
 
 // By default, all IR nodes are handled in this dispatch, and will call an empty
 // function on all nodes.
-class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
+class OptOutConstDispatch : public PolymorphicBase {
  protected:
   virtual void unhandled(const Statement*) {}
 
@@ -227,7 +227,7 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const PipelineCommunication*);
 };
 
-class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
+class OptOutDispatch : public PolymorphicBase {
  protected:
   virtual void unhandled(Statement*);
 
@@ -312,7 +312,7 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(PipelineCommunication* stmt);
 };
 
-class TORCH_CUDA_CU_API OptInConstDispatch : public OptOutConstDispatch {
+class OptInConstDispatch : public OptOutConstDispatch {
  public:
   using OptOutConstDispatch::handle;
 
@@ -320,7 +320,7 @@ class TORCH_CUDA_CU_API OptInConstDispatch : public OptOutConstDispatch {
   void unhandled(const Statement* stmt) final;
 };
 
-class TORCH_CUDA_CU_API OptInDispatch : public OptOutDispatch {
+class OptInDispatch : public OptOutDispatch {
  public:
   using OptOutDispatch::handle;
 
@@ -343,7 +343,7 @@ class TORCH_CUDA_CU_API OptInDispatch : public OptOutDispatch {
 // other vals, on top of TensorDomain being updated in the mutated TensorView.
 //
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
+class OptOutMutator : public PolymorphicBase {
  public:
   // Hierarchal dispatch functions for handle
   virtual void dispatchMutate(Statement* s);

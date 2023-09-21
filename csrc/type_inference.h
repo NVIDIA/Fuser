@@ -13,6 +13,6 @@
 
 namespace nvfuser {
 
-TORCH_CUDA_CU_API void TypePropagate(std::shared_ptr<torch::jit::Graph>& graph);
+void TypePropagate(std::shared_ptr<torch::jit::Graph>& graph);
 
 } // namespace nvfuser

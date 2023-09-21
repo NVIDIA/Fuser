@@ -15,29 +15,23 @@
 
 namespace nvfuser {
 
-TORCH_CUDA_CU_API TensorView* select(TensorView* tv, int dim, Val* index);
+TensorView* select(TensorView* tv, int dim, Val* index);
 
 // index_select
-TORCH_CUDA_CU_API TensorView* index_select(
-    TensorView* input,
-    int dim,
-    TensorView* index);
+TensorView* index_select(TensorView* input, int dim, TensorView* index);
 
 // torch.gather
-TORCH_CUDA_CU_API TensorView* torch_gather(
-    TensorView* input,
-    int dim,
-    TensorView* index);
+TensorView* torch_gather(TensorView* input, int dim, TensorView* index);
 
 // torch.scatter
-TORCH_CUDA_CU_API TensorView* scatterOp(
+TensorView* scatterOp(
     ScatterOpType type,
     TensorView* self,
     int dim,
     TensorView* index,
     TensorView* src);
 
-TORCH_CUDA_CU_API TensorView* scatter(
+TensorView* scatter(
     TensorView* self,
     int dim,
     TensorView* index,
@@ -47,9 +41,6 @@ TORCH_CUDA_CU_API TensorView* scatter(
 //! (https://numpy.org/doc/stable/reference/generated/numpy.take_along_axis.html)
 //! Note the order of the parameters follows the numpy order, which is
 //! different from torch_gather.
-TORCH_CUDA_CU_API TensorView* take_along_axis(
-    TensorView* input,
-    TensorView* index,
-    int64_t dim);
+TensorView* take_along_axis(TensorView* input, TensorView* index, int64_t dim);
 
 } // namespace nvfuser

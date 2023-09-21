@@ -23,14 +23,14 @@
 
 namespace nvfuser {
 
-TORCH_CUDA_CU_API std::pair<Val*, Val*> dispatchSwizzle(
+std::pair<Val*, Val*> dispatchSwizzle(
     Swizzle2DType type,
     Val* x,
     Val* y,
     Val* maybe_size_x,
     Val* maybe_size_y);
 
-TORCH_CUDA_CU_API std::pair<Val*, Val*> dispatchUnSwizzle(
+std::pair<Val*, Val*> dispatchUnSwizzle(
     Swizzle2DType type,
     Val* x,
     Val* y,

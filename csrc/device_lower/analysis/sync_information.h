@@ -15,7 +15,7 @@
 
 namespace nvfuser {
 
-class TORCH_CUDA_CU_API SyncMap {
+class SyncMap {
  public:
   //! Validates all tensors are consistently parallelized. Basically,
   //! when a producer axis is threaded, either with threadIdx or

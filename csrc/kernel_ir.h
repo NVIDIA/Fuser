@@ -52,7 +52,7 @@ class AllocateFusedReduction;
 // Expr container
 class Scope;
 
-class TORCH_CUDA_CU_API Predicate final : public Val {
+class Predicate final : public Val {
  public:
   explicit Predicate(
       IrBuilderPasskey passkey,
@@ -135,7 +135,7 @@ class TORCH_CUDA_CU_API Predicate final : public Val {
   Val* value_ = nullptr;
 };
 
-class TORCH_CUDA_CU_API TensorIndex final : public Val {
+class TensorIndex final : public Val {
  public:
   TensorIndex(IrBuilderPasskey, const TensorView* view, Val* index);
 
@@ -161,7 +161,7 @@ class TORCH_CUDA_CU_API TensorIndex final : public Val {
 //! is required as an intermediate within a kernel. The extent is the expression
 //! of the size of the buffer that is generated from the TensorView that
 //! describes the output of an operation.
-class TORCH_CUDA_CU_API Allocate final : public Expr {
+class Allocate final : public Expr {
  public:
   using Expr::Expr;
 
@@ -255,7 +255,7 @@ class TORCH_CUDA_CU_API Allocate final : public Expr {
 //
 // TODO(kir): change name to SyncThreads as we could have other barriers.
 //
-class TORCH_CUDA_CU_API BlockSync final : public Expr {
+class BlockSync final : public Expr {
  public:
   using Expr::Expr;
 
@@ -278,7 +278,7 @@ class TORCH_CUDA_CU_API BlockSync final : public Expr {
 
 // Synchronize all blocks in device, implies cooperative group launch is
 // required.
-class TORCH_CUDA_CU_API GridSync final : public Expr {
+class GridSync final : public Expr {
  public:
   using Expr::Expr;
 
@@ -306,7 +306,7 @@ class TORCH_CUDA_CU_API GridSync final : public Expr {
 };
 
 // CpAsyncWait represents wait intrinsics for cp.async
-class TORCH_CUDA_CU_API CpAsyncWait final : public Expr {
+class CpAsyncWait final : public Expr {
  public:
   using Expr::Expr;
 
@@ -331,7 +331,7 @@ class TORCH_CUDA_CU_API CpAsyncWait final : public Expr {
 // CpAsyncCommit represents commit intrinsics for cp.async
 //  A commit intrinsic communicates delimiter of transaction groups
 // to the async load hardware. Example usage see [Cicular buffer].
-class TORCH_CUDA_CU_API CpAsyncCommit final : public Expr {
+class CpAsyncCommit final : public Expr {
  public:
   using Expr::Expr;
 
@@ -349,7 +349,7 @@ class TORCH_CUDA_CU_API CpAsyncCommit final : public Expr {
 
 // Simply prints "DEFINE_MAGIC_ZERO" in the code in accordance with magic_zero
 // in helpers.cu
-class TORCH_CUDA_CU_API InitMagicZero final : public Expr {
+class InitMagicZero final : public Expr {
  public:
   using Expr::Expr;
 
@@ -367,7 +367,7 @@ class TORCH_CUDA_CU_API InitMagicZero final : public Expr {
 
 // Simply prints "UPDATE_MAGIC_ZERO" in the code in accordance with magic_zero
 // in helpers.cu
-class TORCH_CUDA_CU_API UpdateMagicZero final : public Expr {
+class UpdateMagicZero final : public Expr {
  public:
   using Expr::Expr;
 
@@ -384,7 +384,7 @@ class TORCH_CUDA_CU_API UpdateMagicZero final : public Expr {
 };
 
 // TODO(kir): promote to IR node
-class TORCH_CUDA_CU_API Scope {
+class Scope {
  public:
   explicit Scope(Expr* owner) : owner_(owner) {}
 
@@ -475,7 +475,7 @@ class TORCH_CUDA_CU_API Scope {
 //! ForLoop may represent a part of an iteration domain representend
 //! by iter_domain_. In that case, the loop extent field, extent_, may
 //! be smaller than the extent of iter_domain_.
-class TORCH_CUDA_CU_API ForLoop final : public Expr {
+class ForLoop final : public Expr {
  public:
   using Expr::Expr;
 
@@ -601,7 +601,7 @@ class TORCH_CUDA_CU_API ForLoop final : public Expr {
 //!
 //! TODO(kir): this is not a real expression
 //!
-class TORCH_CUDA_CU_API IfThenElse final : public Expr {
+class IfThenElse final : public Expr {
  public:
   using Expr::Expr;
 
@@ -647,7 +647,7 @@ class TORCH_CUDA_CU_API IfThenElse final : public Expr {
 //!
 //! This node provides FusionExecutor the information it needs to allocate the
 //! reduction and sync buffers.
-class TORCH_CUDA_CU_API GridReduction final : public ReductionOp {
+class GridReduction final : public ReductionOp {
   static constexpr int num_reduction_op_attr = 3;
 
  public:
@@ -711,7 +711,7 @@ class TORCH_CUDA_CU_API GridReduction final : public ReductionOp {
   }
 };
 
-class TORCH_CUDA_CU_API GroupedGridReduction final : public GroupedReductionOp {
+class GroupedGridReduction final : public GroupedReductionOp {
  public:
   using GroupedReductionOp::GroupedReductionOp;
 
@@ -802,7 +802,7 @@ class TORCH_CUDA_CU_API GroupedGridReduction final : public GroupedReductionOp {
 //!
 //! This node provides FusionExecutor the information it needs to allocate the
 //! broadcast and sync buffers.
-class TORCH_CUDA_CU_API GridBroadcast final : public Expr {
+class GridBroadcast final : public Expr {
  public:
   using Expr::Expr;
 
@@ -843,7 +843,7 @@ class TORCH_CUDA_CU_API GridBroadcast final : public Expr {
 //! reduction and sync buffers.
 //!
 //! TODO: Make this a subclass of WelfordOp
-class TORCH_CUDA_CU_API GridWelford final : public Expr {
+class GridWelford final : public Expr {
  public:
   using Expr::Expr;
 
@@ -913,7 +913,7 @@ class TORCH_CUDA_CU_API GridWelford final : public Expr {
   }
 };
 
-class TORCH_CUDA_CU_API GroupedGridWelford final : public GroupedWelfordOp {
+class GroupedGridWelford final : public GroupedWelfordOp {
  public:
   using GroupedWelfordOp::GroupedWelfordOp;
 
@@ -1007,7 +1007,7 @@ class TORCH_CUDA_CU_API GroupedGridWelford final : public GroupedWelfordOp {
 
 //! Represents a WelfordOp with the division by count is hoisted out
 //! of an innermost loop
-class TORCH_CUDA_CU_API VectorizedWelfordOp final : public WelfordOp {
+class VectorizedWelfordOp final : public WelfordOp {
  public:
   using WelfordOp::WelfordOp;
 
@@ -1043,7 +1043,7 @@ class TORCH_CUDA_CU_API VectorizedWelfordOp final : public WelfordOp {
 };
 
 // Allocate an instance of the fused reduction class.
-class TORCH_CUDA_CU_API AllocateFusedReduction final : public Expr {
+class AllocateFusedReduction final : public Expr {
   explicit AllocateFusedReduction(IrBuilderPasskey passkey, Expr* grid_expr);
 
  public:
@@ -1092,7 +1092,7 @@ class TORCH_CUDA_CU_API AllocateFusedReduction final : public Expr {
   const ParallelTypeBitmap& threadPredicate() const;
 };
 
-class TORCH_CUDA_CU_API GetRNGSeedAndOffsetFromHost : public Expr {
+class GetRNGSeedAndOffsetFromHost : public Expr {
  public:
   using Expr::Expr;
 
