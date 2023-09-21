@@ -31,7 +31,6 @@ bool copy_from_binary_file(
     dst.resize(file.tellg());
     file.seekg(0, std::ios::beg);
     file.read(dst.data(), (std::streamsize)dst.size());
-
     file.close();
     status = true;
   }

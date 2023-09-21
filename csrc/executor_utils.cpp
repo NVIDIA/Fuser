@@ -759,7 +759,7 @@ std::string dumpCompiledCodeToFile(
   debug() << "PRINTING: " << file_name.str() << std::endl;
   std::ofstream out(file_name.str());
   NVF_ERROR(out.is_open());
-  out.write((const char*)code.data(), (std::streamsize)code.size());
+  out.write(code.data(), (std::streamsize)code.size());
   out.close();
   return file_name.str();
 }
@@ -1213,7 +1213,6 @@ CompiledKernel getCompiledKernel(
   CompiledKernel compiled_kernel;
   const auto compile_args =
       toDelimitedString(nvrtc_compile_driver.options(), " ");
-  compiled_kernel.compile_args = compile_args;
 
   auto& kernel_db = KernelDb::get();
   const auto use_kernel_db = kernel_db.enabled() && kernel_code.has_value();
@@ -1222,7 +1221,7 @@ CompiledKernel getCompiledKernel(
   if (!(use_kernel_db &&
         kernel_db.query(
             kernel_code.value(),
-            compiled_kernel.compile_args,
+            compile_args,
             compiled_kernel.kernel_name,
             (compile_to_sass ? compiled_kernel.cubin : compiled_kernel.ptx)))) {
     compiled_kernel = compileSource(
@@ -1231,7 +1230,7 @@ CompiledKernel getCompiledKernel(
     if (use_kernel_db) {
       auto result = kernel_db.write(
           kernel_code.value(),
-          compiled_kernel.compile_args,
+          compile_args,
           compiled_kernel.kernel_name,
           (compile_to_sass ? compiled_kernel.cubin : compiled_kernel.ptx));
       if (!result) {
@@ -1248,6 +1247,7 @@ CompiledKernel getCompiledKernel(
                               : compiled_kernel.ptx.data()))
       << std::endl;
   compiled_kernel.compile_log = log.str();
+  compiled_kernel.compile_args = compile_args;
 
   if (isOptionEnabled(EnableOption::WarnRegisterSpill) ||
       compile_params.enable_ptxas_verbose) {

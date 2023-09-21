@@ -26,7 +26,6 @@
 #include <ir/all_nodes.h>
 #include <kernel.h>
 
-#include <memory>
 #include <string>
 #include <vector>
 
