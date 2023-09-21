@@ -2828,4 +2828,51 @@ TEST_F(ResizeTest, CatOfExpandedBroadcast) {
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
+// Test that an empty input which is expanded in some non-zero directions can be
+// padded in the empty dim as well as the expanded dims.
+// This should match test_python_frontend.py::test_pad_expanded_empty
+// See https://github.com/NVIDIA/Fuser/issues/870
+TEST_F(ResizeTest, PadExpandedEmpty) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto i0 = IrBuilder::create<Val>(DataType::Index);
+  auto i1 = IrBuilder::create<Val>(DataType::Index);
+  auto i2 = IrBuilder::create<Val>(DataType::Index);
+
+  auto tv0 = TensorViewBuilder()
+                 .shape({i0, i1, i2})
+                 .expanded({true, false, true})
+                 .dtype(DataType::Double)
+                 .build();
+  fusion.addInput(tv0);
+
+  auto s0 = IrBuilder::create<Val>(-3.70753);
+
+  std::vector<Val*> pad_widths(
+      {fusion.zeroVal(DataType::Index),
+       fusion.zeroVal(DataType::Index),
+       fusion.oneVal(DataType::Index),
+       fusion.oneVal(DataType::Index),
+       fusion.oneVal(DataType::Index),
+       fusion.zeroVal(DataType::Index)});
+  auto tv1 = pad(tv0, pad_widths, s0);
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
+
+  auto t0 = at::randn({0}, options).as_strided({2, 0, 3}, {0, 0, 0});
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  std::cout << t0 << std::endl;
+  std::cout << t0.strides() << std::endl;
+
+  testValidate(
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
