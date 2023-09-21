@@ -18,7 +18,7 @@
 namespace nvfuser {
 
 //! Generic interface for mapping root domains of a producer-consumer pair.
-class TORCH_CUDA_CU_API RootDomainMap : public PolymorphicBase {
+class RootDomainMap : public PolymorphicBase {
  public:
   //! Return a map from a producer TensorDomain to a consumer
   //! TensorDomain
@@ -81,7 +81,7 @@ class TORCH_CUDA_CU_API RootDomainMap : public PolymorphicBase {
 //! i.e., unable to compute the same tensors multiple times. This
 //! should not be used for transformations implementing computeAt, but
 //! should be valid otherwise.
-class TORCH_CUDA_CU_API PairwiseRootDomainMap : public RootDomainMap {
+class PairwiseRootDomainMap : public RootDomainMap {
  public:
   //! When require_same_extent is false, domains that may have
   //! different extents are also mapped. For example, IDs of lookup
@@ -203,7 +203,7 @@ class ComputeAtRootDomainMap;
 //! reduction outputs. Such consumer IterDomains may not be mapped to
 //! the producer reduction domain since the corresponding reduction
 //! loop must be closed before any of the consumers can appear.
-class TORCH_CUDA_CU_API UnmappableReductionDomains : private IterVisitor {
+class UnmappableReductionDomains : private IterVisitor {
  public:
   UnmappableReductionDomains();
   ~UnmappableReductionDomains() override = default;
@@ -248,7 +248,7 @@ class TORCH_CUDA_CU_API UnmappableReductionDomains : private IterVisitor {
 //! fail. Currently, the only use of this class is getMappableDims,
 //! which just grabs any domain that is mappable, which works no
 //! matter view is used or not.
-class TORCH_CUDA_CU_API ComputeAtRootDomainMap : public RootDomainMap {
+class ComputeAtRootDomainMap : public RootDomainMap {
   friend class ComputeAtRootDomainMapBuilder;
 
  public:
@@ -384,8 +384,7 @@ class TORCH_CUDA_CU_API ComputeAtRootDomainMap : public RootDomainMap {
 //! current fusion entirely. IterDomains that can be mapped each
 //! other with computeAt are grouped into the same subset in the
 //! DisjointSets.
-class TORCH_CUDA_CU_API ComputeAtRootDomainMapBuilder
-    : private BackwardVisitor {
+class ComputeAtRootDomainMapBuilder : private BackwardVisitor {
  public:
   explicit ComputeAtRootDomainMapBuilder(
       ComputeAtRootDomainMap& root_map,
@@ -529,7 +528,7 @@ class TORCH_CUDA_CU_API ComputeAtRootDomainMapBuilder
 
 //! Maps root domains of an entire fusion. Does not map broadcast
 //! domains with non-broadcast domains.
-class TORCH_CUDA_CU_API ExactRootDomainMap : public RootDomainMap {
+class ExactRootDomainMap : public RootDomainMap {
  public:
   ExactRootDomainMap(Fusion* fusion);
 

@@ -61,16 +61,22 @@ static const char* defineIndexType(PrimDataType index_type) {
   }
 }
 
-static const char* defineIntegerTypes() {
+static const char* defineTypes() {
   return R"(
-typedef signed char int8_t;
-typedef unsigned char uint8_t;
-typedef short int int16_t;
-typedef unsigned short int uint16_t;
-typedef int int32_t;
-typedef unsigned int uint32_t;
-typedef long long int int64_t;
-typedef unsigned long long int uint64_t;
+using int8_t = signed char;
+using uint8_t = unsigned char;
+using int16_t = short int;
+using uint16_t = unsigned short int;
+using int32_t = int;
+using uint32_t = unsigned int;
+using int64_t = long long int;
+using uint64_t = unsigned long long int;
+
+// Modified from cuda.h
+struct TensorMap {
+  alignas(64)
+  uint64_t opaque[16];
+};
 )";
 }
 
@@ -150,7 +156,7 @@ std::string FusionExecutor::getStructuredCode(
   std::string code = "";
   code += includeStdComplex();
   code += std::string("namespace ") + FusionExecutor::kernelNamespace() +
-      " {\n" + defineIntegerTypes() + defineIndexType(index_type) +
+      " {\n" + defineTypes() + defineIndexType(index_type) +
       executor_utils::kernelPreamble() + kernel_str + "}\n";
 
   if (isDebugDumpEnabled(DebugDumpOption::CudaKernel)) {

@@ -182,8 +182,14 @@ bool SchedulerEntry::canSchedule(
     case ScheduleHeuristic::Reduction:
       return checkCanSchedule<ReductionScheduler>(
           fusion, runtime_info, data_cache);
-    case ScheduleHeuristic::OuterPersistent:
+    case ScheduleHeuristic::InnerPersistent:
       return checkCanSchedule<InnerPersistentKernelScheduler>(
+          fusion, runtime_info, data_cache);
+    case ScheduleHeuristic::OuterPersistent:
+      return checkCanSchedule<OuterPersistentKernelScheduler>(
+          fusion, runtime_info, data_cache);
+    case ScheduleHeuristic::InnerOuterPersistent:
+      return checkCanSchedule<InnerOuterPersistentKernelScheduler>(
           fusion, runtime_info, data_cache);
     case ScheduleHeuristic::Persistent:
       return checkCanSchedule<PersistentKernelScheduler>(
@@ -220,8 +226,16 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
       scheduler_entry = std::make_unique<ReductionScheduler>(
           fusion, runtime_info, data_cache);
       break;
-    case ScheduleHeuristic::OuterPersistent:
+    case ScheduleHeuristic::InnerPersistent:
       scheduler_entry = std::make_unique<InnerPersistentKernelScheduler>(
+          fusion, runtime_info, data_cache);
+      break;
+    case ScheduleHeuristic::OuterPersistent:
+      scheduler_entry = std::make_unique<OuterPersistentKernelScheduler>(
+          fusion, runtime_info, data_cache);
+      break;
+    case ScheduleHeuristic::InnerOuterPersistent:
+      scheduler_entry = std::make_unique<InnerOuterPersistentKernelScheduler>(
           fusion, runtime_info, data_cache);
       break;
     case ScheduleHeuristic::Persistent:
@@ -299,9 +313,19 @@ HeuristicSummary::HeuristicSummary(
       getReductionHeuristics(fusion, runtime_info, this);
       ReductionScheduler::canScheduleRunTime(fusion, runtime_info, this);
       break;
-    case ScheduleHeuristic::OuterPersistent:
+    case ScheduleHeuristic::InnerPersistent:
       getInnerPersistentHeuristics(fusion, runtime_info, this);
       InnerPersistentKernelScheduler::canScheduleRunTime(
+          fusion, runtime_info, this);
+      break;
+    case ScheduleHeuristic::OuterPersistent:
+      getOuterPersistentHeuristics(fusion, runtime_info, this);
+      OuterPersistentKernelScheduler::canScheduleRunTime(
+          fusion, runtime_info, this);
+      break;
+    case ScheduleHeuristic::InnerOuterPersistent:
+      getInnerOuterPersistentHeuristics(fusion, runtime_info, this);
+      InnerOuterPersistentKernelScheduler::canScheduleRunTime(
           fusion, runtime_info, this);
       break;
     case ScheduleHeuristic::Persistent:
@@ -369,7 +393,9 @@ void HeuristicSummary::validate() const {
           entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
       break;
     }
-    case ScheduleHeuristic::OuterPersistent: {
+    case ScheduleHeuristic::InnerPersistent:
+    case ScheduleHeuristic::OuterPersistent:
+    case ScheduleHeuristic::InnerOuterPersistent: {
       NVF_ERROR(entry_type_map_.count(EntryType::REDUCTION_TVS));
       NVF_ERROR(
           entry_type_map_.count(EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));

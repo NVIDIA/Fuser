@@ -16,9 +16,7 @@
 
 namespace nvfuser {
 
-TORCH_CUDA_CU_API void scheduleMatmul(
-    Fusion* fusion,
-    const MatmulParams& params);
+void scheduleMatmul(Fusion* fusion, const MatmulParams& params);
 
 class MatmulScheduler : public SchedulerEntry {
  public:

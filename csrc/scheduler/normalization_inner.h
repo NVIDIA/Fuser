@@ -24,9 +24,9 @@ namespace nvfuser {
 class SchedulerRuntimeInfo;
 class HeuristicSummary;
 
-class PersistentKernelScheduler : public SchedulerEntry {
+class InnerPersistentKernelScheduler : public SchedulerEntry {
  public:
-  explicit PersistentKernelScheduler(
+  explicit InnerPersistentKernelScheduler(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
@@ -65,19 +65,17 @@ class PersistentKernelScheduler : public SchedulerEntry {
       const scheduler_utils::ReductionTvProperties& properties);
 };
 
-std::shared_ptr<ReductionParams> getPersistentHeuristics(
+std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache = nullptr);
 
-std::shared_ptr<ReductionParams> getPersistentHeuristics(
+std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-void schedulePersistentKernel(Fusion* fusion, const ReductionParams& rparams);
-
-void schedulePersistentKernelInnerOuter(
+void scheduleInnerPersistentKernel(
     Fusion* fusion,
     const ReductionParams& rparams);
 

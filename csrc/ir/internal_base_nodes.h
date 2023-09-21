@@ -33,7 +33,7 @@ struct AnalyzeViewResult;
 // Convenience utility to initialize IterDomain's without having to sort through
 // all the default values. Intended to be used with
 // IterDomain::IterDomain(IrBuilderPasskey IterDomainBuildArgs)
-class TORCH_CUDA_CU_API IterDomainBuilder {
+class IterDomainBuilder {
  public:
   // Match legacy constructor
   IterDomainBuilder(Val* _start, Val* _extent);
@@ -82,7 +82,7 @@ class TORCH_CUDA_CU_API IterDomainBuilder {
 //! TensorDomains which represent how to iterate over a tensor is made up of
 //! IterDomains to form an ND iterable. We directly set parallization strategies
 //! on IterDomains.
-class TORCH_CUDA_CU_API IterDomain : public Val {
+class IterDomain : public Val {
  public:
   IterDomain(IrBuilderPasskey, const IterDomainBuilder& args);
 
@@ -349,6 +349,11 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
     return parallel_type_ == ParallelType::Mma;
   }
 
+  //! Marks that this id represents an instruction loop, cp.async.bulk use only.
+  bool isBulk() const {
+    return parallel_type_ == ParallelType::Bulk;
+  }
+
   //! Applies 2D swizzle on a rectangular tile defined by
   //!  a pair of iterdomains.
   static std::pair<IterDomain*, IterDomain*> swizzle(
@@ -428,7 +433,7 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
 //! which should give us an operation in the list [split, merge] or similar
 //! operations that take in a TensorDomain, applies a transformation and outputs
 //! a tensor domain.
-class TORCH_CUDA_CU_API TensorDomain : public Val {
+class TensorDomain : public Val {
  public:
   explicit TensorDomain(
       IrBuilderPasskey,

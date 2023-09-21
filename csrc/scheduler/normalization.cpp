@@ -46,6 +46,10 @@ void PersistentKernelScheduler::schedule(Fusion* fusion) {
 }
 
 bool PersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
+  // This scheduler is being divided into three separate schedulers and should
+  // be deleted. Disable the use of this scheduler for now.
+  return false;
+
   // Needs at least one reduction to consider.
   auto reduction_ops = ir_utils::getReductionOps(fusion);
   if (reduction_ops.empty()) {

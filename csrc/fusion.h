@@ -68,7 +68,7 @@ class DynamicTransformConcretizationInfo;
 
 //! Fusion Guard is our "context manager". It holds the active fusion and
 //! allows it to be accessed anywhere through FusionGuard::getCurFusion()
-class TORCH_CUDA_CU_API FusionGuard {
+class FusionGuard {
  public:
   Fusion* prev_fusion;
 
@@ -90,7 +90,7 @@ class TORCH_CUDA_CU_API FusionGuard {
 //! The Fusion owns the whole IR graph (Vals and Exprs)
 //!
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class TORCH_CUDA_CU_API Fusion : public IrContainer {
+class Fusion : public IrContainer {
   typedef std::unordered_map<int, std::vector<int64_t>> PermutationMap;
 
  public:

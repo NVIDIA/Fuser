@@ -198,4 +198,123 @@ DEVICE_INLINE void cpAsyncPartialBarrier() {
 
 #endif // Arch 80
 
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
+
+namespace Hopper {
+
+// References:
+//
+// TMA:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cp-async-bulk-tensor
+// https://github.com/NVIDIA/cutlass/blob/main/include/cute/arch/copy_sm90_tma.hpp
+//
+// Tensor map:
+// https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TENSOR__MEMORY.html
+
+DEVICE_INLINE void cpAsyncBulkCommit() {
+  asm volatile("cp.async.bulk.commit_group;");
+}
+
+template <int keep_stages>
+DEVICE_INLINE void cpAsyncBulkPartialReadBarrier() {
+  asm volatile("cp.async.bulk.wait_group.read %0;"
+               :
+               : "n"(keep_stages)
+               : "memory");
+}
+
+// TODO: Remove this. This is a temporary solution for the build-out stage.
+// Our system can not automatically insert barriers for now, so we manually
+// insert barriers after each TMA operation. That is, we are making TMA
+// synchronous.
+DEVICE_INLINE void _finalizeTMAStore() {
+  cpAsyncBulkCommit();
+  cpAsyncBulkPartialReadBarrier<0>();
+}
+
+template <int dim>
+struct CpAsyncBulkTensorTileIndex {
+  const TensorMap* descriptor;
+  Array<int32_t, dim> crds;
+};
+
+DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
+    const CpAsyncBulkTensorTileIndex<1>& dest,
+    uint32_t smem_addr) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(dest.descriptor);
+  asm volatile(
+      "cp.async.bulk.tensor.1d.global.shared::cta.bulk_group [%0, {%2}], [%1];"
+      :
+      : "l"(gmem_int_desc), "r"(smem_addr), "r"(dest.crds[0])
+      : "memory");
+  _finalizeTMAStore();
+}
+
+DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
+    const CpAsyncBulkTensorTileIndex<2>& dest,
+    uint32_t smem_addr) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(dest.descriptor);
+  asm volatile(
+      "cp.async.bulk.tensor.2d.global.shared::cta.bulk_group [%0, {%2, %3}], [%1];"
+      :
+      : "l"(gmem_int_desc), "r"(smem_addr), "r"(dest.crds[0]), "r"(dest.crds[1])
+      : "memory");
+  _finalizeTMAStore();
+}
+
+DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
+    const CpAsyncBulkTensorTileIndex<3>& dest,
+    uint32_t smem_addr) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(dest.descriptor);
+  asm volatile(
+      "cp.async.bulk.tensor.3d.global.shared::cta.bulk_group [%0, {%2, %3, %4}], [%1];"
+      :
+      : "l"(gmem_int_desc),
+        "r"(smem_addr),
+        "r"(dest.crds[0]),
+        "r"(dest.crds[1]),
+        "r"(dest.crds[2])
+      : "memory");
+  _finalizeTMAStore();
+}
+
+DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
+    const CpAsyncBulkTensorTileIndex<4>& dest,
+    uint32_t smem_addr) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(dest.descriptor);
+  asm volatile(
+      "cp.async.bulk.tensor.4d.global.shared::cta.bulk_group [%0, {%2, %3, %4, %5}], [%1];"
+      :
+      : "l"(gmem_int_desc),
+        "r"(smem_addr),
+        "r"(dest.crds[0]),
+        "r"(dest.crds[1]),
+        "r"(dest.crds[2]),
+        "r"(dest.crds[3])
+      : "memory");
+  _finalizeTMAStore();
+}
+
+DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
+    const CpAsyncBulkTensorTileIndex<5>& dest,
+    uint32_t smem_addr) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(dest.descriptor);
+  asm volatile(
+      "cp.async.bulk.tensor.5d.global.shared::cta.bulk_group [%0, {%2, %3, %4, %5, %6}], [%1];"
+      :
+      : "l"(gmem_int_desc),
+        "r"(smem_addr),
+        "r"(dest.crds[0]),
+        "r"(dest.crds[1]),
+        "r"(dest.crds[2]),
+        "r"(dest.crds[3]),
+        "r"(dest.crds[4])
+      : "memory");
+  _finalizeTMAStore();
+}
+
+} // namespace Hopper
+
+#endif // Arch 90
+
 #undef DEVICE_INLINE
