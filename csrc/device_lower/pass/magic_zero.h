@@ -24,7 +24,7 @@ struct IndexFromIdGraph;
 std::vector<Expr*> insertMagicZero(const std::vector<Expr*>& exprs);
 
 //! Check if val is a reference to the magic zero variable
-TORCH_CUDA_CU_API bool isMagicZero(const Val* val);
+bool isMagicZero(const Val* val);
 
 //! Check if val is protected with magic zero.
 //!

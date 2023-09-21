@@ -39,7 +39,7 @@ constexpr int comm_server_local_rank_default = 0;
 constexpr int comm_master_port_default =
     c10d::TCPStoreOptions::kDefaultPort; // 29500
 
-class TORCH_CUDA_CU_API Communicator {
+class Communicator {
  public:
   Communicator(
       CommunicatorBackend backend = comm_backend_default,
