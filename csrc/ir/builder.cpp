@@ -20,10 +20,6 @@
 
 namespace nvfuser {
 
-Val* IrBuilder::newScalar(DataType dtype) {
-  return IrBuilder::create<Val>(dtype);
-}
-
 Val* IrBuilder::newArithmeticExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
   NVF_CHECK(
       lhs != nullptr && rhs != nullptr,
@@ -48,7 +44,7 @@ Val* IrBuilder::newArithmeticExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
       NVF_ERROR(op_type == BinaryOpType::Add || op_type == BinaryOpType::Sub);
     }
   }
-  auto result = newScalar(dtype);
+  auto result = create<Val>(dtype);
   IrBuilder::create<BinaryOp>(op_type, result, lhs, rhs);
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
   return result;
@@ -58,7 +54,7 @@ Val* IrBuilder::newLogicExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
   NVF_CHECK(
       lhs != nullptr && rhs != nullptr,
       "Either lhs or rhs is a nullptr in newLogicExpr.");
-  auto result = newScalar(DataType::Bool);
+  auto result = create<Val>(DataType::Bool);
   IrBuilder::create<BinaryOp>(op_type, result, lhs, rhs);
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
   return result;
@@ -69,49 +65,49 @@ Val* IrBuilder::whereExpr(Val* pred, Val* lhs, Val* rhs) {
       pred != nullptr && lhs != nullptr && rhs != nullptr,
       "Either pred, lhs, or rhs is a nullptr in whereExpr.");
   NVF_CHECK(lhs->dtype() == rhs->dtype(), "Incompatible operand types");
-  auto result = newScalar(lhs->dtype());
+  auto result = create<Val>(lhs->dtype());
   IrBuilder::create<TernaryOp>(TernaryOpType::Where, result, pred, lhs, rhs);
   return result;
 }
 
 Val* IrBuilder::negExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in negExpr.");
-  auto result = newScalar(val->dtype());
+  auto result = create<Val>(val->dtype());
   IrBuilder::create<UnaryOp>(UnaryOpType::Neg, result, val);
   return result;
 }
 
 Val* IrBuilder::logicalNotExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in logicalNotExpr.");
-  auto result = newScalar(val->dtype());
+  auto result = create<Val>(val->dtype());
   IrBuilder::create<UnaryOp>(UnaryOpType::LogicalNot, result, val);
   return result;
 }
 
 Val* IrBuilder::bitwiseNotExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in bitwiseNotExpr.");
-  auto result = newScalar(val->dtype());
+  auto result = create<Val>(val->dtype());
   IrBuilder::create<UnaryOp>(UnaryOpType::BitwiseNot, result, val);
   return result;
 }
 
 Val* IrBuilder::derefExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in derefExpr.");
-  auto result = newScalar(*(std::get<PointerType>(val->dtype().type).type));
+  auto result = create<Val>(*(std::get<PointerType>(val->dtype().type).type));
   IrBuilder::create<UnaryOp>(UnaryOpType::Dereference, result, val);
   return result;
 }
 
 Val* IrBuilder::absExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in absExpr.");
-  auto result = newScalar(val->dtype());
+  auto result = create<Val>(val->dtype());
   IrBuilder::create<UnaryOp>(UnaryOpType::Abs, result, val);
   return result;
 }
 
 Val* IrBuilder::setExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in setExpr.");
-  auto result = newScalar(val->dtype());
+  auto result = create<Val>(val->dtype());
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, result, val);
   return result;
 }
@@ -121,14 +117,14 @@ Val* IrBuilder::maybeCastExpr(DataType dtype, Val* val) {
   if (val->dtype() == dtype) {
     return val;
   }
-  auto result = newScalar(dtype);
+  auto result = create<Val>(dtype);
   IrBuilder::create<UnaryOp>(UnaryOpType::Cast, result, val);
   return result;
 }
 
 Val* IrBuilder::addressExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in addressExpr.");
-  auto result = newScalar(
+  auto result = create<Val>(
       DataType(PointerType{std::make_shared<DataType>(val->dtype())}));
   IrBuilder::create<UnaryOp>(UnaryOpType::Address, result, val);
   return result;
@@ -228,29 +224,29 @@ Val* IrBuilder::gcdExpr(Val* lhs, Val* rhs) {
 
 Val* IrBuilder::getItemExpr(Val* array, Val* index) {
   auto item_dtype = std::get<ArrayType>(array->dtype().type).type;
-  auto out = newScalar(*item_dtype);
+  auto out = create<Val>(*item_dtype);
   create<GetItem>(array->container(), out, array, index);
   return out;
 }
 
 Val* IrBuilder::getItemExpr(Val* array, PolymorphicValue index) {
   auto item_dtype = std::get<ArrayType>(array->dtype().type).type;
-  auto out = newScalar(*item_dtype);
+  auto out = create<Val>(*item_dtype);
   create<GetItem>(
-      array->container(), out, array, newConstant(index, DataType::Int));
+      array->container(), out, array, create<Val>(index, DataType::Int));
   return out;
 }
 
 Val* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
   auto struct_type = std::get<StructType>(struct_->dtype().type);
   const auto& item_type = struct_type.fieldDataType(attr);
-  auto out = newScalar(item_type);
+  auto out = create<Val>(item_type);
   create<GetAttr>(struct_->container(), out, struct_, std::move(attr));
   return out;
 }
 
 Val* IrBuilder::reverseArrayExpr(Val* array) {
-  auto out = newScalar(array->dtype());
+  auto out = create<Val>(array->dtype());
   create<ReverseArray>(out, array);
   return out;
 }

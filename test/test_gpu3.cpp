@@ -6266,7 +6266,7 @@ TEST_F(NVFuserTest, FusionIssue2372_CUDA) {
   fusion.addInput(tmean);
   auto tvar = makeContigTensor(1, DataType::Float);
   fusion.addInput(tvar);
-  auto seps = IrBuilder::newScalar(DataType::Double);
+  auto seps = IrBuilder::create<Val>(DataType::Double);
   fusion.addInput(seps);
 
   auto tmean_bcast = broadcast(tmean, {true, true, true, true, false});
@@ -6999,8 +6999,8 @@ TEST_F(
 
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
-  auto reduction_params =
-      getPersistentHeuristics(&fusion, {aten_input, aten_weight, aten_bias});
+  auto reduction_params = getInnerPersistentHeuristics(
+      &fusion, {aten_input, aten_weight, aten_bias});
   NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
 
   FusionExecutorCache fec(std::move(fusion_ptr));
@@ -8463,7 +8463,8 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
   testing::internal::CaptureStdout();
   {
     // generate persistent kernel
-    auto persistent_params = getPersistentHeuristics(&fusion, {aten_input});
+    auto persistent_params =
+        getInnerPersistentHeuristics(&fusion, {aten_input});
     NVF_CHECK(persistent_params, "Persistent schedule was not generated!");
     schedulePersistentKernel(&fusion, *persistent_params);
 
@@ -8866,7 +8867,7 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
       aten_input, norm_shape, aten_weight, aten_bias, kEps);
 
   // generate persistent kernel
-  auto persistent_params = getPersistentHeuristics(&fusion, {aten_input});
+  auto persistent_params = getInnerPersistentHeuristics(&fusion, {aten_input});
   ASSERT_TRUE(persistent_params) << "Persistent schedule was not generated!";
   schedulePersistentKernel(&fusion, *persistent_params);
 
@@ -9072,8 +9073,8 @@ TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
         at::randn({input_shape[1]}, options);
     c10::optional<at::Tensor> aten_bias = at::randn({input_shape[1]}, options);
 
-    auto persistent_params =
-        getPersistentHeuristics(&fusion, {aten_input, aten_weight, aten_bias});
+    auto persistent_params = getInnerPersistentHeuristics(
+        &fusion, {aten_input, aten_weight, aten_bias});
     NVF_CHECK(persistent_params, "Persistent schedule was not generated!");
     if (hidden_size * dataTypeSize(dtype) >
         scheduler_utils::register_file_size) {
@@ -9584,7 +9585,7 @@ TEST_F(NVFuserTest, OpaqueTupleAsComplex) {
   auto complex = bitCastOp(DataType::ComplexFloat, tuple);
 
   auto tv = full(
-      {IrBuilder::newConstant(1L, DataType::Index)},
+      {IrBuilder::create<Val>(1L, DataType::Index)},
       complex,
       DataType::ComplexFloat);
 
@@ -9614,7 +9615,7 @@ TEST_F(NVFuserTest, StructConstruct) {
   auto complex = bitCastOp(DataType::ComplexFloat, struct_);
 
   auto tv = full(
-      {IrBuilder::newConstant(1L, DataType::Index)},
+      {IrBuilder::create<Val>(1L, DataType::Index)},
       complex,
       DataType::ComplexFloat);
 

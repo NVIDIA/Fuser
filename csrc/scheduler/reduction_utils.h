@@ -92,5 +92,16 @@ std::vector<TensorView*> projectPersistentBuffers(
     Fusion* fusion,
     const bool project_to_inputs);
 
+//! Get reduction types based on the given fusion or reduction tvs.
+//! If there are no reduction tvs, return None.
+//! If there are only inner reduction tvs, return Inner.
+//! If there are only outer reduction tvs, return Outer.
+//! If there are both inner and outer reduction tvs, return InnerOuter.
+enum class ReductionType { Inner, Outer, InnerOuter, None };
+std::ostream& operator<<(std::ostream& os, ReductionType reduction_type);
+std::string toString(ReductionType reduction_type);
+ReductionType getReductionType(Fusion* fusion);
+ReductionType getReductionType(const std::vector<TensorView*>& reduction_tvs);
+
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser
