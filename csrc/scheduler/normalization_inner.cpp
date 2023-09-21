@@ -40,7 +40,6 @@ bool checkReductionPattern(
   ComputeAtRootDomainMap root_map;
   root_map.build(true);
 
-  // check inner and outer reductions seperately
   for (const auto it : c10::irange(1, reduction_tvs.size())) {
     if (!registry_utils::checkPatternEquivalence(
             reduction_tvs[it - 1], reduction_tvs[it], root_map)) {
@@ -290,7 +289,6 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
   const int64_t device_max_threads_per_multiprocessor =
       (int64_t)at::cuda::getCurrentDeviceProperties()
           ->maxThreadsPerMultiProcessor;
-
 
   const int64_t required_sm_per_norm =
       ceilDiv(persistent_buffer_size, scheduler_utils::register_file_size);
