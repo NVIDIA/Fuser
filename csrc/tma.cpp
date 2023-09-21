@@ -305,13 +305,13 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
   }
   int64_t elem_size = (int64_t)dataTypeSize(dataType());
   if (tensor_rank > 1) {
-    int64_t padding0 =
+    int64_t padding0_bytes =
         (int64_t)global_strides.at(0) - (int64_t)global_dim.at(0) * elem_size;
     NVF_ERROR(
-        padding0 >= 0,
-        "Negative pad0 for: globalStrides[0] = globalDim[0] * elementSizeInBytes(tensorDataType) + padding[0];"
-        " padding0 = ",
-        padding0);
+        padding0_bytes >= 0,
+        "Negative pad0 for: globalStrides[0] = (globalDim[0] + padding[0]) * elementSizeInBytes(tensorDataType);"
+        " padding0_bytes = ",
+        padding0_bytes);
     for (int i = 1; i < (int64_t)tensor_rank - 1; i++) {
       int64_t stride_mul_pad_i = (int64_t)global_strides.at(i) -
           (int64_t)global_dim.at(i) * (int64_t)global_strides.at(i - 1);
@@ -320,10 +320,8 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
           "Negative globalStrides[i – 1] * padding[i] for: globalStrides[i] = globalStrides[i – 1] * (globalDim[i] + padding[i]);",
           " stride_mul_pad_i = ",
           stride_mul_pad_i);
-      // TODO: the check below is copied from the official doc, but does it
-      // really make sense? Strides are in the unit of bytes, but global_dim is
-      // in the unit of elements, how can they compare with each other?
-      NVF_ERROR(global_strides.at(i) >= global_dim.at(i));
+      // TODO: the check below mismatch with the official doc, I think the one here is correct
+      NVF_ERROR(global_strides.at(i) >= global_dim.at(i) * elem_size);
     }
   }
 
