@@ -1283,12 +1283,20 @@ void IndexLowering::handleGroupedGridWelford(
 }
 
 void IndexLowering::handle(const LoadStoreOp* ldst) {
-  const auto in = lowerSrcIndex(
-      ldst->in(),
-      ldst->out(),
-      {},
-      ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
-  const auto out = lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst));
+  Val* in = nullptr;
+  Val* out = nullptr;
+  if (ir_utils::isCpAsyncBulk(ldst)) {
+    NVF_ERROR(ir_utils::isCpAsyncBulkStore(ldst));
+    in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
+    out = Index::cpAsyncBulkIndex(ldst->out()->as<TensorView>(), for_loops_);
+  } else {
+    in = lowerSrcIndex(
+        ldst->in(),
+        ldst->out(),
+        {},
+        ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
+    out = lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst));
+  }
   auto new_ldst =
       IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
           ->withPredicate(ldst->predicate());

@@ -11,6 +11,7 @@
 #include <ir/all_nodes.h>
 #include <ir/base_nodes.h>
 #include <parallel_type_bitmap.h>
+#include <tma.h>
 #include <type.h>
 #include <utils.h>
 
@@ -1119,6 +1120,83 @@ class GetRNGSeedAndOffsetFromHost : public Expr {
 
   int64_t& offsets() {
     return attribute<int64_t>(0);
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
+// Expr for driver API cuTensorMapEncodeTiled
+class TORCH_CUDA_CU_API EncodeTensorMapTiled : public Expr {
+ public:
+  using Expr::Expr;
+
+  EncodeTensorMapTiled(
+      IrBuilderPasskey,
+      Val* output,
+      DataType data_type,
+      Val* global_address,
+      Val* global_dim,
+      Val* global_strides,
+      Val* box_dim,
+      Val* element_strides,
+      tma::TensorMapInterleave interleave,
+      tma::TensorMapSwizzle swizzle,
+      tma::TensorMapL2Promotion l2_promotion,
+      tma::TensorMapFloatOOBFill oob_fill);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "EncodeTensorMapTiled";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* globalAddress() const {
+    return input(0);
+  }
+
+  Val* globalDim() const {
+    return input(1);
+  }
+
+  Val* globalStrides() const {
+    return input(2);
+  }
+
+  Val* boxDim() const {
+    return input(3);
+  }
+
+  Val* elementStrides() const {
+    return input(4);
+  }
+
+  const DataType& dataType() const {
+    return attribute<DataType>(0);
+  }
+
+  const int64_t& tensorRank() const {
+    return attribute<int64_t>(1);
+  }
+
+  const tma::TensorMapInterleave& interleave() const {
+    return attribute<tma::TensorMapInterleave>(2);
+  }
+
+  const tma::TensorMapSwizzle& swizzle() const {
+    return attribute<tma::TensorMapSwizzle>(3);
+  }
+
+  const tma::TensorMapL2Promotion& l2Promotion() const {
+    return attribute<tma::TensorMapL2Promotion>(4);
+  }
+
+  const tma::TensorMapFloatOOBFill& oobFill() const {
+    return attribute<tma::TensorMapFloatOOBFill>(5);
   }
 
   std::vector<PolymorphicValue> evaluate(
