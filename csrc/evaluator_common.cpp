@@ -13,6 +13,7 @@
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <tensor_metadata.h>
 
 #include <optional>
 
@@ -170,8 +171,9 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
       if (!tensor.is_cpu()) {
         bindTensorMetaData(tensor_input, tensor);
       }
+    } else {
+      bindValue(input->evaluatorIndex(), *args[i]);
     }
-    bindValue(input->evaluatorIndex(), *args[i]);
   }
 }
 
@@ -341,6 +343,23 @@ void PrecomputedValues::bindTensorMetaData(
       bindValue(extent->evaluatorIndex(), value);
     }
   }
+
+  // Here we bind TensorMetaData so that GetMetaData expressions can be
+  // evaluated. Note that we do not bind the at::Tensor itself here since that
+  // would mean PrecomputedValues will own the tensor. Unlike
+  // ExpressionEvaluator, PrecomputedValues objects are typically long-lived, so
+  // we do not want them to own large objects.
+  std::shared_ptr<Struct> struct_ = std::make_shared<TensorMetaData>();
+  TensorMetaData* metadata = (TensorMetaData*)struct_.get();
+  metadata->dtype =
+      std::get<PrimDataType>(aten_to_data_type(tensor.scalar_type()).type);
+  metadata->data = tensor.data_ptr();
+  metadata->logical_size = tensor.sizes();
+  metadata->logical_stride = tensor.strides();
+  metadata->alloc_size = tensor.sizes();
+  metadata->alloc_stride = tensor.strides();
+  PolymorphicValue pv(std::move(struct_));
+  bindValue(IrBuilder::metadataExpr(tv)->evaluatorIndex(), pv);
 }
 
 NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)
