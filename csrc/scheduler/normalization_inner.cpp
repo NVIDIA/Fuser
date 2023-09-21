@@ -1230,8 +1230,6 @@ void scheduleInnerPersistentKernel(
     fusion->addOutput(output);
   }
 
-  refineCachePolicy(fusion);
-
   const bool unroll = rparams.isUnrolled();
   const bool vectorize =
       rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
@@ -1259,6 +1257,8 @@ void scheduleInnerPersistentKernel(
   }
 
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
+
+  refineCachePolicy(fusion);
 }
 
 } // namespace nvfuser
