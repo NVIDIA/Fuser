@@ -2346,21 +2346,22 @@ TranslateApplicableWelford::TranslateApplicableWelford(
 bool TranslateApplicableWelford::isValidPersistentFusion(
     Fusion* translated_fusion,
     SchedulerRuntimeInfo& runtime_info) {
-  // Get the appropriate heuristic based on reduciton types.
-  auto maybe_persistent_sh =
-      normalization_scheduler_utils::getMaybePersistentScheduleHeuristic(
-          translated_fusion);
-  if (!maybe_persistent_sh.has_value()) {
+  // Check reduciton type and get the appropriate heuristic.
+  auto reduction_type =
+      reduction_scheduler_utils::getReductionType(translated_fusion);
+  if (reduction_type == reduction_scheduler_utils::ReductionType::None) {
     return false;
   }
+  auto persistent_sh =
+      normalization_scheduler_utils::getPersistentHeuristicFor(reduction_type);
 
   if (!SchedulerEntry::canSchedule(
-          maybe_persistent_sh.value(), translated_fusion, runtime_info)) {
+          persistent_sh, translated_fusion, runtime_info)) {
     return false;
   }
 
-  auto scheduler = SchedulerEntry::makeEntry(
-      maybe_persistent_sh.value(), translated_fusion, runtime_info);
+  auto scheduler =
+      SchedulerEntry::makeEntry(persistent_sh, translated_fusion, runtime_info);
 
   // Translate welford to two-pass enhances performance for block
   // reductions by reducing instructions and the impact of an extra block

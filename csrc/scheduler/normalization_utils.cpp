@@ -723,11 +723,7 @@ getOptionalInnerOuterPersistentBufferBatches(
 }
 
 // Get the appropriate scheduler based on reduction type
-std::optional<ScheduleHeuristic> getMaybePersistentScheduleHeuristic(
-    Fusion* fusion) {
-  auto reduction_type = reduction_scheduler_utils::getReductionType(fusion);
-  using ReductionType = reduction_scheduler_utils::ReductionType;
-
+ScheduleHeuristic getPersistentHeuristicFor(ReductionType reduction_type) {
   switch (reduction_type) {
     case ReductionType::Inner:
       return ScheduleHeuristic::InnerPersistent;
@@ -736,11 +732,11 @@ std::optional<ScheduleHeuristic> getMaybePersistentScheduleHeuristic(
       return ScheduleHeuristic::Persistent;
     case ReductionType::InnerOuter:
       return ScheduleHeuristic::InnerOuterPersistent;
-    case ReductionType::None:
-      return std::nullopt;
     default:
-      NVF_ERROR(false, "Reduction type not defined!");
-      return std::nullopt;
+      NVF_ERROR(
+          false,
+          "Reduction type not supported! reduction_type: ",
+          reduction_type);
   }
 }
 

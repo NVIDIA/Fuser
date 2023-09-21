@@ -98,6 +98,8 @@ std::vector<TensorView*> projectPersistentBuffers(
 //! If there are only outer reduction tvs, return Outer.
 //! If there are both inner and outer reduction tvs, return InnerOuter.
 enum class ReductionType { Inner, Outer, InnerOuter, None };
+std::ostream& operator<<(std::ostream& os, ReductionType reduction_type);
+std::string toString(ReductionType reduction_type);
 ReductionType getReductionType(Fusion* fusion);
 ReductionType getReductionType(const std::vector<TensorView*>& reduction_tvs);
 
