@@ -16,6 +16,7 @@
 #include <ir/utils.h>
 #include <ops/arith.h>
 #include <scheduler/debug_utils.h>
+#include <scheduler/normalization_utils.h>
 
 #include <sstream>
 
@@ -285,9 +286,13 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
 
   // convert Welford to two-pass if option is enabled and the original heuristic
   // is persistent
+  auto isPersistentHeuristic = [&heuristic]() {
+    return heuristic == ScheduleHeuristic::InnerPersistent ||
+        heuristic == ScheduleHeuristic::Persistent ||
+        heuristic == ScheduleHeuristic::InnerOuterPersistent;
+  };
   SegmentCandidateFinderOptions scfo;
-  if (scfo.run_translate_welford &&
-      heuristic == ScheduleHeuristic::Persistent) {
+  if (scfo.run_translate_welford && isPersistentHeuristic()) {
     SegmentCandidateFinder::translateWelfordInFusion(fusion, runtime_inputs);
   }
 
@@ -2341,13 +2346,23 @@ TranslateApplicableWelford::TranslateApplicableWelford(
 bool TranslateApplicableWelford::isValidPersistentFusion(
     Fusion* translated_fusion,
     SchedulerRuntimeInfo& runtime_info) {
+  // Check reduciton type and get the appropriate heuristic.
+  auto reduction_type =
+      reduction_scheduler_utils::getReductionType(translated_fusion);
+  if (reduction_type == reduction_scheduler_utils::ReductionType::None) {
+    return false;
+  }
+  auto persistent_sh =
+      normalization_scheduler_utils::getPersistentHeuristicFor(reduction_type);
+
   if (!SchedulerEntry::canSchedule(
-          ScheduleHeuristic::Persistent, translated_fusion, runtime_info)) {
+          persistent_sh, translated_fusion, runtime_info)) {
     return false;
   }
 
-  auto scheduler = SchedulerEntry::makeEntry(
-      ScheduleHeuristic::Persistent, translated_fusion, runtime_info);
+  auto scheduler =
+      SchedulerEntry::makeEntry(persistent_sh, translated_fusion, runtime_info);
+
   // Translate welford to two-pass enhances performance for block
   // reductions by reducing instructions and the impact of an extra block
   // synchronization has negligible overhead.
