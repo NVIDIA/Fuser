@@ -320,7 +320,8 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
           "Negative globalStrides[i – 1] * padding[i] for: globalStrides[i] = globalStrides[i – 1] * (globalDim[i] + padding[i]);",
           " stride_mul_pad_i = ",
           stride_mul_pad_i);
-      // TODO: the check below mismatch with the official doc, I think the one here is correct
+      // TODO: the check below mismatch with the official doc, I think the one
+      // here is correct
       NVF_ERROR(global_strides.at(i) >= global_dim.at(i) * elem_size);
     }
   }
@@ -354,23 +355,41 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
     auto bounding_box_inner_dim = box_dim.at(0) * elem_size;
     switch (swizzle) {
       case CU_TENSOR_MAP_SWIZZLE_32B:
+        // bounding_box_inner_dim == 32
         NVF_ERROR(
             bounding_box_inner_dim <= 32,
             "CU_TENSOR_MAP_SWIZZLE_32B implies the bounding box inner dimension will be <= 32.",
             " bounding_box_inner_dim = ",
             bounding_box_inner_dim);
+        NVF_ERROR(
+            bounding_box_inner_dim >= 32,
+            "bounding_box_inner_dim < 32 not currently supported by nvFuser for CU_TENSOR_MAP_SWIZZLE_32B.",
+            " bounding_box_inner_dim = ",
+            bounding_box_inner_dim);
         break;
       case CU_TENSOR_MAP_SWIZZLE_64B:
+        // bounding_box_inner_dim == 64
         NVF_ERROR(
             bounding_box_inner_dim <= 64,
             "CU_TENSOR_MAP_SWIZZLE_64B implies the bounding box inner dimension will be <= 64.",
             " bounding_box_inner_dim = ",
             bounding_box_inner_dim);
+        NVF_ERROR(
+            bounding_box_inner_dim >= 64,
+            "bounding_box_inner_dim < 64 not currently supported by nvFuser for CU_TENSOR_MAP_SWIZZLE_64B.",
+            " bounding_box_inner_dim = ",
+            bounding_box_inner_dim);
         break;
       case CU_TENSOR_MAP_SWIZZLE_128B:
+        // bounding_box_inner_dim == 128
         NVF_ERROR(
             bounding_box_inner_dim <= 128,
             "CU_TENSOR_MAP_SWIZZLE_128B implies the bounding box inner dimension will be <= 128.",
+            " bounding_box_inner_dim = ",
+            bounding_box_inner_dim);
+        NVF_ERROR(
+            bounding_box_inner_dim >= 128,
+            "bounding_box_inner_dim < 128 not currently supported by nvFuser for CU_TENSOR_MAP_SWIZZLE_128B.",
             " bounding_box_inner_dim = ",
             bounding_box_inner_dim);
         break;
