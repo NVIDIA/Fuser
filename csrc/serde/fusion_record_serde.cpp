@@ -511,7 +511,8 @@ void RecordFunctorFactory::registerAllParsers() {
     return new python_frontend::DimsOpRecord<serde::RecordType_PermuteOp>(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        parseVector(buffer->data_as_Dims()->dims()));
+        parseVector(buffer->data_as_Dims()->dims()),
+        buffer->name()->str());
   };
   registerParser(serde::RecordType_PermuteOp, deserializePermuteRecord);
 
@@ -519,7 +520,8 @@ void RecordFunctorFactory::registerAllParsers() {
     return new python_frontend::DimsOpRecord<serde::RecordType_StrideOrderOp>(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        parseVector(buffer->data_as_Dims()->dims()));
+        parseVector(buffer->data_as_Dims()->dims()),
+        buffer->name()->str());
   };
   registerParser(serde::RecordType_StrideOrderOp, deserializeStrideOrderRecord);
 
