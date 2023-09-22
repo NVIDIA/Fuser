@@ -508,22 +508,20 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(serde::RecordType_PadOp, deserializePadRecord);
 
   auto deserializePermuteRecord = [](const serde::RecordFunctor* buffer) {
-    return new python_frontend::PermuteOpRecord(
+    return new python_frontend::DimsOpRecord<serde::RecordType_PermuteOp>(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        parseVector(buffer->data_as_Permute()->dims()));
+        parseVector(buffer->data_as_Dims()->dims()));
   };
   registerParser(serde::RecordType_PermuteOp, deserializePermuteRecord);
 
-  auto deserializeSetStrideOrderRecord =
-      [](const serde::RecordFunctor* buffer) {
-        return new python_frontend::SetStrideOrderOpRecord(
-            parseStateArgs(buffer->args()),
-            parseStateArgs(buffer->outputs()),
-            parseVector(buffer->data_as_SetStrideOrder()->stride_order()));
-      };
-  registerParser(
-      serde::RecordType_SetStrideOrderOp, deserializeSetStrideOrderRecord);
+  auto deserializeStrideOrderRecord = [](const serde::RecordFunctor* buffer) {
+    return new python_frontend::DimsOpRecord<serde::RecordType_StrideOrderOp>(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        parseVector(buffer->data_as_Dims()->dims()));
+  };
+  registerParser(serde::RecordType_StrideOrderOp, deserializeStrideOrderRecord);
 
   auto deserializeRandomRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_TensorCreationSymbolic();
