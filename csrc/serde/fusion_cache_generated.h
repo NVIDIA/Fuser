@@ -90,13 +90,9 @@ struct Pad;
 struct PadBuilder;
 struct PadT;
 
-struct Permute;
-struct PermuteBuilder;
-struct PermuteT;
-
-struct SetStrideOrder;
-struct SetStrideOrderBuilder;
-struct SetStrideOrderT;
+struct Dims;
+struct DimsBuilder;
+struct DimsT;
 
 struct Reduction;
 struct ReductionBuilder;
@@ -332,7 +328,7 @@ enum RecordType : int32_t {
   RecordType_OutputVal = 37,
   RecordType_PadOp = 38,
   RecordType_PermuteOp = 39,
-  RecordType_SetStrideOrderOp = 40,
+  RecordType_StrideOrderOp = 40,
   RecordType_RandomOp = 41,
   RecordType_ReductionMax = 42,
   RecordType_ReductionMin = 43,
@@ -396,7 +392,7 @@ inline const RecordType (&EnumValuesRecordType())[58] {
     RecordType_OutputVal,
     RecordType_PadOp,
     RecordType_PermuteOp,
-    RecordType_SetStrideOrderOp,
+    RecordType_StrideOrderOp,
     RecordType_RandomOp,
     RecordType_ReductionMax,
     RecordType_ReductionMin,
@@ -460,7 +456,7 @@ inline const char * const *EnumNamesRecordType() {
     "OutputVal",
     "PadOp",
     "PermuteOp",
-    "SetStrideOrderOp",
+    "StrideOrderOp",
     "RandomOp",
     "ReductionMax",
     "ReductionMin",
@@ -500,23 +496,22 @@ enum RecordData : uint8_t {
   RecordData_Norm = 7,
   RecordData_Output = 8,
   RecordData_Pad = 9,
-  RecordData_Permute = 10,
-  RecordData_SetStrideOrder = 11,
-  RecordData_Slice = 12,
-  RecordData_Squeeze = 13,
-  RecordData_Reduction = 14,
-  RecordData_Reshape = 15,
-  RecordData_Scalar = 16,
-  RecordData_Size = 17,
-  RecordData_Tensor = 18,
-  RecordData_TensorCreation = 19,
-  RecordData_TensorCreationSymbolic = 20,
-  RecordData_Vector = 21,
+  RecordData_Dims = 10,
+  RecordData_Slice = 11,
+  RecordData_Squeeze = 12,
+  RecordData_Reduction = 13,
+  RecordData_Reshape = 14,
+  RecordData_Scalar = 15,
+  RecordData_Size = 16,
+  RecordData_Tensor = 17,
+  RecordData_TensorCreation = 18,
+  RecordData_TensorCreationSymbolic = 19,
+  RecordData_Vector = 20,
   RecordData_MIN = RecordData_NONE,
   RecordData_MAX = RecordData_Vector
 };
 
-inline const RecordData (&EnumValuesRecordData())[22] {
+inline const RecordData (&EnumValuesRecordData())[21] {
   static const RecordData values[] = {
     RecordData_NONE,
     RecordData_At,
@@ -528,8 +523,7 @@ inline const RecordData (&EnumValuesRecordData())[22] {
     RecordData_Norm,
     RecordData_Output,
     RecordData_Pad,
-    RecordData_Permute,
-    RecordData_SetStrideOrder,
+    RecordData_Dims,
     RecordData_Slice,
     RecordData_Squeeze,
     RecordData_Reduction,
@@ -545,7 +539,7 @@ inline const RecordData (&EnumValuesRecordData())[22] {
 }
 
 inline const char * const *EnumNamesRecordData() {
-  static const char * const names[23] = {
+  static const char * const names[22] = {
     "NONE",
     "At",
     "BatchNorm",
@@ -556,8 +550,7 @@ inline const char * const *EnumNamesRecordData() {
     "Norm",
     "Output",
     "Pad",
-    "Permute",
-    "SetStrideOrder",
+    "Dims",
     "Slice",
     "Squeeze",
     "Reduction",
@@ -619,12 +612,8 @@ template<> struct RecordDataTraits<nvfuser::serde::Pad> {
   static const RecordData enum_value = RecordData_Pad;
 };
 
-template<> struct RecordDataTraits<nvfuser::serde::Permute> {
-  static const RecordData enum_value = RecordData_Permute;
-};
-
-template<> struct RecordDataTraits<nvfuser::serde::SetStrideOrder> {
-  static const RecordData enum_value = RecordData_SetStrideOrder;
+template<> struct RecordDataTraits<nvfuser::serde::Dims> {
+  static const RecordData enum_value = RecordData_Dims;
 };
 
 template<> struct RecordDataTraits<nvfuser::serde::Slice> {
@@ -707,12 +696,8 @@ template<> struct RecordDataUnionTraits<nvfuser::serde::PadT> {
   static const RecordData enum_value = RecordData_Pad;
 };
 
-template<> struct RecordDataUnionTraits<nvfuser::serde::PermuteT> {
-  static const RecordData enum_value = RecordData_Permute;
-};
-
-template<> struct RecordDataUnionTraits<nvfuser::serde::SetStrideOrderT> {
-  static const RecordData enum_value = RecordData_SetStrideOrder;
+template<> struct RecordDataUnionTraits<nvfuser::serde::DimsT> {
+  static const RecordData enum_value = RecordData_Dims;
 };
 
 template<> struct RecordDataUnionTraits<nvfuser::serde::SliceT> {
@@ -857,21 +842,13 @@ struct RecordDataUnion {
     return type == RecordData_Pad ?
       reinterpret_cast<const nvfuser::serde::PadT *>(value) : nullptr;
   }
-  nvfuser::serde::PermuteT *AsPermute() {
-    return type == RecordData_Permute ?
-      reinterpret_cast<nvfuser::serde::PermuteT *>(value) : nullptr;
+  nvfuser::serde::DimsT *AsDims() {
+    return type == RecordData_Dims ?
+      reinterpret_cast<nvfuser::serde::DimsT *>(value) : nullptr;
   }
-  const nvfuser::serde::PermuteT *AsPermute() const {
-    return type == RecordData_Permute ?
-      reinterpret_cast<const nvfuser::serde::PermuteT *>(value) : nullptr;
-  }
-  nvfuser::serde::SetStrideOrderT *AsSetStrideOrder() {
-    return type == RecordData_SetStrideOrder ?
-      reinterpret_cast<nvfuser::serde::SetStrideOrderT *>(value) : nullptr;
-  }
-  const nvfuser::serde::SetStrideOrderT *AsSetStrideOrder() const {
-    return type == RecordData_SetStrideOrder ?
-      reinterpret_cast<const nvfuser::serde::SetStrideOrderT *>(value) : nullptr;
+  const nvfuser::serde::DimsT *AsDims() const {
+    return type == RecordData_Dims ?
+      reinterpret_cast<const nvfuser::serde::DimsT *>(value) : nullptr;
   }
   nvfuser::serde::SliceT *AsSlice() {
     return type == RecordData_Slice ?
@@ -2668,14 +2645,14 @@ inline ::flatbuffers::Offset<Pad> CreatePadDirect(
 
 ::flatbuffers::Offset<Pad> CreatePad(::flatbuffers::FlatBufferBuilder &_fbb, const PadT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
-struct PermuteT : public ::flatbuffers::NativeTable {
-  typedef Permute TableType;
+struct DimsT : public ::flatbuffers::NativeTable {
+  typedef Dims TableType;
   std::vector<int64_t> dims{};
 };
 
-struct Permute FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef PermuteT NativeTableType;
-  typedef PermuteBuilder Builder;
+struct Dims FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef DimsT NativeTableType;
+  typedef DimsBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_DIMS = 4
   };
@@ -2688,109 +2665,47 @@ struct Permute FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVector(dims()) &&
            verifier.EndTable();
   }
-  PermuteT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
-  void UnPackTo(PermuteT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
-  static ::flatbuffers::Offset<Permute> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const PermuteT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+  DimsT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(DimsT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<Dims> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const DimsT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
-struct PermuteBuilder {
-  typedef Permute Table;
+struct DimsBuilder {
+  typedef Dims Table;
   ::flatbuffers::FlatBufferBuilder &fbb_;
   ::flatbuffers::uoffset_t start_;
   void add_dims(::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> dims) {
-    fbb_.AddOffset(Permute::VT_DIMS, dims);
+    fbb_.AddOffset(Dims::VT_DIMS, dims);
   }
-  explicit PermuteBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+  explicit DimsBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
   }
-  ::flatbuffers::Offset<Permute> Finish() {
+  ::flatbuffers::Offset<Dims> Finish() {
     const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<Permute>(end);
+    auto o = ::flatbuffers::Offset<Dims>(end);
     return o;
   }
 };
 
-inline ::flatbuffers::Offset<Permute> CreatePermute(
+inline ::flatbuffers::Offset<Dims> CreateDims(
     ::flatbuffers::FlatBufferBuilder &_fbb,
     ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> dims = 0) {
-  PermuteBuilder builder_(_fbb);
+  DimsBuilder builder_(_fbb);
   builder_.add_dims(dims);
   return builder_.Finish();
 }
 
-inline ::flatbuffers::Offset<Permute> CreatePermuteDirect(
+inline ::flatbuffers::Offset<Dims> CreateDimsDirect(
     ::flatbuffers::FlatBufferBuilder &_fbb,
     const std::vector<int64_t> *dims = nullptr) {
   auto dims__ = dims ? _fbb.CreateVector<int64_t>(*dims) : 0;
-  return nvfuser::serde::CreatePermute(
+  return nvfuser::serde::CreateDims(
       _fbb,
       dims__);
 }
 
-::flatbuffers::Offset<Permute> CreatePermute(::flatbuffers::FlatBufferBuilder &_fbb, const PermuteT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
-
-struct SetStrideOrderT : public ::flatbuffers::NativeTable {
-  typedef SetStrideOrder TableType;
-  std::vector<int64_t> stride_order{};
-};
-
-struct SetStrideOrder FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef SetStrideOrderT NativeTableType;
-  typedef SetStrideOrderBuilder Builder;
-  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
-    VT_STRIDE_ORDER = 4
-  };
-  const ::flatbuffers::Vector<int64_t> *stride_order() const {
-    return GetPointer<const ::flatbuffers::Vector<int64_t> *>(VT_STRIDE_ORDER);
-  }
-  bool Verify(::flatbuffers::Verifier &verifier) const {
-    return VerifyTableStart(verifier) &&
-           VerifyOffset(verifier, VT_STRIDE_ORDER) &&
-           verifier.VerifyVector(stride_order()) &&
-           verifier.EndTable();
-  }
-  SetStrideOrderT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
-  void UnPackTo(SetStrideOrderT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
-  static ::flatbuffers::Offset<SetStrideOrder> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const SetStrideOrderT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
-};
-
-struct SetStrideOrderBuilder {
-  typedef SetStrideOrder Table;
-  ::flatbuffers::FlatBufferBuilder &fbb_;
-  ::flatbuffers::uoffset_t start_;
-  void add_stride_order(::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> stride_order) {
-    fbb_.AddOffset(SetStrideOrder::VT_STRIDE_ORDER, stride_order);
-  }
-  explicit SetStrideOrderBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
-        : fbb_(_fbb) {
-    start_ = fbb_.StartTable();
-  }
-  ::flatbuffers::Offset<SetStrideOrder> Finish() {
-    const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<SetStrideOrder>(end);
-    return o;
-  }
-};
-
-inline ::flatbuffers::Offset<SetStrideOrder> CreateSetStrideOrder(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> stride_order = 0) {
-  SetStrideOrderBuilder builder_(_fbb);
-  builder_.add_stride_order(stride_order);
-  return builder_.Finish();
-}
-
-inline ::flatbuffers::Offset<SetStrideOrder> CreateSetStrideOrderDirect(
-    ::flatbuffers::FlatBufferBuilder &_fbb,
-    const std::vector<int64_t> *stride_order = nullptr) {
-  auto stride_order__ = stride_order ? _fbb.CreateVector<int64_t>(*stride_order) : 0;
-  return nvfuser::serde::CreateSetStrideOrder(
-      _fbb,
-      stride_order__);
-}
-
-::flatbuffers::Offset<SetStrideOrder> CreateSetStrideOrder(::flatbuffers::FlatBufferBuilder &_fbb, const SetStrideOrderT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+::flatbuffers::Offset<Dims> CreateDims(::flatbuffers::FlatBufferBuilder &_fbb, const DimsT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct ReductionT : public ::flatbuffers::NativeTable {
   typedef Reduction TableType;
@@ -4142,11 +4057,8 @@ struct RecordFunctor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const nvfuser::serde::Pad *data_as_Pad() const {
     return data_type() == nvfuser::serde::RecordData_Pad ? static_cast<const nvfuser::serde::Pad *>(data()) : nullptr;
   }
-  const nvfuser::serde::Permute *data_as_Permute() const {
-    return data_type() == nvfuser::serde::RecordData_Permute ? static_cast<const nvfuser::serde::Permute *>(data()) : nullptr;
-  }
-  const nvfuser::serde::SetStrideOrder *data_as_SetStrideOrder() const {
-    return data_type() == nvfuser::serde::RecordData_SetStrideOrder ? static_cast<const nvfuser::serde::SetStrideOrder *>(data()) : nullptr;
+  const nvfuser::serde::Dims *data_as_Dims() const {
+    return data_type() == nvfuser::serde::RecordData_Dims ? static_cast<const nvfuser::serde::Dims *>(data()) : nullptr;
   }
   const nvfuser::serde::Slice *data_as_Slice() const {
     return data_type() == nvfuser::serde::RecordData_Slice ? static_cast<const nvfuser::serde::Slice *>(data()) : nullptr;
@@ -4233,12 +4145,8 @@ template<> inline const nvfuser::serde::Pad *RecordFunctor::data_as<nvfuser::ser
   return data_as_Pad();
 }
 
-template<> inline const nvfuser::serde::Permute *RecordFunctor::data_as<nvfuser::serde::Permute>() const {
-  return data_as_Permute();
-}
-
-template<> inline const nvfuser::serde::SetStrideOrder *RecordFunctor::data_as<nvfuser::serde::SetStrideOrder>() const {
-  return data_as_SetStrideOrder();
+template<> inline const nvfuser::serde::Dims *RecordFunctor::data_as<nvfuser::serde::Dims>() const {
+  return data_as_Dims();
 }
 
 template<> inline const nvfuser::serde::Slice *RecordFunctor::data_as<nvfuser::serde::Slice>() const {
@@ -5226,56 +5134,30 @@ inline ::flatbuffers::Offset<Pad> CreatePad(::flatbuffers::FlatBufferBuilder &_f
       _pad_widths);
 }
 
-inline PermuteT *Permute::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
-  auto _o = std::unique_ptr<PermuteT>(new PermuteT());
+inline DimsT *Dims::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<DimsT>(new DimsT());
   UnPackTo(_o.get(), _resolver);
   return _o.release();
 }
 
-inline void Permute::UnPackTo(PermuteT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+inline void Dims::UnPackTo(DimsT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
   (void)_o;
   (void)_resolver;
   { auto _e = dims(); if (_e) { _o->dims.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->dims[_i] = _e->Get(_i); } } else { _o->dims.resize(0); } }
 }
 
-inline ::flatbuffers::Offset<Permute> Permute::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const PermuteT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
-  return CreatePermute(_fbb, _o, _rehasher);
+inline ::flatbuffers::Offset<Dims> Dims::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const DimsT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateDims(_fbb, _o, _rehasher);
 }
 
-inline ::flatbuffers::Offset<Permute> CreatePermute(::flatbuffers::FlatBufferBuilder &_fbb, const PermuteT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+inline ::flatbuffers::Offset<Dims> CreateDims(::flatbuffers::FlatBufferBuilder &_fbb, const DimsT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
   (void)_rehasher;
   (void)_o;
-  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const PermuteT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const DimsT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
   auto _dims = _o->dims.size() ? _fbb.CreateVector(_o->dims) : 0;
-  return nvfuser::serde::CreatePermute(
+  return nvfuser::serde::CreateDims(
       _fbb,
       _dims);
-}
-
-inline SetStrideOrderT *SetStrideOrder::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
-  auto _o = std::unique_ptr<SetStrideOrderT>(new SetStrideOrderT());
-  UnPackTo(_o.get(), _resolver);
-  return _o.release();
-}
-
-inline void SetStrideOrder::UnPackTo(SetStrideOrderT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
-  (void)_o;
-  (void)_resolver;
-  { auto _e = stride_order(); if (_e) { _o->stride_order.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->stride_order[_i] = _e->Get(_i); } } else { _o->stride_order.resize(0); } }
-}
-
-inline ::flatbuffers::Offset<SetStrideOrder> SetStrideOrder::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const SetStrideOrderT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
-  return CreateSetStrideOrder(_fbb, _o, _rehasher);
-}
-
-inline ::flatbuffers::Offset<SetStrideOrder> CreateSetStrideOrder(::flatbuffers::FlatBufferBuilder &_fbb, const SetStrideOrderT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
-  (void)_rehasher;
-  (void)_o;
-  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const SetStrideOrderT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
-  auto _stride_order = _o->stride_order.size() ? _fbb.CreateVector(_o->stride_order) : 0;
-  return nvfuser::serde::CreateSetStrideOrder(
-      _fbb,
-      _stride_order);
 }
 
 inline ReductionT *Reduction::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
@@ -5991,12 +5873,8 @@ inline bool VerifyRecordData(::flatbuffers::Verifier &verifier, const void *obj,
       auto ptr = reinterpret_cast<const nvfuser::serde::Pad *>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case RecordData_Permute: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::Permute *>(obj);
-      return verifier.VerifyTable(ptr);
-    }
-    case RecordData_SetStrideOrder: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::SetStrideOrder *>(obj);
+    case RecordData_Dims: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Dims *>(obj);
       return verifier.VerifyTable(ptr);
     }
     case RecordData_Slice: {
@@ -6094,12 +5972,8 @@ inline void *RecordDataUnion::UnPack(const void *obj, RecordData type, const ::f
       auto ptr = reinterpret_cast<const nvfuser::serde::Pad *>(obj);
       return ptr->UnPack(resolver);
     }
-    case RecordData_Permute: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::Permute *>(obj);
-      return ptr->UnPack(resolver);
-    }
-    case RecordData_SetStrideOrder: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::SetStrideOrder *>(obj);
+    case RecordData_Dims: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Dims *>(obj);
       return ptr->UnPack(resolver);
     }
     case RecordData_Slice: {
@@ -6185,13 +6059,9 @@ inline ::flatbuffers::Offset<void> RecordDataUnion::Pack(::flatbuffers::FlatBuff
       auto ptr = reinterpret_cast<const nvfuser::serde::PadT *>(value);
       return CreatePad(_fbb, ptr, _rehasher).Union();
     }
-    case RecordData_Permute: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::PermuteT *>(value);
-      return CreatePermute(_fbb, ptr, _rehasher).Union();
-    }
-    case RecordData_SetStrideOrder: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::SetStrideOrderT *>(value);
-      return CreateSetStrideOrder(_fbb, ptr, _rehasher).Union();
+    case RecordData_Dims: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::DimsT *>(value);
+      return CreateDims(_fbb, ptr, _rehasher).Union();
     }
     case RecordData_Slice: {
       auto ptr = reinterpret_cast<const nvfuser::serde::SliceT *>(value);
@@ -6275,12 +6145,8 @@ inline RecordDataUnion::RecordDataUnion(const RecordDataUnion &u) : type(u.type)
       value = new nvfuser::serde::PadT(*reinterpret_cast<nvfuser::serde::PadT *>(u.value));
       break;
     }
-    case RecordData_Permute: {
-      value = new nvfuser::serde::PermuteT(*reinterpret_cast<nvfuser::serde::PermuteT *>(u.value));
-      break;
-    }
-    case RecordData_SetStrideOrder: {
-      value = new nvfuser::serde::SetStrideOrderT(*reinterpret_cast<nvfuser::serde::SetStrideOrderT *>(u.value));
+    case RecordData_Dims: {
+      value = new nvfuser::serde::DimsT(*reinterpret_cast<nvfuser::serde::DimsT *>(u.value));
       break;
     }
     case RecordData_Slice: {
@@ -6375,13 +6241,8 @@ inline void RecordDataUnion::Reset() {
       delete ptr;
       break;
     }
-    case RecordData_Permute: {
-      auto ptr = reinterpret_cast<nvfuser::serde::PermuteT *>(value);
-      delete ptr;
-      break;
-    }
-    case RecordData_SetStrideOrder: {
-      auto ptr = reinterpret_cast<nvfuser::serde::SetStrideOrderT *>(value);
+    case RecordData_Dims: {
+      auto ptr = reinterpret_cast<nvfuser::serde::DimsT *>(value);
       delete ptr;
       break;
     }
