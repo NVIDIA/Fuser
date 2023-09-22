@@ -584,10 +584,10 @@ struct DimsOpRecord : RecordFunctor {
     } else if constexpr (op_type == serde::RecordType_StrideOrderOp) {
       auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
       auto output = set(arg);
-      int rank = static_cast<int>(stride_order_.size());
+      int rank = static_cast<int>(dims_.size());
       std::vector<IterDomain*> allocation_domain(rank);
       for (int i : c10::irange(rank)) {
-        allocation_domain[rank - 1 - static_cast<int>(stride_order_[i])] =
+        allocation_domain[rank - 1 - static_cast<int>(dims_[i])] =
             output->axis(i);
       }
       output->setAllocationDomain(allocation_domain, true);
