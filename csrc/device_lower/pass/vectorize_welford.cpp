@@ -388,7 +388,7 @@ class WelfordVectorizer : public kir::ExprMutator {
 
   // Declare a scalar variable of type dt and insert its allocation
   Val* defineScalar(DataType dt) {
-    Val* val = IrBuilder::newScalar(dt);
+    Val* val = IrBuilder::create<Val>(dt);
 
     auto alloc = IrBuilder::create<kir::Allocate>(
         val, MemoryType::Local, GpuLower::current()->kernel()->oneVal());

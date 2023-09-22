@@ -6266,7 +6266,7 @@ TEST_F(NVFuserTest, FusionIssue2372_CUDA) {
   fusion.addInput(tmean);
   auto tvar = makeContigTensor(1, DataType::Float);
   fusion.addInput(tvar);
-  auto seps = IrBuilder::newScalar(DataType::Double);
+  auto seps = IrBuilder::create<Val>(DataType::Double);
   fusion.addInput(seps);
 
   auto tmean_bcast = broadcast(tmean, {true, true, true, true, false});
@@ -9585,7 +9585,7 @@ TEST_F(NVFuserTest, OpaqueTupleAsComplex) {
   auto complex = bitCastOp(DataType::ComplexFloat, tuple);
 
   auto tv = full(
-      {IrBuilder::newConstant(1L, DataType::Index)},
+      {IrBuilder::create<Val>(1L, DataType::Index)},
       complex,
       DataType::ComplexFloat);
 
@@ -9615,7 +9615,7 @@ TEST_F(NVFuserTest, StructConstruct) {
   auto complex = bitCastOp(DataType::ComplexFloat, struct_);
 
   auto tv = full(
-      {IrBuilder::newConstant(1L, DataType::Index)},
+      {IrBuilder::create<Val>(1L, DataType::Index)},
       complex,
       DataType::ComplexFloat);
 
