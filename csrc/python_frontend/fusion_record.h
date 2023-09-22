@@ -538,11 +538,7 @@ struct DimsOpRecord : RecordFunctor {
       std::vector<State> _outputs,
       std::vector<int64_t> dims,
       std::string name)
-      : RecordFunctor(
-            std::move(_args),
-            std::move(_outputs),
-            name,
-            op_type),
+      : RecordFunctor(std::move(_args), std::move(_outputs), name, op_type),
         dims_(std::move(dims)) {}
   ~DimsOpRecord() override = default;
   RecordFunctor* clone() final {
@@ -579,11 +575,13 @@ struct DimsOpRecord : RecordFunctor {
 
   void operator()(FusionState& fd) final {
     if constexpr (op_type == serde::RecordType_PermuteOp) {
-      auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+      auto arg =
+          fd.getFusionState(args_.at(0).index)->template as<TensorView>();
       auto output = permute(arg, dims_);
       fd.setFusionState(outputs_.at(0).index, output);
     } else if constexpr (op_type == serde::RecordType_StrideOrderOp) {
-      auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+      auto arg =
+          fd.getFusionState(args_.at(0).index)->template as<TensorView>();
       auto output = set(arg);
       int rank = static_cast<int>(dims_.size());
       std::vector<IterDomain*> allocation_domain(rank);
@@ -597,7 +595,6 @@ struct DimsOpRecord : RecordFunctor {
       NVF_ERROR(false, "op_type is not recognized by dims operator.");
     }
   }
-
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);

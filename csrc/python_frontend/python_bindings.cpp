@@ -783,7 +783,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(arg())},
             {fd->recordingState(output())},
             std::move(stride_order),
-	    "ops.set"));
+            "ops.set"));
         return output;
       },
       py::arg("arg"),
@@ -2108,11 +2108,12 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
-        self.fusion_definition->defineRecord(new DimsOpRecord<serde::RecordType_PermuteOp>(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            std::move(dims),
-	    "ops.permute"));
+        self.fusion_definition->defineRecord(
+            new DimsOpRecord<serde::RecordType_PermuteOp>(
+                {fd->recordingState(arg())},
+                {fd->recordingState(output())},
+                std::move(dims),
+                "ops.permute"));
         return output;
       },
       py::arg("arg"),
