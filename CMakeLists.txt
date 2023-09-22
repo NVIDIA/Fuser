@@ -248,6 +248,9 @@ set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
 if(PROJECT_IS_TOP_LEVEL)
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
 
+  # NOTE: our CI build somehow fails with find driver lib.
+  target_link_libraries(${NVFUSER_CODEGEN} PUBLIC CUDA::cuda_driver)
+
   # this is to find pip installed nvrtc/nvtx .so
   set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH
     "$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib")
