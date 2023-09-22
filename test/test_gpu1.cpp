@@ -7186,7 +7186,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerSoftmax_CUDA) {
     auto reduction_params = getInnerPersistentHeuristics(&fusion, {aten_input});
     NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
 
-    schedulePersistentKernel(&fusion, *reduction_params);
+    scheduleInnerPersistentKernel(&fusion, *reduction_params);
 
     auto lparams = reduction_params->lparams;
 
@@ -7254,7 +7254,7 @@ TEST_F(NVFuserTest, FusionTestMaskSoftmax_CUDA) {
       getInnerPersistentHeuristics(&fusion, {aten_input, aten_mask});
   NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
 
-  schedulePersistentKernel(&fusion, *reduction_params);
+  scheduleInnerPersistentKernel(&fusion, *reduction_params);
 
   auto lparams = reduction_params->lparams;
 

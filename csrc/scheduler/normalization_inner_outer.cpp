@@ -42,7 +42,7 @@ InnerOuterPersistentKernelScheduler::InnerOuterPersistentKernelScheduler(
 
 void InnerOuterPersistentKernelScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("Schedule Persistent Fusion");
-  schedulePersistentKernel(fusion, reductionParams());
+  scheduleInnerOuterPersistentKernel(fusion, reductionParams());
 }
 
 bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(

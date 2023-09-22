@@ -133,9 +133,9 @@ static void Softmax_WarpReduce(benchmark::State& benchmark_state) {
   // Schedule through magic scheduler:
   SchedulerRuntimeInfo runtime_info(fusion, aten_inputs);
   NVF_ERROR(SchedulerEntry::canSchedule(
-      ScheduleHeuristic::Persistent, fusion, runtime_info));
+      ScheduleHeuristic::InnerPersistent, fusion, runtime_info));
   auto scheduler = SchedulerEntry::makeEntry(
-      ScheduleHeuristic::Persistent, fusion, runtime_info);
+      ScheduleHeuristic::InnerPersistent, fusion, runtime_info);
   scheduler->schedule(fusion);
 
   // Modify the schedule to use warp reduction
