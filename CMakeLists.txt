@@ -371,6 +371,9 @@ if(BUILD_PYTHON)
   target_link_libraries(${NVFUSER} PRIVATE ${LIBNVTOOLSEXT})
   target_link_libraries(${NVFUSER} PRIVATE ${NVFUSER_CODEGEN})
 
+  # NOTE: our CI build somehow fails with find driver lib.
+  target_link_libraries(${NVFUSER} PUBLIC CUDA::cuda_driver)
+
   target_compile_definitions(${NVFUSER} PRIVATE EXTENSION_NAME=_C)
 
   if(PROJECT_IS_TOP_LEVEL)
@@ -481,6 +484,9 @@ if(BUILD_TEST)
   target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} dynamic_type gtest_main gmock_main flatbuffers)
   target_include_directories(${NVFUSER_TESTS} PRIVATE "${NVFUSER_ROOT}")
 
+  # NOTE: our CI build somehow fails with find driver lib.
+  target_link_libraries(${NVFUSER_TESTS} PUBLIC CUDA::cuda_driver)
+
   if(PROJECT_IS_TOP_LEVEL)
     target_compile_options(${NVFUSER_TESTS} PRIVATE -Wall -Wno-unused-function)
     target_link_libraries(${NVFUSER_TESTS} PRIVATE ${TORCH_LIBRARIES})
@@ -551,6 +557,9 @@ if(BUILD_NVFUSER_BENCHMARK)
     target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE torch_library benchmark)
     install(TARGETS ${NVFUSER_BENCHMARK} DESTINATION bin)
   endif()
+
+  # NOTE: our CI build somehow fails with find driver lib.
+  target_link_libraries(${NVFUSER_BENCHMARK} PUBLIC CUDA::cuda_driver)
 
   if(NOT MSVC)
     target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Werror -Wno-deprecated-copy)
