@@ -543,7 +543,7 @@ class TORCH_CUDA_CU_API ComputeAtRootDomainMapBuilder
 //! domains with non-broadcast domains.
 class TORCH_CUDA_CU_API ExactRootDomainMap : public RootDomainMap {
  public:
-  ExactRootDomainMap(Fusion* fusion, bool map_symbolic = false);
+  ExactRootDomainMap(Fusion* fusion);
 
   bool areMapped(const IterDomain* id_a, const IterDomain* id_b) const;
 

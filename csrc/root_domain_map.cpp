@@ -1256,9 +1256,8 @@ class ExactRootDomainMapBuilder : private IterVisitor {
  public:
   ExactRootDomainMapBuilder(
       Fusion* fusion,
-      DisjointSets<const IterDomain*>& eq_sets,
-      bool map_symbolic)
-      : eq_sets_(eq_sets), map_symbolic_(map_symbolic) {
+      DisjointSets<const IterDomain*>& eq_sets)
+      : eq_sets_(eq_sets) {
     traverseTo(fusion, fusion->outputs());
   }
 
@@ -1271,7 +1270,6 @@ class ExactRootDomainMapBuilder : private IterVisitor {
            ir_utils::filterByType<TensorView>(expr->outputs())) {
         PairwiseRootDomainMap pwise_map(producer, consumer);
         pwise_map.mapBroadcast(false);
-        pwise_map.mapSymbolic(map_symbolic_);
         const auto mappings = pwise_map.mapProducerToConsumer(
             producer->domain(), consumer->domain());
         for (const auto& mapping : mappings) {
@@ -1283,13 +1281,12 @@ class ExactRootDomainMapBuilder : private IterVisitor {
 
  private:
   DisjointSets<const IterDomain*>& eq_sets_;
-  bool map_symbolic_ = false;
 };
 
 } // namespace
 
-ExactRootDomainMap::ExactRootDomainMap(Fusion* fusion, bool map_symbolic) {
-  ExactRootDomainMapBuilder builder(fusion, eq_sets_, map_symbolic);
+ExactRootDomainMap::ExactRootDomainMap(Fusion* fusion) {
+  ExactRootDomainMapBuilder builder(fusion, eq_sets_);
 }
 
 bool ExactRootDomainMap::areMapped(
