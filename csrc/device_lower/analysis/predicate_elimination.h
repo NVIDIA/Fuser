@@ -16,7 +16,7 @@
 
 namespace nvfuser {
 
-class TORCH_CUDA_CU_API PredicateElimination : public IterVisitor {
+class PredicateElimination : public IterVisitor {
  public:
   PredicateElimination(Fusion* fusion);
 

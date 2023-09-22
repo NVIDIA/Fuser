@@ -153,21 +153,19 @@ namespace nvfuser {
 class SchedulerRuntimeInfo;
 class HeuristicSummary;
 
-TORCH_CUDA_CU_API std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
+std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache = nullptr);
 
-TORCH_CUDA_CU_API std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
+std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-TORCH_CUDA_CU_API void schedulePointwise(
-    Fusion* fusion,
-    const PointwiseParams& params);
+void schedulePointwise(Fusion* fusion, const PointwiseParams& params);
 
-TORCH_CUDA_CU_API LaunchParams schedulePointwise(
+LaunchParams schedulePointwise(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs);
 

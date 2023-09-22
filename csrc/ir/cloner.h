@@ -27,7 +27,7 @@ class IrContainer;
 //!   Fusion copy operations and the and limited scope of RecomputeTv below.
 //!   It is not intended for any other uses.
 //!
-class TORCH_CUDA_CU_API IrCloner {
+class IrCloner {
   friend class Statement;
   friend class IrBuilder;
 
@@ -117,7 +117,7 @@ class TORCH_CUDA_CU_API IrCloner {
 // Replicates all expressions used to generate the provided TensorView. Does not
 // replicate inputs. Does not replicate scalar values. In other words the value
 // provided will be recomputed from the inputs of the fusion.
-class TORCH_CUDA_CU_API RecomputeTv : private IrCloner {
+class RecomputeTv : private IrCloner {
  public:
   // Replicates expressions and values in provided expressions.
   static TensorView* recompute(

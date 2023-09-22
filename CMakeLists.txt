@@ -141,6 +141,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/lower2device.cpp
   ${NVFUSER_SRCS_DIR}/manager.cpp
   ${NVFUSER_SRCS_DIR}/maxinfo_propagator.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/communication.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communicator.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/executor.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/runtime.cpp
@@ -172,7 +173,9 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/normalization.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_outer.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/no_op.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction.cpp
@@ -188,6 +191,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/tensor_metadata.cpp
   ${NVFUSER_SRCS_DIR}/tensor_view.cpp
+  ${NVFUSER_SRCS_DIR}/tma.cpp
   ${NVFUSER_SRCS_DIR}/transform_iter.cpp
   ${NVFUSER_SRCS_DIR}/transform_replay.cpp
   ${NVFUSER_SRCS_DIR}/transform_rfactor.cpp
@@ -438,12 +442,14 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_polymorphic_value.cpp
     ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
+    ${NVFUSER_ROOT}/test/test_memory.cpp
     ${NVFUSER_ROOT}/test/test_gpu_view.cpp
     ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
     ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
     ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
     ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_multidevice.cpp
+    ${NVFUSER_ROOT}/test/test_multidevice.cpp
+    ${NVFUSER_ROOT}/test/test_multidevice_communications.cpp
     ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
     ${NVFUSER_ROOT}/test/test_optimization_pass.cpp
     ${NVFUSER_ROOT}/test/test_pipeline.cpp

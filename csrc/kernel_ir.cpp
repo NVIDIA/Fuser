@@ -92,7 +92,8 @@ TensorIndex::TensorIndex(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   NVF_ERROR(
-      isPointerType(index->dtype()) || index->dtype() == DataType::Index,
+      isPointerType(index->dtype()) || index->dtype() == DataType::Index ||
+          isStructType(index->dtype()),
       "Cannot index with a value other than an int.");
 }
 
@@ -589,7 +590,8 @@ Val* ForLoop::simplifiedStop() const {
 bool ForLoop::isTrivial() const {
   // These loops are not materialized
   if (vectorize() || iter_domain()->isBroadcast() ||
-      iter_domain()->isStride() || iter_domain()->isMma()) {
+      iter_domain()->isStride() || iter_domain()->isMma() ||
+      iter_domain()->isBulk()) {
     return true;
   }
 
@@ -1234,6 +1236,91 @@ std::string GetRNGSeedAndOffsetFromHost::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetRNGSeedAndOffsetFromHost)
+
+EncodeTensorMapTiled::EncodeTensorMapTiled(
+    IrBuilderPasskey passkey,
+    Val* output,
+    DataType data_type,
+    Val* global_address,
+    Val* global_dim,
+    Val* global_strides,
+    Val* box_dim,
+    Val* element_strides,
+    tma::TensorMapInterleave interleave,
+    tma::TensorMapSwizzle swizzle,
+    tma::TensorMapL2Promotion l2_promotion,
+    tma::TensorMapFloatOOBFill oob_fill)
+    : Expr(passkey) {
+  auto out_dtype = output->dtype();
+  NVF_CHECK(std::holds_alternative<OpaqueType>(out_dtype.type));
+  addOutput(output);
+
+  NVF_CHECK(
+      global_address->dtype() ==
+      PointerType{std::make_shared<DataType>(data_type)});
+  addInput(global_address);
+
+  NVF_CHECK(std::holds_alternative<ArrayType>(global_dim->dtype().type));
+  size_t tensor_rank = std::get<ArrayType>(global_dim->dtype().type).size;
+  ArrayType expect_global_dim_type{
+      std::make_shared<DataType>(DataType::Index), tensor_rank};
+  NVF_CHECK(global_dim->dtype() == expect_global_dim_type);
+  addInput(global_dim);
+
+  ArrayType expect_global_strides_type{
+      std::make_shared<DataType>(DataType::Index), tensor_rank - 1};
+  NVF_CHECK(global_strides->dtype() == expect_global_strides_type);
+  addInput(global_strides);
+
+  ArrayType expect_box_dim_type{
+      std::make_shared<DataType>(DataType::Index), tensor_rank};
+  NVF_CHECK(box_dim->dtype() == expect_box_dim_type);
+  addInput(box_dim);
+
+  ArrayType expect_element_strides_type{
+      std::make_shared<DataType>(DataType::Index), tensor_rank};
+  NVF_CHECK(element_strides->dtype() == expect_element_strides_type);
+  addInput(element_strides);
+
+  addDataAttribute(data_type);
+  addDataAttribute((int64_t)tensor_rank);
+  addDataAttribute(interleave);
+  addDataAttribute(swizzle);
+  addDataAttribute(l2_promotion);
+  addDataAttribute(oob_fill);
+}
+
+std::string EncodeTensorMapTiled::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << output(0)->toString() << " = " << getOpString()
+                          << "(dtype=" << dataType()
+                          << ", global_address=" << globalAddress()->toString()
+                          << ", global_dim=" << globalDim()->toString()
+                          << ", global_strides=" << globalStrides()
+                          << ", box_dim=" << boxDim()->toString()
+                          << ", element_strides="
+                          << elementStrides()->toString()
+                          << ", interleave=" << interleave()
+                          << ", swizzle=" << swizzle()
+                          << ", l2_promotion=" << l2Promotion()
+                          << ", oob_fill=" << oobFill() << ")\n";
+  return ss.str();
+}
+
+std::string EncodeTensorMapTiled::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << getOpString() << "(dtype=" << dataType()
+     << ", global_address=" << globalAddress()->toInlineString()
+     << ", global_dim=" << globalDim()->toInlineString()
+     << ", global_strides=" << globalStrides()->toInlineString()
+     << ", box_dim=" << boxDim()->toInlineString()
+     << ", element_strides=" << elementStrides()->toInlineString()
+     << ", interleave=" << interleave() << ", swizzle=" << swizzle()
+     << ", l2_promotion=" << l2Promotion() << ", oob_fill=" << oobFill() << ")";
+  return ss.str();
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(EncodeTensorMapTiled)
 
 } // namespace kir
 } // namespace nvfuser

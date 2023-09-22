@@ -22,15 +22,15 @@
 
 namespace nvfuser {
 
-TORCH_CUDA_CU_API bool shouldFillAllocationWithNan();
-TORCH_CUDA_CU_API void setFillAllocationWithNan(bool value);
+bool shouldFillAllocationWithNan();
+void setFillAllocationWithNan(bool value);
 
 // TODO: Should this actually be in launch params?
-struct TORCH_CUDA_CU_API CompileOptions {
+struct CompileOptions {
   c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
 };
 
-class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
+class FusionExecutor : public NonCopyable {
  public:
   struct GlobalBufferInfo {
     TensorView* tv = nullptr;
@@ -175,7 +175,24 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   //! Returns the number of bytes processed last kernel execution
   int64_t bytesProcessed() const {
-    return bytes_processed_;
+    int64_t bytes_processed = 0;
+    for (auto bp : bytes_processed_per_input_) {
+      bytes_processed += bp;
+    }
+    for (auto bp : bytes_processed_per_output_) {
+      bytes_processed += bp;
+    }
+    return bytes_processed;
+  }
+
+  //! Get a vector of bytes processed across all kernel inputs
+  const std::vector<int64_t>& bytesInputsProcessed() const {
+    return bytes_processed_per_input_;
+  }
+
+  //! Get a vector of bytes processed across all kernel outputs
+  const std::vector<int64_t>& bytesOutputsProcessed() const {
+    return bytes_processed_per_output_;
   }
 
   //! Returns the launch parameters from the last kernel execution
@@ -419,8 +436,11 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   // is true
   float kernel_time_ms_ = 0;
 
-  // Profiling support: the last kernel Bytes processed
-  int64_t bytes_processed_ = 0;
+  // Profiling support: last kernel bytes processed in each input
+  std::vector<int64_t> bytes_processed_per_input_;
+
+  // Profiling support: last kernel bytes processed in each output
+  std::vector<int64_t> bytes_processed_per_output_;
 
   // Profiling support: the last launch param used
   LaunchParams launch_params_;

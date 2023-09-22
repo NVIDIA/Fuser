@@ -40,7 +40,7 @@ namespace nvfuser {
 //! are redundant for each tensor and is used to let only one
 //! thread/block of a redundant type execute the expression for a
 //! tensor.
-class TORCH_CUDA_CU_API ThreadPredicateMap {
+class ThreadPredicateMap {
  public:
   using SourceMap =
       std::unordered_map<ParallelType, std::unordered_set<const TensorView*>>;

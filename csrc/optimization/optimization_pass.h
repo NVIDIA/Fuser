@@ -29,14 +29,14 @@ using FusionPass = std::function<void(Fusion*)>;
 //!
 //! Specific optimization pass needs to be created like:
 //!
-//!   class TORCH_CUDA_CU_API Pass0 : public OptimizationPass<Pass0> {
+//!   class Pass0 : public OptimizationPass<Pass0> {
 //!     friend class OptimizationPass<Pass0>;
 //!
 //!    protected:
 //!     static void runPass(Fusion* fusion);
 //!   };
 template <typename DerivedClass>
-class TORCH_CUDA_CU_API OptimizationPass {
+class OptimizationPass {
  public:
   static void setEnabled(bool enabled) {
     flag_.store(enabled);
@@ -68,7 +68,7 @@ class TORCH_CUDA_CU_API OptimizationPass {
 //! OptimizationPassGuard is used to temporarily switch enable/disable on a
 //! certain pass. Original status will be restored at destruction.
 template <typename OptPass>
-class TORCH_CUDA_CU_API OptimizationPassGuard {
+class OptimizationPassGuard {
  public:
   OptimizationPassGuard(bool enabled) : prev_status_(OptPass::getEnabled()) {
     if (prev_status_ != enabled) {
