@@ -1276,26 +1276,31 @@ CompiledKernel getCompiledKernel(
 
   // Deserialize flatbuffer into CompiledKernel
   CompiledKernel compiled_kernel;
-  if (buffer->ptx() != nullptr) {
-    compiled_kernel.ptx.reserve(buffer->ptx()->size());
-    std::copy(
-        buffer->ptx()->begin(),
-        buffer->ptx()->end(),
-        (uint8_t*)compiled_kernel.ptx.data());
-    compiled_kernel.ptx_filename = buffer->ptx_filename()->str();
-  }
+  compiled_kernel.kernel_name = buffer->kernel_name()->str();
+  compiled_kernel.compile_args = buffer->compile_args()->str();
+  compiled_kernel.block_size = buffer->block_size();
 
   if (buffer->cubin() != nullptr) {
     compiled_kernel.cubin.reserve(buffer->cubin()->size());
     std::copy(
         buffer->cubin()->begin(),
         buffer->cubin()->end(),
-        (uint8_t*)compiled_kernel.cubin.data());
+        std::back_inserter(compiled_kernel.cubin));
     compiled_kernel.cubin_filename = buffer->cubin_filename()->str();
   }
-  compiled_kernel.kernel_name = buffer->kernel_name()->str();
-  compiled_kernel.compile_args = buffer->compile_args()->str();
-  compiled_kernel.block_size = buffer->block_size();
+
+  if (buffer->ptx() != nullptr) {
+    compiled_kernel.ptx.reserve(buffer->ptx()->size());
+    std::copy(
+        buffer->ptx()->begin(),
+        buffer->ptx()->end(),
+        std::back_inserter(compiled_kernel.ptx));
+    compiled_kernel.ptx_filename = buffer->ptx_filename()->str();
+  }
+
+  NVF_ERROR(
+      !compiled_kernel.cubin.empty() || !compiled_kernel.ptx.empty(),
+      "Expected compiled cuda kernel after deserializing CompiledKernel.");
 
   at::cuda::jit::initializeCudaContext();
 

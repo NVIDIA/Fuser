@@ -1999,31 +1999,30 @@ flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
   auto fb_compile_args = builder.CreateString(compiled_kernel.compile_args);
 
   flatbuffers::Offset<flatbuffers::Vector<uint8_t>> fb_cubin = 0;
-  flatbuffers::Offset<flatbuffers::Vector<uint8_t>> fb_ptx = 0;
   flatbuffers::Offset<flatbuffers::String> fb_cubin_filename = 0;
-  flatbuffers::Offset<flatbuffers::String> fb_ptx_filename = 0;
-
   if (!compiled_kernel.cubin.empty()) {
-    uint8_t* dst_ptr = nullptr;
+    uint8_t* cubin_ptr = nullptr;
     fb_cubin = builder.CreateUninitializedVector(
-        compiled_kernel.cubin.size(), &dst_ptr);
+        compiled_kernel.cubin.size(), &cubin_ptr);
     std::copy(
-        compiled_kernel.cubin.begin(), compiled_kernel.cubin.end(), dst_ptr);
+        compiled_kernel.cubin.begin(), compiled_kernel.cubin.end(), cubin_ptr);
     fb_cubin_filename = builder.CreateString(compiled_kernel.cubin_filename);
   }
 
+  flatbuffers::Offset<flatbuffers::Vector<uint8_t>> fb_ptx = 0;
+  flatbuffers::Offset<flatbuffers::String> fb_ptx_filename = 0;
   if (!compiled_kernel.ptx.empty()) {
-    uint8_t* dst_ptr = nullptr;
+    uint8_t* ptx_ptr = nullptr;
     fb_ptx =
-        builder.CreateUninitializedVector(compiled_kernel.ptx.size(), &dst_ptr);
-    std::copy(compiled_kernel_.ptx.begin(), compiled_kernel.ptx.end(), dst_ptr);
+        builder.CreateUninitializedVector(compiled_kernel.ptx.size(), &ptx_ptr);
+    std::copy(compiled_kernel_.ptx.begin(), compiled_kernel.ptx.end(), ptx_ptr);
     fb_ptx_filename = builder.CreateString(compiled_kernel.ptx_filename);
   }
 
   serde::CudaKernelBuilder ckb(builder);
   ckb.add_cubin(fb_cubin);
   ckb.add_cubin_filename(fb_cubin_filename);
-  ckb.add_cubin(fb_ptx);
+  ckb.add_ptx(fb_ptx);
   ckb.add_ptx_filename(fb_ptx_filename);
   ckb.add_kernel_name(fb_kernel_name);
   ckb.add_compile_args(fb_compile_args);
@@ -2151,9 +2150,6 @@ void FusionExecutor::deserialize(
 
   compiled_kernel_ = executor_utils::getCompiledKernel(
       buffer->compiled_kernel(), compile_params);
-  NVF_ERROR(
-      !compiled_kernel_.cubin.empty() || !compiled_kernel_.ptx.empty(),
-      "Expected compiled cuda kernel after deserializing FusionExecutor.");
 
   NVF_ERROR(isCompiled(), "Failed to deserialize FusionExecutor");
 }

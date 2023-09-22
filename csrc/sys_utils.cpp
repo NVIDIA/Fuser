@@ -16,7 +16,6 @@
 #include <string>
 #include <vector>
 
-#include <executor_utils.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <cstdio>
