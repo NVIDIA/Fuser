@@ -288,7 +288,7 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
   // is persistent
   auto isPersistentHeuristic = [&heuristic]() {
     return heuristic == ScheduleHeuristic::InnerPersistent ||
-        heuristic == ScheduleHeuristic::Persistent ||
+        heuristic == ScheduleHeuristic::OuterPersistent ||
         heuristic == ScheduleHeuristic::InnerOuterPersistent;
   };
   SegmentCandidateFinderOptions scfo;

@@ -8466,7 +8466,7 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
     auto persistent_params =
         getInnerPersistentHeuristics(&fusion, {aten_input});
     NVF_CHECK(persistent_params, "Persistent schedule was not generated!");
-    schedulePersistentKernel(&fusion, *persistent_params);
+    scheduleInnerPersistentKernel(&fusion, *persistent_params);
 
     // compile and run persistent kernel
     // intentionally set maxrregcount to 32 to trigger register spill
@@ -8869,7 +8869,7 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
   // generate persistent kernel
   auto persistent_params = getInnerPersistentHeuristics(&fusion, {aten_input});
   ASSERT_TRUE(persistent_params) << "Persistent schedule was not generated!";
-  schedulePersistentKernel(&fusion, *persistent_params);
+  scheduleInnerPersistentKernel(&fusion, *persistent_params);
 
   // capture stdout and check stdout contains register spill warning
   testing::internal::CaptureStdout();
