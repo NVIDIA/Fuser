@@ -25,8 +25,6 @@ std::string toString(ScheduleHeuristic sh) {
       return "outer_persistent";
     case ScheduleHeuristic::InnerOuterPersistent:
       return "inner_outer_persistent";
-    case ScheduleHeuristic::Persistent:
-      return "persistent";
     case ScheduleHeuristic::Transpose:
       return "transpose";
     case ScheduleHeuristic::Matmul:
