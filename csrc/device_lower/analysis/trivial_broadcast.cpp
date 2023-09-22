@@ -57,11 +57,12 @@ void ConcretizedBroadcastDomains::handle(TensorView* tv) {
     return;
   }
   for (auto id : tv->getMaybeRFactorDomain()) {
-    // broadcast rfactor domains with definitions are not root domains. We
-    // register these as new broadcast origins.
-    if (id->isBroadcast() && id->definition() != nullptr) {
-      broadcast_origin_map_.emplace(
-          id, std::unordered_set<IterDomain*>({id}));
+    // Register broadcast rfactor domains that are not root domains as new
+    // broadcast origins.
+    if (id->isBroadcast() &&
+        std::find(tv->getRootDomain().begin(), tv->getRootDomain().end(), id) ==
+            tv->getRootDomain().end()) {
+      broadcast_origin_map_.emplace(id, std::unordered_set<IterDomain*>({id}));
     }
   }
 }
