@@ -782,7 +782,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         fd->defineRecord(new DimsOpRecord<serde::RecordType_StrideOrderOp>(
             {fd->recordingState(arg())},
             {fd->recordingState(output())},
-            std::move(stride_order)));
+            std::move(stride_order),
+	    "ops.set"));
         return output;
       },
       py::arg("arg"),
@@ -2110,7 +2111,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         self.fusion_definition->defineRecord(new DimsOpRecord<serde::RecordType_PermuteOp>(
             {fd->recordingState(arg())},
             {fd->recordingState(output())},
-            std::move(dims)));
+            std::move(dims),
+	    "ops.permute"));
         return output;
       },
       py::arg("arg"),

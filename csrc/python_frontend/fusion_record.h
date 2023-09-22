@@ -536,11 +536,12 @@ struct DimsOpRecord : RecordFunctor {
   DimsOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      std::vector<int64_t> dims)
+      std::vector<int64_t> dims,
+      std::string name)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
-            "ops.permute",
+            name,
             op_type),
         dims_(std::move(dims)) {}
   ~DimsOpRecord() override = default;
