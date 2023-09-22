@@ -105,6 +105,10 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
       for (const auto& kv : p2c_map) {
         auto p_id = kv.first;
         auto c_id = kv.second;
+        // If the consumer ID is a reduction (i.e., a trivial
+        // reduction), do not consider it's concretized.
+        const bool is_concretized =
+            !c_id->isBroadcast() && !c_id->isReduction();
         auto it = broadcast_origin_map_.find(p_id);
         NVF_ERROR(
             it != broadcast_origin_map_.end(),
@@ -113,9 +117,7 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
             " of ",
             producer->toString());
         const auto& producer_origins = it->second;
-        // If the consumer ID is a reduction (i.e., a trivial
-        // reduction), do not consider it's concretized.
-        if (!c_id->isBroadcast() && !c_id->isReduction()) {
+        if (is_concretized) {
           // Keep track of all the origin domains as concretized
           for (auto origin : producer_origins) {
             markAsConcretized(origin, c_id);
