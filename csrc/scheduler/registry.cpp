@@ -185,9 +185,6 @@ bool SchedulerEntry::canSchedule(
     case ScheduleHeuristic::InnerPersistent:
       return checkCanSchedule<InnerPersistentKernelScheduler>(
           fusion, runtime_info, data_cache);
-    case ScheduleHeuristic::OuterPersistent:
-      return checkCanSchedule<OuterPersistentKernelScheduler>(
-          fusion, runtime_info, data_cache);
     case ScheduleHeuristic::InnerOuterPersistent:
       return checkCanSchedule<InnerOuterPersistentKernelScheduler>(
           fusion, runtime_info, data_cache);
@@ -228,10 +225,6 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
       break;
     case ScheduleHeuristic::InnerPersistent:
       scheduler_entry = std::make_unique<InnerPersistentKernelScheduler>(
-          fusion, runtime_info, data_cache);
-      break;
-    case ScheduleHeuristic::OuterPersistent:
-      scheduler_entry = std::make_unique<OuterPersistentKernelScheduler>(
           fusion, runtime_info, data_cache);
       break;
     case ScheduleHeuristic::InnerOuterPersistent:
@@ -318,11 +311,6 @@ HeuristicSummary::HeuristicSummary(
       InnerPersistentKernelScheduler::canScheduleRunTime(
           fusion, runtime_info, this);
       break;
-    case ScheduleHeuristic::OuterPersistent:
-      getOuterPersistentHeuristics(fusion, runtime_info, this);
-      OuterPersistentKernelScheduler::canScheduleRunTime(
-          fusion, runtime_info, this);
-      break;
     case ScheduleHeuristic::InnerOuterPersistent:
       getInnerOuterPersistentHeuristics(fusion, runtime_info, this);
       InnerOuterPersistentKernelScheduler::canScheduleRunTime(
@@ -394,7 +382,6 @@ void HeuristicSummary::validate() const {
       break;
     }
     case ScheduleHeuristic::InnerPersistent:
-    case ScheduleHeuristic::OuterPersistent:
     case ScheduleHeuristic::InnerOuterPersistent: {
       NVF_ERROR(entry_type_map_.count(EntryType::REDUCTION_TVS));
       NVF_ERROR(
