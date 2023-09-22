@@ -94,7 +94,7 @@ static auto getLayerBackwardNormRuntime(
   return fec->getMostRecentKernelRuntime();
 }
 
-static void LayerNormBackward_HeuristicLookup(
+static void NvFuserScheduler_LayerNormBackward_HeuristicCache(
     benchmark::State& benchmark_state) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
@@ -146,7 +146,7 @@ static auto getLayerForwardNormRuntime(
   return fec->getMostRecentKernelRuntime();
 }
 
-static void LayerNormForward_HeuristicLookup(
+static void NvFuserScheduler_LayerNormForward_HeuristicCache(
     benchmark::State& benchmark_state) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
@@ -168,5 +168,7 @@ static void LayerNormForward_HeuristicLookup(
   }
 }
 
-BENCHMARK(LayerNormBackward_HeuristicLookup)->Unit(benchmark::kMicrosecond);
-BENCHMARK(LayerNormForward_HeuristicLookup)->Unit(benchmark::kMicrosecond);
+BENCHMARK(NvFuserScheduler_LayerNormBackward_HeuristicCache)
+    ->Unit(benchmark::kMicrosecond);
+BENCHMARK(NvFuserScheduler_LayerNormForward_HeuristicCache)
+    ->Unit(benchmark::kMicrosecond);
