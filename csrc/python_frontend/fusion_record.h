@@ -620,7 +620,7 @@ struct DimsOpRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Dims,
-        serde::CreatePermuteDirect(builder, &dims_).Union()};
+        serde::CreateDimsDirect(builder, &dims_).Union()};
   }
 
  private:
