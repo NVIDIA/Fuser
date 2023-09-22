@@ -2151,6 +2151,9 @@ void FusionExecutor::deserialize(
 
   compiled_kernel_ = executor_utils::getCompiledKernel(
       buffer->compiled_kernel(), compile_params);
+  NVF_ERROR(
+      !compiled_kernel_.cubin.empty() || !compiled_kernel_.ptx.empty(),
+      "Expected compiled cuda kernel after deserializing FusionExecutor.");
 
   NVF_ERROR(isCompiled(), "Failed to deserialize FusionExecutor");
 }
