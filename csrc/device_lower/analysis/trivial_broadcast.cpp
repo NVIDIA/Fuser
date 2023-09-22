@@ -52,14 +52,16 @@ std::unordered_set<IterDomain*> ConcretizedBroadcastDomains::
   return {};
 }
 
-void ConcretizedBroadcastDomains::handle(BroadcastOp* bop) {
-  // Create a new entry for each of new broadcast domains
-  auto out = bop->out()->as<TensorView>();
-  for (const auto i : c10::irange(out->getRootDomain().size())) {
-    if (bop->getBroadcastDimFlags().at(i)) {
-      auto new_bcast_id = out->getRootDomain().at(i);
+void ConcretizedBroadcastDomains::handle(TensorView* tv) {
+  if (!tv->hasRFactor()) {
+    return;
+  }
+  for (auto id : tv->getMaybeRFactorDomain()) {
+    // broadcast rfactor domains with definitions are not root domains. We
+    // register these as new broadcast origins.
+    if (id->isBroadcast() && id->definition() != nullptr) {
       broadcast_origin_map_.emplace(
-          new_bcast_id, std::unordered_set<IterDomain*>({new_bcast_id}));
+          id, std::unordered_set<IterDomain*>({id}));
     }
   }
 }
@@ -78,6 +80,9 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
         producer_broadcasts.insert(producer_id);
       }
     }
+    if (producer_broadcasts.empty()) {
+      continue;
+    }
 
     for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
       auto p2c_map =
@@ -87,15 +92,11 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
       for (const auto& kv : p2c_map) {
         auto p_id = kv.first;
         auto c_id = kv.second;
-        // If the consumer ID is a reduction (i.e., a trivial
-        // reduction), do not consider it's concretized.
-        const bool is_concretized =
-            !c_id->isBroadcast() && !c_id->isReduction();
         auto it = broadcast_origin_map_.find(p_id);
         if (it == broadcast_origin_map_.end()) {
           // The consumer might be broadcast even though the producer is not, if
-          // this is a pad to size 1. In such case, we set the consumer as the
-          // origin of the broadcast.
+          // this is a pad or slice to size 1. In such case, we set the consumer
+          // as the origin of the broadcast.
           broadcast_origin_map_.emplace(
               c_id, std::unordered_set<IterDomain*>({c_id}));
           continue;
@@ -107,7 +108,9 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
             " of ",
             producer->toString());
         const auto& producer_origins = it->second;
-        if (is_concretized) {
+        // If the consumer ID is a reduction (i.e., a trivial
+        // reduction), do not consider it's concretized.
+        if (!c_id->isBroadcast() && !c_id->isReduction()) {
           // Keep track of all the origin domains as concretized
           for (auto origin : producer_origins) {
             markAsConcretized(origin, c_id);

@@ -46,7 +46,7 @@ class ConcretizedBroadcastDomains : private IterVisitor {
  private:
   using IterVisitor::handle;
 
-  void handle(BroadcastOp* bop) final;
+  void handle(TensorView* tv) final;
 
   void dispatch(Expr* expr) final;
 
