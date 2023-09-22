@@ -23,7 +23,7 @@ namespace nvfuser {
 class PrecomputedValues;
 
 //! Calculate Fusion IR expressions
-class TORCH_CUDA_CU_API ExpressionEvaluator {
+class ExpressionEvaluator {
   void bind_(
       const Val* value,
       PolymorphicValue concrete_value,

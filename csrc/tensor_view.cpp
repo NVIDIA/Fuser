@@ -1094,7 +1094,7 @@ std::vector<TensorView*> TensorView::rFactor(
   return rf_tvs;
 }
 
-TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
+TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
@@ -1165,7 +1165,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
   }
   ir_utils::transferDefinitionToNewOutputs(definition(), replaced_siblings);
 
-  IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
+  IrBuilder::create<LoadStoreOp>(container(), op_type, consumer, producer);
 
   // definition_ is no longer valid
   // setDefinition(nullptr);
@@ -1228,7 +1228,7 @@ TensorView* TensorView::cacheFork() {
   return new_output;
 }
 
-TensorView* TensorView::cacheAfter(LoadStoreOpType cache_op) {
+TensorView* TensorView::cacheAfter(LoadStoreOpType op_type, CacheOp cache_op) {
   NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
@@ -1298,7 +1298,8 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType cache_op) {
   }
 
   // Expr* consumer_definition =
-  IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
+  IrBuilder::create<LoadStoreOp>(
+      container(), op_type, consumer, producer, cache_op);
 
   auto replayed_consumer_pair = TransformReplay::replayCasP(
       consumer, producer, -1, TransformReplayOptions().replayAllocation());

@@ -29,7 +29,7 @@ namespace nvfuser {
 // that this assumes that the CUDA code generator does not inline a
 // scalar Val with allocation (PR #1434).
 
-class TORCH_CUDA_CU_API CommonScalarMap {
+class CommonScalarMap {
  public:
   //! For the given scalar, insert the subexpressions in its definition to the
   //! loop that has minimum amount of computation. For example, if I have a loop
