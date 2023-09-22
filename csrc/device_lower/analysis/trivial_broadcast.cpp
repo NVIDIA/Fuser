@@ -94,14 +94,6 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
         auto p_id = kv.first;
         auto c_id = kv.second;
         auto it = broadcast_origin_map_.find(p_id);
-        if (it == broadcast_origin_map_.end()) {
-          // The consumer might be broadcast even though the producer is not, if
-          // this is a pad or slice to size 1. In such case, we set the consumer
-          // as the origin of the broadcast.
-          broadcast_origin_map_.emplace(
-              c_id, std::unordered_set<IterDomain*>({c_id}));
-          continue;
-        }
         NVF_ERROR(
             it != broadcast_origin_map_.end(),
             "Broadcast origin info not found for producer broadcast domain: ",
