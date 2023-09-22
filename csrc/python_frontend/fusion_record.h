@@ -601,7 +601,13 @@ struct DimsOpRecord : RecordFunctor {
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
-    os << ", dims=[";
+    if constexpr (op_type == serde::RecordType_PermuteOp) {
+      os << ", dims=[";
+    } else if constexpr (op_type == serde::RecordType_StrideOrderOp) {
+      os << ", stride_order=[";
+    } else {
+      NVF_ERROR(false, "op_type is not recognized by dims operator.");
+    }
     bool first_arg = true;
     for (auto dim : dims_) {
       if (first_arg) {
