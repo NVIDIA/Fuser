@@ -727,9 +727,8 @@ ScheduleHeuristic getPersistentHeuristicFor(ReductionType reduction_type) {
   switch (reduction_type) {
     case ReductionType::Inner:
       return ScheduleHeuristic::InnerPersistent;
-    // OuterPersistent is not added yet, use Persistent for now.
     case ReductionType::Outer:
-      return ScheduleHeuristic::Persistent;
+      return ScheduleHeuristic::OuterPersistent;
     case ReductionType::InnerOuter:
       return ScheduleHeuristic::InnerOuterPersistent;
     default:
