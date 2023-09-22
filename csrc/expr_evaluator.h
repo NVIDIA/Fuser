@@ -57,7 +57,7 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
   const PolymorphicValue& evaluate(ParallelType pt);
 
   //! Try to evaluate a known value using const evaluator ref
-  const PolymorphicValue& evaluate(const Val* value) const;
+  const PolymorphicValue evaluate(const Val* value) const;
 
   //! Debugging helper, prints all the currently known values
   void print() const;
@@ -80,7 +80,13 @@ class TORCH_CUDA_CU_API ExpressionEvaluator {
   ExpressionEvaluator clone(IrCloner& ir_cloner) const;
 
  private:
-  const PolymorphicValue& getValue(const Val* value) const;
+  const PolymorphicValue& getValue(
+      const Val* value,
+      const std::unordered_map<const Val*, PolymorphicValue>&
+          additional_known_values) const;
+  const PolymorphicValue& evaluateHelper(
+      const Val* value,
+      std::unordered_map<const Val*, PolymorphicValue>& known_values) const;
 
  private:
   // TODO: Consider make this const. It can't be const as bind() of

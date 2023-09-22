@@ -120,12 +120,19 @@ TEST_F(ExprEvalTest, ConstReference) {
 
   ExpressionEvaluator evaluator;
   auto tv0 = makeContigTensor(1);
+  auto tv1 = makeContigTensor(1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({3}, options);
+  auto t1 = at::randn({3}, options);
 
   evaluator.bind(tv0, t0);
+  evaluator.bind(tv1, t1);
+
   checkConstEvaluate(evaluator, tv0, t0);
+  checkConstEvaluate(evaluator, neg(tv0), -t0);
+  checkConstEvaluate(evaluator, add(tv0, tv1), t0+t1);
+  checkConstEvaluate(evaluator, add(tv0, neg(tv1)), t0-t1);
 }
 
 // Evaluate expressions in a simple IR
