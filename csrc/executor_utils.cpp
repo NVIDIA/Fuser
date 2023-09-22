@@ -1298,10 +1298,6 @@ CompiledKernel getCompiledKernel(
     compiled_kernel.ptx_filename = buffer->ptx_filename()->str();
   }
 
-  NVF_ERROR(
-      !compiled_kernel.cubin.empty() || !compiled_kernel.ptx.empty(),
-      "Expected compiled cuda kernel after deserializing CompiledKernel.");
-
   at::cuda::jit::initializeCudaContext();
 
   // The above initialization works in some cases. However, it seems to
@@ -1350,8 +1346,15 @@ CompiledKernel getCompiledKernel(
       "\t",
       compiled_kernel.compile_args);
 
-  std::stringstream log;
+  NVF_ERROR(
+      !compile_to_sass || !compiled_kernel.cubin.empty(),
+      "Expected compiled cubin after deserializing CompiledKernel.");
 
+  NVF_ERROR(
+      compile_to_sass || !compiled_kernel.ptx.empty(),
+      "Expected compiled ptx after deserializing CompiledKernel.");
+
+  std::stringstream log;
   log << module_load_driver.invoke(
              compiled_kernel.module,
              (compile_to_sass ? compiled_kernel.cubin.data()
