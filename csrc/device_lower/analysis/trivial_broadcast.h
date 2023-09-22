@@ -48,6 +48,8 @@ class ConcretizedBroadcastDomains : private IterVisitor {
 
   void handle(TensorView* tv) final;
 
+  void handle(BroadcastOp* bop) final;
+
   void dispatch(Expr* expr) final;
 
   void markAsConcretized(

@@ -67,6 +67,18 @@ void ConcretizedBroadcastDomains::handle(TensorView* tv) {
   }
 }
 
+void ConcretizedBroadcastDomains::handle(BroadcastOp* bop) {
+  // Create a new entry for each of new broadcast domains
+  auto out = bop->out()->as<TensorView>();
+  for (const auto i : c10::irange(out->getRootDomain().size())) {
+    if (bop->getBroadcastDimFlags().at(i)) {
+      auto new_bcast_id = out->getRootDomain().at(i);
+      broadcast_origin_map_.emplace(
+          new_bcast_id, std::unordered_set<IterDomain*>({new_bcast_id}));
+    }
+  }
+}
+
 void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
   IterVisitor::dispatch(expr);
 
