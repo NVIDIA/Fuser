@@ -241,7 +241,7 @@ void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion) {
   // mapping between symbolic domains that might concretize to an (Iteration,
   // Broadcast) pair from a resolved broadcast.
   const auto mapped_sets =
-      ExactRootDomainMap(fusion, /*map_symbolic*/ false).getMappedSets();
+      ExactRootDomainMap(fusion).getMappedSets();
 
   for (const auto& set : mapped_sets.disjointSets()) {
     int64_t known_size = -1;
