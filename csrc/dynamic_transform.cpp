@@ -795,6 +795,10 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
   auto def = consumer->definition();
 
+  // We will loop over IterDomains in the consumer root. For each, we need to
+  // inspect the consumer to producer map to all producers. Instead of
+  // recomputing these for each root IterDomain, we precompute them for each
+  // producer here then re-use them in the following loop.
   std::vector<std::unordered_map<IterDomain*, IterDomain*>> c2p_maps;
   for (auto producer : ir_utils::filterByType<TensorView>(def->inputs())) {
     PairwiseRootDomainMap root_map(producer, consumer);
@@ -823,13 +827,10 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
     for (const auto& c2p : c2p_maps) {
       auto p_it = c2p.find(root_id);
-      if (p_it == c2p.end()) {
-        // We might not have mapped this ID to this producer, for example if the
-        // producer is a broadcast domain. In that case just skip this producer
-        // when determining the output id_type.
-        continue;
-      }
-
+      NVF_ERROR(
+          p_it != c2p.end(),
+          "No input ID found to map with output ID: ",
+          root_id->toString());
       auto input_id = p_it->second;
       NVF_ERROR(
           input_id == maybeMutated(input_id),
