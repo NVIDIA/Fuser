@@ -14,6 +14,8 @@ namespace nvfuser {
 #define DECLARE_DRIVER_API_WRAPPER(funcName) \
   extern decltype(::funcName)* funcName;
 
+DECLARE_DRIVER_API_WRAPPER(cuGetErrorName);
+DECLARE_DRIVER_API_WRAPPER(cuGetErrorString);
 DECLARE_DRIVER_API_WRAPPER(cuTensorMapEncodeTiled);
 
 #undef DECLARE_DRIVER_API_WRAPPER

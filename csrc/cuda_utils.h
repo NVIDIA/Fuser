@@ -10,6 +10,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <exceptions.h>
+#include <driver_api.h>
 
 #define NVFUSER_NVRTC_SAFE_CALL(x)               \
   do {                                           \

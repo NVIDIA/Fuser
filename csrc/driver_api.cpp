@@ -53,7 +53,6 @@ class CUDADriverDynamicLoader {
   template <typename ReturnType, typename... Args>          \
   struct funcName##Loader {                                 \
     static ReturnType lazilyLoadAndInvoke(Args... args) {   \
-      std::cout << "lazy load" << std::endl;                \
       funcName = (decltype(funcName))loader.sym(#funcName); \
       return funcName(args...);                             \
     }                                                       \
@@ -71,6 +70,8 @@ class CUDADriverDynamicLoader {
 
 namespace nvfuser {
 
+DEFINE_DRIVER_API_WRAPPER(cuGetErrorName);
+DEFINE_DRIVER_API_WRAPPER(cuGetErrorString);
 DEFINE_DRIVER_API_WRAPPER(cuTensorMapEncodeTiled);
 
 } // namespace nvfuser
