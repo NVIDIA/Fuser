@@ -170,7 +170,7 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(const Val* value) {
   return evaluateHelper(value, known_values_);
 }
 
-const PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) const {
+PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) const {
   std::unordered_map<const Val*, PolymorphicValue> known_values;
   return evaluateHelper(value, known_values);
 }
@@ -227,8 +227,12 @@ const PolymorphicValue& ExpressionEvaluator::getValue(
   if (it != known_values_.end())
     return it->second;
 
-  it = additional_known_values.find(value);
-  return it != additional_known_values.end() ? it->second : null_;
+  if (&additional_known_values != &known_values_) {
+    it = additional_known_values.find(value);
+    return it != additional_known_values.end() ? it->second : null_;
+  }
+
+  return null_;
 }
 
 void ExpressionEvaluator::print() const {

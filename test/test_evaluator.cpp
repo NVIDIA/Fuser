@@ -131,8 +131,8 @@ TEST_F(ExprEvalTest, ConstReference) {
 
   checkConstEvaluate(evaluator, tv0, t0);
   checkConstEvaluate(evaluator, neg(tv0), -t0);
-  checkConstEvaluate(evaluator, add(tv0, tv1), t0+t1);
-  checkConstEvaluate(evaluator, add(tv0, neg(tv1)), t0-t1);
+  checkConstEvaluate(evaluator, add(tv0, tv1), t0 + t1);
+  checkConstEvaluate(evaluator, add(tv0, neg(tv1)), t0 - t1);
 }
 
 // Evaluate expressions in a simple IR
