@@ -42,9 +42,9 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
   }
 
   for (auto select : ir_utils::getSelectOps(fusion)) {
-    auto root = TensorDomain::noReductions(
-        select->input(0)->as<TensorView>()->getMaybeRFactorDomain());
-    if (select->getIndexedID() == root[root.size() - 1]) {
+    auto inner = TensorDomain::noReductions(
+        select->input(0)->as<TensorView>()->getMaybeAllocationDomain());
+    if (select->getIndexedID() == inner[inner.size() - 1]) {
       scheduler_debug_utils::canScheduleRejectReason(
           ScheduleHeuristic::Transpose,
           "SelectOp on inner dim is not supported by transpose scheduler yet."
@@ -53,9 +53,9 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
     }
   }
   for (auto idx_sel : ir_utils::getIndexSelectOps(fusion)) {
-    auto root = TensorDomain::noReductions(
-        idx_sel->input(0)->as<TensorView>()->getMaybeRFactorDomain());
-    if (idx_sel->getIndexedID() == root[root.size() - 1]) {
+    auto inner = TensorDomain::noReductions(
+        idx_sel->input(0)->as<TensorView>()->getMaybeAllocationDomain());
+    if (idx_sel->getIndexedID() == inner[inner.size() - 1]) {
       scheduler_debug_utils::canScheduleRejectReason(
           ScheduleHeuristic::Transpose,
           "IndexSelectOp on inner dim is not supported by transpose scheduler yet."
@@ -64,9 +64,9 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
     }
   }
   for (auto torch_gather : ir_utils::getTorchGatherOps(fusion)) {
-    auto root = TensorDomain::noReductions(
-        torch_gather->input(0)->as<TensorView>()->getMaybeRFactorDomain());
-    if (torch_gather->dim() == (int)root.size() - 1) {
+    auto inner = TensorDomain::noReductions(
+        torch_gather->input(0)->as<TensorView>()->getMaybeAllocationDomain());
+    if (torch_gather->getIndexedID() == inner[inner.size() - 1]) {
       scheduler_debug_utils::canScheduleRejectReason(
           ScheduleHeuristic::Transpose,
           "TorchGatherOp on inner dim is not supported by transpose scheduler yet."
@@ -196,13 +196,13 @@ class DomainMap : public pointwise_utils::DomainMap {
     return result;
   }
 
-  IterDomain* getMappedRootDimIn(TensorView* tv, IterDomain* root_dim) const {
-    // Find the root id mapped to `root_dim`
-    const auto& root_dom = tv->getRootDomain();
+  IterDomain* getMappedAllocDimIn(TensorView* tv, IterDomain* root_dim) const {
+    // Find the id mapped to `Allocation Domain`
+    const auto& alloc_dom = tv->getMaybeAllocationDomain();
     IterDomain* mapped_id = nullptr;
-    for (auto i : c10::irange(root_dom.size())) {
-      if (ca_map_.areMapped(root_dom[i], root_dim, IdMappingMode::INNERMOST)) {
-        mapped_id = root_dom[i];
+    for (auto i : c10::irange(alloc_dom.size())) {
+      if (ca_map_.areMapped(alloc_dom[i], root_dim, IdMappingMode::INNERMOST)) {
+        mapped_id = alloc_dom[i];
         break;
       }
     }
@@ -223,8 +223,8 @@ class DomainMap : public pointwise_utils::DomainMap {
     }
     // reference 1 is the global reference, so it must have dim mapped the
     // innermost dim of both groups
-    auto innermost2 = scheduler_utils::innerMostRootDim(ref2);
-    return domain_map.getMappedRootDimIn(ref1, innermost2) != nullptr;
+    auto innermost2 = scheduler_utils::innerMostAllocDim(ref2);
+    return domain_map.getMappedAllocDimIn(ref1, innermost2) != nullptr;
   }
 
   // scheduler assumes inner leaf dimension on tv is an exact mapping, when the
@@ -235,7 +235,7 @@ class DomainMap : public pointwise_utils::DomainMap {
     // transformed. So the mapping here would require a new compute at map to be
     // constructed from the updated fusion. We'll revisit this once our id graph
     // refactor is done.
-    auto mapped_id = getMappedRootDimIn(tv, root_dim);
+    auto mapped_id = getMappedAllocDimIn(tv, root_dim);
     NVF_ERROR(
         mapped_id != nullptr,
         "Can not find ID mapped to ",
@@ -656,7 +656,7 @@ getInnerMostDimInfoInReference(
             std::vector<int64_t> data;
             data.reserve(group_references.size());
             for (auto ref_tv : group_references) {
-              auto inner_most_id = scheduler_utils::innerMostRootDim(ref_tv);
+              auto inner_most_id = scheduler_utils::innerMostAllocDim(ref_tv);
               auto inner_most_pos_in_global_ref =
                   domain_map.getInnerLeafDim(global_reference, inner_most_id);
               data.emplace_back(inner_most_pos_in_global_ref);
@@ -1141,8 +1141,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
       reference2 != nullptr,
       "Could not find a fully broadcasted tensor to reference schedule on the second group.");
 
-  auto inner_most_id1 = scheduler_utils::innerMostRootDim(reference1);
-  auto inner_most_id2 = scheduler_utils::innerMostRootDim(reference2);
+  auto inner_most_id1 = scheduler_utils::innerMostAllocDim(reference1);
+  auto inner_most_id2 = scheduler_utils::innerMostAllocDim(reference2);
 
   //////////////////////////////////////////
   // Step 1: Make virtual inner most dims //
