@@ -9,11 +9,17 @@
 
 #include <cuda.h>
 
+// How to lazily load a driver API and invoke it? Just forget about lazy loading
+// and write code as if you are using the driver API directly. Magic will
+// happen. To understand how the magic works, please refer to the cpp file's doc
+// "How does the magic work?"
+
 namespace nvfuser {
 
 #define DECLARE_DRIVER_API_WRAPPER(funcName) \
   extern decltype(::funcName)* funcName;
 
+// List of driver APIs that you want the magic to happen.
 DECLARE_DRIVER_API_WRAPPER(cuGetErrorName);
 DECLARE_DRIVER_API_WRAPPER(cuGetErrorString);
 DECLARE_DRIVER_API_WRAPPER(cuTensorMapEncodeTiled);
