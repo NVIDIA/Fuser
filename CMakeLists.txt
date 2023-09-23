@@ -18,6 +18,7 @@ set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
+option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
 
 if(PROJECT_IS_TOP_LEVEL)
   find_package(Torch REQUIRED)
@@ -245,6 +246,11 @@ target_include_directories(${NVFUSER_CODEGEN} PUBLIC
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
 )
 set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
+
+if(NVFUSER_BUILD_WITH_ASAN)
+  add_compile_options(-fsanitize=address)
+  add_link_options(-fsanitize=address)
+endif()
 
 if(PROJECT_IS_TOP_LEVEL)
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
@@ -632,6 +638,7 @@ message(STATUS "")
 message(STATUS "******** Nvfuser configuration summary ********")
 message(STATUS "  UCC_FOUND: ${UCC_FOUND}")
 message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}")
+message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
 
 if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   message(STATUS "    UCC_HOME: $ENV{UCC_HOME}")
