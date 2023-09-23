@@ -104,6 +104,13 @@ inline CUtensorMapFloatOOBfill getCUtensorMapFloatOOBfill(
 
 using TensorMap = CUtensorMap;
 
+#else
+
+// Placeholder for CUDA 11 to make build pass
+struct TensorMap {
+  alignas(64) uint64_t opaque[16];
+};
+
 #endif
 
 std::ostream& operator<<(std::ostream& os, TensorMapInterleave interleave) {
