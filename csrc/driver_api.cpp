@@ -87,6 +87,9 @@ class CUDADriverAPIDynamicLoader {
 // parameters. To make the decltype(cuDriverAPIName) -> ReturnType(Args...)
 // deduction work, we can define a ctor for the struct template and add a CTAD
 // rule to tell the compiler how to deduce the template parameters.
+//
+// Doc for CTAD:
+// https://en.cppreference.com/w/cpp/language/class_template_argument_deduction
 #define DEFINE_DRIVER_API_WRAPPER(funcName)                     \
   namespace {                                                   \
   template <typename ReturnType, typename... Args>              \
