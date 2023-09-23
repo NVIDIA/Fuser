@@ -11,6 +11,7 @@
 #include <codegen.h>
 #include <debug.h>
 #include <device_lower/analysis/bank_conflict.h>
+#include <driver_api.h>
 #include <executor_kernel_arg.h>
 #include <executor_utils.h>
 #include <instrumentation.h>
