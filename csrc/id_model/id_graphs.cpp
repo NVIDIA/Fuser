@@ -1322,6 +1322,16 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
       }
     }
   }
+
+  std::cerr << "Inline promotion done\n";
+
+  std::stringstream ss;
+  ss << "Inline promotion map\n";
+  for (const auto& [iel_group, promoted_id] : iel_promotion_map) {
+    ss << "\t" << nvfuser::toString(iel_group) << " -> " << promoted_id->name() << std::endl;
+  }
+  std::cerr << ss.str();
+  
   return iel_promotion_map;
 }
 
@@ -1752,6 +1762,11 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     if (iel_promotion_map.find(group) == iel_promotion_map.end()) {
       continue;
     }
+  }
+
+  std::cerr << "Loop promotion map:\n";
+  for (const auto& [iel_group, id]: iel_promotion_map) {
+    std::cerr << nvfuser::toString(iel_group) << " -> " << id->name() << std::endl;
   }
 
   return iel_promotion_map;
