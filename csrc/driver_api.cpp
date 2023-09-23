@@ -76,7 +76,7 @@ class CUDADriverAPIDynamicLoader {
 // automate this process so that adding a new driver API is as trivial as:
 //   DEFINE_DRIVER_API_WRAPPER(cuDriverAPIName)
 //
-// Because C++'s syntax only allows us to create a function like:
+// C++'s syntax only allows us to create a function like
 //   ReturnType lazilyLoadAndInvoke(Arg1 arg1, Arg2 arg2, ...) {
 //     ...
 //   }
