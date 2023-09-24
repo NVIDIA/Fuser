@@ -282,6 +282,7 @@ class CudaKernelTimer {
   void init() {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
+    initialized_ = true;
   }
 
   void start() {
