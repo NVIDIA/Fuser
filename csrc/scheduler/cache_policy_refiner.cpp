@@ -7,16 +7,15 @@
 
 namespace nvfuser {
 
-static bool expands(const Expr* expr, const TensorView* in_tv) {
-  if (expr->isA<ExpandOp>()) {
-    return true;
-  }
-
-  if (expr->outputs().size() != 1) {
-    return false;
-  }
-
+// Returns whether a pointwise expression `expr` expands its input operand
+// `in_tv`.
+static bool pointwiseExpands(const Expr* expr, const TensorView* in_tv) {
+  NVF_CHECK(
+      expr->outputs().size() == 1,
+      "A pointwise expression is expected to have one output: ",
+      expr->toString());
   const Val* out = expr->output(0);
+
   if (!out->isA<TensorView>()) {
     return false;
   }
@@ -57,8 +56,9 @@ static const Expr* findExpand(const LoadStoreOp* ldst) {
       if (!def_out->isA<TensorView>()) {
         continue;
       }
+
       for (const Expr* use : def_out->uses()) {
-        if (expands(use, def_out->as<TensorView>())) {
+        if (use->isA<ExpandOp>()) {
           return use;
         }
 
@@ -66,6 +66,9 @@ static const Expr* findExpand(const LoadStoreOp* ldst) {
             (use->isA<LoadStoreOp>() &&
              use->as<LoadStoreOp>()->out()->as<TensorView>()->getMemoryType() !=
                  MemoryType::Global)) {
+          if (pointwiseExpands(use, def_out->as<TensorView>())) {
+            return use;
+          }
           enqueueIfNotVisited(use);
         }
       }
