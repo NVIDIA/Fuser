@@ -2853,7 +2853,7 @@ TEST_F(ResizeTest, PadOfBroadcast) {
 
   auto ref = at::pad(t0, {1, 1});
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
 // Test that we can cat along broadcast dims that have been expanded
@@ -2884,10 +2884,7 @@ TEST_F(ResizeTest, PadOfExpandedBroadcast) {
 
   auto ref = at::pad(at::expand_copy(t0, shape0e), {1, 1});
 
-  std::cout << "ref: " << ref << std::endl;
-  std::cout << "nvf: " << cg_outputs[0] << std::endl;
-
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
