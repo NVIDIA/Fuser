@@ -1516,14 +1516,15 @@ void IndexLowering::handle(const PadOp* pad) {
 
       const auto& index_map = producer_indexing.indexMap();
       const auto index_it = index_map.find(padded_id);
-      if (index_it != index_map.end()) {
-        std::cout << "Overriding index for " << padded_id->toString() << " as "
-                  << index_it->second->toInlineString() << std::endl;
-        override_index.emplace(padded_id, index_it->second);
-      } else {
-        std::cout << "Couldn't find index for " << padded_id->toString()
-                  << std::endl;
-      }
+      NVF_ERROR(
+          index_it != index_map.end(),
+          "Could not find padded consumer IterDomain ",
+          padded_id->toString(),
+          " from consumer TensorView ",
+          consumer_tv->toString(),
+          " in index map for producer TensorView ",
+          producer_tv->toString());
+      override_index.emplace(padded_id, index_it->second);
     }
   }
 
