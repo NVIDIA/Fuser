@@ -1099,8 +1099,7 @@ void createNvrtcProgram(
       &program, full_src_code.c_str(), name.c_str(), 0, nullptr, nullptr));
 }
 
-// Compile the given source code with the NVRTC compiler
-// driver.
+// Compile the given source code with the NVRTC compiler driver.
 CompiledKernel compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
@@ -1155,8 +1154,7 @@ CompiledKernel getCompiledKernel(
     const std::string& func_name,
     int64_t id,
     const CompileParams& compile_params,
-    std::optional<int64_t> opt_block_size,
-    bool return_compiled_binary) {
+    std::optional<int64_t> opt_block_size) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
 
   at::cuda::jit::initializeCudaContext();
@@ -1212,13 +1210,13 @@ CompiledKernel getCompiledKernel(
     }
   }
 
+  CompiledKernel compiled_kernel;
   const auto compile_args =
       toDelimitedString(nvrtc_compile_driver.options(), " ");
 
   auto& kernel_db = KernelDb::get();
   const auto use_kernel_db = kernel_db.enabled() && kernel_code.has_value();
 
-  CompiledKernel compiled_kernel;
   // If the Kernel Query fails, the Kernel is recompiled
   if (!(use_kernel_db &&
         kernel_db.query(
@@ -1249,6 +1247,7 @@ CompiledKernel getCompiledKernel(
                               : compiled_kernel.ptx.data()))
       << std::endl;
   compiled_kernel.compile_log = log.str();
+  compiled_kernel.compile_args = compile_args;
 
   if (isOptionEnabled(EnableOption::WarnRegisterSpill) ||
       compile_params.enable_ptxas_verbose) {
@@ -1260,10 +1259,113 @@ CompiledKernel getCompiledKernel(
       compiled_kernel.module,
       compiled_kernel.kernel_name.c_str()));
 
-  if (!return_compiled_binary) {
-    compiled_kernel.ptx.clear();
-    compiled_kernel.cubin.clear();
+  // Store block size used to generate compile arguments
+  if (opt_block_size.has_value()) {
+    compiled_kernel.block_size = opt_block_size.value();
   }
+
+  return compiled_kernel;
+}
+
+CompiledKernel getCompiledKernel(
+    const serde::CudaKernel* buffer,
+    const CompileParams& compile_params) {
+  FUSER_PERF_SCOPE("executor_utils::serde_NVRTC");
+
+  NVF_ERROR(buffer != nullptr, "serde::CudaKernel is nullptr.");
+
+  // Deserialize flatbuffer into CompiledKernel
+  CompiledKernel compiled_kernel;
+  compiled_kernel.kernel_name = buffer->kernel_name()->str();
+  compiled_kernel.compile_args = buffer->compile_args()->str();
+  compiled_kernel.block_size = buffer->block_size();
+
+  if (buffer->cubin() != nullptr) {
+    compiled_kernel.cubin.reserve(buffer->cubin()->size());
+    std::copy(
+        buffer->cubin()->begin(),
+        buffer->cubin()->end(),
+        std::back_inserter(compiled_kernel.cubin));
+    compiled_kernel.cubin_filename = buffer->cubin_filename()->str();
+  }
+
+  if (buffer->ptx() != nullptr) {
+    compiled_kernel.ptx.reserve(buffer->ptx()->size());
+    std::copy(
+        buffer->ptx()->begin(),
+        buffer->ptx()->end(),
+        std::back_inserter(compiled_kernel.ptx));
+    compiled_kernel.ptx_filename = buffer->ptx_filename()->str();
+  }
+
+  at::cuda::jit::initializeCudaContext();
+
+  // The above initialization works in some cases. However, it seems to
+  // occasionally fail to initialize a primary context. Here we check for that
+  // and if we detect that no context exists, we create one manually.
+  int device = 0;
+  cudaGetDevice(&device);
+  if (!at::detail::getCUDAHooks().hasPrimaryContext((c10::DeviceIndex)device)) {
+    // CUDA>=12 creates a context when cudaSetDevice is called. However, before
+    // cu12, that context is not necessarily created. In that case, we create
+    // one here implicitly. See https://github.com/NVIDIA/Fuser/issues/429
+    cudaFree(nullptr);
+  }
+
+  const auto prop = at::cuda::getCurrentDeviceProperties();
+
+  // Generate compile args and compare against saved args in compiled_kernel
+  NvrtcCompileDriver nvrtc_compile_driver;
+  CuModuleLoadDataDriver module_load_driver;
+
+  int major = 0, minor = 0;
+  bool compile_to_sass = false;
+  queryTargetGPUVersion(prop, major, minor, compile_to_sass);
+
+  std::optional<int64_t> opt_block_size;
+  if (compiled_kernel.block_size >= -1) {
+    opt_block_size = compiled_kernel.block_size;
+  }
+
+  fillCompileOptions(
+      nvrtc_compile_driver,
+      module_load_driver,
+      compile_to_sass,
+      major,
+      minor,
+      compile_params,
+      opt_block_size);
+
+  const auto latest_compile_args =
+      toDelimitedString(nvrtc_compile_driver.options(), " ");
+  NVF_ERROR(
+      latest_compile_args == compiled_kernel.compile_args,
+      "The compile arguments for the serialized cuda kernel does not ",
+      "match the latest generated compile args.\t",
+      latest_compile_args,
+      "\t",
+      compiled_kernel.compile_args);
+
+  NVF_ERROR(
+      !compile_to_sass || !compiled_kernel.cubin.empty(),
+      "Expected compiled cubin after deserializing CompiledKernel.");
+
+  NVF_ERROR(
+      compile_to_sass || !compiled_kernel.ptx.empty(),
+      "Expected compiled ptx after deserializing CompiledKernel.");
+
+  std::stringstream log;
+  log << module_load_driver.invoke(
+             compiled_kernel.module,
+             (compile_to_sass ? compiled_kernel.cubin.data()
+                              : compiled_kernel.ptx.data()))
+      << std::endl;
+  compiled_kernel.compile_log = log.str();
+
+  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
+      &(compiled_kernel.function),
+      compiled_kernel.module,
+      compiled_kernel.kernel_name.c_str()));
 
   return compiled_kernel;
 }
