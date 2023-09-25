@@ -92,18 +92,21 @@ static std::vector<c10::IValue> setupInputs() {
 
 //------------------------------------------------------------------------------
 
-static void GeluBackward_SetupFusion(benchmark::State& benchmark_state) {
+static void NvFuserScheduler_GeluBackward_SetupFusion(
+    benchmark::State& benchmark_state) {
   for (auto _ : benchmark_state) {
     Fusion fusion;
     setupFusion(&fusion);
   }
 }
 
-BENCHMARK(GeluBackward_SetupFusion)->Unit(benchmark::kMicrosecond);
+BENCHMARK(NvFuserScheduler_GeluBackward_SetupFusion)
+    ->Unit(benchmark::kMicrosecond);
 
 //------------------------------------------------------------------------------
 
-static void GeluBackward_AutoSchedule(benchmark::State& benchmark_state) {
+static void NvFuserScheduler_GeluBackward_AutoSchedule(
+    benchmark::State& benchmark_state) {
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)
     benchmark_state.PauseTiming();
@@ -117,11 +120,13 @@ static void GeluBackward_AutoSchedule(benchmark::State& benchmark_state) {
   }
 }
 
-BENCHMARK(GeluBackward_AutoSchedule)->Unit(benchmark::kMicrosecond);
+BENCHMARK(NvFuserScheduler_GeluBackward_AutoSchedule)
+    ->Unit(benchmark::kMicrosecond);
 
 //------------------------------------------------------------------------------
 
-static void GeluBackward_Lower(benchmark::State& benchmark_state) {
+static void NvFuserScheduler_GeluBackward_Lower(
+    benchmark::State& benchmark_state) {
   Fusion fusion;
 
   // setup fusion
@@ -137,11 +142,12 @@ static void GeluBackward_Lower(benchmark::State& benchmark_state) {
   }
 }
 
-BENCHMARK(GeluBackward_Lower)->Unit(benchmark::kMillisecond);
+BENCHMARK(NvFuserScheduler_GeluBackward_Lower)->Unit(benchmark::kMillisecond);
 
 //------------------------------------------------------------------------------
 
-static void GeluBackward_Compile(benchmark::State& benchmark_state) {
+static void NvFuserScheduler_GeluBackward_Compile(
+    benchmark::State& benchmark_state) {
   Fusion fusion;
 
   // setup fusion
@@ -158,11 +164,12 @@ static void GeluBackward_Compile(benchmark::State& benchmark_state) {
   }
 }
 
-BENCHMARK(GeluBackward_Compile)->Unit(benchmark::kMillisecond);
+BENCHMARK(NvFuserScheduler_GeluBackward_Compile)->Unit(benchmark::kMillisecond);
 
 //------------------------------------------------------------------------------
 
-static void GeluBackward_RunFusion(benchmark::State& benchmark_state) {
+static void NvFuserScheduler_GeluBackward_RunFusion(
+    benchmark::State& benchmark_state) {
   Fusion fusion;
 
   // setup fusion
@@ -188,11 +195,13 @@ static void GeluBackward_RunFusion(benchmark::State& benchmark_state) {
   }
 }
 
-BENCHMARK(GeluBackward_RunFusion)->Unit(benchmark::kMicrosecond);
+BENCHMARK(NvFuserScheduler_GeluBackward_RunFusion)
+    ->Unit(benchmark::kMicrosecond);
 
 //------------------------------------------------------------------------------
 
-static void GeluBackward_RunFusion_GpuOnly(benchmark::State& benchmark_state) {
+static void NvFuserScheduler_GeluBackward_RunFusion_GpuOnly(
+    benchmark::State& benchmark_state) {
   Fusion fusion;
 
   // setup fusion
@@ -209,13 +218,14 @@ static void GeluBackward_RunFusion_GpuOnly(benchmark::State& benchmark_state) {
   runBenchmarkIterations(benchmark_state, &executor, inputs, lparams);
 }
 
-BENCHMARK(GeluBackward_RunFusion_GpuOnly)
+BENCHMARK(NvFuserScheduler_GeluBackward_RunFusion_GpuOnly)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
 //------------------------------------------------------------------------------
 
-static void GeluBackward_RunFusion_CpuOnly(benchmark::State& benchmark_state) {
+static void NvFuserScheduler_GeluBackward_RunFusion_CpuOnly(
+    benchmark::State& benchmark_state) {
   Fusion fusion;
 
   // setup fusion
@@ -238,4 +248,5 @@ static void GeluBackward_RunFusion_CpuOnly(benchmark::State& benchmark_state) {
   }
 }
 
-BENCHMARK(GeluBackward_RunFusion_CpuOnly)->Unit(benchmark::kMicrosecond);
+BENCHMARK(NvFuserScheduler_GeluBackward_RunFusion_CpuOnly)
+    ->Unit(benchmark::kMicrosecond);
