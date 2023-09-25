@@ -53,6 +53,8 @@ struct CompiledKernel {
   std::vector<char> cubin;
   std::string cubin_filename;
   std::string kernel_name;
+  std::string compile_args;
+  long block_size = -1;
 };
 
 // Returns executable function and the ptxas log from compilation
@@ -62,8 +64,12 @@ CompiledKernel getCompiledKernel(
     const std::string& func_name,
     int64_t id,
     const CompileParams& compile_params = CompileParams(),
-    std::optional<int64_t> opt_block_size = std::nullopt,
-    bool return_compiled_binary = false);
+    std::optional<int64_t> opt_block_size = std::nullopt);
+
+// Returns executable function using flatbuffer object
+CompiledKernel getCompiledKernel(
+    const serde::CudaKernel* buffer,
+    const CompileParams& compile_params);
 
 namespace caching {
 // TODO: Could consider putting some of

@@ -159,11 +159,6 @@ class FusionExecutor : public NonCopyable {
     measure_kernel_time_ = measure_kernel_time;
   }
 
-  //! Internal knob used for debugging/profiling only
-  void setSaveCompiledBinaryFlag(bool save_compiled_binary) {
-    save_compiled_binary_ = save_compiled_binary;
-  }
-
   //! Returns the last kernel execution time, in milliseconds
   //!
   //! \note The kernel time is only tracked if enabled by calling
@@ -333,6 +328,11 @@ class FusionExecutor : public NonCopyable {
       const LaunchParams& new_launch_params,
       const CompileParams& new_compile_params);
 
+  //! Serialize CompiledKernel using flatbuffers
+  flatbuffers::Offset<serde::CudaKernel> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const executor_utils::CompiledKernel& kernel) const;
+
   // ExecutorEntry is an internal POD struct for the FusionExecutor class.
   // We define ExecutorEntry's serialize and deserialize as private methods in
   // FusionExecutor.
@@ -453,9 +453,6 @@ class FusionExecutor : public NonCopyable {
 
   // Profiling support: kept copy of the cuda kernel
   std::string kernel_code_;
-
-  // save compiled binary
-  bool save_compiled_binary_ = false;
 };
 
 } // namespace nvfuser
