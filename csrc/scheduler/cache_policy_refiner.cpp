@@ -37,7 +37,8 @@ static bool pointwiseExpands(const Expr* expr, const TensorView* in_tv) {
   return num_expands > 0;
 }
 
-// Head of the def-use chain.
+// Finds the first expanding use of `ldst`'s output, bypassing all pointwise
+// operations.
 static const Expr* findExpand(const LoadStoreOp* ldst) {
   std::queue<const Expr*> q;
   std::unordered_set<const Expr*> visited;
