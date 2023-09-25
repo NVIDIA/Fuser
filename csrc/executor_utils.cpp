@@ -13,6 +13,7 @@
 
 #include <contiguity.h>
 #include <debug.h>
+#include <driver_api.h>
 #include <executor_utils.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>

@@ -178,7 +178,7 @@ static void SingleMatmulBase(
   // TODO: FLOPS calculation
 }
 
-static void EagerModeMatmul(
+static void Baseline_Matmul(
     benchmark::State& benchmark_state,
     MatmulLayout layout) {
   std::vector<int64_t> input_mnk{
@@ -235,7 +235,7 @@ MatmulParams getMatmulParams(
   return params;
 }
 
-static void Nvfuser_Matmul_4warp3stage(
+static void NvFuserScheduler_Matmul_4warp3stage(
     benchmark::State& benchmark_state,
     MatmulLayout layout) {
   auto cta_tile = GemmTile(128, 128, 32);
@@ -250,7 +250,7 @@ static void Nvfuser_Matmul_4warp3stage(
   SingleMatmulBase(benchmark_state, layout, params);
 }
 
-static void Nvfuser_Matmul_8warp3stage(
+static void NvFuserScheduler_Matmul_8warp3stage(
     benchmark::State& benchmark_state,
     MatmulLayout layout) {
   auto cta_tile = GemmTile(256, 128, 32);
@@ -265,7 +265,7 @@ static void Nvfuser_Matmul_8warp3stage(
   SingleMatmulBase(benchmark_state, layout, params);
 }
 
-static void Nvfuser_Matmul_4warp4stage(
+static void NvFuserScheduler_Matmul_4warp4stage(
     benchmark::State& benchmark_state,
     MatmulLayout layout) {
   auto cta_tile = GemmTile(128, 128, 32);
@@ -280,7 +280,7 @@ static void Nvfuser_Matmul_4warp4stage(
   SingleMatmulBase(benchmark_state, layout, params);
 }
 
-static void Nvfuser_Matmul_8warp4stage(
+static void NvFuserScheduler_Matmul_8warp4stage(
     benchmark::State& benchmark_state,
     MatmulLayout layout) {
   auto cta_tile = GemmTile(256, 128, 32);
@@ -339,41 +339,41 @@ static void Nvfuser_Matmul_8warp4stage(
   run(NN_TIMM, MatmulLayout::NN, TIMMMatmulShapes)
 
 // Instantiations:
-#define Nvfuser_4warp3stage_test(layout_label, layout, shapes) \
-  BENCHMARK_CAPTURE(                                           \
-      Nvfuser_Matmul_4warp3stage,                              \
-      no_quant_nvfuser_4warp_##layout_label,                   \
-      layout)                                                  \
+#define NvFuserScheduler_4warp3stage_test(layout_label, layout, shapes) \
+  BENCHMARK_CAPTURE(                                                    \
+      NvFuserScheduler_Matmul_4warp3stage,                              \
+      no_quant_nvfuser_4warp_##layout_label,                            \
+      layout)                                                           \
       ->shapes
 
-#define Nvfuser_8warp3stage_test(layout_label, layout, shapes) \
-  BENCHMARK_CAPTURE(                                           \
-      Nvfuser_Matmul_8warp3stage,                              \
-      no_quant_nvfuser_8warp_##layout_label,                   \
-      layout)                                                  \
+#define NvFuserScheduler_8warp3stage_test(layout_label, layout, shapes) \
+  BENCHMARK_CAPTURE(                                                    \
+      NvFuserScheduler_Matmul_8warp3stage,                              \
+      no_quant_nvfuser_8warp_##layout_label,                            \
+      layout)                                                           \
       ->shapes
 
-#define Nvfuser_4warp4stage_test(layout_label, layout, shapes) \
-  BENCHMARK_CAPTURE(                                           \
-      Nvfuser_Matmul_4warp4stage,                              \
-      no_quant_nvfuser_4warp_##layout_label,                   \
-      layout)                                                  \
+#define NvFuserScheduler_4warp4stage_test(layout_label, layout, shapes) \
+  BENCHMARK_CAPTURE(                                                    \
+      NvFuserScheduler_Matmul_4warp4stage,                              \
+      no_quant_nvfuser_4warp_##layout_label,                            \
+      layout)                                                           \
       ->shapes
 
-#define Nvfuser_8warp4stage_test(layout_label, layout, shapes) \
-  BENCHMARK_CAPTURE(                                           \
-      Nvfuser_Matmul_8warp4stage,                              \
-      no_quant_nvfuser_8warp_##layout_label,                   \
-      layout)                                                  \
+#define NvFuserScheduler_8warp4stage_test(layout_label, layout, shapes) \
+  BENCHMARK_CAPTURE(                                                    \
+      NvFuserScheduler_Matmul_8warp4stage,                              \
+      no_quant_nvfuser_8warp_##layout_label,                            \
+      layout)                                                           \
       ->shapes
 
-#define Eagermode_test(layout_label, layout, shapes)              \
+#define Baseline_test(layout_label, layout, shapes)               \
   BENCHMARK_CAPTURE(                                              \
-      EagerModeMatmul, no_quant_eagermode_##layout_label, layout) \
+      Baseline_Matmul, no_quant_eagermode_##layout_label, layout) \
       ->shapes
 
-ForAllLayouts(Nvfuser_4warp3stage_test);
-ForAllLayouts(Nvfuser_4warp4stage_test);
-ForAllLayouts(Nvfuser_8warp3stage_test);
-ForAllLayouts(Nvfuser_8warp4stage_test);
-ForAllLayouts(Eagermode_test);
+ForAllLayouts(NvFuserScheduler_4warp3stage_test);
+ForAllLayouts(NvFuserScheduler_4warp4stage_test);
+ForAllLayouts(NvFuserScheduler_8warp3stage_test);
+ForAllLayouts(NvFuserScheduler_8warp4stage_test);
+ForAllLayouts(Baseline_test);
