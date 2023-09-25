@@ -116,7 +116,18 @@ namespace nvfuser {
 
 DEFINE_DRIVER_API_WRAPPER(cuGetErrorName);
 DEFINE_DRIVER_API_WRAPPER(cuGetErrorString);
+DEFINE_DRIVER_API_WRAPPER(cuModuleLoadDataEx);
+DEFINE_DRIVER_API_WRAPPER(cuModuleGetFunction);
+DEFINE_DRIVER_API_WRAPPER(cuOccupancyMaxActiveBlocksPerMultiprocessor);
+DEFINE_DRIVER_API_WRAPPER(cuFuncGetAttribute);
+DEFINE_DRIVER_API_WRAPPER(cuLaunchKernel);
+DEFINE_DRIVER_API_WRAPPER(cuLaunchCooperativeKernel);
+DEFINE_DRIVER_API_WRAPPER(cuDeviceGetAttribute);
+DEFINE_DRIVER_API_WRAPPER(cuDeviceGetName);
+
+#if (CUDA_VERSION >= 12000)
 DEFINE_DRIVER_API_WRAPPER(cuTensorMapEncodeTiled);
+#endif
 
 } // namespace nvfuser
 
