@@ -2828,4 +2828,66 @@ TEST_F(ResizeTest, CatOfExpandedBroadcast) {
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
+// Test that we can pad properly along broadcast dims
+// See https://github.com/NVIDIA/Fuser/issues/868
+TEST_F(ResizeTest, PadOfBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape0({1});
+
+  auto tv0 = makeConcreteTensor(shape0);
+  fusion.addInput(tv0);
+
+  auto tv1 = pad(tv0, {fusion.oneVal(), fusion.oneVal()});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape0, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::pad(t0, {1, 1});
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
+// Test that we can cat along broadcast dims that have been expanded
+// See https://github.com/NVIDIA/Fuser/issues/868
+TEST_F(ResizeTest, PadOfExpandedBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape0({1});
+  std::vector<int64_t> shape0e({4});
+
+  auto tv0 = makeConcreteTensor(shape0);
+  fusion.addInput(tv0);
+
+  auto tv0e = expand(tv0, {IrBuilder::create<Val>(shape0e.at(0))});
+
+  auto tv1 = pad(tv0e, {fusion.oneVal(), fusion.oneVal()});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape0, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, aten_inputs);
+  auto cg_outputs = fe.runFusion(aten_inputs);
+
+  auto ref = at::pad(at::expand_copy(t0, shape0e), {1, 1});
+
+  std::cout << "ref: " << ref << std::endl;
+  std::cout << "nvf: " << cg_outputs[0] << std::endl;
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
 } // namespace nvfuser
