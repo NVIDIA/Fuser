@@ -21,7 +21,7 @@ class Kernel;
 class IrCloner;
 
 //! IR builder interface
-class TORCH_CUDA_CU_API IrBuilder {
+class IrBuilder {
  public:
   //! Allocate a new IR node, forwarding the arguments to the appropriate
   //! constructor and registering with the container
@@ -107,7 +107,7 @@ class TORCH_CUDA_CU_API IrBuilder {
       auto in_dtype = members.at(0)->dtype();
       auto out_dtype =
           ArrayType{std::make_shared<DataType>(in_dtype), members.size()};
-      auto out = newScalar(out_dtype);
+      auto out = create<Val>(out_dtype);
       create<ArrayConstruct>(out, members);
       return out;
     } else {
@@ -138,15 +138,9 @@ class TORCH_CUDA_CU_API IrBuilder {
     }
     DataType dtype =
         StructType::make<T>(std::move(field_infos), std::move(name));
-    auto out = newScalar(dtype);
+    auto out = create<Val>(dtype);
     create<StructConstruct>(out, fields);
     return out;
-  }
-
-  static Val* newScalar(DataType dtype);
-
-  static Val* newConstant(PolymorphicValue value, DataType dtype) {
-    return IrBuilder::create<Val>(value, dtype);
   }
 
  private:
@@ -165,7 +159,7 @@ class TORCH_CUDA_CU_API IrBuilder {
 //! Designed to be used to simplify predicate and index expressions in
 //! generated code. Also, the shift validation may fail without
 //! this simplification.
-class TORCH_CUDA_CU_API SimplifyingIrBuilder : public IrBuilder {
+class SimplifyingIrBuilder : public IrBuilder {
  public:
   static Val* negExpr(Val* val);
   static Val* logicalNotExpr(Val* val);
@@ -197,6 +191,13 @@ class TORCH_CUDA_CU_API SimplifyingIrBuilder : public IrBuilder {
   static Val* maxExpr(Val* lhs, Val* rhs);
   static Val* minExpr(Val* lhs, Val* rhs);
   static Val* gcdExpr(Val* lhs, Val* rhs);
+
+  static Val* ltExpr(Val* lhs, Val* rhs);
+  static Val* leExpr(Val* lhs, Val* rhs);
+  static Val* eqExpr(Val* lhs, Val* rhs);
+  static Val* neExpr(Val* lhs, Val* rhs);
+  static Val* geExpr(Val* lhs, Val* rhs);
+  static Val* gtExpr(Val* lhs, Val* rhs);
 
   static Val* whereExpr(Val* pred, Val* lhs, Val* rhs);
 };

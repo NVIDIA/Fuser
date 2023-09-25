@@ -61,16 +61,22 @@ static const char* defineIndexType(PrimDataType index_type) {
   }
 }
 
-static const char* defineIntegerTypes() {
+static const char* defineTypes() {
   return R"(
-typedef signed char int8_t;
-typedef unsigned char uint8_t;
-typedef short int int16_t;
-typedef unsigned short int uint16_t;
-typedef int int32_t;
-typedef unsigned int uint32_t;
-typedef long long int int64_t;
-typedef unsigned long long int uint64_t;
+using int8_t = signed char;
+using uint8_t = unsigned char;
+using int16_t = short int;
+using uint16_t = unsigned short int;
+using int32_t = int;
+using uint32_t = unsigned int;
+using int64_t = long long int;
+using uint64_t = unsigned long long int;
+
+// Modified from cuda.h
+struct TensorMap {
+  alignas(64)
+  uint64_t opaque[16];
+};
 )";
 }
 
@@ -150,7 +156,7 @@ std::string FusionExecutor::getStructuredCode(
   std::string code = "";
   code += includeStdComplex();
   code += std::string("namespace ") + FusionExecutor::kernelNamespace() +
-      " {\n" + defineIntegerTypes() + defineIndexType(index_type) +
+      " {\n" + defineTypes() + defineIndexType(index_type) +
       executor_utils::kernelPreamble() + kernel_str + "}\n";
 
   if (isDebugDumpEnabled(DebugDumpOption::CudaKernel)) {
@@ -401,7 +407,7 @@ void FusionExecutor::compileFusion(
   // TODO: high water mark should be computed via occupancy API after
   // compilation.
 
-  // Basically setting high water martk as 1 when we don't provide args for
+  // Basically setting high water mark as 1 when we don't provide args for
   // compilation, it will just generate a kernel that gets ditched at the first
   // run - not great. We should have better heuristics.
   block_size_high_water_mark_ = std::max<int64_t>(
@@ -414,8 +420,7 @@ void FusionExecutor::compileFusion(
       getCanonicalKernelName(),
       fusion_id_,
       compile_params,
-      block_size,
-      save_compiled_binary_ || isDebugDumpEnabled(DebugDumpOption::Sass));
+      block_size);
   NVF_ERROR(fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
 
   // These should be nullopt at this point, but reset just in case
@@ -1526,8 +1531,7 @@ void FusionExecutor::recompileKernel(
       getCanonicalKernelName(),
       fusion_id_,
       new_compile_params,
-      block_size_high_water_mark_,
-      save_compiled_binary_);
+      block_size_high_water_mark_);
 
   resetCompiledKernelProperties();
 
@@ -1832,23 +1836,28 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     if (measure_kernel_time) {
       kernel_time_ms_ = timer.elapsed();
 
-      bytes_processed_ = 0;
+      bytes_processed_per_input_.resize(num_inputs, 0);
       // Figure how many bytes are inputs, outputs, and temporary buffers
       for (auto i : c10::irange(num_inputs)) {
         if (args[i]->is<at::Tensor>()) {
-          bytes_processed_ += args[i]->as<at::Tensor>().numel() *
-              (int64_t)dataTypeSize(aten_to_data_type(
-                  args[i]->as<at::Tensor>().scalar_type()));
+          auto t = args[i]->as<at::Tensor>();
+          auto num_bytes = t.numel() *
+              (int64_t)dataTypeSize(aten_to_data_type(t.scalar_type()));
+          bytes_processed_per_input_.at(i) = num_bytes;
         }
       }
-      for (const auto& output : outputs) {
-        bytes_processed_ += output.numel() *
+      bytes_processed_per_output_.resize(outputs.size(), 0);
+      for (auto i : c10::irange(outputs.size())) {
+        const auto& output = outputs.at(i);
+        // NOTE: this assumes that all output elements correspond to a single
+        // store
+        bytes_processed_per_output_.at(i) = output.numel() *
             (int64_t)dataTypeSize(aten_to_data_type(output.scalar_type()));
       }
 
       if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth)) {
         double gb_per_s =
-            ((double)bytes_processed_ / ((double)kernel_time_ms_ / 1000)) /
+            ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
             (double)1.0e9;
         debug() << "kernel" << fusion_id_ << " run in " << kernel_time_ms_
                 << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
@@ -1953,7 +1962,6 @@ float FusionExecutor::runRtc(
 flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
-
   using fb_executor_entry = flatbuffers::Offset<serde::ExecutorEntry>;
 
   // Separate unordered_map for executor_entry_lookup into key and value
@@ -1976,7 +1984,50 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       kernel_code_.c_str(),
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
-      serde::mapToSerdeDtype(kernel()->indexType()));
+      serde::mapToSerdeDtype(kernel()->indexType()),
+      serialize(builder, compiled_kernel_));
+}
+
+flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
+    flatbuffers::FlatBufferBuilder& builder,
+    const executor_utils::CompiledKernel& compiled_kernel) const {
+  NVF_ERROR(
+      !compiled_kernel.cubin.empty() || !compiled_kernel.ptx.empty(),
+      "Expected compiled cuda kernel before serializing FusionExecutor.");
+
+  auto fb_kernel_name = builder.CreateString(compiled_kernel.kernel_name);
+  auto fb_compile_args = builder.CreateString(compiled_kernel.compile_args);
+
+  flatbuffers::Offset<flatbuffers::Vector<uint8_t>> fb_cubin = 0;
+  flatbuffers::Offset<flatbuffers::String> fb_cubin_filename = 0;
+  if (!compiled_kernel.cubin.empty()) {
+    uint8_t* cubin_ptr = nullptr;
+    fb_cubin = builder.CreateUninitializedVector(
+        compiled_kernel.cubin.size(), &cubin_ptr);
+    std::copy(
+        compiled_kernel.cubin.begin(), compiled_kernel.cubin.end(), cubin_ptr);
+    fb_cubin_filename = builder.CreateString(compiled_kernel.cubin_filename);
+  }
+
+  flatbuffers::Offset<flatbuffers::Vector<uint8_t>> fb_ptx = 0;
+  flatbuffers::Offset<flatbuffers::String> fb_ptx_filename = 0;
+  if (!compiled_kernel.ptx.empty()) {
+    uint8_t* ptx_ptr = nullptr;
+    fb_ptx =
+        builder.CreateUninitializedVector(compiled_kernel.ptx.size(), &ptx_ptr);
+    std::copy(compiled_kernel_.ptx.begin(), compiled_kernel.ptx.end(), ptx_ptr);
+    fb_ptx_filename = builder.CreateString(compiled_kernel.ptx_filename);
+  }
+
+  serde::CudaKernelBuilder ckb(builder);
+  ckb.add_cubin(fb_cubin);
+  ckb.add_cubin_filename(fb_cubin_filename);
+  ckb.add_ptx(fb_ptx);
+  ckb.add_ptx_filename(fb_ptx_filename);
+  ckb.add_kernel_name(fb_kernel_name);
+  ckb.add_compile_args(fb_compile_args);
+  ckb.add_block_size(compiled_kernel.block_size);
+  return ckb.Finish();
 }
 
 flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
@@ -2098,13 +2149,7 @@ void FusionExecutor::deserialize(
   }
 
   compiled_kernel_ = executor_utils::getCompiledKernel(
-      kernel_code_,
-      getStructuredCode(),
-      getCanonicalKernelName(),
-      fusion_id_,
-      compile_params,
-      block_size_high_water_mark_,
-      save_compiled_binary_);
+      buffer->compiled_kernel(), compile_params);
 
   NVF_ERROR(isCompiled(), "Failed to deserialize FusionExecutor");
 }

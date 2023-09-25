@@ -168,10 +168,7 @@ std::vector<int> normalizeOld2New(
 //! Warning: Invalidates provided Expr.
 //! Warning: Removes connection of reference through provided Expr.
 //! Warning: Creates new Expr defining substitute.
-TORCH_CUDA_CU_API Expr* replaceValInExprInputs(
-    Expr* expr,
-    Val* reference,
-    Val* substitute);
+Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute);
 
 //! Removes the given expression and creates a new expression that is identical
 //! to expr, but whose outputs are given by the new_outputs argument. It is an
@@ -181,7 +178,7 @@ TORCH_CUDA_CU_API Expr* replaceValInExprInputs(
 //!
 //! Warning: Invalidates provided Expr.
 //! Warning: Creates new Expr defining substitutes.
-TORCH_CUDA_CU_API Expr* transferDefinitionToNewOutputs(
+Expr* transferDefinitionToNewOutputs(
     Expr* expr,
     const std::vector<Val*>& new_outputs);
 
@@ -197,9 +194,7 @@ Val* replaceValRecursively(
     const std::unordered_map<Val*, Val*>& replacement_map);
 
 // Makes rfactor generic with reduction ops and Welford
-TORCH_CUDA_CU_API TensorView* rfactorHelper(
-    TensorView* red_tv,
-    const std::vector<int>& axes);
+TensorView* rfactorHelper(TensorView* red_tv, const std::vector<int>& axes);
 
 // Return immediate producers of val, this function can be used on any Val and
 // will return producers through Exprs.
@@ -209,7 +204,7 @@ TORCH_CUDA_CU_API TensorView* rfactorHelper(
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<Val*> producerValsOf(const Val* val);
+std::vector<Val*> producerValsOf(const Val* val);
 
 // Return immediate consumers of val, this function can be used on any Val and
 // will return consumers through Exprs.
@@ -219,7 +214,7 @@ TORCH_CUDA_CU_API std::vector<Val*> producerValsOf(const Val* val);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<Val*> consumerValsOf(const Val* val);
+std::vector<Val*> consumerValsOf(const Val* val);
 
 // Return immediate siblings of val, this function can be used on any Val and
 // will return siblings through Exprs.
@@ -229,7 +224,7 @@ TORCH_CUDA_CU_API std::vector<Val*> consumerValsOf(const Val* val);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<Val*> siblingValsOf(const Val* val);
+std::vector<Val*> siblingValsOf(const Val* val);
 
 // Return immediate producers of vals, this function can be used on any vals and
 // will return producers through Exprs.
@@ -239,8 +234,7 @@ TORCH_CUDA_CU_API std::vector<Val*> siblingValsOf(const Val* val);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<Val*> producerValsOf(
-    const std::vector<Val*>& vals);
+std::vector<Val*> producerValsOf(const std::vector<Val*>& vals);
 
 // Return immediate consumers of vals, this function can be used on any vals and
 // will return consumers through Exprs.
@@ -250,8 +244,7 @@ TORCH_CUDA_CU_API std::vector<Val*> producerValsOf(
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<Val*> consumerValsOf(
-    const std::vector<Val*>& vals);
+std::vector<Val*> consumerValsOf(const std::vector<Val*>& vals);
 
 // Return immediate producers of tv, this function will return all immediate
 // producers of tv through Exprs.
@@ -261,7 +254,7 @@ TORCH_CUDA_CU_API std::vector<Val*> consumerValsOf(
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<TensorView*> producerTvsOf(const TensorView* tv);
+std::vector<TensorView*> producerTvsOf(const TensorView* tv);
 
 // Return immediate consumers of tv, this function will return all immediate
 // consumers of tv through Exprs.
@@ -271,7 +264,7 @@ TORCH_CUDA_CU_API std::vector<TensorView*> producerTvsOf(const TensorView* tv);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<TensorView*> consumerTvsOf(const TensorView* tv);
+std::vector<TensorView*> consumerTvsOf(const TensorView* tv);
 
 // Return immediate siblings of tv, this function will return all immediate
 // siblings of tv through Exprs.
@@ -281,7 +274,7 @@ TORCH_CUDA_CU_API std::vector<TensorView*> consumerTvsOf(const TensorView* tv);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<TensorView*> siblingTvsOf(const TensorView* tv);
+std::vector<TensorView*> siblingTvsOf(const TensorView* tv);
 
 // Return immediate producers of tvs, this function will return all immediate
 // producers of tvs through Exprs.
@@ -291,8 +284,7 @@ TORCH_CUDA_CU_API std::vector<TensorView*> siblingTvsOf(const TensorView* tv);
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<TensorView*> producerTvsOf(
-    const std::vector<TensorView*>& tvs);
+std::vector<TensorView*> producerTvsOf(const std::vector<TensorView*>& tvs);
 
 // Return immediate consumers of tvs, this function will return all immediate
 // consumers of tvs through Exprs.
@@ -302,58 +294,55 @@ TORCH_CUDA_CU_API std::vector<TensorView*> producerTvsOf(
 // limited to not go through fusion inputs/outputs, but if on a path that isn't
 // strictly between fusion inputs/outputs, it could effectively return dead
 // code.
-TORCH_CUDA_CU_API std::vector<TensorView*> consumerTvsOf(
-    const std::vector<TensorView*>& tvs);
+std::vector<TensorView*> consumerTvsOf(const std::vector<TensorView*>& tvs);
 
 // Returns producers of tv that are inputs of fusion
-TORCH_CUDA_CU_API std::vector<TensorView*> inputTvsOf(TensorView* tv);
+std::vector<TensorView*> inputTvsOf(TensorView* tv);
 
 // Returns consumers of tv that are outputs of fusion
-TORCH_CUDA_CU_API std::vector<TensorView*> outputTvsOf(TensorView* tv);
+std::vector<TensorView*> outputTvsOf(TensorView* tv);
 
 // Returns producers of tvs that are inputs of fusion
-TORCH_CUDA_CU_API std::vector<TensorView*> inputTvsOf(
-    std::vector<TensorView*> tvs);
+std::vector<TensorView*> inputTvsOf(std::vector<TensorView*> tvs);
 
 // Returns consumers of tvs that are outputs of fusion
-TORCH_CUDA_CU_API std::vector<TensorView*> outputTvsOf(
-    std::vector<TensorView*> tvs);
+std::vector<TensorView*> outputTvsOf(std::vector<TensorView*> tvs);
 
 // returns all tensor views in fusion that are used between outputs and inputs.
-TORCH_CUDA_CU_API std::vector<TensorView*> allTvs(Fusion* fusion);
+std::vector<TensorView*> allTvs(Fusion* fusion);
 
 // returns all tensor views in fusion that are used between outputs and inputs
 // except the specified set.
-TORCH_CUDA_CU_API std::vector<TensorView*> allTvsExcept(
+std::vector<TensorView*> allTvsExcept(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& except);
 
-TORCH_CUDA_CU_API std::vector<Expr*> getReductionOps(Fusion* fusion);
+std::vector<Expr*> getReductionOps(Fusion* fusion);
 
-TORCH_CUDA_CU_API std::vector<IndexSelectOp*> getIndexSelectOps(Fusion* fusion);
+std::vector<IndexSelectOp*> getIndexSelectOps(Fusion* fusion);
 
-TORCH_CUDA_CU_API std::vector<TorchGatherOp*> getTorchGatherOps(Fusion* fusion);
+std::vector<TorchGatherOp*> getTorchGatherOps(Fusion* fusion);
 
-TORCH_CUDA_CU_API std::vector<MmaOp*> getMmaOps(Fusion* fusion);
+std::vector<MmaOp*> getMmaOps(Fusion* fusion);
 
-TORCH_CUDA_CU_API std::vector<SelectOp*> getSelectOps(Fusion* fusion);
+std::vector<SelectOp*> getSelectOps(Fusion* fusion);
 
 // Returns the initialization value of tv or nullptr if not initialized.
-TORCH_CUDA_CU_API Val* getReductionInitValOf(TensorView* tv);
+Val* getReductionInitValOf(TensorView* tv);
 
 // Returns if Expr is a reduction op
-TORCH_CUDA_CU_API bool isReductionOp(const Expr*);
+bool isReductionOp(const Expr*);
 
 // Returns if Expr is a reduction op with TensorView or TensorIndex
-TORCH_CUDA_CU_API bool isReductionTvOp(const Expr*);
+bool isReductionTvOp(const Expr*);
 
 // Returns if Expr is a pointwise op op with TensorView or TensorIndex
-TORCH_CUDA_CU_API bool isPointwiseTvOp(const Expr* expr);
+bool isPointwiseTvOp(const Expr* expr);
 
 // Returns all non-trivial view operations. We shouldn't have trivial view
 // operations but this function is to simply make sure if we ever do we don't
 // pull them in.
-TORCH_CUDA_CU_API std::vector<ViewOp*> getViewOps(Fusion*);
+std::vector<ViewOp*> getViewOps(Fusion*);
 
 template <typename T>
 std::string toString(const T& nodes) {
@@ -367,52 +356,60 @@ std::string toString(const T& nodes) {
   return ss.str();
 }
 
+template <typename T>
+std::string toInlineString(const T& nodes) {
+  std::stringstream ss;
+  for (const Statement* stmt : nodes) {
+    if (ss.tellp() != 0) {
+      ss << ", ";
+    }
+    ss << stmt->toInlineString();
+  }
+  return ss.str();
+}
+
 // Test if the given tensor is an input of squeeze op
-TORCH_CUDA_CU_API bool isSqueezeInput(const TensorView* tv);
+bool isSqueezeInput(const TensorView* tv);
 
 // Test if the given ID in the given tensor is squeezed
-TORCH_CUDA_CU_API bool isSqueezedID(const TensorView* tv, const IterDomain* id);
+bool isSqueezedID(const TensorView* tv, const IterDomain* id);
 
 // Test if the given ID in the given tensor is indirectly accessed by,
 // e.g., index_select, torch_gather and scatter
-TORCH_CUDA_CU_API bool isIndexedID(const TensorView* tv, const IterDomain* id);
+bool isIndexedID(const TensorView* tv, const IterDomain* id);
 
 // Test if the given ID in the given tensor is indirectly read by,
 // e.g., index_select and torch_gather
-TORCH_CUDA_CU_API bool isIndexedProducerID(
-    const TensorView* tv,
-    const IterDomain* id);
+bool isIndexedProducerID(const TensorView* tv, const IterDomain* id);
 
 // Test if the given ID in the given tensor is indirectly written to by,
 // e.g., scatter
-TORCH_CUDA_CU_API bool isIndexedConsumerID(
-    const TensorView* tv,
-    const IterDomain* id);
+bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id);
 
 // Return a producer ID, if any, that is indirectly accessed by, e.g.,
 // index_select and torch_gather.
-TORCH_CUDA_CU_API IterDomain* getIndexedProducerID(const Expr* expr);
+IterDomain* getIndexedProducerID(const Expr* expr);
 
 // Return the corresponding consumer if of a producer ID that is
 // indirectly accessed.
-TORCH_CUDA_CU_API IterDomain* getConsumerOfIndexedProducerID(const Expr* expr);
+IterDomain* getConsumerOfIndexedProducerID(const Expr* expr);
 
 // Get all IDs of a tensor. Returned values are topologicaly ordered, and
 // unique.
-TORCH_CUDA_CU_API std::vector<IterDomain*> allIDsOf(const TensorView* tv);
+std::vector<IterDomain*> allIDsOf(const TensorView* tv);
 
 // Check if the given tv is an input of SelectOp
-TORCH_CUDA_CU_API bool isSelectInput(TensorView* tv);
+bool isSelectInput(TensorView* tv);
 
 // Check if the given tv is first argment of index_select(lookup, dim, indices)
-TORCH_CUDA_CU_API bool isIndexSelectLookupTv(const TensorView* tv);
+bool isIndexSelectLookupTv(const TensorView* tv);
 
 // Check if the given tv is third argment of index_select(lookup, dim, indices)
-TORCH_CUDA_CU_API bool isIndexSelectIndicesTv(const TensorView* tv);
+bool isIndexSelectIndicesTv(const TensorView* tv);
 
-TORCH_CUDA_CU_API bool isTorchGatherLookupTv(const Val* tv);
+bool isTorchGatherLookupTv(const Val* tv);
 
-TORCH_CUDA_CU_API std::string varName(const Val* val);
+std::string varName(const Val* val);
 
 // Check if a tensor is resized as part of  its root to rfactor transformations
 bool hasResizedRfactor(const TensorView* tv);

@@ -2171,9 +2171,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0->cacheAfter(LoadStoreOpType::CpAsyncCa);
+  auto tv0cw = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
-  auto tv1cw = tv1->cacheAfter(LoadStoreOpType::CpAsyncCa);
+  auto tv1cw = tv1->cacheAfter(LoadStoreOpType::CpAsync);
   auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
@@ -2990,9 +2990,9 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0->cacheAfter(LoadStoreOpType::CpAsyncCa);
+  auto tv0cw = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
-  auto tv1cw = tv1->cacheAfter(LoadStoreOpType::CpAsyncCa);
+  auto tv1cw = tv1->cacheAfter(LoadStoreOpType::CpAsync);
   auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
   auto tv2c = tv2->cacheBefore();
 

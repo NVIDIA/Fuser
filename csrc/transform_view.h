@@ -54,7 +54,7 @@ struct AnalyzeViewResult {
   size_t hash() const;
 };
 
-struct TORCH_CUDA_CU_API AnalyzeViewConstraint {
+struct AnalyzeViewConstraint {
   // 1 if size 1 dimension, otherwise 0;
   std::vector<int64_t> original_constraint;
   std::vector<int64_t> new_constraint;
@@ -105,8 +105,7 @@ struct TORCH_CUDA_CU_API AnalyzeViewConstraint {
 //! Infer -1 value in new view std::vector<int64_t> based on original view
 //! std::vector<int64_t>. This shouldn't generally be used directly but is
 //! useful for testing.
-TORCH_CUDA_CU_API std::pair<std::vector<int64_t>, std::vector<int64_t>>
-inferViewShapes(
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferViewShapes(
     const std::vector<int64_t>& original_sizes,
     const std::vector<int64_t>& new_sizes);
 
@@ -118,7 +117,7 @@ AnalyzeViewResult analyzeView(
     const std::vector<int64_t>& new_sizes);
 
 // Find the constraints derived from the view transformations
-TORCH_CUDA_CU_API AnalyzeViewConstraint analyzeViewConstraint(
+AnalyzeViewConstraint analyzeViewConstraint(
     const std::vector<int64_t>& original_sizes,
     const std::vector<int64_t>& new_sizes);
 

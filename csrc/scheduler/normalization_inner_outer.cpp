@@ -17,7 +17,7 @@
 #include <ir/utils.h>
 #include <options.h>
 #include <scheduler/debug_utils.h>
-#include <scheduler/normalization.h>
+#include <scheduler/normalization_inner_outer.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry.h>
@@ -32,51 +32,52 @@
 
 namespace nvfuser {
 
-PersistentKernelScheduler::PersistentKernelScheduler(
+InnerOuterPersistentKernelScheduler::InnerOuterPersistentKernelScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
-    : SchedulerEntry(ScheduleHeuristic::Persistent) {
+    : SchedulerEntry(ScheduleHeuristic::InnerOuterPersistent) {
   computeHeuristics(fusion, runtime_info, data_cache);
 }
 
-void PersistentKernelScheduler::schedule(Fusion* fusion) {
+void InnerOuterPersistentKernelScheduler::schedule(Fusion* fusion) {
   FUSER_PERF_SCOPE("Schedule Persistent Fusion");
-  schedulePersistentKernel(fusion, reductionParams());
+  scheduleInnerOuterPersistentKernel(fusion, reductionParams());
 }
 
-bool PersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
+bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
+    Fusion* fusion) {
   // Needs at least one reduction to consider.
   auto reduction_ops = ir_utils::getReductionOps(fusion);
   if (reduction_ops.empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Persistent, "needs a reduction op");
+        ScheduleHeuristic::InnerOuterPersistent, "needs a reduction op");
     return false;
   }
 
   if (ir_utils::filterByType<TensorView>(fusion->inputs()).empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Persistent,
+        ScheduleHeuristic::InnerOuterPersistent,
         "Scheduling not supported with no input");
     return false;
   }
 
   // Check that inputs of all select/gather-like ops are fusion inputs
   if (registry_utils::rejectScheduleForMemoryPromotion(
-          fusion, ScheduleHeuristic::Persistent)) {
+          fusion, ScheduleHeuristic::InnerOuterPersistent)) {
     return false;
   }
 
   // Fusions handled by persistent kernel scheduler cannot have MmaOp.
   if (!ir_utils::getMmaOps(fusion).empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Persistent, "no support for mma ops.");
+        ScheduleHeuristic::InnerOuterPersistent, "no support for mma ops.");
     return false;
   }
 
   if (registry_utils::hasNonUniqueBcast(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Persistent,
+        ScheduleHeuristic::InnerOuterPersistent,
         "Broadcasting dimension might be broadcasting to multiple sizes.");
     return false;
   }
@@ -86,7 +87,7 @@ bool PersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
   if (reduction_tvs.empty()) {
     // Use pointwise logic
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Persistent, "no reduction tv");
+        ScheduleHeuristic::InnerOuterPersistent, "no reduction tv");
     return false;
   }
 
@@ -101,6 +102,14 @@ bool PersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
   }
   bool combined_inner_outer =
       !inner_reduction_tvs.empty() && !outer_reduction_tvs.empty();
+
+  if (!combined_inner_outer) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::InnerOuterPersistent,
+        "ScheduleHeuristic::InnerOuterPersistent requires both inner and outer reduction tvs.");
+    return false;
+  }
+
   if (!checkReductionPattern(
           fusion, inner_reduction_tvs, outer_reduction_tvs)) {
     return false;
@@ -115,7 +124,7 @@ bool PersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
     ComputeAtMap ca_map(fusion);
     if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
       scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Persistent,
+          ScheduleHeuristic::InnerOuterPersistent,
           "Fusion requires view being reversible.");
       return false;
     }
@@ -125,7 +134,7 @@ bool PersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
     if (registry_utils::reductionInterferingView(
             fusion, ca_map, reference_tv)) {
       scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Persistent,
+          ScheduleHeuristic::InnerOuterPersistent,
           "View may interfere with normalization scheduling.");
       return false;
     }
@@ -153,7 +162,7 @@ bool PersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
     } else {
       if (reduction_root_size(red) != axis_count) {
         scheduler_debug_utils::canScheduleRejectReason(
-            ScheduleHeuristic::Persistent,
+            ScheduleHeuristic::InnerOuterPersistent,
             "inconsistent reduction root size: ",
             red->toString(),
             ", expected: ",
@@ -167,14 +176,15 @@ bool PersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
   auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
   if (persistent_buffer_info.persistent_buffers.empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Persistent, "no persistent buffer identified");
+        ScheduleHeuristic::InnerOuterPersistent,
+        "no persistent buffer identified");
     return false;
   }
 
   if (registry_utils::SchedulerTopologyChecker::
           hasNonNormalizePostReductionBCast(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Persistent,
+        ScheduleHeuristic::InnerOuterPersistent,
         "unsupported post reduction normalization");
     return false;
   }
@@ -182,7 +192,7 @@ bool PersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
   if (registry_utils::SchedulerTopologyChecker::
           hasGatherToBroadcastBeforeReduction(fusion, reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Persistent,
+        ScheduleHeuristic::InnerOuterPersistent,
         "has unsupported gather-like ops before normalization");
     return false;
   }
@@ -190,11 +200,11 @@ bool PersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
   return true;
 }
 
-bool PersistentKernelScheduler::canScheduleRunTime(
+bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("PersistentKernelScheduler::canSchedule");
+  FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::canSchedule");
   auto reduction_tv_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
           data_cache, [&fusion]() {
@@ -243,13 +253,14 @@ bool PersistentKernelScheduler::canScheduleRunTime(
 
   if (persistent_buffer_size > available_persistent_buffer_size) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Persistent,
+        ScheduleHeuristic::InnerOuterPersistent,
         "not enough registers or shared memory for persistence");
     return false;
   }
 
   if (inner_reduction && outer_reduction) {
-    // get vectorize_factor, same process to that in getPersistentHeuristics
+    // get vectorize_factor, same process to that in
+    // getInnerOuterPersistentHeuristics
     auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
     const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
         runtime_info,
@@ -268,7 +279,7 @@ bool PersistentKernelScheduler::canScheduleRunTime(
                  false)
                  .first.has_value()) {
       scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Persistent,
+          ScheduleHeuristic::InnerOuterPersistent,
           "Required batch number is larger than available batch number! Will cause register spills!");
       return false;
     }
@@ -291,7 +302,8 @@ bool PersistentKernelScheduler::canScheduleRunTime(
   if (required_sm_per_norm >
       scheduler_utils::safeDiv(device_multiprocessor_count, 3)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Persistent, "requires over half GPU persistence.");
+        ScheduleHeuristic::InnerOuterPersistent,
+        "requires over half GPU persistence.");
     return false;
   }
 
@@ -304,7 +316,7 @@ bool PersistentKernelScheduler::canScheduleRunTime(
       !(norm_per_sm >= warp_size / 2 ||
         max_multi_reduction_factor >= warp_size)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Persistent, "not enough threads");
+        ScheduleHeuristic::InnerOuterPersistent, "not enough threads");
     return false;
   }
 
@@ -320,22 +332,22 @@ bool PersistentKernelScheduler::canScheduleRunTime(
                // half warp
                : (warp_size / 8) * device_multiprocessor_count)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Persistent, "not enough blocks");
+        ScheduleHeuristic::InnerOuterPersistent, "not enough blocks");
     return false;
   }
 
   return true;
 }
 
-void PersistentKernelScheduler::computeHeuristics(
+void InnerOuterPersistentKernelScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  params_ = getPersistentHeuristics(fusion, runtime_info, data_cache);
+  params_ = getInnerOuterPersistentHeuristics(fusion, runtime_info, data_cache);
   NVF_ERROR(params_ != nullptr);
 }
 
-bool PersistentKernelScheduler::checkReductionPattern(
+bool InnerOuterPersistentKernelScheduler::checkReductionPattern(
     Fusion* fusion,
     const std::vector<TensorView*>& inner_reduction_tvs,
     const std::vector<TensorView*>& outer_reduction_tvs) {
@@ -350,7 +362,7 @@ bool PersistentKernelScheduler::checkReductionPattern(
       if (!registry_utils::checkPatternEquivalence(
               rtvs[it - 1], rtvs[it], root_map)) {
         scheduler_debug_utils::canScheduleRejectReason(
-            ScheduleHeuristic::Persistent,
+            ScheduleHeuristic::InnerOuterPersistent,
             "unmapped reduction ",
             rtvs[it - 1],
             " and ",
@@ -365,7 +377,7 @@ bool PersistentKernelScheduler::checkReductionPattern(
     if (!normalization_scheduler_utils::checkIfReductionsAreInnerOuter(
             inner_reduction_tvs, outer_reduction_tvs)) {
       scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Persistent,
+          ScheduleHeuristic::InnerOuterPersistent,
           "to use combined reduction, inner reduction tensor should be [I,I,...,R,R] and outer reduction tensor should be [R,R,...,I,I]");
       return false;
     }
@@ -373,7 +385,7 @@ bool PersistentKernelScheduler::checkReductionPattern(
     if (!normalization_scheduler_utils::hasSharedInput(
             inner_reduction_tvs, outer_reduction_tvs)) {
       scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Persistent,
+          ScheduleHeuristic::InnerOuterPersistent,
           "to use combined reduction, inner reduction and outer reduction should have shared input.");
       return false;
     }
@@ -381,7 +393,7 @@ bool PersistentKernelScheduler::checkReductionPattern(
     if (!normalization_scheduler_utils::isConnectedOnlyThroughReductionProducer(
             inner_reduction_tvs, outer_reduction_tvs)) {
       scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Persistent,
+          ScheduleHeuristic::InnerOuterPersistent,
           "to use combined reduction, inner reduction and outer reduction should not have shared consumer, their consumers should not have shared non-outer-reduction producer.");
       return false;
     }
@@ -389,11 +401,12 @@ bool PersistentKernelScheduler::checkReductionPattern(
   return true;
 }
 
-std::pair<int64_t, int64_t> PersistentKernelScheduler::getPersistentBufferSize(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache,
-    const std::vector<TensorView*>& reduction_tvs) {
+std::pair<int64_t, int64_t> InnerOuterPersistentKernelScheduler::
+    getPersistentBufferSize(
+        Fusion* fusion,
+        SchedulerRuntimeInfo& runtime_info,
+        HeuristicSummary* data_cache,
+        const std::vector<TensorView*>& reduction_tvs) {
   auto persistent_buffer_info_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
           data_cache, [&fusion]() {
@@ -476,13 +489,14 @@ std::pair<int64_t, int64_t> PersistentKernelScheduler::getPersistentBufferSize(
       persistent_buffer_size, available_persistent_buffer_size);
 }
 
-bool PersistentKernelScheduler::canScheduleRunTimeOuter(
+bool InnerOuterPersistentKernelScheduler::canScheduleRunTimeOuter(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache,
     const std::vector<TensorView*>& reduction_tvs,
     const scheduler_utils::ReductionTvProperties& properties) {
-  FUSER_PERF_SCOPE("PersistentKernelScheduler::canScheduleRuntimeOuter");
+  FUSER_PERF_SCOPE(
+      "InnerOuterPersistentKernelScheduler::canScheduleRuntimeOuter");
   FusionGuard fg(fusion);
 
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
@@ -518,7 +532,8 @@ bool PersistentKernelScheduler::canScheduleRunTimeOuter(
 
   if (persistent_buffer_size > available_persistent_buffer_size) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Persistent, "not enough registers for persistence");
+        ScheduleHeuristic::InnerOuterPersistent,
+        "not enough registers for persistence");
     return false;
   }
 
@@ -545,7 +560,7 @@ bool PersistentKernelScheduler::canScheduleRunTimeOuter(
   if (required_sm_per_norm >
       scheduler_utils::safeDiv(device_multiprocessor_count, 2)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Persistent,
+        ScheduleHeuristic::InnerOuterPersistent,
         "requires over half GPU persistence.",
         " required SMs per normalization: ",
         required_sm_per_norm);
@@ -563,7 +578,7 @@ bool PersistentKernelScheduler::canScheduleRunTimeOuter(
     // TODO: Is this necessary for block persistence as well?
     if (vectorization_factor < 4) {
       scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Persistent, "not enough vectorized");
+          ScheduleHeuristic::InnerOuterPersistent, "not enough vectorized");
       return false;
     }
 
@@ -577,7 +592,8 @@ bool PersistentKernelScheduler::canScheduleRunTimeOuter(
 
     if (!cross_grid_params.has_value()) {
       scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Persistent, "no valid launch config found");
+          ScheduleHeuristic::InnerOuterPersistent,
+          "no valid launch config found");
       return false;
     }
   }
@@ -594,7 +610,7 @@ bool PersistentKernelScheduler::canScheduleRunTimeOuter(
   // factor
   if (max_multi_reduction_factor < min_multi_reduction_factor) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Persistent,
+        ScheduleHeuristic::InnerOuterPersistent,
         "Not enough threads.",
         " Multi reduction factor, ",
         max_multi_reduction_factor,
@@ -619,7 +635,7 @@ bool PersistentKernelScheduler::canScheduleRunTimeOuter(
   if (is_cross_grid &&
       max_used_sms < scheduler_utils::safeDiv(device_multiprocessor_count, 2)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Persistent,
+        ScheduleHeuristic::InnerOuterPersistent,
         "cross grid - not enough used SMs: ",
         max_used_sms);
     return false;
@@ -633,7 +649,7 @@ bool PersistentKernelScheduler::canScheduleRunTimeOuter(
           device_max_threads_per_multiprocessor * 4 && // Large reduction dim
       max_used_sms < min_fraction_of_sms) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Persistent, "not enough used SMs");
+        ScheduleHeuristic::InnerOuterPersistent, "not enough used SMs");
     return false;
   }
 
@@ -650,7 +666,7 @@ bool PersistentKernelScheduler::canScheduleRunTimeOuter(
             return !reduction_tv->definition()->isA<WelfordOp>();
           })) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Persistent, "non-Welford not enabled yet");
+        ScheduleHeuristic::InnerOuterPersistent, "non-Welford not enabled yet");
     return false;
   }
 
@@ -667,7 +683,8 @@ bool PersistentKernelScheduler::canScheduleRunTimeOuter(
        0) &&
       device_prop->major == 7) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Persistent, "iteration not evenly divided");
+        ScheduleHeuristic::InnerOuterPersistent,
+        "iteration not evenly divided");
     return false;
   }
 
@@ -1916,8 +1933,6 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   return rparams;
 }
 
-} // namespace
-
 std::shared_ptr<ReductionParams> persistentHeuristic(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
@@ -1962,11 +1977,13 @@ std::shared_ptr<ReductionParams> persistentHeuristic(
   return rparams;
 }
 
-std::shared_ptr<ReductionParams> getPersistentHeuristics(
+} // namespace
+
+std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getPersistentHeuristics");
+  FUSER_PERF_SCOPE("getInnerOuterPersistentHeuristics");
   FusionGuard fg(fusion);
 
   auto reduction_tv_entry =
@@ -2033,14 +2050,6 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   // Grab persistent buffer sizes
   auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
       fusion, runtime_info, persistent_buffer_info, data_cache);
-  // If projected persistent buffers are smaller, they will be used.
-  // TODO: Fix projected persistent buffers with view
-  // https://github.com/csarofeen/pytorch/issues/2054
-  auto max_persistent_size = !ir_utils::getViewOps(fusion).empty()
-      ? persistent_buffer_size_info.persistent_buffer_size
-      : std::min(
-            persistent_buffer_size_info.persistent_buffer_size,
-            persistent_buffer_size_info.projected_persistent_buffer_size);
 
   // Figure out if we want to projet persistent buffers to the inputs for
   // exmaple if we have an input tensor t0 that's fp16:
@@ -2057,11 +2066,20 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   // persistent buffer as a float, however we could obviously just save t0 which
   // is half and would take half the memory. A more complex scenario of this
   // which requires more advanced analysis is batch norm backwards.
-  bool project_persistent_buffers =
+  // TODO: Fix projected persistent buffers with view
+  // https://github.com/csarofeen/pytorch/issues/2054
+  // If projected persistent buffers are smaller, they will be used.
+  bool can_project = ir_utils::getViewOps(fusion).empty() &&
+      persistent_buffer_size_info.projected_persistent_buffer_size > 0;
+  bool project_persistent_buffers = can_project &&
       persistent_buffer_size_info.projected_persistent_buffer_size <
-      persistent_buffer_size_info.persistent_buffer_size;
+          persistent_buffer_size_info.persistent_buffer_size;
 
-  if (combined_inner_outer_reduction) {
+  auto max_persistent_size = project_persistent_buffers
+      ? persistent_buffer_size_info.projected_persistent_buffer_size
+      : persistent_buffer_size_info.persistent_buffer_size;
+
+  if (can_project && combined_inner_outer_reduction) {
     // In combined_inner_outer_reduction, we have additional buffers for partial
     // results of outer reductions.
     int64_t outer_reduction_buffer_size =
@@ -2162,14 +2180,16 @@ std::shared_ptr<ReductionParams> getPersistentHeuristics(
   return heuristic;
 }
 
-std::shared_ptr<ReductionParams> getPersistentHeuristics(
+std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("getPersistentHeuristicsFromIValue");
+  FUSER_PERF_SCOPE("getInnerOuterPersistentHeuristicsFromIValue");
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
-  return getPersistentHeuristics(fusion, runtime_info, data_cache);
+  return getInnerOuterPersistentHeuristics(fusion, runtime_info, data_cache);
 }
+
+namespace {
 
 // common prepare for both inner outer combined and seperated reductions
 void beforeSchedule(
@@ -2183,12 +2203,9 @@ void beforeSchedule(
   // later step, this will move them to be in a register buffer as expected.
   // dummy outputs are helper tensors to make sure persistent buffer projection
   // does not create trouble for transform propagation.
-  // TODO: Fix projected persistent buffers with view
-  // https://github.com/csarofeen/pytorch/issues/2054
-  const bool project_to_inputs = rparams.project_persistent_buffers &&
-      ir_utils::getViewOps(fusion).empty();
   dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
-      fusion, project_to_inputs);
+      fusion, rparams.project_persistent_buffers);
+
   // Cache tensors before grabbing any references to reductions as cache_before
   // can invalidate the references since when applied to a reduction tensor view
   // the new tensor view contains the reduction and original doesn't.
@@ -2264,68 +2281,6 @@ TensorView* scheduleReductionGeneral(
 
   return reduction_scheduler_utils::scheduleReductionTV(
       rparams, reduction_tv, has_iter_axis);
-}
-
-// fusion is the input IR that will be modified by this function
-void schedulePersistentKernel(Fusion* fusion, const ReductionParams& rparams) {
-  FUSER_PERF_SCOPE("schedulePersistentKernel");
-  if (rparams.combined_inner_outer) {
-    return schedulePersistentKernelInnerOuter(fusion, rparams);
-  }
-  FusionGuard fg(fusion);
-
-  // Grab the reduction, input, and output tensor views. dummy_outputs are
-  // helper tensors for persistent buffer projection.
-  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
-  beforeSchedule(
-      fusion,
-      rparams,
-      dummy_outputs,
-      cached_inputs,
-      reduction_tvs,
-      cached_outputs);
-
-  TensorView* reference_tv =
-      scheduleReductionGeneral(fusion, rparams, reduction_tvs);
-
-  // Reduction tensor views and rfactor tensor views are setup. Let's finish off
-  // the scheduling, particularly inlining and unrolling.
-  NVF_ERROR(
-      reference_tv != nullptr && reduction_tvs[0] != nullptr,
-      "Need these two tensor views to finish the scheduling.");
-
-  for (auto output : dummy_outputs) {
-    fusion->addOutput(output);
-  }
-
-  const bool unroll = rparams.isUnrolled();
-  const bool vectorize =
-      rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
-  const bool is_outer_grid_persistence = rparams.persistent_kernel &&
-      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
-  reduction_scheduler_utils::multiReductionInliner(
-      fusion,
-      reduction_tvs[0],
-      reference_tv,
-      unroll,
-      vectorize,
-      is_outer_grid_persistence,
-      reduction_tvs,
-      cached_inputs,
-      cached_outputs,
-      dummy_outputs);
-
-  if (rparams.compute_persistent_buffer_with_first_consumer) {
-    NVF_ERROR(
-        rparams.persistent_kernel,
-        "computeWith should be only used with persistent kernels");
-    for (const auto persistent_buffer : cached_inputs) {
-      persistent_buffer->computeWith(-1, true);
-    }
-  }
-
-  scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 }
 
 void scheduleReductionCombinedOuter(
@@ -2439,10 +2394,10 @@ void scheduleReductionCombinedOuter(
   }
 }
 
-void schedulePersistentKernelInnerOuter(
+void scheduleInnerOuterPersistentKernelInnerOuter(
     Fusion* fusion,
     const ReductionParams& rparams) {
-  FUSER_PERF_SCOPE("schedulePersistentKernelInnerOuter");
+  FUSER_PERF_SCOPE("scheduleInnerOuterPersistentKernelInnerOuter");
 
   FusionGuard fg(fusion);
 
@@ -2591,4 +2546,71 @@ void schedulePersistentKernelInnerOuter(
   }
   inlineMost();
 }
+
+} // namespace
+
+// fusion is the input IR that will be modified by this function
+void scheduleInnerOuterPersistentKernel(
+    Fusion* fusion,
+    const ReductionParams& rparams) {
+  FUSER_PERF_SCOPE("schedulePersistentKernel");
+  if (rparams.combined_inner_outer) {
+    return scheduleInnerOuterPersistentKernelInnerOuter(fusion, rparams);
+  }
+  FusionGuard fg(fusion);
+
+  // Grab the reduction, input, and output tensor views. dummy_outputs are
+  // helper tensors for persistent buffer projection.
+  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
+  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
+  beforeSchedule(
+      fusion,
+      rparams,
+      dummy_outputs,
+      cached_inputs,
+      reduction_tvs,
+      cached_outputs);
+
+  TensorView* reference_tv =
+      scheduleReductionGeneral(fusion, rparams, reduction_tvs);
+
+  // Reduction tensor views and rfactor tensor views are setup. Let's finish off
+  // the scheduling, particularly inlining and unrolling.
+  NVF_ERROR(
+      reference_tv != nullptr && reduction_tvs[0] != nullptr,
+      "Need these two tensor views to finish the scheduling.");
+
+  for (auto output : dummy_outputs) {
+    fusion->addOutput(output);
+  }
+
+  const bool unroll = rparams.isUnrolled();
+  const bool vectorize =
+      rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
+  const bool is_outer_grid_persistence = rparams.persistent_kernel &&
+      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
+  reduction_scheduler_utils::multiReductionInliner(
+      fusion,
+      reduction_tvs[0],
+      reference_tv,
+      unroll,
+      vectorize,
+      is_outer_grid_persistence,
+      reduction_tvs,
+      cached_inputs,
+      cached_outputs,
+      dummy_outputs);
+
+  if (rparams.compute_persistent_buffer_with_first_consumer) {
+    NVF_ERROR(
+        rparams.persistent_kernel,
+        "computeWith should be only used with persistent kernels");
+    for (const auto persistent_buffer : cached_inputs) {
+      persistent_buffer->computeWith(-1, true);
+    }
+  }
+
+  scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
+}
+
 } // namespace nvfuser
