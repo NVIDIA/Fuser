@@ -1543,7 +1543,7 @@ void IndexLowering::handle(const PadOp* pad) {
             SimplifyingIrBuilder::geExpr(
                 producer_idx, GpuLower::current()->kernel()->zeroVal()),
             SimplifyingIrBuilder::ltExpr(
-                producer_idx, producer_root_id->extent())));
+                producer_idx, producer_root_id->getMaybeExpandedExtent())));
   }
 
   pushBack(IrBuilder::create<TernaryOp>(
