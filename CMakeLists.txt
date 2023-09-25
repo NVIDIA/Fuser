@@ -252,6 +252,8 @@ if(NVFUSER_BUILD_WITH_ASAN)
   add_link_options(-fsanitize=address)
 endif()
 
+list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
+
 if(PROJECT_IS_TOP_LEVEL)
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
 
