@@ -20,20 +20,28 @@ namespace nvfuser {
   extern decltype(::funcName)* funcName;
 
 // List of driver APIs that you want the magic to happen.
-DECLARE_DRIVER_API_WRAPPER(cuGetErrorName);
-DECLARE_DRIVER_API_WRAPPER(cuGetErrorString);
-DECLARE_DRIVER_API_WRAPPER(cuModuleLoadDataEx);
-DECLARE_DRIVER_API_WRAPPER(cuModuleGetFunction);
-DECLARE_DRIVER_API_WRAPPER(cuOccupancyMaxActiveBlocksPerMultiprocessor);
-DECLARE_DRIVER_API_WRAPPER(cuFuncGetAttribute);
-DECLARE_DRIVER_API_WRAPPER(cuLaunchKernel);
-DECLARE_DRIVER_API_WRAPPER(cuLaunchCooperativeKernel);
-DECLARE_DRIVER_API_WRAPPER(cuDeviceGetAttribute);
-DECLARE_DRIVER_API_WRAPPER(cuDeviceGetName);
+#define ALL_DRIVER_API_WRAPPER_CUDA11(fn)          \
+  fn(cuGetErrorName);                              \
+  fn(cuGetErrorString);                            \
+  fn(cuModuleLoadDataEx);                          \
+  fn(cuModuleGetFunction);                         \
+  fn(cuOccupancyMaxActiveBlocksPerMultiprocessor); \
+  fn(cuFuncGetAttribute);                          \
+  fn(cuFuncSetAttribute);                          \
+  fn(cuLaunchKernel);                              \
+  fn(cuLaunchCooperativeKernel);                   \
+  fn(cuDeviceGetAttribute);                        \
+  fn(cuDeviceGetName)
 
 #if (CUDA_VERSION >= 12000)
-DECLARE_DRIVER_API_WRAPPER(cuTensorMapEncodeTiled);
+#define ALL_DRIVER_API_WRAPPER(fn)   \
+  ALL_DRIVER_API_WRAPPER_CUDA11(fn); \
+  fn(cuTensorMapEncodeTiled)
+#else
+#define ALL_DRIVER_API_WRAPPER ALL_DRIVER_API_WRAPPER_CUDA11
 #endif
+
+ALL_DRIVER_API_WRAPPER(DECLARE_DRIVER_API_WRAPPER);
 
 #undef DECLARE_DRIVER_API_WRAPPER
 
