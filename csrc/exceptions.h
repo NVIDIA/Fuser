@@ -8,7 +8,6 @@
 #include <cstdint>
 #include <deque>
 #include <fstream>
-#include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
