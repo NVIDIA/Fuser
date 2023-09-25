@@ -52,6 +52,12 @@ std::unordered_set<IterDomain*> ConcretizedBroadcastDomains::
   return {};
 }
 
+// In some cases an op like pad or slice will introduce a broadcast domain by
+// truncating a longer dimension or expanding an empty dimension to size 1. In
+// these cases tv will have an RFactor Broadcast IterDomains that are not
+// present in the root domain. Contrast this case with BroadcastOp, whose output
+// does not have RFactor domains and instead places new broadcast domains in the
+// output root domain.
 void ConcretizedBroadcastDomains::handle(TensorView* tv) {
   if (!tv->hasRFactor()) {
     return;
@@ -67,6 +73,9 @@ void ConcretizedBroadcastDomains::handle(TensorView* tv) {
   }
 }
 
+// Most broadcasts are handled with this method, since Broadcast domains are
+// usually introduced through a BroadcastOp. Others are handled by the
+// handle(TensorView*) method.
 void ConcretizedBroadcastDomains::handle(BroadcastOp* bop) {
   // Create a new entry for each of new broadcast domains
   auto out = bop->out()->as<TensorView>();
