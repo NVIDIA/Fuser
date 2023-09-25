@@ -1464,6 +1464,45 @@ void IndexLowering::allocateUniqueFusedReduction(
   insertAtTopLevel(fused_reduction_alloc_reduction);
 }
 
+// This is mostly copied from Index::getProducerPerDimLogicalIndex()
+Val* IndexLowering::getIterationIndexForBroadcast(
+    TensorView* producer_tv,
+    TensorView* consumer_tv,
+    IterDomain* broadcast_id) const {
+  NVF_ERROR(
+      broadcast_id->isBroadcast(),
+      "Expected broadcast ID but found ",
+      broadcast_id->toString());
+
+  auto c2p_root_map =
+      PairwiseRootDomainMap(producer_tv, consumer_tv)
+          .mapBroadcast(false)
+          .mapConsumerToProducer(consumer_tv->domain(), producer_tv->domain());
+
+  // This replay has to be consistent with compute at index map.
+  BestEffortReplay replay_producer_as_consumer(
+      producer_tv->getLeafDomain(), consumer_tv->getLeafDomain(), c2p_root_map);
+
+  const auto& c2p_map = replay_producer_as_consumer.getReplay();
+  const auto& producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
+      for_loops_, getRotatedLoop(), consumer_tv, producer_tv, true, c2p_map);
+
+  const auto& producer_indexing = producer_indexing_from_idgraph.index;
+
+  const auto& index_map = producer_indexing.indexMap();
+  const auto index_it = index_map.find(broadcast_id);
+  NVF_ERROR(
+      index_it != index_map.end(),
+      "Could not find padded consumer IterDomain ",
+      broadcast_id->toString(),
+      " from consumer TensorView ",
+      consumer_tv->toString(),
+      " in index map for producer TensorView ",
+      producer_tv->toString());
+
+  return index_it->second;
+}
+
 void IndexLowering::handle(const PadOp* pad) {
   // Convert to a where op as:
   // consumer[consumer_idx] = (producer_idx >= 0 && producer_idx <
@@ -1488,43 +1527,9 @@ void IndexLowering::handle(const PadOp* pad) {
       // When we pad a Broadcast IterDomain, we should not treat it as a
       // Broadcast as we normally would. Instead, we will treat it as a regular
       // Iteration domain with extent 1.
-      //
-      // The following is copied from Index::getProducerPerDimLogicalIndex()
-      // TODO: clean this up and get the producer index in a more direct way
-
-      auto c2p_root_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
-                              .mapBroadcast(false)
-                              .mapConsumerToProducer(
-                                  consumer_tv->domain(), producer_tv->domain());
-
-      // This replay has to be consistent with compute at index map.
-      BestEffortReplay replay_producer_as_consumer(
-          producer_tv->getLeafDomain(),
-          consumer_tv->getLeafDomain(),
-          c2p_root_map);
-
-      const auto& c2p_map = replay_producer_as_consumer.getReplay();
-      const auto& producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
-          for_loops_,
-          getRotatedLoop(),
-          consumer_tv,
-          producer_tv,
-          true,
-          c2p_map);
-
-      const auto& producer_indexing = producer_indexing_from_idgraph.index;
-
-      const auto& index_map = producer_indexing.indexMap();
-      const auto index_it = index_map.find(padded_id);
-      NVF_ERROR(
-          index_it != index_map.end(),
-          "Could not find padded consumer IterDomain ",
-          padded_id->toString(),
-          " from consumer TensorView ",
-          consumer_tv->toString(),
-          " in index map for producer TensorView ",
-          producer_tv->toString());
-      override_index.emplace(padded_id, index_it->second);
+      auto ind =
+          getIterationIndexForBroadcast(producer_tv, consumer_tv, padded_id);
+      override_index.emplace(padded_id, ind);
     }
   }
 
