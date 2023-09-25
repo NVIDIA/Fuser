@@ -1503,8 +1503,8 @@ void IndexLowering::handle(const PadOp* pad) {
           consumer_tv->getLeafDomain(),
           c2p_root_map);
 
-      auto c2p_map = replay_producer_as_consumer.getReplay();
-      auto producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
+      const auto& c2p_map = replay_producer_as_consumer.getReplay();
+      const auto& producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
           for_loops_,
           getRotatedLoop(),
           consumer_tv,
@@ -1512,7 +1512,7 @@ void IndexLowering::handle(const PadOp* pad) {
           true,
           c2p_map);
 
-      auto producer_indexing = producer_indexing_from_idgraph.index;
+      const auto& producer_indexing = producer_indexing_from_idgraph.index;
 
       const auto& index_map = producer_indexing.indexMap();
       const auto index_it = index_map.find(padded_id);

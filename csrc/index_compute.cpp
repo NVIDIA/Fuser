@@ -1697,10 +1697,10 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   c2p_index_map = replay_producer_as_consumer.getReplay();
 
-  auto producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
+  const auto& producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
       loops, rotated_loops, consumer_tv, producer_tv, false, c2p_index_map);
 
-  auto producer_indexing = producer_indexing_from_idgraph.index;
+  const auto& producer_indexing = producer_indexing_from_idgraph.index;
 
   IndexSwizzle index_swizzle(
       producer_tv,
@@ -2041,7 +2041,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
     }
   }
 
-  auto producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
+  const auto& producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
       loops, rotated_loops, consumer_tv, producer_tv, true, c2p_map);
 
   auto producer_indexing = producer_indexing_from_idgraph.index;

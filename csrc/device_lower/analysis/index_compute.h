@@ -41,7 +41,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
     const TensorView* consumer_tv,
     const TensorView* producer_tv = nullptr,
     bool is_global = true,
-    std::unordered_map<IterDomain*, IterDomain*> c2p_map = {});
+    const std::unordered_map<IterDomain*, IterDomain*> c2p_map = {});
 
 //! Indexing interface for calculating predicate index returns IndexFromIdGraph
 //! which the IndexCompute object can be queried from directly for the produced
