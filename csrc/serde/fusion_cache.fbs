@@ -360,6 +360,20 @@ table Vector {
 // =====================================================================================
 //
 
+// Each CudaKernel represents a single, compiled kernel.
+table CudaKernel {
+  kernel_name: string;
+  compile_args: string;
+  cubin: [ubyte];
+  cubin_filename: string;
+  ptx: [ubyte];
+  ptx_filename: string;
+  // The block size field is used to generate compile arguments.
+  // We compare the generated compile args against those stored in this table
+  // when deserializing this cuda kernel.
+  block_size: long = -1;
+}
+
 // Each Fusion Executor maps to a lowered and compiled kernel.
 table FusionExecutor {
   device_smem_limit: long;
@@ -371,9 +385,9 @@ table FusionExecutor {
   kernel_code : string;
   executor_entry_lookup_keys : [ulong];
   executor_entry_lookup_values : [ExecutorEntry];
-  // Is this kernel being compiled with int32 or int64 indexing. This
-  // information is required to resolve DataType::Index
+  // Is this kernel being compiled with int32 or int64 indexing?
   index_type : DataType;
+  compiled_kernel: CudaKernel;
 }
 
 // Each FusionKernelRuntime represents a concretized, segmented Fusion.

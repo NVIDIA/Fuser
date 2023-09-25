@@ -17,8 +17,7 @@
 
 #include <cstdint>
 
-#include <cuda.h>
-#include <cuda_runtime.h>
+#include <driver_api.h>
 
 namespace nvfuser {
 
@@ -103,6 +102,13 @@ inline CUtensorMapFloatOOBfill getCUtensorMapFloatOOBfill(
 }
 
 using TensorMap = CUtensorMap;
+
+#else
+
+// Placeholder for CUDA 11 to make build pass
+struct TensorMap {
+  alignas(64) uint64_t opaque[16];
+};
 
 #endif
 

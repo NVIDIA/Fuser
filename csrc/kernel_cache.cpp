@@ -8,6 +8,7 @@
 #include <kernel_cache.h>
 
 #include <debug.h>
+#include <driver_api.h>
 #include <dynamic_transform.h>
 #include <executor_params.h>
 #include <executor_utils.h>
