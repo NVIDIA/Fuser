@@ -701,34 +701,51 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
       ", Expected: ",
       ndims);
 
-  const auto normalize_arg = [](Val* a, Val* extent, Val* def) -> Val* {
-    if (a == nullptr) {
-      return def;
-    } else if (a->isZeroInt() || a->sameAs(extent)) {
-      // These do not need normalization
-    } else {
-      // Negative start and stop values are relative to end of axis
-      a = where(
-          lt(a, FusionGuard::getCurFusion()->zeroVal()), add(a, extent), a);
+  const auto normalize_slice_range = [](Slice range, Val* extent) -> Slice {
+    // Cast inputs to Index first
+    if (extent->dtype() != DataType::Index) {
+      extent = SimplifyingIrBuilder::maybeCastExpr(DataType::Index, extent);
     }
-    if (a->dtype() != DataType::Index) {
-      a = SimplifyingIrBuilder::maybeCastExpr(DataType::Index, a);
-    }
-    return a;
-  };
 
-  const auto normalize_slice_range = [&normalize_arg](
-                                         Slice range, Val* extent) -> Slice {
-    range.start = normalize_arg(
-        range.start, extent, FusionGuard::getCurFusion()->zeroVal());
-    range.stop = normalize_arg(range.stop, extent, extent);
-    if (range.step == nullptr) {
-      range.step = FusionGuard::getCurFusion()->oneVal();
+    auto zero = FusionGuard::getCurFusion()->zeroVal(DataType::Index);
+
+    // norm_start = max(0, start < 0 ? start + extent : start)
+    if (range.start == nullptr) {
+      range.start = zero;
+    } else {
+      if (range.start->dtype() != DataType::Index) {
+        range.start =
+            SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.start);
+      }
+      range.start = SimplifyingIrBuilder::maxExpr(
+          zero,
+          where(lt(range.start, zero), add(range.start, extent), range.start));
     }
-    if (range.step->dtype() != DataType::Index) {
+
+    // norm_stop = max(norm_start, min(extent, stop < 0 ? stop + extent : stop)
+    if (range.stop == nullptr) {
+      range.stop = extent;
+    } else {
+      if (range.stop->dtype() != DataType::Index) {
+        range.stop =
+            SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.stop);
+      }
+      range.stop = SimplifyingIrBuilder::maxExpr(
+          range.start,
+          SimplifyingIrBuilder::minExpr(
+              extent,
+              where(
+                  lt(range.stop, zero), add(range.stop, extent), range.stop)));
+    }
+
+    // Ensure step is of type Index
+    if (range.step == nullptr) {
+      range.step = FusionGuard::getCurFusion()->oneVal(DataType::Index);
+    } else if (range.step->dtype() != DataType::Index) {
       range.step =
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.step);
     }
+
     return range;
   };
 
@@ -736,7 +753,7 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
     // Step not supported yet
     NVF_CHECK(
         range.step == nullptr || range.step->isOneInt(),
-        "Unsupported step: ",
+        "Unsupported step (must be 1 or null): ",
         range.step->toString());
   }
 
@@ -758,27 +775,12 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
       out_rf_id = out_root_id;
     } else {
       // Clip the start and stop values to the extent of the input
-      auto zero = FusionGuard::getCurFusion()->zeroVal(DataType::Index);
-      const auto clip_to_extent = [&zero](Val* a, Val* ext) {
-        return SimplifyingIrBuilder::minExpr(
-            ext,
-            SimplifyingIrBuilder::whereExpr(
-                SimplifyingIrBuilder::ltExpr(a, zero),
-                SimplifyingIrBuilder::maxExpr(a, zero),
-                a));
-      };
-      auto clipped_start = clip_to_extent(range.start, inp_root_id->extent());
-      // stop is clipped the same as start, then we additionally clip so that
-      // stop >= start
-      auto clipped_stop = SimplifyingIrBuilder::maxExpr(
-          clip_to_extent(range.stop, inp_root_id->extent()), clipped_start);
-
       out_root_id =
           IterDomainBuilder(inp_root_id).is_rfactor_domain(true).build();
       out_rf_id = IterDomain::resize(
           out_root_id,
-          SimplifyingIrBuilder::negExpr(clipped_start),
-          SimplifyingIrBuilder::subExpr(clipped_stop, inp_root_id->extent()),
+          SimplifyingIrBuilder::negExpr(range.start),
+          SimplifyingIrBuilder::subExpr(range.stop, inp_root_id->extent()),
           true);
       needs_real_slicing = true;
     }
