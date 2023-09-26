@@ -1563,7 +1563,7 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
   const auto findRolesByDomains = [](const DependenciesMap& deps_map,
                                      RolesMap& roles_map,
                                      const bool processing_output) {
-    // Traverse deps_map in order of key->name()
+    // Loop over deps_map in order of key->name()
     std::vector<TensorView*> deps_tvs;
     deps_tvs.reserve(deps_map.size());
     for (const auto& [tv, domains] : deps_map) {
