@@ -26,7 +26,7 @@ jobs:
           tools/pip-install-things.sh &
           source tools/setup-env.sh
           wait
-          python setup.py build
+          python setup.py build --no-test --no-benchmark
 
   clang-tidy:
     runs-on: ubuntu-latest
