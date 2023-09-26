@@ -24,9 +24,9 @@ namespace nvfuser {
 class SchedulerRuntimeInfo;
 class HeuristicSummary;
 
-class PersistentKernelScheduler : public SchedulerEntry {
+class OuterPersistentKernelScheduler : public SchedulerEntry {
  public:
-  explicit PersistentKernelScheduler(
+  explicit OuterPersistentKernelScheduler(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
@@ -45,39 +45,19 @@ class PersistentKernelScheduler : public SchedulerEntry {
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
-
-  static bool checkReductionPattern(
-      Fusion* fusion,
-      const std::vector<TensorView*>& inner_reduction_tvs,
-      const std::vector<TensorView*>& outer_reduction_tvs);
-
-  static std::pair<int64_t, int64_t> getPersistentBufferSize(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache,
-      const std::vector<TensorView*>& reduction_tvs);
-
-  static bool canScheduleRunTimeOuter(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache,
-      const std::vector<TensorView*>& reduction_tvs,
-      const scheduler_utils::ReductionTvProperties& properties);
 };
 
-std::shared_ptr<ReductionParams> getPersistentHeuristics(
+std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache = nullptr);
 
-std::shared_ptr<ReductionParams> getPersistentHeuristics(
+std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-void schedulePersistentKernel(Fusion* fusion, const ReductionParams& rparams);
-
-void schedulePersistentKernelInnerOuter(
+void scheduleOuterPersistentKernel(
     Fusion* fusion,
     const ReductionParams& rparams);
 

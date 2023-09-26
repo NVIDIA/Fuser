@@ -63,7 +63,6 @@ TEST_P(MemoryTest, LoadCache) {
   at::Tensor expected_output = input + 1.0f;
 
   FusionExecutor fe;
-  fe.setSaveCompiledBinaryFlag(true);
   {
     DebugDumpOptionsGuard debug_dump_options_guard;
     DebugDumpOptionsGuard::getCurOptions().set(DebugDumpOption::Ptx);
@@ -100,5 +99,145 @@ INSTANTIATE_TEST_SUITE_P(
       os << std::get<0>(info.param);
       return os.str();
     });
+
+class TMATest : public NVFuserTest {
+  void SetUp() override {
+    // requires Hopper or newer
+    if (!deviceMajorMinorCheck(9)) {
+      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
+
+TEST_F(TMATest, StoreCompleteTensor1D) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv2->axis(0)->parallelize(ParallelType::Bulk);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({32}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMATest, StoreCompleteTensor2D) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv2->axis(0)->parallelize(ParallelType::Bulk);
+  tv2->axis(1)->parallelize(ParallelType::Bulk);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 4}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMATest, StoreCompleteTensor3D) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(3);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv2->axis(0)->parallelize(ParallelType::Bulk);
+  tv2->axis(1)->parallelize(ParallelType::Bulk);
+  tv2->axis(2)->parallelize(ParallelType::Bulk);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 4, 4}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMATest, StoreCompleteTensor4D) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(4);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv2->axis(0)->parallelize(ParallelType::Bulk);
+  tv2->axis(1)->parallelize(ParallelType::Bulk);
+  tv2->axis(2)->parallelize(ParallelType::Bulk);
+  tv2->axis(3)->parallelize(ParallelType::Bulk);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 4, 4, 4}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMATest, StoreCompleteTensor5D) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(5);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv2->axis(0)->parallelize(ParallelType::Bulk);
+  tv2->axis(1)->parallelize(ParallelType::Bulk);
+  tv2->axis(2)->parallelize(ParallelType::Bulk);
+  tv2->axis(3)->parallelize(ParallelType::Bulk);
+  tv2->axis(4)->parallelize(ParallelType::Bulk);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 4, 4, 4, 4}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
 
 } // namespace nvfuser
