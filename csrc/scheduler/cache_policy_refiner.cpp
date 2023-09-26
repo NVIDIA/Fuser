@@ -1,7 +1,16 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
+
 #include <fusion.h>
 #include <ir/base_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>
+#include <root_domain_map.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 
@@ -21,20 +30,17 @@ static bool pointwiseExpands(const Expr* expr, const TensorView* in_tv) {
   }
   const auto* out_tv = out->as<TensorView>();
 
-  const size_t n_dims = in_tv->getRootDomain().size();
-  if (n_dims != out_tv->getRootDomain().size()) {
-    return false;
-  }
-
-  for (size_t i = 0; i < n_dims; i++) {
-    const Val* in_extent = in_tv->getRootDomain()[i]->extent();
-    const Val* out_extent = out_tv->getRootDomain()[i]->extent();
-    if (in_extent->isOneInt() && !out_extent->isOneInt()) {
-      // Found an expanding IterDomain.
-      return true;
-    }
-  }
-  return false;
+  auto root_domain_map =
+      PairwiseRootDomainMap(in_tv, out_tv)
+          .mapBroadcast(true)
+          .mapProducerToConsumer(in_tv->domain(), out_tv->domain());
+  return std::find_if(
+             root_domain_map.begin(),
+             root_domain_map.end(),
+             [](const auto& mapping) {
+               return mapping.first->isBroadcast() &&
+                   !mapping.second->isBroadcast();
+             }) != root_domain_map.end();
 }
 
 // Finds the first expanding use of `ldst`'s output, bypassing all pointwise
