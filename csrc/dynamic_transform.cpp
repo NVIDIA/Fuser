@@ -316,7 +316,7 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
         out_id->toString());
     auto extent_int = extent_val.as<int64_t>();
     NVF_ERROR(
-        extent_int > 0,
+        extent_int >= 0,
         "Invalid resized domain extent ",
         extent_int,
         " for domain ",
