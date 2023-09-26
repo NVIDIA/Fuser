@@ -1563,18 +1563,7 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
   const auto findRolesByDomains = [](const DependenciesMap& deps_map,
                                      RolesMap& roles_map,
                                      const bool processing_output) {
-    // Loop over deps_map in order of key->name()
-    std::vector<TensorView*> deps_tvs;
-    deps_tvs.reserve(deps_map.size());
     for (const auto& [tv, domains] : deps_map) {
-      deps_tvs.push_back(tv);
-    }
-    std::sort(
-        deps_tvs.begin(), deps_tvs.end(), [](TensorView* a, TensorView* b) {
-          return a->name() < b->name();
-        });
-    for (const auto tv : deps_tvs) {
-      const auto& domains = deps_map.at(tv);
       const auto begin = domains.begin();
       const auto end = domains.end();
 
@@ -1608,6 +1597,12 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
         roles_map[MatmulRole::OUTPUT_D].push_back(tv);
         continue;
       }
+    }
+    for (const auto& [role, tvs] : roles_map) {
+      // sort tvs by name()
+      std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
+        return a->name() < b->name();
+      });
     }
   };
 
