@@ -12,7 +12,7 @@
 
 #include <memory>
 
-using namespace torch::jit::fuser::cuda;
+using namespace nvfuser;
 
 at::Tensor sinh_nvfuser(const at::Tensor& input) {
   Fusion fusion;
