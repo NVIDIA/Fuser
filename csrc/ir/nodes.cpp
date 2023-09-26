@@ -2912,9 +2912,6 @@ IterDomain* IterDomain::resize(
     }
   }
 
-  resized_id_size =
-      SimplifyingIrBuilder::maybeCastExpr(DataType::Index, resized_id_size);
-
   auto resized_id =
       IterDomainBuilder(in->container()->zeroVal(), resized_id_size)
           .is_rfactor_domain(mark_as_rfactor)
