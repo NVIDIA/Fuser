@@ -1156,9 +1156,7 @@ TEST_F(NVFuserTest, FusionResizeSliceConstantShmoo_CUDA) {
     fe.compileFusion(&fusion, aten_inputs);
     auto cg_outputs = fe.runFusion(aten_inputs);
 
-    auto ref = t0.index({at::indexing::Slice(start, stop)});
-
-    testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
 
@@ -1217,13 +1215,60 @@ TEST_F(NVFuserTest, FusionResizeSliceInputShmoo_CUDA) {
             {-3, -5},
             {13, -1},
             {-11, 9},
-            {-11, 0}})) {
+            {-11, 0},
+            {-13, -11}})) {
     std::vector<c10::IValue> aten_inputs({t0, start, stop});
     auto cg_outputs = fe.runFusion(aten_inputs);
 
-    auto ref = t0.index({at::indexing::Slice(start, stop)});
+    testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  }
+}
 
-    testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+// Same as FusionResizeSliceInputShmoo_CUDA but use FusionExecutorCache, which
+// might re-concretize when output sizes change
+TEST_F(NVFuserTest, FusionResizeSliceInputShmooFusionExecutorCache_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  std::vector<int64_t> shape({9});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape);
+  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s1 = IrBuilder::create<Val>(DataType::Index);
+  fusion->addInput(tv0);
+  fusion->addInput(s0);
+  fusion->addInput(s1);
+
+  auto tv1 = slice(tv0, {{s0, s1}});
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto t0 = at::randn(shape, options);
+  for (auto [start, stop] : std::vector<std::pair<int64_t, int64_t>>(
+           {// Slice with end beyond size of input. This should clip to input,
+            // not pad.
+            {0, 5},
+            {3, 9},
+            {3, 4},
+            {7, 5},
+            {0, 11},
+            {11, 13},
+            {-3, 8},
+            {-3, -1},
+            {-3, -5},
+            {13, -1},
+            {-11, 9},
+            {-11, 0},
+            {-13, -11}})) {
+    std::vector<c10::IValue> aten_inputs({t0, start, stop});
+    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+    testValidate(fec.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
 
