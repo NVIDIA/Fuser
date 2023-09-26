@@ -304,11 +304,6 @@ else()
     target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE NVFUSER_BUILD_WITH_UCC)
   endif()
 
-  # installing nvfuser python tests
-  install(DIRECTORY "${NVFUSER_ROOT}/python_tests/"
-    DESTINATION "${TORCH_ROOT}/test/_nvfuser"
-    FILES_MATCHING PATTERN "*.py")
-
   # installing nvfuser lib
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${TORCH_INSTALL_LIB_DIR}")
 endif()
