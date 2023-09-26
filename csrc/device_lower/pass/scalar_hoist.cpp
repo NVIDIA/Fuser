@@ -150,6 +150,17 @@ bool isHelpfulToReuse(Val* value) {
   return true;
 }
 
+// Find if the given `value` is already computed on the host. If yes, then
+// return the host value, else return nullptr.
+Val* reuseValsKnownToKernel(Val* value) {
+  for (auto val : GpuLower::current()->allKnownVals()) {
+    if (val->sameAs(value)) {
+      return val;
+    }
+  }
+  return nullptr;
+}
+
 } // namespace
 
 std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
@@ -185,10 +196,25 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
   auto my_pos = findOutermostPosWithSatisfiedDependency(value, loops);
   auto my_loop = getLoopAtPos(loops, my_pos);
 
+  // There are certain experesions that must be evaluated on the host, such as
+  // kir::EncodeTensorMapTiled. For these expressions, we should add them to
+  // known values of the kernel. Also, reusing subexpressions of these exprs
+  // are disabled, because the subexpressions on the host is not accessible to
+  // the device. This must happen before reusing, because we can not reuse
+  // values on the host for device.
+  if (shouldHoistToHost(value)) {
+    if (auto known_val = reuseValsKnownToKernel(value)) {
+      return {known_val, false};
+    }
+    GpuLower::current()->allKnownVals().emplace_back(value);
+    return {value, false};
+  }
+
   // Check if `value` is already computed. If yes, just reuse it and return.
   if (auto existing_subexpr = reuseScalarIfAlreadyComputed(value, my_loop)) {
     return {existing_subexpr, false};
   }
+
   for (auto existing_subexpr : seen_subexprs) {
     if (value->sameAs(existing_subexpr)) {
       common_scalar_map_[my_loop].emplace_back(existing_subexpr);
@@ -219,13 +245,6 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
     NVF_ERROR(def->outputs().size() == 1);
     auto create_fn = def->newObjectFunc();
     create_fn(value->container(), inputs, {value}, def->attributes());
-  }
-
-  // TODO: this is only a temoprary hack to make sure that TensorMap for TMA is
-  // evaluated on the host. This will be removed in a follow-up PR
-  if (shouldHoistToHost(value)) {
-    GpuLower::current()->allKnownVals().emplace_back(value);
-    return {value, has_tensor_index_dependency};
   }
 
   // hoist subexpression to outer loop. If `value` depends on a tensor, then we
@@ -321,9 +340,6 @@ Val* CommonScalarMap::hoistScalar(
     const std::vector<kir::ForLoop*>& loops) {
   value =
       simplifyExpr(value, getVariableInfo(value, loops), getAssumptions(loops));
-  if (isOptionDisabled(DisableOption::IndexHoist)) {
-    return value;
-  }
   std::vector<Val*> seen_subexprs;
   return hoistScalarImpl(
              value,
@@ -338,10 +354,8 @@ Val* CommonScalarMap::reuseScalarIfAlreadyComputed(
     Val* value,
     kir::ForLoop* loop) {
   // Find if value is computed on the host.
-  for (auto val : GpuLower::current()->allKnownVals()) {
-    if (val->sameAs(value)) {
-      return val;
-    }
+  if (auto host_val = reuseValsKnownToKernel(value)) {
+    return host_val;
   }
   // Find if loop already contain `value`.
   auto it = common_scalar_map_.find(loop);
@@ -453,17 +467,17 @@ std::pair<int64_t, bool> findAllocPointFromDataDependency(
 }
 
 // Inserts allocations of hoisted indices
-class CommonIndexInserter : private kir::ExprMutator {
+class CommonScalarInserter : private kir::ExprMutator {
  public:
   static std::vector<Expr*> run(
       const std::vector<Expr*>& exprs,
       const CommonScalarMap& common_indices) {
-    CommonIndexInserter inserter(exprs, common_indices);
+    CommonScalarInserter inserter(exprs, common_indices);
     return std::move(inserter.exprs_);
   }
 
  private:
-  CommonIndexInserter(
+  CommonScalarInserter(
       const std::vector<Expr*>& exprs,
       const CommonScalarMap& common_scalar_map)
       : common_scalar_map_(common_scalar_map) {
@@ -530,7 +544,10 @@ class CommonIndexInserter : private kir::ExprMutator {
 } // namespace
 
 std::vector<Expr*> allocateCommonScalars(const std::vector<Expr*>& exprs) {
-  return CommonIndexInserter::run(
+  if (isOptionDisabled(DisableOption::IndexHoist)) {
+    return exprs;
+  }
+  return CommonScalarInserter::run(
       exprs, GpuLower::current()->commonScalarMap());
 }
 

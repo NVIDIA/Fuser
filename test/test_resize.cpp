@@ -693,9 +693,7 @@ TEST_F(ResizeTest, FusionResizeCat5) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  auto ref = at::cat({t0, t1}, 1) + t2;
-
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Cat 3 tensors
@@ -864,15 +862,8 @@ TEST_F(ResizeTest, FusionResizeCatScheduler2) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto ref = at::cat({t0, t1}, 1) + t2;
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {ref},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Auto scheduled version of Cat6
@@ -970,15 +961,7 @@ TEST_F(ResizeTest, FusionResizeSlice2) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  auto t1 = t0.index(
-      {at::indexing::Slice(0, at::indexing::None),
-       at::indexing::Slice(0, shape[1] / 2)});
-  auto t2 = t0.index(
-      {at::indexing::Slice(0, at::indexing::None),
-       at::indexing::Slice(shape[1] / 2)});
-  auto ref = t1 + t2;
-
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // "Trivial" slice is converted to Set
@@ -1701,20 +1684,8 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT1) {
       !kernel->summary().has_cooperative_grid_reduction,
       "Grid sync should not be used as slicing input should avoid input caching");
 
-  auto aten_t0_slice = t0.index(
-      {at::indexing::Slice(0, 1, 1),
-       at::indexing::Slice(0, 1, 1),
-       at::indexing::Slice(0, 128, 1),
-       at::indexing::Slice(0, 128, 1)});
-  auto aten_t3 = torch::add(aten_t0_slice, t1);
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {aten_t3, aten_t3},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Similar to FusionSliceForNanoGPT1 but the input to slice is an
@@ -1830,20 +1801,8 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT2) {
       "Unexpected slice producer: ",
       known_slice_producer->toString());
 
-  auto aten_t2 = t0 + 1;
-  auto aten_slice = aten_t2.index(
-      {at::indexing::Slice(0, 32, 1), at::indexing::Slice(0, 32, 1)});
-  auto aten_t4 = aten_slice + t1;
-
-  auto aten_t7 = aten_t2 + 1;
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {aten_t4, aten_t4, aten_t7},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // C++ version of TestNvFuserFrontend.test_nanogpt_split_mha_linears
