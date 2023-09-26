@@ -18,6 +18,7 @@ set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
+option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
 
 if(PROJECT_IS_TOP_LEVEL)
   find_package(Torch REQUIRED)
@@ -80,6 +81,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/contiguity.cpp
   ${NVFUSER_SRCS_DIR}/debug.cpp
   ${NVFUSER_SRCS_DIR}/dispatch.cpp
+  ${NVFUSER_SRCS_DIR}/driver_api.cpp
   ${NVFUSER_SRCS_DIR}/dynamic_transform.cpp
   ${NVFUSER_SRCS_DIR}/expr_evaluator.cpp
   ${NVFUSER_SRCS_DIR}/expr_simplifier.cpp
@@ -173,9 +175,9 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/normalization.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_outer.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/no_op.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction.cpp
@@ -191,6 +193,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/tensor_metadata.cpp
   ${NVFUSER_SRCS_DIR}/tensor_view.cpp
+  ${NVFUSER_SRCS_DIR}/tma.cpp
   ${NVFUSER_SRCS_DIR}/transform_iter.cpp
   ${NVFUSER_SRCS_DIR}/transform_replay.cpp
   ${NVFUSER_SRCS_DIR}/transform_rfactor.cpp
@@ -243,6 +246,13 @@ target_include_directories(${NVFUSER_CODEGEN} PUBLIC
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
 )
 set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
+
+if(NVFUSER_BUILD_WITH_ASAN)
+  add_compile_options(-fsanitize=address)
+  add_link_options(-fsanitize=address)
+endif()
+
+list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
 
 if(PROJECT_IS_TOP_LEVEL)
   target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
@@ -441,6 +451,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_polymorphic_value.cpp
     ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
+    ${NVFUSER_ROOT}/test/test_memory.cpp
     ${NVFUSER_ROOT}/test/test_gpu_view.cpp
     ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
     ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
@@ -629,6 +640,7 @@ message(STATUS "")
 message(STATUS "******** Nvfuser configuration summary ********")
 message(STATUS "  UCC_FOUND: ${UCC_FOUND}")
 message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}")
+message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
 
 if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   message(STATUS "    UCC_HOME: $ENV{UCC_HOME}")

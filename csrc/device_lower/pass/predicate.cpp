@@ -238,7 +238,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         // condition of loop_index + step < end, so nothing to do here. In the
         // future, if we decide that we need to predicate this then we can do it
         // here.
-        return IrBuilder::newConstant(true, DataType::Bool);
+        return IrBuilder::create<Val>(true, DataType::Bool);
       }
       default:
         break;

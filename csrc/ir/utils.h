@@ -356,6 +356,18 @@ std::string toString(const T& nodes) {
   return ss.str();
 }
 
+template <typename T>
+std::string toInlineString(const T& nodes) {
+  std::stringstream ss;
+  for (const Statement* stmt : nodes) {
+    if (ss.tellp() != 0) {
+      ss << ", ";
+    }
+    ss << stmt->toInlineString();
+  }
+  return ss.str();
+}
+
 // Test if the given tensor is an input of squeeze op
 bool isSqueezeInput(const TensorView* tv);
 

@@ -64,7 +64,7 @@ void UnrollPass::registerReplace(Expr* reference, Expr* new_expr) {
 }
 
 void UnrollPass::dispatch(Expr* expr) {
-  if (ir_utils::isTvOp(expr)) {
+  if (ir_utils::isTvOp(expr) && !ir_utils::isCpAsyncBulk(expr)) {
     // If tv op, predicate it
     const auto out_tv = ir_utils::getTvOutput(expr);
     const bool should_predicate = !for_loops_.empty() ||

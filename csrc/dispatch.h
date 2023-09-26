@@ -137,6 +137,7 @@ class AllocateFusedReduction;
 class InitMagicZero;
 class UpdateMagicZero;
 class GetRNGSeedAndOffsetFromHost;
+class EncodeTensorMapTiled;
 
 } // namespace kir
 
@@ -221,7 +222,8 @@ class OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const kir::GroupedGridWelford*);
   virtual void handle(const kir::VectorizedWelfordOp*);
   virtual void handle(const kir::AllocateFusedReduction*);
-  virtual void handle(const kir::GetRNGSeedAndOffsetFromHost* stmt);
+  virtual void handle(const kir::GetRNGSeedAndOffsetFromHost*);
+  virtual void handle(const kir::EncodeTensorMapTiled*);
 
   virtual void handle(const PipelineStage*);
   virtual void handle(const PipelineCommunication*);
@@ -307,6 +309,7 @@ class OptOutDispatch : public PolymorphicBase {
   virtual void handle(kir::VectorizedWelfordOp* stmt);
   virtual void handle(kir::AllocateFusedReduction* stmt);
   virtual void handle(kir::GetRNGSeedAndOffsetFromHost* stmt);
+  virtual void handle(kir::EncodeTensorMapTiled* stmt);
 
   virtual void handle(PipelineStage* stmt);
   virtual void handle(PipelineCommunication* stmt);

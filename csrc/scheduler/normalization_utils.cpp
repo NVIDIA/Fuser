@@ -8,6 +8,7 @@
 #include <expr_evaluator.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
+#include <scheduler/reduction_utils.h>
 #include <scheduler/registry.h>
 #include <utils.h>
 
@@ -718,6 +719,23 @@ getOptionalInnerOuterPersistentBufferBatches(
     return std::make_pair(inner_batch, threads_per_block);
   } else {
     return std::make_pair(std::nullopt, -1);
+  }
+}
+
+// Get the appropriate scheduler based on reduction type
+ScheduleHeuristic getPersistentHeuristicFor(ReductionType reduction_type) {
+  switch (reduction_type) {
+    case ReductionType::Inner:
+      return ScheduleHeuristic::InnerPersistent;
+    case ReductionType::Outer:
+      return ScheduleHeuristic::OuterPersistent;
+    case ReductionType::InnerOuter:
+      return ScheduleHeuristic::InnerOuterPersistent;
+    default:
+      NVF_ERROR(
+          false,
+          "Reduction type not supported! reduction_type: ",
+          reduction_type);
   }
 }
 

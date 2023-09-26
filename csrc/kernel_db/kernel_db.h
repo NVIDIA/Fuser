@@ -52,6 +52,7 @@ class KernelDb {
       bool use_temp_dir);
 
  public:
+  // clang-tidy - deleted member function should be public
   KernelDb(const KernelDb&) = delete;
   KernelDb& operator=(const KernelDb&) = delete;
 

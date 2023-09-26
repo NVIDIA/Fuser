@@ -45,37 +45,19 @@ class InnerPersistentKernelScheduler : public SchedulerEntry {
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
-
-  static bool checkReductionPattern(
-      Fusion* fusion,
-      const std::vector<TensorView*>& inner_reduction_tvs,
-      const std::vector<TensorView*>& outer_reduction_tvs);
-
-  static std::pair<int64_t, int64_t> getPersistentBufferSize(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache,
-      const std::vector<TensorView*>& reduction_tvs);
-
-  static bool canScheduleRunTimeOuter(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache,
-      const std::vector<TensorView*>& reduction_tvs,
-      const scheduler_utils::ReductionTvProperties& properties);
 };
 
-TORCH_CUDA_CU_API std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
+std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache = nullptr);
 
-TORCH_CUDA_CU_API std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
+std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-TORCH_CUDA_CU_API void scheduleInnerPersistentKernel(
+void scheduleInnerPersistentKernel(
     Fusion* fusion,
     const ReductionParams& rparams);
 
