@@ -1421,7 +1421,7 @@ inline void resolveTvToMatmulDomainsMapping(
 } // anonymous namespace
 
 ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
-  auto mma_exprs = ir_utils::getMmaOps(fusion);
+  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
   if (mma_exprs.size() != 1) {
     std::stringstream ss;
     ss << "Invalid number of MmaOp instances in fusion, expected 1, got "

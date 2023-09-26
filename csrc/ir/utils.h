@@ -317,16 +317,6 @@ std::vector<TensorView*> allTvsExcept(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& except);
 
-std::vector<Expr*> getReductionOps(Fusion* fusion);
-
-std::vector<IndexSelectOp*> getIndexSelectOps(Fusion* fusion);
-
-std::vector<TorchGatherOp*> getTorchGatherOps(Fusion* fusion);
-
-std::vector<MmaOp*> getMmaOps(Fusion* fusion);
-
-std::vector<SelectOp*> getSelectOps(Fusion* fusion);
-
 // Returns the initialization value of tv or nullptr if not initialized.
 Val* getReductionInitValOf(TensorView* tv);
 
@@ -504,5 +494,25 @@ bool isTensorSize(const Val* val);
 
 //! Check if a Val is a tensor stride;
 bool isTensorStride(const Val* val);
+
+//! This is a simple template function that returns a vector of the given op
+//! type. Directly implemented in the header file to avoid explicit
+//! instantiation.
+template <typename OpType>
+std::vector<OpType*> getOpsOfType(Fusion* fusion) {
+  std::vector<OpType*> ops;
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<OpType>()) {
+      ops.push_back(expr->as<OpType>());
+    }
+  }
+  return ops;
+}
+
+//! Returns expressions that are of type ReductionOp, GroupedReductionOp, or
+//! WelfordOp. A variadic template approach was considered but was ruled out to
+//! avoid requiring the caller to be aware of all individual reduction operation
+//! types.
+std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion);
 
 } // namespace nvfuser::ir_utils

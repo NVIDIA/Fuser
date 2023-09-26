@@ -430,7 +430,7 @@ std::vector<TensorView*> allTvsExcept(
   return result;
 }
 
-std::vector<Expr*> getReductionOps(Fusion* fusion) {
+std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion) {
   std::vector<Expr*> red_ops;
 
   for (auto expr : fusion->exprs()) {
@@ -441,53 +441,6 @@ std::vector<Expr*> getReductionOps(Fusion* fusion) {
   }
 
   return red_ops;
-}
-
-std::vector<IndexSelectOp*> getIndexSelectOps(Fusion* fusion) {
-  std::vector<IndexSelectOp*> idx_sel_ops;
-
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<IndexSelectOp>()) {
-      idx_sel_ops.push_back(expr->as<IndexSelectOp>());
-    }
-  }
-
-  return idx_sel_ops;
-}
-
-std::vector<TorchGatherOp*> getTorchGatherOps(Fusion* fusion) {
-  std::vector<TorchGatherOp*> torch_gather_ops;
-
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<TorchGatherOp>()) {
-      torch_gather_ops.push_back(expr->as<TorchGatherOp>());
-    }
-  }
-
-  return torch_gather_ops;
-}
-
-std::vector<SelectOp*> getSelectOps(Fusion* fusion) {
-  std::vector<SelectOp*> select_ops;
-
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<SelectOp>()) {
-      select_ops.push_back(expr->as<SelectOp>());
-    }
-  }
-
-  return select_ops;
-}
-
-std::vector<MmaOp*> getMmaOps(Fusion* fusion) {
-  std::vector<MmaOp*> mma_ops;
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<MmaOp>()) {
-      mma_ops.push_back(expr->as<MmaOp>());
-    }
-  }
-
-  return mma_ops;
 }
 
 namespace {

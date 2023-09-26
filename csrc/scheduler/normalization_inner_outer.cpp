@@ -48,7 +48,7 @@ void InnerOuterPersistentKernelScheduler::schedule(Fusion* fusion) {
 bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     Fusion* fusion) {
   // Needs at least one reduction to consider.
-  auto reduction_ops = ir_utils::getReductionOps(fusion);
+  auto reduction_ops = ir_utils::getAllTypesOfReductionOps(fusion);
   if (reduction_ops.empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
         ScheduleHeuristic::InnerOuterPersistent, "needs a reduction op");
@@ -69,7 +69,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   }
 
   // Fusions handled by persistent kernel scheduler cannot have MmaOp.
-  if (!ir_utils::getMmaOps(fusion).empty()) {
+  if (!ir_utils::getOpsOfType<MmaOp>(fusion).empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
         ScheduleHeuristic::InnerOuterPersistent, "no support for mma ops.");
     return false;
