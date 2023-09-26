@@ -1599,6 +1599,12 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
         continue;
       }
     }
+    for (auto& [role, tvs] : roles_map) {
+      // sort tvs by name()
+      std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
+        return a->name() < b->name();
+      });
+    }
   };
 
   const auto domains_data = mma_output_domains.getData();
