@@ -854,7 +854,8 @@ class PersistentBufferProjector {
       // `T2->T1->T7->T6->T4->T5` which has all root domain information.
       // See FusionBroadcastPersistentReduction_CUDA for an example
       dummy_outputs_.emplace_back(add(buffer_replicate, buffer));
-      ir_utils::replaceValInExpr(use->definition(), buffer, buffer_replicate);
+      ir_utils::replaceValInExprInputs(
+          use->definition(), buffer, buffer_replicate);
     }
   }
 };
@@ -864,6 +865,53 @@ std::vector<TensorView*> projectPersistentBuffers(
     const bool project_to_inputs) {
   PersistentBufferProjector pb_projector(fusion, project_to_inputs);
   return pb_projector.project();
+}
+
+ReductionType getReductionType(const std::vector<TensorView*>& reduction_tvs) {
+  bool is_inner_reduction = false;
+  bool is_outer_reduction = false;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      is_inner_reduction = true;
+    } else {
+      is_outer_reduction = true;
+    }
+  }
+  if (is_inner_reduction && is_outer_reduction) {
+    return ReductionType::InnerOuter;
+  } else if (is_inner_reduction) {
+    return ReductionType::Inner;
+  } else if (is_outer_reduction) {
+    return ReductionType::Outer;
+  } else {
+    return ReductionType::None;
+  }
+}
+
+ReductionType getReductionType(Fusion* fusion) {
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  return getReductionType(reduction_tvs);
+}
+
+std::string toString(ReductionType reduction_type) {
+  switch (reduction_type) {
+    case ReductionType::Inner:
+      return "InnerReduction";
+    case ReductionType::Outer:
+      return "OuterReduction";
+    case ReductionType::InnerOuter:
+      return "InnerOuterReduction";
+    case ReductionType::None:
+      return "NoneReduction";
+    default:
+      NVF_ERROR(false, "undefined ReductionType");
+  }
+  return "";
+}
+
+std::ostream& operator<<(std::ostream& os, ReductionType reduction_type) {
+  os << toString(reduction_type);
+  return os;
 }
 
 } // namespace reduction_scheduler_utils

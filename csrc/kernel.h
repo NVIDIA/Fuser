@@ -109,7 +109,7 @@ struct KernelSummary {
   std::vector<VectorizedSetInfo> vectorized_set_info;
 };
 
-class TORCH_CUDA_CU_API KernelPerformanceProfile {
+class KernelPerformanceProfile {
  public:
   //! Register an expression to profile
   void registerExpr(const Expr* expr);
@@ -165,7 +165,7 @@ class KernelInternalProxy;
 //! Container for a lowered Kernel IR
 //!
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class TORCH_CUDA_CU_API Kernel final : public Fusion {
+class Kernel final : public Fusion {
   friend KernelInternalProxy;
 
  public:
@@ -273,7 +273,7 @@ class TORCH_CUDA_CU_API Kernel final : public Fusion {
 //! A special debugging proxy for Kernel.
 //!
 //! Should not be used for other than testing and debugging.
-class TORCH_CUDA_CU_API KernelInternalProxy {
+class KernelInternalProxy {
  public:
   KernelInternalProxy(Kernel* kernel) : kernel_(kernel) {}
 

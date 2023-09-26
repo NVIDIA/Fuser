@@ -35,7 +35,7 @@ class Fusion;
  * would want this, but seems like it would be a reasonable request.
  */
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class TORCH_CUDA_CU_API IterVisitor : public OptOutDispatch {
+class IterVisitor : public OptOutDispatch {
  public:
   ~IterVisitor() override = default;
 
@@ -180,7 +180,7 @@ class TORCH_CUDA_CU_API IterVisitor : public OptOutDispatch {
  *
  */
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class TORCH_CUDA_CU_API BackwardVisitor : public OptOutDispatch {
+class BackwardVisitor : public OptOutDispatch {
  public:
   // clang-tidy: cppcoreguidelines-virtual-class-destructor
   ~BackwardVisitor() override = default;
@@ -246,7 +246,7 @@ class TORCH_CUDA_CU_API BackwardVisitor : public OptOutDispatch {
   bool must_cover_all_expr_outputs_ = true;
 };
 
-class TORCH_CUDA_CU_API DependencyCheck {
+class DependencyCheck {
  public:
   // Returns if "dependency" is a dependency of "of".
   static bool isDependencyOf(Val* dependency, Val* of);
@@ -369,7 +369,7 @@ class StmtSort : public IterVisitor {
       bool traverse_siblings = false);
 };
 
-class TORCH_CUDA_CU_API InputsOf : public IterVisitor {
+class InputsOf : public IterVisitor {
  private:
   std::unordered_set<Val*> grabbed_inputs;
   std::vector<Val*> ordered_inputs;
@@ -521,7 +521,8 @@ class DeadCodeRemover : BackwardVisitor {
   //! Statements are marked dead by removing them from this set
   std::unordered_set<Statement*> live_statements_;
 
-  //! Vals to be replaced in outputs and with replaceValInExpr in all uses.
+  //! Vals to be replaced in outputs and with replaceValInExprInputs in all
+  //! uses.
   std::vector<std::pair<Val*, Val*>> vals_to_replace_;
 
   //! Statements that will be removed. We remove Vals before Exprs, so we track

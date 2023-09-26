@@ -545,7 +545,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void genCpAsync(const LoadStoreOp* ldst, size_t vec_size) {
     auto dtype = ldst->in()->getDataType().value();
 
-    bool is_cg = ldst->opType() == LoadStoreOpType::CpAsyncCg;
+    bool is_cg = ldst->opType() == LoadStoreOpType::CpAsync &&
+        ldst->cacheOp() == CacheOp::Global;
     std::string name = (is_cg ? "Ampere::cpAsyncCg" : "Ampere::cpAsyncCa");
 
     ArgumentBuilder template_args;
@@ -560,6 +561,21 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     indent() << genCall(name, template_args, func_args) << ";\n";
+  }
+
+  void genCpAsyncBulkTensorTile(const LoadStoreOp* ldst) {
+    auto in = ldst->in()->as<kir::TensorIndex>();
+    auto out = ldst->out()->as<kir::TensorIndex>();
+    NVF_ERROR(
+        in->view()->getMemoryType() == MemoryType::Shared &&
+            out->view()->getMemoryType() == MemoryType::Global,
+        "Expected shared to global copy");
+
+    ArgumentBuilder func_args;
+    func_args.arg(genInline(out->as<kir::TensorIndex>()->index()));
+    func_args.arg(genInline(in->as<kir::TensorIndex>()->index()));
+
+    indent() << genCall("Hopper::cpAsyncBulkTensorTileS2G", func_args) << ";\n";
   }
 
   void genLdMatrix(const LoadStoreOp* ldst, size_t vector_word_size) {
@@ -1288,14 +1304,19 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
 
       // dispatch cp.async
-      if (optype == LoadStoreOpType::CpAsyncCa ||
-          optype == LoadStoreOpType::CpAsyncCg) {
-        if (optype == LoadStoreOpType::CpAsyncCg) {
+      if (optype == LoadStoreOpType::CpAsync) {
+        if (ldst->cacheOp() == CacheOp::Global) {
           NVF_ERROR(
               is_vector_op && vector_word_size == 8,
               "cp.async.cg only support vectorize 8");
         }
         genCpAsync(ldst, vector_word_size);
+        return;
+      }
+
+      // dispatch cp.async.bulk.tensor.tile
+      if (optype == LoadStoreOpType::CpAsyncBulkTensorTile) {
+        genCpAsyncBulkTensorTile(ldst);
         return;
       }
 
@@ -1353,7 +1374,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           } else if (globalToLocal) {
             indent() << "loadGlobalToLocal<" << ldst->out()->dtype() << ", "
                      << vector_word_size << ", "
-                     << (is_volatile_from ? "true" : "false") << ">(&"
+                     << (is_volatile_from ? "true" : "false") << ", "
+                     << "CacheOp::" << ldst->cacheOp() << ">(&"
                      << gen(ldst->out()) << ", ";
             code_ << " &" << gen(ldst->in()) << ");\n";
           } else if (globalToGlobal) {

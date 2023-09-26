@@ -22,15 +22,15 @@
 
 namespace nvfuser {
 
-TORCH_CUDA_CU_API bool shouldFillAllocationWithNan();
-TORCH_CUDA_CU_API void setFillAllocationWithNan(bool value);
+bool shouldFillAllocationWithNan();
+void setFillAllocationWithNan(bool value);
 
 // TODO: Should this actually be in launch params?
-struct TORCH_CUDA_CU_API CompileOptions {
+struct CompileOptions {
   c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
 };
 
-class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
+class FusionExecutor : public NonCopyable {
  public:
   struct GlobalBufferInfo {
     TensorView* tv = nullptr;
@@ -159,11 +159,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     measure_kernel_time_ = measure_kernel_time;
   }
 
-  //! Internal knob used for debugging/profiling only
-  void setSaveCompiledBinaryFlag(bool save_compiled_binary) {
-    save_compiled_binary_ = save_compiled_binary;
-  }
-
   //! Returns the last kernel execution time, in milliseconds
   //!
   //! \note The kernel time is only tracked if enabled by calling
@@ -175,7 +170,24 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   //! Returns the number of bytes processed last kernel execution
   int64_t bytesProcessed() const {
-    return bytes_processed_;
+    int64_t bytes_processed = 0;
+    for (auto bp : bytes_processed_per_input_) {
+      bytes_processed += bp;
+    }
+    for (auto bp : bytes_processed_per_output_) {
+      bytes_processed += bp;
+    }
+    return bytes_processed;
+  }
+
+  //! Get a vector of bytes processed across all kernel inputs
+  const std::vector<int64_t>& bytesInputsProcessed() const {
+    return bytes_processed_per_input_;
+  }
+
+  //! Get a vector of bytes processed across all kernel outputs
+  const std::vector<int64_t>& bytesOutputsProcessed() const {
+    return bytes_processed_per_output_;
   }
 
   //! Returns the launch parameters from the last kernel execution
@@ -196,26 +208,21 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   std::string getStructuredCode() const;
 
-  //! Returns the latest compile log
-  std::string compilerLog() const {
-    return last_compiler_log_;
-  }
-
-  //! Returns the latest compiled binary
-  std::vector<char> compiledBinary() const {
-    return last_compiled_binary_;
+  //! Returns a const reference to the latest compiled kernel.
+  const executor_utils::CompiledKernel& compiledKernel() const {
+    return compiled_kernel_;
   }
 
   //! Returns the disassembled latest compiled binary
   std::string disassembledBinary(const std::string& nvdisasm_args = "") const {
     return executor_utils::disassembleBinary(
-        last_compiled_binary_, nvdisasm_args);
+        compiled_kernel_.cubin, nvdisasm_args);
   }
 
   //! Returns the disassembled latest compiled binary
   std::string disassembledKernelSASS() const {
     return executor_utils::disassembleBinary(
-        last_compiled_binary_, "-fun 1 -c");
+        compiled_kernel_.cubin, "-fun 1 -c");
   }
 
   std::string getCanonicalKernelName() const {
@@ -321,6 +328,11 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const LaunchParams& new_launch_params,
       const CompileParams& new_compile_params);
 
+  //! Serialize CompiledKernel using flatbuffers
+  flatbuffers::Offset<serde::CudaKernel> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const executor_utils::CompiledKernel& kernel) const;
+
   // ExecutorEntry is an internal POD struct for the FusionExecutor class.
   // We define ExecutorEntry's serialize and deserialize as private methods in
   // FusionExecutor.
@@ -392,7 +404,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   const int64_t max_static_smem_ = 48 << 10;
 
   int64_t warp_size_ = 0;
-  executor_utils::NvrtcFunction compiled_kernel_;
+  executor_utils::CompiledKernel compiled_kernel_;
 
   // TensorViews actually used in the kernel.
   std::vector<TensorView*> used_tvs_;
@@ -435,8 +447,11 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   // is true
   float kernel_time_ms_ = 0;
 
-  // Profiling support: the last kernel Bytes processed
-  int64_t bytes_processed_ = 0;
+  // Profiling support: last kernel bytes processed in each input
+  std::vector<int64_t> bytes_processed_per_input_;
+
+  // Profiling support: last kernel bytes processed in each output
+  std::vector<int64_t> bytes_processed_per_output_;
 
   // Profiling support: the last launch param used
   LaunchParams launch_params_;
@@ -449,15 +464,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   // Profiling support: kept copy of the cuda kernel
   std::string kernel_code_;
-
-  // Profiling support: nvrtc log for debugging
-  std::string last_compiler_log_;
-
-  // save compiled binary
-  bool save_compiled_binary_ = false;
-
-  // nvrtc compiled binary
-  std::vector<char> last_compiled_binary_;
 };
 
 } // namespace nvfuser

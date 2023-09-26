@@ -93,6 +93,16 @@ struct HasArrowOperator<
     std::void_t<decltype(std::declval<decltype(&T::operator->)>())>>
     : std::true_type {};
 
+template <typename From, typename To, typename = void>
+struct HasExplicitConversion : std::false_type {};
+
+template <typename From, typename To>
+struct HasExplicitConversion<
+    From,
+    To,
+    std::void_t<decltype(std::declval<decltype(&From::operator To)>())>>
+    : std::true_type {};
+
 struct TrueType {
   static constexpr bool value() {
     return true;
@@ -185,6 +195,16 @@ struct OperatorChecker {
     return true;
   }
   constexpr bool canCastTo(CastableFromOperatorChecker) const {
+    return false;
+  }
+
+  template <
+      typename T1,
+      typename = std::enable_if_t<HasExplicitConversion<T, T1>::value>>
+  constexpr bool hasExplicitCastTo(OperatorChecker<T1>) const {
+    return true;
+  }
+  constexpr bool hasExplicitCastTo(CastableFromOperatorChecker) const {
     return false;
   }
 };

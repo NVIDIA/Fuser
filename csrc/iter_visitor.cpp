@@ -1126,7 +1126,7 @@ bool DeadCodeRemover::modifyFusion() const {
       fusion_->replaceOutput(old_val, new_val);
     }
     for (auto use : old_val->uses()) {
-      ir_utils::replaceValInExpr(use, old_val, new_val);
+      ir_utils::replaceValInExprInputs(use, old_val, new_val);
     }
     modified_fusion = true;
   }

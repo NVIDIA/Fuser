@@ -19,7 +19,7 @@ namespace nvfuser {
 
 //! Collects start and stop offsets of all split root domains. Offsets
 //! are zero unless partially split.
-class TORCH_CUDA_CU_API PartialSplitMap {
+class PartialSplitMap {
  public:
   void build(Fusion* fusion);
 

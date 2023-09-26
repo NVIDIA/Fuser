@@ -117,7 +117,7 @@ cleanup() {
 trap "cleanup" EXIT
 
 run_test() {
-    testdir=$1
+    export testdir=$1
     if [[ -d "$testdir/cuda" ]]
     then
         echo "Skipping since $testdir/cuda exists"
@@ -143,6 +143,9 @@ run_test() {
 collect_kernels() {
     outdir=$1
     commit=$2
+
+    # Make sure we are doing a clean rebuild. Otherwise we might get linking error.
+    python setup.py clean
 
     git -c advice.detachedHead=false checkout "$commit"
     git submodule update --init --recursive

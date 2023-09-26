@@ -702,6 +702,8 @@ static const char* parallel_type2string(ParallelType t) {
       return "G";
     case ParallelType::Serial:
       return "S";
+    case ParallelType::Bulk:
+      return "B";
     default:
       NVF_ERROR(false, "Unexpected ParallelType");
   }
@@ -722,7 +724,8 @@ std::unordered_set<ParallelType> allParallelTypesExcept(
       ParallelType::Unswitch,
       ParallelType::Mma,
       ParallelType::Group,
-      ParallelType::Serial};
+      ParallelType::Serial,
+      ParallelType::Bulk};
   for (auto t : except) {
     result.erase(t);
   }
@@ -811,10 +814,10 @@ const char* load_store_type2string(LoadStoreOpType t) {
       return "LdMatrix";
     case LoadStoreOpType::LdMatrixTranspose:
       return "LdMatrixTranspose";
-    case LoadStoreOpType::CpAsyncCa:
-      return "CpAsyncCa";
-    case LoadStoreOpType::CpAsyncCg:
-      return "CpAsyncCg";
+    case LoadStoreOpType::CpAsync:
+      return "CpAsync";
+    case LoadStoreOpType::CpAsyncBulkTensorTile:
+      return "CpAsyncBulkTensorTile";
     default:
       NVF_ERROR(false, "Unexpected parallel type");
   }
@@ -1135,6 +1138,27 @@ std::ostream& operator<<(std::ostream& os, const KernelIndexMode& index_mode) {
       break;
     default:
       NVF_ERROR(false, "undefined index mode");
+      break;
+  }
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const CacheOp& cache_op) {
+  switch (cache_op) {
+    case CacheOp::Unspecified:
+      os << "Unspecified";
+      break;
+    case CacheOp::AllLevels:
+      os << "AllLevels";
+      break;
+    case CacheOp::Streaming:
+      os << "Streaming";
+      break;
+    case CacheOp::Global:
+      os << "Global";
+      break;
+    default:
+      NVF_ERROR(false, "undefined cache operator");
       break;
   }
   return os;

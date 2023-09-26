@@ -70,7 +70,7 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
         "no cycle should be detected in fusion");
     // manually creating a cycle on the an active branch
     auto expr = tv2->definition();
-    ir_utils::replaceValInExpr(expr, tv1, tv4);
+    ir_utils::replaceValInExprInputs(expr, tv1, tv4);
     NVF_CHECK(
         ir_utils::checkCycle(fusion.get()).size() == 6,
         "cycle of size 6 should be detected in fusion");
@@ -103,7 +103,7 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
 
     // manually creating a cycle on dead branch
     auto expr = tv1->definition();
-    ir_utils::replaceValInExpr(expr, s0, tv2);
+    ir_utils::replaceValInExprInputs(expr, s0, tv2);
 
     // cycle on dead branch shouldn't be picked up by default
     NVF_CHECK(

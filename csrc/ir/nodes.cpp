@@ -102,6 +102,15 @@ IterDomain* SelectOp::getIndexedID() const {
       .at(dim());
 }
 
+std::vector<PolymorphicValue> SelectOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  int64_t dimension = dim();
+  int64_t index = (int64_t)inputs.at(1);
+  return {in.select(dimension, index)};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(SelectOp)
 
 IndexSelectOp::IndexSelectOp(
@@ -139,6 +148,15 @@ IterDomain* IndexSelectOp::getIndexedID() const {
 
 IterDomain* IndexSelectOp::getConsumerOfIndexedID() const {
   return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
+}
+
+std::vector<PolymorphicValue> IndexSelectOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  int64_t dimension = dim();
+  const auto& indices = inputs.at(1).as<at::Tensor>().squeeze();
+  return {at::index_select(in, dimension, indices)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IndexSelectOp)
@@ -186,6 +204,15 @@ IterDomain* TorchGatherOp::getConsumerOfIndexedID() const {
   return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
 }
 
+std::vector<PolymorphicValue> TorchGatherOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& input = inputs.at(0).as<at::Tensor>();
+  const auto& index = inputs.at(1).as<at::Tensor>();
+  auto dimension = dim();
+  return {at::gather(input, dimension, index)};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(TorchGatherOp)
 
 ScatterOp::ScatterOp(
@@ -222,6 +249,16 @@ std::string ScatterOp::toInlineString(int indent_size) const {
 
 IterDomain* ScatterOp::getIndexedID() const {
   return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
+}
+
+std::vector<PolymorphicValue> ScatterOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& input = inputs.at(0).as<at::Tensor>();
+  const auto& index = inputs.at(1).as<at::Tensor>();
+  const auto& src = inputs.at(2).as<at::Tensor>();
+  auto dimension = dim();
+  return {at::scatter(input, dimension, index, src)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScatterOp)
@@ -570,12 +607,23 @@ std::vector<PolymorphicValue> TernaryOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   using namespace PolymorphicValue_functions;
-  const auto& in1 = inputs.at(0);
-  const auto& in2 = inputs.at(1);
-  const auto& in3 = inputs.at(2);
+  const auto& a = inputs.at(0);
+  const auto& b = inputs.at(1);
+  const auto& c = inputs.at(2);
   switch (getTernaryOpType()) {
+    case TernaryOpType::Clamp:
+      return {std::min(std::max(a, b), c)};
+      break;
+    case TernaryOpType::Lerp:
+      // This is the same lerp computed in helpers.cu
+      // https://math.stackexchange.com/a/1798323
+      return {(c < 0.5) ? a + c * (b - a) : b - (b - a) * (1.0 - c)};
+      break;
+    case TernaryOpType::Threshold:
+      return {(a <= b) ? c : a};
+      break;
     case TernaryOpType::Where:
-      return {in1.as<bool>() ? in2 : in3};
+      return {a.as<bool>() ? b : c};
       break;
     default:
       NVF_CHECK(
@@ -2244,11 +2292,31 @@ LoadStoreOp::LoadStoreOp(
     IrBuilderPasskey passkey,
     LoadStoreOpType op_type,
     Val* out,
-    Val* in)
+    Val* in,
+    CacheOp cache_op)
     : Expr(passkey) {
+  // Pick the default cache operator.
+  if (op_type == LoadStoreOpType::CpAsync) {
+    if (cache_op == CacheOp::Unspecified) {
+      cache_op = CacheOp::AllLevels;
+    }
+    NVF_CHECK(
+        cache_op == CacheOp::Global || cache_op == CacheOp::AllLevels,
+        "cp.async only takes .ca or .cg. as cache operator");
+  } else if (op_type == LoadStoreOpType::Set) {
+    if (cache_op == CacheOp::Unspecified) {
+      cache_op = CacheOp::Streaming;
+    }
+  } else {
+    NVF_CHECK(
+        cache_op == CacheOp::Unspecified,
+        "Only Set and CpAsync take a cache operator.");
+  }
+
   addOutput(out);
   addInput(in);
   addDataAttribute(op_type);
+  addDataAttribute(cache_op);
 }
 
 std::vector<PolymorphicValue> LoadStoreOp::evaluate(
@@ -2820,7 +2888,8 @@ IterDomain* IterDomain::resize(
         left_expansion, right_expansion->definition()->as<BinaryOp>()->lhs());
   } else {
     resized_id_size = SimplifyingIrBuilder::addExpr(
-        SimplifyingIrBuilder::addExpr(in->extent(), left_expansion),
+        SimplifyingIrBuilder::addExpr(
+            in->getMaybeExpandedExtent(), left_expansion),
         right_expansion);
   }
 
@@ -3902,6 +3971,26 @@ std::pair<Val*, Val*> PadOp::getPadWidths(int axis) const {
       (*(getPadWidthInputBegin() + offset_odd))->as<Val>());
 }
 
+std::vector<PolymorphicValue> PadOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  double value = (double)inputs.at(1);
+
+  std::vector<int64_t> pad_widths;
+  auto pad_width_offset = getPadWidthInputOffset();
+  auto num_dims = in.dim();
+
+  for (auto i = num_dims - 1; i > -1; i--) {
+    auto left_pad = (int64_t)inputs.at(pad_width_offset + 2 * i);
+    auto right_pad = (int64_t)inputs.at(pad_width_offset + 2 * i + 1);
+    pad_widths.push_back(left_pad);
+    pad_widths.push_back(right_pad);
+  }
+
+  return {at::pad(in, pad_widths, "constant", value)};
+}
+
 SliceOp::SliceOp(
     IrBuilderPasskey passkey,
     TensorView* out,
@@ -3969,6 +4058,22 @@ std::vector<Slice> SliceOp::getRanges() const {
     range_val_it += 3;
   }
   return ranges;
+}
+
+std::vector<PolymorphicValue> SliceOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  std::vector<at::indexing::TensorIndex> ranges;
+  auto ranges_offset = getRangeInputOffset();
+  auto num_dims = in.dim();
+  for (const auto i : c10::irange(num_dims)) {
+    auto start = (int64_t)inputs.at(ranges_offset + 3 * i);
+    auto stop = (int64_t)inputs.at(ranges_offset + 3 * i + 1);
+    auto step = (int64_t)inputs.at(ranges_offset + 3 * i + 2);
+    ranges.emplace_back(at::indexing::Slice(start, stop, step));
+  }
+  return {in.index(ranges)};
 }
 
 CatOp::CatOp(
@@ -4064,6 +4169,18 @@ Val* CatOp::getPred(int input_idx) const {
       attr->toInlineString());
   auto pred = attr;
   return pred;
+}
+
+std::vector<PolymorphicValue> CatOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  std::vector<at::Tensor> in;
+  int64_t concat_dim = concatenatedDim();
+  for (auto i : c10::irange(inputs.size())) {
+    auto unpadded_inp = ee.evaluate(input(i)->definition()->input(0));
+    in.push_back(unpadded_inp.as<at::Tensor>());
+  }
+  return {at::cat(in, concat_dim)};
 }
 
 } // namespace nvfuser
