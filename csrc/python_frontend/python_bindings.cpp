@@ -768,6 +768,28 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP("imag", imag)
 #undef NVFUSER_PYTHON_BINDING_UNARY_OP
 
+  // overload to
+  nvf_ops.def(
+      "stride_order",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         std::vector<int64_t>& stride_order) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.stride_order");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg.dims);
+        fd->defineRecord(new DimsOpRecord<serde::RecordType_StrideOrderOp>(
+            {fd->recordingState(arg())},
+            {fd->recordingState(output())},
+            std::move(stride_order),
+            "ops.stride_order"));
+        return output;
+      },
+      py::arg("arg"),
+      py::arg("stride_order"),
+      py::return_value_policy::reference);
+
 // rand_like and randn_like are normally used with a single TensorView argument,
 // like a UnaryOp. However, they also take an optional pair (rng_seed,
 // rng_offset) which converts them to deterministic ops. When those args are
@@ -2086,10 +2108,12 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
-        self.fusion_definition->defineRecord(new PermuteOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            std::move(dims)));
+        self.fusion_definition->defineRecord(
+            new DimsOpRecord<serde::RecordType_PermuteOp>(
+                {fd->recordingState(arg())},
+                {fd->recordingState(output())},
+                std::move(dims),
+                "ops.permute"));
         return output;
       },
       py::arg("arg"),
