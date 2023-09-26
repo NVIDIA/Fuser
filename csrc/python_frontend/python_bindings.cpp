@@ -770,11 +770,11 @@ void initNvFuserPythonBindings(PyObject* module) {
 
   // overload to
   nvf_ops.def(
-      "set",
+      "stride_order",
       [](FusionDefinition::Operators& self,
          Tensor arg,
          std::vector<int64_t>& stride_order) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.set_stride_order");
+        FUSER_PERF_SCOPE("Operators.stride_order");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
@@ -783,7 +783,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(arg())},
             {fd->recordingState(output())},
             std::move(stride_order),
-            "ops.set"));
+            "ops.stride_order"));
         return output;
       },
       py::arg("arg"),
