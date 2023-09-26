@@ -1124,16 +1124,24 @@ TEST_F(ResizeTest, FusionResizeSlice5) {
   testValidate(&fusion, cg_outputs, aten_inputs, {t2, t4}, __LINE__, __FILE__);
 }
 
+std::vector<std::pair<int64_t, int64_t>> slice_cases(
+    {{0, 5},
+     {3, 9},
+     {3, 4},
+     {7, 5},
+     {0, 11},
+     {11, 13},
+     {-3, 8},
+     {-3, -1},
+     {-3, -5},
+     {13, -1},
+     {-11, 9},
+     {-11, 0},
+     {-13, -11}});
+
 // Test slice with a variety of constant ranges
 TEST_F(NVFuserTest, FusionResizeSliceConstantShmoo_CUDA) {
-  for (auto [start, stop] : std::vector<std::pair<int64_t, int64_t>>(
-           {// Slice with end beyond size of input. This should clip to input,
-            // not pad.
-            {0, 11},
-            {11, 13},
-            {-3, 8},
-            {-3, -1},
-            {13, -1}})) {
+  for (auto [start, stop] : slice_cases) {
     Fusion fusion;
     FusionGuard fg(&fusion);
 
@@ -1201,22 +1209,7 @@ TEST_F(NVFuserTest, FusionResizeSliceInputShmoo_CUDA) {
   fe.compileFusion(&fusion);
 
   auto t0 = at::randn(shape, options);
-  for (auto [start, stop] : std::vector<std::pair<int64_t, int64_t>>(
-           {// Slice with end beyond size of input. This should clip to input,
-            // not pad.
-            {0, 5},
-            {3, 9},
-            {3, 4},
-            {7, 5},
-            {0, 11},
-            {11, 13},
-            {-3, 8},
-            {-3, -1},
-            {-3, -5},
-            {13, -1},
-            {-11, 9},
-            {-11, 0},
-            {-13, -11}})) {
+  for (auto [start, stop] : slice_cases) {
     std::vector<c10::IValue> aten_inputs({t0, start, stop});
     auto cg_outputs = fe.runFusion(aten_inputs);
 
@@ -1249,22 +1242,7 @@ TEST_F(NVFuserTest, FusionResizeSliceInputShmooFusionExecutorCache_CUDA) {
   FusionExecutorCache fec(std::move(fusion_ptr));
 
   auto t0 = at::randn(shape, options);
-  for (auto [start, stop] : std::vector<std::pair<int64_t, int64_t>>(
-           {// Slice with end beyond size of input. This should clip to input,
-            // not pad.
-            {0, 5},
-            {3, 9},
-            {3, 4},
-            {7, 5},
-            {0, 11},
-            {11, 13},
-            {-3, 8},
-            {-3, -1},
-            {-3, -5},
-            {13, -1},
-            {-11, 9},
-            {-11, 0},
-            {-13, -11}})) {
+  for (auto [start, stop] : slice_cases) {
     std::vector<c10::IValue> aten_inputs({t0, start, stop});
     auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
 
