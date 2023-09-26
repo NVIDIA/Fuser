@@ -86,50 +86,6 @@ bool checkReductionPattern(
   return true;
 }
 
-std::pair<int64_t, int64_t> getPersistentBufferSize(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache,
-    const std::vector<TensorView*>& reduction_tvs) {
-  auto persistent_buffer_info_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
-          data_cache, [&fusion]() {
-            return std::make_unique<scheduler_utils::PersistentBufferInfo>(
-                scheduler_utils::persistentBuffers(fusion));
-          });
-
-  auto& persistent_buffer_info = persistent_buffer_info_entry.get();
-
-  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
-      fusion, runtime_info, persistent_buffer_info, data_cache);
-
-  // Note that projected buffer size can be zero
-  auto persistent_buffer_size =
-      persistent_buffer_size_info.projected_persistent_buffer_size == 0
-      ? persistent_buffer_size_info.persistent_buffer_size
-      : std::min(
-            persistent_buffer_size_info.persistent_buffer_size,
-            persistent_buffer_size_info.projected_persistent_buffer_size);
-
-  // in combined_inner_outer_reduction, the partial results of outer
-  // reductions must be persistent, allow register spill avoid segmentation
-  std::vector<TensorView*> outer_reduction_tvs;
-  for (auto tv : reduction_tvs) {
-    if (!scheduler_utils::isFastestDimReduction(tv)) {
-      outer_reduction_tvs.emplace_back(tv);
-    }
-  }
-  persistent_buffer_size +=
-      normalization_scheduler_utils::partialReductionBufferSize(
-          outer_reduction_tvs, runtime_info);
-
-  int64_t available_persistent_buffer_size =
-      scheduler_utils::register_file_size_full;
-
-  return std::make_pair(
-      persistent_buffer_size, available_persistent_buffer_size);
-}
-
 } // namespace
 
 bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
@@ -279,6 +235,54 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
 
   return true;
 }
+
+namespace {
+
+std::pair<int64_t, int64_t> getPersistentBufferSize(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache,
+    const std::vector<TensorView*>& reduction_tvs) {
+  auto persistent_buffer_info_entry =
+      HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
+          data_cache, [&fusion]() {
+            return std::make_unique<scheduler_utils::PersistentBufferInfo>(
+                scheduler_utils::persistentBuffers(fusion));
+          });
+
+  auto& persistent_buffer_info = persistent_buffer_info_entry.get();
+
+  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
+      fusion, runtime_info, persistent_buffer_info, data_cache);
+
+  // Note that projected buffer size can be zero
+  auto persistent_buffer_size =
+      persistent_buffer_size_info.projected_persistent_buffer_size == 0
+      ? persistent_buffer_size_info.persistent_buffer_size
+      : std::min(
+            persistent_buffer_size_info.persistent_buffer_size,
+            persistent_buffer_size_info.projected_persistent_buffer_size);
+
+  // in combined_inner_outer_reduction, the partial results of outer
+  // reductions must be persistent, allow register spill avoid segmentation
+  std::vector<TensorView*> outer_reduction_tvs;
+  for (auto tv : reduction_tvs) {
+    if (!scheduler_utils::isFastestDimReduction(tv)) {
+      outer_reduction_tvs.emplace_back(tv);
+    }
+  }
+  persistent_buffer_size +=
+      normalization_scheduler_utils::partialReductionBufferSize(
+          outer_reduction_tvs, runtime_info);
+
+  int64_t available_persistent_buffer_size =
+      scheduler_utils::register_file_size_full;
+
+  return std::make_pair(
+      persistent_buffer_size, available_persistent_buffer_size);
+}
+
+} // namespace
 
 bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
     Fusion* fusion,
