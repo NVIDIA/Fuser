@@ -1599,7 +1599,7 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
         continue;
       }
     }
-    for (const auto& [role, tvs] : roles_map) {
+    for (auto& [role, tvs] : roles_map) {
       // sort tvs by name()
       std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
         return a->name() < b->name();
