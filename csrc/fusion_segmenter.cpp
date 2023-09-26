@@ -3353,9 +3353,8 @@ void SegmentCandidateFinder::findSegments() {
 
   segmented_fusion_->validateIfDebug();
 
-  auto reduction_ops =
-      ir_utils::getReductionOps(segmented_fusion_->completeFusion());
-  auto welford_ops = ir_utils::filterByType<WelfordOp>(reduction_ops);
+  auto welford_ops =
+      ir_utils::getOpsOfType<WelfordOp>(segmented_fusion_->completeFusion());
 
   if (options_.run_translate_welford &&
       (welford_ops.begin() != welford_ops.end())) {

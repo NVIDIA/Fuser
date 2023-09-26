@@ -45,7 +45,7 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
   }
 
   // Fusions handled by pointwise scheduler cannot have MmaOp.
-  if (!ir_utils::getMmaOps(fusion).empty()) {
+  if (!ir_utils::getOpsOfType<MmaOp>(fusion).empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
         ScheduleHeuristic::PointWise, "no support for mma ops.");
     return false;
@@ -61,7 +61,7 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
     }
   }
 
-  auto reduction_ops = ir_utils::getReductionOps(fusion);
+  auto reduction_ops = ir_utils::getAllTypesOfReductionOps(fusion);
 
   if (!reduction_ops.empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
