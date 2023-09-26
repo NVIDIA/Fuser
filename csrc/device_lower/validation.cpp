@@ -236,8 +236,7 @@ void checkContiguity(
       !consumer->hasAllocation() && !producer->hasAllocation(),
       "Misaligned vectorization for allocation domain is not supported.");
   auto alloc_c2p =
-      PairwiseRootDomainMap(producer, consumer)
-          .mapConsumerToProducer(consumer->domain(), producer->domain());
+      PairwiseRootDomainMap(producer, consumer).mapConsumerToProducer();
 
   std::unordered_map<IterDomain*, std::optional<bool>>
       producer_domain_contiguity;
@@ -764,8 +763,7 @@ std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> getLiveRangeOffsets
       // gather is not considered here but taken care by halo regions.
       for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
         auto c2p =
-            PairwiseRootDomainMap(producer, consumer)
-                .mapConsumerToProducer(consumer->domain(), producer->domain());
+            PairwiseRootDomainMap(producer, consumer).mapConsumerToProducer();
         for (auto consumer_root : consumer->getRootDomain()) {
           auto producer_it = c2p.find(consumer_root);
           if (producer_it == c2p.end()) {

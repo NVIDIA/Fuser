@@ -462,7 +462,7 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
   // Then i1 and i2 are contiguous in both T0 and T5, but due to the realization
   // of the broadcast on T4 we will have removed i1 from the mapped set.
   PairwiseRootDomainMap root_map(to, from);
-  auto c2p_map = root_map.mapConsumerToProducer(from->domain(), to->domain());
+  auto c2p_map = root_map.mapConsumerToProducer();
 
   // Id's in consumer to clear from the mapped set due to broadcast
   // concretization.
@@ -535,7 +535,7 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
   // Then i1 and i2 are contiguous in both T0 and T3, but due to the sum on T1
   // we will have removed i1.
   PairwiseRootDomainMap root_map(from, to);
-  auto p2c_map = root_map.mapProducerToConsumer(from->domain(), to->domain());
+  auto p2c_map = root_map.mapProducerToConsumer();
   std::vector<IterDomain*> consumer_root_ids;
 
   // Id's in producer to clear from the mapped set due to reductions.
@@ -918,10 +918,8 @@ int64_t getVectorizationBreakPointOfReductionProducer(
       ". ",
       reduction_producer->toString());
 
-  const auto c2p =
-      PairwiseRootDomainMap(reduction_producer, reduction_consumer)
-          .mapConsumerToProducer(
-              reduction_consumer->domain(), reduction_producer->domain());
+  const auto c2p = PairwiseRootDomainMap(reduction_producer, reduction_consumer)
+                       .mapConsumerToProducer();
 
   // Grab all the corresponding producer IDs that are mapped with the
   // innermost consumer IDs

@@ -32,10 +32,9 @@ bool pointwiseExpands(const Expr* expr, const TensorView* in_tv) {
   }
   const auto* out_tv = out->as<TensorView>();
 
-  auto root_domain_map =
-      PairwiseRootDomainMap(in_tv, out_tv)
-          .mapBroadcast(true)
-          .mapProducerToConsumer(in_tv->domain(), out_tv->domain());
+  auto root_domain_map = PairwiseRootDomainMap(in_tv, out_tv)
+                             .mapBroadcast(true)
+                             .mapProducerToConsumer();
   return std::find_if(
              root_domain_map.begin(),
              root_domain_map.end(),
