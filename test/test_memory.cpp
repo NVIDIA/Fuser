@@ -129,11 +129,8 @@ TEST_F(MemoryTest, RefineCachePolicy) {
   fusion.addOutput(tv_c2);
 
   tv_a2->merge(0);
-  tv_a2->split(0, 4); // Vector.
-  tv_a2->split(0, 32); // Thread.
-  // TODO: can the propagator automatically split tv_b2?
-  tv_b2->split(0, 4); // Vector.
-  tv_b2->split(0, 32); // Thread.
+  tv_a2->split(0, 4);
+  tv_a2->split(0, 32);
   TransformPropagatorWithCheck propagator(tv_a2);
   MaxRootDomainInfoSpanningTree(tv_a2).traverse(&propagator);
 

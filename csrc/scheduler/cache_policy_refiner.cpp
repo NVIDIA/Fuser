@@ -26,15 +26,15 @@ static bool pointwiseExpands(const Expr* expr, const TensorView* in_tv) {
     return false;
   }
 
-  int num_expands = 0;
   for (size_t i = 0; i < n_dims; i++) {
     const Val* in_extent = in_tv->getRootDomain()[i]->extent();
     const Val* out_extent = out_tv->getRootDomain()[i]->extent();
     if (in_extent->isOneInt() && !out_extent->isOneInt()) {
-      num_expands++;
+      // Found an expanding IterDomain.
+      return true;
     }
   }
-  return num_expands > 0;
+  return false;
 }
 
 // Finds the first expanding use of `ldst`'s output, bypassing all pointwise
