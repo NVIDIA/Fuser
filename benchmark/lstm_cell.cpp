@@ -78,18 +78,20 @@ static std::vector<c10::IValue> setupInputs(
 
 //------------------------------------------------------------------------------
 
-static void LstmCell_SetupFusion(benchmark::State& benchmark_state) {
+static void NvFuserScheduler_LstmCell_SetupFusion(
+    benchmark::State& benchmark_state) {
   for (auto _ : benchmark_state) {
     Fusion fusion;
     setupFusion(&fusion);
   }
 }
 
-BENCHMARK(LstmCell_SetupFusion)->Unit(benchmark::kMicrosecond);
+BENCHMARK(NvFuserScheduler_LstmCell_SetupFusion)->Unit(benchmark::kMicrosecond);
 
 //------------------------------------------------------------------------------
 
-static void LstmCell_AutoSchedule(benchmark::State& benchmark_state) {
+static void NvFuserScheduler_LstmCell_AutoSchedule(
+    benchmark::State& benchmark_state) {
   constexpr int kHiddenFeatures = 512;
   constexpr int kBatchSize = 64;
 
@@ -106,11 +108,12 @@ static void LstmCell_AutoSchedule(benchmark::State& benchmark_state) {
   }
 }
 
-BENCHMARK(LstmCell_AutoSchedule)->Unit(benchmark::kMicrosecond);
+BENCHMARK(NvFuserScheduler_LstmCell_AutoSchedule)
+    ->Unit(benchmark::kMicrosecond);
 
 //------------------------------------------------------------------------------
 
-static void LstmCell_Lower(benchmark::State& benchmark_state) {
+static void NvFuserScheduler_LstmCell_Lower(benchmark::State& benchmark_state) {
   constexpr int kHiddenFeatures = 512;
   constexpr int kBatchSize = 64;
 
@@ -129,11 +132,12 @@ static void LstmCell_Lower(benchmark::State& benchmark_state) {
   }
 }
 
-BENCHMARK(LstmCell_Lower)->Unit(benchmark::kMillisecond);
+BENCHMARK(NvFuserScheduler_LstmCell_Lower)->Unit(benchmark::kMillisecond);
 
 //------------------------------------------------------------------------------
 
-static void LstmCell_Compile(benchmark::State& benchmark_state) {
+static void NvFuserScheduler_LstmCell_Compile(
+    benchmark::State& benchmark_state) {
   constexpr int kHiddenFeatures = 512;
   constexpr int kBatchSize = 64;
 
@@ -153,11 +157,11 @@ static void LstmCell_Compile(benchmark::State& benchmark_state) {
   }
 }
 
-BENCHMARK(LstmCell_Compile)->Unit(benchmark::kMillisecond);
+BENCHMARK(NvFuserScheduler_LstmCell_Compile)->Unit(benchmark::kMillisecond);
 
 //------------------------------------------------------------------------------
 
-static void LstmCell_RunFusion(
+static void NvFuserScheduler_LstmCell_RunFusion(
     benchmark::State& benchmark_state,
     int hidden_features,
     int batch_size) {
@@ -185,15 +189,15 @@ static void LstmCell_RunFusion(
   }
 }
 
-BENCHMARK_CAPTURE(LstmCell_RunFusion, Small, 512, 64)
+BENCHMARK_CAPTURE(NvFuserScheduler_LstmCell_RunFusion, Small, 512, 64)
     ->Unit(benchmark::kMicrosecond);
 
-BENCHMARK_CAPTURE(LstmCell_RunFusion, Medium, 1024, 128)
+BENCHMARK_CAPTURE(NvFuserScheduler_LstmCell_RunFusion, Medium, 1024, 128)
     ->Unit(benchmark::kMicrosecond);
 
 //------------------------------------------------------------------------------
 
-static void LstmCell_RunFusion_GpuOnly(
+static void NvFuserScheduler_LstmCell_RunFusion_GpuOnly(
     benchmark::State& benchmark_state,
     int hidden_features,
     int batch_size) {
@@ -216,17 +220,21 @@ static void LstmCell_RunFusion_GpuOnly(
   runBenchmarkIterations(benchmark_state, &executor, inputs, lparams);
 }
 
-BENCHMARK_CAPTURE(LstmCell_RunFusion_GpuOnly, Small, 512, 64)
+BENCHMARK_CAPTURE(NvFuserScheduler_LstmCell_RunFusion_GpuOnly, Small, 512, 64)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
-BENCHMARK_CAPTURE(LstmCell_RunFusion_GpuOnly, Medium, 1024, 128)
+BENCHMARK_CAPTURE(
+    NvFuserScheduler_LstmCell_RunFusion_GpuOnly,
+    Medium,
+    1024,
+    128)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
 //------------------------------------------------------------------------------
 
-static void LstmCell_RunFusion_CpuOnly(
+static void NvFuserScheduler_LstmCell_RunFusion_CpuOnly(
     benchmark::State& benchmark_state,
     int hidden_features,
     int batch_size) {
@@ -252,8 +260,12 @@ static void LstmCell_RunFusion_CpuOnly(
   }
 }
 
-BENCHMARK_CAPTURE(LstmCell_RunFusion_CpuOnly, Small, 512, 64)
+BENCHMARK_CAPTURE(NvFuserScheduler_LstmCell_RunFusion_CpuOnly, Small, 512, 64)
     ->Unit(benchmark::kMicrosecond);
 
-BENCHMARK_CAPTURE(LstmCell_RunFusion_CpuOnly, Medium, 1024, 128)
+BENCHMARK_CAPTURE(
+    NvFuserScheduler_LstmCell_RunFusion_CpuOnly,
+    Medium,
+    1024,
+    128)
     ->Unit(benchmark::kMicrosecond);

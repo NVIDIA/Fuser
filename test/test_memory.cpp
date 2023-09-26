@@ -63,7 +63,6 @@ TEST_P(MemoryTest, LoadCache) {
   at::Tensor expected_output = input + 1.0f;
 
   FusionExecutor fe;
-  fe.setSaveCompiledBinaryFlag(true);
   {
     DebugDumpOptionsGuard debug_dump_options_guard;
     DebugDumpOptionsGuard::getCurOptions().set(DebugDumpOption::Ptx);
@@ -235,6 +234,37 @@ TEST_F(TMATest, StoreCompleteTensor5D) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({4, 4, 4, 4, 4}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+// Basically just StoreCompleteTensor1D, but with index hoisting disabled.
+// Because index hoisting is responsible making sure that tensor maps are
+// created on the host and passed as kernel argument, we need to make sure
+// that disabling index hoisting doesn't break this.
+TEST_F(TMATest, DisableIndexHoisting) {
+  DisableOptionsGuard opt_guard;
+  opt_guard.getCurOptions().set(DisableOption::IndexHoist);
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv2->axis(0)->parallelize(ParallelType::Bulk);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({32}, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});

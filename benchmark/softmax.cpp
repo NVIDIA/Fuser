@@ -78,7 +78,8 @@ static void NvFuserScheduler_Softmax(
 }
 
 // Warp softmax comparison
-static void Softmax_WarpReduceReference(benchmark::State& benchmark_state) {
+static void NvFuserScheduler_Softmax_WarpReduceReference(
+    benchmark::State& benchmark_state) {
   auto dtype = DataType::Float;
   std::vector<int64_t> input_shape{
       benchmark_state.range(0), benchmark_state.range(1)};
@@ -113,7 +114,8 @@ static void Softmax_WarpReduceReference(benchmark::State& benchmark_state) {
       (2 * aten_input.numel() * int64_t(dataTypeSize(dtype))));
 }
 
-static void Softmax_WarpReduce(benchmark::State& benchmark_state) {
+static void NvFuserScheduler_Softmax_WarpReduce(
+    benchmark::State& benchmark_state) {
   auto dtype = DataType::Float;
   std::vector<int64_t> input_shape{
       benchmark_state.range(0), benchmark_state.range(1)};
@@ -133,9 +135,9 @@ static void Softmax_WarpReduce(benchmark::State& benchmark_state) {
   // Schedule through magic scheduler:
   SchedulerRuntimeInfo runtime_info(fusion, aten_inputs);
   NVF_ERROR(SchedulerEntry::canSchedule(
-      ScheduleHeuristic::Persistent, fusion, runtime_info));
+      ScheduleHeuristic::InnerPersistent, fusion, runtime_info));
   auto scheduler = SchedulerEntry::makeEntry(
-      ScheduleHeuristic::Persistent, fusion, runtime_info);
+      ScheduleHeuristic::InnerPersistent, fusion, runtime_info);
   scheduler->schedule(fusion);
 
   // Modify the schedule to use warp reduction
@@ -158,13 +160,13 @@ static void Softmax_WarpReduce(benchmark::State& benchmark_state) {
       (2 * aten_input.numel() * int64_t(dataTypeSize(dtype))));
 }
 
-BENCHMARK(Softmax_WarpReduce)
+BENCHMARK(NvFuserScheduler_Softmax_WarpReduce)
     ->RangeMultiplier(2)
     ->Ranges({{8, 8}, {16 * 197, 16 * 197}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
-BENCHMARK(Softmax_WarpReduceReference)
+BENCHMARK(NvFuserScheduler_Softmax_WarpReduceReference)
     ->RangeMultiplier(2)
     ->Ranges({{8, 8}, {16 * 197, 16 * 197}})
     ->Unit(benchmark::kMicrosecond)
