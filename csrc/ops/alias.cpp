@@ -703,9 +703,7 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
 
   const auto normalize_slice_range = [](Slice range, Val* extent) -> Slice {
     // Cast inputs to Index first
-    if (extent->dtype() != DataType::Index) {
-      extent = SimplifyingIrBuilder::maybeCastExpr(DataType::Index, extent);
-    }
+    extent = SimplifyingIrBuilder::maybeCastExpr(DataType::Index, extent);
 
     auto zero = FusionGuard::getCurFusion()->zeroVal(DataType::Index);
 
@@ -713,10 +711,8 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
     if (range.start == nullptr) {
       range.start = zero;
     } else {
-      if (range.start->dtype() != DataType::Index) {
-        range.start =
-            SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.start);
-      }
+      range.start =
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.start);
       range.start = SimplifyingIrBuilder::maxExpr(
           zero,
           where(lt(range.start, zero), add(range.start, extent), range.start));
@@ -726,10 +722,8 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
     if (range.stop == nullptr) {
       range.stop = extent;
     } else {
-      if (range.stop->dtype() != DataType::Index) {
-        range.stop =
-            SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.stop);
-      }
+      range.stop =
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.stop);
       range.stop = SimplifyingIrBuilder::maxExpr(
           range.start,
           SimplifyingIrBuilder::minExpr(
@@ -741,7 +735,7 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
     // Ensure step is of type Index
     if (range.step == nullptr) {
       range.step = FusionGuard::getCurFusion()->oneVal(DataType::Index);
-    } else if (range.step->dtype() != DataType::Index) {
+    } else {
       range.step =
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.step);
     }
