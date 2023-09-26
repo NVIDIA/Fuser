@@ -1563,8 +1563,18 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
   const auto findRolesByDomains = [](const DependenciesMap& deps_map,
                                      RolesMap& roles_map,
                                      const bool processing_output) {
-    for (const auto& entry : deps_map) {
-      const auto& domains = entry.second;
+    // Traverse deps_map in order of key->name()
+    std::vector<TensorView*> deps_tvs;
+    deps_tvs.reserve(deps_map.size());
+    for (const auto& [tv, domains] : deps_map) {
+      deps_tvs.push_back(tv);
+    }
+    std::sort(
+        deps_tvs.begin(), deps_tvs.end(), [](TensorView* a, TensorView* b) {
+          return a->name() < b->name();
+        });
+    for (const auto tv : deps_tvs) {
+      const auto& domains = deps_map.at(tv);
       const auto begin = domains.begin();
       const auto end = domains.end();
 
@@ -1573,20 +1583,20 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
       bool has_k = (end != std::find(begin, end, MatmulDomain::K));
 
       if (!processing_output && has_m && has_k && !has_n) {
-        roles_map[MatmulRole::INPUT_A].push_back(entry.first);
+        roles_map[MatmulRole::INPUT_A].push_back(tv);
         continue;
       }
       if (!processing_output && has_n && has_k && !has_m) {
-        roles_map[MatmulRole::INPUT_B].push_back(entry.first);
+        roles_map[MatmulRole::INPUT_B].push_back(tv);
         continue;
       }
       if (!processing_output && has_m && has_n && !has_k) {
-        roles_map[MatmulRole::INPUT_C].push_back(entry.first);
+        roles_map[MatmulRole::INPUT_C].push_back(tv);
         continue;
       }
       // Bias vectors are assigned to INPUT_C role
       if (!processing_output && has_m && !has_n && !has_k) {
-        roles_map[MatmulRole::INPUT_C].push_back(entry.first);
+        roles_map[MatmulRole::INPUT_C].push_back(tv);
         continue;
       }
 
@@ -1595,7 +1605,7 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
       //  - for mma_output != fusion output (fusion with epilogue) k domain
       //    is not present
       if (processing_output && has_m && has_n) {
-        roles_map[MatmulRole::OUTPUT_D].push_back(entry.first);
+        roles_map[MatmulRole::OUTPUT_D].push_back(tv);
         continue;
       }
     }
