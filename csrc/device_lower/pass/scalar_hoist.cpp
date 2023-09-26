@@ -150,8 +150,6 @@ bool isHelpfulToReuse(Val* value) {
   return true;
 }
 
-} // namespace
-
 // Find if the given `value` is already computed on the host. If yes, then
 // return the host value, else return nullptr.
 Val* reuseValsKnownToKernel(Val* value) {
@@ -162,6 +160,8 @@ Val* reuseValsKnownToKernel(Val* value) {
   }
   return nullptr;
 }
+
+} // namespace
 
 std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
     Val* value,
