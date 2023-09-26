@@ -702,37 +702,39 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
       ndims);
 
   const auto normalize_slice_range = [](Slice range, Val* extent) -> Slice {
-    // Cast inputs to Index first
+    auto cast_extent =
+        SimplifyingIrBuilder::maybeCastExpr(DataType::Index, extent);
+
     auto zero = FusionGuard::getCurFusion()->zeroVal(DataType::Index);
 
     // norm_start = max(0, start < 0 ? start + extent : start)
     if (range.start == nullptr) {
       range.start = zero;
     } else if (!range.start->isZeroInt()) {
+      range.start =
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.start);
       range.start = SimplifyingIrBuilder::maxExpr(
           zero,
           SimplifyingIrBuilder::whereExpr(
               SimplifyingIrBuilder::ltExpr(range.start, zero),
-              SimplifyingIrBuilder::addExpr(range.start, extent),
+              SimplifyingIrBuilder::addExpr(range.start, cast_extent),
               range.start));
-      range.start =
-          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.start);
     }
 
     // norm_stop = max(norm_start, min(extent, stop < 0 ? stop + extent : stop)
     if (range.stop == nullptr) {
-      range.stop = extent;
+      range.stop = cast_extent;
     } else if (!range.stop->sameAs(extent)) {
+      range.stop =
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.stop);
       range.stop = SimplifyingIrBuilder::maxExpr(
           range.start,
           SimplifyingIrBuilder::minExpr(
-              extent,
+              cast_extent,
               SimplifyingIrBuilder::whereExpr(
                   SimplifyingIrBuilder::ltExpr(range.stop, zero),
-                  SimplifyingIrBuilder::addExpr(range.stop, extent),
+                  SimplifyingIrBuilder::addExpr(range.stop, cast_extent),
                   range.stop)));
-      range.stop =
-          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.stop);
     }
 
     // Ensure step is of type Index
