@@ -446,4 +446,188 @@ TEST_F(Tutorial, ReductionRFactor) {
   }
 }
 
+TEST_F(Tutorial, Reshape) {
+  {
+    // Simple reshape example
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeSymbolicTensor(2);
+    fusion.addInput(tv0);
+
+    // Shape of tv0 is assumed to be [4, 8], which is then reshaped to [32]
+    auto tv1 = reshape(tv0, {4, 8}, {32});
+    fusion.addOutput(tv1);
+
+    if (verbose_) {
+      // Notice that tv1 has root and rfactor domains. The root domain
+      // should consist of two IterDomains, whreas the rfactor domain
+      // consists of a single IterDomain that is an output of a merge
+      // operation of the two root IterDomains
+      fusion.print();
+    }
+
+    // Check if the tv1 domains are generated as expected
+    ASSERT_TRUE(tv1->hasRFactor());
+    ASSERT_EQ(tv1->getRFactorDomain().size(), 1);
+    ASSERT_TRUE(tv1->getRFactorDomain().at(0)->definition()->isA<Merge>());
+    Merge* tv1_merge = tv1->getRFactorDomain().at(0)->definition()->as<Merge>();
+    ASSERT_EQ(tv1_merge->inner(), tv1->getRootDomain().at(1));
+    ASSERT_EQ(tv1_merge->outer(), tv1->getRootDomain().at(0));
+  }
+
+  {
+    // Reshape example with broadcast domains
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    // Create a 3D tensor with a broadcast domain
+    auto tv0 = makeConcreteTensor({1, -1, -1});
+    fusion.addInput(tv0);
+
+    // tv0 is first squeezed and then reshaped and unsqueezed
+    auto tv1 = reshape(tv0, {1, 2, 3}, {3, 2, 1});
+    fusion.addOutput(tv1);
+
+    if (verbose_) {
+      fusion.print();
+    }
+
+    // The fusion should look like:
+    //
+    // tv1 = unsqueeze(reshape(squeeze(tv0)));
+    ASSERT_TRUE(tv1->definition()->isA<BroadcastOp>());
+    auto reshape_output = tv1->definition()->input(0)->as<TensorView>();
+    ASSERT_TRUE(reshape_output->definition()->isA<ViewOp>());
+    auto squeeze_output =
+        reshape_output->definition()->input(0)->as<TensorView>();
+    ASSERT_TRUE(squeeze_output->definition()->isA<SqueezeOp>());
+
+    ASSERT_TRUE(reshape_output->hasRFactor());
+    ASSERT_EQ(reshape_output->getRFactorDomain().size(), 2);
+    ASSERT_TRUE(
+        reshape_output->getRFactorDomain().at(0)->definition()->isA<Split>());
+    auto reshape_output_split =
+        reshape_output->getRFactorDomain().at(0)->definition()->as<Split>();
+    ASSERT_EQ(
+        reshape_output_split->outer(),
+        reshape_output->getRFactorDomain().at(0));
+    ASSERT_EQ(
+        reshape_output_split->inner(),
+        reshape_output->getRFactorDomain().at(1));
+    ASSERT_TRUE(reshape_output_split->in()->definition()->isA<Merge>());
+    auto reshape_output_merge =
+        reshape_output_split->in()->definition()->as<Merge>();
+    ASSERT_EQ(
+        reshape_output_merge->outer(), reshape_output->getRootDomain().at(0));
+    ASSERT_EQ(
+        reshape_output_merge->inner(), reshape_output->getRootDomain().at(1));
+
+    // So far, the fusion has transformations as part of its
+    // definition. It can be further extended with scheduling transformations.
+    reshape_output->merge(0, 1);
+    reshape_output->split(0, 128);
+
+    ASSERT_TRUE(
+        reshape_output->getLeafDomain().at(0)->definition()->isA<Split>());
+    ASSERT_EQ(
+        reshape_output->getLeafDomain()
+            .at(0)
+            ->definition()
+            ->as<Split>()
+            ->inner(),
+        reshape_output->getLeafDomain().at(1));
+    ASSERT_TRUE(reshape_output->getLeafDomain()
+                    .at(0)
+                    ->definition()
+                    ->as<Split>()
+                    ->in()
+                    ->definition()
+                    ->isA<Merge>());
+    ASSERT_EQ(
+        reshape_output->getLeafDomain()
+            .at(0)
+            ->definition()
+            ->as<Split>()
+            ->in()
+            ->definition()
+            ->as<Merge>()
+            ->outer(),
+        reshape_output->getRFactorDomain().at(0));
+    ASSERT_EQ(
+        reshape_output->getLeafDomain()
+            .at(0)
+            ->definition()
+            ->as<Split>()
+            ->in()
+            ->definition()
+            ->as<Merge>()
+            ->inner(),
+        reshape_output->getRFactorDomain().at(1));
+
+    // Here's how we propagate the transformations of reshape_output
+    // to all other tensors in the fusion
+    TransformPropagatorWithCheck propagator(reshape_output);
+    MaxRootDomainInfoSpanningTree(reshape_output).traverse(&propagator);
+
+    // Now, all tensors, including those before the reshape op, should
+    // be transformed to 2D tensors with an inner domain of extent
+    // 128.
+    if (verbose_) {
+      fusion.print();
+    }
+
+    // Notice that all transformations of the reshape tensor,
+    // including both the reshape and scheduling transformations, are
+    // propagated. For example, squeeze_output should have the merge and split
+    // for the reshape, followed by another merge and split for
+    // scheduling. Specifically:
+    //
+    // Root domain: [b0, i1, i2]
+    // merge(1, 2) -> [b0, i1*i2]
+    // outer split(1, 3) -> [b0, 3, i1*i2/3]
+    // merge(1, 2) -> [b0, 3*i1*i2/3]
+    // split(1, 128) -> [b0, 3*i1*i2/3/128, 128]
+    ASSERT_TRUE(
+        squeeze_output->getLeafDomain().at(0)->definition()->isA<Split>());
+    auto squeeze_output_second_split =
+        squeeze_output->getLeafDomain().at(0)->definition()->as<Split>();
+    ASSERT_EQ(
+        squeeze_output_second_split->outer(),
+        squeeze_output->getLeafDomain().at(0));
+    ASSERT_EQ(
+        squeeze_output_second_split->inner(),
+        squeeze_output->getLeafDomain().at(1));
+
+    ASSERT_TRUE(squeeze_output_second_split->in()->definition()->isA<Merge>());
+    auto squeeze_output_second_merge =
+        squeeze_output_second_split->in()->definition()->as<Merge>();
+
+    ASSERT_TRUE(
+        squeeze_output_second_merge->outer()->definition()->isA<Split>());
+    auto squeeze_output_first_split =
+        squeeze_output_second_merge->outer()->definition()->as<Split>();
+    ASSERT_EQ(
+        squeeze_output_first_split->outer(),
+        squeeze_output_second_merge->outer());
+    ASSERT_EQ(
+        squeeze_output_first_split->inner(),
+        squeeze_output_second_merge->inner());
+
+    ASSERT_TRUE(squeeze_output_first_split->in()->definition()->isA<Merge>());
+    auto squeeze_output_first_merge =
+        squeeze_output_first_split->in()->definition()->as<Merge>();
+    ASSERT_EQ(
+        squeeze_output_first_merge->outer(),
+        squeeze_output->getRootDomain().at(0));
+    ASSERT_EQ(
+        squeeze_output_first_merge->inner(),
+        squeeze_output->getRootDomain().at(1));
+
+    // Note that all the transformations of squeeze_output are scheduling
+    // transformations, thus it should not have a rfactor domain
+    ASSERT_FALSE(squeeze_output->hasRFactor());
+  }
+}
+
 } // namespace nvfuser
