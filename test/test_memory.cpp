@@ -63,7 +63,6 @@ TEST_P(MemoryTest, LoadCache) {
   at::Tensor expected_output = input + 1.0f;
 
   FusionExecutor fe;
-  fe.setSaveCompiledBinaryFlag(true);
   {
     DebugDumpOptionsGuard debug_dump_options_guard;
     DebugDumpOptionsGuard::getCurOptions().set(DebugDumpOption::Ptx);

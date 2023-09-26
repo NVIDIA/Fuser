@@ -52,7 +52,7 @@ enum class ScheduleHeuristic {
   Reduction,
   InnerPersistent,
   InnerOuterPersistent,
-  Persistent,
+  OuterPersistent,
   Transpose,
   Matmul
 };
@@ -64,8 +64,8 @@ constexpr std::array<ScheduleHeuristic, 8> all_heuristics_in_priority_order = {
     ScheduleHeuristic::Transpose,
     ScheduleHeuristic::PointWise,
     ScheduleHeuristic::InnerPersistent,
+    ScheduleHeuristic::OuterPersistent,
     ScheduleHeuristic::InnerOuterPersistent,
-    ScheduleHeuristic::Persistent,
     ScheduleHeuristic::Matmul};
 
 std::string toString(ScheduleHeuristic sh);
