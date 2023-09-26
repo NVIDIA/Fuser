@@ -16,9 +16,11 @@
 
 namespace nvfuser {
 
+namespace {
+
 // Returns whether a pointwise expression `expr` expands its input operand
 // `in_tv`.
-static bool pointwiseExpands(const Expr* expr, const TensorView* in_tv) {
+bool pointwiseExpands(const Expr* expr, const TensorView* in_tv) {
   NVF_CHECK(
       expr->outputs().size() == 1,
       "A pointwise expression is expected to have one output: ",
@@ -45,7 +47,7 @@ static bool pointwiseExpands(const Expr* expr, const TensorView* in_tv) {
 
 // Finds the first expanding use of `ldst`'s output, bypassing all pointwise
 // operations.
-static const Expr* findExpand(const LoadStoreOp* ldst) {
+const Expr* findExpand(const LoadStoreOp* ldst) {
   std::queue<const Expr*> q;
   std::unordered_set<const Expr*> visited;
 
@@ -86,7 +88,7 @@ static const Expr* findExpand(const LoadStoreOp* ldst) {
 }
 
 // Returns true if the cache policy is changed.
-static bool refineCachePolicy(LoadStoreOp* ldst) {
+bool refineCachePolicy(LoadStoreOp* ldst) {
   scheduler_debug_utils::log("Processing ", ldst->toString());
 
   if (ldst->opType() != LoadStoreOpType::Set) {
@@ -122,6 +124,8 @@ static bool refineCachePolicy(LoadStoreOp* ldst) {
   ldst->setCacheOp(CacheOp::AllLevels);
   return true;
 }
+
+} // namespace
 
 void refineCachePolicy(Fusion* fusion) {
   for (Expr* expr : fusion->exprs()) {
