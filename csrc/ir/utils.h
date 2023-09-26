@@ -495,24 +495,23 @@ bool isTensorSize(const Val* val);
 //! Check if a Val is a tensor stride;
 bool isTensorStride(const Val* val);
 
-//! This is a simple template function that returns a vector of the given op
-//! type. Directly implemented in the header file to avoid explicit
-//! instantiation.
-template <typename OpType>
-std::vector<OpType*> getOpsOfType(Fusion* fusion) {
-  std::vector<OpType*> ops;
+//! Returns a vector of the given op type or exprs if multiple types are given.
+template <typename... OpTypes>
+auto getOpsOfType(Fusion* fusion) {
+  using FirstOpType = std::tuple_element_t<0, std::tuple<OpTypes...>>;
+  using ExprType =
+      std::conditional_t<sizeof...(OpTypes) == 1, FirstOpType, Expr>;
+  std::vector<ExprType*> ops;
   for (auto expr : fusion->exprs()) {
-    if (expr->isA<OpType>()) {
-      ops.push_back(expr->as<OpType>());
+    if (expr->isOneOf<OpTypes...>()) {
+      ops.push_back(expr->as<ExprType>());
     }
   }
   return ops;
 }
 
 //! Returns expressions that are of type ReductionOp, GroupedReductionOp, or
-//! WelfordOp. A variadic template approach was considered but was ruled out to
-//! avoid requiring the caller to be aware of all individual reduction operation
-//! types.
+//! WelfordOp.
 std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion);
 
 } // namespace nvfuser::ir_utils

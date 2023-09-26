@@ -431,16 +431,7 @@ std::vector<TensorView*> allTvsExcept(
 }
 
 std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion) {
-  std::vector<Expr*> red_ops;
-
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<ReductionOp>() || expr->isA<GroupedReductionOp>() ||
-        expr->isA<WelfordOp>()) {
-      red_ops.push_back(expr);
-    }
-  }
-
-  return red_ops;
+  return getOpsOfType<ReductionOp, GroupedReductionOp, WelfordOp>(fusion);
 }
 
 namespace {
