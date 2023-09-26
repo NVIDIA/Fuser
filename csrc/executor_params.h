@@ -14,7 +14,7 @@
 
 namespace nvfuser {
 
-struct TORCH_CUDA_CU_API CompileParams {
+struct CompileParams {
   std::optional<PrimDataType> index_type = std::nullopt;
   int64_t maxrregcount = 255;
   bool enable_magic_zero = true;
@@ -39,7 +39,7 @@ struct TORCH_CUDA_CU_API CompileParams {
   }
 };
 
-class TORCH_CUDA_CU_API LaunchParams {
+class LaunchParams {
  public:
   static constexpr int64_t UNINITIALIZED_VAL = -1;
 

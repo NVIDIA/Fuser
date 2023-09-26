@@ -833,7 +833,7 @@ TEST_F(MatmulSchedulerTest, EpilogueBias_CUDA) {
   auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
   auto t2 = matmulAtInput(layout, TensorMatmulPos::Bias, at::kFloat, M, N, K);
 
-  auto t3 = atMatmul(t0.to(at::kHalf), t1.to(at::kHalf), layout).to(at::kFloat);
+  auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
   auto t4 = atBiasEpilogue(t3, t2).to(at::kFloat);
 

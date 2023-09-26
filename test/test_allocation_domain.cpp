@@ -1053,4 +1053,34 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0, t0}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, AllocationDomainVectorizationIssue902) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape({16, 16, 512, 64});
+
+  auto tv0 = makeContigTensor(4);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  std::vector<nvfuser::IterDomain*> aloc_domain;
+  aloc_domain.push_back(tv1->axis(0));
+  aloc_domain.push_back(tv1->axis(2));
+  aloc_domain.push_back(tv1->axis(3));
+  aloc_domain.push_back(tv1->axis(1));
+  tv1->setAllocationDomain(aloc_domain, true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  ASSERT_TRUE(cg_outputs[0].equal(t0));
+}
+
 } // namespace nvfuser

@@ -38,7 +38,7 @@ namespace nvfuser {
 //    for example you can't use "~/temp/ir.dot" ("/home/user/temp/ir.dot"
 //    must be used instead)
 //
-class TORCH_CUDA_CU_API IrGraphGenerator : private OptInConstDispatch {
+class IrGraphGenerator : private OptInConstDispatch {
  public:
   enum class DetailLevel {
     ComputeOnly, // Only dataflow (compute) nodes

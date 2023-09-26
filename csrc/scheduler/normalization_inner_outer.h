@@ -24,9 +24,9 @@ namespace nvfuser {
 class SchedulerRuntimeInfo;
 class HeuristicSummary;
 
-class PersistentKernelScheduler : public SchedulerEntry {
+class InnerOuterPersistentKernelScheduler : public SchedulerEntry {
  public:
-  explicit PersistentKernelScheduler(
+  explicit InnerOuterPersistentKernelScheduler(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
@@ -65,21 +65,17 @@ class PersistentKernelScheduler : public SchedulerEntry {
       const scheduler_utils::ReductionTvProperties& properties);
 };
 
-TORCH_CUDA_CU_API std::shared_ptr<ReductionParams> getPersistentHeuristics(
+std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache = nullptr);
 
-TORCH_CUDA_CU_API std::shared_ptr<ReductionParams> getPersistentHeuristics(
+std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-TORCH_CUDA_CU_API void schedulePersistentKernel(
-    Fusion* fusion,
-    const ReductionParams& rparams);
-
-TORCH_CUDA_CU_API void schedulePersistentKernelInnerOuter(
+void scheduleInnerOuterPersistentKernel(
     Fusion* fusion,
     const ReductionParams& rparams);
 

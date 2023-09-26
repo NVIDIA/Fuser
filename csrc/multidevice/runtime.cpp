@@ -30,8 +30,8 @@ void MultiDeviceRuntime::validate() const {
     }
   }
 
-  // Checks if all the devices indices involved in the pipeline are
-  // associated with a rank in the communicator
+  // Checks if all the device indices involved in the pipeline are
+  // associated with a process at runtime
   for (auto d_id : device_indices) {
     NVF_ERROR(
         d_id < comm_.size(),

@@ -7,15 +7,11 @@
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
 #include <executor_utils.h>
-#include <instrumentation.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul_utils.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/pointwise.h>
 #include <scheduler/registry.h>
 #include <scheduler/registry_utils.h>
-#include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <tensor_metadata.h>
 
@@ -142,428 +138,6 @@ bool SchedulerEntry::sameAs(const SchedulerEntry* other) {
 }
 
 namespace {
-
-//! Scheduler interface:
-//!    Each of the scheduler needs to provide 3 interface functions:
-//!
-//!      1. canScheduleCompileTime(Fusion* fusion) :
-//!
-//!        This function contains compiled-time checks on the graph itself
-//!        without runtime input information. Only `fusion` is given in the
-//!        argument to make sure only compile-time available info is needed in
-//!        the check.
-//!
-//!        This function is to be called exactly once on each segmented group
-//!        created in a segmented fusion so this part will not contribute to
-//!        dynamic shape latency.
-//!
-//!     2. canScheduleRunTime(
-//!            Fusion* fusion,
-//!            SchedulerRuntimeInfo& runtime_info,
-//!           HeuristicSummary* data_cache = nullptr):
-//!        This function contains all canSchedule checks that will have to
-//!        involve runtime input information, and will be run both by the
-//!        segmenter and the kernel cache. The latency of this function will
-//!        contribute to dynamic shape latency so `data_cache` should be used as
-//!        much as possible to save re-computation.
-//!
-//!     3. schedule(fusion):
-//!
-//!        This function will be called when compiling a kernel. It should apply
-//!        scheduling to the given fusion
-
-//! NoOp scheduler represents the case where scheduler will
-//!  not do any scheduling operations and forward the un-scheduled
-//!  fusion directly to code generation and kernel compilation.
-//!
-//! Typical use case of this scheduler is to handle edge cases
-//!  such as where all tensors are size-1 or size-0.
-class NoOpScheduler : public SchedulerEntry {
-  //! Provides a dummy heuristic type to ensure
-  //!  unified interface on NoOp scheduler.
-  class NoOpHeuristic : public HeuristicParams {
-   public:
-    using HeuristicParams::HeuristicParams;
-
-    size_t hash() const override {
-      return 0;
-    }
-    std::shared_ptr<HeuristicParams> clone() const override {
-      return std::make_shared<NoOpHeuristic>();
-    }
-    bool sameAs(const std::shared_ptr<HeuristicParams>& other) const override {
-      auto other_casted = std::dynamic_pointer_cast<ReductionParams>(other);
-      return other_casted != nullptr && other_casted->cparams == cparams;
-    };
-  };
-
- public:
-  explicit NoOpScheduler(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr)
-      : SchedulerEntry(ScheduleHeuristic::NoOp) {
-    params_ = std::make_shared<NoOpHeuristic>("", runtime_info.getIndexType());
-  }
-
-  //! Check if the no-op heuristics apply in given fusion
-  static bool canScheduleCompileTime(Fusion* fusion) {
-    if (fusion->isNoOp()) {
-      return true;
-    }
-    // Check there're no non-trivial reduction ops.
-    for (auto reduction : ir_utils::getReductionOps(fusion)) {
-      for (auto output :
-           ir_utils::filterByType<TensorView>(reduction->outputs())) {
-        auto concrete_dimension =
-            TensorDomain::noReductions(output->getRootDomain());
-        auto all_nonzero = std::none_of(
-            concrete_dimension.begin(),
-            concrete_dimension.end(),
-            [](IterDomain* id) { return id->extent()->isZeroInt(); });
-        if (all_nonzero) {
-          scheduler_debug_utils::canScheduleRejectReason(
-              ScheduleHeuristic::NoOp,
-              "reduction of non-zero elements is not supported");
-          return false;
-        }
-      }
-    }
-
-    // Check that all outputs are either broadcast or ignored reduction.
-    for (auto out_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
-      auto concrete_dimension = TensorDomain::noReductions(
-          TensorDomain::noBroadcasts(out_tv->getLeafDomain()));
-      if (!concrete_dimension.empty()) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            ScheduleHeuristic::NoOp, "output has a concrete dimension");
-        return false;
-      }
-    }
-
-    // Check that inputs of all select/gather-like ops are fusion inputs
-    if (registry_utils::rejectScheduleForMemoryPromotion(
-            fusion, ScheduleHeuristic::NoOp)) {
-      return false;
-    }
-
-    // We have verified that all iterdomains on all output tv's are trivial
-    // reductions,
-    //  broadcasts or zero-sized. Therefore accepting this fusion for NoOp
-    //  scheduling.
-    return true;
-  }
-
-  static bool canScheduleRunTime(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr) {
-    // TODO:
-    //  Pipe through dynamic zero checks.
-    return true;
-  }
-
-  void schedule(Fusion* fusion) override {
-    // Schedule is no-op.
-    return;
-  }
-
- private:
-  void computeHeuristics(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr) {
-    // Heuristics is no-op.
-    return;
-  }
-};
-
-class ReductionScheduler : public SchedulerEntry {
- public:
-  explicit ReductionScheduler(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr)
-      : SchedulerEntry(ScheduleHeuristic::Reduction) {
-    computeHeuristics(fusion, runtime_info, data_cache);
-  }
-
-  //! Check if the reduction heuristics apply in given fusion
-  static bool canScheduleCompileTime(Fusion* fusion) {
-    // Needs at least one reduction to consider.
-    if (ir_utils::getReductionOps(fusion).empty()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Reduction, "No reduction op to schedule");
-      return false;
-    }
-
-    if (ir_utils::filterByType<TensorView>(fusion->inputs()).empty()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Reduction,
-          "Scheduling not supported with no input");
-      return false;
-    }
-
-    // Check that inputs of all select/gather-like ops are fusion inputs
-    if (registry_utils::rejectScheduleForMemoryPromotion(
-            fusion, ScheduleHeuristic::Reduction)) {
-      return false;
-    }
-
-    // Fusions handled by reduction scheduler cannot have MmaOp.
-    if (!ir_utils::getMmaOps(fusion).empty()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Reduction, "no support for mma ops.");
-      return false;
-    }
-
-    auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-
-    if (reduction_tvs.empty()) {
-      // Use pointwise logic
-      return false;
-    }
-
-    if (registry_utils::hasNonUniqueBcast(fusion)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Reduction,
-          "Broadcasting dimension might be broadcasting to multiple sizes.");
-      return false;
-    }
-
-    if (!ir_utils::getViewOps(fusion).empty()) {
-      ComputeAtMap ca_map(fusion);
-      if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            ScheduleHeuristic::Reduction,
-            "Fusion requires view being reversible.");
-        return false;
-      }
-
-      // Reduction scheduler simply uses reduction_tvs[0] as the reference, if
-      // that changes, this needs to be changed.
-      if (registry_utils::reductionInterferingView(
-              fusion, ca_map, reduction_tvs[0])) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            ScheduleHeuristic::Reduction,
-            "View may interfere with reduction scheduling.");
-        return false;
-      }
-    }
-
-    // Make sure reduction axes are consistent through the fusion
-    auto reduction_ops = ir_utils::getReductionOps(fusion);
-    if (reduction_ops.size() > 1) {
-      // Before examining the reduction axes want to quickly
-      //   check the reductions have the same axis width
-      //   to avoid building root domain map in easier cases
-      bool valid_axis_count = false;
-      size_t axis_count = 0;
-      auto reduction_root_size = [](TensorView* red_tv) {
-        size_t count = 0;
-        for (auto id : red_tv->getRootDomain()) {
-          if (!id->isBroadcast()) {
-            count++;
-          }
-        }
-        return count;
-      };
-
-      for (auto red : reduction_tvs) {
-        if (!valid_axis_count) {
-          valid_axis_count = true;
-          axis_count = reduction_root_size(red);
-        } else {
-          if (reduction_root_size(red) != axis_count) {
-            scheduler_debug_utils::canScheduleRejectReason(
-                ScheduleHeuristic::Reduction,
-                "Inconsistent reduction axes ",
-                red,
-                "is not ",
-                axis_count);
-            return false;
-          }
-        }
-      }
-
-      // Use root domain map to check the reduction ops have the same axes
-      FusionGuard fg(fusion);
-      ComputeAtRootDomainMap root_map;
-      root_map.build(true);
-
-      // red_ops.size()>1 checked before
-      for (size_t it = 1; it < reduction_tvs.size(); it++) {
-        if (!registry_utils::checkPatternEquivalence(
-                reduction_tvs[it - 1], reduction_tvs[it], root_map)) {
-          scheduler_debug_utils::canScheduleRejectReason(
-              ScheduleHeuristic::Reduction,
-              "Un-mapped multi-reduction: ",
-              reduction_tvs[it - 1],
-              " ",
-              reduction_tvs[it]);
-          return false;
-        }
-      }
-    }
-
-    // Doesn't allow persistent kernels in this scheduler
-    auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
-    if (!persistent_buffer_info.persistent_buffers.empty()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Reduction,
-          "need persistent buffers that reduction scheduler doesn't handle");
-      return false;
-    }
-
-    if (!registry_utils::SchedulerTopologyChecker::supportedPostReductionFusion(
-            fusion, reduction_tvs) ||
-        registry_utils::SchedulerTopologyChecker::hasPostReductionBCast(
-            fusion)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Reduction,
-          "has unsupported post reduction fusion");
-      return false;
-    }
-
-    if (registry_utils::SchedulerTopologyChecker::
-            hasGatherToBroadcastBeforeReduction(fusion, reduction_tvs)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Reduction,
-          "has unsupported gather-like ops before reduction");
-      return false;
-    }
-
-    return true;
-  }
-
-  static bool canScheduleRunTime(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr) {
-    return true;
-  }
-
-  void schedule(Fusion* fusion) override {
-    FUSER_PERF_SCOPE("Schedule Single Reduction");
-    scheduleReduction(fusion, reductionParams());
-  }
-
- private:
-  void computeHeuristics(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr) {
-    params_ = getReductionHeuristics(fusion, runtime_info, data_cache);
-    NVF_ERROR(params_ != nullptr);
-  }
-};
-
-class PointWiseScheduler : public SchedulerEntry {
- public:
-  explicit PointWiseScheduler(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr)
-      : SchedulerEntry(ScheduleHeuristic::PointWise) {
-    computeHeuristics(fusion, runtime_info, data_cache);
-  }
-
-  static bool canScheduleCompileTime(Fusion* fusion) {
-    //   Currently using the same path as the scheduler
-    // to eliminate mismatch between canSchedule and
-    // schedule pointwise.
-    if (!hasReferenceTensorView(fusion)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::PointWise, "cannot find reference tensor");
-      return false;
-    }
-
-    // Check that inputs of all select/gather-like ops are fusion inputs
-    if (registry_utils::rejectScheduleForMemoryPromotion(
-            fusion, ScheduleHeuristic::PointWise)) {
-      return false;
-    }
-
-    // Fusions handled by pointwise scheduler cannot have MmaOp.
-    if (!ir_utils::getMmaOps(fusion).empty()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::PointWise, "no support for mma ops.");
-      return false;
-    }
-
-    if (!ir_utils::getViewOps(fusion).empty()) {
-      ComputeAtMap ca_map(fusion);
-      if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            ScheduleHeuristic::PointWise,
-            "Fusion requires view being reversible.");
-        return false;
-      }
-    }
-
-    auto reduction_ops = ir_utils::getReductionOps(fusion);
-
-    if (!reduction_ops.empty()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::PointWise, "no support for reduction ops");
-      return false;
-    }
-
-    if (registry_utils::hasNonUniqueBcast(fusion)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::PointWise,
-          "Broadcasting dimension might be broadcasting to multiple sizes.");
-      return false;
-    }
-
-    return true;
-  }
-
-  static bool canScheduleRunTime(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr) {
-    auto can_schedule_transpose_entry =
-        HeuristicSummaryEntry<HeuristicCompileTime::CanScheduleTranspose>(
-            data_cache, [fusion]() {
-              return std::make_unique<bool>(
-                  TransposeScheduler::canScheduleCompileTime(fusion));
-            });
-    if (can_schedule_transpose_entry.get()) {
-      auto reason =
-          getTransposeRuntimeRejectReason(fusion, data_cache, runtime_info);
-      return !reason.empty();
-    }
-
-    return true;
-  }
-
-  void schedule(Fusion* fusion) override {
-    FUSER_PERF_SCOPE("Schedule PointWise Fusion");
-    schedulePointwise(fusion, pointwiseParams());
-  }
-
-  void computeHeuristics(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr) {
-    params_ = getPointwiseHeuristics(fusion, runtime_info, data_cache);
-    NVF_ERROR(params_ != nullptr);
-  }
-};
-
-// Schedule Table
-const std::vector<ScheduleHeuristic>& all_heuristics() {
-  static const std::vector<ScheduleHeuristic> hlist = {
-      ScheduleHeuristic::NoOp,
-      ScheduleHeuristic::Reduction,
-      ScheduleHeuristic::Transpose,
-      ScheduleHeuristic::PointWise,
-      ScheduleHeuristic::Persistent,
-      ScheduleHeuristic::Matmul};
-  return hlist;
-}
-
 //! A Utility for checking both dynamic and static part of
 //!  can schedule
 template <typename SchedulerType>
@@ -608,8 +182,14 @@ bool SchedulerEntry::canSchedule(
     case ScheduleHeuristic::Reduction:
       return checkCanSchedule<ReductionScheduler>(
           fusion, runtime_info, data_cache);
-    case ScheduleHeuristic::Persistent:
-      return checkCanSchedule<PersistentKernelScheduler>(
+    case ScheduleHeuristic::InnerPersistent:
+      return checkCanSchedule<InnerPersistentKernelScheduler>(
+          fusion, runtime_info, data_cache);
+    case ScheduleHeuristic::OuterPersistent:
+      return checkCanSchedule<OuterPersistentKernelScheduler>(
+          fusion, runtime_info, data_cache);
+    case ScheduleHeuristic::InnerOuterPersistent:
+      return checkCanSchedule<InnerOuterPersistentKernelScheduler>(
           fusion, runtime_info, data_cache);
     case ScheduleHeuristic::Transpose:
       return checkCanSchedule<TransposeScheduler>(
@@ -643,8 +223,16 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
       scheduler_entry = std::make_unique<ReductionScheduler>(
           fusion, runtime_info, data_cache);
       break;
-    case ScheduleHeuristic::Persistent:
-      scheduler_entry = std::make_unique<PersistentKernelScheduler>(
+    case ScheduleHeuristic::InnerPersistent:
+      scheduler_entry = std::make_unique<InnerPersistentKernelScheduler>(
+          fusion, runtime_info, data_cache);
+      break;
+    case ScheduleHeuristic::OuterPersistent:
+      scheduler_entry = std::make_unique<OuterPersistentKernelScheduler>(
+          fusion, runtime_info, data_cache);
+      break;
+    case ScheduleHeuristic::InnerOuterPersistent:
+      scheduler_entry = std::make_unique<InnerOuterPersistentKernelScheduler>(
           fusion, runtime_info, data_cache);
       break;
     case ScheduleHeuristic::Transpose:
@@ -666,7 +254,7 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
 std::optional<ScheduleHeuristic> SchedulerEntry::proposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info) {
-  for (auto sh : all_heuristics()) {
+  for (const auto& sh : all_heuristics_in_priority_order) {
     if (canSchedule(sh, fusion, runtime_info)) {
       scheduler_debug_utils::canScheduleMessage("***Accepted*** as: ", sh);
       return sh;
@@ -718,9 +306,20 @@ HeuristicSummary::HeuristicSummary(
       getReductionHeuristics(fusion, runtime_info, this);
       ReductionScheduler::canScheduleRunTime(fusion, runtime_info, this);
       break;
-    case ScheduleHeuristic::Persistent:
-      getPersistentHeuristics(fusion, runtime_info, this);
-      PersistentKernelScheduler::canScheduleRunTime(fusion, runtime_info, this);
+    case ScheduleHeuristic::InnerPersistent:
+      getInnerPersistentHeuristics(fusion, runtime_info, this);
+      InnerPersistentKernelScheduler::canScheduleRunTime(
+          fusion, runtime_info, this);
+      break;
+    case ScheduleHeuristic::OuterPersistent:
+      getOuterPersistentHeuristics(fusion, runtime_info, this);
+      OuterPersistentKernelScheduler::canScheduleRunTime(
+          fusion, runtime_info, this);
+      break;
+    case ScheduleHeuristic::InnerOuterPersistent:
+      getInnerOuterPersistentHeuristics(fusion, runtime_info, this);
+      InnerOuterPersistentKernelScheduler::canScheduleRunTime(
+          fusion, runtime_info, this);
       break;
     case ScheduleHeuristic::Transpose:
       getTransposeHeuristics(fusion, runtime_info, this);
@@ -783,7 +382,9 @@ void HeuristicSummary::validate() const {
           entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
       break;
     }
-    case ScheduleHeuristic::Persistent: {
+    case ScheduleHeuristic::InnerPersistent:
+    case ScheduleHeuristic::OuterPersistent:
+    case ScheduleHeuristic::InnerOuterPersistent: {
       NVF_ERROR(entry_type_map_.count(EntryType::REDUCTION_TVS));
       NVF_ERROR(
           entry_type_map_.count(EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));
