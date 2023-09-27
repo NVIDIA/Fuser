@@ -169,7 +169,7 @@ collect_kernels() {
       fi
     else
       if [[ -d "$binarytestdir/cuda" && -d "$pyfrontenddir/cuda" &&
-          -d "$pyopsdir/cuda" && -d "$pyschedopsdir/cuda"
+          -d "$pyopsdir/cuda" && -d "$pyschedopsdir/cuda" ]]
       then
           return
       fi
