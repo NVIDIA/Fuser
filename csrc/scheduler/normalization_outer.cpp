@@ -5,31 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/reduction.h>
-
-#include <debug.h>
-#include <executor_utils.h>
+#include <ATen/cuda/CUDAContext.h>
 #include <grouped_reduction.h>
-#include <inlining.h>
 #include <instrumentation.h>
-#include <ir/all_nodes.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <options.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_outer.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
-#include <scheduler/registry.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
-#include <scheduler/vectorize_helper.h>
-#include <transform_replay.h>
-
-#include <ATen/cuda/CUDAContext.h>
-
-#include <cmath>
 
 namespace nvfuser {
 
@@ -44,7 +29,7 @@ OuterPersistentKernelScheduler::OuterPersistentKernelScheduler(
 }
 
 void OuterPersistentKernelScheduler::schedule(Fusion* fusion) {
-  FUSER_PERF_SCOPE("Schedule Persistent Fusion");
+  FUSER_PERF_SCOPE("Schedule OuterPersistent Fusion");
   scheduleOuterPersistentKernel(fusion, reductionParams());
 }
 

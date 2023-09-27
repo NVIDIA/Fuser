@@ -212,5 +212,19 @@ getOptionalInnerOuterPersistentBufferBatches(
 using ReductionType = reduction_scheduler_utils::ReductionType;
 ScheduleHeuristic getPersistentHeuristicFor(ReductionType reduction_type);
 
+//! Returns true if reduction pattern is same.
+//! One vector of tvs is provided for InnerPersistentKernelScheduler and
+//! OuterPersistentKernelScheduler. Two vector of tvs are provided for
+//! InnerOuterPersistentKernelScheduler.
+bool checkReductionPattern(
+    Fusion* fusion,
+    ScheduleHeuristic schedule_heuristic,
+    const std::vector<TensorView*>& reduction_tvs1,
+    const std::vector<TensorView*>& reduction_tvs2 = {});
+
+//! common compile time check shared by InnerPersistentKernelScheduler and
+//! OuterPersistentKernelScheduler
+bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic);
+
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

@@ -34,32 +34,18 @@ void InnerOuterPersistentKernelScheduler::schedule(Fusion* fusion) {
 
 namespace {
 
-bool checkReductionPattern(
+bool checkReductionPatternAndTopology(
     Fusion* fusion,
     const std::vector<TensorView*>& inner_reduction_tvs,
     const std::vector<TensorView*>& outer_reduction_tvs) {
-  // Use root domain map to check the reduction ops have the same axes
-  FusionGuard fg(fusion);
-  ComputeAtRootDomainMap root_map;
-  root_map.build(true);
 
-  // check inner and outer reductions seperately
-  for (const auto& rtvs : {inner_reduction_tvs, outer_reduction_tvs}) {
-    for (const auto it : c10::irange(1, rtvs.size())) {
-      if (!registry_utils::checkPatternEquivalence(
-              rtvs[it - 1], rtvs[it], root_map)) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            schedule_heuristic,
-            "unmapped reduction ",
-            rtvs[it - 1],
-            " and ",
-            rtvs[it]);
-        return false;
-      }
-    }
+  if (!normalization_scheduler_utils::checkReductionPattern(
+          fusion, schedule_heuristic, inner_reduction_tvs, outer_reduction_tvs)) {
+    return false;
   }
+
   // combined inner and outer reduction is of general purpose but only tested
-  // for layer norm backward
+  // for layer norm and rms norm backward
   if (!normalization_scheduler_utils::checkIfReductionsAreInnerOuter(
           inner_reduction_tvs, outer_reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
@@ -152,7 +138,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     return false;
   }
 
-  if (!checkReductionPattern(
+  if (!checkReductionPatternAndTopology(
           fusion, inner_reduction_tvs, outer_reduction_tvs)) {
     return false;
   }
