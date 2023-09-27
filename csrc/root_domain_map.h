@@ -129,6 +129,15 @@ class PairwiseRootDomainMap : public RootDomainMap {
 
   std::string toString() const;
 
+  // Helper methods on top of RootDomainMap::mapProducerToConsumer and
+  // RootDomainMap::mapConsumerToProducer. This way, the caller doesn't have to
+  // specify the producer domain and the consumer domain, which is redundant and
+  // error-prone.
+  std::unordered_map<IterDomain*, IterDomain*> mapProducerToConsumer(
+      const std::unordered_set<IterDomain*>* root_dims_to_map = nullptr) const;
+  std::unordered_map<IterDomain*, IterDomain*> mapConsumerToProducer(
+      const std::unordered_set<IterDomain*>* root_dims_to_map = nullptr) const;
+
  protected:
   std::unordered_map<IterDomain*, IterDomain*> map(
       const TensorDomain* producer,

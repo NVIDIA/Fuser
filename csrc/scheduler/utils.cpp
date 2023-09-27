@@ -1241,7 +1241,7 @@ void FindAllMappedDims::setUp() {
 void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
   auto from_id = mapped_root_ids_.at(from);
   PairwiseRootDomainMap root_map(to, from);
-  auto c2p_map = root_map.mapConsumerToProducer(from->domain(), to->domain());
+  auto c2p_map = root_map.mapConsumerToProducer();
   auto p_it = c2p_map.find(from_id);
   if (p_it != c2p_map.end()) {
     mapped_root_ids_[to] =
@@ -1256,7 +1256,7 @@ void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
 void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
   auto from_id = mapped_rfactor_ids_.at(from);
   PairwiseRootDomainMap root_map(from, to);
-  auto p2c_map = root_map.mapProducerToConsumer(from->domain(), to->domain());
+  auto p2c_map = root_map.mapProducerToConsumer();
   auto c_it = p2c_map.find(from_id);
   if (c_it != p2c_map.end()) {
     mapped_root_ids_[to] = c_it->second;
@@ -2229,14 +2229,13 @@ void promoteProducerMemoryTypes(
   // dependencies
   // TODO: Clean up once the index map refactor is done
   for (auto& [producer, consumer] : non_pwise_pairs) {
-    auto c2p_exact_map =
-        BestEffortReplay(
-            producer->getLeafDomain(),
-            consumer->getLeafDomain(),
-            PairwiseRootDomainMap(producer, consumer)
-                .mapBroadcast(false)
-                .mapConsumerToProducer(consumer->domain(), producer->domain()))
-            .getReplay();
+    auto c2p_exact_map = BestEffortReplay(
+                             producer->getLeafDomain(),
+                             consumer->getLeafDomain(),
+                             PairwiseRootDomainMap(producer, consumer)
+                                 .mapBroadcast(false)
+                                 .mapConsumerToProducer())
+                             .getReplay();
 
     for (const auto i :
          c10::irange(producer->nDims() - producer->getComputeAtPosition())) {
