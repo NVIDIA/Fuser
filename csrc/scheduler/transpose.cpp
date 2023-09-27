@@ -35,13 +35,13 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
   }
 
   // Fusions handled by transpose scheduler cannot have MmaOp.
-  if (!ir_utils::getMmaOps(fusion).empty()) {
+  if (!ir_utils::getOpsOfType<MmaOp>(fusion).empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
         ScheduleHeuristic::Transpose, "no support for mma ops.");
     return false;
   }
 
-  for (auto select : ir_utils::getSelectOps(fusion)) {
+  for (auto select : ir_utils::getOpsOfType<SelectOp>(fusion)) {
     auto inner = TensorDomain::noReductions(
         select->input(0)->as<TensorView>()->getMaybeAllocationDomain());
     if (select->getIndexedID() == inner[inner.size() - 1]) {
@@ -52,7 +52,7 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
       return false;
     }
   }
-  for (auto idx_sel : ir_utils::getIndexSelectOps(fusion)) {
+  for (auto idx_sel : ir_utils::getOpsOfType<IndexSelectOp>(fusion)) {
     auto inner = TensorDomain::noReductions(
         idx_sel->input(0)->as<TensorView>()->getMaybeAllocationDomain());
     if (idx_sel->getIndexedID() == inner[inner.size() - 1]) {
@@ -63,7 +63,7 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
       return false;
     }
   }
-  for (auto torch_gather : ir_utils::getTorchGatherOps(fusion)) {
+  for (auto torch_gather : ir_utils::getOpsOfType<TorchGatherOp>(fusion)) {
     auto inner = TensorDomain::noReductions(
         torch_gather->input(0)->as<TensorView>()->getMaybeAllocationDomain());
     if (torch_gather->getIndexedID() == inner[inner.size() - 1]) {
@@ -82,7 +82,7 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  auto reduction_ops = ir_utils::getReductionOps(fusion);
+  auto reduction_ops = ir_utils::getAllTypesOfReductionOps(fusion);
 
   if (!reduction_ops.empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
@@ -1049,7 +1049,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // maybe has_reduction for scheduling should be done on a per output tensor
   // basis.
   NVF_ERROR(
-      ir_utils::getReductionOps(fusion).empty(),
+      ir_utils::getAllTypesOfReductionOps(fusion).empty(),
       "This scheduler only handles pointwise ops.");
 
   // Cache inputs

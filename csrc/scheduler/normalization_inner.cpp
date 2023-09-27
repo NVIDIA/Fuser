@@ -7,6 +7,7 @@
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
 #include <instrumentation.h>
+#include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_inner.h>
 #include <scheduler/reduction_utils.h>
@@ -115,7 +116,7 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
 
 bool InnerPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
   // Needs at least one reduction to consider.
-  auto reduction_ops = ir_utils::getReductionOps(fusion);
+  auto reduction_ops = ir_utils::getAllTypesOfReductionOps(fusion);
   if (reduction_ops.empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedule_heuristic, "needs a reduction op");
@@ -135,7 +136,7 @@ bool InnerPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
   }
 
   // Fusions handled by persistent kernel scheduler cannot have MmaOp.
-  if (!ir_utils::getMmaOps(fusion).empty()) {
+  if (!ir_utils::getOpsOfType<MmaOp>(fusion).empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedule_heuristic, "no support for mma ops.");
     return false;
@@ -1256,6 +1257,8 @@ void scheduleInnerPersistentKernel(
   }
 
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
+
+  refineCachePolicy(fusion);
 }
 
 } // namespace nvfuser

@@ -259,6 +259,9 @@ void ExpressionEvaluator::print() const {
 }
 
 void ExpressionEvaluator::propagateBoundValuesThroughExactMaps(Fusion* fusion) {
+  // We map Symbolic IterDomains here only if their extents match. This avoids
+  // mapping between symbolic domains that might concretize to an (Iteration,
+  // Broadcast) pair from a resolved broadcast.
   const auto mapped_sets = ExactRootDomainMap(fusion).getMappedSets();
 
   for (const auto& set : mapped_sets.disjointSets()) {

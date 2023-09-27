@@ -1659,6 +1659,10 @@ class LoadStoreOp : public Expr {
       attribute<CacheOp>(1) = CacheOp::Unspecified;
     }
   }
+
+  void setCacheOp(CacheOp cache_op) {
+    attribute<CacheOp>(1) = cache_op;
+  }
 };
 
 //! Representation a split on an IterDomain by "factor"
