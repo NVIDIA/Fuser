@@ -45,6 +45,24 @@ bool pointwiseExpands(const Expr* expr, const TensorView* in_tv) {
              }) != root_domain_map.end();
 }
 
+bool isLoadGlobalToLocal(const Expr* expr) {
+  if (!expr->isA<LoadStoreOp>()) {
+    return false;
+  }
+  const LoadStoreOp* ldst = expr->as<LoadStoreOp>();
+
+  if (ldst->opType() != LoadStoreOpType::Set) {
+    return false;
+  }
+  if (ldst->in()->as<TensorView>()->getMemoryType() != MemoryType::Global) {
+    return false;
+  }
+  if (ldst->out()->as<TensorView>()->getMemoryType() != MemoryType::Local) {
+    return false;
+  }
+  return true;
+}
+
 // Finds the first expanding use of `ldst`'s output, bypassing all pointwise
 // operations.
 const Expr* findExpand(const LoadStoreOp* ldst) {
@@ -65,17 +83,19 @@ const Expr* findExpand(const LoadStoreOp* ldst) {
       if (!def_out->isA<TensorView>()) {
         continue;
       }
+      const TensorView* def_out_tv = def_out->as<TensorView>();
 
       for (const Expr* use : def_out->uses()) {
         if (use->isA<ExpandOp>()) {
           return use;
         }
 
-        if (use->isOneOf<UnaryOp, BinaryOp, TernaryOp, BroadcastOp>() ||
-            (use->isA<LoadStoreOp>() &&
-             use->as<LoadStoreOp>()->out()->as<TensorView>()->getMemoryType() !=
-                 MemoryType::Global)) {
-          if (pointwiseExpands(use, def_out->as<TensorView>())) {
+        if (isLoadGlobalToLocal(use)) {
+          continue;
+        }
+
+        if (ir_utils::isPointwiseTvOp(use) || use->isA<BroadcastOp>()) {
+          if (pointwiseExpands(use, def_out_tv)) {
             return use;
           }
           enqueueIfNotVisited(use);
@@ -90,18 +110,6 @@ const Expr* findExpand(const LoadStoreOp* ldst) {
 // Returns true if the cache policy is changed.
 bool refineCachePolicy(LoadStoreOp* ldst) {
   scheduler_debug_utils::log("Processing ", ldst->toString());
-
-  if (ldst->opType() != LoadStoreOpType::Set) {
-    return false;
-  }
-
-  // Currently, we only change cache policy for global->local loads.
-  if (ldst->in()->as<TensorView>()->getMemoryType() != MemoryType::Global) {
-    return false;
-  }
-  if (ldst->out()->as<TensorView>()->getMemoryType() != MemoryType::Local) {
-    return false;
-  }
 
   const Expr* expand = findExpand(ldst);
   if (expand == nullptr) {
@@ -129,7 +137,8 @@ bool refineCachePolicy(LoadStoreOp* ldst) {
 
 void refineCachePolicy(Fusion* fusion) {
   for (Expr* expr : fusion->exprs()) {
-    if (expr->isA<LoadStoreOp>()) {
+    // Currently, we only change cache policy for global->local loads.
+    if (isLoadGlobalToLocal(expr)) {
       refineCachePolicy(expr->as<LoadStoreOp>());
     }
   }
