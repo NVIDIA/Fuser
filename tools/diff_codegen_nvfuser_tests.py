@@ -111,9 +111,10 @@ def diff_nvfuser_tests_dirs(dir1: str, dir2: str):
         if len(kernels1) != len(kernels2):
             print(
                 f"WARNING: Test {testname} has different number of kernels "
-                f"in {dir1} than in {dir2}. Not comparing.",
+                f"in {dir1} than in {dir2}. Not showing diffs.",
                 file=sys.stderr,
             )
+            differing_tests.add(testname)
 
         for k1, k2 in zip(kernels1, kernels2):
             f1 = os.path.join(dir1, "cuda", k1)
