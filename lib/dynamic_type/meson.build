@@ -7,6 +7,7 @@ dynamic_type = declare_dependency(
 
 install_subdir('src/dynamic_type', install_dir : 'include')
 
+
 gtest_proj = subproject('gtest')
 gtest_main_dep = gtest_proj.get_variable('gtest_main_dep')
 gmock_dep = gtest_proj.get_variable('gmock_dep')
