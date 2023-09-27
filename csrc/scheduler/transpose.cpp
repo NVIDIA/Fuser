@@ -35,7 +35,7 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
   }
 
   // Fusions handled by transpose scheduler cannot have MmaOp.
-  if (!ir_utils::getOpsOfType<MmaOp>(fusion).empty()) {
+  if (ir_utils::hasOpsOfType<MmaOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         ScheduleHeuristic::Transpose, "no support for mma ops.");
     return false;
@@ -82,9 +82,7 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  auto reduction_ops = ir_utils::getAllTypesOfReductionOps(fusion);
-
-  if (!reduction_ops.empty()) {
+  if (ir_utils::hasAnyReductionOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         ScheduleHeuristic::Transpose, "no support for reduction ops");
     return false;
@@ -1049,7 +1047,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   // maybe has_reduction for scheduling should be done on a per output tensor
   // basis.
   NVF_ERROR(
-      ir_utils::getAllTypesOfReductionOps(fusion).empty(),
+      !ir_utils::hasAnyReductionOps(fusion),
       "This scheduler only handles pointwise ops.");
 
   // Cache inputs
