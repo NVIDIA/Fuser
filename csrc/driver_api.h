@@ -20,18 +20,19 @@ namespace nvfuser {
   extern decltype(::funcName)* funcName;
 
 // List of driver APIs that you want the magic to happen.
-#define ALL_DRIVER_API_WRAPPER_CUDA11(fn)          \
-  fn(cuGetErrorName);                              \
-  fn(cuGetErrorString);                            \
-  fn(cuModuleLoadDataEx);                          \
-  fn(cuModuleGetFunction);                         \
-  fn(cuOccupancyMaxActiveBlocksPerMultiprocessor); \
-  fn(cuFuncGetAttribute);                          \
-  fn(cuFuncSetAttribute);                          \
-  fn(cuLaunchKernel);                              \
-  fn(cuLaunchCooperativeKernel);                   \
-  fn(cuDeviceGetAttribute);                        \
-  fn(cuDeviceGetName)
+#define ALL_DRIVER_API_WRAPPER_CUDA11(fn) \
+  fn(cuDeviceGetAttribute);               \
+  fn(cuDeviceGetName);                    \
+  fn(cuFuncGetAttribute);                 \
+  fn(cuFuncSetAttribute);                 \
+  fn(cuGetErrorName);                     \
+  fn(cuGetErrorString);                   \
+  fn(cuLaunchCooperativeKernel);          \
+  fn(cuLaunchKernel);                     \
+  fn(cuModuleGetFunction);                \
+  fn(cuModuleLoadDataEx);                 \
+  fn(cuModuleUnload);                     \
+  fn(cuOccupancyMaxActiveBlocksPerMultiprocessor)
 
 #if (CUDA_VERSION >= 12000)
 #define ALL_DRIVER_API_WRAPPER(fn)   \
