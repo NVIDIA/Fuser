@@ -45,6 +45,19 @@ std::string disassembleBinary(
     const std::string& nvdisasm_args);
 
 struct CompiledKernel {
+  CompiledKernel() {
+    std::cerr << "[jingyue] CompiledKernel::CompiledKernel\n";
+  }
+
+  ~CompiledKernel() {
+    std::cerr << "[jingyue] CompiledKernel::~CompiledKernel\n";
+  }
+
+  CompiledKernel(const CompiledKernel&) = delete;
+  CompiledKernel& operator=(const CompiledKernel&) = delete;
+  CompiledKernel(CompiledKernel&&) = default;
+  CompiledKernel& operator=(CompiledKernel&&) = default;
+
   CUmodule module = nullptr;
   CUfunction function = nullptr;
   std::string compile_log;
