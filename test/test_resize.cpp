@@ -1124,6 +1124,132 @@ TEST_F(ResizeTest, FusionResizeSlice5) {
   testValidate(&fusion, cg_outputs, aten_inputs, {t2, t4}, __LINE__, __FILE__);
 }
 
+std::vector<std::pair<int64_t, int64_t>> slice_cases(
+    {{0, 5},
+     {3, 9},
+     {3, 4},
+     {7, 5},
+     {0, 11},
+     {11, 13},
+     {-3, 8},
+     {-3, -1},
+     {-3, -5},
+     {13, -1},
+     {-11, 9},
+     {-11, 0},
+     {-13, -11}});
+
+// Test slice with a variety of constant ranges
+TEST_F(NVFuserTest, FusionResizeSliceConstantShmoo_CUDA) {
+  for (auto [start, stop] : slice_cases) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    std::vector<int64_t> shape({9});
+
+    // concrete shapes to avoid dynamic Fusion
+    auto tv0 = makeConcreteTensor(shape);
+    fusion.addInput(tv0);
+
+    auto tv1 = slice(
+        tv0, {{IrBuilder::create<Val>(start), IrBuilder::create<Val>(stop)}});
+    fusion.addOutput(tv1);
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+    auto t0 = at::randn(shape, options);
+    std::vector<c10::IValue> aten_inputs({t0});
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, aten_inputs);
+    auto cg_outputs = fe.runFusion(aten_inputs);
+
+    testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  }
+}
+
+// Test slice with a variety of non-constant input ranges
+TEST_F(NVFuserTest, FusionResizeSliceInputShmoo_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({9});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape);
+  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s1 = IrBuilder::create<Val>(DataType::Index);
+  fusion.addInput(tv0);
+  fusion.addInput(s0);
+  fusion.addInput(s1);
+
+  auto tv1 = slice(tv0, {{s0, s1}});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  {
+    // Concretize so that we set output IterType as Iteration. We should now
+    // have expressions that work with any input range.
+    ExpressionEvaluator expr_eval;
+
+    expr_eval.bind(tv0->axis(0)->extent(), 9);
+    expr_eval.bind(s0, 0);
+    expr_eval.bind(s1, 9);
+
+    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+    auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
+
+    DynamicTransform::concretizeFusion(&fusion, &info);
+    NVF_CHECK(
+        !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
+  }
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+
+  auto t0 = at::randn(shape, options);
+  for (auto [start, stop] : slice_cases) {
+    std::vector<c10::IValue> aten_inputs({t0, start, stop});
+    auto cg_outputs = fe.runFusion(aten_inputs);
+
+    testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  }
+}
+
+// Same as FusionResizeSliceInputShmoo_CUDA but use FusionExecutorCache, which
+// might re-concretize when output sizes change
+TEST_F(NVFuserTest, FusionResizeSliceInputShmooFusionExecutorCache_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  std::vector<int64_t> shape({9});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape);
+  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s1 = IrBuilder::create<Val>(DataType::Index);
+  fusion->addInput(tv0);
+  fusion->addInput(s0);
+  fusion->addInput(s1);
+
+  auto tv1 = slice(tv0, {{s0, s1}});
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto t0 = at::randn(shape, options);
+  for (auto [start, stop] : slice_cases) {
+    std::vector<c10::IValue> aten_inputs({t0, start, stop});
+    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+    testValidate(fec.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+  }
+}
+
 // Auto scheduled version of Slice1
 TEST_F(ResizeTest, FusionResizeSliceScheduler1) {
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -2319,7 +2445,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual1) {
   FusionGuard fg(fusion_ptr.get());
 
   const int64_t slice_offset = 4;
-  const std::vector<int64_t> shape({1024 * 1024});
+  const std::vector<int64_t> shape({1024L * 1024L});
 
   // Using a concrete tensor to avoid dynamic reshape
   auto tv0 = makeContigConcreteTensor(shape);
@@ -2358,7 +2484,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual2) {
   FusionGuard fg(fusion_ptr.get());
 
   const int64_t slice_offset = 4;
-  const std::vector<int64_t> shape({1024 * 1024});
+  const std::vector<int64_t> shape({1024L * 1024L});
 
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -2414,7 +2540,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual3) {
   FusionGuard fg(fusion_ptr.get());
 
   const int64_t slice_offset = 4;
-  const std::vector<int64_t> shape({1024 * 1024});
+  const std::vector<int64_t> shape({1024L * 1024L});
 
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -2463,7 +2589,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual4) {
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  const std::vector<int64_t> shape({1024 * 1024});
+  const std::vector<int64_t> shape({1024L * 1024L});
 
   auto tv0 = makeContigConcreteTensor({shape[0] - 4});
   fusion.addInput(tv0);
@@ -2505,7 +2631,7 @@ TEST_F(ResizeTest, Slice2DVectorizeManual1) {
   // The extent of the innermost domain is just 2, and the outer
   // domain is sliced. This slicing should be vectorizable by a
   // factor of 4 as the two domains can be merged and vectorized.
-  const std::vector<int64_t> shape({1024 * 1024, 2});
+  const std::vector<int64_t> shape({1024L * 1024L, 2});
 
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
