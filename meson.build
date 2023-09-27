@@ -5,8 +5,6 @@ cuda_dep = dependency('cuda', version : '>=11')
 dynamic_type = subproject('dynamic_type')
 dynamic_type_dep = dynamic_type.get_variable('dynamic_type_dep')
 
-# flatbuffers = subproject('flatbuffers')
-# flatbuffers_dep = flatbuffers.get_variable('flatbuffers_dep')
 flatbuffers_dep = dependency('flatbuffers')
 
 python = import('python')
@@ -49,7 +47,7 @@ foreach runtime : runtime_resources
     target = custom_target(
         'nvfuser_runtime_' + runtime,
         input : ['tools/stringify_file.py', 'runtime/' + runtime + '.cu'],
-        output : 'include/nvfuser_resources/' + runtime + '.h',
+        output : runtime + '.h',
         command : [
             python_installation,
             '@INPUT0@',
