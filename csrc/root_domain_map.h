@@ -101,6 +101,14 @@ class PairwiseRootDomainMap : public RootDomainMap {
     return *this;
   }
 
+  //! If b is true: map symbolic domains with other IterDomains even if their
+  //! extents don't match. If b is false (default): map symbolic domains with
+  //! other IterDomains only if their extents match.
+  PairwiseRootDomainMap& mapSymbolic(bool b) {
+    map_symbolic_ = b;
+    return *this;
+  }
+
   PairwiseRootDomainMap& mapDifferentExtents(bool b) {
     map_different_extents_ = b;
     return *this;
@@ -137,6 +145,10 @@ class PairwiseRootDomainMap : public RootDomainMap {
   //! Map broadcast and non-broadcast domains. Note that this is on by
   //! default
   bool map_broadcast_ = true;
+  //! Map symbolic domains with other IterDomains, even if their extents don't
+  //! match. Note that this is off by default, in which case they are mapped
+  //! only if their extents match.
+  bool map_symbolic_ = false;
   //! Map domains that may have different extents, e.g., torch_gather
   bool map_different_extents_ = false;
   //! Map domains that are indirectly accessed, e.g., index_select
