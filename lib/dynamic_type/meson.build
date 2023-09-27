@@ -9,9 +9,8 @@ install_subdir('src/dynamic_type', install_dir : 'include')
 
 
 # test
-gtest_proj = subproject('gtest')
-gtest_main_dep = gtest_proj.get_variable('gtest_main_dep')
-gmock_dep = gtest_proj.get_variable('gmock_dep')
+gtest_dep = dependency('gtest')
+gmock_dep = dependency('gmock')
 
 test_exe = executable('test_dynamic_type_17',
     [
@@ -31,7 +30,7 @@ test_exe = executable('test_dynamic_type_17',
     ],
     dependencies: [
         dynamic_type_dep,
-        gtest_main_dep,
+        gtest_dep,
         gmock_dep,
     ]
 )
@@ -40,8 +39,7 @@ test('test_dynamic_type_17', test_exe)
 
 
 # benchmarks
-gbench_proj = subproject('google-benchmark')
-gbench_dep = gbench_proj.get_variable('google_benchmark_dep')
+gbench_dep = dependency('benchmark')
 
 bench_exe = executable('bench_dynamic_type_17',
     [

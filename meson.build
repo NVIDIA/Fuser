@@ -5,8 +5,9 @@ cuda_dep = dependency('cuda', version : '>=11')
 dynamic_type = subproject('dynamic_type')
 dynamic_type_dep = dynamic_type.get_variable('dynamic_type_dep')
 
-flatbuffers = subproject('flatbuffers')
-flatbuffers_dep = flatbuffers.get_variable('flatbuffers_dep')
+# flatbuffers = subproject('flatbuffers')
+# flatbuffers_dep = flatbuffers.get_variable('flatbuffers_dep')
+flatbuffers_dep = dependency('flatbuffers')
 
 python = import('python')
 python_installation = python.find_installation()
