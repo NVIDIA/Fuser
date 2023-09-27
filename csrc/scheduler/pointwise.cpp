@@ -10,6 +10,7 @@
 #include <debug.h>
 #include <inlining.h>
 #include <instrumentation.h>
+#include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/pointwise.h>
 #include <scheduler/reduction_utils.h>
@@ -516,6 +517,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
 
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
+
+  refineCachePolicy(fusion);
 
   std::vector<TensorView*> input_tvs;
   {

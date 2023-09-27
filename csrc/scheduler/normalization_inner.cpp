@@ -7,6 +7,7 @@
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
 #include <instrumentation.h>
+#include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_inner.h>
 #include <scheduler/reduction_utils.h>
@@ -1255,6 +1256,8 @@ void scheduleInnerPersistentKernel(
   }
 
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
+
+  refineCachePolicy(fusion);
 }
 
 } // namespace nvfuser
