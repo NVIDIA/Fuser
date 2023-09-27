@@ -60,6 +60,22 @@ foreach runtime : runtime_resources
     runtime_resource_targets += target
 endforeach
 
+flatc = find_program('flatc')
+flatbuffer_header = custom_target(
+    'flatbuffer_header',
+    input : ['csrc/serde/fusion_cache.fbs'],
+    output : 'fusion_cache_generated.h',
+    command : [
+        flatc,
+        '--gen-object-api',
+        '-o',
+        '@OUTPUT@',
+        '-c',
+        '-b',
+        '@INPUT@',
+    ],
+)
+
 nvfuser_codegen_src = [
     'csrc/compute_at.cpp',
     'csrc/inlining.cpp',
