@@ -5401,7 +5401,7 @@ TEST_F(NVFuserTest, FusionReplayTrivialReductionAndBroadcast2_CUDA) {
   auto tv3 = broadcast(tv2, {false, true, true});
   fusion.addOutput(tv3);
 
-  tv0->merge(-2, -1)->merge(-2, -1)->split(0, 4);
+  tv0->merge(-1, -2)->merge(-1, -2)->split(0, 4);
 
   MaxRootDomainInfoSpanningTree tree(tv0);
   TransformPropagatorWithCheck tp(tv0);
