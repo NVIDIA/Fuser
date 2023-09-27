@@ -90,10 +90,17 @@ const Expr* findExpand(const LoadStoreOp* ldst) {
           return use;
         }
 
+        // Do not bypass another global-to-local load.  We could have a chain of
+        // `ld.global -> st.global -> ld.global -> st.global -> ...`. If the
+        // traversal doesn't stop at a ld.global, downstream exprs may be
+        // traversed many times.
         if (isLoadGlobalToLocal(use)) {
           continue;
         }
 
+        // Bypass BroadcastOps as well as pointwise ops.
+        // ExpandingPointwise(BroadcastInDims(x)) is a common pattern for this
+        // pass to recognize.
         if (ir_utils::isPointwiseTvOp(use) || use->isA<BroadcastOp>()) {
           if (pointwiseExpands(use, def_out_tv)) {
             return use;
