@@ -434,6 +434,10 @@ std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion) {
   return getOpsOfType<ReductionOp, GroupedReductionOp, WelfordOp>(fusion);
 }
 
+bool hasAnyReductionOps(Fusion* fusion) {
+  return hasOpsOfType<ReductionOp, GroupedReductionOp, WelfordOp>(fusion);
+}
+
 namespace {
 
 class ValReplacementMutator : private OptOutMutator {
