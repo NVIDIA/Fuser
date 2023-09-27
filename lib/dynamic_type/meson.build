@@ -1,6 +1,6 @@
 project('dynamic_type', 'cpp')
 
-dynamic_type = declare_dependency(
+dynamic_type_dep = declare_dependency(
     include_directories: include_directories('src'),
     compile_args: '-std=c++17',
 )
@@ -30,7 +30,7 @@ test_exe = executable('test_dynamic_type_17',
         'test/unary_ops.cpp',
     ],
     dependencies: [
-        dynamic_type,
+        dynamic_type_dep,
         gtest_main_dep,
         gmock_dep,
     ]
@@ -50,7 +50,7 @@ bench_exe = executable('bench_dynamic_type_17',
         'benchmark/sort.cpp',
     ],
     dependencies: [
-        dynamic_type,
+        dynamic_type_dep,
         gbench_dep,
     ],
 )
