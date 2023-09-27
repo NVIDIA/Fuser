@@ -44,6 +44,8 @@ std::string disassembleBinary(
     const std::vector<char>& cubin,
     const std::string& nvdisasm_args);
 
+// I'm not happy with CompiledKernel being a struct exposing all the fields.
+// This could be refactored.
 struct CompiledKernel : public NonCopyable {
   ~CompiledKernel();
 
