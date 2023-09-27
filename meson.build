@@ -12,6 +12,7 @@ dynamic_type = subproject('dynamic_type')
 dynamic_type_dep = dynamic_type.get_variable('dynamic_type_dep')
 
 flatbuffers_dep = dependency('flatbuffers')
+torch_dep = dependency('Torch')
 
 nvfuser_codegen_src = [
     'csrc/compute_at.cpp',
@@ -152,5 +153,5 @@ library(
     'nvfuser_codegen',
     nvfuser_codegen_src + runtime_resource_targets + flatbuffer_header,
     include_directories : include_directories('csrc'),
-    dependencies: [dynamic_type_dep, flatbuffers_dep, cuda_dep]
+    dependencies: [dynamic_type_dep, flatbuffers_dep, cuda_dep, torch_dep]
 )
