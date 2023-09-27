@@ -978,7 +978,7 @@ TEST_F(NVFuserTest, FusionTrivialReduction_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getOpsOfType<ReductionOp>(&fusion).empty(),
+      !ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Trivial reduction not converted to squeeze.");
 
   const auto options =
