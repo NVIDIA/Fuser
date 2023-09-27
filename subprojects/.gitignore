@@ -1,3 +1,4 @@
 *
 !.gitignore
 !/*.wrap
+!/README.md
