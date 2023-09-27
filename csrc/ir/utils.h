@@ -510,8 +510,22 @@ auto getOpsOfType(Fusion* fusion) {
   return ops;
 }
 
+//! Returns true if fusion has any ops of the given type.
+template <typename... OpTypes>
+bool hasOpsOfType(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
+    if (expr->isOneOf<OpTypes...>()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 //! Returns expressions that are of type ReductionOp, GroupedReductionOp, or
 //! WelfordOp.
 std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion);
+
+//! Returns true if fusion has any reduction ops.
+bool hasAnyReductionOps(Fusion* fusion);
 
 } // namespace nvfuser::ir_utils
