@@ -16,6 +16,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <options.h>
+#include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_outer.h>
 #include <scheduler/normalization_utils.h>
@@ -1119,6 +1120,8 @@ void scheduleOuterPersistentKernel(
   }
 
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
+
+  refineCachePolicy(fusion);
 }
 
 } // namespace nvfuser
