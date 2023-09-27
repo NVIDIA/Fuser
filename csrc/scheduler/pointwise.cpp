@@ -61,7 +61,7 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
     }
   }
 
-  if (!ir_utils::hasAnyReductionOps(fusion)) {
+  if (ir_utils::hasAnyReductionOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         ScheduleHeuristic::PointWise, "no support for reduction ops");
     return false;
