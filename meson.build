@@ -1,5 +1,7 @@
 project('nvfuser', 'cpp', subproject_dir: 'lib')
 
+subdir('serde')
+
 cuda_dep = dependency('cuda', version : '>=11')
 
 dynamic_type = subproject('dynamic_type')
@@ -55,26 +57,10 @@ foreach runtime : runtime_resources
             '@INPUT1@',
             '-o',
             '@OUTPUT@',
-        ],
+        ]
     )
     runtime_resource_targets += target
 endforeach
-
-flatc = find_program('flatc')
-flatbuffer_header = custom_target(
-    'flatbuffer_header',
-    input : ['csrc/serde/fusion_cache.fbs'],
-    output : 'fusion_cache_generated.h',
-    command : [
-        flatc,
-        '--gen-object-api',
-        '-o',
-        '@OUTPUT@',
-        '-c',
-        '-b',
-        '@INPUT@',
-    ],
-)
 
 nvfuser_codegen_src = [
     'csrc/compute_at.cpp',
