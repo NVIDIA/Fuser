@@ -2347,6 +2347,9 @@ std::string LoadStoreOp::toString(int indent_size) const {
     indent(ss, indent_size + 1)
         << std::string(optype.size() + 5, ' ') << predicate()->toInlineString();
   }
+  if (cacheOp() != CacheOp::Unspecified) {
+    ss << ", cache_op=" << cacheOp();
+  }
   ss << " )\n";
   return ss.str();
 }

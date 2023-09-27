@@ -219,11 +219,34 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   return dom_map;
 }
 
+std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::
+    mapProducerToConsumer(
+        const std::unordered_set<IterDomain*>* root_dims_to_map) const {
+  if (root_dims_to_map == nullptr) {
+    return RootDomainMap::mapProducerToConsumer(
+        producerTv()->domain(), consumerTv()->domain());
+  } else {
+    return RootDomainMap::mapProducerToConsumer(
+        producerTv()->domain(), consumerTv()->domain(), *root_dims_to_map);
+  }
+}
+
+std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::
+    mapConsumerToProducer(
+        const std::unordered_set<IterDomain*>* root_dims_to_map) const {
+  if (root_dims_to_map == nullptr) {
+    return RootDomainMap::mapConsumerToProducer(
+        consumerTv()->domain(), producerTv()->domain());
+  } else {
+    return RootDomainMap::mapConsumerToProducer(
+        consumerTv()->domain(), producerTv()->domain(), *root_dims_to_map);
+  }
+}
+
 std::string PairwiseRootDomainMap::toString() const {
   std::stringstream ss;
   ss << "{producer: " << producerTv() << ", consumer: " << consumerTv();
-  auto p2c =
-      mapProducerToConsumer(producerTv()->domain(), consumerTv()->domain());
+  auto p2c = mapProducerToConsumer();
   for (auto pair : p2c) {
     ss << ", " << pair.first->toString() << " -> " << pair.second->toString();
   }
@@ -316,8 +339,7 @@ class FindInputDomains : BackwardVisitor {
   }
 
   void propagate(TensorView* in_tv, TensorView* out_tv) {
-    auto c2p = PairwiseRootDomainMap(in_tv, out_tv)
-                   .mapConsumerToProducer(out_tv->domain(), in_tv->domain());
+    auto c2p = PairwiseRootDomainMap(in_tv, out_tv).mapConsumerToProducer();
     for (auto root_dom : out_tv->getRootDomain()) {
       DomainKey out_key({out_tv->domain(), root_dom});
       if (input_keys_.find(out_key) == input_keys_.end()) {
@@ -793,8 +815,7 @@ void ComputeAtRootDomainMapBuilder::initializeBcastMap(
   // pairwise map has no mapping for the broadcast.
   for (auto consumer : ir_utils::consumerTvsOf(tv)) {
     const auto p2c =
-        PairwiseRootDomainMap(tv, consumer)
-            .mapProducerToConsumer(tv->domain(), consumer->domain());
+        PairwiseRootDomainMap(tv, consumer).mapProducerToConsumer();
     // Unfortunately, const_cast is required as our const model is
     // broken.
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
@@ -1270,8 +1291,7 @@ class ExactRootDomainMapBuilder : private IterVisitor {
            ir_utils::filterByType<TensorView>(expr->outputs())) {
         PairwiseRootDomainMap pwise_map(producer, consumer);
         pwise_map.mapBroadcast(false);
-        const auto mappings = pwise_map.mapProducerToConsumer(
-            producer->domain(), consumer->domain());
+        const auto mappings = pwise_map.mapProducerToConsumer();
         for (const auto& mapping : mappings) {
           eq_sets_.mapEntries(mapping.first, mapping.second);
         }

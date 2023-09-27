@@ -107,10 +107,8 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
     }
 
     for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      auto p2c_map =
-          PairwiseRootDomainMap(producer, consumer)
-              .mapProducerToConsumer(
-                  producer->domain(), consumer->domain(), producer_broadcasts);
+      auto p2c_map = PairwiseRootDomainMap(producer, consumer)
+                         .mapProducerToConsumer(&producer_broadcasts);
       for (const auto& kv : p2c_map) {
         auto p_id = kv.first;
         auto c_id = kv.second;

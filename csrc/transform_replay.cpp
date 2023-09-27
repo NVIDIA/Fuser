@@ -873,8 +873,7 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayPasC(
   // Allow replay through indexing exprs
   const auto pairwise_map =
       PairwiseRootDomainMap(producer, consumer).mapIndexedDomains(true);
-  id_map c2p_root_map = pairwise_map.mapConsumerToProducer(
-      consumer->domain(), producer->domain());
+  id_map c2p_root_map = pairwise_map.mapConsumerToProducer();
 
   // IterDomains in `consumer` root also in `producer` root
   const auto consumer_domain = consumer->getLeafDomain();
@@ -946,8 +945,7 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayCasP(
   // Allow replay through indexing exprs
   const auto pairwise_map =
       PairwiseRootDomainMap(producer, consumer).mapIndexedDomains(true);
-  id_map p2c_root_map = pairwise_map.mapProducerToConsumer(
-      producer->domain(), consumer->domain());
+  id_map p2c_root_map = pairwise_map.mapProducerToConsumer();
 
   // IterDomains in `producer` root that are not reduction
   const auto producer_domain = producer->getLeafDomain();

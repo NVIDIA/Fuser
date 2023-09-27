@@ -869,7 +869,7 @@ void ReductionScheduler::schedule(Fusion* fusion) {
 //! Check if the reduction heuristics apply in given fusion
 bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
   // Needs at least one reduction to consider.
-  if (ir_utils::getAllTypesOfReductionOps(fusion).empty()) {
+  if (!ir_utils::hasAnyReductionOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         ScheduleHeuristic::Reduction, "No reduction op to schedule");
     return false;
@@ -888,7 +888,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
   }
 
   // Fusions handled by reduction scheduler cannot have MmaOp.
-  if (!ir_utils::getOpsOfType<MmaOp>(fusion).empty()) {
+  if (ir_utils::hasOpsOfType<MmaOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         ScheduleHeuristic::Reduction, "no support for mma ops.");
     return false;

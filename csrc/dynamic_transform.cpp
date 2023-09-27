@@ -808,8 +808,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
     // which will be equivalent to (but not necessarily sameAs) the producer's,
     // and we just want to use its IterType to concretize the consumer ID.
     root_map.mapSymbolic(true);
-    c2p_maps.push_back(
-        root_map.mapConsumerToProducer(consumer->domain(), producer->domain()));
+    c2p_maps.push_back(root_map.mapConsumerToProducer());
   }
 
   bool is_concretized = false;
