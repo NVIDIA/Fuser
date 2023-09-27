@@ -152,6 +152,6 @@ nvfuser_codegen_src = [
 library(
     'nvfuser_codegen',
     nvfuser_codegen_src + runtime_resource_targets + flatbuffer_header,
-    include_directories : include_directories('csrc'),
+    include_directories : include_directories('csrc', 'third_party/gloo'),
     dependencies: [dynamic_type_dep, flatbuffers_dep, cuda_dep, torch_dep]
 )
