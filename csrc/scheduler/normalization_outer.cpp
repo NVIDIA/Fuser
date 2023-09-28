@@ -38,33 +38,6 @@ bool OuterPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
       fusion, schedule_heuristic);
 }
 
-namespace {
-
-bool checkReductionPattern(
-    Fusion* fusion,
-    const std::vector<TensorView*>& reduction_tvs) {
-  // Use root domain map to check the reduction ops have the same axes
-  FusionGuard fg(fusion);
-  ComputeAtRootDomainMap root_map;
-  root_map.build(true);
-
-  for (const auto it : c10::irange(1, reduction_tvs.size())) {
-    if (!registry_utils::checkPatternEquivalence(
-            reduction_tvs[it - 1], reduction_tvs[it], root_map)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedule_heuristic,
-          "unmapped reduction ",
-          reduction_tvs[it - 1],
-          " and ",
-          reduction_tvs[it]);
-      return false;
-    }
-  }
-  return true;
-}
-
-} // namespace
-
 bool OuterPersistentKernelScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
