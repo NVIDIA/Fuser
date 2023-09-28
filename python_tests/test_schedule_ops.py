@@ -127,7 +127,7 @@ class TestScheduleOps(TestCase):
         # same merge position -1 and 2 in a 3 dimensional tensor
         # https://github.com/NVIDIA/Fuser/issues/171
         self.check_input_error(
-            lambda fd: fd.sched.merge(fd.t1, -1),
+            lambda fd: fd.sched.merge(fd.t1, -2),
             "Merging IterDomains requires that their iteration types match",
         )
         self.check_input_error(

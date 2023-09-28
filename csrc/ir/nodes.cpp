@@ -3428,12 +3428,6 @@ void TensorDomain::merge(int axis_o, int axis_i) {
       axis_o != axis_i,
       "Invalid merge detected, axes provided are the same axis.");
 
-  if (axis_o > axis_i) {
-    auto tmp = axis_i;
-    axis_i = axis_o;
-    axis_o = tmp;
-  }
-
   IterDomain* first = axis(axis_o);
   IterDomain* second = axis(axis_i);
 
