@@ -1203,8 +1203,7 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     GlobalBufferInfo info;
     info.tv = tv;
     info.zero_init = alloc->zeroInit();
-    std::tie(info.sizes, info.strides) =
-        inferShapeOfIntermediate(tv, alloc, expr_eval);
+    std::tie(info.sizes, info.strides) = inferShapeOfOutput(tv, expr_eval);
     auto dtype = (tv->dtype() == DataType::Index ? index_type : tv->dtype());
     info.type = data_type_to_aten(dtype);
 
@@ -1704,14 +1703,26 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     FUSER_PERF_SCOPE("ExecutorRunFusion::IntermediateBufferAlloc");
     for (const auto i : c10::irange(executor_entry->intermediates.size())) {
       const auto& buf_info = executor_entry->intermediates.at(i);
+      bool has_expansion = false;
+      std::vector<int64_t> unexpanded_sizes;
+      unexpanded_sizes.reserve(buf_info.sizes.size());
+      NVF_ERROR(buf_info.sizes.size() == buf_info.strides.size())
+      for (const auto j : c10::irange(buf_info.sizes.size())) {
+        if (buf_info.strides[j] == 0) {
+          has_expansion = true;
+          unexpanded_sizes.push_back(1L);
+        } else {
+          unexpanded_sizes.push_back(buf_info.sizes[j]);
+        }
+      }
       at::Tensor intermediate_buffer;
       if (buf_info.zero_init) {
         intermediate_buffer = at::zeros(
-            buf_info.sizes,
+            unexpanded_sizes,
             at::TensorOptions().dtype(buf_info.type).device(options_.device));
       } else {
         intermediate_buffer = at::native::empty_cuda(
-            buf_info.sizes,
+            unexpanded_sizes,
             buf_info.type,
             c10::nullopt,
             options_.device,
@@ -1719,6 +1730,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         if (shouldFillAllocationWithNan()) {
           fillTensorWithNan(intermediate_buffer);
         }
+      }
+      if (has_expansion) {
+        intermediate_buffer =
+            at::native::expand(intermediate_buffer, buf_info.sizes);
       }
       args.push(intermediate_buffer);
       intermediates.push_back(intermediate_buffer);
