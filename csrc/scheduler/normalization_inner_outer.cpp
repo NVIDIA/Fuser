@@ -49,7 +49,8 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
   }
   auto reduction_type =
       reduction_scheduler_utils::getReductionType(reduction_tvs);
-  if (getPersistentHeuristicFor(reduction_type) != schedule_heuristic) {
+  if (normalization_scheduler_utils::getPersistentHeuristicFor(
+          reduction_type) != schedule_heuristic) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedule_heuristic,
         "schedule_heuristic doesn't match with reduction type.");
@@ -63,8 +64,11 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
       outer_reduction_tvs.emplace_back(tv);
     }
   }
-  if (!checkReductionPattern(
-          fusion, inner_reduction_tvs, outer_reduction_tvs)) {
+  if (!normalization_scheduler_utils::checkReductionPattern(
+          fusion,
+          schedule_heuristic,
+          inner_reduction_tvs,
+          outer_reduction_tvs)) {
     return false;
   }
 
