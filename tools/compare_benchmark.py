@@ -20,16 +20,22 @@ def sanitize_benchmark_args(args: list[str]) -> list[str]:
 
     for arg in args:
         if arg == "--benchmark_out":
-            raise ValueError("--benchmark_out should be specified by run_benchmark not the user")
+            raise ValueError(
+                "--benchmark_out should be specified by run_benchmark not the user"
+            )
         if arg == "--benchmark_format":
-            raise ValueError("--benchmark_format should be specified by run_benchmark not the user")
+            raise ValueError(
+                "--benchmark_format should be specified by run_benchmark not the user"
+            )
 
     return args
 
 
 def check_out(branch_or_commit: str) -> None:
     # `advice.detachedHead=false` silences the detached HEAD warning.
-    subprocess.check_call(f"git -c advice.detachedHead=false checkout {branch_or_commit}", shell=True)
+    subprocess.check_call(
+        f"git -c advice.detachedHead=false checkout {branch_or_commit}", shell=True
+    )
     subprocess.check_call("git submodule update --init --recursive", shell=True)
 
 
@@ -38,7 +44,9 @@ def check_out(branch_or_commit: str) -> None:
 # the benchmark result. If the output already exists, skips benchmarking and
 # uses that output. This is useful, for example, when comparing multiple
 # contenders to the same base.
-def run_benchmark(branch_or_commit: str, benchmark_args: list[str], out_dir: str) -> str:
+def run_benchmark(
+    branch_or_commit: str, benchmark_args: list[str], out_dir: str
+) -> str:
     benchmark_out = os.path.join(out_dir, branch_or_commit + ".json")
     if os.path.exists(benchmark_out):
         print(f"{benchmark_out} already exists. Skip benchmarking {branch_or_commit}.")
@@ -48,7 +56,11 @@ def run_benchmark(branch_or_commit: str, benchmark_args: list[str], out_dir: str
 
     subprocess.check_call("pip install -e .", shell=True)
 
-    benchmark_command = " ".join(["bin/nvfuser_bench"] + benchmark_args + [f"--benchmark_out={benchmark_out}", "--benchmark_format=json"])
+    benchmark_command = " ".join(
+        ["bin/nvfuser_bench"]
+        + benchmark_args
+        + [f"--benchmark_out={benchmark_out}", "--benchmark_format=json"]
+    )
     print("Running benchmark command: " + benchmark_command)
     with open(os.path.join(out_dir, branch_or_commit + ".stdout"), "w") as stdout, open(
         os.path.join(out_dir, branch_or_commit + ".stderr"), "w"
@@ -154,6 +166,7 @@ def get_head_branch_or_commit() -> str:
         return head_branch_or_commit
     # Head is detached. Return the commit instead.
     return subprocess.check_output("git rev-parse HEAD", text=True, shell=True).strip()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
