@@ -196,7 +196,6 @@ __device__ void loadGlobalToLocal(
         asm volatile("ld.volatile.global.v2.s32 {%0,%1}, [%2];"
                      : "=r"(data.x), "=r"(data.y)
                      : "l"((uint2*)from));
-        break;
       } else {
         uint2& data = *reinterpret_cast<uint2*>(to);
         switch (cache_op) {
