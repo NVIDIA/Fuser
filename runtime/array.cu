@@ -191,59 +191,44 @@ __device__ void loadGlobalToLocal(
       loadGenericVolatile<scalar_t, vec_size, false, is_volatile>(to, from);
       break;
     case 8: {
+      uint2& data = *reinterpret_cast<uint2*>(to);
       if (is_volatile) {
-        uint2& data = *reinterpret_cast<uint2*>(to);
         asm volatile("ld.volatile.global.v2.s32 {%0,%1}, [%2];"
                      : "=r"(data.x), "=r"(data.y)
-                     : "l"((uint2*)from));
+                     : "l"(from));
       } else {
-        uint2& data = *reinterpret_cast<uint2*>(to);
+        auto* non_volatile_from = (uint2*)from;
         switch (cache_op) {
           case CacheOp::AllLevels:
-            asm volatile("ld.global.ca.v2.s32 {%0,%1}, [%2];"
-                         : "=r"(data.x), "=r"(data.y)
-                         : "l"((uint2*)from));
+            data = __ldca(non_volatile_from);
             break;
           case CacheOp::Streaming:
-            asm volatile("ld.global.cs.v2.s32 {%0,%1}, [%2];"
-                         : "=r"(data.x), "=r"(data.y)
-                         : "l"((uint2*)from));
+            data = __ldcs(non_volatile_from);
             break;
           case CacheOp::Global:
-            asm volatile("ld.global.cg.v2.s32 {%0,%1}, [%2];"
-                         : "=r"(data.x), "=r"(data.y)
-                         : "l"((uint2*)from));
+            data = __ldcg(non_volatile_from);
             break;
         }
       }
       break;
     }
     case 16: {
+      uint4& data = *reinterpret_cast<uint4*>(to);
       if (is_volatile) {
-        uint4& data = *reinterpret_cast<uint4*>(to);
         asm volatile("ld.volatile.global.v4.s32 {%0,%1,%2,%3}, [%4];"
                      : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
-                     : "l"((uint4*)from));
+                     : "l"(from));
       } else {
-        uint4& data = *reinterpret_cast<uint4*>(to);
+        auto* non_volatile_from = (uint4*)from;
         switch (cache_op) {
           case CacheOp::AllLevels:
-            asm volatile(
-                "ld.global.ca.v4.s32 {%0,%1,%2,%3}, [%4];"
-                : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
-                : "l"((uint4*)from));
+            data = __ldca(non_volatile_from);
             break;
           case CacheOp::Streaming:
-            asm volatile(
-                "ld.global.cs.v4.s32 {%0,%1,%2,%3}, [%4];"
-                : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
-                : "l"((uint4*)from));
+            data = __ldcs(non_volatile_from);
             break;
           case CacheOp::Global:
-            asm volatile(
-                "ld.global.cg.v4.s32 {%0,%1,%2,%3}, [%4];"
-                : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
-                : "l"((uint4*)from));
+            data = __ldcg(non_volatile_from);
             break;
         }
       }
