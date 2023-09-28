@@ -226,7 +226,7 @@ TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
         NVF_CHECK(
             !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
         NVF_CHECK(
-            id->extent()->isOneInt(),
+            id->extent()->isConstScalar() && id->extent()->evaluateInt() == 1,
             "Can not squeeze dimension(s) with size != 1.");
       }
     } else {
