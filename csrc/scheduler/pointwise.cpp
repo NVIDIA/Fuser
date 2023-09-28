@@ -10,6 +10,7 @@
 #include <debug.h>
 #include <inlining.h>
 #include <instrumentation.h>
+#include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/pointwise.h>
 #include <scheduler/reduction_utils.h>
@@ -45,7 +46,7 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
   }
 
   // Fusions handled by pointwise scheduler cannot have MmaOp.
-  if (!ir_utils::getMmaOps(fusion).empty()) {
+  if (ir_utils::hasOpsOfType<MmaOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         ScheduleHeuristic::PointWise, "no support for mma ops.");
     return false;
@@ -61,9 +62,7 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
     }
   }
 
-  auto reduction_ops = ir_utils::getReductionOps(fusion);
-
-  if (!reduction_ops.empty()) {
+  if (ir_utils::hasAnyReductionOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         ScheduleHeuristic::PointWise, "no support for reduction ops");
     return false;
@@ -511,12 +510,6 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
 
-  // maybe has_reduction for scheduling should be done on a per output tensor
-  // basis.
-  NVF_ERROR(
-      ir_utils::getReductionOps(fusion).empty(),
-      "This scheduler only handles pointwise ops.");
-
   // Cache inputs
   auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
 
@@ -524,6 +517,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
 
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
+
+  refineCachePolicy(fusion);
 
   std::vector<TensorView*> input_tvs;
   {

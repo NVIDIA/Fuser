@@ -5,14 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <arith.h>
 #include <executor.h>
+#include <ops/arith.h>
 #include <scheduler/all_schedulers.h>
 #include <torch/extension.h>
 
 #include <memory>
 
-using namespace torch::jit::fuser::cuda;
+using namespace nvfuser;
 
 at::Tensor sinh_nvfuser(const at::Tensor& input) {
   Fusion fusion;

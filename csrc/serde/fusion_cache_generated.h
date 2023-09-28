@@ -90,9 +90,9 @@ struct Pad;
 struct PadBuilder;
 struct PadT;
 
-struct Permute;
-struct PermuteBuilder;
-struct PermuteT;
+struct Dims;
+struct DimsBuilder;
+struct DimsT;
 
 struct Reduction;
 struct ReductionBuilder;
@@ -129,6 +129,10 @@ struct TensorCreationSymbolicT;
 struct Vector;
 struct VectorBuilder;
 struct VectorT;
+
+struct CudaKernel;
+struct CudaKernelBuilder;
+struct CudaKernelT;
 
 struct FusionExecutor;
 struct FusionExecutorBuilder;
@@ -328,28 +332,29 @@ enum RecordType : int32_t {
   RecordType_OutputVal = 37,
   RecordType_PadOp = 38,
   RecordType_PermuteOp = 39,
-  RecordType_RandomOp = 40,
-  RecordType_ReductionMax = 41,
-  RecordType_ReductionMin = 42,
-  RecordType_ReductionProd = 43,
-  RecordType_ReductionSum = 44,
-  RecordType_ReshapeOp = 45,
-  RecordType_Scalar = 46,
-  RecordType_ShapeOp = 47,
-  RecordType_SizeOp = 48,
-  RecordType_SliceOp = 49,
-  RecordType_SqueezeOp = 50,
-  RecordType_Start = 51,
-  RecordType_Tensor = 52,
-  RecordType_TensorSizes = 53,
-  RecordType_VarianceOp = 54,
-  RecordType_VarianceMeanOp = 55,
-  RecordType_Vector = 56,
+  RecordType_StrideOrderOp = 40,
+  RecordType_RandomOp = 41,
+  RecordType_ReductionMax = 42,
+  RecordType_ReductionMin = 43,
+  RecordType_ReductionProd = 44,
+  RecordType_ReductionSum = 45,
+  RecordType_ReshapeOp = 46,
+  RecordType_Scalar = 47,
+  RecordType_ShapeOp = 48,
+  RecordType_SizeOp = 49,
+  RecordType_SliceOp = 50,
+  RecordType_SqueezeOp = 51,
+  RecordType_Start = 52,
+  RecordType_Tensor = 53,
+  RecordType_TensorSizes = 54,
+  RecordType_VarianceOp = 55,
+  RecordType_VarianceMeanOp = 56,
+  RecordType_Vector = 57,
   RecordType_MIN = RecordType_Base,
   RecordType_MAX = RecordType_Vector
 };
 
-inline const RecordType (&EnumValuesRecordType())[57] {
+inline const RecordType (&EnumValuesRecordType())[58] {
   static const RecordType values[] = {
     RecordType_Base,
     RecordType_AtOp,
@@ -391,6 +396,7 @@ inline const RecordType (&EnumValuesRecordType())[57] {
     RecordType_OutputVal,
     RecordType_PadOp,
     RecordType_PermuteOp,
+    RecordType_StrideOrderOp,
     RecordType_RandomOp,
     RecordType_ReductionMax,
     RecordType_ReductionMin,
@@ -413,7 +419,7 @@ inline const RecordType (&EnumValuesRecordType())[57] {
 }
 
 inline const char * const *EnumNamesRecordType() {
-  static const char * const names[58] = {
+  static const char * const names[59] = {
     "Base",
     "AtOp",
     "BatchNormOp",
@@ -454,6 +460,7 @@ inline const char * const *EnumNamesRecordType() {
     "OutputVal",
     "PadOp",
     "PermuteOp",
+    "StrideOrderOp",
     "RandomOp",
     "ReductionMax",
     "ReductionMin",
@@ -493,7 +500,7 @@ enum RecordData : uint8_t {
   RecordData_Norm = 7,
   RecordData_Output = 8,
   RecordData_Pad = 9,
-  RecordData_Permute = 10,
+  RecordData_Dims = 10,
   RecordData_Slice = 11,
   RecordData_Squeeze = 12,
   RecordData_Reduction = 13,
@@ -520,7 +527,7 @@ inline const RecordData (&EnumValuesRecordData())[21] {
     RecordData_Norm,
     RecordData_Output,
     RecordData_Pad,
-    RecordData_Permute,
+    RecordData_Dims,
     RecordData_Slice,
     RecordData_Squeeze,
     RecordData_Reduction,
@@ -547,7 +554,7 @@ inline const char * const *EnumNamesRecordData() {
     "Norm",
     "Output",
     "Pad",
-    "Permute",
+    "Dims",
     "Slice",
     "Squeeze",
     "Reduction",
@@ -609,8 +616,8 @@ template<> struct RecordDataTraits<nvfuser::serde::Pad> {
   static const RecordData enum_value = RecordData_Pad;
 };
 
-template<> struct RecordDataTraits<nvfuser::serde::Permute> {
-  static const RecordData enum_value = RecordData_Permute;
+template<> struct RecordDataTraits<nvfuser::serde::Dims> {
+  static const RecordData enum_value = RecordData_Dims;
 };
 
 template<> struct RecordDataTraits<nvfuser::serde::Slice> {
@@ -693,8 +700,8 @@ template<> struct RecordDataUnionTraits<nvfuser::serde::PadT> {
   static const RecordData enum_value = RecordData_Pad;
 };
 
-template<> struct RecordDataUnionTraits<nvfuser::serde::PermuteT> {
-  static const RecordData enum_value = RecordData_Permute;
+template<> struct RecordDataUnionTraits<nvfuser::serde::DimsT> {
+  static const RecordData enum_value = RecordData_Dims;
 };
 
 template<> struct RecordDataUnionTraits<nvfuser::serde::SliceT> {
@@ -839,13 +846,13 @@ struct RecordDataUnion {
     return type == RecordData_Pad ?
       reinterpret_cast<const nvfuser::serde::PadT *>(value) : nullptr;
   }
-  nvfuser::serde::PermuteT *AsPermute() {
-    return type == RecordData_Permute ?
-      reinterpret_cast<nvfuser::serde::PermuteT *>(value) : nullptr;
+  nvfuser::serde::DimsT *AsDims() {
+    return type == RecordData_Dims ?
+      reinterpret_cast<nvfuser::serde::DimsT *>(value) : nullptr;
   }
-  const nvfuser::serde::PermuteT *AsPermute() const {
-    return type == RecordData_Permute ?
-      reinterpret_cast<const nvfuser::serde::PermuteT *>(value) : nullptr;
+  const nvfuser::serde::DimsT *AsDims() const {
+    return type == RecordData_Dims ?
+      reinterpret_cast<const nvfuser::serde::DimsT *>(value) : nullptr;
   }
   nvfuser::serde::SliceT *AsSlice() {
     return type == RecordData_Slice ?
@@ -2642,14 +2649,14 @@ inline ::flatbuffers::Offset<Pad> CreatePadDirect(
 
 ::flatbuffers::Offset<Pad> CreatePad(::flatbuffers::FlatBufferBuilder &_fbb, const PadT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
-struct PermuteT : public ::flatbuffers::NativeTable {
-  typedef Permute TableType;
+struct DimsT : public ::flatbuffers::NativeTable {
+  typedef Dims TableType;
   std::vector<int64_t> dims{};
 };
 
-struct Permute FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
-  typedef PermuteT NativeTableType;
-  typedef PermuteBuilder Builder;
+struct Dims FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef DimsT NativeTableType;
+  typedef DimsBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_DIMS = 4
   };
@@ -2662,47 +2669,47 @@ struct Permute FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVector(dims()) &&
            verifier.EndTable();
   }
-  PermuteT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
-  void UnPackTo(PermuteT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
-  static ::flatbuffers::Offset<Permute> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const PermuteT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+  DimsT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(DimsT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<Dims> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const DimsT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 };
 
-struct PermuteBuilder {
-  typedef Permute Table;
+struct DimsBuilder {
+  typedef Dims Table;
   ::flatbuffers::FlatBufferBuilder &fbb_;
   ::flatbuffers::uoffset_t start_;
   void add_dims(::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> dims) {
-    fbb_.AddOffset(Permute::VT_DIMS, dims);
+    fbb_.AddOffset(Dims::VT_DIMS, dims);
   }
-  explicit PermuteBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+  explicit DimsBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
   }
-  ::flatbuffers::Offset<Permute> Finish() {
+  ::flatbuffers::Offset<Dims> Finish() {
     const auto end = fbb_.EndTable(start_);
-    auto o = ::flatbuffers::Offset<Permute>(end);
+    auto o = ::flatbuffers::Offset<Dims>(end);
     return o;
   }
 };
 
-inline ::flatbuffers::Offset<Permute> CreatePermute(
+inline ::flatbuffers::Offset<Dims> CreateDims(
     ::flatbuffers::FlatBufferBuilder &_fbb,
     ::flatbuffers::Offset<::flatbuffers::Vector<int64_t>> dims = 0) {
-  PermuteBuilder builder_(_fbb);
+  DimsBuilder builder_(_fbb);
   builder_.add_dims(dims);
   return builder_.Finish();
 }
 
-inline ::flatbuffers::Offset<Permute> CreatePermuteDirect(
+inline ::flatbuffers::Offset<Dims> CreateDimsDirect(
     ::flatbuffers::FlatBufferBuilder &_fbb,
     const std::vector<int64_t> *dims = nullptr) {
   auto dims__ = dims ? _fbb.CreateVector<int64_t>(*dims) : 0;
-  return nvfuser::serde::CreatePermute(
+  return nvfuser::serde::CreateDims(
       _fbb,
       dims__);
 }
 
-::flatbuffers::Offset<Permute> CreatePermute(::flatbuffers::FlatBufferBuilder &_fbb, const PermuteT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+::flatbuffers::Offset<Dims> CreateDims(::flatbuffers::FlatBufferBuilder &_fbb, const DimsT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
 struct ReductionT : public ::flatbuffers::NativeTable {
   typedef Reduction TableType;
@@ -3395,6 +3402,156 @@ inline ::flatbuffers::Offset<Vector> CreateVector(
 
 ::flatbuffers::Offset<Vector> CreateVector(::flatbuffers::FlatBufferBuilder &_fbb, const VectorT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
 
+struct CudaKernelT : public ::flatbuffers::NativeTable {
+  typedef CudaKernel TableType;
+  std::string kernel_name{};
+  std::string compile_args{};
+  std::vector<uint8_t> cubin{};
+  std::string cubin_filename{};
+  std::vector<uint8_t> ptx{};
+  std::string ptx_filename{};
+  int64_t block_size = -1LL;
+};
+
+struct CudaKernel FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
+  typedef CudaKernelT NativeTableType;
+  typedef CudaKernelBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_KERNEL_NAME = 4,
+    VT_COMPILE_ARGS = 6,
+    VT_CUBIN = 8,
+    VT_CUBIN_FILENAME = 10,
+    VT_PTX = 12,
+    VT_PTX_FILENAME = 14,
+    VT_BLOCK_SIZE = 16
+  };
+  const ::flatbuffers::String *kernel_name() const {
+    return GetPointer<const ::flatbuffers::String *>(VT_KERNEL_NAME);
+  }
+  const ::flatbuffers::String *compile_args() const {
+    return GetPointer<const ::flatbuffers::String *>(VT_COMPILE_ARGS);
+  }
+  const ::flatbuffers::Vector<uint8_t> *cubin() const {
+    return GetPointer<const ::flatbuffers::Vector<uint8_t> *>(VT_CUBIN);
+  }
+  const ::flatbuffers::String *cubin_filename() const {
+    return GetPointer<const ::flatbuffers::String *>(VT_CUBIN_FILENAME);
+  }
+  const ::flatbuffers::Vector<uint8_t> *ptx() const {
+    return GetPointer<const ::flatbuffers::Vector<uint8_t> *>(VT_PTX);
+  }
+  const ::flatbuffers::String *ptx_filename() const {
+    return GetPointer<const ::flatbuffers::String *>(VT_PTX_FILENAME);
+  }
+  int64_t block_size() const {
+    return GetField<int64_t>(VT_BLOCK_SIZE, -1LL);
+  }
+  bool Verify(::flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_KERNEL_NAME) &&
+           verifier.VerifyString(kernel_name()) &&
+           VerifyOffset(verifier, VT_COMPILE_ARGS) &&
+           verifier.VerifyString(compile_args()) &&
+           VerifyOffset(verifier, VT_CUBIN) &&
+           verifier.VerifyVector(cubin()) &&
+           VerifyOffset(verifier, VT_CUBIN_FILENAME) &&
+           verifier.VerifyString(cubin_filename()) &&
+           VerifyOffset(verifier, VT_PTX) &&
+           verifier.VerifyVector(ptx()) &&
+           VerifyOffset(verifier, VT_PTX_FILENAME) &&
+           verifier.VerifyString(ptx_filename()) &&
+           VerifyField<int64_t>(verifier, VT_BLOCK_SIZE, 8) &&
+           verifier.EndTable();
+  }
+  CudaKernelT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  void UnPackTo(CudaKernelT *_o, const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
+  static ::flatbuffers::Offset<CudaKernel> Pack(::flatbuffers::FlatBufferBuilder &_fbb, const CudaKernelT* _o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+};
+
+struct CudaKernelBuilder {
+  typedef CudaKernel Table;
+  ::flatbuffers::FlatBufferBuilder &fbb_;
+  ::flatbuffers::uoffset_t start_;
+  void add_kernel_name(::flatbuffers::Offset<::flatbuffers::String> kernel_name) {
+    fbb_.AddOffset(CudaKernel::VT_KERNEL_NAME, kernel_name);
+  }
+  void add_compile_args(::flatbuffers::Offset<::flatbuffers::String> compile_args) {
+    fbb_.AddOffset(CudaKernel::VT_COMPILE_ARGS, compile_args);
+  }
+  void add_cubin(::flatbuffers::Offset<::flatbuffers::Vector<uint8_t>> cubin) {
+    fbb_.AddOffset(CudaKernel::VT_CUBIN, cubin);
+  }
+  void add_cubin_filename(::flatbuffers::Offset<::flatbuffers::String> cubin_filename) {
+    fbb_.AddOffset(CudaKernel::VT_CUBIN_FILENAME, cubin_filename);
+  }
+  void add_ptx(::flatbuffers::Offset<::flatbuffers::Vector<uint8_t>> ptx) {
+    fbb_.AddOffset(CudaKernel::VT_PTX, ptx);
+  }
+  void add_ptx_filename(::flatbuffers::Offset<::flatbuffers::String> ptx_filename) {
+    fbb_.AddOffset(CudaKernel::VT_PTX_FILENAME, ptx_filename);
+  }
+  void add_block_size(int64_t block_size) {
+    fbb_.AddElement<int64_t>(CudaKernel::VT_BLOCK_SIZE, block_size, -1LL);
+  }
+  explicit CudaKernelBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  ::flatbuffers::Offset<CudaKernel> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = ::flatbuffers::Offset<CudaKernel>(end);
+    return o;
+  }
+};
+
+inline ::flatbuffers::Offset<CudaKernel> CreateCudaKernel(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    ::flatbuffers::Offset<::flatbuffers::String> kernel_name = 0,
+    ::flatbuffers::Offset<::flatbuffers::String> compile_args = 0,
+    ::flatbuffers::Offset<::flatbuffers::Vector<uint8_t>> cubin = 0,
+    ::flatbuffers::Offset<::flatbuffers::String> cubin_filename = 0,
+    ::flatbuffers::Offset<::flatbuffers::Vector<uint8_t>> ptx = 0,
+    ::flatbuffers::Offset<::flatbuffers::String> ptx_filename = 0,
+    int64_t block_size = -1LL) {
+  CudaKernelBuilder builder_(_fbb);
+  builder_.add_block_size(block_size);
+  builder_.add_ptx_filename(ptx_filename);
+  builder_.add_ptx(ptx);
+  builder_.add_cubin_filename(cubin_filename);
+  builder_.add_cubin(cubin);
+  builder_.add_compile_args(compile_args);
+  builder_.add_kernel_name(kernel_name);
+  return builder_.Finish();
+}
+
+inline ::flatbuffers::Offset<CudaKernel> CreateCudaKernelDirect(
+    ::flatbuffers::FlatBufferBuilder &_fbb,
+    const char *kernel_name = nullptr,
+    const char *compile_args = nullptr,
+    const std::vector<uint8_t> *cubin = nullptr,
+    const char *cubin_filename = nullptr,
+    const std::vector<uint8_t> *ptx = nullptr,
+    const char *ptx_filename = nullptr,
+    int64_t block_size = -1LL) {
+  auto kernel_name__ = kernel_name ? _fbb.CreateString(kernel_name) : 0;
+  auto compile_args__ = compile_args ? _fbb.CreateString(compile_args) : 0;
+  auto cubin__ = cubin ? _fbb.CreateVector<uint8_t>(*cubin) : 0;
+  auto cubin_filename__ = cubin_filename ? _fbb.CreateString(cubin_filename) : 0;
+  auto ptx__ = ptx ? _fbb.CreateVector<uint8_t>(*ptx) : 0;
+  auto ptx_filename__ = ptx_filename ? _fbb.CreateString(ptx_filename) : 0;
+  return nvfuser::serde::CreateCudaKernel(
+      _fbb,
+      kernel_name__,
+      compile_args__,
+      cubin__,
+      cubin_filename__,
+      ptx__,
+      ptx_filename__,
+      block_size);
+}
+
+::flatbuffers::Offset<CudaKernel> CreateCudaKernel(::flatbuffers::FlatBufferBuilder &_fbb, const CudaKernelT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
+
 struct FusionExecutorT : public ::flatbuffers::NativeTable {
   typedef FusionExecutor TableType;
   int64_t device_smem_limit = 0;
@@ -3407,6 +3564,7 @@ struct FusionExecutorT : public ::flatbuffers::NativeTable {
   std::vector<uint64_t> executor_entry_lookup_keys{};
   std::vector<std::unique_ptr<nvfuser::serde::ExecutorEntryT>> executor_entry_lookup_values{};
   nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double;
+  std::unique_ptr<nvfuser::serde::CudaKernelT> compiled_kernel{};
   FusionExecutorT() = default;
   FusionExecutorT(const FusionExecutorT &o);
   FusionExecutorT(FusionExecutorT&&) FLATBUFFERS_NOEXCEPT = default;
@@ -3426,7 +3584,8 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
     VT_KERNEL_CODE = 16,
     VT_EXECUTOR_ENTRY_LOOKUP_KEYS = 18,
     VT_EXECUTOR_ENTRY_LOOKUP_VALUES = 20,
-    VT_INDEX_TYPE = 22
+    VT_INDEX_TYPE = 22,
+    VT_COMPILED_KERNEL = 24
   };
   int64_t device_smem_limit() const {
     return GetField<int64_t>(VT_DEVICE_SMEM_LIMIT, 0);
@@ -3458,6 +3617,9 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   nvfuser::serde::DataType index_type() const {
     return static_cast<nvfuser::serde::DataType>(GetField<int32_t>(VT_INDEX_TYPE, 0));
   }
+  const nvfuser::serde::CudaKernel *compiled_kernel() const {
+    return GetPointer<const nvfuser::serde::CudaKernel *>(VT_COMPILED_KERNEL);
+  }
   bool Verify(::flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<int64_t>(verifier, VT_DEVICE_SMEM_LIMIT, 8) &&
@@ -3474,6 +3636,8 @@ struct FusionExecutor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
            verifier.VerifyVector(executor_entry_lookup_values()) &&
            verifier.VerifyVectorOfTables(executor_entry_lookup_values()) &&
            VerifyField<int32_t>(verifier, VT_INDEX_TYPE, 4) &&
+           VerifyOffset(verifier, VT_COMPILED_KERNEL) &&
+           verifier.VerifyTable(compiled_kernel()) &&
            verifier.EndTable();
   }
   FusionExecutorT *UnPack(const ::flatbuffers::resolver_function_t *_resolver = nullptr) const;
@@ -3515,6 +3679,9 @@ struct FusionExecutorBuilder {
   void add_index_type(nvfuser::serde::DataType index_type) {
     fbb_.AddElement<int32_t>(FusionExecutor::VT_INDEX_TYPE, static_cast<int32_t>(index_type), 0);
   }
+  void add_compiled_kernel(::flatbuffers::Offset<nvfuser::serde::CudaKernel> compiled_kernel) {
+    fbb_.AddOffset(FusionExecutor::VT_COMPILED_KERNEL, compiled_kernel);
+  }
   explicit FusionExecutorBuilder(::flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -3537,7 +3704,8 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
     ::flatbuffers::Offset<::flatbuffers::String> kernel_code = 0,
     ::flatbuffers::Offset<::flatbuffers::Vector<uint64_t>> executor_entry_lookup_keys = 0,
     ::flatbuffers::Offset<::flatbuffers::Vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>> executor_entry_lookup_values = 0,
-    nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double) {
+    nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double,
+    ::flatbuffers::Offset<nvfuser::serde::CudaKernel> compiled_kernel = 0) {
   FusionExecutorBuilder builder_(_fbb);
   builder_.add_fusion_id_counter(fusion_id_counter);
   builder_.add_fusion_id(fusion_id);
@@ -3545,6 +3713,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(
   builder_.add_maxrregcount_high_water_mark(maxrregcount_high_water_mark);
   builder_.add_block_size_high_water_mark(block_size_high_water_mark);
   builder_.add_device_smem_limit(device_smem_limit);
+  builder_.add_compiled_kernel(compiled_kernel);
   builder_.add_index_type(index_type);
   builder_.add_executor_entry_lookup_values(executor_entry_lookup_values);
   builder_.add_executor_entry_lookup_keys(executor_entry_lookup_keys);
@@ -3563,7 +3732,8 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
     const char *kernel_code = nullptr,
     const std::vector<uint64_t> *executor_entry_lookup_keys = nullptr,
     const std::vector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>> *executor_entry_lookup_values = nullptr,
-    nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double) {
+    nvfuser::serde::DataType index_type = nvfuser::serde::DataType_Double,
+    ::flatbuffers::Offset<nvfuser::serde::CudaKernel> compiled_kernel = 0) {
   auto kernel_code__ = kernel_code ? _fbb.CreateString(kernel_code) : 0;
   auto executor_entry_lookup_keys__ = executor_entry_lookup_keys ? _fbb.CreateVector<uint64_t>(*executor_entry_lookup_keys) : 0;
   auto executor_entry_lookup_values__ = executor_entry_lookup_values ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>>(*executor_entry_lookup_values) : 0;
@@ -3578,7 +3748,8 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutorDirect(
       kernel_code__,
       executor_entry_lookup_keys__,
       executor_entry_lookup_values__,
-      index_type);
+      index_type,
+      compiled_kernel);
 }
 
 ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(::flatbuffers::FlatBufferBuilder &_fbb, const FusionExecutorT *_o, const ::flatbuffers::rehasher_function_t *_rehasher = nullptr);
@@ -4054,8 +4225,8 @@ struct RecordFunctor FLATBUFFERS_FINAL_CLASS : private ::flatbuffers::Table {
   const nvfuser::serde::Pad *data_as_Pad() const {
     return data_type() == nvfuser::serde::RecordData_Pad ? static_cast<const nvfuser::serde::Pad *>(data()) : nullptr;
   }
-  const nvfuser::serde::Permute *data_as_Permute() const {
-    return data_type() == nvfuser::serde::RecordData_Permute ? static_cast<const nvfuser::serde::Permute *>(data()) : nullptr;
+  const nvfuser::serde::Dims *data_as_Dims() const {
+    return data_type() == nvfuser::serde::RecordData_Dims ? static_cast<const nvfuser::serde::Dims *>(data()) : nullptr;
   }
   const nvfuser::serde::Slice *data_as_Slice() const {
     return data_type() == nvfuser::serde::RecordData_Slice ? static_cast<const nvfuser::serde::Slice *>(data()) : nullptr;
@@ -4142,8 +4313,8 @@ template<> inline const nvfuser::serde::Pad *RecordFunctor::data_as<nvfuser::ser
   return data_as_Pad();
 }
 
-template<> inline const nvfuser::serde::Permute *RecordFunctor::data_as<nvfuser::serde::Permute>() const {
-  return data_as_Permute();
+template<> inline const nvfuser::serde::Dims *RecordFunctor::data_as<nvfuser::serde::Dims>() const {
+  return data_as_Dims();
 }
 
 template<> inline const nvfuser::serde::Slice *RecordFunctor::data_as<nvfuser::serde::Slice>() const {
@@ -5131,28 +5302,28 @@ inline ::flatbuffers::Offset<Pad> CreatePad(::flatbuffers::FlatBufferBuilder &_f
       _pad_widths);
 }
 
-inline PermuteT *Permute::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
-  auto _o = std::unique_ptr<PermuteT>(new PermuteT());
+inline DimsT *Dims::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<DimsT>(new DimsT());
   UnPackTo(_o.get(), _resolver);
   return _o.release();
 }
 
-inline void Permute::UnPackTo(PermuteT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+inline void Dims::UnPackTo(DimsT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
   (void)_o;
   (void)_resolver;
   { auto _e = dims(); if (_e) { _o->dims.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->dims[_i] = _e->Get(_i); } } else { _o->dims.resize(0); } }
 }
 
-inline ::flatbuffers::Offset<Permute> Permute::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const PermuteT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
-  return CreatePermute(_fbb, _o, _rehasher);
+inline ::flatbuffers::Offset<Dims> Dims::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const DimsT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateDims(_fbb, _o, _rehasher);
 }
 
-inline ::flatbuffers::Offset<Permute> CreatePermute(::flatbuffers::FlatBufferBuilder &_fbb, const PermuteT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+inline ::flatbuffers::Offset<Dims> CreateDims(::flatbuffers::FlatBufferBuilder &_fbb, const DimsT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
   (void)_rehasher;
   (void)_o;
-  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const PermuteT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const DimsT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
   auto _dims = _o->dims.size() ? _fbb.CreateVector(_o->dims) : 0;
-  return nvfuser::serde::CreatePermute(
+  return nvfuser::serde::CreateDims(
       _fbb,
       _dims);
 }
@@ -5424,6 +5595,50 @@ inline ::flatbuffers::Offset<Vector> CreateVector(::flatbuffers::FlatBufferBuild
       _dtype);
 }
 
+inline CudaKernelT *CudaKernel::UnPack(const ::flatbuffers::resolver_function_t *_resolver) const {
+  auto _o = std::unique_ptr<CudaKernelT>(new CudaKernelT());
+  UnPackTo(_o.get(), _resolver);
+  return _o.release();
+}
+
+inline void CudaKernel::UnPackTo(CudaKernelT *_o, const ::flatbuffers::resolver_function_t *_resolver) const {
+  (void)_o;
+  (void)_resolver;
+  { auto _e = kernel_name(); if (_e) _o->kernel_name = _e->str(); }
+  { auto _e = compile_args(); if (_e) _o->compile_args = _e->str(); }
+  { auto _e = cubin(); if (_e) { _o->cubin.resize(_e->size()); std::copy(_e->begin(), _e->end(), _o->cubin.begin()); } }
+  { auto _e = cubin_filename(); if (_e) _o->cubin_filename = _e->str(); }
+  { auto _e = ptx(); if (_e) { _o->ptx.resize(_e->size()); std::copy(_e->begin(), _e->end(), _o->ptx.begin()); } }
+  { auto _e = ptx_filename(); if (_e) _o->ptx_filename = _e->str(); }
+  { auto _e = block_size(); _o->block_size = _e; }
+}
+
+inline ::flatbuffers::Offset<CudaKernel> CudaKernel::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const CudaKernelT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  return CreateCudaKernel(_fbb, _o, _rehasher);
+}
+
+inline ::flatbuffers::Offset<CudaKernel> CreateCudaKernel(::flatbuffers::FlatBufferBuilder &_fbb, const CudaKernelT *_o, const ::flatbuffers::rehasher_function_t *_rehasher) {
+  (void)_rehasher;
+  (void)_o;
+  struct _VectorArgs { ::flatbuffers::FlatBufferBuilder *__fbb; const CudaKernelT* __o; const ::flatbuffers::rehasher_function_t *__rehasher; } _va = { &_fbb, _o, _rehasher}; (void)_va;
+  auto _kernel_name = _o->kernel_name.empty() ? 0 : _fbb.CreateString(_o->kernel_name);
+  auto _compile_args = _o->compile_args.empty() ? 0 : _fbb.CreateString(_o->compile_args);
+  auto _cubin = _o->cubin.size() ? _fbb.CreateVector(_o->cubin) : 0;
+  auto _cubin_filename = _o->cubin_filename.empty() ? 0 : _fbb.CreateString(_o->cubin_filename);
+  auto _ptx = _o->ptx.size() ? _fbb.CreateVector(_o->ptx) : 0;
+  auto _ptx_filename = _o->ptx_filename.empty() ? 0 : _fbb.CreateString(_o->ptx_filename);
+  auto _block_size = _o->block_size;
+  return nvfuser::serde::CreateCudaKernel(
+      _fbb,
+      _kernel_name,
+      _compile_args,
+      _cubin,
+      _cubin_filename,
+      _ptx,
+      _ptx_filename,
+      _block_size);
+}
+
 inline FusionExecutorT::FusionExecutorT(const FusionExecutorT &o)
       : device_smem_limit(o.device_smem_limit),
         block_size_high_water_mark(o.block_size_high_water_mark),
@@ -5433,7 +5648,8 @@ inline FusionExecutorT::FusionExecutorT(const FusionExecutorT &o)
         fusion_id_counter(o.fusion_id_counter),
         kernel_code(o.kernel_code),
         executor_entry_lookup_keys(o.executor_entry_lookup_keys),
-        index_type(o.index_type) {
+        index_type(o.index_type),
+        compiled_kernel((o.compiled_kernel) ? new nvfuser::serde::CudaKernelT(*o.compiled_kernel) : nullptr) {
   executor_entry_lookup_values.reserve(o.executor_entry_lookup_values.size());
   for (const auto &executor_entry_lookup_values_ : o.executor_entry_lookup_values) { executor_entry_lookup_values.emplace_back((executor_entry_lookup_values_) ? new nvfuser::serde::ExecutorEntryT(*executor_entry_lookup_values_) : nullptr); }
 }
@@ -5449,6 +5665,7 @@ inline FusionExecutorT &FusionExecutorT::operator=(FusionExecutorT o) FLATBUFFER
   std::swap(executor_entry_lookup_keys, o.executor_entry_lookup_keys);
   std::swap(executor_entry_lookup_values, o.executor_entry_lookup_values);
   std::swap(index_type, o.index_type);
+  std::swap(compiled_kernel, o.compiled_kernel);
   return *this;
 }
 
@@ -5471,6 +5688,7 @@ inline void FusionExecutor::UnPackTo(FusionExecutorT *_o, const ::flatbuffers::r
   { auto _e = executor_entry_lookup_keys(); if (_e) { _o->executor_entry_lookup_keys.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { _o->executor_entry_lookup_keys[_i] = _e->Get(_i); } } else { _o->executor_entry_lookup_keys.resize(0); } }
   { auto _e = executor_entry_lookup_values(); if (_e) { _o->executor_entry_lookup_values.resize(_e->size()); for (::flatbuffers::uoffset_t _i = 0; _i < _e->size(); _i++) { if(_o->executor_entry_lookup_values[_i]) { _e->Get(_i)->UnPackTo(_o->executor_entry_lookup_values[_i].get(), _resolver); } else { _o->executor_entry_lookup_values[_i] = std::unique_ptr<nvfuser::serde::ExecutorEntryT>(_e->Get(_i)->UnPack(_resolver)); }; } } else { _o->executor_entry_lookup_values.resize(0); } }
   { auto _e = index_type(); _o->index_type = _e; }
+  { auto _e = compiled_kernel(); if (_e) { if(_o->compiled_kernel) { _e->UnPackTo(_o->compiled_kernel.get(), _resolver); } else { _o->compiled_kernel = std::unique_ptr<nvfuser::serde::CudaKernelT>(_e->UnPack(_resolver)); } } else if (_o->compiled_kernel) { _o->compiled_kernel.reset(); } }
 }
 
 inline ::flatbuffers::Offset<FusionExecutor> FusionExecutor::Pack(::flatbuffers::FlatBufferBuilder &_fbb, const FusionExecutorT* _o, const ::flatbuffers::rehasher_function_t *_rehasher) {
@@ -5491,6 +5709,7 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(::flatbuffers:
   auto _executor_entry_lookup_keys = _o->executor_entry_lookup_keys.size() ? _fbb.CreateVector(_o->executor_entry_lookup_keys) : 0;
   auto _executor_entry_lookup_values = _o->executor_entry_lookup_values.size() ? _fbb.CreateVector<::flatbuffers::Offset<nvfuser::serde::ExecutorEntry>> (_o->executor_entry_lookup_values.size(), [](size_t i, _VectorArgs *__va) { return CreateExecutorEntry(*__va->__fbb, __va->__o->executor_entry_lookup_values[i].get(), __va->__rehasher); }, &_va ) : 0;
   auto _index_type = _o->index_type;
+  auto _compiled_kernel = _o->compiled_kernel ? CreateCudaKernel(_fbb, _o->compiled_kernel.get(), _rehasher) : 0;
   return nvfuser::serde::CreateFusionExecutor(
       _fbb,
       _device_smem_limit,
@@ -5502,7 +5721,8 @@ inline ::flatbuffers::Offset<FusionExecutor> CreateFusionExecutor(::flatbuffers:
       _kernel_code,
       _executor_entry_lookup_keys,
       _executor_entry_lookup_values,
-      _index_type);
+      _index_type,
+      _compiled_kernel);
 }
 
 inline FusionKernelRuntimeT::FusionKernelRuntimeT(const FusionKernelRuntimeT &o)
@@ -5870,8 +6090,8 @@ inline bool VerifyRecordData(::flatbuffers::Verifier &verifier, const void *obj,
       auto ptr = reinterpret_cast<const nvfuser::serde::Pad *>(obj);
       return verifier.VerifyTable(ptr);
     }
-    case RecordData_Permute: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::Permute *>(obj);
+    case RecordData_Dims: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Dims *>(obj);
       return verifier.VerifyTable(ptr);
     }
     case RecordData_Slice: {
@@ -5969,8 +6189,8 @@ inline void *RecordDataUnion::UnPack(const void *obj, RecordData type, const ::f
       auto ptr = reinterpret_cast<const nvfuser::serde::Pad *>(obj);
       return ptr->UnPack(resolver);
     }
-    case RecordData_Permute: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::Permute *>(obj);
+    case RecordData_Dims: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::Dims *>(obj);
       return ptr->UnPack(resolver);
     }
     case RecordData_Slice: {
@@ -6056,9 +6276,9 @@ inline ::flatbuffers::Offset<void> RecordDataUnion::Pack(::flatbuffers::FlatBuff
       auto ptr = reinterpret_cast<const nvfuser::serde::PadT *>(value);
       return CreatePad(_fbb, ptr, _rehasher).Union();
     }
-    case RecordData_Permute: {
-      auto ptr = reinterpret_cast<const nvfuser::serde::PermuteT *>(value);
-      return CreatePermute(_fbb, ptr, _rehasher).Union();
+    case RecordData_Dims: {
+      auto ptr = reinterpret_cast<const nvfuser::serde::DimsT *>(value);
+      return CreateDims(_fbb, ptr, _rehasher).Union();
     }
     case RecordData_Slice: {
       auto ptr = reinterpret_cast<const nvfuser::serde::SliceT *>(value);
@@ -6142,8 +6362,8 @@ inline RecordDataUnion::RecordDataUnion(const RecordDataUnion &u) : type(u.type)
       value = new nvfuser::serde::PadT(*reinterpret_cast<nvfuser::serde::PadT *>(u.value));
       break;
     }
-    case RecordData_Permute: {
-      value = new nvfuser::serde::PermuteT(*reinterpret_cast<nvfuser::serde::PermuteT *>(u.value));
+    case RecordData_Dims: {
+      value = new nvfuser::serde::DimsT(*reinterpret_cast<nvfuser::serde::DimsT *>(u.value));
       break;
     }
     case RecordData_Slice: {
@@ -6238,8 +6458,8 @@ inline void RecordDataUnion::Reset() {
       delete ptr;
       break;
     }
-    case RecordData_Permute: {
-      auto ptr = reinterpret_cast<nvfuser::serde::PermuteT *>(value);
+    case RecordData_Dims: {
+      auto ptr = reinterpret_cast<nvfuser::serde::DimsT *>(value);
       delete ptr;
       break;
     }

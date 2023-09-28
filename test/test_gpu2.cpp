@@ -978,7 +978,7 @@ TEST_F(NVFuserTest, FusionTrivialReduction_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).empty(),
+      !ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Trivial reduction not converted to squeeze.");
 
   const auto options =
@@ -6059,9 +6059,10 @@ TEST_F(NVFuserTest, FusionZeroSizeTensorNormalization_CUDA) {
   at::Tensor input0 = at::randn({2, 4}, options);
   at::Tensor input1 = at::randn({0}, options);
 
-  auto reduction_params = getPersistentHeuristics(&fusion, {input0, input1});
+  auto reduction_params =
+      getOuterPersistentHeuristics(&fusion, {input0, input1});
   NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-  schedulePersistentKernel(&fusion, *reduction_params);
+  scheduleOuterPersistentKernel(&fusion, *reduction_params);
 
   auto lparams = reduction_params->lparams;
   FusionExecutor fe;
@@ -9228,9 +9229,9 @@ TEST_F(NVFuserTest, FusionTestWarpSoftMax_CUDA) {
   // Schedule through magic scheduler
   SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
   NVF_CHECK(SchedulerEntry::canSchedule(
-      ScheduleHeuristic::Persistent, &fusion, runtime_info));
+      ScheduleHeuristic::InnerPersistent, &fusion, runtime_info));
   auto scheduler = SchedulerEntry::makeEntry(
-      ScheduleHeuristic::Persistent, &fusion, runtime_info);
+      ScheduleHeuristic::InnerPersistent, &fusion, runtime_info);
   scheduler->schedule(&fusion);
 
   // Modify the schedule to use warp reduction

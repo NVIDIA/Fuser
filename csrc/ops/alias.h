@@ -21,16 +21,16 @@
 
 namespace nvfuser {
 
-TORCH_CUDA_CU_API Val* set(Val*);
-TORCH_CUDA_CU_API TensorView* set(TensorView*);
+Val* set(Val*);
+TensorView* set(TensorView*);
 
 // segment_set hints segmenter to break kernel
-TORCH_CUDA_CU_API Val* segment_set(Val*);
-TORCH_CUDA_CU_API TensorView* segment_set(TensorView*);
+Val* segment_set(Val*);
+TensorView* segment_set(TensorView*);
 
-TORCH_CUDA_CU_API TensorView* view(TensorView* x, DataType dtype);
+TensorView* view(TensorView* x, DataType dtype);
 
-TORCH_CUDA_CU_API TensorView* reshape(
+TensorView* reshape(
     TensorView* x,
     const std::vector<int64_t>& original_sizes,
     const std::vector<int64_t>& new_sizes);
@@ -39,34 +39,22 @@ TORCH_CUDA_CU_API TensorView* reshape(
 //! fixed as the length of the new_sizes vector, but the size Vals can be
 //! symbolic, which are then concretized at run time with actual
 //! fusion inputs.
-TORCH_CUDA_CU_API TensorView* reshape(
-    TensorView* x,
-    const std::vector<Val*>& new_sizes);
+TensorView* reshape(TensorView* x, const std::vector<Val*>& new_sizes);
 
-TORCH_CUDA_CU_API TensorView* flatten(
-    TensorView* x,
-    int64_t start_dim = 0,
-    int64_t end_dim = -1);
+TensorView* flatten(TensorView* x, int64_t start_dim = 0, int64_t end_dim = -1);
 
-TORCH_CUDA_CU_API TensorView* squeeze(
-    TensorView* x,
-    const std::vector<bool>& to_squeeze);
+TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze);
 
-TORCH_CUDA_CU_API TensorView* squeeze(
-    TensorView* x,
-    const std::vector<int64_t>& sizes);
+TensorView* squeeze(TensorView* x, const std::vector<int64_t>& sizes);
 
-TORCH_CUDA_CU_API TensorView* squeeze(
-    TensorView* x,
-    const std::vector<int64_t>& sizes,
-    int dim);
+TensorView* squeeze(TensorView* x, const std::vector<int64_t>& sizes, int dim);
 
-TORCH_CUDA_CU_API TensorView* squeeze(
+TensorView* squeeze(
     TensorView* x,
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& dims);
 
-TORCH_CUDA_CU_API TensorView* unsqueeze(TensorView* x, int dim);
+TensorView* unsqueeze(TensorView* x, int dim);
 
 //! Permute a tensor as specified by axis mappings.
 //!
@@ -76,18 +64,13 @@ TORCH_CUDA_CU_API TensorView* unsqueeze(TensorView* x, int dim);
 //!
 //! \param inp Tensor to transpose
 //! \param new2old vector mapping from new to old positions.
-TORCH_CUDA_CU_API TensorView* permute(
-    TensorView* x,
-    const std::vector<int64_t>& new2old);
+TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old);
 
 //! Transpose a tensor by swapping the two dimensions.
-TORCH_CUDA_CU_API TensorView* transpose(
-    TensorView* x,
-    int64_t dim0,
-    int64_t dim1);
+TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1);
 
 //! Transpose a 2D tensor.
-TORCH_CUDA_CU_API TensorView* transpose(TensorView* x);
+TensorView* transpose(TensorView* x);
 
 //! Pad a tensor by given widths by specified value. Similar to torch.pad, the
 //! pad_widths vector specifies the padding widths of the innermost N
@@ -95,22 +78,22 @@ TORCH_CUDA_CU_API TensorView* transpose(TensorView* x);
 //! omitted, a default value of zero is assumed. The provied value will be cast
 //! to the dtype of the argument x.
 //! TODO: Support other padding types
-TORCH_CUDA_CU_API TensorView* pad(
+TensorView* pad(
     TensorView* x,
     const std::vector<Val*>& pad_widths,
     Val* value = nullptr,
     std::optional<IterType> iter_type_opt = std::nullopt);
 
 //! Concatenate tensors in the given dimension
-TORCH_CUDA_CU_API TensorView* cat(
+TensorView* cat(
     const std::vector<TensorView*>& inputs,
     int64_t dim,
     std::optional<IterType> iter_type_opt = std::nullopt);
 
 //! Return a tensor where each dimension is sliced as specified by the
-//! ranges parameter. Stepping must be one at this moment.
-TORCH_CUDA_CU_API TensorView* slice(
-    TensorView* inp,
-    const std::vector<Slice>& ranges);
+//! ranges parameter. Stepping must be one at this moment. The semantics of
+//! slicing with negative values and values >= extent follow those of numpy and
+//! PyTorch.
+TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges);
 
 } // namespace nvfuser

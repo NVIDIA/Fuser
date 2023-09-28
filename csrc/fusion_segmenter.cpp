@@ -16,6 +16,7 @@
 #include <ir/utils.h>
 #include <ops/arith.h>
 #include <scheduler/debug_utils.h>
+#include <scheduler/normalization_utils.h>
 
 #include <sstream>
 
@@ -285,9 +286,13 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
 
   // convert Welford to two-pass if option is enabled and the original heuristic
   // is persistent
+  auto isPersistentHeuristic = [&heuristic]() {
+    return heuristic == ScheduleHeuristic::InnerPersistent ||
+        heuristic == ScheduleHeuristic::OuterPersistent ||
+        heuristic == ScheduleHeuristic::InnerOuterPersistent;
+  };
   SegmentCandidateFinderOptions scfo;
-  if (scfo.run_translate_welford &&
-      heuristic == ScheduleHeuristic::Persistent) {
+  if (scfo.run_translate_welford && isPersistentHeuristic()) {
     SegmentCandidateFinder::translateWelfordInFusion(fusion, runtime_inputs);
   }
 
@@ -2341,13 +2346,23 @@ TranslateApplicableWelford::TranslateApplicableWelford(
 bool TranslateApplicableWelford::isValidPersistentFusion(
     Fusion* translated_fusion,
     SchedulerRuntimeInfo& runtime_info) {
+  // Check reduciton type and get the appropriate heuristic.
+  auto reduction_type =
+      reduction_scheduler_utils::getReductionType(translated_fusion);
+  if (reduction_type == reduction_scheduler_utils::ReductionType::None) {
+    return false;
+  }
+  auto persistent_sh =
+      normalization_scheduler_utils::getPersistentHeuristicFor(reduction_type);
+
   if (!SchedulerEntry::canSchedule(
-          ScheduleHeuristic::Persistent, translated_fusion, runtime_info)) {
+          persistent_sh, translated_fusion, runtime_info)) {
     return false;
   }
 
-  auto scheduler = SchedulerEntry::makeEntry(
-      ScheduleHeuristic::Persistent, translated_fusion, runtime_info);
+  auto scheduler =
+      SchedulerEntry::makeEntry(persistent_sh, translated_fusion, runtime_info);
+
   // Translate welford to two-pass enhances performance for block
   // reductions by reducing instructions and the impact of an extra block
   // synchronization has negligible overhead.
@@ -3338,12 +3353,10 @@ void SegmentCandidateFinder::findSegments() {
 
   segmented_fusion_->validateIfDebug();
 
-  auto reduction_ops =
-      ir_utils::getReductionOps(segmented_fusion_->completeFusion());
-  auto welford_ops = ir_utils::filterByType<WelfordOp>(reduction_ops);
+  auto has_welford_ops =
+      ir_utils::hasOpsOfType<WelfordOp>(segmented_fusion_->completeFusion());
 
-  if (options_.run_translate_welford &&
-      (welford_ops.begin() != welford_ops.end())) {
+  if (options_.run_translate_welford && has_welford_ops) {
     if (TranslateApplicableWelford::run(
             segmented_fusion_.get(), runtime_inputs_)) {
       // If modified, rebuild segments as existing expressions may be

@@ -1421,7 +1421,7 @@ inline void resolveTvToMatmulDomainsMapping(
 } // anonymous namespace
 
 ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
-  auto mma_exprs = ir_utils::getMmaOps(fusion);
+  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
   if (mma_exprs.size() != 1) {
     std::stringstream ss;
     ss << "Invalid number of MmaOp instances in fusion, expected 1, got "
@@ -1598,6 +1598,12 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
         roles_map[MatmulRole::OUTPUT_D].push_back(entry.first);
         continue;
       }
+    }
+    for (auto& [role, tvs] : roles_map) {
+      // sort tvs by name()
+      std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
+        return a->name() < b->name();
+      });
     }
   };
 

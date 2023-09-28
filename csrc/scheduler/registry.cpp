@@ -7,15 +7,11 @@
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
 #include <executor_utils.h>
-#include <instrumentation.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul_utils.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/pointwise.h>
 #include <scheduler/registry.h>
 #include <scheduler/registry_utils.h>
-#include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <tensor_metadata.h>
 
@@ -142,48 +138,6 @@ bool SchedulerEntry::sameAs(const SchedulerEntry* other) {
 }
 
 namespace {
-
-//! Scheduler interface:
-//!    Each of the scheduler needs to provide 3 interface functions:
-//!
-//!      1. canScheduleCompileTime(Fusion* fusion) :
-//!
-//!        This function contains compiled-time checks on the graph itself
-//!        without runtime input information. Only `fusion` is given in the
-//!        argument to make sure only compile-time available info is needed in
-//!        the check.
-//!
-//!        This function is to be called exactly once on each segmented group
-//!        created in a segmented fusion so this part will not contribute to
-//!        dynamic shape latency.
-//!
-//!     2. canScheduleRunTime(
-//!            Fusion* fusion,
-//!            SchedulerRuntimeInfo& runtime_info,
-//!           HeuristicSummary* data_cache = nullptr):
-//!        This function contains all canSchedule checks that will have to
-//!        involve runtime input information, and will be run both by the
-//!        segmenter and the kernel cache. The latency of this function will
-//!        contribute to dynamic shape latency so `data_cache` should be used as
-//!        much as possible to save re-computation.
-//!
-//!     3. schedule(fusion):
-//!
-//!        This function will be called when compiling a kernel. It should apply
-//!        scheduling to the given fusion
-
-// Schedule Table
-const std::vector<ScheduleHeuristic>& all_heuristics() {
-  static const std::vector<ScheduleHeuristic> hlist = {
-      ScheduleHeuristic::NoOp,
-      ScheduleHeuristic::Reduction,
-      ScheduleHeuristic::Transpose,
-      ScheduleHeuristic::PointWise,
-      ScheduleHeuristic::Persistent,
-      ScheduleHeuristic::Matmul};
-  return hlist;
-}
-
 //! A Utility for checking both dynamic and static part of
 //!  can schedule
 template <typename SchedulerType>
@@ -228,8 +182,14 @@ bool SchedulerEntry::canSchedule(
     case ScheduleHeuristic::Reduction:
       return checkCanSchedule<ReductionScheduler>(
           fusion, runtime_info, data_cache);
-    case ScheduleHeuristic::Persistent:
-      return checkCanSchedule<PersistentKernelScheduler>(
+    case ScheduleHeuristic::InnerPersistent:
+      return checkCanSchedule<InnerPersistentKernelScheduler>(
+          fusion, runtime_info, data_cache);
+    case ScheduleHeuristic::OuterPersistent:
+      return checkCanSchedule<OuterPersistentKernelScheduler>(
+          fusion, runtime_info, data_cache);
+    case ScheduleHeuristic::InnerOuterPersistent:
+      return checkCanSchedule<InnerOuterPersistentKernelScheduler>(
           fusion, runtime_info, data_cache);
     case ScheduleHeuristic::Transpose:
       return checkCanSchedule<TransposeScheduler>(
@@ -263,8 +223,16 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
       scheduler_entry = std::make_unique<ReductionScheduler>(
           fusion, runtime_info, data_cache);
       break;
-    case ScheduleHeuristic::Persistent:
-      scheduler_entry = std::make_unique<PersistentKernelScheduler>(
+    case ScheduleHeuristic::InnerPersistent:
+      scheduler_entry = std::make_unique<InnerPersistentKernelScheduler>(
+          fusion, runtime_info, data_cache);
+      break;
+    case ScheduleHeuristic::OuterPersistent:
+      scheduler_entry = std::make_unique<OuterPersistentKernelScheduler>(
+          fusion, runtime_info, data_cache);
+      break;
+    case ScheduleHeuristic::InnerOuterPersistent:
+      scheduler_entry = std::make_unique<InnerOuterPersistentKernelScheduler>(
           fusion, runtime_info, data_cache);
       break;
     case ScheduleHeuristic::Transpose:
@@ -286,7 +254,7 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeEntry(
 std::optional<ScheduleHeuristic> SchedulerEntry::proposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info) {
-  for (auto sh : all_heuristics()) {
+  for (const auto& sh : all_heuristics_in_priority_order) {
     if (canSchedule(sh, fusion, runtime_info)) {
       scheduler_debug_utils::canScheduleMessage("***Accepted*** as: ", sh);
       return sh;
@@ -338,9 +306,20 @@ HeuristicSummary::HeuristicSummary(
       getReductionHeuristics(fusion, runtime_info, this);
       ReductionScheduler::canScheduleRunTime(fusion, runtime_info, this);
       break;
-    case ScheduleHeuristic::Persistent:
-      getPersistentHeuristics(fusion, runtime_info, this);
-      PersistentKernelScheduler::canScheduleRunTime(fusion, runtime_info, this);
+    case ScheduleHeuristic::InnerPersistent:
+      getInnerPersistentHeuristics(fusion, runtime_info, this);
+      InnerPersistentKernelScheduler::canScheduleRunTime(
+          fusion, runtime_info, this);
+      break;
+    case ScheduleHeuristic::OuterPersistent:
+      getOuterPersistentHeuristics(fusion, runtime_info, this);
+      OuterPersistentKernelScheduler::canScheduleRunTime(
+          fusion, runtime_info, this);
+      break;
+    case ScheduleHeuristic::InnerOuterPersistent:
+      getInnerOuterPersistentHeuristics(fusion, runtime_info, this);
+      InnerOuterPersistentKernelScheduler::canScheduleRunTime(
+          fusion, runtime_info, this);
       break;
     case ScheduleHeuristic::Transpose:
       getTransposeHeuristics(fusion, runtime_info, this);
@@ -403,13 +382,17 @@ void HeuristicSummary::validate() const {
           entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
       break;
     }
-    case ScheduleHeuristic::Persistent: {
+    case ScheduleHeuristic::InnerPersistent:
+    case ScheduleHeuristic::OuterPersistent:
+      NVF_ERROR(
+          entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
+    // No break, fall through additional checks
+    case ScheduleHeuristic::InnerOuterPersistent: {
       NVF_ERROR(entry_type_map_.count(EntryType::REDUCTION_TVS));
       NVF_ERROR(
           entry_type_map_.count(EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));
       NVF_ERROR(entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
-      NVF_ERROR(
-          entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
+
       NVF_ERROR(entry_type_map_.count(EntryType::PERSISTENT_BUFFER_INFO));
       // If check persistent factor only when persistent buffers needed.
       auto persistent_buffer_info =

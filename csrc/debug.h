@@ -30,7 +30,7 @@ namespace nvfuser {
 //!   }
 //!   // Code after the dsg object is destroyed will use the previously-set
 //!   // stream, which defaults to std::cout.
-class TORCH_CUDA_CU_API DebugStreamGuard {
+class DebugStreamGuard {
  public:
   DebugStreamGuard(std::ostream& stream);
 
@@ -46,6 +46,6 @@ class TORCH_CUDA_CU_API DebugStreamGuard {
 
 //! This is just a short alias to avoid having to type
 //! DebugStreamGuard::getCurStream() for each line we want to debug-print.
-TORCH_CUDA_CU_API std::ostream& debug();
+std::ostream& debug();
 
 } // namespace nvfuser

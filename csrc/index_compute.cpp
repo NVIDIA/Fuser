@@ -43,11 +43,10 @@ int getProducerHaloOffset(
     const TensorView* consumer_tv) {
   // For indexing, having same extents is not required for root
   // domains
-  auto p2c =
-      PairwiseRootDomainMap(producer_tv, consumer_tv)
-          .mapBroadcast(true)
-          .mapDifferentExtents(true)
-          .mapProducerToConsumer(producer_tv->domain(), consumer_tv->domain());
+  auto p2c = PairwiseRootDomainMap(producer_tv, consumer_tv)
+                 .mapBroadcast(true)
+                 .mapDifferentExtents(true)
+                 .mapProducerToConsumer();
 
   auto producer_id = producer_tv->getMaybeRFactorDomain()[producer_axis];
 
@@ -277,8 +276,7 @@ Val* getProducerIndexWithPartialSplit(
   const auto gpu_lower = GpuLower::current();
 
   auto p2c =
-      PairwiseRootDomainMap(producer_tv, consumer_tv)
-          .mapProducerToConsumer(producer_tv->domain(), consumer_tv->domain());
+      PairwiseRootDomainMap(producer_tv, consumer_tv).mapProducerToConsumer();
 
   auto it = p2c.find(producer_root_id);
   if (it == p2c.end()) {
@@ -332,7 +330,7 @@ Val* getTensorBaseAddress(TensorView* tv) {
     case MemoryType::Global:
       return IrBuilder::getAttrExpr(metadata, "data");
     case MemoryType::Shared: {
-      auto output = IrBuilder::newScalar(DataType::SMemAddress);
+      auto output = IrBuilder::create<Val>(DataType::SMemAddress);
       IrBuilder::create<UnaryOp>(
           UnaryOpType::ToUnsignedSmemAddr, output, metadata);
       return output;
@@ -1686,10 +1684,9 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   // Map sent to best effort replay needs to match the exact incantation for
   // compute_at_mode.cpp with MappingMode::Index
-  auto c2p_root_map =
-      PairwiseRootDomainMap(producer_tv, consumer_tv)
-          .mapBroadcast(false)
-          .mapConsumerToProducer(consumer_tv->domain(), producer_tv->domain());
+  auto c2p_root_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
+                          .mapBroadcast(false)
+                          .mapConsumerToProducer();
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
@@ -1996,10 +1993,9 @@ std::vector<Val*> Index::getProducerAllocationIndices(
 
   // Map sent to best effort replay needs to match the exact incantation for
   // compute_at_mode.cpp with MappingMode::Index
-  auto c2p_root_map =
-      PairwiseRootDomainMap(producer_tv, consumer_tv)
-          .mapBroadcast(false)
-          .mapConsumerToProducer(consumer_tv->domain(), producer_tv->domain());
+  auto c2p_root_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
+                          .mapBroadcast(false)
+                          .mapConsumerToProducer();
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
@@ -2031,8 +2027,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
   for (const auto& kv : PairwiseRootDomainMap(producer_tv, consumer_tv)
                             .mapBroadcast(false)
                             .mapDifferentExtents(true)
-                            .mapConsumerToProducer(
-                                consumer_tv->domain(), producer_tv->domain())) {
+                            .mapConsumerToProducer()) {
     auto consumer_root_id = kv.first;
     auto producer_root_id = kv.second;
     if (c2p_map.find(consumer_root_id) == c2p_map.end() &&
@@ -2340,7 +2335,7 @@ Val* Index::getProducerStridedIndices(
     if (generate_pointer) {
       auto index_bytes = IrBuilder::mulExpr(
           index,
-          IrBuilder::newConstant(
+          IrBuilder::create<Val>(
               dataTypeSize(*producer->getDataType()), *index->getDataType()));
       return IrBuilder::addExpr(getTensorBaseAddress(producer), index_bytes);
     } else {
@@ -2398,7 +2393,7 @@ Val* Index::getConsumerStridedIndices(
     if (generate_pointer) {
       auto index_bytes = IrBuilder::mulExpr(
           index,
-          IrBuilder::newConstant(
+          IrBuilder::create<Val>(
               dataTypeSize(*consumer->getDataType()), *index->getDataType()));
       return IrBuilder::addExpr(getTensorBaseAddress(consumer), index_bytes);
     } else {
@@ -2918,7 +2913,7 @@ bool canOmitStopPredicate(
     // Stop predicate: stop_index + stop_offset < extent
     auto lhs = stop_index_val + stop_offset_val;
     auto in_extent = IrBuilder::ltExpr(
-        IrBuilder::newConstant(lhs, *stop_index->getDataType()),
+        IrBuilder::create<Val>(lhs, *stop_index->getDataType()),
         contig_id->getMaybeExpandedExtent());
     if (simplifyExpr(in_extent)->getBool() == true) {
       return true;
@@ -3169,6 +3164,87 @@ Val* Index::eye(
   NVF_ERROR(indices.size() == 2);
   auto result = maybeCastOp(dtype, eq(indices[0], indices[1]));
   return GpuLower::current()->commonScalarMap().hoistScalar(result, loops);
+}
+
+Val* Index::cpAsyncBulkIndex(
+    TensorView* tv,
+    const std::vector<kir::ForLoop*>& loops) {
+  using namespace tma;
+
+  NVF_ERROR(
+      tv->getMemoryType() == MemoryType::Global,
+      "cpAsyncBulkIndex is only for global memory tensors");
+  NVF_ERROR(
+      tv->getMaybeRFactorDomain() == tv->getLeafDomain(), "not supported yet");
+  NVF_ERROR(
+      tv->getMaybeAllocationDomain() == tv->getLeafDomain(),
+      "not supported yet");
+  for (auto id : tv->getMaybeRFactorDomain()) {
+    NVF_ERROR(
+        id->isBulk(),
+        "cpAsyncBulkIndex only support whole tensor copy for now.");
+  }
+
+  int64_t dim = (int64_t)tv->nDims();
+  NVF_ERROR(dim > 0);
+  int64_t itemsize = dataTypeSize(tv->dtype());
+
+  auto metadata = IrBuilder::metadataExpr(tv);
+  auto global_address = IrBuilder::getAttrExpr(metadata, "data");
+  // As required by the hardware, tensors used by TMA must be in column major
+  // that is, stride[0] must be implicitly 1 (therefore omitted)
+  auto global_dim =
+      // Reverse array to convert from row major to column major
+      IrBuilder::reverseArrayExpr(
+          IrBuilder::getAttrExpr(metadata, "alloc_size"));
+  auto global_strides = IrBuilder::getAttrExpr(metadata, "alloc_stride");
+  if (dim > 1) {
+    // Reverse array to convert from row major to column major, multiply by
+    // element size to convert to bytes, and remove fastest dim as it is assumed
+    // to be one.
+    std::vector<Val*> strides;
+    for (auto i : c10::irange(dim - 1)) {
+      strides.push_back(SimplifyingIrBuilder::mulExpr(
+          IrBuilder::getItemExpr(global_strides, dim - 2 - i), itemsize));
+    }
+    global_strides = IrBuilder::arrayExpr(strides);
+  } else {
+    global_strides = IrBuilder::create<Val>(
+        std::vector<int64_t>{},
+        ArrayType{std::make_shared<DataType>(DataType::Index), 0});
+  }
+  auto box_dim =
+      // Reverse array to convert from row major to column major
+      IrBuilder::reverseArrayExpr(
+          IrBuilder::getAttrExpr(metadata, "alloc_size"));
+  auto element_strides =
+      IrBuilder::arrayExpr(std::vector<Val*>(dim, tv->fusion()->oneVal()));
+  auto descriptor = encodeTensorMapTiled(
+      tv->dtype(),
+      global_address,
+      global_dim,
+      global_strides,
+      box_dim,
+      element_strides,
+      TensorMapInterleave::NoInterleave,
+      TensorMapSwizzle::NoSwizzle,
+      TensorMapL2Promotion::NoL2Promotion,
+      TensorMapFloatOOBFill::NoOOBFill);
+
+  auto coordinate =
+      IrBuilder::arrayExpr(std::vector<Val*>(dim, tv->fusion()->zeroVal()));
+
+  std::stringstream ss;
+  ss << "Hopper::CpAsyncBulkTensorTileIndex<" << dim << ">";
+
+  auto index = IrBuilder::structExpr(
+      {{"descriptor", IrBuilder::addressExpr(descriptor)},
+       {"coordinate", coordinate}},
+      ss.str());
+
+  index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
+
+  return IrBuilder::create<kir::TensorIndex>(tv, index);
 }
 
 } // namespace nvfuser
