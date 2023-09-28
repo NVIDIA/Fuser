@@ -128,6 +128,17 @@ def summarize_comparison(comparisons: Iterable[Comparison], out_dir: str) -> Non
     print(f"Saved the histogram of time changes to {histogram_out}.")
 
 
+def get_head_branch_or_commit() -> str:
+    # Return the branch name if possible.
+    head_branch_or_commit = subprocess.check_output(
+        "git rev-parse --abbrev-ref HEAD", text=True, shell=True
+    ).strip()
+
+    if head_branch_or_commit != "HEAD":
+        return head_branch_or_commit
+    # Head is detached. Return the commit instead.
+    return subprocess.check_output("git rev-parse HEAD", text=True, shell=True).strip()
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("baseline", type=str, help="The baseline branch or commit")
@@ -147,9 +158,7 @@ if __name__ == "__main__":
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir)
 
-    original_branch = subprocess.check_output(
-        "git rev-parse --abbrev-ref HEAD", text=True, shell=True
-    ).strip()
+    original_branch_or_commit = get_head_branch_or_commit()
     baseline_out = run_benchmark(args.baseline, args.benchmark_args, args.out_dir)
     contender_out = run_benchmark(args.contender, args.benchmark_args, args.out_dir)
     subprocess.check_call(f"git checkout {original_branch}", shell=True)
