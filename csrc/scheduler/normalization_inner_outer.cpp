@@ -54,6 +54,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     scheduler_debug_utils::canScheduleRejectReason(
         schedule_heuristic,
         "schedule_heuristic doesn't match with reduction type.");
+    return false;
   }
   std::vector<TensorView*> inner_reduction_tvs;
   std::vector<TensorView*> outer_reduction_tvs;
