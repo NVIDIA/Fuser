@@ -61,10 +61,11 @@ def run_benchmark(
         + benchmark_args
         + [f"--benchmark_out={benchmark_out}", "--benchmark_format=json"]
     )
+    stdout_path = os.path.join(out_dir, branch_or_commit + ".stdout")
+    stderr_path = os.path.join(out_dir, branch_or_commit + ".stderr")
     print("Running benchmark command: " + benchmark_command)
-    with open(os.path.join(out_dir, branch_or_commit + ".stdout"), "w") as stdout, open(
-        os.path.join(out_dir, branch_or_commit + ".stderr"), "w"
-    ) as stderr:
+    print(f"Stdout and stderr are redirected to {stdout_path} and {stderr_path}.")
+    with open(stdout_path, "w") as stdout, open(stderr_path, "w") as stderr:
         subprocess.check_call(
             benchmark_command, stdout=stdout, stderr=stderr, shell=True
         )
