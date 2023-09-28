@@ -1189,7 +1189,7 @@ SqueezeOp::SqueezeOp(
         // Check concrete broadcast extent here. For Symbolic inputs, this check
         // will be deferred to concretization. See dynamic_transform.cpp
         NVF_ERROR(
-            id->extent()->isOneInt(),
+            id->extent()->isConstScalar() && id->extent()->evaluateInt() == 1,
             "Can not squeeze dimension(s) with size != 1.");
       }
     } else {
