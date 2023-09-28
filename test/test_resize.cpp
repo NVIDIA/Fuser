@@ -3107,4 +3107,81 @@ TEST_F(ResizeTest, CatOfExpandedBroadcast) {
   NVF_CHECK(ref.equal(cg_outputs[0]));
 }
 
+// Test that we can slice a trivially expanded tensor to size 1 then squeeze
+TEST_F(ResizeTest, SqueezeSlicedExpand) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  std::vector<int64_t> shape0({9, 5});
+
+  // dynamic input shape
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+
+  // Note these are Int instead of Index. They will be cast to Index when used as extents.
+  auto s0 = IrBuilder::create<Val>(9L);
+  auto s1 = IrBuilder::create<Val>(5L);
+
+  // The expand op will create a LoadStoreOp with these values as output
+  // extents. This effectively creates a static shape TV from a dynamic shape
+  // TV.
+  auto tv1 = expand(tv0, {s0, s1});
+
+  auto s2 = IrBuilder::create<Val>(2L);
+  auto s3 = IrBuilder::create<Val>(3L);
+  auto tv2 =
+      slice(tv1, {{nullptr, nullptr, nullptr}, {s2, s3, fusion->oneVal()}});
+  std::vector<bool> squeeze_dims({false, true});
+   
+  fusion->printMath(false);
+  /*
+Inputs:                                                                                                                                  
+  T0_g[ iS0{i0}, iS1{i2} ], float                                   
+Outputs:                                                                                                                                                                                                                                                                          
+%kernel_math {                                                                                                                           
+T1_l[ iS2{( (nvfuser_index_t)(9) )}, iS3{( (nvfuser_index_t)(5) )} ]                                                                     
+   = Set( T0_g[ iS0{i0}, iS1{i2} ], cache_op=Streaming )            
+i7 = (nvfuser_index_t)(5);                                                                                                               
+i16 = i7 + 2;                                                                                                                            
+i22 = i7 + 3;                                                                                                                            
+i35 = i7 - 2;                                                                                                                            
+i24 = fmin(i7, 3);                                                                                                                       
+i26 = fmax(2, i24);                                                                                                                      
+i29 = -i7;                                                                                                                               
+i31 = i26 + i29;                                                                                                                         i37 = i35 + i31;                                                                                                                         
+Resize: iS5{( (nvfuser_index_t)(5) )}rf by -2 and ( ( fmax(2, ( fmin(( (nvfuser_index_t)(5) ), 3) )) ) + ( -( (nvfuser_index_t)(5) ) ) ) 
+-> bS6{( ( ( (nvfuser_index_t)(5) ) - 2 ) + ( ( fmax(2, ( fmin(( (nvfuser_index_t)(5) ), 3) )) ) + ( -( (nvfuser_index_t)(5) ) ) ) )}rf
+i5 = (nvfuser_index_t)(9);                                                                                                               
+T2_l[ iS4{( (nvfuser_index_t)(9) )}, bS6{( ( ( (nvfuser_index_t)(5) ) - 2 ) + ( ( fmax(2, ( fmin(( (nvfuser_index_t)(5) ), 3) )) ) + ( -(
+ (nvfuser_index_t)(5) ) ) ) )}rf ]                                                                                                       
+   = slice( T1_l[ iS2{( (nvfuser_index_t)(9) )}, iS3{( (nvfuser_index_t)(5) )} ], { {0, i5, 1} {2, i26, 1} } )                           
+}
+  */
+  auto tv3 = squeeze(tv2, squeeze_dims);
+  /*
+  Error in squeeze():
+unknown file: Failure                                               
+C++ exception with description "Can not squeeze dimension(s) with size != 1.                                                             
+Exception raised from squeeze at /opt/pytorch/nvfuser/csrc/ops/alias.cpp:230 (most recent call first):
+...
+The IterDomain in question is  bS6{( ( ( (nvfuser_index_t)(5) ) - 2 ) + ( ( fmax(2, ( fmin(( (nvfuser_index_t)(5) ), 3) )) ) + ( -(
+ (nvfuser_index_t)(5) ) ) ) )}rf
+  */
+  fusion->addOutput(tv3);
+
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape0, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+  
+  auto ref = at::squeeze(at::slice(t0, 1, 2, 3), 1);
+
+  testValidate(fec.fusion(), cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
