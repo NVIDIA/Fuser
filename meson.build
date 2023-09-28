@@ -6,13 +6,14 @@ python_installation = python.find_installation()
 subdir('serde')
 subdir('nvfuser_resources')
 
-cuda_dep = dependency('cuda', version : '>=11')
+cuda_dep = dependency('cuda', version : '>=11', required : true)
+nvrtc_dep = dependency('nvrtc', required : true)
 
 dynamic_type = subproject('dynamic_type')
 dynamic_type_dep = dynamic_type.get_variable('dynamic_type_dep')
 
 flatbuffers_dep = dependency('flatbuffers')
-torch_dep = dependency('Torch')
+torch_dep = dependency('Torch', required : true)
 
 nvfuser_codegen_src = [
     'csrc/compute_at.cpp',
@@ -153,5 +154,5 @@ library(
     'nvfuser_codegen',
     nvfuser_codegen_src + runtime_resource_targets + flatbuffer_header,
     include_directories : include_directories('csrc', 'third_party/gloo'),
-    dependencies: [dynamic_type_dep, flatbuffers_dep, cuda_dep, torch_dep]
+    dependencies: [dynamic_type_dep, flatbuffers_dep, cuda_dep, torch_dep, nvrtc_dep]
 )

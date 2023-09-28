@@ -9,7 +9,7 @@ install_subdir('src/dynamic_type', install_dir : 'include')
 
 
 # test
-gtest_dep = dependency('gtest')
+gtest_dep = dependency('gtest_main')
 gmock_dep = dependency('gmock')
 
 test_exe = executable('test_dynamic_type_17',
