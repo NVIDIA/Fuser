@@ -27,6 +27,12 @@ def sanitize_benchmark_args(args: list[str]) -> list[str]:
     return args
 
 
+def check_out(branch_or_commit: str) -> None:
+    # `advice.detachedHead=false` silences the detached HEAD warning.
+    subprocess.check_call(f"git -c advice.detachedHead=false checkout {branch_or_commit}", shell=True)
+    subprocess.check_call("git submodule update --init --recursive", shell=True)
+
+
 # Runs nvfuser_bench with `benchmark_args` on the given branch or commit. Dumps
 # outputs to `out_dir`. Returns `out_dir`/`branch_or_commit`.json that captures
 # the benchmark result. If the output already exists, skips benchmarking and
@@ -38,11 +44,9 @@ def run_benchmark(branch_or_commit: str, benchmark_args: list[str], out_dir: str
         print(f"{benchmark_out} already exists. Skip benchmarking {branch_or_commit}.")
         return benchmark_out
 
-    # `advice.detachedHead=false` silences the detached HEAD warning.
-    subprocess.check_call(f"git -c advice.detachedHead=false checkout {branch_or_commit}", shell=True)
+    check_out(branch_or_commit)
 
     subprocess.check_call("pip install -e .", shell=True)
-
 
     benchmark_command = " ".join(["bin/nvfuser_bench"] + benchmark_args + [f"--benchmark_out={benchmark_out}", "--benchmark_format=json"])
     print("Running benchmark command: " + benchmark_command)
@@ -179,7 +183,7 @@ if __name__ == "__main__":
         contender_out = run_benchmark(args.contender, benchmark_args, args.out_dir)
     finally:
         # Check out the original branch even when benchmarking failed.
-        subprocess.check_call(f"git checkout {original_branch_or_commit}", shell=True)
+        check_out(original_branch_or_commit)
 
     comparison_out = compare(baseline_out, contender_out, args.out_dir)
     comparisons = load_comparison(comparison_out)
