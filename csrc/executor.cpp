@@ -545,24 +545,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
   return {concrete_sizes, strides};
 }
 
-// Infer the shape of an intemediate tensor using kir::Allocate
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
-    const TensorView* tv,
-    const kir::Allocate* alloc,
-    ExpressionEvaluator& expr_eval) {
-  // The allocation domain represents the logical allocation domain,
-  // bu its actual allocation size may be different, e.g., for
-  // supporting halo accesses. The actual size is currently computed
-  // when creating the Allocate expr.
-  NVF_ERROR(alloc != nullptr);
-  const auto& symbolic_sizes = alloc->shape();
-  // For intermediate tensors, we just need to allocate a memory chunk
-  // of the specified size. Broadcast expansion does not need to be considered.
-  const auto expand_flags = std::vector<bool>(symbolic_sizes.size(), false);
-
-  return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
-}
-
 // Infer the sizes and strides of an output tensor
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     const TensorView* tv,
