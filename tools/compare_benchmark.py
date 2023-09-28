@@ -3,13 +3,28 @@
 # usage.
 
 import argparse
-from collections.abc import Iterable
 from dataclasses import dataclass
 import json
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 import subprocess
+from typing import Iterable
+
+
+def sanitize_benchmark_args(args: list[str]) -> list[str]:
+    # Skip the leading "--". It's sometimes written before the benchmark args
+    # as a convention.
+    if args and args[0] == "--":
+        args = args[1:]
+
+    for arg in args:
+        if arg == "--benchmark_out":
+            raise ValueError("--benchmark_out should be specified by run_benchmark not the user")
+        if arg == "--benchmark_format":
+            raise ValueError("--benchmark_format should be specified by run_benchmark not the user")
+
+    return args
 
 
 # Runs nvfuser_bench with `benchmark_args` on the given branch or commit. Dumps
@@ -17,24 +32,19 @@ import subprocess
 # the benchmark result. If the output already exists, skips benchmarking and
 # uses that output. This is useful, for example, when comparing multiple
 # contenders to the same base.
-def run_benchmark(branch_or_commit: str, benchmark_args: str, out_dir: str) -> str:
+def run_benchmark(branch_or_commit: str, benchmark_args: list[str], out_dir: str) -> str:
     benchmark_out = os.path.join(out_dir, branch_or_commit + ".json")
     if os.path.exists(benchmark_out):
         print(f"{benchmark_out} already exists. Skip benchmarking {branch_or_commit}.")
         return benchmark_out
 
-    subprocess.check_call(f"git checkout {branch_or_commit}", shell=True)
+    # `advice.detachedHead=false` silences the detached HEAD warning.
+    subprocess.check_call(f"git -c advice.detachedHead=false checkout {branch_or_commit}", shell=True)
 
     subprocess.check_call("pip install -e .", shell=True)
 
-    benchmark_command = " ".join(
-        (
-            "bin/nvfuser_bench",
-            benchmark_args,
-            f"--benchmark_out={benchmark_out}",
-            "--benchmark_format=json",
-        )
-    )
+
+    benchmark_command = " ".join(["bin/nvfuser_bench"] + benchmark_args + [f"--benchmark_out={benchmark_out}", "--benchmark_format=json"])
     print("Running benchmark command: " + benchmark_command)
     with open(os.path.join(out_dir, branch_or_commit + ".stdout"), "w") as stdout, open(
         os.path.join(out_dir, branch_or_commit + ".stderr"), "w"
@@ -84,11 +94,13 @@ def load_comparison(comparison_out: str) -> list[Comparison]:
                 continue
             comparisons.append(
                 Comparison(
-                    row["name"],
-                    measurement["real_time"],
-                    measurement["real_time_other"],
-                    measurement["time"] + 1,
-                    row["time_unit"],
+                    name=row["name"],
+                    baseline_time=measurement["real_time"],
+                    contender_time=measurement["real_time_other"],
+                    # measurement["time"] means (contender-baseline)/baseline.
+                    # That plus 1 is the ratio that we want.
+                    change=measurement["time"] + 1,
+                    time_unit=row["time_unit"],
                 )
             )
 
@@ -149,19 +161,25 @@ if __name__ == "__main__":
         help="The output folder that will contain benchmark results and comparison",
     )
     parser.add_argument(
-        "--benchmark_args",
+        "benchmark_args",
         type=str,
+        nargs=argparse.REMAINDER,
         help="Arguments passed to nvfuser_bench, e.g., --benchmark_filter=NvFuserScheduler",
     )
     args = parser.parse_args()
+
+    benchmark_args = sanitize_benchmark_args(args.benchmark_args)
 
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir)
 
     original_branch_or_commit = get_head_branch_or_commit()
-    baseline_out = run_benchmark(args.baseline, args.benchmark_args, args.out_dir)
-    contender_out = run_benchmark(args.contender, args.benchmark_args, args.out_dir)
-    subprocess.check_call(f"git checkout {original_branch}", shell=True)
+    try:
+        baseline_out = run_benchmark(args.baseline, benchmark_args, args.out_dir)
+        contender_out = run_benchmark(args.contender, benchmark_args, args.out_dir)
+    finally:
+        # Check out the original branch even when benchmarking failed.
+        subprocess.check_call(f"git checkout {original_branch_or_commit}", shell=True)
 
     comparison_out = compare(baseline_out, contender_out, args.out_dir)
     comparisons = load_comparison(comparison_out)
