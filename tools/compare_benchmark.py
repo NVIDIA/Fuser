@@ -12,6 +12,21 @@ import subprocess
 from typing import Iterable
 
 
+# If `arg` uses a forbidden option, returns that forbidden option; otherwise,
+# returns an empty string.
+def uses_forbidden_option(arg: str) -> str:
+    for forbidden_option in (
+        "--benchmark_out",
+        "--benchmark_out_format",
+        "--benchmark_format",
+    ):
+        # Depending on which shell, the name of a long option and the value can
+        # be split by a space or an =.
+        if arg == forbidden_option or arg.startswith(forbidden_option + "="):
+            return forbidden_option
+    return ""
+
+
 def sanitize_benchmark_args(args: list[str]) -> list[str]:
     # Skip the leading "--". It's sometimes written before the benchmark args
     # as a convention.
@@ -19,13 +34,9 @@ def sanitize_benchmark_args(args: list[str]) -> list[str]:
         args = args[1:]
 
     for arg in args:
-        if arg == "--benchmark_out":
+        if forbidden_option := uses_forbidden_option(arg):
             raise ValueError(
-                "--benchmark_out should be specified by run_benchmark not the user"
-            )
-        if arg == "--benchmark_format":
-            raise ValueError(
-                "--benchmark_format should be specified by run_benchmark not the user"
+                f"{forbidden_option} should be specified by run_benchmark not the user."
             )
 
     return args
