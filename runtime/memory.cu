@@ -7,14 +7,13 @@
 // clang-format on
 
 // Utility macro for this file
-#define DEVICE_INLINE __device__ inline
 
 // Utility for converting generic pointer to SMEM pointer in PTX.
 //  We should review vectorized load/stores with shared memory.
 //  SMEM memory movement PTX is only Global -> SMEM, SMEM -> Local, Local ->
 //  SMEM, and this is needed for these PTX instructions to provide the SMEM
 //  pointer.
-DEVICE_INLINE unsigned toSmem(const void* raw_ptr) {
+__device__ inline unsigned toSmem(const void* raw_ptr) {
   unsigned smem_ptr_uint;
   asm("{ .reg .u64 smem_ptr; cvta.to.shared.u64 smem_ptr, %1; cvt.u32.u64 %0, smem_ptr; }\n"
       : "=r"(smem_ptr_uint)
@@ -45,7 +44,8 @@ namespace util {
 //    hardware.
 //  The alignment requirement is lifted on sm80+,
 //    so this function is a no-op on Ampere or above.
-DEVICE_INLINE void adjustPartialLdMatrixAddrInTuring(unsigned& addr_in_byte) {
+__device__ inline void adjustPartialLdMatrixAddrInTuring(
+    unsigned& addr_in_byte) {
 #if (__CUDA_ARCH__ < 800)
   const unsigned thread_id = threadIdx.x;
   // Upper half warp has 8 bytes offset from aligned in .x2 option
@@ -77,7 +77,7 @@ DEVICE_INLINE void adjustPartialLdMatrixAddrInTuring(unsigned& addr_in_byte) {
 // warp.
 
 template <typename T>
-DEVICE_INLINE void ldMatrix(Array<T, 4, 4>* out, unsigned addr) {
+__device__ inline void ldMatrix(Array<T, 4, 4>* out, unsigned addr) {
   static_assert(sizeof(T) == 2);
   uint2* val = reinterpret_cast<uint2*>(out);
   util::adjustPartialLdMatrixAddrInTuring(addr);
@@ -90,7 +90,7 @@ DEVICE_INLINE void ldMatrix(Array<T, 4, 4>* out, unsigned addr) {
 // transpose) so threads will hold 2 values down a column (instead of the
 // previous instruction that's across a row).
 template <typename T>
-DEVICE_INLINE void ldMatrixT(Array<T, 4, 4>* out, unsigned addr) {
+__device__ inline void ldMatrixT(Array<T, 4, 4>* out, unsigned addr) {
   static_assert(sizeof(T) == 2);
   uint2* val = reinterpret_cast<uint2*>(out);
   util::adjustPartialLdMatrixAddrInTuring(addr);
@@ -100,7 +100,7 @@ DEVICE_INLINE void ldMatrixT(Array<T, 4, 4>* out, unsigned addr) {
 }
 
 template <typename T>
-DEVICE_INLINE void ldMatrix(Array<T, 8, 8>* out, unsigned addr) {
+__device__ inline void ldMatrix(Array<T, 8, 8>* out, unsigned addr) {
   static_assert(sizeof(T) == 2);
   uint4* val = reinterpret_cast<uint4*>(out);
   asm volatile("ldmatrix.sync.aligned.x4.m8n8.shared.b16 {%0,%1,%2,%3}, [%4];"
@@ -109,7 +109,7 @@ DEVICE_INLINE void ldMatrix(Array<T, 8, 8>* out, unsigned addr) {
 }
 
 template <typename T>
-DEVICE_INLINE void ldMatrixT(Array<T, 8, 8>* out, unsigned addr) {
+__device__ inline void ldMatrixT(Array<T, 8, 8>* out, unsigned addr) {
   static_assert(sizeof(T) == 2);
   uint4* val = reinterpret_cast<uint4*>(out);
   asm volatile(
@@ -133,7 +133,7 @@ namespace Ampere {
 // if predicate is set to false, then gmem_ptr won't be read and smem_addr will
 // be zero-initialized gmem_ptr must be `sizeof(dtype) * len` aligned
 template <typename dtype, int len>
-DEVICE_INLINE void cpAsyncCa(
+__device__ inline void cpAsyncCa(
     unsigned smem_addr,
     void const* gmem_ptr,
     bool predicate) {
@@ -162,7 +162,7 @@ DEVICE_INLINE void cpAsyncCa(
 // if predicate is set to false, then gmem_ptr won't be read and smem_addr will
 // be zero-initialized gmem_ptr must be 16B aligned
 template <typename dtype, int len>
-DEVICE_INLINE void cpAsyncCg(
+__device__ inline void cpAsyncCg(
     unsigned smem_addr,
     void const* gmem_ptr,
     bool predicate) {
@@ -181,16 +181,16 @@ DEVICE_INLINE void cpAsyncCg(
 }
 
 // TODO: Might have a different category of sync if we want to build out this:
-DEVICE_INLINE void cpAsyncBarrier() {
+__device__ inline void cpAsyncBarrier() {
   asm volatile("cp.async.wait_all;");
 }
 
-DEVICE_INLINE void cpAsyncCommit() {
+__device__ inline void cpAsyncCommit() {
   asm volatile("cp.async.commit_group;");
 }
 
 template <int keep_stages>
-DEVICE_INLINE void cpAsyncPartialBarrier() {
+__device__ inline void cpAsyncPartialBarrier() {
   asm volatile("cp.async.wait_group %0;\n" ::"n"(keep_stages));
 }
 
@@ -211,12 +211,122 @@ namespace Hopper {
 // Tensor map:
 // https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TENSOR__MEMORY.html
 
-DEVICE_INLINE void cpAsyncBulkCommit() {
+template <int dim>
+struct CpAsyncBulkTensorTileIndex {
+  const TensorMap* descriptor;
+  Array<int32_t, dim> crds;
+};
+
+// TMA Loads:
+
+// TODO: Remove this. This is a temporary solution for the build-out stage.
+// Our system can not automatically insert barriers for now, so we manually
+// insert barriers after each TMA operation. That is, we are making TMA
+// synchronous.
+__device__ inline void _initializeTMALoadMBar(uint64_t& smem_mbar) {
+  smem_mbar = 0;
+}
+
+__device__ inline void cpAsyncBulkTensorTileG2S(
+    const CpAsyncBulkTensorTileIndex<1>& src,
+    uint32_t smem_addr,
+    uint32_t expect_bytes) {
+  // TODO: This is a temporary solution for the build-out stage.
+  __shared__ uint64_t smem_mbar;
+  uint32_t smem_int_mbar = toSmem(&smem_mbar);
+  // end TODO
+
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
+  asm volatile(
+      "cp.async.bulk.tensor.1d.shared::cluster.global.mbarrier::complete_tx::bytes"
+      " [%0], [%1, {%3}], [%2];"
+      :
+      : "r"(smem_addr), "l"(gmem_int_desc), "r"(smem_int_mbar), "r"(src.crds[0])
+      : "memory");
+}
+
+__device__ inline void cpAsyncBulkTensorTileG2S(
+    const CpAsyncBulkTensorTileIndex<2>& src,
+    uint32_t smem_addr,
+    uint32_t expect_bytes) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  asm volatile(
+      "cp.async.bulk.tensor.2d.shared::cluster.global.mbarrier::complete_tx::bytes"
+      " [%0], [%1, {%3, %4}], [%2];"
+      :
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(smem_mbar_addr),
+        "r"(src.crds[0]),
+        "r"(src.crds[1])
+      : "memory");
+}
+
+__device__ inline void cpAsyncBulkTensorTileG2S(
+    const CpAsyncBulkTensorTileIndex<3>& src,
+    uint32_t smem_addr,
+    uint32_t expect_bytes) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  asm volatile(
+      "cp.async.bulk.tensor.3d.shared::cluster.global.mbarrier::complete_tx::bytes"
+      " [%0], [%1, {%3, %4, %5}], [%2];"
+      :
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(smem_mbar_addr),
+        "r"(src.crds[0]),
+        "r"(src.crds[1]),
+        "r"(src.crds[2])
+      : "memory");
+}
+
+__device__ inline void cpAsyncBulkTensorTileG2S(
+    const CpAsyncBulkTensorTileIndex<4>& src,
+    uint32_t smem_addr,
+    uint32_t expect_bytes) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  asm volatile(
+      "cp.async.bulk.tensor.4d.shared::cluster.global.mbarrier::complete_tx::bytes"
+      " [%0], [%1, {%3, %4, %5, %6}], [%2];"
+      :
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(smem_mbar_addr),
+        "r"(src.crds[0]),
+        "r"(src.crds[1]),
+        "r"(src.crds[2]),
+        "r"(src.crds[3])
+      : "memory");
+}
+
+__device__ inline void cpAsyncBulkTensorTileG2S(
+    const CpAsyncBulkTensorTileIndex<5>& src,
+    uint32_t smem_addr,
+    uint32_t expect_bytes) {
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  asm volatile(
+      "cp.async.bulk.tensor.5d.shared::cluster.global.mbarrier::complete_tx::bytes"
+      " [%0], [%1, {%3, %4, %5, %6, %7}], [%2];"
+      :
+      : "r"(smem_addr),
+        "l"(gmem_int_desc),
+        "r"(smem_mbar_addr),
+        "r"(src.crds[0]),
+        "r"(src.crds[1]),
+        "r"(src.crds[2]),
+        "r"(src.crds[3]),
+        "r"(src.crds[4])
+      : "memory");
+}
+
+// TMA Stores:
+
+__device__ inline void cpAsyncBulkCommit() {
   asm volatile("cp.async.bulk.commit_group;");
 }
 
 template <int keep_stages>
-DEVICE_INLINE void cpAsyncBulkPartialReadBarrier() {
+__device__ inline void cpAsyncBulkPartialReadBarrier() {
   asm volatile("cp.async.bulk.wait_group.read %0;"
                :
                : "n"(keep_stages)
@@ -227,18 +337,12 @@ DEVICE_INLINE void cpAsyncBulkPartialReadBarrier() {
 // Our system can not automatically insert barriers for now, so we manually
 // insert barriers after each TMA operation. That is, we are making TMA
 // synchronous.
-DEVICE_INLINE void _finalizeTMAStore() {
+__device__ inline void _finalizeTMAStore() {
   cpAsyncBulkCommit();
   cpAsyncBulkPartialReadBarrier<0>();
 }
 
-template <int dim>
-struct CpAsyncBulkTensorTileIndex {
-  const TensorMap* descriptor;
-  Array<int32_t, dim> crds;
-};
-
-DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
+__device__ inline void cpAsyncBulkTensorTileS2G(
     const CpAsyncBulkTensorTileIndex<1>& dest,
     uint32_t smem_addr) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(dest.descriptor);
@@ -250,7 +354,7 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
   _finalizeTMAStore();
 }
 
-DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
+__device__ inline void cpAsyncBulkTensorTileS2G(
     const CpAsyncBulkTensorTileIndex<2>& dest,
     uint32_t smem_addr) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(dest.descriptor);
@@ -262,7 +366,7 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
   _finalizeTMAStore();
 }
 
-DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
+__device__ inline void cpAsyncBulkTensorTileS2G(
     const CpAsyncBulkTensorTileIndex<3>& dest,
     uint32_t smem_addr) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(dest.descriptor);
@@ -278,7 +382,7 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
   _finalizeTMAStore();
 }
 
-DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
+__device__ inline void cpAsyncBulkTensorTileS2G(
     const CpAsyncBulkTensorTileIndex<4>& dest,
     uint32_t smem_addr) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(dest.descriptor);
@@ -295,7 +399,7 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
   _finalizeTMAStore();
 }
 
-DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
+__device__ inline void cpAsyncBulkTensorTileS2G(
     const CpAsyncBulkTensorTileIndex<5>& dest,
     uint32_t smem_addr) {
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(dest.descriptor);
@@ -317,4 +421,4 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
 
 #endif // Arch 90
 
-#undef DEVICE_INLINE
+#undef __device__ inline
