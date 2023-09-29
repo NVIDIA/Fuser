@@ -28,6 +28,25 @@ jobs:
           wait
           python setup.py build
 
+  standalone-build-meson:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Run standalone build
+        working-directory: ${{ env.working_directory }}
+        run: |
+          tools/apt-install-things.sh &
+          tools/pip-install-things.sh &
+          source tools/setup-env.sh
+          wait
+          meson setup build
+          meson compile -C build
+
   clang-tidy:
     runs-on: ubuntu-latest
     steps:
