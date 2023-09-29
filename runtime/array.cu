@@ -177,6 +177,23 @@ enum class CacheOp {
   Global,
 };
 
+template <typename T, CacheOp cache_op>
+__device__ void loadGlobalToLocalCached(void* to, void* from) {
+  T* typed_to = reinterpret_cast<T*>(to);
+  T* typed_from = reinterpret_cast<T*>(from);
+  switch (cache_op) {
+    case CacheOp::AllLevels:
+      *typed_to = __ldca(typed_from);
+      break;
+    case CacheOp::Streaming:
+      *typed_to = __ldcs(typed_from);
+      break;
+    case CacheOp::Global:
+      *typed_to = __ldcg(typed_from);
+      break;
+  }
+}
+
 // For simplicity, cache_op is only used for non-volatile loads written in
 // inline assembly. Other loads are done with the default cache operator --
 // cache all levels. ld.volatile doesn't accept cache operator anyway.
@@ -191,46 +208,26 @@ __device__ void loadGlobalToLocal(
       loadGenericVolatile<scalar_t, vec_size, false, is_volatile>(to, from);
       break;
     case 8: {
-      uint2& data = *reinterpret_cast<uint2*>(to);
       if (is_volatile) {
+        uint2& data = *reinterpret_cast<uint2*>(to);
         asm volatile("ld.volatile.global.v2.s32 {%0,%1}, [%2];"
                      : "=r"(data.x), "=r"(data.y)
-                     : "l"(from));
+                     : "l"((uint2*)from));
       } else {
-        auto* non_volatile_from = (uint2*)from;
-        switch (cache_op) {
-          case CacheOp::AllLevels:
-            data = __ldca(non_volatile_from);
-            break;
-          case CacheOp::Streaming:
-            data = __ldcs(non_volatile_from);
-            break;
-          case CacheOp::Global:
-            data = __ldcg(non_volatile_from);
-            break;
-        }
+        loadGlobalToLocalCached<uint2, cache_op>(
+            to, const_cast<scalar_t*>(from));
       }
       break;
     }
     case 16: {
-      uint4& data = *reinterpret_cast<uint4*>(to);
       if (is_volatile) {
+        uint4& data = *reinterpret_cast<uint4*>(to);
         asm volatile("ld.volatile.global.v4.s32 {%0,%1,%2,%3}, [%4];"
                      : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
-                     : "l"(from));
+                     : "l"((uint4*)from));
       } else {
-        auto* non_volatile_from = (uint4*)from;
-        switch (cache_op) {
-          case CacheOp::AllLevels:
-            data = __ldca(non_volatile_from);
-            break;
-          case CacheOp::Streaming:
-            data = __ldcs(non_volatile_from);
-            break;
-          case CacheOp::Global:
-            data = __ldcg(non_volatile_from);
-            break;
-        }
+        loadGlobalToLocalCached<uint4, cache_op>(
+            to, const_cast<scalar_t*>(from));
       }
       break;
     }
