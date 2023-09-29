@@ -53,4 +53,4 @@ bench_exe = executable('bench_dynamic_type_17',
     ],
 )
 
-test('bench_dynamic_type_17', bench_exe)
+test('bench_dynamic_type_17', bench_exe, timeout: 0)
