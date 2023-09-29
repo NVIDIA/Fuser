@@ -5283,7 +5283,7 @@ TEST_F(NVFuserTest, FusionMappingRelation_CUDA) {
   fusion->addOutput(tv4);
 
   tv4->merge(-2);
-  tv4->merge(-1);
+  tv4->merge(-2);
 
   tv0->computeAt(tv4, -1);
   tv1->computeAt(tv4, -1);
