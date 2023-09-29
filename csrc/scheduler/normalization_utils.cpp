@@ -739,8 +739,7 @@ ScheduleHeuristic getPersistentHeuristicFor(ReductionType reduction_type) {
   }
 }
 
-// Redundant checks before getHeuristics
-void fusionChecks(Fusion* fusion, TensorView* ref_red_tv) {
+void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv) {
   NVF_ERROR(ref_red_tv != nullptr, "Reduction TensorView wasn't found.");
   NVF_ERROR(ref_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
   NVF_ERROR(
@@ -770,7 +769,7 @@ PersistentKernelProperties getPersistentKernelProperties(
   auto ref_red_tv = reduction_tvs[0];
 
   // (1) fusion checks
-  fusionChecks(fusion, ref_red_tv);
+  checkReductionTvForScheduling(fusion, ref_red_tv);
 
   // (2) reduction properties
   auto properties =
@@ -830,6 +829,13 @@ PersistentKernelProperties getPersistentKernelProperties(
       : persistent_buffer_size_info.persistent_buffer_size;
 
   // (7) info about input and output tensors
+  // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
+  // share inner dimension with data pattern we're looking at).
+  // To prevent division by zero, ensure that n_tensor_inputs is not equal to
+  // zero.
+  // TODO: This might be better if it was the larger of input or outputs. Would
+  // be even better if we had better analysis as not all unrolled elements have
+  // to be alive at the same time.
   auto unrollable_inputs_outputs_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
           data_cache, [&reduced_tv]() {
@@ -838,11 +844,6 @@ PersistentKernelProperties getPersistentKernelProperties(
                     reduced_tv, false, false));
           });
   auto& unrollable_inputs_outputs = unrollable_inputs_outputs_entry.get();
-  // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
-  // share inner dimension with data pattern we're looking at).
-  // TODO: This might be better if it was the larger of input or outputs. Would
-  // be even better if we had better analysis as not all unrolled elements have
-  // to be alive at the same time.
   int64_t max_dtype_size = 1;
   int64_t n_tensor_inputs = 0;
   for (auto tv : unrollable_inputs_outputs) {
@@ -854,10 +855,10 @@ PersistentKernelProperties getPersistentKernelProperties(
         dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
     n_tensor_inputs++;
   }
-  // Protect heuristics div by 0:
   n_tensor_inputs = std::max(n_tensor_inputs, (int64_t)1);
 
-  return PersistentHeuristicArgs{
+  // return collected properties to get heuristics.
+  return PersistentKernelProperties{
       properties.inner_most_dimension_numel,
       properties.total_reduction_numel,
       properties.total_iteration_numel,

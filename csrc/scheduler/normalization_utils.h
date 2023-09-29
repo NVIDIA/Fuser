@@ -229,7 +229,8 @@ PersistentKernelProperties getPersistentKernelProperties(
     HeuristicSummary* data_cache,
     ScheduleHeuristic heuristic);
 
-// Check the reduction tv is connected to fusion input
-void fusionChecks(Fusion* fusion, TensorView* ref_red_tv);
+// Verify the presence of a reduction TensorView connected to a Fusion input
+void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv);
+
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

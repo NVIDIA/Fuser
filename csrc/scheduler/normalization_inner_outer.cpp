@@ -710,7 +710,8 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   auto ref_red_tv = first_inner_reduction_tv;
 
   // (1) Ensure it is a reduction connected to input
-  normalization_scheduler_utils::fusionChecks(fusion, ref_red_tv);
+  normalization_scheduler_utils::checkReductionTvForScheduling(
+      fusion, ref_red_tv);
 
   // (2) reduction properties
   auto properties =
