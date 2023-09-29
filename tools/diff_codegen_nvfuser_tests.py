@@ -223,6 +223,14 @@ class TestRun:
         self.preamble_size_lines = len(preamble_lines)
         self.preamble = "\n".join(preamble_lines)
 
+    def to_dict(self):
+        d = {}
+        d["name"] = self.run_name
+        d["command"] = self.command
+        d["exitcode"] = self.exit_code
+        d["git"] = self.git_rev.to_dict()
+        return d
+
     def get_kernel(self, test_name, kernel_number, strip_preamble=True) -> str:
         """Get a string of the kernel, optionally stripping the preamble"""
         basename = self.kernel_map[test_name][kernel_number]
@@ -358,8 +366,8 @@ class TestDifferences:
     def to_dict(self):
         """Convert to hierarchical dict format for use with jinja"""
         d = {}
-        d["git1"] = self.run1.git_rev.to_dict()
-        d["git2"] = self.run2.git_rev.to_dict()
+        d["run1"] = self.run1.to_dict()
+        d["run2"] = self.run2.to_dict()
 
         d["test_diffs"] = []
         for testname, diffs in self.differing_tests.items():

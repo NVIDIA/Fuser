@@ -1,6 +1,6 @@
 <html>
     <head>
-        <title>{{ git1.abbrev }} vs {{ git2.abbrev }} - NVFuser codegen diff</title>
+        <title>{{ run1.git.abbrev }} vs {{ run2.git.abbrev }} - NVFuser codegen diff</title>
     <style>
 {{ pygments_style_defs }}
     </style>
@@ -52,38 +52,28 @@
     </script>
     </head>
     <body>
-        <h1>{{ git1.abbrev }} vs {{ git2.abbrev }} - NVFuser codegen diff</h1>
+        <h1>{{ run1.git.abbrev }} vs {{ run2.git.abbrev }} - NVFuser codegen diff</h1>
 
         <h2>Git information</h2>
 
-        <h3>Old commit: {{ git1.abbrev }}</h3>
-        <span>{{ git1.title }}</span><br>
-        <span>{{ git1.author_name }}</span> &lt;<span>{{ git1.author_email }}&gt;</span><br>
-        <span>{{ git1.author_datetime }}</span><br>
-        {% if git1.pull_request is defined %}
-        Pull request: {{ git1.pull_request.title }}<br>
-        <a href="https://github.com/NVIDIA/Fuser/pull/{{git1.pull_request.number}}">View PR on github.com</a><br>
-        <a href="https://github.com/NVIDIA/Fuser/pull/{{git1.pull_request.number}}/commits/{{git1.full_hash}}">Show commit on github.com</a><br>
-        {% else %}
-        <a href="https://github.com/NVIDIA/Fuser/commit/{{git1.full_hash}}">Show commit on github.com</a><br>
-        {% endif %}
-        <a href="https://github.com/NVIDIA/Fuser/tree/{{git1.full_hash}}">Browse code at this commit on github.com</a><br>
+        <h3>Old commit: <a href="https://github.com/NVIDIA/Fuser/commit/{{run1.git.full_hash}}">{{ run1.git.abbrev }}</a></h3>
+        <span>{{ run1.git.title }}</span><br>
+        <span>{{ run1.git.author_name }}</span> &lt;<span>{{ run1.git.author_email }}&gt;</span><br>
+        <span>{{ run1.git.author_datetime }}</span><br>
+        <a href="https://github.com/NVIDIA/Fuser/commit/{{run1.git.full_hash}}">View commit</a><br>
+        <a href="https://github.com/NVIDIA/Fuser/tree/{{run1.git.full_hash}}">Browse code at this commit</a><br>
 
-        <h3>New commit: {{ git2.abbrev }}</h3>
-        <span>{{ git2.title }}</span><br>
-        <span>{{ git2.author_name }}</span> &lt;<span>{{ git2.author_email }}&gt;</span><br>
-        <span>{{ git2.author_datetime }}</span><br>
-        {% if git2.pull_request is defined %}
-        Pull request: {{ git2.pull_request.title }}<br>
-        <a href="https://github.com/NVIDIA/Fuser/pull/{{git1.pull_request.number}}">View PR on github.com</a><br>
-        <a href="https://github.com/NVIDIA/Fuser/pull/{{git2.pull_request.number}}/commits/{{git2.full_hash}}">Show commit on github.com</a><br>
-        {% else %}
-        <a href="https://github.com/NVIDIA/Fuser/commit/{{git2.full_hash}}">Show commit on github.com</a><br>
-        {% endif %}
-        <a href="https://github.com/NVIDIA/Fuser/tree/{{git2.full_hash}}">Browse code at this commit on github.com</a><br>
+        <h3>New commit: <a href="https://github.com/NVIDIA/Fuser/commit/{{run2.git.full_hash}}">{{ run2.git.abbrev }}</a></h3>
+        <span>{{ run2.git.title }}</span><br>
+        <span>{{ run2.git.author_name }}</span> &lt;<span>{{ run2.git.author_email }}&gt;</span><br>
+        <span>{{ run2.git.author_datetime }}</span><br>
+        <a href="https://github.com/NVIDIA/Fuser/commit/{{run2.git.full_hash}}">View commit</a><br>
+        <a href="https://github.com/NVIDIA/Fuser/tree/{{run2.git.full_hash}}">Browse code at this commit</a><br>
 
 
         <h2>Code comparison</h2>
+
+        Command line: <code>{{ run1.command }}</code>
 
         {% if new_tests|length > 0 %}
         <h3>New Tests</h3>
@@ -122,9 +112,9 @@
           {% set outer_index = loop.index %}
           {% for kernel in test.kernels %}
           &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 60pt">Kernel {{ kernel.number }}</span>
-            <button style="box-shadow:none" ONCLICK="toggleOldCode({{outer_index}}, {{loop.index}})">{{git1.abbrev}}</button></span>
+            <button style="box-shadow:none" ONCLICK="toggleOldCode({{outer_index}}, {{loop.index}})">{{run1.git.abbrev}}</button></span>
             <button style="width: 60pt; box-shadow:none" ONCLICK="toggleDiff({{outer_index}}, {{loop.index}})">Diff</button></span>
-            <button style="box-shadow:none" ONCLICK="toggleNewCode({{outer_index}}, {{loop.index}})">{{git2.abbrev}}</button></span><br>
+            <button style="box-shadow:none" ONCLICK="toggleNewCode({{outer_index}}, {{loop.index}})">{{run2.git.abbrev}}</button></span><br>
             <div id="oldcode_{{outer_index}}_{{loop.index}}" style="display:none">
                 {{ kernel.highlighted_code1 }}
             </div>
