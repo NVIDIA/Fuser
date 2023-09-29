@@ -657,4 +657,32 @@ TEST_F(NVFuserTest, FusionIndexSelectDim2InRank4_CUDA) {
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
+// Repro of issue #961
+TEST_F(NVFuserTest, IndexSelectBroadcastIndex_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({1}, DataType::Int);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = index_select(tv1, 0, tv0);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_long = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randint(100, {1}, options_long);
+  auto t1 = at::randn({100, 100}, options);
+
+  std::vector<c10::IValue> aten_inputs = {t0, t1};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto ref = at::index_select(t1, 0, t0);
+
+  ASSERT_TRUE(cg_outputs[0].equal(ref));
+}
+
 } // namespace nvfuser

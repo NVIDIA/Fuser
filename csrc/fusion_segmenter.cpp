@@ -3353,11 +3353,10 @@ void SegmentCandidateFinder::findSegments() {
 
   segmented_fusion_->validateIfDebug();
 
-  auto welford_ops =
-      ir_utils::getOpsOfType<WelfordOp>(segmented_fusion_->completeFusion());
+  auto has_welford_ops =
+      ir_utils::hasOpsOfType<WelfordOp>(segmented_fusion_->completeFusion());
 
-  if (options_.run_translate_welford &&
-      (welford_ops.begin() != welford_ops.end())) {
+  if (options_.run_translate_welford && has_welford_ops) {
     if (TranslateApplicableWelford::run(
             segmented_fusion_.get(), runtime_inputs_)) {
       // If modified, rebuild segments as existing expressions may be

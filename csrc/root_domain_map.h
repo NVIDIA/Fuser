@@ -129,6 +129,15 @@ class PairwiseRootDomainMap : public RootDomainMap {
 
   std::string toString() const;
 
+  // Helper methods on top of RootDomainMap::mapProducerToConsumer and
+  // RootDomainMap::mapConsumerToProducer. This way, the caller doesn't have to
+  // specify the producer domain and the consumer domain, which is redundant and
+  // error-prone.
+  std::unordered_map<IterDomain*, IterDomain*> mapProducerToConsumer(
+      const std::unordered_set<IterDomain*>* root_dims_to_map = nullptr) const;
+  std::unordered_map<IterDomain*, IterDomain*> mapConsumerToProducer(
+      const std::unordered_set<IterDomain*>* root_dims_to_map = nullptr) const;
+
  protected:
   std::unordered_map<IterDomain*, IterDomain*> map(
       const TensorDomain* producer,
@@ -429,58 +438,64 @@ class ComputeAtRootDomainMapBuilder : private BackwardVisitor {
 
   //! Map pointwise IterDomains from inputs of expressions to outputs.
   //! Do not map reduction IterDomains in inputs.
-  void mapPointwiseOrReductionOp(Expr* e);
+  void mapPointwiseLikeOp(Expr* e);
 
   using BackwardVisitor::handle;
 
   void dispatch(Expr* e) override;
 
   void handle(UnaryOp* uop) override {
-    mapPointwiseOrReductionOp(uop);
+    mapPointwiseLikeOp(uop);
   }
 
   void handle(BinaryOp* bop) override {
-    mapPointwiseOrReductionOp(bop);
+    mapPointwiseLikeOp(bop);
   }
 
   void handle(TernaryOp* top) override {
-    mapPointwiseOrReductionOp(top);
+    mapPointwiseLikeOp(top);
   }
 
   void handle(RNGOp* top) override;
 
-  void handle(IndexSelectOp* top) override {
-    mapPointwiseOrReductionOp(top);
+  void handle(SelectOp* op) override {
+    mapPointwiseLikeOp(op);
   }
 
-  void handle(TorchGatherOp* top) override;
+  void handle(IndexSelectOp* op) override {
+    mapPointwiseLikeOp(op);
+  }
+
+  void handle(TorchGatherOp* op) override {
+    mapPointwiseLikeOp(op);
+  }
 
   void handle(ReductionOp* op) override {
-    mapPointwiseOrReductionOp(op);
+    mapPointwiseLikeOp(op);
   }
 
   void handle(GroupedReductionOp* op) override {
-    mapPointwiseOrReductionOp(op);
+    mapPointwiseLikeOp(op);
   }
 
   void handle(WelfordOp* wop) override {
-    mapPointwiseOrReductionOp(wop);
+    mapPointwiseLikeOp(wop);
   }
 
   void handle(LoadStoreOp* ldst) override {
-    mapPointwiseOrReductionOp(ldst);
+    mapPointwiseLikeOp(ldst);
   }
 
   void handle(MmaOp* wop) override {
-    mapPointwiseOrReductionOp(wop);
+    mapPointwiseLikeOp(wop);
   }
 
   void handle(ShiftOp* op) override {
-    mapPointwiseOrReductionOp(op);
+    mapPointwiseLikeOp(op);
   }
 
   void handle(ViewOp* op) override {
-    mapPointwiseOrReductionOp(op);
+    mapPointwiseLikeOp(op);
   }
 
   void handle(ViewAsScalar* op) override;
@@ -490,23 +505,23 @@ class ComputeAtRootDomainMapBuilder : private BackwardVisitor {
   void handle(SqueezeOp* op) override;
 
   void handle(ExpandOp* op) override {
-    mapPointwiseOrReductionOp(op);
+    mapPointwiseLikeOp(op);
   }
 
   void handle(GatherOp* op) override;
 
   void handle(PadOp* op) override {
     // For compute-at, padded id should be mapped
-    mapPointwiseOrReductionOp(op);
+    mapPointwiseLikeOp(op);
   }
 
   void handle(SliceOp* op) override {
-    mapPointwiseOrReductionOp(op);
+    mapPointwiseLikeOp(op);
   }
 
   void handle(CatOp* op) override {
     // For compute-at, concat id should be mapped
-    mapPointwiseOrReductionOp(op);
+    mapPointwiseLikeOp(op);
   }
 
   void handle(TensorView* tv) override;

@@ -169,6 +169,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
   ${NVFUSER_SRCS_DIR}/serde/polymorphic_value_serde.cpp
   ${NVFUSER_SRCS_DIR}/serde/utils.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/cache_policy_refiner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic_types.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
@@ -303,11 +304,6 @@ else()
     target_link_libraries(${NVFUSER_CODEGEN} PRIVATE __nvfuser_ucc)
     target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE NVFUSER_BUILD_WITH_UCC)
   endif()
-
-  # installing nvfuser python tests
-  install(DIRECTORY "${NVFUSER_ROOT}/python_tests/"
-    DESTINATION "${TORCH_ROOT}/test/_nvfuser"
-    FILES_MATCHING PATTERN "*.py")
 
   # installing nvfuser lib
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${TORCH_INSTALL_LIB_DIR}")
