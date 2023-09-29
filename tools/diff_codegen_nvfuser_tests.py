@@ -19,7 +19,7 @@ import re
 import subprocess
 import sys
 from datetime import datetime
-from typing import Optional, Set
+from typing import Optional, Set, Union
 
 
 @dataclass
@@ -36,6 +36,7 @@ class GitBranch:
 @dataclass
 class GitRev:
     abbrev: str
+    title: str = None
     full_hash: str = None
     in_branches: list[GitBranch] = field(default_factory=list)
     author_name: str = None
@@ -84,6 +85,7 @@ class GitRev:
             .stdout.strip()
             .decode("utf-8")
         )
+        self.title = git_show("%s")
         self.author_name = git_show("%an")
         self.author_email = git_show("%ae")
 
@@ -91,6 +93,22 @@ class GitRev:
         get_datetime = lambda time_str: datetime.strptime(time_str, date_fmt)
         self.author_time = get_datetime(git_show("%ad"))
         self.commit_time = get_datetime(git_show("%cd"))
+
+    def to_dict(self):
+        return {
+            "abbrev": self.abbrev,
+            "full_hash": self.full_hash,
+            # TODO: detect PRs and add in this format
+            # "pull_request": {
+            #     "title": "Wrap CompiledKernel in unique_ptr and add a proper destructor.",
+            #     "number": 968,
+            # },
+            "author_name": self.author_name,
+            "author_email": self.author_email,
+            "author_datetime": str(self.author_time),
+            "title": self.title,
+        }
+
 
 
 @dataclass
@@ -175,6 +193,7 @@ class TestRun:
         """Look for common preamble in collected kernels"""
         preamble_lines = []
         first = True
+        files_processed = 0  # limit how many files to check
         for cufile in os.listdir(os.path.join(self.directory, "cuda")):
             cufile_full = os.path.join(self.directory, "cuda", cufile)
             with open(cufile_full, "r") as f:
@@ -193,6 +212,9 @@ class TestRun:
                 # early return if preamble is determined to be empty
                 break
             first = False
+            files_processed += 1
+            if files_processed >= 50:
+                break
         self.preamble = "\n".join(preamble_lines)
 
     def get_kernel(self, test_name, kernel_number, strip_preamble=True) -> str:
@@ -202,8 +224,20 @@ class TestRun:
         with open(fullname, "r") as f:
             if strip_preamble:
                 f.seek(self.preamble_size_bytes)
-            return f.read().strip()
+            code = f.read().strip()
+        return code
 
+def highlight_code(code) -> str:
+    import pygments
+    from pygments.formatters import HtmlFormatter
+    from pygments.lexers import  CppLexer
+    return pygments.highlight(code, CppLexer(), HtmlFormatter())
+
+def highlight_diff(diff) -> str:
+    import pygments
+    from pygments.formatters import HtmlFormatter
+    from pygments.lexers import  DiffLexer
+    return pygments.highlight(diff, DiffLexer(), HtmlFormatter())
 
 @dataclass
 class KernelDiff:
@@ -212,6 +246,15 @@ class KernelDiff:
     code1: str
     code2: str
     diff: str
+
+    def to_dict(self):
+        print("Highlighting diff ", self.kernel_num, 'for test', self.testname)
+        return {
+            "number": self.kernel_num,
+            "highlighted_code1": highlight_code(self.code1),
+            "highlighted_code2": highlight_code(self.code2),
+            "highlighted_diff": highlight_diff(self.diff),
+        }
 
 
 # Lets us maintain test order
@@ -227,9 +270,10 @@ class LastUpdatedOrderedDict(OrderedDict):
 class TestDifferences:
     run1: TestRun
     run2: TestRun
-    differing_tests: LastUpdatedOrderedDict[str, list[KernelDiff]] = field(
-        default_factory=list
-    )
+    # eitehr a list of diffs, or different numbers of kernels present
+    differing_tests: LastUpdatedOrderedDict[
+        str, Union[tuple[int, int], list[KernelDiff]]
+    ] = field(default_factory=LastUpdatedOrderedDict)
     new_tests: list[str] = field(default_factory=list)
     removed_tests: list[str] = field(default_factory=list)
 
@@ -248,10 +292,9 @@ class TestDifferences:
         if self.run1.preamble != self.run2.preamble:
             print("Preambles differ between runs indicating changes to runtime files")
 
-        differing_tests_set = set()
         for testname, kernels1 in self.run1.kernel_map.items():
             if testname not in self.run2.kernel_map:
-                removed_tests.append(testname)
+                self.removed_tests.append(testname)
                 continue
 
             kernels2 = self.run2.kernel_map[testname]
@@ -259,27 +302,27 @@ class TestDifferences:
             if len(kernels1) != len(kernels2):
                 print(
                     f"WARNING: Test {testname} has different number of kernels "
-                    f"in {dir1} than in {dir2}. Not showing diffs.",
+                    f"in {dir1} than in {dir2}. Not showing diffs for this test.",
                     file=sys.stderr,
                 )
-                if testname not in differing_tests_set:
-                    differing_tests.append(testname)
-                    differing_tests_set.add(testname)
+                self.differing_tests[testname] = (len(kernels1), len(kernels2))
 
             for kernel_num in range(len(kernels1)):
-                code1 = self.run1.get_kernel(testname, kernel_num, strip_preamble=True)
-                code2 = self.run2.get_kernel(testname, kernel_num, strip_preamble=True)
+                code1 = self.run1.get_kernel(testname, kernel_num, strip_preamble=False)
+                code2 = self.run2.get_kernel(testname, kernel_num, strip_preamble=False)
 
                 lines1 = code1.splitlines()
                 lines2 = code2.splitlines()
 
-                diff_str = "\n".join(difflib.unified_diff(
-                    lines1,
-                    lines2,
-                    fromfile=self.run1.git_rev.abbrev,
-                    tofile=self.run2.git_rev.abbrev,
-                    n=5,
-                ))
+                diff_str = "\n".join(
+                    difflib.unified_diff(
+                        lines1,
+                        lines2,
+                        fromfile=self.run1.git_rev.abbrev,
+                        tofile=self.run2.git_rev.abbrev,
+                        n=5,
+                    )
+                )
                 if len(diff_str) > 0:
                     print(testname, kernel_num, diff_str)
                     diff_obj = KernelDiff(testname, kernel_num, code1, code2, diff_str)
@@ -290,7 +333,7 @@ class TestDifferences:
 
         for testname, kernels2 in self.run2.kernel_map.items():
             if testname not in self.run1.kernel_map:
-                new_tests.append(testname)
+                self.new_tests.append(testname)
 
     def __len__(self):
         return len(self.differing_tests)
@@ -300,22 +343,54 @@ class TestDifferences:
         d = {}
         d["git1"] = self.run1.git_rev.to_dict()
         d["git2"] = self.run2.git_rev.to_dict()
+        
+        d["test_diffs"] = {}
+        for testname, diffs in self.differing_tests.items():
+            if isinstance(diffs, tuple):
+                # differing numbers of kernels produced by this test
+                d["test_diffs"][testname] = diffs
+            else:
+                d["test_diffs"][testname] = [di.to_dict() for di in diffs]
 
-    def generate_html(self, output_file: str) -> str:
+        d["new_tests"] = []
+        for testname in self.new_tests:
+            kernels_code = []
+            for i in range(len(self.run2.kernel_map[testname])):
+                kernels_code.append(highlight_code(self.run2.get_kernel(testname, i, strip_preamble=False)))
+            d["new_tests"].append({
+                "name": testname,
+                "highlighted_code": kernels_code,
+            })
+
+        d["removed_tests"] = []
+        for testname in self.removed_tests:
+            kernels_code = []
+            for i in range(len(self.run1.kernel_map[testname])):
+                kernels_code.append(highlight_code(self.run1.get_kernel(testname, i, strip_preamble=False)))
+            d["new_tests"].append({
+                "name": testname,
+                "highlighted_code": kernels_code,
+            })
+
+        return d
+
+    def generate_html(self) -> str:
         """Return a self-contained HTML string summarizing the codegen comparison"""
         import jinja2
-        import pygments
-        from pygments.lexers import CppLexer, DiffLexer
         from pygments.formatters import HtmlFormatter
 
-        env = jinja2.Environment(loader=jinja2.FileSystemLoader(searchpath="."))
-        template = env.get_template(
-            os.path.join(os.path.dirname(__file__), "templates", "codediff.html")
-        )
-        context = self.to_dict()
+        tools_dir = os.path.dirname(__file__)
+        env = jinja2.Environment(loader=jinja2.FileSystemLoader(searchpath=tools_dir))
+        template = env.get_template("templates/codediff.html")
+        import json
+        if True:  # write
+            context = self.to_dict()
+            json.dump(context, open("context.json", "w"))
+        else:  # read
+            context = json.load(open("context.json", "r"))
         context["pygments_style_defs"] = HtmlFormatter().get_style_defs(".highlight")
 
-        return template.render(template_vars)
+        return template.render(context)
 
 
 if __name__ == "__main__":
@@ -332,7 +407,15 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    test_diffs = TestDifferences(TestRun(args.dir1), TestRun(args.dir2))
+    import pickle
+
+    if False:  # write
+        test_diffs = TestDifferences(TestRun(args.dir1), TestRun(args.dir2))
+        with open("diffs.pkl", "wb") as f:
+            pickle.dump(test_diffs, f)
+    else:  # read
+        with open("diffs.pkl", "rb") as f:
+            test_diffs = pickle.load(f)
 
     if args.html:
         output_file = args.output_file
@@ -344,13 +427,21 @@ if __name__ == "__main__":
             run_name = os.path.basename(os.path.abspath(args.dir1))
             output_file = f"codediff_{abbrev1}_{abbrev2}_{run_name}.html"
         with open(output_file, "w") as f:
-            f.write(differing_tests.generate_html())
+            f.write(test_diffs.generate_html())
 
-    if len(differing_tests) == 0:
+    num_differing_kernels = 0
+    for k, v in test_diffs.differing_tests.items():
+        if isinstance(v, list):
+            num_differing_kernels += len(v)
+
+    if len(test_diffs.differing_tests) == 0:
         print("No differences found in overlapping tests!")
     else:
-        print("Differences found in the following tests:")
-        for t in differing_tests:
-            print(f"  {t}")
 
-    exit(len(differing_tests))
+        print(len(test_diffs.differing_tests), "tests found")
+    if len(test_diffs.new_tests) > 0:
+        print(len(test_diffs.new_tests), "new tests found")
+    if len(test_diffs.removed_tests) > 0:
+        print(len(test_diffs.removed_tests), "removed tests found")
+
+    exit(len(test_diffs.differing_tests))

@@ -210,6 +210,7 @@ template_vars = {
             "name": "NVFuserTestFoo",
             "kernels": [
                 {
+                    "kernel_num": 3,
                     "highlighted_code1": pygments.highlight(some_code, CppLexer(), HtmlFormatter()),
                     "highlighted_code2": pygments.highlight(some_code, CppLexer(), HtmlFormatter()),
                     "highlighted_diff": pygments.highlight(some_diff, DiffLexer(), HtmlFormatter()),
