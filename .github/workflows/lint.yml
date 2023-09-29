@@ -40,7 +40,7 @@ jobs:
       - name: Run meson build of dynamic type library
         working-directory: ${{ env.working_directory }}
         run: |
-          apt update && apt install -y libgtest-dev libgmock-dev libbenchmark-dev &
+          sudo apt update && sudo apt install -y libgtest-dev libgmock-dev libbenchmark-dev &
           pip install meson ninja &
           wait
           cd lib/dynamic_type
