@@ -10,6 +10,7 @@
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_inner.h>
+#include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
