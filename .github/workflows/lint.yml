@@ -46,7 +46,7 @@ jobs:
           cd lib/dynamic_type
           meson setup build
           meson compile -C build
-          meson test -C build
+          meson test --verbose -C build
 
   clang-tidy:
     runs-on: ubuntu-latest
