@@ -73,6 +73,31 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     return false;
   }
 
+  // check connections between inner reduction and outer reduction tvs.
+  if (!normalization_scheduler_utils::checkIfReductionsAreInnerOuter(
+          reduction_tvs1, reduction_tvs2)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedule_heuristic,
+        "to use combined reduction, inner reduction tensor should be [I,I,...,R,R] and outer reduction tensor should be [R,R,...,I,I]");
+    return false;
+  }
+
+  if (!normalization_scheduler_utils::hasSharedInput(
+          reduction_tvs1, reduction_tvs2)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedule_heuristic,
+        "to use combined reduction, inner reduction and outer reduction should have shared input.");
+    return false;
+  }
+
+  if (!normalization_scheduler_utils::isConnectedOnlyThroughReductionProducer(
+          reduction_tvs1, reduction_tvs2)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedule_heuristic,
+        "to use combined reduction, inner reduction and outer reduction should not have shared consumer, their consumers should not have shared non-outer-reduction producer.");
+    return false;
+  }
+
   // common checks for all persistent heuristics
   if (!normalization_scheduler_utils::checkViewBufferTopology(
           fusion, schedule_heuristic, reduction_tvs, inner_reduction_tvs[0])) {

@@ -230,7 +230,7 @@ bool checkReductionPattern(
 // Check view, persistent buffer, and fusion topology for the provided fusion.
 // This verification is a common step shared by all persistent kernel
 // implementations during compile-time checks.
-bool checkViewBufferTopology(
+bool checkViewOpsPersistentBufferFusionTopology(
     Fusion* fusion,
     ScheduleHeuristic heuristic,
     const std::vector<TensorView*>& reduction_tvs,

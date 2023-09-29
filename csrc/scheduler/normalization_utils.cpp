@@ -817,35 +817,9 @@ bool checkReductionPattern(
     return true;
   }
 
-  // The following checks are only for InnerOuterPersistentKernelScheduler.
   // Check the pattern equivalence for the second set of reduction TensorViews
-  // if provided
+  // if provided.
   if (!checkPattern(reduction_tvs2)) {
-    return false;
-  }
-
-  // Other topology checks if there are two sets of reduction TensorViews
-  if (!normalization_scheduler_utils::checkIfReductionsAreInnerOuter(
-          reduction_tvs1, reduction_tvs2)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic,
-        "to use combined reduction, inner reduction tensor should be [I,I,...,R,R] and outer reduction tensor should be [R,R,...,I,I]");
-    return false;
-  }
-
-  if (!normalization_scheduler_utils::hasSharedInput(
-          reduction_tvs1, reduction_tvs2)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic,
-        "to use combined reduction, inner reduction and outer reduction should have shared input.");
-    return false;
-  }
-
-  if (!normalization_scheduler_utils::isConnectedOnlyThroughReductionProducer(
-          reduction_tvs1, reduction_tvs2)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic,
-        "to use combined reduction, inner reduction and outer reduction should not have shared consumer, their consumers should not have shared non-outer-reduction producer.");
     return false;
   }
 
@@ -853,7 +827,7 @@ bool checkReductionPattern(
 }
 
 // check view ops, persistent buffer, and fusion topology
-bool checkViewBufferTopology(
+bool checkViewOpsPersistentBufferFusionTopology(
     Fusion* fusion,
     ScheduleHeuristic schedule_heuristic,
     const std::vector<TensorView*>& reduction_tvs,
