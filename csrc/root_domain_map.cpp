@@ -905,7 +905,13 @@ void ComputeAtRootDomainMapBuilder::setMaybeMapped(
   }
 
   if (consumer_id->isBroadcast()) {
-    NVF_ERROR(producer_id->isBroadcast());
+    NVF_ERROR(
+        producer_id->isBroadcast(),
+        "Trying to map a non-broadcast producer with a broadcast consumer. ",
+        "Producer: ",
+        producer_id->toString(),
+        ", consumer: ",
+        consumer_id->toString());
     // Get bcast_map_ entry for consumer_id
     const auto consumer_bcast_domains =
         root_map_.getConcretizedKeys(consumer_td, consumer_id);
@@ -942,50 +948,39 @@ void ComputeAtRootDomainMapBuilder::dispatch(Expr* e) {
   visited_.insert(e);
 }
 
-void ComputeAtRootDomainMapBuilder::mapPointwiseOrReductionOp(Expr* e) {
-  if (e->output(0)->getValType() != ValType::TensorView) {
+void ComputeAtRootDomainMapBuilder::mapPointwiseLikeOp(Expr* expr) {
+  if (expr->output(0)->getValType() != ValType::TensorView) {
     return;
   }
 
   // Broadcast is handled separately, so e should never be BroadcastOp.
-  NVF_ERROR(!e->isA<BroadcastOp>());
-  NVF_ERROR(!e->isA<SqueezeOp>());
+  NVF_ERROR(!expr->isA<BroadcastOp>());
+  NVF_ERROR(!expr->isA<SqueezeOp>());
 
-  NVF_ERROR(!e->outputs().empty());
-  const TensorView* out_tv = e->output(0)->as<TensorView>();
-  const TensorDomain* out_td = out_tv->domain();
-  const auto& out_root = out_td->root();
+  NVF_ERROR(!expr->outputs().empty());
+
+  if (expr->outputs().size() > 1) {
+    NVF_ERROR(
+        expr->isA<WelfordOp>() || expr->isA<GroupedReductionOp>() ||
+            expr->isA<GroupedWelfordOp>(),
+        "Unknown multi-output Expr type ",
+        expr->getOpString(),
+        " is found");
+  }
 
   // Record equalities from output to all the inputs
   // ignores non-concretizable broadcasts
-  for (auto* in_tv : ir_utils::filterByType<TensorView>(e->inputs())) {
-    const TensorDomain* in_td = in_tv->domain();
-    std::vector<IterDomain*> in_root =
-        TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
-    NVF_ERROR(
-        in_root.size() == out_root.size(),
-        "\nExpression: ",
-        e,
-        "\nInput root domain: ",
-        in_root,
-        "\nOutput root domain: ",
-        out_root);
-    for (const auto it : c10::irange(in_root.size())) {
-      if (e->outputs().size() > 1) {
-        NVF_ERROR(
-            e->isA<WelfordOp>() || e->isA<GroupedReductionOp>() ||
-                e->isA<GroupedWelfordOp>(),
-            "Unknown multi-output Expr type ",
-            e->getOpString(),
-            " is found");
-        for (auto out : e->outputs()) {
-          auto out_tv = out->as<TensorView>();
-          auto out_td = out_tv->domain();
-          auto out_root = out_td->root();
-          setMaybeMapped(in_td, in_root[it], out_td, out_root[it]);
-        }
-      } else {
-        setMaybeMapped(in_td, in_root[it], out_td, out_root[it]);
+  for (auto producer_tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    for (auto consumer_tv :
+         ir_utils::filterByType<TensorView>(expr->outputs())) {
+      for (const auto& mapping : PairwiseRootDomainMap(producer_tv, consumer_tv)
+                                     .mapBroadcast(true)
+                                     .mapProducerToConsumer()) {
+        setMaybeMapped(
+            producer_tv->domain(),
+            mapping.first,
+            consumer_tv->domain(),
+            mapping.second);
       }
     }
   }
@@ -1130,41 +1125,6 @@ void ComputeAtRootDomainMapBuilder::handle(GatherOp* op) {
   // mapping root domains
   for (const auto it : c10::irange(in_root.size(), out_root.size())) {
     root_map_.window_axes_.insert(out_root[it]);
-  }
-}
-
-void ComputeAtRootDomainMapBuilder::handle(TorchGatherOp* op) {
-  const TensorDomain* lookup_td = op->lookupTv()->as<TensorView>()->domain();
-  const TensorDomain* idx_td = op->indexTv()->as<TensorView>()->domain();
-  const TensorDomain* out_td = op->output(0)->as<TensorView>()->domain();
-  const auto lookup_root =
-      TensorDomain::noReductions(lookup_td->maybeRFactor());
-  const auto idx_root = TensorDomain::noReductions(idx_td->maybeRFactor());
-  const auto& out_root = out_td->root();
-
-  NVF_ERROR(
-      idx_root.size() == out_root.size(),
-      "\nExpression: ",
-      op,
-      "\nInput root domain: ",
-      idx_root,
-      "\nOutput root domain: ",
-      out_root);
-  NVF_ERROR(
-      lookup_root.size() == out_root.size(),
-      "\nExpression: ",
-      op,
-      "\nLookup root domain: ",
-      lookup_root,
-      "\nOutput root domain: ",
-      out_root);
-
-  // Only maps the index root axes unless exact_sizes is true
-  for (const auto i : c10::irange(idx_root.size())) {
-    if (static_cast<int>(i) != op->dim() && op->exactSizes()) {
-      setMaybeMapped(lookup_td, lookup_root[i], out_td, out_root[i]);
-    }
-    setMaybeMapped(idx_td, idx_root[i], out_td, out_root[i]);
   }
 }
 
