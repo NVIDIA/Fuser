@@ -227,15 +227,6 @@ bool checkReductionPattern(
     const std::vector<TensorView*>& reduction_tvs1,
     const std::vector<TensorView*>& reduction_tvs2 = {});
 
-// Check view, persistent buffer, and fusion topology for the provided fusion.
-// This verification is a common step shared by all persistent kernel
-// implementations during compile-time checks.
-bool checkViewOpsPersistentBufferFusionTopology(
-    Fusion* fusion,
-    ScheduleHeuristic heuristic,
-    const std::vector<TensorView*>& reduction_tvs,
-    TensorView* reference_tv);
-
 // The compile-time checks for both the InnerPersistentKernelScheduler and
 // OuterPersistentKernelScheduler are identical. These checks are constructed
 // using checkOpsAndInputs, checkReductionPattern, and checkViewBufferTopology.

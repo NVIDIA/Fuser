@@ -826,12 +826,34 @@ bool checkReductionPattern(
   return true;
 }
 
-// check view ops, persistent buffer, and fusion topology
-bool checkViewOpsPersistentBufferFusionTopology(
-    Fusion* fusion,
-    ScheduleHeuristic schedule_heuristic,
-    const std::vector<TensorView*>& reduction_tvs,
-    TensorView* reference_tv) {
+// The idnetical compile time check of InnerPersistentKernelScheduler and
+// OuterPersistentKernelScheduler.
+bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
+  // common checks for all persistent heuristics
+  if (!normalization_scheduler_utils::checkOpsAndInputs(
+          fusion, schedule_heuristic)) {
+    return false;
+  }
+
+  // check reduction types and pattern
+  auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  if (reduction_tvs.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedule_heuristic, "no reduction tv");
+    return false;
+  }
+  auto reduction_type =
+      reduction_scheduler_utils::getReductionType(reduction_tvs);
+  if (getPersistentHeuristicFor(reduction_type) != schedule_heuristic) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedule_heuristic,
+        "schedule_heuristic doesn't match with reduction type.");
+    return false;
+  }
+  if (!checkReductionPattern(fusion, schedule_heuristic, reduction_tvs)) {
+    return false;
+  }
+
   if (!ir_utils::getViewOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
     if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
@@ -842,6 +864,7 @@ bool checkViewOpsPersistentBufferFusionTopology(
 
     // Persistent scheduler simply uses reference_tv as the reference, if
     // that changes, this needs to be changed.
+    auto reference_tv = reduction_tvs[0];
     if (registry_utils::reductionInterferingView(
             fusion, ca_map, reference_tv)) {
       scheduler_debug_utils::canScheduleRejectReason(
@@ -903,43 +926,6 @@ bool checkViewOpsPersistentBufferFusionTopology(
     scheduler_debug_utils::canScheduleRejectReason(
         schedule_heuristic,
         "has unsupported gather-like ops before normalization");
-    return false;
-  }
-
-  return true;
-}
-
-// The idnetical compile time check of InnerPersistentKernelScheduler and
-// OuterPersistentKernelScheduler.
-bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
-  // common checks for all persistent heuristics
-  if (!normalization_scheduler_utils::checkOpsAndInputs(
-          fusion, schedule_heuristic)) {
-    return false;
-  }
-
-  // check reduction types and pattern
-  auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-  if (reduction_tvs.empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic, "no reduction tv");
-    return false;
-  }
-  auto reduction_type =
-      reduction_scheduler_utils::getReductionType(reduction_tvs);
-  if (getPersistentHeuristicFor(reduction_type) != schedule_heuristic) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic,
-        "schedule_heuristic doesn't match with reduction type.");
-    return false;
-  }
-  if (!checkReductionPattern(fusion, schedule_heuristic, reduction_tvs)) {
-    return false;
-  }
-
-  // common checks for all persistent heuristics
-  if (!normalization_scheduler_utils::checkViewBufferTopology(
-          fusion, schedule_heuristic, reduction_tvs, reduction_tvs[0])) {
     return false;
   }
 
