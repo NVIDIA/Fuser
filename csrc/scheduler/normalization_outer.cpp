@@ -814,7 +814,7 @@ std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
       prop.total_reduction_numel,
       prop.total_iteration_numel,
       prop.n_tensor_inputs,
-      prop.max_input_dtype_size,
+      prop.max_dtype_size,
       prop.max_persistent_buffer_size,
       prop.vectorize_factor);
   rparams->project_persistent_buffers = prop.project_persistent_buffers;

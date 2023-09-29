@@ -10,6 +10,7 @@
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_inner.h>
+#include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
@@ -954,7 +955,7 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
       prop.total_iteration_numel,
       prop.inner_most_dimension_numel,
       prop.n_tensor_inputs,
-      prop.max_input_dtype_size,
+      prop.max_dtype_size,
       prop.max_persistent_buffer_size,
       prop.vectorize_factor);
   rparams->project_persistent_buffers = prop.project_persistent_buffers;

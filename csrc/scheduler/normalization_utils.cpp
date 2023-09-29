@@ -5,14 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ATen/cuda/CUDAContext.h>
 #include <expr_evaluator.h>
+#include <instrumentation.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry.h>
 #include <utils.h>
-
-#include <ATen/cuda/CUDAContext.h>
 namespace nvfuser {
 namespace normalization_scheduler_utils {
 
@@ -858,15 +858,16 @@ PersistentKernelProperties getPersistentKernelProperties(
   n_tensor_inputs = std::max(n_tensor_inputs, (int64_t)1);
 
   // return collected properties to get heuristics.
+  // Return collected properties to get heuristics.
   return PersistentKernelProperties{
-      properties.inner_most_dimension_numel,
-      properties.total_reduction_numel,
-      properties.total_iteration_numel,
-      max_persistent_buffer_size,
-      n_tensor_inputs,
-      max_input_dtype_size,
-      vectorize_factor,
-      project_persistent_buffers};
+      .inner_most_dimension_numel = properties.inner_most_dimension_numel,
+      .total_reduction_numel = properties.total_reduction_numel,
+      .total_iteration_numel = properties.total_iteration_numel,
+      .max_persistent_buffer_size = max_persistent_buffer_size,
+      .n_tensor_inputs = n_tensor_inputs,
+      .max_dtype_size = max_dtype_size,
+      .vectorize_factor = vectorize_factor,
+      .project_persistent_buffers = project_persistent_buffers};
 }
 
 } // namespace normalization_scheduler_utils

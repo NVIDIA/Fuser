@@ -19,6 +19,8 @@
 
 namespace nvfuser {
 class SchedulerRuntimeInfo;
+class HeuristicSummary;
+
 namespace normalization_scheduler_utils {
 
 //! Utility class to iterate candidates of launch configurations in a
@@ -219,7 +221,7 @@ struct PersistentKernelProperties {
   int64_t total_iteration_numel;
   int64_t max_persistent_buffer_size;
   int64_t n_tensor_inputs;
-  int64_t max_input_dtype_size;
+  int64_t max_dtype_size;
   int64_t vectorize_factor;
   bool project_persistent_buffers;
 };
