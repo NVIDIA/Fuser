@@ -15,52 +15,34 @@
 
 namespace mbarrier {
 
-__device__ inline void init(uint64_t& smem_barrier, int thread_count = 1) {
-  uint32_t smem_int_ptr = toSmem(&smem_barrier);
+__device__ inline void init(uint32_t smem_barrier_ptr, int thread_count = 1) {
   asm volatile(
-      "mbarrier.init.shared.b64 [%0], %1;\n" ::"r"(smem_int_ptr),
+      "mbarrier.init.shared.b64 [%0], %1;\n" ::"r"(smem_barrier_ptr),
       "r"(thread_count));
 }
 
-__device__ inline void inval(uint64_t& smem_barrier, int thread_count = 1) {
-  uint32_t smem_int_ptr = toSmem(&smem_barrier);
-  asm volatile(
-      "mbarrier.inval.shared.b64 [%0], %1;\n" ::"r"(smem_int_ptr),
-      "r"(thread_count));
+__device__ inline void inval(uint32_t smem_barrier_ptr) {
+  asm volatile("mbarrier.inval.shared.b64 [%0];\n" ::"r"(smem_barrier_ptr));
 }
 
-__device__ inline void arrive(uint64_t& smem_barrier) {
-  uint32_t smem_int_ptr = toSmem(&smem_barrier);
+__device__ inline int64_t arrive(uint32_t smem_barrier_ptr) {
+  int64_t state;
   asm volatile(
-      "{\n"
-      ".reg .b64 state; \n"
-      "mbarrier.arrive.shared.b64   state, [%0];\n"
-      "}\n" ::"r"(smem_int_ptr));
+      "mbarrier.arrive.shared.b64   %1, [%0];\n" ::"r"(smem_barrier_ptr), "r"(state));
+  return state;
 }
 
-#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
-
-__device__ inline void arriveExpectTx(uint64_t& smem_barrier, uint32_t bytes) {
-  uint32_t smem_int_ptr = toSmem(&smem_barrier);
-  asm volatile(
-      "mbarrier.arrive.expect_tx.shared.b64 _, [%0], %1;\n" ::"r"(smem_int_ptr),
-      "r"(bytes));
-}
-
-#endif // (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
-
-__device__ inline void wait(uint64_t& smem_barrier, int phase_bit) {
-  uint32_t smem_int_ptr = toSmem(&smem_barrier);
+__device__ inline void wait(uint32_t smem_barrier_ptr, int64_t state) {
   asm volatile(
       "{\n"
       ".reg .pred                P1;\n"
       "LAB_WAIT:\n"
-      "mbarrier.try_wait.parity.shared.b64 P1, [%0], %1;\n"
+      "mbarrier.try_wait.shared.b64 P1, [%0], %1;\n"
       "@P1                       bra.uni DONE;\n"
       "bra.uni                   LAB_WAIT;\n"
       "DONE:\n"
       "}\n" ::"r"(smem_int_ptr),
-      "r"(phase_bit));
+      "r"(state));
 }
 
 } // namespace mbarrier
