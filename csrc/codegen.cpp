@@ -175,12 +175,18 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   std::string getLiteralSuffix(DataType dtype) {
-    // The type of an integer literal is automatically picked from
-    // int, long int, and long long int, so no suffix should be
-    // required. https://en.cppreference.com/w/cpp/language/integer_literal
     switch (std::get<PrimDataType>(dtype.type)) {
       case DataType::Float:
         return "f";
+      case DataType::Int:
+        // We use the LL suffix for int64_t literals
+        // See https://en.cppreference.com/w/cpp/language/integer_literal
+        // and https://en.cppreference.com/w/cpp/language/types
+        // For 64-bit Unix systems, int is 32-bit, long and long long are 64-bit
+        // For 64-bit Windows, int and long are 32-bit, long long are 64-bit
+        return "LL";
+      case DataType::Index:
+        return getLiteralSuffix(kernel_->indexType());
       default:
         return "";
     }
