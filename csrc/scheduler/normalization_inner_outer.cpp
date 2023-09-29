@@ -694,7 +694,6 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
           });
 
   auto& reduction_tvs = reduction_tv_entry.get();
-
   NVF_ERROR(!reduction_tvs.empty(), "Need reduction tensor views to schedule.");
 
   TensorView* first_inner_reduction_tv = nullptr;
@@ -708,42 +707,39 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       outer_reduction_tvs.emplace_back(tv);
     }
   }
-
   auto ref_red_tv = first_inner_reduction_tv;
 
-  NVF_ERROR(ref_red_tv != nullptr, "Reduction TensorView wasn't found.");
+  // (1) Ensure it is a reduction connected to input
+  normalization_scheduler_utils::fusionChecks(fusion, ref_red_tv);
 
-  NVF_ERROR(ref_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
-  const auto red_expr = ref_red_tv->definition();
+  // (2) reduction properties
+  auto properties =
+      scheduler_utils::getReductionProperties(fusion, runtime_info, ref_red_tv);
 
-  NVF_ERROR(
-      ir_utils::isReductionOp(red_expr),
-      "TensorView doesn't have a reduction.");
+  // (3) vectorization factor
+  auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
+  auto vectorize_factor = vectorize_helper::getVectorizationFactor(
+      runtime_info,
+      reduced_tv,
+      data_cache,
+      vectorize_helper::getVectorizationBreakPointOfReductionProducer(
+          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
 
-  auto tv_inps = ir_utils::filterByType<TensorView>(fusion->inputs());
-  NVF_ERROR(
-      std::distance(tv_inps.begin(), tv_inps.end()) > 0,
-      "Tried to schedule a fusion with no tensor inputs, currently not supported.");
-
+  // (4) info about persistent buffer
   auto persistent_buffer_info_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
           data_cache, [&fusion]() {
             return std::make_unique<scheduler_utils::PersistentBufferInfo>(
                 scheduler_utils::persistentBuffers(fusion));
           });
-
   auto& persistent_buffer_info = persistent_buffer_info_entry.get();
   NVF_ERROR(
       !persistent_buffer_info.persistent_buffers.empty(),
       "Persistent scheduler requires persistent buffers.");
-
-  auto properties =
-      scheduler_utils::getReductionProperties(fusion, runtime_info, ref_red_tv);
-
-  // Grab persistent buffer sizes
   auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
       fusion, runtime_info, persistent_buffer_info, data_cache);
 
+  // (5) can project to input?
   // Figure out if we want to projet persistent buffers to the inputs for
   // exmaple if we have an input tensor t0 that's fp16:
   //
@@ -764,61 +760,44 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   // If projected persistent buffers are smaller, they will be used.
   bool can_project = ir_utils::getViewOps(fusion).empty() &&
       persistent_buffer_size_info.projected_persistent_buffer_size > 0;
+
+  // (6) make a decision on whether to project to input
   bool project_persistent_buffers = can_project &&
       persistent_buffer_size_info.projected_persistent_buffer_size <
           persistent_buffer_size_info.persistent_buffer_size;
 
-  auto max_persistent_size = project_persistent_buffers
-      ? persistent_buffer_size_info.projected_persistent_buffer_size
-      : persistent_buffer_size_info.persistent_buffer_size;
+  // (7) Additional buffer for intermediate results of outer reductions
+  int64_t outer_reduction_buffer_size =
+      normalization_scheduler_utils::partialReductionBufferSize(
+          outer_reduction_tvs, runtime_info);
 
-  if (can_project) {
-    // In combined_inner_outer_reduction, we have additional buffers for partial
-    // results of outer reductions.
-    int64_t outer_reduction_buffer_size =
-        normalization_scheduler_utils::partialReductionBufferSize(
-            outer_reduction_tvs, runtime_info);
-
-    // for layer_norm backward, enable project to input can reuse weight shared
-    // among different rows. Although it increased register usage and may lead
-    // to register spills, the overall performance is increased. The following
-    // code will check if we can do this projection by allowing more registers.
-    // This is a temporary solution, the issue is tracked by
-    // https://github.com/csarofeen/pytorch/issues/2525
-    if (!project_persistent_buffers) {
-      int64_t total_projected_buffer_size =
-          persistent_buffer_size_info.projected_persistent_buffer_size +
-          outer_reduction_buffer_size;
-      // allow 10% more to allow project to input, 14K float should do project
-      // and 16K float should't do. more_register_factor >= 14*1024*5(three
-      // inputs, two outer reduction results)*sizeof(float) /
-      // register_file_size_full
-      constexpr float more_register_factor = 1.1;
-      const int64_t avilable_register_file_size = static_cast<int64_t>(
-          scheduler_utils::register_file_size_full * more_register_factor);
-      if (avilable_register_file_size >= total_projected_buffer_size) {
-        project_persistent_buffers = true;
-      }
-    }
-    // now we have the final decision on whether we project to input or not.
-    if (project_persistent_buffers) {
-      max_persistent_size =
-          persistent_buffer_size_info.projected_persistent_buffer_size +
-          outer_reduction_buffer_size;
-    } else {
-      max_persistent_size = persistent_buffer_size_info.persistent_buffer_size +
-          outer_reduction_buffer_size;
+  // (8) Reconsider projection to input
+  // for layer_norm backward, enable project to input can reuse weight shared
+  // among different rows. Although it increased register usage and may lead
+  // to register spills, the overall performance is increased. The following
+  // code will check if we can do this projection by allowing more registers.
+  // This is a temporary solution, the issue is tracked by
+  // https://github.com/csarofeen/pytorch/issues/2525
+  if (!project_persistent_buffers && can_project) {
+    int64_t total_projected_buffer_size =
+        persistent_buffer_size_info.projected_persistent_buffer_size +
+        outer_reduction_buffer_size;
+    // allow 10% more to allow project to input, 14K float should do project
+    // and 16K float should't do. more_register_factor >= 14*1024*5(three
+    // inputs, two outer reduction results)*sizeof(float) /
+    // register_file_size_full
+    constexpr float more_register_factor = 1.1;
+    const int64_t avilable_register_file_size = static_cast<int64_t>(
+        scheduler_utils::register_file_size_full * more_register_factor);
+    if (avilable_register_file_size >= total_projected_buffer_size) {
+      project_persistent_buffers = true;
     }
   }
-
-  auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
-
-  const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-      runtime_info,
-      reduced_tv,
-      data_cache,
-      vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
+  // now we have the final decision on whether we project to input or not.
+  auto max_persistent_size =
+      outer_reduction_buffer_size + project_persistent_buffers
+      ? persistent_buffer_size_info.projected_persistent_buffer_size
+      : persistent_buffer_size_info.persistent_buffer_size;
 
   // dtype used to store partial outer reduction in combined reduction
   const int64_t tmp_gmem_dtype_size =

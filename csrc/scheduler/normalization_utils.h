@@ -212,5 +212,24 @@ getOptionalInnerOuterPersistentBufferBatches(
 using ReductionType = reduction_scheduler_utils::ReductionType;
 ScheduleHeuristic getPersistentHeuristicFor(ReductionType reduction_type);
 
+// get argument passed to innerPersistentHeuristic and outerPersistentHeuristic
+struct PersistentKernelProperties {
+  int64_t inner_most_dimension_numel;
+  int64_t total_reduction_numel;
+  int64_t total_iteration_numel;
+  int64_t max_persistent_buffer_size;
+  int64_t n_tensor_inputs;
+  int64_t max_input_dtype_size;
+  int64_t vectorize_factor;
+  bool project_persistent_buffers;
+};
+PersistentKernelProperties getPersistentKernelProperties(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache,
+    ScheduleHeuristic heuristic);
+
+// Check the reduction tv is connected to fusion input
+void fusionChecks(Fusion* fusion, TensorView* ref_red_tv);
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser
