@@ -15,7 +15,7 @@
 
 namespace mbarrier {
 
-__device__ inline void init(uint32_t smem_barrier_ptr, int thread_count = 1) {
+__device__ inline void init(uint32_t smem_barrier_ptr, uint32_t thread_count = 1) {
   asm volatile(
       "mbarrier.init.shared.b64 [%0], %1;\n" ::"r"(smem_barrier_ptr),
       "r"(thread_count));
@@ -25,14 +25,14 @@ __device__ inline void inval(uint32_t smem_barrier_ptr) {
   asm volatile("mbarrier.inval.shared.b64 [%0];\n" ::"r"(smem_barrier_ptr));
 }
 
-__device__ inline int64_t arrive(uint32_t smem_barrier_ptr) {
-  int64_t state;
+__device__ inline uint64_t arrive(uint32_t smem_barrier_ptr) {
+  uint64_t state;
   asm volatile(
       "mbarrier.arrive.shared.b64   %1, [%0];\n" ::"r"(smem_barrier_ptr), "r"(state));
   return state;
 }
 
-__device__ inline void wait(uint32_t smem_barrier_ptr, int64_t state) {
+__device__ inline void wait(uint32_t smem_barrier_ptr, uint64_t state) {
   asm volatile(
       "{\n"
       ".reg .pred                P1;\n"
