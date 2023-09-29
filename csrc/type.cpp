@@ -220,6 +220,10 @@ static std::string data_type2string(DataType t) {
               return "nvfuser_index_t";
             case DataType::Int32:
               return "int";
+            case DataType::UInt:
+              return "uint64_t";
+            case DataType::UInt32:
+              return "uint32_t";
             case DataType::SMemAddress:
               return "unsigned";
             case DataType::ComplexFloat:
