@@ -88,31 +88,42 @@
         {% if new_tests|length > 0 %}
         <h3>New Tests</h3>
           {% for test in new_tests %}
-          <span class="test_name">{{loop.index}}: {{test.name}} <button style="box-shadow:none" ONCLICK="toggleDiv('newtestcode_{{loop.index}}')">CODE</button></span><br>
-            <div id="newtestcode_{{loop.index}}" style="display:none">
-                {{ test.highlighted_code }}
-            </div>
+          <span class="test_name"><b>{{test.name}}</b><br>
+              {% set test_num = loop.index %}
+              {% for code in test.highlighted_code %}
+              Kernel {{loop.index}}
+              <button style="box-shadow:none" ONCLICK="toggleDiv('newtestcode_{{test_num}}_{{loop.index}}')">CODE</button></span><br>
+                <div id="newtestcode_{{test_num}}_{{loop.index}}" style="display:none">
+                    {{ code }}
+                </div>
+              {% endfor %}
           {% endfor %}
         {% endif %}
 
         {% if removed_tests|length > 0 %}
         <h3>Removed Tests</h3>
           {% for test in removed_tests %}
-            <span class="test_name">{{loop.index}}: {{test.name}}</span>
+          <span class="test_name"><b>{{test.name}}</b><br>
+              {% set test_num = loop.index %}
+              {% for code in test.highlighted_code %}
+              Kernel {{loop.index}}
+              <button style="box-shadow:none" ONCLICK="toggleDiv('removedtestcode_{{test_num}}_{{loop.index}}')">CODE</button></span><br>
+                <div id="removedtestcode_{{test_num}}_{{loop.index}}" style="display:none">
+                    {{ code }}
+                </div>
+              {% endfor %}
           {% endfor %}
         {% endif %}
-        
+
         <h3>Test Diffs</h3>
       {% for test in test_diffs %}
-      <span class="test_name">{{loop.index}}: {{test.name}}</span>
-      {% if test.kernels|length > 1 %}
+      <span class="test_name">{{loop.index}}: <b>{{test.name}}</b></span>
       <br>
-      {% endif %}
           {% set outer_index = loop.index %}
           {% for kernel in test.kernels %}
           &nbsp;&nbsp;&nbsp;&nbsp;Kernel {{ kernel.number }}
             <button style="box-shadow:none" ONCLICK="toggleOldCode({{outer_index}}, {{loop.index}})">{{git1.abbrev}}</button></span>
-            <button style="box-shadow:none" ONCLICK="toggleDiff({{outer_index}}, {{loop.index}})">DIFF</button></span>
+            <button style="box-shadow:none" ONCLICK="toggleDiff({{outer_index}}, {{loop.index}})">Diff</button></span>
             <button style="box-shadow:none" ONCLICK="toggleNewCode({{outer_index}}, {{loop.index}})">{{git2.abbrev}}</button></span><br>
             <div id="oldcode_{{outer_index}}_{{loop.index}}" style="display:none">
                 {{ kernel.highlighted_code1 }}

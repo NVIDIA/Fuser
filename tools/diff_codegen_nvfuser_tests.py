@@ -19,7 +19,7 @@ import re
 import subprocess
 import sys
 from datetime import datetime
-from typing import Optional, Set, Union
+from typing import Union
 
 
 @dataclass
@@ -70,27 +70,32 @@ class GitRev:
                 in_branches.append(line)
 
         date_fmt = "%Y/%m/%d %H:%M:%S %z"
-        git_show = (
-            lambda fmt: subprocess.run(
-                [
-                    "git",
-                    "show",
-                    "--no-patch",
-                    f"--format={fmt}",
-                    f"--date=format:{date_fmt}",
-                    self.full_hash,
-                ],
-                capture_output=True,
+
+        def git_show(fmt) -> str:
+            return (
+                subprocess.run(
+                    [
+                        "git",
+                        "show",
+                        "--no-patch",
+                        f"--format={fmt}",
+                        f"--date=format:{date_fmt}",
+                        self.full_hash,
+                    ],
+                    capture_output=True,
+                )
+                .stdout.strip()
+                .decode("utf-8")
             )
-            .stdout.strip()
-            .decode("utf-8")
-        )
+
         self.title = git_show("%s")
         self.author_name = git_show("%an")
         self.author_email = git_show("%ae")
 
         # Get date and time for this commit in datetime format
-        get_datetime = lambda time_str: datetime.strptime(time_str, date_fmt)
+        def get_datetime(time_str):
+            return datetime.strptime(time_str, date_fmt)
+
         self.author_time = get_datetime(git_show("%ad"))
         self.commit_time = get_datetime(git_show("%cd"))
 
@@ -110,7 +115,6 @@ class GitRev:
         }
 
 
-
 @dataclass
 class TestRun:
     directory: str
@@ -125,6 +129,7 @@ class TestRun:
     preamble: str = None
     # lets us seek past preamble
     preamble_size_bytes: int = None
+    preamble_size_lines: int = None
 
     def __post_init__(self):
         # get description of this git rev
@@ -215,6 +220,7 @@ class TestRun:
             files_processed += 1
             if files_processed >= 50:
                 break
+        self.preamble_size_lines = len(preamble_lines)
         self.preamble = "\n".join(preamble_lines)
 
     def get_kernel(self, test_name, kernel_number, strip_preamble=True) -> str:
@@ -222,22 +228,33 @@ class TestRun:
         basename = self.kernel_map[test_name][kernel_number]
         fullname = os.path.join(self.directory, "cuda", basename)
         with open(fullname, "r") as f:
-            if strip_preamble:
-                f.seek(self.preamble_size_bytes)
-            code = f.read().strip()
+            code = ""
+            for i, line in enumerate(f.readlines()):
+                if not strip_preamble or i >= self.preamble_size_lines:
+                    # replace kernel934 with kernel1 to facilitate diffing
+                    code += re.sub(r"\bkernel\d+\b", "kernelN", line)
+        code = code.rstrip()
+        if strip_preamble and code[-1] == "}":
+            # trailing curly brace is close of namespace. This will clean it up so that we have just the kernel
+            code = code[:-1].rstrip()
         return code
+
 
 def highlight_code(code) -> str:
     import pygments
     from pygments.formatters import HtmlFormatter
-    from pygments.lexers import  CppLexer
+    from pygments.lexers import CppLexer
+
     return pygments.highlight(code, CppLexer(), HtmlFormatter())
+
 
 def highlight_diff(diff) -> str:
     import pygments
     from pygments.formatters import HtmlFormatter
-    from pygments.lexers import  DiffLexer
+    from pygments.lexers import DiffLexer
+
     return pygments.highlight(diff, DiffLexer(), HtmlFormatter())
+
 
 @dataclass
 class KernelDiff:
@@ -248,7 +265,7 @@ class KernelDiff:
     diff: str
 
     def to_dict(self):
-        print("Highlighting diff ", self.kernel_num, 'for test', self.testname)
+        print("Highlighting diff of kernel", self.kernel_num, "in test", self.testname)
         return {
             "number": self.kernel_num,
             "highlighted_code1": highlight_code(self.code1),
@@ -308,8 +325,8 @@ class TestDifferences:
                 self.differing_tests[testname] = (len(kernels1), len(kernels2))
 
             for kernel_num in range(len(kernels1)):
-                code1 = self.run1.get_kernel(testname, kernel_num, strip_preamble=False)
-                code2 = self.run2.get_kernel(testname, kernel_num, strip_preamble=False)
+                code1 = self.run1.get_kernel(testname, kernel_num, strip_preamble=True)
+                code2 = self.run2.get_kernel(testname, kernel_num, strip_preamble=True)
 
                 lines1 = code1.splitlines()
                 lines2 = code2.splitlines()
@@ -343,34 +360,51 @@ class TestDifferences:
         d = {}
         d["git1"] = self.run1.git_rev.to_dict()
         d["git2"] = self.run2.git_rev.to_dict()
-        
-        d["test_diffs"] = {}
+
+        d["test_diffs"] = []
         for testname, diffs in self.differing_tests.items():
             if isinstance(diffs, tuple):
                 # differing numbers of kernels produced by this test
-                d["test_diffs"][testname] = diffs
+                d["test_diffs"].append(diffs)
             else:
-                d["test_diffs"][testname] = [di.to_dict() for di in diffs]
+                d["test_diffs"].append(
+                    {
+                        "name": testname,
+                        "kernels": [di.to_dict() for di in diffs],
+                    }
+                )
 
         d["new_tests"] = []
         for testname in self.new_tests:
             kernels_code = []
             for i in range(len(self.run2.kernel_map[testname])):
-                kernels_code.append(highlight_code(self.run2.get_kernel(testname, i, strip_preamble=False)))
-            d["new_tests"].append({
-                "name": testname,
-                "highlighted_code": kernels_code,
-            })
+                kernels_code.append(
+                    highlight_code(
+                        self.run2.get_kernel(testname, i, strip_preamble=True)
+                    )
+                )
+            d["new_tests"].append(
+                {
+                    "name": testname,
+                    "highlighted_code": kernels_code,
+                }
+            )
 
         d["removed_tests"] = []
         for testname in self.removed_tests:
             kernels_code = []
             for i in range(len(self.run1.kernel_map[testname])):
-                kernels_code.append(highlight_code(self.run1.get_kernel(testname, i, strip_preamble=False)))
-            d["new_tests"].append({
-                "name": testname,
-                "highlighted_code": kernels_code,
-            })
+                kernels_code.append(
+                    highlight_code(
+                        self.run1.get_kernel(testname, i, strip_preamble=True)
+                    )
+                )
+            d["removed_tests"].append(
+                {
+                    "name": testname,
+                    "highlighted_code": kernels_code,
+                }
+            )
 
         return d
 
@@ -382,12 +416,7 @@ class TestDifferences:
         tools_dir = os.path.dirname(__file__)
         env = jinja2.Environment(loader=jinja2.FileSystemLoader(searchpath=tools_dir))
         template = env.get_template("templates/codediff.html")
-        import json
-        if True:  # write
-            context = self.to_dict()
-            json.dump(context, open("context.json", "w"))
-        else:  # read
-            context = json.load(open("context.json", "r"))
+        context = self.to_dict()
         context["pygments_style_defs"] = HtmlFormatter().get_style_defs(".highlight")
 
         return template.render(context)
@@ -407,21 +436,15 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    import pickle
-
-    if False:  # write
-        test_diffs = TestDifferences(TestRun(args.dir1), TestRun(args.dir2))
-        with open("diffs.pkl", "wb") as f:
-            pickle.dump(test_diffs, f)
-    else:  # read
-        with open("diffs.pkl", "rb") as f:
-            test_diffs = pickle.load(f)
+    test_diffs = TestDifferences(TestRun(args.dir1), TestRun(args.dir2))
 
     if args.html:
         output_file = args.output_file
         if output_file is None:
             # determine default output file
-            get_abbrev = lambda d: os.path.basename(os.path.dirname(os.path.abspath(d)))
+            def get_abbrev(d):
+                return os.path.basename(os.path.dirname(os.path.abspath(d)))
+
             abbrev1 = get_abbrev(args.dir1)
             abbrev2 = get_abbrev(args.dir2)
             run_name = os.path.basename(os.path.abspath(args.dir1))
@@ -437,8 +460,12 @@ if __name__ == "__main__":
     if len(test_diffs.differing_tests) == 0:
         print("No differences found in overlapping tests!")
     else:
-
-        print(len(test_diffs.differing_tests), "tests found")
+        print(
+            num_differing_kernels,
+            "from",
+            len(test_diffs.differing_tests),
+            "tests found",
+        )
     if len(test_diffs.new_tests) > 0:
         print(len(test_diffs.new_tests), "new tests found")
     if len(test_diffs.removed_tests) > 0:

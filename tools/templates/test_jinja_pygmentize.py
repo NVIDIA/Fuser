@@ -211,9 +211,15 @@ template_vars = {
             "kernels": [
                 {
                     "kernel_num": 3,
-                    "highlighted_code1": pygments.highlight(some_code, CppLexer(), HtmlFormatter()),
-                    "highlighted_code2": pygments.highlight(some_code, CppLexer(), HtmlFormatter()),
-                    "highlighted_diff": pygments.highlight(some_diff, DiffLexer(), HtmlFormatter()),
+                    "highlighted_code1": pygments.highlight(
+                        some_code, CppLexer(), HtmlFormatter()
+                    ),
+                    "highlighted_code2": pygments.highlight(
+                        some_code, CppLexer(), HtmlFormatter()
+                    ),
+                    "highlighted_diff": pygments.highlight(
+                        some_diff, DiffLexer(), HtmlFormatter()
+                    ),
                 },
             ],
         },
@@ -221,15 +227,19 @@ template_vars = {
     "new_tests": [
         {
             "name": "bat",
-            "highlighted_code": pygments.highlight(some_code, CppLexer(), HtmlFormatter()),
+            "highlighted_code": pygments.highlight(
+                some_code, CppLexer(), HtmlFormatter()
+            ),
         },
     ],
     "removed_tests": [
         {
             "name": "baz",
-            "highlighted_code": pygments.highlight(some_code, CppLexer(), HtmlFormatter()),
+            "highlighted_code": pygments.highlight(
+                some_code, CppLexer(), HtmlFormatter()
+            ),
         },
-    ]
+    ],
 }
 
 print(template.render(template_vars))
