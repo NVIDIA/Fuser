@@ -1,0 +1,129 @@
+<html>
+    <head>
+        <title>{{ git1.abbrev }} vs {{ git2.abbrev }} - NVFuser codegen diff</title>
+    <style>
+{{ pygments_style_defs }}
+    </style>
+    <script language="javascript">
+        function toggleDiv(divId) {
+            var x = document.getElementById(divId);
+            if (x.style.display === "none") {
+                x.style.display = "block";
+            } else {
+                x.style.display = "none";
+            }
+        }
+        function toggleOldCode(testnum, kernelnum) {
+            var old_div = document.getElementById(`oldcode_${testnum}_${kernelnum}`);
+            var new_div = document.getElementById(`newcode_${testnum}_${kernelnum}`);
+            var diff_div = document.getElementById(`diff_${testnum}_${kernelnum}`);
+            new_div.style.display = "none";
+            diff_div.style.display = "none";
+            if (old_div.style.display === "none") {
+                old_div.style.display = "block";
+            } else {
+                old_div.style.display = "none";
+            }
+        }
+        function toggleNewCode(testnum, kernelnum) {
+            var old_div = document.getElementById(`oldcode_${testnum}_${kernelnum}`);
+            var new_div = document.getElementById(`newcode_${testnum}_${kernelnum}`);
+            var diff_div = document.getElementById(`diff_${testnum}_${kernelnum}`);
+            old_div.style.display = "none";
+            diff_div.style.display = "none";
+            if (new_div.style.display === "none") {
+                new_div.style.display = "block";
+            } else {
+                new_div.style.display = "none";
+            }
+        }
+        function toggleDiff(testnum, kernelnum) {
+            var old_div = document.getElementById(`oldcode_${testnum}_${kernelnum}`);
+            var new_div = document.getElementById(`newcode_${testnum}_${kernelnum}`);
+            var diff_div = document.getElementById(`diff_${testnum}_${kernelnum}`);
+            old_div.style.display = "none";
+            new_div.style.display = "none";
+            if (diff_div.style.display === "none") {
+                diff_div.style.display = "block";
+            } else {
+                diff_div.style.display = "none";
+            }
+        }
+    </script>
+    </head>
+    <body>
+        <h1>{{ git1.abbrev }} vs {{ git2.abbrev }} - NVFuser codegen diff</h1>
+
+        <h2>Git information</h2>
+
+        <h3>Old commit: {{ git1.abbrev }}</h3>
+        <span>{{ git1.title }}</span><br>
+        <span>{{ git1.author_name }}</span> &lt;<span>{{ git1.author_email }}&gt;</span><br>
+        <span>{{ git1.author_datetime }}</span><br>
+        {% if git1.pull_request is defined %}
+        Pull request: {{ git1.pull_request.title }}<br>
+        <a href="https://github.com/NVIDIA/Fuser/pull/{{git1.pull_request.number}}">View PR on github.com</a><br>
+        <a href="https://github.com/NVIDIA/Fuser/pull/{{git1.pull_request.number}}/commits/{{git1.full_hash}}">Show commit on github.com</a><br>
+        {% else %}
+        <a href="https://github.com/NVIDIA/Fuser/commit/{{git1.full_hash}}">Show commit on github.com</a><br>
+        {% endif %}
+        <a href="https://github.com/NVIDIA/Fuser/tree/{{git1.full_hash}}">Browse code at this commit on github.com</a><br>
+
+        <h3>New commit: {{ git2.abbrev }}</h3>
+        <span>{{ git2.title }}</span><br>
+        <span>{{ git2.author_name }}</span> &lt;<span>{{ git2.author_email }}&gt;</span><br>
+        <span>{{ git2.author_datetime }}</span><br>
+        {% if git2.pull_request is defined %}
+        Pull request: {{ git2.pull_request.title }}<br>
+        <a href="https://github.com/NVIDIA/Fuser/pull/{{git1.pull_request.number}}">View PR on github.com</a><br>
+        <a href="https://github.com/NVIDIA/Fuser/pull/{{git2.pull_request.number}}/commits/{{git2.full_hash}}">Show commit on github.com</a><br>
+        {% else %}
+        <a href="https://github.com/NVIDIA/Fuser/commit/{{git2.full_hash}}">Show commit on github.com</a><br>
+        {% endif %}
+        <a href="https://github.com/NVIDIA/Fuser/tree/{{git2.full_hash}}">Browse code at this commit on github.com</a><br>
+
+
+        <h2>Code comparison</h2>
+
+        {% if new_tests|length > 0 %}
+        <h3>New Tests</h3>
+          {% for test in new_tests %}
+          <span class="test_name">{{loop.index}}: {{test.name}} <button style="box-shadow:none" ONCLICK="toggleDiv('newtestcode_{{loop.index}}')">CODE</button></span><br>
+            <div id="newtestcode_{{loop.index}}" style="display:none">
+                {{ test.highlighted_code }}
+            </div>
+          {% endfor %}
+        {% endif %}
+
+        {% if removed_tests|length > 0 %}
+        <h3>Removed Tests</h3>
+          {% for test in removed_tests %}
+            <span class="test_name">{{loop.index}}: {{test.name}}</span>
+          {% endfor %}
+        {% endif %}
+        
+        <h3>Test Diffs</h3>
+      {% for test in test_diffs %}
+      <span class="test_name">{{loop.index}}: {{test.name}}</span>
+      {% if test.kernels|length > 1 %}
+      <br>
+      {% endif %}
+          {% set outer_index = loop.index %}
+          {% for kernel in test.kernels %}
+          &nbsp;&nbsp;&nbsp;&nbsp;Kernel {{ loop.index }}
+            <button style="box-shadow:none" ONCLICK="toggleOldCode({{outer_index}}, {{loop.index}})">{{git1.abbrev}}</button></span>
+            <button style="box-shadow:none" ONCLICK="toggleDiff({{outer_index}}, {{loop.index}})">DIFF</button></span>
+            <button style="box-shadow:none" ONCLICK="toggleNewCode({{outer_index}}, {{loop.index}})">{{git2.abbrev}}</button></span><br>
+            <div id="oldcode_{{outer_index}}_{{loop.index}}" style="display:none">
+                {{ kernel.highlighted_code1 }}
+            </div>
+            <div id="newcode_{{outer_index}}_{{loop.index}}" style="display:none">
+                {{ kernel.highlighted_code2 }}
+            </div>
+            <div id="diff_{{outer_index}}_{{loop.index}}" style="display:none">
+                {{ kernel.highlighted_diff }}
+            </div>
+        {% endfor %}
+      {% endfor %}
+    </body>
+</html>
