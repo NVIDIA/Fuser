@@ -36,6 +36,7 @@ __device__ inline uint64_t arrive(uint32_t smem_barrier_ptr) {
 }
 
 __device__ inline void wait(uint32_t smem_barrier_ptr, uint64_t state) {
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
   asm volatile(
       "{\n"
       ".reg .pred                P1;\n"
@@ -46,6 +47,19 @@ __device__ inline void wait(uint32_t smem_barrier_ptr, uint64_t state) {
       "DONE:\n"
       "}\n" ::"r"(smem_barrier_ptr),
       "l"(state));
+#else
+  asm volatile(
+      "{\n"
+      ".reg .pred                P1;\n"
+      "LAB_WAIT:\n"
+      "mbarrier.test_wait.shared.b64 P1, [%0], %1;\n"
+      "@P1                       bra.uni DONE;\n"
+      "nanosleep.u32 20;\n"
+      "bra.uni                   LAB_WAIT;\n"
+      "DONE:\n"
+      "}\n" ::"r"(smem_barrier_ptr),
+      "l"(state));
+#endif
 }
 
 } // namespace mbarrier

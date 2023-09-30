@@ -1231,6 +1231,8 @@ std::string typePrefix(const DataType data_type) {
     case DataType::Index:
     case DataType::Int:
     case DataType::Int32:
+    case DataType::UInt:
+    case DataType::UInt32:
     case DataType::SMemAddress:
       return "i";
     case DataType::ComplexFloat:

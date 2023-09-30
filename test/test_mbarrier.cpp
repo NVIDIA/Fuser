@@ -56,7 +56,9 @@ TEST_F(MBarrierTest, Simple) {
         IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
     dynamic_smem_allocations.push_back(mbarrier_alloc);
 
-    Val* mbarrier_address = dynamic_smem_allocations.at(0)->size();
+    Val* mbarrier_address = SimplifyingIrBuilder::mulExpr(
+        dynamic_smem_allocations.at(0)->size(),
+        dataTypeSize(dynamic_smem_allocations.at(0)->buffer()->dtype()));
     mbarrier_alloc->setAddress(mbarrier_address);
 
     auto smem_alloc_it = std::find_if(
@@ -89,6 +91,26 @@ TEST_F(MBarrierTest, Simple) {
     auto init = IrBuilder::create<kir::MBarrierInit>(
         mbarrier_index, IrBuilder::create<Val>(1024, DataType::UInt32));
     top_level_exprs.insert(smem_alloc_it, init);
+
+    // Arrive and wait
+    auto sync_it = std::find_if(
+        top_level_exprs.begin(), top_level_exprs.end(), [](Expr* expr) {
+          return expr->isA<kir::BlockSync>();
+        });
+    ASSERT_NE(sync_it, top_level_exprs.end());
+    auto state = IrBuilder::create<Val>(DataType::UInt);
+    auto alloc_state = IrBuilder::create<kir::Allocate>(
+        state, MemoryType::Local, kernel->oneVal());
+    auto arrive = IrBuilder::create<kir::MBarrierArrive>(state, mbarrier_index);
+    auto wait = IrBuilder::create<kir::MBarrierWait>(mbarrier_index, state);
+    *sync_it = wait;
+    sync_it = top_level_exprs.insert(sync_it, arrive);
+    top_level_exprs.insert(sync_it, alloc_state);
+
+    // Invalidate mbarrier
+    auto invalidate =
+        IrBuilder::create<kir::MBarrierInvalidate>(mbarrier_index);
+    top_level_exprs.push_back(invalidate);
   });
 
   fe.compileFusion(&fusion);
