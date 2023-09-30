@@ -1,10 +1,8 @@
 <html>
     <head>
         <title>{{ run1.git.abbrev }} vs {{ run2.git.abbrev }} - NVFuser codegen diff</title>
-    <style>
-{{ pygments_style_defs }}
-    </style>
-    <script language="javascript">
+        <style>{{ pygments_style_defs }}</style>
+        <script language="javascript">
         function toggleDiv(divId) {
             var x = document.getElementById(divId);
             if (x.style.display === "none") {
@@ -124,115 +122,129 @@
                 div.style.display = hidden ? "block" : "none";
             });
         }
-    </script>
+        </script>
     </head>
     <body>
         <h1>{{ run1.git.abbrev }} vs {{ run2.git.abbrev }} - NVFuser codegen diff</h1>
-
         <h2>Git information</h2>
-
-        <h3>Old commit: <a href="https://github.com/NVIDIA/Fuser/commit/{{run1.git.full_hash}}">{{ run1.git.abbrev }}</a></h3>
-        <span>{{ run1.git.title }}</span><br>
-        <span>{{ run1.git.author_name }}</span> &lt;<span>{{ run1.git.author_email }}&gt;</span><br>
-        <span>{{ run1.git.author_datetime }}</span><br>
-        <a href="https://github.com/NVIDIA/Fuser/commit/{{run1.git.full_hash}}">View commit</a><br>
-        <a href="https://github.com/NVIDIA/Fuser/tree/{{run1.git.full_hash}}">Browse code at this commit</a><br>
-
-        <h3>New commit: <a href="https://github.com/NVIDIA/Fuser/commit/{{run2.git.full_hash}}">{{ run2.git.abbrev }}</a></h3>
-        <span>{{ run2.git.title }}</span><br>
-        <span>{{ run2.git.author_name }}</span> &lt;<span>{{ run2.git.author_email }}&gt;</span><br>
-        <span>{{ run2.git.author_datetime }}</span><br>
-        <a href="https://github.com/NVIDIA/Fuser/commit/{{run2.git.full_hash}}">View commit</a><br>
-        <a href="https://github.com/NVIDIA/Fuser/tree/{{run2.git.full_hash}}">Browse code at this commit</a><br>
-
-
+        <h3>
+            Old commit: <a href="https://github.com/NVIDIA/Fuser/commit/{{ run1.git.full_hash }}">{{ run1.git.abbrev }}</a>
+        </h3>
+        <span>{{ run1.git.title }}</span>
+        <br>
+        <span>{{ run1.git.author_name }}</span> &lt;<span>{{ run1.git.author_email }}&gt;</span>
+        <br>
+        <span>{{ run1.git.author_datetime }}</span>
+        <br>
+        <a href="https://github.com/NVIDIA/Fuser/commit/{{ run1.git.full_hash }}">View commit</a>
+        <br>
+        <a href="https://github.com/NVIDIA/Fuser/tree/{{ run1.git.full_hash }}">Browse code at this commit</a>
+        <br>
+        <h3>
+            New commit: <a href="https://github.com/NVIDIA/Fuser/commit/{{ run2.git.full_hash }}">{{ run2.git.abbrev }}</a>
+        </h3>
+        <span>{{ run2.git.title }}</span>
+        <br>
+        <span>{{ run2.git.author_name }}</span> &lt;<span>{{ run2.git.author_email }}&gt;</span>
+        <br>
+        <span>{{ run2.git.author_datetime }}</span>
+        <br>
+        <a href="https://github.com/NVIDIA/Fuser/commit/{{ run2.git.full_hash }}">View commit</a>
+        <br>
+        <a href="https://github.com/NVIDIA/Fuser/tree/{{ run2.git.full_hash }}">Browse code at this commit</a>
+        <br>
         <h2>Code comparison</h2>
-
         Command line: <code>{{ run1.command }}</code>
         <br>
         {% if run1.highlighted_preamble != run2.highlighted_preamble %}
-        Preamble differs between runs
-            <button style="box-shadow:none" onclick="toggleOldPreamble()">{{run1.git.abbrev}}</button></span>
-            <button style="width: 60pt; box-shadow:none" onclick="togglePreambleDiff()">Diff</button></span>
-            <button style="box-shadow:none" onclick="toggleNewPreamble()">{{run2.git.abbrev}}</button></span><br>
-            <div id="old_preamble" style="display:none">
-                {{ run1.highlighted_preamble }}
-            </div>
-            <div id="new_preamble" style="display:none">
-                {{ run1.highlighted_preamble }}
-            </div>
-            <div id="preamble_diff" style="display:none">
-                {{ highlighted_preamble_diff }}
-            </div>
-        {% else %}
-        Preamble matches between runs
-            <button style="box-shadow:none" onclick="toggleDiv('preamble')">Preamble</button></span><br>
-            <div id="preamble" style="display:none">
-                {{ run1.highlighted_preamble }}
-            </div>
-        {% endif %}
-
-        {% if new_tests|length > 0 %}
-        <h3>New Tests</h3>
-
-        <button style="box-shadow:none" onclick="toggleAllNewTestCode()">Toggle All</button></span><br><br>
-
-          {% for test in new_tests %}
-          <span class="test_name"><b>{{test.name}}</b><br>
-              {% set test_num = loop.index %}
-              {% for code in test.highlighted_code %}
-              &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{loop.index}}</span>
-              <button style="width: 60pt; box-shadow:none" onclick="toggleDiv('newtestcode_{{test_num}}_{{loop.index}}')">Code</button></span><br>
-                <div id="newtestcode_{{test_num}}_{{loop.index}}" style="display:none">
-                    {{ code }}
-                </div>
-              {% endfor %}
-              <br>
-          {% endfor %}
-        {% endif %}
-
-        {% if removed_tests|length > 0 %}
-        <h3>Removed Tests</h3>
-
-        <button style="box-shadow:none" onclick="toggleAllRemovedTestCode()">Toggle All</button></span><br><br>
-
-          {% for test in removed_tests %}
-          <span class="test_name"><b>{{test.name}}</b><br>
-              {% set test_num = loop.index %}
-              {% for code in test.highlighted_code %}
-              &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{loop.index}}</span>
-              <button style="box-shadow:none" onclick="toggleDiv('removedtestcode_{{test_num}}_{{loop.index}}')">Code</button></span><br>
-                <div id="removedtestcode_{{test_num}}_{{loop.index}}" style="display:none">
-                    {{ code }}
-                </div>
-              {% endfor %}
-          {% endfor %}
-        {% endif %}
-
-        <h3>Test Diffs</h3>
-
-        <button style="box-shadow:none" onclick="toggleAllDiffs()">Toggle All Diffs</button></span><br><br>
-
-      {% for test in test_diffs %}
-      <span class="test_name">{{loop.index}}: <b>{{test.name}}</b></span>
-      <br>
-          {% set outer_index = loop.index %}
-          {% for kernel in test.kernels %}
-          &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ kernel.number }}</span>
-            <button style="box-shadow:none" onclick="toggleOldCode({{outer_index}}, {{loop.index}})">{{run1.git.abbrev}}</button></span>
-            <button style="width: 60pt; box-shadow:none" onclick="toggleDiff({{outer_index}}, {{loop.index}})">Diff</button></span>
-            <button style="box-shadow:none" onclick="toggleNewCode({{outer_index}}, {{loop.index}})">{{run2.git.abbrev}}</button></span><br>
-            <div id="oldcode_{{outer_index}}_{{loop.index}}" style="display:none">
-                {{ kernel.highlighted_code1 }}
-            </div>
-            <div id="newcode_{{outer_index}}_{{loop.index}}" style="display:none">
-                {{ kernel.highlighted_code2 }}
-            </div>
-            <div id="diff_{{outer_index}}_{{loop.index}}" style="display:none">
-                {{ kernel.highlighted_diff }}
-            </div>
-        {% endfor %}
+            Preamble differs between runs
+            <button style="box-shadow:none" onclick="toggleOldPreamble()">{{ run1.git.abbrev }}</button>
+        </span>
+        <button style="width: 60pt; box-shadow:none" onclick="togglePreambleDiff()">Diff</button>
+    </span>
+    <button style="box-shadow:none" onclick="toggleNewPreamble()">{{ run2.git.abbrev }}</button>
+</span>
+<br>
+<div id="old_preamble" style="display:none">{{ run1.highlighted_preamble }}</div>
+<div id="new_preamble" style="display:none">{{ run1.highlighted_preamble }}</div>
+<div id="preamble_diff" style="display:none">{{ highlighted_preamble_diff }}</div>
+{% else %}
+Preamble matches between runs
+<button style="box-shadow:none" onclick="toggleDiv('preamble')">Preamble</button>
+</span>
+<br>
+<div id="preamble" style="display:none">{{ run1.highlighted_preamble }}</div>
+{% endif %}
+{% if new_tests|length > 0 %}
+    <h3>New Tests</h3>
+    <button style="box-shadow:none" onclick="toggleAllNewTestCode()">Toggle All</button>
+</span>
+<br>
+<br>
+{% for test in new_tests %}
+    <span class="test_name"><b>{{ test.name }}</b>
         <br>
-      {% endfor %}
-    </body>
+        {% set test_num = loop.index %}
+        {% for code in test.highlighted_code %}
+            &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ loop.index }}</span>
+            <button style="width: 60pt;
+                           box-shadow:none"
+                    onclick="toggleDiv('newtestcode_{{ test_num }}_{{ loop.index }}')">Code</button>
+        </span>
+        <br>
+        <div id="newtestcode_{{ test_num }}_{{ loop.index }}" style="display:none">{{ code }}</div>
+    {% endfor %}
+    <br>
+{% endfor %}
+{% endif %}
+{% if removed_tests|length > 0 %}
+    <h3>Removed Tests</h3>
+    <button style="box-shadow:none" onclick="toggleAllRemovedTestCode()">Toggle All</button>
+</span>
+<br>
+<br>
+{% for test in removed_tests %}
+    <span class="test_name"><b>{{ test.name }}</b>
+        <br>
+        {% set test_num = loop.index %}
+        {% for code in test.highlighted_code %}
+            &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ loop.index }}</span>
+            <button style="box-shadow:none"
+                    onclick="toggleDiv('removedtestcode_{{ test_num }}_{{ loop.index }}')">Code</button>
+        </span>
+        <br>
+        <div id="removedtestcode_{{ test_num }}_{{ loop.index }}"
+             style="display:none">{{ code }}</div>
+    {% endfor %}
+{% endfor %}
+{% endif %}
+<h3>Test Diffs</h3>
+<button style="box-shadow:none" onclick="toggleAllDiffs()">Toggle All Diffs</button>
+</span>
+<br>
+<br>
+{% for test in test_diffs %}
+    <span class="test_name">{{ loop.index }}: <b>{{ test.name }}</b></span>
+    <br>
+    {% set outer_index = loop.index %}
+    {% for kernel in test.kernels %}
+        &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ kernel.number }}</span>
+        <button style="box-shadow:none"
+                onclick="toggleOldCode({{ outer_index }}, {{ loop.index }})">{{ run1.git.abbrev }}</button>
+    </span>
+    <button style="width: 60pt;
+                   box-shadow:none"
+            onclick="toggleDiff({{ outer_index }}, {{ loop.index }})">Diff</button>
+</span>
+<button style="box-shadow:none"
+        onclick="toggleNewCode({{ outer_index }}, {{ loop.index }})">{{ run2.git.abbrev }}</button>
+</span>
+<br>
+<div id="oldcode_{{ outer_index }}_{{ loop.index }}" style="display:none">{{ kernel.highlighted_code1 }}</div>
+<div id="newcode_{{ outer_index }}_{{ loop.index }}" style="display:none">{{ kernel.highlighted_code2 }}</div>
+<div id="diff_{{ outer_index }}_{{ loop.index }}" style="display:none">{{ kernel.highlighted_diff }}</div>
+{% endfor %}
+<br>
+{% endfor %}
+</body>
 </html>
