@@ -19,6 +19,7 @@
 #include <ops/arith.h>
 #include <ops/utils.h>
 #include <options.h>
+#include <scheduler/cache_policy_refiner.h>
 #include <test/utils.h>
 #include <test/validator.h>
 #include <type.h>
@@ -27,7 +28,19 @@ namespace nvfuser {
 
 class MemoryTest
     : public NVFuserTest,
-      public testing::WithParamInterface<std::tuple<CacheOp, std::string>> {};
+      public testing::WithParamInterface<std::tuple<CacheOp, std::string>> {
+ protected:
+  void expectMatchCount(
+      const std::string& text,
+      const std::string& pattern,
+      const int num_matches) {
+    std::regex regex(pattern);
+    std::smatch match;
+    std::regex_search(text, match, regex);
+    EXPECT_EQ(match.size(), num_matches)
+        << "Expect " << pattern << " to occur " << num_matches << " time(s).";
+  }
+};
 
 TEST_P(MemoryTest, LoadCache) {
   CacheOp cache_op = std::get<0>(GetParam());
@@ -70,7 +83,7 @@ TEST_P(MemoryTest, LoadCache) {
   }
 
   // Verify PTX.
-  const executor_utils::CompiledKernel compiled_kernel = fe.compiledKernel();
+  const executor_utils::CompiledKernel& compiled_kernel = fe.compiledKernel();
   std::string ptx(compiled_kernel.ptx.begin(), compiled_kernel.ptx.end());
   std::regex regex(R"(ld\.global\.)" + cache_op_str + R"(\.\S+)");
   std::smatch match;
@@ -88,7 +101,7 @@ TEST_P(MemoryTest, LoadCache) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    MemoryTests,
+    CacheGlobalLoads,
     MemoryTest,
     testing::Values(
         std::make_tuple(CacheOp::AllLevels, "ca"),
@@ -99,6 +112,64 @@ INSTANTIATE_TEST_SUITE_P(
       os << std::get<0>(info.param);
       return os.str();
     });
+
+// Use ld.cs when loading streaming data and ld.ca otherwise.
+TEST_F(MemoryTest, RefineCachePolicy) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv_a = makeContigTensor(2);
+  TensorView* tv_b = makeContigTensor(1);
+  fusion.addInput(tv_a);
+  fusion.addInput(tv_b);
+  TensorView* tv_a2 = set(tv_a);
+  TensorView* tv_b2 = set(tv_b);
+  TensorView* tv_c = add(tv_a2, tv_b2);
+  TensorView* tv_c2 = set(tv_c);
+  fusion.addOutput(tv_c2);
+
+  tv_a2->merge(0);
+  tv_a2->split(0, 4);
+  tv_a2->split(0, 32);
+  TransformPropagatorWithCheck propagator(tv_a2);
+  MaxRootDomainInfoSpanningTree(tv_a2).traverse(&propagator);
+
+  tv_a2->axis(0)->parallelize(ParallelType::BIDx);
+  tv_a2->axis(1)->parallelize(ParallelType::TIDx);
+  tv_a2->axis(2)->parallelize(ParallelType::Vectorize);
+  tv_b2->axis(2)->parallelize(ParallelType::Vectorize);
+  tv_c2->axis(2)->parallelize(ParallelType::Vectorize);
+
+  refineCachePolicy(&fusion);
+
+  inlineMost();
+
+  at::Tensor a = at::randn(
+      {1024, 1024}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  at::Tensor b = at::randn(
+      {1024}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  at::Tensor c = a + b;
+
+  FusionExecutor fe;
+  {
+    DebugDumpOptionsGuard debug_dump_options_guard;
+    DebugDumpOptionsGuard::getCurOptions().set(DebugDumpOption::Ptx);
+    fe.compileFusion(&fusion, {a, b});
+  }
+
+  // Verify PTX.
+  const executor_utils::CompiledKernel& compiled_kernel = fe.compiledKernel();
+  std::string ptx(compiled_kernel.ptx.begin(), compiled_kernel.ptx.end());
+  expectMatchCount(ptx, R"(ld\.global\.ca\.v4\.\S+)", 1);
+  expectMatchCount(ptx, R"(ld\.global\.cs\.v4\.\S+)", 1);
+
+  // Clean up the dumped PTX file.
+  debug() << "Removing " << compiled_kernel.ptx_filename << std::endl;
+  std::filesystem::remove(compiled_kernel.ptx_filename);
+
+  std::vector<at::Tensor> actual_outputs = fe.runFusion({a, b});
+  testValidate(&fusion, actual_outputs, {a, b}, {c}, __LINE__, __FILE__);
+}
 
 class TMATest : public NVFuserTest {
   void SetUp() override {
@@ -234,6 +305,37 @@ TEST_F(TMATest, StoreCompleteTensor5D) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({4, 4, 4, 4, 4}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+// Basically just StoreCompleteTensor1D, but with index hoisting disabled.
+// Because index hoisting is responsible making sure that tensor maps are
+// created on the host and passed as kernel argument, we need to make sure
+// that disabling index hoisting doesn't break this.
+TEST_F(TMATest, DisableIndexHoisting) {
+  DisableOptionsGuard opt_guard;
+  opt_guard.getCurOptions().set(DisableOption::IndexHoist);
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv2->axis(0)->parallelize(ParallelType::Bulk);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({32}, options);
   FusionExecutor fe;
   fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
   auto cg_outputs = fe.runFusion({t0});

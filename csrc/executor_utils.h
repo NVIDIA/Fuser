@@ -44,7 +44,11 @@ std::string disassembleBinary(
     const std::vector<char>& cubin,
     const std::string& nvdisasm_args);
 
-struct CompiledKernel {
+// I'm not happy with CompiledKernel being a struct exposing all the fields.
+// This could be refactored.
+struct CompiledKernel : public NonCopyable {
+  ~CompiledKernel();
+
   CUmodule module = nullptr;
   CUfunction function = nullptr;
   std::string compile_log;
@@ -58,7 +62,7 @@ struct CompiledKernel {
 };
 
 // Returns executable function and the ptxas log from compilation
-CompiledKernel getCompiledKernel(
+std::unique_ptr<CompiledKernel> getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& code,
     const std::string& func_name,
@@ -67,7 +71,7 @@ CompiledKernel getCompiledKernel(
     std::optional<int64_t> opt_block_size = std::nullopt);
 
 // Returns executable function using flatbuffer object
-CompiledKernel getCompiledKernel(
+std::unique_ptr<CompiledKernel> getCompiledKernel(
     const serde::CudaKernel* buffer,
     const CompileParams& compile_params);
 

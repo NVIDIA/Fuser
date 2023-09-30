@@ -70,7 +70,7 @@ static double kNN_Native(
     double dy = point.y - query_point.y;
     double dz = point.z - query_point.z;
     double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
-    if (distances_and_values.size() < k) {
+    if ((int64_t)distances_and_values.size() < k) {
       distances_and_values.push({distance, value});
     } else if (distance < distances_and_values.top().first) {
       distances_and_values.pop();
@@ -131,7 +131,7 @@ static StructVecDouble kNN_Dictionary(
     StructVecDouble dz = point["z"] - query_point["z"];
     StructVecDouble distance =
         std::sqrt((dx * dx + dy * dy + dz * dz).as<double>());
-    if (distances_and_values.size() < k) {
+    if ((int64_t)distances_and_values.size() < k) {
       distances_and_values.push({distance, value});
     } else if (distance < distances_and_values.top().first) {
       distances_and_values.pop();

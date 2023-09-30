@@ -169,7 +169,7 @@ TEST_F(NVFuserTest, FusionClear_CUDA) {
   NVF_CHECK(fusion.inputs().empty());
   NVF_CHECK(fusion.outputs().empty());
 
-  NVF_CHECK(ir_utils::getReductionOps(&fusion).empty());
+  NVF_CHECK(!ir_utils::hasOpsOfType<ReductionOp>(&fusion));
 
   // 3. Rebuild the IR
 
@@ -3632,7 +3632,7 @@ TEST_F(NVFuserTest, FusionReduction1_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(1, 128);
@@ -3940,7 +3940,7 @@ TEST_F(NVFuserTest, FusionReduction6_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(2, bdimx);
@@ -4976,7 +4976,7 @@ TEST_F(NVFuserTest, FusionGridReduction1_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(1, bdimx);
@@ -5037,7 +5037,7 @@ TEST_F(NVFuserTest, FusionGridReduction2_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(1, bdimx);
@@ -5099,7 +5099,7 @@ TEST_F(NVFuserTest, FusionGridReduction3dim1_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(1, gdimy);
@@ -5161,7 +5161,7 @@ TEST_F(NVFuserTest, FusionGridReduction3dim0_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(0, gdimy);
@@ -5217,7 +5217,7 @@ TEST_F(NVFuserTest, FusionGridReduction4_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(1, gdimx);
@@ -5285,7 +5285,7 @@ TEST_F(NVFuserTest, FusionGridReduction5_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(1, bdimx);
@@ -5336,7 +5336,7 @@ TEST_F(NVFuserTest, FusionGridReduction6_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   // Splitting for TID
