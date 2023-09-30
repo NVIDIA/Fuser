@@ -177,6 +177,23 @@ enum class CacheOp {
   Global,
 };
 
+template <typename T, CacheOp cache_op>
+__device__ void loadGlobalToLocalCached(void* to, void* from) {
+  T* typed_to = reinterpret_cast<T*>(to);
+  T* typed_from = reinterpret_cast<T*>(from);
+  switch (cache_op) {
+    case CacheOp::AllLevels:
+      *typed_to = __ldca(typed_from);
+      break;
+    case CacheOp::Streaming:
+      *typed_to = __ldcs(typed_from);
+      break;
+    case CacheOp::Global:
+      *typed_to = __ldcg(typed_from);
+      break;
+  }
+}
+
 // For simplicity, cache_op is only used for non-volatile loads written in
 // inline assembly. Other loads are done with the default cache operator --
 // cache all levels. ld.volatile doesn't accept cache operator anyway.
@@ -197,24 +214,8 @@ __device__ void loadGlobalToLocal(
                      : "=r"(data.x), "=r"(data.y)
                      : "l"((uint2*)from));
       } else {
-        uint2& data = *reinterpret_cast<uint2*>(to);
-        switch (cache_op) {
-          case CacheOp::AllLevels:
-            asm volatile("ld.global.ca.v2.s32 {%0,%1}, [%2];"
-                         : "=r"(data.x), "=r"(data.y)
-                         : "l"((uint2*)from));
-            break;
-          case CacheOp::Streaming:
-            asm volatile("ld.global.cs.v2.s32 {%0,%1}, [%2];"
-                         : "=r"(data.x), "=r"(data.y)
-                         : "l"((uint2*)from));
-            break;
-          case CacheOp::Global:
-            asm volatile("ld.global.cg.v2.s32 {%0,%1}, [%2];"
-                         : "=r"(data.x), "=r"(data.y)
-                         : "l"((uint2*)from));
-            break;
-        }
+        loadGlobalToLocalCached<uint2, cache_op>(
+            to, const_cast<scalar_t*>(from));
       }
       break;
     }
@@ -225,27 +226,8 @@ __device__ void loadGlobalToLocal(
                      : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
                      : "l"((uint4*)from));
       } else {
-        uint4& data = *reinterpret_cast<uint4*>(to);
-        switch (cache_op) {
-          case CacheOp::AllLevels:
-            asm volatile(
-                "ld.global.ca.v4.s32 {%0,%1,%2,%3}, [%4];"
-                : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
-                : "l"((uint4*)from));
-            break;
-          case CacheOp::Streaming:
-            asm volatile(
-                "ld.global.cs.v4.s32 {%0,%1,%2,%3}, [%4];"
-                : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
-                : "l"((uint4*)from));
-            break;
-          case CacheOp::Global:
-            asm volatile(
-                "ld.global.cg.v4.s32 {%0,%1,%2,%3}, [%4];"
-                : "=r"(data.x), "=r"(data.y), "=r"(data.z), "=r"(data.w)
-                : "l"((uint4*)from));
-            break;
-        }
+        loadGlobalToLocalCached<uint4, cache_op>(
+            to, const_cast<scalar_t*>(from));
       }
       break;
     }
