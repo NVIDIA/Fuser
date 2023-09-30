@@ -13,6 +13,42 @@
                 x.style.display = "none";
             }
         }
+        function toggleOldPreamble() {
+            var old_div = document.getElementById('old_preamble');
+            var new_div = document.getElementById('new_preamble');
+            var diff_div = document.getElementById('preamble_diff');
+            new_div.style.display = "none";
+            diff_div.style.display = "none";
+            if (old_div.style.display === "none") {
+                old_div.style.display = "block";
+            } else {
+                old_div.style.display = "none";
+            }
+        }
+        function toggleNewPreamble() {
+            var old_div = document.getElementById('old_preamble');
+            var new_div = document.getElementById('new_preamble');
+            var diff_div = document.getElementById('preamble_diff');
+            old_div.style.display = "none";
+            diff_div.style.display = "none";
+            if (new_div.style.display === "none") {
+                new_div.style.display = "block";
+            } else {
+                new_div.style.display = "none";
+            }
+        }
+        function togglePreambleDiff() {
+            var old_div = document.getElementById('old_preamble');
+            var new_div = document.getElementById('new_preamble');
+            var diff_div = document.getElementById('preamble_diff');
+            old_div.style.display = "none";
+            new_div.style.display = "none";
+            if (diff_div.style.display === "none") {
+                diff_div.style.display = "block";
+            } else {
+                diff_div.style.display = "none";
+            }
+        }
         function toggleOldCode(testnum, kernelnum) {
             var old_div = document.getElementById(`oldcode_${testnum}_${kernelnum}`);
             var new_div = document.getElementById(`newcode_${testnum}_${kernelnum}`);
@@ -74,6 +110,28 @@
         <h2>Code comparison</h2>
 
         Command line: <code>{{ run1.command }}</code>
+        <br>
+        {% if run1.highlighted_preamble != run2.highlighted_preamble %}
+        Preamble differs between runs
+            <button style="box-shadow:none" onclick="toggleOldPreamble()">{{run1.git.abbrev}}</button></span>
+            <button style="width: 60pt; box-shadow:none" onclick="togglePreambleDiff()">Diff</button></span>
+            <button style="box-shadow:none" onclick="toggleNewPreamble()">{{run2.git.abbrev}}</button></span><br>
+            <div id="old_preamble" style="display:none">
+                {{ run1.highlighted_preamble }}
+            </div>
+            <div id="new_preamble" style="display:none">
+                {{ run1.highlighted_preamble }}
+            </div>
+            <div id="preamble_diff" style="display:none">
+                {{ highlighted_preamble_diff }}
+            </div>
+        {% else %}
+        Preamble matches between runs
+            <button style="box-shadow:none" onclick="toggleDiv('preamble')">Preamble</button></span><br>
+            <div id="preamble" style="display:none">
+                {{ run1.highlighted_preamble }}
+            </div>
+        {% endif %}
 
         {% if new_tests|length > 0 %}
         <h3>New Tests</h3>
@@ -82,7 +140,7 @@
               {% set test_num = loop.index %}
               {% for code in test.highlighted_code %}
               Kernel {{loop.index}}
-              <button style="width: 60pt; box-shadow:none" ONCLICK="toggleDiv('newtestcode_{{test_num}}_{{loop.index}}')">CODE</button></span><br>
+              <button style="width: 60pt; box-shadow:none" onclick="toggleDiv('newtestcode_{{test_num}}_{{loop.index}}')">CODE</button></span><br>
                 <div id="newtestcode_{{test_num}}_{{loop.index}}" style="display:none">
                     {{ code }}
                 </div>
@@ -97,7 +155,7 @@
               {% set test_num = loop.index %}
               {% for code in test.highlighted_code %}
               Kernel {{loop.index}}
-              <button style="box-shadow:none" ONCLICK="toggleDiv('removedtestcode_{{test_num}}_{{loop.index}}')">CODE</button></span><br>
+              <button style="box-shadow:none" onclick="toggleDiv('removedtestcode_{{test_num}}_{{loop.index}}')">CODE</button></span><br>
                 <div id="removedtestcode_{{test_num}}_{{loop.index}}" style="display:none">
                     {{ code }}
                 </div>
@@ -112,9 +170,9 @@
           {% set outer_index = loop.index %}
           {% for kernel in test.kernels %}
           &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 60pt">Kernel {{ kernel.number }}</span>
-            <button style="box-shadow:none" ONCLICK="toggleOldCode({{outer_index}}, {{loop.index}})">{{run1.git.abbrev}}</button></span>
-            <button style="width: 60pt; box-shadow:none" ONCLICK="toggleDiff({{outer_index}}, {{loop.index}})">Diff</button></span>
-            <button style="box-shadow:none" ONCLICK="toggleNewCode({{outer_index}}, {{loop.index}})">{{run2.git.abbrev}}</button></span><br>
+            <button style="box-shadow:none" onclick="toggleOldCode({{outer_index}}, {{loop.index}})">{{run1.git.abbrev}}</button></span>
+            <button style="width: 60pt; box-shadow:none" onclick="toggleDiff({{outer_index}}, {{loop.index}})">Diff</button></span>
+            <button style="box-shadow:none" onclick="toggleNewCode({{outer_index}}, {{loop.index}})">{{run2.git.abbrev}}</button></span><br>
             <div id="oldcode_{{outer_index}}_{{loop.index}}" style="display:none">
                 {{ kernel.highlighted_code1 }}
             </div>

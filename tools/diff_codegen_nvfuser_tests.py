@@ -229,6 +229,7 @@ class TestRun:
         d["command"] = self.command
         d["exitcode"] = self.exit_code
         d["git"] = self.git_rev.to_dict()
+        d["highlighted_preamble"] = highlight_code(self.preamble)
         return d
 
     def get_kernel(self, test_name, kernel_number, strip_preamble=True) -> str:
@@ -368,6 +369,18 @@ class TestDifferences:
         d = {}
         d["run1"] = self.run1.to_dict()
         d["run2"] = self.run2.to_dict()
+
+        d["highlighted_preamble_diff"] = highlight_diff(
+            "\n".join(
+                difflib.unified_diff(
+                    self.run1.preamble.splitlines(),
+                    self.run2.preamble.splitlines(),
+                    fromfile=self.run1.git_rev.abbrev,
+                    tofile=self.run2.git_rev.abbrev,
+                    n=5,
+                )
+            )
+        )
 
         d["test_diffs"] = []
         for testname, diffs in self.differing_tests.items():
