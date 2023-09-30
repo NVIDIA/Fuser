@@ -140,11 +140,12 @@
               {% set test_num = loop.index %}
               {% for code in test.highlighted_code %}
               Kernel {{loop.index}}
-              <button style="width: 60pt; box-shadow:none" onclick="toggleDiv('newtestcode_{{test_num}}_{{loop.index}}')">CODE</button></span><br>
+              <button style="width: 60pt; box-shadow:none" onclick="toggleDiv('newtestcode_{{test_num}}_{{loop.index}}')">Code</button></span><br>
                 <div id="newtestcode_{{test_num}}_{{loop.index}}" style="display:none">
                     {{ code }}
                 </div>
               {% endfor %}
+              <br>
           {% endfor %}
         {% endif %}
 
@@ -155,7 +156,7 @@
               {% set test_num = loop.index %}
               {% for code in test.highlighted_code %}
               Kernel {{loop.index}}
-              <button style="box-shadow:none" onclick="toggleDiv('removedtestcode_{{test_num}}_{{loop.index}}')">CODE</button></span><br>
+              <button style="box-shadow:none" onclick="toggleDiv('removedtestcode_{{test_num}}_{{loop.index}}')">Code</button></span><br>
                 <div id="removedtestcode_{{test_num}}_{{loop.index}}" style="display:none">
                     {{ code }}
                 </div>
