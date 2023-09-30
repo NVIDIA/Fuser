@@ -339,9 +339,7 @@ class MBarrierInit final : public Expr {
 class MBarrierInvalidate final : public Expr {
  public:
   using Expr::Expr;
-  explicit MBarrierInvalidate(
-      IrBuilderPasskey passkey,
-      Val* mbarrier);
+  explicit MBarrierInvalidate(IrBuilderPasskey passkey, Val* mbarrier);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -360,10 +358,7 @@ class MBarrierInvalidate final : public Expr {
 class MBarrierArrive final : public Expr {
  public:
   using Expr::Expr;
-  explicit MBarrierArrive(
-      IrBuilderPasskey passkey,
-      Val* state,
-      Val* mbarrier);
+  explicit MBarrierArrive(IrBuilderPasskey passkey, Val* state, Val* mbarrier);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -386,10 +381,7 @@ class MBarrierArrive final : public Expr {
 class MBarrierWait final : public Expr {
  public:
   using Expr::Expr;
-  explicit MBarrierWait(
-      IrBuilderPasskey passkey,
-      Val* mbarrier,
-      Val* state);
+  explicit MBarrierWait(IrBuilderPasskey passkey, Val* mbarrier, Val* state);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
