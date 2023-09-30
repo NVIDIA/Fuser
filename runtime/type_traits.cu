@@ -51,13 +51,3 @@ template <typename T>
 struct IsPointerType<T*> {
   static constexpr bool value = true;
 };
-
-template <typename T>
-struct IsVolatile {
-  static constexpr bool value = false;
-};
-
-template <typename T>
-struct IsVolatile<volatile T> {
-  static constexpr bool value = false;
-};
