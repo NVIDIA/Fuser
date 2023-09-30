@@ -12,7 +12,7 @@ Example usage:
 """
 
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, InitVar
 import difflib
 import os
 import re
@@ -23,26 +23,14 @@ from typing import Union
 
 
 @dataclass
-class GitBranch:
-    name: str
-    # TODO: get the name of tracking branch
-    # tracking_branch
-
-    def __post_init__(self):
-        # TODO: find tracking branch for this branch
-        pass
-
-
-@dataclass
 class GitRev:
     abbrev: str
-    title: str = None
-    full_hash: str = None
-    in_branches: list[GitBranch] = field(default_factory=list)
-    author_name: str = None
-    author_email: str = None
-    author_time: datetime.time = None
-    commit_time: datetime.time = None
+    title: str = field(init=False)
+    full_hash: str = field(init=False)
+    author_name: str = field(init=False)
+    author_email: str = field(init=False)
+    author_time: datetime.time = field(init=False)
+    commit_time: datetime.time = field(init=False)
 
     def __post_init__(self):
         self.full_hash = (
@@ -118,20 +106,22 @@ class GitRev:
 @dataclass
 class TestRun:
     directory: str
-    git_rev: GitRev = None
-    run_name: str = None
-    command: str = None
-    exit_code: int = None
+    git_rev: GitRev = field(init=False)
+    run_name: str = field(init=False)
+    command: str = field(init=False)
+    exit_code: int = field(init=False)
     # map from name of test to list of kernel base filenames
-    kernel_map: dict[str, list[str]] = field(default_factory=dict)
+    kernel_map: dict[str, list[str]] = field(init=False)
     # collecting the preamble lets us skip it when diffing, and lets us compare
     # only the preamble between runs
-    preamble: str = None
+    preamble: str = field(init=False)
     # lets us seek past preamble
-    preamble_size_bytes: int = None
-    preamble_size_lines: int = None
+    preamble_size_bytes: int = field(init=False)
+    preamble_size_lines: int = field(init=False)
 
     def __post_init__(self):
+        self.run_name = os.path.basename(self.directory)
+
         # get description of this git rev
         abbrev = os.path.basename(os.path.dirname(os.path.abspath(self.directory)))
         self.git_rev = GitRev(abbrev)
@@ -178,6 +168,7 @@ class TestRun:
         ansi_re = re.compile(r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]")
         current_test = None
         current_files = []
+        self.kernel_map = {}
         for line in open(logfile, "r").readlines():
             line = ansi_re.sub("", line.strip())
             if line[:13] == "[ RUN      ] ":
@@ -299,12 +290,12 @@ class LastUpdatedOrderedDict(OrderedDict):
 class TestDifferences:
     run1: TestRun
     run2: TestRun
-    # eitehr a list of diffs, or different numbers of kernels present
+    # either a list of diffs, or different numbers of kernels present
     differing_tests: LastUpdatedOrderedDict[
         str, Union[tuple[int, int], list[KernelDiff]]
-    ] = field(default_factory=LastUpdatedOrderedDict)
-    new_tests: list[str] = field(default_factory=list)
-    removed_tests: list[str] = field(default_factory=list)
+    ] = field(init=False)
+    new_tests: list[str] = field(init=False)
+    removed_tests: list[str] = field(init=False)
 
     def __post_init__(self):
         if self.run1.command != self.run2.command:
@@ -321,6 +312,9 @@ class TestDifferences:
         if self.run1.preamble != self.run2.preamble:
             print("Preambles differ between runs indicating changes to runtime files")
 
+        self.differing_tests = {}
+        self.new_tests = []
+        self.removed_tests = []
         for testname, kernels1 in self.run1.kernel_map.items():
             if testname not in self.run2.kernel_map:
                 self.removed_tests.append(testname)
