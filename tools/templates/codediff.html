@@ -85,6 +85,45 @@
                 diff_div.style.display = "none";
             }
         }
+        function toggleAllNewTestCode() {
+            <!-- Turn off all code blocks -->
+            var all_divs = document.querySelectorAll('[id^="newtestcode_"]');
+            if (all_divs.length == 0) {
+                return;
+            }
+            var hidden = all_divs.item(0).style.display === "none";
+            all_divs.forEach((div) => {
+                div.style.display = hidden ? "block" : "none";
+            });
+        }
+        function toggleAllRemovedTestCode() {
+            <!-- Turn off all code blocks -->
+            var all_divs = document.querySelectorAll('[id^="removedtestcode_"]');
+            if (all_divs.length == 0) {
+                return;
+            }
+            var hidden = all_divs.item(0).style.display === "none";
+            all_divs.forEach((div) => {
+                div.style.display = hidden ? "block" : "none";
+            });
+        }
+        function toggleAllDiffs() {
+            <!-- Turn off all code blocks -->
+            document.querySelectorAll('[id^="oldcode_"]').forEach((div) => {
+                div.style.display = "none";
+            });
+            document.querySelectorAll('[id^="newcode_"]').forEach((div) => {
+                div.style.display = "none";
+            });
+            all_diff_divs = document.querySelectorAll('[id^="diff_"]');
+            if (all_diff_divs.length == 0) {
+                return;
+            }
+            var hidden = all_diff_divs.item(0).style.display === "none";
+            all_diff_divs.forEach((div) => {
+                div.style.display = hidden ? "block" : "none";
+            });
+        }
     </script>
     </head>
     <body>
@@ -135,11 +174,14 @@
 
         {% if new_tests|length > 0 %}
         <h3>New Tests</h3>
+
+        <button style="box-shadow:none" onclick="toggleAllNewTestCode()">Toggle All</button></span><br><br>
+
           {% for test in new_tests %}
           <span class="test_name"><b>{{test.name}}</b><br>
               {% set test_num = loop.index %}
               {% for code in test.highlighted_code %}
-              Kernel {{loop.index}}
+              &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{loop.index}}</span>
               <button style="width: 60pt; box-shadow:none" onclick="toggleDiv('newtestcode_{{test_num}}_{{loop.index}}')">Code</button></span><br>
                 <div id="newtestcode_{{test_num}}_{{loop.index}}" style="display:none">
                     {{ code }}
@@ -151,11 +193,14 @@
 
         {% if removed_tests|length > 0 %}
         <h3>Removed Tests</h3>
+
+        <button style="box-shadow:none" onclick="toggleAllRemovedTestCode()">Toggle All</button></span><br><br>
+
           {% for test in removed_tests %}
           <span class="test_name"><b>{{test.name}}</b><br>
               {% set test_num = loop.index %}
               {% for code in test.highlighted_code %}
-              Kernel {{loop.index}}
+              &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{loop.index}}</span>
               <button style="box-shadow:none" onclick="toggleDiv('removedtestcode_{{test_num}}_{{loop.index}}')">Code</button></span><br>
                 <div id="removedtestcode_{{test_num}}_{{loop.index}}" style="display:none">
                     {{ code }}
@@ -165,12 +210,15 @@
         {% endif %}
 
         <h3>Test Diffs</h3>
+
+        <button style="box-shadow:none" onclick="toggleAllDiffs()">Toggle All Diffs</button></span><br><br>
+
       {% for test in test_diffs %}
       <span class="test_name">{{loop.index}}: <b>{{test.name}}</b></span>
       <br>
           {% set outer_index = loop.index %}
           {% for kernel in test.kernels %}
-          &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 60pt">Kernel {{ kernel.number }}</span>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ kernel.number }}</span>
             <button style="box-shadow:none" onclick="toggleOldCode({{outer_index}}, {{loop.index}})">{{run1.git.abbrev}}</button></span>
             <button style="width: 60pt; box-shadow:none" onclick="toggleDiff({{outer_index}}, {{loop.index}})">Diff</button></span>
             <button style="box-shadow:none" onclick="toggleNewCode({{outer_index}}, {{loop.index}})">{{run2.git.abbrev}}</button></span><br>
