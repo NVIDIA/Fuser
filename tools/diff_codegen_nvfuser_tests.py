@@ -229,6 +229,9 @@ class TestRun:
         d["command"] = self.command
         d["exitcode"] = self.exit_code
         d["git"] = self.git_rev.to_dict()
+        # NOTE: including preamble can add 5-6MB to the file size.
+        # TODO: Optionally skip including the preamble in the report in order
+        # to reduce file size
         d["highlighted_preamble"] = highlight_code(self.preamble)
         return d
 
