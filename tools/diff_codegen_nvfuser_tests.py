@@ -12,14 +12,14 @@ Example usage:
 """
 
 from collections import OrderedDict
-from dataclasses import dataclass, field, InitVar
+from dataclasses import dataclass, field
 import difflib
 import os
 import re
 import subprocess
 import sys
 from datetime import datetime
-from typing import Union
+from typing import Optional
 
 
 @dataclass
@@ -104,6 +104,60 @@ class GitRev:
 
 
 @dataclass
+class CompiledKernel:
+    filename: str
+    ptxas_info: Optional[str] = None
+    gmem_bytes: Optional[int] = None
+    smem_bytes: Optional[int] = None
+    # maps from constant memory bank to bytes
+    cmem_bank_to_bytes: Optional[dict[int, int]] = None
+    registers: Optional[int] = None
+    target_arch: Optional[str] = None
+    stack_frame_bytes: Optional[int] = None
+    spill_store_bytes: Optional[int] = None
+    spill_load_bytes: Optional[int] = None
+
+    def __post_init__(self):
+        self.parse_ptxas()
+
+    def parse_ptxas(self):
+        # Example input:
+        #
+        #   ptxas info    : 307 bytes gmem
+        #   ptxas info    : Compiling entry function '_ZN11CudaCodeGen7kernel1ENS_6TensorIfLi2ELi2EEES1_S1_' for 'sm_86'
+        #   ptxas info    : Function properties for _ZN11CudaCodeGen7kernel1ENS_6TensorIfLi2ELi2EEES1_S1_
+        #   ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+        #   ptxas info    : Used 203 registers, 16 bytes smem, 472 bytes cmem[0], 8 bytes cmem[2]
+        #
+        # Here we parse this into the fields presented, and we replace the
+        # mangled kernel name since it includes the kernel number and is
+        # useless for the purposes of diffing since the kernel signature is
+        # already included.
+        if self.ptxas_info is None:
+            return
+
+        self.ptxas_info = re.sub(r"\b_Z.*\b", "[mangled kernel name]", self.ptxas_info)
+
+        def find_unique_int(pattern) -> Optional[int]:
+            g = re.search(r"(\d+) bytes gmem").groups()
+            return None if len(g) == 0 else int(g[0])
+
+        self.stack_frame_bytes = find_unique_int(r"(\d+) bytes stack frame")
+        self.spill_store_bytes = find_unique_int(r"(\d+) bytes spill stores")
+        self.spill_load_bytes = find_unique_int(r"(\d+) bytes spill loads")
+        self.registers = find_unique_int(r"(\d+) registers")
+        self.gmem_bytes = find_unique_int(r"(\d+) bytes gmem")
+        self.smem_bytes = find_unique_int(r"(\d+) bytes smem")
+
+        cmem = {}
+        for m in re.finditer(r"(\d+) bytes cmem\[(\d+)\]", self.ptxas_info):
+            nbytes, bank = m.groups()
+            cmem[bank] = nbytes
+        if len(cmem) != 0:
+            self.cmem_bank_to_bytes = cmem
+
+
+@dataclass
 class TestRun:
     directory: str
     git_rev: GitRev = field(init=False)
@@ -141,8 +195,6 @@ class TestRun:
         self.compute_kernel_map()
 
         self.find_preamble()
-
-        print("End of TestRun post_init")
 
     def compute_kernel_map(self):
         """
@@ -183,7 +235,26 @@ class TestRun:
                 if line[-3:] == ".cu":
                     # This avoids comparing the .ptx files that are created then
                     # removed by the MemoryTest.LoadCache tests
-                    current_files.append(line[10:])
+                    current_files.append(CompiledKernel(line[10:]))
+            elif line[:6] == "ptxas ":
+                # NVFUSER_DUMP=ptxas_verbose corresponds to nvcc --ptxas-options=-v or --resources-usage
+                # This always prints after printing the cuda filename
+                # Example output:
+                # PRINTING: __tmp_kernel11.cu
+                #   ptxas info    : 307 bytes gmem
+                #   ptxas info    : Compiling entry function '_ZN11CudaCodeGen8kernel11ENS_6TensorIfLi2ELi2EEES1_S1_' for 'sm_86'
+                #   ptxas info    : Function properties for _ZN11CudaCodeGen8kernel11ENS_6TensorIfLi2ELi2EEES1_S1_
+                #   ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
+                #   ptxas info    : Used 14 registers, 472 bytes cmem[0]
+                #
+                # Here we parse hold this printout to use in the diff. We also attempt to parse it and store the information as best we can
+                if len(current_files) == 0:
+                    print("WARNING: Cannot associate ptxas info with CUDA kernel")
+                    continue
+                if current_files[-1].ptxas_info is None:
+                    current_files[-1].ptxas_info = line
+                else:
+                    current_files[-1].ptxas_info += line + "\n"
 
     def find_preamble(self):
         """Look for common preamble in collected kernels"""
@@ -228,10 +299,14 @@ class TestRun:
 
     def get_kernel(self, test_name, kernel_number, strip_preamble=True) -> str:
         """Get a string of the kernel, optionally stripping the preamble"""
-        basename = self.kernel_map[test_name][kernel_number]
+        kern = self.kernel_map[test_name][kernel_number]
+        basename = kern.filename
         fullname = os.path.join(self.directory, "cuda", basename)
+        code = ""
+        if kern.ptxas_info is not None:
+            for line in kern.ptxas_info.splitlines():
+                code += f"// {line}\n"
         with open(fullname, "r") as f:
-            code = ""
             for i, line in enumerate(f.readlines()):
                 if not strip_preamble or i >= self.preamble_size_lines:
                     # replace kernel934 with kernel1 to facilitate diffing
@@ -292,7 +367,7 @@ class TestDifferences:
     run2: TestRun
     # either a list of diffs, or different numbers of kernels present
     differing_tests: LastUpdatedOrderedDict[
-        str, Union[tuple[int, int], list[KernelDiff]]
+        str, tuple[int, int] | list[KernelDiff]
     ] = field(init=False)
     new_tests: list[str] = field(init=False)
     removed_tests: list[str] = field(init=False)
