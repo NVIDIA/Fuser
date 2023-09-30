@@ -16,7 +16,15 @@
 
 namespace nvfuser {
 
-class MBarrierTest : public NVFuserTest {};
+class MBarrierTest : public NVFuserTest {
+  void SetUp() override {
+    // requires Ampere or newer
+    if (!deviceMajorMinorCheck(8)) {
+      GTEST_SKIP() << "skipping tests on pre-Ampere GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
 
 TEST_F(MBarrierTest, Simple) {
   Fusion fusion;
@@ -38,6 +46,7 @@ TEST_F(MBarrierTest, Simple) {
   FusionExecutor fe;
 
   fe.registerPostLoweringHook([](kir::Kernel* kernel) {
+    // Replace block sync with mbarrier
     FusionGuard fg(kernel);
 
     std::vector<Expr*>& top_level_exprs =
