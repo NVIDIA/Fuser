@@ -9669,6 +9669,29 @@ TEST_F(NVFuserTest, VectorizationStrideValidation) {
   ASSERT_TRUE(cg_outputs[0].equal(t0));
 }
 
+// Test that Int constants used in expressions that would overflow, do not
+TEST_F(NVFuserTest, ConstLongExpressions) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto s0 = IrBuilder::create<Val>(65536L, DataType::Int);
+  auto s1 = mul(s0, s0);
+
+  auto tv0 = full({}, s1, DataType::Int);
+  fusion->addOutput(tv0);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion);
+
+  auto outputs = fe.runFusion({});
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::Tensor t0 = at::full({}, 65536L * 65536L, options);
+
+  testValidate(fusion, outputs, {}, {t0}, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
