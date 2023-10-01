@@ -9669,7 +9669,8 @@ TEST_F(NVFuserTest, VectorizationStrideValidation) {
   ASSERT_TRUE(cg_outputs[0].equal(t0));
 }
 
-// Test that Int constants used in expressions that would overflow, do not
+// Test that Int constants used in expressions that would overflow for 32-bit
+// ints do not overflow in the generated kernel.
 TEST_F(NVFuserTest, ConstLongExpressions) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion* fusion = fusion_ptr.get();
@@ -9677,6 +9678,12 @@ TEST_F(NVFuserTest, ConstLongExpressions) {
 
   auto s0 = IrBuilder::create<Val>(65536L, DataType::Int);
   auto s1 = mul(s0, s0);
+  // If s1 is printed in the kernel as "65536 * 65536" then it might be
+  // evaluated at compiled time or not, and either way it will _likely_ be
+  // evaluated using 32-bit ints instead of 64-bit as intended. The compiler
+  // does this because promoting literals to long would change the value of the
+  // expression.
+  // See https://github.com/NVIDIA/Fuser/pull/998
 
   auto tv0 = full({}, s1, DataType::Int);
   fusion->addOutput(tv0);
