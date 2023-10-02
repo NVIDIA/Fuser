@@ -84,13 +84,13 @@ class CompiledKernel:
     ptxas_info: str | None = None
     gmem_bytes: int | None = None
     smem_bytes: int | None = None
-    # maps from constant memory bank to bytes
-    cmem_bank_to_bytes: dict[int, int] | None = None
+    cmem_bank_bytes: list[int] | None = None
     registers: int | None = None
     target_arch: str | None = None
     stack_frame_bytes: int | None = None
     spill_store_bytes: int | None = None
     spill_load_bytes: int | None = None
+    index_type: str | None = None
 
     def __post_init__(self):
         self.parse_ptxas()
@@ -114,8 +114,8 @@ class CompiledKernel:
         self.ptxas_info = re.sub(r"\b_Z.*\b", "[mangled kernel name]", self.ptxas_info)
 
         def find_unique_int(pattern) -> int | None:
-            g = re.search(r"(\d+) bytes gmem").groups()
-            return None if len(g) == 0 else int(g[0])
+            m = re.search(pattern, self.ptxas_info)
+            return None if m is None else int(m.groups()[0])
 
         self.stack_frame_bytes = find_unique_int(r"(\d+) bytes stack frame")
         self.spill_store_bytes = find_unique_int(r"(\d+) bytes spill stores")
@@ -124,12 +124,13 @@ class CompiledKernel:
         self.gmem_bytes = find_unique_int(r"(\d+) bytes gmem")
         self.smem_bytes = find_unique_int(r"(\d+) bytes smem")
 
-        cmem = {}
+        self.cmem_bank_bytes = []
         for m in re.finditer(r"(\d+) bytes cmem\[(\d+)\]", self.ptxas_info):
-            nbytes, bank = m.groups()
-            cmem[bank] = nbytes
-        if len(cmem) != 0:
-            self.cmem_bank_to_bytes = cmem
+            nbytes_str, bank_str = m.groups()
+            bank = int(bank_str)
+            if len(self.cmem_bank_bytes) <= bank:
+                self.cmem_bank_bytes += [0] * (bank + 1 - len(self.cmem_bank_bytes))
+            self.cmem_bank_bytes[bank] = int(nbytes_str)
 
 
 @dataclass
@@ -202,33 +203,45 @@ class TestRun:
         ansi_re = re.compile(r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]")
         current_test = None
         current_files = []
+        ptxas_info = ""
+        kernels = []
+
+        def finalize_kernel():
+            nonlocal ptxas_info
+            if len(current_files) > 0:
+                kernels.append(CompiledKernel(current_files[-1], ptxas_info=ptxas_info))
+            ptxas_info = ""
+
+        def finalize_test():
+            nonlocal current_test
+            nonlocal kernels
+            assert current_test is not None
+            finalize_kernel()
+            if len(current_files) > 0:
+                kernels.append(CompiledKernel(current_files[-1], ptxas_info=ptxas_info))
+                self.kernel_map[current_test] = CompiledTest(current_test, kernels)
+                current_test = None
+                kernels = []
+
         for line in open(logfile, "r").readlines():
             line = ansi_re.sub("", line.strip())
             if line[:13] == "[ RUN      ] ":
                 current_test = line[13:]
             elif line[:13] == "[       OK ] ":
-                # Finalize test
-                assert current_test is not None
-                self.kernel_map[current_test] = CompiledTest(
-                    current_test, current_files
-                )
-                current_test = None
-                current_files = []
+                finalize_test()
             elif line[:10] == "PRINTING: ":
                 if line[-3:] == ".cu":
+                    finalize_kernel()
                     # This avoids comparing the .ptx files that are created then
                     # removed by the MemoryTest.LoadCache tests
-                    current_files.append(CompiledKernel(line[10:]))
+                    current_files.append(line[10:])
             elif line[:6] == "ptxas ":
                 # NVFUSER_DUMP=ptxas_verbose corresponds to nvcc --ptxas-options=-v or --resources-usage
                 # This always prints after printing the cuda filename
                 if len(current_files) == 0:
                     print("WARNING: Cannot associate ptxas info with CUDA kernel")
                     continue
-                if current_files[-1].ptxas_info is None:
-                    current_files[-1].ptxas_info = line
-                else:
-                    current_files[-1].ptxas_info += line + "\n"
+                ptxas_info += line + "\n"
 
     def find_preamble(self):
         """Look for common preamble in collected kernels"""
@@ -242,7 +255,7 @@ class TestRun:
                     line = line.rstrip()
                     # we set nvfuser_index_t in the preamble. We ignore that change for the purposes of this diff
                     if line[:8] == "typedef " and line[-17:] == " nvfuser_index_t;":
-                        line = "typedef int nvfuser_index_t; // NOTE: hardcoded to int for easier diffing"
+                        line = "typedef int nvfuser_index_t; // NOTE: index type hard-coded as int for display only"
                     if first:
                         preamble_lines.append(line)
                     elif i >= len(preamble_lines) or preamble_lines[i] != line:
@@ -268,6 +281,10 @@ class TestRun:
         kern.code = ""
         with open(fullname, "r") as f:
             for i, line in enumerate(f.readlines()):
+                if kern.index_type is None:
+                    m = re.search(r"typedef\s+(\S*)\s+nvfuser_index_t;", line)
+                    if m is not None:
+                        kern.index_type = m.groups()[0]
                 if not strip_preamble or i >= self.preamble_size_lines:
                     # replace kernel934 with kernel1 to facilitate diffing
                     kern.code += re.sub(r"\bkernel\d+\b", "kernelN", line)
@@ -284,7 +301,19 @@ class KernelDiff:
     kernel_num: int
     kernel1: CompiledKernel
     kernel2: CompiledKernel
-    diff: str
+    diff_lines: InitVar[list[str]]
+    diff: str = field(init=False)
+    new_lines: int = 0
+    removed_lines: int = 0
+
+    def __post_init__(self, diff_lines: list[str]):
+        self.diff = "\n".join(diff_lines)
+
+        for line in diff_lines:
+            if line[:2] == "+ ":
+                self.new_lines += 1
+            elif line[:2] == "- ":
+                self.removed_lines += 1
 
 
 @dataclass
@@ -361,7 +390,7 @@ class TestDifferences:
                 kern1 = self.run1.get_kernel(testname, kernel_num, strip_preamble=True)
                 kern2 = self.run2.get_kernel(testname, kernel_num, strip_preamble=True)
 
-                diff_str = "\n".join(
+                diff_lines = list(
                     difflib.unified_diff(
                         kern1.code.splitlines(),
                         kern2.code.splitlines(),
@@ -370,13 +399,12 @@ class TestDifferences:
                         n=5,
                     )
                 )
-                if len(diff_str) > 0:
+                if len(diff_lines) > 0:
+                    kd = KernelDiff(testname, kernel_num, kern1, kern2, diff_lines)
                     if show_diffs:
-                        print(testname, kernel_num, diff_str)
+                        print(testname, kernel_num, kd.diff)
                     self.total_num_diffs += 1
-                    kernel_diffs.append(
-                        KernelDiff(testname, kernel_num, kern1, kern2, diff_str)
-                    )
+                    kernel_diffs.append(kd)
 
             if len(kernel_diffs) > 0:
                 self.test_diffs.append(TestDiff(testname, kernel_diffs))
@@ -466,4 +494,5 @@ if __name__ == "__main__":
     if len(td.removed_tests) > 0:
         print(len(td.removed_tests), "removed tests found")
 
-    exit(len(td.test_diffs))
+    # Return 1 if preamble or any kernels are changed, else 0
+    exit(1 if len(td.test_diffs) > 0 or len(td.preamble_diff) > 0 else 0)

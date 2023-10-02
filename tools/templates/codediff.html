@@ -244,12 +244,12 @@
 <br>
 <br>
 {% set loop_vars = namespace(total_diffs=0) %}
-{% for test in test_diffs %}
+{% for test_diff in test_diffs %}
     {% if loop_vars.total_diffs < max_diffs %}
-        <span class="test_name">{{ loop.index }}: <b>{{ test.name }}</b></span>
+        <span class="test_name">{{ loop.index }}: <b>{{ test_diff.testname }}</b></span>
         <br>
         {% set outer_index = loop.index %}
-        {% for kernel_diff in test.kernel_diffs %}
+        {% for kernel_diff in test_diff.kernel_diffs %}
             {% if loop_vars.total_diffs == max_diffs + 1 %}
                 <br>
                 <b>WARNING: Only showing {{ max_diffs }} out of {{ total_num_diffs }}
@@ -269,6 +269,48 @@
         <button style="box-shadow:none"
                 onclick="toggleNewCode({{ outer_index }}, {{ loop.index }})">{{ run2.git.abbrev }}</button>
     </span>
+    LOC: <span style="color: green;
+              width: 30pt;
+              text-align: right;
+              display: inline-block">+{{ kernel_diff.new_lines }}</span>
+    <span style="color: red;
+                 width: 30pt;
+                 text-align: left;
+                 display: inline-block">-{{ kernel_diff.removed_lines }}</span>
+    index type:
+    {%- if kernel_diff.kernel1.index_type == kernel_diff.kernel2.index_type %}
+        {# always show index type, even if unchanged #}
+        {{ kernel_diff.kernel1.index_type }}
+    {% else -%}
+        <span style="color: red">{{ kernel_diff.kernel1.index_type }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.index_type }}</span>
+    {%- endif %}
+    {%- if kernel_diff.kernel1.registers != kernel_diff.kernel2.registers -%}
+        registers: <span style="color: red">{{ kernel_diff.kernel1.registers }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.registers }}</span>
+    {%- endif -%}
+    {%- if kernel_diff.kernel1.gmem != kernel_diff.kernel2.gmem -%}
+        gmem: <span style="color: red">{{ kernel_diff.kernel1.gmem }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.gmem }}</span>
+    {%- endif -%}
+    {%- if kernel_diff.kernel1.smem != kernel_diff.kernel2.smem -%}
+        smem: <span style="color: red">{{ kernel_diff.kernel1.smem }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.smem }}</span>
+    {%- endif -%}
+    {%- if kernel_diff.kernel1.stack_frame_bytes != kernel_diff.kernel2.stack_frame_bytes -%}
+        stack frame: <span style="color: red">{{ kernel_diff.kernel1.stack_frame_bytes }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.stack_frame_bytes }}</span>
+    {%- endif -%}
+    {%- if kernel_diff.kernel1.spill_store_bytes != kernel_diff.kernel2.spill_store_bytes -%}
+        spill stores: <span style="color: red">{{ kernel_diff.kernel1.spill_store_bytes }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.spill_store_bytes }}</span>
+    {%- endif -%}
+    {%- if kernel_diff.kernel1.spill_load_bytes != kernel_diff.kernel2.spill_load_bytes -%}
+        spill loads: <span style="color: red">{{ kernel_diff.kernel1.spill_load_bytes }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.spill_load_bytes }}</span>
+    {%- endif -%}
+    {% if kernel_diff.kernel1.cmem_bank_bytes is not none and kernel_diff.kernel2.cmem_bank_bytes is not none %}
+        {% for cmem_bank in range(kernel_diff.kernel1.cmem_bank_bytes|length) %}
+            {% set cmem1 = kernel_diff.kernel1.cmem_bank_bytes[cmem_bank] %}
+            {% set cmem2 = kernel_diff.kernel2.cmem_bank_bytes[cmem_bank] %}
+            {% if cmem1 != cmem2 %}
+                cmem[{{ cmem_bank }}]: <span style="color: red">{{ cmem1 }}</span> &#8594; <span style="color: green">{{ cmem2 }}</span>
+            {% endif %}
+        {% endfor %}
+    {% endif %}
     <br>
     <div id="oldcode_{{ outer_index }}_{{ loop.index }}" style="display:none">
         <pre><code class="language-cpp">{{ kernel_diff.kernel1.code|e }}</code></pre>
