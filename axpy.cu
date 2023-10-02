@@ -17,6 +17,38 @@ inline void CheckCudaError(
   }
 }
 
+class L2CacheFlusher {
+ public:
+  L2CacheFlusher() {
+    int device_id;
+    CHECK_CUDA_ERROR(cudaGetDevice(&device_id));
+
+    CHECK_CUDA_ERROR(cudaDeviceGetAttribute(
+        &l2_cache_size_, cudaDevAttrL2CacheSize, device_id));
+    if (l2_cache_size_ <= 0) {
+      std::cerr << "The L2 cache size is expected to be positive. Got "
+                << l2_cache_size_ << std::endl;
+      abort();
+    }
+
+    CHECK_CUDA_ERROR(cudaMalloc(&buffer_, l2_cache_size_));
+  }
+
+  void Flush(cudaStream_t stream) {
+    CHECK_CUDA_ERROR(cudaMemsetAsync(buffer_, 0, l2_cache_size_, stream));
+  }
+
+  ~L2CacheFlusher() {
+    if (buffer_ != nullptr) {
+      CHECK_CUDA_ERROR(cudaFree(buffer_));
+    }
+  }
+
+ private:
+  void* buffer_ = nullptr;
+  int l2_cache_size_ = 0;
+};
+
 constexpr int kRows = 204800;
 constexpr int kColumns = 512;
 
@@ -43,21 +75,28 @@ int main(int argc, char* argv[]) {
   }
   std::vector<float> host_y(kSize);
 
-  // Copy input data to device.
-  float* device_x;
-  float* device_y;
-  CHECK_CUDA_ERROR(cudaMalloc(&device_x, kSize * sizeof(float)));
-  CHECK_CUDA_ERROR(cudaMalloc(&device_y, kSize * sizeof(float)));
+  L2CacheFlusher l2_cache_flusher;
 
   cudaStream_t stream;
   CHECK_CUDA_ERROR(cudaStreamCreate(&stream));
+
+  float* device_x;
+  float* device_y;
+  CHECK_CUDA_ERROR(cudaMallocAsync(&device_x, kSize * sizeof(float), stream));
+  CHECK_CUDA_ERROR(cudaMallocAsync(&device_y, kSize * sizeof(float), stream));
+
   CHECK_CUDA_ERROR(cudaMemcpyAsync(
       device_x,
       host_x.data(),
       kSize * sizeof(float),
       cudaMemcpyHostToDevice,
       stream));
-  Axpy<<<kRows, kColumns / 4, 0, stream>>>(alpha, device_x, device_y);
+
+  constexpr int kIterations = 5;
+  for (int i = 0; i < kIterations; i++) {
+    l2_cache_flusher.Flush(stream);
+    Axpy<<<kRows, kColumns / 4, 0, stream>>>(alpha, device_x, device_y);
+  }
 
   CHECK_CUDA_ERROR(cudaMemcpyAsync(
       host_y.data(),
@@ -65,6 +104,9 @@ int main(int argc, char* argv[]) {
       kSize * sizeof(float),
       cudaMemcpyDeviceToHost,
       stream));
+
+  CHECK_CUDA_ERROR(cudaFreeAsync(device_x, stream));
+  CHECK_CUDA_ERROR(cudaFreeAsync(device_y, stream));
   CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
   CHECK_CUDA_ERROR(cudaStreamDestroy(stream));
 
