@@ -14,6 +14,8 @@
 #include <test/utils.h>
 #include <test/validator.h>
 
+#include <unordered_set>
+
 namespace nvfuser {
 
 class MBarrierTest : public NVFuserTest {
@@ -123,6 +125,16 @@ TEST_F(MBarrierTest, Simple) {
   });
 
   fe.compileFusion(&fusion);
+
+  std::unordered_set<const std::type_info*> remaining_mbarrier_exprs{
+      &typeid(kir::MBarrierInit),
+      &typeid(kir::MBarrierArrive),
+      &typeid(kir::MBarrierWait),
+      &typeid(kir::MBarrierInvalidate)};
+  for (auto expr : fe.kernel()->topLevelExprs()) {
+    remaining_mbarrier_exprs.erase(&typeid(*expr));
+  }
+  EXPECT_TRUE(remaining_mbarrier_exprs.empty());
 
   auto input = at::randn(
       {32, 32}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
