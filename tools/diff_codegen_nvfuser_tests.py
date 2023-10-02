@@ -352,6 +352,7 @@ class TestDifferences:
     ] = field(init=False)
     new_tests: list[str] = field(init=False)
     removed_tests: list[str] = field(init=False)
+    total_num_diffs: int = field(init=False)
     show_diffs: InitVar[bool] = False
 
     def __post_init__(self, show_diffs: bool):
@@ -372,6 +373,7 @@ class TestDifferences:
         self.differing_tests = {}
         self.new_tests = []
         self.removed_tests = []
+        self.total_num_diffs = 0
         for testname, kernels1 in self.run1.kernel_map.items():
             if testname not in self.run2.kernel_map:
                 self.removed_tests.append(testname)
@@ -406,6 +408,7 @@ class TestDifferences:
                 if len(diff_str) > 0:
                     if show_diffs:
                         print(testname, kernel_num, diff_str)
+                    self.total_num_diffs += 1
                     diff_obj = KernelDiff(testname, kernel_num, code1, code2, diff_str)
                     if testname in self.differing_tests:
                         self.differing_tests[testname].append(diff_obj)
@@ -415,9 +418,6 @@ class TestDifferences:
         for testname, kernels2 in self.run2.kernel_map.items():
             if testname not in self.run1.kernel_map:
                 self.new_tests.append(testname)
-
-    def __len__(self):
-        return len(self.differing_tests)
 
     def to_dict(self):
         """Convert to hierarchical dict format for use with jinja"""
@@ -482,9 +482,11 @@ class TestDifferences:
                 }
             )
 
+        d["total_num_diffs"] = self.total_num_diffs
+
         return d
 
-    def generate_html(self) -> str:
+    def generate_html(self, max_diffs) -> str:
         """Return a self-contained HTML string summarizing the codegen comparison"""
         import jinja2
         from pygments.formatters import HtmlFormatter
@@ -494,6 +496,7 @@ class TestDifferences:
         template = env.get_template("templates/codediff.html")
         context = self.to_dict()
         context["pygments_style_defs"] = HtmlFormatter().get_style_defs(".highlight")
+        context["max_diffs"] = max_diffs
 
         return template.render(context)
 
@@ -502,13 +505,20 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        epilog="This command must be run from within a git checkout of the NVFuser repo."
+        epilog="This command must be run from within a git checkout of the NVFuser repo.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("dir1", help="Directory containing stdout-*.log and cuda/")
     parser.add_argument("dir2", help="Directory containing stdout-*.log and cuda/")
     parser.add_argument("--html", action="store_true", help="Write HTML file?")
     parser.add_argument(
         "--show-diffs", action="store_true", help="Print diffs to STDOUT?"
+    )
+    parser.add_argument(
+        "--max-diffs",
+        default=200,
+        type=int,
+        help="Limit number of included kernel diffs in HTML output to this many (does not affect exit code).",
     )
     parser.add_argument(
         "-o", "--output-file", help="Location of HTML file output if -h is given."
@@ -529,7 +539,7 @@ if __name__ == "__main__":
             run_name = os.path.basename(os.path.abspath(args.dir1))
             output_file = f"codediff_{abbrev1}_{abbrev2}_{run_name}.html"
         with open(output_file, "w") as f:
-            f.write(test_diffs.generate_html())
+            f.write(test_diffs.generate_html(args.max_diffs))
 
     num_differing_kernels = 0
     for k, v in test_diffs.differing_tests.items():
