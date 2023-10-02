@@ -1224,6 +1224,52 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << genCall("blockReduce", template_args, func_args) << ";\n";
   }
 
+  void genClusterReduction(
+      const kir::TensorIndex* output,
+      const kir::TensorIndex* input,
+      const Val* init,
+      BinaryOpType reduction_op_type,
+      kir::Predicate* read_pred,
+      kir::Predicate* write_pred) {
+    const auto par_domains = ir_utils::getParallelDomains(output);
+    // Get parallel reduction domains
+    const bool tidx =
+        par_domains.find(ParallelType::TIDx) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDx)->isReduction();
+    const bool tidy =
+        par_domains.find(ParallelType::TIDy) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDy)->isReduction();
+    const bool tidz =
+        par_domains.find(ParallelType::TIDz) != par_domains.end() &&
+        par_domains.at(ParallelType::TIDz)->isReduction();
+
+    const auto data_type = output->dtype();
+
+    ArgumentBuilder template_args;
+    template_args.arg(tidx).arg(tidy).arg(tidz);
+    template_args.arg(isAligned());
+
+    ArgumentBuilder func_args;
+    func_args.arg(gen(output));
+    func_args.arg(gen(input));
+    func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
+    func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
+    NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
+    func_args.arg(genInline(read_pred));
+    // Pass the write predicate if available and different from the
+    // default predicate. The blockReduce runtime function uses the
+    // default predicate for both read and write when only the
+    // default one is given.
+    if (write_pred != nullptr) {
+      NVF_ERROR(write_pred->hasValue());
+      func_args.arg(genInline(write_pred));
+    }
+    func_args.arg(genCall(data_type, genInline(init)));
+
+    indent() << genCall("Hopper::clusterReduce", template_args, func_args)
+             << ";\n";
+  }
+
   void handle(const ReductionOp* rop) final {
     NVF_ERROR(rop->out()->isA<kir::TensorIndex>());
 
@@ -1233,6 +1279,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto op_type = rop->getReductionOpType();
 
     const bool has_block_reduce = domain->hasBlockReduction();
+    const bool has_cluster_reduce = domain->hasClusterReduction();
     const bool has_grid_reduce = domain->hasGridReduction();
 
     NVF_ERROR(
@@ -1240,7 +1287,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         "ReductionOp does not support block parallelization. GridReductionOp must be used. ",
         rop->toString());
 
-    if (!has_block_reduce) {
+    if (has_cluster_reduce) {
+      genClusterReduction(
+          output,
+          input,
+          rop->init(),
+          op_type,
+          rop->predicate(),
+          rop->writePredicate());
+    } else if (!has_block_reduce) {
       genSerialReduction(output, input, op_type);
     } else if (
         auto reduction_id = ir_utils::getMaybeWarpReductionDim(output, input)) {

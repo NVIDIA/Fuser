@@ -214,9 +214,15 @@ class IterDomain : public Val {
     return getParallelType() != ParallelType::Serial;
   }
 
+  //! Return if this iter domain is mapped to a cluster dimension
+  bool isClusterDim() const {
+    return isParallelTypeClusterDim(getParallelType());
+  }
+
   //! Return if this iter domain is mapped to a grid dimension
   bool isBlockDim() const {
-    return isParallelTypeBlockDim(getParallelType());
+    return isParallelTypeBlockDim(getParallelType()) ||
+        isParallelTypeClusterDim(getParallelType());
   }
 
   //! Return if this iter domain is mapped to a block dimension
@@ -519,6 +525,7 @@ class TensorDomain : public Val {
   }
 
   bool hasBlockReduction() const;
+  bool hasClusterReduction() const;
   bool hasGridReduction() const;
   bool hasBlockBroadcast() const;
   bool hasGridBroadcast() const;

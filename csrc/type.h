@@ -653,6 +653,7 @@ enum class ParallelType {
   BIDz,
   BIDy,
   BIDx,
+  CIDx,
   TIDz,
   TIDy,
   TIDx,
@@ -903,8 +904,12 @@ std::string typePrefix(const DataType);
 bool isParallelTypeThreadDim(ParallelType);
 // Returns if parallel type is BID[x, y, z]
 bool isParallelTypeBlockDim(ParallelType);
+// Returns if parallel type is BID[x, y, z]Cluster
+bool isParallelTypeClusterDim(ParallelType);
 // Returns if parallel type is a grid or block parallelization dimension
 bool isParallelTypeThread(ParallelType);
+
+ParallelType clusterDimToBlockDim(ParallelType ptype);
 
 bool isParallelTypeVectorize(ParallelType);
 

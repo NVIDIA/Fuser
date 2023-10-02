@@ -772,11 +772,14 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   // same time
   // Always disabled for now.
   // bool flip_grid = gidim > 1 && gidim < 8;
-  const bool flip_grid = false;
+  bool flip_grid = false;
   auto rparams = std::make_shared<ReductionParams>();
   // cross grid implies cross block
   rparams->cross_block_inner_reduction = bdimy > 1 || grdim > 1;
-  rparams->cross_grid_inner_reduction = grdim > 1;
+
+  rparams->block_cluster_inner_reduction = grdim > 1 && grdim <= 8;
+  rparams->cross_grid_inner_reduction = grdim > 8;
+
   if (rparams->cross_grid_inner_reduction) {
     rparams->split_grid_dim_inner_reduction = true;
     rparams->grid_dim_inner_reduction =
@@ -787,6 +790,13 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
       gdimy = std::min(grdim, scheduler_utils::y_grid_limit);
     }
   }
+
+  if (rparams->block_cluster_inner_reduction) {
+    flip_grid = true;
+    rparams->split_grid_dim_inner_reduction = true;
+    rparams->grid_dim_inner_reduction = ParallelType::CIDx;
+  }
+
   rparams->multiple_reds_per_blk = bdimx > 1 || iter_unroll_factor > 1;
 
   if (rparams->multiple_reds_per_blk) {

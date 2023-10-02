@@ -13,11 +13,11 @@
 namespace nvfuser {
 
 void LaunchParams::assertValid() {
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
   NVF_ERROR(
       bdimx() * bdimy() * bdimz() > 0 &&
           bdimx() * bdimy() * bdimz() <=
-              (int64_t)at::cuda::getCurrentDeviceProperties()
-                  ->maxThreadsPerMultiProcessor,
+              (int64_t)dev_prop->maxThreadsPerMultiProcessor,
       "Selected invalid number of threads for cuda: ",
       bdimx() * bdimy() * bdimz());
   NVF_ERROR(
@@ -32,6 +32,39 @@ void LaunchParams::assertValid() {
       gdimz() > 0 && gdimz() <= 65535,
       "Invalid number of blocks in z direction: ",
       gdimz());
+
+  if (dev_prop->clusterLaunch) {
+    // see table-1 at
+    // https://developer.nvidia.com/blog/nvidia-hopper-architecture-in-depth/
+    constexpr static int maxClusterSize = 16;
+    NVF_ERROR(
+        bdimx() * bdimy() * bdimz() > 0 &&
+            cdimx() * cdimy() * cdimz() <= maxClusterSize,
+        "cluster size is not supported",
+        ", cdimx= ",
+        cdimx(),
+        ", cdimy= ",
+        cdimy(),
+        ", cdimz= ",
+        cdimz());
+    NVF_ERROR(
+        cdimx() > 0 && gdimx() % cdimx() == 0,
+        "Invalid number of clusters in x direction: ",
+        cdimx());
+    NVF_ERROR(
+        cdimy() > 0 && gdimy() % cdimy() == 0,
+        "Invalid number of clusters in x direction: ",
+        cdimy());
+    NVF_ERROR(
+        cdimz() > 0 && gdimz() % cdimz() == 0,
+        "Invalid number of clusters in x direction: ",
+        cdimz());
+
+  } else {
+    NVF_ERROR(
+        cdimx() * cdimy() * cdimz() > 1,
+        "cluster launch is not supported by current device.");
+  }
 }
 
 void LaunchParams::bind(int64_t val, ParallelType p_type) {
@@ -40,6 +73,7 @@ void LaunchParams::bind(int64_t val, ParallelType p_type) {
       checkAndSet(val, bdimx_, "blockDim.x");
       break;
     case ParallelType::BIDx:
+    case ParallelType::CIDx:
       checkAndSet(val, gdimx_, "gridDim.x");
       break;
     case ParallelType::TIDy:
@@ -68,6 +102,7 @@ int64_t LaunchParams::getDim(ParallelType p_type) const {
     case ParallelType::TIDx:
       return bdimx();
     case ParallelType::BIDx:
+    case ParallelType::CIDx:
       return gdimx();
     case ParallelType::TIDy:
       return bdimy();
@@ -94,6 +129,7 @@ const int64_t& LaunchParams::getRawVal(ParallelType p_type) const {
     case ParallelType::TIDx:
       return bdimx_;
     case ParallelType::BIDx:
+    case ParallelType::CIDx:
       return gdimx_;
     case ParallelType::TIDy:
       return bdimy_;

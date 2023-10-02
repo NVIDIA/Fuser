@@ -342,4 +342,59 @@ TEST_F(TMATest, DisableIndexHoisting) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, TMP) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  TensorView* tv2 = sum(tv0, {-1});
+  TensorView* tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  // block reduction
+  const int tidx = 32;
+  tv2->split(-1, tidx);
+
+  // cluster reduction
+  const int cidx = 7;
+  tv2->split(-2, cidx);
+
+  // tv2: [i0, r0/tidx/cidx, cidx, tidx]
+  auto ref = tv2->rFactor({1});
+
+  // ref = [i0, r0/tidx/cidx, cidx, tidx]
+  ref->axis(0)->parallelize(ParallelType::BIDy);
+  ref->axis(1)->parallelize(ParallelType::Serial);
+  ref->axis(2)->parallelize(ParallelType::CIDx);
+  ref->axis(3)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(ref);
+  inlineMost();
+
+  // const std::string kernel_string =
+  //     codegen::generateCudaKernel(GpuLower(&fusion).kernel());
+  // NVF_CHECK(
+  //     kernel_string.find("warp::warpReduceTIDX") != std::string::npos,
+  //     "warpReduceTIDX not found in:\n",
+  //     kernel_string);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto test = [&](int num_elements) {
+    at::Tensor t0 = at::ones({2, num_elements}, options);
+    std::vector<c10::IValue> aten_inputs = {t0};
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, aten_inputs);
+    std::vector<at::Tensor> outputs = fe.runFusion(aten_inputs);
+    std::cout << outputs[0] << std::endl;
+    testValidate(
+        &fusion, outputs, aten_inputs, {t0.sum({-1})}, __LINE__, __FILE__);
+  };
+  // test with elements that both are and aren't multiples of 32.
+  for (auto n : {32 * 7}) {
+    test(n);
+  }
+}
+
 } // namespace nvfuser
