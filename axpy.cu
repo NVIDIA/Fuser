@@ -55,14 +55,18 @@ constexpr int kColumns = 512;
 __global__ void Axpy(const float alpha, const float* x, float* y) {
   const int row = blockIdx.x;
   const int column = threadIdx.x * 4;
-  const float* in = &x[row * kColumns + column];
-  float* out = &y[row * kColumns + column];
-  float4 vector = *reinterpret_cast<const float4*>(in);
+
+  const float4* in =
+      reinterpret_cast<const float4*>(&x[row * kColumns + column]);
+  float4* out = reinterpret_cast<float4*>(&y[row * kColumns + column]);
+
+  // Switching to __ldcs and __stcs slows the kernel down from 501us to 534us.
+  float4 vector = __ldcg(in);
   vector.x *= alpha;
   vector.y *= alpha;
   vector.z *= alpha;
   vector.w *= alpha;
-  *reinterpret_cast<float4*>(out) = vector;
+  __stcg(out, vector);
 }
 
 int main(int argc, char* argv[]) {
