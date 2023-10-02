@@ -21,7 +21,12 @@ __device__ __forceinline__ std::complex<T> shfl_xor(
   return std::complex<T>(real, imag);
 }
 
-template <bool SINGLE_WARP, bool Aligned, typename T, typename Func>
+template <
+    bool SINGLE_WARP,
+    bool Aligned,
+    bool Padded,
+    typename T,
+    typename Func>
 __device__ void warpReduceTIDX(
     T& out,
     const T& inp_val,
@@ -31,7 +36,6 @@ __device__ void warpReduceTIDX(
     T init_val) {
   constexpr int WARP_SIZE = 32;
 
-  // Assume input padded to multiples of a warp
   T reduce_val = init_val;
 
   // Do warp reduction
@@ -40,19 +44,26 @@ __device__ void warpReduceTIDX(
   }
 
   // Reduce within each warp
+  // Register usage is reduced when Padded is true due to the elimination of the
+  // if-statement.
+  unsigned int warp_idx = threadIdx.x / WARP_SIZE;
+  unsigned int lane_idx = threadIdx.x % WARP_SIZE;
+  unsigned int reduction_size = blockDim.x;
+  unsigned int num_of_warps = (reduction_size + WARP_SIZE - 1) / WARP_SIZE;
+  int hoist_idx = reduction_size - lane_idx - warp_idx * WARP_SIZE;
   for (int i = 16; i >= 1; i /= 2) {
-    reduction_op(reduce_val, shfl_xor(reduce_val, i, WARP_SIZE));
+    T shuffled_value = shfl_xor(reduce_val, i, WARP_SIZE);
+    if (Padded || i < hoist_idx) {
+      reduction_op(reduce_val, shuffled_value);
+    }
   }
 
   // Reduce across warp if needed
   // Load value to shared mem
   if (!SINGLE_WARP) {
-    unsigned int warp_idx = threadIdx.x / WARP_SIZE;
-    unsigned int lane_idx = threadIdx.x % WARP_SIZE;
     unsigned int reduce_group_id = threadIdx.z * blockDim.y + threadIdx.y;
     bool is_warp_head = lane_idx == 0;
-    unsigned int reduction_size = blockDim.x;
-    unsigned int num_of_warps = reduction_size / WARP_SIZE;
+
     unsigned int smem_offset = reduce_group_id * num_of_warps;
 
     block_sync::sync<Aligned>();

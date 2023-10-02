@@ -764,12 +764,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   }
 
   auto device_warp_size = (int64_t)at::cuda::warp_size();
-  auto padded_bdimx = bdimx % device_warp_size == 0
-      ? bdimx
-      : bdimx + (device_warp_size - bdimx % device_warp_size);
-
-  bool pad_bdimx = bdimx > 16 &&
-      padded_bdimx * bdimy * bdimz < (int64_t)dev_prop->maxThreadsPerBlock;
+  bool pad_bdimx = bdimx % device_warp_size == 0;
 
   // estimate register usage and occupancy raito.
   // If occupancy raito is less than a preset occupancy_ratio, reduce register
@@ -805,8 +800,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         scheduler_utils::register_overhead;
 
     // check occupancy using blocks per sm
-    const int64_t threads_per_block =
-        pad_bdimx ? padded_bdimx * bdimy * bdimz : bdimx * bdimy * bdimz;
+    const int64_t threads_per_block = bdimx * bdimy * bdimz;
     const int64_t blocks_per_sm_estimated =
         getThreadsPerSMGivenRegPerThread(estimated_register_count) /
         threads_per_block;
@@ -928,8 +922,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
             << "\n"
             << "max_multi_reduction_factor: " << max_multi_reduction_factor
             << "\n"
-            << "block(" << (pad_bdimx ? padded_bdimx : bdimx) << ", " << bdimy
-            << ", " << bdimz << ")";
+            << "block(" << bdimx << ", " << bdimy << ", " << bdimz << ")";
     debug() << rparams->toString() << std::endl;
   }
 
