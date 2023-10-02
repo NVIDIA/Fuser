@@ -143,7 +143,7 @@ int main(int argc, char* argv[]) {
   CHECK_CUDA_ERROR(cudaStreamSynchronize(stream));
   CHECK_CUDA_ERROR(cudaStreamDestroy(stream));
 
-  // Print the results.
+  // Compare actual and expected.
   for (int i = 0; i < kSize; ++i) {
     const float actual = host_y[i];
     const float expected = host_x[i] * alpha;
