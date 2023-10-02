@@ -23,6 +23,7 @@ bool isParallelD(TensorView* tv) {
     is_parallel_d.push_back(isParallelTypeDeviceDim(id->getParallelType()));
   }
   // Currently, only the most external dim is allowed to be parallelized
+  NVF_ERROR(tv->getMaybeRFactorDomain() == tv->getLeafDomain());
   for (auto i : c10::irange(1, is_parallel_d.size())) {
     NVF_ERROR(
         !is_parallel_d.at(i),
@@ -31,14 +32,14 @@ bool isParallelD(TensorView* tv) {
   return is_parallel_d.empty() ? false : is_parallel_d.at(0);
 }
 
-static inline bool isDeviceInvolved(
+inline bool isDeviceInvolved(
     DeviceIdxType device_index,
     DeviceIdxType root,
     DeviceMesh mesh) {
   return device_index == root || mesh.has(device_index);
 }
 
-static inline bool isDeviceInvolved(
+inline bool isDeviceInvolved(
     DeviceIdxType device_index,
     DeviceMesh sender_mesh,
     DeviceMesh receiver_mesh) {
@@ -47,7 +48,7 @@ static inline bool isDeviceInvolved(
 
 // Creates a dummy tensor for scatter/gather communications,
 // see 'CreateParamsForGatherScatter'
-static inline at::Tensor createDummyTensor(at::Tensor reference) {
+inline at::Tensor createDummyTensor(at::Tensor reference) {
   return at::empty_like(reference, reference.options());
 }
 
@@ -106,6 +107,7 @@ void lowerToScatter(
   auto root = sender_mesh.vector().at(0);
   if (!isDeviceInvolved(device_index, root, receiver_mesh)) {
     return;
+  }
   auto params = CreateParamsForGatherScatter(
       device_index, root, receiver_mesh, input_tensor, output_tensor, true);
   comms.push_back(std::make_shared<Scatter>(std::move(params)));
