@@ -21,6 +21,21 @@ __device__ __forceinline__ std::complex<T> shfl_xor(
   return std::complex<T>(real, imag);
 }
 
+template <typename T>
+__device__ __forceinline__ T
+warp_broadcast(T var, int srcLane, int width = 32) {
+  return __shfl_sync(0xffffffff, var, srcLane, width);
+}
+
+template <typename T>
+__device__ __forceinline__ std::complex<T> warp_broadcast(
+    std::complex<T> var,
+    int width = 32) {
+  T real = __shfl_xor_sync(0xffffffff, var.real(), srcLane, width);
+  T imag = __shfl_xor_sync(0xffffffff, var.imag(), srcLane, width);
+  return std::complex<T>(real, imag);
+}
+
 template <
     bool SINGLE_WARP,
     bool Aligned,
@@ -95,6 +110,9 @@ __device__ void warpReduceTIDX(
     // reduction is done.
     block_sync::sync<Aligned>();
   } else {
+    if (!Padded) {
+      reduce_val = warp_broadcast(reduce_val, 0);
+    }
     reduction_op(out, reduce_val);
   }
 }

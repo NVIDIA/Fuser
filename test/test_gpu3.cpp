@@ -9679,8 +9679,9 @@ TEST_F(NVFuserTest, NonPaddedWarpReduction) {
   fusion.addInput(tv0);
   TensorView* tv1 = set(tv0);
   TensorView* tv2 = sum(tv1, {0});
-  TensorView* tv3 = set(tv2);
-  fusion.addOutput(tv3);
+  TensorView* tv3 = broadcast(tv2, {true});
+  TensorView* tv4 = div(tv1, tv3);
+  fusion.addOutput(tv4);
 
   tv1->axis(0)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv1);
@@ -9702,7 +9703,8 @@ TEST_F(NVFuserTest, NonPaddedWarpReduction) {
     FusionExecutor fe;
     fe.compileFusion(&fusion, aten_inputs);
     std::vector<at::Tensor> outputs = fe.runFusion(aten_inputs);
-    testValidate(&fusion, outputs, aten_inputs, {t0.sum()}, __LINE__, __FILE__);
+    testValidate(
+        &fusion, outputs, aten_inputs, {t0 / t0.sum()}, __LINE__, __FILE__);
   };
   // test with elements that both are and aren't multiples of 32.
   for (auto n : {1, 15, 16, 31, 32, 63, 127, 256}) {
