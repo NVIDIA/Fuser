@@ -52,6 +52,12 @@ class L2CacheFlusher {
 constexpr int kRows = 204800;
 constexpr int kColumns = 512;
 
+enum class CacheOp {
+  Global,
+  Streaming,
+};
+
+template <CacheOp cache_op>
 __global__ void Axpy(const float alpha, const float* x, float* y) {
   const int row = blockIdx.x;
   const int column = threadIdx.x * 4;
@@ -60,13 +66,29 @@ __global__ void Axpy(const float alpha, const float* x, float* y) {
       reinterpret_cast<const float4*>(&x[row * kColumns + column]);
   float4* out = reinterpret_cast<float4*>(&y[row * kColumns + column]);
 
-  // Switching to __ldcs and __stcs slows the kernel down from 501us to 534us.
-  float4 vector = __ldcg(in);
+  float4 vector;
+  switch (cache_op) {
+    case CacheOp::Global:
+      vector = __ldcg(in);
+      break;
+    case CacheOp::Streaming:
+      vector = __ldcs(in);
+      break;
+  }
+
   vector.x *= alpha;
   vector.y *= alpha;
   vector.z *= alpha;
   vector.w *= alpha;
-  __stcg(out, vector);
+
+  switch (cache_op) {
+    case CacheOp::Global:
+      __stcg(out, vector);
+      break;
+    case CacheOp::Streaming:
+      __stcs(out, vector);
+      break;
+  }
 }
 
 int main(int argc, char* argv[]) {
@@ -99,7 +121,14 @@ int main(int argc, char* argv[]) {
   constexpr int kIterations = 5;
   for (int i = 0; i < kIterations; i++) {
     l2_cache_flusher.Flush(stream);
-    Axpy<<<kRows, kColumns / 4, 0, stream>>>(alpha, device_x, device_y);
+    Axpy<CacheOp::Global>
+        <<<kRows, kColumns / 4, 0, stream>>>(alpha, device_x, device_y);
+  }
+  // Switching to __ldcs and __stcs slows the kernel down from 501us to 534us.
+  for (int i = 0; i < kIterations; i++) {
+    l2_cache_flusher.Flush(stream);
+    Axpy<CacheOp::Streaming>
+        <<<kRows, kColumns / 4, 0, stream>>>(alpha, device_x, device_y);
   }
 
   CHECK_CUDA_ERROR(cudaMemcpyAsync(
