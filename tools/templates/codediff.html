@@ -140,7 +140,7 @@
         <br>
         <span>{{ run1.git.author_name|e }}</span> &lt;<span>{{ run1.git.author_email|e }}&gt;</span>
         <br>
-        <span>{{ run1.git.author_datetime }}</span>
+        <span>{{ run1.git.author_time }}</span>
         <br>
         <a href="https://github.com/NVIDIA/Fuser/commit/{{ run1.git.full_hash }}">View commit</a>
         <br>
@@ -153,7 +153,7 @@
         <br>
         <span>{{ run2.git.author_name|e }}</span> &lt;<span>{{ run2.git.author_email|e }}&gt;</span>
         <br>
-        <span>{{ run2.git.author_datetime }}</span>
+        <span>{{ run2.git.author_time }}</span>
         <br>
         <a href="https://github.com/NVIDIA/Fuser/commit/{{ run2.git.full_hash }}">View commit</a>
         <br>
@@ -201,7 +201,7 @@
     <span class="test_name"><b>{{ test.name }}</b>
         <br>
         {% set test_num = loop.index %}
-        {% for code in test.code %}
+        {% for kernel in test.kernels %}
             &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ loop.index }}</span>
             <button style="width: 60pt;
                            box-shadow:none"
@@ -209,7 +209,7 @@
         </span>
         <br>
         <div id="newtestcode_{{ test_num }}_{{ loop.index }}" style="display:none">
-            <pre><code class="language-cpp">{{ code|e }}</code></pre>
+            <pre><code class="language-cpp">{{ kernel.code|e }}</code></pre>
         </div>
     {% endfor %}
     <br>
@@ -225,7 +225,7 @@
     <span class="test_name"><b>{{ test.name }}</b>
         <br>
         {% set test_num = loop.index %}
-        {% for code in test.code %}
+        {% for kernel in test.kernels %}
             &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ loop.index }}</span>
             <button style="box-shadow:none"
                     onclick="toggleDiv('removedtestcode_{{ test_num }}_{{ loop.index }}')">Code</button>
@@ -233,7 +233,7 @@
         <br>
         <div id="removedtestcode_{{ test_num }}_{{ loop.index }}"
              style="display:none">
-            <pre><code class="language-cpp">{{ code|e }}</code></pre>
+            <pre><code class="language-cpp">{{ kernel.code|e }}</code></pre>
         </div>
     {% endfor %}
 {% endfor %}
@@ -249,7 +249,7 @@
         <span class="test_name">{{ loop.index }}: <b>{{ test.name }}</b></span>
         <br>
         {% set outer_index = loop.index %}
-        {% for kernel in test.kernels %}
+        {% for kernel_diff in test.kernel_diffs %}
             {% if loop_vars.total_diffs == max_diffs + 1 %}
                 <br>
                 <b>WARNING: Only showing {{ max_diffs }} out of {{ total_num_diffs }}
@@ -258,7 +258,7 @@
                     <code>tools/diff_codegen_nvfuser_tests.py</code>.</b>
                 <br>
             {% elif loop_vars.total_diffs < max_diffs %}
-                &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ kernel.number }}</span>
+                &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ kernel_diff.kernel_num }}</span>
                 <button style="box-shadow:none"
                         onclick="toggleOldCode({{ outer_index }}, {{ loop.index }})">{{ run1.git.abbrev }}</button>
             </span>
@@ -271,13 +271,13 @@
     </span>
     <br>
     <div id="oldcode_{{ outer_index }}_{{ loop.index }}" style="display:none">
-        <pre><code class="language-cpp">{{ kernel.code1|e }}</code></pre>
+        <pre><code class="language-cpp">{{ kernel_diff.kernel1.code|e }}</code></pre>
     </div>
     <div id="newcode_{{ outer_index }}_{{ loop.index }}" style="display:none">
-        <pre><code class="language-cpp">{{ kernel.code2|e }}</code></pre>
+        <pre><code class="language-cpp">{{ kernel_diff.kernel2.code|e }}</code></pre>
     </div>
     <div id="diff_{{ outer_index }}_{{ loop.index }}" style="display:none">
-        <pre><code class="language-diff">{{ kernel.diff|e }}</code></pre>
+        <pre><code class="language-diff">{{ kernel_diff.diff|e }}</code></pre>
     </div>
 {% endif %}
 {% set loop_vars.total_diffs = loop_vars.total_diffs + 1 %}
