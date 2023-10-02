@@ -18,8 +18,6 @@ import os
 import re
 import subprocess
 import sys
-from datetime import datetime
-from typing import Optional
 
 
 @dataclass
@@ -29,8 +27,8 @@ class GitRev:
     full_hash: str = field(init=False)
     author_name: str = field(init=False)
     author_email: str = field(init=False)
-    author_time: datetime.time = field(init=False)
-    commit_time: datetime.time = field(init=False)
+    author_time: str = field(init=False)
+    commit_time: str = field(init=False)
 
     def __post_init__(self):
         self.full_hash = (
@@ -57,8 +55,6 @@ class GitRev:
                 line = line[2:]
                 in_branches.append(line)
 
-        date_fmt = "%Y/%m/%d %H:%M:%S %z"
-
         def git_show(fmt) -> str:
             return (
                 subprocess.run(
@@ -67,7 +63,6 @@ class GitRev:
                         "show",
                         "--no-patch",
                         f"--format={fmt}",
-                        f"--date=format:{date_fmt}",
                         self.full_hash,
                     ],
                     capture_output=True,
@@ -79,26 +74,17 @@ class GitRev:
         self.title = git_show("%s")
         self.author_name = git_show("%an")
         self.author_email = git_show("%ae")
-
-        # Get date and time for this commit in datetime format
-        def get_datetime(time_str):
-            return datetime.strptime(time_str, date_fmt)
-
-        self.author_time = get_datetime(git_show("%ad"))
-        self.commit_time = get_datetime(git_show("%cd"))
+        self.author_time = git_show("%ad")
+        self.commit_time = git_show("%cd")
 
     def to_dict(self):
         return {
             "abbrev": self.abbrev,
             "full_hash": self.full_hash,
-            # TODO: detect PRs and add in this format
-            # "pull_request": {
-            #     "title": "Wrap CompiledKernel in unique_ptr and add a proper destructor.",
-            #     "number": 968,
-            # },
             "author_name": self.author_name,
             "author_email": self.author_email,
-            "author_datetime": str(self.author_time),
+            "author_time": str(self.author_time),
+            "commit_time": str(self.commit_time),
             "title": self.title,
         }
 
@@ -106,16 +92,16 @@ class GitRev:
 @dataclass
 class CompiledKernel:
     filename: str
-    ptxas_info: Optional[str] = None
-    gmem_bytes: Optional[int] = None
-    smem_bytes: Optional[int] = None
+    ptxas_info: str | None = None
+    gmem_bytes: int | None = None
+    smem_bytes: int | None = None
     # maps from constant memory bank to bytes
-    cmem_bank_to_bytes: Optional[dict[int, int]] = None
-    registers: Optional[int] = None
-    target_arch: Optional[str] = None
-    stack_frame_bytes: Optional[int] = None
-    spill_store_bytes: Optional[int] = None
-    spill_load_bytes: Optional[int] = None
+    cmem_bank_to_bytes: dict[int, int] | None = None
+    registers: int | None = None
+    target_arch: str | None = None
+    stack_frame_bytes: int | None = None
+    spill_store_bytes: int | None = None
+    spill_load_bytes: int | None = None
 
     def __post_init__(self):
         self.parse_ptxas()
@@ -138,7 +124,7 @@ class CompiledKernel:
 
         self.ptxas_info = re.sub(r"\b_Z.*\b", "[mangled kernel name]", self.ptxas_info)
 
-        def find_unique_int(pattern) -> Optional[int]:
+        def find_unique_int(pattern) -> int | None:
             g = re.search(r"(\d+) bytes gmem").groups()
             return None if len(g) == 0 else int(g[0])
 
@@ -169,8 +155,9 @@ class TestRun:
     # collecting the preamble lets us skip it when diffing, and lets us compare
     # only the preamble between runs
     preamble: str = field(init=False)
-    # lets us seek past preamble
-    preamble_size_bytes: int = field(init=False)
+    # The following lets us skip preamble when loading kernels. Note that the
+    # preamble can change length due to differing index types, so we can't rely
+    # on f.seek()
     preamble_size_lines: int = field(init=False)
 
     def __post_init__(self):
@@ -239,15 +226,6 @@ class TestRun:
             elif line[:6] == "ptxas ":
                 # NVFUSER_DUMP=ptxas_verbose corresponds to nvcc --ptxas-options=-v or --resources-usage
                 # This always prints after printing the cuda filename
-                # Example output:
-                # PRINTING: __tmp_kernel11.cu
-                #   ptxas info    : 307 bytes gmem
-                #   ptxas info    : Compiling entry function '_ZN11CudaCodeGen8kernel11ENS_6TensorIfLi2ELi2EEES1_S1_' for 'sm_86'
-                #   ptxas info    : Function properties for _ZN11CudaCodeGen8kernel11ENS_6TensorIfLi2ELi2EEES1_S1_
-                #   ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
-                #   ptxas info    : Used 14 registers, 472 bytes cmem[0]
-                #
-                # Here we parse hold this printout to use in the diff. We also attempt to parse it and store the information as best we can
                 if len(current_files) == 0:
                     print("WARNING: Cannot associate ptxas info with CUDA kernel")
                     continue
@@ -273,9 +251,8 @@ class TestRun:
                         preamble_lines.append(line)
                     elif i >= len(preamble_lines) or preamble_lines[i] != line:
                         break
-                    self.preamble_size_bytes = f.tell()
                 preamble_lines = preamble_lines[:i]
-            if self.preamble_size_bytes == 0:
+            if len(preamble_lines) == 0:
                 # early return if preamble is determined to be empty
                 break
             first = False
@@ -303,9 +280,6 @@ class TestRun:
         basename = kern.filename
         fullname = os.path.join(self.directory, "cuda", basename)
         code = ""
-        if kern.ptxas_info is not None:
-            for line in kern.ptxas_info.splitlines():
-                code += f"// {line}\n"
         with open(fullname, "r") as f:
             for i, line in enumerate(f.readlines()):
                 if not strip_preamble or i >= self.preamble_size_lines:
@@ -319,19 +293,27 @@ class TestRun:
 
 
 def highlight_code(code) -> str:
-    import pygments
-    from pygments.formatters import HtmlFormatter
-    from pygments.lexers import CppLexer
+    try:
+        import pygments
+        from pygments.formatters import HtmlFormatter
+        from pygments.lexers import CppLexer
 
-    return pygments.highlight(code, CppLexer(), HtmlFormatter())
+        return pygments.highlight(code, CppLexer(), HtmlFormatter())
+    except ImportError:
+        # pygments is not required unless we are outputing HTML
+        return None
 
 
 def highlight_diff(diff) -> str:
-    import pygments
-    from pygments.formatters import HtmlFormatter
-    from pygments.lexers import DiffLexer
+    try:
+        import pygments
+        from pygments.formatters import HtmlFormatter
+        from pygments.lexers import DiffLexer
 
-    return pygments.highlight(diff, DiffLexer(), HtmlFormatter())
+        return pygments.highlight(diff, DiffLexer(), HtmlFormatter())
+    except ImportError:
+        # pygments is not required unless we are outputing HTML
+        return None
 
 
 @dataclass
