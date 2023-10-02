@@ -4211,6 +4211,55 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
     }
   }
 }
+
+// Test the matmul scheduler's split-K support
+TEST_F(NVFuserTest, FusionVoltaMatmulSplitK_CUDA) {
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 264, N = 136, K = 8096;
+
+  for (auto layout : kAllSupportedMatmulLayout) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+
+    auto tv2 = matmul(tv0, tv1, layout, false);
+
+    fusion.addOutput(tv2);
+
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 16, 4);
+
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Volta_16_16_4;
+    params.tile_sizes = gemm_tile;
+    scheduleMatmul(&fusion, params);
+
+    auto inputs = matmulAtInput(M, N, K, layout);
+
+    FusionExecutor fe;
+    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+        7,
+        0,
+        fe.compileFusion(
+            &fusion,
+            {inputs.first, inputs.second},
+            LaunchParams(),
+            matmul_cparams));
+    // prologSwizzle on Volta is not supported yet
+    // ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+    auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+    auto tref = atMatmul(
+        inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+    NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  }
+}
+
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser

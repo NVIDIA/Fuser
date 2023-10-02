@@ -722,6 +722,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       "scheduleMatmul supports fusion with single mma op in definition, got ",
       mma_ops.size());
 
+  NVF_ERROR(roles_map.at(MatmulRole::INPUT_A).size() == 1);
+  NVF_ERROR(roles_map.at(MatmulRole::INPUT_B).size() == 1);
+  NVF_ERROR(roles_map.at(MatmulRole::OUTPUT_D).size() == 1);
+
   // Core roles: there can be only one... TV with assigned core role
   TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
   TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
@@ -934,6 +938,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   }
 
   // [Mo, No, Ko, Mi, Ni, Ki]
+  bool has_splitk = params.splitk_factor > 1;
+  if (has_splitk) {
+    mma_result->split(-4, params.splitk_factor, false);
+  }
+  // [Mo, No, (Ksk,) Ko, Mi, Ni, Ki]
+
   // Propagate tiling globally
   scheduler_utils::transformPropagateToAllFrom(mma_result, -1);
 
@@ -946,8 +956,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Schedule warp tile
   mma_utils::scheduleWarpTileWithReduction(mma_result, gemm_tile);
-  //  0   1  2  3   4   5   6   7  8   9  10
-  // [Mo  No Ko Kw Mwo Nwo Mwi Nwi Mi, Ni, Ki]
+  //  0   1  2   3   4   5   6   7  8   9 10 11
+  // [Mo  No Ksk Ko Kw Mwo Nwo Mwi Nwi Mi Ni Ki]
 
   // Propagate warp tile to main loop and epilog/output tvs
   scheduler_utils::BoundedDirectionalTransformPropagator::bothWays(
@@ -997,11 +1007,15 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   acr->axis(-1)->parallelize(ParallelType::Vectorize);
   bcr->axis(-1)->parallelize(ParallelType::Vectorize);
 
-  //  0  1  2  3  4   5   6   7  8  9  10 11
-  // [B Mo No Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
+  //  0  1  2  3  4   5   6   7  8  9  10  11 12
+  // [B Mo No (Ksk) Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
   if (num_batch_dims != 0) {
+    NVF_ERROR(!has_splitk, "Split-k is not supported for batch matmul");
     mma_result->axis(0)->parallelize(ParallelType::BIDz);
+  } else if (has_splitk) {
+    mma_result->axis(-10)->parallelize(ParallelType::BIDz);
   }
+
   switch (params.cta_order) {
     case MatmulParams::TileRasterizationOrder::RowMajor:
       mma_result->axis(num_batch_dims)->parallelize(ParallelType::BIDx);
