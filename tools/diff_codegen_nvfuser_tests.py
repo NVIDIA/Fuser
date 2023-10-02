@@ -271,7 +271,7 @@ class TestRun:
         # NOTE: including preamble can add 5-6MB to the file size.
         # TODO: Optionally skip including the preamble in the report in order
         # to reduce file size
-        d["highlighted_preamble"] = highlight_code(self.preamble)
+        d["preamble"] = self.preamble
         return d
 
     def get_kernel(self, test_name, kernel_number, strip_preamble=True) -> str:
@@ -292,30 +292,6 @@ class TestRun:
         return code
 
 
-def highlight_code(code) -> str:
-    try:
-        import pygments
-        from pygments.formatters import HtmlFormatter
-        from pygments.lexers import CppLexer
-
-        return pygments.highlight(code, CppLexer(), HtmlFormatter())
-    except ImportError:
-        # pygments is not required unless we are outputing HTML
-        return None
-
-
-def highlight_diff(diff) -> str:
-    try:
-        import pygments
-        from pygments.formatters import HtmlFormatter
-        from pygments.lexers import DiffLexer
-
-        return pygments.highlight(diff, DiffLexer(), HtmlFormatter())
-    except ImportError:
-        # pygments is not required unless we are outputing HTML
-        return None
-
-
 @dataclass
 class KernelDiff:
     testname: str
@@ -327,9 +303,9 @@ class KernelDiff:
     def to_dict(self):
         return {
             "number": self.kernel_num,
-            "highlighted_code1": highlight_code(self.code1),
-            "highlighted_code2": highlight_code(self.code2),
-            "highlighted_diff": highlight_diff(self.diff),
+            "code1": self.code1,
+            "code2": self.code2,
+            "diff": self.diff,
         }
 
 
@@ -425,15 +401,13 @@ class TestDifferences:
         d["run1"] = self.run1.to_dict()
         d["run2"] = self.run2.to_dict()
 
-        d["highlighted_preamble_diff"] = highlight_diff(
-            "\n".join(
-                difflib.unified_diff(
-                    self.run1.preamble.splitlines(),
-                    self.run2.preamble.splitlines(),
-                    fromfile=self.run1.git_rev.abbrev,
-                    tofile=self.run2.git_rev.abbrev,
-                    n=5,
-                )
+        d["preamble_diff"] = "\n".join(
+            difflib.unified_diff(
+                self.run1.preamble.splitlines(),
+                self.run2.preamble.splitlines(),
+                fromfile=self.run1.git_rev.abbrev,
+                tofile=self.run2.git_rev.abbrev,
+                n=5,
             )
         )
 
@@ -455,14 +429,12 @@ class TestDifferences:
             kernels_code = []
             for i in range(len(self.run2.kernel_map[testname])):
                 kernels_code.append(
-                    highlight_code(
-                        self.run2.get_kernel(testname, i, strip_preamble=True)
-                    )
+                    self.run2.get_kernel(testname, i, strip_preamble=True)
                 )
             d["new_tests"].append(
                 {
                     "name": testname,
-                    "highlighted_code": kernels_code,
+                    "code": kernels_code,
                 }
             )
 
@@ -471,14 +443,12 @@ class TestDifferences:
             kernels_code = []
             for i in range(len(self.run1.kernel_map[testname])):
                 kernels_code.append(
-                    highlight_code(
-                        self.run1.get_kernel(testname, i, strip_preamble=True)
-                    )
+                    self.run1.get_kernel(testname, i, strip_preamble=True)
                 )
             d["removed_tests"].append(
                 {
                     "name": testname,
-                    "highlighted_code": kernels_code,
+                    "code": kernels_code,
                 }
             )
 
@@ -489,13 +459,11 @@ class TestDifferences:
     def generate_html(self, max_diffs) -> str:
         """Return a self-contained HTML string summarizing the codegen comparison"""
         import jinja2
-        from pygments.formatters import HtmlFormatter
 
         tools_dir = os.path.dirname(__file__)
         env = jinja2.Environment(loader=jinja2.FileSystemLoader(searchpath=tools_dir))
         template = env.get_template("templates/codediff.html")
         context = self.to_dict()
-        context["pygments_style_defs"] = HtmlFormatter().get_style_defs(".highlight")
         context["max_diffs"] = max_diffs
 
         return template.render(context)

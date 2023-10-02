@@ -2,6 +2,12 @@
     <head>
         <title>{{ run1.git.abbrev }} vs {{ run2.git.abbrev }} - NVFuser codegen diff</title>
         <style>{{ pygments_style_defs }}</style>
+        <link rel="stylesheet"
+              href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/default.min.css">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+        <!-- and it's easy to individually load additional languages -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/go.min.js"></script>
+        <script>hljs.highlightAll();</script>
         <script language="javascript">
         function toggleDiv(divId) {
             var x = document.getElementById(divId);
@@ -130,9 +136,9 @@
         <h3>
             Old commit: <a href="https://github.com/NVIDIA/Fuser/commit/{{ run1.git.full_hash }}">{{ run1.git.abbrev }}</a>
         </h3>
-        <span>{{ run1.git.title }}</span>
+        <span>{{ run1.git.title|e }}</span>
         <br>
-        <span>{{ run1.git.author_name }}</span> &lt;<span>{{ run1.git.author_email }}&gt;</span>
+        <span>{{ run1.git.author_name|e }}</span> &lt;<span>{{ run1.git.author_email|e }}&gt;</span>
         <br>
         <span>{{ run1.git.author_datetime }}</span>
         <br>
@@ -143,9 +149,9 @@
         <h3>
             New commit: <a href="https://github.com/NVIDIA/Fuser/commit/{{ run2.git.full_hash }}">{{ run2.git.abbrev }}</a>
         </h3>
-        <span>{{ run2.git.title }}</span>
+        <span>{{ run2.git.title|e }}</span>
         <br>
-        <span>{{ run2.git.author_name }}</span> &lt;<span>{{ run2.git.author_email }}&gt;</span>
+        <span>{{ run2.git.author_name|e }}</span> &lt;<span>{{ run2.git.author_email|e }}&gt;</span>
         <br>
         <span>{{ run2.git.author_datetime }}</span>
         <br>
@@ -154,9 +160,9 @@
         <a href="https://github.com/NVIDIA/Fuser/tree/{{ run2.git.full_hash }}">Browse code at this commit</a>
         <br>
         <h2>Code comparison</h2>
-        Command line: <code>{{ run1.command }}</code>
+        Command line: <code>{{ run1.command|e }}</code>
         <br>
-        {% if run1.highlighted_preamble != run2.highlighted_preamble %}
+        {% if run1.preamble != run2.preamble %}
             Preamble differs between runs
             <button style="box-shadow:none" onclick="toggleOldPreamble()">{{ run1.git.abbrev }}</button>
         </span>
@@ -165,15 +171,23 @@
     <button style="box-shadow:none" onclick="toggleNewPreamble()">{{ run2.git.abbrev }}</button>
 </span>
 <br>
-<div id="old_preamble" style="display:none">{{ run1.highlighted_preamble }}</div>
-<div id="new_preamble" style="display:none">{{ run1.highlighted_preamble }}</div>
-<div id="preamble_diff" style="display:none">{{ highlighted_preamble_diff }}</div>
+<div id="old_preamble" style="display:none">
+    <pre><code class="language-cpp">{{ run1.preamble|e }}</code></pre>
+</div>
+<div id="new_preamble" style="display:none">
+    <pre><code class="language-cpp">{{ run2.preamble|e }}</code></pre>
+</div>
+<div id="preamble_diff" style="display:none">
+    <pre><code class="language-diff">{{ preamble_diff|e }}</code></pre>
+</div>
 {% else %}
 Preamble matches between runs
 <button style="box-shadow:none" onclick="toggleDiv('preamble')">Preamble</button>
 </span>
 <br>
-<div id="preamble" style="display:none">{{ run1.highlighted_preamble }}</div>
+<div id="preamble" style="display:none">
+    <pre><code class="language-cpp">{{ run1.preamble|e }}</code></pre>
+</div>
 {% endif %}
 {% if new_tests|length > 0 %}
     <h3>New Tests</h3>
@@ -185,14 +199,16 @@ Preamble matches between runs
     <span class="test_name"><b>{{ test.name }}</b>
         <br>
         {% set test_num = loop.index %}
-        {% for code in test.highlighted_code %}
+        {% for code in test.code %}
             &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ loop.index }}</span>
             <button style="width: 60pt;
                            box-shadow:none"
                     onclick="toggleDiv('newtestcode_{{ test_num }}_{{ loop.index }}')">Code</button>
         </span>
         <br>
-        <div id="newtestcode_{{ test_num }}_{{ loop.index }}" style="display:none">{{ code }}</div>
+        <div id="newtestcode_{{ test_num }}_{{ loop.index }}" style="display:none">
+            <pre><code class="language-cpp">{{ code|e }}</code></pre>
+        </div>
     {% endfor %}
     <br>
 {% endfor %}
@@ -207,14 +223,16 @@ Preamble matches between runs
     <span class="test_name"><b>{{ test.name }}</b>
         <br>
         {% set test_num = loop.index %}
-        {% for code in test.highlighted_code %}
+        {% for code in test.code %}
             &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ loop.index }}</span>
             <button style="box-shadow:none"
                     onclick="toggleDiv('removedtestcode_{{ test_num }}_{{ loop.index }}')">Code</button>
         </span>
         <br>
         <div id="removedtestcode_{{ test_num }}_{{ loop.index }}"
-             style="display:none">{{ code }}</div>
+             style="display:none">
+            <pre><code class="language-cpp">{{ code|e }}</code></pre>
+        </div>
     {% endfor %}
 {% endfor %}
 {% endif %}
@@ -250,9 +268,15 @@ Preamble matches between runs
                 onclick="toggleNewCode({{ outer_index }}, {{ loop.index }})">{{ run2.git.abbrev }}</button>
     </span>
     <br>
-    <div id="oldcode_{{ outer_index }}_{{ loop.index }}" style="display:none">{{ kernel.highlighted_code1 }}</div>
-    <div id="newcode_{{ outer_index }}_{{ loop.index }}" style="display:none">{{ kernel.highlighted_code2 }}</div>
-    <div id="diff_{{ outer_index }}_{{ loop.index }}" style="display:none">{{ kernel.highlighted_diff }}</div>
+    <div id="oldcode_{{ outer_index }}_{{ loop.index }}" style="display:none">
+        <pre><code class="language-cpp">{{ kernel.code1|e }}</code></pre>
+    </div>
+    <div id="newcode_{{ outer_index }}_{{ loop.index }}" style="display:none">
+        <pre><code class="language-cpp">{{ kernel.code2|e }}</code></pre>
+    </div>
+    <div id="diff_{{ outer_index }}_{{ loop.index }}" style="display:none">
+        <pre><code class="language-diff">{{ kernel.diff|e }}</code></pre>
+    </div>
 {% endif %}
 {% set loop_vars.total_diffs = loop_vars.total_diffs + 1 %}
 {% endfor %}
