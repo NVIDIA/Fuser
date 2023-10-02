@@ -42,7 +42,7 @@ class DeviceMesh final {
   // Throws if the device is not found
   DeviceIdxType findIndex(const DeviceIdxType device) const {
     auto it = std::find(vector_.begin(), vector_.end(), device);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         it != vector_.end(), "device index ", device, " is not in the mesh");
     return std::distance(vector_.begin(), it);
   }
@@ -50,8 +50,8 @@ class DeviceMesh final {
  private:
   void set_(std::vector<DeviceIdxType> devices) {
     vector_ = devices;
-    TORCH_INTERNAL_ASSERT(!devices.empty(), "empty device mesh");
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(!devices.empty(), "empty device mesh");
+    NVF_ERROR(
         std::unique(vector_.begin(), vector_.end()) == vector_.end(),
         "device mesh has duplicates");
   }
