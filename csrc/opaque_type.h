@@ -36,20 +36,12 @@ class Opaque {
   size_t size_;
 
  public:
-// Silence warning:
-// /opt/pytorch/nvfuser/csrc/opaque_type.h:40:12: note: the ABI for passing
-// parameters with 64-byte alignment has changed in GCC 4.6
-//   40 |   explicit Opaque(T value)
-//      |            ^~~~~~
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wpsabi"
   template <typename T>
   explicit Opaque(T value)
       : value_(std::move(value)),
         equals_(OpaqueEquals<T>{}),
         to_bytes_(OpaqueToBytes<T>{}),
         size_(sizeof(T)) {}
-#pragma GCC diagnostic pop
 
   bool operator==(const Opaque& other) const {
     if (this == &other) {
