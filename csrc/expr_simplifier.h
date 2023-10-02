@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <ir/all_nodes.h>
 
 #include <vector>
@@ -645,7 +646,7 @@ RegisterType getRegisterType(Val* value);
 // potentially hide the error. The argument `preserve_error` specifies whether
 // we should disable these optimization, unless we can prove there won't be an
 // error.
-TORCH_CUDA_CU_API Val* simplifyExpr(
+Val* simplifyExpr(
     Val* value,
     const std::list<VarInfo>& variables = {},
     std::vector<Val*> assumptions = {},

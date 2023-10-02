@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 #include <torch/csrc/jit/ir/ir.h>
 
 /*
@@ -23,10 +24,10 @@
 
 namespace nvfuser {
 
-TORCH_CUDA_CU_API bool isFusibleCudaFusionGroup(const torch::jit::Node* node);
+bool isFusibleCudaFusionGroup(const torch::jit::Node* node);
 
 // consider if `node` could be fused into `fusion`
-TORCH_CUDA_CU_API bool isFusibleCudaFusionGroup(
+bool isFusibleCudaFusionGroup(
     const torch::jit::Node* fusion,
     const torch::jit::Node* node);
 

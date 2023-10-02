@@ -27,11 +27,11 @@ namespace {
 //   predicating these ops will require extra steps to ensure that
 //   the whole warp will get the same value.
 void assertOnWarpOps(const Expr* expr) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !ir_utils::isLdMatrixOp(expr),
       "Predicate elimination: cannot eliminate pred for ldmatrix, use exact parallel dims. ",
       expr->toString());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !expr->isA<MmaOp>(),
       "Mma op: cannot eliminate predicate for mma op, tiling not valid. ",
       expr->toString());
@@ -110,7 +110,7 @@ class PredicateAnalyzer : public OptOutDispatch {
 
   void handle(IterDomain* consumer_id) override {
     // The traversal should have ended if needs_predicate_ was true
-    TORCH_INTERNAL_ASSERT(!needs_predicate_);
+    NVF_ERROR(!needs_predicate_);
 
     // If consumer_id is not going to be materialized as a loop (e.g.,
     // broadcast), no need to predicate
@@ -229,7 +229,7 @@ class PredicateChcker : public IterVisitor {
     //  logic. But this part along with [Predicate Inversion for CpAsync]
     //  should be cleaned up all together when we extend predicate/masking
     //  logic to cover this usage.
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !(ir_utils::isCpAsyncOp(expr) && needs_predicate_smem_access),
         "predicate removal: unsupported use case of cp.async");
 
@@ -265,7 +265,7 @@ class PredicateChcker : public IterVisitor {
       return false;
     }
     auto tv_inputs = ir_utils::getTvs(expr->inputs());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !tv_inputs.empty(),
         "Should never have a reduction op without a tensor view input.");
     bool found_expand = false;
@@ -285,16 +285,14 @@ class PredicateChcker : public IterVisitor {
       tv_outputs = std::vector<TensorView*>(tv_inputs.size(), tv_outputs[0]);
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         tv_outputs.size() == tv_inputs.size(),
         "Was expecting matching number of inputs and outputs for expression: ",
         expr->toString());
 
     for (auto i : c10::irange(tv_inputs.size())) {
-      const auto root_p2c =
-          PairwiseRootDomainMap(tv_inputs[i], tv_outputs[i])
-              .mapProducerToConsumer(
-                  tv_inputs[i]->domain(), tv_outputs[i]->domain());
+      const auto root_p2c = PairwiseRootDomainMap(tv_inputs[i], tv_outputs[i])
+                                .mapProducerToConsumer();
       for (auto entry : root_p2c) {
         auto p_id = entry.first;
         auto c_id = entry.second;
@@ -456,7 +454,7 @@ class PredicateChcker : public IterVisitor {
   // For details on zero loops, see indexMapFromTV in
   //  lower index pass.
   std::vector<Val*> getZeroLeafIds(const TensorView* tv) const {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         tv->getMemoryType() == MemoryType::Local ||
             tv->getMemoryType() == MemoryType::Shared,
         "Local or shared memory tensor is assumed: ",
@@ -585,7 +583,7 @@ class PredicateChcker : public IterVisitor {
     // so that must be allocated on global memory. Since we don't omit
     // predication for expressions involving global memory, this
     // should never occur.
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         input_def != nullptr, "Inconsistent input found: ", input->toString());
 
     // The input needs to be initialized to the init value to omit
@@ -637,7 +635,7 @@ class PredicateChcker : public IterVisitor {
       }
 
       auto input_tv = dynamic_cast<TensorView*>(input);
-      TORCH_INTERNAL_ASSERT(input_tv != nullptr);
+      NVF_ERROR(input_tv != nullptr);
 
       auto input_def = input->definition();
 
@@ -645,7 +643,7 @@ class PredicateChcker : public IterVisitor {
       // so that must be allocated on global memory. Since we don't omit
       // predication for expressions involving global memory, this
       // should never occur.
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           input_def != nullptr,
           "Inconsistent input found: ",
           input->toString());
@@ -681,7 +679,7 @@ class PredicateChcker : public IterVisitor {
       // so that must be allocated on global memory. Since we don't omit
       // predication for expressions involving global memory, this
       // should never occur.
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           input_def != nullptr,
           "Inconsistent input found: ",
           input->toString());
@@ -753,7 +751,7 @@ class PredicateChcker : public IterVisitor {
         }
 
         auto input_tv = dynamic_cast<TensorView*>(input);
-        TORCH_INTERNAL_ASSERT(input_tv != nullptr);
+        NVF_ERROR(input_tv != nullptr);
 
         auto input_def = input->definition();
 
@@ -761,7 +759,7 @@ class PredicateChcker : public IterVisitor {
         // so that must be allocated on global memory. Since we don't omit
         // predication for expressions involving global memory, this
         // should never occur.
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             input_def != nullptr,
             "Inconsistent input found: ",
             input->toString());
@@ -796,7 +794,7 @@ class PredicateChcker : public IterVisitor {
   void handle(MmaOp* mma) final {
     for (auto input : ir_utils::filterByType<TensorView>(mma->inputs())) {
       auto input_def = input->definition();
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           input_def != nullptr,
           "Inconsistent input found: ",
           input->toString());
@@ -886,7 +884,7 @@ void PredicateElimination::dispatch(Expr* expr) {
     // so that must be allocated on global memory. Since we don't omit
     // predication for expressions involving global memory, this
     // should never occur.
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         input_def != nullptr, "Inconsistent input found: ", input->toString());
 
     // If input is an output of reduction, it should be fully
@@ -934,7 +932,7 @@ bool PredicateElimination::setDefaultInitValue(TensorView* tv) {
 bool PredicateElimination::setReductionInitValue(
     TensorView* tv,
     Val* reduction_init) {
-  TORCH_INTERNAL_ASSERT(tv != nullptr);
+  NVF_ERROR(tv != nullptr);
 
   auto it = init_value_map_.find(tv);
   if (it == init_value_map_.end()) {
@@ -952,7 +950,7 @@ bool PredicateElimination::setReductionInitValue(
   } else if (existing_val->sameAs(reduction_init)) {
     return true;
   } else {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         false,
         "Inconsistent setting of initialization value for t",
         tv->name(),
@@ -972,9 +970,9 @@ bool PredicateElimination::canOmitPredicate(const Expr* expr) const {
     return false;
   }
 
-  TORCH_INTERNAL_ASSERT(expr != nullptr);
+  NVF_ERROR(expr != nullptr);
   const auto out_tv = ir_utils::getTvOutput(expr);
-  TORCH_INTERNAL_ASSERT(out_tv != nullptr, "Not a tensor expression");
+  NVF_ERROR(out_tv != nullptr, "Not a tensor expression");
 
   if (ir_utils::isTensorScalarFillOp(expr)) {
     if (out_tv->getMemoryType() == MemoryType::Local) {
@@ -1028,7 +1026,7 @@ std::string PredicateElimination::toString() const {
   ss << "Tensors that do not need predication:";
   for (auto expr : non_predicated_exprs_) {
     for (auto out : expr->outputs()) {
-      TORCH_INTERNAL_ASSERT(out->isA<TensorView>());
+      NVF_ERROR(out->isA<TensorView>());
       ss << " T" << out->name();
     }
   }

@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <compute_at_map.h>
 #include <device_lower/analysis/fused_reduction.h>
@@ -44,7 +45,7 @@ namespace nvfuser {
 // container for this information that we can reuse. Would be nice to generate
 // such a structure and propagate it through lowering.
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
+class GpuLower : public NonCopyable {
   class KernelIrMapper;
 
  public:
@@ -106,12 +107,12 @@ class TORCH_CUDA_CU_API GpuLower : public NonCopyable {
   }
 
   PredicateElimination& predicateElimination() {
-    TORCH_INTERNAL_ASSERT(pred_elimination_.get() != nullptr);
+    NVF_ERROR(pred_elimination_.get() != nullptr);
     return *pred_elimination_;
   }
 
   const PredicateElimination& predicateElimination() const {
-    TORCH_INTERNAL_ASSERT(pred_elimination_.get() != nullptr);
+    NVF_ERROR(pred_elimination_.get() != nullptr);
     return *pred_elimination_;
   }
 

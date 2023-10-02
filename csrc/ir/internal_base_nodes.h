@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <ir/base_nodes.h>
 #include <optional>
 
@@ -32,7 +33,7 @@ struct AnalyzeViewResult;
 // Convenience utility to initialize IterDomain's without having to sort through
 // all the default values. Intended to be used with
 // IterDomain::IterDomain(IrBuilderPasskey IterDomainBuildArgs)
-class TORCH_CUDA_CU_API IterDomainBuilder {
+class IterDomainBuilder {
  public:
   // Match legacy constructor
   IterDomainBuilder(Val* _start, Val* _extent);
@@ -81,7 +82,7 @@ class TORCH_CUDA_CU_API IterDomainBuilder {
 //! TensorDomains which represent how to iterate over a tensor is made up of
 //! IterDomains to form an ND iterable. We directly set parallization strategies
 //! on IterDomains.
-class TORCH_CUDA_CU_API IterDomain : public Val {
+class IterDomain : public Val {
  public:
   IterDomain(IrBuilderPasskey, const IterDomainBuilder& args);
 
@@ -247,7 +248,7 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
   Val* stopOffset() const;
 
   Val* extent() const {
-    TORCH_INTERNAL_ASSERT(extent_ != nullptr);
+    NVF_ERROR(extent_ != nullptr);
     return extent_;
   }
 
@@ -257,7 +258,7 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
 
   // Returns the expanded extent of a strided broadcast entry.
   Val* expandedExtent() const {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         hasExpandedExtent(),
         "Requested expanded extent, but none found on this dimension.");
     return expanded_extent_;
@@ -286,7 +287,7 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
   //!      based on the given input.
   void padToMultipleOfWarp(std::optional<int64_t> maybe_to_size = {}) {
     // Currently only restricted to TIDx to generate warp reduce
-    TORCH_CHECK(
+    NVF_CHECK(
         parallel_type_ == ParallelType::TIDx,
         "padToMultipleOfWarp : warp padding only supported on TIDx parallel dimension");
     is_padded_dimension_ = true;
@@ -346,6 +347,11 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
   //!  WarpMmaSwizzler will label the instruction loops case-by-case.
   bool isMma() const {
     return parallel_type_ == ParallelType::Mma;
+  }
+
+  //! Marks that this id represents an instruction loop, cp.async.bulk use only.
+  bool isBulk() const {
+    return parallel_type_ == ParallelType::Bulk;
   }
 
   //! Applies 2D swizzle on a rectangular tile defined by
@@ -427,7 +433,7 @@ class TORCH_CUDA_CU_API IterDomain : public Val {
 //! which should give us an operation in the list [split, merge] or similar
 //! operations that take in a TensorDomain, applies a transformation and outputs
 //! a tensor domain.
-class TORCH_CUDA_CU_API TensorDomain : public Val {
+class TensorDomain : public Val {
  public:
   explicit TensorDomain(
       IrBuilderPasskey,

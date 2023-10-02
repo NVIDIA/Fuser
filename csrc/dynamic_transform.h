@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
@@ -27,7 +28,7 @@ class DynamicTransformInitialInfoBuilder;
 
 //! Initial information derived only from the symbolic Fusion without input
 //! sizes
-class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
+class DynamicTransformInitialInfo {
  public:
   bool operator==(const DynamicTransformConcretizationInfo& other) const;
 
@@ -103,7 +104,7 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
   // We hold vectors of the _outputs_ of dynamic ops. The reason we don't hold
   // the ops themselves is that during concretization, the ops will actually be
-  // removed by ir_utils::replaceValInExpr. The outputs will not: their
+  // removed by ir_utils::replaceValInExprInputs. The outputs will not: their
   // definitions will merely be altered. When the ops are replaced, if we had
   // referred to them directly here, we would run into segfaults. Referring only
   // to the outputs avoids this issue.
@@ -125,7 +126,7 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
 //! A set of transformations for a symbolic fusion with concrete sizes
 //! of the fusion inputs
-class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
+class DynamicTransformConcretizationInfo {
  public:
   DynamicTransformConcretizationInfo(
       const DynamicTransformInitialInfo* initial_info,
@@ -212,7 +213,7 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   friend class DynamicTransformInfoBuilder;
 };
 
-class TORCH_CUDA_CU_API DynamicTransform {
+class DynamicTransform {
  public:
   //! Get initial information before we have inputs. This analyzes the Fusion to
   //! determine whether it has dynamic operations, and caches their position for

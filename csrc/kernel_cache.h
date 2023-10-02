@@ -9,6 +9,7 @@
 
 #include <dynamic_transform.h>
 #include <evaluator_common.h>
+#include <exceptions.h>
 #include <executor.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
@@ -86,7 +87,7 @@ struct PairPointerEquals {
 //!  and one for segmented/multi-kernel fusion.
 //! Conceptually this is a generalization of FusionExecutor that supports both
 //!  single-kernel and multi-kernel caching/compiling/launching
-class TORCH_CUDA_CU_API FusionKernelRuntime {
+class FusionKernelRuntime {
  public:
   explicit FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
@@ -118,7 +119,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   flatbuffers::Offset<serde::FusionKernelRuntime> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
 
-  //! Deerialize Fusion Kernel Runtime using flatbuffers
+  //! Deserialize Fusion Kernel Runtime using flatbuffers
   void deserialize(const serde::FusionKernelRuntime* buffer);
 
   //! Note that all heuristics use the same index type.
@@ -129,7 +130,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
       return PrimDataType::Int;
     }
     auto index_type = schedulers().at(0).get()->params()->cparams.index_type;
-    TORCH_INTERNAL_ASSERT(index_type.has_value());
+    NVF_ERROR(index_type.has_value());
     return index_type.value();
   }
 
@@ -198,8 +199,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
   //! TODO: have a interface for grabbing all recent logs. Need to put a buffer
   //! space for recent logs
   ExecutorLog getMostRecentExecutorLog() {
-    TORCH_INTERNAL_ASSERT(
-        profiling_, "Executor log is only produced in profiling mode");
+    NVF_ERROR(profiling_, "Executor log is only produced in profiling mode");
     return most_recent_executor_log_;
   }
 
@@ -312,7 +312,7 @@ class TORCH_CUDA_CU_API FusionKernelRuntime {
 //! \note the uniqueness of the ide generated for a given input set is only
 //!   local to the instance of `InputsIdLookup`.
 //!
-class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
+class InputsIdLookup : public NonCopyable {
  public:
   //! constructor where maximum cache size is fixed during init
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init,cppcoreguidelines-avoid-magic-numbers)
@@ -485,7 +485,7 @@ class TORCH_CUDA_CU_API InputsIdLookup : public NonCopyable {
 //! assumed graph partition strategy is independent of input pattern, which we
 //! can revisit once we have more advanced graph segmentation logic Each
 //! FusionExecutorCache corresponds to one graph and one graph segmentation.
-class TORCH_CUDA_CU_API FusionExecutorCache {
+class FusionExecutorCache {
  public:
   //! create new fusion executor cache at a given device to handle kernel
   //! generation of dynamic sizes
@@ -556,7 +556,7 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //  to capture runtime profiling info. We also need to define
   //  a suitable profiling window / buffer size.
   ExecutorLog getMostRecentExecutorInfo() {
-    TORCH_INTERNAL_ASSERT(most_recent_runtime_ != nullptr);
+    NVF_ERROR(most_recent_runtime_ != nullptr);
     return most_recent_runtime_->getMostRecentExecutorLog();
   }
 
@@ -634,7 +634,7 @@ class TORCH_CUDA_CU_API FusionExecutorCache {
   //! be zero if the measurement is not enabled
   float getMostRecentKernelTimeMs() const {
     auto rt = getMostRecentKernelRuntime();
-    TORCH_INTERNAL_ASSERT(rt != nullptr);
+    NVF_ERROR(rt != nullptr);
     return rt->kernelTimeMs();
   }
 

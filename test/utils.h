@@ -8,6 +8,7 @@
 #pragma once
 
 #include <codegen.h>
+#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
 #include <executor.h>
@@ -117,7 +118,7 @@ inline TensorView* loweredTv(TensorView* tv, kir::Kernel* kernel) {
       matching_tv = lowered_tv;
     }
   }
-  TORCH_INTERNAL_ASSERT(matching_tv != nullptr);
+  NVF_ERROR(matching_tv != nullptr);
   return matching_tv;
 }
 
@@ -322,7 +323,7 @@ struct TransformPropagatorWithCheck : public TransformPropagator {
     TransformPropagator::propagateC2P(from, to);
     auto from_pos = replayed_pos_.at(from);
     auto to_pos = replayed_pos_.at(to);
-    TORCH_CHECK(
+    NVF_CHECK(
         TransformReplay::getMatchedLeafPosWithoutReplayPasC(
             to, from, from_pos) == (int)to_pos);
   }
@@ -330,7 +331,7 @@ struct TransformPropagatorWithCheck : public TransformPropagator {
     TransformPropagator::propagateP2C(from, to);
     auto from_pos = replayed_pos_.at(from);
     auto to_pos = replayed_pos_.at(to);
-    TORCH_CHECK(
+    NVF_CHECK(
         TransformReplay::getMatchedLeafPosWithoutReplayCasP(
             to, from, from_pos) == (int)to_pos);
   }
@@ -338,8 +339,8 @@ struct TransformPropagatorWithCheck : public TransformPropagator {
     TransformPropagator::propagateSibling(from, to);
     auto from_pos = replayed_pos_.at(from);
     auto to_pos = replayed_pos_.at(to);
-    TORCH_CHECK(from_pos == to_pos);
-    TORCH_CHECK(TransformReplay::fullSelfMatching(from, to));
+    NVF_CHECK(from_pos == to_pos);
+    NVF_CHECK(TransformReplay::fullSelfMatching(from, to));
   }
   using TransformPropagator::TransformPropagator;
 };
@@ -463,12 +464,13 @@ struct Instruction {
   std::string str;
   size_t address;
 
-  std::string predicate();
-  std::string action(); // The part of the string that is not predicate
-  std::string op(); // Some thing like: LDGSTS.E.128
-  std::string opCode(); // Something like LDGSTS
-  std::vector<std::string> modifiers(); // Something like {E, 128}
-  std::vector<std::string> args(); // Something like {[R217+0x1800], [R202.64]}
+  std::string predicate() const;
+  std::string action() const; // The part of the string that is not predicate
+  std::string op() const; // Some thing like: LDGSTS.E.128
+  std::string opCode() const; // Something like LDGSTS
+  std::vector<std::string> modifiers() const; // Something like {E, 128}
+  std::vector<std::string> args()
+      const; // Something like {[R217+0x1800], [R202.64]}
 };
 
 struct Label {

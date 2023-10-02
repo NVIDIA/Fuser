@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <ir/all_nodes.h>
 #include <transform_iter.h>
@@ -19,7 +20,7 @@ namespace nvfuser {
 
 // TODO: Only replay dispatch is really borrowed from TransformIter, we should
 // reevaluate the reuse of dispatch for classes that inherit TransformIter.
-class TORCH_CUDA_CU_API TransformRFactor {
+class TransformRFactor {
  public:
   // Transform the provided tensor domain to two domains, a producer and
   // consumer domain. These domains are created by taking axes and reducing them

@@ -9,6 +9,7 @@
 
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/utils.h>
+#include <exceptions.h>
 #include <index_compute.h>
 #include <kernel_ir.h>
 #include <root_domain_map.h>
@@ -123,7 +124,7 @@ struct UnswitchPredicateKeyHash {
   std::size_t operator()(const UnswitchPredicateKey& key) const;
 };
 
-class TORCH_CUDA_CU_API UnswitchPredicate {
+class UnswitchPredicate {
  public:
   static Val* get(
       const std::vector<kir::ForLoop*>& outer_loops,

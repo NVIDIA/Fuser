@@ -25,7 +25,7 @@ namespace {
 // Clone an expr, if this expr is a container (ForLoop, IfThenElse), then
 // recursively clone all exprs in its scope.
 Expr* recursivelyClone(Expr* expr) {
-  TORCH_INTERNAL_ASSERT(expr != nullptr);
+  NVF_ERROR(expr != nullptr);
   if (auto fl = dynamic_cast<kir::ForLoop*>(expr)) {
     auto new_loop = IrBuilder::create<kir::ForLoop>(fl);
     for (auto e : fl->body().exprs()) {
@@ -39,8 +39,7 @@ Expr* recursivelyClone(Expr* expr) {
     // we only want to rotate the loop in the unswitch path?). We should be
     // definitely revisit how to deal with this ite->predicate() if this is the
     // case.
-    TORCH_INTERNAL_ASSERT(
-        false, "Don't expect to see IfThenElse in loop rotation pass.");
+    NVF_ERROR(false, "Don't expect to see IfThenElse in loop rotation pass.");
     auto new_ite = IrBuilder::create<kir::IfThenElse>(ite->predicate());
     for (auto e : ite->thenBody().exprs()) {
       new_ite->thenBody().push_back(recursivelyClone(e));
@@ -132,7 +131,7 @@ class RotateLoop : kir::ExprMutator {
   //   then the container is automatically selected.
   // This function modifies selection_ to implement this strategy
   void expandSelection(Expr* expr) {
-    TORCH_INTERNAL_ASSERT(expr != nullptr);
+    NVF_ERROR(expr != nullptr);
     for (auto fl : for_loops_) {
       if (fl->iter_domain() != loop_concrete_id_) {
         continue;
@@ -374,7 +373,7 @@ class RotateLoop : kir::ExprMutator {
     expandSelection(fl);
     auto id = fl->iter_domain();
     if (id == loop_concrete_id_) {
-      TORCH_CHECK(
+      NVF_CHECK(
           validateSelection(fl), "Unable to rotate loop ", fl->toString());
       rotate(fl);
     }

@@ -6,18 +6,19 @@
  */
 // clang-format on
 #pragma once
+#include <exceptions.h>
 #include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <scheduler/all_schedulers.h>
 #include <scheduler/compile_time_info.h>
 #include <scheduler/heuristic.h>
+#include <scheduler/heuristic_types.h>
 #include <scheduler/matmul_heuristic.h>
 #include <scheduler/pointwise_heuristic.h>
 #include <scheduler/reduction_heuristic.h>
+#include <scheduler/transpose_heuristic.h>
 #include <scheduler/utils.h>
 #include <utils.h>
-
 namespace nvfuser {
 
 class SegmentedGroup;
@@ -34,7 +35,7 @@ class ExpressionEvaluator;
 //!  It is important that input id encoding should be up to date with any change
 //!   of this class to avoid launching compiled kernels with illegal inputs.
 
-class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
+class SchedulerRuntimeInfo : public NonCopyable {
  public:
   // Max vector size we will consider, in bytes,
   //  currently set to 16B = 128b
@@ -81,7 +82,7 @@ class TORCH_CUDA_CU_API SchedulerRuntimeInfo : public NonCopyable {
   }
 
   ExpressionEvaluator& expressionEvaluator() {
-    TORCH_INTERNAL_ASSERT(expression_evaluator_ != nullptr);
+    NVF_ERROR(expression_evaluator_ != nullptr);
     return *expression_evaluator_;
   }
 
@@ -132,7 +133,7 @@ class HeuristicSummary;
 //!   heuristic implementations derive from this
 //!   class and implement a schedule(Fusion*)
 //!   and a bool canSchedule(Fusion*) interface
-class TORCH_CUDA_CU_API SchedulerEntry {
+class SchedulerEntry {
  public:
   //! Fusion runtime facing API,
   //!   builds a new entry with the given heuristics
@@ -178,28 +179,28 @@ class TORCH_CUDA_CU_API SchedulerEntry {
 
   const ReductionParams& reductionParams() const {
     auto rparams = std::dynamic_pointer_cast<ReductionParams>(params_);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         rparams != nullptr, "Heuristic parameter is not a reduction parameter");
     return *rparams;
   }
 
   const PointwiseParams& pointwiseParams() const {
     auto pparams = std::dynamic_pointer_cast<PointwiseParams>(params_);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         pparams != nullptr, "Heuristic parameter is not a pointwise parameter");
     return *pparams;
   }
 
   const TransposeParams& transposeParams() const {
     auto tparams = std::dynamic_pointer_cast<TransposeParams>(params_);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         tparams != nullptr, "Heuristic parameter is not a transpose parameter");
     return *tparams;
   }
 
   const MatmulParams& matmulParams() const {
     auto mparams = std::dynamic_pointer_cast<MatmulParams>(params_);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         mparams != nullptr, "Heuristic parameter is not a matmul parameter");
     return *mparams;
   }
@@ -221,17 +222,9 @@ class TORCH_CUDA_CU_API SchedulerEntry {
 };
 
 //! Hash function for a scheduler entry
-class TORCH_CUDA_CU_API SchedulerEntryHash {
+class SchedulerEntryHash {
  public:
   size_t operator()(const SchedulerEntry& se) const;
 };
-
-//! Debug print function for heuristics
-TORCH_CUDA_CU_API std::string toString(ScheduleHeuristic sh);
-
-//! Debug print function for heuristics
-TORCH_CUDA_CU_API std::ostream& operator<<(
-    std::ostream& os,
-    ScheduleHeuristic sh);
 
 } // namespace nvfuser

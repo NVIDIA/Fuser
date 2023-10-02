@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <iter_visitor.h>
 #include <root_domain_map.h>
 
@@ -581,6 +582,12 @@ class Index {
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops,
       DataType dtype);
+
+  //! Compute the global index for isCpAsyncBulk, currently just generate naive
+  //! zeros
+  static Val* cpAsyncBulkIndex(
+      TensorView* tv,
+      const std::vector<kir::ForLoop*>& loops);
 };
 
 // Used for local and shared index mapping. Returns a map from loops

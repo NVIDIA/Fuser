@@ -153,7 +153,7 @@ void IdGraphVisitor::traverse() {
     }
     std::swap(to_visit_ids, still_to_visit_ids);
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         something_was_processed ||
             (to_visit_ids.size() == 0 && to_visit_exprs.size() == 0),
         "Infinite loop entered.");

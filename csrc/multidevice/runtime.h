@@ -9,6 +9,7 @@
 #pragma once
 
 #include <c10/core/DeviceType.h>
+#include <exceptions.h>
 #include <multidevice/communicator.h>
 #include <multidevice/pipeline.h>
 #include <multidevice/pipeline_ir.h>
@@ -19,10 +20,9 @@ namespace nvfuser {
   The MultiDeviceRuntime class gather all what is needed for executing a
   Pipeline on a multi-device setting. It is instantiated from a Pipeline and a
   Communicator (a default Communicator is built at initialization if none is
-  provided). It also holds mappings ranks <-> device IDs, and associate a device
-  to the current node
+  provided).
 */
-class TORCH_CUDA_CU_API MultiDeviceRuntime {
+class MultiDeviceRuntime {
  public:
   explicit MultiDeviceRuntime(Pipeline* pipeline, Communicator& comm)
       : pipeline_(pipeline), comm_(comm) {
@@ -42,26 +42,6 @@ class TORCH_CUDA_CU_API MultiDeviceRuntime {
     return pipeline_;
   }
 
-  // Returns the rank of the process
-  auto rank() const {
-    return comm_.rank();
-  }
-
-  // returns the device associated with the process
-  auto device() const {
-    return at::Device("cuda:" + std::to_string(comm_.local_rank()));
-  }
-
-  // returns the rank corresponding to device index
-  auto dIdToRank(DeviceIdxType d_id) const {
-    return static_cast<RankType>(d_id);
-  }
-
-  // returns the device index corresponding to the rank
-  auto rankToDiD(RankType rank) const {
-    return static_cast<DeviceIdxType>(rank);
-  }
-
  private:
   friend class PipelineExecutor; // could remove friendship by passing pipeline_
                                  // and comm_ to PipelineExecutor
@@ -69,7 +49,7 @@ class TORCH_CUDA_CU_API MultiDeviceRuntime {
   void validate() const;
 
   Pipeline* pipeline_;
-  Communicator comm_;
+  Communicator& comm_;
 };
 
 } // namespace nvfuser

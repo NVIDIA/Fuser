@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
@@ -28,7 +29,7 @@ static void setupSoftmaxBWD(
     Fusion* fusion,
     DataType dtype,
     const int reduction_axis) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   FusionGuard fg(fusion);
   // setup fusion
@@ -59,7 +60,7 @@ static void NvFuserScheduler_Softmax_BWD(
     FusionExecutorCache* fusion_executor_cache,
     DataType dtype,
     const int reduction_axis) {
-  TORCH_INTERNAL_ASSERT(dtype == DataType::Float || dtype == DataType::Half);
+  NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
   at::manual_seed(0);
   auto options =

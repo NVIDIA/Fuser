@@ -5,30 +5,166 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/transpose.h>
-
-#include <debug.h>
-#include <device_lower/utils.h>
-#include <executor_utils.h>
-#include <inlining.h>
-#include <instrumentation.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <options.h>
-#include <scheduler/pointwise_utils.h>
-#include <scheduler/registry.h>
-#include <scheduler/utils.h>
-#include <scheduler/vectorize_helper.h>
-#include <transform_replay.h>
-#include <utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
-
-#include <algorithm>
+#include <debug.h>
+#include <inlining.h>
+#include <instrumentation.h>
+#include <scheduler/debug_utils.h>
+#include <scheduler/reduction_utils.h>
+#include <scheduler/registry_utils.h>
+#include <scheduler/transpose.h>
+#include <scheduler/utils.h>
+#include <scheduler/vectorize_helper.h>
 
 namespace nvfuser {
 
+TransposeScheduler::TransposeScheduler(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache)
+    : SchedulerEntry(ScheduleHeuristic::Transpose) {
+  computeHeuristics(fusion, runtime_info, data_cache);
+}
+
+bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
+  // Check that inputs of all select/gather-like ops are fusion inputs
+  if (registry_utils::rejectScheduleForMemoryPromotion(
+          fusion, ScheduleHeuristic::Transpose)) {
+    return false;
+  }
+
+  // Fusions handled by transpose scheduler cannot have MmaOp.
+  if (ir_utils::hasOpsOfType<MmaOp>(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::Transpose, "no support for mma ops.");
+    return false;
+  }
+
+  for (auto select : ir_utils::getOpsOfType<SelectOp>(fusion)) {
+    auto inner = TensorDomain::noReductions(
+        select->input(0)->as<TensorView>()->getMaybeAllocationDomain());
+    if (select->getIndexedID() == inner[inner.size() - 1]) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::Transpose,
+          "SelectOp on inner dim is not supported by transpose scheduler yet."
+          "In transpose scheduler, we want to leave the select dim alone, instead of creating a tile for it.");
+      return false;
+    }
+  }
+  for (auto idx_sel : ir_utils::getOpsOfType<IndexSelectOp>(fusion)) {
+    auto inner = TensorDomain::noReductions(
+        idx_sel->input(0)->as<TensorView>()->getMaybeAllocationDomain());
+    if (idx_sel->getIndexedID() == inner[inner.size() - 1]) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::Transpose,
+          "IndexSelectOp on inner dim is not supported by transpose scheduler yet."
+          "In transpose scheduler, we want to leave the select dim alone, instead of creating a tile for it.");
+      return false;
+    }
+  }
+  for (auto torch_gather : ir_utils::getOpsOfType<TorchGatherOp>(fusion)) {
+    auto inner = TensorDomain::noReductions(
+        torch_gather->input(0)->as<TensorView>()->getMaybeAllocationDomain());
+    if (torch_gather->getIndexedID() == inner[inner.size() - 1]) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::Transpose,
+          "TorchGatherOp on inner dim is not supported by transpose scheduler yet."
+          "In transpose scheduler, we want to leave the select dim alone, instead of creating a tile for it.");
+      return false;
+    }
+  }
+
+  if (!hasAtLeastTwoValidGroups(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::Transpose,
+        "cannot find two mismatching inner most dimensions");
+    return false;
+  }
+
+  if (ir_utils::hasAnyReductionOps(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::Transpose, "no support for reduction ops");
+    return false;
+  }
+
+  if (registry_utils::hasNonUniqueBcast(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::Transpose,
+        "Broadcasting dimension might be broadcasting to multiple sizes.");
+    return false;
+  }
+
+  return true;
+}
+
+bool TransposeScheduler::canScheduleRunTime(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("TransposeScheduler::canScheduleRunTime");
+
+  auto reason =
+      getTransposeRuntimeRejectReason(fusion, data_cache, runtime_info);
+  if (!reason.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::Transpose, reason);
+    return false;
+  }
+  return true;
+}
+
+void TransposeScheduler::schedule(Fusion* fusion) {
+  FUSER_PERF_SCOPE("Schedule Transpose Fusion");
+  scheduleTranspose(fusion, transposeParams());
+}
+
+void TransposeScheduler::computeHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache) {
+  params_ = getTransposeHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(params_ != nullptr);
+}
+
 namespace {
+
+// TransposeViewPropagator doesn't propagate anything. It simply walks across
+// the path of potential propagation checking if there's any incompatible
+// propagation that would not be resolved.
+struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
+  void propagateC2P(TensorView* from, TensorView* to) override{};
+  void propagateP2C(TensorView* from, TensorView* to) override {
+    // short-cut to skip if we know we are already rejecting the fusion for
+    // transpose scheduler
+    if (shouldReject()) {
+      return;
+    }
+    // checking to see if propagation would trigger producer to consumer
+    // propagation travelling across view op. Note this is a conservative check,
+    // since view does NOT necessarily always introduce incoherent transform
+    // that would break the propagation.
+    auto chain_exprs = StmtSort::getExprsBetween(from->fusion(), {from}, {to});
+    if (!ir_utils::filterByType<ViewOp>(chain_exprs).empty()) {
+      should_reject = true;
+    };
+  };
+  void propagateSibling(TensorView* from, TensorView* to) override{};
+  ~TransposeViewPropagator() override = default;
+
+  bool shouldReject() {
+    return should_reject;
+  }
+
+  bool should_reject = false;
+};
+
+bool hasSmallTransposeDimensions(
+    const std::shared_ptr<TransposeParams>& params) {
+  return !params->split_before_tiling.empty() ||
+      !params->dims_merged_with_1.empty() ||
+      !params->dims_merged_with_2.empty();
+}
 
 // DomainMap uses the ComputeAtMap to find a reference TensorView
 // that maps to all iterDomains in the fusion.
@@ -58,14 +194,13 @@ class DomainMap : public pointwise_utils::DomainMap {
     return result;
   }
 
-  IterDomain* getMappedRootDimIn(TensorView* tv, IterDomain* root_dim) const {
-    // Find the root id mapped to `root_dim`
-    const auto& root_dom = tv->getRootDomain();
+  IterDomain* getMappedAllocDimIn(TensorView* tv, IterDomain* root_dim) const {
+    // Find the id mapped to `Allocation Domain`
+    const auto& alloc_dom = tv->getMaybeAllocationDomain();
     IterDomain* mapped_id = nullptr;
-    for (auto i : c10::irange(root_dom.size())) {
-      if (ca_map_.idGraph().permissiveResizeNodes().permissiveAreMapped(
-              root_dom[i], root_dim)) {
-        mapped_id = root_dom[i];
+    for (auto i : c10::irange(alloc_dom.size())) {
+      if (ca_map_.areMapped(alloc_dom[i], root_dim, IdMappingMode::INNERMOST)) {
+        mapped_id = alloc_dom[i];
         break;
       }
     }
@@ -86,13 +221,20 @@ class DomainMap : public pointwise_utils::DomainMap {
     }
     // reference 1 is the global reference, so it must have dim mapped the
     // innermost dim of both groups
-    auto innermost2 = scheduler_utils::innerMostRootDim(ref2);
-    return domain_map.getMappedRootDimIn(ref1, innermost2) != nullptr;
+    auto innermost2 = scheduler_utils::innerMostAllocDim(ref2);
+    return domain_map.getMappedAllocDimIn(ref1, innermost2) != nullptr;
   }
 
-  size_t getInnerLeafDim(TensorView* tv, IterDomain* root_dim) const {
-    auto mapped_id = getMappedRootDimIn(tv, root_dim);
-    TORCH_INTERNAL_ASSERT(
+  // scheduler assumes inner leaf dimension on tv is an exact mapping, when the
+  // mapping cannot be resolved, we'll return a `-1`
+  int64_t getInnerLeafDim(TensorView* tv, IterDomain* root_dim) const {
+    // TODO: ideally we should be mapping to leaf domain directly here.
+    // However, our current compute at map is constructed before leaf domain is
+    // transformed. So the mapping here would require a new compute at map to be
+    // constructed from the updated fusion. We'll revisit this once our id graph
+    // refactor is done.
+    auto mapped_id = getMappedAllocDimIn(tv, root_dim);
+    NVF_ERROR(
         mapped_id != nullptr,
         "Can not find ID mapped to ",
         root_dim,
@@ -104,11 +246,26 @@ class DomainMap : public pointwise_utils::DomainMap {
         {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
     // Project the root id to leaf id. Similar to projectIdToRFactor.
     for (auto expr : replay_exprs) {
-      if (expr->isA<Split>() && expr->as<Split>()->in() == mapped_id) {
-        mapped_id = expr->as<Split>()->inner();
-      } else if (
-          expr->isA<Merge>() && expr->as<Merge>()->inner() == mapped_id) {
-        mapped_id = expr->as<Merge>()->out();
+      if (expr->isA<Split>()) {
+        // Split with factor one is not supposed to be here, reshape would map
+        // this to a broadcast. This is a conservative assert, we can relaxed it
+        // and support with mapping it to outer.
+        NVF_ERROR(
+            !expr->as<Split>()->factor()->isOneInt(),
+            "split with factor one is supposed to be translated to broadcast by reshape");
+        if (expr->as<Split>()->in() == mapped_id) {
+          mapped_id = expr->as<Split>()->inner();
+        }
+      } else if (expr->isA<Merge>()) {
+        // Merge with size-1 dimension is not supposed to be here, reshape would
+        // map this to a squeeze. This is a conservative assert, we can relaxed
+        // it and support with mapping it to out.
+        NVF_ERROR(
+            !expr->as<Merge>()->inner()->extent()->isOneInt(),
+            "merge with size-1 dimension is supposed to be translated to squeeze by reshape");
+        if (expr->as<Merge>()->inner() == mapped_id) {
+          mapped_id = expr->as<Merge>()->out();
+        }
       } else if (expr->isA<Resize>() && expr->as<Resize>()->in() == mapped_id) {
         mapped_id = expr->as<Resize>()->out();
       }
@@ -117,11 +274,10 @@ class DomainMap : public pointwise_utils::DomainMap {
     const auto& dom = tv->getLeafDomain();
     for (auto i : c10::irange(dom.size())) {
       if (dom[i] == mapped_id) {
-        return i;
+        return static_cast<int64_t>(i);
       }
     }
-    TORCH_INTERNAL_ASSERT(
-        false, "Can not find ID mapped to ", root_dim, " in tensor ", tv);
+    return -1;
   }
 
   // Group inputs and outputs of a fusion by its inner most domain. For example
@@ -430,7 +586,7 @@ getInputsOutputsGroups(HeuristicSummary* data_cache, DomainMap& domain_map) {
           });
   auto& grouped_inputs_outputs = grouped_inputs_outputs_entry.get();
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       grouped_inputs_outputs.size() >= 2,
       "Can not find mismatched inner most dim, should use pointwise scheduler.");
 
@@ -451,12 +607,12 @@ getReferenceTensors(
             return std::make_unique<std::vector<TensorView*>>(std::move(data));
           });
   auto& reference_tensors = reference_tensors_entry.get();
-  TORCH_INTERNAL_ASSERT(reference_tensors.size() == 2);
+  NVF_ERROR(reference_tensors.size() == 2);
   TensorView* reference1 = reference_tensors[0];
   TensorView* reference2 = reference_tensors[1];
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       reference1 != nullptr, "Unable to find reference tensor for group 1");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       reference2 != nullptr, "Unable to find reference tensor for group 2");
   return reference_tensors_entry;
 }
@@ -475,7 +631,7 @@ std::pair<std::vector<int64_t>, int64_t> getShapeInReference(
         id, IdMappingMode::EXACT);
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(concrete_id->extent());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         inferred_val.hasValue(),
         "Error inferring size for pointwise scheduler: ",
         id->extent()->toInlineString());
@@ -498,7 +654,7 @@ getInnerMostDimInfoInReference(
             std::vector<int64_t> data;
             data.reserve(group_references.size());
             for (auto ref_tv : group_references) {
-              auto inner_most_id = scheduler_utils::innerMostRootDim(ref_tv);
+              auto inner_most_id = scheduler_utils::innerMostAllocDim(ref_tv);
               auto inner_most_pos_in_global_ref =
                   domain_map.getInnerLeafDim(global_reference, inner_most_id);
               data.emplace_back(inner_most_pos_in_global_ref);
@@ -532,6 +688,11 @@ std::string getTransposeRuntimeRejectReason(
   auto innermost_info_entry = getInnerMostDimInfoInReference(
       data_cache, reference_tensors, reference1, domain_map);
   auto innermost_info = innermost_info_entry.get();
+  auto inner_most_pos1_in_ref1 = innermost_info[0];
+  auto inner_most_pos2_in_ref1 = innermost_info[1];
+  if (inner_most_pos1_in_ref1 < 0 || inner_most_pos2_in_ref1 < 0) {
+    return "Transpose scheduler requires exact mapping on inner most dimension on reference tensor.";
+  }
 
   constexpr size_t default_tile_elements =
       TransposeParams::getDefaultTileSize() *
@@ -544,9 +705,6 @@ std::string getTransposeRuntimeRejectReason(
   if ((int64_t)elements_per_wave > n_elems) {
     return "Transpose scheduler does not perform well on small problem sizes.";
   }
-
-  auto inner_most_pos1_in_ref1 = innermost_info[0];
-  auto inner_most_pos2_in_ref1 = innermost_info[1];
 
   auto inner_size1 = shape_in_ref1[inner_most_pos1_in_ref1];
   auto inner_size2 = shape_in_ref1[inner_most_pos2_in_ref1];
@@ -586,6 +744,55 @@ std::string getTransposeRuntimeRejectReason(
            "See: https://github.com/csarofeen/pytorch/issues/1964";
   }
 #endif
+
+  // TODO: ideally we shouldn't have to manually match schedule transformation
+  // here. It is hard to maintain consistent code logic.
+  if (!scheduler_utils::getViewTVs(fusion).empty()) {
+    const auto index_type = runtime_info.getIndexType();
+    auto params =
+        std::make_shared<TransposeParams>("Transpose heuristics", index_type);
+    maybeBuildVirtualInnerDims(
+        *params,
+        device_multiprocessor_count,
+        n_elems,
+        shape_in_ref1,
+        inner_most_pos1_in_ref1,
+        inner_most_pos2_in_ref1);
+
+    // disallow transpose scheduler when we have a combination of:
+    // 1. view op; and
+    // 2. small transpose transformation
+    // See note [Supporting small transpose dimensions]
+    if (hasSmallTransposeDimensions(params)) {
+      return "Small transpose dimensions and view op cannot be currently be handled by transpose scheduler. See: https://github.com/NVIDIA/Fuser/pull/592";
+    }
+
+    // mimic transform propagation
+    // NOTE: in the actual transpose scheduler, we are applying cacheBefore and
+    // cacheAfter, which I think would mean different propagation is happening
+    // than what's done here. So this might not be bullet proof.
+    TransposeViewPropagator propagator;
+
+    // global schedule traverse dry-run
+    // see `Step 2: global schedule`
+    //
+    // This is the step where we create virtual innermost dimension and prepare
+    // for scheduling tiling on the two groups. Propagation from P2C across view
+    // is challenging at this step and could result in propagating incoherent
+    // transformation which resulted in assert. Hence our dry run here examines
+    // the path for propagation and conservatively rejects fusion that requires
+    // propagation in the risky direction.
+    //
+    // NOTE: there are three traverse called during scheduling. We are only
+    // doing dry-run on the first traverse. Since the following twos are only
+    // used for scheduling tiling, which is not going to cause issue, since we
+    // are only tiling on the merged virtual innermost dimensions.
+    MaxRootDomainInfoSpanningTree entire_dag(reference1);
+    entire_dag.traverse(&propagator);
+    if (propagator.shouldReject()) {
+      return "transpose scheduler could potentially trigger incoherent transform propagation";
+    }
+  }
 
   return "";
 }
@@ -637,6 +844,10 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
 
   auto inner_most_pos1_in_ref1 = innermost_info[0];
   auto inner_most_pos2_in_ref1 = innermost_info[1];
+  // No exact innermost leaf dimension mapping on referenc1. cannot schedule
+  if (inner_most_pos1_in_ref1 < 0 || inner_most_pos2_in_ref1 < 0) {
+    return nullptr;
+  }
 
   auto params =
       std::make_shared<TransposeParams>("Transpose heuristics", index_type);
@@ -651,6 +862,11 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
       shape_in_ref1,
       inner_most_pos1_in_ref1,
       inner_most_pos2_in_ref1);
+
+  NVF_ERROR(
+      !hasSmallTransposeDimensions(params) ||
+          scheduler_utils::getViewTVs(fusion).empty(),
+      "combination of view op with small transpose dimensions are not supported by transpose scheduler");
 
   // Note [vectorization and unroll of input and output]
   //
@@ -799,9 +1015,7 @@ std::shared_ptr<TransposeParams> getTransposeHeuristics(
             << "reference2: " << reference2 << "\n"
             << "inner_most_id2 position: " << inner_most_pos2_in_ref1
             << " (in reference 1)" << std::endl;
-    if (!params->split_before_tiling.empty() ||
-        !params->dims_merged_with_1.empty() ||
-        !params->dims_merged_with_2.empty()) {
+    if (hasSmallTransposeDimensions(params)) {
       debug() << "small transposed dim, needs virtual inner-most dim"
               << std::endl;
     }
@@ -818,8 +1032,7 @@ LaunchParams scheduleTranspose(
     const at::ArrayRef<c10::IValue>& runtime_inputs) {
   FUSER_PERF_SCOPE("scheduleFusion");
   auto params = getTransposeHeuristics(fusion, runtime_inputs);
-  TORCH_INTERNAL_ASSERT(
-      params != nullptr, "Could not schedule transpose operation.");
+  NVF_ERROR(params != nullptr, "Could not schedule transpose operation.");
   scheduleTranspose(fusion, *params);
   return params->lparams;
 }
@@ -833,8 +1046,8 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
 
   // maybe has_reduction for scheduling should be done on a per output tensor
   // basis.
-  TORCH_INTERNAL_ASSERT(
-      ir_utils::getReductionOps(fusion).empty(),
+  NVF_ERROR(
+      !ir_utils::hasAnyReductionOps(fusion),
       "This scheduler only handles pointwise ops.");
 
   // Cache inputs
@@ -874,7 +1087,7 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
 
   DomainMap domain_map(fusion);
   auto grouped_inputs_outputs = domain_map.groupInputsOutputsByInnerDim();
-  TORCH_INTERNAL_ASSERT(grouped_inputs_outputs.size() >= 2);
+  NVF_ERROR(grouped_inputs_outputs.size() >= 2);
 
   /*
    * We need something similar to `cacheFork` for input tensors in group 2. We
@@ -918,16 +1131,16 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
   TensorView* reference2 =
       domain_map.findReferenceFor(grouped_inputs_outputs[1]);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       reference1 != nullptr,
       "Could not find a fully broadcasted tensor to reference schedule on the first group.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       reference2 != nullptr,
       "Could not find a fully broadcasted tensor to reference schedule on the second group.");
 
-  auto inner_most_id1 = scheduler_utils::innerMostRootDim(reference1);
-  auto inner_most_id2 = scheduler_utils::innerMostRootDim(reference2);
+  auto inner_most_id1 = scheduler_utils::innerMostAllocDim(reference1);
+  auto inner_most_id2 = scheduler_utils::innerMostAllocDim(reference2);
 
   //////////////////////////////////////////
   // Step 1: Make virtual inner most dims //
@@ -941,14 +1154,18 @@ void scheduleTranspose(Fusion* fusion, TransposeParams params) {
 
   // prepare all dimensions in merge order for group1
   std::vector<size_t> dims_group1 = params.dims_merged_with_1;
-  size_t inner_most_pos1_in_ref1 =
+  auto inner_leaf_index1 =
       domain_map.getInnerLeafDim(reference1, inner_most_id1);
+  NVF_ERROR(inner_leaf_index1 >= 0, "getInnerLeafDim cannot be resolved");
+  size_t inner_most_pos1_in_ref1 = static_cast<size_t>(inner_leaf_index1);
   dims_group1.insert(dims_group1.begin(), inner_most_pos1_in_ref1);
 
   // prepare all dimensions in merge order for group2
   std::vector<size_t> dims_group2 = params.dims_merged_with_2;
-  size_t inner_most_pos2_in_ref1 =
+  auto inner_leaf_index2 =
       domain_map.getInnerLeafDim(reference1, inner_most_id2);
+  size_t inner_most_pos2_in_ref1 = inner_leaf_index2;
+  NVF_ERROR(inner_leaf_index2 >= 0, "getInnerLeafDim cannot be resolved");
   dims_group2.insert(dims_group2.begin(), inner_most_pos2_in_ref1);
 
   // merge all dimensions in group1, while updating all indices for group2

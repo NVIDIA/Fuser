@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <disjoint_set.h>
 #include <ir/all_nodes.h>
@@ -45,7 +46,7 @@ struct id_int_lt {
 //
 // If error_on_failure = false, replay will replay everything it can, and ignore
 // operations it can't.
-class TORCH_CUDA_CU_API ReplayTransformations : public IterVisitor {
+class ReplayTransformations : public IterVisitor {
  public:
   ReplayTransformations(
       const std::vector<IterDomain*>& target_domain,
@@ -301,7 +302,7 @@ class ForwardingInfo {
  * transforms. However, we still include rfactor validation within.
  */
 
-class TORCH_CUDA_CU_API BestEffortReplay {
+class BestEffortReplay {
  private:
   std::unordered_map<IterDomain*, IterDomain*> target2replay_id_map_;
   std::unordered_map<IterDomain*, IterDomain*> replay_forward_id_map_;

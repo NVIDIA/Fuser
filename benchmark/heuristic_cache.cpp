@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <executor.h>
 #include <fusion.h>
@@ -93,7 +94,7 @@ static auto getLayerBackwardNormRuntime(
   return fec->getMostRecentKernelRuntime();
 }
 
-static void LayerNormBackward_HeuristicLookup(
+static void NvFuserScheduler_LayerNormBackward_HeuristicCache(
     benchmark::State& benchmark_state) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
@@ -107,8 +108,7 @@ static void LayerNormBackward_HeuristicLookup(
 
   auto runtime = getLayerBackwardNormRuntime(
       std::move(fusion_ptr), fec, aten_inputs, shape, norm_shape);
-  TORCH_INTERNAL_ASSERT(
-      runtime->getMaybeHeuristicsFor(aten_inputs).has_value());
+  NVF_ERROR(runtime->getMaybeHeuristicsFor(aten_inputs).has_value());
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)
@@ -146,7 +146,7 @@ static auto getLayerForwardNormRuntime(
   return fec->getMostRecentKernelRuntime();
 }
 
-static void LayerNormForward_HeuristicLookup(
+static void NvFuserScheduler_LayerNormForward_HeuristicCache(
     benchmark::State& benchmark_state) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
@@ -160,8 +160,7 @@ static void LayerNormForward_HeuristicLookup(
 
   auto runtime = getLayerForwardNormRuntime(
       std::move(fusion_ptr), fec, aten_inputs, shape, norm_shape);
-  TORCH_INTERNAL_ASSERT(
-      runtime->getMaybeHeuristicsFor(aten_inputs).has_value());
+  NVF_ERROR(runtime->getMaybeHeuristicsFor(aten_inputs).has_value());
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)
@@ -169,5 +168,7 @@ static void LayerNormForward_HeuristicLookup(
   }
 }
 
-BENCHMARK(LayerNormBackward_HeuristicLookup)->Unit(benchmark::kMicrosecond);
-BENCHMARK(LayerNormForward_HeuristicLookup)->Unit(benchmark::kMicrosecond);
+BENCHMARK(NvFuserScheduler_LayerNormBackward_HeuristicCache)
+    ->Unit(benchmark::kMicrosecond);
+BENCHMARK(NvFuserScheduler_LayerNormForward_HeuristicCache)
+    ->Unit(benchmark::kMicrosecond);

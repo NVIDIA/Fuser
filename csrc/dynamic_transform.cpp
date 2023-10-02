@@ -86,7 +86,7 @@ std::string DynamicTransformInitialInfo::toString() const {
 class DynamicTransformInitialInfoBuilder : public IterVisitor {
  public:
   DynamicTransformInitialInfoBuilder(Fusion* fusion) : info_(fusion) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !fusion->isA<kir::Kernel>(),
         "Invalid container. Kernel container not allowed.\n");
 
@@ -188,7 +188,7 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
     const DynamicTransformInitialInfo* initial_info,
     ExpressionEvaluator* expr_eval)
     : initial_info_(initial_info) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !fusion()->isA<kir::Kernel>(),
       "Invalid container. Kernel container not allowed.\n");
 
@@ -204,7 +204,7 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
   for (auto i : c10::irange(maybe_zero_extents.size())) {
     auto ext = maybe_zero_extents.at(i);
     auto ext_opt = expr_eval->evaluate(ext);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         ext_opt.hasValue(),
         "Could not evaluate dynamic extent: ",
         ext->toString());
@@ -227,7 +227,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
       return;
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         out_tv->hasRFactor(),
         "Unexpected output tv of ViewOp: ",
         out_tv->toString());
@@ -241,20 +241,20 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
       auto inp_id = inp_dom.at(i);
       // This should have been validated when initially creating reshape
       // op, but just in case
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !inp_id->maybePartial(),
           "Invalid domain to reshape: ",
           inp_id->toString());
       auto extent_val = expr_eval->evaluate(inp_id->extent());
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           extent_val.hasValue(),
           "Cannot evaluate the extent of an input domain to reshape: ",
           inp_id->toString());
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           extent_val.is<int64_t>(),
           "Invalid evaluated value of domain extent: ",
           inp_id->toString());
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           extent_val.as<int64_t>() > 0,
           "Invalid input domain extent: ",
           extent_val.as<int64_t>());
@@ -269,18 +269,18 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
     for (const auto i : c10::irange(out_dom.size())) {
       auto out_id = out_dom.at(i);
       auto extent_val = expr_eval->evaluate(out_id->extent());
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           extent_val.hasValue(),
           "Cannot evaluate the extent of an output domain to reshape: ",
           out_id->toString());
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           extent_val.is<int64_t>(),
           "Invalid evaluated value of domain extent: ",
           out_id->toString());
       auto extent_int = extent_val.as<int64_t>();
       if (extent_int == -1) {
         // For non-constant Scalar sizes, check that we have not passed -1.
-        TORCH_CHECK(
+        NVF_CHECK(
             out_id->extent()->isConst(),
             "Values of -1 passed to reshape must be constant at definition.")
       }
@@ -300,23 +300,23 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
     auto out_id = resize_ids.at(id_index);
     auto op = out_id->definition()->as<Resize>();
 
-    TORCH_CHECK(
+    NVF_CHECK(
         out_id->getIterType() == IterType::Symbolic,
         "Found non-dynamic Resize in initial concretization info: ",
         op->toString());
 
     auto extent_val = expr_eval->evaluate(out_id->extent());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         extent_val.hasValue(),
         "Cannot evaluate the extent of a resized domain: ",
         out_id->toString());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         extent_val.is<int64_t>(),
         "Invalid evaluated value of resized domain extent: ",
         out_id->toString());
     auto extent_int = extent_val.as<int64_t>();
-    TORCH_INTERNAL_ASSERT(
-        extent_int > 0,
+    NVF_ERROR(
+        extent_int >= 0,
         "Invalid resized domain extent ",
         extent_int,
         " for domain ",
@@ -399,7 +399,7 @@ class DynamicTransformConcretizer : public OptOutMutator {
       Fusion* fusion,
       const DynamicTransformConcretizationInfo* info)
       : info_(info) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         fusion == info->fusion(),
         "Invalid DynamicTransformInitialInfo. The associated Fusion is different from the given Fusion");
     FusionGuard fg(fusion);
@@ -457,8 +457,36 @@ void DynamicTransformConcretizer::concretize() {
       /*traverse_members*/ true,
       /*traverse_attributes*/ true,
       /*traverse_siblings*/ true);
-  for (auto tv : ir_utils::filterByType<TensorView>(all_stmts)) {
-    mutate(tv);
+  for (auto stmt : all_stmts) {
+    // We mutate all scalar and TensorView Vals and Exprs in topological order.
+    // This alone is enough to modify scalars and their Exprs properly. Above,
+    // concretizeEmptyExtents will register some scalar extents as zeroVal(),
+    // and those will be properly propagated in this type of traversal.
+    //
+    // However, an important part of concretization is mutating IterDomains and
+    // IterDomain expressions. To do this, we have registered some mutations in
+    // the above calls; for example concretizeResize registers IterTypes as
+    // Iteration or Broadcast. There may still be many Symbolic IterDomains that
+    // are not yet registered for mutation though; these need to be registered
+    // by propagating the IterTypes and modified extents through the Fusion in
+    // the P2C direction. Importantly, this means traversing across TensorView
+    // expressions and using exact mapping between producer and consumer TVs to
+    // infer IterTypes of consumer root IterDomains from concretized producer
+    // rfactor IterDomains.
+    //
+    // The order of StmtSort::getStmts guarantees a topological ordering with
+    // respect to our IR graph. That IR does not explicitly hold TensorView
+    // dependencies for IterDomains; i.e. we rely on TensorView expressions to
+    // infer that one IterDomain is a producer rfactor which another consumer
+    // root domain depends on. So we avoid processing IterDomains and
+    // TensorDomains until we reach the TensorView that contains them. Otherwise
+    // we would not be able to propagate across exact maps before processing
+    // all root->rfactor IterDomains and expressions.
+    if (const auto op = dynamic_cast<Expr*>(stmt); stmt->isA<IterDomain>() ||
+        stmt->isA<TensorDomain>() || (op && op->output(0)->isA<IterDomain>())) {
+      continue;
+    }
+    OptOutMutator::dispatchMutate(stmt);
   }
 }
 
@@ -469,7 +497,7 @@ void DynamicTransformConcretizer::concretizeEmptyExtents() {
     auto zero = fusion->zeroVal(ext->getDataType().value());
     auto uses = ext->uses();
     for (auto use : uses) {
-      ir_utils::replaceValInExpr(use, ext, zero);
+      ir_utils::replaceValInExprInputs(use, ext, zero);
     }
     // Register the concretization of this scalar, which allows us to replace it
     // whenever it is used as an extent member of an IterDomain.
@@ -502,7 +530,7 @@ void DynamicTransformConcretizer::concretizeReshape() {
     // like it would have if we had used a static reshape instead.
     auto old_rfactor = incomplete_out_tv->getMaybeRFactorDomain();
     auto new_rfactor = concrete_reshape_out_tv->getMaybeRFactorDomain();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         old_rfactor.size() == new_rfactor.size(),
         "Concretized reshape rfactor size does not match symbolic rfactor");
     for (auto idx : c10::irange(new_rfactor.size())) {
@@ -519,7 +547,7 @@ void DynamicTransformConcretizer::concretizeReshape() {
     // Replace the old tensor with the new concretized tensor
     auto uses = incomplete_out_tv->uses();
     for (auto use_of_old_tv : uses) {
-      ir_utils::replaceValInExpr(
+      ir_utils::replaceValInExprInputs(
           use_of_old_tv, incomplete_out_tv, concrete_reshape_out_tv);
     }
 
@@ -536,7 +564,7 @@ void DynamicTransformConcretizer::concretizeResize() {
   // Concretize each resize op.
   for (const auto& [id_index, iter_type] : info_->getResizeIterTypes()) {
     auto id = info_->initialInfo()->getDynamicResizedIterDomains().at(id_index);
-    TORCH_CHECK(
+    NVF_CHECK(
         id->definition() && id->definition()->isA<Resize>(),
         "Resized IterDomain must have a Resize definition");
     auto def = id->definition()->as<Resize>();
@@ -580,7 +608,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
   // IterDomains.
 
   // At this point, there should be no expr beyond rfactor root
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       tv->getLeafDomain() == tv->getMaybeRFactorDomain(),
       "Invalid tensor: ",
       tv->toString());
@@ -602,7 +630,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
       // be updated. Assert the assumption to immediately detect such
       // a case if happened.
       for (auto out_val : expr->outputs()) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             out_val->isA<IterDomain>(),
             "Unexpected output: ",
             out_val->toString(),
@@ -632,7 +660,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
       for (auto i : c10::irange(input_ids.size())) {
         auto inp_id = input_ids.at(i);
         auto updated_id = maybeMutated(inp_id)->as<IterDomain>();
-        TORCH_CHECK(
+        NVF_CHECK(
             updated_id == inp_id || !updated_id->isSymbolic(),
             "Mutated IterDomains between root and rfactor should not be symbolic");
         if (i == 0) {
@@ -650,27 +678,47 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
       }
       // Update the IterType of each output
       for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
-        if (!out_id->isSymbolic()) {
+        auto mut_id = maybeMutated(out_id)->as<IterDomain>();
+        if (!mut_id->isSymbolic()) {
+          // We are only concretizing IterType here, so if we have already
+          // concretized the iter_type for this ID, we can skip this.
           continue;
         }
 
         // If out_id is Symbolic, we need to concretize it here. If we did not
         // yet determine its IterType, then we've missed our chance.
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             iter_type != IterType::Symbolic,
             "Failed to concretize an output IterType for expression: ",
             expr->toString());
 
         auto concretized_out_id =
-            IterDomainBuilder(maybeMutated(out_id)->as<IterDomain>())
-                .iter_type(iter_type)
-                .build();
+            IterDomainBuilder(mut_id).iter_type(iter_type).build();
         registerConcretization(out_id, concretized_out_id);
       }
 
-      // expr must be mutated in order to set it as the definition for the
-      // concretized outputs.
-      OptOutMutator::mutate(expr);
+      // At this point, we might have registered both the input and output
+      // IterDomains for concretization, specifying either new extents or
+      // IterTypes or both. In this context, we want to create a new Expr
+      // having the mutations to both inputs and outputs, so that the
+      // concretized IterDomains are connected by the right type of expression.
+      //
+      // Mutating outputs has the effect of redefining the new outputs. That can
+      // be unwanted in the general case since we often mutate a Fusion with the
+      // intention of to changing the definition. For this reason,
+      // OptOutMutator::mutate will only mutate inputs by default. The
+      // mutateExprOutputsOnly call below performs this redefinition which we
+      // desire in the current context.
+      //
+      // Each mutate step below removes the expression so we need to apply the
+      // second step to the replacement Expr. The order of these calls is
+      // unimportant, except that mutate(Expr*) does not return the replacement
+      // Expr*, whereas mutateExprOutputsOnly does.
+
+      // Set expr as the definition for concretized outputs
+      expr = mutateExprOutputsOnly(expr);
+      // Replace inputs and attributes that were concretized
+      mutate(expr);
     }
   }
 
@@ -718,7 +766,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
       continue;
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         contig.at(i),
         "Unexpected to have a non-contig symbolic domain: ",
         original_id->toString());
@@ -747,6 +795,22 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
   auto def = consumer->definition();
 
+  // We will loop over IterDomains in the consumer root. For each, we need to
+  // inspect the consumer to producer map to all producers. Instead of
+  // recomputing these for each root IterDomain, we precompute them for each
+  // producer here then re-use them in the following loop.
+  std::vector<std::unordered_map<IterDomain*, IterDomain*>> c2p_maps;
+  for (auto producer : ir_utils::filterByType<TensorView>(def->inputs())) {
+    PairwiseRootDomainMap root_map(producer, consumer);
+    // We map symbolic domains here regardless of whether their extents match.
+    // This is safe because we are propagating from a producer which should have
+    // already been concretized. The consumer might have a different extent
+    // which will be equivalent to (but not necessarily sameAs) the producer's,
+    // and we just want to use its IterType to concretize the consumer ID.
+    root_map.mapSymbolic(true);
+    c2p_maps.push_back(root_map.mapConsumerToProducer());
+  }
+
   bool is_concretized = false;
 
   for (const auto i : c10::irange(root_domain.size())) {
@@ -760,18 +824,22 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
     std::optional<IterType> id_type;
 
-    for (auto producer : ir_utils::filterByType<TensorView>(def->inputs())) {
-      PairwiseRootDomainMap root_map(producer, consumer);
-      auto c2p = root_map.mapConsumerToProducer(
-          consumer->domain(), producer->domain());
-
-      TORCH_INTERNAL_ASSERT(
-          c2p.find(root_id) != c2p.end(),
+    for (const auto& c2p : c2p_maps) {
+      auto p_it = c2p.find(root_id);
+      NVF_ERROR(
+          p_it != c2p.end(),
           "No input ID found to map with output ID: ",
           root_id->toString());
-
-      auto input_id = c2p.at(root_id);
-      TORCH_INTERNAL_ASSERT(
+      auto input_id = p_it->second;
+      NVF_ERROR(
+          input_id == maybeMutated(input_id),
+          "Consumer IterDomain ",
+          input_id->toString(),
+          " is still registered for mutation after traversing to ",
+          consumer->toString(),
+          ". Replacement is ",
+          maybeMutated(input_id)->toString());
+      NVF_ERROR(
           input_id->getIterType() != IterType::Symbolic,
           "Producer ID not concretized: ",
           input_id->toString());
@@ -783,14 +851,14 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
       }
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         id_type.has_value(),
         "Did not find id_type for consumer root domain ",
         root_id->toString(),
         ". Perhaps consumer def has no inputs. Consumer definition = ",
         def->toString());
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         id_type != IterType::Symbolic,
         "Failed to concretize ",
         root_id->toString(),

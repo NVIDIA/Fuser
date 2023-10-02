@@ -25,7 +25,7 @@ namespace nvfuser {
 
 void IterDomainGraphs::assertNoSelfMapping() {
   if (hasSelfMapping()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !hasSelfMapping(),
         "Unsupported domain mapping detected in ",
         std::get<0>(*self_mapping_info_)->toString(),
@@ -77,13 +77,13 @@ IterDomainGraphs::IterDomainGraphs(Fusion* fusion, bool allow_self_mapping) {
 
 const IdGraph& IterDomainGraphs::idGraph(IdMappingMode mode) const {
   auto graph_it = id_graphs_.find(mode);
-  TORCH_INTERNAL_ASSERT(graph_it != id_graphs_.end());
+  NVF_ERROR(graph_it != id_graphs_.end());
   return graph_it->second;
 }
 
 IdGraph& IterDomainGraphs::idGraph(IdMappingMode mode) {
   auto graph_it = id_graphs_.find(mode);
-  TORCH_INTERNAL_ASSERT(graph_it != id_graphs_.end());
+  NVF_ERROR(graph_it != id_graphs_.end());
   return graph_it->second;
 }
 
@@ -348,7 +348,7 @@ Expr* IterDomainGraphs::addReplayAs(
   }
 
   {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         new_inputs.size() == orig_input_ids.size(),
         "Invalid number of inputs: ",
         new_inputs.size(),
@@ -363,7 +363,7 @@ Expr* IterDomainGraphs::addReplayAs(
 
     for (auto mode : initialized_modes) {
       for (auto inp : all_inputs) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             idGraph(mode).hasGroup(inp),
             "All inputs for replay need to be initialized in all graphs, ",
             inp->toString(),
@@ -452,7 +452,7 @@ Expr* IterDomainGraphs::addExprWithReplacement(
 
   // Validate replacement map. Make sure the keys are an input or output
   for (auto replacement_entry : replacement_map) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         std::find(
             old_expr->inputs().begin(),
             old_expr->inputs().end(),
@@ -486,7 +486,7 @@ Expr* IterDomainGraphs::addExprWithReplacement(
       }
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         (all_inps_replaced || all_outs_replaced),
         "Either all the inputs or all the outputs need to be replaced when using this function.");
 
@@ -494,7 +494,7 @@ Expr* IterDomainGraphs::addExprWithReplacement(
       for (auto inp_or_out_id : all_inps_replaced
                ? ir_utils::filterByType<IterDomain>(old_expr->inputs())
                : ir_utils::filterByType<IterDomain>(old_expr->outputs())) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             idGraph(mode).hasGroup(inp_or_out_id),
             "Expected ",
             inp_or_out_id->toString(),
@@ -634,7 +634,7 @@ IdGraph IterDomainGraphs::initializeIdGraph(bool propagate_through_exprs) {
     auto id = definition_entry.first;
     auto defs = definition_entry.second;
     auto uses_it = id_uses_.find(id);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         uses_it != id_uses_.end(),
         "Failed to initialize id: ",
         id->toString(),
@@ -661,7 +661,7 @@ void IterDomainGraphs::buildExactMap(const std::vector<Expr*>& exprs) {
       // Sibling tv's must be exactly mapped with eachother so simply zip
       // their leaf iter domains.
 
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           other_tv_output->getRootDomain().size() ==
               c_tv->getRootDomain().size(),
           "Multiple outputs with mismatched TV domains is not supported.");
@@ -680,8 +680,7 @@ void IterDomainGraphs::buildExactMap(const std::vector<Expr*>& exprs) {
       // non-broadcast dimensions. Prevent any broadcasted axes being mapped
       // to non-broadcasted axes.
       auto exact_c2p_root_map =
-          PairwiseRootDomainMap(p_tv, c_tv)
-              .mapConsumerToProducer(c_tv->domain(), p_tv->domain());
+          PairwiseRootDomainMap(p_tv, c_tv).mapConsumerToProducer();
 
       for (auto c_id : getSortedKeys(exact_c2p_root_map, Statement::lessThan)) {
         auto p_id = exact_c2p_root_map.at(c_id);
@@ -738,8 +737,7 @@ void IterDomainGraphs::buildPermissiveMap(const std::vector<Expr*>& exprs) {
 
       auto permissive_c2p_root_map = PairwiseRootDomainMap(p_tv, c_tv);
 
-      for (auto entry : permissive_c2p_root_map.mapConsumerToProducer(
-               c_tv->domain(), p_tv->domain())) {
+      for (auto entry : permissive_c2p_root_map.mapConsumerToProducer()) {
         idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry.second);
       }
     }
@@ -767,7 +765,7 @@ void IterDomainGraphs::validatePTypes(
   //   for (auto id : disjoint_set->vector()) {
   //     auto id_ptype = id->getParallelType();
 
-  //     TORCH_INTERNAL_ASSERT(
+  //     NVF_ERROR(
   //         leaf_ids.has(id) || id_ptype == ParallelType::Serial,
   //         "Invalid parallelization of non leaf iter domain: ",
   //         id->toString());
@@ -782,7 +780,7 @@ void IterDomainGraphs::propagateLoopPTypes() const {
     for (auto id : loop_disjoint_set->vector()) {
       auto id_ptype = id->getParallelType();
 
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           id_ptype == common_ptype || id_ptype == ParallelType::Serial ||
               common_ptype == ParallelType::Serial,
           "Issue validating parallel type disjoint ptype is, ",
@@ -829,8 +827,7 @@ std::unordered_map<IterDomain*, IterDomain*> resolvedRootBroadcasts(
     TensorView* producer,
     TensorView* consumer) {
   auto p2c_map =
-      PairwiseRootDomainMap(producer, consumer)
-          .mapProducerToConsumer(producer->domain(), consumer->domain());
+      PairwiseRootDomainMap(producer, consumer).mapProducerToConsumer();
 
   std::unordered_map<IterDomain*, IterDomain*> resolved_bcast_map;
   for (const auto& kv : p2c_map) {
@@ -937,7 +934,7 @@ void IterDomainGraphs::build(
 
   std::copy_if(
       exprs.begin(), exprs.end(), std::back_inserter(tv_exprs), [](Expr* expr) {
-        TORCH_INTERNAL_ASSERT(expr != nullptr);
+        NVF_ERROR(expr != nullptr);
         return ir_utils::isTvOp(expr);
       });
 
@@ -1190,7 +1187,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
       for (auto entry : loop_exact_resolved_intersection) {
         err_msg << "\n  " << entry->toString();
       }
-      TORCH_INTERNAL_ASSERT(false, err_msg.str());
+      NVF_ERROR(false, err_msg.str());
     }
 
     // loop_exact_resolved_intersection.size() must be 1 at this point
@@ -1215,7 +1212,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
       for (auto entry : promoted_iel_groups) {
         err_msg << "\n  " << entry->toString();
       }
-      TORCH_INTERNAL_ASSERT(false, err_msg.str());
+      NVF_ERROR(false, err_msg.str());
     }
 
     iel_promotion_map[iel_group] = promoted_iel_groups.front()->front();
@@ -1312,7 +1309,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
         ir_utils::filterByType<IterDomain>(iel_expr->front()->outputs())
             .vector();
 
-    TORCH_INTERNAL_ASSERT(replay_out_ids.size() == out_groups.size());
+    NVF_ERROR(replay_out_ids.size() == out_groups.size());
 
     for (auto i : c10::irange(replay_out_ids.size())) {
       iel_promotion_map[out_groups[i]] = replay_out_ids[i];
@@ -1328,10 +1325,11 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
   std::stringstream ss;
   ss << "Inline promotion map\n";
   for (const auto& [iel_group, promoted_id] : iel_promotion_map) {
-    ss << "\t" << nvfuser::toString(iel_group) << " -> " << promoted_id->name() << std::endl;
+    ss << "\t" << nvfuser::toString(iel_group) << " -> " << promoted_id->name()
+       << std::endl;
   }
   std::cerr << ss.str();
-  
+
   return iel_promotion_map;
 }
 
@@ -1344,7 +1342,7 @@ std::unordered_map<IdGroup, IterDomain*> updateMap(
   for (auto stale_entry : stale_map) {
     auto stale_id_group = stale_entry.first;
     auto new_groups = new_graph.toGroups(*stale_id_group);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         new_groups.size() == 1,
         "\nUpdate map assumes that new graph is equivalent to old graph plus extra mappings.\n",
         "i.e. all mappings in new_graph should exist in the graph stale_map was produced on.\n",
@@ -1545,7 +1543,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     IdGroups loop_group_covered_ids;
     for (auto exact_group : exact_groups) {
       auto covered_it = exact_covered_ids.find(exact_group);
-      TORCH_INTERNAL_ASSERT(covered_it != exact_covered_ids.end());
+      NVF_ERROR(covered_it != exact_covered_ids.end());
       loop_group_covered_ids.pushBack(covered_it->second);
     }
 
@@ -1558,7 +1556,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
       auto terminal_id_group = entry.first;
       auto terminal_id = entry.second;
       auto covered_it = exact_covered_ids.find(terminal_id_group);
-      TORCH_INTERNAL_ASSERT(covered_it != exact_covered_ids.end());
+      NVF_ERROR(covered_it != exact_covered_ids.end());
       if (loop_group_covered_ids.subtract(covered_it->second).size() == 0) {
         loop_promotion_id = terminal_id;
         break;
@@ -1582,7 +1580,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
       for (auto covered_group : loop_group_covered_ids) {
         err_msg << "  " << nvfuser::toString(covered_group, 0, true);
       }
-      // TORCH_INTERNAL_ASSERT(false, err_msg.str());
+      // NVF_ERROR(false, err_msg.str());
     } else {
       loop_graph_copy_promotion_map[loop_group] = loop_promotion_id;
     }
@@ -1734,7 +1732,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
         ir_utils::filterByType<IterDomain>(iel_expr->front()->outputs())
             .vector();
 
-    TORCH_INTERNAL_ASSERT(replay_out_ids.size() == output_groups.size());
+    NVF_ERROR(replay_out_ids.size() == output_groups.size());
 
     for (auto i : c10::irange(replay_out_ids.size())) {
       if (!idGraph(IdMappingMode::EXACT)
@@ -1765,8 +1763,9 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
   }
 
   std::cerr << "Loop promotion map:\n";
-  for (const auto& [iel_group, id]: iel_promotion_map) {
-    std::cerr << nvfuser::toString(iel_group) << " -> " << id->name() << std::endl;
+  for (const auto& [iel_group, id] : iel_promotion_map) {
+    std::cerr << nvfuser::toString(iel_group) << " -> " << id->name()
+              << std::endl;
   }
 
   return iel_promotion_map;
@@ -1777,7 +1776,7 @@ std::unordered_map<IterDomain*, IterDomain*> IterDomainGraphs::buildIndexGraph(
     const std::vector<TensorView*>& all_tvs,
     StatefulLoweringInfo& info,
     std::unordered_map<IdGroup, IterDomain*> stale_promotion_map) {
-  TORCH_INTERNAL_ASSERT(false, "Not implemented yet.");
+  NVF_ERROR(false, "Not implemented yet.");
 }
 
 } // namespace nvfuser

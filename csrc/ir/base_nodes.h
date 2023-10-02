@@ -10,6 +10,7 @@
 #include <c10/core/ScalarType.h>
 #include <c10/macros/Export.h>
 #include <c10/util/Exception.h>
+#include <exceptions.h>
 
 #include <ir/builder_passkey.h>
 #include <polymorphic_value.h>
@@ -93,7 +94,7 @@ class ExprPasskey {
 //! is also important for the design to have a dispatch system for a Statment.
 //! Basically beinng able to succienctly traverse down the inhereitance stack of
 //! a Statment at runtime. This is currently implemented in dispatch.h
-class TORCH_CUDA_CU_API Statement : public NonCopyable, public PolymorphicBase {
+class Statement : public NonCopyable, public PolymorphicBase {
   friend void swap(Fusion&, Fusion&) noexcept;
   friend void swap(IrContainer& a, IrContainer& b) noexcept;
 
@@ -192,9 +193,11 @@ class TORCH_CUDA_CU_API Statement : public NonCopyable, public PolymorphicBase {
 //!
 //! Vals are constant and unique and should always be passed
 //! around as a pointer. Val can generally be thought of as representing any
-//! type of data. Some examples: a constant size like convolution filter width a
-//! runtime constant like batch normalizations momentum a "symbolic" tensor like
-//! one passed down from the JIT a memory buffer used in device code
+//! type of data. Some examples:
+//!   * a constant size like convolution filter width
+//!   * a runtime constant like batch normalizations momentum
+//!   * a "symbolic" tensor like one passed down from the JIT
+//!   * a memory buffer used in device code
 //!
 //! Adding a Val:
 //! Right now adding a Val is quite involved. Val's can be defined in ir.h or in
@@ -215,7 +218,7 @@ class TORCH_CUDA_CU_API Statement : public NonCopyable, public PolymorphicBase {
 //! 5) An enum value must be added to ValType in type.h
 //! 6) A string entry must be added in val_type_string_map
 //!
-class TORCH_CUDA_CU_API Val : public Statement {
+class Val : public Statement {
  public:
   // When we create a Val we immediately register them with the active fusion.
   explicit Val(
@@ -228,7 +231,7 @@ class TORCH_CUDA_CU_API Val : public Statement {
         dtype_(std::move(_dtype)),
         value_(std::move(_value)) {
     if (value_.hasValue()) {
-      TORCH_CHECK(
+      NVF_CHECK(
           hasCompatibleDataType(value_, dtype_),
           "Scalar value is not compatible with the given data type ",
           dtype_,
@@ -409,7 +412,7 @@ class TORCH_CUDA_CU_API Val : public Statement {
   bool sameAs(const Statement* other) const override;
 
   void setEvaluatorIndex(int to) {
-    TORCH_INTERNAL_ASSERT(evaluator_index_ == -1);
+    NVF_ERROR(evaluator_index_ == -1);
     evaluator_index_ = to;
   }
 
@@ -522,7 +525,7 @@ using newObjectFuncType = Expr*(
 //!  7) A string entry must be added in expr_type_string_map
 //!  8) Entry added to ir_graphviz .cpp/.h
 //!
-class TORCH_CUDA_CU_API Expr : public Statement {
+class Expr : public Statement {
  public:
   explicit Expr(IrBuilderPasskey);
 
@@ -620,13 +623,13 @@ class TORCH_CUDA_CU_API Expr : public Statement {
 
   // TODO: Add Fusion passkey
   void addInput(Val* input) {
-    TORCH_INTERNAL_ASSERT(input != nullptr);
+    NVF_ERROR(input != nullptr);
     inputs_.push_back(input);
   }
 
   // TODO: Add Fusion passkey
   void addOutput(Val* output) {
-    TORCH_INTERNAL_ASSERT(output != nullptr);
+    NVF_ERROR(output != nullptr);
     outputs_.push_back(output);
   }
 

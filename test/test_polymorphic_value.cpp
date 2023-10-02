@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -26,6 +27,20 @@ TEST_F(PolymorphicValueTest, OpaqueEquality) {
   EXPECT_EQ(b, b);
   EXPECT_EQ(a, b);
   EXPECT_EQ(b, a);
+
+  struct A {
+    int64_t x;
+    double y;
+  };
+  Opaque a1(A{1, 2.0}), a2(A{1, 2.0}), c(A{1, 3.0});
+  EXPECT_EQ(a1, a1);
+  EXPECT_EQ(a2, a2);
+  EXPECT_EQ(a1, a2);
+  EXPECT_EQ(a2, a1);
+  EXPECT_NE(a1, c);
+  EXPECT_NE(c, a1);
+  EXPECT_NE(a2, c);
+  EXPECT_NE(c, a2);
 }
 
 TEST_F(PolymorphicValueTest, Struct) {
@@ -47,7 +62,7 @@ TEST_F(PolymorphicValueTest, Struct) {
       } else if (key == "y") {
         return [this]() { return PolymorphicValue(y); };
       } else {
-        TORCH_INTERNAL_ASSERT(false, "Invalid key");
+        NVF_ERROR(false, "Invalid key");
       }
     }
 
@@ -58,7 +73,7 @@ TEST_F(PolymorphicValueTest, Struct) {
       } else if (key == "y") {
         return [this](const PolymorphicValue& value) { y = (double)value; };
       } else {
-        TORCH_INTERNAL_ASSERT(false, "Invalid key");
+        NVF_ERROR(false, "Invalid key");
       }
     }
   };
@@ -110,12 +125,12 @@ TEST_F(PolymorphicValueTest, Struct) {
     PolymorphicValue b = type.create();
     b->*"x" = 2788;
     b->*"y" = 2.71828;
-    EXPECT_EQ((PolymorphicValue)(b->*"x"), 2788);
-    EXPECT_EQ((PolymorphicValue)(b->*"y"), 2.71828);
+    EXPECT_EQ(b->*"x", PolymorphicValue(2788));
+    EXPECT_EQ(b->*"y", PolymorphicValue(2.71828));
     b->*"x" = 299792458;
     b->*"y" = 3.1415926;
-    EXPECT_EQ((PolymorphicValue)(b->*"x"), 299792458);
-    EXPECT_EQ((PolymorphicValue)(b->*"y"), 3.1415926);
+    EXPECT_EQ(b->*"x", PolymorphicValue(299792458));
+    EXPECT_EQ(b->*"y", PolymorphicValue(3.1415926));
 
     EXPECT_EQ(type, (b->*&StructHandle::type)());
   }

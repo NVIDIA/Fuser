@@ -9,6 +9,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <compute_at_map.h>
 #include <ir/all_nodes.h>
@@ -43,7 +44,7 @@ namespace ir_utils {
 // producers with a consumer set of indices, so we need to view the producer
 // transformed like consumer while we index. This will set the tv with td for
 // the life of this context guard.
-class TORCH_CUDA_CU_API TVDomainGuard {
+class TVDomainGuard {
  private:
   TensorView* tv_;
   TensorDomain* prev_domain_;
@@ -65,14 +66,14 @@ class TORCH_CUDA_CU_API TVDomainGuard {
 
 // Create a TVDomainGuard that temporarily view a TensorView with specified
 // all-true or all-false contiguity.
-TORCH_CUDA_CU_API ir_utils::TVDomainGuard overrideContiguityGuard(
+ir_utils::TVDomainGuard overrideContiguityGuard(
     TensorView* tv,
     bool contiguity);
 
 // Create a TVDomainGuard that temporarily setting allocation domain as
 // getMaybeRFactorDomain() from a TensorView, contiguity are filled all true or
 // all false
-TORCH_CUDA_CU_API ir_utils::TVDomainGuard allocateToRFactorDomainGuard(
+ir_utils::TVDomainGuard allocateToRFactorDomainGuard(
     TensorView* tv,
     bool contiguity);
 
@@ -90,16 +91,16 @@ std::vector<IterDomain*> iterDomainInputsOfOrderedAs(
     const std::vector<IterDomain*>& order);
 
 // Returns if Val is a TensorView or TensorIndex
-TORCH_CUDA_CU_API bool isTV(const Val* const);
+bool isTV(const Val* const);
 
 // Returns if Expr is a TensorView or TensorIndex Expr.
-TORCH_CUDA_CU_API bool isTvOp(const Expr*);
+bool isTvOp(const Expr*);
 
 // Returns the first output of Expr that is a TensorView
-TORCH_CUDA_CU_API TensorView* getTvOutput(const Expr*);
+TensorView* getTvOutput(const Expr*);
 
 // Returns the first input of Expr that is a TensorView
-TORCH_CUDA_CU_API TensorView* getTvInput(const Expr*);
+TensorView* getTvInput(const Expr*);
 
 //! Returns the iterdomain that maps to the thread dimension grouped
 //!  to warps. Returns nullopt if the reduction is not to be lowered to
@@ -131,6 +132,12 @@ bool isLdMatrixOp(const Expr* expr);
 //!  a cp.async intrinsic.
 bool isCpAsyncOp(const Expr* expr);
 
+//! Returns true if the expression will be lowered to
+//!  a cp.async.bulk (a.k.a. TMA) intrinsic.
+bool isCpAsyncBulkLoad(const Expr* expr);
+bool isCpAsyncBulkStore(const Expr* expr);
+bool isCpAsyncBulk(const Expr* expr);
+
 //! Short-cut for detecting initialization for cpAsync op.
 bool isCpAsyncInit(const Expr* expr);
 
@@ -155,8 +162,7 @@ bool isTensorScalarFillOp(const Expr* expr);
 //! Flattens all the scoped exprs, i.e. ForLoop and IfThenElse,
 //!  and returns all the exprs in all scopes in the original
 //!  linear textural order.
-TORCH_CUDA_CU_API std::vector<Expr*> flattenScopedExprs(
-    const std::vector<Expr*>& loop_nests);
+std::vector<Expr*> flattenScopedExprs(const std::vector<Expr*>& loop_nests);
 
 //! Returns all swizzle ops between the set of iterdomains
 //!  in `from` and `to`.
@@ -202,7 +208,7 @@ std::vector<Expr*> replaceInputsInExpr(
 // The optional kernel_scope_domain parameter is only used in
 // expression sorting. It isn't in the CA map, but since we only have
 // a single unique IterDomain, the conrete ID is just itself.
-struct TORCH_CUDA_CU_API IterDomainDependencySorter {
+struct IterDomainDependencySorter {
   IterDomainDependencySorter(
       const std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>&
           concrete_id_dependencies,

@@ -101,7 +101,7 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   auto warp_size_val = IrBuilder::create<Val>(32L, DataType::Index);
   auto tidx_dim = getRaw(tidx_pt);
 
-  TORCH_INTERNAL_ASSERT(tidx_dim != nullptr);
+  NVF_ERROR(tidx_dim != nullptr);
 
   // If tidx is strictly defined as blockDim.x then it must be set to a
   // multiple of the warp, there is nothing to do
@@ -134,7 +134,7 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
 }
 
 Val* ParallelDimensionMap::getRaw(ParallelType pt) const {
-  TORCH_INTERNAL_ASSERT(isParallelTypeThread(pt), "Invalid ParallelType: ", pt);
+  NVF_ERROR(isParallelTypeThread(pt), "Invalid ParallelType: ", pt);
   auto it = dim_map_.find(pt);
   if (it == dim_map_.end()) {
     return nullptr;

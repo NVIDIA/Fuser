@@ -8,9 +8,10 @@
 #pragma once
 
 #include <ATen/core/ivalue.h>
-
+#include <exceptions.h>
 #include <fusion.h>
 #include <scheduler/pointwise_heuristic.h>
+#include <scheduler/registry.h>
 
 namespace nvfuser {
 
@@ -152,21 +153,19 @@ namespace nvfuser {
 class SchedulerRuntimeInfo;
 class HeuristicSummary;
 
-TORCH_CUDA_CU_API std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
+std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache = nullptr);
 
-TORCH_CUDA_CU_API std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
+std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-TORCH_CUDA_CU_API void schedulePointwise(
-    Fusion* fusion,
-    const PointwiseParams& params);
+void schedulePointwise(Fusion* fusion, const PointwiseParams& params);
 
-TORCH_CUDA_CU_API LaunchParams schedulePointwise(
+LaunchParams schedulePointwise(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs);
 
@@ -177,5 +176,26 @@ bool hasReferenceTensorView(Fusion* fusion);
 
 // Return reference tensor view.
 TensorView* getReferenceTensorView(Fusion* fusion);
+
+class PointWiseScheduler : public SchedulerEntry {
+ public:
+  explicit PointWiseScheduler(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr);
+
+  static bool canScheduleCompileTime(Fusion* fusion);
+  static bool canScheduleRunTime(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr);
+
+  void schedule(Fusion* fusion) override;
+
+  void computeHeuristics(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr);
+};
 
 } // namespace nvfuser

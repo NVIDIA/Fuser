@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -217,8 +218,8 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
 
     Val* length = IrBuilder::create<Val>(DataType::Int);
 
-    Val* start = IrBuilder::newScalar(input_type);
-    Val* step = IrBuilder::newScalar(input_type);
+    Val* start = IrBuilder::create<Val>(input_type);
+    Val* step = IrBuilder::create<Val>(input_type);
     fusion->addInput(length);
     fusion->addInput(start);
     fusion->addInput(step);
@@ -286,7 +287,7 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
         break;
       }
       default:
-        TORCH_INTERNAL_ASSERT(false);
+        NVF_ERROR(false);
     }
   }
 }
@@ -426,71 +427,6 @@ TEST_F(TensorFactoryTest, StandaloneEye) {
   }
 }
 
-TEST_F(TensorFactoryTest, ARangeScalarHoisting1) {
-  if (isOptionDisabled(DisableOption::IndexHoist)) {
-    GTEST_SKIP() << "Index hoisting disabled";
-  }
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  Val* start_int = IrBuilder::create<Val>(DataType::Int);
-  Val* end_int = IrBuilder::create<Val>(DataType::Int);
-  Val* step_int = IrBuilder::create<Val>(DataType::Int);
-  fusion->addInput(start_int);
-  fusion->addInput(end_int);
-  fusion->addInput(step_int);
-  auto output1 = arange(start_int, end_int, step_int, DataType::Int);
-  auto output2 = full_like(output1, output1->axis(0)->extent(), DataType::Int);
-  fusion->addOutput(output1);
-  fusion->addOutput(output2);
-
-  int64_t start = 0, end = 100, step = 1;
-
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {start, end, step});
-  auto cg_outputs = fe.runFusion({start, end, step});
-
-  const auto options =
-      at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  at::Tensor t0 = at::arange(start, end, step, options);
-  at::Tensor t1 = at::full_like(t0, end - start, options);
-
-  const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<int64_t, 1, 1> T0, Tensor<int64_t, 1, 1> T1) {
-  int64_t i3;
-  i3 = i1 - i0;
-  int64_t i4;
-  i4 = abs(i3);
-  int64_t i5;
-  i5 = abs(i2);
-  int64_t i6;
-  i6 = ceilDiv(i4, i5);
-  nvfuser_index_t i7;
-  i7 = (nvfuser_index_t)(i6);
-  int64_t i8;
-  i8 = (int64_t)(i7);
-  #pragma unroll 1
-  for(nvfuser_index_t i9 = 0; i9 < i7; ++i9) {
-    T0[i9] = (i0 + (i2 * i9));
-  }
-  #pragma unroll 1
-  for(nvfuser_index_t i10 = 0; i10 < i7; ++i10) {
-    T1[i10] = i8;
-  }
-}
-)";
-
-  assertCUDAKernel(fusion.get(), expected_kernel);
-
-  testValidate(
-      fusion.get(),
-      cg_outputs,
-      {start, end, step},
-      {t0, t1},
-      __LINE__,
-      __FILE__);
-}
-
 TEST_F(TensorFactoryTest, TensorConstruct) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -533,8 +469,8 @@ TEST_F(TensorFactoryTest, MetadataAsTensor) {
   std::get<StructType>(unamed_dtype0.type).name = "";
   auto unamed_dtype1 = metaDataTypeOf(tv1);
   std::get<StructType>(unamed_dtype1.type).name = "";
-  auto meta0_copy1 = IrBuilder::newScalar(unamed_dtype0);
-  auto meta1_copy1 = IrBuilder::newScalar(unamed_dtype1);
+  auto meta0_copy1 = IrBuilder::create<Val>(unamed_dtype0);
+  auto meta1_copy1 = IrBuilder::create<Val>(unamed_dtype1);
   IrBuilder::create<LoadStoreOp>(
       LoadStoreOpType::Set, meta0_copy1, meta0_copy0);
   IrBuilder::create<LoadStoreOp>(

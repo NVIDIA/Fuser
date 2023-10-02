@@ -103,7 +103,7 @@ std::vector<Expr*> ExprMutator::mutate(bool reverse_order) {
         return;
       }
       auto pos_it = std::find(exprs_.begin(), exprs_.end(), info.reference);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           pos_it != exprs_.end(),
           "Issue finding reference expression for insertion.");
       if (info.mode == MutationMode::BEFORE) {
@@ -140,7 +140,7 @@ std::vector<Expr*> ExprMutator::mutate(bool reverse_order) {
     if (replacement_info.scope == nullptr) {
       auto pos_it =
           std::find(exprs_.begin(), exprs_.end(), replacement_info.reference);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           pos_it != exprs_.end(),
           "Issue finding reference expression for replacement.");
       exprs_.insert(pos_it, replacement_info.new_expr);
@@ -159,11 +159,10 @@ std::vector<Expr*> ExprMutator::mutate(bool reverse_order) {
     if (removal_info.scope == nullptr) {
       auto pos_it =
           std::find(exprs_.begin(), exprs_.end(), removal_info.reference);
-      TORCH_INTERNAL_ASSERT(
-          pos_it != exprs_.end(), "Issue finding expression to remove.");
+      NVF_ERROR(pos_it != exprs_.end(), "Issue finding expression to remove.");
       exprs_.erase(pos_it);
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           removal_info.scope->contains(removal_info.reference),
           "Expression to remove is not found in the given scope: ",
           removal_info.reference->toString());
@@ -201,7 +200,7 @@ void ExprMutator::registerMutation(
   } else if (mode == MutationMode::REMOVE) {
     removal_.push_back(mutation);
   } else {
-    TORCH_INTERNAL_ASSERT(false, "Invalid mutation type");
+    NVF_ERROR(false, "Invalid mutation type");
   }
 }
 

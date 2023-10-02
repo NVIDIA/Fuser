@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <kernel_ir.h>
 
 namespace nvfuser {

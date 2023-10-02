@@ -1296,6 +1296,39 @@ class TestNvFuserFrontend(TestCase):
             torch_result = torch.var_mean(inputs[0], [0, 1, 2], bool(correction))
             self.assertEqual(fuser_result, torch_result)
 
+    def test_var_mean_correction(self):
+        num_elem = 2
+        inputs = [torch.randn(2, num_elem, device="cuda")]
+
+        def fuser_function(correction):
+            with FusionDefinition() as fd:
+                t0 = fd.from_pytorch(inputs[0])
+                t1, t2 = fd.ops.var_mean(t0, [-1], correction)
+                fd.add_output(t1)
+                fd.add_output(t2)
+            return fd.execute(inputs)
+
+        for correction in range(num_elem + 5):
+            fuser_result = fuser_function(correction)
+            torch_result = torch.var_mean(inputs[0], [-1], correction=correction)
+            self.assertEqual(fuser_result, torch_result)
+
+    def test_var_correction(self):
+        num_elem = 2
+        inputs = [torch.randn(2, num_elem, device="cuda")]
+
+        def fuser_function(correction):
+            with FusionDefinition() as fd:
+                t0 = fd.from_pytorch(inputs[0])
+                t1 = fd.ops.var(t0, [-1], correction)
+                fd.add_output(t1)
+            return fd.execute(inputs)
+
+        for correction in range(num_elem + 5):
+            fuser_result = fuser_function(correction)
+            torch_result = torch.var(inputs[0], [-1], correction=correction)
+            self.assertEqual(fuser_result, [torch_result])
+
     def test_scalar_only_inputs(self):
         # We don't allow scalar outputs, currently,
         # so a tensor has to be returned
@@ -1387,7 +1420,7 @@ class TestNvFuserFrontend(TestCase):
         eager_out = inputs[0] + 3.0
 
         for perm in itertools.permutations(range(4), 4):
-
+            # testing stride_order in add_output
             def fusion_func(fd: FusionDefinition):
                 t0 = fd.from_pytorch(inputs[0])
                 c0 = fd.define_scalar(3.0)
@@ -1399,8 +1432,27 @@ class TestNvFuserFrontend(TestCase):
 
             nvf_stride = nvf_out[0].stride()
             sorted_stride = list(nvf_stride)
+            rank = len(nvf_stride)
             for idx, axis in enumerate(perm):
-                sorted_stride[axis] = nvf_stride[idx]
+                sorted_stride[rank - 1 - axis] = nvf_stride[idx]
+            self.assertTrue(sorted(sorted_stride, reverse=True) == sorted_stride)
+
+            # testing stride_order in set
+            def fusion_set_func(fd: FusionDefinition):
+                t0 = fd.from_pytorch(inputs[0])
+                c0 = fd.define_scalar(3.0)
+                t1 = fd.ops.add(t0, c0)
+                t2 = fd.ops.stride_order(t1, perm)
+                fd.add_output(t2)
+
+            nvf_out, _ = self.exec_nvfuser(fusion_set_func, inputs)
+            self.assertEqual(eager_out, nvf_out[0])
+
+            nvf_stride = nvf_out[0].stride()
+            sorted_stride = list(nvf_stride)
+            rank = len(nvf_stride)
+            for idx, axis in enumerate(perm):
+                sorted_stride[rank - 1 - axis] = nvf_stride[idx]
             self.assertTrue(sorted(sorted_stride, reverse=True) == sorted_stride)
 
     def test_expanded_bcast_tensor(self):

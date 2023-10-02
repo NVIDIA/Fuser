@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <exceptions.h>
 #include <torch/csrc/jit/passes/cuda_graph_fuser.h>
 
 #include <c10/util/Exception.h>
@@ -69,7 +70,7 @@ torch::jit::Value* broadcastSizes(at::ArrayRef<torch::jit::Value*> sizes) {
 }
 
 torch::jit::Value* createConditionalConstant(torch::jit::Node* profile_ivalue) {
-  TORCH_INTERNAL_ASSERT(profile_ivalue->kind() == at::prim::profile_ivalue);
+  NVF_ERROR(profile_ivalue->kind() == at::prim::profile_ivalue);
 
   auto graph = profile_ivalue->owningGraph();
 
@@ -636,7 +637,7 @@ struct CudaGraphFuser {
       bchunk = promoteChunkToBroadcastingChunk(chunk);
     }
     size_t nchunks = bchunk->i(at::attr::chunks);
-    TORCH_INTERNAL_ASSERT(nchunks > 0, "number of chunks cannot be zero");
+    NVF_ERROR(nchunks > 0, "number of chunks cannot be zero");
     torch::jit::WithInsertPoint guard(bchunk->next());
 
     std::vector<torch::jit::Value*> producer_chunk_outputs;
@@ -973,7 +974,7 @@ struct CudaGraphFuser {
         continue;
       }
       if (n->kind() == at::prim::ConstantChunk) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             shape_of.count(n->input()) > 0,
             "buildShapeExpressions failed at accessing input shapes");
         torch::jit::Node* sizes_node = graph->insertNode(
@@ -1001,7 +1002,7 @@ struct CudaGraphFuser {
       if (reduction_ops.find(n->kind()) != reduction_ops.end()) {
         // TODO: expand support to wire non-constant inputs, this is currently
         // blocked by profiling executor not capable of profiling scalar inputs.
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             n->input(1)->node()->kind() == at::prim::Constant &&
                 n->input(2)->node()->kind() == at::prim::Constant,
             "only supports reduction axes and keepdim being constant");
@@ -1013,7 +1014,7 @@ struct CudaGraphFuser {
             graph->createClone(n->input(2)->node(), map_inputs);
         graph->insertNode(in2_const);
 
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             shape_of.count(n->input(0)) > 0,
             "buildShapeExpressions failed at accessing input shapes");
         std::vector<torch::jit::Value*> inputs = {
@@ -1027,7 +1028,7 @@ struct CudaGraphFuser {
       }
       // TODO: output(1) & output(2) should also be marked
       if (n->kind() == at::aten::native_layer_norm) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             shape_of.count(n->input(0)) > 0,
             "buildShapeExpressions failed at accessing input shapes");
         shape_of.emplace(n->output(0), shape_of.at(n->input(0)));
@@ -1035,7 +1036,7 @@ struct CudaGraphFuser {
       }
       // TODO: output(1) & output(2) should also be marked
       if (n->kind() == at::aten::native_layer_norm_backward) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             shape_of.count(n->input(0)) > 0,
             "buildShapeExpressions failed at accessing input shapes");
         shape_of.emplace(n->output(0), shape_of.at(n->input(0)));
@@ -1050,7 +1051,7 @@ struct CudaGraphFuser {
       // TODO: output(1) & output(2) should also be marked
       if (n->kind() == at::aten::native_batch_norm ||
           n->kind() == at::aten::_batch_norm_impl_index) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             shape_of.count(n->input(0)) > 0,
             "buildShapeExpressions failed at accessing input shapes");
         shape_of.emplace(n->output(0), shape_of.at(n->input(0)));
@@ -1058,7 +1059,7 @@ struct CudaGraphFuser {
       }
       // TODO: output(1) & output(2) should also be marked
       if (n->kind() == at::aten::native_batch_norm_backward) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             shape_of.count(n->input(0)) > 0,
             "buildShapeExpressions failed at accessing input shapes");
         shape_of.emplace(n->output(0), shape_of.at(n->input(0)));
@@ -1070,7 +1071,7 @@ struct CudaGraphFuser {
         continue;
       }
       if (n->kind() == at::aten::_batch_norm_impl_index_backward) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             shape_of.count(n->input(1)) > 0,
             "buildShapeExpressions failed at accessing input shapes");
         shape_of.emplace(n->output(0), shape_of.at(n->input(1)));
@@ -1082,7 +1083,7 @@ struct CudaGraphFuser {
         continue;
       }
       if (n->kind() == at::aten::native_dropout) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             shape_of.count(n->input(0)) > 0,
             "buildShapeExpressions failed at accessing input shapes");
         shape_of.emplace(n->output(0), shape_of.at(n->input(0)));
@@ -1090,10 +1091,10 @@ struct CudaGraphFuser {
         continue;
       }
       if (n->kind() == at::aten::unsqueeze_copy) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             shape_of.count(n->input(0)) > 0,
             "buildShapeExpressions failed at accessing input shapes");
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             n->input(1)->node()->kind() == at::prim::Constant,
             "only supports unsqueeze axes being constant");
         torch::jit::Node* dim_const =
@@ -1111,16 +1112,16 @@ struct CudaGraphFuser {
         continue;
       }
       if (n->kind() == at::aten::squeeze_copy) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             shape_of.count(n->input(0)) > 0,
             "buildShapeExpressions failed at accessing input shapes");
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             n->inputs().size() == 2 || n->inputs().size() == 1,
             "aten::squeeze_copy expects one or two inputs");
         std::vector<torch::jit::Value*> inputs = {shape_of.at(n->input(0))};
 
         if (n->inputs().size() == 2) {
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               n->input(1)->node()->kind() == at::prim::Constant,
               "only supports squeeze axes being constant");
           torch::jit::Node* dim_const =
@@ -1138,12 +1139,12 @@ struct CudaGraphFuser {
         continue;
       }
       if (n->kind() == at::aten::index_select) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             shape_of.count(n->input(0)) > 0,
             "buildShapeExpressions failed at accessing input shapes");
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             n->inputs().size() == 3, "aten::index_select expects three inputs");
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             n->input(1)->node()->kind() == at::prim::Constant,
             "only supports selected_dim being constant");
         torch::jit::Node* dim_const =
@@ -1165,7 +1166,7 @@ struct CudaGraphFuser {
         return v->type()->isSubtypeOf(*at::TensorType::get());
       });
       auto shapes = fmap(tensor_inputs, [&](torch::jit::Value* v) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             shape_of.count(v) > 0,
             "buildShapeExpressions failed at accessing input shapes");
         return shape_of.at(v);
@@ -1225,7 +1226,7 @@ struct CudaGraphFuser {
   }
 
   void refreshAliasDb() {
-    aliasDb_ = torch::make_unique<torch::jit::AliasDb>(graph_);
+    aliasDb_ = std::make_unique<torch::jit::AliasDb>(graph_);
   }
 
   void removeNoopBinaryOps(torch::jit::Block* block) {
@@ -1372,22 +1373,22 @@ struct CudaGraphFuser {
 
 void removeCudaFusionPathForGuardNode(torch::jit::Node* n) {
   auto uses = n->output()->uses();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       uses.size() == 1,
       "CudaFusionGuard should only be used once by prim::If or prim::ListConstruct");
   torch::jit::Node* if_node = uses[0].user;
   if (if_node->kind() != at::prim::If) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         if_node->kind() == at::prim::ListConstruct,
         "CudaFusionGuard is not used by neither prim::If or prim::ListConstruct");
     // break all inputs so producer prim::CudaFusionGuard can be removed later
     if_node->removeAllInputs();
     auto list_use = if_node->output()->uses();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         list_use.size() == 1 && list_use[0].user->kind() == at::aten::all,
         "prim::ListConstruct should only be used once by aten::all");
     auto all_use = list_use[0].user->output()->uses();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         all_use.size() == 1 && all_use[0].user->kind() == at::prim::If,
         "aten::all should only be used once by prim::If");
     if_node = all_use[0].user;
@@ -1396,21 +1397,21 @@ void removeCudaFusionPathForGuardNode(torch::jit::Node* n) {
   auto fall_back_graph = if_node->blocks()[1];
   torch::jit::Node* fallback_node = nullptr;
   for (auto fb_n : fall_back_graph->nodes()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         fb_n->kind() == at::prim::FallbackGraph,
         "CudaFusionGuard fallback path should only have single fallback node");
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         fallback_node == nullptr,
         "CudaFusionGuard fallback path should only have single fallback node");
     fallback_node = fb_n;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       fallback_node != nullptr,
       "CudaFusionGuard fallback path found no fallback node");
   fallback_node->moveBefore(n);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       fallback_node->outputs().size() == if_node->outputs().size(),
       "CudaFusionGuard fallback should have same number of outputs as with nesting if block");
 
@@ -1537,7 +1538,7 @@ torch::jit::Value* guardView(
 
   auto view_sizes_constant_list =
       torch::jit::constant_as<c10::List<int64_t>>(view->inputs().back());
-  TORCH_INTERNAL_ASSERT(view_sizes_constant_list.has_value());
+  NVF_ERROR(view_sizes_constant_list.has_value());
   std::vector<int64_t> view_sizes = view_sizes_constant_list->vec();
   // 2. Get constraints for self tensor and view_sizes
   auto constraints =
@@ -1550,7 +1551,7 @@ torch::jit::Value* guardView(
 
   // 4. Create CudaFusionViewGuard using input tensor, profile_ivalue
   // for view_sizes list, and constraints
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       fusion_value_to_runtime_size.find(self_value) !=
           fusion_value_to_runtime_size.end(),
       "Failed to find runtime size for fusion value:\t",
@@ -1680,7 +1681,7 @@ void guardFusionGroup(
       // val->uses() before hand.
       for (const auto& use : uses) {
         // re-wire inputs and remove conditional constant nodes;
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             use.user->kind() == at::prim::Constant,
             "profile_ivalue at index: ",
             offset,
@@ -1718,7 +1719,7 @@ void guardFusionGroup(
       // remove inputs to fusion, and update check logic for fallback
       auto profiled_ival = fusion->input(offset)->node()->input();
       auto const_o = createConditionalConstant(fusion->input(offset)->node());
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           const_o,
           "profile_ivalue node are expected to have profile information, at node: ",
           *fusion->input(offset)->node());
@@ -1741,7 +1742,7 @@ void guardFusionGroup(
       } else if (fusion->input(offset)->node()->hasAttribute(
                      torch::jit::Symbol::attr("profiled_reduction_size"))) {
         // TODO(profile_size): check sizes here with special size comparison op
-        // TORCH_INTERNAL_ASSERT(false, "not implemented yet");
+        // NVF_ERROR(false, "not implemented yet");
         ivalue_check =
             fusion->owningGraph()
                 ->create(
@@ -1762,9 +1763,9 @@ void guardFusionGroup(
         auto subgraph_arg = fusion_graph->inputs()[offset];
         auto constant = subgraph_arg->uses().front().user->output();
 
-        TORCH_INTERNAL_ASSERT(!constant->uses().empty());
+        NVF_ERROR(!constant->uses().empty());
         auto view = constant->uses().front().user;
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             view->kind() == at::aten::view_copy ||
             view->kind() == at::aten::_reshape_copy);
 
@@ -1800,7 +1801,7 @@ void guardFusionGroup(
 
       // step b. remove the extra dependency inside fusion;
       for (const auto& use : fusion_graph->inputs()[offset]->uses()) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             use.user->kind() == at::prim::Constant,
             "profile_ivalue at index: ",
             offset,
@@ -1966,7 +1967,7 @@ void alterBatchNormImplIndexBackward(torch::jit::Node* node) {
       // TODO: we can actually support it by adding an extra inputs to the
       // subgraph
       // TODO: assert on empty buffer
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           byte_input->node() == subgraph->param_node(),
           "Assumption that reserve input to aten::_batch_norm_impl_index_backward comes from forward graph is broken");
       bn_buffer_in_indices.emplace(byte_input->offset());
@@ -2050,7 +2051,7 @@ void alterBatchNormImpls(torch::jit::Block* block) {
 //   ... (uses %2, %4, but never reference to %3 any more)
 void removeOutputUsedOnlyInDtype(torch::jit::Node* fusion_node) {
   auto fusion_block = fusion_node->owningBlock();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       fusion_block->owningNode() &&
           fusion_block->owningNode()->kind() == at::prim::If,
       "CudaFusionGroup should be inside `prim::CudaFusionGuard` / `prim::If`");
@@ -2073,10 +2074,9 @@ void removeOutputUsedOnlyInDtype(torch::jit::Node* fusion_node) {
         // update fusion_block to output profiled scalar type
         auto fusion_output = fusion_block->outputs()[i];
         auto tensor_type = fusion_output->type()->cast<at::TensorType>();
-        TORCH_INTERNAL_ASSERT(
-            tensor_type, "non tensor fed to dtype is not supported");
+        NVF_ERROR(tensor_type, "non tensor fed to dtype is not supported");
         auto scalar_type = tensor_type->scalarType();
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             scalar_type.has_value(),
             "ScalarType should be static for Tensors in fusion for amp optimization");
         auto type_const = fusion_block->owningGraph()->insertConstant(
@@ -2227,7 +2227,7 @@ void decomposeLinearOps(torch::jit::Block* block) {
     }
 
     auto out_size = mat0_size.value();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         mat1_size->size() == 2 || mat1_size->size() == 1,
         "weight dimension for linear is expected to be 1 or 2, but got: ",
         mat1_size->size());
@@ -2468,7 +2468,7 @@ void mutateNode(
 // For the given CudaFusionGroup, separate nested views and remove any unused,
 // intermediate views
 void separateNestedViews(torch::jit::Node* cuda_fusion_group) {
-  TORCH_INTERNAL_ASSERT(cuda_fusion_group->kind() == at::prim::CudaFusionGroup);
+  NVF_ERROR(cuda_fusion_group->kind() == at::prim::CudaFusionGroup);
 
   auto isView = [](torch::jit::Node* node) {
     static std::unordered_set<c10::Symbol> alias_op_set(

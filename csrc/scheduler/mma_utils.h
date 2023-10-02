@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <fusion.h>
 #include <mma_type.h>
 #include <array>
@@ -25,7 +26,7 @@ namespace mma_utils {
 //!  into shared memory with the given vectorization word.
 //! TODO:
 //!  will need to add bank conflict removal swizzle in a follow up.
-TORCH_CUDA_CU_API void scheduleContiguousVectorLoad(
+void scheduleContiguousVectorLoad(
     TensorView* tv,
     MatMulTileOptions tile,
     int vector_word,
@@ -34,23 +35,19 @@ TORCH_CUDA_CU_API void scheduleContiguousVectorLoad(
 //! Schedule utility for mma output in matmul main loop:
 //!  Realize the hierarchical tiling based on the given tiling options.
 //! TODO: rewrite this one with makeTile
-TORCH_CUDA_CU_API void scheduleWarpTileWithReduction(
-    TensorView* tv,
-    MatMulTileOptions tile);
+void scheduleWarpTileWithReduction(TensorView* tv, MatMulTileOptions tile);
 
 //! Schedule utility for mma output in matmul main loop:
 //!  Realize the hierarchical tiling based on the given tiling options
 //! on consumers of mma ops in epilog.
 //! TODO: remove this one eventually.
-TORCH_CUDA_CU_API void scheduleWarpTileWithNoReduction(
-    TensorView* tv,
-    MatMulTileOptions tile);
+void scheduleWarpTileWithNoReduction(TensorView* tv, MatMulTileOptions tile);
 
 //! Lower level primitive spliting inner iterdomains into tiles:
 //! Eg.
 //!  A[B,I0,I1,I2] -> makeTile({1,2,3})
 //! Gives A[B, I0o, I1o, I2o, I0i(1), I1i(2), I2i(3)]
-TORCH_CUDA_CU_API void makeTile(TensorView* tv, std::vector<int> tile_sizes);
+void makeTile(TensorView* tv, std::vector<int> tile_sizes);
 
 //! Order the inner tile dimensions as the original order in
 //!  root domain. Also putting broadcast domains on the left.
@@ -58,7 +55,7 @@ TORCH_CUDA_CU_API void makeTile(TensorView* tv, std::vector<int> tile_sizes);
 //! -> A[I0o, I1o, B2o, B2i, I1i, I0i]
 //! This is used to facilitate data layout swizzling and
 //!  defining vectorized loads.
-TORCH_CUDA_CU_API void orderTiledConcreteIdAsRoot(TensorView* tv);
+void orderTiledConcreteIdAsRoot(TensorView* tv);
 
 //! Orders the root id ordering of the given tv as
 //! [Batch, Previous Reduction, M, N, K]
@@ -67,7 +64,7 @@ TORCH_CUDA_CU_API void orderTiledConcreteIdAsRoot(TensorView* tv);
 //! This matching works on root domain only, and
 //!  will throw if the tv has a leaf iterdomain that is
 //!  not a root id.
-TORCH_CUDA_CU_API void canonicalizeMmaTvOrdering(TensorView* tv);
+void canonicalizeMmaTvOrdering(TensorView* tv);
 
 //! [WarpMmaSwizzler]:
 //!   This class is used to implement the thread swizzle format
@@ -158,7 +155,7 @@ TORCH_CUDA_CU_API void canonicalizeMmaTvOrdering(TensorView* tv);
 //!     entering the fusion already and some might be natively compatible
 //!     with mma format. This is a very broad category of use cases
 //!     and we'd have to consider enabling any use like this case-by-case.
-class TORCH_CUDA_CU_API WarpMmaSwizzler {
+class WarpMmaSwizzler {
  public:
   //! Applies the output mma swizzling to the given tv, should be used
   //!  on mma output or tv's involved in epilog fusion, i.e. bias.
@@ -277,7 +274,7 @@ using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 //!  transposition of inputs in mma instructions, while other (e.g. Turing,
 //!  Ampere) the only supported transposition is TN which means that mma
 //!  instruction first input is transposed, the second input is non-transposed.
-TORCH_CUDA_CU_API MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion);
+MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion);
 
 //! Returns wrapped collection of IterDomains that can be used to get
 //!  problem shape with runtime info.
@@ -286,26 +283,41 @@ TORCH_CUDA_CU_API MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion);
 //!  An error message is stored in retruned object if valid data cannot
 //!  be gathered.
 //!  TODO: 4th domain must be added for batch gemm support.
-TORCH_CUDA_CU_API ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion);
+ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion);
 
 //! Returns wrapped collection of TensorView roles in fusion.
 //!  An error message is stored in retruned object if valid data cannot
 //!  be gathered.
-TORCH_CUDA_CU_API RolesMapOpt getTensorsRoles(Fusion* fusion);
+RolesMapOpt getTensorsRoles(Fusion* fusion);
 
-//! Return whether use shared memory epilogue or not.
-//!  Returns true if using shared memory epilogue won't cause
-//!  the decrease of occupancy ratio. The occupancy ratio is
-//!  estimated using register and shared memory usage.
-//!  If ignore_occupancy_drop is set to true, returns true if
-//!  there is enough shared memory to launch the kernel without
-//!  considering the occupancy, useful for debug and validate
-//!  shared memory epilogue implementation.
-TORCH_CUDA_CU_API bool generateSharedMemoryEpilogueHeuristics(
+//! Return pair of whether use shared memory epilogue or not and whether to
+//!  reuse shared memory for the prologue at the expense of an additional block
+//!  sync.
+//!
+//! Returns true in first position if using shared memory epilogue won't cause
+//!  the decrease of occupancy ratio. The occupancy ratio is estimated using
+//!  register and shared memory usage.  If ignore_occupancy_drop is set to true,
+//!  returns true if there is enough shared memory to launch the kernel without
+//!  considering the occupancy, useful for debug and validate shared memory
+//!  epilogue implementation.
+//!
+//! Returns true in the second position if reusing shared memory for the
+//!  epilogue does not increase occupancy.
+std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
+    const MatMulTileOptions& gemm_tile,
+    const int smem_double_buffer_stage,
+    const RolesMap& roles_map,
+    bool ignore_occupancy_drop = false);
+
+//! This version assumes roles_map has been analyzed to determine smem datatypes
+//! as well as guarantees about prologue smem reuse.
+std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     const MatMulTileOptions& gemm_tile,
     const int smem_double_buffer_stage,
     const MmaDataTypes& data_types,
-    const bool ignore_occupancy_drop = false);
+    bool smem_a_reuse_guaranteed = false,
+    bool smem_b_reuse_guaranteed = false,
+    bool ignore_occupancy_drop = false);
 
 } // namespace mma_utils
 

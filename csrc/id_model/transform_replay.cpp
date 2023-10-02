@@ -27,7 +27,7 @@ ReplayTransform::ReplayTransform(
 
 // We're going to replay this split operation on the corresponding ID
 void ReplayTransform::handle(const Split* split) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       input_ids_.size() == 1,
       "Expected one input to match split: ",
       split->toString());
@@ -42,7 +42,7 @@ void ReplayTransform::handle(const Split* split) {
 
 // We're going to replay this merge operation on the corresponding IDs
 void ReplayTransform::handle(const Merge* merge) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       input_ids_.size() == 2,
       "Expected two inputs to match merge: ",
       merge->toString());
@@ -53,7 +53,7 @@ void ReplayTransform::handle(const Merge* merge) {
 // We're going to replay this swizzle operation on the corresponding IDs
 //  if replaying swizzle is enabled.
 void ReplayTransform::handle(const Swizzle2D* swizzle_2d) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       input_ids_.size() == 2,
       "Expected two inputs to match swizzle: ",
       swizzle_2d->toString());
@@ -66,7 +66,7 @@ void ReplayTransform::handle(const Swizzle2D* swizzle_2d) {
 }
 
 void ReplayTransform::handle(const Resize* resize) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       input_ids_.size() == 1,
       "Expected one input to match resize: ",
       resize->toString());

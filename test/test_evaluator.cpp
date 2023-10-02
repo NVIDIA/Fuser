@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -29,6 +30,14 @@ inline void checkIntValue(
   const auto actual_value = evaluator.evaluate(val);
   EXPECT_TRUE(actual_value.hasValue());
   EXPECT_EQ(actual_value, expected_value);
+}
+
+inline void checkConstEvaluate(
+    const ExpressionEvaluator& evaluator,
+    Val* val,
+    at::Tensor expected_value) {
+  auto actual_value = evaluator.evaluate(val);
+  EXPECT_TRUE(expected_value.equal(actual_value.as<at::Tensor>()));
 }
 
 } // namespace
@@ -102,6 +111,28 @@ TEST_F(ExprEvalTest, Bindings) {
   checkIntValue(evaluator, mod(a, b), 2);
   checkIntValue(evaluator, ceilDiv(a, b), 1);
   checkIntValue(evaluator, d, -2);
+}
+
+// Evaluate known values with const expression evaluator reference
+TEST_F(ExprEvalTest, ConstReference) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  ExpressionEvaluator evaluator;
+  auto tv0 = makeContigTensor(1);
+  auto tv1 = makeContigTensor(1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({3}, options);
+  auto t1 = at::randn({3}, options);
+
+  evaluator.bind(tv0, t0);
+  evaluator.bind(tv1, t1);
+
+  checkConstEvaluate(evaluator, tv0, t0);
+  checkConstEvaluate(evaluator, neg(tv0), -t0);
+  checkConstEvaluate(evaluator, add(tv0, tv1), t0 + t1);
+  checkConstEvaluate(evaluator, add(tv0, neg(tv1)), t0 - t1);
 }
 
 // Evaluate expressions in a simple IR
@@ -294,6 +325,28 @@ TEST_F(ExprEvalTest, Array) {
   checkIntValue(evaluator, bb, 5L);
 }
 
+TEST_F(ExprEvalTest, EmptyArray) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  EXPECT_THAT(
+      [&]() {
+        IrBuilder::create<Val>(
+            std::vector<int64_t>{},
+            ArrayType{std::make_shared<DataType>(DataType::Int), 2});
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("not compatible")));
+
+  auto* a = IrBuilder::create<Val>(
+      std::vector<int64_t>{},
+      ArrayType{std::make_shared<DataType>(DataType::Int), 0});
+
+  ExpressionEvaluator evaluator;
+  auto arr_val = evaluator.evaluate(a);
+  EXPECT_EQ(arr_val, std::vector<PolymorphicValue>{});
+}
+
 TEST_F(ExprEvalTest, Struct) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -316,7 +369,7 @@ TEST_F(ExprEvalTest, Struct) {
       } else if (key == "b") {
         return [this]() { return PolymorphicValue(b); };
       } else {
-        TORCH_INTERNAL_ASSERT(false, "Invalid key");
+        NVF_ERROR(false, "Invalid key");
       }
     }
 
@@ -327,7 +380,7 @@ TEST_F(ExprEvalTest, Struct) {
       } else if (key == "b") {
         return [this](const PolymorphicValue& value) { b = (int64_t)value; };
       } else {
-        TORCH_INTERNAL_ASSERT(false, "Invalid key");
+        NVF_ERROR(false, "Invalid key");
       }
     }
   };
@@ -417,7 +470,7 @@ TEST_F(ExprEvalTest, Validation) {
 
   EXPECT_THAT(
       [&]() { evaluator.bind(c, 4L, true); },
-      ::testing::ThrowsMessage<c10::Error>(
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Tried to bind to a value: ")));
   EXPECT_EQ(evaluator.evaluate(c), 299792459L);
   evaluator.bind(d, 299792460L, true);
@@ -436,6 +489,50 @@ TEST_F(ExprEvalTest, ReverseArray) {
 
   auto expect = std::vector<int64_t>{5, 4, 3, 2, 1};
   EXPECT_EQ((std::vector<int64_t>)evaluator.evaluate(output), expect);
+}
+
+//! Test evaluating ternary ops
+TEST_F(ExprEvalTest, TernaryOps) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  ExpressionEvaluator evaluator;
+
+  auto* a = IrBuilder::create<Val>(7.0);
+  auto* b = IrBuilder::create<Val>(3.8);
+  auto* c = IrBuilder::create<Val>(0.8);
+  auto* d = IrBuilder::create<Val>(0.2);
+  auto* t = IrBuilder::create<Val>(true);
+  auto* f = IrBuilder::create<Val>(false);
+
+  // Run once without PrecomputedValues, then once with
+  for ([[maybe_unused]] auto i : c10::irange(2)) {
+    EXPECT_EQ(evaluator.evaluate(clamp(b, c, a)), b->value());
+    EXPECT_EQ(evaluator.evaluate(clamp(a, c, b)), b->value());
+    EXPECT_EQ(evaluator.evaluate(clamp(d, c, b)), c->value());
+
+    EXPECT_EQ(
+        evaluator.evaluate(lerp(a, b, d)),
+        a->value() + d->value() * (b->value() - a->value()));
+
+    EXPECT_EQ(
+        evaluator.evaluate(lerp(a, b, c)),
+        a->value() + c->value() * (b->value() - a->value()));
+    EXPECT_EQ(
+        evaluator.evaluate(lerp(a, b, d)),
+        a->value() + d->value() * (b->value() - a->value()));
+
+    EXPECT_EQ(evaluator.evaluate(threshold(a, c, b)), a->value());
+    EXPECT_EQ(evaluator.evaluate(threshold(d, c, b)), b->value());
+    EXPECT_EQ(evaluator.evaluate(threshold(d, d, b)), b->value());
+
+    EXPECT_EQ(evaluator.evaluate(where(t, a, b)), a->value());
+    EXPECT_EQ(evaluator.evaluate(where(f, a, b)), b->value());
+
+    // Now bind a PrecomputedValues
+    PrecomputedValues pv(&fusion);
+    evaluator.bindPrecomputedValues(&pv);
+  }
 }
 
 } // namespace nvfuser

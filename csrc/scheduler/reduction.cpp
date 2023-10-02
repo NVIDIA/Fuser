@@ -5,23 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/reduction.h>
-
+#include <ATen/cuda/CUDAContext.h>
 #include <debug.h>
-#include <executor_utils.h>
 #include <instrumentation.h>
-#include <ir/all_nodes.h>
-#include <ir/utils.h>
-#include <options.h>
+#include <scheduler/debug_utils.h>
+#include <scheduler/reduction.h>
 #include <scheduler/reduction_utils.h>
-#include <scheduler/registry.h>
+#include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
-#include <transform_replay.h>
-
-#include <ir/iostream.h>
-
-#include <ATen/cuda/CUDAContext.h>
 
 namespace nvfuser {
 
@@ -53,7 +45,7 @@ int64_t clamp(const int64_t val, const int64_t min_val, const int64_t max_val) {
 // Reduce x, y, z until it's product is less than max value, reduce round robin
 // starting with x
 void reduceProductTo(int64_t& z, int64_t& y, int64_t& x, const int64_t max) {
-  TORCH_INTERNAL_ASSERT(max > 1);
+  NVF_ERROR(max > 1);
   if (z * y * x > max) {
     z = scheduler_utils::safeDiv(z, 2);
   }
@@ -853,6 +845,179 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
 
 } // namespace
 
+ReductionScheduler::ReductionScheduler(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache)
+    : SchedulerEntry(ScheduleHeuristic::Reduction) {
+  computeHeuristics(fusion, runtime_info, data_cache);
+}
+
+void ReductionScheduler::computeHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache) {
+  params_ = getReductionHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(params_ != nullptr);
+}
+
+void ReductionScheduler::schedule(Fusion* fusion) {
+  FUSER_PERF_SCOPE("Schedule Single Reduction");
+  scheduleReduction(fusion, reductionParams());
+}
+
+//! Check if the reduction heuristics apply in given fusion
+bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
+  // Needs at least one reduction to consider.
+  if (!ir_utils::hasAnyReductionOps(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::Reduction, "No reduction op to schedule");
+    return false;
+  }
+
+  if (ir_utils::filterByType<TensorView>(fusion->inputs()).empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::Reduction, "Scheduling not supported with no input");
+    return false;
+  }
+
+  // Check that inputs of all select/gather-like ops are fusion inputs
+  if (registry_utils::rejectScheduleForMemoryPromotion(
+          fusion, ScheduleHeuristic::Reduction)) {
+    return false;
+  }
+
+  // Fusions handled by reduction scheduler cannot have MmaOp.
+  if (ir_utils::hasOpsOfType<MmaOp>(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::Reduction, "no support for mma ops.");
+    return false;
+  }
+
+  auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+
+  if (reduction_tvs.empty()) {
+    // Use pointwise logic
+    return false;
+  }
+
+  if (registry_utils::hasNonUniqueBcast(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::Reduction,
+        "Broadcasting dimension might be broadcasting to multiple sizes.");
+    return false;
+  }
+
+  if (!ir_utils::getViewOps(fusion).empty()) {
+    ComputeAtMap ca_map(fusion);
+    if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::Reduction,
+          "Fusion requires view being reversible.");
+      return false;
+    }
+
+    // Reduction scheduler simply uses reduction_tvs[0] as the reference, if
+    // that changes, this needs to be changed.
+    if (registry_utils::reductionInterferingView(
+            fusion, ca_map, reduction_tvs[0])) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::Reduction,
+          "View may interfere with reduction scheduling.");
+      return false;
+    }
+  }
+
+  // Make sure reduction axes are consistent through the fusion
+  auto reduction_ops = ir_utils::getAllTypesOfReductionOps(fusion);
+  if (reduction_ops.size() > 1) {
+    // Before examining the reduction axes want to quickly
+    //   check the reductions have the same axis width
+    //   to avoid building root domain map in easier cases
+    bool valid_axis_count = false;
+    size_t axis_count = 0;
+    auto reduction_root_size = [](TensorView* red_tv) {
+      size_t count = 0;
+      for (auto id : red_tv->getRootDomain()) {
+        if (!id->isBroadcast()) {
+          count++;
+        }
+      }
+      return count;
+    };
+
+    for (auto red : reduction_tvs) {
+      if (!valid_axis_count) {
+        valid_axis_count = true;
+        axis_count = reduction_root_size(red);
+      } else {
+        if (reduction_root_size(red) != axis_count) {
+          scheduler_debug_utils::canScheduleRejectReason(
+              ScheduleHeuristic::Reduction,
+              "Inconsistent reduction axes ",
+              red,
+              "is not ",
+              axis_count);
+          return false;
+        }
+      }
+    }
+
+    // Use root domain map to check the reduction ops have the same axes
+    FusionGuard fg(fusion);
+    ComputeAtRootDomainMap root_map;
+    root_map.build(true);
+
+    // red_ops.size()>1 checked before
+    for (size_t it = 1; it < reduction_tvs.size(); it++) {
+      if (!registry_utils::checkPatternEquivalence(
+              reduction_tvs[it - 1], reduction_tvs[it], root_map)) {
+        scheduler_debug_utils::canScheduleRejectReason(
+            ScheduleHeuristic::Reduction,
+            "Un-mapped multi-reduction: ",
+            reduction_tvs[it - 1],
+            " ",
+            reduction_tvs[it]);
+        return false;
+      }
+    }
+  }
+
+  // Doesn't allow persistent kernels in this scheduler
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
+  if (!persistent_buffer_info.persistent_buffers.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::Reduction,
+        "need persistent buffers that reduction scheduler doesn't handle");
+    return false;
+  }
+
+  if (!registry_utils::SchedulerTopologyChecker::supportedPostReductionFusion(
+          fusion, reduction_tvs) ||
+      registry_utils::SchedulerTopologyChecker::hasPostReductionBCast(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::Reduction, "has unsupported post reduction fusion");
+    return false;
+  }
+
+  if (registry_utils::SchedulerTopologyChecker::
+          hasGatherToBroadcastBeforeReduction(fusion, reduction_tvs)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::Reduction,
+        "has unsupported gather-like ops before reduction");
+    return false;
+  }
+
+  return true;
+}
+
+bool ReductionScheduler::canScheduleRunTime(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache) {
+  return true;
+}
+
 std::shared_ptr<ReductionParams> reductionHeuristic(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
@@ -908,17 +1073,16 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
 
   auto& reduction_tvs = reduction_tv_entry.get();
 
-  TORCH_INTERNAL_ASSERT(
-      !reduction_tvs.empty(), "Need reduction tensor views to schedule.");
+  NVF_ERROR(!reduction_tvs.empty(), "Need reduction tensor views to schedule.");
 
   auto reduction_tv = reduction_tvs[0];
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       reduction_tv->hasReduction(), "TensorView doesn't have a reduction.");
 
   const auto red_expr = reduction_tv->definition();
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       ir_utils::isReductionOp(red_expr),
       "TensorView doesn't have a reduction.");
 
@@ -926,7 +1090,7 @@ std::shared_ptr<ReductionParams> getReductionHeuristics(
       fusion, runtime_info, reduction_tv);
 
   auto tv_inps = ir_utils::filterByType<TensorView>(fusion->inputs());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !tv_inps.empty(),
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
 
@@ -1004,7 +1168,7 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
 
   auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 
-  TORCH_INTERNAL_ASSERT(!reduction_tvs.empty());
+  NVF_ERROR(!reduction_tvs.empty());
 
   // Registry assumes the reference tv is the first reduction_tv, if this
   // changes registry needs to change.
@@ -1027,12 +1191,12 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
   bool has_iter_axis = dim_analysis.first;
   bool has_red_axis = dim_analysis.second;
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       has_red_axis,
       "Could not find reduction axis in tensor used for reduction scheduler.");
 
   if (!has_iter_axis) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         rparams.fastest_dim,
         "If all dims are reduction, should be sending it to fastest dim scheduler.");
   }
@@ -1042,14 +1206,14 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
 
   // Reduction tensor views and rfactor tensor views are setup. Let's finish off
   // the scheduling, particularly inlining and unrolling.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       reference_tv != nullptr && reduction_tv != nullptr,
       "Need these two tensor views to finish the scheduling.");
   const bool vectorize =
       rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
   const bool is_outer_grid_persistence = rparams.persistent_kernel &&
       rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !is_outer_grid_persistence,
       "is_outer_grid_persistence should be false in scheduleReduction.");
   reduction_scheduler_utils::multiReductionInliner(

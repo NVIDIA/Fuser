@@ -61,6 +61,7 @@ NO_TEST = False
 NO_BENCHMARK = False
 NO_NINJA = False
 BUILD_WITH_UCC = False
+BUILD_WITH_ASAN = False
 PATCH_NVFUSER = True
 OVERWRITE_VERSION = False
 VERSION_TAG = None
@@ -86,6 +87,9 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg == "--build-with-ucc":
         BUILD_WITH_UCC = True
+        continue
+    if arg == "--build-with-asan":
+        BUILD_WITH_ASAN = True
         continue
     if arg == "--debug":
         BUILD_TYPE = "Debug"
@@ -296,6 +300,8 @@ def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
         cmd_str.append(f"-DPython_EXECUTABLE={sys.executable}")
     if not NO_BENCHMARK:
         cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
+    if BUILD_WITH_ASAN:
+        cmd_str.append("-DNVFUSER_BUILD_WITH_ASAN=ON")
     cmd_str.append(".")
 
     print(f"Configuring CMake with {' '.join(cmd_str)}")
@@ -338,16 +344,21 @@ def main():
         nvfuser_package_data = [
             "lib/libnvfuser_codegen.so",
             "include/nvfuser/*.h",
+            "include/nvfuser/struct.inl",
             "include/nvfuser/C++20/type_traits",
             "include/nvfuser/device_lower/*.h",
             "include/nvfuser/device_lower/analysis/*.h",
             "include/nvfuser/device_lower/pass/*.h",
+            "include/nvfuser/dynamic_type/*",
+            "include/nvfuser/dynamic_type/C++20/*",
             "include/nvfuser/kernel_db/*.h",
             "include/nvfuser/multidevice/*.h",
             "include/nvfuser/ops/*.h",
+            "include/nvfuser/ir/*.h",
             "include/nvfuser/python_frontend/*.h",
             "include/nvfuser/scheduler/*.h",
-            "include/nvfuser/serde*.h",
+            "include/nvfuser/serde/*.h",
+            "include/nvfuser/flatbuffers/*.h",
             "share/cmake/nvfuser/NvfuserConfig*",
             "contrib/*",
             "contrib/nn/*",

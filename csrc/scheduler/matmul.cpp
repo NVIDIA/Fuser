@@ -6,9 +6,11 @@
  */
 // clang-format on
 #include <inlining.h>
+#include <instrumentation.h>
+#include <scheduler/debug_utils.h>
 #include <scheduler/matmul.h>
+#include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
-#include <scheduler/registry.h>
 #include <scheduler/utils.h>
 
 // NOTE: included to avoid compilation error caused by missing destructor in
@@ -17,6 +19,52 @@
 #include "mma_type.h"
 
 namespace nvfuser {
+
+MatmulScheduler::MatmulScheduler(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache)
+    : SchedulerEntry(ScheduleHeuristic::Matmul) {
+  computeHeuristics(fusion, runtime_info);
+}
+
+void MatmulScheduler::schedule(Fusion* fusion) {
+  FUSER_PERF_SCOPE("Schedule Matmul Fusion");
+  scheduleMatmul(fusion, matmulParams());
+}
+
+bool MatmulScheduler::canScheduleCompileTime(Fusion* fusion) {
+  const auto msg = getMatmulCompileTimeRejectReason(fusion);
+  if (!msg.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::Matmul, msg);
+    return false;
+  }
+
+  return true;
+}
+
+bool MatmulScheduler::canScheduleRunTime(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("MatmulScheduler::canSchedule");
+  auto reason = getMatmulRunTimeRejectReason(fusion, data_cache, runtime_info);
+  if (!reason.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::Matmul, reason);
+    return false;
+  }
+  return true;
+}
+
+void MatmulScheduler::computeHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache) {
+  params_ = getMatmulHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(params_ != nullptr);
+}
 
 namespace {
 
@@ -30,7 +78,7 @@ constexpr bool isPowOf2(int64_t x) {
 //      [... I0, B, I1] -> [... B, I0, I1]
 //  should probably be only used to order innermost mnk axes.
 void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos = 3) {
-  TORCH_INTERNAL_ASSERT(int(tv->nDims()) >= number_of_inner_pos);
+  NVF_ERROR(int(tv->nDims()) >= number_of_inner_pos);
   std::vector<int> broadcast_pos;
   std::vector<int> nonbroadcast_pos;
 
@@ -59,11 +107,11 @@ void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos = 3) {
 
 // Utility to check concrete static size:
 inline void checkConcreteStaticDim(IterDomain* id) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !id->isBroadcast() && !id->isReduction(),
       "no support for reduction or broadcast domains, but got ",
       id->toString());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       id->extent()->isConstInt(),
       "swizzled dimension's extend must be known during scheduling, got ",
       id->toString());
@@ -95,7 +143,7 @@ void swizzleSharedMemory(
 
   // Check that the innermost 2 dimensions are concrete and static
   //  sized so that the swizzle function can be defined.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       shared_mem_tv->nDims() >= (size_t)(2 + skip),
       "At least 2D input (excluding consecutive reduction domains starting from the innermost dim) needed for swizzling, but get ",
       shared_mem_tv->toString());
@@ -114,7 +162,7 @@ void swizzleSharedMemory(
     // (i.e. float)
     const int64_t data_type_size =
         (int64_t)dataTypeSize(*shared_mem_tv->getDataType());
-    TORCH_INTERNAL_ASSERT(data_type_size == 2 || data_type_size == 4);
+    NVF_ERROR(data_type_size == 2 || data_type_size == 4);
 
     // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
     // For epilogue, threads in a warp is organized as 8 rows x 4 columns.
@@ -131,7 +179,7 @@ void swizzleSharedMemory(
     constexpr int64_t n_cols = 8;
 
     // Column size of the tile needs to be multiples of 8 for ldmatrix to work.
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         tile_size_x >= n_rows && tile_size_x % n_rows == 0 &&
             tile_size_y >= n_cols && tile_size_y % n_cols == 0,
         "Prolog swizzle for ldmatrix, illegal tile size for prolog swizzle",
@@ -383,7 +431,7 @@ void swizzleSharedMemory(
      * nearby megabanks in a gigabank has a distance of `g` megabanks
      */
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         n_rows % repeated_pattern_size == 0,
         "Can not partition matrix into megarows");
     int64_t num_gigarows = n_rows / repeated_pattern_size;
@@ -438,7 +486,7 @@ void swizzleSharedMemory(
      */
 
     /* To further simplify the problem, if we assume: */
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         num_gigarows % num_gigabanks == 0,
         "Requires non-square swizzle, which is not supported yet");
     /* Then we can partition gigarows into full waves, each wave has
@@ -497,7 +545,7 @@ void swizzleSharedMemory(
     //  the utils.
     return;
   } else {
-    TORCH_INTERNAL_ASSERT(false, "Prolog swizzle: unsupported mma macro");
+    NVF_ERROR(false, "Prolog swizzle: unsupported mma macro");
   }
 }
 
@@ -508,6 +556,15 @@ void swizzleSharedMemory(
 //! 2. Coalesce and vectorize the read write schedule.
 void scheduleProlog(TensorView* shared_mem_tv, const MatmulParams& params) {
   shared_mem_tv->setMemoryType(MemoryType::Shared);
+
+  // The following line allows us to reclaim the memory allocated to
+  // shared_mem_tv and reuse it for the epilogue, introducing one block sync if
+  // needed. This is not done by default as we do not insert new syncs unless
+  // requested to do so. If smem is not used for the epilogue, this call will
+  // have no effect.
+  if (params.promote_prologue_smem_reuse) {
+    shared_mem_tv->promoteReuse();
+  }
 
   mma_utils::orderTiledConcreteIdAsRoot(shared_mem_tv);
 
@@ -541,13 +598,13 @@ void scheduleOutputTensor(
   checkConcreteStaticDim(c->axis(-1));
   const int64_t tile_size_m = c->axis(-2)->extent()->evaluateInt();
   const int64_t tile_size_n = c->axis(-1)->extent()->evaluateInt();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       tile_size_m == gemm_tile.cta_tile.m,
       "Actual tile size at axis(-2) in output tensor is different from CTA tile size! Expected: ",
       gemm_tile.cta_tile.m,
       ", actual: ",
       tile_size_m);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       tile_size_n == gemm_tile.cta_tile.n,
       "Actual tile size at axis(-1) in output tensor is different from CTA tile size! Expected: ",
       gemm_tile.cta_tile.n,
@@ -567,7 +624,7 @@ void scheduleOutputTensor(
   // step-2, set vectorization to maximum
   // We have fixed tidx, tidy, and tidz, so we need to make sure that the output
   // tensor is divisible by tidx * tidy * tidz * vectorization_factor
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       tot_elements % (tidx * tidy * tidz * vectorization_factor) == 0,
       "Output tensor cannot be fully vectorized! tot_elements:",
       tot_elements,
@@ -656,11 +713,11 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // NOTE: the contents of roles_map have been already validated during
   //  compute-time checks
-  TORCH_INTERNAL_ASSERT(roles_map_opt.isValid(), roles_map_opt.getErrorMsg());
+  NVF_ERROR(roles_map_opt.isValid(), roles_map_opt.getErrorMsg());
   const auto roles_map = roles_map_opt.getData();
 
-  auto mma_ops = ir_utils::getMmaOps(fusion);
-  TORCH_INTERNAL_ASSERT(
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
+  NVF_ERROR(
       mma_ops.size() == 1,
       "scheduleMatmul supports fusion with single mma op in definition, got ",
       mma_ops.size());
@@ -673,11 +730,11 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Collect mma swizzle info
   auto mma = mma_ops.front();
   const auto mma_layout_opt = mma->layout();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       mma_layout_opt.has_value(), "fusion mma op has undefined input layout");
   const auto mma_layout = mma_layout_opt.value();
   const auto fusion_layout = mma_utils::getMatmulLayout(fusion);
-  TORCH_INTERNAL_ASSERT(fusion_layout.isValid(), fusion_layout.getErrorMsg());
+  NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
 
   auto mma_builder =
       MmaBuilder(params.mma_macro, params.tile_sizes).layout(mma_layout);
@@ -804,14 +861,16 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   } else {
     // Use cp.async as requested in scheduler params.
     LoadStoreOpType load_op = LoadStoreOpType::Set;
+    CacheOp cache_op = CacheOp::Unspecified;
     if (params.async_gmem_load_operands) {
-      load_op = LoadStoreOpType::CpAsyncCg;
+      load_op = LoadStoreOpType::CpAsync;
+      cache_op = CacheOp::Global;
     }
 
-    acw_smem = ar->cacheAfter(load_op);
-    bcw_smem = br->cacheAfter(load_op);
-    TORCH_INTERNAL_ASSERT(acw_smem->uses().size() == 1);
-    TORCH_INTERNAL_ASSERT(bcw_smem->uses().size() == 1);
+    acw_smem = ar->cacheAfter(load_op, cache_op);
+    bcw_smem = br->cacheAfter(load_op, cache_op);
+    NVF_ERROR(acw_smem->uses().size() == 1);
+    NVF_ERROR(bcw_smem->uses().size() == 1);
     if (auto ldst = dynamic_cast<LoadStoreOp*>(acw_smem->uses().at(0))) {
       acr = ldst->out()->as<TensorView>();
       if (ldst->hasInnerTranspose()) {
@@ -834,7 +893,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     }
 
     // For Turing and Ampere, the layout of the MmaOp is always TN
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         mma_layout == MmaOptions::MmaLayout::TN,
         "MMAs in Turing and Ampere are TN only, transpose is handled either "
         "via ldmatrix.trans for fp16 or explicitly for other types.");
@@ -844,7 +903,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Make a CTA tile
   // ------------------------------------------------------------------
   mma_utils::canonicalizeMmaTvOrdering(mma_result);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       mma_result->nDims() == 3 || mma_result->nDims() == 4,
       "Currently, we only support B, M, N and K being a single dimension.",
       " More general tensor contraction is not supported yet.");
@@ -953,7 +1012,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       mma_result->axis(num_batch_dims + 1)->parallelize(ParallelType::BIDx);
       break;
     default:
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           false, "Invalid TileRasterizationOrder passed to Matmul scheduler");
   }
 
@@ -1003,19 +1062,19 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     scheduleFusionInputsForEpilogue(roles_map, params.use_smem_epilogue);
   }
 
-  // auto inline for all tensors except register tensors and output tensor
-  inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb, d}));
+  // auto inline for all tensors except register tensors
+  inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb}));
 
   // if auto inline, will inline to position-7, leads to performance regression
   inlineSelectedAt({acr, bcr, ab, bb}, mma_result, num_batch_dims + 6);
 
   // Propagate mma output swizzle and parallelization down the DAG
   if (params.double_buffer_options.double_buffer_smem_write) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         params.double_buffer_options.smem_double_buffer_stage > 1,
         "Invalid buffer stage config")
     if (params.double_buffer_options.smem_double_buffer_stage > 2) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           params.async_gmem_load_operands,
           "Circular buffer only supports async load");
     }

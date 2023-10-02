@@ -278,7 +278,7 @@ void parallelizeAllLike(
   if (pos < 0) {
     pos += (int64_t)reference_tv->nDims() + 1;
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       pos >= 0 && pos <= (int64_t)reference_tv->nDims(),
       "parallelizeAllLike called on an position outside valid range.");
 
@@ -351,7 +351,7 @@ class PersistentBufferResolution : public IterVisitor {
       TensorView* persistent_buffer) {
     PersistentBufferResolution resolution(fusion, persistent_buffer);
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !resolution.resolution_points_.empty(),
         "Could not resolve persistent buffer: ",
         persistent_buffer);
@@ -592,7 +592,7 @@ ReductionTvProperties getReductionProperties(
     TensorView* tv) {
   FusionGuard fg(fusion);
 
-  TORCH_INTERNAL_ASSERT(tv != nullptr);
+  NVF_ERROR(tv != nullptr);
 
   bool fastest_dim_reduction = isFastestDimReduction(tv);
 
@@ -620,8 +620,7 @@ ReductionTvProperties getReductionProperties(
     } else if (dimensionality == 1) {
       auto inferred_val =
           runtime_info.expressionEvaluator().evaluate(id->extent());
-      TORCH_INTERNAL_ASSERT(
-          inferred_val.hasValue(), "Error inferring reduction size.");
+      NVF_ERROR(inferred_val.hasValue(), "Error inferring reduction size.");
       inner_most_dimension_numel =
           inner_most_dimension_numel * inferred_val.as<int64_t>();
       inner_most_dimension_ndims++;
@@ -636,7 +635,7 @@ ReductionTvProperties getReductionProperties(
   for (auto id : root_dom) {
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(id->extent());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         inferred_val.hasValue(),
         "Error inferring dimensions of reduction fusion.");
     if (id->isReduction()) {
@@ -831,8 +830,7 @@ PersistentBufferSizeReturn persistentBufferSize(
       }
 
       auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
-      TORCH_INTERNAL_ASSERT(
-          id_size.hasValue(), "Could not infer persistent buffer size.");
+      NVF_ERROR(id_size.hasValue(), "Could not infer persistent buffer size.");
       if (persistent_buffer_sizes[buffer_i] == -1) {
         persistent_buffer_sizes[buffer_i] = id_size.as<int64_t>();
       } else {
@@ -875,7 +873,7 @@ PersistentBufferSizeReturn persistentBufferSize(
                                const std::vector<int64_t>& sizes,
                                const std::vector<TensorView*>& all_buffers) {
     int64_t buffer_size = 0;
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         mask0.size() == mask1.size() && mask0.size() == sizes.size() &&
         mask0.size() == all_buffers.size());
     // Keep track of which buffer is counted as there can be tensors
@@ -928,7 +926,7 @@ std::pair<bool, bool> canonicalDimReduction(
     Fusion* fusion,
     TensorView* tv,
     bool schedule_3D) {
-  TORCH_INTERNAL_ASSERT(tv != nullptr);
+  NVF_ERROR(tv != nullptr);
 
   if (!schedule_3D) {
     // We coalesce all reduction axes to the right;
@@ -937,8 +935,7 @@ std::pair<bool, bool> canonicalDimReduction(
     bool has_iter_axis = mergeNonReduction(tv) > 0;
     return {has_iter_axis, has_red_axis};
   } else {
-    TORCH_INTERNAL_ASSERT(
-        merge_3d(tv) == 3, "Tried 3D merge, but result is not 3D.");
+    NVF_ERROR(merge_3d(tv) == 3, "Tried 3D merge, but result is not 3D.");
     return {true, true};
   }
 }
@@ -963,7 +960,7 @@ std::vector<TensorView*> getReductionTvs(Fusion* fusion) {
           reduction_tvs.begin(),
           reduction_tvs.end(),
           [&seen_reduction_exprs](TensorView* tv) {
-            TORCH_INTERNAL_ASSERT(
+            NVF_ERROR(
                 tv->definition() != nullptr,
                 "Somehow a tensor view without a definition but a reduction snuck into the scheduler reduction list.");
             if (!seen_reduction_exprs.emplace(tv->definition()).second) {
@@ -1075,7 +1072,7 @@ std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
 
 namespace {
 
-// Take the inner most rfactor id from innerMostRootDim and project it to the
+// Take the inner most rfactor id from innerMostAllocDim and project it to the
 // root domain if the provided domain is on the rfactor domain. If vectorize,
 // will not project if not following the inner most path.
 IterDomain* projectIdToRoot(
@@ -1131,8 +1128,7 @@ IterDomain* projectIdToRoot(
         }
       }
     } else {
-      TORCH_INTERNAL_ASSERT(
-          false, "Didn't recognize the iterdomain expression: ", expr);
+      NVF_ERROR(false, "Didn't recognize the iterdomain expression: ", expr);
     }
     if (projected_id == nullptr) {
       break;
@@ -1141,7 +1137,7 @@ IterDomain* projectIdToRoot(
   return projected_id;
 }
 
-// Take the inner most root id from innerMostRootDim and project it to the
+// Take the inner most root id from innerMostAllocDim and project it to the
 // rfactor domain if the provided domain is on the rfactor domain. If vectorize,
 // will not project if not following the inner most path.
 IterDomain* projectIdToRFactor(
@@ -1194,8 +1190,7 @@ IterDomain* projectIdToRFactor(
         }
       }
     } else {
-      TORCH_INTERNAL_ASSERT(
-          false, "Didn't recognize the iterdomain expression: ", expr);
+      NVF_ERROR(false, "Didn't recognize the iterdomain expression: ", expr);
     }
     if (projected_id == nullptr) {
       break;
@@ -1206,8 +1201,8 @@ IterDomain* projectIdToRFactor(
 
 } // namespace
 
-IterDomain* innerMostRootDim(TensorView* tv) {
-  const auto& root_domain = tv->getMaybeRFactorDomain();
+IterDomain* innerMostAllocDim(TensorView* tv) {
+  const auto& alloc_domain = tv->getMaybeAllocationDomain();
 
   if (tv->nDims() == 0) {
     return nullptr;
@@ -1215,7 +1210,7 @@ IterDomain* innerMostRootDim(TensorView* tv) {
 
   IterDomain* inner_most_id = nullptr;
 
-  for (auto it = root_domain.rbegin(); it != root_domain.rend(); it++) {
+  for (auto it = alloc_domain.rbegin(); it != alloc_domain.rend(); it++) {
     if ((*it)->isReduction() || (*it)->isBroadcast()) {
       continue;
     }
@@ -1246,7 +1241,7 @@ void FindAllMappedDims::setUp() {
 void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
   auto from_id = mapped_root_ids_.at(from);
   PairwiseRootDomainMap root_map(to, from);
-  auto c2p_map = root_map.mapConsumerToProducer(from->domain(), to->domain());
+  auto c2p_map = root_map.mapConsumerToProducer();
   auto p_it = c2p_map.find(from_id);
   if (p_it != c2p_map.end()) {
     mapped_root_ids_[to] =
@@ -1261,7 +1256,7 @@ void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
 void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
   auto from_id = mapped_rfactor_ids_.at(from);
   PairwiseRootDomainMap root_map(from, to);
-  auto p2c_map = root_map.mapProducerToConsumer(from->domain(), to->domain());
+  auto p2c_map = root_map.mapProducerToConsumer();
   auto c_it = p2c_map.find(from_id);
   if (c_it != p2c_map.end()) {
     mapped_root_ids_[to] = c_it->second;
@@ -1296,7 +1291,7 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
       }
     }
   }
-  TORCH_INTERNAL_ASSERT(false, "Unable to find mapped root/rfactor domain");
+  NVF_ERROR(false, "Unable to find mapped root/rfactor domain");
 }
 
 std::unordered_set<IterDomain*> FindAllMappedDims::get() const {
@@ -1318,7 +1313,7 @@ bool hasInnerDim(
     TensorView* tv,
     std::unordered_set<IterDomain*> inner_dims,
     bool should_vectorize) {
-  const auto& inner_most_dim = innerMostRootDim(tv);
+  const auto& inner_most_dim = innerMostAllocDim(tv);
   if (inner_most_dim == nullptr) {
     return false;
   }
@@ -1332,26 +1327,26 @@ bool hasInnerDim(
     return true;
   }
 
-  auto rfactor_dom = tv->getMaybeRFactorDomain();
+  auto alloc_dom = tv->getMaybeAllocationDomain();
 
   auto root_pos_it = std::find_if(
-      rfactor_dom.begin(),
-      rfactor_dom.end(),
-      [&inner_most_dim](IterDomain* id) { return inner_most_dim == id; });
+      alloc_dom.begin(), alloc_dom.end(), [&inner_most_dim](IterDomain* id) {
+        return inner_most_dim == id;
+      });
 
-  if (root_pos_it == rfactor_dom.end()) {
+  if (root_pos_it == alloc_dom.end()) {
     return false;
   }
 
-  auto inner_most_dim_pos = std::distance(rfactor_dom.begin(), root_pos_it);
+  auto inner_most_dim_pos = std::distance(alloc_dom.begin(), root_pos_it);
 
   const auto& contiguity = tv->domain()->contiguity();
 
-  TORCH_INTERNAL_ASSERT(contiguity.size() == rfactor_dom.size());
+  NVF_ERROR(contiguity.size() == alloc_dom.size());
 
   // Don't vectorize if inner most dimension is not contiguous
   auto contiguity_opt = contiguity.at(inner_most_dim_pos);
-  TORCH_INTERNAL_ASSERT(contiguity_opt.has_value())
+  NVF_ERROR(contiguity_opt.has_value())
   if (!*contiguity_opt) {
     return false;
   }
@@ -1364,11 +1359,10 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
     bool inner_only,
     bool vectorize_pass) {
   if (vectorize_pass) {
-    TORCH_INTERNAL_ASSERT(
-        inner_only, "Can only vectorize inner-most dimensions");
+    NVF_ERROR(inner_only, "Can only vectorize inner-most dimensions");
   }
 
-  auto inner_most_id = innerMostRootDim(reference_tv);
+  auto inner_most_id = innerMostAllocDim(reference_tv);
 
   if (inner_most_id == nullptr) {
     return {};
@@ -1452,7 +1446,7 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
     current_group_id++;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::none_of(
           disjoint_group_ids.begin(),
           disjoint_group_ids.end(),
@@ -1460,7 +1454,7 @@ DisjointRFactorSetInfo getDisjointRFactorSetsOf(
       "Failed to generate the rfactor disjoint groups of the reference ",
       of->toString());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::none_of(
           disjoint_set_of_id.begin(),
           disjoint_set_of_id.end(),
@@ -1787,7 +1781,7 @@ void BoundedDirectionalTransformPropagator::forward(
   if (!options.has_value()) {
     options = Options();
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !to.empty(),
       "Propagation needs to be bounded, so no support for empty boundary.")
 
@@ -1809,7 +1803,7 @@ void BoundedDirectionalTransformPropagator::bothWays(
   if (!options.has_value()) {
     options = Options();
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !backward_to.empty() && !forward_to.empty(),
       "Propagation needs to be bounded, so no support for empty boundary.")
 
@@ -1852,7 +1846,7 @@ DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion) {
         auto resize = expr->as<Resize>();
         disjoint_rfactor_ids.mapEntries(resize->in(), resize->out());
       } else {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             false, "Expression type: ", expr->toString(), " not supported.");
       }
     }
@@ -1864,7 +1858,7 @@ bool breakIsDisjoint(std::vector<int> group_ids, int pos) {
   if (pos < 0) {
     pos += (int)group_ids.size();
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       pos >= 0 && pos <= (int)group_ids.size(),
       "Invalid position, size of vec is ",
       group_ids.size(),
@@ -1915,7 +1909,7 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
         // Transformations before rfactor, ignore those.
         continue;
       }
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           find_it_0 != reordered_ids.end() && find_it_1 != reordered_ids.end(),
           "Error in transformations of ",
           tv->toString(),
@@ -1926,7 +1920,7 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
         std::swap(pos0, pos1);
       }
       // Should be impossible.
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           pos0 != pos1,
           "Didn't expect merge inputs to be the same iteration domain:\n",
           merge->toString());
@@ -1942,8 +1936,8 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
       }
       *find_it = resize->out();
     } else {
-      TORCH_INTERNAL_ASSERT(expr != nullptr);
-      TORCH_INTERNAL_ASSERT(false, "Unexpected expression: ", expr->toString());
+      NVF_ERROR(expr != nullptr);
+      NVF_ERROR(false, "Unexpected expression: ", expr->toString());
     }
   }
 
@@ -1952,7 +1946,7 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
     auto leaf_id = tv->axis(id_i);
     auto find_it =
         std::find(reordered_ids.begin(), reordered_ids.end(), leaf_id);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         find_it != reordered_ids.end(),
         "Reordering map creation failed, uninitialized iterdomain,",
         " likely something is wrong with the transformations between the rfactor domain and the leaves.");
@@ -2024,7 +2018,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
           terminating_reshape_dims.end()) {
         auto find_it = std::find(
             tv->getLeafDomain().begin(), tv->getLeafDomain().end(), rfactor_id);
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             find_it != tv->getLeafDomain().end(),
             "Require ",
             rfactor_id,
@@ -2089,7 +2083,7 @@ getNonPointwiseProducerConsumerPairs(Fusion* fusion) {
     } else if (ir_utils::hasResizedRfactor(consumer)) {
       // Exprs based on ResizeOp, e.g., slice
       auto producers = ir_utils::producerTvsOf(consumer);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           producers.size() == 1,
           "Unexpected number of inputs of the defining expression: ",
           consumer->definition()->toString());
@@ -2139,7 +2133,7 @@ bool revertUseOfInputCache(
   }
 
   auto fusion_input = get_copy_src(producer_of_producer);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       fusion_input != nullptr,
       "Unexpected input cache: ",
       producer_of_producer->toString());
@@ -2154,7 +2148,7 @@ bool revertUseOfInputCache(
   // tv0: fusion input
   // tv3 = resizeOp(tv0) // some op using resize
 
-  ir_utils::replaceValInExpr(
+  ir_utils::replaceValInExprInputs(
       consumer->definition(), promoted_producer, fusion_input);
 
   return true;
@@ -2174,7 +2168,7 @@ void prepareForMemoryTypePromotion(Fusion* fusion) {
 
   for (auto& [producer, consumer] : non_pwise_pairs) {
     // At this point, all tensors should be either on Global or Local
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         producer->getMemoryType() == MemoryType::Local ||
             producer->getMemoryType() == MemoryType::Global,
         "Unexpected memory type: ",
@@ -2195,7 +2189,7 @@ void prepareForMemoryTypePromotion(Fusion* fusion) {
     }
 
     // Insert a copy between consumer and producer
-    ir_utils::replaceValInExpr(
+    ir_utils::replaceValInExprInputs(
         consumer->definition(), producer, producer_copy_map_it->second);
   }
 }
@@ -2216,7 +2210,7 @@ void promoteProducerMemoryTypes(
       case MemoryType::Global:
         return 3;
       default:
-        TORCH_INTERNAL_ASSERT(false, "Unexpected memory type: ", m_type);
+        NVF_ERROR(false, "Unexpected memory type: ", m_type);
     }
   };
 
@@ -2235,14 +2229,13 @@ void promoteProducerMemoryTypes(
   // dependencies
   // TODO: Clean up once the index map refactor is done
   for (auto& [producer, consumer] : non_pwise_pairs) {
-    auto c2p_exact_map =
-        BestEffortReplay(
-            producer->getLeafDomain(),
-            consumer->getLeafDomain(),
-            PairwiseRootDomainMap(producer, consumer)
-                .mapBroadcast(false)
-                .mapConsumerToProducer(consumer->domain(), producer->domain()))
-            .getReplay();
+    auto c2p_exact_map = BestEffortReplay(
+                             producer->getLeafDomain(),
+                             consumer->getLeafDomain(),
+                             PairwiseRootDomainMap(producer, consumer)
+                                 .mapBroadcast(false)
+                                 .mapConsumerToProducer())
+                             .getReplay();
 
     for (const auto i :
          c10::irange(producer->nDims() - producer->getComputeAtPosition())) {
@@ -2273,7 +2266,7 @@ void promoteProducerMemoryTypes(
       } else if (isParallelTypeBlockDim(producer_non_ca_id_ptype)) {
         setPromotion(producer, MemoryType::Global);
       } else {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             false, "Unexpected parallel type: ", producer_non_ca_id_ptype);
       }
     }

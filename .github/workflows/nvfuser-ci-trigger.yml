@@ -16,8 +16,8 @@ jobs:
 
     # This job only runs for pull request comments
     if: |
-         contains( 'xwang233,jjsjann123,chang-l,csarofeen,drzejan2,IvanYashchuk,jacobhinkle,kevinstephano,liqiangxl,mmigdal-nv,naoyam,ptrblck,rdspring1,samnordmann,zasdfgbnm,crcrpar', format('{0},', github.actor)) &&
-         github.event.comment.body == '!build'
+         contains(',xwang233,jjsjann123,chang-l,csarofeen,drzejan2,IvanYashchuk,jacobhinkle,kevinstephano,liqiangxl,mmigdal-nv,naoyam,ptrblck,rdspring1,samnordmann,zasdfgbnm,crcrpar,nWEIdia,Priya2698,wujingyue,tfogal,', format(',{0},', github.actor)) &&
+         startsWith(github.event.comment.body, '!build')
     steps:
       - name: Check if comment is issued by authorized person
         run: blossom-ci

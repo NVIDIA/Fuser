@@ -9,11 +9,13 @@
 
 #include <ATen/ATen.h>
 #include <c10/util/Exception.h>
+#include <exceptions.h>
 #include <torch/csrc/jit/ir/ir.h>
 
 #include <debug.h>
 #include <type.h>
 
+#include <c10/core/thread_pool.h>
 #include <deque>
 #include <fstream>
 #include <optional>
@@ -31,6 +33,9 @@
 //! 5. ir/internal_nodes.h ** - Any internal-only IR nodes
 
 namespace nvfuser {
+
+int getNumThreads();
+c10::ThreadPool* getThreadPool();
 
 void debugPrint(const c10::TensorTypePtr& type);
 
@@ -50,11 +55,9 @@ int8_t getCommonDeviceCUDA(
     const at::ArrayRef<c10::IValue>& inputs,
     std::optional<int8_t> selected_device = std::nullopt);
 
-TORCH_CUDA_CU_API int64_t
-getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);
+int64_t getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);
 
-TORCH_CUDA_CU_API int64_t
-getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread);
+int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread);
 
 // Check if fallback path should be used which will dispatch to eager mode if
 // any errors are encountered. Helpful for debugging.
@@ -95,7 +98,7 @@ class PolymorphicBase {
     auto downcast_ptr = static_cast<T*>(this);
 #else
     auto downcast_ptr = dynamic_cast<T*>(this);
-    TORCH_INTERNAL_ASSERT(downcast_ptr != nullptr);
+    NVF_ERROR(downcast_ptr != nullptr);
 #endif
     return downcast_ptr;
   }
@@ -106,7 +109,7 @@ class PolymorphicBase {
     auto downcast_ptr = static_cast<const T*>(this);
 #else
     auto downcast_ptr = dynamic_cast<const T*>(this);
-    TORCH_INTERNAL_ASSERT(downcast_ptr != nullptr);
+    NVF_ERROR(downcast_ptr != nullptr);
 #endif
     return downcast_ptr;
   }
@@ -402,8 +405,7 @@ class KernelIndexTypeCompute {
   // Updates counters and returns current reqd mode
   inline PrimDataType addDim(int64_t size, int64_t stride) {
     if (size > 1) {
-      TORCH_INTERNAL_ASSERT(
-          stride >= 0, "Negative stride is not supported: ", stride);
+      NVF_ERROR(stride >= 0, "Negative stride is not supported: ", stride);
       if (stride > 0) {
         // Accumulate positive stride
         tensor_most_positive_index_ += (size - 1) * stride;
