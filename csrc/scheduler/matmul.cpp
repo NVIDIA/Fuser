@@ -916,6 +916,38 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // [... M,N,K]
   mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());
 
+  //  -6  -5  -4  -3  -2  -1
+  // [Mo, No, Ko, Mi, Ni, Ki]
+  bool has_splitk = params.splitk_factor > 1;
+  if (has_splitk) {
+    // If mma_factor already has an rfactor domain, cache it so we can rfactor
+    // it
+    std::cout << "Before splitk " << mma_result->toString() << std::endl;
+    mma_result->split(-4, params.splitk_factor, false);
+    std::cout << "After  splitk " << mma_result->toString() << std::endl;
+
+    //  -7  -6  -5  -4  -3  -2  -1
+    // [Mo, No, Ko, Kb, Mi, Ni, Ki]
+    auto mma_result_block = mma_result->rFactor({-4, -1});
+
+    // tv2c_rf is the actual output of the mma op after
+    //  Rfactoring.
+    mma_builder.accumulatorTv(mma_result_block);
+
+    // Reset mma_result since the rest of scheduling depends on the reduction
+    // axes in the original mma_result
+    mma_result = mma_result_block;
+
+    mma_result->axis(-5)->parallelize(ParallelType::BIDz);
+    // place new dimension before M & N
+    std::cout << "Before reorder " << mma_result->toString() << std::endl;
+    // mma_result->reorder({{-5, -7}, {-6, -5}, {-7, -6}});
+    std::cout << "After  reorder " << mma_result->toString() << std::endl;
+    //  -7  -6  -5  -4  -3  -2  -1
+    // [Ko, Mo, No, Kb, Mi, Ni, Ki]
+  }
+  // [Mo, No, (Ksk,) Ko, Mi, Ni, Ki]
+
   // Swizzle block tiles:
   if (params.grid_swizzle_factor != 1) {
     int factor = std::max(1, params.grid_swizzle_factor); // must be >=1
@@ -936,13 +968,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       // [I1/factor, I2*factor]
     }
   }
-
-  // [Mo, No, Ko, Mi, Ni, Ki]
-  bool has_splitk = params.splitk_factor > 1;
-  if (has_splitk) {
-    mma_result->split(-4, params.splitk_factor, false);
-  }
-  // [Mo, No, (Ksk,) Ko, Mi, Ni, Ki]
 
   // Propagate tiling globally
   scheduler_utils::transformPropagateToAllFrom(mma_result, -1);
@@ -1012,8 +1037,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   if (num_batch_dims != 0) {
     NVF_ERROR(!has_splitk, "Split-k is not supported for batch matmul");
     mma_result->axis(0)->parallelize(ParallelType::BIDz);
-  } else if (has_splitk) {
-    mma_result->axis(-10)->parallelize(ParallelType::BIDz);
   }
 
   switch (params.cta_order) {
