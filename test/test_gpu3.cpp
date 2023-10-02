@@ -1415,8 +1415,9 @@ TEST_F(NVFuserTest, FusionCodegenAllocatedScalars_CUDA) {
   // t0[(0 + 1)] = t0[((0 + 1) + 1)]
   std::stringstream no_alloc_ref;
   no_alloc_ref << "\n"
-               << indent << tk0_name << "[(0 + 1)]\n"
-               << indent << indent << " = " << tk0_name << "[((0 + 1) + 1)];\n";
+               << indent << tk0_name << "[(0LL + 1LL)]\n"
+               << indent << indent << " = " << tk0_name
+               << "[((0LL + 1LL) + 1LL)];\n";
 
   NVF_CHECK(
       no_alloc_code.find(no_alloc_ref.str()) != std::string::npos,
