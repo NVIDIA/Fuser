@@ -162,32 +162,34 @@
         <h2>Code comparison</h2>
         Command line: <code>{{ run1.command|e }}</code>
         <br>
-        {% if run1.preamble != run2.preamble %}
-            Preamble differs between runs
-            <button style="box-shadow:none" onclick="toggleOldPreamble()">{{ run1.git.abbrev }}</button>
+        {% if not omit_preamble %}
+            {% if run1.preamble != run2.preamble %}
+                Preamble differs between runs
+                <button style="box-shadow:none" onclick="toggleOldPreamble()">{{ run1.git.abbrev }}</button>
+            </span>
+            <button style="width: 60pt; box-shadow:none" onclick="togglePreambleDiff()">Diff</button>
         </span>
-        <button style="width: 60pt; box-shadow:none" onclick="togglePreambleDiff()">Diff</button>
+        <button style="box-shadow:none" onclick="toggleNewPreamble()">{{ run2.git.abbrev }}</button>
     </span>
-    <button style="box-shadow:none" onclick="toggleNewPreamble()">{{ run2.git.abbrev }}</button>
-</span>
-<br>
-<div id="old_preamble" style="display:none">
-    <pre><code class="language-cpp">{{ run1.preamble|e }}</code></pre>
-</div>
-<div id="new_preamble" style="display:none">
-    <pre><code class="language-cpp">{{ run2.preamble|e }}</code></pre>
-</div>
-<div id="preamble_diff" style="display:none">
-    <pre><code class="language-diff">{{ preamble_diff|e }}</code></pre>
-</div>
+    <br>
+    <div id="old_preamble" style="display:none">
+        <pre><code class="language-cpp">{{ run1.preamble|e }}</code></pre>
+    </div>
+    <div id="new_preamble" style="display:none">
+        <pre><code class="language-cpp">{{ run2.preamble|e }}</code></pre>
+    </div>
+    <div id="preamble_diff" style="display:none">
+        <pre><code class="language-diff">{{ preamble_diff|e }}</code></pre>
+    </div>
 {% else %}
-Preamble matches between runs
-<button style="box-shadow:none" onclick="toggleDiv('preamble')">Preamble</button>
+    Preamble matches between runs
+    <button style="box-shadow:none" onclick="toggleDiv('preamble')">Preamble</button>
 </span>
 <br>
 <div id="preamble" style="display:none">
     <pre><code class="language-cpp">{{ run1.preamble|e }}</code></pre>
 </div>
+{% endif %}
 {% endif %}
 {% if new_tests|length > 0 %}
     <h3>New Tests</h3>
@@ -252,7 +254,7 @@ Preamble matches between runs
                 <br>
                 <b>WARNING: Only showing {{ max_diffs }} out of {{ total_num_diffs }}
                     total modified kernels. To show more kernels pass a higher value in
-                    the <code>--max-diffs</code> argument to
+                    the <code>--html-max-diffs</code> argument to
                     <code>tools/diff_codegen_nvfuser_tests.py</code>.</b>
                 <br>
             {% elif loop_vars.total_diffs < max_diffs %}

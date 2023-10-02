@@ -456,7 +456,7 @@ class TestDifferences:
 
         return d
 
-    def generate_html(self, max_diffs) -> str:
+    def generate_html(self, omit_preamble: bool, max_diffs: bool) -> str:
         """Return a self-contained HTML string summarizing the codegen comparison"""
         import jinja2
 
@@ -464,6 +464,7 @@ class TestDifferences:
         env = jinja2.Environment(loader=jinja2.FileSystemLoader(searchpath=tools_dir))
         template = env.get_template("templates/codediff.html")
         context = self.to_dict()
+        context["omit_preamble"] = omit_preamble
         context["max_diffs"] = max_diffs
 
         return template.render(context)
@@ -483,10 +484,15 @@ if __name__ == "__main__":
         "--show-diffs", action="store_true", help="Print diffs to STDOUT?"
     )
     parser.add_argument(
-        "--max-diffs",
+        "--html-max-diffs",
         default=200,
         type=int,
         help="Limit number of included kernel diffs in HTML output to this many (does not affect exit code).",
+    )
+    parser.add_argument(
+        "--html-omit-preamble",
+        action="store_true",
+        help="Omit the preamble in HTML output?",
     )
     parser.add_argument(
         "-o", "--output-file", help="Location of HTML file output if -h is given."
@@ -507,7 +513,11 @@ if __name__ == "__main__":
             run_name = os.path.basename(os.path.abspath(args.dir1))
             output_file = f"codediff_{abbrev1}_{abbrev2}_{run_name}.html"
         with open(output_file, "w") as f:
-            f.write(test_diffs.generate_html(args.max_diffs))
+            f.write(
+                test_diffs.generate_html(
+                    omit_preamble=args.html_omit_preamble, max_diffs=args.html_max_diffs
+                )
+            )
 
     num_differing_kernels = 0
     for k, v in test_diffs.differing_tests.items():
