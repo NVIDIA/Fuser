@@ -12,7 +12,7 @@ Example usage:
 """
 
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, InitVar
 import difflib
 import os
 import re
@@ -325,7 +325,6 @@ class KernelDiff:
     diff: str
 
     def to_dict(self):
-        print("Highlighting diff of kernel", self.kernel_num, "in test", self.testname)
         return {
             "number": self.kernel_num,
             "highlighted_code1": highlight_code(self.code1),
@@ -353,8 +352,9 @@ class TestDifferences:
     ] = field(init=False)
     new_tests: list[str] = field(init=False)
     removed_tests: list[str] = field(init=False)
+    show_diffs: InitVar[bool] = False
 
-    def __post_init__(self):
+    def __post_init__(self, show_diffs: bool):
         if self.run1.command != self.run2.command:
             print("WARNING: commands differ between runs", file=sys.stderr)
             print(f"  {self.run1.directory}: {self.run1.command}", file=sys.stderr)
@@ -404,7 +404,8 @@ class TestDifferences:
                     )
                 )
                 if len(diff_str) > 0:
-                    print(testname, kernel_num, diff_str)
+                    if show_diffs:
+                        print(testname, kernel_num, diff_str)
                     diff_obj = KernelDiff(testname, kernel_num, code1, code2, diff_str)
                     if testname in self.differing_tests:
                         self.differing_tests[testname].append(diff_obj)
@@ -506,6 +507,9 @@ if __name__ == "__main__":
     parser.add_argument("dir1", help="Directory containing stdout-*.log and cuda/")
     parser.add_argument("dir2", help="Directory containing stdout-*.log and cuda/")
     parser.add_argument("--html", action="store_true", help="Write HTML file?")
+    parser.add_argument(
+        "--show-diffs", action="store_true", help="Print diffs to STDOUT?"
+    )
     parser.add_argument(
         "-o", "--output-file", help="Location of HTML file output if -h is given."
     )
