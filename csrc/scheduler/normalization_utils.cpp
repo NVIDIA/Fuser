@@ -778,7 +778,6 @@ bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
   return true;
 }
 
-// check reduction pattern
 bool checkReductionPattern(
     Fusion* fusion,
     ScheduleHeuristic schedule_heuristic,
@@ -826,7 +825,7 @@ bool checkReductionPattern(
   return true;
 }
 
-// The idnetical compile time check of InnerPersistentKernelScheduler and
+// The identical compile time check of InnerPersistentKernelScheduler and
 // OuterPersistentKernelScheduler.
 bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
   // common checks for all persistent heuristics
