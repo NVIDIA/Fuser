@@ -75,6 +75,10 @@ jobs:
           # Run cmake build
           python setup.py --cmake-only
 
+          # Generate csrc/serde/fusion_cache_generated.h
+          # NOTE: this might cause a compile of flatbuffers if it is missing
+          ninja -C build build_flatbuffer_config
+
           # Run lintrunner on all csrc files exclude benchmark and test folders
           this_commit=$(git rev-parse HEAD)
           git fetch origin main
