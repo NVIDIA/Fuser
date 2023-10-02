@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - main
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.ref_type == 'branch' && github.sha }}
+  cancel-in-progress: true
 
 env:
   working_directory: .
