@@ -202,26 +202,26 @@ class TestRun:
         # regex for stripping ANSI color codes
         ansi_re = re.compile(r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]")
         current_test = None
-        current_files = []
+        current_file = None
         ptxas_info = ""
         kernels = []
 
         def finalize_kernel():
             nonlocal ptxas_info
-            if len(current_files) > 0:
-                kernels.append(CompiledKernel(current_files[-1], ptxas_info=ptxas_info))
+            nonlocal current_file
+            if current_file is not None:
+                kernels.append(CompiledKernel(current_file, ptxas_info=ptxas_info))
             ptxas_info = ""
+            current_file = None
 
         def finalize_test():
             nonlocal current_test
             nonlocal kernels
             assert current_test is not None
             finalize_kernel()
-            if len(current_files) > 0:
-                kernels.append(CompiledKernel(current_files[-1], ptxas_info=ptxas_info))
-                self.kernel_map[current_test] = CompiledTest(current_test, kernels)
-                current_test = None
-                kernels = []
+            self.kernel_map[current_test] = CompiledTest(current_test, kernels)
+            current_test = None
+            kernels = []
 
         for line in open(logfile, "r").readlines():
             line = ansi_re.sub("", line.strip())
@@ -234,11 +234,11 @@ class TestRun:
                     finalize_kernel()
                     # This avoids comparing the .ptx files that are created then
                     # removed by the MemoryTest.LoadCache tests
-                    current_files.append(line[10:])
+                    current_file = line[10:]
             elif line[:6] == "ptxas ":
                 # NVFUSER_DUMP=ptxas_verbose corresponds to nvcc --ptxas-options=-v or --resources-usage
                 # This always prints after printing the cuda filename
-                if len(current_files) == 0:
+                if current_file is None:
                     print("WARNING: Cannot associate ptxas info with CUDA kernel")
                     continue
                 ptxas_info += line + "\n"

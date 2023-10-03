@@ -207,6 +207,24 @@
                            box-shadow:none"
                     onclick="toggleDiv('newtestcode_{{ test_num }}_{{ loop.index }}')">Code</button>
         </span>
+        registers: {{ kernel.registers }}
+        {% if kernel.gmem is defined and kernel.gmem > 0 %}gmem: {{ kernel.gmem }}{% endif %}
+        {% if kernel.smem is defined and kernel.smem > 0 %}smem: {{ kernel.smem }}{% endif %}
+        {% if kernel.stack_frame_bytes is defined and kernel.stack_frame_bytes > 0 %}
+            stack frame: {{ kernel.stack_frame_bytes }}
+        {% endif %}
+        {% if kernel.spill_store_bytes is defined and kernel.spill_store_bytes > 0 %}
+            spill stores: {{ kernel.spill_store_bytes }}
+        {% endif %}
+        {% if kernel.spill_load_bytes is defined and kernel.spill_load_bytes > 0 %}
+            spill loads: {{ kernel.spill_load_bytes }}
+        {% endif %}
+        {% if kernel.cmem_bank_bytes is not none %}
+            {% for cmem_bank in range(kernel.cmem_bank_bytes|length) %}
+                {% set cmem1 = kernel.cmem_bank_bytes[cmem_bank] %}
+                cmem[{{ cmem_bank }}]: {{ cmem1 }}
+            {% endfor %}
+        {% endif %}
         <br>
         <div id="newtestcode_{{ test_num }}_{{ loop.index }}" style="display:none">
             <pre><code class="language-cpp">{{ kernel.code|e }}</code></pre>
