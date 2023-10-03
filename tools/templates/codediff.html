@@ -1,8 +1,8 @@
-{#
+{#-
 SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
 All rights reserved.
 SPDX-License-Identifier: BSD-3-Clause
-#}
+-#}
 <html>
     <head>
         <title>{{ run1.git.abbrev }} vs {{ run2.git.abbrev }} - NVFuser codegen diff</title>
@@ -423,7 +423,7 @@ SPDX-License-Identifier: BSD-3-Clause
 {% endfor %}
 <hr>
 <footer>
-    Report generated with <a href="https://github.com/NVIDIA/Fuser/blob/f778681968790e3b19bbff4996b3846441937158/tools/diff_codegen_nvfuser_tests.py">diff_codegen_nvfuser_tests.py</a>
+    Report generated with <a href="https://github.com/NVIDIA/Fuser/blob/{{tool_git.full_hash}}/tools/diff_codegen_nvfuser_tests.py">diff_codegen_nvfuser_tests.py</a>
 </footer>
 </body>
 </html>
