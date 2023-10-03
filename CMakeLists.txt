@@ -383,7 +383,7 @@ if(BUILD_PYTHON)
     target_link_libraries(${NVFUSER} PRIVATE "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so")
     target_link_libraries(${NVFUSER} PRIVATE dynamic_type)
     target_link_libraries(${NVFUSER} PRIVATE pybind11::pybind11)
-    set_target_properties(${NVFUSER} PROPERTIES INSTALL_RPATH "$ORIGIN/../torch/lib")
+    set_target_properties(${NVFUSER} PROPERTIES INSTALL_RPATH "$ORIGIN/../torch/lib:$ORIGIN/lib")
     install(TARGETS ${NVFUSER} DESTINATION lib)
   else() # PROJECT_IS_TOP_LEVEL
     torch_compile_options(${NVFUSER})
