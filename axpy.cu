@@ -20,6 +20,14 @@ inline void CheckCudaError(
   }
 }
 
+__global__ void Memzero(float* x) {
+  const int row = blockIdx.x;
+  const int column = threadIdx.x;
+
+  float* out = &x[row * blockDim.x + column];
+  __stwt(out, 0.0f);
+}
+
 class L2CacheFlusher {
  public:
   L2CacheFlusher() {
@@ -38,7 +46,12 @@ class L2CacheFlusher {
   }
 
   void Flush(cudaStream_t stream) {
-    CHECK_CUDA_ERROR(cudaMemsetAsync(buffer_, 0, l2_cache_size_, stream));
+    constexpr int kWarpSize = 32;
+    Memzero<<<
+        l2_cache_size_ / sizeof(float) / kWarpSize,
+        kWarpSize,
+        0,
+        stream>>>(reinterpret_cast<float*>(buffer_));
   }
 
   ~L2CacheFlusher() {
