@@ -175,12 +175,18 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   std::string getLiteralSuffix(DataType dtype) {
-    // The type of an integer literal is automatically picked from
-    // int, long int, and long long int, so no suffix should be
-    // required. https://en.cppreference.com/w/cpp/language/integer_literal
     switch (std::get<PrimDataType>(dtype.type)) {
       case DataType::Float:
         return "f";
+      case DataType::Int:
+        // We use the LL suffix for int64_t literals
+        // See https://en.cppreference.com/w/cpp/language/integer_literal
+        // and https://en.cppreference.com/w/cpp/language/types
+        // For 64-bit Unix systems, int is 32-bit, long and long long are 64-bit
+        // For 64-bit Windows, int and long are 32-bit, long long are 64-bit
+        return "LL";
+      case DataType::Index:
+        return getLiteralSuffix(kernel_->indexType());
       default:
         return "";
     }
@@ -1374,22 +1380,26 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               kernel_->summary().sync_map->needsRawSync(in_tv).hasBID();
 
           if (localToGlobal) {
-            indent() << "loadLocalToGlobal<" << ldst->out()->dtype() << ", "
-                     << vector_word_size << ", "
+            indent() << "loadLocalToGlobal<" << ldst->out()->dtype()
+                     << ", /*vec_size=*/" << vector_word_size
+                     << ", /*is_volatile=*/"
                      << (is_volatile_to ? "true" : "false") << ">(";
             code_ << " &" << gen(ldst->out()) << ", &" << gen(ldst->in())
                   << ");\n";
           } else if (globalToLocal) {
-            indent() << "loadGlobalToLocal<" << ldst->out()->dtype() << ", "
-                     << vector_word_size << ", "
+            indent() << "loadGlobalToLocal<" << ldst->out()->dtype()
+                     << ", /*vec_size=*/" << vector_word_size
+                     << ", /*is_volatile=*/"
                      << (is_volatile_from ? "true" : "false") << ", "
                      << "CacheOp::" << ldst->cacheOp() << ">(&"
                      << gen(ldst->out()) << ", ";
             code_ << " &" << gen(ldst->in()) << ");\n";
           } else if (globalToGlobal) {
-            indent() << "loadGlobalToGlobal<" << ldst->out()->dtype() << ", "
-                     << vector_word_size << ", "
-                     << (is_volatile_to ? "true" : "false") << ", "
+            indent() << "loadGlobalToGlobal<" << ldst->out()->dtype()
+                     << ", /*vec_size=*/" << vector_word_size
+                     << ", /*is_volatile_to=*/"
+                     << (is_volatile_to ? "true" : "false")
+                     << ", /*is_volatile_from=*/"
                      << (is_volatile_from ? "true" : "false") << ">(";
             code_ << " &" << gen(ldst->out()) << ", ";
             code_ << " &" << gen(ldst->in()) << ");\n";

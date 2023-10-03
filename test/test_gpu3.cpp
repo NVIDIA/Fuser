@@ -1415,8 +1415,9 @@ TEST_F(NVFuserTest, FusionCodegenAllocatedScalars_CUDA) {
   // t0[(0 + 1)] = t0[((0 + 1) + 1)]
   std::stringstream no_alloc_ref;
   no_alloc_ref << "\n"
-               << indent << tk0_name << "[(0 + 1)]\n"
-               << indent << indent << " = " << tk0_name << "[((0 + 1) + 1)];\n";
+               << indent << tk0_name << "[(0LL + 1LL)]\n"
+               << indent << indent << " = " << tk0_name
+               << "[((0LL + 1LL) + 1LL)];\n";
 
   NVF_CHECK(
       no_alloc_code.find(no_alloc_ref.str()) != std::string::npos,
@@ -9711,6 +9712,37 @@ TEST_F(NVFuserTest, NonPaddedWarpReduction) {
     test(n);
   }
 }
+
+// Test that Int constants used in expressions that would overflow for 32-bit
+// ints do not overflow in the generated kernel.
+TEST_F(NVFuserTest, ConstLongExpressions) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto s0 = IrBuilder::create<Val>(65536L, DataType::Int);
+  auto s1 = mul(s0, s0);
+  // If s1 is printed in the kernel as "65536 * 65536" then it might be
+  // evaluated at compiled time or not, and either way it will _likely_ be
+  // evaluated using 32-bit ints instead of 64-bit as intended. The compiler
+  // does this because promoting literals to long would change the value of the
+  // expression.
+  // See https://github.com/NVIDIA/Fuser/pull/998
+
+  auto tv0 = full({}, s1, DataType::Int);
+  fusion->addOutput(tv0);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion);
+
+  auto outputs = fe.runFusion({});
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::Tensor t0 = at::full({}, 65536L * 65536L, options);
+
+  testValidate(fusion, outputs, {}, {t0}, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
