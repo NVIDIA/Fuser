@@ -52,11 +52,9 @@ class L2CacheFlusher {
 
   void Flush(cudaStream_t stream) {
     constexpr int kWarpSize = 32;
-    Memzero<<<
-        l2_cache_size_ / sizeof(float) / kWarpSize,
-        kWarpSize,
-        0,
-        stream>>>(reinterpret_cast<float*>(buffer_));
+    const int num_elements = l2_cache_size_ / sizeof(float);
+    Memzero<<<num_elements / kWarpSize, kWarpSize, 0, stream>>>(
+        reinterpret_cast<float*>(buffer_));
   }
 
   ~L2CacheFlusher() {
