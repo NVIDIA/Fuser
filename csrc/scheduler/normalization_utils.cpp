@@ -849,9 +849,6 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
         "schedule_heuristic doesn't match with reduction type.");
     return false;
   }
-  if (!checkReductionPattern(fusion, schedule_heuristic, reduction_tvs)) {
-    return false;
-  }
 
   if (!ir_utils::getViewOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
@@ -903,6 +900,10 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
         return false;
       }
     }
+  }
+
+  if (!checkReductionPattern(fusion, schedule_heuristic, reduction_tvs)) {
+    return false;
   }
 
   // Only accept persistent kernels
