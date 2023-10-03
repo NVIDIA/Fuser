@@ -676,7 +676,6 @@ __device__ void distributedSmemReduce(
 
   block_sync::sync<Aligned>();
 
-  // loop peel the final iteration to save one syncthread for the end
   for (int factor = np2 / 2; factor >= 1; factor >>= 1) {
     if (reduction_tid < factor) {
       reduction_op(shared_mem[smem_offset], shared_mem[smem_offset + factor]);
@@ -691,14 +690,15 @@ __device__ void distributedSmemReduce(
         inp_val,
         ((float*)shared_mem)[0]);
   }
-  // dsm
+  // block reduciton is done, start inter-block reduction
   auto cluster = cooperative_groups::this_cluster();
-  unsigned int cluster_id = cluster.block_rank();
-  int cluster_size = cluster.dim_blocks().x;
-  int dsm_np2 = 1 << (31 - __clz(cluster_size));
-  if (cluster_id < dsm_np2 && cluster_id + dsm_np2 < cluster_size) {
+  int cluster_id = cluster.block_rank(); // 0,1,2...,6
+  int cluster_size = cluster.dim_blocks().x; // 7
+  int dsm_np2 = 1 << (31 - __clz(cluster_size)); // 4
+  // reduce results to last {dsm_np2} blocks
+  if (cluster_id - dsm_np2 >= 0) {
     float* other_smem =
-        cluster.map_shared_rank(shared_mem, cluster_id + dsm_np2);
+        cluster.map_shared_rank(shared_mem, cluster_id - dsm_np2);
     shared_mem[0] += other_smem[0];
   }
   cluster.sync();
@@ -713,11 +713,12 @@ __device__ void distributedSmemReduce(
   }
   cluster.sync();
 
+  // reduce results to last {factor} blocks
   for (int factor = dsm_np2 / 2; factor >= 1; factor >>= 1) {
-    float* other_smem =
-        cluster.map_shared_rank(shared_mem, cluster_id + factor);
-    if (cluster_id < factor) {
-      shared_mem[0] += other_smem[0];
+    if (cluster_size - cluster_id <= factor) {
+      float* other_smem =
+          cluster.map_shared_rank(shared_mem, cluster_id - factor);
+      _mem[0] += other_smem[0];
       if (threadIdx.x == 0 && blockIdx.y == 0) {
         printf(
             "cluster_id= %d  factor= %d other_smem=%f, current_smem=%f\n",
@@ -762,3 +763,4 @@ __device__ void distributedSmemReduce(
 }
 
 } // namespace reduction
+      

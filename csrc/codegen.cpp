@@ -360,7 +360,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // non-const Expr*.
   void handle(const std::vector<Expr*>& exprs) {
     for (Expr* expr : exprs) {
-      kir::ConstIrVisitor::dispatch(expr);
+      std::cout << "\n expr= " << expr->toString() << std::endl;
+      ir::ConstIrVisitor::dispatch(expr);
     }
   }
 
@@ -1659,6 +1660,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const kir::GridReduction* grop) final {
+
+    td::cout << "const kir::GridReduction: " << grop->toString() << std::endl;
+
     NVF_ERROR(grop->out()->isA<kir::TensorIndex>());
 
     const auto out = grop->out()->as<kir::TensorIndex>();
@@ -2968,3 +2972,4 @@ std::string generateCudaKernel(
 
 } // namespace codegen
 } // namespace nvfuser
+ 
