@@ -646,11 +646,11 @@ TEST_F(NVFuserTest, TMP) {
 
   const int tidx = 32;
   // block reduction
-  tv2->split(-1,tidx);
+  tv2->split(-1, tidx);
   // thread block group
   const int tbgx = 7;
-  tv2->split(-2,tbgx);
-    std::cout << tv2->toString() << std::endl;
+  tv2->split(-2, tbgx);
+  std::cout << tv2->toString() << std::endl;
 
   // tv1: [i0, r0/tidx/tbgx, tbgx, tidx]
   auto ref = tv2->rFactor({1});
@@ -673,7 +673,7 @@ TEST_F(NVFuserTest, TMP) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto test = [&](int num_elements) {
-    at::Tensor t0 = at::ones({2,num_elements}, options);
+    at::Tensor t0 = at::ones({2, num_elements}, options);
     std::vector<c10::IValue> aten_inputs = {t0};
 
     FusionExecutor fe;
@@ -684,7 +684,7 @@ TEST_F(NVFuserTest, TMP) {
         &fusion, outputs, aten_inputs, {t0.sum({-1})}, __LINE__, __FILE__);
   };
   // test with elements that both are and aren't multiples of 32.
-  for (auto n : {32*7}) {
+  for (auto n : {32 * 7}) {
     test(n);
   }
 }

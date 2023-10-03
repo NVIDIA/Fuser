@@ -623,7 +623,6 @@ __device__ void gridReduceGroup(
 }
 #endif // NVFUSER_PROFILE_KERNEL
 
-
 template <
     bool X_REDUCE,
     bool Y_REDUCE,
@@ -631,8 +630,7 @@ template <
     bool Aligned,
     typename T,
     typename Func>
-__device__ void 
-distributedSmemReduce(
+__device__ void distributedSmemReduce(
     T& out,
     const T& inp_val,
     Func reduction_op,
@@ -685,32 +683,48 @@ distributedSmemReduce(
     }
     block_sync::sync<Aligned>();
   }
-  if(threadIdx.x==0 && blockIdx.y==0){
-    printf("cluster_id= %d reduction_tid= %d inp_val= %f current_smem=%f\n", 
-    blockIdx.x, reduction_tid, inp_val, ((float*)shared_mem)[0]);
-  }  
+  if (threadIdx.x == 0 && blockIdx.y == 0) {
+    printf(
+        "cluster_id= %d reduction_tid= %d inp_val= %f current_smem=%f\n",
+        blockIdx.x,
+        reduction_tid,
+        inp_val,
+        ((float*)shared_mem)[0]);
+  }
   // dsm
   auto cluster = cooperative_groups::this_cluster();
   unsigned int cluster_id = cluster.block_rank();
   int cluster_size = cluster.dim_blocks().x;
   int dsm_np2 = 1 << (31 - __clz(cluster_size));
   if (cluster_id < dsm_np2 && cluster_id + dsm_np2 < cluster_size) {
-    float *other_smem = cluster.map_shared_rank(shared_mem, cluster_id + dsm_np2);
+    float* other_smem =
+        cluster.map_shared_rank(shared_mem, cluster_id + dsm_np2);
     shared_mem[0] += other_smem[0];
   }
   cluster.sync();
-  if(threadIdx.x==0 && blockIdx.y==0){
-    printf("cluster_id= %d  np2= %d  reduction_tid= %d smem_offset= %d current_smem=%f\n", 
-    blockIdx.x, dsm_np2, reduction_tid, smem_offset, ((float*)shared_mem)[0]);
-  }  
+  if (threadIdx.x == 0 && blockIdx.y == 0) {
+    printf(
+        "cluster_id= %d  np2= %d  reduction_tid= %d smem_offset= %d current_smem=%f\n",
+        blockIdx.x,
+        dsm_np2,
+        reduction_tid,
+        smem_offset,
+        ((float*)shared_mem)[0]);
+  }
   cluster.sync();
 
   for (int factor = dsm_np2 / 2; factor >= 1; factor >>= 1) {
-    float *other_smem = cluster.map_shared_rank(shared_mem, cluster_id + factor);
+    float* other_smem =
+        cluster.map_shared_rank(shared_mem, cluster_id + factor);
     if (cluster_id < factor) {
       shared_mem[0] += other_smem[0];
-      if(threadIdx.x==0 && blockIdx.y==0){
-        printf("cluster_id= %d  factor= %d other_smem=%f, current_smem=%f\n", cluster_id, factor,((float*)other_smem)[0], ((float*)shared_mem)[0]);
+      if (threadIdx.x == 0 && blockIdx.y == 0) {
+        printf(
+            "cluster_id= %d  factor= %d other_smem=%f, current_smem=%f\n",
+            cluster_id,
+            factor,
+            ((float*)other_smem)[0],
+            ((float*)shared_mem)[0]);
       }
     }
     cluster.sync();

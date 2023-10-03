@@ -1803,24 +1803,26 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
               << ", occupancy= " << oss.str() << std::endl;
     }
 
+    CUlaunchConfig config = {
+        .gridDimX = (unsigned int)launch_params_.gdimx(),
+        .gridDimY = (unsigned int)launch_params_.gdimy(),
+        .gridDimZ = (unsigned int)launch_params_.gdimz(),
+        .blockDimX = (unsigned int)launch_params_.bdimx(),
+        .blockDimY = (unsigned int)launch_params_.bdimy(),
+        .blockDimZ = (unsigned int)launch_params_.bdimz(),
+        .sharedMemBytes = (unsigned int)launch_params_.smem(),
+        .hStream = stream,
+        .attrs = NULL,
+        .numAttrs = 1};
+
     if (measure_kernel_time) {
       timer.start();
     }
 
     if (!kernel()->summary().has_cooperative_grid_reduction) {
-      FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
-      NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
-          compiled_kernel_->function,
-          launch_params_.gdimx(),
-          launch_params_.gdimy(),
-          launch_params_.gdimz(),
-          launch_params_.bdimx(),
-          launch_params_.bdimy(),
-          launch_params_.bdimz(),
-          launch_params_.smem(),
-          stream,
-          arg_buffer_ptrs.data(),
-          nullptr));
+      FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
+      NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
+          &config, compiled_kernel_->function, arg_buffer_ptrs.data(), NULL));
     } else {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchCooperativeKernel(
