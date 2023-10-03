@@ -751,8 +751,8 @@ void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv) {
   NVF_ERROR(
       std::any_of(
           fusion->inputs().begin(),
-          fusion->end(),
-          [](auto inp) { return inp->isA<TensorView>() }),
+          fusion->inputs().end(),
+          [](Val* inp) { return inp->isA<TensorView>(); }),
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
 }
 
