@@ -1948,8 +1948,7 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
   }
 
   std::unordered_map<int, int> old2new;
-  for (auto id_i :
-       std::views::iota(0, (int)tv->getLeafDomain().size())) {
+  for (auto id_i : std::views::iota(0, (int)tv->getLeafDomain().size())) {
     auto leaf_id = tv->axis(id_i);
     auto find_it =
         std::find(reordered_ids.begin(), reordered_ids.end(), leaf_id);

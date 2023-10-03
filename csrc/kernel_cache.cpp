@@ -873,8 +873,7 @@ void FusionExecutorCache::deserialize(
   }
 
   // 2. Rebuild input id to kernel cache
-  for (auto idx :
-       std::views::iota(0u, buffer->kernel_cache_keys()->size())) {
+  for (auto idx : std::views::iota(0u, buffer->kernel_cache_keys()->size())) {
     size_t key = buffer->kernel_cache_keys()->Get(idx);
     size_t value_id = buffer->kernel_cache_values()->Get(idx);
     id_to_kernel_runtime_.emplace(key, all_runtimes.at(value_id));
@@ -1069,7 +1068,7 @@ void FusionKernelRuntime::prepareRuntimeOrder() {
 
     // Find the first segment with all inputs available to run
     for (const size_t group_i :
-         std::views::iota(0u, segmented_fusion_->groups().size())) {
+         std::views::iota((size_t)0, segmented_fusion_->groups().size())) {
       auto& group = segmented_fusion_->groups()[group_i];
       if (group_ran[group_i]) {
         continue;

@@ -80,8 +80,7 @@ TensorView::TensorView(
 
   std::vector<bool> is_stride_zero(*tensor_type->dim(), false);
   std::vector<bool> is_size_one(*tensor_type->dim(), false);
-  for (const auto i :
-       std::views::iota((size_t)0, tensor_type->dim().value())) {
+  for (const auto i : std::views::iota((size_t)0, tensor_type->dim().value())) {
     is_size_one.at(i) = tensor_type->sizes()[i].has_value() &&
         tensor_type->sizes()[i].value() == 1;
     const auto& stride_property_i = tensor_type->stride_properties()[i];
@@ -96,8 +95,7 @@ TensorView::TensorView(
   std::vector<IterDomain*> sizes;
   sizes.reserve(*tensor_type->dim());
 
-  for (const auto i :
-       std::views::iota((size_t)0, tensor_type->dim().value())) {
+  for (const auto i : std::views::iota((size_t)0, tensor_type->dim().value())) {
     if (is_stride_zero.at(i) || is_size_one.at(i)) {
       // If stride is known to be 0, assuem it needs to be broadcasted.
       auto builder =
@@ -137,8 +135,7 @@ TensorView::TensorView(
   // dimension to slowest, instead of iterating through sizes. This allows
   // easier contiguity check;
   bool found_innermost_non_broadcast = false;
-  for (const auto i :
-       std::views::iota((size_t)0, tensor_type->dim().value())) {
+  for (const auto i : std::views::iota((size_t)0, tensor_type->dim().value())) {
     // if we don't have contiguous dimension at current stride index, don't
     // bother;
     const auto& stride_property_i = tensor_type->stride_properties()[i];

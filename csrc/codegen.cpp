@@ -1998,8 +1998,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder read_preds;
     ArgumentBuilder write_preds;
 
-    for (const auto expr_index :
-         std::views::iota((size_t)0, grouped_grop->numHorizontallyGroupedExprs())) {
+    for (const auto expr_index : std::views::iota(
+             (size_t)0, grouped_grop->numHorizontallyGroupedExprs())) {
       const auto data_type = grouped_grop->outputs().at(expr_index)->dtype();
       NVF_ERROR(grouped_grop->reduction_buffers()
                     .at(expr_index)
