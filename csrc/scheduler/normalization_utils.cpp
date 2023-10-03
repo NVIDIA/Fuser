@@ -858,8 +858,7 @@ PersistentKernelProperties getPersistentKernelProperties(
   }
   n_tensor_inputs = std::max(n_tensor_inputs, (int64_t)1);
 
-  // return collected properties to get heuristics.
-  // Return collected properties to get heuristics.
+  // (8) return collected properties to get heuristics.
   return PersistentKernelProperties{
       .inner_most_dimension_numel = properties.inner_most_dimension_numel,
       .total_reduction_numel = properties.total_reduction_numel,
@@ -869,198 +868,198 @@ PersistentKernelProperties getPersistentKernelProperties(
       .max_dtype_size = max_dtype_size,
       .vectorize_factor = vectorize_factor,
       .project_persistent_buffers = project_persistent_buffers};
-  // check ops and inputs
-  bool checkOpsAndInputs(
-      Fusion * fusion, ScheduleHeuristic schedule_heuristic) {
-    // Needs at least one reduction to consider.
-    if (!ir_utils::hasAnyReductionOps(fusion)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedule_heuristic, "needs a reduction op");
-      return false;
-    }
+}
 
-    if (ir_utils::filterByType<TensorView>(fusion->inputs()).empty()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedule_heuristic, "Scheduling not supported with no input");
-      return false;
-    }
-
-    // Check that inputs of all select/gather-like ops are fusion inputs
-    if (registry_utils::rejectScheduleForMemoryPromotion(
-            fusion, schedule_heuristic)) {
-      return false;
-    }
-
-    // Fusions handled by persistent kernel scheduler cannot have MmaOp.
-    if (ir_utils::hasOpsOfType<MmaOp>(fusion)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedule_heuristic, "no support for mma ops.");
-      return false;
-    }
-
-    if (registry_utils::hasNonUniqueBcast(fusion)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedule_heuristic,
-          "Broadcasting dimension might be broadcasting to multiple sizes.");
-      return false;
-    }
-
-    return true;
+bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
+  // Needs at least one reduction to consider.
+  if (!ir_utils::hasAnyReductionOps(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedule_heuristic, "needs a reduction op");
+    return false;
   }
 
-  bool checkReductionPattern(
-      Fusion * fusion,
-      ScheduleHeuristic schedule_heuristic,
-      const std::vector<TensorView*>& reduction_tvs1,
-      const std::vector<TensorView*>& reduction_tvs2) {
-    // Ensure that the reduction operations share the same axes in their root
-    // domains
-    FusionGuard fg(fusion);
-    ComputeAtRootDomainMap root_map;
-    root_map.build(true);
-
-    // Helper function to check the pattern equivalence for a list of
-    // TensorViews
-    auto checkPattern = [&](const std::vector<TensorView*>& rtvs) -> bool {
-      for (const auto it : c10::irange(1, rtvs.size())) {
-        if (!registry_utils::checkPatternEquivalence(
-                rtvs[it - 1], rtvs[it], root_map)) {
-          scheduler_debug_utils::canScheduleRejectReason(
-              schedule_heuristic,
-              "Unmapped reduction ",
-              rtvs[it - 1],
-              " and ",
-              rtvs[it]);
-          return false;
-        }
-      }
-      return true;
-    };
-
-    // Check the pattern equivalence for the first set of reduction TensorViews
-    if (!checkPattern(reduction_tvs1)) {
-      return false;
-    }
-
-    // Return if there is no second set of reduction TensorViews
-    if (reduction_tvs2.empty()) {
-      return true;
-    }
-
-    // Check the pattern equivalence for the second set of reduction TensorViews
-    // if provided.
-    if (!checkPattern(reduction_tvs2)) {
-      return false;
-    }
-
-    return true;
+  if (ir_utils::filterByType<TensorView>(fusion->inputs()).empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedule_heuristic, "Scheduling not supported with no input");
+    return false;
   }
 
-  // The identical compile time check of InnerPersistentKernelScheduler and
-  // OuterPersistentKernelScheduler.
-  bool compileTimeCheck(Fusion * fusion, ScheduleHeuristic schedule_heuristic) {
-    // common checks for all persistent heuristics
-    if (!normalization_scheduler_utils::checkOpsAndInputs(
-            fusion, schedule_heuristic)) {
-      return false;
-    }
+  // Check that inputs of all select/gather-like ops are fusion inputs
+  if (registry_utils::rejectScheduleForMemoryPromotion(
+          fusion, schedule_heuristic)) {
+    return false;
+  }
 
-    // check reduction types and pattern
-    auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-    if (reduction_tvs.empty()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedule_heuristic, "no reduction tv");
-      return false;
-    }
-    auto reduction_type =
-        reduction_scheduler_utils::getReductionType(reduction_tvs);
-    if (getPersistentHeuristicFor(reduction_type) != schedule_heuristic) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedule_heuristic,
-          "schedule_heuristic doesn't match with reduction type.");
-      return false;
-    }
-    if (!checkReductionPattern(fusion, schedule_heuristic, reduction_tvs)) {
-      return false;
-    }
+  // Fusions handled by persistent kernel scheduler cannot have MmaOp.
+  if (ir_utils::hasOpsOfType<MmaOp>(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedule_heuristic, "no support for mma ops.");
+    return false;
+  }
 
-    if (!ir_utils::getViewOps(fusion).empty()) {
-      ComputeAtMap ca_map(fusion);
-      if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            schedule_heuristic, "Fusion requires view being reversible.");
-        return false;
-      }
+  if (registry_utils::hasNonUniqueBcast(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedule_heuristic,
+        "Broadcasting dimension might be broadcasting to multiple sizes.");
+    return false;
+  }
 
-      // Persistent scheduler simply uses reference_tv as the reference, if
-      // that changes, this needs to be changed.
-      auto reference_tv = reduction_tvs[0];
-      if (registry_utils::reductionInterferingView(
-              fusion, ca_map, reference_tv)) {
+  return true;
+}
+
+bool checkReductionPattern(
+    Fusion* fusion,
+    ScheduleHeuristic schedule_heuristic,
+    const std::vector<TensorView*>& reduction_tvs1,
+    const std::vector<TensorView*>& reduction_tvs2) {
+  // Ensure that the reduction operations share the same axes in their root
+  // domains
+  FusionGuard fg(fusion);
+  ComputeAtRootDomainMap root_map;
+  root_map.build(true);
+
+  // Helper function to check the pattern equivalence for a list of
+  // TensorViews
+  auto checkPattern = [&](const std::vector<TensorView*>& rtvs) -> bool {
+    for (const auto it : c10::irange(1, rtvs.size())) {
+      if (!registry_utils::checkPatternEquivalence(
+              rtvs[it - 1], rtvs[it], root_map)) {
         scheduler_debug_utils::canScheduleRejectReason(
             schedule_heuristic,
-            "View may interfere with normalization scheduling.");
+            "Unmapped reduction ",
+            rtvs[it - 1],
+            " and ",
+            rtvs[it]);
         return false;
       }
     }
+    return true;
+  };
 
-    // Before examining the reduction axes want to quickly
-    //   check the reductions have the same axis width
-    //   to avoid building root domain map in easier cases
-    bool valid_axis_count = false;
-    size_t axis_count = 0;
-    auto reduction_root_size = [](TensorView* red_tv) {
-      size_t count = 0;
-      for (auto id : red_tv->getRootDomain()) {
-        if (!id->isBroadcast()) {
-          count++;
-        }
-      }
-      return count;
-    };
+  // Check the pattern equivalence for the first set of reduction TensorViews
+  if (!checkPattern(reduction_tvs1)) {
+    return false;
+  }
 
-    for (auto red : reduction_tvs) {
-      if (!valid_axis_count) {
-        valid_axis_count = true;
-        axis_count = reduction_root_size(red);
-      } else {
-        if (reduction_root_size(red) != axis_count) {
-          scheduler_debug_utils::canScheduleRejectReason(
-              schedule_heuristic,
-              "inconsistent reduction root size: ",
-              red->toString(),
-              ", expected: ",
-              axis_count);
-          return false;
-        }
-      }
-    }
-
-    // Only accept persistent kernels
-    auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
-    if (persistent_buffer_info.persistent_buffers.empty()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedule_heuristic, "no persistent buffer identified");
-      return false;
-    }
-
-    if (registry_utils::SchedulerTopologyChecker::
-            hasNonNormalizePostReductionBCast(fusion)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedule_heuristic, "unsupported post reduction normalization");
-      return false;
-    }
-
-    if (registry_utils::SchedulerTopologyChecker::
-            hasGatherToBroadcastBeforeReduction(fusion, reduction_tvs)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedule_heuristic,
-          "has unsupported gather-like ops before normalization");
-      return false;
-    }
-
+  // Return if there is no second set of reduction TensorViews
+  if (reduction_tvs2.empty()) {
     return true;
   }
+
+  // Check the pattern equivalence for the second set of reduction TensorViews
+  // if provided.
+  if (!checkPattern(reduction_tvs2)) {
+    return false;
+  }
+
+  return true;
+}
+
+// The identical compile time check of InnerPersistentKernelScheduler and
+// OuterPersistentKernelScheduler.
+bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
+  // common checks for all persistent heuristics
+  if (!normalization_scheduler_utils::checkOpsAndInputs(
+          fusion, schedule_heuristic)) {
+    return false;
+  }
+
+  // check reduction types and pattern
+  auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  if (reduction_tvs.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedule_heuristic, "no reduction tv");
+    return false;
+  }
+  auto reduction_type =
+      reduction_scheduler_utils::getReductionType(reduction_tvs);
+  if (getPersistentHeuristicFor(reduction_type) != schedule_heuristic) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedule_heuristic,
+        "schedule_heuristic doesn't match with reduction type.");
+    return false;
+  }
+  if (!checkReductionPattern(fusion, schedule_heuristic, reduction_tvs)) {
+    return false;
+  }
+
+  if (!ir_utils::getViewOps(fusion).empty()) {
+    ComputeAtMap ca_map(fusion);
+    if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedule_heuristic, "Fusion requires view being reversible.");
+      return false;
+    }
+
+    // Persistent scheduler simply uses reference_tv as the reference, if
+    // that changes, this needs to be changed.
+    auto reference_tv = reduction_tvs[0];
+    if (registry_utils::reductionInterferingView(
+            fusion, ca_map, reference_tv)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedule_heuristic,
+          "View may interfere with normalization scheduling.");
+      return false;
+    }
+  }
+
+  // Before examining the reduction axes want to quickly
+  //   check the reductions have the same axis width
+  //   to avoid building root domain map in easier cases
+  bool valid_axis_count = false;
+  size_t axis_count = 0;
+  auto reduction_root_size = [](TensorView* red_tv) {
+    size_t count = 0;
+    for (auto id : red_tv->getRootDomain()) {
+      if (!id->isBroadcast()) {
+        count++;
+      }
+    }
+    return count;
+  };
+
+  for (auto red : reduction_tvs) {
+    if (!valid_axis_count) {
+      valid_axis_count = true;
+      axis_count = reduction_root_size(red);
+    } else {
+      if (reduction_root_size(red) != axis_count) {
+        scheduler_debug_utils::canScheduleRejectReason(
+            schedule_heuristic,
+            "inconsistent reduction root size: ",
+            red->toString(),
+            ", expected: ",
+            axis_count);
+        return false;
+      }
+    }
+  }
+
+  // Only accept persistent kernels
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
+  if (persistent_buffer_info.persistent_buffers.empty()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedule_heuristic, "no persistent buffer identified");
+    return false;
+  }
+
+  if (registry_utils::SchedulerTopologyChecker::
+          hasNonNormalizePostReductionBCast(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedule_heuristic, "unsupported post reduction normalization");
+    return false;
+  }
+
+  if (registry_utils::SchedulerTopologyChecker::
+          hasGatherToBroadcastBeforeReduction(fusion, reduction_tvs)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedule_heuristic,
+        "has unsupported gather-like ops before normalization");
+    return false;
+  }
+
+  return true;
+}
 
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser
