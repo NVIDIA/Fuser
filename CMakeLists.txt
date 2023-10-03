@@ -259,7 +259,7 @@ endif()
 list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
 
 if(PROJECT_IS_TOP_LEVEL)
-  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
+  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES} dl)
 
   # this is to find pip installed nvrtc/nvtx .so
   set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH
