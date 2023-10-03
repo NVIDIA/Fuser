@@ -82,14 +82,15 @@ class CompiledKernel:
     filename: str
     code: str | None = None
     ptxas_info: str | None = None
-    gmem_bytes: int | None = None
-    smem_bytes: int | None = None
+    gmem_bytes: int = 0
+    smem_bytes: int = 0
     cmem_bank_bytes: list[int] | None = None
     registers: int | None = None
-    target_arch: str | None = None
-    stack_frame_bytes: int | None = None
-    spill_store_bytes: int | None = None
-    spill_load_bytes: int | None = None
+    stack_frame_bytes: int = 0
+    spill_store_bytes: int = 0
+    spill_load_bytes: int = 0
+    mangled_name: str | None = None
+    arch: str | None = None
     index_type: str | None = None
 
     def __post_init__(self):
@@ -111,11 +112,13 @@ class CompiledKernel:
         if self.ptxas_info is None:
             return
 
-        self.ptxas_info = re.sub(r"\b_Z.*\b", "[mangled kernel name]", self.ptxas_info)
+        m = re.search(r"Compiling entry function '(.*)' for '(.*)'", self.ptxas_info)
+        if m is not None:
+            self.mangled_name, self.arch = m.groups()
 
         def find_unique_int(pattern) -> int | None:
             m = re.search(pattern, self.ptxas_info)
-            return None if m is None else int(m.groups()[0])
+            return 0 if m is None else int(m.groups()[0])
 
         self.stack_frame_bytes = find_unique_int(r"(\d+) bytes stack frame")
         self.spill_store_bytes = find_unique_int(r"(\d+) bytes spill stores")
@@ -125,12 +128,14 @@ class CompiledKernel:
         self.smem_bytes = find_unique_int(r"(\d+) bytes smem")
 
         self.cmem_bank_bytes = []
+        cmem_banks = 0
         for m in re.finditer(r"(\d+) bytes cmem\[(\d+)\]", self.ptxas_info):
             nbytes_str, bank_str = m.groups()
             bank = int(bank_str)
             if len(self.cmem_bank_bytes) <= bank:
                 self.cmem_bank_bytes += [0] * (bank + 1 - len(self.cmem_bank_bytes))
             self.cmem_bank_bytes[bank] = int(nbytes_str)
+            cmem_banks += 1
 
 
 @dataclass

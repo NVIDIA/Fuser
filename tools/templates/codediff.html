@@ -207,22 +207,24 @@
                            box-shadow:none"
                     onclick="toggleDiv('newtestcode_{{ test_num }}_{{ loop.index }}')">Code</button>
         </span>
+        index type: {{ kernel.index_type }}
+        arch: {{ kernel.arch }}
         registers: {{ kernel.registers }}
-        {% if kernel.gmem is defined and kernel.gmem > 0 %}gmem: {{ kernel.gmem }}{% endif %}
-        {% if kernel.smem is defined and kernel.smem > 0 %}smem: {{ kernel.smem }}{% endif %}
-        {% if kernel.stack_frame_bytes is defined and kernel.stack_frame_bytes > 0 %}
+        {% if kernel.gmem_bytes is not none and kernel.gmem_bytes > 0 %}gmem: {{ kernel.gmem_bytes }}{% endif %}
+        {% if kernel.smem_bytes is not none and kernel.smem_bytes > 0 %}smem: {{ kernel.smem_bytes }}{% endif %}
+        {% if kernel.stack_frame_bytes is not none and kernel.stack_frame_bytes > 0 %}
             stack frame: {{ kernel.stack_frame_bytes }}
         {% endif %}
-        {% if kernel.spill_store_bytes is defined and kernel.spill_store_bytes > 0 %}
+        {% if kernel.spill_store_bytes is not none and kernel.spill_store_bytes > 0 %}
             spill stores: {{ kernel.spill_store_bytes }}
         {% endif %}
-        {% if kernel.spill_load_bytes is defined and kernel.spill_load_bytes > 0 %}
+        {% if kernel.spill_load_bytes is not none and kernel.spill_load_bytes > 0 %}
             spill loads: {{ kernel.spill_load_bytes }}
         {% endif %}
         {% if kernel.cmem_bank_bytes is not none %}
             {% for cmem_bank in range(kernel.cmem_bank_bytes|length) %}
-                {% set cmem1 = kernel.cmem_bank_bytes[cmem_bank] %}
-                cmem[{{ cmem_bank }}]: {{ cmem1 }}
+                {% set cmemb = kernel.cmem_bank_bytes[cmem_bank] %}
+                cmem[{{ cmem_bank }}]: {{ cmemb }}
             {% endfor %}
         {% endif %}
         <br>
@@ -276,7 +278,7 @@
                     <code>tools/diff_codegen_nvfuser_tests.py</code>.</b>
                 <br>
             {% elif loop_vars.total_diffs < max_diffs %}
-                &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ kernel_diff.kernel_num }}</span>
+                &nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ kernel_diff.kernel_num }}</span>
                 <button style="box-shadow:none"
                         onclick="toggleOldCode({{ outer_index }}, {{ loop.index }})">{{ run1.git.abbrev }}</button>
             </span>
@@ -287,45 +289,57 @@
         <button style="box-shadow:none"
                 onclick="toggleNewCode({{ outer_index }}, {{ loop.index }})">{{ run2.git.abbrev }}</button>
     </span>
-    LOC: <span style="color: green;
-              width: 30pt;
-              text-align: right;
-              display: inline-block">+{{ kernel_diff.new_lines }}</span>
+    loc:
     <span style="color: red;
-                 width: 30pt;
-                 text-align: left;
+                 width: 32pt;
+                 text-align: right;
                  display: inline-block">-{{ kernel_diff.removed_lines }}</span>
+    <span style="color: green;
+                 width: 32pt;
+                 text-align: left;
+                 display: inline-block">+{{ kernel_diff.new_lines }}</span>
     index type:
     {%- if kernel_diff.kernel1.index_type == kernel_diff.kernel2.index_type %}
-        {# always show index type, even if unchanged #}
         {{ kernel_diff.kernel1.index_type }}
     {% else -%}
         <span style="color: red">{{ kernel_diff.kernel1.index_type }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.index_type }}</span>
     {%- endif %}
     {%- if kernel_diff.kernel1.registers != kernel_diff.kernel2.registers -%}
         registers: <span style="color: red">{{ kernel_diff.kernel1.registers }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.registers }}</span>
-    {%- endif -%}
-    {%- if kernel_diff.kernel1.gmem != kernel_diff.kernel2.gmem -%}
-        gmem: <span style="color: red">{{ kernel_diff.kernel1.gmem }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.gmem }}</span>
-    {%- endif -%}
-    {%- if kernel_diff.kernel1.smem != kernel_diff.kernel2.smem -%}
-        smem: <span style="color: red">{{ kernel_diff.kernel1.smem }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.smem }}</span>
-    {%- endif -%}
-    {%- if kernel_diff.kernel1.stack_frame_bytes != kernel_diff.kernel2.stack_frame_bytes -%}
+    {%- else -%}
+        registers: {{ kernel_diff.kernel1.registers }}
+    {%- endif %}
+    {% if kernel_diff.kernel1.gmem_bytes != kernel_diff.kernel2.gmem_bytes -%}
+        gmem: <span style="color: red">{{ kernel_diff.kernel1.gmem_bytes }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.gmem_bytes }}</span>
+    {%- endif %}
+    {% if kernel_diff.kernel1.smem_bytes != kernel_diff.kernel2.smem_bytes -%}
+        smem: <span style="color: red">{{ kernel_diff.kernel1.smem_bytes }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.smem_bytes }}</span>
+    {%- elif kernel_diff.kernel1.smem_bytes > 0 -%}
+        smem: {{ kernel_diff.kernel1.smem_bytes }}
+    {%- endif %}
+    {% if kernel_diff.kernel1.stack_frame_bytes != kernel_diff.kernel2.stack_frame_bytes -%}
         stack frame: <span style="color: red">{{ kernel_diff.kernel1.stack_frame_bytes }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.stack_frame_bytes }}</span>
-    {%- endif -%}
-    {%- if kernel_diff.kernel1.spill_store_bytes != kernel_diff.kernel2.spill_store_bytes -%}
+    {%- elif kernel_diff.kernel1.stack_frame_bytes >0 -%}
+        stack frame: {{ kernel_diff.kernel1.stack_frame_bytes }}
+    {%- endif %}
+    {% if kernel_diff.kernel1.spill_store_bytes != kernel_diff.kernel2.spill_store_bytes -%}
         spill stores: <span style="color: red">{{ kernel_diff.kernel1.spill_store_bytes }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.spill_store_bytes }}</span>
-    {%- endif -%}
-    {%- if kernel_diff.kernel1.spill_load_bytes != kernel_diff.kernel2.spill_load_bytes -%}
+    {%- elif kernel_diff.kernel1.spill_store_bytes >0 -%}
+        spill stores: {{ kernel_diff.kernel1.spill_store_bytes }}
+    {%- endif %}
+    {% if kernel_diff.kernel1.spill_load_bytes != kernel_diff.kernel2.spill_load_bytes -%}
         spill loads: <span style="color: red">{{ kernel_diff.kernel1.spill_load_bytes }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.spill_load_bytes }}</span>
-    {%- endif -%}
+    {%- elif kernel_diff.kernel1.spill_load_bytes > 0 -%}
+        spill loads: {{ kernel_diff.kernel1.spill_load_bytes }}
+    {%- endif %}
     {% if kernel_diff.kernel1.cmem_bank_bytes is not none and kernel_diff.kernel2.cmem_bank_bytes is not none %}
-        {% for cmem_bank in range(kernel_diff.kernel1.cmem_bank_bytes|length) %}
-            {% set cmem1 = kernel_diff.kernel1.cmem_bank_bytes[cmem_bank] %}
-            {% set cmem2 = kernel_diff.kernel2.cmem_bank_bytes[cmem_bank] %}
+        {% for cmem_bank in range([kernel_diff.kernel1.cmem_bank_bytes|length, kernel_diff.kernel2.cmem_bank_bytes|length] | max) %}
+            {% set cmem1 = kernel_diff.kernel1.cmem_bank_bytes[cmem_bank] if cmem_bank < kernel_diff.kernel1.cmem_bank_bytes|length else 0 %}
+            {% set cmem2 = kernel_diff.kernel2.cmem_bank_bytes[cmem_bank] if cmem_bank < kernel_diff.kernel2.cmem_bank_bytes|length else 0 %}
             {% if cmem1 != cmem2 %}
                 cmem[{{ cmem_bank }}]: <span style="color: red">{{ cmem1 }}</span> &#8594; <span style="color: green">{{ cmem2 }}</span>
+            {% elif cmem1 > 0 %}
+                cmem[{{ cmem_bank }}]: {{ cmem1 }}
             {% endif %}
         {% endfor %}
     {% endif %}
