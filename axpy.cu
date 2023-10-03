@@ -121,7 +121,7 @@ int main(int argc, char* argv[]) {
       cudaMemcpyHostToDevice,
       stream));
 
-  constexpr int kIterations = 5;
+  constexpr int kIterations = 3;
   for (int i = 0; i < kIterations; i++) {
     l2_cache_flusher.Flush(stream);
     Axpy<CacheOp::Global>
