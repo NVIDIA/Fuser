@@ -93,7 +93,6 @@ template <
     bool Z_REDUCE,
     bool Aligned,
     typename T,
-
     typename Func>
 __device__ void blockReduce(
     T& out,
@@ -171,34 +170,17 @@ __device__ void clusterReduce(
     }
     block_sync::sync<Aligned>();
   }
-  if (threadIdx.x == 0 && blockIdx.y == 0) {
-    printf(
-        "cluster_id= %d reduction_tid= %d inp_val= %f current_smem=%f\n",
-        blockIdx.x,
-        reduction_tid,
-        inp_val,
-        ((float*)shared_mem)[0]);
-  }
+
   // block reduciton is done, start inter-block reduction
   auto cluster = cooperative_groups::this_cluster();
-  int cluster_id = cluster.block_rank(); // 0,1,2...,6
-  int cluster_size = cluster.dim_blocks().x; // 7
-  int dsm_np2 = 1 << (31 - __clz(cluster_size)); // 4
+  int cluster_id = cluster.block_rank();
+  int cluster_size = cluster.dim_blocks().x;
+  int dsm_np2 = 1 << (31 - __clz(cluster_size));
   // reduce results to last {dsm_np2} blocks of the cluster
   if (cluster_id - dsm_np2 >= 0) {
     float* other_smem =
         cluster.map_shared_rank(shared_mem, cluster_id - dsm_np2);
     shared_mem[0] += other_smem[0];
-  }
-  cluster.sync();
-  if (threadIdx.x == 0 && blockIdx.y == 0) {
-    printf(
-        "cluster_id= %d  np2= %d  reduction_tid= %d smem_offset= %d current_smem=%f\n",
-        blockIdx.x,
-        dsm_np2,
-        reduction_tid,
-        smem_offset,
-        ((float*)shared_mem)[0]);
   }
   cluster.sync();
 
@@ -208,14 +190,6 @@ __device__ void clusterReduce(
       float* other_smem =
           cluster.map_shared_rank(shared_mem, cluster_id - factor);
       shared_mem[0] += other_smem[0];
-      if (threadIdx.x == 0 && blockIdx.y == 0) {
-        printf(
-            "cluster_id= %d  factor= %d other_smem=%f, current_smem=%f\n",
-            cluster_id,
-            factor,
-            ((float*)other_smem)[0],
-            ((float*)shared_mem)[0]);
-      }
     }
     cluster.sync();
   }
@@ -234,14 +208,14 @@ template <
     bool Aligned,
     typename T,
     typename Func>
-__device__ void distributedSmemReduce(
+__device__ void clusterReduce(
     T& out,
     const T& inp_val,
     Func reduction_op,
     T* shared_mem,
     bool read_write_pred,
     T init_val) {
-  distributedSmemReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, T, Func>(
+  clusterReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, T, Func>(
       out,
       inp_val,
       reduction_op,

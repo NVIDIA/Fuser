@@ -360,7 +360,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // non-const Expr*.
   void handle(const std::vector<Expr*>& exprs) {
     for (Expr* expr : exprs) {
-      std::cout << "\n expr= " << expr->toString() << std::endl;
       kir::ConstIrVisitor::dispatch(expr);
     }
   }
