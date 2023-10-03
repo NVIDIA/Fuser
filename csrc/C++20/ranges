@@ -1,0 +1,78 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
+#pragma once
+
+#include <type_traits>
+
+// This is backport of C++20 ranges library to C++17.
+
+namespace ranges {
+
+template <typename W, typename Bound>
+class iota_view {
+  static_assert(
+      std::is_same_v<std::decay_t<W>, std::decay_t<Bound>>,
+      "W != Bound not supported yet");
+
+ public:
+  constexpr iota_view(W&& value, Bound&& bound)
+      : value_(std::forward<W>(value)), bound_(std::forward<Bound>(bound)) {}
+
+  struct iterator {
+    std::decay_t<W> value_;
+    std::decay_t<Bound> bound_;
+    constexpr std::decay_t<W> operator*() const {
+      return value_;
+    }
+    constexpr iterator& operator++() {
+      ++value_;
+      return *this;
+    }
+    constexpr iterator operator++(int) {
+      auto tmp = *this;
+      ++*this;
+      return tmp;
+    }
+    constexpr bool operator==(const iterator& other) const {
+      return value_ == other.value_;
+    }
+    constexpr bool operator!=(const iterator& other) const {
+      return !(*this == other);
+    }
+  };
+
+  constexpr iterator begin() const {
+    return {value_, bound_};
+  }
+
+  constexpr iterator end() const {
+    return {bound_, bound_};
+  }
+
+ private:
+  std::decay_t<W> value_;
+  std::decay_t<Bound> bound_;
+};
+
+// template <typename W>
+// iota_view(W&&) -> iota_view<W>;
+
+namespace views {
+
+template <typename W, typename Bound>
+constexpr iota_view<W, Bound> iota(W&& value, Bound&& bound) {
+  return iota_view<W, Bound>(
+      std::forward<W>(value), std::forward<Bound>(bound));
+}
+
+} // namespace views
+} // namespace ranges
+
+namespace std {
+namespace views = ranges::views;
+}
