@@ -36,6 +36,7 @@ class L2CacheFlusher {
 
     CHECK_CUDA_ERROR(cudaDeviceGetAttribute(
         &l2_cache_size_, cudaDevAttrL2CacheSize, device_id));
+    std::cerr << "L2 cache size = " << l2_cache_size_ << std::endl;
     if (l2_cache_size_ <= 0) {
       std::cerr << "The L2 cache size is expected to be positive. Got "
                 << l2_cache_size_ << std::endl;
