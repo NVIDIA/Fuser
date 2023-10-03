@@ -66,9 +66,6 @@ class L2CacheFlusher {
   int l2_cache_size_ = 0;
 };
 
-constexpr int kRows = 204800;
-constexpr int kColumns = 512;
-
 enum class CacheOp {
   Global,
   Streaming,
@@ -80,8 +77,8 @@ __global__ void Axpy(const float alpha, const float* x, float* y) {
   const int column = threadIdx.x * 4;
 
   const float4* in =
-      reinterpret_cast<const float4*>(&x[row * kColumns + column]);
-  float4* out = reinterpret_cast<float4*>(&y[row * kColumns + column]);
+      reinterpret_cast<const float4*>(&x[row * blockDim.x * 4 + column]);
+  float4* out = reinterpret_cast<float4*>(&y[row * blockDim.x * 4 + column]);
 
   float4 vector;
   switch (cache_op) {
@@ -109,6 +106,8 @@ __global__ void Axpy(const float alpha, const float* x, float* y) {
 }
 
 int main(int argc, char* argv[]) {
+  constexpr int kRows = 204800;
+  constexpr int kColumns = 512;
   constexpr int kSize = kRows * kColumns;
 
   constexpr float alpha = 2.0f;
