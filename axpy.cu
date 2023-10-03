@@ -13,7 +13,11 @@ inline void CheckCudaError(
     bool abort = true) {
   if (error != cudaSuccess) {
     fprintf(
-        stderr, "GPUassert: %s %s %d\n", cudaGetErrorString(error), file, line);
+        stderr,
+        "Unexpected error: %s at %s:%d\n",
+        cudaGetErrorString(error),
+        file,
+        line);
     if (abort) {
       exit(error);
     }
