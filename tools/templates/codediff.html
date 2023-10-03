@@ -6,6 +6,8 @@
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/cpp.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/diff.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/ini.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/shell.min.js"></script>
         <script>hljs.highlightAll();</script>
         <script language="javascript">
         function toggleDiv(divId) {
@@ -131,7 +133,7 @@
     </head>
     <body>
         <h1>{{ run1.git.abbrev }} vs {{ run2.git.abbrev }} - NVFuser codegen diff</h1>
-        <h2>Runs</h2>
+        <h2>Git Information</h2>
         <h3>
             Old commit: <a href="https://github.com/NVIDIA/Fuser/commit/{{ run1.git.full_hash }}">{{ run1.git.abbrev }}</a>
         </h3>
@@ -145,29 +147,6 @@
         <br>
         <a href="https://github.com/NVIDIA/Fuser/tree/{{ run1.git.full_hash }}">Browse code at this commit</a>
         <br>
-        {% if run1.gpu_names is not none %}
-            <br>
-            {%- if run1.gpu_names | length > 1 %}
-                <b>GPUs:</b>
-                <br>
-                <pre><code>{{run1.gpu_names | e}}</code></pre>
-                %}
-            {%- else -%}
-                <b>GPU:</b> {{ run1.gpu_names[0] | e }}
-                <br>
-            {%- endif %}
-        {% endif %}
-        {% if run1.nvcc_version is not none %}
-            <pre><code class="language-console">&gt; nvcc --version
-{{run1.nvcc_version | e}}</code></pre>
-        {% endif %}
-        {% if run1.env is not none %}
-            <button style="box-shadow:none" onclick="toggleDiv('old_env')">Toggle Env</button>
-            <div id="old_env" style="display:none">
-                {# INI highlighting gives best look out of a number of bad options for env dump #}
-                <pre><code class="language-sh">{{ run1.env|e }}</code></pre>
-            </div>
-        {% endif %}
         <h3>
             New commit: <a href="https://github.com/NVIDIA/Fuser/commit/{{ run2.git.full_hash }}">{{ run2.git.abbrev }}</a>
         </h3>
@@ -181,50 +160,69 @@
         <br>
         <a href="https://github.com/NVIDIA/Fuser/tree/{{ run2.git.full_hash }}">Browse code at this commit</a>
         <br>
-        {% if run2.gpu_names is not none %}
+        <h2>Code comparison</h2>
+        Command: <code>{{ run1.command|e }}</code>
+        {% if run1.gpu_names is not none %}
             <br>
-            {% if run2.gpu_names == run1.gpu_names %}
-                {{ "GPUs are" if run2.gpu_names | length > 1 else "GPU is"}} same
+            {%- if run1.gpu_names | length > 1 %}
+                {% if run1.gpu_names != run2.gpu_names %}{{ run1.git.abbrev }}{% endif %}
+                GPUs:
+                <pre><code>{{run1.gpu_names | e}}</code></pre>
+                %}
+            {%- else -%}
+                {% if run1.gpu_names != run2.gpu_names %}{{ run1.git.abbrev }}{% endif %}
+                GPU: {{ run1.gpu_names[0] | e }}
                 <br>
+            {%- endif %}
+        {% endif %}
+        {% if run1.nvcc_version is not none %}
+            <pre><code class="language-console">&gt; nvcc --version {%- if run1.nvcc_version != run2.nvcc_version %}# {{run1.git.abbrev}}{% endif %}
+{{run1.nvcc_version | e}}</code></pre>
+        {% endif %}
+        {%- if run1.env is not none %}
+            {%- if run1.env != run2.env %}
+                <button style="box-shadow:none" onclick="toggleDiv('old_env')">{{ run1.git.abbrev }} Env</button>
             {% else %}
+                <button style="box-shadow:none" onclick="toggleDiv('old_env')">Env</button>
+                matches between runs
+            {% endif -%}
+            <div id="old_env" style="display:none">
+                {# INI highlighting gives best look out of a number of bad options for env dump #}
+                <pre><code class="language-ini">{{ run1.env|e }}</code></pre>
+            </div>
+        {% endif %}
+        {% if run2.gpu_names is not none %}
+            {% if run2.gpu_names != run1.gpu_names %}
                 {%- if run2.gpu_names | length > 1 %}
-                    <b>GPUs:</b>
+                    <br>
+                    {{ run2.git.abbrev }} GPUs:
                     <br>
                     <pre><code>{{run2.gpu_names | e}}</code></pre>
-                    %}
                 {%- else -%}
-                    <b>GPU:</b> {{ run2.gpu_names[0] | e }}
+                    {{ run2.git.abbrev }} GPU: {{ run2.gpu_names[0] | e }}
                 {%- endif %}
             {% endif %}
         {% endif %}
         {% if run2.nvcc_version is not none %}
-            {% if run2.nvcc_version == run1.nvcc_version %}
-                NVCC version is same
-                <br>
-            {% else %}
-                <pre><code class="language-console">&gt; nvcc --version
+            {% if run2.nvcc_version != run1.nvcc_version %}
+                <pre><code class="language-console">&gt; nvcc --version  # {{run2.git.abbrev}}
 {{run2.nvcc_version | e}}</code></pre>
             {% endif %}
         {% endif %}
         {% if run2.env is not none %}
-            {% if run2.env == run1.env %}
-                Environment is same
+            {% if run2.env != run1.env %}
                 <br>
-            {% else %}
-                <br>
-                <button style="box-shadow:none" onclick="toggleDiv('old_env')">Env</button>
+                <button style="box-shadow:none" onclick="toggleDiv('old_env')">{{ run2.git.abbrev }} Env</button>
                 <div id="old_env" style="display:none">
                     {# INI highlighting gives best look out of a number of bad options for env dump #}
                     <pre><code class="language-sh">{{ run2.env|e }}</code></pre>
                 </div>
             {% endif %}
         {% endif %}
-        <h2>Code comparison</h2>
-        Command line: <code>{{ run1.command|e }}</code>
         <br>
         {% if not omit_preamble %}
             {% if run1.preamble != run2.preamble %}
-                Preamble differs between runs
+                NVFuser preamble differs between runs
                 <button style="box-shadow:none" onclick="toggleOldPreamble()">{{ run1.git.abbrev }}</button>
             </span>
             <button style="width: 60pt; box-shadow:none" onclick="togglePreambleDiff()">Diff</button>
@@ -242,8 +240,9 @@
         <pre><code class="language-diff">{{ preamble_diff|e }}</code></pre>
     </div>
 {% else %}
-    Preamble matches between runs
-    <button style="box-shadow:none" onclick="toggleDiv('preamble')">Preamble</button>
+    <br>
+    <button style="box-shadow:none" onclick="toggleDiv('preamble')">NVFuser preamble</button>
+    matches between runs
     <br>
     <div id="preamble" style="display:none">
         <pre><code class="language-cpp">{{ run1.preamble|e }}</code></pre>
@@ -251,6 +250,7 @@
 {% endif %}
 {% endif %}
 {% if new_tests|length > 0 %}
+    <hr>
     <h3>
         New Tests
         <button style="box-shadow:none" onclick="toggleAllNewTestCode()">Toggle All</button>
@@ -294,6 +294,7 @@
     {% endfor %}
 {% endif %}
 {% if removed_tests|length > 0 %}
+    <hr>
     <h3>
         Removed Tests
         <button style="box-shadow:none" onclick="toggleAllRemovedTestCode()">Toggle All</button>
@@ -315,6 +316,7 @@
         {% endfor %}
     {% endfor %}
 {% endif %}
+<hr>
 <h3>
     Test Diffs
     <button style="box-shadow:none" onclick="toggleAllDiffs()">Toggle All</button>
