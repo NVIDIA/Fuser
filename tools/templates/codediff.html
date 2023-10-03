@@ -181,7 +181,7 @@ SPDX-License-Identifier: BSD-3-Clause
             {%- endif %}
         {% endif %}
         {% if run1.nvcc_version is not none %}
-            <pre><code class="language-console">&gt; nvcc --version {%- if run1.nvcc_version != run2.nvcc_version %}# {{run1.git.abbrev}}{% endif %}
+            <pre><code class="language-console">&gt; nvcc --version {%- if run1.nvcc_version != run2.nvcc_version %}  # {{run1.git.abbrev}}{% endif %}
 {{run1.nvcc_version | e}}</code></pre>
         {% endif %}
         {%- if run1.env is not none %}
@@ -217,10 +217,9 @@ SPDX-License-Identifier: BSD-3-Clause
         {% if run2.env is not none %}
             {% if run2.env != run1.env %}
                 <br>
-                <button style="box-shadow:none" onclick="toggleDiv('old_env')">{{ run2.git.abbrev }} Env</button>
-                <div id="old_env" style="display:none">
-                    {# INI highlighting gives best look out of a number of bad options for env dump #}
-                    <pre><code class="language-sh">{{ run2.env|e }}</code></pre>
+                <button style="box-shadow:none" onclick="toggleDiv('new_env')">{{ run2.git.abbrev }} Env</button>
+                <div id="new_env" style="display:none">
+                    <pre><code class="language-ini">{{ run2.env|e }}</code></pre>
                 </div>
             {% endif %}
         {% endif %}
