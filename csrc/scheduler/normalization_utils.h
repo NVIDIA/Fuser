@@ -212,5 +212,25 @@ getOptionalInnerOuterPersistentBufferBatches(
 using ReductionType = reduction_scheduler_utils::ReductionType;
 ScheduleHeuristic getPersistentHeuristicFor(ReductionType reduction_type);
 
+// Check the operations and input tensors of the fusion. This
+// verification is a common step shared by all persistent kernel implementations
+// during compile-time checks.
+bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic heuristic);
+
+// Returns true if the reduction pattern is consistent. For the
+// InnerPersistentKernelScheduler and OuterPersistentKernelScheduler, a single
+// vector of TensorViews is provided, while for the
+// InnerOuterPersistentKernelScheduler, two vectors of TensorViews are provided.
+bool checkReductionPattern(
+    Fusion* fusion,
+    ScheduleHeuristic schedule_heuristic,
+    const std::vector<TensorView*>& reduction_tvs1,
+    const std::vector<TensorView*>& reduction_tvs2 = {});
+
+// The compile-time checks for both the InnerPersistentKernelScheduler and
+// OuterPersistentKernelScheduler are identical. These checks are constructed
+// using checkOpsAndInputs, checkReductionPattern, and checkViewBufferTopology.
+bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic);
+
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser
