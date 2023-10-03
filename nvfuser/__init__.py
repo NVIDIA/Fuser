@@ -133,7 +133,7 @@ class FusionDefinition(_C._FusionDefinition):
             )
             msg += (
                 f"Here's a script to reproduce the error:\n"
-                "```\n"
+                "```python\n"
                 "import torch\n"
                 "from nvfuser import FusionDefinition, DataType\n"
                 f"{self}"
