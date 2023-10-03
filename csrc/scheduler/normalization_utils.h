@@ -234,5 +234,25 @@ PersistentKernelProperties getPersistentKernelProperties(
 // Verify the presence of a reduction TensorView connected to a Fusion input
 void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv);
 
+// Check the operations and input tensors of the fusion. This
+// verification is a common step shared by all persistent kernel implementations
+// during compile-time checks.
+bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic heuristic);
+
+// Returns true if the reduction pattern is consistent. For the
+// InnerPersistentKernelScheduler and OuterPersistentKernelScheduler, a single
+// vector of TensorViews is provided, while for the
+// InnerOuterPersistentKernelScheduler, two vectors of TensorViews are provided.
+bool checkReductionPattern(
+    Fusion* fusion,
+    ScheduleHeuristic schedule_heuristic,
+    const std::vector<TensorView*>& reduction_tvs1,
+    const std::vector<TensorView*>& reduction_tvs2 = {});
+
+// The compile-time checks for both the InnerPersistentKernelScheduler and
+// OuterPersistentKernelScheduler are identical. These checks are constructed
+// using checkOpsAndInputs, checkReductionPattern, and checkViewBufferTopology.
+bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic);
+
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser
