@@ -11,6 +11,8 @@
 
 // This is backport of C++20 ranges library to C++17.
 
+namespace std {
+
 namespace ranges {
 
 template <typename W, typename Bound>
@@ -72,6 +74,7 @@ constexpr iota_view<W, Bound> iota(W&& value, Bound&& bound) {
 
 } // namespace views
 } // namespace ranges
+} // namespace std
 
 namespace std {
 namespace views = ranges::views;
