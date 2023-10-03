@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ATen/cuda/CUDAContext.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <scheduler/debug_utils.h>
@@ -14,6 +13,9 @@
 #include <scheduler/registry.h>
 #include <scheduler/registry_utils.h>
 #include <utils.h>
+
+#include <ATen/cuda/CUDAContext.h>
+
 namespace nvfuser {
 namespace normalization_scheduler_utils {
 
@@ -747,7 +749,10 @@ void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv) {
       ir_utils::isReductionOp(ref_red_tv->definition()),
       "TensorView doesn't have a reduction.");
   NVF_ERROR(
-      std::any_of(fusion->inputs().begin(), fusion->end(), [](auto inp) { return inp->isA<TensorView>()}),
+      std::any_of(
+          fusion->inputs().begin(),
+          fusion->end(),
+          [](auto inp) { return inp->isA<TensorView>() }),
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
 }
 
@@ -831,8 +836,6 @@ PersistentKernelProperties getPersistentKernelProperties(
   // (7) info about input and output tensors
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
-  // To prevent division by zero, ensure that n_tensor_inputs is not equal to
-  // zero.
   // TODO: This might be better if it was the larger of input or outputs. Would
   // be even better if we had better analysis as not all unrolled elements have
   // to be alive at the same time.
@@ -855,6 +858,8 @@ PersistentKernelProperties getPersistentKernelProperties(
         dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
     n_tensor_inputs++;
   }
+  // To prevent division by zero, ensure that n_tensor_inputs is not equal to
+  // zero.
   n_tensor_inputs = std::max(n_tensor_inputs, (int64_t)1);
 
   // (8) return collected properties to get heuristics.
