@@ -490,7 +490,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--html", action="store_true", help="Write HTML file?")
     parser.add_argument(
-        "--show-diffs", action="store_true", help="Print diffs to STDOUT?"
+        "--hide-diffs", action="store_true", help="Print diffs to STDOUT?"
     )
     parser.add_argument(
         "--html-max-diffs",
@@ -512,7 +512,9 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    td = TestDifferences(TestRun(args.dir1), TestRun(args.dir2))
+    td = TestDifferences(
+        TestRun(args.dir1), TestRun(args.dir2), show_diffs=not args.hide_diffs
+    )
 
     if args.hide_env:
         td.hide_env()
