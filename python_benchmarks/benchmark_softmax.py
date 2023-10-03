@@ -4,7 +4,6 @@ from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import runBenchmark
 import torch
 
-
 def softmax_fwd_fusion(
     fd: FusionDefinition, dtype: DataType, reduction_axis: int
 ) -> None:
@@ -158,3 +157,4 @@ def test_softmax_bwd_benchmark(benchmark, size, dtype, reduction_axis):
         softmax_bwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), reduction_axis)
 
     runBenchmark(benchmark, fd.execute, inputs)
+

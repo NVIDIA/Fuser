@@ -87,7 +87,7 @@ class NVFBenchmark(object):
         except:
             pass
 
-    def compute_IOBytes(self, inputs, outputs):
+    def compute_metrics(self, inputs, outputs):
         iobytes = 0
         for inp in inputs:
             if isinstance(inp, torch.Tensor):
@@ -96,13 +96,14 @@ class NVFBenchmark(object):
             iobytes += out.element_size() * out.numel()
 
         self.benchmark.extra_info["IOBytes"] = iobytes
-        return iobytes
+        self.benchmark.extra_info["BytesPerSecond"] = \
+            (iobytes * self.benchmark.stats['rounds']) / self.benchmark.stats['total']
 
 
 def runBenchmark(benchmark, benchmark_fn, inputs):
     nvf_bench = NVFBenchmark(benchmark)
     clearL2Cache()
     outputs = nvf_bench(benchmark_fn, inputs)
-    iobytes = nvf_bench.compute_IOBytes(inputs, outputs)
+    nvf_bench.compute_metrics(inputs, outputs)
     nvf_bench.cleanup()
     return outputs
