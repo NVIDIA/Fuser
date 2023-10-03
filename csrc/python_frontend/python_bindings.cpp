@@ -125,6 +125,19 @@ Tensor broadcast_in_dim_fn(
       broadcast_dims));
   return output;
 }
+
+struct DimInfo {
+  int64_t index;
+  int64_t size;
+  int64_t stride;
+  int64_t stride_order;
+  std::optional<bool> contiguity = std::nullopt;
+
+  bool notBroadcast() {
+    return stride != 0 && size != 1;
+  }
+};
+
 } // namespace
 
 std::vector<std::optional<bool>> computeContiguity(
@@ -171,6 +184,68 @@ std::vector<std::optional<bool>> computeContiguity(
   return contiguity;
 }
 
+std::tuple<std::vector<std::optional<bool>>, std::vector<int64_t>> computeTensorDescriptor(
+    const std::vector<int64_t>& sizes,
+    const std::vector<int64_t>& strides) {
+  NVF_CHECK(
+      sizes.size() == strides.size(),
+      "compute_contiguity: Sizes and strides must have the same number of dimensions");
+  std::vector<DimInfo> dim_info_vec(sizes.size());
+  for (auto i : c10::irange(sizes.size())) {
+    // NOTE: not supporting negative stride yet.
+    NVF_CHECK(strides[i] < 0, "negative stride on tensor is not supported");
+    dim_info_vec.emplace_back({i, sizes[i], strides[i]});
+  }
+  // sort by stride
+  std::sort(dim_info_vec.begin(), dim_info_vec.end(), [](const auto& l, const auto& r) {
+      return l.stride > r.stride;
+  });
+  // index to inner most dimension in sorted order.
+  int64_t last = (int64_t)sizes.size() - 1;
+  // Contiguity normallly is determined by the current dimension and one
+  // dimension to the right.  The innermost dimension, that is not broadcasted,
+  // does not have any dimension to it's right and needs to be specially marked
+  // contiguous.
+  while (last >= 0) {
+    // marking stride_order
+    dim_info_vec[last].stride_order = (int64_t)sizes.size() - 1 - i;
+    if (dim_info_vec[last].notBroadcast()) {
+      // setting current contiguity flag since it's not a broadcast dimension
+      dim_info_vec[last].contiguity = dim_info_vec[last].stride == 1;
+      break;
+    }
+    --last;
+  }
+  // Dimensions are marked contiguous by inspecting the current dimension and
+  // one to the right towards the inner dimension while skipping over broadcast
+  // dimensions.
+  for (int64_t i = 0; i < last;) {
+    dim_info_vec[i].stride_order = (int64_t)sizes.size() - 1 - i;
+    if (dim_info_vec[i].notBroadcast()) {
+      auto l = i++;
+      for (; i <= last; i++) {
+        dim_info_vec[i].stride_order = (int64_t)sizes.size() - 1 - i;
+        if (dim_info_vec[i].notBroadcast()) {
+          break;
+        }
+      }
+      dim_info_vec[l].contiguity = (dim_info_vec[l].stride == dim_info_vec[i].stride * dim_info_vec[i].size);
+    } else {
+      i++;
+    }
+  }
+
+  std::vector<std::optional<bool>> contiguity(sizes.size(), std::nullopt);
+  std::vector<int64_t> stride_order(sizes.size(), -1);
+
+  for (auto i : c10::irange(sizes.size())) {
+    contiguity[dim_info_vec[i].index] = dim_info_vec[i].contiguity;
+    stride_order[dim_info_vec[i].index] = dim_info_vec[i].stride_order;
+  }
+
+  return std::make_tuple(contiguity, stride_order);
+}
+
 void initNvFuserPythonBindings(PyObject* module) {
   auto nvfuser = py::handle(module).cast<py::module>();
 
@@ -188,6 +263,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("Null", DataType::Null);
 
   nvfuser.def("compute_contiguity", computeContiguity);
+  nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
 
   //! Binding the FusionCache that holds a cache of Fusions
   //! This is only bound to provide an interface to get the number of fusions
