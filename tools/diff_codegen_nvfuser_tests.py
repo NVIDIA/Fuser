@@ -185,7 +185,11 @@ class TestRun:
             sys.exit(1)
 
         try:
-            self.env = open(os.path.join(self.directory, "env"), "r").read()
+            self.env = ""
+            for line in open(os.path.join(self.directory, "env"), "r").readlines():
+                # remove $testdir which is set by compare_codegen.sh
+                if re.search(r"^testdir=", line) is None:
+                    self.env += line
         except FileNotFoundError:
             self.env = None
 
