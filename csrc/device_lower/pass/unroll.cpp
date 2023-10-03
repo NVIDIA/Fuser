@@ -64,7 +64,7 @@ void UnrollPass::registerReplace(Expr* reference, Expr* new_expr) {
 }
 
 void UnrollPass::dispatch(Expr* expr) {
-  if (ir_utils::isTvOp(expr)) {
+  if (ir_utils::isTvOp(expr) && !ir_utils::isCpAsyncBulk(expr)) {
     // If tv op, predicate it
     const auto out_tv = ir_utils::getTvOutput(expr);
     const bool should_predicate = !for_loops_.empty() ||
@@ -92,7 +92,7 @@ void UnrollPass::dispatch(Expr* expr) {
         // In the case of Global, we cannot ignore any predicates at
         // all, so don't modify thread_pred. Just make sure no other
         // memory type shows up here.
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             out_tv->getMemoryType() == MemoryType::Global,
             "Unexpected memory type: ",
             out_tv->getMemoryType(),

@@ -143,23 +143,6 @@ inline bool initCoreHeuristics(
   return true;
 }
 
-//! A wrapper to get MMA Tensor data types
-//!   The order of returned types: INPUT_A, INPUT_B, OUTPUT_D
-inline mma_utils::MmaDataTypes getMmaDataTypes(
-    const std::map<MatmulRole, std::vector<TensorView*>>& roles_map) {
-  auto getMMADataType = [&](MatmulRole role) {
-    auto entry = roles_map.find(role);
-    if (entry != roles_map.end() && !entry->second.empty()) {
-      return entry->second.front()->dtype();
-    }
-    TORCH_INTERNAL_ASSERT(false, "Get MMA Tensor data type failed!");
-  };
-  const auto a_type = getMMADataType(MatmulRole::INPUT_A);
-  const auto b_type = getMMADataType(MatmulRole::INPUT_B);
-  const auto c_type = getMMADataType(MatmulRole::OUTPUT_D);
-  return mma_utils::MmaDataTypes{a_type, b_type, c_type};
-}
-
 //! A helper for getting problem shape from fusion and runtime info.
 ProblemShape getProblemShape(
     Fusion* fusion,
@@ -167,7 +150,7 @@ ProblemShape getProblemShape(
     SchedulerRuntimeInfo& runtime_info) {
   const auto mma_output_domains = mma_utils::getProblemIterDomains(fusion);
   if (!mma_output_domains.isValid()) {
-    TORCH_INTERNAL_ASSERT(false, mma_output_domains.getErrorMsg());
+    NVF_ERROR(false, mma_output_domains.getErrorMsg());
   }
 
   const auto [m, n, k] = mma_output_domains.getData();
@@ -177,7 +160,7 @@ ProblemShape getProblemShape(
   auto k_extend = runtime_info.expressionEvaluator().evaluate(k->extent());
 
   if (!(m_extend && n_extend && k_extend)) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         false,
         "Failed to acquire one of problem dimensions, M(",
         m_extend.hasValue(),
@@ -339,14 +322,11 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   //    scheduler
 
   // #1
-  auto mma_exprs = ir_utils::getMmaOps(fusion);
+  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
   if (mma_exprs.size() != 1) {
     std::stringstream ss;
     ss << "Matmul scheduler supports fusions only with a single MMA op, got: "
        << mma_exprs.size();
-    if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-      debug() << MATMUL_LOG_PREFIX << ss.str() << std::endl;
-    }
     return ss.str();
   }
 
@@ -354,10 +334,6 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   {
     const auto input_layout_opt = mma_utils::getMatmulLayout(fusion);
     if (!input_layout_opt.isValid()) {
-      if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-        debug() << MATMUL_LOG_PREFIX << input_layout_opt.getErrorMsg()
-                << std::endl;
-      }
       return input_layout_opt.getErrorMsg();
     }
   }
@@ -367,9 +343,6 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     for (auto mma_expr : mma_exprs) {
       auto support_status = isMatmulFusionDefinitionSupported(fusion, mma_expr);
       if (!support_status.empty()) {
-        if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-          debug() << MATMUL_LOG_PREFIX << support_status << std::endl;
-        }
         return support_status;
       }
     }
@@ -388,9 +361,8 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   auto params = std::make_shared<MatmulParams>();
 
   // Check initial conditions
-  auto mma_exprs = ir_utils::getMmaOps(fusion);
-  TORCH_INTERNAL_ASSERT(
-      mma_exprs.size() == 1, "Support only fusion with a single mma op.");
+  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
+  NVF_ERROR(mma_exprs.size() == 1, "Support only fusion with a single mma op.");
 
   const auto problem_shape =
       getProblemShape(fusion, mma_exprs.front()->as<MmaOp>(), runtime_info);
@@ -398,13 +370,12 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
   const auto mma_op =
       getMmaOp(device_prop->major * 10 + device_prop->minor, problem_shape);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       mma_op.has_value(), "Failed to determine a MMA op for given problem.");
 
   // Populate heuristic details
   auto status = initCoreHeuristics(params, mma_op.value(), problem_shape);
-  TORCH_INTERNAL_ASSERT(
-      status, "Initialization of core part of heuristics failed.");
+  NVF_ERROR(status, "Initialization of core part of heuristics failed.");
 
   // Set kernel index mode
   params->cparams.index_type = runtime_info.getIndexType();
@@ -414,12 +385,14 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
 
   // Set whether to use shared memory for epilogue
   const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
-  TORCH_INTERNAL_ASSERT(
-      roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
-  params->use_smem_epilogue = mma_utils::generateSharedMemoryEpilogueHeuristics(
-      params->tile_sizes,
-      params->double_buffer_options.smem_double_buffer_stage,
-      getMmaDataTypes(roles_map_opt.getData()));
+  NVF_ERROR(roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
+
+  const auto roles_map = roles_map_opt.getData();
+  std::tie(params->use_smem_epilogue, params->promote_prologue_smem_reuse) =
+      mma_utils::generateSharedMemoryEpilogueHeuristics(
+          params->tile_sizes,
+          params->double_buffer_options.smem_double_buffer_stage,
+          roles_map);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << params->toString() << std::endl;

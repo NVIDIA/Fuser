@@ -9,6 +9,7 @@
 
 #include <ATen/core/ivalue.h>
 #include <c10/util/Exception.h>
+#include <exceptions.h>
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
 #include <serde/fusion_cache_generated.h>
@@ -26,7 +27,7 @@ namespace nvfuser {
 //! for both compilation as well as kernel execution. The important thing is to
 //! strip ownership of tensor from KernelArgumentHolder, so that during async
 //! compilation, we are not unnecessarily holding memory that is not needed.
-class TORCH_CUDA_CU_API KernelArgumentHolder {
+class KernelArgumentHolder {
  public:
   static KernelArgumentHolder createKernelArgumentHolder(
       const c10::ArrayRef<c10::IValue>& inputs,

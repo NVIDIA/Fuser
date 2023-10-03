@@ -144,7 +144,7 @@ void buildExactMap(const std::vector<Expr*>& exprs, IdGraph& id_graph) {
       auto exact_c2p_root_map =
           PairwiseRootDomainMap(p_tv, c_tv)
               .mapBroadcast(false)
-              .mapConsumerToProducer(c_tv->domain(), p_tv->domain());
+              .mapConsumerToProducer();
 
       for (auto c_id : getSortedKeys(exact_c2p_root_map, Statement::lessThan)) {
         auto p_id = exact_c2p_root_map.at(c_id);
@@ -221,8 +221,7 @@ void buildPermissiveMap(const std::vector<Expr*>& exprs, IdGraph& id_graph) {
 #endif
       auto permissive_c2p_root_map = PairwiseRootDomainMap(p_tv, c_tv);
 
-      for (auto entry : permissive_c2p_root_map.mapConsumerToProducer(
-               c_tv->domain(), p_tv->domain())) {
+      for (auto entry : permissive_c2p_root_map.mapConsumerToProducer()) {
 #if 0
         std::cerr << "Permissive map 5: " << entry.first->toString()
                   << ", " << entry.second->toString()

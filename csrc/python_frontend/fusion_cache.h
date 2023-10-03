@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <kernel_cache.h>
 #include <python_frontend/fusion_record.h>
@@ -57,7 +58,7 @@ struct FusionSchedules {
 //! where each node represents a statement in a fusion definition and
 //! the leaf Nodes represent a complete Fusion that is cached.
 
-struct TORCH_CUDA_CU_API TrieNode {
+struct TrieNode {
   TrieNode(
       RecordFunctor* rec,
       TrieNode* _parent = nullptr,
@@ -108,7 +109,7 @@ struct TORCH_CUDA_CU_API TrieNode {
 //! creation.  Otherwise, the Python GIL provides a natural thread based mutex
 //! that does not allow for multiple threads to interact.
 
-class TORCH_CUDA_CU_API FusionCache {
+class FusionCache {
   //! The constructor is private given the FusionCache is only constructed
   //! as a singleton.
   FusionCache(size_t max_fusions);

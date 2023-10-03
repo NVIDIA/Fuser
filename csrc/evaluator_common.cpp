@@ -159,12 +159,12 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
   }
 
   const auto& inputs = fusion_->inputs();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       args.size() == inputs.size(), "kernel inputs size does not match args");
 
   for (const auto i : c10::irange((int64_t)inputs.size())) {
     const auto input = inputs[i];
-    TORCH_INTERNAL_ASSERT(input != nullptr);
+    NVF_ERROR(input != nullptr);
     if (auto tensor_input = dynamic_cast<TensorView*>(input)) {
       const auto& tensor = args[i]->as<at::Tensor>();
       if (!tensor.is_cpu()) {
@@ -310,7 +310,7 @@ void PrecomputedValues::validate() {
   FUSER_PERF_SCOPE("PrecomputedValuess::Validate");
   using namespace PolymorphicValue_functions;
   for (const auto& it : binding_log_) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         isSame(values_[it.first], it.second),
         "Precomputed values failed to validate.",
         "\nSomething unexpected changed between the compilation and execution.\n",
@@ -326,7 +326,7 @@ void PrecomputedValues::bindTensorMetaData(
     const at::Tensor& tensor) {
   const auto root_domain =
       TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       tensor.dim() == static_cast<int64_t>(root_domain.size()),
       "Something went wrong configuring launch. Inputs do not match.");
 
@@ -353,6 +353,8 @@ NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)
         makeUnaryOp(uop);
       } else if (auto bop = dynamic_cast<BinaryOp*>(def)) {
         makeBinaryOp(bop);
+      } else if (auto top = dynamic_cast<TernaryOp*>(def)) {
+        makeTernaryOp(top);
       } else {
         // There could be some ops not supported yet. For these ops, we will
         // bind their outputs. So ignoring them here.
@@ -405,8 +407,8 @@ void NaiveValueMachine::run() {
 void NaiveValueMachine::makeUnaryOp(UnaryOp* uop) {
   int in = uop->inputs()[0]->evaluatorIndex();
   int out = uop->outputs()[0]->evaluatorIndex();
-  TORCH_INTERNAL_ASSERT(in >= 0, "Integer Machine: unknown input: ", uop);
-  TORCH_INTERNAL_ASSERT(out >= 0, "Integer Machine: unknown out: ", uop);
+  NVF_ERROR(in >= 0, "Integer Machine: unknown input: ", uop);
+  NVF_ERROR(out >= 0, "Integer Machine: unknown out: ", uop);
 
   int index = makeInstructionEntry();
   inst_type_[index] = InstructionType::UNARY_OP;
@@ -423,9 +425,9 @@ void NaiveValueMachine::makeBinaryOp(BinaryOp* bop) {
   int in1 = bop->inputs()[1]->evaluatorIndex();
   int out = bop->outputs()[0]->evaluatorIndex();
 
-  TORCH_INTERNAL_ASSERT(in0 >= 0, "Integer Machine: unknown lhs: ", bop);
-  TORCH_INTERNAL_ASSERT(in1 >= 0, "Integer Machine: unknown rhs: ", bop);
-  TORCH_INTERNAL_ASSERT(out >= 0, "Integer Machine: unknown out: ", bop);
+  NVF_ERROR(in0 >= 0, "Integer Machine: unknown lhs: ", bop);
+  NVF_ERROR(in1 >= 0, "Integer Machine: unknown rhs: ", bop);
+  NVF_ERROR(out >= 0, "Integer Machine: unknown out: ", bop);
 
   int index = makeInstructionEntry();
   inst_type_[index] = InstructionType::BINARY_OP;
@@ -435,14 +437,36 @@ void NaiveValueMachine::makeBinaryOp(BinaryOp* bop) {
   dest_[index] = out;
 }
 
+void NaiveValueMachine::makeTernaryOp(TernaryOp* top) {
+  int in0 = top->inputs()[0]->evaluatorIndex();
+  int in1 = top->inputs()[1]->evaluatorIndex();
+  int in2 = top->inputs()[2]->evaluatorIndex();
+  int out = top->outputs()[0]->evaluatorIndex();
+
+  NVF_ERROR(in0 >= 0, "Integer Machine: unknown first input: ", top);
+  NVF_ERROR(in1 >= 0, "Integer Machine: unknown second input: ", top);
+  NVF_ERROR(in2 >= 0, "Integer Machine: unknown third input: ", top);
+  NVF_ERROR(out >= 0, "Integer Machine: unknown out: ", top);
+
+  int index = makeInstructionEntry();
+  inst_type_[index] = InstructionType::TERNARY_OP;
+  top_type_[index] = top->getTernaryOpType();
+  src0_[index] = in0;
+  src1_[index] = in1;
+  src2_[index] = in2;
+  dest_[index] = out;
+}
+
 int NaiveValueMachine::makeInstructionEntry() {
   int index = num_of_instructions_++;
   inst_type_.emplace_back(InstructionType::UNARY_OP);
   uop_type_.emplace_back(UnaryOpType::Abs);
   bop_type_.emplace_back(BinaryOpType::Add);
+  top_type_.emplace_back(TernaryOpType::Where);
   data_type_.emplace_back(DataType::Null);
   src0_.emplace_back(-1);
   src1_.emplace_back(-1);
+  src2_.emplace_back(-1);
   dest_.emplace_back(-1);
   return index;
 }
@@ -458,6 +482,9 @@ void NaiveValueMachine::runInstruction(int index) {
       break;
     case InstructionType::BINARY_OP:
       runBinaryOp(index);
+      break;
+    case InstructionType::TERNARY_OP:
+      runTernaryOp(index);
       break;
   }
 }
@@ -488,7 +515,7 @@ void NaiveValueMachine::runUnaryOp(int index) {
       } else if (data_type_[index] == DataType::Bool) {
         dest = PolymorphicValue((bool)src);
       } else {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             false, "dtype not supported in evaluator: ", data_type_[index]);
       }
       break;
@@ -502,7 +529,7 @@ void NaiveValueMachine::runUnaryOp(int index) {
       dest = ~src;
       break;
     default:
-      TORCH_CHECK(!"Unexpected operator type ", uop_type_[index]);
+      NVF_CHECK(!"Unexpected operator type ", uop_type_[index]);
   }
 
   precomputed_values_.defined_[dest_index] = true;
@@ -539,15 +566,15 @@ void NaiveValueMachine::runBinaryOp(int index) {
       dest = lhs * rhs;
       break;
     case BinaryOpType::Div:
-      TORCH_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0);
       dest = lhs / rhs;
       break;
     case BinaryOpType::Mod:
-      TORCH_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0);
       dest = lhs % rhs;
       break;
     case BinaryOpType::CeilDiv:
-      TORCH_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0);
       dest = ceildiv(lhs, rhs);
       break;
     case BinaryOpType::LogicalAnd:
@@ -574,8 +601,72 @@ void NaiveValueMachine::runBinaryOp(int index) {
     case BinaryOpType::Gcd:
       dest = gcd(lhs, rhs);
       break;
+    case BinaryOpType::LT:
+      dest = lhs < rhs;
+      break;
+    case BinaryOpType::LE:
+      dest = lhs <= rhs;
+      break;
+    case BinaryOpType::Eq:
+      dest = lhs == rhs;
+      break;
+    case BinaryOpType::NE:
+      dest = lhs != rhs;
+      break;
+    case BinaryOpType::GE:
+      dest = lhs >= rhs;
+      break;
+    case BinaryOpType::GT:
+      dest = lhs > rhs;
+      break;
     default:
-      TORCH_CHECK(!"Unexpected operator type");
+      NVF_CHECK(false, "Unexpected operator type ", bop_type_[index]);
+  }
+
+  precomputed_values_.defined_[dest_index] = true;
+}
+
+void NaiveValueMachine::runTernaryOp(int index) {
+  using namespace PolymorphicValue_functions;
+  int src0_index = src0_[index];
+  int src1_index = src1_[index];
+  int src2_index = src2_[index];
+  bool src0_is_const = precomputed_values_.is_constant_[src0_index];
+  bool src1_is_const = precomputed_values_.is_constant_[src1_index];
+  bool src2_is_const = precomputed_values_.is_constant_[src2_index];
+
+  bool src_defined =
+      (precomputed_values_.defined_[src0_index] || src0_is_const) &&
+      (precomputed_values_.defined_[src1_index] || src1_is_const) &&
+      (precomputed_values_.defined_[src2_index] || src2_is_const);
+
+  if (!src_defined) {
+    return;
+  }
+  int dest_index = dest_[index];
+
+  auto& a = precomputed_values_.values_[src0_index];
+  auto& b = precomputed_values_.values_[src1_index];
+  auto& c = precomputed_values_.values_[src2_index];
+  auto& dest = precomputed_values_.values_[dest_index];
+
+  switch (top_type_[index]) {
+    case TernaryOpType::Clamp:
+      dest = std::min(std::max(a, b), c);
+      break;
+    case TernaryOpType::Lerp:
+      // This is the same lerp computed in helpers.cu
+      // https://math.stackexchange.com/a/1798323
+      dest = (c < 0.5) ? a + c * (b - a) : b - (b - a) * (1.0 - c);
+      break;
+    case TernaryOpType::Threshold:
+      dest = a <= b ? c : a;
+      break;
+    case TernaryOpType::Where:
+      dest = a ? b : c;
+      break;
+    default:
+      NVF_CHECK(!"Unexpected operator type");
   }
 
   precomputed_values_.defined_[dest_index] = true;

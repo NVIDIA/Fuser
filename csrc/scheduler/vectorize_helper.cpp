@@ -77,7 +77,7 @@ ContiguousInnerDimensionsMapper::ContiguousInnerDimensionsMapper(
     rfactor_domain = TensorDomain::noReductions(rfactor_domain);
     filtered_ids = TensorDomain::noReductions(filtered_ids);
   } else {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !TensorDomain::hasReduction(rfactor_domain) &&
             !TensorDomain::hasReduction(filtered_ids),
         "Unexpected reduction domain given to ContiguousInnerDimensionsMapper");
@@ -395,7 +395,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           false,
           "ProjectDimensions does not support expr type: ",
           expr->toString());
@@ -423,7 +423,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
     } else {
       // TODO: I wonder if we should just remove all inputs instead of erroring.
       // Seems that would be safe.
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           false,
           "ProjectDimensions does not support expr type: ",
           expr->toString());
@@ -462,7 +462,7 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
   // Then i1 and i2 are contiguous in both T0 and T5, but due to the realization
   // of the broadcast on T4 we will have removed i1 from the mapped set.
   PairwiseRootDomainMap root_map(to, from);
-  auto c2p_map = root_map.mapConsumerToProducer(from->domain(), to->domain());
+  auto c2p_map = root_map.mapConsumerToProducer();
 
   // Id's in consumer to clear from the mapped set due to broadcast
   // concretization.
@@ -535,7 +535,7 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
   // Then i1 and i2 are contiguous in both T0 and T3, but due to the sum on T1
   // we will have removed i1.
   PairwiseRootDomainMap root_map(from, to);
-  auto p2c_map = root_map.mapProducerToConsumer(from->domain(), to->domain());
+  auto p2c_map = root_map.mapProducerToConsumer();
   std::vector<IterDomain*> consumer_root_ids;
 
   // Id's in producer to clear from the mapped set due to reductions.
@@ -578,7 +578,7 @@ ContiguousInnerDimensionsMapper::computeInfoSibling(
     TensorView* from,
     TensorView* to,
     std::shared_ptr<MaxInfoSpanningTree::Information> from_info) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       from->getRootDomain().size() == to->getRootDomain().size(),
       "Siblings of different root sizes not supported, but found:\n  ",
       from->toString(),
@@ -598,7 +598,7 @@ ContiguousInnerDimensionsMapper::computeInfoSibling(
         from->getRootDomain().begin(),
         from->getRootDomain().end(),
         from_root_id);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         from_it != from->getRootDomain().end(),
         "Expected ",
         from_root_id->toString(),
@@ -620,7 +620,7 @@ ContiguousInnerDimensionsMapper::computeInfoSibling(
         false /*shouldn't matter how we initialize this*/);
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       from->getRFactorDomain().size() == to->getRFactorDomain().size(),
       "Siblings of different rfactor sizes not supported, but found:\n  ",
       from->toString(),
@@ -641,7 +641,7 @@ ContiguousInnerDimensionsMapper::computeInfoSibling(
         from->getRFactorDomain().begin(),
         from->getRFactorDomain().end(),
         from_rfactor_id);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         from_it != from->getRFactorDomain().end(),
         "Expected ",
         from_rfactor_id->toString(),
@@ -692,7 +692,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
   Val* product_of_inner_extents = of_tv->container()->oneVal();
   auto of_tv_root = of_tv->getMaybeRFactorDomain();
 
-  TORCH_INTERNAL_ASSERT(hasMappedDims(of_tv));
+  NVF_ERROR(hasMappedDims(of_tv));
 
   const std::vector<IterDomain*>& projected_dims = mappedRFactorIds(of_tv);
   auto of_tv_root_no_reductions = TensorDomain::noReductions(of_tv_root);
@@ -718,7 +718,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     return product_of_inner_extents;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       of_tv_root_no_reductions_size == contiguity.size(),
       "Contiguity mismatch found.");
 
@@ -745,7 +745,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
 
     auto contiguity_i = contiguity.at(root_i);
     if (!contiguity_i.has_value()) {
-      TORCH_INTERNAL_ASSERT(false, "contiguity flag at root_i can't be null");
+      NVF_ERROR(false, "contiguity flag at root_i can't be null");
     } else {
       // Not contiguous
       if (!contiguity_i.value()) {
@@ -833,7 +833,7 @@ int64_t getVectorizationFactor(
 
     // factor <= alignment / dtype_size
     int64_t alignment_size = (int64_t)runtime_info.getAlignmentSize(inp_or_out);
-    TORCH_INTERNAL_ASSERT(alignment_size % dtype_size == 0);
+    NVF_ERROR(alignment_size % dtype_size == 0);
     max_vec_size = std::min(max_vec_size, alignment_size / dtype_size);
 
     // factor <= projected_extent
@@ -849,7 +849,7 @@ int64_t getVectorizationFactor(
     }
     auto inner_size_opt =
         runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         inner_size_opt.hasValue(),
         "Vectorization heuristic could not evaluate inner most size.");
 
@@ -893,7 +893,7 @@ int64_t getVectorizationFactorTransposeGroup(
         : runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
     // TODO: Do not assert here. we can just reduce vectorization size to 1 if
     // we can't infer an inner size.
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         tv_vectorize_factor_opt.hasValue(),
         "Vectorization heuristic could not evaluate inner most size.");
     int64_t tv_vectorize_factor = tv_vectorize_factor_opt.as<int64_t>();
@@ -909,7 +909,7 @@ int64_t getVectorizationBreakPointOfReductionProducer(
     TensorView* reduction_consumer,
     TensorView* reduction_producer,
     int64_t consumer_innermost_ndims) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       reduction_consumer->definition() != nullptr &&
           ir_utils::isReductionOp(reduction_consumer->definition()) &&
           reduction_consumer->definition()->input(0) == reduction_producer,
@@ -918,10 +918,8 @@ int64_t getVectorizationBreakPointOfReductionProducer(
       ". ",
       reduction_producer->toString());
 
-  const auto c2p =
-      PairwiseRootDomainMap(reduction_producer, reduction_consumer)
-          .mapConsumerToProducer(
-              reduction_consumer->domain(), reduction_producer->domain());
+  const auto c2p = PairwiseRootDomainMap(reduction_producer, reduction_consumer)
+                       .mapConsumerToProducer();
 
   // Grab all the corresponding producer IDs that are mapped with the
   // innermost consumer IDs
@@ -934,7 +932,7 @@ int64_t getVectorizationBreakPointOfReductionProducer(
     auto c2p_it = c2p.find(consumer_id);
     // Since this is for a reduction op, there must be a mapped
     // producer ID
-    TORCH_INTERNAL_ASSERT(c2p_it != c2p.end());
+    NVF_ERROR(c2p_it != c2p.end());
     auto producer_id = c2p_it->second;
     producer_innermost_ids.insert(producer_id);
   }
@@ -954,7 +952,7 @@ int64_t getVectorizationBreakPointOfReductionProducer(
     // reduction/normalization scheduler do not support fusing
     // multiple back-to-back reductions
     if (producer_rf_id->isReduction()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           reduction_producer->isFusionInput(),
           "Unexpected producer of reduction: ",
           reduction_producer->toString());
@@ -976,8 +974,7 @@ int64_t getVectorizationBreakPointOfReductionProducer(
 
     // Neither reduction nor mapped to consumer innermost IDs.
     // This should not happen
-    TORCH_INTERNAL_ASSERT(
-        false, "Unexpected producer RF ID: ", producer_rf_id->toString())
+    NVF_ERROR(false, "Unexpected producer RF ID: ", producer_rf_id->toString())
   }
 
   return break_point;

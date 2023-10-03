@@ -9,6 +9,7 @@
 
 #include <c10/macros/Export.h>
 #include <c10/util/Exception.h>
+#include <exceptions.h>
 
 #include <utils.h>
 
@@ -136,12 +137,13 @@ class AllocateFusedReduction;
 class InitMagicZero;
 class UpdateMagicZero;
 class GetRNGSeedAndOffsetFromHost;
+class EncodeTensorMapTiled;
 
 } // namespace kir
 
 // By default, all IR nodes are handled in this dispatch, and will call an empty
 // function on all nodes.
-class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
+class OptOutConstDispatch : public PolymorphicBase {
  protected:
   virtual void unhandled(const Statement*) {}
 
@@ -220,13 +222,14 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const kir::GroupedGridWelford*);
   virtual void handle(const kir::VectorizedWelfordOp*);
   virtual void handle(const kir::AllocateFusedReduction*);
-  virtual void handle(const kir::GetRNGSeedAndOffsetFromHost* stmt);
+  virtual void handle(const kir::GetRNGSeedAndOffsetFromHost*);
+  virtual void handle(const kir::EncodeTensorMapTiled*);
 
   virtual void handle(const PipelineStage*);
   virtual void handle(const PipelineCommunication*);
 };
 
-class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
+class OptOutDispatch : public PolymorphicBase {
  protected:
   virtual void unhandled(Statement*);
 
@@ -306,12 +309,13 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void handle(kir::VectorizedWelfordOp* stmt);
   virtual void handle(kir::AllocateFusedReduction* stmt);
   virtual void handle(kir::GetRNGSeedAndOffsetFromHost* stmt);
+  virtual void handle(kir::EncodeTensorMapTiled* stmt);
 
   virtual void handle(PipelineStage* stmt);
   virtual void handle(PipelineCommunication* stmt);
 };
 
-class TORCH_CUDA_CU_API OptInConstDispatch : public OptOutConstDispatch {
+class OptInConstDispatch : public OptOutConstDispatch {
  public:
   using OptOutConstDispatch::handle;
 
@@ -319,7 +323,7 @@ class TORCH_CUDA_CU_API OptInConstDispatch : public OptOutConstDispatch {
   void unhandled(const Statement* stmt) final;
 };
 
-class TORCH_CUDA_CU_API OptInDispatch : public OptOutDispatch {
+class OptInDispatch : public OptOutDispatch {
  public:
   using OptOutDispatch::handle;
 
@@ -342,7 +346,7 @@ class TORCH_CUDA_CU_API OptInDispatch : public OptOutDispatch {
 // other vals, on top of TensorDomain being updated in the mutated TensorView.
 //
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
+class OptOutMutator : public PolymorphicBase {
  public:
   // Hierarchal dispatch functions for handle
   virtual void dispatchMutate(Statement* s);
@@ -350,12 +354,7 @@ class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
 
   void registerMutation(Val* val, Val* mutation);
 
-  Val* maybeMutated(Val* val) {
-    if (mutations_.find(val) == mutations_.end()) {
-      return val;
-    }
-    return mutations_.at(val);
-  }
+  Val* maybeMutated(Val* val) const;
 
   std::unordered_map<Val*, Val*> mutations_;
 
@@ -372,11 +371,40 @@ class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
   virtual void mutate(kir::Predicate*);
   virtual void mutate(kir::TensorIndex*);
 
-  virtual void mutate(Expr* e);
+  //! This method replaces e if any inputs or attributes are registered for
+  //! mutation.
+  virtual void mutate(Expr* e) {
+    mutateExpr(
+        e,
+        /*replace_outputs*/ false,
+        /*replace_inputs*/ true,
+        /*replace_attrs*/ true);
+  }
+
+  //! Unlike mutate(Expr*), this method replaces e only if any outputs are
+  //! registered for mutation. Inputs and attributes are unchanges. This method
+  //! is useful for tranferring the definition of e's current outputs to those
+  //! their respective registered mutations.
+  Expr* mutateExprOutputsOnly(Expr* e) {
+    return mutateExpr(
+        e,
+        /*replace_outputs*/ true,
+        /*replace_inputs*/ false,
+        /*replace_attrs*/ false);
+  }
 
  protected:
   virtual void removeExpr(IrContainer*, Expr*) const;
   virtual void registerNewExpr(Expr*) {}
+
+ private:
+  //! Replaces Expr if any inputs, attrs, or outputs are registered for
+  //! mutation. See comment on mutateExprOutputsOnly for more information.
+  Expr* mutateExpr(
+      Expr*,
+      bool replace_outputs = false,
+      bool replace_inputs = true,
+      bool replace_attrs = true);
 };
 
 } // namespace nvfuser

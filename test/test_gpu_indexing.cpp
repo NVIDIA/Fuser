@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -265,7 +266,7 @@ TEST_F(NVFuserTest, FusionIndexing6_CUDA) {
 
   std::vector<int64_t> reduction_axes{0, 1};
   auto reduction_params = getReductionHeuristics(&fusion, {input0, input1});
-  TORCH_CHECK(reduction_params, "Reduction schedule was not generated!");
+  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
   scheduleReduction(&fusion, *reduction_params);
 
   FusionExecutor fe;
@@ -476,7 +477,7 @@ TEST_F(NVFuserTest, FusionIndexing10_CUDA) {
   at::Tensor tv2_ref = input2 + 2.0;
   at::Tensor output_ref = input1 + tv2_ref;
 
-  TORCH_CHECK(output_ref.equal(output));
+  NVF_CHECK(output_ref.equal(output));
 }
 
 TEST_F(NVFuserTest, FusionIndexing11_CUDA) {

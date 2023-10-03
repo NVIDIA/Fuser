@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/utils.h>
@@ -56,7 +57,7 @@ namespace nvfuser {
 //! predicate still in the inner most loop, making sure that we cover edges and
 //! corners.
 //!
-class TORCH_CUDA_CU_API UnrollPass : kir::ExprMutator {
+class UnrollPass : kir::ExprMutator {
  public:
   // Take the incoming exprs and run loop unrolling, returning the new IR
   static std::vector<Expr*> runPass(

@@ -67,7 +67,7 @@ bool IdGraph::hasGroup(IterDomain* id) const {
 
 const ExprGroup& IdGraph::toGroup(Expr* expr) const {
   auto disjoint_set_it = disjoint_exprs_.disjointSetMap().find(expr);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       disjoint_set_it != disjoint_exprs_.disjointSetMap().end(),
       "\nExpr group could not be found in graph associated with: ",
       expr->toString());
@@ -76,7 +76,7 @@ const ExprGroup& IdGraph::toGroup(Expr* expr) const {
 
 const IdGroup& IdGraph::toGroup(IterDomain* id) const {
   auto disjoint_set_it = disjoint_ids_.disjointSetMap().find(id);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       disjoint_set_it != disjoint_ids_.disjointSetMap().end(),
       "\nId group could not be found in graph associated with: ",
       id->toString(),
@@ -238,7 +238,7 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
     ExprGroups all_output_required_exprs;
     for (const IdGroup& output_id_group : outputGroups(expr_group)) {
       auto id_group_exprs_it = required_ind_exprs_ids.find(output_id_group);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           id_group_exprs_it != required_ind_exprs_ids.end(),
           "Failure in Iter Domain Graph index resolution, count expected for group: ",
           output_id_group->toString());
@@ -357,7 +357,7 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
       }
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         something_was_processed ||
             (to_visit_ids.empty() && to_visit_exprs.empty()),
         "Infinite loop entered.");
@@ -421,7 +421,7 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
       }
     }
     std::swap(to_visit_expr_groups, still_to_visit);
-    TORCH_INTERNAL_ASSERT(something_processed, "Infinite loop entered.");
+    NVF_ERROR(something_processed, "Infinite loop entered.");
   }
 
   return sorted_exprs;
@@ -464,7 +464,7 @@ std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>> IdGraph::
     from_ids2to_ids[from_id] = VectorOfUniqueEntries<IterDomain*>();
 
     auto from_it = from_ids2set.find(from_id);
-    TORCH_INTERNAL_ASSERT(from_it != from_ids2set.end());
+    NVF_ERROR(from_it != from_ids2set.end());
 
     auto from_set = from_it->second;
     auto to_entry_it = set2to_ids.find(from_set);
@@ -553,7 +553,7 @@ bool IdGraph::transformAtributesMatch(Expr* first, Expr* second) {
     return false;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       first->isA<Merge>() || first->isA<Split>() || first->isA<Swizzle2D>() ||
           first->isA<Resize>(),
       "Unsupported rfactor expressions in compute at map:\n",
@@ -603,8 +603,7 @@ void IdGraph::initializeId(
   }
   // TODO-NM: def_groups can be empty. Should it be still mapped?
   // TODO-NM: Can this be overwritten?
-  TORCH_INTERNAL_ASSERT(
-      unique_definitions_.emplace(id_disjoint_set, def_groups).second);
+  NVF_ERROR(unique_definitions_.emplace(id_disjoint_set, def_groups).second);
 
   ExprGroups use_groups;
   for (auto use : uses) {
@@ -614,8 +613,7 @@ void IdGraph::initializeId(
   }
   // TODO-NM: use_groups can be empty. Should it be still mapped?
   // TODO-NM: Can this be overwritten?
-  TORCH_INTERNAL_ASSERT(
-      unique_uses_.emplace(id_disjoint_set, use_groups).second);
+  NVF_ERROR(unique_uses_.emplace(id_disjoint_set, use_groups).second);
 }
 
 bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
@@ -649,7 +647,7 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
                         forward ? second->inputs() : second->outputs())
                         .vector();
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       first_ids.size() == second_ids.size(),
       "Expected number of ",
       (forward ? "inputs" : "outputs"),
@@ -735,7 +733,7 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
 
 const ExprGroups& IdGraph::getUniqueDefinitions(const IdGroup& group) const {
   auto unique_defs_it = unique_definitions_.find(group);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       unique_defs_it != unique_definitions_.end(),
       "Definition not found for IdGroup: ",
       group->toString());
@@ -744,7 +742,7 @@ const ExprGroups& IdGraph::getUniqueDefinitions(const IdGroup& group) const {
 
 const ExprGroups& IdGraph::getUniqueUses(const IdGroup& group) const {
   auto unique_uses_it = unique_uses_.find(group);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       unique_uses_it != unique_uses_.end(),
       "Uses not found for IdGroup: ",
       group->toString());
@@ -944,7 +942,7 @@ bool IdGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
     return false;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       propagate_through_exprs_,
       "Asked to propagate expression mappings on a graph that has propagate_exprs_ disabled.");
 
@@ -954,7 +952,7 @@ bool IdGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
   auto second_ids = ir_utils::filterByType<IterDomain>(
                         forward ? second->outputs() : second->inputs())
                         .vector();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       first_ids.size() == second_ids.size(),
       "This should be unreachable, if transformation expressions match, their number of inputs and outputs should as well.\n However found:\n",
       first->toString(),
@@ -1041,11 +1039,11 @@ void IdGraph::eraseExprGroup(const ExprGroup& expr_group) {
   // Erase entries that exist in unique_definitions_ and unique_uses_
   for (auto id_group : disjointIdSets().disjointSets()) {
     // Make sure the entries exists
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         unique_definitions_.find(id_group) != unique_definitions_.end(),
         "Broken definitions, couldn't find entry for id group, ",
         nvfuser::toString(id_group, 0, true));
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         unique_uses_.find(id_group) != unique_uses_.end(),
         "Broken uses, couldn't find entry for id group, ",
         nvfuser::toString(id_group, 0, true));

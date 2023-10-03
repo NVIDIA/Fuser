@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <disjoint_set.h>
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/base_nodes.h>
 #include <multidevice/device_mesh.h>
@@ -58,7 +59,7 @@ namespace nvfuser {
 class PipelineStage;
 
 // Interface to describe the composition of a PipelineStage
-class TORCH_CUDA_CU_API PipelineStageDescriptor final {
+class PipelineStageDescriptor final {
   using ValSet = VectorOfUniqueEntries<Val*>;
 
  public:
@@ -110,7 +111,7 @@ with three types of IRs (see multidevice/pipeline_ir.h):
 The pipeline forms a DAG with PipelineVals as nodes and PipelineStages &
 PipelineCommunications as edges.
 */
-class TORCH_CUDA_CU_API Pipeline : public Fusion {
+class Pipeline : public Fusion {
  public:
   Pipeline(Fusion* fusion, PipelineDescriptor descriptor);
 

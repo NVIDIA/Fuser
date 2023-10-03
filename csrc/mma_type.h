@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 #include <fusion.h>
 
 namespace nvfuser {
@@ -50,7 +51,7 @@ struct GemmTile {
 };
 
 //! Utility data structure for recording gemm tiles
-struct TORCH_CUDA_CU_API MatMulTileOptions {
+struct MatMulTileOptions {
   GemmTile cta_tile = GemmTile(128, 128, 32);
   GemmTile warp_tile = GemmTile(64, 64, 32);
   GemmTile instruction_tile = GemmTile(16, 8, 16);
@@ -141,7 +142,7 @@ struct MmaOptions {
 //! User interface for configuring the mma and mma related
 //!  operators by specifying the mma instruction tile type
 //!  input data layout, and the operand position of a tensor.
-class TORCH_CUDA_CU_API MmaBuilder {
+class MmaBuilder {
  public:
   //! Initialized a mma builder, for the given mma instruction type.
   //!  TODO: the mma implementation is generic and should not have

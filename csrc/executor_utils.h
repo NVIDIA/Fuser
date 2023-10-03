@@ -8,6 +8,7 @@
 #pragma once
 
 #include <ATen/core/ivalue.h>
+#include <exceptions.h>
 
 #include <c10/core/DeviceType.h>
 #include <c10/util/Exception.h>
@@ -35,27 +36,44 @@ namespace executor_utils {
 std::string kernelPreamble();
 
 //! Bind input values to runtime values
-TORCH_CUDA_CU_API ExpressionEvaluator
-bindInputs(const KernelArgumentHolder& args, Fusion* fusion);
+ExpressionEvaluator bindInputs(
+    const KernelArgumentHolder& args,
+    Fusion* fusion);
 
 std::string disassembleBinary(
     const std::vector<char>& cubin,
     const std::string& nvdisasm_args);
 
-struct NvrtcFunction {
+// I'm not happy with CompiledKernel being a struct exposing all the fields.
+// This could be refactored.
+struct CompiledKernel : public NonCopyable {
+  ~CompiledKernel();
+
   CUmodule module = nullptr;
   CUfunction function = nullptr;
+  std::string compile_log;
+  std::vector<char> ptx;
+  std::string ptx_filename;
+  std::vector<char> cubin;
+  std::string cubin_filename;
+  std::string kernel_name;
+  std::string compile_args;
+  long block_size = -1;
 };
 
 // Returns executable function and the ptxas log from compilation
-std::tuple<NvrtcFunction, std::string, std::vector<char>> getCompiledKernel(
+std::unique_ptr<CompiledKernel> getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& code,
     const std::string& func_name,
     int64_t id,
     const CompileParams& compile_params = CompileParams(),
-    std::optional<int64_t> opt_block_size = std::nullopt,
-    bool return_compiled_binary = false);
+    std::optional<int64_t> opt_block_size = std::nullopt);
+
+// Returns executable function using flatbuffer object
+std::unique_ptr<CompiledKernel> getCompiledKernel(
+    const serde::CudaKernel* buffer,
+    const CompileParams& compile_params);
 
 namespace caching {
 // TODO: Could consider putting some of
@@ -274,6 +292,7 @@ class CudaKernelTimer {
   void init() {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
+    initialized_ = true;
   }
 
   void start() {

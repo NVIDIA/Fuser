@@ -8,7 +8,7 @@
 #pragma once
 
 #include <fusion.h>
-#include <scheduler/all_schedulers.h>
+#include <scheduler/heuristic_types.h>
 #include <scheduler/pointwise_utils.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
@@ -140,6 +140,7 @@ class PersistentBufferInfo {
 //! Entry type definition class for `INNER_MOST_DIMS_INFO`,
 //!  Used in the transpose scheduler to store inner most IterDomains and their
 //!  position in reference1 of group 1 and group 2
+//!  Note, negative value indicates mapping failure
 class InnerMostDimInfo {
  public:
   using DataType = std::vector<int64_t>;

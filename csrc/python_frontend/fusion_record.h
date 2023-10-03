@@ -8,6 +8,7 @@
 #pragma once
 #include <c10/util/complex.h>
 #include <debug.h>
+#include <exceptions.h>
 #include <ir/interface_nodes.h>
 #include <ops/all_ops.h>
 #include <options.h>
@@ -530,34 +531,32 @@ struct PadOpRecord : RecordFunctor {
   std::vector<int64_t> pad_widths_;
 };
 
-struct PermuteOpRecord : RecordFunctor {
-  PermuteOpRecord(
+template <serde::RecordType op_type>
+struct DimsOpRecord : RecordFunctor {
+  DimsOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      std::vector<int64_t> dims)
-      : RecordFunctor(
-            std::move(_args),
-            std::move(_outputs),
-            "ops.permute",
-            serde::RecordType_PermuteOp),
+      std::vector<int64_t> dims,
+      std::string name)
+      : RecordFunctor(std::move(_args), std::move(_outputs), name, op_type),
         dims_(std::move(dims)) {}
-  ~PermuteOpRecord() override = default;
+  ~DimsOpRecord() override = default;
   RecordFunctor* clone() final {
-    return new PermuteOpRecord(*this);
+    return new DimsOpRecord(*this);
   }
 
   size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t dims_hash = 0;
     for (auto dim : dims_) {
-      dims_hash ^= static_cast<size_t>(dim);
+      hashCombine(dims_hash, static_cast<size_t>(dim));
     }
     return result | (dims_hash & 0xffff);
   }
 
   bool operator==(const RecordFunctor& other) const final {
     auto result = false;
-    if (auto child_ptr = dynamic_cast<const PermuteOpRecord*>(&other)) {
+    if (auto child_ptr = dynamic_cast<const DimsOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
       if (result) {
         result = (dims_.size() == child_ptr->dims_.size());
@@ -575,14 +574,37 @@ struct PermuteOpRecord : RecordFunctor {
   }
 
   void operator()(FusionState& fd) final {
-    auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    auto output = permute(arg, dims_);
-    fd.setFusionState(outputs_.at(0).index, output);
+    if constexpr (op_type == serde::RecordType_PermuteOp) {
+      auto arg =
+          fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+      auto output = permute(arg, dims_);
+      fd.setFusionState(outputs_.at(0).index, output);
+    } else if constexpr (op_type == serde::RecordType_StrideOrderOp) {
+      auto arg =
+          fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+      auto output = set(arg);
+      int rank = static_cast<int>(dims_.size());
+      std::vector<IterDomain*> allocation_domain(rank);
+      for (int i : c10::irange(rank)) {
+        allocation_domain[rank - 1 - static_cast<int>(dims_[i])] =
+            output->axis(i);
+      }
+      output->setAllocationDomain(allocation_domain, true);
+      fd.setFusionState(outputs_.at(0).index, output);
+    } else {
+      NVF_ERROR(false, "op_type is not recognized by dims operator.");
+    }
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
-    os << ", dims=[";
+    if constexpr (op_type == serde::RecordType_PermuteOp) {
+      os << ", dims=[";
+    } else if constexpr (op_type == serde::RecordType_StrideOrderOp) {
+      os << ", stride_order=[";
+    } else {
+      NVF_ERROR(false, "op_type is not recognized by dims operator.");
+    }
     bool first_arg = true;
     for (auto dim : dims_) {
       if (first_arg) {
@@ -601,8 +623,8 @@ struct PermuteOpRecord : RecordFunctor {
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
-        serde::RecordData_Permute,
-        serde::CreatePermuteDirect(builder, &dims_).Union()};
+        serde::RecordData_Dims,
+        serde::CreateDimsDirect(builder, &dims_).Union()};
   }
 
  private:
@@ -784,12 +806,12 @@ struct BroadcastInDimOpRecord : RecordFunctor {
 
     const auto& arg_domains_nr = arg->domain()->noReductions();
     const auto arg_ndims = arg_domains_nr.size();
-    TORCH_CHECK(
+    NVF_CHECK(
         output_ndims_ >= arg_ndims,
         "The new shape is expected to be greater-then-or-equal to the input",
         output_ndims_,
         arg_ndims);
-    TORCH_CHECK(
+    NVF_CHECK(
         arg_ndims == broadcast_dims_.size(),
         "The broadcast dimensions should match the input dimensions.",
         arg_ndims,
@@ -798,11 +820,11 @@ struct BroadcastInDimOpRecord : RecordFunctor {
     std::vector<bool> is_broadcast_dim(output_ndims_, true);
     for (const auto idx : c10::irange(broadcast_dims_.size())) {
       if (idx > 0) {
-        TORCH_CHECK(
+        NVF_CHECK(
             broadcast_dims_[idx - 1] < broadcast_dims_[idx],
             "Broadcast dimension is not greater than the previous value.");
       }
-      TORCH_CHECK(
+      NVF_CHECK(
           broadcast_dims_[idx] < static_cast<int>(output_ndims_),
           "Invalid broadcast_dims value.");
       is_broadcast_dim.at(broadcast_dims_[idx]) = false;
@@ -1239,7 +1261,7 @@ struct TensorRecord : RecordFunctor {
     if (shape_.empty() && is_cpu_) {
       tv->setCpuScalar(true);
     } else {
-      TORCH_CHECK(!is_cpu_, "CPU non-scalar tensor is not supported!");
+      NVF_CHECK(!is_cpu_, "CPU non-scalar tensor is not supported!");
     }
 
     fd.setFusionState(outputs_.at(0).index, tv);
@@ -1337,16 +1359,7 @@ struct OutputRecord : RecordFunctor {
       std::vector<int64_t> stride_order = {})
       : RecordFunctor(std::move(_args), {}, "add_output", record_type) {
     if (!stride_order.empty()) {
-      bool requires_permutation = false;
-      for (const auto i : c10::irange(stride_order.size())) {
-        if (stride_order[i] != (int64_t)i) {
-          requires_permutation = true;
-          break;
-        }
-      }
-      if (requires_permutation) {
-        stride_order_ = stride_order;
-      }
+      stride_order_ = stride_order;
     }
   }
   ~OutputRecord() override = default;
@@ -1393,40 +1406,29 @@ struct OutputRecord : RecordFunctor {
     }
 
     if (alias_input) {
-      TORCH_CHECK(
+      NVF_CHECK(
           stride_order_.empty(),
           "stride_order can't be dictated for aliased outputs.");
       if (std::is_same<OutputType, TensorView>::value) {
         fd.aliasOutputToInput(output, alias_input);
       } else {
-        TORCH_INTERNAL_ASSERT(false, "Scalar outputs should not alias inputs.");
+        NVF_ERROR(false, "Scalar outputs should not alias inputs.");
       }
     } else {
       // With C++17, this statement should be "if constexpr"
       if (std::is_same<OutputType, TensorView>::value) {
         auto tv_output = output->template as<TensorView>();
-
         if (!stride_order_.empty()) {
-          std::vector<int64_t> reverse_perm(stride_order_.size());
-          int64_t duplicate_check = 0;
-          for (const auto i : c10::irange((int64_t)stride_order_.size())) {
-            TORCH_CHECK(
-                stride_order_[i] >= 0 &&
-                    stride_order_[i] < (int64_t)reverse_perm.size(),
-                "stride_order elements need to be within [0, stride_order.size())!");
-            reverse_perm[stride_order_[i]] = i;
-            duplicate_check |= 1 << stride_order_[i];
+          size_t rank = stride_order_.size();
+          std::vector<IterDomain*> allocation_domain(rank);
+          for (auto i : c10::irange(rank)) {
+            allocation_domain[rank - 1 - stride_order_[i]] = tv_output->axis(i);
           }
-          TORCH_CHECK(
-              duplicate_check == (1 << reverse_perm.size()) - 1,
-              "duplicated elements in stride_order detected!");
-          tv_output = permute(tv_output, reverse_perm);
-          fd.addOutput(tv_output, stride_order_);
-        } else {
-          fd.addOutput(tv_output);
+          tv_output->setAllocationDomain(allocation_domain, true);
         }
+        fd.addOutput(tv_output);
       } else {
-        TORCH_CHECK(
+        NVF_CHECK(
             stride_order_.empty(),
             "stride_order can't be dictated for scalar outputs.");
         fd.addOutput(output);
@@ -1867,7 +1869,7 @@ struct ScalarRecord : RecordFunctor {
       } else if (value_.is<int64_t>()) {
         os << value_;
       } else {
-        TORCH_CHECK(false, "Unsupported dtype.");
+        NVF_CHECK(false, "Unsupported dtype.");
       }
     } else {
       os << "None";
@@ -2450,7 +2452,7 @@ struct AtOpRecord : RecordFunctor {
   }
 
   void operator()(FusionState& fd) final {
-    TORCH_CHECK(
+    NVF_CHECK(
         args_.at(0).stype == serde::StateType_Vector, "Expected Vector State!");
     auto arg = fd.getFusionStateVector(args_.at(0).index);
     auto result = at(arg, index_);
@@ -2719,8 +2721,7 @@ struct RandomOpRecord : RecordFunctor {
         output = normal(output_shape, arg1, arg2, dtype_, seed, offset);
       }
     } else {
-      TORCH_INTERNAL_ASSERT(
-          false, "random distribution not recognized:", name_);
+      NVF_ERROR(false, "random distribution not recognized:", name_);
     }
     fd.setFusionState(outputs_.at(0).index, output);
   }
@@ -2802,12 +2803,12 @@ struct VectorRecord : RecordFunctor {
 
   void operator()(FusionState& fd) final {
     std::vector<Val*> output(args_.size(), nullptr);
-    TORCH_CHECK(
+    NVF_CHECK(
         dtype_ == DataType::Int,
         "Only Int Dtype is not supported by a vector of sizes: ",
         dtype_);
     for (size_t i = 0; i < args_.size(); ++i) {
-      TORCH_CHECK(
+      NVF_CHECK(
           args_.at(i).stype == serde::StateType_Scalar,
           "Unsupported State type!");
       output.at(i) = fd.getFusionState(args_.at(i).index);
@@ -2863,17 +2864,17 @@ using namespace nvfuser::python_frontend;
 template <>
 struct hash<RecordFunctor*> {
   size_t operator()(const RecordFunctor* p) const {
-    TORCH_CHECK(p, "The RecordFunctor Pointer for hashing is null!");
+    NVF_CHECK(p, "The RecordFunctor Pointer for hashing is null!");
     return p->hash();
   }
 };
 template <>
 struct equal_to<RecordFunctor*> {
   bool operator()(const RecordFunctor* p, const RecordFunctor* q) const {
-    TORCH_CHECK(
+    NVF_CHECK(
         p,
         "The RecordFunctor Pointer on the lhs of an equality check is null!");
-    TORCH_CHECK(
+    NVF_CHECK(
         q,
         "The RecordFunctor Pointer on the rhs of an equality check is null!");
     return p->operator==(*q);

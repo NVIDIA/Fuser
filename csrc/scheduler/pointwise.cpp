@@ -5,29 +5,110 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/pointwise.h>
-
-#include <debug.h>
-#include <device_lower/utils.h>
-#include <executor_utils.h>
-#include <inlining.h>
-#include <instrumentation.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <options.h>
-#include <scheduler/pointwise_utils.h>
-#include <scheduler/registry.h>
-#include <scheduler/utils.h>
-#include <scheduler/vectorize_helper.h>
-#include <transform_replay.h>
-#include <utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
-
-#include <algorithm>
-#include <unordered_map>
+#include <debug.h>
+#include <inlining.h>
+#include <instrumentation.h>
+#include <scheduler/cache_policy_refiner.h>
+#include <scheduler/debug_utils.h>
+#include <scheduler/pointwise.h>
+#include <scheduler/reduction_utils.h>
+#include <scheduler/registry_utils.h>
+#include <scheduler/transpose.h>
+#include <scheduler/utils.h>
+#include <scheduler/vectorize_helper.h>
 
 namespace nvfuser {
+
+PointWiseScheduler::PointWiseScheduler(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache)
+    : SchedulerEntry(ScheduleHeuristic::PointWise) {
+  computeHeuristics(fusion, runtime_info, data_cache);
+}
+
+bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
+  //   Currently using the same path as the scheduler
+  // to eliminate mismatch between canSchedule and
+  // schedule pointwise.
+  if (!hasReferenceTensorView(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::PointWise, "cannot find reference tensor");
+    return false;
+  }
+
+  // Check that inputs of all select/gather-like ops are fusion inputs
+  if (registry_utils::rejectScheduleForMemoryPromotion(
+          fusion, ScheduleHeuristic::PointWise)) {
+    return false;
+  }
+
+  // Fusions handled by pointwise scheduler cannot have MmaOp.
+  if (ir_utils::hasOpsOfType<MmaOp>(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::PointWise, "no support for mma ops.");
+    return false;
+  }
+
+  if (!ir_utils::getViewOps(fusion).empty()) {
+    ComputeAtMap ca_map(fusion);
+    if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          ScheduleHeuristic::PointWise,
+          "Fusion requires view being reversible.");
+      return false;
+    }
+  }
+
+  if (ir_utils::hasAnyReductionOps(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::PointWise, "no support for reduction ops");
+    return false;
+  }
+
+  if (registry_utils::hasNonUniqueBcast(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        ScheduleHeuristic::PointWise,
+        "Broadcasting dimension might be broadcasting to multiple sizes.");
+    return false;
+  }
+
+  return true;
+}
+
+bool PointWiseScheduler::canScheduleRunTime(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache) {
+  auto can_schedule_transpose_entry =
+      HeuristicSummaryEntry<HeuristicCompileTime::CanScheduleTranspose>(
+          data_cache, [fusion]() {
+            return std::make_unique<bool>(
+                TransposeScheduler::canScheduleCompileTime(fusion));
+          });
+  if (can_schedule_transpose_entry.get()) {
+    auto reason =
+        getTransposeRuntimeRejectReason(fusion, data_cache, runtime_info);
+    return !reason.empty();
+  }
+
+  return true;
+}
+
+void PointWiseScheduler::schedule(Fusion* fusion) {
+  FUSER_PERF_SCOPE("Schedule PointWise Fusion");
+  schedulePointwise(fusion, pointwiseParams());
+}
+
+void PointWiseScheduler::computeHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache) {
+  params_ = getPointwiseHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(params_ != nullptr);
+}
 
 namespace {
 // constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
@@ -60,7 +141,7 @@ class DomainMap : public pointwise_utils::DomainMap {
 
  private:
   bool hasMinimumSize(TensorView* tv, size_t num_axes) const {
-    TORCH_INTERNAL_ASSERT(tv != nullptr);
+    NVF_ERROR(tv != nullptr);
     return (num_axes == 0 || tv->getMaybeRFactorDomain().size() > num_axes);
   }
 };
@@ -102,7 +183,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
           });
   TensorView* largest_out = largest_out_entry.get()[0];
 
-  TORCH_INTERNAL_ASSERT(largest_out != nullptr);
+  NVF_ERROR(largest_out != nullptr);
 
   const int64_t device_multiprocessor_count =
       (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
@@ -126,7 +207,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   for (size_t ref_i = 0; ref_i < ref_root.size(); ref_i++) {
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(ref_root[ref_i]->extent());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         inferred_val.hasValue(),
         "Error inferring size for pointwise scheduler: ",
         ref_root[ref_i]->extent()->toInlineString());
@@ -233,7 +314,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
   auto& view_disjoint_sets = broadcast_info.get().view_disjoint_set_ids;
   auto& broadcast_byte_multiples = broadcast_info.get().broadcast_multiples;
 
-  TORCH_INTERNAL_ASSERT(broadcast_byte_multiples.size() == ref_root.size());
+  NVF_ERROR(broadcast_byte_multiples.size() == ref_root.size());
 
   int64_t dtype_sum = 0;
   for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
@@ -361,8 +442,8 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     params->unroll_factor = vectorize_factor;
   }
 
-  TORCH_INTERNAL_ASSERT(right_elem_count > 0 || break_point == 0);
-  TORCH_INTERNAL_ASSERT(!(bdimy > 1 && gdim_right > 1));
+  NVF_ERROR(right_elem_count > 0 || break_point == 0);
+  NVF_ERROR(!(bdimy > 1 && gdim_right > 1));
 
   params->break_point = break_point;
   params->flip_grid_binding = flip_grid_binding;
@@ -404,8 +485,7 @@ LaunchParams schedulePointwise(
     const at::ArrayRef<c10::IValue>& runtime_inputs) {
   FUSER_PERF_SCOPE("scheduleFusion");
   auto params = getPointwiseHeuristics(fusion, runtime_inputs);
-  TORCH_INTERNAL_ASSERT(
-      params != nullptr, "Could not schedule pointwise operation.");
+  NVF_ERROR(params != nullptr, "Could not schedule pointwise operation.");
   schedulePointwise(fusion, *params);
   return params->lparams;
 }
@@ -430,12 +510,6 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
 
-  // maybe has_reduction for scheduling should be done on a per output tensor
-  // basis.
-  TORCH_INTERNAL_ASSERT(
-      ir_utils::getReductionOps(fusion).empty(),
-      "This scheduler only handles pointwise ops.");
-
   // Cache inputs
   auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
 
@@ -443,6 +517,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
 
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
+
+  refineCachePolicy(fusion);
 
   std::vector<TensorView*> input_tvs;
   {
@@ -473,7 +549,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
 
   TensorView* reference_tv = getReferenceTensorView(fusion);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       reference_tv != nullptr,
       "Could not find a fully broadcasted output to reference schedule on.");
 
@@ -515,11 +591,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
 
     // Make sure lhs and rhs groups are disjoint.
     for (auto lhs_val : lhs_all_vals) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           rhs_all_vals_set.count(lhs_val) == 0,
           "Error in pointwise scheduler. LHS and RHS of the 2D scheduler are not disjoint.");
     }
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !rhs_all_vals.empty(),
         "Expecting at least one dimension in the RHS of the pointwise scheduler.");
 
@@ -591,7 +667,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   IterDomain* vectorize_id = nullptr;
   if (params.break_point) {
     // 2D parallelization scheme
-    TORCH_INTERNAL_ASSERT(rhs_i >= 0 && lhs_i >= 0);
+    NVF_ERROR(rhs_i >= 0 && lhs_i >= 0);
 
     // Right (inner merged) dimension is at inner most position, left (outer
     // merged) dimension is at lhs_i. Order as [lhs_i, rhs_i, unmerged...]
@@ -693,7 +769,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     }
   } else {
     // 1D Scheduler
-    TORCH_INTERNAL_ASSERT(rhs_i >= 0 && lhs_i == -1);
+    NVF_ERROR(rhs_i >= 0 && lhs_i == -1);
 
     // right hand side exists and is the only axis we care to schedule, move
     // it from the inner most position to left most. Order as [rhs_i,

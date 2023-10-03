@@ -18,17 +18,17 @@ PipelineStage::PipelineStage(
     ValSet input_vals,
     ValSet output_vals)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       passkey.ir_container_ ? passkey.ir_container_->isA<Pipeline>() : false,
       "IR type only valid for Pipeline container.");
 
   for (auto v : output_vals) {
-    TORCH_INTERNAL_ASSERT(v->isA<PipelineVal>());
+    NVF_ERROR(v->isA<PipelineVal>());
     addOutput(v);
     v->as<PipelineVal>()->setStage(this);
   }
   for (auto v : input_vals) {
-    TORCH_INTERNAL_ASSERT(v->isA<PipelineVal>());
+    NVF_ERROR(v->isA<PipelineVal>());
     addInput(v);
     v->as<PipelineVal>()->setStage(this);
   }
@@ -71,10 +71,10 @@ PipelineCommunication::PipelineCommunication(
     Val* in,
     Val* out)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       passkey.ir_container_ ? passkey.ir_container_->isA<Pipeline>() : false,
       "IR type only valid for Pipeline container.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       in->isA<PipelineVal>() && out->isA<PipelineVal>(),
       "I/O must be PipelineVal IRs");
   addOutput(out);
@@ -95,7 +95,7 @@ std::string PipelineCommunication::toInlineString(int indent_size) const {
 
 PipelineVal::PipelineVal(IrBuilderPasskey passkey, Val* val)
     : Val(passkey, ValType::PipelineVal, val->dtype()), original_val_(val) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       passkey.ir_container_->isA<Pipeline>(),
       "IR type only valid for Pipeline container.");
 }

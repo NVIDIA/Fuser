@@ -94,8 +94,7 @@ bool complyWith(
     const at::Tensor& tensor,
     const c10::TensorTypePtr& guard_tensor_type) {
   // guard broadcast semantics, contiguity & stride order;
-  TORCH_INTERNAL_ASSERT(
-      guard_tensor_type && guard_tensor_type->dim().has_value());
+  NVF_ERROR(guard_tensor_type && guard_tensor_type->dim().has_value());
 
   // check a. if num_dimension check fails or scalar type check fails
   if (*guard_tensor_type->dim() != static_cast<size_t>(tensor.ndimension()) ||
@@ -151,7 +150,7 @@ bool complyWith(
           // always collapsible
           // computeStrideProps also default to contiguous when stride == 1
           if (t_sizes[sorted_index] != 1 && t_strides[sorted_index] != 1) {
-            TORCH_INTERNAL_ASSERT(
+            NVF_ERROR(
                 stride_properties[j - 1]->stride_index_.has_value(),
                 "Counknown index is meaningless");
             // TODO: merge this check up
@@ -219,7 +218,7 @@ torch::jit::RegisterOperators size_eq_guard({
               return;
             }
 
-            TORCH_INTERNAL_ASSERT(
+            NVF_ERROR(
                 inputs[1].isIntList(), "reference needs to be of int list");
             auto ref = inputs[1].toIntList();
 
@@ -289,7 +288,7 @@ torch::jit::RegisterOperators reg_guard({
                   types[i]->cast<at::TensorType>();
 
               // TODO: maybe we should just push false and fallback
-              TORCH_INTERNAL_ASSERT(inputs[i].isTensor());
+              NVF_ERROR(inputs[i].isTensor());
               const at::Tensor& tensor = inputs[i].toTensor();
 
               if (!nvfuser::complyWith(tensor, guard_tensor_type)) {
@@ -315,11 +314,10 @@ bool inferViewShape(
   size_t view_size_num_elements = 1;
   for (auto idx : c10::irange(view_sizes.size())) {
     if (view_sizes[idx] == -1) {
-      TORCH_INTERNAL_ASSERT(
-          dynamic_index == -1, "Only one dimension can by inferred.")
+      NVF_ERROR(dynamic_index == -1, "Only one dimension can by inferred.")
       dynamic_index = (int64_t)idx;
     } else {
-      TORCH_INTERNAL_ASSERT(view_sizes[idx] > 0);
+      NVF_ERROR(view_sizes[idx] > 0);
       view_size_num_elements *= view_sizes[idx];
     }
   }
@@ -394,20 +392,20 @@ torch::jit::RegisterOperators view_guard({
 
             // tensor_sizes is the runtime size for the self tensor
             // tensor_sizes - dynamic size List[Int]
-            TORCH_INTERNAL_ASSERT(
+            NVF_ERROR(
                 inputs[0].isIntList(), "tensor_sizes needs to be Int List");
             auto tensor_sizes = inputs[0].toIntList();
 
             // profiled_view_sizes is the runtime view size
             // profiled_view_sizes - profile_ivalue List[Int]
-            TORCH_INTERNAL_ASSERT(
+            NVF_ERROR(
                 inputs[1].isIntList(),
                 "profiled_view_sizes needs to be Int list");
             auto profiled_view_sizes = inputs[1].toIntList();
 
             // tensor_constraints is a constant List[Int]
             // used to guard tensor_sizes
-            TORCH_INTERNAL_ASSERT(
+            NVF_ERROR(
                 inputs[2].isIntList(),
                 "tensor constraint needs to be Int List");
             auto tensor_constraints = inputs[2].toIntList();
@@ -484,7 +482,7 @@ torch::jit::RegisterOperators reg_transpose_copy({
         "prim::transpose_copy.int(Tensor(a) self, int dim0, int dim1) -> Tensor",
         [](const torch::jit::Node* node) -> torch::jit::Operation {
           return [node](torch::jit::Stack& stack) {
-            TORCH_CHECK(
+            NVF_CHECK(
                 node->s(at::attr::name) == "CudaFusionGroup",
                 "transpose_copy is only used by nvfuser to identify non-mutating ",
                 "alias ops, should be restored after fusion pass!");
@@ -504,7 +502,7 @@ torch::jit::RegisterOperators reg_flatten_copy({
         "prim::flatten_copy(Tensor self, int start_dim, int end_dim) -> Tensor",
         [](const torch::jit::Node* node) -> torch::jit::Operation {
           return [node](torch::jit::Stack& stack) {
-            TORCH_CHECK(
+            NVF_CHECK(
                 node->s(at::attr::name) == "CudaFusionGroup",
                 "flatten_copy is only used by nvfuser to identify non-mutating ",
                 "alias ops, should be restored after fusion pass!");
@@ -586,7 +584,7 @@ torch::jit::RegisterOperators reg_expand_as_copy({
         "prim::expand_as_copy(Tensor self, Tensor other) -> Tensor",
         [](const torch::jit::Node* node) -> torch::jit::Operation {
           return [node](torch::jit::Stack& stack) {
-            TORCH_CHECK(
+            NVF_CHECK(
                 node->s(at::attr::name) == "CudaFusionGroup",
                 "expand_as_copy is only used by nvfuser to identify non-mutating ",
                 "alias ops, should be restored after fusion pass!");

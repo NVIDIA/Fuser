@@ -8,6 +8,7 @@
 #pragma once
 
 #include <dispatch.h>
+#include <exceptions.h>
 
 namespace nvfuser {
 
@@ -32,7 +33,7 @@ class Scope;
 //
 // Provides a simple base class to inherit from for typical lowering passes on
 // Expr list
-class TORCH_CUDA_CU_API IrVisitor : public OptOutDispatch {
+class IrVisitor : public OptOutDispatch {
  public:
   std::vector<Expr*> handle(const std::vector<Expr*>& exprs);
 
@@ -50,7 +51,7 @@ class TORCH_CUDA_CU_API IrVisitor : public OptOutDispatch {
 };
 
 // Const version of IrVisitor
-class TORCH_CUDA_CU_API ConstIrVisitor : public OptOutConstDispatch {
+class ConstIrVisitor : public OptOutConstDispatch {
  public:
   std::vector<const Expr*> handle(const std::vector<const Expr*>& exprs);
 

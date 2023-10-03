@@ -93,6 +93,16 @@ struct HasArrowOperator<
     std::void_t<decltype(std::declval<decltype(&T::operator->)>())>>
     : std::true_type {};
 
+template <typename From, typename To, typename = void>
+struct HasExplicitConversion : std::false_type {};
+
+template <typename From, typename To>
+struct HasExplicitConversion<
+    From,
+    To,
+    std::void_t<decltype(std::declval<decltype(&From::operator To)>())>>
+    : std::true_type {};
+
 struct TrueType {
   static constexpr bool value() {
     return true;
@@ -185,6 +195,16 @@ struct OperatorChecker {
     return true;
   }
   constexpr bool canCastTo(CastableFromOperatorChecker) const {
+    return false;
+  }
+
+  template <
+      typename T1,
+      typename = std::enable_if_t<HasExplicitConversion<T, T1>::value>>
+  constexpr bool hasExplicitCastTo(OperatorChecker<T1>) const {
+    return true;
+  }
+  constexpr bool hasExplicitCastTo(CastableFromOperatorChecker) const {
     return false;
   }
 };
@@ -307,12 +327,18 @@ static_assert(!(opcheck<int> > opcheck<std::pair<int, int>>));
 // This utility works for all overloadable operators in C++. Just use these ops
 // on opcheck and you will know if it is defined for the underlying type.
 //
+// Note that the operators on opcheck might behave differently from normal C++.
+// For example, if you assign one opcheck to another opcheck, it will return a
+// bool telling you whether this asignment is valid for the underlying type,
+// instead of actually doing the assignment and return a reference of the lhs
+// opcheck.
+//
 // Due to the limitiation of C++'s operator overloading, some operators'
 // interface might not be as clean as others. For example, the arrow operator ->
 // is a special one. If you want to check if int has ->, you need to do:
 static_assert(!(opcheck<int>->value()));
 //
-// For more examples, see test_dynamic_type.cpp namespace opcheck_tests
+// For more examples, see test/opcheck.cpp namespace opcheck_tests
 //
 // Reference about operator overloading:
 // https://en.cppreference.com/w/cpp/language/operators

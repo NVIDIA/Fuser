@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
 
@@ -17,7 +18,7 @@
 namespace nvfuser {
 
 //! Maps TID/BID to its dimension.
-class TORCH_CUDA_CU_API ParallelDimensionMap {
+class ParallelDimensionMap {
  public:
   void build(Fusion* fusion);
 

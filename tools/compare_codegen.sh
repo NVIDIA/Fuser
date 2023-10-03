@@ -117,7 +117,7 @@ cleanup() {
 trap "cleanup" EXIT
 
 run_test() {
-    testdir=$1
+    export testdir=$1
     if [[ -d "$testdir/cuda" ]]
     then
         echo "Skipping since $testdir/cuda exists"
@@ -144,6 +144,9 @@ collect_kernels() {
     outdir=$1
     commit=$2
 
+    # Make sure we are doing a clean rebuild. Otherwise we might get linking error.
+    python setup.py clean
+
     git -c advice.detachedHead=false checkout "$commit"
     git submodule update --init --recursive
     currentcommit=$commit
@@ -154,7 +157,6 @@ collect_kernels() {
     pyfrontenddir=$outdir/$commit/python_frontend_tests
     pyopsdir=$outdir/$commit/python_ops_tests
     pyschedopsdir=$outdir/$commit/python_shedule_ops_tests
-    torchscriptdir=$outdir/$commit/python_torchscript_tests
 
     # Test for output directories and return early if they exist. This
     # avoids rebuilds when we are changing code and comparing repeatedly to
@@ -167,8 +169,7 @@ collect_kernels() {
       fi
     else
       if [[ -d "$binarytestdir/cuda" && -d "$pyfrontenddir/cuda" &&
-          -d "$pyopsdir/cuda" && -d "$pyschedopsdir/cuda" &&
-          -d "$torchscriptdir/cuda" ]]
+          -d "$pyopsdir/cuda" && -d "$pyschedopsdir/cuda" ]]
       then
           return
       fi
@@ -198,7 +199,6 @@ collect_kernels() {
       run_test "$pyopsdir" python -m pytest $nvfuserdir/python_tests/pytest_ops.py -n 0 -v -s --color=yes
       run_test "$pyschedopsdir" python -m pytest $nvfuserdir/python_tests/test_schedule_ops.py -n 0 -v -s --color=yes
       run_test "$pyfrontenddir" python -m pytest $nvfuserdir/python_tests/test_python_frontend.py -n 0 -v -s --color=yes
-      run_test "$torchscriptdir" python -m pytest $nvfuserdir/python_tests/test_torchscript.py -n 0 -v -s --color=yes
 
       # binary tests
       run_test "$binarytestdir" $nvfuserdir/build/nvfuser_tests --gtest_color=yes

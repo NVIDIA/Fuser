@@ -181,10 +181,48 @@ bool isLdMatrixOp(const Expr* expr) {
 
 bool isCpAsyncOp(const Expr* expr) {
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
-    return ldst->opType() == LoadStoreOpType::CpAsyncCa ||
-        ldst->opType() == LoadStoreOpType::CpAsyncCg;
+    return ldst->opType() == LoadStoreOpType::CpAsync;
   }
   return false;
+}
+
+namespace {
+
+enum class CpAsyncBulkTileType { G2S, S2G, NotACpAsyncBulkTile };
+
+inline CpAsyncBulkTileType getCpAsyncBulkTileType(const Expr* expr) {
+  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
+    if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
+      if (ldst->in()->as<TensorView>()->getMemoryType() == MemoryType::Global &&
+          ldst->out()->as<TensorView>()->getMemoryType() ==
+              MemoryType::Shared) {
+        return CpAsyncBulkTileType::G2S;
+      } else if (
+          ldst->in()->as<TensorView>()->getMemoryType() == MemoryType::Shared &&
+          ldst->out()->as<TensorView>()->getMemoryType() ==
+              MemoryType::Global) {
+        return CpAsyncBulkTileType::S2G;
+      } else {
+        NVF_ERROR(false, "Invalid CpAsyncBulkTileType");
+      }
+    }
+  }
+  return CpAsyncBulkTileType::NotACpAsyncBulkTile;
+}
+
+} // namespace
+
+bool isCpAsyncBulk(const Expr* expr) {
+  return getCpAsyncBulkTileType(expr) !=
+      CpAsyncBulkTileType::NotACpAsyncBulkTile;
+}
+
+bool isCpAsyncBulkLoad(const Expr* expr) {
+  return getCpAsyncBulkTileType(expr) == CpAsyncBulkTileType::G2S;
+}
+
+bool isCpAsyncBulkStore(const Expr* expr) {
+  return getCpAsyncBulkTileType(expr) == CpAsyncBulkTileType::S2G;
 }
 
 bool isTensorScalarFillOp(const Expr* expr) {
@@ -318,8 +356,7 @@ std::unordered_map<ParallelType, IterDomain*> getParallelDomains(
   } else if (val->isA<kir::TensorIndex>()) {
     tv = val->as<kir::TensorIndex>()->view();
   } else {
-    TORCH_INTERNAL_ASSERT(
-        false, "Provided val is not TensorIndex or TensorView.");
+    NVF_ERROR(false, "Provided val is not TensorIndex or TensorView.");
   }
 
   std::unordered_map<ParallelType, IterDomain*> parallel_domains;
@@ -576,7 +613,7 @@ class ReplaceExprInput : private kir::ExprMutator {
     auto replaced_inputs = getMaybeInputReplacementMap(node);
     if (replaced_inputs.has_value()) {
       auto replacement = IrBuilder::create<LoadStoreOp>(
-          node->opType(), node->out(), node->in());
+          node->opType(), node->out(), node->in(), node->cacheOp());
       registerReplaceWithPredicate(node, replacement);
     }
   }
@@ -674,7 +711,7 @@ BasicAllocInfo getAllocInformation(
 
     if (tv->axis((int)info.alloc_pos)->isReduction()) {
       const auto outputs = FusionGuard::getCurFusion()->getTerminatingOutputs();
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           std::find(outputs.begin(), outputs.end(), tv) != outputs.end(),
           "Invalid computeAt of T",
           tv->name(),

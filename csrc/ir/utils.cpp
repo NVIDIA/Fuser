@@ -22,7 +22,7 @@ namespace nvfuser::ir_utils {
 std::vector<int64_t> normalizeNew2Old(
     const std::vector<int64_t>& new2old_in,
     size_t ndims) {
-  TORCH_CHECK(
+  NVF_CHECK(
       new2old_in.size() == ndims,
       "There must be a transpose mapping for each dimension in domain");
 
@@ -35,7 +35,7 @@ std::vector<int64_t> normalizeNew2Old(
       [ndims](int64_t entry) { return entry < 0 ? entry + ndims : entry; });
 
   // Check if any adjusted values are < 0, or >= nDims, which are invalid
-  TORCH_CHECK(
+  NVF_CHECK(
       std::none_of(
           new2old.begin(),
           new2old.end(),
@@ -54,7 +54,7 @@ std::vector<int64_t> normalizeNew2Old(
       [](int64_t entry) { return entry; });
 
   // Error out if duplicate values are found.
-  TORCH_CHECK(
+  NVF_CHECK(
       new2old.size() == ndims && old_pos_set.size() == new2old.size(),
       "Duplicate entries in transformation map.");
 
@@ -81,7 +81,7 @@ std::vector<int> normalizeOld2New(
 
   // Check if any adjusted values are < 0, or >= nDims, which are invalid
 
-  TORCH_CHECK(
+  NVF_CHECK(
       std::none_of(
           old2new.begin(),
           old2new.end(),
@@ -112,7 +112,7 @@ std::vector<int> normalizeOld2New(
       });
 
   // Error out if duplicate values are found.
-  TORCH_CHECK(
+  NVF_CHECK(
       old_pos_set.size() == old2new.size() &&
           new_pos_set.size() == old2new.size(),
       "Duplicate entries in transformation map sent to TensorView reorder.");
@@ -164,7 +164,7 @@ namespace ValReplacement {
 struct SubstituteInExpr : public OptOutMutator {
  public:
   static Expr* subsitute(Expr* expr, Val* reference, Val* substitute) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         expr != nullptr && reference != nullptr && substitute != nullptr,
         "Nullptr arg found.");
     SubstituteInExpr sie(reference, substitute);
@@ -191,16 +191,57 @@ struct SubstituteInExpr : public OptOutMutator {
 
 } // namespace ValReplacement
 
-Expr* replaceValInExpr(Expr* expr, Val* reference, Val* substitute) {
+Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute) {
   FusionGuard fg(expr->fusion());
   return ValReplacement::SubstituteInExpr::subsitute(
       expr, reference, substitute);
 }
 
+Expr* transferDefinitionToNewOutputs(
+    Expr* expr,
+    const std::vector<Val*>& new_outputs) {
+  NVF_ERROR(
+      new_outputs.size() == expr->outputs().size(),
+      "Number of new outputs must match old outputs");
+  OptOutMutator mutator;
+  for (const auto i : c10::irange(new_outputs.size())) {
+    auto old_output = expr->outputs().at(i);
+    auto new_output = new_outputs.at(i);
+    if (new_output == old_output) {
+      continue;
+    }
+    NVF_ERROR(
+        !new_output->isConst(),
+        "Cannot transfer a definition Expr onto a const Val. Found new output ",
+        new_output->toString(),
+        " with constant value ",
+        new_output->value());
+    NVF_ERROR(
+        new_output->vtype() == old_output->vtype(),
+        "transforDefinitionToNewOutputs cannot change val type. Found ",
+        new_output->vtype(),
+        " and ",
+        old_output->vtype());
+    NVF_ERROR(
+        new_output->dtype() == old_output->dtype(),
+        "transforDefinitionToNewOutputs cannot change data type. Found ",
+        new_output->dtype(),
+        " and ",
+        old_output->dtype());
+    NVF_ERROR(
+        new_output->definition() == nullptr,
+        "New output ",
+        new_output->toString(),
+        " must not already have a definition.");
+    mutator.registerMutation(old_output, new_output);
+  }
+  return mutator.mutateExprOutputsOnly(expr);
+}
+
 TensorView* rfactorHelper(
     TensorView* reduction_tv,
     const std::vector<int>& axes) {
-  TORCH_INTERNAL_ASSERT(reduction_tv->definition() != nullptr);
+  NVF_ERROR(reduction_tv->definition() != nullptr);
   const bool has_multiple_tvs = reduction_tv->definition()->inputs().size() > 1;
   if (!has_multiple_tvs) {
     return reduction_tv->rFactor(axes);
@@ -401,64 +442,12 @@ std::vector<TensorView*> allTvsExcept(
   return result;
 }
 
-std::vector<Expr*> getReductionOps(Fusion* fusion) {
-  std::vector<Expr*> red_ops;
-
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<ReductionOp>() || expr->isA<GroupedReductionOp>() ||
-        expr->isA<WelfordOp>()) {
-      red_ops.push_back(expr);
-    }
-  }
-
-  return red_ops;
+std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion) {
+  return getOpsOfType<ReductionOp, GroupedReductionOp, WelfordOp>(fusion);
 }
 
-std::vector<IndexSelectOp*> getIndexSelectOps(Fusion* fusion) {
-  std::vector<IndexSelectOp*> idx_sel_ops;
-
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<IndexSelectOp>()) {
-      idx_sel_ops.push_back(expr->as<IndexSelectOp>());
-    }
-  }
-
-  return idx_sel_ops;
-}
-
-std::vector<TorchGatherOp*> getTorchGatherOps(Fusion* fusion) {
-  std::vector<TorchGatherOp*> torch_gather_ops;
-
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<TorchGatherOp>()) {
-      torch_gather_ops.push_back(expr->as<TorchGatherOp>());
-    }
-  }
-
-  return torch_gather_ops;
-}
-
-std::vector<SelectOp*> getSelectOps(Fusion* fusion) {
-  std::vector<SelectOp*> select_ops;
-
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<SelectOp>()) {
-      select_ops.push_back(expr->as<SelectOp>());
-    }
-  }
-
-  return select_ops;
-}
-
-std::vector<MmaOp*> getMmaOps(Fusion* fusion) {
-  std::vector<MmaOp*> mma_ops;
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<MmaOp>()) {
-      mma_ops.push_back(expr->as<MmaOp>());
-    }
-  }
-
-  return mma_ops;
+bool hasAnyReductionOps(Fusion* fusion) {
+  return hasOpsOfType<ReductionOp, GroupedReductionOp, WelfordOp>(fusion);
 }
 
 namespace {
@@ -635,7 +624,7 @@ Val* replaceValRecursively(
     return val;
   }
 
-  TORCH_INTERNAL_ASSERT(def->outputs().size() == 1);
+  NVF_ERROR(def->outputs().size() == 1);
 
   bool mutated = false;
 
@@ -842,14 +831,14 @@ class ValidateDomainEquivalence : private IterVisitor {
       : initial_domain_({initial_domain.begin(), initial_domain.end()}),
         derived_domain_({derived_domain.begin(), derived_domain.end()}),
         frontier_({initial_domain.begin(), initial_domain.end()}) {
-    TORCH_INTERNAL_ASSERT(!initial_domain.empty());
-    TORCH_INTERNAL_ASSERT(!derived_domain.empty());
+    NVF_ERROR(!initial_domain.empty());
+    NVF_ERROR(!derived_domain.empty());
     // Make sure there's no duplicate in the parameter vectors
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         initial_domain.size() == initial_domain_.size(),
         "Duplicated entry is detected in inial_domain: ",
         toDelimitedString(initial_domain));
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         derived_domain.size() == derived_domain_.size(),
         "Duplicated entry is detected in derived_domain: ",
         toDelimitedString(derived_domain));
@@ -867,7 +856,7 @@ class ValidateDomainEquivalence : private IterVisitor {
         })) {
       // Make sure all non-symbolic IDs of the derived set are included
       // in the frontier set
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           std::all_of(
               derived_domain.begin(),
               derived_domain.end(),
@@ -883,12 +872,12 @@ class ValidateDomainEquivalence : private IterVisitor {
       // derived set. It is also possible that an ID in the initial
       // domain set still remains in the frontier set as there may be
       // no expr connecting to the derived set, e.g., dynamic reshape
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           std::all_of(
               frontier_.begin(),
               frontier_.end(),
               [&](Val* val) {
-                TORCH_INTERNAL_ASSERT(val->isA<IterDomain>());
+                NVF_ERROR(val->isA<IterDomain>());
                 return derived_domain_.count(val->as<IterDomain>()) ||
                     initial_domain_.count(val);
               }),
@@ -897,7 +886,7 @@ class ValidateDomainEquivalence : private IterVisitor {
           ". Derived domain: ",
           toDelimitedString(derived_domain));
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           derived_domain_ == frontier_,
           "Invalid derived domain. Initial domain: ",
           toDelimitedString(initial_domain),
@@ -907,18 +896,18 @@ class ValidateDomainEquivalence : private IterVisitor {
   };
 
   void dispatch(Expr* expr) override {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         std::all_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
         }));
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         std::all_of(expr->outputs().begin(), expr->outputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
         }));
     // If any of the inputs is included in derived_domain_, that means there's a
     // dependency within derived_domain_ and the dependent domains
     // redundantly cover the initial domain
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         std::none_of(
             expr->inputs().begin(),
             expr->inputs().end(),
@@ -931,7 +920,7 @@ class ValidateDomainEquivalence : private IterVisitor {
         toDelimitedString(derived_domain_));
     for (auto out : expr->outputs()) {
       // Make sure the output is not yet visited
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           frontier_.insert(out).second,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
@@ -939,7 +928,7 @@ class ValidateDomainEquivalence : private IterVisitor {
           out->toString());
     }
     for (auto inp : expr->inputs()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           frontier_.erase(inp) == 1,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
@@ -1036,7 +1025,7 @@ std::vector<Statement*> checkCycle(
 }
 
 bool isAlignedScopeExpr(const Expr* expr) {
-  TORCH_INTERNAL_ASSERT(expr != nullptr);
+  NVF_ERROR(expr != nullptr);
   if (auto ite = dynamic_cast<const kir::IfThenElse*>(expr)) {
     if (ite->predicate()->hasValue() &&
         getRegisterType(ite->predicate()->value()) ==
@@ -1053,7 +1042,7 @@ bool isAlignedScopeExpr(const Expr* expr) {
       return false;
     }
   } else {
-    TORCH_INTERNAL_ASSERT(false, "Invalid scope expr: ", expr->toString());
+    NVF_ERROR(false, "Invalid scope expr: ", expr->toString());
   }
 
   return true;
@@ -1066,7 +1055,7 @@ std::vector<Statement*> checkCycle(Fusion* fusion) {
 namespace {
 
 inline bool isTensorAttr(const Val* val, const std::string& attr_name) {
-  TORCH_INTERNAL_ASSERT(val != nullptr);
+  NVF_ERROR(val != nullptr);
   auto getitem = dynamic_cast<GetItem*>(val->definition());
   if (getitem == nullptr) {
     return false;

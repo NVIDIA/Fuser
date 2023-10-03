@@ -46,7 +46,7 @@ IterDomainGraph::IterDomainGraph(Fusion* fusion, bool allow_self_mapping) {
   build(fusion);
 
   if (!allow_self_mapping) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !hasSelfMapping(),
         "Unsupported domain mapping detected in ",
         std::get<0>(*self_mapping_info_)->toString(),
@@ -98,7 +98,7 @@ bool IterDomainGraph::exprsMap(
     return false;
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       first->isA<Merge>() || first->isA<Split>() || first->isA<Resize>(),
       "Merge, split and resize are the only expressions supported through rfactor operations in compute at map, but found:\n",
       first->toString());
@@ -111,7 +111,7 @@ bool IterDomainGraph::exprsMap(
                         forward ? second->inputs() : second->outputs())
                         .vector();
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       first_ids.size() == second_ids.size(),
       "Expected number of ",
       (forward ? "inputs" : "outputs"),
@@ -211,7 +211,7 @@ void IterDomainGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
   auto second_ids = ir_utils::filterByType<IterDomain>(
                         forward ? second->outputs() : second->inputs())
                         .vector();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       first_ids.size() == second_ids.size(),
       "This should be unreachable, if transformation expressions match, their number of inputs and outputs should as well.\n However found:\n",
       first->toString(),
@@ -279,7 +279,7 @@ std::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
           return std::make_pair(id1, id2);
         }
       } else {
-        TORCH_INTERNAL_ASSERT(false, "Unrecognized IdMappingMode mode.");
+        NVF_ERROR(false, "Unrecognized IdMappingMode mode.");
       }
     }
   }
@@ -385,7 +385,7 @@ void IterDomainGraph::build(Fusion* fusion) {
         // case of mapping multiple outputs since they do share the
         // same loops.
 
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             c_tv->getRootDomain().size() ==
                 first_output_tv->getRootDomain().size(),
             "Multiple outputs with mismatched dimensions is not supported. ",
@@ -468,10 +468,9 @@ void IterDomainGraph::build(Fusion* fusion) {
         // For exact mapings do not map any broadcast dimensions to
         // non-broadcast dimensions. Prevent any broadcasted axes being mapped
         // to non-broadcasted axes.
-        auto exact_c2p_root_map =
-            PairwiseRootDomainMap(p_tv, c_tv)
-                .mapBroadcast(false)
-                .mapConsumerToProducer(c_tv->domain(), p_tv->domain());
+        auto exact_c2p_root_map = PairwiseRootDomainMap(p_tv, c_tv)
+                                      .mapBroadcast(false)
+                                      .mapConsumerToProducer();
 
         // Same as permissive above but for exact
         auto exact_replay_PasC = BestEffortReplay(
@@ -611,13 +610,13 @@ void IterDomainGraph::build(Fusion* fusion) {
          consumer_tv->getMaybeRFactorDomain().end()});
     for (auto expr : exprs) {
       auto rfactor_inp_ids = ir_utils::filterByType<IterDomain>(expr->inputs());
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           expr->isA<Split>() || expr->isA<Merge>() || expr->isA<Resize>(),
           "Wasn't expecting the expression type of:\n",
           expr->toString(),
           "\nto be an expression defined in an rfactor transformation.");
       for (auto rfactor_inp_id : rfactor_inp_ids) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             rfactor_id_uses.find(rfactor_inp_id) == rfactor_id_uses.end(),
             "Was expecting iter domains to only have one active transformation but found id ",
             rfactor_inp_id->toString(),
@@ -700,6 +699,7 @@ void IterDomainGraph::build(Fusion* fusion) {
     }
   }
 
+  innermost_nodes_ = permissive_resize_nodes_;
   // Build almost exact map by forwarding through broadcast axes
   almost_exact_nodes_ = exact_nodes_;
   std::unordered_set<Expr*> visited;
@@ -715,6 +715,11 @@ void IterDomainGraph::build(Fusion* fusion) {
     if (auto merge = dynamic_cast<Merge*>(def)) {
       if (merge->inner()->extent()->isOneInt()) {
         almost_exact_nodes_.mapEntries(merge->outer(), merge->out());
+        innermost_nodes_.mapEntries(merge->outer(), merge->out());
+      } else {
+        // maps to inner dimension, even though it's not an identical mapping.
+        // This is used for transpose scheduler to map inner leaf dimensions
+        innermost_nodes_.mapEntries(merge->inner(), merge->out());
       }
       if (merge->outer()->extent()->isOneInt()) {
         almost_exact_nodes_.mapEntries(merge->inner(), merge->out());
@@ -727,6 +732,13 @@ void IterDomainGraph::build(Fusion* fusion) {
         } else {
           almost_exact_nodes_.mapEntries(split->in(), split->inner());
         }
+      }
+      if (split->factor()->isOneInt() && split->innerSplit()) {
+        innermost_nodes_.mapEntries(split->in(), split->outer());
+      } else {
+        // maps to inner dimension, even though it's not an identical mapping.
+        // This is used for transpose scheduler to map inner leaf dimensions
+        innermost_nodes_.mapEntries(split->in(), split->inner());
       }
     }
   }
@@ -771,7 +783,7 @@ void ComputeAtMap::validateAndPropagatePType() {
     ParallelType common_ptype = ParallelType::Serial;
     for (auto id : loop_disjoint_set->vector()) {
       auto id_ptype = id->getParallelType();
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           id_ptype == common_ptype || id_ptype == ParallelType::Serial ||
               common_ptype == ParallelType::Serial,
           "Issue validating parallel type disjoint ptype is, ",
@@ -828,7 +840,7 @@ void ComputeAtMap::allocateIndexVariables() {
 
     // Allocate variable for the iterdomains:
     auto concrete_loop_id_it = concrete_id_cache_.find(loop_disjoint_set);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         concrete_loop_id_it != concrete_id_cache_.end(),
         "Concrete id not computed");
 
@@ -858,7 +870,7 @@ void ComputeAtMap::allocateIndexVariables() {
 Val* ComputeAtMap::getIndexVariable(
     IterDomain* id,
     DoubleBufferLoopStage double_buffer_loop_stage) const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       id_graph_.loopNodes().mappingExists(id),
       "Index Variable: no index variable allocated as ",
       id->toString(),
@@ -898,7 +910,7 @@ IterDomain* ComputeAtMap::computeConcreteId(
     IdMappingMode mode) {
   const auto& disjoint_set_shared_ptr = disjointSetOf(id, mode);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !disjoint_set_shared_ptr->vector().empty(),
       "Empty disjoint set found for ",
       id->toString());
@@ -927,7 +939,7 @@ IterDomain* ComputeAtMap::computeConcreteId(
 
   // Shouldn't ever happen, it would mean there's an error somewhere in the
   // graph.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !maybe_concrete_ids.vector().empty(),
       "No potential concrete_id's found for ",
       id->toString());
@@ -981,7 +993,7 @@ IterDomain* ComputeAtMap::computeConcreteId(
         resolved_broadcasts;
 
     for (const auto& exact_set : all_exact_sets_covered) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           !exact_set->vector().empty(),
           "Cannot compute concrete id of empty set.");
       auto c_id = getConcreteMappedID(
@@ -1086,7 +1098,7 @@ IterDomain* ComputeAtMap::computeConcreteId(
     }
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !maybe_concrete_ids.vector().empty(),
       "No potential concrete_id's found for disjoint set ",
       disjoint_set_shared_ptr->toString());
@@ -1124,7 +1136,7 @@ IterDomain* ComputeAtMap::computeConcreteId(
     }
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       concrete_id != nullptr,
       "No concrete_id found for disjoint set ",
       disjoint_set_shared_ptr->toString());
@@ -1139,7 +1151,7 @@ void ComputeAtMap::buildConcreteIds() {
   // generating the set (compute at map build).
   for (const auto& disjoint_set_shared_ptr :
        id_graph_.exactNodes().disjointSets()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !disjoint_set_shared_ptr->vector().empty(),
         "Cannot compute concrete id of empty set.");
     auto first_id = disjoint_set_shared_ptr->vector().front();
@@ -1150,7 +1162,7 @@ void ComputeAtMap::buildConcreteIds() {
   // efficient way to compute concrete IDs.
   for (const auto& disjoint_set_shared_ptr :
        id_graph_.permissiveNodes().disjointSets()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !disjoint_set_shared_ptr->vector().empty(),
         "Cannot compute concrete id of empty set.");
     auto first_id = disjoint_set_shared_ptr->vector().front();
@@ -1161,7 +1173,7 @@ void ComputeAtMap::buildConcreteIds() {
   // Same as exact computation
   for (const auto& disjoint_set_shared_ptr :
        id_graph_.almostExactNodes().disjointSets()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !disjoint_set_shared_ptr->vector().empty(),
         "Cannot compute concrete id of empty set.");
     auto first_id = disjoint_set_shared_ptr->vector().front();
@@ -1171,7 +1183,7 @@ void ComputeAtMap::buildConcreteIds() {
 
   for (const auto& disjoint_set_shared_ptr :
        id_graph_.loopNodes().disjointSets()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !disjoint_set_shared_ptr->vector().empty(),
         "Cannot compute concrete id of empty set.");
     auto first_id = disjoint_set_shared_ptr->vector().front();
@@ -1181,7 +1193,7 @@ void ComputeAtMap::buildConcreteIds() {
 
   for (const auto& disjoint_set_shared_ptr :
        id_graph_.permissiveResizeNodes().disjointSets()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !disjoint_set_shared_ptr->vector().empty(),
         "Cannot compute concrete id of empty set.");
     auto first_id = disjoint_set_shared_ptr->vector().front();
@@ -1205,7 +1217,7 @@ bool ComputeAtMap::areExactExprs(Expr* expr_1, Expr* expr_2) {
     }
   }
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       expr_1->inputs().size() == expr_2->inputs().size() &&
           expr_1->outputs().size() == expr_2->outputs().size(),
       "Expr traversal doesn't support variable number of inputs and outputs.");
@@ -1338,14 +1350,14 @@ IterDomain* ComputeAtMap::getConcreteMappedID(
     IdMappingMode mode) const {
   auto disjoint_set_shared_ptr = disjointSetOf(id, mode);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !disjoint_set_shared_ptr->vector().empty(),
       "Empty disjoint set found for ",
       id->toString());
 
   auto cache_it = concrete_id_cache_.find(disjoint_set_shared_ptr);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       cache_it != concrete_id_cache_.end(),
       "Could not find concrete id for: ",
       id->toString(),
@@ -1413,6 +1425,8 @@ std::string ComputeAtMap::toString() const {
      << idGraphNodesToString(*this, IdMappingMode::PERMISSIVE);
   ss << "Permissive-Resize map:\n"
      << idGraphNodesToString(*this, IdMappingMode::PERMISSIVE_RESIZE);
+  ss << "Permissive-Relaxed-Resize map:\n"
+     << idGraphNodesToString(*this, IdMappingMode::INNERMOST);
   ss << "Consumer maps:\n";
   for (auto key : getSortedKeys(id_graph_.consumers(), Statement::lessThan)) {
     auto consumers = id_graph_.consumers().at(key);
@@ -1454,7 +1468,7 @@ std::vector<IterDomain*> ComputeAtMap::getRfactorDomainsOfIdGroup(
 
 const std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>& ComputeAtMap::
     disjointSetOf(IterDomain* id, IdMappingMode mode) const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       idExistsInMap(id),
       id->toString(),
       " has not been processed in this Compute At Map, yet the disjoint set for it was requested.");
@@ -1474,9 +1488,10 @@ const DisjointSets<IterDomain*>& ComputeAtMap::getIdSets(
       return id_graph_.permissiveNodes();
     case IdMappingMode::PERMISSIVE_RESIZE:
       return id_graph_.permissiveResizeNodes();
+    case IdMappingMode::INNERMOST:
+      return id_graph_.innermostNodes();
     default:
-      TORCH_INTERNAL_ASSERT(
-          false, "Error with mapping mode, didn't expect mode: ", mode);
+      NVF_ERROR(false, "Error with mapping mode provided: ", mode);
   }
 }
 
@@ -1503,7 +1518,7 @@ ComputeAtMap::getInputDisjointSetsOf(IterDomain* of_id, bool stop_at_rfactor) {
       continue;
     }
     auto defs_it = unique_exact_definitions_.find(currently_visiting);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         defs_it != unique_exact_definitions_.end(),
         "unique_exact_definitions_ wasn't correctly generated, missing the disjoint set:\n",
         currently_visiting->toString());
@@ -1566,7 +1581,7 @@ ComputeAtMap::getAllDisjointSetProducers(
       continue;
     }
     auto defs_it = unique_exact_definitions_.find(currently_visiting);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         defs_it != unique_exact_definitions_.end(),
         "unique_exact_definitions_ wasn't correctly generated, missing the disjoint set:\n",
         currently_visiting->toString());
@@ -1614,7 +1629,7 @@ ComputeAtMap::getAllDisjointSetConsumers(
       continue;
     }
     auto uses_it = unique_exact_uses_.find(currently_visiting);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         uses_it != unique_exact_uses_.end(),
         "unique_exact_uses_ wasn't correctly generated, missing the disjoint set:\n",
         currently_visiting->toString());
@@ -1644,7 +1659,7 @@ ComputeAtMap::getAllDisjointSetConsumers(
 }
 
 void IterDomainGraph::updateComputeWith(TensorView* compute_with_tv) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       compute_with_tv->hasResolvedComputeWith(),
       "Invalid tensor: ",
       compute_with_tv->toString());
@@ -1664,7 +1679,7 @@ void IterDomainGraph::updateComputeWith(TensorView* compute_with_tv) {
         [&](auto consumer_id) {
           return permissiveNodes().disjointSetMap().at(id)->has(consumer_id);
         });
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         it != consumer_tv->getLeafDomain().end(),
         "No consumer leaf ID of tensor ",
         consumer_tv->toString(),
@@ -1678,7 +1693,7 @@ void IterDomainGraph::updateComputeWith(TensorView* compute_with_tv) {
 }
 
 void ComputeAtMap::updateComputeWith(TensorView* compute_with_tv) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       compute_with_tv->hasResolvedComputeWith(),
       "Invalid tensor: ",
       compute_with_tv->toString());
@@ -1688,7 +1703,7 @@ void ComputeAtMap::updateComputeWith(TensorView* compute_with_tv) {
   // Update the LOOP concrete IDs
   for (const auto& disjoint_set_shared_ptr :
        id_graph_.loopNodes().disjointSets()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !disjoint_set_shared_ptr->vector().empty(),
         "Cannot compute concrete id of empty set.");
     auto first_id = disjoint_set_shared_ptr->vector().front();

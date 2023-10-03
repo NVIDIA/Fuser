@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <fusion.h>
 #include <ir/builder_passkey.h>
@@ -40,7 +41,7 @@ class ViewTransform;
 class IrCloner;
 
 namespace ir_utils {
-TORCH_CUDA_CU_API std::string varName(const Val* val);
+std::string varName(const Val* val);
 }
 
 template <typename T>
@@ -95,7 +96,7 @@ class TVDomainGuard;
 //! getComputeAtAxis not being const because it can return a TV that some expect
 //! to be non-const is the biggest headache.
 //!
-class TORCH_CUDA_CU_API TensorView : public Val {
+class TensorView : public Val {
  public:
   TensorView(
       IrBuilderPasskey passkey,
@@ -361,16 +362,18 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! write results into shared memory or registers before moving to global
   //! memory. Analogous to TVM Cache_Write
   //!
-  //! @param cache_op: memory operator to use for the inserted op between
+  //! @param op_type: memory operator to use for the inserted op between
   //!   the the data tensor and the cache tensor
-  TensorView* cacheBefore(LoadStoreOpType cache_op = LoadStoreOpType::Set);
+  TensorView* cacheBefore(LoadStoreOpType op_type = LoadStoreOpType::Set);
 
   //! Create a TensorView after the original tensor. A common use case is to
   //! read tensor into shared memory or registers. Analogous to TVM Cache_Read
   //!
-  //! @param cache_op: memory operator to use for the inserted op between
+  //! @param op_type: memory operator to use for the inserted op between
   //!   the the data tensor and the cache tensor
-  TensorView* cacheAfter(LoadStoreOpType cache_op = LoadStoreOpType::Set);
+  TensorView* cacheAfter(
+      LoadStoreOpType op_type = LoadStoreOpType::Set,
+      CacheOp cache_op = CacheOp::Unspecified);
 
   // For a fusion output with other uses, we want to avoid writing to global
   // memory and then reading the output again. We write to global memory
@@ -402,8 +405,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 
   // Returns the depth of circular buffering if applicable.
   unsigned int circularBufferDepth() const {
-    TORCH_INTERNAL_ASSERT(
-        is_circular_buffered_, toString(), "not circular buffered");
+    NVF_ERROR(is_circular_buffered_, toString(), "not circular buffered");
     return circular_buffer_stage_;
   }
 
@@ -421,10 +423,10 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return has_swizzle_op_;
   }
 
-  friend TORCH_CUDA_CU_API TransformPropagator;
-  friend TORCH_CUDA_CU_API MostInlinedTransformPropagator;
-  friend TORCH_CUDA_CU_API TransformReplay;
-  friend TORCH_CUDA_CU_API OptOutMutator;
+  friend TransformPropagator;
+  friend MostInlinedTransformPropagator;
+  friend TransformReplay;
+  friend OptOutMutator;
   friend class InlineBatchingGuard;
   friend class ir_utils::TVDomainGuard;
 
@@ -513,7 +515,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! is present in the kernel to reuse memory and inserts new block
   //! synchronizations if necessary.
   void promoteReuse(bool b = true) {
-    TORCH_CHECK(
+    NVF_CHECK(
         memory_type_ == MemoryType::Shared,
         "promoteReuse should only be called on shared memory tensors");
     promote_reuse_ = b;
@@ -608,7 +610,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 //!       .contiguity(contiguity)
 //!       .build();
 //!
-class TORCH_CUDA_CU_API TensorViewBuilder {
+class TensorViewBuilder {
  public:
   //! Set the number of dimensions of the tensor (default 0, meaning scalar)
   TensorViewBuilder& ndims(size_t ndims);

@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
 
@@ -28,14 +29,14 @@ using FusionPass = std::function<void(Fusion*)>;
 //!
 //! Specific optimization pass needs to be created like:
 //!
-//!   class TORCH_CUDA_CU_API Pass0 : public OptimizationPass<Pass0> {
+//!   class Pass0 : public OptimizationPass<Pass0> {
 //!     friend class OptimizationPass<Pass0>;
 //!
 //!    protected:
 //!     static void runPass(Fusion* fusion);
 //!   };
 template <typename DerivedClass>
-class TORCH_CUDA_CU_API OptimizationPass {
+class OptimizationPass {
  public:
   static void setEnabled(bool enabled) {
     flag_.store(enabled);
@@ -52,7 +53,7 @@ class TORCH_CUDA_CU_API OptimizationPass {
     DerivedClass::runPass(fusion);
 #ifndef NDEBUG
     // cycle detection is only enabled on debug run
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         ir_utils::checkCycle(fusion).empty(), "cycle detected in fusion IR");
 #endif
   }
@@ -67,7 +68,7 @@ class TORCH_CUDA_CU_API OptimizationPass {
 //! OptimizationPassGuard is used to temporarily switch enable/disable on a
 //! certain pass. Original status will be restored at destruction.
 template <typename OptPass>
-class TORCH_CUDA_CU_API OptimizationPassGuard {
+class OptimizationPassGuard {
  public:
   OptimizationPassGuard(bool enabled) : prev_status_(OptPass::getEnabled()) {
     if (prev_status_ != enabled) {

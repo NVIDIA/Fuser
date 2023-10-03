@@ -19,7 +19,7 @@ bool PipelineExecutor::shouldRun(PipelineStage* stage) {
         std::count(
             stage->descriptor()->mesh.deviceIndices().begin(),
             stage->descriptor()->mesh.deviceIndices().end(),
-            runtime_.rankToDiD(runtime_.rank())));
+            runtime_.comm_.deviceId()));
   }
   return should_run_[stage];
 }
@@ -52,8 +52,8 @@ void PipelineExecutor::handle(PipelineStage* stage) {
 }
 
 struct SendRecvDescriptor {
-  std::vector<RankType> team;
-  RankType root = 0;
+  Team team;
+  DeviceIdxType root = 0;
 };
 
 void PipelineExecutor::handle(PipelineCommunication* c) {
@@ -63,36 +63,36 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
      the topology. */
   std::vector<SendRecvDescriptor> communications;
   {
-    std::vector<RankType> sender_ranks;
+    Team senders;
     for (auto& d_id : c->in()
                           ->as<PipelineVal>()
                           ->getStage()
                           ->descriptor()
                           ->mesh.deviceIndices()) {
-      sender_ranks.push_back(runtime_.dIdToRank(d_id));
+      senders.push_back(d_id);
     }
 
-    std::vector<RankType> receiver_ranks;
+    Team receivers;
     for (auto& d_id : c->out()
                           ->as<PipelineVal>()
                           ->getStage()
                           ->descriptor()
                           ->mesh.deviceIndices()) {
-      receiver_ranks.push_back(runtime_.dIdToRank(d_id));
+      receivers.push_back(d_id);
     }
 
-    auto nbr_srcs = sender_ranks.size();
-    auto nbr_dests_per_comm = receiver_ranks.size() / nbr_srcs;
-    auto remainder = receiver_ranks.size() % nbr_srcs;
+    auto nbr_srcs = senders.size();
+    auto nbr_dests_per_comm = receivers.size() / nbr_srcs;
+    auto remainder = receivers.size() % nbr_srcs;
     auto j = 0;
     for (size_t i : c10::irange(nbr_srcs)) {
       SendRecvDescriptor communication;
-      auto src = sender_ranks.at(i);
+      auto src = senders.at(i);
       communication.team = {src};
       communication.root = src;
       for (size_t counter = 0; counter < nbr_dests_per_comm + (i < remainder);
            counter++, j++) {
-        auto dst = receiver_ranks.at(j);
+        auto dst = receivers.at(j);
         communication.team.push_back(dst);
       }
       communications.push_back(communication);
@@ -111,6 +111,10 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
   for (auto& communication : communications) {
     auto sender_rank = communication.root;
     for (auto receiver_rank : communication.team) {
+      if ((sender_rank == receiver_rank) ||
+          !(runtime_.comm_.deviceId() == sender_rank ||
+            runtime_.comm_.deviceId() == receiver_rank))
+        continue;
       runtime_.comm_.sendRecv(receiver_rank, sender_rank, tensor);
     }
   }
@@ -120,7 +124,7 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
 std::vector<at::Tensor> PipelineExecutor::runWithInput(
     const std::vector<c10::IValue>& inputs) {
   // Make sure inputs align at global boundary.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       inputs.size() == runtime_.pipeline_->inputs().size(),
       "Wrong number of inputs");
 

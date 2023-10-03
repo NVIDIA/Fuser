@@ -13,22 +13,22 @@
 namespace nvfuser {
 
 void LaunchParams::assertValid() {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       bdimx() * bdimy() * bdimz() > 0 &&
           bdimx() * bdimy() * bdimz() <=
               (int64_t)at::cuda::getCurrentDeviceProperties()
                   ->maxThreadsPerMultiProcessor,
       "Selected invalid number of threads for cuda: ",
       bdimx() * bdimy() * bdimz());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       gdimx() > 0 && gdimx() < (std::int64_t(1) << 32) - 1,
       "Invalid number of blocks in x direction: ",
       gdimx());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       gdimy() > 0 && gdimy() <= 65535,
       "Invalid number of blocks in y direction: ",
       gdimy());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       gdimz() > 0 && gdimz() <= 65535,
       "Invalid number of blocks in z direction: ",
       gdimz());
@@ -55,7 +55,7 @@ void LaunchParams::bind(int64_t val, ParallelType p_type) {
       checkAndSet(val, gdimz_, "gridDim.z");
       break;
     default:
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           false,
           "Tried to bind invalid parallel type in launch config: ",
           p_type);
@@ -78,7 +78,7 @@ int64_t LaunchParams::getDim(ParallelType p_type) const {
     case ParallelType::BIDz:
       return gdimz();
     default:
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           false,
           "Tried to get with invalid parallel type in launch config: ",
           p_type);
@@ -104,7 +104,7 @@ const int64_t& LaunchParams::getRawVal(ParallelType p_type) const {
     case ParallelType::BIDz:
       return gdimz_;
     default:
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           false,
           "Tried to get with invalid parallel type in launch config: ",
           p_type);
@@ -157,7 +157,7 @@ flatbuffers::Offset<serde::LaunchParams> LaunchParams::serialize(
 void LaunchParams::deserialize(const serde::LaunchParams* buffer) {
   // See table definitions for LaunchParams and TensorShape in
   // serde/fusion_cache.fbs
-  TORCH_INTERNAL_ASSERT(buffer != nullptr, "serde::LaunchParams is nullptr.");
+  NVF_ERROR(buffer != nullptr, "serde::LaunchParams is nullptr.");
 
   gdimx_ = buffer->gdimx();
   gdimy_ = buffer->gdimy();

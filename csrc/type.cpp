@@ -19,7 +19,7 @@
 namespace nvfuser {
 
 StructType NotImplementedStruct::type() const {
-  TORCH_INTERNAL_ASSERT(false, "Not implemented");
+  NVF_ERROR(false, "Not implemented");
 }
 
 StructType globalTensorMetaData(
@@ -70,7 +70,7 @@ StructType globalTensorMetaData(
 
 DataType metaDataTypeOf(const Val* v) {
   auto tv = dynamic_cast<const TensorView*>(v);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       tv != nullptr, "Currently, only supports getting metadata of TensorView");
   if (tv->getMemoryType() == MemoryType::Shared) {
     // Smem tensor is defined locally as a pointer
@@ -91,7 +91,7 @@ PrimDataType indexModeToDtype(KernelIndexMode index_mode) {
     case KernelIndexMode::INT64:
       return DataType::Int;
     default:
-      TORCH_CHECK(false, "Invalid kernel index mode type.");
+      NVF_CHECK(false, "Invalid kernel index mode type.");
   }
 }
 
@@ -138,7 +138,7 @@ DataType getTypeFromComplexType(DataType dtype) {
     case DataType::ComplexDouble:
       return DataType::Double;
     default:
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           false,
           "Only support ComplexFloat and ComplexDouble, current type:",
           dtype);
@@ -154,8 +154,7 @@ DataType getComplexTypeFromType(DataType dtype) {
     case DataType::ComplexDouble:
       return DataType::ComplexDouble;
     default:
-      TORCH_INTERNAL_ASSERT(
-          false, "Only support Float and Double, current type:", dtype);
+      NVF_ERROR(false, "Only support Float and Double, current type:", dtype);
   }
 }
 
@@ -192,7 +191,7 @@ ValType promoteType(const ValType& t1, const ValType& t2) {
   if (t1 == ValType::NamedScalar && t2 == ValType::NamedScalar) {
     return ValType::Others;
   }
-  TORCH_CHECK(false, "Expected promotable ValTypes but got: ", t1, " and ", t2);
+  NVF_CHECK(false, "Expected promotable ValTypes but got: ", t1, " and ", t2);
 }
 
 static std::string data_type2string(DataType t) {
@@ -228,7 +227,7 @@ static std::string data_type2string(DataType t) {
             case DataType::ComplexDouble:
               return "std::complex<double>";
             default:
-              TORCH_INTERNAL_ASSERT(false, "No string found for data type.");
+              NVF_ERROR(false, "No string found for data type.");
           }
         } else if constexpr (std::is_same_v<T, PointerType>) {
           return data_type2string(*dtype.type) + "*";
@@ -255,9 +254,9 @@ static std::string data_type2string(DataType t) {
             return dtype.type_info.get().name();
           }
         } else {
-          TORCH_INTERNAL_ASSERT(false, "No string found for data type.");
+          NVF_ERROR(false, "No string found for data type.");
         }
-        TORCH_INTERNAL_ASSERT(false, "No string found for data type.");
+        NVF_ERROR(false, "No string found for data type.");
       },
       t.type);
 }
@@ -281,7 +280,7 @@ static const char* val_type2string(ValType t) {
     case ValType::PipelineVal:
       return "PipelineVal";
     default:
-      TORCH_INTERNAL_ASSERT(false, "No string found for val type.");
+      NVF_ERROR(false, "No string found for val type.");
   }
 }
 
@@ -306,7 +305,7 @@ const char* predicate_type2string(PredicateType t) {
     case PredicateType::LoopRotation:
       return "LoopRotation";
     default:
-      TORCH_INTERNAL_ASSERT(false, "No string found for predicate type.");
+      NVF_ERROR(false, "No string found for predicate type.");
   }
 }
 
@@ -454,7 +453,7 @@ static const char* unary_op_type2string(UnaryOpType t) {
     case UnaryOpType::ToUnsignedSmemAddr:
       return "toSmem";
     default:
-      TORCH_INTERNAL_ASSERT(false, "No string found for unary op type.");
+      NVF_ERROR(false, "No string found for unary op type.");
   }
 }
 
@@ -552,7 +551,7 @@ static const char* binary_op_type2string(BinaryOpType t) {
     case BinaryOpType::NE:
       return "notEqual";
     default:
-      TORCH_INTERNAL_ASSERT(false, "No string found for binary op type.");
+      NVF_ERROR(false, "No string found for binary op type.");
   }
 }
 
@@ -656,7 +655,7 @@ static const char* ternary_op_type2string(TernaryOpType t) {
     case TernaryOpType::Where:
       return "where";
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unexpected TernaryOpType");
+      NVF_ERROR(false, "Unexpected TernaryOpType");
   }
 }
 
@@ -671,7 +670,7 @@ static const char* rng_op_type2string(RNGOpType t) {
     case RNGOpType::NormalGeneral:
       return "rng_normal_general";
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unexpected RNGOpType");
+      NVF_ERROR(false, "Unexpected RNGOpType");
   }
 }
 
@@ -703,8 +702,10 @@ static const char* parallel_type2string(ParallelType t) {
       return "G";
     case ParallelType::Serial:
       return "S";
+    case ParallelType::Bulk:
+      return "B";
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unexpected ParallelType");
+      NVF_ERROR(false, "Unexpected ParallelType");
   }
 }
 
@@ -723,7 +724,8 @@ std::unordered_set<ParallelType> allParallelTypesExcept(
       ParallelType::Unswitch,
       ParallelType::Mma,
       ParallelType::Group,
-      ParallelType::Serial};
+      ParallelType::Serial,
+      ParallelType::Bulk};
   for (auto t : except) {
     result.erase(t);
   }
@@ -739,7 +741,7 @@ static const char* memory_type2string(MemoryType t) {
     case MemoryType::Global:
       return "global";
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unexpected MemoryType");
+      NVF_ERROR(false, "Unexpected MemoryType");
   }
 }
 
@@ -759,7 +761,7 @@ static const char* id_map_mode_type2string(IdMappingMode t) {
       return "permissive_resize";
     default:
       // Don't try to print t as it would recursively call this function
-      TORCH_INTERNAL_ASSERT(false, "Unexpected IdMappingMode Type.");
+      NVF_ERROR(false, "Unexpected IdMappingMode Type.");
   }
 }
 
@@ -783,7 +785,7 @@ static const char* iter_type2string(IterType t) {
       return "?";
     default:
       // Don't try to print t as it would recursively call this function
-      TORCH_INTERNAL_ASSERT(false, "Unexpected IterType");
+      NVF_ERROR(false, "Unexpected IterType");
   }
 }
 
@@ -802,7 +804,7 @@ static const char* thread_size2string(ParallelType t) {
     case ParallelType::TIDx:
       return "blockDim.x";
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unexpected parallel type");
+      NVF_ERROR(false, "Unexpected parallel type");
   }
 }
 
@@ -816,12 +818,12 @@ const char* load_store_type2string(LoadStoreOpType t) {
       return "LdMatrix";
     case LoadStoreOpType::LdMatrixTranspose:
       return "LdMatrixTranspose";
-    case LoadStoreOpType::CpAsyncCa:
-      return "CpAsyncCa";
-    case LoadStoreOpType::CpAsyncCg:
-      return "CpAsyncCg";
+    case LoadStoreOpType::CpAsync:
+      return "CpAsync";
+    case LoadStoreOpType::CpAsyncBulkTensorTile:
+      return "CpAsyncBulkTensorTile";
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unexpected parallel type");
+      NVF_ERROR(false, "Unexpected parallel type");
   }
 }
 
@@ -1017,7 +1019,7 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
     case DataType::Int:
       return at::ScalarType::Long;
     case DataType::Index:
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           false,
           "Index is determined at compile time,",
           " to convert from an aten type you need to have the compiled information. ",
@@ -1030,7 +1032,7 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
     case DataType::ComplexDouble:
       return at::ScalarType::ComplexDouble;
     default:
-      TORCH_INTERNAL_ASSERT(false, "No data type found for scalar type.");
+      NVF_ERROR(false, "No data type found for scalar type.");
   }
 }
 
@@ -1058,7 +1060,7 @@ std::ostream& operator<<(std::ostream& out, const ScatterOpType sotype) {
   if (sotype == ScatterOpType::Set) {
     return out << "scatter";
   }
-  TORCH_INTERNAL_ASSERT(false, "No scatterOp type found for scatterOp.");
+  NVF_ERROR(false, "No scatterOp type found for scatterOp.");
 }
 
 std::ostream& operator<<(std::ostream& out, const TernaryOpType totype) {
@@ -1106,7 +1108,7 @@ std::ostream& operator<<(std::ostream& os, const Swizzle2DType& swizzle) {
       os << "CyclicShift";
       break;
     default:
-      TORCH_INTERNAL_ASSERT(false, "undefined 2D swizzle");
+      NVF_ERROR(false, "undefined 2D swizzle");
       break;
   }
   return os;
@@ -1124,7 +1126,7 @@ std::ostream& operator<<(std::ostream& os, const SwizzleMode& swizzle) {
       os << "Data";
       break;
     default:
-      TORCH_INTERNAL_ASSERT(false, "undefined 2D swizzle");
+      NVF_ERROR(false, "undefined 2D swizzle");
       break;
   }
   return os;
@@ -1139,7 +1141,28 @@ std::ostream& operator<<(std::ostream& os, const KernelIndexMode& index_mode) {
       os << "INT64";
       break;
     default:
-      TORCH_INTERNAL_ASSERT(false, "undefined index mode");
+      NVF_ERROR(false, "undefined index mode");
+      break;
+  }
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const CacheOp& cache_op) {
+  switch (cache_op) {
+    case CacheOp::Unspecified:
+      os << "Unspecified";
+      break;
+    case CacheOp::AllLevels:
+      os << "AllLevels";
+      break;
+    case CacheOp::Streaming:
+      os << "Streaming";
+      break;
+    case CacheOp::Global:
+      os << "Global";
+      break;
+    default:
+      NVF_ERROR(false, "undefined cache operator");
       break;
   }
   return os;
@@ -1214,7 +1237,7 @@ std::string typePrefix(const DataType data_type) {
     case DataType::ComplexDouble:
       return "c";
     default:
-      TORCH_INTERNAL_ASSERT(false, "No data type found for scalar type.");
+      NVF_ERROR(false, "No data type found for scalar type.");
   }
 }
 
@@ -1266,14 +1289,14 @@ int64_t dataTypeSize(DataType type) {
         } else if constexpr (std::is_same_v<T, OpaqueType>) {
           return dtype.size;
         }
-        TORCH_INTERNAL_ASSERT(false, "Size undefined for data type.");
+        NVF_ERROR(false, "Size undefined for data type.");
       },
       type.type);
 }
 
 int64_t dataTypeSize(DataType type, DataType index_type) {
   if (type == DataType::Index) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         index_type == DataType::Int32 || index_type == DataType::Int,
         "Invalid index type of ",
         index_type);
@@ -1298,7 +1321,7 @@ std::ostream& operator<<(
       os << "{DoubleBufferEpilog}";
       break;
     default:
-      TORCH_INTERNAL_ASSERT(false, "unknown double buffer stage");
+      NVF_ERROR(false, "unknown double buffer stage");
   }
   return os;
 }
@@ -1324,7 +1347,7 @@ int max_digits10(DataType dtype) {
   } else if (dtype == DataType::BFloat16) {
     return 4;
   } else {
-    TORCH_CHECK(
+    NVF_CHECK(
         !isFloatingPointType(dtype),
         "Unhandled floating point type in max_digits10 ",
         dtype);

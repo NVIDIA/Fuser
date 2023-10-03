@@ -8,6 +8,7 @@
 #pragma once
 
 #include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <ir/interface_nodes.h>
 #include <type.h>
@@ -25,22 +26,18 @@ struct ForwardDropoutResult {
   TensorView* mask = nullptr;
 };
 
-TORCH_CUDA_CU_API ForwardDropoutResult dropout(TensorView* x, Val* prob);
+ForwardDropoutResult dropout(TensorView* x, Val* prob);
 
-TORCH_CUDA_CU_API ForwardDropoutResult
-dropout(TensorView* x, Val* prob, Val* scale);
+ForwardDropoutResult dropout(TensorView* x, Val* prob, Val* scale);
 
-TORCH_CUDA_CU_API TensorView* dropout_backward(
-    TensorView* dy,
-    TensorView* mask,
-    Val* scale);
+TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale);
 
 struct LstmResult {
   TensorView* cell = nullptr;
   TensorView* hidden = nullptr;
 };
 
-TORCH_CUDA_CU_API LstmResult lstm(
+LstmResult lstm(
     TensorView* prev_cell,
     TensorView* in_x,
     TensorView* forget_x,
@@ -53,24 +50,21 @@ TORCH_CUDA_CU_API LstmResult lstm(
 // 2. Tensors must be contiguously defined.
 // 3. Inputs must be FP16/BF16
 // 4. Heuristic support only exists for Ampere
-TORCH_CUDA_CU_API TensorView* _matmul_nn(TensorView* a, TensorView* b);
-TORCH_CUDA_CU_API TensorView* _matmul_nt(TensorView* a, TensorView* b);
-TORCH_CUDA_CU_API TensorView* _matmul_tn(TensorView* a, TensorView* b);
-TORCH_CUDA_CU_API TensorView* _matmul_tt(TensorView* a, TensorView* b);
+TensorView* _matmul_nn(TensorView* a, TensorView* b);
+TensorView* _matmul_nt(TensorView* a, TensorView* b);
+TensorView* _matmul_tn(TensorView* a, TensorView* b);
+TensorView* _matmul_tt(TensorView* a, TensorView* b);
 
-TORCH_CUDA_CU_API TensorView* sign(TensorView* x);
-TORCH_CUDA_CU_API Val* sign(Val* x);
-TORCH_CUDA_CU_API TensorView* softplus(
-    TensorView* x,
-    Val* beta,
-    Val* threshold);
-TORCH_CUDA_CU_API TensorView* gelu(TensorView* x);
-TORCH_CUDA_CU_API TensorView* gelu_backward(TensorView* dy, TensorView* x);
-TORCH_CUDA_CU_API TensorView* tanh_gelu(TensorView* x);
-TORCH_CUDA_CU_API TensorView* tanh_gelu_backward(TensorView* dy, TensorView* x);
-TORCH_CUDA_CU_API TensorView* tanh_backward(TensorView* dy, TensorView* tanh_x);
-TORCH_CUDA_CU_API TensorView* leaky_relu(TensorView* x, Val* negative_slope);
+TensorView* sign(TensorView* x);
+Val* sign(Val* x);
+TensorView* softplus(TensorView* x, Val* beta, Val* threshold);
+TensorView* gelu(TensorView* x);
+TensorView* gelu_backward(TensorView* dy, TensorView* x);
+TensorView* tanh_gelu(TensorView* x);
+TensorView* tanh_gelu_backward(TensorView* dy, TensorView* x);
+TensorView* tanh_backward(TensorView* dy, TensorView* tanh_x);
+TensorView* leaky_relu(TensorView* x, Val* negative_slope);
 
-TORCH_CUDA_CU_API TensorView* view_as_real(TensorView* x);
+TensorView* view_as_real(TensorView* x);
 
 } // namespace nvfuser

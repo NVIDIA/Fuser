@@ -18,6 +18,14 @@ namespace nvfuser {
 
 namespace {
 
+bool shouldHoistToHost(Val* value) {
+  if (value->definition() == nullptr) {
+    return false;
+  }
+  auto def = value->definition();
+  return def->isA<kir::EncodeTensorMapTiled>();
+}
+
 // Get the position of the innermost non-trivial loop
 int64_t getInnermostNonTrivialLoop(const std::vector<kir::ForLoop*>& loops) {
   int64_t position = -1;
@@ -142,6 +150,17 @@ bool isHelpfulToReuse(Val* value) {
   return true;
 }
 
+// Find if the given `value` is already computed on the host. If yes, then
+// return the host value, else return nullptr.
+Val* reuseValsKnownToKernel(Val* value) {
+  for (auto val : GpuLower::current()->allKnownVals()) {
+    if (val->sameAs(value)) {
+      return val;
+    }
+  }
+  return nullptr;
+}
+
 } // namespace
 
 std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
@@ -177,10 +196,25 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
   auto my_pos = findOutermostPosWithSatisfiedDependency(value, loops);
   auto my_loop = getLoopAtPos(loops, my_pos);
 
+  // There are certain experesions that must be evaluated on the host, such as
+  // kir::EncodeTensorMapTiled. For these expressions, we should add them to
+  // known values of the kernel. Also, reusing subexpressions of these exprs
+  // are disabled, because the subexpressions on the host is not accessible to
+  // the device. This must happen before reusing, because we can not reuse
+  // values on the host for device.
+  if (shouldHoistToHost(value)) {
+    if (auto known_val = reuseValsKnownToKernel(value)) {
+      return {known_val, false};
+    }
+    GpuLower::current()->allKnownVals().emplace_back(value);
+    return {value, false};
+  }
+
   // Check if `value` is already computed. If yes, just reuse it and return.
   if (auto existing_subexpr = reuseScalarIfAlreadyComputed(value, my_loop)) {
     return {existing_subexpr, false};
   }
+
   for (auto existing_subexpr : seen_subexprs) {
     if (value->sameAs(existing_subexpr)) {
       common_scalar_map_[my_loop].emplace_back(existing_subexpr);
@@ -207,8 +241,8 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
   // If any of the inputs is replaced, then create a new expression whose inputs
   // are replaced with hoisted input
   if (changed) {
-    value = IrBuilder::newScalar(*value->getDataType());
-    TORCH_INTERNAL_ASSERT(def->outputs().size() == 1);
+    value = IrBuilder::create<Val>(*value->getDataType());
+    NVF_ERROR(def->outputs().size() == 1);
     auto create_fn = def->newObjectFunc();
     create_fn(value->container(), inputs, {value}, def->attributes());
   }
@@ -306,9 +340,6 @@ Val* CommonScalarMap::hoistScalar(
     const std::vector<kir::ForLoop*>& loops) {
   value =
       simplifyExpr(value, getVariableInfo(value, loops), getAssumptions(loops));
-  if (isOptionDisabled(DisableOption::IndexHoist)) {
-    return value;
-  }
   std::vector<Val*> seen_subexprs;
   return hoistScalarImpl(
              value,
@@ -322,11 +353,15 @@ Val* CommonScalarMap::hoistScalar(
 Val* CommonScalarMap::reuseScalarIfAlreadyComputed(
     Val* value,
     kir::ForLoop* loop) {
+  // Find if value is computed on the host.
+  if (auto host_val = reuseValsKnownToKernel(value)) {
+    return host_val;
+  }
   // Find if loop already contain `value`.
   auto it = common_scalar_map_.find(loop);
   if (it != common_scalar_map_.end()) {
-    auto& indices = it->second;
-    for (auto it = indices.begin(); it != indices.end(); it++) {
+    auto& scalars = it->second;
+    for (auto it = scalars.begin(); it != scalars.end(); it++) {
       auto idx = *it;
       auto common_subexpr = findRefAsSubexprOf(idx, value, false);
       if (common_subexpr != nullptr) {
@@ -334,7 +369,7 @@ Val* CommonScalarMap::reuseScalarIfAlreadyComputed(
           // If the reuse is a subexpression instead of the complete
           // expression, we split this subexpression out and allocate it
           // separately.
-          indices.insert(it, common_subexpr);
+          scalars.insert(it, common_subexpr);
         }
         hoisted_or_reused_.emplace(common_subexpr);
         return common_subexpr;
@@ -365,7 +400,7 @@ std::vector<Val*> CommonScalarMap::getHoistedScalars(kir::ForLoop* loop) const {
 void CommonScalarMap::initialize(const std::vector<Expr*> exprs) {
   // We only hoist scalars not depending on tensors. In lowered expressions, all
   // these scalars are computed in top level scope.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       common_scalar_map_.empty(),
       "CommonScalarMap used before initialization.");
   for (auto expr : exprs) {
@@ -406,7 +441,7 @@ std::pair<int64_t, bool> findAllocPointFromDataDependency(
   int64_t pos = -1;
   for (auto i : c10::irange(exprs.size())) {
     auto expr = exprs[i];
-    TORCH_INTERNAL_ASSERT(expr != nullptr);
+    NVF_ERROR(expr != nullptr);
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       // Currently this branch is only to handle shared memory address. For
       // shared memory address, we generate code like `toSmem(T7)`, this does
@@ -432,17 +467,17 @@ std::pair<int64_t, bool> findAllocPointFromDataDependency(
 }
 
 // Inserts allocations of hoisted indices
-class CommonIndexInserter : private kir::ExprMutator {
+class CommonScalarInserter : private kir::ExprMutator {
  public:
   static std::vector<Expr*> run(
       const std::vector<Expr*>& exprs,
       const CommonScalarMap& common_indices) {
-    CommonIndexInserter inserter(exprs, common_indices);
+    CommonScalarInserter inserter(exprs, common_indices);
     return std::move(inserter.exprs_);
   }
 
  private:
-  CommonIndexInserter(
+  CommonScalarInserter(
       const std::vector<Expr*>& exprs,
       const CommonScalarMap& common_scalar_map)
       : common_scalar_map_(common_scalar_map) {
@@ -481,7 +516,7 @@ class CommonIndexInserter : private kir::ExprMutator {
       auto alloc = IrBuilder::create<kir::Allocate>(
           value, MemoryType::Local, GpuLower::current()->kernel()->oneVal());
       const auto def = value->definition();
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           def != nullptr,
           "Hoisted value must have a definition. ",
           value->toString());
@@ -509,7 +544,10 @@ class CommonIndexInserter : private kir::ExprMutator {
 } // namespace
 
 std::vector<Expr*> allocateCommonScalars(const std::vector<Expr*>& exprs) {
-  return CommonIndexInserter::run(
+  if (isOptionDisabled(DisableOption::IndexHoist)) {
+    return exprs;
+  }
+  return CommonScalarInserter::run(
       exprs, GpuLower::current()->commonScalarMap());
 }
 

@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <disjoint_set.h>
+#include <exceptions.h>
 #include <ir/base_nodes.h>
 #include <ir/printer.h>
 
@@ -30,7 +31,7 @@ class PipelineStageDescriptor;
   It is instantiated from a list of I/O and a PipelineStageDescriptor (pointing
   to the originalFusion's Vals contained in the Stage)
 */
-class TORCH_CUDA_CU_API PipelineStage : public Expr {
+class PipelineStage : public Expr {
   using ValSet = VectorOfUniqueEntries<Val*>;
 
  public:
@@ -65,7 +66,7 @@ class TORCH_CUDA_CU_API PipelineStage : public Expr {
   Currently, PipelineVal is necessarily an input or output of a (unique)
   PipelineStage
 */
-class TORCH_CUDA_CU_API PipelineVal : public Val {
+class PipelineVal : public Val {
  public:
   PipelineVal(IrBuilderPasskey passkey, Val* val);
   PipelineVal(const PipelineVal* src, IrCloner* ir_cloner);
@@ -102,7 +103,7 @@ class TORCH_CUDA_CU_API PipelineVal : public Val {
   PipelineCommunication is a unary operation between two PipelineVals
   It represents the data communication in-between two PipelineStages
 */
-class TORCH_CUDA_CU_API PipelineCommunication : public Expr {
+class PipelineCommunication : public Expr {
  public:
   using Expr::Expr;
   PipelineCommunication(IrBuilderPasskey, Val* in, Val* out);
