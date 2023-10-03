@@ -165,6 +165,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/parser.cpp
   ${NVFUSER_SRCS_DIR}/partial_split_map.cpp
   ${NVFUSER_SRCS_DIR}/partition.cpp
+  ${NVFUSER_SRCS_DIR}/profiler.cpp
   ${NVFUSER_SRCS_DIR}/predicate_compute.cpp
   ${NVFUSER_SRCS_DIR}/register_interface.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp

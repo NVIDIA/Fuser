@@ -52,4 +52,8 @@ void Profiler::reset() {
   profile_.reset();
 }
 
+void Profiler::print() const {
+  std::cout << "\nFusion Total Time: " << profile_.total_time << std::endl;
+}
+
 } // namespace nvfuser

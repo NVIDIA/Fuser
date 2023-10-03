@@ -47,6 +47,7 @@ class Profiler : public NonCopyable {
     profile_() {}
 
   void reset();
+  void print() const;
 
  private:
   static Profiler* singleton_;

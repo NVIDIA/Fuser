@@ -17,6 +17,7 @@
 #include <optimization/pre_segmenter.h>
 #include <options.h>
 #include <parser.h>
+#include <profiler.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
 #include <torch/csrc/jit/jit_log.h>
@@ -440,6 +441,8 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
 
+  Profiler::start();
+
   // Permute input tensor for kernel execution.
   // See Part_1 in Note [ Channels-Last support in nvfuser ]
   at::ArrayRef<c10::IValue> perm_inputs = inputs;
@@ -512,6 +515,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     outputs.erase(outputs.begin() + v - offset);
     offset++;
   }
+  Profiler::stop();
 
   return outputs;
 }
