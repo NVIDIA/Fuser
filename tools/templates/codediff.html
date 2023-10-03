@@ -330,7 +330,7 @@ SPDX-License-Identifier: BSD-3-Clause
 {% for test_diff in test_diffs %}
     {% if loop_vars.total_diffs < max_diffs %}
         <span class="test_name">{{ loop.index }}: <b>{{ test_diff.testname }}</b></span>
-        {% if test_diff.test1_passed != test_diff.test2_passed -%}
+        {% if not test_diff.test1_passed or not test_diff.test2_passed -%}
             <span style="color: red; font-weight: bold">{{"SUCCESS" if test_diff.test1_passed else "FAILED"}}</span> &#8594;
             <span style="color: green; font-weight: bold">{{"SUCCESS" if test_diff.test2_passed else "FAILED"}}</span>
         {%- endif -%}
