@@ -653,19 +653,9 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
 
   auto ref_red_tv = first_inner_reduction_tv;
 
-  NVF_ERROR(ref_red_tv != nullptr, "Reduction TensorView wasn't found.");
-
-  NVF_ERROR(ref_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
-  const auto red_expr = ref_red_tv->definition();
-
-  NVF_ERROR(
-      ir_utils::isReductionOp(red_expr),
-      "TensorView doesn't have a reduction.");
-
-  auto tv_inps = ir_utils::filterByType<TensorView>(fusion->inputs());
-  NVF_ERROR(
-      std::distance(tv_inps.begin(), tv_inps.end()) > 0,
-      "Tried to schedule a fusion with no tensor inputs, currently not supported.");
+  // Verify the presence of a reduction TensorView connected to a Fusion input
+  normalization_scheduler_utils::checkReductionTvForScheduling(
+      fusion, ref_red_tv);
 
   auto persistent_buffer_info_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
