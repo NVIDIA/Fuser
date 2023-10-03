@@ -1,20 +1,5 @@
 import torch
 from torch.profiler import profile, ProfilerActivity
-from nvfuser import FusionDefinition, DataType
-import sys
-from pytest_benchmark.fixture import BenchmarkFixture
-import logging
-# # Create a named logger
-# logger = logging.getLogger('__core__')
-# logger.setLevel(logging.INFO)
-# console_handler = logging.StreamHandler()
-# console_handler.setLevel(logging.INFO)
-# logger.addHandler(console_handler)
-
-# # Create a file handler
-# file_handler = logging.FileHandler('./logs/core.log')
-# file_handler.setLevel(logging.INFO)
-# logger.addHandler(file_handler)
 
 gpu_name = torch.cuda.get_device_name(0)
 if 'A100' in gpu_name:
@@ -43,7 +28,7 @@ def clearL2Cache():
     y = torch.clone(x)
 
 class NVFBenchmark(object):
-    def __init__(self, benchmark_fixture: pytest_benchmark.fixture.BenchmarkFixture, precision:float=1e-6):
+    def __init__(self, benchmark_fixture, precision:float=1e-6):
         # Initialize a Torch Profiler object
         self.prof = profile(activities=[ProfilerActivity.CUDA, ProfilerActivity.CPU])
 
@@ -52,8 +37,6 @@ class NVFBenchmark(object):
         benchmark_fixture._precisions[benchmark_fixture._timer] = precision
 
         self.benchmark = benchmark_fixture
-        self.benchmark._timer = self.torchprofile_timer
-        self.benchmark._precisions[self.benchmark._timer] = precision
         self.current_time = 0.0
 
     def __call__(self, function_to_benchmark, *args, **kwargs):
@@ -102,4 +85,25 @@ class NVFBenchmark(object):
         except:
             pass
     
-    
+    def compute_IOBytes(self, inputs, outputs):
+        iobytes = 0
+        for inp in inputs:
+            if isinstance(inp, torch.Tensor):
+                iobytes += inp.element_size() * inp.numel()
+        for out in outputs:
+            iobytes += out.element_size() * out.numel()
+        
+        self.benchmark.extra_info['IOBytes'] = iobytes
+        return iobytes
+
+def runBenchmark(
+    benchmark,
+    benchmark_fn,
+    inputs
+):
+    nvf_bench = NVFBenchmark(benchmark)
+    clearL2Cache()
+    outputs = nvf_bench(benchmark_fn, inputs)
+    iobytes = nvf_bench.compute_IOBytes(inputs, outputs)
+    nvf_bench.cleanup()
+    return outputs
