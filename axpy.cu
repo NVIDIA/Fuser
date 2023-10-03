@@ -1,6 +1,9 @@
 #include <iostream>
 #include <vector>
 
+#include <cuda.h>
+#include <cuda_runtime.h>
+
 #define CHECK_CUDA_ERROR(error) CheckCudaError((error), __FILE__, __LINE__)
 
 inline void CheckCudaError(
