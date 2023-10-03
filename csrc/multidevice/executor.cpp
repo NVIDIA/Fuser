@@ -10,6 +10,8 @@
 #include <multidevice/executor.h>
 #include <multidevice/pipeline.h>
 
+#include <C++20/ranges>
+
 namespace nvfuser {
 
 bool PipelineExecutor::shouldRun(PipelineStage* stage) {
@@ -46,7 +48,7 @@ void PipelineExecutor::handle(PipelineStage* stage) {
       : fec_[stage]->allocOutputSpace(stage_input_IValues);
 
   // Store the outputs or placeholders in the context
-  for (auto output_idx : c10::irange(stage->outputs().size())) {
+  for (auto output_idx : std::views::iota((size_t)0, stage->outputs().size())) {
     val_to_IValue_[stage->outputs().at(output_idx)] = outputs.at(output_idx);
   }
 }
@@ -85,7 +87,7 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
     auto nbr_dests_per_comm = receivers.size() / nbr_srcs;
     auto remainder = receivers.size() % nbr_srcs;
     auto j = 0;
-    for (size_t i : c10::irange(nbr_srcs)) {
+    for (size_t i : std::views::iota((size_t)0, nbr_srcs)) {
       SendRecvDescriptor communication;
       auto src = senders.at(i);
       communication.team = {src};
@@ -129,7 +131,7 @@ std::vector<at::Tensor> PipelineExecutor::runWithInput(
       "Wrong number of inputs");
 
   // process input values input values:
-  for (auto input_idx : c10::irange(inputs.size())) {
+  for (auto input_idx : std::views::iota((size_t)0, inputs.size())) {
     val_to_IValue_[runtime_.pipeline_->inputs().at(input_idx)] =
         inputs.at(input_idx);
   }

@@ -15,6 +15,8 @@
 #include <scheduler/utils.h>
 #include <tensor_metadata.h>
 
+#include <C++20/ranges>
+
 namespace nvfuser {
 
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
@@ -40,7 +42,8 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
         *expression_evaluator_);
   }
 
-  for (auto inp_i : c10::irange(static_cast<int64_t>(args.size()))) {
+  for (auto inp_i :
+       std::views::iota((int64_t)0, static_cast<int64_t>(args.size()))) {
     auto fusion_inp = complete_fusion_->inputs().at(inp_i);
     auto input_tv = dynamic_cast<TensorView*>(fusion_inp);
     // Note: we are skipping CpuScalar tensor here

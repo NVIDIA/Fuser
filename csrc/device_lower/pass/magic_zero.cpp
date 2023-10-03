@@ -14,6 +14,8 @@
 #include <ir/utils.h>
 #include <kernel_ir_dispatch.h>
 
+#include <C++20/ranges>
+
 namespace nvfuser {
 
 namespace {
@@ -130,7 +132,7 @@ void protectNonPredicateIndexWithMagicZero(
 
   // Search for proper magic zero insertion point,
   //  prefer innermost.
-  for (auto idx : c10::irange(loops.size())) {
+  for (auto idx : std::views::iota((size_t)0, loops.size())) {
     auto loop = loops[idx];
     auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
         loop_domains[idx], IdMappingMode::EXACT);

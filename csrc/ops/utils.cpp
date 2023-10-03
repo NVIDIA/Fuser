@@ -11,6 +11,7 @@
 
 #include <c10/util/Exception.h>
 
+#include <C++20/ranges>
 #include <algorithm>
 #include <limits>
 
@@ -213,7 +214,7 @@ std::vector<IterDomain*> newOutputDomain(
         dom.size(),
         " dimensions but expected ",
         out_domain.size());
-    for (const auto i : c10::irange(dom.size())) {
+    for (const auto i : std::views::iota((size_t)0, dom.size())) {
       if (dom[i]->isBroadcast()) {
         if (dom[i]->hasExpandedExtent()) {
           expanded_extent_vals[i] =
@@ -245,7 +246,7 @@ std::vector<IterDomain*> newOutputDomain(
       stop_offsets[i] = std::max(stop_offsets[i], stop_offset->evaluateInt());
     }
   }
-  for (const auto dim_i : c10::irange(out_domain.size())) {
+  for (const auto dim_i : std::views::iota((size_t)0, out_domain.size())) {
     if (extent_vals[dim_i] != nullptr) {
       NVF_ERROR(
           iter_types[dim_i].has_value(),
@@ -292,7 +293,7 @@ std::vector<Val*> maybeBroadcast(const std::vector<Val*>& vals) {
     }
   }
 
-  for (const auto i : c10::irange(vals.size())) {
+  for (const auto i : std::views::iota((size_t)0, vals.size())) {
     if (vals[i]->getValType().value() == ValType::TensorView) {
       auto tv = vals[i]->as<TensorView>();
       out_vals[i] = maybe_broadcast_inner_to_rank(tv, n_dims);

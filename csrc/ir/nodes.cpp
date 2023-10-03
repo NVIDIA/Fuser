@@ -22,8 +22,7 @@
 #include <transform_view.h>
 #include <type.h>
 
-#include <c10/util/irange.h>
-
+#include <C++20/ranges>
 #include <complex>
 #include <iterator>
 #include <numeric>
@@ -50,7 +49,7 @@ std::string FullOp::toString(int indent_size) const {
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " = full({";
-  for (auto i : c10::irange(inputs().size())) {
+  for (auto i : std::views::iota((size_t)0, inputs().size())) {
     if (i == inputs().size() - 1) {
       ss << "}";
     }
@@ -851,7 +850,7 @@ StructConstruct::StructConstruct(
 std::string StructConstruct::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << " = { ";
-  for (int64_t i : c10::irange((int64_t)inputs().size())) {
+  for (int64_t i : std::views::iota((int64_t)0, (int64_t)inputs().size())) {
     if (i > 0) {
       ss << ", ";
     }
@@ -864,7 +863,7 @@ std::string StructConstruct::toString(int indent_size) const {
 std::string StructConstruct::toInlineString(int indent_size) const {
   std::stringstream ss;
   ss << "{ ";
-  for (int64_t i : c10::irange((int64_t)inputs().size())) {
+  for (int64_t i : std::views::iota((int64_t)0, (int64_t)inputs().size())) {
     if (i > 0) {
       ss << ", ";
     }
@@ -884,7 +883,7 @@ std::vector<PolymorphicValue> StructConstruct::evaluate(
       " inputs");
   PolymorphicValue struct_ =
       std::get<StructType>(output(0)->dtype().type).create();
-  for (int64_t i : c10::irange((int64_t)inputs.size())) {
+  for (int64_t i : std::views::iota((int64_t)0, (int64_t)inputs.size())) {
     struct_->*attribute<std::string>(i) = inputs.at(i);
   }
   return {std::move(struct_)};
@@ -1081,7 +1080,7 @@ BroadcastOp::BroadcastOp(
 
     auto out_size = is_broadcast_dims.size();
     auto num_new_broadcasts = 0;
-    for (const auto i : c10::irange(out_size)) {
+    for (const auto i : std::views::iota((size_t)0, out_size)) {
       if (is_broadcast_dims[i]) {
         num_new_broadcasts++;
         auto id = out_dom[i];
@@ -1175,7 +1174,7 @@ SqueezeOp::SqueezeOp(
 
   auto in_size = is_squeeze_dims.size();
   auto num_removed_broadcasts = 0;
-  for (const auto i : c10::irange(is_squeeze_dims.size())) {
+  for (const auto i : std::views::iota((size_t)0, is_squeeze_dims.size())) {
     if (is_squeeze_dims[i]) {
       num_removed_broadcasts++;
       auto id = in_dom[i];
@@ -1230,7 +1229,8 @@ std::vector<PolymorphicValue> SqueezeOp::evaluate(
   NVF_ERROR(
       (int64_t)is_squeeze_dims.size() == in.dim(),
       "The dimensions of input tensor and does not match with is_squeeze_dims");
-  for (int64_t i : c10::irange((int64_t)is_squeeze_dims.size())) {
+  for (int64_t i :
+       std::views::iota((int64_t)0, (int64_t)is_squeeze_dims.size())) {
     if (!is_squeeze_dims[i]) {
       out_shape.push_back(in.sizes()[i]);
     }
@@ -1260,7 +1260,7 @@ void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {
       " but expected ",
       old_tv->getMaybeRFactorDomain().size());
   auto flags = getSqueezeDimFlags();
-  for (auto i : c10::irange(flags.size())) {
+  for (auto i : std::views::iota((size_t)0, flags.size())) {
     if (!flags.at(i)) {
       continue;
     }
@@ -1364,7 +1364,8 @@ std::string GroupedReductionOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "GroupedReductionOp(\n";
   ++indent_size;
-  for (const auto i : c10::irange(numHorizontallyGroupedExprs())) {
+  for (const auto i :
+       std::views::iota((size_t)0, numHorizontallyGroupedExprs())) {
     indent(ss, indent_size)
         << output(i)->toString() << " = reduction( " << input(i)->toString()
         << ", op = " << getReductionOpType(i)
@@ -1415,7 +1416,7 @@ std::vector<WelfordTriplet> WelfordTriplet::clone(
     const std::vector<WelfordTriplet>& src,
     IrCloner* ir_cloner) {
   std::vector<WelfordTriplet> cloned(src.size());
-  for (const auto i : c10::irange(src.size())) {
+  for (const auto i : std::views::iota((size_t)0, src.size())) {
     cloned.at(i) = src.at(i).clone(ir_cloner);
   }
   return cloned;
@@ -1594,7 +1595,7 @@ GroupedWelfordOp::GroupedWelfordOp(
       ", Given: ",
       init_vals.size());
 
-  for (const auto i : c10::irange(num_grouped_ops)) {
+  for (const auto i : std::views::iota((size_t)0, num_grouped_ops)) {
     // Check output type
     NVF_ERROR(
         output_vals[i].avg()->getValType().value() == ValType::TensorView ||
@@ -1670,7 +1671,7 @@ GroupedWelfordOp::GroupedWelfordOp(
   }
 
   addDataAttribute(is_allreduce);
-  for (const auto i : c10::irange(num_grouped_ops)) {
+  for (const auto i : std::views::iota((size_t)0, num_grouped_ops)) {
     addOutput(output_vals[i].avg());
     addOutput(output_vals[i].var());
     addOutput(output_vals[i].N());
@@ -1687,7 +1688,8 @@ std::string GroupedWelfordOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "GroupedWelford(\n";
   ++indent_size;
-  for (const auto i : c10::irange(numHorizontallyGroupedExprs())) {
+  for (const auto i :
+       std::views::iota((size_t)0, numHorizontallyGroupedExprs())) {
     indent(ss, indent_size) << outAvg(i)->toString() << " (Avg),\n";
     indent(ss, indent_size) << outVar(i)->toString() << " (Var),\n";
     indent(ss, indent_size) << outN(i)->toString() << " (Count)\n";
@@ -1713,7 +1715,8 @@ std::string GroupedWelfordOp::toInlineString(int indent_size) const {
 }
 
 int GroupedWelfordOp::getExprIndexOfOutput(Val* output_val) const {
-  for (const auto expr_idx : c10::irange(numHorizontallyGroupedExprs())) {
+  for (const auto expr_idx :
+       std::views::iota((size_t)0, numHorizontallyGroupedExprs())) {
     if (outputVals().at(expr_idx).getNameOf(output_val).has_value()) {
       return (int)expr_idx;
     }
@@ -1774,7 +1777,7 @@ struct TensorViewDetails {
 // A helper for gathering details about TensorView object
 TensorViewDetails getDetailsFor(const std::vector<IterDomain*>& dims) {
   TensorViewDetails details;
-  for (auto pos : c10::irange((int64_t)dims.size())) {
+  for (auto pos : std::views::iota((int64_t)0, (int64_t)dims.size())) {
     const auto axis = dims.at(pos);
     if (axis->isReduction()) {
       details.rdomains.push_back(pos);
@@ -3014,7 +3017,7 @@ void validateContiguity(
       contiguity.size(),
       " but needed one of size ",
       allocation_domain.size());
-  for (auto i : c10::irange(contiguity.size())) {
+  for (auto i : std::views::iota((size_t)0, contiguity.size())) {
     bool expect_null =
         (allocation_domain.at(i)->isBroadcast() ||
          allocation_domain.at(i)->isReduction());
@@ -3204,31 +3207,31 @@ bool TensorDomain::sameAs(const Statement* const other) const {
     return false;
   }
 
-  for (const auto i : c10::irange(nDims())) {
+  for (const auto i : std::views::iota((size_t)0, nDims())) {
     if (!(axis((int)i)->sameAs(other_td->axis((int)i)))) {
       return false;
     }
   }
 
-  for (const auto i : c10::irange(root().size())) {
+  for (const auto i : std::views::iota((size_t)0, root().size())) {
     if (!(root()[i]->sameAs(other_td->root()[i]))) {
       return false;
     }
   }
 
-  for (const auto i : c10::irange(rfactor().size())) {
+  for (const auto i : std::views::iota((size_t)0, rfactor().size())) {
     if (!(rfactor()[i]->sameAs(other_td->rfactor()[i]))) {
       return false;
     }
   }
 
-  for (const auto i : c10::irange(allocation().size())) {
+  for (const auto i : std::views::iota((size_t)0, allocation().size())) {
     if (!(allocation()[i]->sameAs(other_td->allocation()[i]))) {
       return false;
     }
   }
 
-  for (const auto i : c10::irange(leaf().size())) {
+  for (const auto i : std::views::iota((size_t)0, leaf().size())) {
     if (!(leaf()[i]->sameAs(other_td->leaf()[i]))) {
       return false;
     }
@@ -3269,7 +3272,7 @@ void TensorDomain::setContiguity(
   NVF_ERROR(
       maybeAllocation().size() == contig.size(),
       "Invalid size of contiguity vector");
-  for (auto i : c10::irange(contig.size())) {
+  for (auto i : std::views::iota((size_t)0, contig.size())) {
     NVF_CHECK(
         maybeAllocation().at(i)->isBroadcast() != contig.at(i).has_value(),
         "The contiguity of a broadcast dimension must be None. "
@@ -3586,7 +3589,7 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
 
   std::vector<IterDomain*> new_root_domain;
   new_root_domain.reserve(inp_domain.size());
-  for (auto i : c10::irange(inp_domain.size())) {
+  for (auto i : std::views::iota((size_t)0, inp_domain.size())) {
     bool is_rfactor_dim = i >= size_t(start_dim) && i <= size_t(end_dim);
     auto inp_id = inp_domain[i];
     auto out_id = IterDomainBuilder(inp_id)
@@ -3605,12 +3608,12 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
 
   std::vector<IterDomain*> rfactor_domain;
   rfactor_domain.reserve(new_root_domain.size() - (end_dim - start_dim));
-  for (auto i : c10::irange(start_dim)) {
+  for (auto i : std::views::iota((int64_t)0, start_dim)) {
     rfactor_domain.push_back(new_root_domain[i]);
   }
 
   IterDomain* merged_id = new_root_domain[start_dim];
-  for (auto i : c10::irange(start_dim + 1, end_dim + 1)) {
+  for (auto i : std::views::iota(start_dim + 1, end_dim + 1)) {
     IterDomain* new_merged_id =
         IterDomainBuilder(
             merged_id->container()->zeroVal(),
@@ -3622,7 +3625,7 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
   }
   rfactor_domain.push_back(merged_id);
 
-  for (auto i : c10::irange(end_dim + 1, inp_domain.size())) {
+  for (auto i : std::views::iota(end_dim + 1, (int64_t)inp_domain.size())) {
     rfactor_domain.push_back(new_root_domain[i]);
   }
 
@@ -3937,7 +3940,7 @@ std::string PadOp::toInlineString(int indent_size) const {
 std::vector<int> PadOp::getPaddedAxes() const {
   auto num_dims = out()->as<TensorView>()->getRootDomain().size();
   std::vector<int> padded_axes;
-  for (const auto i : c10::irange(num_dims)) {
+  for (const auto i : std::views::iota((size_t)0, num_dims)) {
     auto [left_pad, right_pad] = getPadWidths((int)i);
     // Filter out non-padded dimension
     if (left_pad->isZeroInt() && right_pad->isZeroInt()) {
@@ -4047,7 +4050,7 @@ std::vector<Slice> SliceOp::getRanges() const {
   auto ndims = num_range_vals / 3;
   std::vector<Slice> ranges(ndims);
   auto range_val_it = getRangeInputBegin();
-  for (const auto i : c10::irange(ndims)) {
+  for (const auto i : std::views::iota((std::ptrdiff_t)0, ndims)) {
     ranges.at(i) = Slice{
         .start = *range_val_it,
         .stop = *(range_val_it + 1),
@@ -4064,7 +4067,7 @@ std::vector<PolymorphicValue> SliceOp::evaluate(
   std::vector<at::indexing::TensorIndex> ranges;
   auto ranges_offset = getRangeInputOffset();
   auto num_dims = in.dim();
-  for (const auto i : c10::irange(num_dims)) {
+  for (const auto i : std::views::iota((int64_t)0, num_dims)) {
     auto start = (int64_t)inputs.at(ranges_offset + 3 * i);
     auto stop = (int64_t)inputs.at(ranges_offset + 3 * i + 1);
     auto step = (int64_t)inputs.at(ranges_offset + 3 * i + 2);
@@ -4173,7 +4176,7 @@ std::vector<PolymorphicValue> CatOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   std::vector<at::Tensor> in;
   int64_t concat_dim = concatenatedDim();
-  for (auto i : c10::irange(inputs.size())) {
+  for (auto i : std::views::iota((size_t)0, inputs.size())) {
     auto unpadded_inp = ee.evaluate(input(i)->definition()->input(0));
     in.push_back(unpadded_inp.as<at::Tensor>());
   }

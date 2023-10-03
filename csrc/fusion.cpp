@@ -22,6 +22,7 @@
 #include <kernel.h>
 #include <ops/arith.h>
 
+#include <C++20/ranges>
 #include <iterator>
 
 namespace nvfuser {
@@ -785,7 +786,7 @@ std::unordered_set<int> Fusion::getIndicesOfAliasedOutputs() const {
 
   std::unordered_set<int> alias_indices;
 
-  for (const auto i : c10::irange(outputs_.size())) {
+  for (const auto i : std::views::iota((size_t)0, outputs_.size())) {
     if (io_alias_.count(outputs_[i]) != 0) {
       alias_indices.insert((int)i);
     }
@@ -799,10 +800,10 @@ std::vector<std::pair<int, int>> Fusion::getOutputToInputAliasIndices() const {
   }
 
   std::vector<std::pair<int, int>> alias_indices;
-  for (const auto output_idx : c10::irange(outputs_.size())) {
+  for (const auto output_idx : std::views::iota((size_t)0, outputs_.size())) {
     if (io_alias_.count(outputs_[output_idx]) != 0) {
       bool found = false;
-      for (const auto input_idx : c10::irange(inputs_.size())) {
+      for (const auto input_idx : std::views::iota((size_t)0, inputs_.size())) {
         if (io_alias_.at(outputs_[output_idx]) == inputs_[input_idx]) {
           alias_indices.emplace_back(output_idx, input_idx);
           found = true;

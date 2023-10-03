@@ -16,8 +16,6 @@
 #include <kernel.h>
 #include <utils.h>
 
-#include <c10/util/irange.h>
-
 namespace nvfuser {
 
 // Make sure we can inline something, before we attempt to.

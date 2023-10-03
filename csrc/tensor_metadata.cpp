@@ -230,7 +230,7 @@ inferAndValidateAllocationSizesAndStrides(
     // strides should already be in the target format. So nothing to do here.
     std::vector<int64_t> sizes;
     std::vector<int64_t> strides;
-    for (auto i : c10::irange(tensor.dim())) {
+    for (auto i : std::views::iota((int64_t)0, tensor.dim())) {
       sizes.emplace_back(tensor.size(i));
       strides.emplace_back(tensor.stride(i));
     }
@@ -243,7 +243,7 @@ inferAndValidateAllocationSizesAndStrides(
   // active IDs and their shape and stride
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
   NVF_ERROR((int64_t)rfactor.size() == tensor.dim());
-  for (int64_t i : c10::irange((int64_t)rfactor.size())) {
+  for (int64_t i : std::views::iota((int64_t)0, (int64_t)rfactor.size())) {
     auto rf_id = rfactor.at(i);
     active_ids[rf_id] = {tensor.size(i), tensor.stride(i)};
   }
@@ -257,7 +257,7 @@ inferAndValidateAllocationSizesAndStrides(
   std::vector<int64_t> strides;
   sizes.reserve(alloc.size());
   strides.reserve(alloc.size());
-  for (auto i : c10::irange(alloc.size())) {
+  for (auto i : std::views::iota((size_t)0, alloc.size())) {
     auto id = alloc.at(i);
     sizes.emplace_back(active_ids.at(id).first);
     strides.emplace_back(active_ids.at(id).second);
@@ -302,7 +302,7 @@ inferAndValidateAllocationSizesAndStrides(
       contiguity.empty(),
       "The size of contiguity mismatch with the dimensionality of allocation domain");
   // Validate that for expanded broadcast, the stride must be zero.
-  for (int64_t i : c10::irange((int64_t)strides.size())) {
+  for (int64_t i : std::views::iota((int64_t)0, (int64_t)strides.size())) {
     if (auto alloc_id = alloc.at(i); alloc_id->hasExpandedExtent()) {
       auto stride = strides.at(i);
       NVF_CHECK(

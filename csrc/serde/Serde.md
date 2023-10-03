@@ -277,7 +277,7 @@ while (!queue.empty()) {
 }
 
 // Deserialize terminal_nodes field in the FusionCache table
-for (auto idx : c10::irange(fusions_.size())) {
+for (auto idx : std::views::iota((size_t)0, fusions_.size())) {
   // Add trie_node from bfs_order to terminal_nodes_
   // Get FusionExecutorCache for terminal TrieNode
   // Deserialize FusionExecutorCache

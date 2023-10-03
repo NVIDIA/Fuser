@@ -18,6 +18,7 @@
 #include <test/utils.h>
 #include <test/validator.h>
 
+#include <C++20/ranges>
 #include <cstdlib>
 #include <filesystem>
 #include <system_error>
@@ -35,7 +36,7 @@ TEST_F(NVFuserTest, FusionSplitDims_CUDA) {
   scheduler_utils::splitDims(
       tv, {{0, p(2)}, {0, p(1)}, {3, p(6)}, {6, p(10)}}, dims);
   EXPECT_EQ(tv->nDims(), 11);
-  for (auto i : c10::irange(11)) {
+  for (auto i : std::views::iota(0, 11)) {
     EXPECT_EQ(tv->axis(i)->extent()->evaluateInt(), p(i));
   }
   std::vector<size_t> expect{0, 3, 4, 5, 7, 8, 9};
@@ -56,7 +57,7 @@ TEST_F(NVFuserTest, FusionMergeDims_CUDA) {
   std::vector<int64_t> expect_shape{
       p(0), p(1), p(2) * p(3) * p(7) * p(8) * p(9), p(4), p(5), p(6), p(10)};
   EXPECT_EQ(tv->nDims(), expect_shape.size());
-  for (auto i : c10::irange(expect_shape.size())) {
+  for (auto i : std::views::iota((size_t)0, expect_shape.size())) {
     EXPECT_EQ(tv->axis(i)->extent()->evaluateInt(), expect_shape[i]);
   }
   std::vector<size_t> expect_dims{0, 1, 2, 2, 3, 4, 5, 2, 2, 2, 6};
@@ -64,7 +65,7 @@ TEST_F(NVFuserTest, FusionMergeDims_CUDA) {
   auto root_domain = tv->getRootDomain();
   auto num_merged_dim = to_merge.size();
   auto inputs = IterVisitor::getInputsTo({tv->axis(2)});
-  for (auto index : c10::irange(num_merged_dim)) {
+  for (auto index : std::views::iota((size_t)0, num_merged_dim)) {
     EXPECT_TRUE(root_domain[to_merge[num_merged_dim - 1 - index]]->sameAs(
         inputs[index]));
   }
@@ -964,7 +965,7 @@ TEST_F(VectorizeHelperTest, SpanningTree_CUDA) {
   inputs.push_back(bcast_inp);
   auto bcast = broadcast(bcast_inp, {false, true});
 
-  for (auto i : c10::irange(10)) {
+  for (auto i : std::views::iota(0, 10)) {
     auto resolution_inp = makeContigConcreteTensor({2, 2});
     inputs.push_back(resolution_inp);
     auto intermediate = add(bcast, resolution_inp);

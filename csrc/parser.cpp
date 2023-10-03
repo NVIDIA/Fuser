@@ -24,6 +24,7 @@
 
 #include <c10/util/CallOnce.h>
 
+#include <C++20/ranges>
 #include <complex>
 #include <unordered_map>
 #include <utility>
@@ -231,7 +232,7 @@ struct MemoryFormat {
     permuted_order_ = stride_order;
     bool has_permutation = false;
     permutation_ = 0;
-    for (const auto i : c10::irange(rank)) {
+    for (const auto i : std::views::iota((size_t)0, rank)) {
       permutation_ = permutation_ * 10 + stride_order[i];
       if (!has_permutation && stride_order[i] != (int)rank - 1 - (int)i) {
         has_permutation = true;
@@ -347,7 +348,7 @@ struct MemoryFormat {
     auto rank = permuted_order_.size();
 
     if (rank > 2 && permuted_order_[0] == 1 && permuted_order_[rank - 1] == 0) {
-      for (const auto i : c10::irange(rank - 2)) {
+      for (const auto i : std::views::iota((size_t)0, rank - 2)) {
         if (permuted_order_[i + 1] != (int)rank - 1 - (int)i) {
           return false;
         }
@@ -375,7 +376,7 @@ struct MemoryFormat {
     if (hasPermutation()) {
       auto rank = permuted_order_.size();
       ret.resize(rank);
-      for (const auto i : c10::irange(rank)) {
+      for (const auto i : std::views::iota((size_t)0, rank)) {
         ret[permuted_order_[i]] = (int64_t)rank - 1 - (int64_t)i;
       }
     }
@@ -787,13 +788,14 @@ class IrParser {
       }
     }
 
-    for (const auto& i : c10::irange(fusion->inputs().size())) {
+    for (const auto& i : std::views::iota((size_t)0, fusion->inputs().size())) {
       const auto& entry = permuted_tensors.find(fusion->inputs()[i]);
       if (entry != permuted_tensors.end()) {
         fusion->setPermutationOnInput((int)i, entry->second.apply());
       }
     }
-    for (const auto& i : c10::irange(fusion->outputs().size())) {
+    for (const auto& i :
+         std::views::iota((size_t)0, fusion->outputs().size())) {
       const auto& entry = permuted_tensors.find(fusion->outputs()[i]);
       if (entry != permuted_tensors.end()) {
         fusion->setPermutationOnOutput((int)i, entry->second.restore());
@@ -3718,7 +3720,7 @@ class IrParser {
 
       MemoryFormat format;
       std::vector<int> stride_index;
-      for (const auto i : c10::irange(n_dim)) {
+      for (const auto i : std::views::iota((size_t)0, n_dim)) {
         const auto& stride_property_i = tensor_type->stride_properties()[i];
         if (stride_property_i->stride_index_.has_value()) {
           stride_index.emplace_back(stride_property_i->stride_index_.value());
@@ -3737,7 +3739,7 @@ class IrParser {
         std::vector<c10::ShapeSymbol> s_vec = opt_s_vec.value();
         // apply permutation
         auto permutation = format.apply();
-        for (auto new_axis : c10::irange(permutation.size())) {
+        for (auto new_axis : std::views::iota((size_t)0, permutation.size())) {
           auto old_axis = permutation.at(new_axis);
           s_vec[new_axis] = opt_s_vec.value()[old_axis];
         }
@@ -3750,7 +3752,7 @@ class IrParser {
         // Note that we are only updating stride_properties.stride_index, since
         // contiguous_ and stride_ value should remain the same after
         // permutation
-        for (const auto i : c10::irange(n_dim)) {
+        for (const auto i : std::views::iota((size_t)0, n_dim)) {
           nhwc_stride_vec[i]->stride_index_ = n_dim - i - 1;
         }
 
@@ -4704,7 +4706,7 @@ void insertProfileNodesForCUDAFuser_(
     torch::jit::Block* block,
     torch::jit::ProfilingRecord* pr) {
   for (const auto& n : block->nodes()) {
-    for (const auto offset : c10::irange(n->inputs().size())) {
+    for (const auto offset : std::views::iota((size_t)0, n->inputs().size())) {
       insertProfileIValue(pr, n, offset);
     }
 

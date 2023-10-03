@@ -12,6 +12,7 @@
 
 #include <device_lower/analysis/fused_reduction.h>
 
+#include <C++20/ranges>
 #include <algorithm>
 
 namespace nvfuser {
@@ -256,7 +257,7 @@ class FusionTransformer {
     NVF_ERROR(
         info.reductions().size() == 1, "Horizontal fusion not supported yet");
 
-    for (const auto i : c10::irange(info.reductions().size())) {
+    for (const auto i : std::views::iota((size_t)0, info.reductions().size())) {
       const auto expr = info.reductions().at(i);
       const auto with_broadcast = info.withBroadcast().at(i);
       Expr* fused_expr = nullptr;

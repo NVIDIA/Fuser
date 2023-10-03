@@ -17,6 +17,8 @@
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
+#include <C++20/ranges>
+
 namespace nvfuser {
 
 TransposeScheduler::TransposeScheduler(
@@ -198,7 +200,7 @@ class DomainMap : public pointwise_utils::DomainMap {
     // Find the id mapped to `Allocation Domain`
     const auto& alloc_dom = tv->getMaybeAllocationDomain();
     IterDomain* mapped_id = nullptr;
-    for (auto i : c10::irange(alloc_dom.size())) {
+    for (auto i : std::views::iota((size_t)0, alloc_dom.size())) {
       if (ca_map_.areMapped(alloc_dom[i], root_dim, IdMappingMode::INNERMOST)) {
         mapped_id = alloc_dom[i];
         break;
@@ -272,7 +274,7 @@ class DomainMap : public pointwise_utils::DomainMap {
     }
     // Find the position of the leaf id
     const auto& dom = tv->getLeafDomain();
-    for (auto i : c10::irange(dom.size())) {
+    for (auto i : std::views::iota((size_t)0, dom.size())) {
       if (dom[i] == mapped_id) {
         return static_cast<int64_t>(i);
       }

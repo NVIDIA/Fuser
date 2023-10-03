@@ -20,6 +20,8 @@
 #include <benchmark/utils.h>
 #include <test/utils.h>
 
+#include <C++20/ranges>
+
 using namespace nvfuser;
 
 #define TRANSPOSE_CONFIG \
@@ -58,10 +60,10 @@ std::vector<at::Tensor> generateInputs(
   // Vectorization | Unroll - Add 1 to sizes
   // Shift axis by 1 to disable vectorize loads
   if (non_vectorize_offset) {
-    for (auto idx : c10::irange(transpose_shape.size())) {
+    for (auto idx : std::views::iota((size_t)0, transpose_shape.size())) {
       transpose_shape[idx] += 1;
     }
-    for (auto idx : c10::irange(non_transpose_shape.size())) {
+    for (auto idx : std::views::iota((size_t)0, non_transpose_shape.size())) {
       non_transpose_shape[idx] += 1;
     }
   }

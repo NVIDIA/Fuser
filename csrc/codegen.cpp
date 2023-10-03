@@ -16,6 +16,7 @@
 #include <type.h>
 #include <utils.h>
 
+#include <C++20/ranges>
 #include <array>
 #include <cmath>
 #include <sstream>
@@ -43,7 +44,7 @@ class ArgumentBuilder {
   //! Build an argument list where each argument has its own line
   ArgumentBuilder(int indent_level, const char* tab) {
     std::stringstream ss;
-    for (const auto i : c10::irange(indent_level)) {
+    for (const auto i : std::views::iota(0, indent_level)) {
       (void)i; // Suppress unused variable warning
       ss << tab;
     }
@@ -239,7 +240,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Generate parameter declarations
     kernel_params_.reserve(kernel_->parameters().size());
     unsigned int duplicate_counter = 0;
-    for (auto i : c10::irange(kernel_->parameters().size())) {
+    for (auto i : std::views::iota((size_t)0, kernel_->parameters().size())) {
       std::stringstream var_name_ss;
       auto param = kernel_->parameters().at(i);
       kernel_params_.insert(param);
@@ -402,7 +403,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   std::ostream& indent() {
-    for (const auto i : c10::irange(block_nest_level_)) {
+    for (const auto i : std::views::iota(0, block_nest_level_)) {
       (void)i; // Suppress unused variable warning
       code_ << kTab;
     }
@@ -629,7 +630,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     auto dtype = std::get<StructType>(sop->output(0)->dtype().type);
     code_ << dtype.name << "{ ";
-    for (auto i : c10::irange(sop->inputs().size())) {
+    for (auto i : std::views::iota((size_t)0, sop->inputs().size())) {
       if (i > 0) {
         code_ << ", ";
       }
@@ -1824,8 +1825,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
 
     // Append arguments for each reduction
-    for (const auto i :
-         c10::irange(grouped_grop->numHorizontallyGroupedExprs())) {
+    for (const auto i : std::views::iota(
+             (size_t)0, grouped_grop->numHorizontallyGroupedExprs())) {
       NVF_ERROR(
           grouped_grop->reduction_buffers().at(i)->buffer()->isA<TensorView>());
       const auto work_buffer =
@@ -1939,7 +1940,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     for (const auto& index_values : index_val_sets) {
       NVF_ERROR(loop_indices.size() == index_values.size());
       std::unordered_map<const Val*, int64_t> index_val_map;
-      for (const auto i : c10::irange(loop_indices.size())) {
+      for (const auto i : std::views::iota((size_t)0, loop_indices.size())) {
         auto loop_index = loop_indices.at(i);
         auto index_val = index_values.at(i);
         index_val_map.emplace(loop_index, index_val);
@@ -1998,7 +1999,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder write_preds;
 
     for (const auto expr_index :
-         c10::irange(grouped_grop->numHorizontallyGroupedExprs())) {
+         std::views::iota((size_t)0, grouped_grop->numHorizontallyGroupedExprs())) {
       const auto data_type = grouped_grop->outputs().at(expr_index)->dtype();
       NVF_ERROR(grouped_grop->reduction_buffers()
                     .at(expr_index)
@@ -2006,7 +2007,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                     ->isA<TensorView>());
 
       for (const auto& group_index :
-           c10::irange(index_replacement_maps.size())) {
+           std::views::iota((size_t)0, index_replacement_maps.size())) {
         // Set the index replacement map with the concrete values of
         // indices of grouped loops.
         index_replacement_map_ = index_replacement_maps.at(group_index);
@@ -2138,14 +2139,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto input_vals = grouped_gwop->inputVals();
     auto init_vals = grouped_gwop->initVals();
 
-    for (const auto expr_index :
-         c10::irange(grouped_gwop->numHorizontallyGroupedExprs())) {
+    for (const auto expr_index : std::views::iota(
+             (size_t)0, grouped_gwop->numHorizontallyGroupedExprs())) {
       const auto& output = output_vals.at(expr_index);
       const auto& input = input_vals.at(expr_index);
       const auto& init = init_vals.at(expr_index);
 
       for (const auto& group_index :
-           c10::irange(index_replacement_maps.size())) {
+           std::views::iota((size_t)0, index_replacement_maps.size())) {
         // Set the index replacement map with the concrete values of
         // indices of grouped loops.
         index_replacement_map_ = index_replacement_maps.at(group_index);
@@ -2159,7 +2160,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                std::to_string(group_index));
 
         // Setup arguments for avg, var, and N
-        for (const auto i : c10::irange(3)) {
+        for (const auto i : std::views::iota(0, 3)) {
           out_args[i].arg(gen(output.get(i)));
           in_args[i].arg(gen(input.get(i)));
           init_args[i].arg(gen(init.get(i)));
@@ -2301,7 +2302,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genVariableName(input.get(2))).append("[0]");
 
     // global buf
-    for (const auto i : c10::irange(3)) {
+    for (const auto i : std::views::iota(0, 3)) {
       const auto work_buffer = grouped_gwop->reduction_buffers()[i]
                                    .at(0)
                                    ->buffer()
@@ -2633,8 +2634,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const GroupedReductionOp* grouped_rop) final {
-    for (const auto i :
-         c10::irange(grouped_rop->numHorizontallyGroupedExprs())) {
+    for (const auto i : std::views::iota(
+             (size_t)0, grouped_rop->numHorizontallyGroupedExprs())) {
       NVF_ERROR(grouped_rop->output(i)->isA<kir::TensorIndex>());
 
       const auto output = grouped_rop->output(i)->as<kir::TensorIndex>();
@@ -2912,7 +2913,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     //   consumer[consumer_idx] = produce_3[producer_idx3];
     // }
 
-    for (const auto i : c10::irange(cat->inputs().size())) {
+    for (const auto i : std::views::iota((size_t)0, cat->inputs().size())) {
       auto inp = cat->input(i)->as<kir::TensorIndex>();
       auto inp_str = gen(inp);
       if (i < cat->inputs().size() - 1) {

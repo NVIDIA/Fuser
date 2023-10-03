@@ -16,6 +16,8 @@
 #include <fusion.h>
 #include <ops/all_ops.h>
 
+#include <C++20/ranges>
+
 namespace nvfuser {
 
 class ExprEvalTest : public NVFuserTest {};
@@ -506,7 +508,7 @@ TEST_F(ExprEvalTest, TernaryOps) {
   auto* f = IrBuilder::create<Val>(false);
 
   // Run once without PrecomputedValues, then once with
-  for ([[maybe_unused]] auto i : c10::irange(2)) {
+  for ([[maybe_unused]] auto i : std::views::iota(0, 2)) {
     EXPECT_EQ(evaluator.evaluate(clamp(b, c, a)), b->value());
     EXPECT_EQ(evaluator.evaluate(clamp(a, c, b)), b->value());
     EXPECT_EQ(evaluator.evaluate(clamp(d, c, b)), c->value());

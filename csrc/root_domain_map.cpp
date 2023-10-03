@@ -11,6 +11,7 @@
 #include <iter_visitor.h>
 #include <root_domain_map.h>
 
+#include <C++20/ranges>
 #include <sstream>
 
 namespace nvfuser {
@@ -864,7 +865,7 @@ bool ComputeAtRootDomainMapBuilder::isInvalid(
   // Next, check if any pair is invalid to map.
   const auto num_keys = domains.size();
   const std::vector<DomainKey> domains_vec({domains.begin(), domains.end()});
-  for (const auto i : c10::irange(num_keys)) {
+  for (const auto i : std::views::iota((size_t)0, num_keys)) {
     const auto& key_i = domains_vec[i];
     // If no invalid keys found for key_i, it can be skipped.
     const auto invalid_key_map_it = invalid_key_map.find(key_i);
@@ -877,7 +878,7 @@ bool ComputeAtRootDomainMapBuilder::isInvalid(
 
     // If any other key in domains is identified mappable with any of
     // the keys in this set, the mapping with key_i is invalid.
-    for (const auto j : c10::irange(i + 1, num_keys)) {
+    for (const auto j : std::views::iota(i + 1, num_keys)) {
       const auto& key_j = domains_vec[j];
       if (std::any_of(
               invalid_keys_for_i.begin(),
@@ -1117,13 +1118,13 @@ void ComputeAtRootDomainMapBuilder::handle(GatherOp* op) {
   const auto& out_root = out_td->root();
 
   // Only maps the input root axes. Do not map the new window axes.
-  for (const auto it : c10::irange(in_root.size())) {
+  for (const auto it : std::views::iota((size_t)0, in_root.size())) {
     setMaybeMapped(in_td, in_root[it], out_td, out_root[it]);
   }
 
   // Keep track of window axes so that they can be skipped when
   // mapping root domains
-  for (const auto it : c10::irange(in_root.size(), out_root.size())) {
+  for (const auto it : std::views::iota(in_root.size(), out_root.size())) {
     root_map_.window_axes_.insert(out_root[it]);
   }
 }

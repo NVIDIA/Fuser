@@ -14,6 +14,9 @@
 #include <utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
+
+#include <C++20/ranges>
+
 namespace nvfuser {
 namespace normalization_scheduler_utils {
 
@@ -791,7 +794,7 @@ bool checkReductionPattern(
 
   // Helper function to check the pattern equivalence for a list of TensorViews
   auto checkPattern = [&](const std::vector<TensorView*>& rtvs) -> bool {
-    for (const auto it : c10::irange(1, rtvs.size())) {
+    for (const auto it : std::views::iota((size_t)1, rtvs.size())) {
       if (!registry_utils::checkPatternEquivalence(
               rtvs[it - 1], rtvs[it], root_map)) {
         scheduler_debug_utils::canScheduleRejectReason(

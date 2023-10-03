@@ -12,6 +12,8 @@
 
 #include <device_lower/analysis/sync_information.h>
 
+#include <C++20/ranges>
+
 namespace nvfuser {
 
 namespace {
@@ -20,7 +22,7 @@ namespace {
 void validateParallelizationOfTensor(TensorView* tv) {
   // Each ParallelType can be used only once.
   ParallelTypeBitmap pt_map;
-  for (auto i : c10::irange(tv->nDims())) {
+  for (auto i : std::views::iota((size_t)0, tv->nDims())) {
     auto axis = tv->axis((int)i);
     auto ptype = axis->getParallelType();
     if (!isParallelTypeThread(ptype)) {
@@ -494,7 +496,8 @@ SyncMap::SyncMap(Fusion* fusion) {
       producer_redundant_types =
           producer_redundant_types & (~producer_redundant_use_types);
 
-      for (const auto producer_i : c10::irange(producer->nDims())) {
+      for (const auto producer_i :
+           std::views::iota((size_t)0, producer->nDims())) {
         auto producer_axis = producer->axis((int)producer_i);
         auto producer_ptype =
             ca_map->getConcreteMappedID(producer_axis, IdMappingMode::LOOP)
@@ -520,7 +523,8 @@ SyncMap::SyncMap(Fusion* fusion) {
         std::vector<IterDomain*> consumer_parallel_ids(
             ParallelTypeBitmap::kNumParallelTypes, nullptr);
         ParallelTypeBitmap consumer_parallel_bitmap;
-        for (const auto consumer_i : c10::irange(consumer->nDims())) {
+        for (const auto consumer_i :
+             std::views::iota((size_t)0, consumer->nDims())) {
           auto consumer_axis = consumer->axis((int)consumer_i);
           auto consumer_ptype =
               ca_map->getConcreteMappedID(consumer_axis, IdMappingMode::LOOP)
@@ -694,8 +698,8 @@ SyncMap::SyncMap(Fusion* fusion) {
             std::unordered_set<Val*> shifted_rfactor_ids;
             if (expr->isA<GatherOp>()) {
               auto gather_op = expr->as<GatherOp>();
-              for (auto root_i :
-                   c10::irange(producer->getMaybeRFactorDomain().size())) {
+              for (auto root_i : std::views::iota(
+                       (size_t)0, producer->getMaybeRFactorDomain().size())) {
                 auto rfactor_id = producer->getMaybeRFactorDomain()[root_i];
                 // If the window shape is 1, it just copies the
                 // producer to the consumer
@@ -705,8 +709,8 @@ SyncMap::SyncMap(Fusion* fusion) {
               }
             } else if (expr->isA<ShiftOp>()) {
               auto shift_op = expr->as<ShiftOp>();
-              for (auto root_i :
-                   c10::irange(producer->getMaybeRFactorDomain().size())) {
+              for (auto root_i : std::views::iota(
+                       (size_t)0, producer->getMaybeRFactorDomain().size())) {
                 auto rfactor_id = producer->getMaybeRFactorDomain()[root_i];
                 // If the shift offset is 0, it doesn't actually shift
                 if (shift_op->offsets()[root_i] != 0) {

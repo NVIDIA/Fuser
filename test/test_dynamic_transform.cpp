@@ -17,6 +17,7 @@
 #include <test/utils.h>
 #include <test/validator.h>
 
+#include <C++20/ranges>
 #include <functional>
 
 namespace nvfuser {
@@ -239,7 +240,7 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
     fusion.addInput(tv1);
 
     std::vector<Val*> shape_arg;
-    for (const auto i : c10::irange(after_shape.size())) {
+    for (const auto i : std::views::iota((size_t)0, after_shape.size())) {
       (void)i;
       shape_arg.push_back(IrBuilder::create<Val>(DataType::Int));
     }
@@ -254,11 +255,11 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
 
     ExpressionEvaluator expr_eval;
 
-    for (const auto i : c10::irange(before_shape.size())) {
+    for (const auto i : std::views::iota((size_t)0, before_shape.size())) {
       expr_eval.bind(tv0->axis((int)i)->extent(), before_shape.at(i));
     }
 
-    for (const auto i : c10::irange(after_shape.size())) {
+    for (const auto i : std::views::iota((size_t)0, after_shape.size())) {
       expr_eval.bind(tv2->axis((int)i)->extent(), after_shape.at(i));
       // We must bind tv1's extents, since they cannot be inferred until after
       // concretization. Because tv2 is a dynamic reshape both its IterDomains
@@ -351,7 +352,7 @@ TEST_F(NVFuserTest, DynamicTransform6_CUDA) {
     for (auto it = reshape_list.begin() + 1; it != reshape_list.end(); ++it) {
       auto shape = *it;
       std::vector<Val*> shape_arg;
-      for (const auto i : c10::irange(shape.size())) {
+      for (const auto i : std::views::iota((size_t)0, shape.size())) {
         (void)i;
         shape_arg.push_back(IrBuilder::create<Val>(DataType::Int));
       }
@@ -363,9 +364,9 @@ TEST_F(NVFuserTest, DynamicTransform6_CUDA) {
 
     ExpressionEvaluator expr_eval;
 
-    for (const auto i : c10::irange(reshape_list.size())) {
+    for (const auto i : std::views::iota((size_t)0, reshape_list.size())) {
       const auto& shape = reshape_list.at(i);
-      for (const auto j : c10::irange(shape.size())) {
+      for (const auto j : std::views::iota((size_t)0, shape.size())) {
         expr_eval.bind(reshape_tvs.at(i)->axis((int)j)->extent(), shape.at(j));
       }
     }
@@ -430,7 +431,7 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
          ++it) {
       const auto& shape = *it;
       std::vector<Val*> shape_arg;
-      for (const auto i : c10::irange(shape.size())) {
+      for (const auto i : std::views::iota((size_t)0, shape.size())) {
         (void)i;
         shape_arg.push_back(IrBuilder::create<Val>(DataType::Int));
       }
@@ -442,9 +443,10 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
 
     ExpressionEvaluator ref_expr_eval;
 
-    for (const auto i : c10::irange(ref_transform.shapes.size())) {
+    for (const auto i :
+         std::views::iota((size_t)0, ref_transform.shapes.size())) {
       const auto& shape = ref_transform.shapes.at(i);
-      for (const auto j : c10::irange(shape.size())) {
+      for (const auto j : std::views::iota((size_t)0, shape.size())) {
         ref_expr_eval.bind(
             reshape_tvs.at(i)->axis((int)j)->extent(), shape.at(j));
       }
@@ -457,9 +459,10 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
     for (const auto& transform : pattern.equal_transforms) {
       NVF_CHECK(transform.shapes.size() == ref_transform.shapes.size());
       ExpressionEvaluator expr_eval;
-      for (const auto i : c10::irange(transform.shapes.size())) {
+      for (const auto i :
+           std::views::iota((size_t)0, transform.shapes.size())) {
         const auto& shape = transform.shapes.at(i);
-        for (const auto j : c10::irange(shape.size())) {
+        for (const auto j : std::views::iota((size_t)0, shape.size())) {
           expr_eval.bind(
               reshape_tvs.at(i)->axis((int)j)->extent(), shape.at(j));
         }
@@ -479,9 +482,10 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
     for (const auto& transform : pattern.different_transforms) {
       NVF_CHECK(transform.shapes.size() == ref_transform.shapes.size());
       ExpressionEvaluator expr_eval;
-      for (const auto i : c10::irange(transform.shapes.size())) {
+      for (const auto i :
+           std::views::iota((size_t)0, transform.shapes.size())) {
         const auto& shape = transform.shapes.at(i);
-        for (const auto j : c10::irange(shape.size())) {
+        for (const auto j : std::views::iota((size_t)0, shape.size())) {
           expr_eval.bind(
               reshape_tvs.at(i)->axis((int)j)->extent(), shape.at(j));
         }
@@ -776,7 +780,7 @@ void reductionDynamicViewAddFusion(
       (reshape_before_reduction) ? add(x, bias) : sum(x, {kReductionAxis});
   // create vectors of input scalars describing this reshape
   std::vector<Val*> output_shape(output_dims);
-  for (size_t i : c10::irange(output_dims)) {
+  for (size_t i : std::views::iota((size_t)0, output_dims)) {
     output_shape[i] = IrBuilder::create<Val>(DataType::Int);
     fusion.addInput(output_shape[i]);
   }
@@ -819,7 +823,7 @@ void reductionDynamicViewAddFusion(
       // concretize bias_shape so that we can properly initialize at_bias
       size_t other_numel = 1;
       ssize_t negone_dim = -1; // negative if no -1 shape is provided
-      for (auto i : c10::irange(bias_shape.size())) {
+      for (auto i : std::views::iota((size_t)0, bias_shape.size())) {
         if (bias_shape[i] == -1) {
           ASSERT_EQ(negone_dim, -1); // test cases should not have multiple -1s
           negone_dim = -1;
@@ -834,7 +838,7 @@ void reductionDynamicViewAddFusion(
     at::Tensor at_bias = at::randn(bias_shape, options);
     std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
     // Add input scalars describing the reshape size for concretization
-    for (size_t i : c10::irange(output_dims)) {
+    for (size_t i : std::views::iota((size_t)0, output_dims)) {
       aten_inputs.emplace_back(output_shape[i]);
     }
 
@@ -896,7 +900,7 @@ void reductionDynamicPadAddFusion(
   fusion.addInput(x);
 
   std::vector<Val*> pad_width_vals(num_pad_widths);
-  for (auto i : c10::irange(num_pad_widths)) {
+  for (auto i : std::views::iota((size_t)0, num_pad_widths)) {
     pad_width_vals[i] = IrBuilder::create<Val>(DataType::Int);
     fusion.addInput(pad_width_vals[i]);
   }
@@ -941,7 +945,7 @@ void reductionDynamicPadAddFusion(
     at::Tensor at_x = at::randn(input_shape, options);
     std::vector<c10::IValue> aten_inputs = {at_x};
     // Add input scalars describing the reshape size for concretization
-    for (size_t i : c10::irange(pad_widths.size())) {
+    for (size_t i : std::views::iota((size_t)0, pad_widths.size())) {
       aten_inputs.emplace_back(pad_widths[i]);
     }
 

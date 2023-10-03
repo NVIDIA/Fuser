@@ -11,6 +11,8 @@
 
 #include <contiguity.h>
 
+#include <C++20/ranges>
+
 namespace nvfuser {
 
 OrderedIdInformation::OrderedIdInformation(
@@ -23,7 +25,7 @@ OrderedIdInformation::OrderedIdInformation(
   }
 
   // Grab allocation ids and initialize them.
-  for (const auto alloc_i : c10::irange(alloc_domain.size())) {
+  for (const auto alloc_i : std::views::iota((size_t)0, alloc_domain.size())) {
     auto alloc_id = alloc_domain[alloc_i]->as<IterDomain>();
 
     // Initialize id_to_alloc_ids to map allocs to themselves
@@ -513,7 +515,8 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
       " != ",
       alloc_contiguity_.size());
 
-  for (const auto alloc_domain_i : c10::irange(alloc_domain_.size())) {
+  for (const auto alloc_domain_i :
+       std::views::iota((size_t)0, alloc_domain_.size())) {
     auto alloc_domain_id = alloc_domain_.at(alloc_domain_i);
     if (alloc_domain_id->isBroadcast()) {
       NVF_ERROR(!alloc_contiguity_.at(alloc_domain_i).has_value());
@@ -608,7 +611,7 @@ void ContigIDs::handle(Merge* merge) {
   bool is_indexing_pass = !ignore_consistent_ordering_;
 
   IterDomain* last_alloc = nullptr;
-  for (auto alloc_id_i : c10::irange(alloc_domain_.size())) {
+  for (auto alloc_id_i : std::views::iota((size_t)0, alloc_domain_.size())) {
     auto alloc_id = alloc_domain_[alloc_id_i];
     if (alloc_id->isBroadcast()) {
       NVF_ERROR(!alloc_contiguity_.at(alloc_id_i).has_value());

@@ -18,6 +18,8 @@
 #include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDACachingAllocator.h>
 #include <c10/cuda/CUDAStream.h>
+
+#include <C++20/ranges>
 #include <algorithm>
 #include <iostream>
 #include <sstream>
@@ -62,10 +64,10 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
     const size_t kN = norm_shape.size();
     const size_t kOuterNumDims = kM - kN;
     std::vector<int64_t> outer_shape;
-    for (const auto idx : c10::irange(kOuterNumDims)) {
+    for (const auto idx : std::views::iota((size_t)0, kOuterNumDims)) {
       outer_shape.push_back(input_shape[idx]);
     }
-    for (const auto idx : c10::irange(kOuterNumDims, kM)) {
+    for (const auto idx : std::views::iota(kOuterNumDims, kM)) {
       // just to avoid unused variable warning
       outer_shape.push_back(1 + idx - idx);
     }
@@ -316,10 +318,10 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedConsumer_CUDA) {
     const size_t kN = norm_shape.size();
     const size_t kOuterNumDims = kM - kN;
     std::vector<int64_t> outer_shape;
-    for (const auto idx : c10::irange(kOuterNumDims)) {
+    for (const auto idx : std::views::iota((size_t)0, kOuterNumDims)) {
       outer_shape.push_back(input_shape[idx]);
     }
-    for (const auto idx : c10::irange(kOuterNumDims, kM)) {
+    for (const auto idx : std::views::iota(kOuterNumDims, kM)) {
       // just to avoid unused variable warning
       outer_shape.push_back(1 + idx - idx);
     }
@@ -465,10 +467,10 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
     const size_t kN = norm_shape.size();
     const size_t kOuterNumDims = kM - kN;
     std::vector<int64_t> outer_shape;
-    for (const auto idx : c10::irange(kOuterNumDims)) {
+    for (const auto idx : std::views::iota((size_t)0, kOuterNumDims)) {
       outer_shape.push_back(input_shape[idx]);
     }
-    for (const auto idx : c10::irange(kOuterNumDims, kM)) {
+    for (const auto idx : std::views::iota(kOuterNumDims, kM)) {
       // just to avoid unused variable warning
       outer_shape.push_back(1 + idx - idx);
     }

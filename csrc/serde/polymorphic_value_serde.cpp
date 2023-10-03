@@ -10,6 +10,8 @@
 #include <serde/polymorphic_value_serde.h>
 #include <serde/utils.h>
 
+#include <C++20/ranges>
+
 namespace nvfuser::serde {
 
 namespace {
@@ -139,14 +141,14 @@ flatbuffers::Offset<serde::PolymorphicValue> serializePolymorphicValue(
       // Convert IntArrayRef to std::vector for flatbuffer compatibility
       std::vector<int64_t> sizes_fb;
       sizes_fb.reserve(tensor.ndimension());
-      for (auto dim : c10::irange(tensor.ndimension())) {
+      for (auto dim : std::views::iota((int64_t)0, tensor.ndimension())) {
         sizes_fb.push_back(tensor.size(dim));
       }
 
       // Convert IntArrayRef to std::vector for flatbuffer compatibility
       std::vector<int64_t> strides_fb;
       strides_fb.reserve(tensor.ndimension());
-      for (auto dim : c10::irange(tensor.ndimension())) {
+      for (auto dim : std::views::iota((int64_t)0, tensor.ndimension())) {
         strides_fb.push_back(tensor.stride(dim));
       }
 

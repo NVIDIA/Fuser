@@ -25,6 +25,7 @@
 #include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAStream.h>
 
+#include <C++20/ranges>
 #include <algorithm>
 #include <iostream>
 #include <sstream>
@@ -514,7 +515,7 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
   // Make sure the vectorized domain placed at the innermost position
   int vec_id_cur_pos = -1;
   std::unordered_map<int, int> vec_reorder_map;
-  for (const auto i : c10::irange(reduction_tv_rf->nDims())) {
+  for (const auto i : std::views::iota((size_t)0, reduction_tv_rf->nDims())) {
     auto id = reduction_tv_rf->axis(i);
     if (id->getParallelType() == ParallelType::Vectorize) {
       vec_id_cur_pos = i;

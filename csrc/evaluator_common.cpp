@@ -14,6 +14,7 @@
 #include <instrumentation.h>
 #include <ir/utils.h>
 
+#include <C++20/ranges>
 #include <optional>
 
 namespace nvfuser {
@@ -162,7 +163,7 @@ void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
   NVF_ERROR(
       args.size() == inputs.size(), "kernel inputs size does not match args");
 
-  for (const auto i : c10::irange((int64_t)inputs.size())) {
+  for (const auto i : std::views::iota((int64_t)0, (int64_t)inputs.size())) {
     const auto input = inputs[i];
     NVF_ERROR(input != nullptr);
     if (auto tensor_input = dynamic_cast<TensorView*>(input)) {
@@ -185,7 +186,7 @@ void PrecomputedValues::initializeValueList(
   values_ = std::vector<PolymorphicValue>(num_of_values_, PolymorphicValue());
 
   // Fill in constants and assign evaluator indices
-  for (const auto i : c10::irange(num_of_values_)) {
+  for (const auto i : std::views::iota(0, num_of_values_)) {
     // Use an expression evaluator to test if value is const
     if (sorted_value_list[i]->isConstScalar()) {
       is_constant_[i] = true;
@@ -217,7 +218,7 @@ const PolymorphicValue& PrecomputedValues::getMaybeValueFor(
 
 void PrecomputedValues::print() const {
   debug() << "Precomputed Values:\n";
-  for (auto i : c10::irange(symbols_.size())) {
+  for (auto i : std::views::iota((size_t)0, symbols_.size())) {
     if (defined_[i]) {
       debug() << symbols_[i]->toInlineString() << " = " << values_[i]
               << std::endl;
@@ -263,7 +264,7 @@ PrecomputedValues PrecomputedValues::clone(IrCloner& ir_cloner) const {
       pv.binding_log_.end(), binding_log_.begin(), binding_log_.end());
 
   pv.symbols_.resize(symbols_.size());
-  for (const auto i : c10::irange(symbols_.size())) {
+  for (const auto i : std::views::iota((size_t)0, symbols_.size())) {
     pv.symbols_[i] = ir_cloner.clone(symbols_[i]);
   }
 
@@ -330,7 +331,7 @@ void PrecomputedValues::bindTensorMetaData(
       tensor.dim() == static_cast<int64_t>(root_domain.size()),
       "Something went wrong configuring launch. Inputs do not match.");
 
-  for (const auto dim : c10::irange(root_domain.size())) {
+  for (const auto dim : std::views::iota((size_t)0, root_domain.size())) {
     auto value = tensor.size((int64_t)dim);
     if (root_domain[dim]->hasExpandedExtent()) {
       auto extent = root_domain[dim]->extent();
@@ -393,7 +394,7 @@ void NaiveValueMachine::copyFrom(const NaiveValueMachine& other) {
 }
 
 void NaiveValueMachine::run() {
-  for (const auto i : c10::irange(num_of_instructions_)) {
+  for (const auto i : std::views::iota(0, num_of_instructions_)) {
     // Skip this instruction if the dest location
     //  has already been computed or is constant.
     if (precomputed_values_.defined_[dest_[i]] ||

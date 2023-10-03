@@ -19,6 +19,8 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 
+#include <C++20/ranges>
+
 namespace nvfuser {
 
 namespace {
@@ -290,7 +292,7 @@ class PredicateChcker : public IterVisitor {
         "Was expecting matching number of inputs and outputs for expression: ",
         expr->toString());
 
-    for (auto i : c10::irange(tv_inputs.size())) {
+    for (auto i : std::views::iota((size_t)0, tv_inputs.size())) {
       const auto root_p2c = PairwiseRootDomainMap(tv_inputs[i], tv_outputs[i])
                                 .mapProducerToConsumer();
       for (auto entry : root_p2c) {
@@ -461,7 +463,7 @@ class PredicateChcker : public IterVisitor {
         tv->toString());
     bool is_shared_mem = tv->getMemoryType() == MemoryType::Shared;
     std::vector<Val*> zero_leaf_ids;
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : std::views::iota((size_t)0, tv->nDims())) {
       auto leaf_id = tv->axis((int)i);
       if (is_shared_mem && leaf_id->isThreadDim()) {
         // Thread parallel axes on shared mem are never
@@ -620,7 +622,7 @@ class PredicateChcker : public IterVisitor {
 
   // Welford. See FusionPredicateElimination5.
   void handle(WelfordOp* wop) final {
-    for (const auto i : c10::irange(3)) {
+    for (const auto i : std::views::iota(0, 3)) {
       auto init = wop->getInitVals()[i];
 
       // Welford input can be a scalar. Predicate is required unless
@@ -671,8 +673,8 @@ class PredicateChcker : public IterVisitor {
   }
 
   void handle(GroupedReductionOp* grouped_rop) final {
-    for (const auto i :
-         c10::irange(grouped_rop->numHorizontallyGroupedExprs())) {
+    for (const auto i : std::views::iota(
+             (size_t)0, grouped_rop->numHorizontallyGroupedExprs())) {
       auto input = grouped_rop->input(i)->as<TensorView>();
       auto input_def = input->definition();
       // When input_def is null, input must be an input to the fusion,
@@ -734,9 +736,9 @@ class PredicateChcker : public IterVisitor {
   }
 
   void handle(GroupedWelfordOp* grouped_wop) final {
-    for (const auto expr_idx :
-         c10::irange(grouped_wop->numHorizontallyGroupedExprs())) {
-      for (const auto val_idx : c10::irange(3)) {
+    for (const auto expr_idx : std::views::iota(
+             (size_t)0, grouped_wop->numHorizontallyGroupedExprs())) {
+      for (const auto val_idx : std::views::iota(0, 3)) {
         auto init = grouped_wop->initVals().at(expr_idx).get(val_idx);
 
         // Welford input can be a scalar. Predicate is required unless
@@ -874,7 +876,7 @@ void PredicateElimination::dispatch(Expr* expr) {
 
   // Ensure all inputs have some values set at the out-of-bound
   // regions
-  for (const auto i : c10::irange(expr->inputs().size())) {
+  for (const auto i : std::views::iota((size_t)0, expr->inputs().size())) {
     auto input = dynamic_cast<TensorView*>(expr->inputs()[i]);
     if (input == nullptr) {
       continue;

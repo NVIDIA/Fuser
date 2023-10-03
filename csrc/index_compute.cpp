@@ -8,7 +8,6 @@
 #include <index_compute.h>
 
 #include <c10/util/Exception.h>
-#include <c10/util/irange.h>
 #include <contiguity.h>
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/analysis/shift.h>
@@ -29,6 +28,7 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 
+#include <C++20/ranges>
 #include <memory>
 
 namespace nvfuser {
@@ -228,7 +228,7 @@ Val* getProducerIndexWithGather(
 
   // Consumer axis that corresponds to the producer axis
   int64_t consumer_axis = -1;
-  for (const auto i : c10::irange(producer_root_axis + 1)) {
+  for (const auto i : std::views::iota((size_t)0, producer_root_axis + 1)) {
     if (producer_tv->getMaybeRFactorDomain()[i]->isReduction() ||
         producer_tv->getMaybeRFactorDomain()[i]->isStride()) {
       continue;
@@ -1533,7 +1533,7 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
   std::vector<Val*> strides(alloc_dom.size(), nullptr);
   {
     int stride_i = 0;
-    for (const auto i : c10::irange(alloc_dom.size())) {
+    for (const auto i : std::views::iota((size_t)0, alloc_dom.size())) {
       if (alloc_dom[i]->isReduction()) {
         strides[i] = GpuLower::current()->kernel()->oneVal();
         continue;
@@ -1547,7 +1547,7 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
 
   NVF_ERROR(alloc_dom.size() == producer_tv->domain()->contiguity().size());
   Val* cur_contig_stride = GpuLower::current()->kernel()->oneVal();
-  for (const auto i : c10::irange(alloc_dom.size())) {
+  for (const auto i : std::views::iota((size_t)0, alloc_dom.size())) {
     auto dim = alloc_dom.size() - i - 1;
     if (alloc_dom[dim]->isReduction()) {
       continue;
@@ -1583,7 +1583,7 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
   // Global striding
   std::vector<Val*> strided_inds(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
-  for (const auto i : c10::irange(alloc_dom.size())) {
+  for (const auto i : std::views::iota((size_t)0, alloc_dom.size())) {
     Val* alloc_ind = alloc_indices.at(i);
 
     if (alloc_ind->isZeroInt()) {
@@ -1759,7 +1759,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   std::vector<Val*> strided_inds(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
-  for (const auto i : c10::irange(alloc_dom.size())) {
+  for (const auto i : std::views::iota((size_t)0, alloc_dom.size())) {
     if (skip_indexing.count(alloc_dom[i])) {
       continue;
     }
@@ -1798,7 +1798,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
     // Compute striding for this index.
     Val* stride = nullptr;
-    for (const auto j : c10::irange(i + 1, alloc_dom.size())) {
+    for (const auto j : std::views::iota(i + 1, alloc_dom.size())) {
       if (skip_indexing.count(alloc_dom[j])) {
         continue;
       }
@@ -1889,7 +1889,7 @@ std::vector<Val*> Index::getStrides(TensorView* tv) {
       alloc_dom.size(), GpuLower::current()->kernel()->oneVal());
   {
     int stride_i = 0;
-    for (const auto i : c10::irange(alloc_dom.size())) {
+    for (const auto i : std::views::iota((size_t)0, alloc_dom.size())) {
       if (alloc_dom[i]->isReduction() || alloc_dom[i]->isStride()) {
         strides[i] = GpuLower::current()->kernel()->oneVal();
         continue;
@@ -1902,7 +1902,7 @@ std::vector<Val*> Index::getStrides(TensorView* tv) {
 
   NVF_ERROR(alloc_dom.size() == tv->domain()->contiguity().size());
   Val* cur_contig_stride = GpuLower::current()->kernel()->oneVal();
-  for (const auto i : c10::irange(alloc_dom.size())) {
+  for (const auto i : std::views::iota((size_t)0, alloc_dom.size())) {
     auto dim = alloc_dom.size() - i - 1;
     if (alloc_dom[dim]->isReduction() || alloc_dom[dim]->isStride()) {
       continue;
@@ -1942,7 +1942,7 @@ std::vector<Val*> Index::getConsumerAllocationIndices(
 
   std::vector<Val*> alloc_inds(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
-  for (const auto i : c10::irange(alloc_dom.size())) {
+  for (const auto i : std::views::iota((size_t)0, alloc_dom.size())) {
     // See a comment in indexing to allocation domains in
     // getGlobalProducerIndex.
     if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast() ||
@@ -2048,7 +2048,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
   std::vector<Val*> alloc_inds(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
 
-  for (const auto i : c10::irange(alloc_dom.size())) {
+  for (const auto i : std::views::iota((size_t)0, alloc_dom.size())) {
     if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast()) {
       continue;
     }
@@ -2113,7 +2113,7 @@ std::vector<Val*> Index::getGlobalConsumerStridedIndices(
       loops.empty() ? nullptr : loops.back()->vectorize_shift();
   std::vector<Val*> strided_inds(
       alloc_inds.size(), GpuLower::current()->kernel()->zeroVal());
-  for (const auto i : c10::irange(alloc_inds.size())) {
+  for (const auto i : std::views::iota((size_t)0, alloc_inds.size())) {
     auto override_it = override_index.find((int)i);
     if (override_it != override_index.end()) {
       alloc_inds[i] = override_it->second;
@@ -2177,7 +2177,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
   const auto& alloc_dom = consumer_tv->getMaybeAllocationDomain();
   std::vector<Val*> strided_inds(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
-  for (const auto i : c10::irange(alloc_dom.size())) {
+  for (const auto i : std::views::iota((size_t)0, alloc_dom.size())) {
     if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast() ||
         alloc_dom[i]->isStride()) {
       continue;
@@ -2208,7 +2208,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
 
     // Compute striding for this index.
     Val* stride = nullptr;
-    for (const auto j : c10::irange(i + 1, alloc_dom.size())) {
+    for (const auto j : std::views::iota(i + 1, alloc_dom.size())) {
       if (alloc_dom[j]->isBroadcast() || alloc_dom[j]->isReduction() ||
           alloc_dom[j]->isStride()) {
         continue;
@@ -2466,7 +2466,7 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
   }
 
   std::unordered_set<IterDomain*> final_ids;
-  for (auto root_i : c10::irange(consumer_root_domain.size())) {
+  for (auto root_i : std::views::iota((size_t)0, consumer_root_domain.size())) {
     auto root_id = consumer_root_domain[root_i];
     if (root_id->maybePartial()) {
       final_ids.insert(root_id);
@@ -3203,7 +3203,7 @@ Val* Index::cpAsyncBulkIndex(
     // element size to convert to bytes, and remove fastest dim as it is assumed
     // to be one.
     std::vector<Val*> strides;
-    for (auto i : c10::irange(dim - 1)) {
+    for (auto i : std::views::iota((int64_t)0, dim - 1)) {
       strides.push_back(SimplifyingIrBuilder::mulExpr(
           IrBuilder::getItemExpr(global_strides, dim - 2 - i), itemsize));
     }

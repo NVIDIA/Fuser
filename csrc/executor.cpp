@@ -31,8 +31,8 @@
 #include <c10/core/DeviceGuard.h>
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/cuda/CUDAStream.h>
-#include <c10/util/irange.h>
 
+#include <C++20/ranges>
 #include <cmath>
 #include <fstream>
 
@@ -524,7 +524,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
 
   std::vector<int64_t> concrete_sizes(symbolic_sizes.size(), 0);
 
-  for (const auto i : c10::irange(symbolic_sizes.size())) {
+  for (const auto i : std::views::iota((size_t)0, symbolic_sizes.size())) {
     auto symbolic_size = symbolic_sizes.at(i);
     const auto inferred_val = expr_eval.evaluate(symbolic_size);
     NVF_ERROR(
@@ -631,7 +631,7 @@ class ForwardTraverseFromAllocToRFactor {
     // view tensor
     int64_t dim = std::distance(frontier_.begin(), in_it);
     std::vector<int64_t> new_shape;
-    for (auto i : c10::irange(tensor_.dim())) {
+    for (auto i : std::views::iota((int64_t)0, tensor_.dim())) {
       if (i == dim) {
         new_shape.emplace_back(-1);
         new_shape.emplace_back(factor);
@@ -685,7 +685,7 @@ class ForwardTraverseFromAllocToRFactor {
       tensor_ = tensor_.permute(dims);
     }
     std::vector<int64_t> new_shape;
-    for (auto i : c10::irange(tensor_.dim())) {
+    for (auto i : std::views::iota((int64_t)0, tensor_.dim())) {
       if (i == left) {
         new_shape.emplace_back(-1);
       } else if (i != left + 1) {
@@ -782,7 +782,7 @@ class BackwardTraverseFromAllocToRFactor {
       tensor_ = tensor_.permute(dims);
     }
     std::vector<int64_t> new_shape;
-    for (auto i : c10::irange(tensor_.dim())) {
+    for (auto i : std::views::iota((int64_t)0, tensor_.dim())) {
       if (i == left) {
         new_shape.emplace_back(-1);
       } else if (i != left + 1) {
@@ -816,7 +816,7 @@ class BackwardTraverseFromAllocToRFactor {
     // view tensor
     int64_t dim = std::distance(frontier_.begin(), out_it);
     std::vector<int64_t> new_shape;
-    for (auto i : c10::irange(tensor_.dim())) {
+    for (auto i : std::views::iota((int64_t)0, tensor_.dim())) {
       if (i == dim) {
         new_shape.emplace_back(-1);
         new_shape.emplace_back(factor);
@@ -921,7 +921,8 @@ std::vector<at::Tensor> allocOutputs(
 
   std::vector<at::Tensor> outputs;
 
-  for (const auto output_idx : c10::irange(output_info.size())) {
+  for (const auto output_idx :
+       std::views::iota((size_t)0, output_info.size())) {
     const auto& buf_info = output_info.at(output_idx);
 
     auto alias_it = std::find_if(
@@ -1232,7 +1233,8 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
   NVF_ERROR(
       args.size() == kernel->inputs().size(),
       "kernel arguments length does not match runtime arguments.");
-  for (const auto out_i : c10::irange(kernel->outputs().size())) {
+  for (const auto out_i :
+       std::views::iota((size_t)0, kernel->outputs().size())) {
     GlobalBufferInfo info;
     auto out_val = kernel->outputs()[out_i];
     info.tv = dynamic_cast<TensorView*>(out_val);
@@ -1294,7 +1296,8 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
   KernelArgumentHolder ret;
   ret.setDeviceIndex(args.getDeviceIndex());
 
-  for (const auto out_i : c10::irange(fusion->outputs().size())) {
+  for (const auto out_i :
+       std::views::iota((size_t)0, fusion->outputs().size())) {
     // If the output is just trivially the input, just "copy" it over.
     // See note [trivial forwarding]
     if (fusion->outputs()[out_i]->isFusionInput()) {
@@ -1404,7 +1407,7 @@ void dumpFusionArgs(
     const std::vector<at::Tensor>& outputs) {
   debug() << "Arguments for fusion" << fusion_id << ":" << std::endl
           << "Inputs:" << std::endl;
-  for (auto i : c10::irange(args.size())) {
+  for (auto i : std::views::iota((size_t)0, args.size())) {
     debug() << "  " << args[i] << std::endl;
   }
   debug() << "Outputs:" << std::endl;
@@ -1431,7 +1434,7 @@ void dumpKernelArgs(
   using namespace PolymorphicValue_functions;
   debug() << "Arguments for kernel" << fusion_id << ":" << std::endl
           << "Inputs:" << std::endl;
-  for (auto i : c10::irange(num_inputs)) {
+  for (auto i : std::views::iota((size_t)0, num_inputs)) {
     debug() << "  " << toString(*args[i]) << std::endl;
   }
   debug() << "Outputs:" << std::endl;
@@ -1442,7 +1445,7 @@ void dumpKernelArgs(
             << ", address = " << output.data_ptr() << ")" << std::endl;
   }
   debug() << "Intermediate global buffers:" << std::endl;
-  for (const auto i : c10::irange(intermediates.size())) {
+  for (const auto i : std::views::iota((size_t)0, intermediates.size())) {
     const auto& buffer = intermediates.at(i);
     const auto& zero_init = intermediates_info.at(i).zero_init;
     debug() << "  " << buffer.scalar_type() << " " << buffer.sizes()
@@ -1666,7 +1669,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   ExpressionEvaluator expr_eval;
   const auto& inputs = kernel()->inputs();
 
-  for (const auto i : c10::irange(inputs.size())) {
+  for (const auto i : std::views::iota((size_t)0, inputs.size())) {
     expr_eval.bind(inputs[i], *args[i]);
   }
 
@@ -1688,7 +1691,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
   args.push(outputs);
 
-  for (const auto i : c10::irange(outputs.size())) {
+  for (const auto i : std::views::iota((size_t)0, outputs.size())) {
     auto output = kernel()->outputs()[i];
     if (std::any_of(
             kernel()->inputs().begin(),
@@ -1704,7 +1707,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   at::Tensor profile_buffer;
   {
     FUSER_PERF_SCOPE("ExecutorRunFusion::IntermediateBufferAlloc");
-    for (const auto i : c10::irange(executor_entry->intermediates.size())) {
+    for (const auto i :
+         std::views::iota((size_t)0, executor_entry->intermediates.size())) {
       const auto& buf_info = executor_entry->intermediates.at(i);
       at::Tensor intermediate_buffer;
       if (buf_info.zero_init) {
@@ -1841,7 +1845,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
       bytes_processed_per_input_.resize(num_inputs, 0);
       // Figure how many bytes are inputs, outputs, and temporary buffers
-      for (auto i : c10::irange(num_inputs)) {
+      for (auto i : std::views::iota((size_t)0, num_inputs)) {
         if (args[i]->is<at::Tensor>()) {
           auto t = args[i]->as<at::Tensor>();
           auto num_bytes = t.numel() *
@@ -1850,7 +1854,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         }
       }
       bytes_processed_per_output_.resize(outputs.size(), 0);
-      for (auto i : c10::irange(outputs.size())) {
+      for (auto i : std::views::iota((size_t)0, outputs.size())) {
         const auto& output = outputs.at(i);
         // NOTE: this assumes that all output elements correspond to a single
         // store
@@ -2145,7 +2149,8 @@ void FusionExecutor::deserialize(
   setUsedTVs();
 
   // GlobalBufferInfo requires lowered kernel before deserialization
-  for (auto idx : c10::irange(buffer->executor_entry_lookup_keys()->size())) {
+  for (auto idx : std::views::iota(
+           0u, buffer->executor_entry_lookup_keys()->size())) {
     executor_entry_lookup_.emplace(
         buffer->executor_entry_lookup_keys()->Get(idx),
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
@@ -2169,7 +2174,8 @@ FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
 
   entry.launch_params.deserialize(buffer->launch_params());
 
-  for (auto idx : c10::irange(buffer->output_aliases()->size())) {
+  for (auto idx :
+       std::views::iota(0u, buffer->output_aliases()->size())) {
     entry.output_to_input_aliases.emplace_back(
         buffer->output_aliases()->Get(idx), buffer->input_aliases()->Get(idx));
   }

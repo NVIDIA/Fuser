@@ -14,6 +14,8 @@
 #include <transform_view.h>
 #include <type_promotion.h>
 
+#include <C++20/ranges>
+
 namespace nvfuser {
 
 Val* set(Val* v) {
@@ -76,7 +78,7 @@ TensorView* tryStaticReshape(
     const std::vector<IterDomain*>& inp_dom,
     const std::vector<Val*>& new_sizes) {
   std::vector<int64_t> inp_sizes(inp_dom.size());
-  for (const auto i : c10::irange(inp_dom.size())) {
+  for (const auto i : std::views::iota((size_t)0, inp_dom.size())) {
     auto id = inp_dom.at(i);
     auto id_size = id->extent()->getInt();
     if (!id_size.has_value()) {
@@ -86,7 +88,7 @@ TensorView* tryStaticReshape(
   }
 
   std::vector<int64_t> out_sizes(new_sizes.size());
-  for (const auto i : c10::irange(new_sizes.size())) {
+  for (const auto i : std::views::iota((size_t)0, new_sizes.size())) {
     auto id_size = new_sizes.at(i)->getInt();
     if (!id_size.has_value()) {
       return nullptr;
@@ -123,7 +125,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
   // domain.
   std::vector<IterDomain*> rfactor_domain(new_sizes.size(), nullptr);
   bool found_neg_one = false;
-  for (const auto i : c10::irange(new_sizes.size())) {
+  for (const auto i : std::views::iota((size_t)0, new_sizes.size())) {
     auto new_size = new_sizes.at(i);
     if (new_size->isConstScalar() && new_size->evaluateInt() == -1) {
       // It is usually safe to use the provided scalars as the output shapes.
@@ -137,10 +139,10 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
 
       Val* numel = FusionGuard::getCurFusion()->oneVal();
       Val* other_new_numel = FusionGuard::getCurFusion()->oneVal();
-      for (const auto j : c10::irange(inp_dom.size())) {
+      for (const auto j : std::views::iota((size_t)0, inp_dom.size())) {
         numel = mul(numel, inp_dom.at(j)->extent());
       }
-      for (const auto j : c10::irange(new_sizes.size())) {
+      for (const auto j : std::views::iota((size_t)0, new_sizes.size())) {
         if (i == j) {
           continue;
         }
@@ -218,7 +220,7 @@ TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
       x->toString());
 
   std::vector<IterDomain*> out_domain;
-  for (const auto idx : c10::irange(ndims)) {
+  for (const auto idx : std::views::iota(0, ndims)) {
     auto id = x_dom[idx];
     if (to_squeeze[idx]) {
       if (!id->isSymbolic()) {
@@ -258,7 +260,7 @@ TensorView* squeeze(TensorView* x, const std::vector<int64_t>& sizes) {
       x->toString());
 
   std::vector<bool> to_squeeze(ndims);
-  for (const auto idx : c10::irange(sizes.size())) {
+  for (const auto idx : std::views::iota((size_t)0, sizes.size())) {
     to_squeeze[idx] = (sizes[idx] == 1);
   }
   return squeeze(x, to_squeeze);
@@ -421,7 +423,7 @@ TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1) {
       dim1 >= 0 && dim1 <= ndims, "Invalid transpose dimension 1: ", dim1);
 
   std::vector<int64_t> new2old(ndims);
-  for (const auto i : c10::irange(ndims)) {
+  for (const auto i : std::views::iota(0, ndims)) {
     if (i == dim0) {
       new2old[i] = dim1;
     } else if (i == dim1) {
@@ -510,7 +512,7 @@ TensorView* pad(
   std::vector<Val*> normalized_pad_widths;
 
   // Fill zero for non padded dimensions
-  for (const auto i : c10::irange(num_non_padded_dims)) {
+  for (const auto i : std::views::iota((size_t)0, num_non_padded_dims)) {
     (void)i;
     normalized_pad_widths.push_back(FusionGuard::getCurFusion()->zeroVal());
     normalized_pad_widths.push_back(FusionGuard::getCurFusion()->zeroVal());
@@ -518,7 +520,7 @@ TensorView* pad(
 
   // torch.pad has padding widths of inner dimensions before outer
   // dimensions
-  for (const auto i : c10::irange(num_padded_dims)) {
+  for (const auto i : std::views::iota((size_t)0, num_padded_dims)) {
     auto left_pad = pad_widths.at(num_padded_dims * 2 - (i + 1) * 2);
     auto right_pad = pad_widths.at(num_padded_dims * 2 - (i + 1) * 2 + 1);
     normalized_pad_widths.push_back(maybeCastOp(DataType::Index, left_pad));
@@ -528,7 +530,7 @@ TensorView* pad(
   // Indicates if any dimension is actually padded. Can be false even
   // when non-empty padding width vector is passed
   bool is_padded_any = false;
-  for (const auto idx : c10::irange(ndims)) {
+  for (const auto idx : std::views::iota((size_t)0, ndims)) {
     auto inp_root_id = inp_dom.at(idx);
     IterDomain* out_root_id = nullptr;
     IterDomain* out_rf_id = nullptr;
@@ -619,7 +621,7 @@ TensorView* cat(
 
   Val* concat_ext = nullptr;
 
-  for (const auto i : c10::irange(inputs.size())) {
+  for (const auto i : std::views::iota((size_t)0, inputs.size())) {
     auto input_dim_extent =
         inp_doms.at(i).at(cat_dim)->getMaybeExpandedExtent();
     concat_ext = SimplifyingIrBuilder::addExpr(concat_ext, input_dim_extent);
@@ -632,10 +634,10 @@ TensorView* cat(
   Val* left_pad = FusionGuard::getCurFusion()->zeroVal();
   Val* right_pad = concat_ext;
   std::vector<Val*> resized_inputs(inputs.size());
-  for (const auto input_idx : c10::irange(inputs.size())) {
+  for (const auto input_idx : std::views::iota((size_t)0, inputs.size())) {
     const auto& inp_dom = inp_doms.at(input_idx);
     std::vector<Val*> pad_widths(ndims * 2);
-    for (const auto dim : c10::irange(ndims)) {
+    for (const auto dim : std::views::iota((int64_t)0, ndims)) {
       auto inp_root_id = inp_dom.at(dim);
       Val* left_pad_i = nullptr;
       Val* right_pad_i = nullptr;
@@ -761,7 +763,7 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
   std::vector<Slice> normalized_ranges(ndims);
 
   bool needs_real_slicing = false;
-  for (const auto idx : c10::irange(ndims)) {
+  for (const auto idx : std::views::iota(0, ndims)) {
     auto inp_root_id = inp_dom[idx];
     auto range = normalize_slice_range(ranges.at(idx), inp_root_id->extent());
     normalized_ranges.at(idx) = range;

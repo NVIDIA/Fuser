@@ -12,6 +12,8 @@
 
 #include <grouped_reduction.h>
 
+#include <C++20/ranges>
+
 namespace nvfuser {
 
 namespace {
@@ -30,7 +32,8 @@ namespace {
 // Return if ref and other are transformed in the same way.
 bool hasMatchingTransformations(TensorView* ref, TensorView* other) {
   std::unordered_map<IterDomain*, IterDomain*> ref_2_other;
-  for (const auto i : c10::irange(ref->getRootDomain().size())) {
+  for (const auto i :
+       std::views::iota((size_t)0, ref->getRootDomain().size())) {
     ref_2_other.emplace(
         ref->getRootDomain().at(i), other->getRootDomain().at(i));
   }
@@ -39,7 +42,7 @@ bool hasMatchingTransformations(TensorView* ref, TensorView* other) {
                     other->getLeafDomain(), ref->getLeafDomain(), ref_2_other)
                     .getIterDomainEquivalence();
 
-  for (const auto i : c10::irange(ref->nDims())) {
+  for (const auto i : std::views::iota((size_t)0, ref->nDims())) {
     if (!replay.permissiveAreMapped(ref->axis((int)i), other->axis((int)i))) {
       return false;
     }
@@ -76,7 +79,7 @@ bool validateReductionGrouping(
   // condition and could be made more flexible
   const auto uses_of_ref =
       ref_tv->hasComputeWith() ? ref_tv->uses() : std::vector<Expr*>();
-  for (const auto i : c10::irange(inputs.size())) {
+  for (const auto i : std::views::iota((size_t)0, inputs.size())) {
     auto output_tv = outputs.at(i)->as<TensorView>();
     const auto& output_domain = output_tv->getRootDomain();
     if (ref_tv == output_tv) {
@@ -102,7 +105,7 @@ bool validateReductionGrouping(
         output_tv->nDims(),
         ". Invalid output tensor: ",
         output_tv->toString());
-    for (const auto i : c10::irange(num_root_dims)) {
+    for (const auto i : std::views::iota((size_t)0, num_root_dims)) {
       auto ref_id = ref_domain.at(i);
       auto output_id = output_domain.at(i);
       // If an IterDomain is broadcast, require the other
@@ -216,7 +219,7 @@ bool groupReductions(
   std::vector<Val*> outputs(num_reductions);
   std::vector<Val*> inputs(num_reductions);
 
-  for (const auto i : c10::irange(num_reductions)) {
+  for (const auto i : std::views::iota((size_t)0, num_reductions)) {
     auto reduction_out = reduction_outputs.at(i);
     GROUP_REDUCTION_CHECK(
         error_on_failure,

@@ -18,6 +18,7 @@
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
 
+#include <C++20/ranges>
 #include <sstream>
 
 namespace nvfuser {
@@ -95,7 +96,7 @@ std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::
   std::vector<bool> can_merge(neighbors.size(), true);
 
   // Find neighbors with a level that is only 1 differant than this groups level
-  for (const auto i : c10::irange(neighbors.size())) {
+  for (const auto i : std::views::iota((size_t)0, neighbors.size())) {
     if (std::abs(neighbors[i].group->level_ - level_) > 1) {
       can_merge[i] = false;
     }
@@ -104,7 +105,7 @@ std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::
   // Check neighbor of neighbors we're considering, if any of them are merged
   // with another node, make sure the resulting edge wouldn't have a level
   // difference of 1
-  for (const auto i : c10::irange(neighbors.size())) {
+  for (const auto i : std::views::iota((size_t)0, neighbors.size())) {
     if (!can_merge[i]) {
       continue;
     }
@@ -138,7 +139,7 @@ std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::
   }
 
   std::vector<NeighborGroup> merge_candidates;
-  for (const auto i : c10::irange(neighbors.size())) {
+  for (const auto i : std::views::iota((size_t)0, neighbors.size())) {
     if (can_merge[i]) {
       merge_candidates.push_back(neighbors[i]);
     }
@@ -231,7 +232,7 @@ std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
       [](auto expr_a, auto expr_b) -> bool {
         return expr_a->name() < expr_b->name();
       });
-  for (const auto i : c10::irange(expr_to_print.size())) {
+  for (const auto i : std::views::iota((size_t)0, expr_to_print.size())) {
     os << expr_to_print[i]->name();
     if (i + 1 != expr_to_print.size()) {
       os << ", ";
@@ -749,7 +750,7 @@ void detailGroupPrint(std::ostream& os, const SegmentedGroup* group) {
 
   auto expr_to_print = groupExprPrintSorting(group->exprs());
 
-  for (const auto i : c10::irange(expr_to_print.size())) {
+  for (const auto i : std::views::iota((size_t)0, expr_to_print.size())) {
     os << expr_to_print[i]->toString();
     os << "(" << expr_to_print[i]->name() << ")\n";
   }
@@ -1228,7 +1229,7 @@ GroupSet GroupDependencyAnalysis::getCommonProducersOf(
 
   // Get intersection of producers
   GroupSet common_producers = *(known_producers_of_.at(groups[0]));
-  for (const auto i : c10::irange(1, groups.size())) {
+  for (const auto i : std::views::iota((size_t)1, groups.size())) {
     common_producers = groupSetIntersection(
         common_producers, *(known_producers_of_.at(groups[i])));
   }
@@ -1396,7 +1397,8 @@ std::ostream& operator<<(
 
   // Do a reverse look up to check the order of sorted groups
   std::unordered_map<SegmentedGroup*, size_t> group_order;
-  for (const auto i : c10::irange(sorted_groups_to_print.size())) {
+  for (const auto i :
+       std::views::iota((size_t)0, sorted_groups_to_print.size())) {
     group_order[sorted_groups_to_print[i]] = i;
   }
 
@@ -2453,7 +2455,7 @@ bool TranslateApplicableWelford::wouldTranslateToPersistent(
     // If only average is used from welford, we should still translate, but we
     // might not detect persistence if variance isn't actually used/marked as an
     // output in the test.
-    for (auto outs_i : c10::irange(welford_avgs.size())) {
+    for (auto outs_i : std::views::iota((size_t)0, welford_avgs.size())) {
       auto avg = welford_avgs[outs_i];
       auto var = welford_vars[outs_i];
       if (avg->uses().empty()) {
@@ -2518,7 +2520,7 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
   //  counting.
   Val* num_features = IrBuilder::create<Val>(1.0);
   std::vector<bool> broadcast_mask(in_root.size(), false);
-  for (const auto i : c10::irange(in_root.size())) {
+  for (const auto i : std::views::iota((size_t)0, in_root.size())) {
     if (out_root.at(i)->isReduction()) {
       red_axes.push_back((int)i);
       broadcast_mask[i] = true;
@@ -2623,7 +2625,7 @@ class CombineReductions {
       // Merge one pair of reduction groups at a time, and need
       //  the pass to update dependency info along the way to avoid cycles
       for (const auto first_group_index :
-           c10::irange(groups_with_reductions_.size())) {
+           std::views::iota((size_t)0, groups_with_reductions_.size())) {
         if (merged_groups) {
           // Need to break and re-enter this loop because
           // groups_with_reductions_ will be updated
@@ -2635,7 +2637,7 @@ class CombineReductions {
         auto first_group_signature =
             group_reduction_signature_map_.at(first_group);
 
-        for (const auto second_group_index : c10::irange(
+        for (const auto second_group_index : std::views::iota(
                  first_group_index + 1, groups_with_reductions_.size())) {
           if (merged_groups) {
             // Need to break and re-enter this loop because
@@ -2984,7 +2986,7 @@ class CombineReductions {
         return false;
       }
 
-      for (const auto i : c10::irange(reduction_axes_.size())) {
+      for (const auto i : std::views::iota((size_t)0, reduction_axes_.size())) {
         if (reduction_axes_[i] != reduction_signature->reduction_axes_[i]) {
           return false;
         }
@@ -3035,7 +3037,7 @@ class CombineReductions {
       auto& root_domain = out_tv->getRootDomain();
       root_domain_size_ = root_domain.size();
 
-      for (const auto i : c10::irange(root_domain_size_)) {
+      for (const auto i : std::views::iota((size_t)0, root_domain_size_)) {
         if (root_domain[i]->isReduction()) {
           reduction_axes_.push_back((int)i);
         }

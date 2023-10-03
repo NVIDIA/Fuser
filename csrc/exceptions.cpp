@@ -1,12 +1,13 @@
 // This is a refactor of the NVF_ERROR and NVF_CHECK macros
 // from PyTorch for implementing NVFuser specific macros.
 
-#include <c10/util/irange.h>
 #include <cxxabi.h>
 #include <exceptions.h>
 #include <execinfo.h>
 
+#include <C++20/ranges>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -189,7 +190,8 @@ std::string _get_backtrace(
   // Toggles to true after the first skipped python frame.
   bool has_skipped_python_frames = false;
 
-  for (const auto frame_number : c10::irange(callstack.size())) {
+  for (const auto frame_number :
+       std::views::iota((size_t)0, callstack.size())) {
     const auto frame = parse_frame_information(symbols[frame_number]);
 
     if (skip_python_frames && frame && is_python_frame(*frame)) {

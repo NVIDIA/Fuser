@@ -48,6 +48,7 @@
 #include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAStream.h>
 
+#include <C++20/ranges>
 #include <algorithm>
 #include <iostream>
 
@@ -269,7 +270,7 @@ void reductionViewAddFusion(
     const auto kAxis = (kReductionAxis < 0)
         ? (kReductionAxis + input_shape.size())
         : kReductionAxis;
-    for (auto i : c10::irange(input_shape.size())) {
+    for (auto i : std::views::iota((size_t)0, input_shape.size())) {
       if (reshape_before_reduction || i != kAxis) {
         reshape_shape.push_back(input_shape[i]);
       }
@@ -1391,7 +1392,7 @@ TEST_F(NVFuserTest, FusionPwiseViewSchedule_CUDA) {
     MaxRootDomainInfoSpanningTree(tv4).traverse(&propagator);
   }
 
-  for (auto i : c10::irange(tv5->nDims() - 1)) {
+  for (auto i : std::views::iota((size_t)0, tv5->nDims() - 1)) {
     (void)i; // Suppress unused variable warning
     tv5->merge(0);
   }

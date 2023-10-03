@@ -44,6 +44,7 @@
 #include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAStream.h>
 
+#include <C++20/ranges>
 #include <algorithm>
 #include <iostream>
 
@@ -66,7 +67,7 @@ void testValidateMultidevice(
 
   // gathering all the inputs at tester
   std::vector<c10::IValue> input_tensors;
-  for (auto i : c10::irange(inputs.size())) {
+  for (auto i : std::views::iota((size_t)0, inputs.size())) {
     auto sender = runtime.pipeline()
                       ->inputs()
                       .at(i)
@@ -85,7 +86,7 @@ void testValidateMultidevice(
 
   // gathering all the outputs at tester
   std::vector<at::Tensor> output_tensors;
-  for (auto i : c10::irange(outputs.size())) {
+  for (auto i : std::views::iota((size_t)0, outputs.size())) {
     auto sender = runtime.pipeline()
                       ->outputs()
                       .at(i)

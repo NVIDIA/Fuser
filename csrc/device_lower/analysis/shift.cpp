@@ -19,6 +19,7 @@
 #include <ops/arith.h>
 #include <options.h>
 
+#include <C++20/ranges>
 #include <functional>
 
 namespace nvfuser {
@@ -120,7 +121,7 @@ void AxisHaloInfo::merge(int pos, int other) {
 }
 
 void AxisHaloInfo::merge(const AxisHaloInfo& other) {
-  for (const auto i : c10::irange(widths_.size())) {
+  for (const auto i : std::views::iota((size_t)0, widths_.size())) {
     merge((int)i, other.width((int)i));
   }
 }
@@ -244,7 +245,7 @@ void HaloInfo::propagateRootAxisInfo(
 
   const auto& c_root = consumer->getRootDomain();
 
-  for (const auto i : c10::irange(c_root.size())) {
+  for (const auto i : std::views::iota((size_t)0, c_root.size())) {
     auto c_id = c_root[i];
     auto it = c2p.find(c_id);
     if (it == c2p.end()) {
@@ -740,7 +741,7 @@ bool HaloInfo::needsShiftPredicate(Expr* expr) const {
   auto consumer_td = tv_out->domain();
   auto shift_expr = dynamic_cast<ShiftOp*>(tv_out->definition());
   auto gather_expr = dynamic_cast<GatherOp*>(tv_out->definition());
-  for (const auto i : c10::irange(consumer_td->root().size())) {
+  for (const auto i : std::views::iota((size_t)0, consumer_td->root().size())) {
     auto consumer_id = consumer_td->root()[i];
     const auto consumer_halo_info = getRootAxisInfo(consumer_id);
     if (consumer_halo_info.hasHalo() ||

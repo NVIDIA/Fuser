@@ -18,6 +18,8 @@
 #include <executor_utils.h>
 #include "mma_type.h"
 
+#include <C++20/ranges>
+
 namespace nvfuser {
 
 MatmulScheduler::MatmulScheduler(
@@ -82,7 +84,7 @@ void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos = 3) {
   std::vector<int> broadcast_pos;
   std::vector<int> nonbroadcast_pos;
 
-  for (auto i : c10::irange(number_of_inner_pos)) {
+  for (auto i : std::views::iota(0, number_of_inner_pos)) {
     auto axis_idx = i - number_of_inner_pos;
     auto id = tv->axis(axis_idx);
     if (id->isBroadcast()) {
@@ -97,7 +99,7 @@ void moveInnerBroadcastLeft(TensorView* tv, int number_of_inner_pos = 3) {
       combined_pos_vec.end(), nonbroadcast_pos.begin(), nonbroadcast_pos.end());
 
   std::unordered_map<int, int> order_map;
-  for (auto i : c10::irange(number_of_inner_pos)) {
+  for (auto i : std::views::iota(0, number_of_inner_pos)) {
     order_map[combined_pos_vec.at(i)] = i - number_of_inner_pos;
   }
 

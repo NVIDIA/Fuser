@@ -9,7 +9,6 @@
 #include <torch/csrc/jit/passes/cuda_graph_fuser.h>
 
 #include <c10/util/Exception.h>
-#include <c10/util/irange.h>
 #include <instrumentation.h>
 #include <options.h>
 #include <parser.h>
@@ -34,6 +33,7 @@
 #include <torch/csrc/jit/ir/alias_analysis.h>
 #include <torch/csrc/jit/passes/tensorexpr_fuser.h>
 
+#include <C++20/ranges>
 #include <queue>
 #include <unordered_map>
 
@@ -198,7 +198,7 @@ struct CudaGraphFuser {
     std::unordered_map<torch::jit::Value*, torch::jit::Value*> inner_to_outer;
     auto inner_inputs = producer_subgraph->inputs();
     auto outer_inputs = producer_group->inputs();
-    for (const auto i : c10::irange(inner_inputs.size())) {
+    for (const auto i : std::views::iota((size_t)0, inner_inputs.size())) {
       inner_to_outer[inner_inputs[i]] = outer_inputs[i];
     }
 
@@ -212,14 +212,14 @@ struct CudaGraphFuser {
       temporary_nodes.emplace_back(outer);
       auto inner_outputs = inner->outputs();
       auto outer_outputs = outer->outputs();
-      for (const auto i : c10::irange(inner_outputs.size())) {
+      for (const auto i : std::views::iota((size_t)0, inner_outputs.size())) {
         inner_to_outer[inner_outputs[i]] = outer_outputs[i];
       }
     }
 
     // Replace uses of producer_group outputs and destroy the producer
     auto subgraph_outputs = producer_subgraph->outputs();
-    for (const auto i : c10::irange(subgraph_outputs.size())) {
+    for (const auto i : std::views::iota((size_t)0, subgraph_outputs.size())) {
       auto outer_output = inner_to_outer.at(subgraph_outputs[i]);
       producer_group->outputs()[i]->replaceAllUsesWith(outer_output);
     }
@@ -235,7 +235,7 @@ struct CudaGraphFuser {
       torch::jit::Node* merged = mergeNodeIntoGroup(consumer_group, node);
       // If any of the outputs are still used then we need to add them
       auto outputs = node->outputs();
-      for (const auto i : c10::irange(outputs.size())) {
+      for (const auto i : std::views::iota((size_t)0, outputs.size())) {
         auto output = outputs[i];
         if (output->uses().empty())
           continue;
@@ -333,7 +333,7 @@ struct CudaGraphFuser {
     // remapping nodes that used the input to the newly-merged node
     // n is not an input when the fusion group is empty
     auto inputs = group->inputs();
-    for (const auto i : c10::irange(n->outputs().size())) {
+    for (const auto i : std::views::iota((size_t)0, n->outputs().size())) {
       auto it = std::find(inputs.begin(), inputs.end(), n->outputs()[i]);
       if (it != inputs.end()) {
         size_t p = it - inputs.begin();
@@ -353,7 +353,7 @@ struct CudaGraphFuser {
     // have a valid mapping
     group->insertBefore(n);
     torch::jit::Node* mergedNode = mergeNodeIntoGroup(group, n);
-    for (const auto i : c10::irange(n->outputs().size())) {
+    for (const auto i : std::views::iota((size_t)0, n->outputs().size())) {
       getSubgraph(group).registerOutput(mergedNode->output(i));
       auto sel = group->addOutput();
       sel->copyMetadata(n->output(i));
@@ -407,7 +407,7 @@ struct CudaGraphFuser {
 
     // We need to apply this to all outputs from producer->node();
     auto producer_outputs = producer->outputs();
-    for (const auto i : c10::irange(producer_outputs.size())) {
+    for (const auto i : std::views::iota((size_t)0, producer_outputs.size())) {
       if (!producer_outputs[i]->uses().empty()) {
         getSubgraph(group).registerOutput(merged->outputs()[i]);
         torch::jit::Value* new_producer = group->addOutput();
@@ -447,7 +447,7 @@ struct CudaGraphFuser {
       return;
     }
     auto& subgraph = getSubgraph(group);
-    for (const auto i : c10::irange(chunk->outputs().size())) {
+    for (const auto i : std::views::iota((size_t)0, chunk->outputs().size())) {
       // Find the input to the FusionGroup (group)
       auto* replacement_val = existingFusedChunk->outputs().at(i);
       auto* val = chunk->outputs().at(i);
@@ -502,7 +502,7 @@ struct CudaGraphFuser {
 
     // Replace tensors inputs with broadcasted values
     auto new_tensors_it = new_tensors.begin();
-    for (const auto i : c10::irange(node->inputs().size())) {
+    for (const auto i : std::views::iota((size_t)0, node->inputs().size())) {
       if (node->inputs()[i]->type()->isSubtypeOf(at::TensorType::get())) {
         AT_ASSERT(new_tensors_it != new_tensors.end());
         node->replaceInput(i, *(new_tensors_it++));
@@ -517,7 +517,7 @@ struct CudaGraphFuser {
     torch::jit::Node* bchunk =
         chunk->owningGraph()->create(at::prim::BroadcastingChunk, nchunks);
     bchunk->addInput(chunk->input());
-    for (const auto i : c10::irange(nchunks)) {
+    for (const auto i : std::views::iota((size_t)0, nchunks)) {
       auto* old_output = chunk->outputs().at(i);
       auto* new_output = bchunk->outputs().at(i);
       new_output->copyMetadata(old_output);
@@ -641,7 +641,7 @@ struct CudaGraphFuser {
     torch::jit::WithInsertPoint guard(bchunk->next());
 
     std::vector<torch::jit::Value*> producer_chunk_outputs;
-    for (const auto i : c10::irange(nchunks)) {
+    for (const auto i : std::views::iota((size_t)0, nchunks)) {
       producer_chunk_outputs.push_back(
           bchunk->output(nchunks * producer_index + i));
     }
@@ -671,7 +671,7 @@ struct CudaGraphFuser {
       if (it != bchunk_inputs.end()) {
         chunked_inputs.emplace_back();
         auto input_index = std::distance(bchunk_inputs.begin(), it);
-        for (const auto chunk : c10::irange(nchunks)) {
+        for (const auto chunk : std::views::iota((size_t)0, nchunks)) {
           chunked_inputs.back().push_back(
               bchunk->outputs().at(nchunks * input_index + chunk));
         }
@@ -771,7 +771,7 @@ struct CudaGraphFuser {
 
     bchunk->removeInput(producer_index);
     // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores,clang-diagnostic-unused-variable)
-    for (const auto i : c10::irange(nchunks)) {
+    for (const auto i : std::views::iota((size_t)0, nchunks)) {
       (void)i; // Suppress unused variable warning
       bchunk->eraseOutput(nchunks * producer_index);
     }
@@ -869,13 +869,14 @@ struct CudaGraphFuser {
       torch::jit::WithInsertPoint guard(bchunk->next());
 
       // Split the bchunk into bchunks.inputs().size() number of chunk nodes.
-      for (const auto input_offset : c10::irange(bchunk->inputs().size())) {
+      for (const auto input_offset :
+           std::views::iota((size_t)0, bchunk->inputs().size())) {
         auto* input = bchunk->inputs().at(input_offset);
 
         torch::jit::Node* new_chunk =
             graph->insertNode(graph->create(at::prim::ConstantChunk, input, 0));
         new_chunk->copyAttributes(*bchunk);
-        for (const auto output_offset : c10::irange(nchunks)) {
+        for (const auto output_offset : std::views::iota((size_t)0, nchunks)) {
           auto new_output = new_chunk->addOutput();
           auto old_output =
               bchunk->outputs().at(input_offset * nchunks + output_offset);
@@ -917,7 +918,7 @@ struct CudaGraphFuser {
     auto inputs = fusion_group->inputs();
     auto sinputs = subgraph->inputs();
     AT_ASSERT(inputs.size() == sinputs.size());
-    for (const auto i : c10::irange(inputs.size())) {
+    for (const auto i : std::views::iota((size_t)0, inputs.size())) {
       if (inputs[i]->type()->isSubtypeOf(*at::TensorType::get())) {
         auto sinput_value = graph->insert(at::aten::size, {inputs[i]});
         shape_of[sinputs[i]] = sinput_value;
@@ -932,7 +933,7 @@ struct CudaGraphFuser {
     auto outputs = fusion_group->outputs();
     auto soutputs = subgraph->outputs();
     AT_ASSERT(outputs.size() == soutputs.size());
-    for (const auto i : c10::irange(outputs.size())) {
+    for (const auto i : std::views::iota((size_t)0, outputs.size())) {
       if (usedOnlyInDtypeAndSize(outputs[i]))
         continue;
       if (soutputs[i]->type()->isSubtypeOf(at::TensorType::get())) {
@@ -1615,7 +1616,8 @@ void guardFusionGroup(
   std::vector<torch::jit::Value*> tensor_inputs_to_check;
   std::set<size_t> profiled_ivalue_indices;
 
-  for (const auto index : c10::irange(fusion->inputs().size())) {
+  for (const auto index :
+       std::views::iota((size_t)0, fusion->inputs().size())) {
     torch::jit::Value* input = fusion->inputs()[index];
     if (input->type()->cast<at::TensorType>()) {
       // We only check inputs of the fusion group and expect NNC to infer
@@ -1637,7 +1639,7 @@ void guardFusionGroup(
   // insert the if block first;
   auto versioning_if =
       fusion->owningGraph()->create(at::prim::If, fusion->outputs().size());
-  for (const auto idx : c10::irange(fusion->outputs().size())) {
+  for (const auto idx : std::views::iota((size_t)0, fusion->outputs().size())) {
     versioning_if->output(idx)->setType(fusion->output(idx)->type());
     fusion->output(idx)->replaceAllUsesWith(versioning_if->output(idx));
   }
@@ -1894,7 +1896,7 @@ void alterBatchNormImplIndex(torch::jit::Node* node) {
   std::set<size_t> bn_buffer_out_indices;
 
   auto subgraph = node->g(at::attr::Subgraph);
-  for (const auto i : c10::irange(subgraph->outputs().size())) {
+  for (const auto i : std::views::iota((size_t)0, subgraph->outputs().size())) {
     auto val = subgraph->outputs()[i];
     if (val->node()->kind() == at::aten::_batch_norm_impl_index &&
         val->offset() == 4) {

@@ -9,12 +9,13 @@
 
 #include <ATen/core/jit_type.h>
 #include <ATen/cuda/CUDAContext.h>
-#include <c10/util/irange.h>
 #include <instrumentation.h>
 #include <options.h>
 #include <parser.h>
 #include <torch/csrc/jit/jit_log.h>
 #include <utils.h>
+
+#include <C++20/ranges>
 
 namespace nvfuser {
 
@@ -199,7 +200,7 @@ bool compatibleType(const torch::jit::Value* val) {
 }
 
 bool checkInputTensorTypes(const torch::jit::Node* node) {
-  for (const auto i : c10::irange(node->inputs().size())) {
+  for (const auto i : std::views::iota((size_t)0, node->inputs().size())) {
     if (!compatibleType(node->inputs().at(i))) {
       // special case on aten::_batch_norm_impl_index_backward, the 11th output
       // is going to be discarded, so no need to check data type there.
@@ -216,7 +217,7 @@ bool checkInputTensorTypes(const torch::jit::Node* node) {
 }
 
 bool checkOutputTensorTypes(const torch::jit::Node* node) {
-  for (const auto i : c10::irange(node->outputs().size())) {
+  for (const auto i : std::views::iota((size_t)0, node->outputs().size())) {
     if (!compatibleType(node->outputs().at(i))) {
       // special case on aten::_batch_norm_impl_index, the 4th output
       // is going to be discarded, so no need to check data type there.

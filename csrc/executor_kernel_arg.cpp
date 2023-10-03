@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <c10/util/irange.h>
 
 // Extract size and strides
 #include <kernel_cache.h>
@@ -60,7 +59,7 @@ PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val) {
 
 PrimDataType getSmallestIndexType(const at::Tensor& tensor) {
   KernelIndexTypeCompute index_type_helper;
-  for (const auto dim_i : c10::irange(tensor.ndimension())) {
+  for (const auto dim_i : std::views::iota((int64_t)0, tensor.ndimension())) {
     auto size = tensor.size(dim_i);
     auto stride = tensor.stride(dim_i);
     if (index_type_helper.addDim(size, stride) == PrimDataType::Int) {

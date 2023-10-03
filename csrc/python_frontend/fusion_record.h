@@ -19,6 +19,7 @@
 #include <serde/utils.h>
 #include <utils.h>
 
+#include <C++20/ranges>
 #include <algorithm>
 #include <complex>
 #include <variant>
@@ -585,7 +586,7 @@ struct DimsOpRecord : RecordFunctor {
       auto output = set(arg);
       int rank = static_cast<int>(dims_.size());
       std::vector<IterDomain*> allocation_domain(rank);
-      for (int i : c10::irange(rank)) {
+      for (int i : std::views::iota(0, rank)) {
         allocation_domain[rank - 1 - static_cast<int>(dims_[i])] =
             output->axis(i);
       }
@@ -818,7 +819,7 @@ struct BroadcastInDimOpRecord : RecordFunctor {
         broadcast_dims_.size());
 
     std::vector<bool> is_broadcast_dim(output_ndims_, true);
-    for (const auto idx : c10::irange(broadcast_dims_.size())) {
+    for (const auto idx : std::views::iota((size_t)0, broadcast_dims_.size())) {
       if (idx > 0) {
         NVF_CHECK(
             broadcast_dims_[idx - 1] < broadcast_dims_[idx],
@@ -1244,7 +1245,7 @@ struct TensorRecord : RecordFunctor {
     auto rank = shape_.size();
     std::vector<bool> is_expand(rank);
 
-    for (const auto index : c10::irange(rank)) {
+    for (const auto index : std::views::iota((size_t)0, rank)) {
       bool is_broadcast = !contiguity_[index].has_value();
       bool has_symbolic_size = (shape_[index] == -1);
       is_expand[index] = is_broadcast && has_symbolic_size;
@@ -1373,7 +1374,7 @@ struct OutputRecord : RecordFunctor {
   //! | stride_order hash                              |
   size_t hash() const final {
     size_t stride_order_hash = 0;
-    for (auto i : c10::irange(stride_order_.size())) {
+    for (auto i : std::views::iota((size_t)0, stride_order_.size())) {
       stride_order_hash = (stride_order_hash << 4) | stride_order_[i];
     }
     return RecordFunctor::hash() | (stride_order_hash & 0xffffffff);
@@ -1421,7 +1422,7 @@ struct OutputRecord : RecordFunctor {
         if (!stride_order_.empty()) {
           size_t rank = stride_order_.size();
           std::vector<IterDomain*> allocation_domain(rank);
-          for (auto i : c10::irange(rank)) {
+          for (auto i : std::views::iota((size_t)0, rank)) {
             allocation_domain[rank - 1 - stride_order_[i]] = tv_output->axis(i);
           }
           tv_output->setAllocationDomain(allocation_domain, true);
@@ -1504,7 +1505,7 @@ struct ReductionOpRecord : RecordFunctor {
     size_t axes_hash = 0;
     // Normally I would make a little endian hash of the axes but I do not
     // know the size of the tensor based on just the record information.
-    for (auto i : c10::irange(axes_.size())) {
+    for (auto i : std::views::iota((size_t)0, axes_.size())) {
       axes_hash |= (1 << axes_[i]);
     }
 
@@ -1958,7 +1959,7 @@ struct SliceOpRecord : RecordFunctor {
     auto ndims = start_indices_.size();
     std::vector<Slice> ranges;
     ranges.reserve(ndims);
-    for (const auto i : c10::irange(ndims)) {
+    for (const auto i : std::views::iota((size_t)0, ndims)) {
       Slice tmp;
       tmp.start = IrBuilder::create<nvfuser::Val>(start_indices_[i]);
       tmp.stop = IrBuilder::create<nvfuser::Val>(end_indices_[i]);
@@ -2087,7 +2088,7 @@ struct NormOpRecord : RecordFunctor {
     size_t axes_hash = 0;
     // Normally I would make a little endian hash of the axes but I do not
     // know the size of the tensor based on just the record information.
-    for (auto i : c10::irange(axes_.size())) {
+    for (auto i : std::views::iota((size_t)0, axes_.size())) {
       axes_hash |= (1 << axes_[i]);
     }
     return result | (static_cast<size_t>(keep_dim_) << 28) |
@@ -2326,7 +2327,7 @@ struct TensorSizesRecord : RecordFunctor {
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
     auto sizes = tensor_sizes(arg);
-    for (const auto idx : c10::irange(sizes.size())) {
+    for (const auto idx : std::views::iota((size_t)0, sizes.size())) {
       fd.setFusionState(outputs_.at(idx).index, sizes[idx]);
     }
   }
@@ -2521,7 +2522,7 @@ struct FullOpRecord : RecordFunctor {
     auto arg = fd.getFusionState(args_.at(0).index);
 
     std::vector<Val*> nvf_shape(shape_.size(), nullptr);
-    for (const auto idx : c10::irange(shape_.size())) {
+    for (const auto idx : std::views::iota((size_t)0, shape_.size())) {
       nvf_shape[idx] = IrBuilder::create<nvfuser::Val>(shape_.at(idx));
     }
     auto output = full(nvf_shape, arg, dtype_);

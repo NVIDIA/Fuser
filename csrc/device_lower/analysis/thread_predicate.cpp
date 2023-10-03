@@ -15,7 +15,7 @@
 #include <ir/utils.h>
 #include <ops/arith.h>
 
-#include <c10/util/irange.h>
+#include <C++20/ranges>
 #include <algorithm>
 #include <numeric>
 namespace nvfuser {
@@ -279,7 +279,8 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
     }
 
     // Validate the combination of ptypes, reductions, bcasts
-    for (const auto i : c10::irange(ParallelTypeBitmap::kNumParallelTypes)) {
+    for (const auto i :
+         std::views::iota(0, ParallelTypeBitmap::kNumParallelTypes)) {
       if (input_reductions[i]) {
         if (id_ptypes[i]) {
           NVF_ERROR(

@@ -14,6 +14,7 @@
 #include <iter_visitor.h>
 #include <ops/arith.h>
 
+#include <C++20/ranges>
 #include <limits>
 #include <set>
 
@@ -204,7 +205,7 @@ Expr* transferDefinitionToNewOutputs(
       new_outputs.size() == expr->outputs().size(),
       "Number of new outputs must match old outputs");
   OptOutMutator mutator;
-  for (const auto i : c10::irange(new_outputs.size())) {
+  for (const auto i : std::views::iota((size_t)0, new_outputs.size())) {
     auto old_output = expr->outputs().at(i);
     auto new_output = new_outputs.at(i);
     if (new_output == old_output) {
@@ -663,7 +664,7 @@ bool isSqueezeInput(const TensorView* tv) {
 bool isSqueezedID(const TensorView* tv, const IterDomain* id) {
   auto root_dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
   auto squeezes = ir_utils::filterByType<SqueezeOp>(tv->uses());
-  for (auto i : c10::irange(root_dom.size())) {
+  for (auto i : std::views::iota((size_t)0, root_dom.size())) {
     if (root_dom[i] != id) {
       continue;
     }

@@ -19,6 +19,8 @@
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
+#include <C++20/ranges>
+
 namespace nvfuser {
 
 PointWiseScheduler::PointWiseScheduler(
@@ -330,7 +332,7 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
     // How much would this transfer cost if it was done as a 1-D schedule
     int64_t transfer_size_1d = 1;
 
-    for (const auto i : c10::irange(ref_root.size())) {
+    for (const auto i : std::views::iota((size_t)0, ref_root.size())) {
       transfer_size_1d = transfer_size_1d * elem_counts[i] * dtype_sum;
     }
 
@@ -340,7 +342,8 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
 
       // Don't check the inner most dimension, scheduler assumes there's always
       // an rhs
-      for (const auto break_point_i : c10::irange(ref_root.size())) {
+      for (const auto break_point_i :
+           std::views::iota((size_t)0, ref_root.size())) {
         // If break point is incoherent with view, don't consider breaking here.
         if (!scheduler_utils::breakIsDisjoint(
                 view_disjoint_sets, (int)break_point_i)) {
@@ -350,7 +353,8 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
         // Number of elements in the right side of reference tv with
         // break_point_i
         int64_t cur_right_elem_count = 1;
-        for (const auto right_i : c10::irange(break_point_i, ref_root.size())) {
+        for (const auto right_i :
+             std::views::iota(break_point_i, ref_root.size())) {
           cur_right_elem_count = cur_right_elem_count * elem_counts[right_i];
         }
 
@@ -368,12 +372,13 @@ std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
         int64_t cur_transfer_size = 1;
         int64_t right_transfer_size = 1;
 
-        for (const auto left_i : c10::irange(break_point_i)) {
+        for (const auto left_i : std::views::iota((size_t)0, break_point_i)) {
           cur_transfer_size =
               cur_transfer_size * elem_counts[left_i] * lhs_byte_multiple;
         }
 
-        for (const auto right_i : c10::irange(break_point_i, ref_root.size())) {
+        for (const auto right_i :
+             std::views::iota(break_point_i, ref_root.size())) {
           right_transfer_size =
               right_transfer_size * elem_counts[right_i] * rhs_byte_multiple;
         }
@@ -603,7 +608,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
     IterDomain* rhs_id = nullptr;
     IterDomain* lhs_id = nullptr;
     auto ndims = reference_tv->nDims();
-    for (auto i : c10::irange(ndims)) {
+    for (auto i : std::views::iota((size_t)0, ndims)) {
       // Merge from right to left
       auto pos = ndims - 1 - i;
       auto id = reference_tv->axis((int)pos);
