@@ -130,7 +130,9 @@ run_test() {
     mkdir -p "$testdir"
     echo "$testcmd" > "$testdir/command"
 
-    env > "$testdir/env"
+    # exclude $testdir when printing env
+    printenv | grep -v '^testdir=' > "$testdir/env"
+
     nvcc --version > "$testdir/nvcc_version"
     nvidia-smi --query-gpu=gpu_name --format=csv,noheader > "$testdir/gpu_names"
 

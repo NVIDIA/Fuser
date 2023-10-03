@@ -188,6 +188,7 @@ class TestRun:
             self.env = ""
             for line in open(os.path.join(self.directory, "env"), "r").readlines():
                 # remove $testdir which is set by compare_codegen.sh
+                # NOTE: compare_codegen.sh should have already removed these lines
                 if re.search(r"^testdir=", line) is None:
                     self.env += line
         except FileNotFoundError:
