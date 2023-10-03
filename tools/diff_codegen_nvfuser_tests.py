@@ -463,6 +463,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "-o", "--output-file", help="Location of HTML file output if -h is given."
     )
+    parser.add_argument(
+        "--json",
+        help="Location to write JSON output, if given",
+    )
     args = parser.parse_args()
 
     td = TestDifferences(TestRun(args.dir1), TestRun(args.dir2))
@@ -484,6 +488,15 @@ if __name__ == "__main__":
                     omit_preamble=args.html_omit_preamble, max_diffs=args.html_max_diffs
                 )
             )
+
+    if args.json is not None:
+        import json
+
+        d = asdict(td)
+        # clean up the dict a bit by removing temporary data structures
+        del d["run1"]["kernel_map"]
+        del d["run2"]["kernel_map"]
+        json.dump(d, open(args.json, "w"), indent=2)
 
     if len(td.test_diffs) == 0:
         print("No differences found in overlapping tests!")
