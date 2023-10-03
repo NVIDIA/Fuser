@@ -44,6 +44,7 @@ performance-*,
 -performance-noexcept-move-constructor,
 -performance-unnecessary-value-param,
 readability-container-size-empty,
+readability-braces-around-statements,
 '
 AnalyzeTemporaryDtors: false
 WarningsAsErrors: '*'
