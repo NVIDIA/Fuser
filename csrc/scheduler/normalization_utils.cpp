@@ -746,9 +746,8 @@ void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv) {
   NVF_ERROR(
       ir_utils::isReductionOp(ref_red_tv->definition()),
       "TensorView doesn't have a reduction.");
-  auto tv_inps = ir_utils::filterByType<TensorView>(fusion->inputs());
   NVF_ERROR(
-      std::distance(tv_inps.begin(), tv_inps.end()) > 0,
+      std::any_of(fusion->inputs().begin(), fusion->end(), [](auto inp) { return inp->isA<TensorView>()}),
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
 }
 
