@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
 """
 Find corresponding .cu files for matching tests, even when new tests are
 introduced between two commits. Diffs are displayed and the return value is the
