@@ -1038,6 +1038,8 @@ void IterDomainGraphs::build(
     // expressions. Re-propagate parallel types.
     // propagateLoopPTypes();
 
+    loop_promotion_map_ = iel_promotion_map;
+
     // This pass still doesn't work, disable for now in case it's disruptive to
     // tests.
     /*

@@ -173,6 +173,10 @@ class TORCH_CUDA_CU_API IterDomainGraphs : public PolymorphicBase {
   // TODO-NM: Unused?
   IterDomain* cloneIterDomain(IterDomain* id);
 
+  const std::unordered_map<IdGroup, IterDomain*> loopPromotionMap() const {
+    return loop_promotion_map_;
+  }
+
   // TODO: Should this not be private?
  protected:
   // Sometimes fusion inputs or outputs are disconnected from expressions, in

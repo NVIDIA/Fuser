@@ -12,6 +12,7 @@
 #include <compute_at_map.h>
 #include <executor.h>
 #include <id_model/id_graphs.h>
+#include <id_model/to_string.h>
 #include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -880,7 +881,88 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
     tensor->inlineAt(1);
   }
 
-  IterDomainGraphs test(&fusion);
+  IterDomainGraphs id_model(&fusion);
+
+  const auto& promotion_map = id_model.loopPromotionMap();
+
+  auto ref_merge_out = tv10->axis(0)
+                           ->definition()
+                           ->input(0)
+                           ->definition()
+                           ->input(0)
+                           ->as<IterDomain>();
+  auto ref_merge_exact_group =
+      id_model.idGraph(IdMappingMode::EXACT).toGroup(ref_merge_out);
+
+  auto isSplitId = [](IterDomain* id) -> bool {
+    return dynamic_cast<Split*>(id->definition()) != nullptr;
+  };
+
+  auto getRefId = [&](TensorView* tv, IterDomain* id) -> IterDomain* {
+    if (isSplitId(id)) {
+      if (id->uses().empty()) {
+        auto it = std::find(
+            tv->getLeafDomain().begin(), tv->getLeafDomain().end(), id);
+        NVF_ERROR(it != tv->getLeafDomain().end());
+        int leaf_pos =
+            static_cast<int>(std::distance(tv->getLeafDomain().begin(), it));
+        return tv10->axis(leaf_pos);
+      } else {
+        return tv10->axis(0)->definition()->input(0)->as<IterDomain>();
+      }
+    } else {
+      return tv10->axis(0)
+          ->definition()
+          ->input(0)
+          ->definition()
+          ->input(0)
+          ->as<IterDomain>();
+    }
+  };
+
+  for (auto tv : {tv1, tv2, tv4, tv5, tv6, tv8, tv9}) {
+    for (auto id : ir_utils::allIDsOf(tv)) {
+      auto ref_id = getRefId(tv, id);
+      auto ref_exact_group =
+          id_model.idGraph(IdMappingMode::EXACT).toGroup(ref_id);
+
+      if (isSplitId(id)) {
+        // Must be promoted to a domain that is exactly mapped with
+        // the ref domain
+        bool validated = false;
+        for (const auto& [id_group, promotion] : promotion_map) {
+          if (id_group->has(id)) {
+            auto promotion_exact =
+                id_model.idGraph(IdMappingMode::EXACT).toGroup(promotion);
+            ASSERT_EQ(promotion_exact, ref_exact_group);
+            validated = true;
+            break;
+          }
+        }
+        ASSERT_TRUE(validated);
+        std::cerr << "Validated: " << tv->toString() << ", " << id->toString()
+                  << " -> " << ref_id->toString() << std::endl;
+      } else {
+        auto id_loop = id_model.idGraph(IdMappingMode::LOOP).toGroup(id);
+        // There must be an ID that is exactly mapped with the
+        // reference
+        bool exact_map_loop_id_found = std::any_of(
+            id_loop->vector().begin(),
+            id_loop->vector().end(),
+            [&](auto loop_id) {
+              auto loop_exact =
+                  id_model.idGraph(IdMappingMode::EXACT).toGroup(loop_id);
+              if (loop_exact == ref_exact_group) {
+                std::cerr << "Validated: " << tv->toString() << ", "
+                          << id->toString() << " -> " << ref_id->toString()
+                          << std::endl;
+              }
+              return loop_exact == ref_exact_group;
+            });
+        ASSERT_TRUE(exact_map_loop_id_found);
+      }
+    }
+  }
 
   // The current ComputeAtMap fails with this fusion
   // fusion.printKernel();

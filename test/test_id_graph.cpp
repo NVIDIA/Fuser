@@ -141,10 +141,9 @@ void buildExactMap(const std::vector<Expr*>& exprs, IdGraph& id_graph) {
       // For exact mapings do not map any broadcast dimensions to
       // non-broadcast dimensions. Prevent any broadcasted axes being mapped
       // to non-broadcasted axes.
-      auto exact_c2p_root_map =
-          PairwiseRootDomainMap(p_tv, c_tv)
-              .mapBroadcast(false)
-              .mapConsumerToProducer();
+      auto exact_c2p_root_map = PairwiseRootDomainMap(p_tv, c_tv)
+                                    .mapBroadcast(false)
+                                    .mapConsumerToProducer();
 
       for (auto c_id : getSortedKeys(exact_c2p_root_map, Statement::lessThan)) {
         auto p_id = exact_c2p_root_map.at(c_id);

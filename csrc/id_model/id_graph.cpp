@@ -696,7 +696,7 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
       return false;
     }
 
-    // TODO-NM
+    // TODO-NM: With compliment mapping, this should be fine to merge
     if (extent_o_match &&
         disjointIdSets().permissiveAreMapped(merge0->out(), merge0->outer())) {
       return false;
