@@ -645,6 +645,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             }
 
             Tensor out = self.defineTensor(sizes.size());
+	    // TODO: replace computeContiguity with computeTensorDescriptor
             self.defineRecord(new TensorRecord(
                 {self.recordingState(out())},
                 std::move(dim_sizes),
