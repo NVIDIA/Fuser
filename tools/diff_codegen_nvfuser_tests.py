@@ -144,7 +144,8 @@ class CompiledKernel:
 @dataclass
 class CompiledTest:
     name: str
-    kernels: list[CompiledKernel] | None = None
+    kernels: list[CompiledKernel]
+    passed: bool
 
 
 @dataclass
@@ -249,12 +250,12 @@ class TestRun:
             ptxas_info = ""
             current_file = None
 
-        def finalize_test():
+        def finalize_test(passed: bool):
             nonlocal current_test
             nonlocal kernels
             assert current_test is not None
             finalize_kernel()
-            self.kernel_map[current_test] = CompiledTest(current_test, kernels)
+            self.kernel_map[current_test] = CompiledTest(current_test, kernels, passed)
             current_test = None
             kernels = []
 
@@ -262,8 +263,10 @@ class TestRun:
             line = ansi_re.sub("", line.strip())
             if line[:13] == "[ RUN      ] ":
                 current_test = line[13:]
-            elif line[:13] == "[       OK ] " or line[:13] == "[  FAILED  ] ":
-                finalize_test()
+            elif line[:13] == "[       OK ] ":
+                finalize_test(True)
+            elif line[:13] == "[  FAILED  ] ":
+                finalize_test(False)
             elif line[:10] == "PRINTING: ":
                 if line[-3:] == ".cu":
                     finalize_kernel()
@@ -354,6 +357,8 @@ class KernelDiff:
 @dataclass
 class TestDiff:
     testname: str
+    test1_passed: bool
+    test2_passed: bool
     kernel_diffs: list[KernelDiff] | None = None
     kernel_number_mismatch: tuple[int, int] | None = None
 
@@ -414,9 +419,10 @@ class TestDifferences:
                 self.test_diffs.append(
                     TestDiff(
                         testname,
+                        compiled_test1.passed,
+                        compiled_test2.passed,
                         None,
-                        len(compiled_test1.kernels),
-                        len(compiled_test2.kernels),
+                        (len(compiled_test1.kernels), len(compiled_test2.kernels)),
                     )
                 )
 
@@ -442,7 +448,14 @@ class TestDifferences:
                     kernel_diffs.append(kd)
 
             if len(kernel_diffs) > 0:
-                self.test_diffs.append(TestDiff(testname, kernel_diffs))
+                self.test_diffs.append(
+                    TestDiff(
+                        testname,
+                        compiled_test1.passed,
+                        compiled_test2.passed,
+                        kernel_diffs,
+                    )
+                )
 
         for testname, compiled_test2 in self.run2.kernel_map.items():
             if testname not in self.run1.kernel_map:
