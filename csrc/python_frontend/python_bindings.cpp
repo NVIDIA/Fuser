@@ -184,22 +184,24 @@ std::vector<std::optional<bool>> computeContiguity(
   return contiguity;
 }
 
-std::tuple<std::vector<std::optional<bool>>, std::vector<int64_t>> computeTensorDescriptor(
+std::tuple<std::vector<std::optional<bool>>, std::vector<int64_t>>
+computeTensorDescriptor(
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& strides) {
   NVF_CHECK(
       sizes.size() == strides.size(),
       "compute_contiguity: Sizes and strides must have the same number of dimensions");
   std::vector<DimInfo> dim_info_vec;
-  for (int64_t i : c10::irange(sizes.size())) {
+  for (auto i : c10::irange(sizes.size())) {
     // NOTE: not supporting negative stride yet.
     NVF_CHECK(strides[i] >= 0, "negative stride on tensor is not supported");
-    dim_info_vec.emplace_back(DimInfo{i, sizes[i], strides[i]});
+    dim_info_vec.emplace_back(DimInfo{(int64_t)i, sizes[i], strides[i]});
   }
   // sort by stride
-  std::sort(dim_info_vec.begin(), dim_info_vec.end(), [](const auto& l, const auto& r) {
-      return l.stride > r.stride;
-  });
+  std::sort(
+      dim_info_vec.begin(),
+      dim_info_vec.end(),
+      [](const auto& l, const auto& r) { return l.stride > r.stride; });
   // index to inner most dimension in sorted order.
   int64_t last = (int64_t)sizes.size() - 1;
   // Contiguity normallly is determined by the current dimension and one
@@ -229,7 +231,9 @@ std::tuple<std::vector<std::optional<bool>>, std::vector<int64_t>> computeTensor
           break;
         }
       }
-      dim_info_vec[l].contiguity = (dim_info_vec[l].stride == dim_info_vec[i].stride * dim_info_vec[i].size);
+      dim_info_vec[l].contiguity =
+          (dim_info_vec[l].stride ==
+           dim_info_vec[i].stride * dim_info_vec[i].size);
     } else {
       i++;
     }
@@ -645,7 +649,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             }
 
             Tensor out = self.defineTensor(sizes.size());
-	    // TODO: replace computeContiguity with computeTensorDescriptor
+            // TODO: replace computeContiguity with computeTensorDescriptor
             self.defineRecord(new TensorRecord(
                 {self.recordingState(out())},
                 std::move(dim_sizes),
