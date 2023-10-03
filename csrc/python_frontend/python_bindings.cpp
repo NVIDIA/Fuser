@@ -190,7 +190,7 @@ std::tuple<std::vector<std::optional<bool>>, std::vector<int64_t>> computeTensor
   NVF_CHECK(
       sizes.size() == strides.size(),
       "compute_contiguity: Sizes and strides must have the same number of dimensions");
-  std::vector<DimInfo> dim_info_vec(sizes.size());
+  std::vector<DimInfo> dim_info_vec;
   for (int64_t i : c10::irange(sizes.size())) {
     // NOTE: not supporting negative stride yet.
     NVF_CHECK(strides[i] >= 0, "negative stride on tensor is not supported");

@@ -1388,7 +1388,7 @@ class TestNvFuserFrontend(TestCase):
         strides = [12, 4, 4, 4, 1, 0]
         contiguity = [True, None, True, None, True, None]
         stride_order = [5, 4, 3, 2, 1, 0]
-        computed_contiguity, computed_stride_order = compute_contiguity(sizes, strides)
+        computed_contiguity, computed_stride_order = compute_tensor_descriptor(sizes, strides)
         self.assertEqual(computed_contiguity, contiguity)
         self.assertEqual(computed_stride_order, stride_order)
 
@@ -1396,7 +1396,7 @@ class TestNvFuserFrontend(TestCase):
         strides = [28, 4, 14, 0, 1]
         contiguity = [False, True, None, None, True]
         stride_order = [4, 2, 3, 0, 1]
-        computed_contiguity, computed_stride_order = compute_contiguity(sizes, strides)
+        computed_contiguity, computed_stride_order = compute_tensor_descriptor(sizes, strides)
         self.assertEqual(computed_contiguity, contiguity)
         self.assertEqual(computed_stride_order, stride_order)
 
