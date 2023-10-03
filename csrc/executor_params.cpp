@@ -40,6 +40,7 @@ void LaunchParams::bind(int64_t val, ParallelType p_type) {
       checkAndSet(val, bdimx_, "blockDim.x");
       break;
     case ParallelType::BIDx:
+    case ParallelType::BIDxCluster:
       checkAndSet(val, gdimx_, "gridDim.x");
       break;
     case ParallelType::TIDy:
@@ -68,6 +69,7 @@ int64_t LaunchParams::getDim(ParallelType p_type) const {
     case ParallelType::TIDx:
       return bdimx();
     case ParallelType::BIDx:
+    case ParallelType::BIDxCluster:
       return gdimx();
     case ParallelType::TIDy:
       return bdimy();
@@ -94,6 +96,7 @@ const int64_t& LaunchParams::getRawVal(ParallelType p_type) const {
     case ParallelType::TIDx:
       return bdimx_;
     case ParallelType::BIDx:
+    case ParallelType::BIDxCluster:
       return gdimx_;
     case ParallelType::TIDy:
       return bdimy_;

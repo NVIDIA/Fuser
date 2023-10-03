@@ -282,7 +282,7 @@ void GpuLower::lower(Fusion* fusion) {
   segmenterHintCleanup(fusion_);
   FusionGuard fg(fusion_);
 
-  dumpExprsIfEnabled(fusion_->exprs(), "initialize lowering", true);
+  dumpExprsIfEnabled(fusion_->exprs(), "initialize lowering");
 
   // Temporarily set allKnownVals to inputs. In the future, we will have a real
   // pass to determine how to set allKnownVals.
@@ -334,7 +334,7 @@ void GpuLower::lower(Fusion* fusion) {
     debug() << "Parallel dimension map:" << std::endl;
     debug() << parallel_dimension_map_.toString() << std::endl;
   }
-  dumpExprsIfEnabled(fusion_->exprs(), "build parallelDimensionMap", true);
+  dumpExprsIfEnabled(fusion_->exprs(), "build parallelDimensionMap");
 
   // Validate mma data format and compatibility if any on the fusion.
   validateMma(fusion_);
@@ -349,14 +349,13 @@ void GpuLower::lower(Fusion* fusion) {
 
   // Compute thread predicates. Depends on parallel_dimension_map_
   thread_pred_map_.build(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build thread_pred_map_", true);
-  thread_pred_map_.print();
+  dumpExprsIfEnabled(fusion_->exprs(), "build thread_pred_map_");
 
   // Fuse cetain patterns of reductions, such as a grid reduction
   // followed by a grid broadcast. Only depends on parallelization and
   // thread predicate map.
   fuseReductionsAndBroadcasts(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "fuseReductionsAndBroadcasts", true);
+  dumpExprsIfEnabled(fusion_->exprs(), "fuseReductionsAndBroadcasts");
 
   // Scan the whole fusion and build mappings about halo extensions of
   // all IterDomains
@@ -388,7 +387,7 @@ void GpuLower::lower(Fusion* fusion) {
   if (isDebugDumpEnabled(DebugDumpOption::SyncMap)) {
     debug() << sync_map_->toString() << std::endl;
   }
-  dumpExprsIfEnabled(fusion_->exprs(), "SyncMap", true);
+  dumpExprsIfEnabled(fusion_->exprs(), "SyncMap");
 
   partialSplitMap().build(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build partialSplitMap");
@@ -415,7 +414,7 @@ void GpuLower::lower(Fusion* fusion) {
   // Reorder expressions for loop-nest generation respecting computeAt
   // relationships
   const auto exprs_sorted = reorderExprsForComputeAt();
-  dumpExprsIfEnabled(exprs_sorted, "reorderExprsForComputeAt", true);
+  dumpExprsIfEnabled(exprs_sorted, "reorderExprsForComputeAt");
 
   commonScalarMap().initialize(exprs_sorted);
 
@@ -429,7 +428,7 @@ void GpuLower::lower(Fusion* fusion) {
   // Generate loop-nests and place each expression at its
   // corresponding loop
   const auto exprs_lowered = LoopNestGenerator::loweredExprs(exprs_sorted);
-  dumpExprsIfEnabled(exprs_lowered, "LoopNestGenerator", true);
+  dumpExprsIfEnabled(exprs_lowered, "LoopNestGenerator");
 
   // Replace squeezes, Transpose, Shift, Gather, and View ops with
   // unary ops since they're not separately processed in lowering.
@@ -513,7 +512,7 @@ void GpuLower::lower(Fusion* fusion) {
 
   const auto exprs_cleaned_up_loops =
       KIRCleaner::cleanUp(exprs_register_adjusted);
-  dumpExprsIfEnabled(exprs_cleaned_up_loops, "KIRCleaner", true);
+  dumpExprsIfEnabled(exprs_cleaned_up_loops, "KIRCleaner");
 
   const auto exprs_instrumented = instrumentKernel(exprs_cleaned_up_loops);
   dumpExprsIfEnabled(exprs_instrumented, "instrumentKernel");

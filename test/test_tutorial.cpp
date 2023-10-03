@@ -658,7 +658,7 @@ TEST_F(NVFuserTest, TMP) {
   // ref = [i0, r0/tidx/tbgx, tbgx, tidx]
   ref->axis(0)->parallelize(ParallelType::BIDy);
   ref->axis(1)->parallelize(ParallelType::Serial);
-  ref->axis(2)->parallelize(ParallelType::BIDx);
+  ref->axis(2)->parallelize(ParallelType::BIDxCluster);
   ref->axis(3)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(ref);
   inlineMost();
