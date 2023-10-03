@@ -461,6 +461,7 @@ class TestDifferences:
         context = asdict(self)
         context["omit_preamble"] = omit_preamble
         context["max_diffs"] = max_diffs
+        context["tool_git"] = GitRev("HEAD")
 
         return template.render(context)
 
