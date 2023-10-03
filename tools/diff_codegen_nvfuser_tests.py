@@ -262,7 +262,7 @@ class TestRun:
             line = ansi_re.sub("", line.strip())
             if line[:13] == "[ RUN      ] ":
                 current_test = line[13:]
-            elif line[:13] == "[       OK ] ":
+            elif line[:13] == "[       OK ] " or line[:13] == "[  FAILED  ] ":
                 finalize_test()
             elif line[:10] == "PRINTING: ":
                 if line[-3:] == ".cu":
