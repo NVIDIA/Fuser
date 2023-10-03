@@ -151,6 +151,9 @@ class TestRun:
     run_name: str = field(init=False)
     command: str = field(init=False)
     exit_code: int = field(init=False)
+    env: str = field(init=False)
+    gpu_names: str = field(init=False)
+    nvcc_version: str = field(init=False)
     # map from name of test to list of kernel base filenames
     kernel_map: dict[str, CompiledTest] = field(default_factory=dict)
     # collecting the preamble lets us skip it when diffing, and lets us compare
@@ -177,6 +180,25 @@ class TestRun:
                 file=sys.stderr,
             )
             sys.exit(1)
+
+        try:
+            self.env = open(os.path.join(self.directory, "env"), "r").read()
+        except FileNotFoundError:
+            self.env = None
+
+        try:
+            self.nvcc_version = open(
+                os.path.join(self.directory, "nvcc_version"), "r"
+            ).read()
+        except FileNotFoundError:
+            self.nvcc_version = None
+
+        try:
+            self.gpu_names = list(
+                open(os.path.join(self.directory, "gpu_names"), "r").readlines()
+            )
+        except FileNotFoundError:
+            self.gpu_names = None
 
         self.exit_code = int(open(os.path.join(self.directory, "exitcode"), "r").read())
 
@@ -422,6 +444,13 @@ class TestDifferences:
                 ]
                 self.new_tests.append(compiled_test2)
 
+    def hide_env(self):
+        """Remove private information like env vars and lib versions"""
+        self.run1.env = None
+        self.run2.env = None
+        self.run1.nvcc_version = None
+        self.run2.nvcc_version = None
+
     def generate_html(self, omit_preamble: bool, max_diffs: bool) -> str:
         """Return a self-contained HTML string summarizing the codegen comparison"""
         import jinja2
@@ -445,6 +474,11 @@ if __name__ == "__main__":
     )
     parser.add_argument("dir1", help="Directory containing stdout-*.log and cuda/")
     parser.add_argument("dir2", help="Directory containing stdout-*.log and cuda/")
+    parser.add_argument(
+        "--hide-env",
+        action="store_true",
+        help="Hide environment variables and nvcc versions in output?",
+    )
     parser.add_argument("--html", action="store_true", help="Write HTML file?")
     parser.add_argument(
         "--show-diffs", action="store_true", help="Print diffs to STDOUT?"
@@ -470,6 +504,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     td = TestDifferences(TestRun(args.dir1), TestRun(args.dir2))
+
+    if args.hide_env:
+        td.hide_env()
 
     if args.html:
         output_file = args.output_file

@@ -131,7 +131,7 @@
     </head>
     <body>
         <h1>{{ run1.git.abbrev }} vs {{ run2.git.abbrev }} - NVFuser codegen diff</h1>
-        <h2>Git information</h2>
+        <h2>Runs</h2>
         <h3>
             Old commit: <a href="https://github.com/NVIDIA/Fuser/commit/{{ run1.git.full_hash }}">{{ run1.git.abbrev }}</a>
         </h3>
@@ -145,6 +145,29 @@
         <br>
         <a href="https://github.com/NVIDIA/Fuser/tree/{{ run1.git.full_hash }}">Browse code at this commit</a>
         <br>
+        {% if run1.gpu_names is not none %}
+            <br>
+            {%- if run1.gpu_names | length > 1 %}
+                <b>GPUs:</b>
+                <br>
+                <pre><code>{{run1.gpu_names | e}}</code></pre>
+                %}
+            {%- else -%}
+                <b>GPU:</b> {{ run1.gpu_names[0] | e }}
+                <br>
+            {%- endif %}
+        {% endif %}
+        {% if run1.nvcc_version is not none %}
+            <pre><code class="language-console">&gt; nvcc --version
+{{run1.nvcc_version | e}}</code></pre>
+        {% endif %}
+        {% if run1.env is not none %}
+            <button style="box-shadow:none" onclick="toggleDiv('old_env')">Toggle Env</button>
+            <div id="old_env" style="display:none">
+                {# INI highlighting gives best look out of a number of bad options for env dump #}
+                <pre><code class="language-sh">{{ run1.env|e }}</code></pre>
+            </div>
+        {% endif %}
         <h3>
             New commit: <a href="https://github.com/NVIDIA/Fuser/commit/{{ run2.git.full_hash }}">{{ run2.git.abbrev }}</a>
         </h3>
@@ -158,6 +181,44 @@
         <br>
         <a href="https://github.com/NVIDIA/Fuser/tree/{{ run2.git.full_hash }}">Browse code at this commit</a>
         <br>
+        {% if run2.gpu_names is not none %}
+            <br>
+            {% if run2.gpu_names == run1.gpu_names %}
+                {{ "GPUs are" if run2.gpu_names | length > 1 else "GPU is"}} same
+                <br>
+            {% else %}
+                {%- if run2.gpu_names | length > 1 %}
+                    <b>GPUs:</b>
+                    <br>
+                    <pre><code>{{run2.gpu_names | e}}</code></pre>
+                    %}
+                {%- else -%}
+                    <b>GPU:</b> {{ run2.gpu_names[0] | e }}
+                {%- endif %}
+            {% endif %}
+        {% endif %}
+        {% if run2.nvcc_version is not none %}
+            {% if run2.nvcc_version == run1.nvcc_version %}
+                NVCC version is same
+                <br>
+            {% else %}
+                <pre><code class="language-console">&gt; nvcc --version
+{{run2.nvcc_version | e}}</code></pre>
+            {% endif %}
+        {% endif %}
+        {% if run2.env is not none %}
+            {% if run2.env == run1.env %}
+                Environment is same
+                <br>
+            {% else %}
+                <br>
+                <button style="box-shadow:none" onclick="toggleDiv('old_env')">Env</button>
+                <div id="old_env" style="display:none">
+                    {# INI highlighting gives best look out of a number of bad options for env dump #}
+                    <pre><code class="language-sh">{{ run2.env|e }}</code></pre>
+                </div>
+            {% endif %}
+        {% endif %}
         <h2>Code comparison</h2>
         Command line: <code>{{ run1.command|e }}</code>
         <br>
@@ -183,85 +244,81 @@
 {% else %}
     Preamble matches between runs
     <button style="box-shadow:none" onclick="toggleDiv('preamble')">Preamble</button>
-</span>
-<br>
-<div id="preamble" style="display:none">
-    <pre><code class="language-cpp">{{ run1.preamble|e }}</code></pre>
-</div>
+    <br>
+    <div id="preamble" style="display:none">
+        <pre><code class="language-cpp">{{ run1.preamble|e }}</code></pre>
+    </div>
 {% endif %}
 {% endif %}
 {% if new_tests|length > 0 %}
-    <h3>New Tests</h3>
-    <button style="box-shadow:none" onclick="toggleAllNewTestCode()">Toggle All</button>
-</span>
-<br>
-<br>
-{% for test in new_tests %}
-    <span class="test_name"><b>{{ test.name }}</b>
+    <h3>
+        New Tests
+        <button style="box-shadow:none" onclick="toggleAllNewTestCode()">Toggle All</button>
+    </h3>
+    {% for test in new_tests %}
+        <span class="test_name"><b>{{ test.name }}</b>
+            <br>
+            {% set test_num = loop.index %}
+            {% for kernel in test.kernels %}
+                &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ loop.index }}</span>
+                <button style="width: 60pt;
+                               box-shadow:none"
+                        onclick="toggleDiv('newtestcode_{{ test_num }}_{{ loop.index }}')">Code</button>
+            </span>
+            index type: {{ kernel.index_type }}
+            arch: {{ kernel.arch }}
+            registers: {{ kernel.registers }}
+            {% if kernel.gmem_bytes is not none and kernel.gmem_bytes > 0 %}gmem: {{ kernel.gmem_bytes }}{% endif %}
+            {% if kernel.smem_bytes is not none and kernel.smem_bytes > 0 %}smem: {{ kernel.smem_bytes }}{% endif %}
+            {% if kernel.stack_frame_bytes is not none and kernel.stack_frame_bytes > 0 %}
+                stack frame: {{ kernel.stack_frame_bytes }}
+            {% endif %}
+            {% if kernel.spill_store_bytes is not none and kernel.spill_store_bytes > 0 %}
+                spill stores: {{ kernel.spill_store_bytes }}
+            {% endif %}
+            {% if kernel.spill_load_bytes is not none and kernel.spill_load_bytes > 0 %}
+                spill loads: {{ kernel.spill_load_bytes }}
+            {% endif %}
+            {% if kernel.cmem_bank_bytes is not none %}
+                {% for cmem_bank in range(kernel.cmem_bank_bytes|length) %}
+                    {% set cmemb = kernel.cmem_bank_bytes[cmem_bank] %}
+                    cmem[{{ cmem_bank }}]: {{ cmemb }}
+                {% endfor %}
+            {% endif %}
+            <br>
+            <div id="newtestcode_{{ test_num }}_{{ loop.index }}" style="display:none">
+                <pre><code class="language-cpp">{{ kernel.code|e }}</code></pre>
+            </div>
+        {% endfor %}
         <br>
-        {% set test_num = loop.index %}
-        {% for kernel in test.kernels %}
-            &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ loop.index }}</span>
-            <button style="width: 60pt;
-                           box-shadow:none"
-                    onclick="toggleDiv('newtestcode_{{ test_num }}_{{ loop.index }}')">Code</button>
-        </span>
-        index type: {{ kernel.index_type }}
-        arch: {{ kernel.arch }}
-        registers: {{ kernel.registers }}
-        {% if kernel.gmem_bytes is not none and kernel.gmem_bytes > 0 %}gmem: {{ kernel.gmem_bytes }}{% endif %}
-        {% if kernel.smem_bytes is not none and kernel.smem_bytes > 0 %}smem: {{ kernel.smem_bytes }}{% endif %}
-        {% if kernel.stack_frame_bytes is not none and kernel.stack_frame_bytes > 0 %}
-            stack frame: {{ kernel.stack_frame_bytes }}
-        {% endif %}
-        {% if kernel.spill_store_bytes is not none and kernel.spill_store_bytes > 0 %}
-            spill stores: {{ kernel.spill_store_bytes }}
-        {% endif %}
-        {% if kernel.spill_load_bytes is not none and kernel.spill_load_bytes > 0 %}
-            spill loads: {{ kernel.spill_load_bytes }}
-        {% endif %}
-        {% if kernel.cmem_bank_bytes is not none %}
-            {% for cmem_bank in range(kernel.cmem_bank_bytes|length) %}
-                {% set cmemb = kernel.cmem_bank_bytes[cmem_bank] %}
-                cmem[{{ cmem_bank }}]: {{ cmemb }}
-            {% endfor %}
-        {% endif %}
-        <br>
-        <div id="newtestcode_{{ test_num }}_{{ loop.index }}" style="display:none">
-            <pre><code class="language-cpp">{{ kernel.code|e }}</code></pre>
-        </div>
     {% endfor %}
-    <br>
-{% endfor %}
 {% endif %}
 {% if removed_tests|length > 0 %}
-    <h3>Removed Tests</h3>
-    <button style="box-shadow:none" onclick="toggleAllRemovedTestCode()">Toggle All</button>
-</span>
-<br>
-<br>
-{% for test in removed_tests %}
-    <span class="test_name"><b>{{ test.name }}</b>
-        <br>
-        {% set test_num = loop.index %}
-        {% for kernel in test.kernels %}
-            &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ loop.index }}</span>
-            <button style="box-shadow:none"
-                    onclick="toggleDiv('removedtestcode_{{ test_num }}_{{ loop.index }}')">Code</button>
-        </span>
-        <br>
-        <div id="removedtestcode_{{ test_num }}_{{ loop.index }}"
-             style="display:none">
-            <pre><code class="language-cpp">{{ kernel.code|e }}</code></pre>
-        </div>
+    <h3>
+        Removed Tests
+        <button style="box-shadow:none" onclick="toggleAllRemovedTestCode()">Toggle All</button>
+    </h3>
+    {% for test in removed_tests %}
+        <span class="test_name"><b>{{ test.name }}</b>
+            <br>
+            {% set test_num = loop.index %}
+            {% for kernel in test.kernels %}
+                &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ loop.index }}</span>
+                <button style="box-shadow:none"
+                        onclick="toggleDiv('removedtestcode_{{ test_num }}_{{ loop.index }}')">Code</button>
+            </span>
+            <br>
+            <div id="removedtestcode_{{ test_num }}_{{ loop.index }}"
+                 style="display:none">
+                <pre><code class="language-cpp">{{ kernel.code|e }}</code></pre>
+            </div>
+        {% endfor %}
     {% endfor %}
-{% endfor %}
 {% endif %}
-<h3>Test Diffs</h3>
-<button style="box-shadow:none" onclick="toggleAllDiffs()">Toggle All Diffs</button>
-</span>
-<br>
-<br>
+<h3>
+    Test Diffs
+    <button style="box-shadow:none" onclick="toggleAllDiffs()">Toggle All</button>
+</h3>
 {% set loop_vars = namespace(total_diffs=0) %}
 {% for test_diff in test_diffs %}
     {% if loop_vars.total_diffs < max_diffs %}
@@ -288,7 +345,6 @@
         <button style="box-shadow:none"
                 onclick="toggleNewCode({{ outer_index }}, {{ loop.index }})">{{ run2.git.abbrev }}</button>
     </span>
-    loc:
     <span style="color: red;
                  width: 32pt;
                  text-align: right;
