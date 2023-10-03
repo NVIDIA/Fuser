@@ -208,7 +208,7 @@ std::tuple<std::vector<std::optional<bool>>, std::vector<int64_t>> computeTensor
   // contiguous.
   while (last >= 0) {
     // marking stride_order
-    dim_info_vec[last].stride_order = (int64_t)sizes.size() - 1 - i;
+    dim_info_vec[last].stride_order = (int64_t)sizes.size() - 1 - last;
     if (dim_info_vec[last].notBroadcast()) {
       // setting current contiguity flag since it's not a broadcast dimension
       dim_info_vec[last].contiguity = dim_info_vec[last].stride == 1;
