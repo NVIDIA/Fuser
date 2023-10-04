@@ -24,18 +24,18 @@ import sys
 
 @dataclass
 class GitRev:
-    abbrev: str
+    full_hash: str
     diff: str | None = None
+    abbrev: str = field(init=False)
     title: str = field(init=False)
-    full_hash: str = field(init=False)
     author_name: str = field(init=False)
     author_email: str = field(init=False)
     author_time: str = field(init=False)
     commit_time: str = field(init=False)
 
     def __post_init__(self):
-        self.full_hash = (
-            subprocess.run(["git", "rev-parse", self.abbrev], capture_output=True)
+        self.abbrev = (
+            subprocess.run(["git", "rev-parse", "--short", self.full_hash], capture_output=True)
             .stdout.strip()
             .decode("utf-8")
         )
@@ -152,7 +152,7 @@ class CompiledTest:
 @dataclass
 class TestRun:
     directory: str
-    git: GitRev = field(init=False)
+    git: GitRev | None = field(init=False)
     name: str = field(init=False)
     command: str = field(init=False)
     exit_code: int = field(init=False)
@@ -182,13 +182,13 @@ class TestRun:
             self.name = os.path.basename(self.directory)
 
         # get description of this git rev
-        abbrev = os.path.basename(os.path.dirname(os.path.abspath(self.directory)))
         gitdiff = None
         try:
             gitdiff = open(os.path.join(self.directory, "git_diff"), "r").read()
         except FileNotFoundError:
             pass
-        self.git = GitRev(abbrev, diff=gitdiff)
+        git_hash = open(os.path.join(self.directory, "git_hash"), "r").read().rstrip()
+        self.git = GitRev(git_hash, diff=gitdiff)
 
         self.command = open(os.path.join(self.directory, "command"), "r").read()
 
