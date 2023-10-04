@@ -243,7 +243,7 @@ computeTensorDescriptor(
   std::vector<int64_t> stride_order(sizes.size(), -1);
 
   for (auto i : c10::irange(sizes.size())) {
-    contiguity[dim_info_vec[i].index] = dim_info_vec[i].contiguity;
+    contiguity[i] = dim_info_vec[i].contiguity;
     stride_order[dim_info_vec[i].index] = dim_info_vec[i].stride_order;
   }
 
