@@ -269,8 +269,9 @@ void TensorView::setCpuScalar(bool is_cpu_scalar) {
 
 IterDomain* TensorView::axis(int pos) const {
   NVF_ERROR(nDims() > 0, "Tried to access an axis in a 0-dim TensorView");
-  if (pos < 0)
+  if (pos < 0) {
     pos += (int)domain()->nDims();
+  }
   NVF_CHECK(
       pos >= 0 && (unsigned int)pos < domain()->nDims(),
       "Tried to access position ",
@@ -632,8 +633,9 @@ TensorView* TensorView::split(
       "Tensor: ",
       toString());
 
-  if (axis_ < 0)
+  if (axis_ < 0) {
     axis_ += (int)domain()->nDims();
+  }
 
   NVF_ERROR(
       axis_ >= 0,
@@ -693,11 +695,13 @@ TensorView* TensorView::split(
 TensorView* TensorView::merge(int axis_o, int axis_i) {
   NVF_ERROR(nDims() > 0, "Tried to do merge on a 0-dim TensorView");
 
-  if (axis_o < 0)
+  if (axis_o < 0) {
     axis_o += (int)domain()->nDims();
+  }
 
-  if (axis_i < 0)
+  if (axis_i < 0) {
     axis_i += (int)domain()->nDims();
+  }
 
   NVF_CHECK(
       axis_o >= (int)getMaxComputePosition() &&

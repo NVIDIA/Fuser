@@ -234,8 +234,9 @@ bool checkOutputTensorTypes(const torch::jit::Node* node) {
 
 inline bool isFusibleNode(const torch::jit::Node* node) {
   // Check if already part of a fusion group
-  if (node->kind() == at::prim::CudaFusionGroup)
+  if (node->kind() == at::prim::CudaFusionGroup) {
     return true;
+  }
   // Check we have a parsing rule
   if (!isNodeParsible(node)) {
     // ignoring profile nodes & constant nodes to avoid noise from debugging
