@@ -37,7 +37,7 @@ using OuterReductionTest = NVFuserTest;
 using namespace at::indexing;
 
 // Shmoo testing of the optimized grouped grid welford
-TEST_F(OuterReductionTest, FusionGroupedGridWelfordOuterOpt_CUDA) {
+TEST_F(OuterReductionTest, GroupedGridWelfordOuterOpt) {
   struct OuterReductionParams {
     int vec = 1;
     int tidx = 1;
