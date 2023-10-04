@@ -184,6 +184,35 @@ std::vector<std::optional<bool>> computeContiguity(
   return contiguity;
 }
 
+// [ Note stride order and contiguity vector ]
+//
+// `stride order` vector corresponds to the order for each logical domain in
+//     physical memory;
+// `contiguity` vector to whether or not indexing could be collaped
+//     corresponding to each physical domain;
+//
+// e.g. Given size and stride as follow:
+//   sizes   = [2, 1, 3, 1, 4, 3]
+//   strides = [12, 4, 4, 4, 1, 0]
+// we would compute stride order as: [5, 4, 3, 2, 1, 0]. Since the original
+// stride is in descending order. Note that there's more than one way to define
+// a stride order when we have equal strides. In the context of index
+// collapsing, how we resolve that shouldn't matter, hence we just go with
+// preserving their original order. Similarly, we compute contiguity as: [True,
+// None, True, None, True, None], Since the physical order is the same as the
+// logical order, this one is trivial to compute.
+//
+// e.g. Given size and stride as follow:
+//   sizes   = [2, 3, 1, 5, 4]
+//   strides = [28, 4, 14, 0, 1]
+// stride_order would be: [4, 2, 3, 0, 1], marking the order of strides in the
+// vector. Meanwhile, contiguity would be computed on the physical domain, i.e.
+// on sorted sizes & strides.
+//   sorted_size    = [2, 1, 3, 4, 5]
+//   sorted_strides = [28, 14, 4, 1, 0]
+//   contiguity would be: [False, None, True, True, None]
+//
+// This function returns a tuple of <contiguity, stride_order>
 std::tuple<std::vector<std::optional<bool>>, std::vector<int64_t>>
 computeTensorDescriptor(
     const std::vector<int64_t>& sizes,
@@ -202,38 +231,26 @@ computeTensorDescriptor(
       dim_info_vec.begin(),
       dim_info_vec.end(),
       [](const auto& l, const auto& r) { return l.stride > r.stride; });
-  // index to inner most dimension in sorted order.
-  int64_t last = (int64_t)sizes.size() - 1;
-  // Contiguity normallly is determined by the current dimension and one
-  // dimension to the right.  The innermost dimension, that is not broadcasted,
-  // does not have any dimension to it's right and needs to be specially marked
-  // contiguous.
-  while (last >= 0) {
-    // marking stride_order
-    dim_info_vec[last].stride_order = (int64_t)sizes.size() - 1 - last;
-    if (dim_info_vec[last].notBroadcast()) {
-      // setting current contiguity flag since it's not a broadcast dimension
-      dim_info_vec[last].contiguity = dim_info_vec[last].stride == 1;
-      break;
-    }
-    --last;
-  }
+
   // Dimensions are marked contiguous by inspecting the current dimension and
   // one to the right towards the inner dimension while skipping over broadcast
   // dimensions.
-  for (int64_t i = 0; i < last;) {
+  // The innermost dimension, that is not broadcasted, does not have any
+  // dimension to it's right and needs to have stride equal to 1 in order to be
+  // marked contiguous.
+  for (int64_t i = 0; i < (int64_t)sizes.size();) {
     dim_info_vec[i].stride_order = (int64_t)sizes.size() - 1 - i;
     if (dim_info_vec[i].notBroadcast()) {
       auto l = i++;
-      for (; i <= last; i++) {
+      int64_t expected = 1;
+      for (; i < (int64_t)sizes.size(); i++) {
         dim_info_vec[i].stride_order = (int64_t)sizes.size() - 1 - i;
         if (dim_info_vec[i].notBroadcast()) {
+          expected = dim_info_vec[i].stride * dim_info_vec[i].size;
           break;
         }
       }
-      dim_info_vec[l].contiguity =
-          (dim_info_vec[l].stride ==
-           dim_info_vec[i].stride * dim_info_vec[i].size);
+      dim_info_vec[l].contiguity = (dim_info_vec[l].stride == expected);
     } else {
       i++;
     }
@@ -243,7 +260,7 @@ computeTensorDescriptor(
   std::vector<int64_t> stride_order(sizes.size(), -1);
 
   for (auto i : c10::irange(sizes.size())) {
-    contiguity[dim_info_vec[i].index] = dim_info_vec[i].contiguity;
+    contiguity[i] = dim_info_vec[i].contiguity;
     stride_order[dim_info_vec[i].index] = dim_info_vec[i].stride_order;
   }
 

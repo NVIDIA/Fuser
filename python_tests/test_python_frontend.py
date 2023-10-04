@@ -1396,7 +1396,7 @@ class TestNvFuserFrontend(TestCase):
 
         sizes = [2, 3, 1, 5, 4]
         strides = [28, 4, 14, 0, 1]
-        contiguity = [False, True, None, None, True]
+        contiguity = [False, None, True, True, None]
         stride_order = [4, 2, 3, 0, 1]
         computed_contiguity, computed_stride_order = compute_tensor_descriptor(
             sizes, strides
