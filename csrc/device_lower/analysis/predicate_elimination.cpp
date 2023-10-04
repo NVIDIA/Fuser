@@ -291,10 +291,8 @@ class PredicateChcker : public IterVisitor {
         expr->toString());
 
     for (auto i : c10::irange(tv_inputs.size())) {
-      const auto root_p2c =
-          PairwiseRootDomainMap(tv_inputs[i], tv_outputs[i])
-              .mapProducerToConsumer(
-                  tv_inputs[i]->domain(), tv_outputs[i]->domain());
+      const auto root_p2c = PairwiseRootDomainMap(tv_inputs[i], tv_outputs[i])
+                                .mapProducerToConsumer();
       for (auto entry : root_p2c) {
         auto p_id = entry.first;
         auto c_id = entry.second;

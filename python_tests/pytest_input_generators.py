@@ -902,7 +902,7 @@ def pad_error_generator(
     delete_all_pad_width = [-3, 0, 0, 0]
     yield SampleInput(
         make_arg(input_shape), delete_all_pad_width, make_number(dtype)
-    ), RuntimeError, "extent_int > 0"
+    ), RuntimeError, "extent_int >= 0"
 
     too_many_pad_width = [1, 1, 1, 1, 1, 1]
     yield SampleInput(

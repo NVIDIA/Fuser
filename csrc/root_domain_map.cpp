@@ -219,11 +219,34 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
   return dom_map;
 }
 
+std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::
+    mapProducerToConsumer(
+        const std::unordered_set<IterDomain*>* root_dims_to_map) const {
+  if (root_dims_to_map == nullptr) {
+    return RootDomainMap::mapProducerToConsumer(
+        producerTv()->domain(), consumerTv()->domain());
+  } else {
+    return RootDomainMap::mapProducerToConsumer(
+        producerTv()->domain(), consumerTv()->domain(), *root_dims_to_map);
+  }
+}
+
+std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::
+    mapConsumerToProducer(
+        const std::unordered_set<IterDomain*>* root_dims_to_map) const {
+  if (root_dims_to_map == nullptr) {
+    return RootDomainMap::mapConsumerToProducer(
+        consumerTv()->domain(), producerTv()->domain());
+  } else {
+    return RootDomainMap::mapConsumerToProducer(
+        consumerTv()->domain(), producerTv()->domain(), *root_dims_to_map);
+  }
+}
+
 std::string PairwiseRootDomainMap::toString() const {
   std::stringstream ss;
   ss << "{producer: " << producerTv() << ", consumer: " << consumerTv();
-  auto p2c =
-      mapProducerToConsumer(producerTv()->domain(), consumerTv()->domain());
+  auto p2c = mapProducerToConsumer();
   for (auto pair : p2c) {
     ss << ", " << pair.first->toString() << " -> " << pair.second->toString();
   }
@@ -316,8 +339,7 @@ class FindInputDomains : BackwardVisitor {
   }
 
   void propagate(TensorView* in_tv, TensorView* out_tv) {
-    auto c2p = PairwiseRootDomainMap(in_tv, out_tv)
-                   .mapConsumerToProducer(out_tv->domain(), in_tv->domain());
+    auto c2p = PairwiseRootDomainMap(in_tv, out_tv).mapConsumerToProducer();
     for (auto root_dom : out_tv->getRootDomain()) {
       DomainKey out_key({out_tv->domain(), root_dom});
       if (input_keys_.find(out_key) == input_keys_.end()) {
@@ -793,8 +815,7 @@ void ComputeAtRootDomainMapBuilder::initializeBcastMap(
   // pairwise map has no mapping for the broadcast.
   for (auto consumer : ir_utils::consumerTvsOf(tv)) {
     const auto p2c =
-        PairwiseRootDomainMap(tv, consumer)
-            .mapProducerToConsumer(tv->domain(), consumer->domain());
+        PairwiseRootDomainMap(tv, consumer).mapProducerToConsumer();
     // Unfortunately, const_cast is required as our const model is
     // broken.
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
@@ -884,7 +905,13 @@ void ComputeAtRootDomainMapBuilder::setMaybeMapped(
   }
 
   if (consumer_id->isBroadcast()) {
-    NVF_ERROR(producer_id->isBroadcast());
+    NVF_ERROR(
+        producer_id->isBroadcast(),
+        "Trying to map a non-broadcast producer with a broadcast consumer. ",
+        "Producer: ",
+        producer_id->toString(),
+        ", consumer: ",
+        consumer_id->toString());
     // Get bcast_map_ entry for consumer_id
     const auto consumer_bcast_domains =
         root_map_.getConcretizedKeys(consumer_td, consumer_id);
@@ -921,50 +948,39 @@ void ComputeAtRootDomainMapBuilder::dispatch(Expr* e) {
   visited_.insert(e);
 }
 
-void ComputeAtRootDomainMapBuilder::mapPointwiseOrReductionOp(Expr* e) {
-  if (e->output(0)->getValType() != ValType::TensorView) {
+void ComputeAtRootDomainMapBuilder::mapPointwiseLikeOp(Expr* expr) {
+  if (expr->output(0)->getValType() != ValType::TensorView) {
     return;
   }
 
   // Broadcast is handled separately, so e should never be BroadcastOp.
-  NVF_ERROR(!e->isA<BroadcastOp>());
-  NVF_ERROR(!e->isA<SqueezeOp>());
+  NVF_ERROR(!expr->isA<BroadcastOp>());
+  NVF_ERROR(!expr->isA<SqueezeOp>());
 
-  NVF_ERROR(!e->outputs().empty());
-  const TensorView* out_tv = e->output(0)->as<TensorView>();
-  const TensorDomain* out_td = out_tv->domain();
-  const auto& out_root = out_td->root();
+  NVF_ERROR(!expr->outputs().empty());
+
+  if (expr->outputs().size() > 1) {
+    NVF_ERROR(
+        expr->isA<WelfordOp>() || expr->isA<GroupedReductionOp>() ||
+            expr->isA<GroupedWelfordOp>(),
+        "Unknown multi-output Expr type ",
+        expr->getOpString(),
+        " is found");
+  }
 
   // Record equalities from output to all the inputs
   // ignores non-concretizable broadcasts
-  for (auto* in_tv : ir_utils::filterByType<TensorView>(e->inputs())) {
-    const TensorDomain* in_td = in_tv->domain();
-    std::vector<IterDomain*> in_root =
-        TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
-    NVF_ERROR(
-        in_root.size() == out_root.size(),
-        "\nExpression: ",
-        e,
-        "\nInput root domain: ",
-        in_root,
-        "\nOutput root domain: ",
-        out_root);
-    for (const auto it : c10::irange(in_root.size())) {
-      if (e->outputs().size() > 1) {
-        NVF_ERROR(
-            e->isA<WelfordOp>() || e->isA<GroupedReductionOp>() ||
-                e->isA<GroupedWelfordOp>(),
-            "Unknown multi-output Expr type ",
-            e->getOpString(),
-            " is found");
-        for (auto out : e->outputs()) {
-          auto out_tv = out->as<TensorView>();
-          auto out_td = out_tv->domain();
-          auto out_root = out_td->root();
-          setMaybeMapped(in_td, in_root[it], out_td, out_root[it]);
-        }
-      } else {
-        setMaybeMapped(in_td, in_root[it], out_td, out_root[it]);
+  for (auto producer_tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    for (auto consumer_tv :
+         ir_utils::filterByType<TensorView>(expr->outputs())) {
+      for (const auto& mapping : PairwiseRootDomainMap(producer_tv, consumer_tv)
+                                     .mapBroadcast(true)
+                                     .mapProducerToConsumer()) {
+        setMaybeMapped(
+            producer_tv->domain(),
+            mapping.first,
+            consumer_tv->domain(),
+            mapping.second);
       }
     }
   }
@@ -1112,41 +1128,6 @@ void ComputeAtRootDomainMapBuilder::handle(GatherOp* op) {
   }
 }
 
-void ComputeAtRootDomainMapBuilder::handle(TorchGatherOp* op) {
-  const TensorDomain* lookup_td = op->lookupTv()->as<TensorView>()->domain();
-  const TensorDomain* idx_td = op->indexTv()->as<TensorView>()->domain();
-  const TensorDomain* out_td = op->output(0)->as<TensorView>()->domain();
-  const auto lookup_root =
-      TensorDomain::noReductions(lookup_td->maybeRFactor());
-  const auto idx_root = TensorDomain::noReductions(idx_td->maybeRFactor());
-  const auto& out_root = out_td->root();
-
-  NVF_ERROR(
-      idx_root.size() == out_root.size(),
-      "\nExpression: ",
-      op,
-      "\nInput root domain: ",
-      idx_root,
-      "\nOutput root domain: ",
-      out_root);
-  NVF_ERROR(
-      lookup_root.size() == out_root.size(),
-      "\nExpression: ",
-      op,
-      "\nLookup root domain: ",
-      lookup_root,
-      "\nOutput root domain: ",
-      out_root);
-
-  // Only maps the index root axes unless exact_sizes is true
-  for (const auto i : c10::irange(idx_root.size())) {
-    if (static_cast<int>(i) != op->dim() && op->exactSizes()) {
-      setMaybeMapped(lookup_td, lookup_root[i], out_td, out_root[i]);
-    }
-    setMaybeMapped(idx_td, idx_root[i], out_td, out_root[i]);
-  }
-}
-
 void ComputeAtRootDomainMapBuilder::mapAllPendingMappings(
     const DomainKey& key) {
   auto it = pending_map_.find(key);
@@ -1270,8 +1251,7 @@ class ExactRootDomainMapBuilder : private IterVisitor {
            ir_utils::filterByType<TensorView>(expr->outputs())) {
         PairwiseRootDomainMap pwise_map(producer, consumer);
         pwise_map.mapBroadcast(false);
-        const auto mappings = pwise_map.mapProducerToConsumer(
-            producer->domain(), consumer->domain());
+        const auto mappings = pwise_map.mapProducerToConsumer();
         for (const auto& mapping : mappings) {
           eq_sets_.mapEntries(mapping.first, mapping.second);
         }

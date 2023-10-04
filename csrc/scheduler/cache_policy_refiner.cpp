@@ -32,10 +32,9 @@ bool pointwiseExpands(const Expr* expr, const TensorView* in_tv) {
   }
   const auto* out_tv = out->as<TensorView>();
 
-  auto root_domain_map =
-      PairwiseRootDomainMap(in_tv, out_tv)
-          .mapBroadcast(true)
-          .mapProducerToConsumer(in_tv->domain(), out_tv->domain());
+  auto root_domain_map = PairwiseRootDomainMap(in_tv, out_tv)
+                             .mapBroadcast(true)
+                             .mapProducerToConsumer();
   return std::find_if(
              root_domain_map.begin(),
              root_domain_map.end(),
@@ -127,16 +126,17 @@ bool refineCachePolicy(LoadStoreOp* ldst) {
     return false;
   }
 
+  auto target_cache_op = CacheOp::AllLevels;
   scheduler_debug_utils::log(
       "Changed the cache op of ",
       ldst->toString(),
       " from ",
       ldst->cacheOp(),
       " to ",
-      CacheOp::AllLevels,
+      target_cache_op,
       " because it is expanded by ",
       expand->toString());
-  ldst->setCacheOp(CacheOp::AllLevels);
+  ldst->setCacheOp(target_cache_op);
   return true;
 }
 

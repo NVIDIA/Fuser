@@ -615,9 +615,7 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
         auto forward_pairwise_root_map = PairwiseRootDomainMap(
             forward_running_producer, forward_running_consumer);
         auto forward_p2c_root_map =
-            forward_pairwise_root_map.mapProducerToConsumer(
-                forward_running_producer->domain(),
-                forward_running_consumer->domain());
+            forward_pairwise_root_map.mapProducerToConsumer();
 
         // These are the ids we will have to resolve. As we resolve them we'll
         // remove them from this vector. If this vector ends up empty, then
@@ -688,9 +686,7 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
                   backward_running_producer, backward_running_consumer);
 
               auto backward_c2p_root_map =
-                  backward_pairwise_root_map.mapConsumerToProducer(
-                      backward_running_consumer->domain(),
-                      backward_running_producer->domain());
+                  backward_pairwise_root_map.mapConsumerToProducer();
 
               // Mark if producer is a producer of a reduction
               bool producer_resolves =
@@ -762,8 +758,7 @@ bool SchedulerTopologyChecker::hasPostReductionBCast(Fusion* fusion) {
 
           auto pairwise_root_map =
               PairwiseRootDomainMap(running_producer, running_consumer);
-          auto p2c_root_map = pairwise_root_map.mapProducerToConsumer(
-              running_producer->domain(), running_consumer->domain());
+          auto p2c_root_map = pairwise_root_map.mapProducerToConsumer();
 
           // Check if any TensorViews have a resolved broadcast
           for (auto entry : p2c_root_map) {
