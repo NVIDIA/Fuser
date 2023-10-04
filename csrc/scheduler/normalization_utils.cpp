@@ -6,7 +6,9 @@
  */
 // clang-format on
 #include <expr_evaluator.h>
+#include <grouped_reduction.h>
 #include <instrumentation.h>
+#include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
@@ -1064,6 +1066,159 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
   }
 
   return true;
+}
+
+// common prepare for all persistent schedulers
+void beforeSchedule(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    std::vector<TensorView*>& dummy_outputs,
+    std::vector<TensorView*>& cached_inputs,
+    std::vector<TensorView*>& reduction_tvs,
+    std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
+  // Project the persistent buffers to the inputs. Inputs will be cached in a
+  // later step, this will move them to be in a register buffer as expected.
+  // dummy outputs are helper tensors to make sure persistent buffer projection
+  // does not create trouble for transform propagation.
+  dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
+      fusion, rparams.project_persistent_buffers);
+
+  // Cache tensors before grabbing any references to reductions as cache_before
+  // can invalidate the references since when applied to a reduction tensor view
+  // the new tensor view contains the reduction and original doesn't.
+  bool unroll = rparams.isUnrolled();
+  // Cache inputs even if not unrolled, as otherwise we may not create a
+  // persistent buffer if that persistent buffer would be the input.
+  cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+
+  // Cache and fork outputs
+  cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, unroll);
+
+  // Make sure we don't have global memory set on intermediate tensors from
+  // fusion segmentation
+  scheduler_utils::clearMemorySpace(fusion);
+  scheduler_utils::prepareForMemoryTypePromotion(fusion);
+
+  // Use shared memory to store persistent buffers
+  if (rparams.shared_mem_persistent_buffer) {
+    const auto& persistent_buffers =
+        scheduler_utils::persistentBuffers(fusion).persistent_buffers;
+    for (auto tv : persistent_buffers) {
+      tv->setMemoryType(MemoryType::Shared);
+    }
+  }
+
+  reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+}
+
+TensorView* scheduleReductionGeneral(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    std::vector<TensorView*>& reduction_tvs,
+    ScheduleHeuristic schedule_heuristic) {
+  NVF_ERROR(!reduction_tvs.empty());
+  // Registry assumes the reference tv is the first reduction_tv, if this
+  // changes registry needs to change.
+  auto reduction_tv = reduction_tvs[0];
+
+  if (!ir_utils::getViewOps(fusion).empty()) {
+    ComputeAtMap ca_map(fusion);
+    // Propagate reshape transforms through the graph, expecially the reference.
+    scheduler_utils::propagateReshapeTransforms(fusion, ca_map);
+
+    // Reorder reference_tv after propagating the view operation. This will
+    // reorder for better merging.
+    reduction_tv->reorder(
+        scheduler_utils::domainReorderAsRfactorMap(reduction_tv));
+  }
+
+  if (schedule_heuristic == ScheduleHeuristic::OuterPersistent &&
+      rparams.cross_grid_inner_reduction && reduction_tvs.size() > 1) {
+    groupReductions(reduction_tvs, false);
+  }
+
+  auto dim_analysis = scheduler_utils::canonicalDimReduction(
+      fusion, reduction_tv, rparams.fastest_dim && rparams.schedule_3D);
+  bool has_iter_axis = dim_analysis.first;
+  bool has_red_axis = dim_analysis.second;
+
+  NVF_ERROR(
+      has_red_axis,
+      "Could not find reduction axis in tensor used for reduction scheduler.");
+
+  if (!has_iter_axis) {
+    NVF_ERROR(
+        rparams.fastest_dim,
+        "If all dims are reduction, should be sending it to fastest dim scheduler.");
+  }
+
+  return reduction_scheduler_utils::scheduleReductionTV(
+      rparams, reduction_tv, has_iter_axis);
+}
+
+// fusion is the input IR that will be modified by this function
+void schedulePersistentKernel(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    ScheduleHeuristic schedule_heuristic) {
+  FUSER_PERF_SCOPE("schedulePersistentKernel");
+
+  FusionGuard fg(fusion);
+
+  // Grab the reduction, input, and output tensor views. dummy_outputs are
+  // helper tensors for persistent buffer projection.
+  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
+  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
+  beforeSchedule(
+      fusion,
+      rparams,
+      dummy_outputs,
+      cached_inputs,
+      reduction_tvs,
+      cached_outputs);
+
+  TensorView* reference_tv = scheduleReductionGeneral(
+      fusion, rparams, reduction_tvs, schedule_heuristic);
+
+  // Reduction tensor views and rfactor tensor views are setup. Let's finish off
+  // the scheduling, particularly inlining and unrolling.
+  NVF_ERROR(
+      reference_tv != nullptr && reduction_tvs[0] != nullptr,
+      "Need these two tensor views to finish the scheduling.");
+
+  for (auto output : dummy_outputs) {
+    fusion->addOutput(output);
+  }
+
+  const bool unroll = rparams.isUnrolled();
+  const bool vectorize =
+      rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
+  const bool is_outer_grid_persistence = rparams.persistent_kernel &&
+      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
+  reduction_scheduler_utils::multiReductionInliner(
+      fusion,
+      reduction_tvs[0],
+      reference_tv,
+      unroll,
+      vectorize,
+      is_outer_grid_persistence,
+      reduction_tvs,
+      cached_inputs,
+      cached_outputs,
+      dummy_outputs);
+
+  if (rparams.compute_persistent_buffer_with_first_consumer) {
+    NVF_ERROR(
+        rparams.persistent_kernel,
+        "computeWith should be only used with persistent kernels");
+    for (const auto persistent_buffer : cached_inputs) {
+      persistent_buffer->computeWith(-1, true);
+    }
+  }
+
+  scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
+
+  refineCachePolicy(fusion);
 }
 
 } // namespace normalization_scheduler_utils

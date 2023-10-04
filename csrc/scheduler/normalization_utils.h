@@ -254,5 +254,30 @@ bool checkReductionPattern(
 // using checkOpsAndInputs, checkReductionPattern, and checkViewBufferTopology.
 bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic);
 
+// Common preparations before the actual schedule, used by all persistent
+// schedulers. Write to dummy_outputs, cached_inputs, reduction_tvs, and
+// cached_outputs.
+void beforeSchedule(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    std::vector<TensorView*>& dummy_outputs,
+    std::vector<TensorView*>& cached_inputs,
+    std::vector<TensorView*>& reduction_tvs,
+    std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs);
+
+// schedule a reduction tv, used by all persistent schedulers.
+// will group reduction ops for OuterPersistentKernelScheduler with multiple
+// reduction tvs.
+TensorView* scheduleReductionGeneral(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    std::vector<TensorView*>& reduction_tvs,
+    ScheduleHeuristic schedule_heuristic);
+
+// Used by InnerPersistentKernelScheduler and  OuterPersistentKernelScheduler
+void schedulePersistentKernel(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    ScheduleHeuristic schedule_heuristic);
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser
