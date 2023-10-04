@@ -1284,7 +1284,9 @@ struct TensorRecord : RecordFunctor {
         allocation_domain[rank - 1 - static_cast<int>(stride_order_[i])] =
             tv->axis(i);
       }
-      tv->setAllocationDomain(allocation_domain, true);
+      // NOTE: this is awkward.
+      // updating allocation domain requires an update on contiguity flag
+      tv->setAllocationDomain(allocation_domain, contiguity_);
     }
 
     fd.setFusionState(outputs_.at(0).index, tv);
