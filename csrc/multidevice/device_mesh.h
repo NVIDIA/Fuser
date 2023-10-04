@@ -20,11 +20,11 @@ namespace nvfuser {
 class DeviceMesh final {
  public:
   DeviceMesh(std::vector<DeviceIdxType> devices = {0}) {
-    set_(devices);
+    setDevices(devices);
   }
 
   DeviceMesh& operator=(const std::vector<DeviceIdxType>& devices) {
-    set_(devices);
+    setDevices(devices);
     return *this;
   }
 
@@ -48,7 +48,7 @@ class DeviceMesh final {
   }
 
  private:
-  void set_(std::vector<DeviceIdxType> devices) {
+  void setDevices(std::vector<DeviceIdxType> devices) {
     vector_ = devices;
     NVF_ERROR(!devices.empty(), "empty device mesh");
     NVF_ERROR(

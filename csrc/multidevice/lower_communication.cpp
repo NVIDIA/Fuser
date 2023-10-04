@@ -19,7 +19,7 @@ namespace {
 // Checks that the other axis are not parallelized on Didx
 bool isParallelD(TensorView* tv) {
   std::vector<bool> is_parallel_d;
-  for (IterDomain* id : tv->getRootDomain()) {
+  for (IterDomain* id : tv->getLeafDomain()) {
     is_parallel_d.push_back(isParallelTypeDeviceDim(id->getParallelType()));
   }
   // Currently, only the most external dim is allowed to be parallelized
@@ -33,21 +33,21 @@ bool isParallelD(TensorView* tv) {
 }
 
 inline bool isDeviceInvolved(
-    DeviceIdxType device_index,
+    DeviceIdxType my_device_index,
     DeviceIdxType root,
-    DeviceMesh mesh) {
-  return device_index == root || mesh.has(device_index);
+    const DeviceMesh& mesh) {
+  return my_device_index == root || mesh.has(my_device_index);
 }
 
 inline bool isDeviceInvolved(
-    DeviceIdxType device_index,
-    DeviceMesh sender_mesh,
-    DeviceMesh receiver_mesh) {
-  return sender_mesh.has(device_index) || receiver_mesh.has(device_index);
+    DeviceIdxType my_device_index,
+    const DeviceMesh& sender_mesh,
+    const DeviceMesh& receiver_mesh) {
+  return sender_mesh.has(my_device_index) || receiver_mesh.has(my_device_index);
 }
 
 // Creates a dummy tensor for scatter/gather communications,
-// see 'CreateParamsForGatherScatter'
+// see 'createParamsForGatherScatter'
 inline at::Tensor createDummyTensor(at::Tensor reference) {
   return at::empty_like(reference, reference.options());
 }
@@ -56,10 +56,10 @@ inline at::Tensor createDummyTensor(at::Tensor reference) {
 // params. Since most  of the steps are somewhat similar/opposite in those
 // cases, we gathered the two implementations into one function. The argument
 // "is_scatter" allows to discriminate between scatter and gather
-CommParams CreateParamsForGatherScatter(
-    DeviceIdxType device_index,
+CommParams createParamsForGatherScatter(
+    DeviceIdxType my_device_index,
     DeviceIdxType root,
-    DeviceMesh mesh, // is_scatter? receivers : senders
+    const DeviceMesh& mesh, // is_scatter? receivers : senders
     at::Tensor root_buf, // is_scatter? input buf : output buf
     at::Tensor buf, // is_scatter? output buf : input buf
     bool is_scatter) {
@@ -71,13 +71,13 @@ CommParams CreateParamsForGatherScatter(
     params.team.push_back(root);
   }
 
-  if (mesh.has(device_index)) {
+  if (mesh.has(my_device_index)) {
     auto sliced_buf =
-        buf.index({static_cast<int>(mesh.findIndex(device_index)), "..."});
+        buf.index({static_cast<int>(mesh.findIndex(my_device_index)), "..."});
     ((is_scatter) ? params.dst_bufs : params.src_bufs) = {sliced_buf};
   }
 
-  if (device_index == root) {
+  if (my_device_index == root) {
     for (auto i : c10::irange(mesh.vector().size())) {
       ((is_scatter) ? params.src_bufs : params.dst_bufs)
           .push_back(root_buf.index({static_cast<int>(i), "..."}));
@@ -97,48 +97,48 @@ CommParams CreateParamsForGatherScatter(
 
 // Adds one or zero Scatter communication to the vector 'comms'
 void lowerToScatter(
-    DeviceIdxType device_index,
-    DeviceMesh sender_mesh,
-    DeviceMesh receiver_mesh,
+    DeviceIdxType my_device_index,
+    const DeviceMesh& sender_mesh,
+    const DeviceMesh& receiver_mesh,
     at::Tensor input_tensor,
     at::Tensor output_tensor,
     std::vector<std::shared_ptr<Communication>>& comms) {
   // we arbitrarily choose the first device of the sender mesh to be the root
   auto root = sender_mesh.vector().at(0);
-  if (!isDeviceInvolved(device_index, root, receiver_mesh)) {
+  if (!isDeviceInvolved(my_device_index, root, receiver_mesh)) {
     return;
   }
-  auto params = CreateParamsForGatherScatter(
-      device_index, root, receiver_mesh, input_tensor, output_tensor, true);
+  auto params = createParamsForGatherScatter(
+      my_device_index, root, receiver_mesh, input_tensor, output_tensor, true);
   comms.push_back(std::make_shared<Scatter>(std::move(params)));
 }
 
 // Adds one or zero Gather communication to the vector 'comms'
 void lowerToGather(
-    DeviceIdxType device_index,
-    DeviceMesh sender_mesh,
-    DeviceMesh receiver_mesh,
+    DeviceIdxType my_device_index,
+    const DeviceMesh& sender_mesh,
+    const DeviceMesh& receiver_mesh,
     at::Tensor input_tensor,
     at::Tensor output_tensor,
     std::vector<std::shared_ptr<Communication>>& comms) {
   // we create as many 'Gathers' as there are devices in the receiver mesh
   for (auto root : receiver_mesh.vector()) {
-    if (!isDeviceInvolved(device_index, root, sender_mesh))
+    if (!isDeviceInvolved(my_device_index, root, sender_mesh))
       continue;
-    auto params = CreateParamsForGatherScatter(
-        device_index, root, sender_mesh, output_tensor, input_tensor, false);
+    auto params = createParamsForGatherScatter(
+        my_device_index, root, sender_mesh, output_tensor, input_tensor, false);
     comms.push_back(std::make_shared<Gather>(std::move(params)));
   }
 }
 
 // Add one or zero Allgather communication to the vector 'comms'
 void lowerToAllgather(
-    DeviceIdxType device_index,
-    DeviceMesh mesh,
+    DeviceIdxType my_device_index,
+    const DeviceMesh& mesh,
     at::Tensor input_tensor,
     at::Tensor output_tensor,
     std::vector<std::shared_ptr<Communication>>& comms) {
-  if (!mesh.has(device_index))
+  if (!mesh.has(my_device_index))
     return;
 
   CommParams params;
@@ -147,16 +147,17 @@ void lowerToAllgather(
     params.dst_bufs.push_back(
         output_tensor.index({static_cast<int>(i), "..."}));
   }
-  params.src_bufs = {input_tensor.index({mesh.findIndex(device_index), "..."})};
+  params.src_bufs = {
+      input_tensor.index({mesh.findIndex(my_device_index), "..."})};
 
   comms.push_back(std::make_shared<Allgather>(std::move(params)));
 }
 
 // Creates and set the CommParams for a Broadcast or Send/Recv communication
-CommParams CreateParamsForBroadcastOrP2P(
-    DeviceIdxType device_index,
+CommParams createParamsForBroadcastOrP2P(
+    DeviceIdxType my_device_index,
     DeviceIdxType root,
-    DeviceMesh mesh, // receiver devices
+    const DeviceMesh& mesh, // receiver devices
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   CommParams params;
@@ -166,7 +167,7 @@ CommParams CreateParamsForBroadcastOrP2P(
     params.team.push_back(root);
   }
 
-  if (device_index == root) {
+  if (my_device_index == root) {
     params.src_bufs = {input_tensor};
   }
   if (mesh.has(my_device_index)) {
@@ -178,16 +179,16 @@ CommParams CreateParamsForBroadcastOrP2P(
 
 // Adds one or zero Broadcast or Send/Recv communication to the vector 'comms'
 void lowerToBroadcastOrP2P(
-    DeviceIdxType device_index,
+    DeviceIdxType my_device_index,
     DeviceIdxType root,
-    DeviceMesh mesh, // receiver devices
+    const DeviceMesh& mesh, // receiver devices
     at::Tensor input_tensor,
     at::Tensor output_tensor,
     std::vector<std::shared_ptr<Communication>>& comms) {
-  if (!isDeviceInvolved(device_index, root, mesh))
+  if (!isDeviceInvolved(my_device_index, root, mesh))
     return;
-  auto params = CreateParamsForBroadcastOrP2P(
-      device_index, root, mesh, input_tensor, output_tensor);
+  auto params = createParamsForBroadcastOrP2P(
+      my_device_index, root, mesh, input_tensor, output_tensor);
   std::shared_ptr<Communication> comm;
   if (mesh.vector().size() == 1) {
     comm = std::make_shared<SendRecv>(std::move(params));
@@ -202,9 +203,9 @@ void lowerToBroadcastOrP2P(
 // the input and output have the same parallelization (given by
 // the argument "is_parallelized"). Later we could support more general cases.
 void lowerToBroadcastOrP2P(
-    DeviceIdxType device_index,
-    DeviceMesh sender_mesh,
-    DeviceMesh receiver_mesh,
+    DeviceIdxType my_device_index,
+    const DeviceMesh& sender_mesh,
+    const DeviceMesh& receiver_mesh,
     at::Tensor input_tensor,
     at::Tensor output_tensor,
     bool is_parallelized,
@@ -213,8 +214,11 @@ void lowerToBroadcastOrP2P(
     // if the inputs and ouputs are parallelized,
     // we create as many Broadcast as that will be handled in parallel
     for (auto i : c10::irange(sender_mesh.vector().size())) {
+      NVF_ERROR(
+          sender_mesh.vector().size() == receiver_mesh.vector().size(),
+          "the receiver and sender meshes have different sizes");
       lowerToBroadcastOrP2P(
-          device_index,
+          my_device_index,
           sender_mesh.vector().at(i),
           DeviceMesh({receiver_mesh.vector().at(i)}),
           input_tensor.index({static_cast<int>(i), "..."}),
@@ -224,7 +228,7 @@ void lowerToBroadcastOrP2P(
   } else {
     // we arbitrarily choose the first device of the sender mesh to be the root
     lowerToBroadcastOrP2P(
-        device_index,
+        my_device_index,
         sender_mesh.vector().at(0),
         receiver_mesh,
         input_tensor,
@@ -245,7 +249,7 @@ TODO:
 *) Leverage the topology to ensure that the senders and recerivers are close
 */
 std::vector<std::shared_ptr<Communication>> lowerCommunication(
-    DeviceIdxType device_index,
+    DeviceIdxType my_device_index,
     PipelineCommunication* c,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
@@ -256,8 +260,9 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
       c->out()->as<PipelineVal>()->getOriginalVal()->as<TensorView>();
   at::Tensor dummy;
 
-  auto sender_mesh = c->in()->as<PipelineVal>()->getStage()->descriptor()->mesh;
-  auto receiver_mesh =
+  const auto& sender_mesh =
+      c->in()->as<PipelineVal>()->getStage()->descriptor()->mesh;
+  const auto& receiver_mesh =
       c->out()->as<PipelineVal>()->getStage()->descriptor()->mesh;
 
   // Stores whether the I/O has its first axis parallelized on Didx
@@ -283,12 +288,12 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
   NVF_ERROR(!sender_mesh.vector().empty(), "sender mesh is empty");
   NVF_ERROR(!receiver_mesh.vector().empty(), "receiver mesh is empty");
 
-  if (!isDeviceInvolved(device_index, sender_mesh, receiver_mesh))
+  if (!isDeviceInvolved(my_device_index, sender_mesh, receiver_mesh))
     return {};
 
   if (!is_input_parallel_d && is_output_parallel_d) {
     lowerToScatter(
-        device_index,
+        my_device_index,
         sender_mesh,
         receiver_mesh,
         input_tensor,
@@ -297,10 +302,10 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
   } else if (is_input_parallel_d && !is_output_parallel_d) {
     if (receiver_mesh.vector() == sender_mesh.vector()) {
       lowerToAllgather(
-          device_index, sender_mesh, input_tensor, output_tensor, comms);
+          my_device_index, sender_mesh, input_tensor, output_tensor, comms);
     } else {
       lowerToGather(
-          device_index,
+          my_device_index,
           sender_mesh,
           receiver_mesh,
           input_tensor,
@@ -309,7 +314,7 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
     }
   } else {
     lowerToBroadcastOrP2P(
-        device_index,
+        my_device_index,
         sender_mesh,
         receiver_mesh,
         input_tensor,
