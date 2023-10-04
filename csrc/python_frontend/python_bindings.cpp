@@ -184,6 +184,35 @@ std::vector<std::optional<bool>> computeContiguity(
   return contiguity;
 }
 
+// [ Note stride order and contiguity vector ]
+//
+// `stride order` vector corresponds to the order for each logical domain in
+//     physical memory;
+// `contiguity` vector to whether or not indexing could be collaped
+//     corresponding to each physical domain;
+//
+// e.g. Given size and stride as follow:
+//   sizes   = [2, 1, 3, 1, 4, 3]
+//   strides = [12, 4, 4, 4, 1, 0]
+// we would compute stride order as: [5, 4, 3, 2, 1, 0]. Since the original
+// stride is in descending order. Note that there's more than one way to define
+// a stride order when we have equal strides. In the context of index
+// collapsing, how we resolve that shouldn't matter, hence we just go with
+// preserving their original order. Similarly, we compute contiguity as: [True,
+// None, True, None, True, None], Since the physical order is the same as the
+// logical order, this one is trivial to compute.
+//
+// e.g. Given size and stride as follow:
+//   sizes   = [2, 3, 1, 5, 4]
+//   strides = [28, 4, 14, 0, 1]
+// stride_order would be: [4, 2, 3, 0, 1], marking the order of strides in the
+// vector. Meanwhile, contiguity would be computed on the physical domain, i.e.
+// on sorted sizes & strides.
+//   sorted_size    = [2, 1, 3, 4, 5]
+//   sorted_strides = [28, 14, 4, 1, 0]
+//   contiguity would be: [False, None, True, True, None]
+//
+// This function returns a tuple of <contiguity, stride_order>
 std::tuple<std::vector<std::optional<bool>>, std::vector<int64_t>>
 computeTensorDescriptor(
     const std::vector<int64_t>& sizes,
