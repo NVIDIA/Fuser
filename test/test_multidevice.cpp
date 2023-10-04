@@ -69,7 +69,7 @@ void SendToTester(
       auto sender = mesh.vector().at(j);
       if (tester != sender &&
           (comm.deviceId() == sender || comm.deviceId() == tester)) {
-        comm.sendRecv(tester, sender, buffer);
+        comm.sendRecv(tester, sender, buffer)->wait();
       }
     }
   } else {
@@ -77,7 +77,7 @@ void SendToTester(
     auto sender = mesh.vector().at(0);
     if (tester != sender &&
         (comm.deviceId() == sender || comm.deviceId() == tester)) {
-      comm.sendRecv(tester, sender, buffer);
+      comm.sendRecv(tester, sender, buffer)->wait();
     }
   }
 }
