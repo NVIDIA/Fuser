@@ -107,8 +107,9 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
     for (auto receiver_rank : communication.team) {
       if ((sender_rank == receiver_rank) ||
           !(runtime_.comm_.deviceId() == sender_rank ||
-            runtime_.comm_.deviceId() == receiver_rank))
+            runtime_.comm_.deviceId() == receiver_rank)) {
         continue;
+      }
       runtime_.comm_.sendRecv(receiver_rank, sender_rank, tensor);
     }
   }

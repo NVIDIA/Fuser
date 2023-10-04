@@ -123,8 +123,9 @@ void lowerToGather(
     std::vector<std::shared_ptr<Communication>>& comms) {
   // we create as many 'Gathers' as there are devices in the receiver mesh
   for (auto root : receiver_mesh.vector()) {
-    if (!isDeviceInvolved(my_device_index, root, sender_mesh))
+    if (!isDeviceInvolved(my_device_index, root, sender_mesh)) {
       continue;
+    }
     auto params = createParamsForGatherScatter(
         my_device_index, root, sender_mesh, output_tensor, input_tensor, false);
     comms.push_back(std::make_shared<Gather>(std::move(params)));
@@ -138,8 +139,9 @@ void lowerToAllgather(
     at::Tensor input_tensor,
     at::Tensor output_tensor,
     std::vector<std::shared_ptr<Communication>>& comms) {
-  if (!mesh.has(my_device_index))
+  if (!mesh.has(my_device_index)) {
     return;
+  }
 
   CommParams params;
   params.team = mesh.vector();
@@ -185,8 +187,9 @@ void lowerToBroadcastOrP2P(
     at::Tensor input_tensor,
     at::Tensor output_tensor,
     std::vector<std::shared_ptr<Communication>>& comms) {
-  if (!isDeviceInvolved(my_device_index, root, mesh))
+  if (!isDeviceInvolved(my_device_index, root, mesh)) {
     return;
+  }
   auto params = createParamsForBroadcastOrP2P(
       my_device_index, root, mesh, input_tensor, output_tensor);
   std::shared_ptr<Communication> comm;
@@ -288,8 +291,9 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
   NVF_ERROR(!sender_mesh.vector().empty(), "sender mesh is empty");
   NVF_ERROR(!receiver_mesh.vector().empty(), "receiver mesh is empty");
 
-  if (!isDeviceInvolved(my_device_index, sender_mesh, receiver_mesh))
+  if (!isDeviceInvolved(my_device_index, sender_mesh, receiver_mesh)) {
     return {};
+  }
 
   if (!is_input_parallel_d && is_output_parallel_d) {
     lowerToScatter(
