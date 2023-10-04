@@ -18,7 +18,7 @@
 #include <options.h>
 #include <utils.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <deque>
 #include <list>
 #include <sstream>
@@ -495,7 +495,7 @@ std::vector<ExprGroup*> ExprGroup::getMergeCandidates(
 
   // Find neighbors with a level that is only 1 different than this group's
   // level
-  for (const auto i : std::views::iota((size_t)0, neighbors.size())) {
+  for (const auto i : irange(neighbors.size())) {
     if (std::abs(neighbors[i]->payload()->level - payload()->level) > 1) {
       can_merge.at(i) = false;
       if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
@@ -508,7 +508,7 @@ std::vector<ExprGroup*> ExprGroup::getMergeCandidates(
   // Check neighbor of neighbors we're considering, if any of them are merged
   // with another node, make sure the resulting edge wouldn't have a level
   // difference of 1
-  for (const auto i : std::views::iota((size_t)0, neighbors.size())) {
+  for (const auto i : irange(neighbors.size())) {
     if (!can_merge.at(i)) {
       continue;
     }
@@ -572,7 +572,7 @@ std::vector<ExprGroup*> ExprGroup::getMergeCandidates(
   }
 
   std::vector<ExprGroup*> merge_candidates;
-  for (const auto i : std::views::iota((size_t)0, neighbors.size())) {
+  for (const auto i : irange(neighbors.size())) {
     if ((can_merge.at(i) && !fallback_mode_enabled) ||
         (!can_merge.at(i) && fallback_mode_enabled)) {
       auto neighbor = neighbors.at(i);

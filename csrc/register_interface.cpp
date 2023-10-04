@@ -18,7 +18,7 @@
 #include <torch/csrc/jit/runtime/profiling_record.h>
 #include <torch/csrc/jit/runtime/register_ops_utils.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 
 /*
  * Registers function pointers in interface.h
@@ -118,7 +118,7 @@ bool complyWith(
   const auto& t_sizes = tensor.sizes();
   const auto& t_strides = tensor.strides();
   int inner_dim = -1;
-  for (const auto j : std::views::iota((size_t)0, *guard_tensor_type->dim())) {
+  for (const auto j : irange(*guard_tensor_type->dim())) {
     // check b. for stride check, we go along dimensions from fastest stride to
     // slowest stride
     int sorted_index = stride_properties[j]->stride_index_
@@ -234,7 +234,7 @@ torch::jit::RegisterOperators size_eq_guard({
                   return;
                 }
 
-                for (const auto i : std::views::iota((size_t)0, inp.size())) {
+                for (const auto i : nvfuser::irange(inp.size())) {
                   if (((inp[i] == 1) != (ref[i] == 1))) {
                     ret = false;
                     break;
@@ -284,7 +284,7 @@ torch::jit::RegisterOperators reg_guard({
               return;
             }
 
-            for (const auto i : std::views::iota((size_t)0, num_inputs)) {
+            for (const auto i : nvfuser::irange(num_inputs)) {
               const c10::TensorTypePtr& guard_tensor_type =
                   types[i]->cast<at::TensorType>();
 
@@ -313,7 +313,7 @@ bool inferViewShape(
     c10::List<int64_t> view_sizes) {
   int64_t dynamic_index = -1;
   size_t view_size_num_elements = 1;
-  for (auto idx : std::views::iota((size_t)0, view_sizes.size())) {
+  for (auto idx : nvfuser::irange(view_sizes.size())) {
     if (view_sizes[idx] == -1) {
       NVF_ERROR(dynamic_index == -1, "Only one dimension can by inferred.")
       dynamic_index = (int64_t)idx;

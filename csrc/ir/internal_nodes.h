@@ -16,7 +16,7 @@
 #include <mma_type.h>
 #include <parallel_type_bitmap.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 
 //! Nodes in here should generally not be used by users. They should be behind
 //! the scenes and users shouldn't have to be aware of what they do to use the
@@ -1238,7 +1238,7 @@ class GroupedWelfordOp : public Expr {
     std::vector<WelfordTriplet> result;
     auto size = outputs().size() / 3;
     result.reserve(size);
-    for (auto i : std::views::iota((size_t)0, size)) {
+    for (auto i : irange(size)) {
       result.emplace_back(outAvg(i), outVar(i), outN(i));
     }
     return result;
@@ -1248,7 +1248,7 @@ class GroupedWelfordOp : public Expr {
     std::vector<WelfordTriplet> result;
     auto size = inputs().size() / 3;
     result.reserve(size);
-    for (auto i : std::views::iota((size_t)0, size)) {
+    for (auto i : irange(size)) {
       result.emplace_back(inAvg(i), inVar(i), inN(i));
     }
     return result;
@@ -1258,7 +1258,7 @@ class GroupedWelfordOp : public Expr {
     std::vector<WelfordTriplet> result;
     auto size = inputs().size() / 3;
     result.reserve(size);
-    for (auto i : std::views::iota((size_t)0, size)) {
+    for (auto i : irange(size)) {
       result.emplace_back(initAvg(i), initVar(i), initN(i));
     }
     return result;

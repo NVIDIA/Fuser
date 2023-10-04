@@ -17,7 +17,7 @@
 
 #include <c10/macros/Export.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <cstdint>
 #include <string>
 #include <unordered_map>

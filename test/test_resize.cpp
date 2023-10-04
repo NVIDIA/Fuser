@@ -12,7 +12,7 @@
 #include <test/utils.h>
 #include <test/validator.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 
 namespace nvfuser {
 
@@ -754,7 +754,7 @@ TEST_F(ResizeTest, FusionResizeCat7) {
     FusionGuard fg(&fusion);
 
     std::vector<TensorView*> inputs;
-    for (const auto i : std::views::iota(0, num_tensors_to_concat)) {
+    for (const auto i : irange(num_tensors_to_concat)) {
       (void)i;
       // concrete shapes to avoid dynamic Fusion
       auto shape = base_shape;
@@ -782,7 +782,7 @@ TEST_F(ResizeTest, FusionResizeCat7) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
     std::vector<at::Tensor> aten_inputs;
-    for (const auto i : std::views::iota(0, num_tensors_to_concat)) {
+    for (const auto i : irange(num_tensors_to_concat)) {
       auto shape = base_shape;
       shape[concat_dim] = 10 + (i % 5);
       aten_inputs.emplace_back(at::randn(shape, options));
@@ -2430,7 +2430,7 @@ TEST_F(NVFuserTest, ResizePadToBroadcastStatic_CUDA) {
                      ->definition()
                      ->inputs()[1]
                      ->as<TensorView>();
-  for (auto i : std::views::iota((size_t)0, expected_itertypes.size())) {
+  for (auto i : irange(expected_itertypes.size())) {
     EXPECT_EQ(conc_t2->axis(i)->getIterType(), expected_itertypes.at(i));
   }
 
@@ -3029,7 +3029,7 @@ TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  for (const auto i : std::views::iota(0, 3)) {
+  for (const auto i : irange(3)) {
     auto slice_out_ref = t0.index(
         {at::indexing::Slice(0, at::indexing::None),
          at::indexing::Slice(0, at::indexing::None),

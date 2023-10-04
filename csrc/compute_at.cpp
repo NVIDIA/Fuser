@@ -14,7 +14,7 @@
 #include <root_domain_map.h>
 #include <transform_iter.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 
 namespace nvfuser {
 
@@ -65,7 +65,7 @@ std::set<T> set_intersection(const std::set<T>& set1, const std::set<T>& set2) {
 std::deque<std::deque<TensorView*>> tvChains(
     std::deque<std::deque<Val*>> val_chains) {
   std::deque<std::deque<TensorView*>> tv_chains(val_chains.size());
-  for (const auto i : std::views::iota((size_t)0, val_chains.size())) {
+  for (const auto i : irange(val_chains.size())) {
     auto tv_iterable = ir_utils::filterByType<TensorView>(val_chains[i]);
     tv_chains[i] =
         std::deque<TensorView*>(tv_iterable.begin(), tv_iterable.end());

@@ -20,7 +20,7 @@
 
 #include <ATen/cuda/CUDAContext.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <limits>
 
 namespace nvfuser {
@@ -70,11 +70,11 @@ class ValidateSiblings : public IterVisitor {
           ". Sibling: ",
           sibling->toString());
 
-      for (const auto i : std::views::iota((size_t)0, ref_ndims)) {
+      for (const auto i : irange(ref_ndims)) {
         validateParallelTypes(ref_output->axis((int)i), sibling->axis((int)i));
       }
 
-      for (const auto i : std::views::iota((size_t)0, ref_root.size())) {
+      for (const auto i : irange(ref_root.size())) {
         id_map[ref_root[i]] = sibling->getRootDomain().at(i);
       }
 
@@ -83,7 +83,7 @@ class ValidateSiblings : public IterVisitor {
               sibling->getLeafDomain(), ref_output->getLeafDomain(), id_map)
               .getIterDomainEquivalence();
 
-      for (const auto i : std::views::iota((size_t)0, ref_ndims)) {
+      for (const auto i : irange(ref_ndims)) {
         NVF_ERROR(
             replay.strictAreMapped(ref_output->axis(i), sibling->axis(i)),
             "Matching sibling ID not found. Expr: ",
@@ -203,8 +203,7 @@ void checkContiguity(
     TensorView* tv) {
   NVF_ERROR(tv->getMemoryType() == MemoryType::Global);
 
-  for (const auto idx :
-       std::views::iota((size_t)0, tv->getMaybeAllocationDomain().size())) {
+  for (const auto idx : irange(tv->getMaybeAllocationDomain().size())) {
     auto alloc = tv->getMaybeAllocationDomain()[idx];
     if (domains.find(alloc) != domains.end()) {
       NVF_ERROR(
@@ -547,7 +546,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
     bool has_vectorize_dim = false;
     bool has_misaligned_vectorize_dim = false;
 
-    for (const auto i : std::views::iota((size_t)0, tv->nDims())) {
+    for (const auto i : irange(tv->nDims())) {
       IterDomain* id = tv->axis((int)i);
       IterDomain* concrete_id =
           GpuLower::current()->caMap()->getConcreteMappedID(
@@ -1170,7 +1169,7 @@ void validateSwizzle(Fusion* fusion) {
 void validateAndConvertIterDomainGrouping(Fusion* fusion) {
   for (auto tv : ir_utils::allTvs(fusion)) {
     bool is_grouped = false;
-    for (const auto id_idx : std::views::iota((size_t)0, tv->nDims())) {
+    for (const auto id_idx : irange(tv->nDims())) {
       const auto id = tv->axis((int)id_idx);
       auto ptype = GpuLower::current()
                        ->caMap()

@@ -24,7 +24,7 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 
 namespace nvfuser {
 
@@ -80,7 +80,7 @@ TensorView::TensorView(
 
   std::vector<bool> is_stride_zero(*tensor_type->dim(), false);
   std::vector<bool> is_size_one(*tensor_type->dim(), false);
-  for (const auto i : std::views::iota((size_t)0, tensor_type->dim().value())) {
+  for (const auto i : irange(tensor_type->dim().value())) {
     is_size_one.at(i) = tensor_type->sizes()[i].has_value() &&
         tensor_type->sizes()[i].value() == 1;
     const auto& stride_property_i = tensor_type->stride_properties()[i];
@@ -95,7 +95,7 @@ TensorView::TensorView(
   std::vector<IterDomain*> sizes;
   sizes.reserve(*tensor_type->dim());
 
-  for (const auto i : std::views::iota((size_t)0, tensor_type->dim().value())) {
+  for (const auto i : irange(tensor_type->dim().value())) {
     if (is_stride_zero.at(i) || is_size_one.at(i)) {
       // If stride is known to be 0, assuem it needs to be broadcasted.
       auto builder =
@@ -135,7 +135,7 @@ TensorView::TensorView(
   // dimension to slowest, instead of iterating through sizes. This allows
   // easier contiguity check;
   bool found_innermost_non_broadcast = false;
-  for (const auto i : std::views::iota((size_t)0, tensor_type->dim().value())) {
+  for (const auto i : irange(tensor_type->dim().value())) {
     // if we don't have contiguous dimension at current stride index, don't
     // bother;
     const auto& stride_property_i = tensor_type->stride_properties()[i];
@@ -960,7 +960,7 @@ TensorView* TensorView::multiOutputRfactorHelper(
 
     // construct a trivial root domain map
     std::unordered_map<IterDomain*, IterDomain*> id_map;
-    for (const auto i : std::views::iota((size_t)0, root.size())) {
+    for (const auto i : irange(root.size())) {
       id_map[this_root[i]] = root[i];
     }
 
@@ -1019,7 +1019,7 @@ std::vector<TensorView*> TensorView::rFactor(
       definition()->outputs().size() == tvs.size(),
       "Rfactor of a multi-output reduction not used correctly");
 
-  for (const auto i : std::views::iota((size_t)0, tvs.size())) {
+  for (const auto i : irange(tvs.size())) {
     NVF_CHECK(
         definition()->output(i) == tvs.at(i),
         "Rfactor of a multi-output reduction not used correctly");
@@ -1038,13 +1038,13 @@ std::vector<TensorView*> TensorView::rFactor(
 
   // Make sure this gets rfactored last so everybody gets
   //  replayed correctly
-  for (const auto i : std::views::iota((size_t)0, tvs.size())) {
+  for (const auto i : irange(tvs.size())) {
     if (this != tvs.at(i)) {
       rf_tvs.at(i) = multiOutputRfactorHelper(tvs.at(i), axes);
     }
   }
 
-  for (const auto i : std::views::iota((size_t)0, tvs.size())) {
+  for (const auto i : irange(tvs.size())) {
     if (this == tvs.at(i)) {
       rf_tvs.at(i) = multiOutputRfactorHelper(tvs.at(i), axes);
     }
@@ -1334,7 +1334,7 @@ void TensorView::clearReductionIterDomains() {
 
   std::vector<IterDomain*> new_root;
   std::vector<std::optional<bool>> new_contig;
-  for (const auto i : std::views::iota((size_t)0, getRootDomain().size())) {
+  for (const auto i : irange(getRootDomain().size())) {
     auto root_i = getRootDomain().at(i);
     if (!root_i->isReduction()) {
       new_root.push_back(root_i);
@@ -1487,7 +1487,7 @@ TensorViewBuilder& TensorViewBuilder::expanded(std::vector<bool> expanded) {
 TensorView* TensorViewBuilder::build() const {
   // Build the domain
   std::vector<IterDomain*> domain(ndims_, nullptr);
-  for (const auto i : std::views::iota((size_t)0, ndims_)) {
+  for (const auto i : irange(ndims_)) {
     bool is_expanded = false;
     Val* extent = nullptr;
     Val* expanded_extent = nullptr;
@@ -1527,7 +1527,7 @@ TensorView* TensorViewBuilder::build() const {
       contiguity_.empty() || contiguity_.size() == domain.size(),
       "The size of contiguity must equal to the number of non-broadcasting IterDomains");
 
-  for (auto i : std::views::iota((size_t)0, contiguity_.size())) {
+  for (auto i : irange(contiguity_.size())) {
     NVF_CHECK(
         domain.at(i)->isBroadcast() != contiguity_.at(i).has_value(),
         "The contiguity of a broadcast dimension must be None. "

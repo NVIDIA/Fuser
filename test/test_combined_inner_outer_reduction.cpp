@@ -19,7 +19,7 @@
 #include <c10/cuda/CUDACachingAllocator.h>
 #include <c10/cuda/CUDAStream.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <algorithm>
 #include <iostream>
 #include <sstream>
@@ -64,7 +64,7 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
     const size_t kN = norm_shape.size();
     const size_t kOuterNumDims = kM - kN;
     std::vector<int64_t> outer_shape;
-    for (const auto idx : std::views::iota((size_t)0, kOuterNumDims)) {
+    for (const auto idx : irange(kOuterNumDims)) {
       outer_shape.push_back(input_shape[idx]);
     }
     for (const auto idx : std::views::iota(kOuterNumDims, kM)) {
@@ -318,7 +318,7 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedConsumer_CUDA) {
     const size_t kN = norm_shape.size();
     const size_t kOuterNumDims = kM - kN;
     std::vector<int64_t> outer_shape;
-    for (const auto idx : std::views::iota((size_t)0, kOuterNumDims)) {
+    for (const auto idx : irange(kOuterNumDims)) {
       outer_shape.push_back(input_shape[idx]);
     }
     for (const auto idx : std::views::iota(kOuterNumDims, kM)) {
@@ -467,7 +467,7 @@ TEST_F(NVFuserTest, CombinedSchedulerSharedProducer_CUDA) {
     const size_t kN = norm_shape.size();
     const size_t kOuterNumDims = kM - kN;
     std::vector<int64_t> outer_shape;
-    for (const auto idx : std::views::iota((size_t)0, kOuterNumDims)) {
+    for (const auto idx : irange(kOuterNumDims)) {
       outer_shape.push_back(input_shape[idx]);
     }
     for (const auto idx : std::views::iota(kOuterNumDims, kM)) {

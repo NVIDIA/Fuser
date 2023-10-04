@@ -14,7 +14,7 @@
 #include <polymorphic_value.h>
 #include <type.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <unordered_set>
 
 namespace nvfuser {
@@ -117,7 +117,7 @@ std::vector<int64_t> evaluateAddressesOnFirstPhase(
   int64_t phase_size =
       std::min(num_threads, getPhaseSize((int64_t)word_size_bytes));
 
-  for (int64_t linear_tidx : std::views::iota((int64_t)0, phase_size)) {
+  for (int64_t linear_tidx : irange(phase_size)) {
     int64_t tidx = linear_tidx;
     int64_t tidy = 0;
     int64_t tidz = 0;

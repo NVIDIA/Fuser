@@ -51,7 +51,7 @@
 #include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAStream.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <algorithm>
 #include <iostream>
 #include <sstream>
@@ -381,7 +381,7 @@ TEST_F(NVFuserTest, FusionTraversalOrder2_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionTraversalOrder3_CUDA) {
-  for (const auto i : std::views::iota(0, 2)) {
+  for (const auto i : irange(2)) {
     Fusion fusion;
     FusionGuard fg(&fusion);
 
@@ -692,7 +692,7 @@ TEST_F(NVFuserTest, FusionLSTMCell_CUDA) {
   FusionGuard fg(&fusion);
 
   TensorView* tvs[16];
-  for (const auto i : std::views::iota(0, 16)) {
+  for (const auto i : irange(16)) {
     tvs[i] = makeSymbolicTensor(2);
     fusion.addInput(tvs[i]);
   }
@@ -1288,8 +1288,8 @@ TEST_F(NVFuserTest, FusionDisjointSet_CUDA) {
 
   // Now each of the three groups should be equivalent within each
   // group
-  for (const auto gi : std::views::iota((size_t)0, groups.size())) {
-    for (const auto gj : std::views::iota((size_t)0, groups.size())) {
+  for (const auto gi : irange(groups.size())) {
+    for (const auto gj : irange(groups.size())) {
       for (auto i : groups[gi]) {
         for (auto j : groups[gj]) {
           NVF_CHECK(
@@ -4143,7 +4143,7 @@ TEST_F(NVFuserTest, FusionVectorizeMisalignedPointwiseMergeSymbolicPass_CUDA) {
   tv2->cacheBefore();
 
   // Merge all dimensions together except inner-most dim
-  for (const auto i : std::views::iota(0, kNumDims - 2)) {
+  for (const auto i : irange(kNumDims - 2)) {
     (void)i; // Suppress unused variable warning
     tv2->merge(0);
   }
@@ -5614,7 +5614,7 @@ TEST_F(NVFuserTest, FusionSBAR_CUDA) {
 
   const size_t kNumberOfDims = x->nDims();
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
-  for (const auto axis : std::views::iota((size_t)0, kNumberOfDims - 1)) {
+  for (const auto axis : irange(kNumberOfDims - 1)) {
     broadcast_mask[axis] = true;
   }
 
@@ -6907,7 +6907,7 @@ TEST_F(NVFuserTest, FusionSegfaultReduction_CUDA) {
   std::vector<int> outer_reduction_axes;
   std::vector<bool> outer_broadcast_mask(numDims, false);
   Val* N = IrBuilder::create<Val>(1.0);
-  for (const auto axis : std::views::iota(0, numDims)) {
+  for (const auto axis : irange(numDims)) {
     if (axis != 1) {
       outer_reduction_axes.push_back(axis);
       at_sum_axes.push_back(axis);
@@ -8259,7 +8259,7 @@ TEST_F(NVFuserTest, FusionSegmenterCombineReductionsCycleRepro_CUDA) {
   args.push(aten_inputs);
   args.push(at_d56);
 
-  for (auto i : std::views::iota(0, 5)) {
+  for (auto i : irange(5)) {
     (void)i; // Suppress unused variable warning
     auto segmented_fusion =
         SegmentCandidateFinder::segment(fusion_ptr.get(), args);

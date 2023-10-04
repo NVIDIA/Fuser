@@ -15,7 +15,7 @@
 #include <ir/utils.h>
 #include <transform_iter.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 
 namespace nvfuser {
 
@@ -121,7 +121,7 @@ IndexingParameters getLinearIndexParameters(
   auto& loop_domain = loop_indexing.loopDomains();
   auto& loop_index_map = index_parameters.initial_concrete_id_index;
 
-  for (auto loop_idx : std::views::iota((size_t)0, loops.size())) {
+  for (auto loop_idx : irange(loops.size())) {
     auto loop = loops[loop_idx];
     auto index_domain = GpuLower::current()->caMap()->getConcreteMappedID(
         loop_domain[loop_idx], IdMappingMode::EXACT);
@@ -150,7 +150,7 @@ IndexingParameters getLinearIndexParameters(
         GpuLower::current()->doubleBufferInfo().getDoubleBufferLoop(
             loop_indexing.consumerTv(), loops, true);
 
-    for (auto loop_idx : std::views::iota((size_t)0, loops.size())) {
+    for (auto loop_idx : irange(loops.size())) {
       auto loop = loops[loop_idx];
       if (loop == double_buffer_loop) {
         auto loop_id = loop_indexing.loopDomains()[loop_idx];
@@ -224,7 +224,7 @@ IndexingParameters getNonGlobalInitialIndexParameters(
       loops.size() <= loop_domains.size(),
       "Loop domain didn't replay all loops");
 
-  for (auto loop_idx : std::views::iota((size_t)0, loops.size())) {
+  for (auto loop_idx : irange(loops.size())) {
     auto loop = loops[loop_idx];
     auto loop_domain = loop_domains[loop_idx];
 
@@ -384,7 +384,7 @@ IndexingParameters getPredicateInitialIndexParameters(
 
   bool within_unswitch = false;
 
-  for (const auto loop_i : std::views::iota((size_t)0, loops.size())) {
+  for (const auto loop_i : irange(loops.size())) {
     auto loop = loops[loop_i];
     auto loop_id = loop->iter_domain();
     auto loop_pt = loop_id->getParallelType();
@@ -501,7 +501,7 @@ IndexingParameters getPredicateInitialIndexParameters(
   }
 
   // Convert loop-to-ind map to concrete-to-ind map
-  for (auto loop_idx : std::views::iota((size_t)0, loops.size())) {
+  for (auto loop_idx : irange(loops.size())) {
     auto loop = loops.at(loop_idx);
     auto concrete_loop_domain =
         GpuLower::current()->caMap()->getConcreteMappedID(

@@ -12,7 +12,7 @@
 #include <serde/fusion_record_serde.h>
 #include <utils.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <filesystem>
 
 namespace fs = std::filesystem;
@@ -524,7 +524,7 @@ void FusionCache::deserialize(std::string filename) {
   }
 
   // Deserialize terminal_nodes field in the FusionCache table
-  for (auto idx : std::views::iota((size_t)0, fusions_.size())) {
+  for (auto idx : irange(fusions_.size())) {
     auto node_idx = fusion_cache_buffer->terminal_nodes()->Get(idx);
     auto trie_node = bfs_order.at(node_idx);
     terminal_nodes_.push_back(trie_node);

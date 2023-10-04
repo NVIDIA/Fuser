@@ -9,7 +9,7 @@
 
 #include <ir/utils.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <typeinfo>
 
 namespace nvfuser {
@@ -439,7 +439,7 @@ BestEffortReplay::BestEffortReplay(
     bool missing_replay_input = false;
 
     // Map target_expr inputs to replay domain directly
-    for (const auto t_i : std::views::iota((size_t)0, target_id_inps.size())) {
+    for (const auto t_i : irange(target_id_inps.size())) {
       // There might not be a mapping, that could be okay (depends on rfactor
       // checking).
       auto it = target2replay_id_map_.find(target_id_inps[t_i]);
@@ -588,7 +588,7 @@ BestEffortReplay::BestEffortReplay(
     }
 
     // Take replay expr inputs out of map:
-    for (const auto t_i : std::views::iota((size_t)0, target_id_inps.size())) {
+    for (const auto t_i : irange(target_id_inps.size())) {
       auto t_inp = target_id_inps[t_i];
       auto r_orig_inp = target2replay_id_map_.at(t_inp);
       auto r_maybe_forwarded_inp = replay_inps[t_i];
@@ -605,8 +605,7 @@ BestEffortReplay::BestEffortReplay(
     }
 
     // Add outputs to map.
-    for (const auto i :
-         std::views::iota((size_t)0, target_expr->outputs().size())) {
+    for (const auto i : irange(target_expr->outputs().size())) {
       auto t_out = target_expr->output(i);
       auto r_out = replay_expr->output(i);
       if (t_out->getValType() == ValType::IterDomain &&
@@ -741,7 +740,7 @@ struct ForwardingInfo {
     // tensor.
     std::unordered_set<IterDomain*> forwarded_ids;
     NVF_ERROR(active_root_dom.size() == active_dim_flags->size());
-    for (auto i : std::views::iota((size_t)0, active_dim_flags->size())) {
+    for (auto i : irange(active_dim_flags->size())) {
       if (active_dim_flags->at(i)) {
         forwarded_ids.emplace(active_root_dom.at(i));
       }

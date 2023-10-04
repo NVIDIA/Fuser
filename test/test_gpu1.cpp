@@ -50,7 +50,7 @@
 #include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAStream.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <algorithm>
 #include <complex>
 #include <iostream>
@@ -551,7 +551,7 @@ TEST_F(NVFuserTest, FusionTensor_CUDA) {
     NVF_CHECK((int64_t)fuser_tensor->nDims() == tensor.dim());
     NVF_CHECK(fuser_tensor->getDataType().value() == DataType::Float);
     NVF_CHECK(fuser_tensor->domain() != nullptr);
-    for (const auto i : std::views::iota((size_t)0, fuser_tensor->nDims())) {
+    for (const auto i : irange(fuser_tensor->nDims())) {
       // size 1 dimension are makred as broadcast
       NVF_CHECK(
           fuser_tensor->axis(i)->isBroadcast() == (tensor.sizes()[i] == 1));
@@ -574,7 +574,7 @@ TEST_F(NVFuserTest, FusionTensor_CUDA) {
     NVF_CHECK((int64_t)fuser_tensor->nDims() == tensor.dim());
     NVF_CHECK(fuser_tensor->getDataType().value() == DataType::Float);
     NVF_CHECK(fuser_tensor->domain() != nullptr);
-    for (const auto i : std::views::iota((size_t)0, fuser_tensor->nDims())) {
+    for (const auto i : irange(fuser_tensor->nDims())) {
       // size 1 dimension are makred as broadcast
       NVF_CHECK(fuser_tensor->axis(i)->isBroadcast() == false);
     }
@@ -591,7 +591,7 @@ TEST_F(NVFuserTest, FusionTensor_CUDA) {
     NVF_CHECK((int64_t)fuser_tensor->nDims() == tensor.dim());
     NVF_CHECK(fuser_tensor->getDataType().value() == DataType::Float);
     NVF_CHECK(fuser_tensor->domain() != nullptr);
-    for (const auto i : std::views::iota((size_t)0, fuser_tensor->nDims())) {
+    for (const auto i : irange(fuser_tensor->nDims())) {
       // size 1 dimension are makred as broadcast
       NVF_CHECK(fuser_tensor->axis(i)->isBroadcast() == false);
     }
@@ -689,7 +689,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
       tv->getLeafDomain().begin(), tv->getLeafDomain().end());
 
   tv->reorder(shift_left);
-  for (const auto i : std::views::iota((size_t)0, tv->nDims())) {
+  for (const auto i : irange(tv->nDims())) {
     NVF_CHECK(ref[i]->sameAs(tv->axis(i - 1)));
   }
 
@@ -698,7 +698,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
       tv->getLeafDomain().begin(), tv->getLeafDomain().end());
 
   tv->reorder(shift_left);
-  for (const auto i : std::views::iota((size_t)0, tv->nDims())) {
+  for (const auto i : irange(tv->nDims())) {
     NVF_CHECK(ref[i]->sameAs(tv->axis(i - 1)));
   }
 
@@ -2147,9 +2147,9 @@ void checkIdMapped(
   NVF_ERROR(root0.size() == should_map0.size());
   NVF_ERROR(root1.size() == should_map1.size());
   size_t idx0 = 0;
-  for (const auto i : std::views::iota((size_t)0, root0.size())) {
+  for (const auto i : irange(root0.size())) {
     size_t idx1 = 0;
-    for (const auto j : std::views::iota((size_t)0, root1.size())) {
+    for (const auto j : irange(root1.size())) {
       if (should_map0[i] && should_map1[j] && idx0 == idx1) {
         checkIdMapped(map, v0, root0[i], v1, root1[j], true);
       } else {
@@ -5658,7 +5658,7 @@ TEST_F(NVFuserTest, FusionReductionMultiConsumer_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionComputeAtExprOrder1_CUDA) {
-  for (const auto i : std::views::iota(0, 2)) {
+  for (const auto i : irange(2)) {
     Fusion fusion;
     FusionGuard fg(&fusion);
 
@@ -7287,7 +7287,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   const size_t kOuterNumDims = kM - kN;
 
   std::vector<int64_t> outer_shape;
-  for (const auto idx : std::views::iota((size_t)0, kOuterNumDims)) {
+  for (const auto idx : irange(kOuterNumDims)) {
     outer_shape.push_back(shape[idx]);
   }
   for (const auto i : std::views::iota(kOuterNumDims, kM)) {
@@ -7376,7 +7376,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormBackward_CUDA) {
   const size_t kOuterNumDims = kM - kN;
 
   std::vector<int64_t> outer_shape;
-  for (const auto idx : std::views::iota((size_t)0, kOuterNumDims)) {
+  for (const auto idx : irange(kOuterNumDims)) {
     outer_shape.push_back(shape[idx]);
   }
   for (const auto i : std::views::iota(kOuterNumDims, kM)) {

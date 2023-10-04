@@ -16,7 +16,7 @@
 
 #include <device_lower/pass/index.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 
 namespace nvfuser {
 
@@ -252,7 +252,7 @@ void IndexLowering::handle(const ArrayConstruct* aop) {
 
 void IndexLowering::handle(const StructConstruct* sop) {
   std::vector<std::pair<std::string, Val*>> lowered_named_inputs;
-  for (auto i : std::views::iota((size_t)0, sop->inputs().size())) {
+  for (auto i : irange(sop->inputs().size())) {
     lowered_named_inputs.emplace_back(
         sop->fieldName(i), lowerSrcIndex(sop->inputs().at(i), sop->out()));
   }
@@ -1037,7 +1037,7 @@ void IndexLowering::handle(const GroupedWelfordOp* grouped_wop) {
     const auto& input = input_vals.at(i);
     WelfordTriplet indexed_output;
     WelfordTriplet indexed_input;
-    for (const auto j : std::views::iota(0, 3)) {
+    for (const auto j : irange(3)) {
       indexed_output.get(j) = lowerDstIndex(output.get(j));
       indexed_input.get(j) = lowerSrcIndex(input.get(j), output.get(j));
     }
@@ -1532,7 +1532,7 @@ void IndexLowering::handle(const CatOp* cat) {
   std::vector<Val*> preds(cat->inputs().size());
   Val* cur_extent = GpuLower::current()->kernel()->zeroVal();
 
-  for (const auto i : std::views::iota((size_t)0, cat->inputs().size())) {
+  for (const auto i : irange(cat->inputs().size())) {
     const auto inp = lowerSrcIndex(cat->input(i), cat->output(0));
     inputs.at(i) = inp;
 

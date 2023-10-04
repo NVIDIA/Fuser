@@ -17,7 +17,7 @@
 #include <options.h>
 #include <utils.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <cmath>
 #include <functional>
 #include <list>
@@ -1747,7 +1747,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
     }
     if (op == BinaryOpType::Add) { // a + (-a) -> 0
       std::vector<std::tuple<Val*, Val*, size_t>> inv_inputs;
-      for (size_t idx : std::views::iota((size_t)0, fop->inputs().size())) {
+      for (size_t idx : irange(fop->inputs().size())) {
         auto inp = fop->input(idx);
         auto def = inp->definition();
         if (auto inv = dynamic_cast<UnaryOp*>(def)) {
@@ -1758,7 +1758,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       }
       std::unordered_set<size_t> remove;
       for (auto [orig, inv, idx] : inv_inputs) {
-        for (size_t idx2 : std::views::iota((size_t)0, fop->inputs().size())) {
+        for (size_t idx2 : irange(fop->inputs().size())) {
           auto inp = fop->input(idx2);
           if (remove.count(idx) || remove.count(idx2)) {
             continue;
@@ -1771,7 +1771,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       }
       if (!remove.empty()) {
         std::vector<Val*> new_inputs;
-        for (size_t idx : std::views::iota((size_t)0, fop->inputs().size())) {
+        for (size_t idx : irange(fop->inputs().size())) {
           if (!remove.count(idx)) {
             new_inputs.emplace_back(fop->input(idx));
           }
@@ -2109,14 +2109,14 @@ Val* distributeDivisibleDivMod(Val* value, const Context& context) {
   if (!fop) {
     return value;
   }
-  for (auto i : std::views::iota((size_t)0, fop->inputs().size())) {
+  for (auto i : irange(fop->inputs().size())) {
     Val* divisible_term = fop->input(i);
     if (!prove::isMultipleOf(divisible_term, rhs)) {
       continue;
     }
     std::vector<Val*> other_terms;
     other_terms.reserve(fop->inputs().size() - 1);
-    for (auto j : std::views::iota((size_t)0, fop->inputs().size())) {
+    for (auto j : irange(fop->inputs().size())) {
       if (j == i) {
         continue;
       }
@@ -2492,7 +2492,7 @@ Val* fundamentalDivisionWithRemainderProperty(
     if (fmul == nullptr) {
       return result;
     }
-    for (auto j : std::views::iota((size_t)0, fmul->inputs().size())) {
+    for (auto j : irange(fmul->inputs().size())) {
       auto vmul = fmul->input(j);
       if (!isIntegralType(*vmul->getDataType())) {
         continue;
@@ -2505,7 +2505,7 @@ Val* fundamentalDivisionWithRemainderProperty(
         auto a = bop->lhs();
         auto b = bop->rhs();
         std::vector<Val*> other_terms;
-        for (auto k : std::views::iota((size_t)0, fmul->inputs().size())) {
+        for (auto k : irange(fmul->inputs().size())) {
           if (j == k) {
             continue;
           }
@@ -2529,7 +2529,7 @@ Val* fundamentalDivisionWithRemainderProperty(
   };
   // Find a / b * b or a / b * (b*c)
   std::vector<std::tuple<size_t, Val*, Val*, Val*>> divmuls;
-  for (auto i : std::views::iota((size_t)0, fadd->inputs().size())) {
+  for (auto i : irange(fadd->inputs().size())) {
     auto vadd = fadd->input(i);
     if (!isIntegralType(*vadd->getDataType())) {
       continue;
@@ -2540,7 +2540,7 @@ Val* fundamentalDivisionWithRemainderProperty(
   }
   // Find a % b or a % b * c
   std::vector<std::tuple<size_t, Val*, Val*, Val*>> modmuls;
-  for (auto i : std::views::iota((size_t)0, fadd->inputs().size())) {
+  for (auto i : irange(fadd->inputs().size())) {
     auto vadd = fadd->input(i);
     if (!isIntegralType(*vadd->getDataType())) {
       continue;
@@ -2584,7 +2584,7 @@ Val* fundamentalDivisionWithRemainderProperty(
         // As: [1] + [2] + a * c ... + ...  + ...
         Val* ac = maybeFlattenedOpOf(BinaryOpType::Mul, {a1, c});
         std::vector<Val*> terms{ac};
-        for (auto k : std::views::iota((size_t)0, fadd->inputs().size())) {
+        for (auto k : irange(fadd->inputs().size())) {
           if (k == i || k == j) {
             continue;
           }
@@ -2630,8 +2630,8 @@ Val* cancelTermsInPredicate(Val* value, const Context& context) {
 
   std::vector<bool> common_lhs_terms(lhs_terms.size(), false);
   std::vector<bool> common_rhs_terms(rhs_terms.size(), false);
-  for (const auto lhs_i : std::views::iota((size_t)0, lhs_terms.size())) {
-    for (const auto rhs_i : std::views::iota((size_t)0, rhs_terms.size())) {
+  for (const auto lhs_i : irange(lhs_terms.size())) {
+    for (const auto rhs_i : irange(rhs_terms.size())) {
       // Make sure no multiple LHS terms are removed for the same RHS term
       if (common_rhs_terms.at(rhs_i)) {
         continue;
@@ -2652,14 +2652,14 @@ Val* cancelTermsInPredicate(Val* value, const Context& context) {
   }
 
   std::vector<Val*> new_lhs_terms;
-  for (const auto i : std::views::iota((size_t)0, lhs_terms.size())) {
+  for (const auto i : irange(lhs_terms.size())) {
     if (!common_lhs_terms.at(i)) {
       new_lhs_terms.push_back(lhs_terms[i]);
     }
   }
 
   std::vector<Val*> new_rhs_terms;
-  for (const auto i : std::views::iota((size_t)0, rhs_terms.size())) {
+  for (const auto i : irange(rhs_terms.size())) {
     if (!common_rhs_terms.at(i)) {
       new_rhs_terms.push_back(rhs_terms[i]);
     }

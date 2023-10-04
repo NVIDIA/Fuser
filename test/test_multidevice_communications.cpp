@@ -12,7 +12,7 @@
 #include <multidevice/communicator.h>
 #include <test/multidevice.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <iostream>
 
 namespace nvfuser {
@@ -40,7 +40,7 @@ TEST_F(MultiDeviceTest, Communication_Gather) {
   }
   auto communication = Gather(params);
 
-  for (int j : std::views::iota(0, number_of_repetitions)) {
+  for (int j : irange(number_of_repetitions)) {
     params.src_bufs.at(0).copy_(
         at::arange(tensor_size, options) + (comm.deviceId() + 1) * j);
     for (auto& buf : params.dst_bufs) {
@@ -51,7 +51,7 @@ TEST_F(MultiDeviceTest, Communication_Gather) {
     work->wait();
 
     if (comm.deviceId() == root) {
-      for (int i : std::views::iota((int64_t)0, comm.size())) {
+      for (int i : irange(comm.size())) {
         auto obtained = params.dst_bufs.at(i);
         auto ref = at::arange(tensor_size, options) + (i + 1) * j;
         NVF_ERROR(
@@ -84,7 +84,7 @@ TEST_F(MultiDeviceTest, Communication_Allgather) {
   }
   auto communication = Allgather(params);
 
-  for (int j : std::views::iota(0, number_of_repetitions)) {
+  for (int j : irange(number_of_repetitions)) {
     params.src_bufs.at(0).copy_(
         at::arange(tensor_size, options) + (comm.deviceId() + 1) * j);
     for (auto& buf : params.dst_bufs) {
@@ -94,7 +94,7 @@ TEST_F(MultiDeviceTest, Communication_Allgather) {
     auto work = communication.post(comm);
     work->wait();
 
-    for (int i : std::views::iota((int64_t)0, comm.size())) {
+    for (int i : irange(comm.size())) {
       auto obtained = params.dst_bufs.at(i);
       auto ref = at::arange(tensor_size, options) + (i + 1) * j;
       NVF_ERROR(
@@ -129,9 +129,9 @@ TEST_F(MultiDeviceTest, Communication_Scatter) {
   params.dst_bufs = {at::empty(tensor_size, options)};
   auto communication = Scatter(params);
 
-  for (int j : std::views::iota(0, number_of_repetitions)) {
+  for (int j : irange(number_of_repetitions)) {
     params.dst_bufs.at(0).copy_(at::zeros(tensor_size, options));
-    for (int i : std::views::iota((size_t)0, params.src_bufs.size())) {
+    for (int i : irange(params.src_bufs.size())) {
       params.src_bufs.at(i).copy_(
           at::arange(tensor_size, options) + (i + 1) * j);
     }
@@ -171,7 +171,7 @@ TEST_F(MultiDeviceTest, Communication_Broadcast) {
 
   auto communication = Broadcast(params);
 
-  for (int j : std::views::iota(0, number_of_repetitions)) {
+  for (int j : irange(number_of_repetitions)) {
     if (comm.deviceId() == root) {
       params.src_bufs.at(0).copy_(at::arange(tensor_size, options) + j);
     }
@@ -219,7 +219,7 @@ TEST_F(MultiDeviceTest, Communication_SendRecv) {
   }
   auto communication = SendRecv(params);
 
-  for (int j : std::views::iota(0, number_of_repetitions)) {
+  for (int j : irange(number_of_repetitions)) {
     if (comm.deviceId() == sender) {
       params.src_bufs.at(0).copy_(at::arange(tensor_size, options) + j);
     } else {
@@ -264,7 +264,7 @@ TEST_F(MultiDeviceTest, Communication_SendRecvToSelf) {
   params.dst_bufs.push_back(at::empty(tensor_size, options));
   auto communication = SendRecv(params);
 
-  for (int j : std::views::iota(0, number_of_repetitions)) {
+  for (int j : irange(number_of_repetitions)) {
     params.src_bufs.at(0).copy_(at::arange(tensor_size, options) + j);
     params.dst_bufs.at(0).copy_(at::zeros(tensor_size, options));
 

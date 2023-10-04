@@ -9,7 +9,7 @@
 #include <ops/arith.h>
 #include <ops/normalization.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 
 namespace nvfuser {
 
@@ -253,13 +253,13 @@ auto norm_properties_from_num_dims(
   std::vector<int> inner_reduction_axes(kNormShapeNumDims);
   std::vector<bool> inner_broadcast_mask(kNumberOfDims, false);
 
-  for (const auto idx : std::views::iota((size_t)0, kOuterNumDims)) {
+  for (const auto idx : irange(kOuterNumDims)) {
     outer_reduction_axes[idx] = (int)idx;
     outer_broadcast_mask[idx] = true;
   }
 
   Val* num_features = IrBuilder::create<Val>(x->container(), 1.0);
-  for (const auto idx : std::views::iota((size_t)0, kNormShapeNumDims)) {
+  for (const auto idx : irange(kNormShapeNumDims)) {
     const size_t axis = kNumberOfDims - 1 - idx;
     inner_reduction_axes[idx] = (int)axis;
     inner_broadcast_mask[axis] = true;
@@ -506,7 +506,7 @@ ForwardNormResult batch_norm(
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   Val* num_features = IrBuilder::create<Val>(x->container(), 1.0);
 
-  for (const auto axis : std::views::iota((size_t)0, kNumberOfDims)) {
+  for (const auto axis : irange(kNumberOfDims)) {
     if (axis != c_axis) {
       reduction_axes.push_back((int)axis);
       broadcast_mask[axis] = true;
@@ -649,7 +649,7 @@ BackwardNormResult batch_norm_backward(
   std::vector<int> reduction_axes;
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   Val* num_features = nullptr;
-  for (const auto axis : std::views::iota((size_t)0, kNumberOfDims)) {
+  for (const auto axis : irange(kNumberOfDims)) {
     if (axis != c_axis) {
       reduction_axes.push_back((int)axis);
       broadcast_mask[axis] = true;
@@ -756,7 +756,7 @@ ForwardNormResult instance_norm(
   std::vector<int> x_reduction_axes;
   std::vector<bool> x_broadcast_mask(kNumberOfDims, false);
   Val* N = IrBuilder::create<Val>(x->container(), 1.0);
-  for (const auto axis : std::views::iota((size_t)0, kNumberOfDims)) {
+  for (const auto axis : irange(kNumberOfDims)) {
     if (axis != kBatchDim && axis != kChannelsDim) {
       x_reduction_axes.push_back((int)axis);
       x_broadcast_mask[axis] = true;
@@ -767,7 +767,7 @@ ForwardNormResult instance_norm(
   B = mul(B, x->getLeafDomain()[kBatchDim]->extent());
 
   std::vector<bool> channels_only_broadcast_mask(kNumberOfDims, false);
-  for (const auto axis : std::views::iota((size_t)0, kNumberOfDims)) {
+  for (const auto axis : irange(kNumberOfDims)) {
     if (axis != kChannelsDim) {
       channels_only_broadcast_mask[axis] = true;
     }
@@ -908,7 +908,7 @@ BackwardNormResult instance_norm_backward(
   // mean/var
   std::vector<bool> weight_broadcast_mask(kNumberOfDims, false);
   Val* num_features = nullptr;
-  for (const auto axis : std::views::iota((size_t)0, kNumberOfDims)) {
+  for (const auto axis : irange(kNumberOfDims)) {
     if (axis != c_axis) {
       weight_broadcast_mask[axis] = true;
       if (axis != b_axis) {

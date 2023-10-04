@@ -15,7 +15,7 @@
 #include <iter_visitor.h>
 #include <ops/arith.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 
 namespace nvfuser {
 
@@ -339,7 +339,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   std::unordered_map<IterDomain*, IterDomain*> original_to_producer_root_map;
 
   {
-    for (auto i : std::views::iota((size_t)0, original_td_root.size())) {
+    for (auto i : irange(original_td_root.size())) {
       auto id = original_td_root[i];
       // If this is an rfactor root, it will be a reduction in this stage
       if (rfactor_root_axes.find(id) != rfactor_root_axes.end()) {
@@ -386,7 +386,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
 
   std::vector<IterDomain*> new_producer_domain(original_td->nDims(), nullptr);
   {
-    for (auto i : std::views::iota((size_t)0, original_td->nDims())) {
+    for (auto i : irange(original_td->nDims())) {
       auto orig_id = original_td->axis((int)i);
       auto replayed_id_it = original_to_producer_id_map.find(orig_id);
       NVF_ERROR(
@@ -463,7 +463,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
 
   {
     // Construct the new consumer domain
-    for (auto i : std::views::iota((size_t)0, original_td->nDims())) {
+    for (auto i : irange(original_td->nDims())) {
       auto orig_id = original_td->axis((int)i);
       auto replayed_id_it = original_to_consumer_map.find(orig_id);
       if (replayed_id_it != original_to_consumer_map.end()) {

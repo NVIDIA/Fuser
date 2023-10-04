@@ -10,7 +10,7 @@
 #include <root_domain_map.h>
 #include <transform_iter.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <utility>
 
 namespace nvfuser {
@@ -125,8 +125,7 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
       BestEffortReplay::replayCasP(consumer, producer, -1, pairwise_root_map);
   auto p2c_replay_map = replay_CasP.getReplay();
 
-  for (const auto producer_pos :
-       std::views::iota((size_t)0, producer->nDims())) {
+  for (const auto producer_pos : irange(producer->nDims())) {
     // If the producer position is mismatching with the consumer, then we can
     // not inline into this position, otherwise the max producer position of
     // the consumer will become invalid and expression sort will fail.

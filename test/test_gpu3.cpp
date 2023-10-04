@@ -49,7 +49,7 @@
 #include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAStream.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -1318,7 +1318,7 @@ TEST_F(NVFuserTest, FusionIssue1430_CUDA) {
 
   for (auto tv : ir_utils::allTvs(&fusion)) {
     if (tv != tv1 || tv != tv3) {
-      for (auto i : std::views::iota((size_t)0, tv->nDims())) {
+      for (auto i : irange(tv->nDims())) {
         if (isParallelTypeVectorize(tv->axis((int)i)->getParallelType())) {
           tv->axis((int)i)->parallelize(ParallelType::Serial);
         }
@@ -2761,7 +2761,7 @@ TEST_F(NVFuserTest, FusionPropagateParallelTypesToSiblings_CUDA) {
           ref->nDims() == sibling->nDims(),
           "Invalid sibling: ",
           sibling->toString());
-      for (const auto i : std::views::iota((size_t)0, ref->nDims())) {
+      for (const auto i : irange(ref->nDims())) {
         NVF_CHECK(
             ref->axis(i)->getParallelType() ==
                 sibling->axis(i)->getParallelType(),
@@ -2871,7 +2871,7 @@ graph(%x.1 : Tensor,
     auto x = torch::rand({32, 32}, at::TensorOptions(at::kCUDA));
     auto y = torch::rand({32, 32}, at::TensorOptions(at::kCUDA));
     std::vector<c10::IValue> results;
-    for (const auto& i : std::views::iota(0, 10)) {
+    for (const auto& i : irange(10)) {
       (void)i; // Suppress unused variable warning
       auto stack = createStack({x.clone(), y.clone()});
       fn.run(stack);
@@ -2918,7 +2918,7 @@ TEST_F(NVFuserMultithreadedTest, MultipleFunctions_CUDA) {
     auto y = torch::rand({32, 32}, at::TensorOptions(at::kCUDA));
     std::vector<c10::IValue> results;
     constexpr size_t numRuns = 10;
-    for (const auto& i : std::views::iota((size_t)0, numRuns)) {
+    for (const auto& i : irange(numRuns)) {
       (void)i; // Suppress unused variable warning
       auto stack = createStack({x.clone(), y.clone()});
       fn.run(stack);
@@ -4371,7 +4371,7 @@ TEST_F(NVFuserTest, FusionExpandRepro1860_CUDA) {
   fusion.addInput(tv2);
 
   std::vector<IterDomain*> domain1(3, nullptr);
-  for (const auto i : std::views::iota(0, 3)) {
+  for (const auto i : irange(3)) {
     if (i == 0) {
       domain1[i] = IterDomainBuilder(
                        FusionGuard::getCurFusion()->zeroVal(),

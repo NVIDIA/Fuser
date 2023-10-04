@@ -19,7 +19,7 @@
 #include <ops/arith.h>
 #include <options.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -303,7 +303,7 @@ class BufferReuseDebugPrinter {
   void printAllocInfo(const kir::Allocate* alloc);
 
   std::stringstream& indent() {
-    for (const auto i : std::views::iota(0, indent_level_)) {
+    for (const auto i : irange(indent_level_)) {
       (void)i; // Suppress unused variable warning
       os_ << "  ";
     }
@@ -948,8 +948,7 @@ class AllocationInfoMap : private kir::IrVisitor {
       return nullptr;
     }
 
-    for (const auto idx :
-         std::views::iota((size_t)0, current_stack_.size() - 1)) {
+    for (const auto idx : irange(current_stack_.size() - 1)) {
       if (current_stack_[idx] == allocate_loop_info) {
         return current_stack_[idx + 1];
       }
@@ -1345,7 +1344,7 @@ class ReusableAllocationFinder : private kir::IrVisitor {
     }
 
     // Check index map for the corresponding axes.
-    for (const auto id_it : std::views::iota((size_t)0, alloc_domains.size())) {
+    for (const auto id_it : irange(alloc_domains.size())) {
       if (!GpuLower::current()->caMap()->areMapped(
               alloc_domains[id_it],
               reuse_domains[id_it],

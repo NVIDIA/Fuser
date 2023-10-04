@@ -16,7 +16,7 @@
 #include <kernel_ir.h>
 #include <type.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <iostream>
 
 namespace nvfuser {
@@ -825,8 +825,7 @@ std::string GroupedGridReduction::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "GroupedGridReduction(\n";
   ++indent_size;
-  for (const auto i :
-       std::views::iota((size_t)0, numHorizontallyGroupedExprs())) {
+  for (const auto i : irange(numHorizontallyGroupedExprs())) {
     indent(ss, indent_size)
         << output(i)->toString() << " = reduction( " << input(i)->toString()
         << ", op = " << getReductionOpType(i)
@@ -1022,7 +1021,7 @@ GroupedGridWelford::GroupedGridWelford(
   addDataAttribute(ParallelTypeBitmap{});
   NVF_ERROR(reduction_buffers[0].size() == reduction_buffers[1].size());
   NVF_ERROR(reduction_buffers[0].size() == reduction_buffers[2].size());
-  for (auto i : std::views::iota((size_t)0, reduction_buffers[0].size())) {
+  for (auto i : irange(reduction_buffers[0].size())) {
     addAttribute(reduction_buffers[0].at(i));
     addAttribute(reduction_buffers[1].at(i));
     addAttribute(reduction_buffers[2].at(i));
@@ -1075,8 +1074,7 @@ std::string GroupedGridWelford::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "GroupedGridWelford(\n";
   ++indent_size;
-  for (const auto i :
-       std::views::iota((size_t)0, numHorizontallyGroupedExprs())) {
+  for (const auto i : irange(numHorizontallyGroupedExprs())) {
     indent(ss, indent_size) << outAvg(i)->toString() << " (Avg),\n";
     indent(ss, indent_size) << outVar(i)->toString() << " (Var),\n";
     indent(ss, indent_size) << outN(i)->toString() << " (Count)\n";

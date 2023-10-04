@@ -18,7 +18,7 @@
 
 #include <device_lower/utils.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 
 namespace nvfuser {
 
@@ -147,7 +147,7 @@ ParallelizedDomainPredicate::getPredicateMap(
   bool within_unswitch = false;
   std::unordered_set<Val*> non_unswitched_root_domains;
 
-  for (const auto i : std::views::iota((size_t)0, loops.size())) {
+  for (const auto i : irange(loops.size())) {
     auto loop = loops[i];
 
     // Parallel dimensions need not be predicated if fully unswitched.

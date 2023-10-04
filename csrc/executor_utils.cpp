@@ -53,7 +53,7 @@
 #include <nvfuser_resources/warp.h>
 #include <nvfuser_resources/welford.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <cstdlib>
 #include <fstream>
 #include <variant>
@@ -165,7 +165,7 @@ bool checkSameStride(const std::vector<c10::IValue>& tensors) {
   if (tensors.size() < 2) {
     return true;
   }
-  for (const auto idx : std::views::iota((size_t)0, tensors.size() - 1)) {
+  for (const auto idx : irange(tensors.size() - 1)) {
     auto current = tensors[idx];
     auto next = tensors[idx + 1];
     if (!current.isTensor() || !next.isTensor()) {
@@ -178,8 +178,7 @@ bool checkSameStride(const std::vector<c10::IValue>& tensors) {
       return false;
     }
 
-    for (const auto i :
-         std::views::iota((int64_t)0, current_tensor.ndimension())) {
+    for (const auto i : irange(current_tensor.ndimension())) {
       if (current_tensor.stride(i) != next_tensor.stride(i)) {
         return false;
       }
@@ -440,7 +439,7 @@ getTensorOffsets(
     const auto slice_info = slice->getRanges();
 
     size_t offset = 0;
-    for (const auto i : std::views::iota((size_t)0, root_ids.size())) {
+    for (const auto i : irange(root_ids.size())) {
       auto slice_start_eval = eval.evaluate(slice_info.at(i).start);
       NVF_ERROR(slice_start_eval.hasValue());
       auto slice_stop_eval = eval.evaluate(slice_info.at(i).stop);
@@ -484,8 +483,7 @@ void validateAlignedVectorizedFusionInputOutput(
       is_sliced ? tv->getMaybeRFactorDomain() : tv->getMaybeAllocationDomain();
 
   std::vector<int64_t> no_reduction_to_full;
-  for (int64_t i :
-       std::views::iota((int64_t)0, (int64_t)domain_to_validate.size())) {
+  for (int64_t i : irange((int64_t)domain_to_validate.size())) {
     auto alloc_id = domain_to_validate.at(i);
     if (!alloc_id->isReduction()) {
       no_reduction_to_full.emplace_back(i);
@@ -723,7 +721,7 @@ ExpressionEvaluator bindInputs(
 
   ExpressionEvaluator expr_eval;
   const auto& inputs = kernel->inputs();
-  for (const auto i : std::views::iota((size_t)0, inputs.size())) {
+  for (const auto i : irange(inputs.size())) {
     expr_eval.bind(inputs[i], *args[i], true);
   }
 
@@ -855,7 +853,7 @@ class NvrtcCompileDriver {
   // Get options that can be passed to nvrtcCompileProgram
   std::vector<const char*> getOptions() const {
     std::vector<const char*> opts(options_.size());
-    for (const auto i : std::views::iota((size_t)0, options_.size())) {
+    for (const auto i : irange(options_.size())) {
       opts.at(i) = options_.at(i).c_str();
     }
     return opts;
@@ -930,7 +928,7 @@ class CuModuleLoadDataDriver {
     // matrixMulDynlinkJIT sample
     // https://github.com/NVIDIA/cuda-samples/blob/master/Samples/0_Introduction/matrixMulDynlinkJIT/matrixMulDynlinkJIT.cpp#L169-L204.
     std::vector<void*> opt_val_voidp(opt_vals.size());
-    for (const auto i : std::views::iota((size_t)0, opt_vals.size())) {
+    for (const auto i : irange(opt_vals.size())) {
       auto opt_val = opt_vals.at(i);
       if (std::holds_alternative<int>(opt_val)) {
         // NOLINTNEXTLINE(performance-no-int-to-ptr)

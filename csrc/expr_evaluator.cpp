@@ -15,7 +15,7 @@
 #include <ir/utils.h>
 #include <root_domain_map.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <functional>
 #include <iostream>
 
@@ -124,7 +124,7 @@ void ExpressionEvaluator::bind_(
         rfactor_domain.size(),
         ", but got a tensor of rank ",
         t.dim());
-    for (auto i : std::views::iota((int64_t)0, t.dim())) {
+    for (auto i : irange(t.dim())) {
       bind_(
           rfactor_domain[i]->getMaybeExpandedExtent(),
           t.size(i),
@@ -200,7 +200,7 @@ const PolymorphicValue& ExpressionEvaluator::evaluateHelper(
         inputs.emplace_back(eval_i);
       }
       auto outputs = def->evaluate(*this, inputs);
-      for (auto i : std::views::iota((size_t)0, def->outputs().size())) {
+      for (auto i : irange(def->outputs().size())) {
         known_values[def->output(i)] = std::move(outputs[i]);
       }
       maybe_concrete_value = getValue(value, known_values);

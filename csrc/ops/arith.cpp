@@ -19,7 +19,7 @@
 #include <type.h>
 #include <type_promotion.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <cfloat>
 
 namespace nvfuser {
@@ -1078,7 +1078,7 @@ static TensorView* newForReduction(
       "). Keep in mind reductions are relative to root domains, not modified views.");
 
   auto axis_iter = axes_set.begin();
-  for (const auto dim : std::views::iota((size_t)0, orig_domain.size())) {
+  for (const auto dim : irange(orig_domain.size())) {
     bool isReduction = false;
     if (axis_iter != axes_set.end() && *axis_iter == dim) {
       isReduction = true;
@@ -1218,7 +1218,7 @@ TensorView* maybeFullInsteadOfReduction(
       std::vector<IterDomain*> new_root;
       new_root.reserve(keep_dim ? ndims : ndims - axes.size());
       int cur_pos = 0;
-      for (auto j : std::views::iota((size_t)0, ndims)) {
+      for (auto j : irange(ndims)) {
         bool is_reduction = cur_pos < (int)axes.size() && axes.at(cur_pos) == j;
         if (is_reduction) {
           cur_pos++;
@@ -1464,7 +1464,7 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
   bool expanded = false;
 
   std::vector<IterDomain*> out_domain;
-  for (auto i : std::views::iota((size_t)0, inp_domain.size())) {
+  for (auto i : irange(inp_domain.size())) {
     auto inp_id = inp_domain[i];
     auto out_id_builder = IterDomainBuilder(inp_id);
     maybe_expanded_sizes[i] = inp_domain[i]->extent();
@@ -1537,7 +1537,7 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
   std::vector<IterDomain*> out_domain;
   std::vector<Val*> maybe_expanded_sizes;
   bool expanded = false;
-  for (auto i : std::views::iota((size_t)0, inp_domain.size())) {
+  for (auto i : irange(inp_domain.size())) {
     auto inp_id = inp_domain[i];
     auto other_id = other_domain[i];
 
@@ -1583,7 +1583,7 @@ std::vector<Val*> tensor_sizes(TensorView* inp) {
   auto iter_domains = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
   std::vector<Val*> sizes(iter_domains.size(), nullptr);
 
-  for (auto idx : std::views::iota((size_t)0, iter_domains.size())) {
+  for (auto idx : irange(iter_domains.size())) {
     sizes[idx] = iter_domains[idx]->getMaybeExpandedExtent();
   }
 
@@ -2146,7 +2146,7 @@ TensorView* shift(TensorView* inp, const std::vector<int>& offsets, bool pad) {
   // input domains.
   std::vector<int> pad_width(offsets.size(), 0);
   if (pad) {
-    for (const auto i : std::views::iota((size_t)0, offsets.size())) {
+    for (const auto i : irange(offsets.size())) {
       pad_width[i] = std::abs(offsets[i]);
     }
   }
@@ -2190,7 +2190,7 @@ TensorView* shift(
   TensorView* out = nullptr;
 
   std::vector<IterDomain*> out_dom;
-  for (const auto i : std::views::iota((size_t)0, ndims)) {
+  for (const auto i : irange(ndims)) {
     const auto inp_axis = inp_dom[i];
     const auto offset = offsets[i];
     const auto pad = pad_width[i];
@@ -2293,7 +2293,7 @@ TensorDomain* generateTensorDomainWithStrides(
         TensorDomain::getContiguityFilledWith(root_domains, true));
   }
 
-  for (const auto i : std::views::iota((size_t)0, root_domains.size())) {
+  for (const auto i : irange(root_domains.size())) {
     auto root_dom = root_domains.at(i);
 
     if (i >= strides.size() || (skip_unit_stride && strides[i] == 1)) {
@@ -2369,7 +2369,7 @@ TensorView* gather(
   std::vector<IterDomain*> out_root_domains;
   std::vector<IterDomain*> out_gather_dom;
 
-  for (const auto i : std::views::iota((size_t)0, ndims)) {
+  for (const auto i : irange(ndims)) {
     const auto inp_axis = inp_dom[i];
     const auto window_dim = window_shape[i];
     const auto pad_left = pad_width[i][0];
@@ -2493,7 +2493,7 @@ static TensorView* newForMma(
       "). Keep in mind reductions are relative to root domains, not modified views.");
 
   auto axis_iter = axes_set.begin();
-  for (const auto dim : std::views::iota((size_t)0, orig_domain_a.size())) {
+  for (const auto dim : irange(orig_domain_a.size())) {
     bool isReduction = false;
     if (axis_iter != axes_set.end() && *axis_iter == dim) {
       isReduction = true;

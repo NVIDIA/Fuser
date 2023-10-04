@@ -17,7 +17,7 @@
 
 #include <polymorphic_value.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <array>
 #include <complex>
 #include <cstdint>
@@ -207,7 +207,7 @@ bool StructType::operator==(const StructType& other) const {
   if (fields.size() != other.fields.size()) {
     return false;
   }
-  for (auto i : std::views::iota((size_t)0, fields.size())) {
+  for (auto i : irange(fields.size())) {
     if (fields[i].name != other.fields[i].name ||
         *fields[i].type != *other.fields[i].type ||
         fields[i].used_in_kernel != other.fields[i].used_in_kernel) {
@@ -465,7 +465,7 @@ inline bool isCompatibleDataType(DataType dtype, DataType dtype2) {
     if (struct_type.fields.size() != struct_type2.fields.size()) {
       return false;
     }
-    for (auto i : std::views::iota((size_t)0, struct_type.fields.size())) {
+    for (auto i : irange(struct_type.fields.size())) {
       if (struct_type.fields[i].name != struct_type2.fields[i].name ||
           !isCompatibleDataType(
               *struct_type.fields[i].type, *struct_type2.fields[i].type)) {

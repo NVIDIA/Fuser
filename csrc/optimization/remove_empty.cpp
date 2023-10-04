@@ -12,7 +12,7 @@
 #include <ops/alias.h>
 #include <ops/arith.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <algorithm>
 #include <limits>
 #include <unordered_set>
@@ -27,7 +27,7 @@ namespace {
 //! `emptyAxes(TensorDomain::noReductions(tv->getMaybeRFactorDomain()))`
 std::vector<int64_t> emptyAxes(const std::vector<IterDomain*>& domain) {
   std::vector<int64_t> empty_axes;
-  for (auto ax : std::views::iota((size_t)0, domain.size())) {
+  for (auto ax : irange(domain.size())) {
     auto id = domain.at(ax);
     if (id->getMaybeExpandedExtent()->isConst() &&
         id->getMaybeExpandedExtent()->evaluateInt() == 0) {

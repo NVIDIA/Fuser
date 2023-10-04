@@ -380,8 +380,7 @@ class AnalyzeViewTransformation {
     AnalyzeViewConstraint constraint;
     constraint.original_constraint =
         std::vector<int64_t>(original_view_.begin(), original_view_.end());
-    for (auto i :
-         std::views::iota((size_t)0, constraint.original_constraint.size())) {
+    for (auto i : irange(constraint.original_constraint.size())) {
       if (constraint.original_constraint[i] != 1) {
         constraint.original_constraint[i] = 0;
       }
@@ -389,8 +388,7 @@ class AnalyzeViewTransformation {
 
     constraint.new_constraint =
         std::vector<int64_t>(new_view_.begin(), new_view_.end());
-    for (auto i :
-         std::views::iota((size_t)0, constraint.new_constraint.size())) {
+    for (auto i : irange(constraint.new_constraint.size())) {
       if (constraint.new_constraint[i] != 1) {
         constraint.new_constraint[i] = 0;
       }
@@ -701,7 +699,7 @@ TensorDomain* createViewDomain(
       TensorDomain::noReductions(original_domain->maybeRFactor());
 
   // Apply squeeze.
-  for (auto id_i : std::views::iota((size_t)0, orig_root_domain.size())) {
+  for (auto id_i : irange(orig_root_domain.size())) {
     if (!view_analysis.squeeze_axes.at(id_i)) {
       auto id = orig_root_domain.at(id_i);
       new_root_domain.push_back(id->cloneWithoutRFactor());
@@ -853,7 +851,7 @@ bool AnalyzeViewResult::operator==(const AnalyzeViewResult& other) const {
     return false;
   }
 
-  for (const auto i : std::views::iota((size_t)0, transforms.size())) {
+  for (const auto i : irange(transforms.size())) {
     auto transform = transforms.at(i);
     auto other_transform = other.transforms.at(i);
     if (transform->isA<SplitTransform>()) {
@@ -880,7 +878,7 @@ bool AnalyzeViewResult::operator==(const AnalyzeViewResult& other) const {
 size_t AnalyzeViewResult::hash() const {
   auto bool_vec_hash = [](const std::vector<bool>& vec) -> size_t {
     size_t hash = 0;
-    for (const auto i : std::views::iota((size_t)0, vec.size())) {
+    for (const auto i : irange(vec.size())) {
       hash = (hash << 1) + static_cast<size_t>(vec.at(i));
     }
     return hash;

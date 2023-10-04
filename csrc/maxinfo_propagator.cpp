@@ -8,7 +8,7 @@
 #include <maxinfo_propagator.h>
 #include <root_domain_map.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 
 namespace nvfuser {
 
@@ -427,11 +427,11 @@ std::shared_ptr<MaxInfoSpanningTree::Information> MaxRootDomainInfoSpanningTree:
   NVF_ERROR(from_rfactor_dom.size() == to_rfactor_dom.size());
 
   std::unordered_map<IterDomain*, IterDomain*> id_map;
-  for (auto i : std::views::iota((size_t)0, from_root_dom.size())) {
+  for (auto i : irange(from_root_dom.size())) {
     id_map[from_root_dom.at(i)] = to_root_dom.at(i);
   }
   if (from->hasRFactor()) {
-    for (auto i : std::views::iota((size_t)0, from_rfactor_dom.size())) {
+    for (auto i : irange(from_rfactor_dom.size())) {
       id_map[from_rfactor_dom.at(i)] = to_rfactor_dom.at(i);
     }
   }

@@ -18,7 +18,7 @@
 #include <python_frontend/python_bindings.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <complex>
 #include <iostream>
 #include <optional>
@@ -552,7 +552,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             // Translate to TensorViewBuilder's view of the world.
             std::vector<int64_t> dim_sizes;
             dim_sizes.reserve(sizes.size());
-            for (const auto i : std::views::iota((size_t)0, sizes.size())) {
+            for (const auto i : irange(sizes.size())) {
               NVF_ERROR(
                   sizes[i] >= 0,
                   "Size of ",
@@ -2241,7 +2241,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             end_indices.size(),
             " Strides: ",
             strides.size());
-        for (const auto i : std::views::iota((size_t)0, arg.dims)) {
+        for (const auto i : irange(arg.dims)) {
           auto start_idx = start_indices[i];
           auto end_idx = end_indices[i];
           auto stride = strides[i];
@@ -2316,7 +2316,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         FusionDefinition* fd = self.fusion_definition;
         std::vector<Scalar> outputs;
         std::vector<State> output_state;
-        for (const auto idx : std::views::iota((size_t)0, arg.dims)) {
+        for (const auto idx : irange(arg.dims)) {
           outputs.push_back(fd->defineScalar());
           output_state.push_back(fd->recordingState(outputs[idx]()));
         }

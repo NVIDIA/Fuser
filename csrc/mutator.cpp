@@ -10,7 +10,7 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <vector>
 
 /*
@@ -196,19 +196,19 @@ Expr* OptOutMutator::mutateExpr(
   }
 
   bool all_same = true;
-  for (auto i : std::views::iota((size_t)0, op->outputs().size())) {
+  for (auto i : irange(op->outputs().size())) {
     if (!all_same) {
       break;
     }
     all_same = all_same && mutated_outputs[i] == op->output(i);
   }
-  for (auto i : std::views::iota((size_t)0, op->inputs().size())) {
+  for (auto i : irange(op->inputs().size())) {
     if (!all_same) {
       break;
     }
     all_same = all_same && mutated_inputs[i] == op->input(i);
   }
-  for (auto i : std::views::iota((size_t)0, op->attributes().size())) {
+  for (auto i : irange(op->attributes().size())) {
     if (!all_same) {
       break;
     }

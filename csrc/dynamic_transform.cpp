@@ -17,7 +17,7 @@
 #include <transform_view.h>
 #include <utils.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <optional>
 
 namespace nvfuser {
@@ -155,8 +155,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     // Vals. These will be the inputs that are explicitly used in the cache ID
     // for KernelArgumentHolder.
     auto dyn_vals = info_.getRootDynamicVals();
-    for (const auto i :
-         std::views::iota((size_t)0, info_.fusion()->inputs().size())) {
+    for (const auto i : irange(info_.fusion()->inputs().size())) {
       auto input = info_.fusion()->inputs().at(i);
       if (dyn_vals.find(input) != dyn_vals.end()) {
         info_.scalar_inputs_affecting_concretization_.insert(i);
@@ -203,7 +202,7 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
   analyzeResizes(expr_eval);
 
   auto maybe_zero_extents = initial_info_->getMaybeZeroExtents();
-  for (auto i : std::views::iota((size_t)0, maybe_zero_extents.size())) {
+  for (auto i : irange(maybe_zero_extents.size())) {
     auto ext = maybe_zero_extents.at(i);
     auto ext_opt = expr_eval->evaluate(ext);
     NVF_ERROR(
@@ -219,7 +218,7 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
 void DynamicTransformConcretizationInfo::analyzeReshapes(
     ExpressionEvaluator* expr_eval) {
   const auto& reshape_tvs = initial_info_->getDynamicReshapedTensorViews();
-  for (const auto tv_index : std::views::iota((size_t)0, reshape_tvs.size())) {
+  for (const auto tv_index : irange(reshape_tvs.size())) {
     auto out_tv = reshape_tvs.at(tv_index);
     auto op = out_tv->definition()->as<ViewOp>();
     auto inp_tv = op->in()->as<TensorView>();
@@ -239,7 +238,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
 
     // Determine input shape using expr evaluator
     std::vector<int64_t> inp_shape(inp_dom.size(), 0);
-    for (const auto i : std::views::iota((size_t)0, inp_dom.size())) {
+    for (const auto i : irange(inp_dom.size())) {
       auto inp_id = inp_dom.at(i);
       // This should have been validated when initially creating reshape
       // op, but just in case
@@ -268,7 +267,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
     // Determine output shape using expr evaluator. Note there may be
     // one domain of extent -1
     std::vector<int64_t> out_shape(out_dom.size(), 0);
-    for (const auto i : std::views::iota((size_t)0, out_dom.size())) {
+    for (const auto i : irange(out_dom.size())) {
       auto out_id = out_dom.at(i);
       auto extent_val = expr_eval->evaluate(out_id->extent());
       NVF_ERROR(
@@ -298,7 +297,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
 void DynamicTransformConcretizationInfo::analyzeResizes(
     ExpressionEvaluator* expr_eval) {
   const auto& resize_ids = initial_info_->getDynamicResizedIterDomains();
-  for (const auto id_index : std::views::iota((size_t)0, resize_ids.size())) {
+  for (const auto id_index : irange(resize_ids.size())) {
     auto out_id = resize_ids.at(id_index);
     auto op = out_id->definition()->as<Resize>();
 
@@ -343,7 +342,7 @@ bool DynamicTransformConcretizationInfo::operator==(
     return false;
   }
 
-  for (const auto i : std::views::iota((size_t)0, reshape_transforms_.size())) {
+  for (const auto i : irange(reshape_transforms_.size())) {
     const auto& analysis = reshape_transforms_.at(i);
     const auto& other_analysis = other.reshape_transforms_.at(i);
     if (analysis != other_analysis) {
@@ -351,7 +350,7 @@ bool DynamicTransformConcretizationInfo::operator==(
     }
   }
 
-  for (const auto i : std::views::iota((size_t)0, resize_itertypes_.size())) {
+  for (const auto i : irange(resize_itertypes_.size())) {
     const auto& itertype = resize_itertypes_.at(i);
     const auto& other_itertype = other.resize_itertypes_.at(i);
     if (itertype != other_itertype) {
@@ -359,7 +358,7 @@ bool DynamicTransformConcretizationInfo::operator==(
     }
   }
 
-  for (const auto i : std::views::iota((size_t)0, empty_extents_.size())) {
+  for (const auto i : irange(empty_extents_.size())) {
     const auto& ee = empty_extents_.at(i);
     const auto& other_ee = other.empty_extents_.at(i);
     if (ee != other_ee) {
@@ -535,7 +534,7 @@ void DynamicTransformConcretizer::concretizeReshape() {
     NVF_ERROR(
         old_rfactor.size() == new_rfactor.size(),
         "Concretized reshape rfactor size does not match symbolic rfactor");
-    for (auto idx : std::views::iota((size_t)0, new_rfactor.size())) {
+    for (auto idx : irange(new_rfactor.size())) {
       auto old_extent = old_rfactor.at(idx)->extent();
       auto new_extent = new_rfactor.at(idx)->extent();
       // If the old extent did not have a definition, we don't need to replace
@@ -659,7 +658,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
       IterType iter_type = IterType::Symbolic;
       const auto input_ids =
           ir_utils::filterByType<IterDomain>(expr->inputs()).vector();
-      for (auto i : std::views::iota((size_t)0, input_ids.size())) {
+      for (auto i : irange(input_ids.size())) {
         auto inp_id = input_ids.at(i);
         auto updated_id = maybeMutated(inp_id)->as<IterDomain>();
         NVF_CHECK(
@@ -762,7 +761,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   // Update the contiguity vector. Drop the contig val if mutated to broadcast
   auto contig = td->contiguity();
 
-  for (const auto i : std::views::iota((size_t)0, td->maybeRFactor().size())) {
+  for (const auto i : irange(td->maybeRFactor().size())) {
     auto original_id = td->maybeRFactor().at(i);
     if (original_id->getIterType() != IterType::Symbolic) {
       continue;
@@ -815,7 +814,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
   bool is_concretized = false;
 
-  for (const auto i : std::views::iota((size_t)0, root_domain.size())) {
+  for (const auto i : irange(root_domain.size())) {
     auto root_id = root_domain.at(i);
     if (root_id->getIterType() != IterType::Symbolic) {
       continue;

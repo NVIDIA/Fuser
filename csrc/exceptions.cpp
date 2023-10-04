@@ -5,7 +5,7 @@
 #include <exceptions.h>
 #include <execinfo.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <cstdlib>
 #include <functional>
 #include <iostream>
@@ -190,8 +190,7 @@ std::string _get_backtrace(
   // Toggles to true after the first skipped python frame.
   bool has_skipped_python_frames = false;
 
-  for (const auto frame_number :
-       std::views::iota((size_t)0, callstack.size())) {
+  for (const auto frame_number : irange(callstack.size())) {
     const auto frame = parse_frame_information(symbols[frame_number]);
 
     if (skip_python_frames && frame && is_python_frame(*frame)) {

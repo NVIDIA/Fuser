@@ -11,7 +11,7 @@
 #include <iter_visitor.h>
 #include <root_domain_map.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <sstream>
 
 namespace nvfuser {
@@ -865,7 +865,7 @@ bool ComputeAtRootDomainMapBuilder::isInvalid(
   // Next, check if any pair is invalid to map.
   const auto num_keys = domains.size();
   const std::vector<DomainKey> domains_vec({domains.begin(), domains.end()});
-  for (const auto i : std::views::iota((size_t)0, num_keys)) {
+  for (const auto i : irange(num_keys)) {
     const auto& key_i = domains_vec[i];
     // If no invalid keys found for key_i, it can be skipped.
     const auto invalid_key_map_it = invalid_key_map.find(key_i);
@@ -1118,7 +1118,7 @@ void ComputeAtRootDomainMapBuilder::handle(GatherOp* op) {
   const auto& out_root = out_td->root();
 
   // Only maps the input root axes. Do not map the new window axes.
-  for (const auto it : std::views::iota((size_t)0, in_root.size())) {
+  for (const auto it : irange(in_root.size())) {
     setMaybeMapped(in_td, in_root[it], out_td, out_root[it]);
   }
 

@@ -14,7 +14,7 @@
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <unordered_set>
 
 namespace nvfuser {

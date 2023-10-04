@@ -14,7 +14,7 @@
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <unordered_set>
 
 namespace nvfuser {
@@ -72,7 +72,7 @@ class AllocationInserter : public kir::ExprMutator {
     info.alloc_pos = loop_alloc_info.alloc_pos;
 
     auto next_fl = [](kir::ForLoop* fl, const std::vector<kir::ForLoop*> fls) {
-      for (auto i : std::views::iota((size_t)0, fls.size())) {
+      for (auto i : irange(fls.size())) {
         if (fl == fls[i]) {
           if (i + 1 < fls.size()) {
             return fls[i + 1];
@@ -333,8 +333,7 @@ class AllocationInserter : public kir::ExprMutator {
 
     info.allocation_domains = std::make_unique<std::vector<IterDomain*>>();
 
-    for (const auto axis_i :
-         std::views::iota((size_t)0, info.buffer->nDims())) {
+    for (const auto axis_i : irange(info.buffer->nDims())) {
       const auto local_id = info.buffer->axis((int)axis_i);
 
       // Don't use reduction/stride/broadcast axis in the allocation
@@ -451,7 +450,7 @@ class AllocationInserter : public kir::ExprMutator {
 
     // // Found where the allocation needs to be inserted
 
-    for (const auto i : std::views::iota((size_t)0, expr->outputs().size())) {
+    for (const auto i : irange(expr->outputs().size())) {
       auto out = expr->output(i);
       if (!out->isA<TensorView>()) {
         continue;

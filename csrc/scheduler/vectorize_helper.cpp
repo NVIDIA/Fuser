@@ -16,7 +16,7 @@
 #include <iter_visitor.h>
 #include <scheduler/registry.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <unordered_set>
 
 namespace nvfuser {
@@ -469,7 +469,7 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
   if (to->hasBroadcast()) {
     // Find the last broadcast dimension resolved in consumers root domain
     int clear_pos = -1;
-    for (auto i : std::views::iota((size_t)0, from->getRootDomain().size())) {
+    for (auto i : irange(from->getRootDomain().size())) {
       auto c_id = from->getRootDomain()[i];
       auto c_it = c2p_map.find(c_id);
       if (c_it == c2p_map.end()) {
@@ -542,8 +542,7 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
   if (!from->isFusionInput() && from->hasReduction()) {
     // Find the last reduction dimension in the rfactor domain.
     int clear_pos = -1;
-    for (auto i :
-         std::views::iota((size_t)0, from->getMaybeRFactorDomain().size())) {
+    for (auto i : irange(from->getMaybeRFactorDomain().size())) {
       if (from->getMaybeRFactorDomain()[i]->isReduction()) {
         clear_pos = (int)i;
       }
@@ -703,7 +702,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
   if (contiguity.size() == of_tv_root.size() &&
       contiguity.size() != of_tv_root_no_reductions.size()) {
     std::vector<std::optional<bool>> new_contiguity;
-    for (auto i : std::views::iota((size_t)0, of_tv_root.size())) {
+    for (auto i : irange(of_tv_root.size())) {
       if (!of_tv_root[i]->isReduction()) {
         new_contiguity.push_back(contiguity[i]);
       }
@@ -729,7 +728,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
   // vectorize dimension.
   size_t projected_dims_i = projected_dims.size();
 
-  for (auto i : std::views::iota((size_t)0, of_tv_root_no_reductions_size)) {
+  for (auto i : irange(of_tv_root_no_reductions_size)) {
     if (projected_dims_i == 0) {
       break;
     }

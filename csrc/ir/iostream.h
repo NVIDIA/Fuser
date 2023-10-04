@@ -12,7 +12,7 @@
 
 #include <dispatch.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <iostream>
 
 namespace nvfuser {
@@ -28,7 +28,7 @@ static constexpr char const* kTab = "  ";
 
 // Indent the generated code
 inline std::ostream& indent(std::ostream& os, int indent_size) {
-  for (const auto _ : std::views::iota(0, indent_size)) {
+  for (const auto _ : irange(indent_size)) {
     (void)_; // Suppress unused variable warning
     os << "  ";
   }

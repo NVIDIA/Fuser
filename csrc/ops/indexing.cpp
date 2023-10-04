@@ -18,7 +18,7 @@
 #include <c10/util/Exception.h>
 #include <c10/util/Half.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 
 namespace nvfuser {
 
@@ -41,7 +41,7 @@ TensorView* select(TensorView* tv, int dim, Val* index) {
       dom.size(),
       " non-reduction dims.");
 
-  for (auto i : std::views::iota((size_t)0, dom.size())) {
+  for (auto i : irange(dom.size())) {
     if ((int)i != dim) {
       new_root.emplace_back(dom[i]->cloneWithoutRFactor());
     }
@@ -86,7 +86,7 @@ TensorView* index_select(TensorView* lookup_tv, int dim, TensorView* index_tv) {
       lookup_dom.size(),
       " non-reduction dims.");
 
-  for (auto i : std::views::iota((size_t)0, lookup_dom.size())) {
+  for (auto i : irange(lookup_dom.size())) {
     if ((int)i != dim) {
       new_root.emplace_back(lookup_dom[i]->cloneWithoutRFactor());
     } else {
@@ -174,7 +174,7 @@ TensorView* scatterOp(
 
   // The shape of output tensor is same as self tensor.
   std::vector<IterDomain*> out_domain;
-  for (const auto i : std::views::iota((size_t)0, self_dom.size())) {
+  for (const auto i : irange(self_dom.size())) {
     out_domain.push_back(
         IterDomainBuilder(self_dom[i])
             .iter_type(
@@ -227,7 +227,7 @@ TensorView* take_along_axis(TensorView* inp, TensorView* index, int64_t dim) {
 
   std::vector<IterDomain*> out_domain(idx_domain.size());
 
-  for (const auto i : std::views::iota((size_t)0, idx_domain.size())) {
+  for (const auto i : irange(idx_domain.size())) {
     auto inp_id = inp_domain.at(i);
     auto idx_id = idx_domain.at(i);
 

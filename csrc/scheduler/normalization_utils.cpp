@@ -16,7 +16,7 @@
 
 #include <ATen/cuda/CUDAContext.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 
 namespace nvfuser {
 namespace normalization_scheduler_utils {

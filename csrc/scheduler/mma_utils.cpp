@@ -15,7 +15,7 @@
 #include <scheduler/utils.h>
 #include "mma_type.h"
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <variant>
 namespace nvfuser {
 
@@ -325,7 +325,7 @@ void makeTile(TensorView* tv, std::vector<int> tile_sizes) {
   const int64_t tile_dimension_size = (int64_t)tile_sizes.size();
 
   // Split the inner dimensions:
-  for (int64_t idx : std::views::iota((int64_t)0, tile_dimension_size)) {
+  for (int64_t idx : irange(tile_dimension_size)) {
     // Using negative indexing to accomodate potential batching
     //  dimensions on the further left. Eg.:
     //  0, 1, 2   ->         -3,-2,-1
@@ -343,7 +343,7 @@ void makeTile(TensorView* tv, std::vector<int> tile_sizes) {
 
   // Number of tiled inner dimensions after we split.
   const auto split_tile_dimension_size = 2 * tile_dimension_size;
-  for (auto idx : std::views::iota((int64_t)0, split_tile_dimension_size)) {
+  for (auto idx : irange(split_tile_dimension_size)) {
     // We want to reorder as follows:
     //           Before
     //
@@ -558,7 +558,7 @@ void checkDimSize(
   NVF_ERROR(
       axis.size() == expect.size(),
       "CheckDimSize: Mismatched axis and expect size");
-  for (auto axis_index : std::views::iota((size_t)0, axis.size())) {
+  for (auto axis_index : irange(axis.size())) {
     NVF_ERROR(
         ((axis[axis_index] + static_cast<int>(tv->nDims())) >= 0) &&
             (axis[axis_index] < (int)tv->nDims()),
@@ -636,7 +636,7 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOptions options) {
 }
 
 void WarpMmaSwizzler::setWarpMapped(TensorView* tv, int number_of_dims) {
-  for (int id : std::views::iota(0, number_of_dims)) {
+  for (int id : irange(number_of_dims)) {
     tv->axis(-id - 1)->toMmaSwizzled();
   }
 }
@@ -684,7 +684,7 @@ std::vector<IterDomain*> getMmaDomains(MmaOp* mma, MmaDimension dimension) {
 
   std::vector<IterDomain*> result;
 
-  for (auto id_idx : std::views::iota((size_t)0, a_domain.size())) {
+  for (auto id_idx : irange(a_domain.size())) {
     // checks if this id should be included in the result
     bool include_this_id = false;
     bool is_broadcast_in_a = a_domain[id_idx]->isBroadcast();
@@ -1179,7 +1179,7 @@ void WarpMmaSwizzler::scheduleVoltaM16N16K4Fp32Output(
 
   if (is_reduction && tv->definition()->isA<MmaOp>()) {
     // Set instruction loops for mma reduce output
-    for (int pos : std::views::iota(0, 5)) {
+    for (int pos : irange(5)) {
       if (!tv->axis(-pos - 1)->isThread()) {
         tv->axis(-pos - 1)->parallelize(ParallelType::Mma);
       }
@@ -1226,7 +1226,7 @@ void WarpMmaSwizzler::scheduleTuringM16N8K16MmaWarpOutput(
 
   if (is_reduction && tv->definition()->isA<MmaOp>()) {
     // Set instruction loops for mma reduce
-    for (int pos : std::views::iota(0, 4)) {
+    for (int pos : irange(4)) {
       tv->axis(-pos - 1)->parallelize(ParallelType::Mma);
     }
   }
@@ -1272,7 +1272,7 @@ void WarpMmaSwizzler::scheduleTuringM16N16K16MmaWarpOutput(
 
   if (is_reduction && tv->definition()->isA<MmaOp>()) {
     // Set instruction loops for mma reduce
-    for (int pos : std::views::iota(0, 5)) {
+    for (int pos : irange(5)) {
       tv->axis(-pos - 1)->parallelize(ParallelType::Mma);
     }
   }
@@ -1339,7 +1339,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv) {
 
   int ndims = (int)tv->nDims();
 
-  for (auto idx : std::views::iota(0, ndims)) {
+  for (auto idx : irange(ndims)) {
     auto id = tv->axis(idx);
     NVF_CHECK(root_id_set.count(id), id->toString(), " not a root id.");
 

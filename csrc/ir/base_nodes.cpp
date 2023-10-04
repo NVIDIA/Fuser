@@ -21,7 +21,7 @@
 
 #include <c10/util/Exception.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -156,7 +156,7 @@ bool Val::sameAs(const Statement* other) const {
     }
     // For definition with multiple outputs, only outputs at the same position
     // could be the same
-    for (auto i : std::views::iota((size_t)0, definition_->outputs().size())) {
+    for (auto i : irange(definition_->outputs().size())) {
       if ((definition_->output(i) == this) !=
           (other_val->definition_->output(i) == other_val)) {
         return false;
@@ -408,12 +408,12 @@ bool Expr::sameAs(const Statement* other) const {
       attributes().size() != other_expr->attributes().size()) {
     return false;
   }
-  for (const auto i : std::views::iota((size_t)0, inputs().size())) {
+  for (const auto i : irange(inputs().size())) {
     if (!input(i)->sameAs(other_expr->input(i))) {
       return false;
     }
   }
-  for (const auto i : std::views::iota((size_t)0, attributes().size())) {
+  for (const auto i : irange(attributes().size())) {
     if (!attribute(i)->sameAs(other_expr->attribute(i))) {
       return false;
     }

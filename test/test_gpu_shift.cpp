@@ -39,7 +39,7 @@
 #include <c10/cuda/CUDAStream.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <algorithm>
 #include <iostream>
 
@@ -2798,7 +2798,7 @@ TEST_F(NVFuserTest, FusionGather8_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   std::vector<int64_t> size({s1, s2});
   at::Tensor t0 = at::randn(size, options);
-  for (const auto i : std::views::iota((size_t)0, size.size())) {
+  for (const auto i : irange(size.size())) {
     size[i] = ceilDiv(
         size[i] - window_shape[i] + 1 + padding_width[i][0] +
             padding_width[i][1],
@@ -2865,7 +2865,7 @@ TEST_F(NVFuserTest, FusionGather9_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   std::vector<int64_t> size({s1, s2});
   at::Tensor t0 = at::randn(size, options);
-  for (const auto i : std::views::iota((size_t)0, size.size())) {
+  for (const auto i : irange(size.size())) {
     size[i] = ceilDiv(
         size[i] - window_shape[i] + 1 + padding_width[i][0] +
             padding_width[i][1],
@@ -4610,7 +4610,7 @@ TEST_F(NVFuserTest, FusionGatherStrided1_CUDA) {
 
   // Each output dimension should be: ceilDiv(input_size + padding_width -
   // window, stride).
-  for (const auto i : std::views::iota((size_t)0, window_shape.size())) {
+  for (const auto i : irange(window_shape.size())) {
     auto valid_dim = ceilDiv(
         t0.size(i) + padding_width[i][0] + padding_width[i][1] -
             window_shape[i] + 1,

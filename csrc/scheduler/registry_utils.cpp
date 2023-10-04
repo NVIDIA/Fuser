@@ -12,7 +12,7 @@
 #include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 
 namespace nvfuser {
 
@@ -79,7 +79,7 @@ namespace {
 std::deque<std::deque<TensorView*>> tvChains(
     std::deque<std::deque<Val*>> val_chains) {
   std::deque<std::deque<TensorView*>> tv_chains(val_chains.size());
-  for (const auto i : std::views::iota((size_t)0, val_chains.size())) {
+  for (const auto i : irange(val_chains.size())) {
     auto tv_iterable = ir_utils::filterByType<TensorView>(val_chains[i]);
     tv_chains[i] =
         std::deque<TensorView*>(tv_iterable.begin(), tv_iterable.end());
@@ -433,14 +433,14 @@ bool reductionInterferingView(
   std::vector<std::vector<IterDomain*>> groups;
 
   // Do this three times as we could have a 3D scheduler at maximum
-  for (auto dimension : std::views::iota(0, 3)) {
+  for (auto dimension : irange(3)) {
     // Tracker for this group
     std::vector<IterDomain*> current_dims;
 
     // Tracker of what we've already processed to remove from dims
     std::unordered_set<IterDomain*> processed;
 
-    for (auto i : std::views::iota((size_t)0, dims.size())) {
+    for (auto i : irange(dims.size())) {
       auto dim_i = dims.size() - i - 1;
       if (dims[dim_i]->isReduction() != dims[dims.size() - 1]->isReduction()) {
         if (dimension == 0) {
@@ -501,7 +501,7 @@ bool reductionInterferingView(
   // since it should be relatively small int vectors of a small total nDims,
   // not too worried about it now.
 
-  for (auto first_dim_i : std::views::iota((size_t)0, disjoint_groups.size())) {
+  for (auto first_dim_i : irange(disjoint_groups.size())) {
     for (auto second_dim_i = first_dim_i + 1;
          second_dim_i < disjoint_groups.size();
          ++second_dim_i) {

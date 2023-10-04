@@ -26,7 +26,7 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <torch/csrc/jit/jit_log.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 
 namespace nvfuser {
 
@@ -56,7 +56,7 @@ std::shared_ptr<PolymorphicValue> convertMetadataArg(
 template <typename T>
 void encodeBuffer(T value, std::string& buffer) {
   const char* v = reinterpret_cast<char*>(&value);
-  for (const auto i : std::views::iota((size_t)0, sizeof(T))) {
+  for (const auto i : irange(sizeof(T))) {
     (void)i; // Suppress unused variable warning
     buffer.push_back(*(v++));
   }
@@ -111,7 +111,7 @@ class ArgumentManager {
     int extent_index = 0;
     auto original_args_size = fusion_args_.size();
     // Bind args in the tensor_map
-    for (const auto i : std::views::iota((size_t)0, original_args_size)) {
+    for (const auto i : irange(original_args_size)) {
       tensor_map_.emplace(fusion_inputs[i], fusion_args_[i]);
       // Bind tensorview inputs values in case some segmented group
       //  needs it down the road.
@@ -122,7 +122,7 @@ class ArgumentManager {
         // Note this is very ugly way. We are pushing every single extent to
         // args, because we don't have a better place to hold them.
         auto rank = fusion_args_[i]->as<at::Tensor>().dim();
-        for (const auto dim : std::views::iota((int64_t)0, rank)) {
+        for (const auto dim : irange(rank)) {
           fusion_args_.push(
               PolymorphicValue(fusion_args_[i]->as<at::Tensor>().size(dim)));
           tensor_map_.emplace(
@@ -196,8 +196,7 @@ class ArgumentManager {
     // Trivial forwarding outputs an empty tensor to save bandwidth. We skip
     // updating the tensor_map because we want all future use of inputs on
     // the original tensor input. See note [Trivial Forwarding]
-    for (const size_t group_out_i :
-         std::views::iota((size_t)0, group_outputs.size())) {
+    for (const size_t group_out_i : irange(group_outputs.size())) {
       if (!group_outputs[group_out_i]->isFusionInput()) {
         if constexpr (std::is_pointer_v<
                           decltype(group_runtime_outputs[group_out_i])>) {
@@ -284,7 +283,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
   std::lock_guard<std::mutex> guard(mutex_);
   encoding_.clear();
   encodeBuffer(device, encoding_);
-  for (const auto i : std::views::iota((size_t)0, inputs.size())) {
+  for (const auto i : irange(inputs.size())) {
     auto input = inputs[i];
     if (input.isTensor()) {
       auto& input_tensor = input.toTensor();
@@ -760,8 +759,7 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
         fb_device_runtimes;
     fb_device_runtimes.reserve(device_runtimes.size());
 
-    for (auto kernel_idx :
-         std::views::iota((size_t)0, device_runtimes.size())) {
+    for (auto kernel_idx : irange(device_runtimes.size())) {
       auto kernel_runtime_ptr = device_runtimes.at(kernel_idx).get();
       fb_device_runtimes.push_back(kernel_runtime_ptr->serialize(builder));
 
@@ -1019,7 +1017,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
       segmented_fusion_->completeFusion()->printMath();
     }
     debug() << "With inputs:\n";
-    for (auto i : std::views::iota((size_t)0, args.size())) {
+    for (auto i : irange(args.size())) {
       debug() << "  " << args[i] << std::endl;
     }
     debug() << "Compiler log: " << executor.compiledKernel().compile_log
@@ -1044,14 +1042,13 @@ void FusionKernelRuntime::prepareRuntimeOrder() {
   std::unordered_set<Val*> available_input;
 
   // setup the order tensor dimensions are bound
-  for (const size_t i :
-       std::views::iota((size_t)0, segmented_fusion_->inputs().size())) {
+  for (const size_t i : irange(segmented_fusion_->inputs().size())) {
     auto input_val = segmented_fusion_->inputs()[i];
     available_input.insert(input_val);
 
     if (auto input_tv = dynamic_cast<TensorView*>(input_val)) {
       auto root_dom = TensorDomain::noReductions(input_tv->getRootDomain());
-      for (const size_t dim : std::views::iota((size_t)0, root_dom.size())) {
+      for (const size_t dim : irange(root_dom.size())) {
         const auto extent = root_dom[dim]->getMaybeExpandedExtent();
         available_input.insert(extent);
         runtime_workspace_.group_extent_binding_order.push_back(extent);
@@ -1067,8 +1064,7 @@ void FusionKernelRuntime::prepareRuntimeOrder() {
     bool one_ran = false;
 
     // Find the first segment with all inputs available to run
-    for (const size_t group_i :
-         std::views::iota((size_t)0, segmented_fusion_->groups().size())) {
+    for (const size_t group_i : irange(segmented_fusion_->groups().size())) {
       auto& group = segmented_fusion_->groups()[group_i];
       if (group_ran[group_i]) {
         continue;
@@ -1084,8 +1080,7 @@ void FusionKernelRuntime::prepareRuntimeOrder() {
         const auto& group_outputs = group->outputs();
 
         // Insert graph segment output to tensor map
-        for (const size_t group_out_i :
-             std::views::iota((size_t)0, group_outputs.size())) {
+        for (const size_t group_out_i : irange(group_outputs.size())) {
           available_input.insert(group_outputs[group_out_i]);
         }
         group_ran[group_i] = true;
@@ -1304,7 +1299,7 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
   num_live_args_after_segment_runs_.reserve(num_groups);
   kernel_time_ms_ = 0;
-  for (auto group_id : std::views::iota((int64_t)0, num_groups)) {
+  for (auto group_id : irange(num_groups)) {
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
@@ -1434,7 +1429,7 @@ void FusionKernelRuntime::updateHeuristicsLaunchParams(
   auto scheduler_list_length = heuristics_->heuristicsList().size();
   NVF_ERROR(
       update_heuristics->heuristicsList().size() == scheduler_list_length);
-  for (const auto i : std::views::iota((size_t)0, scheduler_list_length)) {
+  for (const auto i : irange(scheduler_list_length)) {
     auto& schedulerPtr = heuristics_->heuristicsList()[i];
     schedulerPtr->updateLaunchConstraint(
         update_heuristics->heuristicsList()[i]->params()->lparams);
@@ -1459,7 +1454,7 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
   std::optional<FusionKernelRuntime::HeuristicsPtr> ret;
   ret = std::make_unique<FusionHeuristics>();
   size_t total_groups = segmented_fusion_->groups().size();
-  for (const auto group_index : std::views::iota((size_t)0, total_groups)) {
+  for (const auto group_index : irange(total_groups)) {
     auto group = segmented_fusion_->groups()[group_index];
 
     auto maybe_scheduler_entry = group->getMaybeSchedulerEntry(runtime_info);

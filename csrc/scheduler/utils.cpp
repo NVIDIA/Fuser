@@ -19,7 +19,7 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <algorithm>
 #include <queue>
 
@@ -302,8 +302,7 @@ void parallelizeAllLike(
     if (tv->isFusionInput()) {
       continue;
     }
-    for (const auto i :
-         std::views::iota((size_t)0, tv->getLeafDomain().size())) {
+    for (const auto i : irange(tv->getLeafDomain().size())) {
       auto ca_id = ca_map.getConcreteMappedID(
           tv->axis((int)i), IdMappingMode::PERMISSIVE_RESIZE);
       if (concrete_to_reference_map.count(ca_id) > 0) {
@@ -687,8 +686,7 @@ getScopePersistenceFactors(
       projectable_buffer_inputs.begin(),
       projectable_buffer_inputs.end());
 
-  for (auto persistent_buffer_i :
-       std::views::iota((size_t)0, persistent_buffers.size())) {
+  for (auto persistent_buffer_i : irange(persistent_buffers.size())) {
     auto persistent_buffer = persistent_buffers[persistent_buffer_i];
     // All expressions between tv and its resolution points must have tv's
     // persistent buffer allocated. This is an optimistic view on how many
@@ -733,7 +731,7 @@ getScopePersistenceFactors(
   // Offset into the bool vector
   size_t bool_vector_offset = persistent_buffers.size();
   for (auto projectable_persistent_buffer_i :
-       std::views::iota((size_t)0, projectable_persistent_buffers.size())) {
+       irange(projectable_persistent_buffers.size())) {
     auto projectable_persistent_buffer =
         projectable_persistent_buffers[projectable_persistent_buffer_i];
     auto inputs = ir_utils::inputTvsOf(projectable_persistent_buffer);
@@ -814,7 +812,7 @@ PersistentBufferSizeReturn persistentBufferSize(
 
   std::vector<int64_t> persistent_buffer_sizes(all_buffers.size(), -1);
 
-  for (auto buffer_i : std::views::iota((size_t)0, all_buffers.size())) {
+  for (auto buffer_i : irange(all_buffers.size())) {
     bool is_input = buffer_i >= persistent_buffers.size();
     auto buffer = all_buffers[buffer_i];
 
@@ -851,14 +849,14 @@ PersistentBufferSizeReturn persistentBufferSize(
   // Buffers involved in normal persistence
   std::vector<bool> persistent_mask(all_buffers.size(), false);
 
-  for (auto buffer_i : std::views::iota((size_t)0, persistent_buffers.size())) {
+  for (auto buffer_i : irange(persistent_buffers.size())) {
     persistent_mask[buffer_i] = true;
   }
 
   // Buffers involved in projected to inputs
   std::vector<bool> projected_mask(all_buffers.size(), true);
 
-  for (auto buffer_i : std::views::iota((size_t)0, persistent_buffers.size())) {
+  for (auto buffer_i : irange(persistent_buffers.size())) {
     auto buffer = persistent_buffers[buffer_i];
     // Not a projectable buffer, or an input of a projectable buffer
     if (std::find(
@@ -883,7 +881,7 @@ PersistentBufferSizeReturn persistentBufferSize(
     // that are both a persistent buffer and an input to a projectable
     // buffer
     std::unordered_set<TensorView*> active_buffers;
-    for (auto buffer_i : std::views::iota((size_t)0, sizes.size())) {
+    for (auto buffer_i : irange(sizes.size())) {
       if (mask0[buffer_i] && mask1[buffer_i] &&
           active_buffers.count(all_buffers[buffer_i]) == 0) {
         buffer_size += sizes[buffer_i];
@@ -1276,7 +1274,7 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
   if (from_id == nullptr) {
     mapped_root_ids_[to] = nullptr;
   } else {
-    for (auto i : std::views::iota((size_t)0, from->getRootDomain().size())) {
+    for (auto i : irange(from->getRootDomain().size())) {
       if (from_id == from->getRootDomain()[i]) {
         mapped_root_ids_[to] = to->getRootDomain()[i];
         break;
@@ -1287,8 +1285,7 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
   if (from_id == nullptr) {
     mapped_root_ids_[to] = nullptr;
   } else {
-    for (auto i :
-         std::views::iota((size_t)0, from->getMaybeRFactorDomain().size())) {
+    for (auto i : irange(from->getMaybeRFactorDomain().size())) {
       if (from_id == from->getMaybeRFactorDomain()[i]) {
         mapped_rfactor_ids_[to] = to->getMaybeRFactorDomain()[i];
         return;
@@ -1517,8 +1514,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
     auto in_out_tv_domain_list = std::list<IterDomain*>(
         in_out_tv_domain.begin(), in_out_tv_domain.end());
 
-    for (const auto ref_i :
-         std::views::iota((size_t)0, ref_root_domain.size())) {
+    for (const auto ref_i : irange(ref_root_domain.size())) {
       auto ref_id = ref_root_domain[ref_i];
 
       if (ref_id->isBroadcast()) {
@@ -1577,8 +1573,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
       bool lhs = false;
       auto dtype_size =
           dataTypeSize(in_out_tv->getDataType().value(), index_type);
-      for (auto mapped_axes_i :
-           std::views::iota((size_t)0, mapped_axes.size())) {
+      for (auto mapped_axes_i : irange(mapped_axes.size())) {
         auto lhs_i = mapped_axes_i;
         auto rhs_i = mapped_axes.size() - 1 - mapped_axes_i;
 
@@ -1948,7 +1943,7 @@ std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
   }
 
   std::unordered_map<int, int> old2new;
-  for (auto id_i : std::views::iota(0, (int)tv->getLeafDomain().size())) {
+  for (auto id_i : irange((int)tv->getLeafDomain().size())) {
     auto leaf_id = tv->axis(id_i);
     auto find_it =
         std::find(reordered_ids.begin(), reordered_ids.end(), leaf_id);

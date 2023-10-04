@@ -11,7 +11,7 @@
 
 #include <device_lower/analysis/trivial_broadcast.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 
 namespace nvfuser {
 
@@ -81,8 +81,7 @@ void ConcretizedBroadcastDomains::handle(TensorView* tv) {
 void ConcretizedBroadcastDomains::handle(BroadcastOp* bop) {
   // Create a new entry for each of new broadcast domains
   auto out = bop->out()->as<TensorView>();
-  for (const auto i :
-       std::views::iota((size_t)0, out->getRootDomain().size())) {
+  for (const auto i : irange(out->getRootDomain().size())) {
     if (bop->getBroadcastDimFlags().at(i)) {
       auto new_bcast_id = out->getRootDomain().at(i);
       broadcast_origin_map_.emplace(

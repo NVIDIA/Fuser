@@ -13,7 +13,7 @@
 #include <root_domain_map.h>
 #include <transform_iter.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 #include <tuple>
 #include <typeinfo>
 
@@ -218,7 +218,7 @@ void IterDomainGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
       first->toString(),
       "\nand\n",
       second->toString());
-  for (auto out_i : std::views::iota((size_t)0, first_ids.size())) {
+  for (auto out_i : irange(first_ids.size())) {
     exact_nodes_.mapEntries(first_ids[out_i], second_ids[out_i]);
     permissive_nodes_.mapEntries(first_ids[out_i], second_ids[out_i]);
     permissive_resize_nodes_.mapEntries(first_ids[out_i], second_ids[out_i]);
@@ -501,7 +501,7 @@ void IterDomainGraph::build(Fusion* fusion) {
 
         for (auto& dset : permissive_disjoint_sets.disjointSets()) {
           auto& vec = dset->vector();
-          for (auto i : std::views::iota((size_t)0, vec.size())) {
+          for (auto i : irange(vec.size())) {
             auto id1 = vec[i];
             permissive_nodes_.mapEntries(id1, vec[0]);
 
@@ -535,7 +535,7 @@ void IterDomainGraph::build(Fusion* fusion) {
         // permissive-resize mappings.
         for (auto& dset : permissive_resize_disjoint_sets.disjointSets()) {
           auto& vec = dset->vector();
-          for (auto i : std::views::iota((size_t)0, vec.size())) {
+          for (auto i : irange(vec.size())) {
             auto id1 = vec[i];
             permissive_resize_nodes_.mapEntries(id1, vec[0]);
             mapMaybeSwizzleOp(permissive_resize_nodes_, id1);
@@ -644,8 +644,7 @@ void IterDomainGraph::build(Fusion* fusion) {
   for (auto prop_forward : {true, false}) {
     std::unordered_set<Expr*> visited_exprs;
 
-    for (auto rfactor_id_i :
-         std::views::iota((size_t)0, rfactor_id_order.size())) {
+    for (auto rfactor_id_i : irange(rfactor_id_order.size())) {
       auto first_rfactor_id = prop_forward
           ? rfactor_id_order[rfactor_id_i]
           : rfactor_id_order[rfactor_id_order.size() - 1 - rfactor_id_i];
@@ -1224,7 +1223,7 @@ bool ComputeAtMap::areExactExprs(Expr* expr_1, Expr* expr_2) {
           expr_1->outputs().size() == expr_2->outputs().size(),
       "Expr traversal doesn't support variable number of inputs and outputs.");
 
-  for (auto input_i : std::views::iota((size_t)0, expr_1->inputs().size())) {
+  for (auto input_i : irange(expr_1->inputs().size())) {
     if (expr_1->inputs()[input_i]->isA<IterDomain>() &&
         !areMapped(
             expr_1->inputs()[input_i]->as<IterDomain>(),
@@ -1235,7 +1234,7 @@ bool ComputeAtMap::areExactExprs(Expr* expr_1, Expr* expr_2) {
     }
   }
 
-  for (auto output_i : std::views::iota((size_t)0, expr_1->outputs().size())) {
+  for (auto output_i : irange(expr_1->outputs().size())) {
     if (expr_1->outputs()[output_i]->isA<IterDomain>() &&
         !areMapped(
             expr_1->outputs()[output_i]->as<IterDomain>(),

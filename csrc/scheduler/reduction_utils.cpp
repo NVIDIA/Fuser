@@ -17,7 +17,7 @@
 #include <scheduler/utils.h>
 #include <transform_replay.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 
 namespace nvfuser {
 
@@ -276,7 +276,7 @@ TensorView* scheduleReductionTV(
   if (is_outer_grid_persistence) {
     int vec_id_cur_pos = -1;
     std::unordered_map<int, int> vec_reorder_map;
-    for (const auto i : std::views::iota(0, (int)reduction_rf_tv->nDims())) {
+    for (const auto i : irange((int)reduction_rf_tv->nDims())) {
       auto id = reduction_rf_tv->axis(i);
       if (id->getParallelType() == ParallelType::Vectorize) {
         vec_id_cur_pos = i;
@@ -303,7 +303,7 @@ std::vector<int> addBackBroadcasts(
   // convert non-broadcast positions to raw positions
   std::vector<int> axes;
   int non_broadcast_pos = 0;
-  for (const auto i : std::views::iota((size_t)0, tv->nDims())) {
+  for (const auto i : irange(tv->nDims())) {
     if (tv->axis((int)i)->isBroadcast()) {
       continue;
     }
@@ -411,7 +411,7 @@ void propagateRFactor(
   // position in other reduction TVs.
   std::unordered_set<int> non_broadcast_rfactor_axes_ir;
   int non_broadcast_pos_ir = 0;
-  for (const auto i : std::views::iota((size_t)0, reference_tv->nDims())) {
+  for (const auto i : irange(reference_tv->nDims())) {
     if (reference_tv->axis((int)i)->isBroadcast()) {
       continue;
     }
@@ -518,7 +518,7 @@ void propagateParallelization(
 
     for (auto tv : rfactor_and_reduction_tvs) {
       if (are_unrolled.count(tv) == 0) {
-        for (const auto i : std::views::iota((size_t)0, tv->nDims())) {
+        for (const auto i : irange(tv->nDims())) {
           auto id = tv->axis((int)i);
           // Use Group only for grid reductions (i.e., not for rfactor'ed
           // reductions)
@@ -726,8 +726,7 @@ class PersistentBufferProjector {
     if (project_to_inputs_) {
       // Iterate through projected buffers, tracking which index it corresponds
       // too since there's a resolution point entry for every buffer.
-      for (auto buffer_i :
-           std::views::iota((size_t)0, persistent_buffers.size())) {
+      for (auto buffer_i : irange(persistent_buffers.size())) {
         auto buffer = persistent_buffers[buffer_i];
         if (std::find(
                 projectable_persistent_buffers.begin(),
@@ -741,8 +740,7 @@ class PersistentBufferProjector {
     } else {
       std::unordered_set<TensorView*> persistent_buffer_set(
           persistent_buffers.begin(), persistent_buffers.end());
-      for (auto buffer_i :
-           std::views::iota((size_t)0, persistent_buffers.size())) {
+      for (auto buffer_i : irange(persistent_buffers.size())) {
         auto buffer = persistent_buffers[buffer_i];
         // skip reduction buffers
         if (buffer->hasReduction()) {

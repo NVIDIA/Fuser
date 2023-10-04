@@ -12,7 +12,7 @@
 
 #include <device_lower/analysis/sync_information.h>
 
-#include <C++20/ranges>
+#include <ranges.h>
 
 namespace nvfuser {
 
@@ -22,7 +22,7 @@ namespace {
 void validateParallelizationOfTensor(TensorView* tv) {
   // Each ParallelType can be used only once.
   ParallelTypeBitmap pt_map;
-  for (auto i : std::views::iota((size_t)0, tv->nDims())) {
+  for (auto i : irange(tv->nDims())) {
     auto axis = tv->axis((int)i);
     auto ptype = axis->getParallelType();
     if (!isParallelTypeThread(ptype)) {
@@ -496,8 +496,7 @@ SyncMap::SyncMap(Fusion* fusion) {
       producer_redundant_types =
           producer_redundant_types & (~producer_redundant_use_types);
 
-      for (const auto producer_i :
-           std::views::iota((size_t)0, producer->nDims())) {
+      for (const auto producer_i : irange(producer->nDims())) {
         auto producer_axis = producer->axis((int)producer_i);
         auto producer_ptype =
             ca_map->getConcreteMappedID(producer_axis, IdMappingMode::LOOP)
@@ -523,8 +522,7 @@ SyncMap::SyncMap(Fusion* fusion) {
         std::vector<IterDomain*> consumer_parallel_ids(
             ParallelTypeBitmap::kNumParallelTypes, nullptr);
         ParallelTypeBitmap consumer_parallel_bitmap;
-        for (const auto consumer_i :
-             std::views::iota((size_t)0, consumer->nDims())) {
+        for (const auto consumer_i : irange(consumer->nDims())) {
           auto consumer_axis = consumer->axis((int)consumer_i);
           auto consumer_ptype =
               ca_map->getConcreteMappedID(consumer_axis, IdMappingMode::LOOP)
