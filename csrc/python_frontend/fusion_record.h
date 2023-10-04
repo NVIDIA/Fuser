@@ -1167,9 +1167,9 @@ struct TensorRecord : RecordFunctor {
       std::vector<State> _outputs,
       std::vector<int64_t> _shape,
       std::vector<std::optional<bool>> _contiguity,
-      std::vector<int64_t> _stride_order,
       PrimDataType _dtype,
-      bool _is_cpu = false)
+      bool _is_cpu = false,
+      std::vector<int64_t> _stride_order = {})
       : RecordFunctor(
             {},
             std::move(_outputs),
@@ -1223,7 +1223,7 @@ struct TensorRecord : RecordFunctor {
       if (result) {
         result =
             ((shape_.size() == child_ptr->shape_.size()) &&
-             (stride_order_.size() == stride_order_->shape_.size()) &&
+             (stride_order_.size() == child_ptr->stride_order_.size()) &&
              (contiguity_.size() == child_ptr->contiguity_.size()));
         if (result) {
           for (size_t i = 0; i < shape_.size(); ++i) {

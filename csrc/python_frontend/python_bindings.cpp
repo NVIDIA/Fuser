@@ -597,9 +597,9 @@ void initNvFuserPythonBindings(PyObject* module) {
                 {self.recordingState(out())},
                 shape,
                 contiguity,
-		stride_order,
                 dtype,
-                is_cpu));
+                is_cpu,
+		stride_order));
 
             return out;
           },
@@ -660,9 +660,9 @@ void initNvFuserPythonBindings(PyObject* module) {
                 {self.recordingState(out())},
                 std::move(dim_sizes),
 		contiguity,
-		stride_order,
                 dtype,
-                is_cpu));
+                is_cpu,
+		stride_order));
 
             return out;
           },
