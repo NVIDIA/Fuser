@@ -35,7 +35,9 @@ class GitRev:
 
     def __post_init__(self):
         self.abbrev = (
-            subprocess.run(["git", "rev-parse", "--short", self.full_hash], capture_output=True)
+            subprocess.run(
+                ["git", "rev-parse", "--short", self.full_hash], capture_output=True
+            )
             .stdout.strip()
             .decode("utf-8")
         )
@@ -504,7 +506,11 @@ class TestDifferences:
         context = asdict(self)
         context["omit_preamble"] = omit_preamble
         context["max_diffs"] = max_diffs
-        head_hash = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True).stdout.strip().decode("utf-8")
+        head_hash = (
+            subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True)
+            .stdout.strip()
+            .decode("utf-8")
+        )
         context["tool_git"] = GitRev(head_hash)
 
         return template.render(context)
