@@ -4251,9 +4251,6 @@ TEST_F(NVFuserTest, FusionTuringMatmulSplitK_CUDA) {
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
 
-    std::cout << "aten " << tref;
-    std::cout << "nvfuser " << cg_outputs[0];
-
     // Relax tolerance for larger sum due to large K
     NVF_CHECK(cg_outputs[0].allclose(tref, 0.01, 0.01));
   }
