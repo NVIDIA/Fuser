@@ -192,7 +192,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "out_dir",
         type=str,
-        help="The output folder that will contain benchmark results and comparison",
+        help="The output folder that will contain benchmark results and comparison. It will be created if doesn't exist.",
     )
     parser.add_argument(
         "benchmark_args",
