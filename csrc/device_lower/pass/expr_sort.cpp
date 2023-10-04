@@ -670,8 +670,7 @@ ExprGroup* ExprSegmentationSorter::makeEmptyGroup(
       // Each non-terminating TV expr should at least have the kernel
       // scope to enforce the global dependency
       group->payload()->ca_domains.push_back(kernelScopeDomain());
-      for (const auto tv_i : std::views::iota(
-               0u,
+      for (const auto tv_i : irange(
                out_tv->hasResolvedComputeWith()
                    ? out_tv->getComputeWithPosition()
                    : out_tv->getComputeAtPosition())) {
@@ -937,10 +936,9 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
       auto consumer_of_consumer_edge =
           dynamic_cast<TensorView*>(consumer_group_edge->consumer_val);
       NVF_ERROR(consumer_of_consumer_edge != nullptr);
-      for (const auto tv_i : std::views::iota(
-               0u,
-               producer_of_consumer_edge->getComputePosition(
-                   consumer_of_consumer_edge))) {
+      for (const auto tv_i :
+           irange(producer_of_consumer_edge->getComputePosition(
+               consumer_of_consumer_edge))) {
         ca_ids.emplace(
             getConcreteID(producer_of_consumer_edge->axis((int)tv_i)));
       }
