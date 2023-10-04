@@ -231,42 +231,30 @@ computeTensorDescriptor(
       dim_info_vec.begin(),
       dim_info_vec.end(),
       [](const auto& l, const auto& r) { return l.stride > r.stride; });
-  // index to inner most dimension in sorted order.
-  int64_t last = (int64_t)sizes.size() - 1;
-  // Contiguity normallly is determined by the current dimension and one
-  // dimension to the right.  The innermost dimension, that is not broadcasted,
-  // does not have any dimension to it's right and needs to be specially marked
-  // contiguous.
-  while (last >= 0) {
-    // marking stride_order
-    dim_info_vec[last].stride_order = (int64_t)sizes.size() - 1 - last;
-    if (dim_info_vec[last].notBroadcast()) {
-      // setting current contiguity flag since it's not a broadcast dimension
-      dim_info_vec[last].contiguity = dim_info_vec[last].stride == 1;
-      break;
-    }
-    --last;
-  }
+
   // Dimensions are marked contiguous by inspecting the current dimension and
   // one to the right towards the inner dimension while skipping over broadcast
   // dimensions.
-  for (int64_t i = 0; i < last;) {
+  // The innermost dimension, that is not broadcasted, does not have any dimension to it's right and needs to have stride equal to 1 in order to be marked contiguous.
+  for (int64_t i = 0; i < (int64_t)sizes.size();) {
     dim_info_vec[i].stride_order = (int64_t)sizes.size() - 1 - i;
     if (dim_info_vec[i].notBroadcast()) {
       auto l = i++;
-      for (; i <= last; i++) {
+      int64_t expected = 1;
+      for (; i < (int64_t)sizes.size(); i++) {
         dim_info_vec[i].stride_order = (int64_t)sizes.size() - 1 - i;
         if (dim_info_vec[i].notBroadcast()) {
+          expected = dim_info_vec[i].stride * dim_info_vec[i].size;
           break;
         }
       }
       dim_info_vec[l].contiguity =
-          (dim_info_vec[l].stride ==
-           dim_info_vec[i].stride * dim_info_vec[i].size);
+          (dim_info_vec[l].stride == expected);
     } else {
       i++;
     }
   }
+
 
   std::vector<std::optional<bool>> contiguity(sizes.size(), std::nullopt);
   std::vector<int64_t> stride_order(sizes.size(), -1);
