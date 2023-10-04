@@ -168,7 +168,8 @@ CommParams CreateParamsForBroadcastOrP2P(
 
   if (device_index == root) {
     params.src_bufs = {input_tensor};
-  } else {
+  }
+  if (mesh.has(my_device_index)) {
     params.dst_bufs = {output_tensor};
   }
 
