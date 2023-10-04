@@ -5,6 +5,7 @@ cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 project(nvfuser)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--no-allow-shlib-undefined")
 
 # compensating the lack of PROJECT_IS_TOP_LEVEL for older cmake version
 if(CMAKE_VERSION VERSION_LESS 3.21)
@@ -19,6 +20,8 @@ set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
 option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
+
+string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 
 if(PROJECT_IS_TOP_LEVEL)
   find_package(Torch REQUIRED)
@@ -256,7 +259,7 @@ endif()
 list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
 
 if(PROJECT_IS_TOP_LEVEL)
-  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
+  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES} dl)
 
   # this is to find pip installed nvrtc/nvtx .so
   set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH
