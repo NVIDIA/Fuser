@@ -1825,8 +1825,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
 
     // Append arguments for each reduction
-    for (const auto i : std::views::iota(
-             (size_t)0, grouped_grop->numHorizontallyGroupedExprs())) {
+    for (const auto i : irange(grouped_grop->numHorizontallyGroupedExprs())) {
       NVF_ERROR(
           grouped_grop->reduction_buffers().at(i)->buffer()->isA<TensorView>());
       const auto work_buffer =
@@ -1998,8 +1997,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder read_preds;
     ArgumentBuilder write_preds;
 
-    for (const auto expr_index : std::views::iota(
-             (size_t)0, grouped_grop->numHorizontallyGroupedExprs())) {
+    for (const auto expr_index :
+         irange(grouped_grop->numHorizontallyGroupedExprs())) {
       const auto data_type = grouped_grop->outputs().at(expr_index)->dtype();
       NVF_ERROR(grouped_grop->reduction_buffers()
                     .at(expr_index)
@@ -2138,8 +2137,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto input_vals = grouped_gwop->inputVals();
     auto init_vals = grouped_gwop->initVals();
 
-    for (const auto expr_index : std::views::iota(
-             (size_t)0, grouped_gwop->numHorizontallyGroupedExprs())) {
+    for (const auto expr_index :
+         irange(grouped_gwop->numHorizontallyGroupedExprs())) {
       const auto& output = output_vals.at(expr_index);
       const auto& input = input_vals.at(expr_index);
       const auto& init = init_vals.at(expr_index);
@@ -2632,8 +2631,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const GroupedReductionOp* grouped_rop) final {
-    for (const auto i : std::views::iota(
-             (size_t)0, grouped_rop->numHorizontallyGroupedExprs())) {
+    for (const auto i : irange(grouped_rop->numHorizontallyGroupedExprs())) {
       NVF_ERROR(grouped_rop->output(i)->isA<kir::TensorIndex>());
 
       const auto output = grouped_rop->output(i)->as<kir::TensorIndex>();
