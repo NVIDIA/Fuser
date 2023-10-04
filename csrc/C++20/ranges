@@ -61,9 +61,6 @@ class iota_view {
   std::decay_t<Bound> bound_;
 };
 
-// template <typename W>
-// iota_view(W&&) -> iota_view<W>;
-
 namespace views {
 
 template <typename W, typename Bound>
