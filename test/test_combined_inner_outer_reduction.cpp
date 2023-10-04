@@ -1,4 +1,3 @@
-#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -27,29 +26,13 @@ namespace nvfuser {
 
 using namespace at::indexing;
 
-// mean & var
-std::tuple<float, float> getMeanVar(const std::vector<float>& v) {
-  const int nele = v.size();
-  float mean = std::accumulate(v.begin(), v.end(), 0.0f) / nele;
-  std::vector<float> sub_mean(nele);
-  std::transform(v.begin(), v.end(), sub_mean.begin(), [mean](float x) {
-    return x - mean;
-  });
-  float sq_sum = std::inner_product(
-      sub_mean.begin(), sub_mean.end(), sub_mean.begin(), 0.0);
-  float stdev = std::sqrt(sq_sum / nele);
-  return {mean, stdev};
-}
-
 // This case is to test the correctness of the combined inner and outer
 // scheduler used in layer norm backward. It can also be configured to test the
 // performance using different data types.
 TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
   auto runTest = [](const std::vector<int64_t>& batch_shape,
                     const std::vector<int64_t>& norm_shape,
-                    DataType dtype,
-                    bool isBenchmark,
-                    int verbose) {
+                    DataType dtype) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
     FusionGuard fg(&fusion);
@@ -179,70 +162,42 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
          std::get<2>(aten_gradients).mul(scale_back_factor)},
         __LINE__,
         __FILE__);
-    if (isBenchmark) {
-      FusionKernelRuntime* fkr = fec.getMostRecentKernelRuntime();
-      fkr->enableKernelTimeMeasurement();
 
-      constexpr int nwarm = 5;
-      constexpr int niter = 10;
-      std::vector<float> bw(niter, 0.f);
-      std::vector<float> timeus(niter, 0.f);
+    //  should use shared memory if the register file is insufficient but there
+    //  is ample space in shared memory.
+    int64_t hidden_size = 1l;
+    for (int64_t dim : norm_shape) {
+      hidden_size *= dim;
+    }
 
-      size_t read_write_bytes = 0;
-      const std::vector<at::Tensor> aten_inputs_tmp = {
-          aten_grad_out,
-          aten_input,
-          aten_mean,
-          aten_rstd,
-          aten_weight,
-          aten_bias};
-      const std::vector<at::Tensor> aten_output_tmp = {
-          std::get<0>(aten_gradients),
-          std::get<1>(aten_gradients),
-          std::get<2>(aten_gradients)};
-      for (auto input : aten_inputs_tmp) {
-        read_write_bytes += input.numel() * input.element_size();
-      }
-      for (auto output : aten_output_tmp) {
-        read_write_bytes += output.numel() * output.element_size();
-      }
+    int64_t persistent_buffer_size = hidden_size *
+        (dtype == DataType::Half ? 14l : (dtype == DataType::Float ? 20l : 0l));
+    ASSERT_TRUE(persistent_buffer_size) << "Unsupported data type!";
 
-      for (int i = 0; i < nwarm + niter; i++) {
-        clearL2Cache();
-        // fe.runFusion(inputs, outputs, launch_constraints);
-        auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
-        if (i >= nwarm) {
-          float runTimeus = 0.0f;
-          int num_kernels = fkr->executors().size();
-          for (int i = 0; i < num_kernels; i++) {
-            const FusionExecutor& fe = fkr->executors()[i];
-            runTimeus += fe.kernelTimeMs() * 1e3;
-          }
-          float bandwidth = read_write_bytes / 1e9 / (runTimeus * 1e-6);
-          timeus[i - nwarm] = runTimeus;
-          bw[i - nwarm] = bandwidth;
-          if (verbose == 2)
-            std::cout << "iter= " << i << ", bandwidth= " << bandwidth << "GB/s"
-                      << ", time= " << runTimeus << " us" << std::endl;
-        }
+    if (persistent_buffer_size > scheduler_utils::register_file_size_combined) {
+      auto dev_prop = at::cuda::getCurrentDeviceProperties();
+      int64_t available_smem =
+          (int64_t)dev_prop->sharedMemPerBlockOptin -
+          normalization_scheduler_utils::getSharedMemoryOverheadPerBlock(
+              &fusion,
+              scheduler_utils::getReductionTvs(&fusion),
+              scheduler_utils::max_threads_per_block_combined);
+
+      if (available_smem >= persistent_buffer_size) {
+        const auto& kernel_runtime = fec.getMostRecentKernelRuntime();
+        ASSERT_TRUE(!kernel_runtime->isSegmented())
+            << "Should not segment! hidden_size: " << hidden_size
+            << ", dataTypeSize: " << dataTypeSize(dtype);
+        auto heuristic_params = kernel_runtime->schedulerHeuristics()
+                                    ->heuristicsList()
+                                    .at(0)
+                                    ->params();
+        ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
+        auto rparams = heuristic_params->as<ReductionParams>();
+        ASSERT_TRUE(rparams->shared_mem_persistent_buffer)
+            << "Should use shared memory buffer! hidden_size: " << hidden_size
+            << ", dataTypeSize: " << dataTypeSize(dtype);
       }
-      return getMeanVar(timeus);
-    } else {
-      if (verbose == 1) {
-        std::stringstream sdim0, sdim1;
-        std::for_each(
-            batch_shape.begin(), batch_shape.end(), [&sdim0](int64_t n) {
-              sdim0 << n << " x ";
-            });
-        std::for_each(
-            norm_shape.begin(), norm_shape.end(), [&sdim1](int64_t n) {
-              sdim1 << n << " x ";
-            });
-        std::string str1 = sdim1.str();
-        str1.erase(str1.end() - 2);
-        std::cout << "passed, shape= " << sdim0.str() << str1 << std::endl;
-      }
-      return std::make_tuple(-1.0f, -1.0f);
     }
   };
 
@@ -259,37 +214,15 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
       {1600},
       {1984},
       {1987},
+      {16384}, //! use shared memory for persistent
+      {32768}, //! segment and the inner reduction part has 2 persistent tensors
       {65536}};
-  bool isBenchmark = false;
-  bool onlyTestFirstCase = false;
-  int verbose = 0;
   for (auto dtype : data_types) {
     for (auto batch_shape : batch_sizes) {
       for (auto norm_shape : hidden_sizes) {
-        std::tuple<float, float> avg_var =
-            runTest(batch_shape, norm_shape, dtype, isBenchmark, verbose);
-        if (isBenchmark) {
-          std::stringstream sdim0, sdim1;
-          std::for_each(
-              batch_shape.begin(), batch_shape.end(), [&sdim0](int64_t n) {
-                sdim0 << n << " x ";
-              });
-          std::for_each(
-              norm_shape.begin(), norm_shape.end(), [&sdim1](int64_t n) {
-                sdim1 << n << " x ";
-              });
-          std::cout << "shape= " << sdim0.str() << sdim1.str()
-                    << ", time_us mean(var)= " << std::get<0>(avg_var) << " ("
-                    << std::get<1>(avg_var) << ")" << std::endl;
-        }
-        if (onlyTestFirstCase)
-          break;
+        runTest(batch_shape, norm_shape, dtype);
       }
-      if (onlyTestFirstCase)
-        break;
     }
-    if (onlyTestFirstCase)
-      break;
   }
 }
 

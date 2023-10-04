@@ -601,33 +601,6 @@ bool isConnectedOnlyThroughReductionProducer(
   return true;
 }
 
-int64_t partialReductionBufferSize(
-    const std::vector<TensorView*>& outer_reduction_tvs,
-    SchedulerRuntimeInfo& runtime_info) {
-  int64_t partial_reduction_buffer_size = 0;
-  for (auto buffer : outer_reduction_tvs) {
-    int64_t buffer_size = -1;
-    for (auto id : buffer->getMaybeRFactorDomain()) {
-      if (id->isReduction() || id->isBroadcast()) {
-        continue;
-      }
-      auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
-      NVF_ERROR(id_size.hasValue(), "Could not infer persistent buffer size.");
-      if (buffer_size == -1) {
-        buffer_size = id_size.as<int64_t>();
-      } else {
-        buffer_size *= id_size.as<int64_t>();
-      }
-    }
-    buffer_size = (buffer_size == -1) ? 0
-                                      : buffer_size *
-            (int64_t)dataTypeSize(buffer->getDataType().value(),
-                                  runtime_info.getIndexType());
-    partial_reduction_buffer_size += buffer_size;
-  }
-  return partial_reduction_buffer_size;
-}
-
 std::pair<std::optional<int64_t>, int64_t>
 getOptionalInnerOuterPersistentBufferBatches(
     const int64_t inner_dim_numel,
@@ -1064,6 +1037,32 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
   }
 
   return true;
+}
+
+int64_t getSharedMemoryOverheadPerBlock(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs,
+    const int64_t max_threads_per_block) {
+  const auto& dev_prop = at::cuda::getCurrentDeviceProperties();
+  int64_t dtype_size = 1;
+  for (auto tv : reduction_tvs) {
+    dtype_size = std::max(dtype_size, dataTypeSize(tv->getDataType().value()));
+  }
+  auto hasWelford = [&fusion]() -> bool {
+    for (auto expr : fusion->exprs()) {
+      if (expr->isA<WelfordOp>()) {
+        return true;
+      }
+    }
+    return false;
+  };
+  int64_t welford_factor = hasWelford() ? 3l : 1l;
+  int64_t reduction_broadcast_workspace =
+      max_threads_per_block * dtype_size * welford_factor;
+  int64_t smem_overhead_per_block =
+      (int64_t)dev_prop->reservedSharedMemPerBlock +
+      reduction_broadcast_workspace;
+  return smem_overhead_per_block;
 }
 
 } // namespace normalization_scheduler_utils

@@ -31,6 +31,25 @@ namespace scheduler_utils {
 // but it's hard to get a better one.
 constexpr int64_t register_file_size_full = (int64_t)256 * 1024;
 constexpr int64_t register_file_size = register_file_size_full / 2;
+
+//! register file size allowed for persistent buffers in
+//! innerOuterPersistentHeuristic. May cause register spills but still improves
+//! the overall performance. Here 54 = (1-overhead/255) * 64, reduce to 48 if
+//! not vectorized.
+constexpr int64_t register_file_size_combined =
+    register_file_size_full / 64 * 54;
+constexpr int64_t register_file_size_combined_unvectorized =
+    register_file_size_full / 64 * 48;
+// max threads per block for combined scheduler uses
+// innerOuterPersistentHeuristic. Combined scheduler creates additional
+// persistent tensors to store intermediate outer reduction results. It also
+// have both inner and outer reductions, the register pressure is very high.
+// Limit the max threads per block to 256, allows each thread to use 255
+// registers. If not vectorized, more gmem access ops is required, increase to
+// 512 for higher occupancy to hide gmem access latency.
+constexpr int64_t max_threads_per_block_combined = 256l;
+constexpr int64_t max_threads_per_block_combined_unvectorized = 512l;
+
 // Empirically observed number. Not guaranteed to be a good estimate
 constexpr int64_t register_overhead = 40l;
 constexpr int64_t max_registers_per_thread = 255l;
@@ -598,6 +617,12 @@ void promoteProducerMemoryTypes(
 std::unordered_set<TensorView*> getAllTvsFrom(
     const std::vector<TensorView*>& from_tvs,
     const std::unordered_set<TensorView*>& cutoff_tv_set);
+
+//! Get the persistent buffer size of one tensor
+int64_t getOnePersistentBufferSize(
+    const TensorView* buffer,
+    SchedulerRuntimeInfo& runtime_info,
+    const PersistentBufferInfo& persistent_buffer_info);
 
 } // namespace scheduler_utils
 } // namespace nvfuser
