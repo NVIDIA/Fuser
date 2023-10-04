@@ -3,6 +3,8 @@ from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import runBenchmark
 import torch
+from .global_params import pytestmark, RTOL, ATOL
+
 
 def softmax_fwd_fusion(
     fd: FusionDefinition, dtype: DataType, reduction_axis: int
@@ -90,71 +92,44 @@ def softmax_bwd_fusion(
     fd.add_output(T19)
 
 
-def generate_input_sizes():
-    range_outer = [2**i for i in range(1, 5)]
-    range_inner = [32 * 1024 * 2**i for i in range(11)]
-
-    inputs = [(i, j) for i in range_outer for j in range_inner]
-    inputs.extend([(j, i) for i in range_outer for j in range_inner])
-    return inputs
-
-
-@pytest.mark.parametrize("size", generate_input_sizes())
-@pytest.mark.parametrize("dtype", [torch.float16, torch.float32])
 @pytest.mark.parametrize("reduction_axis", [0, 1])
-def test_softmax_fwd(size, dtype, reduction_axis):
-    inputs = [torch.randn(*size, device="cuda", dtype=dtype)]
-    with FusionDefinition() as fd:
-        softmax_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), reduction_axis)
-
-    nvf_output = fd.execute(inputs)
-    eager_output = torch.nn.functional.softmax(inputs[0], dim=reduction_axis)
-    assert torch.allclose(
-        nvf_output[0], eager_output, rtol=1e-03, atol=1e-03
-    ), f"{torch.max(nvf_output[0] - eager_output)}"
-
-
-@pytest.mark.parametrize("size", generate_input_sizes())
-@pytest.mark.parametrize("dtype", [torch.float16, torch.float32])
-@pytest.mark.parametrize("reduction_axis", [0, 1])
-def test_softmax_bwd(size, dtype, reduction_axis):
-    inputs = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
-    grads = torch.randn(*size, device="cuda", dtype=dtype)
-
-    eager_output = torch.nn.functional.softmax(inputs, dim=reduction_axis)
-    eager_output.backward(grads)
-
-    with FusionDefinition() as fd:
-        softmax_bwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), reduction_axis)
-
-    nvf_output = fd.execute([eager_output, inputs])
-
-    assert torch.allclose(
-        nvf_output[0], inputs.grad, rtol=1e-03, atol=1e-03
-    ), f"{torch.max(nvf_output[0] - inputs.grad)}"
-
-
-@pytest.mark.parametrize("size", generate_input_sizes())
-@pytest.mark.parametrize("dtype", [torch.float16, torch.float32])
-@pytest.mark.parametrize("reduction_axis", [0, 1])
-def test_softmax_fwd_benchmark(benchmark, size, dtype, reduction_axis):
+def test_softmax_fwd_benchmark(
+    benchmark, size, dtype, reduction_axis, test_correctness
+):
     inputs = [torch.randn(*size, device="cuda", dtype=dtype)]
 
     with FusionDefinition() as fd:
         softmax_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), reduction_axis)
+
+    if test_correctness:
+        nvf_output = fd.execute(inputs)
+        eager_output = torch.nn.functional.softmax(inputs[0], dim=reduction_axis)
+        assert torch.allclose(
+            nvf_output[0], eager_output, rtol=RTOL, atol=ATOL
+        ), f"{torch.max(nvf_output[0] - eager_output)}"
+
     runBenchmark(benchmark, fd.execute, inputs)
 
 
-@pytest.mark.parametrize("size", generate_input_sizes())
-@pytest.mark.parametrize("dtype", [torch.float16, torch.float32])
 @pytest.mark.parametrize("reduction_axis", [0, 1])
-def test_softmax_bwd_benchmark(benchmark, size, dtype, reduction_axis):
+def test_softmax_bwd_benchmark(
+    benchmark, size, dtype, reduction_axis, test_correctness
+):
     inputs = [
-        torch.randn(*size, device="cuda", dtype=dtype),
+        torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True),
         torch.randn(*size, device="cuda", dtype=dtype),
     ]
+
     with FusionDefinition() as fd:
         softmax_bwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), reduction_axis)
 
-    runBenchmark(benchmark, fd.execute, inputs)
+    if test_correctness:
+        eager_output = torch.nn.functional.softmax(inputs[0], dim=reduction_axis)
+        eager_output.backward(inputs[1])
 
+        nvf_output = fd.execute([eager_output, inputs[1]])
+        assert torch.allclose(
+            nvf_output[0], inputs[0].grad, rtol=RTOL, atol=ATOL
+        ), f"{torch.max(nvf_output[0] - inputs[0].grad)}"
+
+    runBenchmark(benchmark, fd.execute, inputs)

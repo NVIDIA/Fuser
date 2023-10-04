@@ -1,7 +1,9 @@
 import torch
 from torch.profiler import profile, ProfilerActivity
 
-gpu_name = torch.cuda.get_device_name(0)
+gpu_name = torch.cuda.get_device_name()
+print(gpu_name)
+print(torch.cuda.get_device_properties(torch.cuda.current_device()).major)
 if "A100" in gpu_name:
     GPU = "A100"
 elif "H100" in gpu_name:
@@ -96,8 +98,9 @@ class NVFBenchmark(object):
             iobytes += out.element_size() * out.numel()
 
         self.benchmark.extra_info["IOBytes"] = iobytes
-        self.benchmark.extra_info["BytesPerSecond"] = \
-            (iobytes * self.benchmark.stats['rounds']) / self.benchmark.stats['total']
+        self.benchmark.extra_info["BytesPerSecond"] = (
+            iobytes * self.benchmark.stats["rounds"]
+        ) / self.benchmark.stats["total"]
 
 
 def runBenchmark(benchmark, benchmark_fn, inputs):
