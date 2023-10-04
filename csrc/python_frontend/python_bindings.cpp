@@ -235,7 +235,9 @@ computeTensorDescriptor(
   // Dimensions are marked contiguous by inspecting the current dimension and
   // one to the right towards the inner dimension while skipping over broadcast
   // dimensions.
-  // The innermost dimension, that is not broadcasted, does not have any dimension to it's right and needs to have stride equal to 1 in order to be marked contiguous.
+  // The innermost dimension, that is not broadcasted, does not have any
+  // dimension to it's right and needs to have stride equal to 1 in order to be
+  // marked contiguous.
   for (int64_t i = 0; i < (int64_t)sizes.size();) {
     dim_info_vec[i].stride_order = (int64_t)sizes.size() - 1 - i;
     if (dim_info_vec[i].notBroadcast()) {
@@ -248,13 +250,11 @@ computeTensorDescriptor(
           break;
         }
       }
-      dim_info_vec[l].contiguity =
-          (dim_info_vec[l].stride == expected);
+      dim_info_vec[l].contiguity = (dim_info_vec[l].stride == expected);
     } else {
       i++;
     }
   }
-
 
   std::vector<std::optional<bool>> contiguity(sizes.size(), std::nullopt);
   std::vector<int64_t> stride_order(sizes.size(), -1);
