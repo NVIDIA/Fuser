@@ -668,39 +668,31 @@ void grid_persistent_reduction_outer_norm_like(
 
 } // namespace
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentReductionOuterNormLikeHalf256x7x512_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentReductionOuterNormLikeHalf256x7x512) {
   grid_persistent_reduction_outer_norm_like(256, 7, 512, DataType::Half);
 }
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentReductionOuterNormLikeHalf256x14x512_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentReductionOuterNormLikeHalf256x14x512) {
   grid_persistent_reduction_outer_norm_like(256, 14, 512, DataType::Half);
 }
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentReductionOuterNormLikeHalf256x28x512_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentReductionOuterNormLikeHalf256x28x512) {
   grid_persistent_reduction_outer_norm_like(256, 28, 512, DataType::Half);
 }
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentReductionOuterNormLikeFloat256x7x512_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentReductionOuterNormLikeFloat256x7x512) {
   grid_persistent_reduction_outer_norm_like(256, 7, 512, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormLikeFloat256x14x512_CUDA) {
+    GridPersistentReductionOuterNormLikeFloat256x14x512) {
   grid_persistent_reduction_outer_norm_like(256, 14, 512, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormLikeFloat256x28x512_CUDA) {
+    GridPersistentReductionOuterNormLikeFloat256x28x512) {
   grid_persistent_reduction_outer_norm_like(256, 28, 512, DataType::Float);
 }
 
@@ -775,70 +767,50 @@ void grid_persistent_welford_outer_norm_like(
 
 } // namespace
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentWelfordOuterNormLikeHalf256x7x512_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentWelfordOuterNormLikeHalf256x7x512) {
   grid_persistent_welford_outer_norm_like(256, 7, 512, DataType::Half);
 }
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentWelfordOuterNormLikeHalf256x14x512_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentWelfordOuterNormLikeHalf256x14x512) {
   grid_persistent_welford_outer_norm_like(256, 14, 512, DataType::Half);
 }
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentWelfordOuterNormLikeHalf256x28x512_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentWelfordOuterNormLikeHalf256x28x512) {
   grid_persistent_welford_outer_norm_like(256, 28, 512, DataType::Half);
 }
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentWelfordOuterNormLikeHalf256x28x128_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentWelfordOuterNormLikeHalf256x28x128) {
   grid_persistent_welford_outer_norm_like(256, 28, 128, DataType::Half);
 }
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentWelfordOuterNormLikeHalf32x32x128_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentWelfordOuterNormLikeHalf32x32x128) {
   grid_persistent_welford_outer_norm_like(32, 32, 128, DataType::Half);
 }
 
 // Too large
 #if 0
-TEST_F(OuterReductionTest, FusionGridPersistentWelfordOuterNormLike64x64x64_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentWelfordOuterNormLike64x64x64) {
   grid_persistent_welford_outer_norm_like(64, 64, 64, DataType::Half);
 }
 #endif
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentWelfordOuterNormLikeFloat256x7x512_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentWelfordOuterNormLikeFloat256x7x512) {
   grid_persistent_welford_outer_norm_like(256, 7, 512, DataType::Float);
 }
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentWelfordOuterNormLikeFloat256x14x512_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentWelfordOuterNormLikeFloat256x14x512) {
   grid_persistent_welford_outer_norm_like(256, 14, 512, DataType::Float);
 }
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentWelfordOuterNormLikeFloat256x28x512_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentWelfordOuterNormLikeFloat256x28x512) {
   grid_persistent_welford_outer_norm_like(256, 28, 512, DataType::Float);
 }
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentWelfordOuterNormLikeFloat256x28x128_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentWelfordOuterNormLikeFloat256x28x128) {
   grid_persistent_welford_outer_norm_like(256, 28, 128, DataType::Float);
 }
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentWelfordOuterNormLikeFloat32x32x128_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentWelfordOuterNormLikeFloat32x32x128) {
   grid_persistent_welford_outer_norm_like(32, 32, 128, DataType::Float);
 }
 
@@ -970,51 +942,35 @@ void grid_persistent_batchnorm_manual(
 
 } // namespace
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastHalf256x7x512_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentBatchNormChannelsLastHalf256x7x512) {
   grid_persistent_batchnorm_manual(256, 7, 512, DataType::Half);
 }
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastHalf256x14x512_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentBatchNormChannelsLastHalf256x14x512) {
   grid_persistent_batchnorm_manual(256, 14, 512, DataType::Half);
 }
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastHalf256x28x512_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentBatchNormChannelsLastHalf256x28x512) {
   grid_persistent_batchnorm_manual(256, 28, 512, DataType::Half);
 }
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastHalf256x28x128_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentBatchNormChannelsLastHalf256x28x128) {
   grid_persistent_batchnorm_manual(256, 28, 128, DataType::Half);
 }
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastFloat256x7x512_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentBatchNormChannelsLastFloat256x7x512) {
   grid_persistent_batchnorm_manual(256, 7, 512, DataType::Float);
 }
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastFloat256x14x512_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentBatchNormChannelsLastFloat256x14x512) {
   grid_persistent_batchnorm_manual(256, 14, 512, DataType::Float);
 }
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastFloat256x28x512_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentBatchNormChannelsLastFloat256x28x512) {
   grid_persistent_batchnorm_manual(256, 28, 512, DataType::Float);
 }
 
-TEST_F(
-    OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastFloat256x28x128_CUDA) {
+TEST_F(OuterReductionTest, GridPersistentBatchNormChannelsLastFloat256x28x128) {
   grid_persistent_batchnorm_manual(256, 28, 128, DataType::Float);
 }
 
@@ -1126,37 +1082,37 @@ void grid_persistent_reduction_outer_norm_bwd_like(
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormBwdLikeHalf256x7x512_CUDA) {
+    GridPersistentReductionOuterNormBwdLikeHalf256x7x512) {
   grid_persistent_reduction_outer_norm_bwd_like(256, 7, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormBwdLikeHalf256x14x512_CUDA) {
+    GridPersistentReductionOuterNormBwdLikeHalf256x14x512) {
   grid_persistent_reduction_outer_norm_bwd_like(256, 14, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormBwdLikeHalf256x28x512_CUDA) {
+    GridPersistentReductionOuterNormBwdLikeHalf256x28x512) {
   grid_persistent_reduction_outer_norm_bwd_like(256, 28, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormBwdLikeFloat256x7x512_CUDA) {
+    GridPersistentReductionOuterNormBwdLikeFloat256x7x512) {
   grid_persistent_reduction_outer_norm_bwd_like(256, 7, 512, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormBwdLikeFloat256x14x512_CUDA) {
+    GridPersistentReductionOuterNormBwdLikeFloat256x14x512) {
   grid_persistent_reduction_outer_norm_bwd_like(256, 14, 512, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormBwdLikeFloat256x28x512_CUDA) {
+    GridPersistentReductionOuterNormBwdLikeFloat256x28x512) {
   grid_persistent_reduction_outer_norm_bwd_like(256, 28, 512, DataType::Float);
 }
 
@@ -1316,37 +1272,37 @@ void grid_persistent_batchnorm_bwd_manual(
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastBwdHalf256x7x512_CUDA) {
+    GridPersistentBatchNormChannelsLastBwdHalf256x7x512) {
   grid_persistent_batchnorm_bwd_manual(256, 7, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastBwdHalf256x14x512_CUDA) {
+    GridPersistentBatchNormChannelsLastBwdHalf256x14x512) {
   grid_persistent_batchnorm_bwd_manual(256, 14, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastBwdHalf256x28x512_CUDA) {
+    GridPersistentBatchNormChannelsLastBwdHalf256x28x512) {
   grid_persistent_batchnorm_bwd_manual(256, 28, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastBwdFloat256x7x512_CUDA) {
+    GridPersistentBatchNormChannelsLastBwdFloat256x7x512) {
   grid_persistent_batchnorm_bwd_manual(256, 7, 512, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastBwdFloat256x14x512_CUDA) {
+    GridPersistentBatchNormChannelsLastBwdFloat256x14x512) {
   grid_persistent_batchnorm_bwd_manual(256, 14, 512, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastBwdFloat256x28x512_CUDA) {
+    GridPersistentBatchNormChannelsLastBwdFloat256x28x512) {
   grid_persistent_batchnorm_bwd_manual(256, 28, 512, DataType::Float);
 }
 
@@ -1493,63 +1449,63 @@ void grid_persistent_reduction_outer_norm_like_scheduler(
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormLikeHalf256x7x512Scheduler_CUDA) {
+    GridPersistentReductionOuterNormLikeHalf256x7x512Scheduler) {
   grid_persistent_reduction_outer_norm_like_scheduler(
       256, 7, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormLikeHalf256x14x512Scheduler_CUDA) {
+    GridPersistentReductionOuterNormLikeHalf256x14x512Scheduler) {
   grid_persistent_reduction_outer_norm_like_scheduler(
       256, 14, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormLikeHalf256x28x512Scheduler_CUDA) {
+    GridPersistentReductionOuterNormLikeHalf256x28x512Scheduler) {
   grid_persistent_reduction_outer_norm_like_scheduler(
       256, 28, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormLikeFloat256x7x512Scheduler_CUDA) {
+    GridPersistentReductionOuterNormLikeFloat256x7x512Scheduler) {
   grid_persistent_reduction_outer_norm_like_scheduler(
       256, 7, 512, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormLikeFloat256x14x512Scheduler_CUDA) {
+    GridPersistentReductionOuterNormLikeFloat256x14x512Scheduler) {
   grid_persistent_reduction_outer_norm_like_scheduler(
       256, 14, 512, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormLikeFloat256x28x512Scheduler_CUDA) {
+    GridPersistentReductionOuterNormLikeFloat256x28x512Scheduler) {
   grid_persistent_reduction_outer_norm_like_scheduler(
       256, 28, 512, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormWithWeightsLikeHalf256x7x512Scheduler_CUDA) {
+    GridPersistentReductionOuterNormWithWeightsLikeHalf256x7x512Scheduler) {
   grid_persistent_reduction_outer_norm_like_scheduler(
       256, 7, 512, DataType::Half, true, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormWithWeightsLikeHalf256x14x512Scheduler_CUDA) {
+    GridPersistentReductionOuterNormWithWeightsLikeHalf256x14x512Scheduler) {
   grid_persistent_reduction_outer_norm_like_scheduler(
       256, 14, 512, DataType::Half, true, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormWithWeightsLikeHalf256x28x512Scheduler_CUDA) {
+    GridPersistentReductionOuterNormWithWeightsLikeHalf256x28x512Scheduler) {
   grid_persistent_reduction_outer_norm_like_scheduler(
       256, 28, 512, DataType::Half, true, DataType::Float);
 }
@@ -1651,63 +1607,63 @@ void grid_persistent_welford_outer_norm_like_scheduler(
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentWelfordOuterNormLikeHalf256x7x512Scheduler_CUDA) {
+    GridPersistentWelfordOuterNormLikeHalf256x7x512Scheduler) {
   grid_persistent_welford_outer_norm_like_scheduler(
       256, 7, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentWelfordOuterNormLikeHalf256x14x512Scheduler_CUDA) {
+    GridPersistentWelfordOuterNormLikeHalf256x14x512Scheduler) {
   grid_persistent_welford_outer_norm_like_scheduler(
       256, 14, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentWelfordOuterNormLikeHalf256x28x512Scheduler_CUDA) {
+    GridPersistentWelfordOuterNormLikeHalf256x28x512Scheduler) {
   grid_persistent_welford_outer_norm_like_scheduler(
       256, 28, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentWelfordOuterNormLikeFloat256x7x512Scheduler_CUDA) {
+    GridPersistentWelfordOuterNormLikeFloat256x7x512Scheduler) {
   grid_persistent_welford_outer_norm_like_scheduler(
       256, 7, 512, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentWelfordOuterNormLikeFloat256x14x512Scheduler_CUDA) {
+    GridPersistentWelfordOuterNormLikeFloat256x14x512Scheduler) {
   grid_persistent_welford_outer_norm_like_scheduler(
       256, 14, 512, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentWelfordOuterNormLikeFloat256x28x512Scheduler_CUDA) {
+    GridPersistentWelfordOuterNormLikeFloat256x28x512Scheduler) {
   grid_persistent_welford_outer_norm_like_scheduler(
       256, 28, 512, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentWelfordOuterNormWithWeithtsLikeHalf256x7x512Scheduler_CUDA) {
+    GridPersistentWelfordOuterNormWithWeithtsLikeHalf256x7x512Scheduler) {
   grid_persistent_welford_outer_norm_like_scheduler(
       256, 7, 512, DataType::Half, true, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentWelfordOuterNormWithWeightsLikeWHalf256x14x512Scheduler_CUDA) {
+    GridPersistentWelfordOuterNormWithWeightsLikeWHalf256x14x512Scheduler) {
   grid_persistent_welford_outer_norm_like_scheduler(
       256, 14, 512, DataType::Half, true, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentWelfordOuterNormWithWeightsLikeWHalf256x28x512Scheduler_CUDA) {
+    GridPersistentWelfordOuterNormWithWeightsLikeWHalf256x28x512Scheduler) {
   grid_persistent_welford_outer_norm_like_scheduler(
       256, 28, 512, DataType::Half, true, DataType::Float);
 }
@@ -1836,37 +1792,37 @@ void grid_persistent_batchnorm_scheduler(
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastHalf256x7x512Scheduler_CUDA) {
+    GridPersistentBatchNormChannelsLastHalf256x7x512Scheduler) {
   grid_persistent_batchnorm_scheduler(256, 7, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastHalf256x14x512Scheduler_CUDA) {
+    GridPersistentBatchNormChannelsLastHalf256x14x512Scheduler) {
   grid_persistent_batchnorm_scheduler(256, 14, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastHalf256x28x512Scheduler_CUDA) {
+    GridPersistentBatchNormChannelsLastHalf256x28x512Scheduler) {
   grid_persistent_batchnorm_scheduler(256, 28, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastFloat256x7x512Scheduler_CUDA) {
+    GridPersistentBatchNormChannelsLastFloat256x7x512Scheduler) {
   grid_persistent_batchnorm_scheduler(256, 7, 512, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastFloat256x14x512Scheduler_CUDA) {
+    GridPersistentBatchNormChannelsLastFloat256x14x512Scheduler) {
   grid_persistent_batchnorm_scheduler(256, 14, 512, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastFloat256x28x512Scheduler_CUDA) {
+    GridPersistentBatchNormChannelsLastFloat256x28x512Scheduler) {
   grid_persistent_batchnorm_scheduler(256, 28, 512, DataType::Float);
 }
 
@@ -1977,42 +1933,42 @@ void grid_persistent_reduction_outer_norm_bwd_like_scheduler(
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormBwdLikeHalf256x7x512Scheduler_CUDA) {
+    GridPersistentReductionOuterNormBwdLikeHalf256x7x512Scheduler) {
   grid_persistent_reduction_outer_norm_bwd_like_scheduler(
       256, 7, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormBwdLikeHalf256x14x512Scheduler_CUDA) {
+    GridPersistentReductionOuterNormBwdLikeHalf256x14x512Scheduler) {
   grid_persistent_reduction_outer_norm_bwd_like_scheduler(
       256, 14, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormBwdLikeHalf256x28x512Scheduler_CUDA) {
+    GridPersistentReductionOuterNormBwdLikeHalf256x28x512Scheduler) {
   grid_persistent_reduction_outer_norm_bwd_like_scheduler(
       256, 28, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormBwdLikeFloat256x7x512Scheduler_CUDA) {
+    GridPersistentReductionOuterNormBwdLikeFloat256x7x512Scheduler) {
   grid_persistent_reduction_outer_norm_bwd_like_scheduler(
       256, 7, 512, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormBwdLikeFloat256x14x512Scheduler_CUDA) {
+    GridPersistentReductionOuterNormBwdLikeFloat256x14x512Scheduler) {
   grid_persistent_reduction_outer_norm_bwd_like_scheduler(
       256, 14, 512, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentReductionOuterNormBwdLikeFloat256x28x512Scheduler_CUDA) {
+    GridPersistentReductionOuterNormBwdLikeFloat256x28x512Scheduler) {
   grid_persistent_reduction_outer_norm_bwd_like_scheduler(
       256, 28, 512, DataType::Float);
 }
@@ -2171,37 +2127,37 @@ void grid_persistent_batchnorm_bwd_scheduler(
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastBwdHalf256x7x512Scheduler_CUDA) {
+    GridPersistentBatchNormChannelsLastBwdHalf256x7x512Scheduler) {
   grid_persistent_batchnorm_bwd_scheduler(256, 7, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastBwdHalf256x14x512Scheduler_CUDA) {
+    GridPersistentBatchNormChannelsLastBwdHalf256x14x512Scheduler) {
   grid_persistent_batchnorm_bwd_scheduler(256, 14, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastBwdHalf256x28x512Scheduler_CUDA) {
+    GridPersistentBatchNormChannelsLastBwdHalf256x28x512Scheduler) {
   grid_persistent_batchnorm_bwd_scheduler(256, 28, 512, DataType::Half);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastBwdFloat256x7x512Scheduler_CUDA) {
+    GridPersistentBatchNormChannelsLastBwdFloat256x7x512Scheduler) {
   grid_persistent_batchnorm_bwd_scheduler(256, 7, 512, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastBwdFloat256x14x512Scheduler_CUDA) {
+    GridPersistentBatchNormChannelsLastBwdFloat256x14x512Scheduler) {
   grid_persistent_batchnorm_bwd_scheduler(256, 14, 512, DataType::Float);
 }
 
 TEST_F(
     OuterReductionTest,
-    FusionGridPersistentBatchNormChannelsLastBwdFloat256x28x512Scheduler_CUDA) {
+    GridPersistentBatchNormChannelsLastBwdFloat256x28x512Scheduler) {
   grid_persistent_batchnorm_bwd_scheduler(256, 28, 512, DataType::Float);
 }
 #endif
