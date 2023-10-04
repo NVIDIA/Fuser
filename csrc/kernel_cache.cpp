@@ -261,8 +261,7 @@ void InputsIdLookup::deserialize(const serde::InputsIdLookup* buffer) {
     used_entry_iterators.emplace_back(std::prev(used_entry_.end()));
   }
 
-  for (auto idx :
-       std::views::iota(0u, buffer->encoding_lookup_keys()->size())) {
+  for (auto idx : irange(buffer->encoding_lookup_keys()->size())) {
     auto fb_encoding_lookup_str = buffer->encoding_lookup_keys()->Get(idx);
     auto fb_encoding_entry = buffer->encoding_lookup_values()->Get(idx);
 
@@ -871,7 +870,7 @@ void FusionExecutorCache::deserialize(
   }
 
   // 2. Rebuild input id to kernel cache
-  for (auto idx : std::views::iota(0u, buffer->kernel_cache_keys()->size())) {
+  for (auto idx : irange(buffer->kernel_cache_keys()->size())) {
     size_t key = buffer->kernel_cache_keys()->Get(idx);
     size_t value_id = buffer->kernel_cache_values()->Get(idx);
     id_to_kernel_runtime_.emplace(key, all_runtimes.at(value_id));
@@ -956,7 +955,7 @@ void FusionKernelRuntime::deserialize(
   NVF_ERROR(runtime_workspace_.group_run_order.size() == executors_.size());
 
   // 1. Deserialize FusionExecutor objects
-  for (auto idx : std::views::iota(0u, buffer->executors()->size())) {
+  for (auto idx : irange(buffer->executors()->size())) {
     auto sg = runtime_workspace_.group_run_order.at(idx);
 
     // Create and schedule Fusion for this SegmentedGroup

@@ -686,8 +686,7 @@ ExprGroup* ExprSegmentationSorter::makeEmptyGroup(
         })) {
       group->payload()->pa_domains.push_back(kernelScopeDomain());
     }
-    for (const auto tv_i :
-         std::views::iota(0u, out_tv->getMaxProducerPosition())) {
+    for (const auto tv_i : irange(out_tv->getMaxProducerPosition())) {
       auto concrete_id = getConcreteID(out_tv->axis((int)tv_i));
       group->payload()->pa_domains.push_back(concrete_id);
     }
@@ -962,8 +961,7 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
         pa_ids.emplace(kernelScopeDomain());
       }
       auto tv = consumer_of_producer_edge->as<TensorView>();
-      for (const auto tv_i :
-           std::views::iota(0u, tv->getMaxProducerPosition())) {
+      for (const auto tv_i : irange(tv->getMaxProducerPosition())) {
         pa_ids.emplace(getConcreteID(tv->axis((int)tv_i)));
       }
     }
@@ -1042,8 +1040,7 @@ bool ExprSegmentationSorter::canReducePA(ExprGroup* group) const {
     // If this consumer_tv doesn't map to the last producer domain of this group
     // it can't decide if it can be reduced
     bool has_matching_pa = false;
-    for (const auto i :
-         std::views::iota(0u, consumer_tv->getMaxProducerPosition())) {
+    for (const auto i : irange(consumer_tv->getMaxProducerPosition())) {
       if (areMapped(consumer_tv->axis((int)i), group_pa_last_id)) {
         has_matching_pa = true;
         break;

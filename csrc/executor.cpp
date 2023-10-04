@@ -2145,8 +2145,7 @@ void FusionExecutor::deserialize(
   setUsedTVs();
 
   // GlobalBufferInfo requires lowered kernel before deserialization
-  for (auto idx :
-       std::views::iota(0u, buffer->executor_entry_lookup_keys()->size())) {
+  for (auto idx : irange(buffer->executor_entry_lookup_keys()->size())) {
     executor_entry_lookup_.emplace(
         buffer->executor_entry_lookup_keys()->Get(idx),
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
@@ -2170,7 +2169,7 @@ FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
 
   entry.launch_params.deserialize(buffer->launch_params());
 
-  for (auto idx : std::views::iota(0u, buffer->output_aliases()->size())) {
+  for (auto idx : irange(buffer->output_aliases()->size())) {
     entry.output_to_input_aliases.emplace_back(
         buffer->output_aliases()->Get(idx), buffer->input_aliases()->Get(idx));
   }
