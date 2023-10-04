@@ -43,9 +43,7 @@ void PipelineExecutor::handle(PipelineStage* stage) {
     }
     // Run the stage to get concrete outputs or placeholders
     // TODO: reimplement allocOutputSpace
-    // TODO: allocate output space only if strictly necessary,
-    //       and move the allocation to
-    //       PipelineExecutor::handle(PipelineCommunication*)
+    // TODO: allocate output space only if strictly necessary
     outputs = shouldRun(stage)
         ? fec_[stage]->runFusionWithInputs(stage_input_IValues)
         : fec_[stage]->allocOutputSpace(stage_input_IValues);

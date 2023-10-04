@@ -67,14 +67,16 @@ void SendToTester(
     for (DeviceIdxType j : c10::irange(mesh.vector().size())) {
       buffer = {tensor.index({j, "..."})};
       auto sender = mesh.vector().at(j);
-      if (tester != sender && (comm.deviceId() == sender || comm.deviceId() == tester)) {
+      if (tester != sender &&
+          (comm.deviceId() == sender || comm.deviceId() == tester)) {
         comm.sendRecv(tester, sender, buffer);
       }
     }
   } else {
     buffer = {tensor};
     auto sender = mesh.vector().at(0);
-    if (tester != sender && (comm.deviceId() == sender || comm.deviceId() == tester)) {
+    if (tester != sender &&
+        (comm.deviceId() == sender || comm.deviceId() == tester)) {
       comm.sendRecv(tester, sender, buffer);
     }
   }
@@ -88,8 +90,8 @@ void testValidateMultidevice(
     MultiDeviceRuntime& runtime,
     const at::ArrayRef<c10::IValue>& inputs,
     const std::vector<at::Tensor>& outputs,
-    bool print = true,
-    DeviceIdxType tester = 1,
+    bool print = false,
+    DeviceIdxType tester = 0,
     bool validate = true,
     bool set_mem_type_to_global = true,
     bool auto_schedule = false) {

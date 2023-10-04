@@ -16,7 +16,6 @@
 #include <ir/all_nodes.h>
 #include <kernel_cache.h>
 #include <kernel_ir_dispatch.h>
-#include <multidevice/communicator.h>
 #include <transform_replay.h>
 
 #include <ATen/Context.h>
