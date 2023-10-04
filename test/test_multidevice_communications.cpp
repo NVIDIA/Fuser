@@ -122,7 +122,8 @@ TEST_F(MultiDeviceTest, Communication_Scatter) {
   std::iota(params.team.begin(), params.team.end(), 0);
   if (comm.deviceId() == root) {
     for (uint64_t i = 0; i < comm.size(); i++) {
-      params.src_bufs.push_back(at::empty(tensor_size, options) * static_cast<int>(i));
+      params.src_bufs.push_back(
+          at::empty(tensor_size, options) * static_cast<int>(i));
     }
   }
   params.dst_bufs = {at::empty(tensor_size, options)};

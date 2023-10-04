@@ -91,7 +91,9 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
   // post and wait communications
   for (auto& communication : communications) {
     auto work = communication->post(runtime_.comm_);
-    if (work) work->wait();
+    if (work) {
+      work->wait();
+    }
   }
 }
 
