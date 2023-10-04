@@ -11,9 +11,17 @@
 
 namespace nvfuser {
 
-//struct SegmentProfile {
-//
-//};
+struct KernelProfile {
+};
+
+class KernelProfiler : public NonCopyable {
+ public:
+  void start();
+  KernelProfile stop();
+
+ private:
+
+};
 
 struct FusionProfile {
   void reset();
@@ -36,13 +44,13 @@ struct FusionProfile {
 };
 
 // Singleton
-class Profiler : public NonCopyable {
+class FusionProfiler : public NonCopyable {
  public:
   static void start();
   static void stop();
 
  private:
-  Profiler() :
+  FusionProfiler() :
     timer_(at::cuda::getCurrentCUDAStream()),
     profile_() {}
 
@@ -50,7 +58,7 @@ class Profiler : public NonCopyable {
   void print() const;
 
  private:
-  static Profiler* singleton_;
+  static FusionProfiler* singleton_;
   static std::mutex singleton_lock_;
 
   executor_utils::CudaKernelTimer timer_;

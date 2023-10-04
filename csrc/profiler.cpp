@@ -10,6 +10,8 @@
 
 namespace nvfuser {
 
+// CUPTI_API_CALL(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
+
 void FusionProfile::reset() {
   total_time = 0.0;
   host_time = 0.0;
@@ -26,13 +28,13 @@ void FusionProfile::reset() {
   perentage_peak_bandwidth = 0.0;
 }
 
-std::mutex Profiler::singleton_lock_;
-Profiler* Profiler::singleton_ = nullptr;
+std::mutex FusionProfiler::singleton_lock_;
+FusionProfiler* FusionProfiler::singleton_ = nullptr;
 
-void Profiler::start() {
+void FusionProfiler::start() {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ == nullptr) {
-    singleton_ = new Profiler();
+    singleton_ = new FusionProfiler();
   } else {
     singleton_->reset();
   }
@@ -41,18 +43,20 @@ void Profiler::start() {
   singleton_->timer_.start();
 }
 
-void Profiler::stop() {
+void FusionProfiler::stop() {
   std::lock_guard<std::mutex> guard(singleton_lock_);
-  NVF_ERROR(singleton_ != nullptr, "Profiler singleton is unexpectedly null!");
+  NVF_ERROR(singleton_ != nullptr,
+            "FusionProfiler singleton is unexpectedly null!");
  
   singleton_->profile_.total_time = singleton_->timer_.elapsed();
+  singleton_->print();
 }
 
-void Profiler::reset() {
+void FusionProfiler::reset() {
   profile_.reset();
 }
 
-void Profiler::print() const {
+void FusionProfiler::print() const {
   std::cout << "\nFusion Total Time: " << profile_.total_time << std::endl;
 }
 

@@ -9,6 +9,7 @@
 
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <cupti.h>
 #include <driver_api.h>
 #include <exceptions.h>
 
@@ -47,4 +48,16 @@
         cudaGetErrorName(_result),    \
         " failed with error ",        \
         cudaGetErrorString(_result)); \
+  } while (0)
+
+#define NVFUSER_CUPTI_SAFE_CALL(x)                                                \
+  do {                                                                            \
+    CUptiResult _status = x;                                                      \
+    if (_status != CUPTI_SUCCESS) {                                               \
+      const char *pErrorString;                                                   \
+      cuptiGetResultString(_status, &pErrorString);                               \
+      fprintf(stderr, "%s:%d: Error: Function %s failed with error: %s.\n",       \
+              __FILE__, __LINE__, #x, pErrorString);                              \
+      exit(EXIT_FAILURE);                                                         \
+    }                                                                             \
   } while (0)
