@@ -784,30 +784,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   return rparams;
 }
 
-std::shared_ptr<ReductionParams> persistentHeuristic(
-    const int64_t total_reduction_numel,
-    const int64_t total_iteration_numel,
-    const int64_t inner_most_dimension_numel,
-    const size_t n_tensor_inputs,
-    const size_t max_input_dtype_size,
-    const int64_t max_persistent_buffer_size,
-    size_t vectorize_factor,
-    bool project_persistent_buffers) {
-  std::shared_ptr<ReductionParams> rparams;
-
-  rparams = innerPersistentHeuristic(
-      total_reduction_numel,
-      total_iteration_numel,
-      inner_most_dimension_numel,
-      (int64_t)n_tensor_inputs,
-      (int64_t)max_input_dtype_size,
-      max_persistent_buffer_size,
-      vectorize_factor);
-
-  rparams->project_persistent_buffers = project_persistent_buffers;
-  return rparams;
-}
-
 } // namespace
 
 std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
@@ -817,132 +793,21 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
   FUSER_PERF_SCOPE("getInnerPersistentHeuristics");
   FusionGuard fg(fusion);
 
-  auto reduction_tv_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
-          data_cache, [&fusion]() {
-            return std::make_unique<std::vector<TensorView*>>(
-                scheduler_utils::getReductionTvs(fusion));
-          });
+  const auto& prop =
+      normalization_scheduler_utils::getPersistentKernelProperties(
+          fusion, runtime_info, data_cache, schedule_heuristic);
 
-  auto& reduction_tvs = reduction_tv_entry.get();
-
-  NVF_ERROR(!reduction_tvs.empty(), "Need reduction tensor views to schedule.");
-
-  auto ref_red_tv = reduction_tvs[0];
-
-  NVF_ERROR(ref_red_tv != nullptr, "Reduction TensorView wasn't found.");
-
-  NVF_ERROR(ref_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
-  const auto red_expr = ref_red_tv->definition();
-
-  NVF_ERROR(
-      ir_utils::isReductionOp(red_expr),
-      "TensorView doesn't have a reduction.");
-
-  auto tv_inps = ir_utils::filterByType<TensorView>(fusion->inputs());
-  NVF_ERROR(
-      std::distance(tv_inps.begin(), tv_inps.end()) > 0,
-      "Tried to schedule a fusion with no tensor inputs, currently not supported.");
-
-  auto persistent_buffer_info_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
-          data_cache, [&fusion]() {
-            return std::make_unique<scheduler_utils::PersistentBufferInfo>(
-                scheduler_utils::persistentBuffers(fusion));
-          });
-
-  auto& persistent_buffer_info = persistent_buffer_info_entry.get();
-  NVF_ERROR(
-      !persistent_buffer_info.persistent_buffers.empty(),
-      "Persistent scheduler requires persistent buffers.");
-
-  auto properties =
-      scheduler_utils::getReductionProperties(fusion, runtime_info, ref_red_tv);
-
-  // Grab persistent buffer sizes
-  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
-      fusion, runtime_info, persistent_buffer_info, data_cache);
-
-  // Figure out if we want to projet persistent buffers to the inputs for
-  // exmaple if we have an input tensor t0 that's fp16:
-  //
-  // t0 = makeSymbolicTensor(2, DataType::Half)
-  // t1 = castOp(DataType::Float, t0)
-  // t2 = sum(t1, 1)
-  // t3 = broadcast(t2, {false, true})
-  // t4 = set(t1)
-  // t5 = add(t4, t3)
-  // t6 = castOp(DataType::Half, t5)
-  //
-  // The persistent buffer is detected as being t1, which would save the
-  // persistent buffer as a float, however we could obviously just save t0 which
-  // is half and would take half the memory. A more complex scenario of this
-  // which requires more advanced analysis is batch norm backwards.
-  // TODO: Fix projected persistent buffers with view
-  // https://github.com/csarofeen/pytorch/issues/2054
-  // If projected persistent buffers are smaller, they will be used.
-  bool can_project = ir_utils::getViewOps(fusion).empty() &&
-      persistent_buffer_size_info.projected_persistent_buffer_size > 0;
-  bool project_persistent_buffers = can_project &&
-      persistent_buffer_size_info.projected_persistent_buffer_size <
-          persistent_buffer_size_info.persistent_buffer_size;
-
-  auto max_persistent_size = project_persistent_buffers
-      ? persistent_buffer_size_info.projected_persistent_buffer_size
-      : persistent_buffer_size_info.persistent_buffer_size;
-
-  auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
-
-  auto unrollable_inputs_outputs_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
-          data_cache, [&reduced_tv]() {
-            return std::make_unique<std::vector<TensorView*>>(
-                scheduler_utils::getInputsOutputsWithInnerDim(
-                    reduced_tv, false, false));
-          });
-
-  auto& unrollable_inputs_outputs = unrollable_inputs_outputs_entry.get();
-
-  const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-      runtime_info,
-      reduced_tv,
-      data_cache,
-      vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
-
-  // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
-  // share inner dimension with data pattern we're looking at).
-  int64_t max_dtype_size = 1;
-
-  // TODO: This might be better if it was the larger of input or outputs. Would
-  // be even better if we had better analysis as not all unrolled elements have
-  // to be alive at the same time.
-  int64_t n_tensor_inputs = 0;
-  for (auto tv : unrollable_inputs_outputs) {
-    if (!tv->isFusionInput()) {
-      continue;
-    }
-
-    max_dtype_size = std::max(
-        max_dtype_size,
-        dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
-    n_tensor_inputs++;
-  }
-
-  // Protect heuristics div by 0:
-  n_tensor_inputs = std::max(n_tensor_inputs, (int64_t)1);
-
-  auto heuristic = persistentHeuristic(
-      properties.total_reduction_numel,
-      properties.total_iteration_numel,
-      properties.inner_most_dimension_numel,
-      n_tensor_inputs,
-      max_dtype_size,
-      max_persistent_size,
-      vectorize_factor,
-      project_persistent_buffers);
-  heuristic->cparams.index_type = runtime_info.getIndexType();
-  return heuristic;
+  std::shared_ptr<ReductionParams> rparams = innerPersistentHeuristic(
+      prop.total_reduction_numel,
+      prop.total_iteration_numel,
+      prop.inner_most_dimension_numel,
+      prop.n_tensor_inputs,
+      prop.max_dtype_size,
+      prop.max_persistent_buffer_size,
+      prop.vectorize_factor);
+  rparams->project_persistent_buffers = prop.project_persistent_buffers;
+  rparams->cparams.index_type = runtime_info.getIndexType();
+  return rparams;
 }
 
 std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(

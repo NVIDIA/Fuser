@@ -130,6 +130,12 @@ run_test() {
     mkdir -p "$testdir"
     echo "$testcmd" > "$testdir/command"
 
+    # exclude $testdir when printing env
+    printenv | grep -v '^testdir=' > "$testdir/env"
+
+    nvcc --version > "$testdir/nvcc_version"
+    nvidia-smi --query-gpu=gpu_name --format=csv,noheader > "$testdir/gpu_names"
+
     # Allow next command to fail
     set +e
     $testcmd | tee "$testdir/stdout-$(date +%Y%m%d_%H%M%S).log"
@@ -186,7 +192,7 @@ collect_kernels() {
     export NVFUSER_TEST_RANDOM_SEED=0
     export NVFUSER_DISABLE=parallel_compile
     # run tests and benchmarks with cuda_to_file and dump output to files
-    export NVFUSER_DUMP=cuda_to_file
+    export NVFUSER_DUMP=cuda_to_file,ptxas_verbose
 
     mkdir -p "$outdir/$commit"
 
