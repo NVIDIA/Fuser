@@ -45,6 +45,7 @@ class GitRev:
                 capture_output=True,
             )
             .stdout.strip()
+            .decode("utf-8")
             .splitlines()
         ):
             # Possible output:
@@ -503,7 +504,8 @@ class TestDifferences:
         context = asdict(self)
         context["omit_preamble"] = omit_preamble
         context["max_diffs"] = max_diffs
-        context["tool_git"] = GitRev("HEAD")
+        head_hash = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True).stdout.strip().decode("utf-8")
+        context["tool_git"] = GitRev(head_hash)
 
         return template.render(context)
 
