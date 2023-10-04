@@ -706,8 +706,7 @@ void IndexLowering::handle(const GroupedReductionOp* grouped_rop) {
   std::vector<Val*> indexed_outputs(grouped_rop->numHorizontallyGroupedExprs());
   std::vector<Val*> indexed_inputs(grouped_rop->numHorizontallyGroupedExprs());
 
-  for (const auto i : std::views::iota(
-           (size_t)0, grouped_rop->numHorizontallyGroupedExprs())) {
+  for (const auto i : irange(grouped_rop->numHorizontallyGroupedExprs())) {
     indexed_outputs.at(i) = lowerDstIndex(grouped_rop->output(i));
     indexed_inputs.at(i) =
         lowerSrcIndex(grouped_rop->input(i), grouped_rop->output(i));
@@ -718,8 +717,7 @@ void IndexLowering::handle(const GroupedReductionOp* grouped_rop) {
   } else if (has_block_reduce) {
     handleBlockReduction(grouped_rop, indexed_outputs, indexed_inputs);
   } else {
-    for (const auto i : std::views::iota(
-             (size_t)0, grouped_rop->numHorizontallyGroupedExprs())) {
+    for (const auto i : irange(grouped_rop->numHorizontallyGroupedExprs())) {
       pushBack(IrBuilder::create<BinaryOp>(
           grouped_rop->getReductionOpType(i),
           indexed_outputs.at(i),
@@ -1031,8 +1029,7 @@ void IndexLowering::handle(const GroupedWelfordOp* grouped_wop) {
   auto output_vals = grouped_wop->outputVals();
   auto input_vals = grouped_wop->inputVals();
 
-  for (const auto i : std::views::iota(
-           (size_t)0, grouped_wop->numHorizontallyGroupedExprs())) {
+  for (const auto i : irange(grouped_wop->numHorizontallyGroupedExprs())) {
     const auto& output = output_vals.at(i);
     const auto& input = input_vals.at(i);
     WelfordTriplet indexed_output;

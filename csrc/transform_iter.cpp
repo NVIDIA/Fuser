@@ -653,8 +653,8 @@ int BestEffortReplay::findFirstMismatchedID(
   }
 
   BestEffortReplay ber(td2->leaf(), td1->leaf(), id_map);
-  for (const auto i : std::views::iota(
-           (size_t)0, std::max(td1->leaf().size(), td2->leaf().size()))) {
+  for (const auto i :
+       irange(std::max(td1->leaf().size(), td2->leaf().size()))) {
     if (ber.getReplay().find(td1->axis((int)i)) == ber.getReplay().end()) {
       return (int)i;
     }

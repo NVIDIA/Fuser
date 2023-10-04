@@ -2238,8 +2238,8 @@ void promoteProducerMemoryTypes(
                                  .mapConsumerToProducer())
                              .getReplay();
 
-    for (const auto i : std::views::iota(
-             (size_t)0, producer->nDims() - producer->getComputeAtPosition())) {
+    for (const auto i :
+         irange(producer->nDims() - producer->getComputeAtPosition())) {
       auto producer_non_ca_id =
           producer->axis((int)(i + producer->getComputeAtPosition()));
       auto producer_non_ca_id_ptype = producer_non_ca_id->getParallelType();

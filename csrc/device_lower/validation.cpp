@@ -242,8 +242,7 @@ void checkContiguity(
 
   std::unordered_map<IterDomain*, std::optional<bool>>
       producer_domain_contiguity;
-  for (const auto idx : std::views::iota(
-           (size_t)0, producer->getMaybeAllocationDomain().size())) {
+  for (const auto idx : irange(producer->getMaybeAllocationDomain().size())) {
     auto alloc = producer->getMaybeAllocationDomain().at(idx);
     auto contiguity = producer->domain()->contiguity().at(idx);
     producer_domain_contiguity.insert({alloc, contiguity});

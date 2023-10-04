@@ -696,8 +696,8 @@ SyncMap::SyncMap(Fusion* fusion) {
             std::unordered_set<Val*> shifted_rfactor_ids;
             if (expr->isA<GatherOp>()) {
               auto gather_op = expr->as<GatherOp>();
-              for (auto root_i : std::views::iota(
-                       (size_t)0, producer->getMaybeRFactorDomain().size())) {
+              for (auto root_i :
+                   irange(producer->getMaybeRFactorDomain().size())) {
                 auto rfactor_id = producer->getMaybeRFactorDomain()[root_i];
                 // If the window shape is 1, it just copies the
                 // producer to the consumer
@@ -707,8 +707,8 @@ SyncMap::SyncMap(Fusion* fusion) {
               }
             } else if (expr->isA<ShiftOp>()) {
               auto shift_op = expr->as<ShiftOp>();
-              for (auto root_i : std::views::iota(
-                       (size_t)0, producer->getMaybeRFactorDomain().size())) {
+              for (auto root_i :
+                   irange(producer->getMaybeRFactorDomain().size())) {
                 auto rfactor_id = producer->getMaybeRFactorDomain()[root_i];
                 // If the shift offset is 0, it doesn't actually shift
                 if (shift_op->offsets()[root_i] != 0) {

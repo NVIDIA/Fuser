@@ -393,8 +393,7 @@ void IterDomainGraph::build(Fusion* fusion) {
             "Only supported case is welford op where all outputs tvs have identical domains.");
         // p->f, c->c
         std::unordered_map<IterDomain*, IterDomain*> c2f_root_map;
-        for (const auto i : std::views::iota(
-                 (size_t)0, first_output_tv->getRootDomain().size())) {
+        for (const auto i : irange(first_output_tv->getRootDomain().size())) {
           c2f_root_map.insert(std::make_pair(
               c_tv->getRootDomain()[i], first_output_tv->getRootDomain()[i]));
         }
