@@ -891,15 +891,9 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
                            ->definition()
                            ->input(0)
                            ->as<IterDomain>();
-  auto ref_merge_exact_group =
-      id_model.idGraph(IdMappingMode::EXACT).toGroup(ref_merge_out);
-
-  auto isSplitId = [](IterDomain* id) -> bool {
-    return dynamic_cast<Split*>(id->definition()) != nullptr;
-  };
 
   auto getRefId = [&](TensorView* tv, IterDomain* id) -> IterDomain* {
-    if (isSplitId(id)) {
+    if (dynamic_cast<Split*>(id->definition()) != nullptr) {
       if (id->uses().empty()) {
         auto it = std::find(
             tv->getLeafDomain().begin(), tv->getLeafDomain().end(), id);
@@ -911,12 +905,7 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
         return tv10->axis(0)->definition()->input(0)->as<IterDomain>();
       }
     } else {
-      return tv10->axis(0)
-          ->definition()
-          ->input(0)
-          ->definition()
-          ->input(0)
-          ->as<IterDomain>();
+      return ref_merge_out;
     }
   };
 
@@ -926,41 +915,18 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
       auto ref_exact_group =
           id_model.idGraph(IdMappingMode::EXACT).toGroup(ref_id);
 
-      if (isSplitId(id)) {
-        // Must be promoted to a domain that is exactly mapped with
-        // the ref domain
-        bool validated = false;
-        for (const auto& [id_group, promotion] : promotion_map) {
-          if (id_group->has(id)) {
-            auto promotion_exact =
-                id_model.idGraph(IdMappingMode::EXACT).toGroup(promotion);
-            ASSERT_EQ(promotion_exact, ref_exact_group);
-            validated = true;
-            break;
-          }
-        }
-        ASSERT_TRUE(validated);
-        std::cerr << "Validated: " << tv->toString() << ", " << id->toString()
-                  << " -> " << ref_id->toString() << std::endl;
-      } else {
-        auto id_loop = id_model.idGraph(IdMappingMode::LOOP).toGroup(id);
-        // There must be an ID that is exactly mapped with the
-        // reference
-        bool exact_map_loop_id_found = std::any_of(
-            id_loop->vector().begin(),
-            id_loop->vector().end(),
-            [&](auto loop_id) {
-              auto loop_exact =
-                  id_model.idGraph(IdMappingMode::EXACT).toGroup(loop_id);
-              if (loop_exact == ref_exact_group) {
-                std::cerr << "Validated: " << tv->toString() << ", "
-                          << id->toString() << " -> " << ref_id->toString()
-                          << std::endl;
-              }
-              return loop_exact == ref_exact_group;
-            });
-        ASSERT_TRUE(exact_map_loop_id_found);
-      }
+      const auto& loop_group =
+          id_model.idGraph(IdMappingMode::LOOP).toGroup(id);
+      auto promotion_map_it = promotion_map.find(loop_group);
+      ASSERT_TRUE(promotion_map_it != promotion_map.end())
+          << "Loop promotion not found for " << id->toString() << " of "
+          << tv->toString()
+          << ". Loop group: " << nvfuser::toString(loop_group);
+
+      auto promotion_exact_group = id_model.idGraph(IdMappingMode::EXACT)
+                                       .toGroup(promotion_map_it->second);
+
+      ASSERT_EQ(promotion_exact_group, ref_exact_group);
     }
   }
 
@@ -1179,21 +1145,16 @@ iS16{( ( (( (( T0 )).logical_size ))[0] ) * 1 )} ] ca_pos( 1 ) produce_pos( 1 )
    must be mapped. However, there's no guarantee that their second
    root axes are mapped, so their leaves must not be mapped.
 
-   We could detect an invalid CA like this case. The final promotion
-   map is:
-
-   Loop promotion map
-        idg{14} -> 15
-        idg{16} -> 17
-
-   Note that 14 and 16 are loop-mapped, but 15 and 17 are not exactly
-   mapped, so that means the loop group needs to be promoted to two
-   different ways, which is invalid.
+   We could detect an invalid CA like this case as there will be no
+   loop promotion for the group including 14 and 16. Note that 14 and
+   16 are loop-mapped, but 15 and 17 are not exactly mapped, so that
+   means the loop group needs to be promoted to two different ways,
+   which is invalid.
 
    Can we detect this when setting CA positions?
    */
 
-  ASSERT_ANY_THROW(fusion.printKernel());
+  ASSERT_ANY_THROW(IterDomainGraphs id_model(&fusion));
 }
 
 // TODO: All the above tests are merges followed by splits, we should make some
