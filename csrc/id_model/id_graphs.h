@@ -300,6 +300,7 @@ class TORCH_CUDA_CU_API IterDomainGraphs : public PolymorphicBase {
   c10::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
       self_mapping_info_ = c10::nullopt;
 
+  // Promotion domain for each loop group
   std::unordered_map<IdGroup, IterDomain*> loop_promotion_map_;
 
   std::unordered_set<IterDomain*> view_rfactor_ids_;

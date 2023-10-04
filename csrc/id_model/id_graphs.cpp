@@ -2294,6 +2294,48 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     }
   }
 
+  for (const IdGroup& loop_group:
+           idGraph(IdMappingMode::LOOP).disjointIdSets().disjointSets()) {
+    IterDomain* promotion_id = nullptr;
+    for (IterDomain* id: loop_group->vector()) {
+      const auto& iel_group = intersection_exact_loop_graph.toGroup(id);
+      if (auto iel_promotion_map_it = iel_promotion_map.find(iel_group);
+          iel_promotion_map_it != iel_promotion_map.end()) {
+        IterDomain* iel_promotion_id = iel_promotion_map_it->second;
+        if (promotion_id == nullptr) {
+          promotion_id = iel_promotion_id;
+        } else {
+          NVF_ERROR(idGraph(IdMappingMode::EXACT).toGroup(promotion_id) ==
+                    idGraph(IdMappingMode::EXACT).toGroup(iel_promotion_id),
+                    "Different promotions found for ", nvfuser::toString(loop_group),
+                    ". ", promotion_id->toString(), ", ", iel_promotion_id->toString());
+        }
+      }
+    }
+
+    if (promotion_id) {
+      loop_promotion_map_.emplace(loop_group, promotion_id);
+      continue;
+    }
+
+    // No mapping in the IEL promotion map. If the loop group is still
+    // mapped in the loop group promotion map, that should be the
+    // correct promotion for this group
+    if (auto loop_graph_copy_promotion_map_it = loop_graph_copy_promotion_map.find(
+            loop_graph_copy.toGroup(loop_group->vector().at(0)));
+        loop_graph_copy_promotion_map_it != loop_graph_copy_promotion_map.end()) {
+      loop_promotion_map_.emplace(loop_group, loop_graph_copy_promotion_map_it->second);
+    }
+  }
+
+#if 0
+ (auto loop_group_promotion_it = 
+  loop_graph_copy_promotion_map.find(
+      loop_graph_copy.toGroup(id));
+  loop_group_promotion_it != loop_graph_copy_promotion_map.end())
+#endif
+        
+  
   return iel_promotion_map;
 }
 
