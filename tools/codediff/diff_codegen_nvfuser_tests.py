@@ -25,6 +25,7 @@ import sys
 @dataclass
 class GitRev:
     abbrev: str
+    diff: str | None = None
     title: str = field(init=False)
     full_hash: str = field(init=False)
     author_name: str = field(init=False)
@@ -173,7 +174,12 @@ class TestRun:
 
         # get description of this git rev
         abbrev = os.path.basename(os.path.dirname(os.path.abspath(self.directory)))
-        self.git = GitRev(abbrev)
+        gitdiff = None
+        try:
+            gitdiff = open(os.path.join(self.directory, "git_diff"), "r").read()
+        except FileNotFoundError:
+            pass
+        self.git = GitRev(abbrev, diff=gitdiff)
 
         self.command = open(os.path.join(self.directory, "command"), "r").read()
 

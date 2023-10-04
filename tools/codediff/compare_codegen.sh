@@ -46,7 +46,7 @@ usage() {
 }
 
 # top-level directory of nvfuser repo
-nvfuserdir=$(dirname $(dirname $(readlink -f $BASH_SOURCE)))
+nvfuserdir="$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")"
 
 comparetoref=origin/main
 outdir=$nvfuserdir/codegen_comparison
@@ -183,7 +183,7 @@ collect_kernels() {
 
     # Build in Release mode
     (
-        cd $nvfuserdir
+        cd "$nvfuserdir"
         CUSTOM_BUILD_COMMAND="${CUSTOM_BUILD_COMMAND:-python setup.py develop}"
         bash -c "${CUSTOM_BUILD_COMMAND}"
     )
@@ -198,16 +198,16 @@ collect_kernels() {
 
     if [[ $hascustomcommand ]]
     then
-      run_test "$customcmddir" $customcommand
+      run_test "$customcmddir" "${customcommand[@]}"
     else
       # python tests
       # Using -s to disable capturing stdout. This is important as it will let us see which tests creates each .cu file
-      run_test "$pyopsdir" python -m pytest $nvfuserdir/python_tests/pytest_ops.py -n 0 -v -s --color=yes
-      run_test "$pyschedopsdir" python -m pytest $nvfuserdir/python_tests/test_schedule_ops.py -n 0 -v -s --color=yes
-      run_test "$pyfrontenddir" python -m pytest $nvfuserdir/python_tests/test_python_frontend.py -n 0 -v -s --color=yes
+      run_test "$pyopsdir" python -m pytest "$nvfuserdir/python_tests/pytest_ops.py" -n 0 -v -s --color=yes
+      run_test "$pyschedopsdir" python -m pytest "$nvfuserdir/python_tests/test_schedule_ops.py" -n 0 -v -s --color=yes
+      run_test "$pyfrontenddir" python -m pytest "$nvfuserdir/python_tests/test_python_frontend.py" -n 0 -v -s --color=yes
 
       # binary tests
-      run_test "$binarytestdir" $nvfuserdir/build/nvfuser_tests --gtest_color=yes
+      run_test "$binarytestdir" "$nvfuserdir/build/nvfuser_tests" --gtest_color=yes
     fi
 }
 

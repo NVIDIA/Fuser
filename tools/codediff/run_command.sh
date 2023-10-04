@@ -10,53 +10,60 @@ set -e
 set -o pipefail
 
 usage() {
-  echo "Usage: $0 <output_directory> -- command to run and arguments"
+  echo "Usage: $0 [-h] [-n <run_name>] -o <output_directory> -- command to run and arguments"
 }
 
-if [[ $# -lt 1 ]]
+while getopts "n:o:h" arg
+do
+  case $arg in
+    n)
+      runname=$OPTARG
+      ;;
+    o)
+      testdir=$OPTARG
+      ;;
+    h | *)
+      usage
+      exit 1
+      ;;
+  esac
+done
+if [[ -z $testdir ]]
 then
+    echo "The output directory must be specified with -o"
     usage
     exit 1
 fi
-
-testdir=$1
-shift
-
-commandmissing=true
+# getopts stops parsing if it sees "--" but does not shift. We can detect that case and record command
 while [[ $# -gt 0 ]]
 do
   if [[ "$1" == "--" ]]
   then
-    if [[ $# -gt 1 ]]
-    then
-        commandmissing=false
-    fi
     shift
     break
   fi
   shift
 done
-if $commandmissing
+testcmd=$*
+if [[ -z "$testcmd" ]]
 then
     usage
     exit 1
 fi
 
-if [[ -d "$testdir/command" ]]
+if [[ -f "$testdir/command" ]]
 then
     echo -n "Skipping since $testdir/command exists. "
-    echo "To re-run, remove the $testdir and try again."
+    echo "To re-run, remove $testdir or specify another and try again."
     exit 1
 fi
-
-testcmd=$*
 
 mkdir -p "$testdir"
 
 movecudafiles() {
     mkdir -p "$1/cuda" "$1/ptx"
-    find . -maxdepth 1 -name '__tmp_kernel*.cu' -exec mv '{}' "$1/cuda" \;
-    find . -maxdepth 1 -name '__tmp_kernel*.ptx' -exec mv '{}' "$1/ptx" \;
+    find . -maxdepth 1 -name '__tmp_kernel*.cu' -print0 | xargs -0 mv -t "$1/cuda"
+    find . -maxdepth 1 -name '__tmp_kernel*.ptx' -print0 | xargs -0 mv -t "$1/ptx"
 }
 
 removecudafiles() {
@@ -66,7 +73,7 @@ removecudafiles() {
     rm -rf "$tmpdir"
 }
 
-stdoutfile="$testdir/stdout-$(date +%Y%m%d_%H%M%S).log"
+stdoutfile="$testdir/incomplete-stdout-$(date +%Y%m%d_%H%M%S).log"
 
 cleanup() {
     numcu=$(find . -maxdepth 1 -name '__tmp_kernel*.cu' | wc -l)
@@ -78,7 +85,10 @@ cleanup() {
         removecudafiles
     fi
 
-    mv "$stdoutfile" "$testdir/interrupted-$(basename "$stdoutfile")"
+    logbase=$(basename "$stdoutfile")
+    # strip incomplete- from base name
+    completelogbase=${logbase#incomplete-}
+    mv "$stdoutfile" "$testdir/$completelogbase" 2> /dev/null || true
 }
 
 trap "cleanup" EXIT
@@ -98,10 +108,16 @@ in_git_repo=$?
 if [ "$in_git_repo" ]
 then
     git rev-parse HEAD > "$testdir/git_hash"
+    # the following shows both staged and unstaged changes
+    git diff --no-ext-diff HEAD > "$testdir/git_diff"
 else
     echo -n "WARNING: $0 expects to be run from the NVFuser git repository."
     echo -n "You do not appear to be in a git repository, so we will not be "
     echo "able to track git information for this command output to $testdir."
+fi
+if [ -n "$runname" ]
+then
+    echo "$runname" > "$testdir/run_name"
 fi
 printenv > "$testdir/env"
 nvcc --version > "$testdir/nvcc_version"
@@ -109,5 +125,3 @@ nvidia-smi --query-gpu=gpu_name --format=csv,noheader > "$testdir/gpu_names"
 
 # save generated cuda and ptx files
 movecudafiles "$testdir"
-
-cleanup
