@@ -113,7 +113,12 @@ void lowerToScatter(
   comms.push_back(std::make_shared<Scatter>(std::move(params)));
 }
 
-// Adds one or zero Gather communication to the vector 'comms'
+/*
+Adds zero or multiple Gather communications to the vector 'comms'
+
+Note that since the root of a Gather collective is a destination, we possibly
+need multiple Gather if the tensor is replicated in the receiver mesh.
+*/
 void lowerToGather(
     DeviceIdxType my_device_index,
     const DeviceMesh& sender_mesh,
