@@ -5,7 +5,7 @@ SPDX-License-Identifier: BSD-3-Clause
 -#}
 <html>
     <head>
-        <title>{{ run1.git.abbrev }} vs {{ run2.git.abbrev }} - NVFuser codegen diff</title>
+        <title>{{ run1.name }} vs {{ run2.name }} - NVFuser codegen diff</title>
         <link rel="stylesheet"
               href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/default.min.css">
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
@@ -137,12 +137,10 @@ SPDX-License-Identifier: BSD-3-Clause
         </script>
     </head>
     <body>
-        <h1>{{ run1.git.abbrev }} vs {{ run2.git.abbrev }} - NVFuser codegen diff</h1>
-        <h2>Git Information</h2>
-        <h3>
-            Old commit: <a href="https://github.com/NVIDIA/Fuser/commit/{{ run1.git.full_hash }}">{{ run1.git.abbrev }}</a>
-        </h3>
-        <span>{{ run1.git.title|e }}</span>
+        <h1>{{ run1.name }} vs {{ run2.name }} - NVFuser codegen diff</h1>
+        <h2>Run information</h2>
+        <h3>Git information: {{run1.name|e}}</h3>
+        <span>{{ run1.git.abbrev|e }} {{ run1.git.title|e }}</span>
         <br>
         <span>{{ run1.git.author_name|e }}</span> &lt;<span>{{ run1.git.author_email|e }}&gt;</span>
         <br>
@@ -152,10 +150,19 @@ SPDX-License-Identifier: BSD-3-Clause
         <br>
         <a href="https://github.com/NVIDIA/Fuser/tree/{{ run1.git.full_hash }}">Browse code at this commit</a>
         <br>
-        <h3>
-            New commit: <a href="https://github.com/NVIDIA/Fuser/commit/{{ run2.git.full_hash }}">{{ run2.git.abbrev }}</a>
-        </h3>
-        <span>{{ run2.git.title|e }}</span>
+        {% if run1.git.diffn is not none and run1.git.diff | length > 0 %}
+        Dirty working directory <button style="box-shadow:none" onclick="toggleDiv('git_diff_1')">{{ run1.name}} git diff</button>
+        {% if run1.git.diff|length < 1000 %}
+           {# show short diffs by default #}
+            <div id="git_diff_1">
+           {% else %}
+            <div id="git_diff_1" style="display:none">
+       {% endif %}
+        <pre><code class="language-diff">{{run1.git.diff}}</code></pre>
+        </div>
+        {% endif %}
+        <h3>Git information: {{run2.name|e}}</h3>
+        <span>{{ run2.git.abbrev|e }} {{ run2.git.title|e }}</span>
         <br>
         <span>{{ run2.git.author_name|e }}</span> &lt;<span>{{ run2.git.author_email|e }}&gt;</span>
         <br>
@@ -165,28 +172,40 @@ SPDX-License-Identifier: BSD-3-Clause
         <br>
         <a href="https://github.com/NVIDIA/Fuser/tree/{{ run2.git.full_hash }}">Browse code at this commit</a>
         <br>
-        <h2>Code comparison</h2>
+        {% if run2.git.diff is not none and run2.git.diff | length > 0 %}
+        Dirty working directory <button style="box-shadow:none" onclick="toggleDiv('git_diff_2')">{{ run2.name}} git diff</button>
+        {% if run2.git.diff|length < 1000 %}
+           {# show short diffs by default #}
+            <div id="git_diff_2">
+           {% else %}
+            <div id="git_diff_2" style="display:none">
+       {% endif %}
+        <pre><code class="language-diff">{{run2.git.diff}}</code></pre>
+        </div>
+        {% endif %}
+
+        <br>
         Command: <code>{{ run1.command|e }}</code>
         {% if run1.gpu_names is not none %}
             <br>
             {%- if run1.gpu_names | length > 1 %}
-                {% if run1.gpu_names != run2.gpu_names %}{{ run1.git.abbrev }}{% endif %}
+                {% if run1.gpu_names != run2.gpu_names %}{{ run1.name }}{% endif %}
                 GPUs:
                 <pre><code>{{run1.gpu_names | e}}</code></pre>
                 %}
             {%- else -%}
-                {% if run1.gpu_names != run2.gpu_names %}{{ run1.git.abbrev }}{% endif %}
+                {% if run1.gpu_names != run2.gpu_names %}{{ run1.name }}{% endif %}
                 GPU: {{ run1.gpu_names[0] | e }}
                 <br>
             {%- endif %}
         {% endif %}
         {% if run1.nvcc_version is not none %}
-            <pre><code class="language-console">&gt; nvcc --version {%- if run1.nvcc_version != run2.nvcc_version %}# {{run1.git.abbrev}}{% endif %}
+            <pre><code class="language-console">&gt; nvcc --version {%- if run1.nvcc_version != run2.nvcc_version %}# {{run1.name}}{% endif %}
 {{run1.nvcc_version | e}}</code></pre>
         {% endif %}
         {%- if run1.env is not none %}
             {%- if run1.env != run2.env %}
-                <button style="box-shadow:none" onclick="toggleDiv('old_env')">{{ run1.git.abbrev }} Env</button>
+                <button style="box-shadow:none" onclick="toggleDiv('old_env')">{{ run1.name}} Env</button>
             {% else %}
                 <button style="box-shadow:none" onclick="toggleDiv('old_env')">Env</button>
                 matches between runs
@@ -200,24 +219,24 @@ SPDX-License-Identifier: BSD-3-Clause
             {% if run2.gpu_names != run1.gpu_names %}
                 {%- if run2.gpu_names | length > 1 %}
                     <br>
-                    {{ run2.git.abbrev }} GPUs:
+                    {{ run2.name}} GPUs:
                     <br>
                     <pre><code>{{run2.gpu_names | e}}</code></pre>
                 {%- else -%}
-                    {{ run2.git.abbrev }} GPU: {{ run2.gpu_names[0] | e }}
+                    {{ run2.name}} GPU: {{ run2.gpu_names[0] | e }}
                 {%- endif %}
             {% endif %}
         {% endif %}
         {% if run2.nvcc_version is not none %}
             {% if run2.nvcc_version != run1.nvcc_version %}
-                <pre><code class="language-console">&gt; nvcc --version  # {{run2.git.abbrev}}
+                <pre><code class="language-console">&gt; nvcc --version  # {{run2.name}}
 {{run2.nvcc_version | e}}</code></pre>
             {% endif %}
         {% endif %}
         {% if run2.env is not none %}
             {% if run2.env != run1.env %}
                 <br>
-                <button style="box-shadow:none" onclick="toggleDiv('new_env')">{{ run2.git.abbrev }} Env</button>
+                <button style="box-shadow:none" onclick="toggleDiv('new_env')">{{ run2.name}} Env</button>
                 <div id="new_env" style="display:none">
                     <pre><code class="language-ini">{{ run2.env|e }}</code></pre>
                 </div>
@@ -227,11 +246,11 @@ SPDX-License-Identifier: BSD-3-Clause
         {% if not omit_preamble %}
             {% if run1.preamble != run2.preamble %}
                 NVFuser preamble differs between runs
-                <button style="box-shadow:none" onclick="toggleOldPreamble()">{{ run1.git.abbrev }}</button>
+                <button style="box-shadow:none" onclick="toggleOldPreamble()">{{ run1.name}}</button>
             </span>
             <button style="width: 60pt; box-shadow:none" onclick="togglePreambleDiff()">Diff</button>
         </span>
-        <button style="box-shadow:none" onclick="toggleNewPreamble()">{{ run2.git.abbrev }}</button>
+        <button style="box-shadow:none" onclick="toggleNewPreamble()">{{ run2.name}}</button>
     </span>
     <br>
     <div id="old_preamble" style="display:none">
@@ -347,14 +366,14 @@ SPDX-License-Identifier: BSD-3-Clause
             {% elif loop_vars.total_diffs < max_diffs %}
                 &nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ kernel_diff.kernel_num }}</span>
                 <button style="box-shadow:none"
-                        onclick="toggleOldCode({{ outer_index }}, {{ loop.index }})">{{ run1.git.abbrev }}</button>
+                        onclick="toggleOldCode({{ outer_index }}, {{ loop.index }})">{{ run1.name}}</button>
             </span>
             <button style="width: 60pt;
                            box-shadow:none"
                     onclick="toggleDiff({{ outer_index }}, {{ loop.index }})">Diff</button>
         </span>
         <button style="box-shadow:none"
-                onclick="toggleNewCode({{ outer_index }}, {{ loop.index }})">{{ run2.git.abbrev }}</button>
+                onclick="toggleNewCode({{ outer_index }}, {{ loop.index }})">{{ run2.name}}</button>
     </span>
     <span style="color: red;
                  width: 32pt;

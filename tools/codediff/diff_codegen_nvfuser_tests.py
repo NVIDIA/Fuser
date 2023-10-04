@@ -153,7 +153,7 @@ class CompiledTest:
 class TestRun:
     directory: str
     git: GitRev = field(init=False)
-    run_name: str = field(init=False)
+    name: str = field(init=False)
     command: str = field(init=False)
     exit_code: int = field(init=False)
     env: str = field(init=False)
@@ -170,7 +170,16 @@ class TestRun:
     preamble_size_lines: int = field(init=False)
 
     def __post_init__(self):
-        self.run_name = os.path.basename(self.directory)
+        if not os.path.isdir(self.directory):
+            print(f"ERROR: {self.directory} does not name a directory")
+            sys.exit(1)
+
+        try:
+            self.name = (
+                open(os.path.join(self.directory, "run_name"), "r").read().rstrip()
+            )
+        except FileNotFoundError:
+            self.name = os.path.basename(self.directory)
 
         # get description of this git rev
         abbrev = os.path.basename(os.path.dirname(os.path.abspath(self.directory)))
@@ -251,6 +260,7 @@ class TestRun:
         def finalize_kernel():
             nonlocal ptxas_info
             nonlocal current_file
+            nonlocal kernels
             if current_file is not None:
                 kernels.append(CompiledKernel(current_file, ptxas_info=ptxas_info))
             ptxas_info = ""
@@ -266,19 +276,21 @@ class TestRun:
             kernels = []
 
         for line in open(logfile, "r").readlines():
-            line = ansi_re.sub("", line.strip())
+            line = ansi_re.sub("", line.rstrip())
             if line[:13] == "[ RUN      ] ":
                 current_test = line[13:]
             elif line[:13] == "[       OK ] ":
                 finalize_test(True)
             elif line[:13] == "[  FAILED  ] ":
-                finalize_test(False)
-            elif line[:10] == "PRINTING: ":
-                if line[-3:] == ".cu":
-                    finalize_kernel()
-                    # This avoids comparing the .ptx files that are created then
-                    # removed by the MemoryTest.LoadCache tests
-                    current_file = line[10:]
+                if current_test is not None and current_file is not None:
+                    # Avoid the summary of failed tests, such as below
+                    #   [  FAILED  ] 1 test, listed below:
+                    #   [  FAILED  ] NVFuserTest.FusionTuringMatmulSplitK_CUDA
+                    finalize_test(False)
+            elif line[:10] == "PRINTING: " and line[-3:] == ".cu":
+                # This avoids comparing the .ptx files that are created then
+                # removed by the MemoryTest.LoadCache tests
+                current_file = line[10:]
             elif line[:6] == "ptxas ":
                 # NVFUSER_DUMP=ptxas_verbose corresponds to nvcc --ptxas-options=-v or --resources-usage
                 # This always prints after printing the cuda filename
@@ -300,6 +312,9 @@ class TestRun:
                     # we set nvfuser_index_t in the preamble. We ignore that change for the purposes of this diff
                     if line[:8] == "typedef " and line[-17:] == " nvfuser_index_t;":
                         line = "typedef int nvfuser_index_t; // NOTE: index type hard-coded as int for display only"
+                    if re.search(r"void kernel\d+\b", line) is not None:
+                        # we arrived at the kernel definition
+                        break
                     if first:
                         preamble_lines.append(line)
                     elif i >= len(preamble_lines) or preamble_lines[i] != line:
@@ -397,8 +412,8 @@ class TestDifferences:
             difflib.unified_diff(
                 self.run1.preamble.splitlines(),
                 self.run2.preamble.splitlines(),
-                fromfile=self.run1.git.abbrev,
-                tofile=self.run2.git.abbrev,
+                fromfile=self.run1.name,
+                tofile=self.run2.name,
                 n=5,
             )
         )
@@ -441,8 +456,8 @@ class TestDifferences:
                     difflib.unified_diff(
                         kern1.code.splitlines(),
                         kern2.code.splitlines(),
-                        fromfile=self.run1.git.abbrev,
-                        tofile=self.run2.git.abbrev,
+                        fromfile=self.run1.name,
+                        tofile=self.run2.name,
                         n=5,
                     )
                 )
