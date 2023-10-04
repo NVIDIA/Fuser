@@ -1167,6 +1167,7 @@ struct TensorRecord : RecordFunctor {
       std::vector<State> _outputs,
       std::vector<int64_t> _shape,
       std::vector<std::optional<bool>> _contiguity,
+      std::vector<int64_t> _stride_order,
       PrimDataType _dtype,
       bool _is_cpu = false)
       : RecordFunctor(
@@ -1176,6 +1177,7 @@ struct TensorRecord : RecordFunctor {
             serde::RecordType_Tensor),
         shape_(std::move(_shape)),
         contiguity_(std::move(_contiguity)),
+        stride_order_(std::move(_stride_order)),
         dtype_(_dtype),
         is_cpu_(_is_cpu) {}
   ~TensorRecord() override = default;
@@ -1184,8 +1186,8 @@ struct TensorRecord : RecordFunctor {
   }
 
   //! Child specific hash function in lower 32 bits.
-  //! |  31  | 30 --- 24 | 23 --------- 12 | 11 ---------  0 |
-  //! | CPU? | Dtype     | Symbolic Sizes  | Contiguous Info |
+  //! |  31  | 30 --- 24 | 23 --------- 12 | 11 ------------------------  0 |
+  //! | CPU? | Dtype     | Symbolic Sizes  | Contiguous Info & stride_order |
   size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t ssize_hash = 0;
@@ -1196,17 +1198,20 @@ struct TensorRecord : RecordFunctor {
       }
       ssize_hash |= (ssize << (shape_.size() - 1 - i));
     }
-    size_t contig_hash = 0;
+    size_t contig_stride_hash = 0;
     for (size_t i = 0; i < contiguity_.size(); ++i) {
       auto contiguity_value = contiguity_[i];
-      contig_hash |=
+      contig_stride_hash |=
           ((contiguity_value.has_value() && contiguity_value.value())
            << (contiguity_.size() - 1 - i));
+    }
+    for (size_t i = 0; i < stride_order_.size(); ++i) {
+      contig_stride_hash ^= (stride_order_[i] << i);
     }
 
     result |= ((static_cast<size_t>(is_cpu_) & 0x1) << 31);
     result |= ((static_cast<size_t>(dtype_) & 0x7f) << 24);
-    return result | ((ssize_hash & 0xfff) << 12) | (contig_hash & 0xfff);
+    return result | ((ssize_hash & 0xfff) << 12) | (contig_stride_hash & 0xfff);
   }
 
   bool operator==(const RecordFunctor& other) const final {
@@ -1218,10 +1223,19 @@ struct TensorRecord : RecordFunctor {
       if (result) {
         result =
             ((shape_.size() == child_ptr->shape_.size()) &&
+             (stride_order_.size() == stride_order_->shape_.size()) &&
              (contiguity_.size() == child_ptr->contiguity_.size()));
         if (result) {
           for (size_t i = 0; i < shape_.size(); ++i) {
             if (shape_[i] != child_ptr->shape_[i]) {
+              result = false;
+              break;
+            }
+          }
+        }
+        if (result) {
+          for (size_t i = 0; i < stride_order_.size(); ++i) {
+            if (stride_order_[i] != child_ptr->stride_order_[i]) {
               result = false;
               break;
             }
@@ -1264,6 +1278,15 @@ struct TensorRecord : RecordFunctor {
       NVF_CHECK(!is_cpu_, "CPU non-scalar tensor is not supported!");
     }
 
+    if (!stride_order_.empty()) {
+      std::vector<IterDomain*> allocation_domain(rank);
+      for (int i : c10::irange(rank)) {
+        allocation_domain[rank - 1 - static_cast<int>(stride_order_[i])] =
+            tv->axis(i);
+      }
+      tv->setAllocationDomain(allocation_domain, true);
+    }
+
     fd.setFusionState(outputs_.at(0).index, tv);
     fd.addInput(tv);
   }
@@ -1300,6 +1323,19 @@ struct TensorRecord : RecordFunctor {
     }
     os << "], dtype=" << dtypeToPyString(dtype_);
     os << ", is_cpu=" << (is_cpu_ ? "True" : "False");
+    if (!stride_order_.empty()) {
+      os << ", stride_order=[";
+      bool first_arg = true;
+      for (auto item : stride_order_) {
+        if (first_arg) {
+          first_arg = false;
+        } else {
+          os << ", ";
+        }
+        os << item;
+      }
+      os << "]";
+    }
     if (close_function) {
       os << ")";
     }
@@ -1325,10 +1361,12 @@ struct TensorRecord : RecordFunctor {
         std::back_inserter(contiguity_enum),
         mapOptionalToEnum);
     auto fb_contiguity_enum = builder.CreateVector(contiguity_enum);
+    auto fb_stride_order = builder.CreateVector(stride_order_);
 
     serde::TensorBuilder tensor_builder(builder);
     tensor_builder.add_sizes(fb_sizes);
     tensor_builder.add_contiguity(fb_contiguity_enum);
+    tensor_builder.add_stride_order(fb_stride_order);
     tensor_builder.add_dtype(serde::mapToSerdeDtype(dtype_));
     tensor_builder.add_is_cpu(is_cpu_);
     auto expr_data = tensor_builder.Finish();
@@ -1343,6 +1381,8 @@ struct TensorRecord : RecordFunctor {
   //! A vector to indicate whether the a tensor dimension is contiguous
   //! with the dimension just to its right.
   std::vector<std::optional<bool>> contiguity_;
+  //! A vector to indicate stride order of tensor
+  std::vector<int64_t> stride_order_;
   //! Tensor data type.
   PrimDataType dtype_;
   //! Notes a scalar CPU Tensor

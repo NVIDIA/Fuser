@@ -575,7 +575,8 @@ void initNvFuserPythonBindings(PyObject* module) {
              std::vector<int64_t>& shape,
              std::vector<std::optional<bool>>& contiguity,
              PrimDataType dtype = DataType::Float,
-             bool is_cpu = false) -> Tensor {
+             bool is_cpu = false,
+	     std::vector<int64_t> stride_order) -> Tensor {
             FUSER_PERF_SCOPE("FusionDefinition.define_tensor (default)");
             NVF_CHECK(
                 !self.completed(),
@@ -596,6 +597,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                 {self.recordingState(out())},
                 shape,
                 contiguity,
+		stride_order,
                 dtype,
                 is_cpu));
 
@@ -605,6 +607,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::arg("contiguity"),
           py::arg("dtype") = DataType::Float,
           py::arg("is_cpu") = false,
+          py::arg("stride_order") = py::list(),
           py::return_value_policy::reference)
       .def(
           "define_tensor",
@@ -649,11 +652,15 @@ void initNvFuserPythonBindings(PyObject* module) {
             }
 
             Tensor out = self.defineTensor(sizes.size());
-            // TODO: replace computeContiguity with computeTensorDescriptor
+            std::vector<std::optional<bool>> contiguity;
+	    std::vector<int64_t> stride_order;
+	    std::tie(contiguity, stride_order) = computeTensorDescriptor(sizes, strides),
+	    
             self.defineRecord(new TensorRecord(
                 {self.recordingState(out())},
                 std::move(dim_sizes),
-                computeContiguity(sizes, strides),
+		contiguity,
+		stride_order,
                 dtype,
                 is_cpu));
 

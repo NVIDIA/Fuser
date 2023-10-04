@@ -581,6 +581,7 @@ void RecordFunctorFactory::registerAllParsers() {
         parseStateArgs(buffer->outputs()),
         parseVector(data->sizes()),
         contiguity,
+        parseVector(data->stride_order()),
         mapToNvfuserDtype(data->dtype()),
         data->is_cpu());
   };
