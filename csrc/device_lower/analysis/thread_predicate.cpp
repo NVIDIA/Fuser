@@ -239,8 +239,9 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
 
   // Run through inputs and update bitsets
   for (const auto* inp : expr->inputs()) {
-    if (!ir_utils::isTV(inp))
+    if (!ir_utils::isTV(inp)) {
       continue;
+    }
 
     auto tv_inp = inp->as<TensorView>();
 

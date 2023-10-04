@@ -126,8 +126,9 @@ TensorView* getCommonConsumer(TensorView* producer, TensorView* consumer) {
   // after consumer
   for (const auto& tv_chain : all_chains) {
     for (auto tv : tv_chain) {
-      if (tv != consumer)
+      if (tv != consumer) {
         common_consumers.erase(tv);
+      }
     }
   }
 

@@ -173,8 +173,9 @@ struct CudaGraphFuser {
     auto defining_node = producer->node();
     for (auto o : defining_node->outputs()) {
       for (auto u : o->uses()) {
-        if (u.user != consumer && !calculatesSize(u.user))
+        if (u.user != consumer && !calculatesSize(u.user)) {
           return false;
+        }
       }
     }
     return true;
@@ -237,8 +238,9 @@ struct CudaGraphFuser {
       auto outputs = node->outputs();
       for (const auto i : std::views::iota((size_t)0, outputs.size())) {
         auto output = outputs[i];
-        if (output->uses().empty())
+        if (output->uses().empty()) {
           continue;
+        }
         consumer_subgraph->registerOutput(merged->outputs()[i]);
         auto new_output = consumer_group->addOutput();
         output->replaceAllUsesWith(new_output);
@@ -263,8 +265,9 @@ struct CudaGraphFuser {
     size_t tensor_insert_idx = 0;
     for (auto input : group->inputs()) {
       inputs_map[input] = subgraph.inputs()[i++];
-      if (input->type()->isSubtypeOf(*at::TensorType::get()))
+      if (input->type()->isSubtypeOf(*at::TensorType::get())) {
         tensor_insert_idx = i;
+      }
     }
     // add n's inputs to the fusion group's input list if we don't already have
     // them
@@ -599,8 +602,9 @@ struct CudaGraphFuser {
     // is the output from a chunk/bchunk node?
     auto* chunk = producer->node();
     if (chunk->kind() != at::prim::ConstantChunk &&
-        chunk->kind() != at::prim::BroadcastingChunk)
+        chunk->kind() != at::prim::BroadcastingChunk) {
       return false;
+    }
 
     // try to find a producer to move after the chunk/bchunk. The producer must
     // be fusable into the consumer.
@@ -622,8 +626,9 @@ struct CudaGraphFuser {
     // all uses of the chunk must be in this consumer
     for (auto s : chunk->outputs()) {
       for (auto u : s->uses()) {
-        if (u.user != consumer)
+        if (u.user != consumer) {
           return false;
+        }
       }
     }
     // multiple return operators
@@ -662,8 +667,9 @@ struct CudaGraphFuser {
       // XXX: we only work with pointwise ops in here, so we know it is valid to
       // push the concat only through tensor arguments (and all other args can
       // be safely ignored).
-      if (!input->type()->isSubtypeOf(*at::TensorType::get()))
+      if (!input->type()->isSubtypeOf(*at::TensorType::get())) {
         continue;
+      }
 
       // if 'input' is already an input to the bchunk, reuse it.
       auto bchunk_inputs = bchunk->inputs();
@@ -934,8 +940,9 @@ struct CudaGraphFuser {
     auto soutputs = subgraph->outputs();
     AT_ASSERT(outputs.size() == soutputs.size());
     for (const auto i : std::views::iota((size_t)0, outputs.size())) {
-      if (usedOnlyInDtypeAndSize(outputs[i]))
+      if (usedOnlyInDtypeAndSize(outputs[i])) {
         continue;
+      }
       if (soutputs[i]->type()->isSubtypeOf(at::TensorType::get())) {
         shape_of[soutputs[i]] = graph->insert(at::aten::size, {outputs[i]});
       }
@@ -1181,8 +1188,9 @@ struct CudaGraphFuser {
   }
 
   void removeOutputsUsedOnlyInSize(torch::jit::Node* fusion_group) {
-    if (fusion_group->kind() != at::prim::CudaFusionGroup)
+    if (fusion_group->kind() != at::prim::CudaFusionGroup) {
       return;
+    }
     auto subgraph = fusion_group->g(at::attr::Subgraph);
 
     // TODO: failure in buildShapeExpressions should not break fusion execution,

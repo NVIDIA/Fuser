@@ -201,8 +201,9 @@ void Fusion::removeVal(Val* val) {
       "Cannot remove val as it is an output of the fusion.");
 
   Expr* orig = val->definition();
-  if (orig != nullptr)
+  if (orig != nullptr) {
     removeExpr(val->definition());
+  }
 
   for (Expr* use : unordered_uses(val)) {
     removeExpr(use);
