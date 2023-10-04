@@ -2481,6 +2481,27 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(nvf_out[0].shape, (0, 0))
         self.assertEqual(nvf_out[1].shape, (0, 0))
 
+    # Test that a pad of an expanded empty tensor works properly
+    # See https://github.com/NVIDIA/Fuser/issues/596#issuecomment-1714465618
+    def test_pad_expanded_empty(self):
+        inputs = [
+            torch.randn((0,), dtype=torch.float64, device="cuda:0").as_strided(
+                (2, 0, 3), (0, 0, 0)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            S1 = fd.define_scalar(-3.70753, dtype=DataType.Double)
+            T2 = fd.ops.pad(T0, [0, 0, 1, 1, 1, 0], S1)
+            fd.add_output(T2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        torch_ref = F.pad(inputs[0], (0, 0, 1, 1, 1, 0), "constant", -3.70753)
+
+        self.assertEqual(nvf_out[0], torch_ref)
+
 
 if __name__ == "__main__":
     run_tests()
