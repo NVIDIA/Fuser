@@ -18,7 +18,7 @@ namespace nvfuser {
 std::vector<at::Tensor> MultiDeviceRuntime::runWithInput(
     std::vector<c10::IValue> inputs) {
   auto error_msg = validate();
-  TORCH_INTERNAL_ASSERT(error_msg.empty(), error_msg);
+  NVF_ERROR(error_msg.empty(), error_msg);
   PipelineExecutor executor(*this);
   return executor.runWithInput(inputs);
 }
