@@ -152,7 +152,7 @@ class CompiledTest:
 @dataclass
 class TestRun:
     directory: str
-    git: GitRev | None = field(init=False)
+    git: GitRev = field(init=False)
     name: str = field(init=False)
     command: str = field(init=False)
     exit_code: int = field(init=False)
