@@ -289,8 +289,9 @@ TensorView* getTvInput(const Expr* expr) {
 
 bool isScalarOp(const Expr* expr) {
   for (auto out : expr->outputs()) {
-    if (!out->isScalar())
+    if (!out->isScalar()) {
       return false;
+    }
   }
   return true;
 }
