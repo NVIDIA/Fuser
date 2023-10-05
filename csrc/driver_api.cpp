@@ -114,7 +114,7 @@ class CUDADriverAPIDynamicLoader {
 
 namespace nvfuser {
 
-ALL_DRIVER_API_WRAPPER(DEFINE_DRIVER_API_WRAPPER);
+// ALL_DRIVER_API_WRAPPER(DEFINE_DRIVER_API_WRAPPER);
 
 } // namespace nvfuser
 
