@@ -216,9 +216,10 @@ collect_kernels "$outdir" "$comparecommit"
 
 cleanup
 
-# Print mismatching files. Note that logs are expected to differ since timings are included
+# Diff produced files and produce report
 set +e  # exit status of diff is 1 if there are any mismatches
-echo -e "\n\nDIFF RESULT:\n"
-diff -qr -x '*.log' "$outdir/$origcommit" "$outdir/$comparecommit" && echo "No difference found"
-
+python "$nvfuserdir/tools/codediff/diff_codegen_nvfuser_tests.py" \
+    "$outdir/$origcommit" "$outdir/$comparecommit" \
+    -o "$outdir/codediff_${origcommit}_${comparecommit}.html" \
+    --html --hide_diffs
 exit $?
