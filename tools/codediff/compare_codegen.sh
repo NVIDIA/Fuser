@@ -85,6 +85,13 @@ then
     exit 1
 fi
 
+# These braces are important since they will force bash to read the entire file
+# into memory before execution. Otherwise, if the script changes during
+# execution we might run the updated code instead of the original. See the
+# later note about $scriptdir which addresses this problem for other scripts
+# called by this one.
+{
+
 # save current commit and current head so we can switch back to branch
 currentcommit=$(git describe --always --long)
 origcommit=$currentcommit
@@ -207,3 +214,4 @@ python "$nvfuserdir/tools/codediff/diff_codegen_nvfuser_tests.py" \
     -o "$outdir/codediff_${origcommit}_${comparecommit}.html" \
     --html --hide_diffs
 exit $?
+}
