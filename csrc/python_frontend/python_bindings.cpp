@@ -212,8 +212,8 @@ std::vector<std::optional<bool>> computeContiguity(
 //   sorted_strides = [28, 14, 4, 1, 0]
 //   contiguity would be: [False, None, True, True, None]
 //
-// This function returns a tuple of <contiguity, stride_order>
-std::tuple<std::vector<std::optional<bool>>, std::vector<int64_t>>
+// This function returns a pair of <contiguity, stride_order>
+std::pair<std::vector<std::optional<bool>>, std::vector<int64_t>>
 computeTensorDescriptor(
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& strides) {
@@ -267,7 +267,7 @@ computeTensorDescriptor(
       std::back_inserter(contiguity_vec),
       [](const DimInfo& val) { return val.contiguity; });
 
-  return std::make_tuple(contiguity_vec, stride_order_vec);
+  return std::make_pair(contiguity_vec, stride_order_vec);
 }
 
 void initNvFuserPythonBindings(PyObject* module) {
