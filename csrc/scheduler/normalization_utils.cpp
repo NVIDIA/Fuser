@@ -601,16 +601,37 @@ bool isConnectedOnlyThroughReductionProducer(
   return true;
 }
 
-bool isChainedReduction(const std::vector<TensorView*>& reduction_tvs) {
-  auto dep_vals = DependencyCheck::getAllDependentVals(
-      {reduction_tvs.begin(), reduction_tvs.end()});
-  auto dep_tvs = ir_utils::filterByType<TensorView>(dep_vals);
-  for (auto tv : dep_tvs) {
-    if (tv->hasReduction()) {
-      return true;
+bool isReductionIterationAxisMatched(
+    const std::vector<TensorView*>& inner_reduction_tvs,
+    const std::vector<TensorView*>& outer_reduction_tvs) {
+  // set up reference
+  auto reference_tv = inner_reduction_tvs[0];
+  std::vector<bool> is_reduction(reference_tv->nDims(), false);
+  for (const auto i : c10::irange(reference_tv->nDims())) {
+    if (reference_tv->axis((int)i)->isReduction()) {
+      is_reduction[i] = true;
     }
   }
-  return false;
+  // check other inner reduction tvs, , the corresponding axis should be
+  // reduction.
+  for (auto i : c10::irange(1, inner_reduction_tvs.size())) {
+    auto tv = inner_reduction_tvs[i];
+    for (const auto i : c10::irange(tv->nDims())) {
+      if (tv->axis((int)i)->isReduction() != is_reduction[i]) {
+        return false;
+      }
+    }
+  }
+  // check outer reduction tvs, the corresponding axis should be iteration.
+  for (auto tv : outer_reduction_tvs) {
+    for (const auto i : c10::irange(tv->nDims())) {
+      if (tv->axis((int)i)->isIteration() != is_reduction[i]) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 int64_t partialReductionBufferSize(

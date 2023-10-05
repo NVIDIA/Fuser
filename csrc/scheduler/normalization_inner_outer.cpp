@@ -91,13 +91,6 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     return false;
   }
 
-  if (normalization_scheduler_utils::isChainedReduction(inner_reduction_tvs) ||
-      normalization_scheduler_utils::isChainedReduction(outer_reduction_tvs)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic, "chained reduction is not supported.");
-    return false;
-  }
-
   if (!ir_utils::getViewOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
     if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
@@ -147,6 +140,16 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
         return false;
       }
     }
+  }
+
+  // the reduction axis of outer reduction tv should equal to the iteration axis
+  // of the inner reduction tv.
+  if (!normalization_scheduler_utils::isReductionIterationAxisMatched(
+          inner_reduction_tvs, outer_reduction_tvs)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedule_heuristic,
+        "to use combined reduction, every iteration axis in inner reduction tv should match to a reduction domain in outer reduction tv.");
+    return false;
   }
 
   if (!normalization_scheduler_utils::checkReductionPattern(
@@ -898,6 +901,8 @@ void scheduleReductionCombinedOuter(
     // merge tensorview to [reduction, iteraiton] domains
     mergeReductionOrIterDomains(outer_reduction_tv, true);
     mergeReductionOrIterDomains(outer_reduction_tv, false);
+    std::cout << "outer_reduction_tv: " << outer_reduction_tv->toString()
+              << std::endl;
     if (rparams.multiple_reds_per_blk) {
       outer_reduction_tv->split(
           0, NamedScalar::getParallelDim(rparams.block_dim_iter_dom));
@@ -1055,8 +1060,19 @@ void scheduleInnerOuterPersistentKernel(
 
   // Propagate inner reduction. There is a cutoff at boundaryNodesSet, so this
   // propagation will not propagate to the final outer reduction.
+  std::cout << "\npropagateTransformation with inner_reference_tv: "
+            << inner_reference_tv->toString() << std::endl;
+  for (auto tv : boundaryNodesSet) {
+    std::cout << "boundaryNodesSet: " << tv->toString() << std::endl;
+  }
+  fusion->print();
+
   reduction_scheduler_utils::propagateTransformation(
       inner_reference_tv, boundaryNodesSet);
+
+  std::cout << "\npropagateRFactor with inner_reduction_tvs[0]: "
+            << inner_reduction_tvs[0]->toString() << std::endl;
+
   reduction_scheduler_utils::propagateRFactor(
       inner_reference_tv, inner_reduction_tvs[0], inner_reduction_tvs);
 

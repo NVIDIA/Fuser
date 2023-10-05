@@ -1006,12 +1006,10 @@ TEST_F(NVFuserTest, CombinedReductionMultiPerBlock_CUDA) {
       __FILE__);
 }
 
-// Extend issue 1023 to conver different types of chained reductions
-TEST_F(NVFuserTest, CombinedSchedulerChainedReduction) {
-  auto test = [](int first_reduction_axis, int second_reduction_axis) {
-    std::vector<bool> is_broadcast_axis(3, false);
-    is_broadcast_axis[first_reduction_axis] = true;
-
+// Reproduce of issue 1023, where iteration axis in inner reduction tv doesn't
+// match to reduction axis in outer reduction tv.
+TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
+  auto test = [](const std::vector<int>& outer_reduction_axis) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
     FusionGuard fg(&fusion);
@@ -1019,11 +1017,11 @@ TEST_F(NVFuserTest, CombinedSchedulerChainedReduction) {
     const int x = 8, y = 16, z = 32;
     auto tv0 = makeContigTensor(3);
     fusion.addInput(tv0);
-    auto tv1 = sum(tv0, {first_reduction_axis});
-    auto tv2 = broadcast(tv1, is_broadcast_axis);
+    auto tv1 = sum(tv0, {-1});
+    auto tv2 = broadcast(tv1, {false, false, true});
     auto tv3 = add(tv2, tv0);
-    auto tv4 = sum(tv3, {second_reduction_axis});
-    fusion.addOutput(tv1);
+    auto tv4 = sum(tv0, outer_reduction_axis);
+    fusion.addOutput(tv3);
     fusion.addOutput(tv4);
 
     fusion.printMath();
@@ -1035,28 +1033,35 @@ TEST_F(NVFuserTest, CombinedSchedulerChainedReduction) {
     FusionExecutorCache fec(std::move(fusion_ptr));
     auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
 
+    // combined scheduler can sill schedule as an un-segmented fusion
     bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
-    if (first_reduction_axis != second_reduction_axis) {
-      NVF_ERROR(is_segmented, "Fusion should be segmented!");
-    } else {
+    if (outer_reduction_axis.size() == 2) {
       NVF_ERROR(!is_segmented, "Fusion should NOT be segmented!");
+    } else {
+      NVF_ERROR(is_segmented, "Fusion should be segmented!");
     }
 
-    auto t1 = t0.sum({first_reduction_axis});
-    auto t2 = t1.unsqueeze(first_reduction_axis);
+    std::vector<int64_t> vec64(
+        outer_reduction_axis.begin(), outer_reduction_axis.end());
+    auto t1 = t0.sum({-1});
+    auto t2 = t1.unsqueeze(-1);
     auto t3 = t0 + t2;
-    auto t4 = t3.sum({second_reduction_axis});
-
+    auto t4 = t0.sum(vec64);
     testValidate(
-        &fusion, cg_outputs, aten_inputs, {t1, t4}, __LINE__, __FILE__);
+        &fusion, cg_outputs, aten_inputs, {t3, t4}, __LINE__, __FILE__);
   };
-  // (1) inner reduction followed by outer reduction
-  test(2, 0);
-  // (2) outer reduction followed by inner reduction
-  test(0, 2);
-  // (3) inner reduction followed by inner reduction
-  test(2, 2);
-  // (4) outer reduction followed by outer reduction
-  test(0, 0);
+
+  // inner reduction is [I, I, R]
+  // outer reduction is [R, R, I]
+  // every iteration domain in inner reduction tv is a reduction domain in outer
+  // reduction tv, matched.
+  test({0, 1});
+
+  // inner reduction is [I, I, R]
+  // outer reduction is [R, I, I]
+  // axis-1 is a iteration domain in inner reduction tv but it is not a
+  // reduction domain in outer reduction tv, not matched.
+  test({0});
 }
+
 } // namespace nvfuser

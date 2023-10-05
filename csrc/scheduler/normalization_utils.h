@@ -179,8 +179,11 @@ bool isConnectedOnlyThroughReductionProducer(
     const std::vector<TensorView*>& inner_reduction_tvs,
     const std::vector<TensorView*>& outer_reduction_tvs);
 
-// Returns true if a reduction tv depends on another reduction tv.
-bool isChainedReduction(const std::vector<TensorView*>& reduction_tvs);
+// Returns true if every iteration domain in inner reduction tv is a reduction
+// domain in outer reduction tv.
+bool isReductionIterationAxisMatched(
+    const std::vector<TensorView*>& inner_reduction_tvs,
+    const std::vector<TensorView*>& outer_reduction_tvs);
 
 //! in combined_inner_outer_reduction, the partial results of outer reductions
 //! must be persistent, calculate the size of these buffers when estimate
