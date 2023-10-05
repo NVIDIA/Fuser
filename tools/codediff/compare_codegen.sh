@@ -95,6 +95,12 @@ comparecommit=$(git describe --always --long "$comparetoref")
 # record launch time to name custom command directories consistently
 launchtime=$(date +%Y%m%d_%H%M%S)
 
+# We will be modifying the git repository. Since this might change the scripts
+# we need to run, we first copy the codediff directory to a temp dir, then we
+# can safely run the copied scripts from there.
+scriptdir=$(mktemp -d -t codediff)
+cp -r "$nvfuserdir/tools/codediff/*" "$scriptdir/"
+
 movecudafiles() {
     find . -maxdepth 1 -name '__tmp_kernel*.cu' -exec mv '{}' "$1" \;
 }
@@ -112,39 +118,11 @@ cleanup() {
 
     git switch "$orighead"
     git submodule update --init --recursive
+
+    rm -rf "$scriptdir"
 }
 
 trap "cleanup" EXIT
-
-run_test() {
-    export testdir=$1
-    if [[ -d "$testdir/cuda" ]]
-    then
-        echo "Skipping since $testdir/cuda exists"
-        return
-    fi
-
-    shift
-    testcmd=$*
-
-    mkdir -p "$testdir"
-    echo "$testcmd" > "$testdir/command"
-
-    # exclude $testdir when printing env
-    printenv | grep -v '^testdir=' > "$testdir/env"
-
-    nvcc --version > "$testdir/nvcc_version"
-    nvidia-smi --query-gpu=gpu_name --format=csv,noheader > "$testdir/gpu_names"
-
-    # Allow next command to fail
-    set +e
-    $testcmd | tee "$testdir/stdout-$(date +%Y%m%d_%H%M%S).log"
-    echo $? > "$testdir/exitcode"
-    set -e
-    mkdir -p "$testdir/cuda"
-    movecudafiles "$testdir/cuda"
-}
-
 
 collect_kernels() {
     outdir=$1
@@ -198,16 +176,20 @@ collect_kernels() {
 
     if [[ $hascustomcommand ]]
     then
-      run_test "$customcmddir" "${customcommand[@]}"
+      bash "$scriptdir/run_command.sh" -o "$customcmddir" -- "${customcommand[@]}"
     else
       # python tests
       # Using -s to disable capturing stdout. This is important as it will let us see which tests creates each .cu file
-      run_test "$pyopsdir" python -m pytest "$nvfuserdir/python_tests/pytest_ops.py" -n 0 -v -s --color=yes
-      run_test "$pyschedopsdir" python -m pytest "$nvfuserdir/python_tests/test_schedule_ops.py" -n 0 -v -s --color=yes
-      run_test "$pyfrontenddir" python -m pytest "$nvfuserdir/python_tests/test_python_frontend.py" -n 0 -v -s --color=yes
+      bash "$scriptdir/run_command.sh" -o "$pyopsdir" -- \
+          python -m pytest "$nvfuserdir/python_tests/pytest_ops.py" -n 0 -v -s --color=yes
+      bash "$scriptdir/run_command.sh" -o "$pyschedopsdir" -- \
+          python -m pytest "$nvfuserdir/python_tests/test_schedule_ops.py" -n 0 -v -s --color=yes
+      bash "$scriptdir/run_command.sh" -o "$pyfrontenddir" -- \
+          python -m pytest "$nvfuserdir/python_tests/test_python_frontend.py" -n 0 -v -s --color=yes
 
       # binary tests
-      run_test "$binarytestdir" "$nvfuserdir/build/nvfuser_tests" --gtest_color=yes
+      bash "$scriptdir/run_command.sh" -o "$binarytestdir" -- \
+          "$nvfuserdir/build/nvfuser_tests" --gtest_color=yes
     fi
 }
 
@@ -218,6 +200,8 @@ cleanup
 
 # Diff produced files and produce report
 set +e  # exit status of diff is 1 if there are any mismatches
+# Note we use nvfuserdir here instead of scriptdir since we should be back on
+# original commit by now
 python "$nvfuserdir/tools/codediff/diff_codegen_nvfuser_tests.py" \
     "$outdir/$origcommit" "$outdir/$comparecommit" \
     -o "$outdir/codediff_${origcommit}_${comparecommit}.html" \
