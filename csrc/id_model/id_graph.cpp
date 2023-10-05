@@ -7,6 +7,7 @@
 // clang-format on
 #include <id_model/id_graph.h>
 #include <id_model/to_string.h>
+#include <id_model/utils.h>
 #include <ir/utils.h>
 
 namespace nvfuser {
@@ -632,7 +633,7 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
 #endif
 
   if (debug) {
-    std::cerr << "exprsMap? " << first->toString() << second->toString();
+    VERBOSE() << "exprsMap? " << first->toString() << second->toString();
   }
 
   if (!transformAtributesMatch(first, second)) {
@@ -662,7 +663,7 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
       if (!disjointIdSets().permissiveAreMapped(
               first_ids.at(i), second_ids.at(i))) {
         if (debug) {
-          std::cerr << "exprsMap false: " << first->toString()
+          VERBOSE() << "exprsMap false: " << first->toString()
                     << second->toString();
         }
         return false;
@@ -725,7 +726,7 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
   }
 
   if (debug) {
-    std::cerr << "exprsMap true: " << first->toString() << second->toString();
+    VERBOSE() << "exprsMap true: " << first->toString() << second->toString();
   }
 
   return true;
@@ -758,12 +759,12 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
       (id0->name() == 17 && id1->name() == 29);
 
   if (debug) {
-    std::cerr << "mapIds: " << id0->name() << ", " << id1->name() << std::endl;
+    VERBOSE() << "mapIds: " << id0->name() << ", " << id1->name() << std::endl;
   }
 
   if (disjointIdSets().strictAreMapped(id0, id1)) {
     if (debug) {
-      std::cerr << "mapIds: Already mapped\n";
+      VERBOSE() << "mapIds: Already mapped\n";
     }
     return;
   }
@@ -788,15 +789,15 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
 
   if (debug) {
     for (const auto& exprs : orig_uses0) {
-      std::cerr << "Expr use group 0 ->\n";
+      VERBOSE() << "Expr use group 0 ->\n";
       for (auto expr : exprs->vector()) {
-        std::cerr << "Expr0: " << expr->toString();
+        VERBOSE() << "Expr0: " << expr->toString();
       }
     }
     for (const auto& exprs : orig_uses1) {
-      std::cerr << "Expr use group 1 ->\n";
+      VERBOSE() << "Expr use group 1 ->\n";
       for (auto expr : exprs->vector()) {
-        std::cerr << "Expr1: " << expr->toString();
+        VERBOSE() << "Expr1: " << expr->toString();
       }
     }
   }
@@ -813,7 +814,7 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
 #if 0
       if (orig_uses0.has(use_group_1)) {
         if (debug) {
-          std::cerr << "Expr included in both: " << use_group_1->front()->toString();
+          VERBOSE() << "Expr included in both: " << use_group_1->front()->toString();
         }
         continue;
       }
@@ -827,7 +828,7 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
         Expr* use1 = use_group_1->front();
         maybeMapThroughExprs(use0, use1, true);
         if (debug) {
-          std::cerr << "mapIds: use maybeMapThroughExprs: " << use0->toString()
+          VERBOSE() << "mapIds: use maybeMapThroughExprs: " << use0->toString()
                     << use1->toString();
         }
       }
@@ -848,7 +849,7 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
         auto def1 = def_group_1->front();
         maybeMapThroughExprs(def0, def1, false);
         if (debug) {
-          std::cerr << "mapIds: def maybeMapThroughExprs: " << def0->toString()
+          VERBOSE() << "mapIds: def maybeMapThroughExprs: " << def0->toString()
                     << def1->toString();
         }
       }
@@ -861,7 +862,7 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   unique_uses_.erase(orig_id_group1);
 
   if (debug) {
-    std::cerr << "mapIds done\n";
+    VERBOSE() << "mapIds done\n";
   }
 }
 
@@ -1005,7 +1006,7 @@ void IdGraph::mapThroughTrivialExprs() {
     // Map through trivial expressions
     for (auto mapped_id_group : mapped_ids) {
       for (auto id : mapped_id_group) {
-        std::cerr << "Map trivial: " << mapped_id_group.front()->name() << ", "
+        VERBOSE() << "Map trivial: " << mapped_id_group.front()->name() << ", "
                   << id->name() << std::endl;
         mapIds(mapped_id_group.front(), id);
       }

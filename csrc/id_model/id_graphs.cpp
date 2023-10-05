@@ -998,11 +998,11 @@ void IterDomainGraphs::build(
   buildAlmostExactMap();
   buildPermissiveMap(tv_exprs);
 
-  std::cerr << "Initial exact map: " << idGraph(IdMappingMode::EXACT).toString()
+  VERBOSE() << "Initial exact map: " << idGraph(IdMappingMode::EXACT).toString()
             << std::endl;
-  std::cerr << "Initial almost map: "
+  VERBOSE() << "Initial almost map: "
             << idGraph(IdMappingMode::ALMOSTEXACT).toString() << std::endl;
-  std::cerr << "Initial permissive map: "
+  VERBOSE() << "Initial permissive map: "
             << idGraph(IdMappingMode::PERMISSIVE).toString() << std::endl;
 
   // Permissive graph needs the trivial exprs from the almost exact graph to
@@ -1152,7 +1152,7 @@ void IterDomainGraphs::initializeLoopMap(StatefulLoweringInfo& info) {
     }
   }
 
-  std::cerr << "Initial loop map: " << idGraph(IdMappingMode::LOOP).toString()
+  VERBOSE() << "Initial loop map: " << idGraph(IdMappingMode::LOOP).toString()
             << std::endl;
 
   // Back-propagate mappings
@@ -1267,7 +1267,7 @@ void IterDomainGraphs::initializeLoopMap(StatefulLoweringInfo& info) {
     }
   }
 
-  std::cerr << "Back-prop loop map: " << idGraph(IdMappingMode::LOOP).toString()
+  VERBOSE() << "Back-prop loop map: " << idGraph(IdMappingMode::LOOP).toString()
             << std::endl;
 }
 
@@ -1275,7 +1275,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     buildInlinePromotions(StatefulLoweringInfo& info) {
   VERBOSE() << "buildInlinePromotions\n";
 
-  {
+  if (getNvFuserEnv("ID_MODEL_VERBOSE")) {
     auto it = id_uses_.begin();
     NVF_ERROR(it != id_uses_.end());
     auto fusion = it->first->fusion();
@@ -2337,7 +2337,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
 
   VERBOSE() << "Loop promotion map:" << std::endl;
   for (const auto& [loop_group, promotion] : loop_promotion_map_) {
-    std::cerr << nvfuser::toString(loop_group) << " -> " << promotion->name()
+    VERBOSE() << nvfuser::toString(loop_group) << " -> " << promotion->name()
               << std::endl;
   }
 
