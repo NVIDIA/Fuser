@@ -133,8 +133,8 @@ struct DimInfo {
   int64_t stride_order;
   std::optional<bool> contiguity = std::nullopt;
 
-  bool notBroadcast() {
-    return stride != 0 && size != 1;
+  bool isBroadcast() {
+    return stride == 0 || size == 1;
   }
 };
 
@@ -212,8 +212,8 @@ std::vector<std::optional<bool>> computeContiguity(
 //   sorted_strides = [28, 14, 4, 1, 0]
 //   contiguity would be: [False, None, True, True, None]
 //
-// This function returns a tuple of <contiguity, stride_order>
-std::tuple<std::vector<std::optional<bool>>, std::vector<int64_t>>
+// This function returns a pair of <contiguity, stride_order>
+std::pair<std::vector<std::optional<bool>>, std::vector<int64_t>>
 computeTensorDescriptor(
     const std::vector<int64_t>& sizes,
     const std::vector<int64_t>& strides) {
@@ -240,12 +240,12 @@ computeTensorDescriptor(
   // marked contiguous.
   for (int64_t i = 0; i < (int64_t)sizes.size();) {
     dim_info_vec[i].stride_order = (int64_t)sizes.size() - 1 - i;
-    if (dim_info_vec[i].notBroadcast()) {
+    if (!dim_info_vec[i].isBroadcast()) {
       auto l = i++;
       int64_t expected = 1;
       for (; i < (int64_t)sizes.size(); i++) {
         dim_info_vec[i].stride_order = (int64_t)sizes.size() - 1 - i;
-        if (dim_info_vec[i].notBroadcast()) {
+        if (!dim_info_vec[i].isBroadcast()) {
           expected = dim_info_vec[i].stride * dim_info_vec[i].size;
           break;
         }
@@ -256,15 +256,18 @@ computeTensorDescriptor(
     }
   }
 
-  std::vector<std::optional<bool>> contiguity(sizes.size(), std::nullopt);
-  std::vector<int64_t> stride_order(sizes.size(), -1);
-
-  for (auto i : c10::irange(sizes.size())) {
-    contiguity[i] = dim_info_vec[i].contiguity;
-    stride_order[dim_info_vec[i].index] = dim_info_vec[i].stride_order;
+  std::vector<int64_t> stride_order_vec(sizes.size(), -1);
+  for (const auto& dim_info : dim_info_vec) {
+    stride_order_vec[dim_info.index] = dim_info.stride_order;
   }
+  std::vector<std::optional<bool>> contiguity_vec;
+  std::transform(
+      dim_info_vec.begin(),
+      dim_info_vec.end(),
+      std::back_inserter(contiguity_vec),
+      [](const DimInfo& val) { return val.contiguity; });
 
-  return std::make_tuple(contiguity, stride_order);
+  return std::make_pair(contiguity_vec, stride_order_vec);
 }
 
 void initNvFuserPythonBindings(PyObject* module) {
