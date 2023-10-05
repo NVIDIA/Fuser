@@ -20,6 +20,7 @@
 #include <iter_visitor.h>
 #include <kernel_ir.h>
 #include <options.h>
+#include <profiler.h>
 #include <serde/utils.h>
 #include <tensor_metadata.h>
 #include <utils.h>
@@ -1806,6 +1807,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     if (measure_kernel_time) {
       timer.start();
     }
+    FusionProfiler::start_kernel();
 
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
@@ -1835,6 +1837,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           stream,
           arg_buffer_ptrs.data()));
     }
+    FusionProfiler::stop_kernel();
 
     if (measure_kernel_time) {
       kernel_time_ms_ = timer.elapsed();

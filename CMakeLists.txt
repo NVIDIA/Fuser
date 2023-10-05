@@ -66,6 +66,7 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 
 # TODO: fix MSVC
 if(NOT MSVC)
+  find_library(LIBCUPTI libcupti.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
   find_library(LIBNVTOOLSEXT libnvToolsExt.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
 endif()
 
@@ -240,6 +241,7 @@ target_link_libraries(${NVFUSER_CODEGEN} PRIVATE flatbuffers)
 # For kernel_db, linking STL Filesystem Library for backward compatability with C++14
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE dynamic_type)
+target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBCUPTI})
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT})
 target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
 
@@ -373,6 +375,7 @@ if(BUILD_PYTHON)
     set_target_properties(${NVFUSER} PROPERTIES SUFFIX ".pyd")
   endif()
 
+  target_link_libraries(${NVFUSER} PRIVATE ${LIBCUPTI})
   target_link_libraries(${NVFUSER} PRIVATE ${LIBNVTOOLSEXT})
   target_link_libraries(${NVFUSER} PRIVATE ${NVFUSER_CODEGEN})
 

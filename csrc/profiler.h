@@ -23,11 +23,10 @@ class KernelProfiler : public NonCopyable {
   ~KernelProfiler();
   void start();
   KernelProfile stop();
-  void recordKernelActivity();
+  void recordKernelActivity(uint8_t* activity_buffer, size_t activity_size);
 
  private:
-  CUpti_SubscriberHandle cupti_subscriber_handle_;
-  bool cupti_kernel_activity_recorded_;
+  bool kernel_activity_recorded_;
 };
 
 struct FusionProfile {
@@ -56,10 +55,16 @@ class FusionProfiler : public NonCopyable {
   static void start();
   static void stop();
 
+  static KernelProfiler* kernel_profiler();
+  static void start_kernel();
+  static void stop_kernel();
+
  private:
   FusionProfiler() :
     timer_(at::cuda::getCurrentCUDAStream()),
-    profile_() {}
+    profile_(),
+    profile_started_(false),
+    kernel_profiler_(new KernelProfiler) {}
 
   void reset();
   void print() const;
@@ -70,6 +75,9 @@ class FusionProfiler : public NonCopyable {
 
   executor_utils::CudaKernelTimer timer_;
   FusionProfile profile_;
+  bool profile_started_;
+
+  std::unique_ptr<KernelProfiler> kernel_profiler_;
 };
 
 } // namespace nvfuser
