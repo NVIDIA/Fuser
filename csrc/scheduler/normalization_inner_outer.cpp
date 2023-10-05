@@ -901,8 +901,6 @@ void scheduleReductionCombinedOuter(
     // merge tensorview to [reduction, iteraiton] domains
     mergeReductionOrIterDomains(outer_reduction_tv, true);
     mergeReductionOrIterDomains(outer_reduction_tv, false);
-    std::cout << "outer_reduction_tv: " << outer_reduction_tv->toString()
-              << std::endl;
     if (rparams.multiple_reds_per_blk) {
       outer_reduction_tv->split(
           0, NamedScalar::getParallelDim(rparams.block_dim_iter_dom));
@@ -1060,19 +1058,8 @@ void scheduleInnerOuterPersistentKernel(
 
   // Propagate inner reduction. There is a cutoff at boundaryNodesSet, so this
   // propagation will not propagate to the final outer reduction.
-  std::cout << "\npropagateTransformation with inner_reference_tv: "
-            << inner_reference_tv->toString() << std::endl;
-  for (auto tv : boundaryNodesSet) {
-    std::cout << "boundaryNodesSet: " << tv->toString() << std::endl;
-  }
-  fusion->print();
-
   reduction_scheduler_utils::propagateTransformation(
       inner_reference_tv, boundaryNodesSet);
-
-  std::cout << "\npropagateRFactor with inner_reduction_tvs[0]: "
-            << inner_reduction_tvs[0]->toString() << std::endl;
-
   reduction_scheduler_utils::propagateRFactor(
       inner_reference_tv, inner_reduction_tvs[0], inner_reduction_tvs);
 
