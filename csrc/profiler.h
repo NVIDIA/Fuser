@@ -14,6 +14,7 @@
 namespace nvfuser {
 
 struct KernelProfile {
+  float kernel_time;
 };
 
 class KernelProfiler : public NonCopyable {
@@ -22,10 +23,11 @@ class KernelProfiler : public NonCopyable {
   ~KernelProfiler();
   void start();
   KernelProfile stop();
+  void recordKernelActivity();
 
  private:
   CUpti_SubscriberHandle cupti_subscriber_handle_;
-
+  bool cupti_kernel_activity_recorded_;
 };
 
 struct FusionProfile {

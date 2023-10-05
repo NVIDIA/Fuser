@@ -25,7 +25,8 @@ void cupti_callback_handler(
 
 // CUPTI_API_CALL(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
 KernelProfiler::KernelProfiler() :
-    cupti_subscriber_handle_()
+    cupti_subscriber_handle_(),
+    cupti_kernel_activity_recorded_(false)
 {
   NVFUSER_CUPTI_SAFE_CALL(
       cuptiSubscribe(&cupti_subscriber_handle_,
@@ -39,6 +40,7 @@ KernelProfiler::~KernelProfiler() {
 }
 
 void KernelProfiler::start() {
+  cupti_kernel_activity_recorded_ = false;
   NVFUSER_CUPTI_SAFE_CALL(
       cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
 }
@@ -46,6 +48,8 @@ void KernelProfiler::start() {
 KernelProfile KernelProfiler::stop() {
   NVFUSER_CUPTI_SAFE_CALL(
       cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
+  NVF_CHECK(cupti_kernel_activity_recorded_,
+      "CUPTI Kernel Activity was not recorded!");
   return KernelProfile();
 }
 
