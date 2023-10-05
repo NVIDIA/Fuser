@@ -7,7 +7,9 @@
 // clang-format on
 
 #include <c10/cuda/CUDAStream.h>
+#include <cupti.h>
 #include <executor_utils.h>
+
 
 namespace nvfuser {
 
@@ -17,6 +19,7 @@ struct KernelProfile {
 class KernelProfiler : public NonCopyable {
  public:
   KernelProfiler();
+  ~KernelProfiler();
   void start();
   KernelProfile stop();
 

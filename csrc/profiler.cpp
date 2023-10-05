@@ -13,7 +13,7 @@ namespace nvfuser {
 namespace {
 
 void cupti_callback_handler(
-    void *UserData,
+    void *pUserData,
     CUpti_CallbackDomain domain,
     CUpti_CallbackId callbackId,
     const void *pCallbackData)
@@ -32,6 +32,21 @@ KernelProfiler::KernelProfiler() :
       static_cast<CUpti_CallbackFunc>(cupti_callback_handler),
       this));
 
+}
+
+KernelProfiler::~KernelProfiler() {
+  NVFUSER_CUPTI_SAFE_CALL(cuptiUnsubscribe(cupti_subscriber_handle_));
+}
+
+void KernelProfiler::start() {
+  NVFUSER_CUPTI_SAFE_CALL(
+      cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
+}
+
+KernelProfile KernelProfiler::stop() {
+  NVFUSER_CUPTI_SAFE_CALL(
+      cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
+  return KernelProfile();
 }
 
 void FusionProfile::reset() {
