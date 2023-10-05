@@ -916,38 +916,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // [... M,N,K]
   mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());
 
-  //  -6  -5  -4  -3  -2  -1
-  // [Mo, No, Ko, Mi, Ni, Ki]
-  bool has_splitk = params.splitk_factor > 1;
-  if (has_splitk) {
-    // If mma_factor already has an rfactor domain, cache it so we can rfactor
-    // it
-    std::cout << "Before splitk " << mma_result->toString() << std::endl;
-    mma_result->split(-4, params.splitk_factor, false);
-    std::cout << "After  splitk " << mma_result->toString() << std::endl;
-
-    //  -7  -6  -5  -4  -3  -2  -1
-    // [Mo, No, Ko, Kb, Mi, Ni, Ki]
-    auto mma_result_block = mma_result->rFactor({-4, -1});
-
-    // tv2c_rf is the actual output of the mma op after
-    //  Rfactoring.
-    mma_builder.accumulatorTv(mma_result_block);
-
-    // Reset mma_result since the rest of scheduling depends on the reduction
-    // axes in the original mma_result
-    mma_result = mma_result_block;
-
-    mma_result->axis(-5)->parallelize(ParallelType::BIDz);
-    // place new dimension before M & N
-    std::cout << "Before reorder " << mma_result->toString() << std::endl;
-    // mma_result->reorder({{-5, -7}, {-6, -5}, {-7, -6}});
-    std::cout << "After  reorder " << mma_result->toString() << std::endl;
-    //  -7  -6  -5  -4  -3  -2  -1
-    // [Ko, Mo, No, Kb, Mi, Ni, Ki]
-  }
-  // [Mo, No, (Ksk,) Ko, Mi, Ni, Ki]
-
   // Swizzle block tiles:
   if (params.grid_swizzle_factor != 1) {
     int factor = std::max(1, params.grid_swizzle_factor); // must be >=1
@@ -969,6 +937,21 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     }
   }
 
+  // Split-K: We always split by the Split-K factor, but we don't parallelize
+  // it unless the factor is greater than one. Kf is the reduction needed for
+  // split-K.
+  // [..., Mo, No, Koo, Mi, Ni, Ki]
+  // Split [Koo] -> [Kf, Ko]
+  mma_result->split(-4, params.splitk_factor, /*inner*/ false);
+  if (params.splitk_factor > 1) {
+    auto mma_result_outer = mma_result->rFactor({-1, -4});
+    std::swap(mma_result, mma_result_outer);
+  }
+  //       -7  -6  -5  -4  -3  -2  -1
+  // [..., Mo, No, Kf, Ko, Mi, Ni, Ki]
+  mma_result->reorder({{-7, -5}});
+
+  // [Kf, Mo, No, Ko, Mi, Ni, Ki]
   // Propagate tiling globally
   scheduler_utils::transformPropagateToAllFrom(mma_result, -1);
 
@@ -981,8 +964,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Schedule warp tile
   mma_utils::scheduleWarpTileWithReduction(mma_result, gemm_tile);
-  //  0   1  2   3   4   5   6   7  8   9 10 11
-  // [Mo  No Ksk Ko Kw Mwo Nwo Mwi Nwi Mi Ni Ki]
+  //  1   2  3  4   5   6   7   8  9 10 11
+  // [Mo  No Ko Kw Mwo Nwo Mwi Nwi Mi Ni Ki]
 
   // Propagate warp tile to main loop and epilog/output tvs
   scheduler_utils::BoundedDirectionalTransformPropagator::bothWays(
@@ -1032,10 +1015,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   acr->axis(-1)->parallelize(ParallelType::Vectorize);
   bcr->axis(-1)->parallelize(ParallelType::Vectorize);
 
-  //  0  1  2  3  4   5   6   7  8  9  10  11 12
-  // [B Mo No (Ksk) Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
-  if (num_batch_dims != 0) {
-    NVF_ERROR(!has_splitk, "Split-k is not supported for batch matmul");
+  //     -12 -11 -10 -9  -8  -7  -6 -5 -4  -3 -2 -1
+  // [... Kf  Mo  No Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
+  NVF_ERROR(
+      params.splitk_factor != 1 || num_batch_dims == 0,
+      "Splitk not supported with batch matmul");
+  if (num_batch_dims != 0 || params.splitk_factor > 1) {
     mma_result->axis(0)->parallelize(ParallelType::BIDz);
   }
 
