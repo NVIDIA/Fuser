@@ -619,7 +619,7 @@ bool isReductionIterationAxisMatched(
   for (auto i : c10::irange(1, inner_reduction_tvs.size())) {
     auto tv = inner_reduction_tvs[i];
     for (const auto i : c10::irange(tv->nDims())) {
-      if (tv->axis((int)i)->isReduction() != is_reduction[i]) {
+      if (tv->axis((int)i)->isReduction() != is_reduction.at(i)) {
         return false;
       }
     }
