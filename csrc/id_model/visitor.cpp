@@ -111,7 +111,7 @@ void IdGraphVisitor::traverse() {
 
     while (!to_visit_exprs.empty()) {
       ExprGroup current_expr_group = to_visit_exprs.popFront();
-      TORCH_INTERNAL_ASSERT(!current_expr_group->empty());
+      NVF_ERROR(!current_expr_group->empty());
       if (visited_exprs.has(current_expr_group)) {
         continue;
       }
@@ -137,7 +137,7 @@ void IdGraphVisitor::traverse() {
     IdGroups still_to_visit_ids;
     while (!to_visit_ids.empty()) {
       auto current_id_group = to_visit_ids.popFront();
-      TORCH_INTERNAL_ASSERT(!current_id_group->empty());
+      NVF_ERROR(!current_id_group->empty());
       if (visited_ids.has(current_id_group)) {
         continue;
       }

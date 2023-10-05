@@ -873,7 +873,7 @@ std::unordered_map<IterDomain*, IterDomain*> resolvedRootBroadcasts(
     if (c_id->isReduction()) {
       // This should only happen with expanded broadcast
       // domains. Otherwise, squeeze should be used
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           p_id->hasExpandedExtent(), "Unexpected domain: ", c_id->toString());
       continue;
     }
@@ -1214,8 +1214,8 @@ void IterDomainGraphs::initializeLoopMap(StatefulLoweringInfo& info) {
             ir_utils::filterByType<IterDomain>(expr_i->inputs()).vector();
         auto inputs_j =
             ir_utils::filterByType<IterDomain>(expr_j->inputs()).vector();
-        TORCH_INTERNAL_ASSERT(inputs_i.size() == inputs_j.size());
-        TORCH_INTERNAL_ASSERT(!inputs_i.empty(), "Unexpected");
+        NVF_ERROR(inputs_i.size() == inputs_j.size());
+        NVF_ERROR(!inputs_i.empty(), "Unexpected");
 
         bool modified = false;
         for (const auto input_idx : c10::irange(inputs_i.size())) {
@@ -1239,7 +1239,7 @@ void IterDomainGraphs::initializeLoopMap(StatefulLoweringInfo& info) {
           // TODO-NM: Now that compliments are mapped, I don't think
           // this would hit:
           if (!getenv("NO_MAP_COMPLIMENT")) {
-            TORCH_INTERNAL_ASSERT(false);
+            NVF_ERROR(false);
           }
           VERBOSE() << "Back-prop loop map: " << id_i->name() << ", "
                     << id_j->name() << std::endl;
@@ -1277,7 +1277,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
 
   {
     auto it = id_uses_.begin();
-    TORCH_INTERNAL_ASSERT(it != id_uses_.end());
+    NVF_ERROR(it != id_uses_.end());
     auto fusion = it->first->fusion();
     fusion->printMath();
     fusion->print();
@@ -1359,7 +1359,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
   // mappings to derived domains
   for (const IdGroup& iel_group :
        intersection_exact_loop_graph.disjointIdSets().disjointSets()) {
-    TORCH_INTERNAL_ASSERT(!iel_group->empty());
+    NVF_ERROR(!iel_group->empty());
 
     VERBOSE() << "Visiting \t{ " << toDelimitedString(iel_group->vector())
               << " }\n";
@@ -1427,8 +1427,8 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
 
     // TODO-NM
     {
-      TORCH_INTERNAL_ASSERT(resolved_exact_groups.size() == 1);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(resolved_exact_groups.size() == 1);
+      NVF_ERROR(
           resolved_exact_groups.front()->set() ==
           exact_resolution_group->set());
     }
@@ -1455,10 +1455,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
       NVF_ERROR(false, err_msg.str());
     }
 
-    {
-      TORCH_INTERNAL_ASSERT(
-          promoted_iel_groups.front()->set() == resolved_ids.set());
-    }
+    { NVF_ERROR(promoted_iel_groups.front()->set() == resolved_ids.set()); }
 
     VERBOSE() << "Promoted exact id: { "
               << toDelimitedString(promoted_iel_groups.front()->vector())
@@ -1489,7 +1486,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
   IdGraphStmtSort iel_stmt_sort(intersection_exact_loop_graph);
 
   for (const ExprGroup& iel_expr : iel_stmt_sort.exprs()) {
-    TORCH_INTERNAL_ASSERT(!iel_expr->empty());
+    NVF_ERROR(!iel_expr->empty());
     VERBOSE() << "Visiting iel_expr:\n";
     for (auto expr : *iel_expr) {
       VERBOSE() << "\t" << expr->toString();
@@ -1506,7 +1503,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
         VERBOSE() << "IG: " << ig->front()->toString() << std::endl;
       }
       // Can this happen?
-      TORCH_INTERNAL_ASSERT(false);
+      NVF_ERROR(false);
     }
 
     // Check if any inputs need promotion indicating this expr group needs to
@@ -1769,7 +1766,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
               .toGroups(VectorOfUniqueEntries<IterDomain*>{p_id, c_id});
 
       // p_id and c_id are not loop mapped, so there must be two ID groups
-      TORCH_INTERNAL_ASSERT(loop_groups.size() == 2);
+      NVF_ERROR(loop_groups.size() == 2);
 
       // TODO-NM: Is it assumed all domains are properly parallelized?
       // Specifically, loop mapped domains are unformly parallelized?
@@ -2027,7 +2024,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
   // TODO-NM: Can this traversal be changed to loop groups?
   for (const ExprGroup& iel_expr :
        IdGraphStmtSort(intersection_exact_loop_graph).exprs()) {
-    TORCH_INTERNAL_ASSERT(!iel_expr->empty());
+    NVF_ERROR(!iel_expr->empty());
     VERBOSE() << "Final replay: " << nvfuser::toString(iel_expr)
               << ", #exprs: " << iel_expr->size() << "\n"
               << iel_expr->front()->toString() << std::endl;
@@ -2092,8 +2089,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
       WARN() << "loop_promote_inputs: " << false << "\n";
       auto expr = iel_expr->front();
       if (expr->isA<Split>()) {
-        TORCH_INTERNAL_ASSERT(
-            expr->as<Split>()->factor()->isOne(), expr->toString());
+        NVF_ERROR(expr->as<Split>()->factor()->isOne(), expr->toString());
       } else if (expr->isA<Merge>()) {
         if (!expr->as<Merge>()->inner()->extent()->isOne() &&
             !expr->as<Merge>()->outer()->extent()->isOne()) {
@@ -2124,7 +2120,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
         // When this happens?
         WARN() << "Loop promotion found but disabled: "
                << inp_loop_promo_it->second->toString() << std::endl;
-        // TORCH_INTERNAL_ASSERT(false);
+        // NVF_ERROR(false);
       }
       if (loop_promote_inputs &&
           inp_loop_promo_it != loop_graph_copy_promotion_map.end()) {
@@ -2139,7 +2135,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
         VERBOSE() << "No input promotion: " << nvfuser::toString(iel_inp_group)
                   << std::endl;
         // When this happnes?
-        // TORCH_INTERNAL_ASSERT(false);
+        // NVF_ERROR(false);
         // We still could require an input promotion. We could be traversing
         // across non-inlined groups. Meaning we have inputs that were promoted
         // in an inlined loop group traversing through the non-inlined portions

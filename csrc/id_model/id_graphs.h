@@ -82,7 +82,7 @@ struct StatefulLoweringInfo;
 //          PERMISSIVE)
 //   Forward through split one axes, i.e. id{ceilDiv(i0, 1)}, id{i0} are mapped
 //
-class TORCH_CUDA_CU_API IterDomainGraphs : public PolymorphicBase {
+class IterDomainGraphs : public PolymorphicBase {
  public:
   IterDomainGraphs(
       const std::vector<Expr*>& exprs,

@@ -22,7 +22,7 @@ namespace nvfuser {
 // Warning: This is not a great iterator if there's a desire to minimize paths
 // traveled to simply visit all IdGroups in order. See ExprsBetween to see how
 // we might minimize paths.
-class TORCH_CUDA_CU_API IdGraphVisitor {
+class IdGraphVisitor {
  public:
   IdGraphVisitor() = delete;
 
