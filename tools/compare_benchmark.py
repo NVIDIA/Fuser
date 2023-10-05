@@ -138,7 +138,7 @@ def load_comparison(comparison_out: str) -> list[Comparison]:
 
 
 def summarize_comparison(comparisons: Iterable[Comparison], out_dir: str) -> None:
-    sorted_comparisons = sorted(comparisons, key=lambda x: x.change)
+    comparisons = sorted(comparisons, key=lambda x: x.change)
 
     # Print top improvements and regressions.
     num_tops = 5
