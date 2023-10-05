@@ -604,32 +604,34 @@ bool isConnectedOnlyThroughReductionProducer(
 // Checks if any outer reduction tensor is produced directly or indirectly
 // by inner reduction tensor, and vice-versa.
 namespace {
-bool hasReductionInAllProducers(
+
+bool hasReductionInAnyProducer(
     TensorView* tv,
     std::unordered_set<TensorView*>& visited_tvs) {
-  const auto& producers = ir_utils::producerTvsOf(tv);
+  // Start by adding direct producers of tv to the queue
   std::queue<TensorView*> tensors_to_visit;
-  for (auto ptv : producers) {
-    if (!visited_tvs.insert(ptv).second) {
-      continue;
+  for (auto producer_tv : ir_utils::producerTvsOf(tv)) {
+    if (visited_tvs.insert(producer_tv).second) {
+      tensors_to_visit.push(producer_tv);
     }
-    tensors_to_visit.push(ptv);
-    while (!tensors_to_visit.empty()) {
-      auto tv_to_visit = tensors_to_visit.front();
-      tensors_to_visit.pop();
-      if (tv_to_visit->hasReduction()) {
-        return true;
-      }
-      visited_tvs.emplace(tv_to_visit);
-      for (auto tv : ir_utils::producerTvsOf(tv_to_visit)) {
-        if (!visited_tvs.count(tv)) {
-          tensors_to_visit.push(tv);
-        }
+  }
+
+  while (!tensors_to_visit.empty()) {
+    auto tv_to_visit = tensors_to_visit.front();
+    tensors_to_visit.pop();
+    if (tv_to_visit->hasReduction()) {
+      return true;
+    }
+    for (auto producer_tv : ir_utils::producerTvsOf(tv_to_visit)) {
+      if (visited_tvs.insert(producer_tv).second) {
+        tensors_to_visit.push(producer_tv);
       }
     }
   }
+
   return false;
 }
+
 } // namespace
 
 bool isChainedReduction(
@@ -638,7 +640,7 @@ bool isChainedReduction(
   // check producers of inner_reduction_tvs
   std::unordered_set<TensorView*> visited_tvs_inner;
   for (auto tv : inner_reduction_tvs) {
-    if (hasReductionInAllProducers(tv, visited_tvs_inner)) {
+    if (hasReductionInAnyProducer(tv, visited_tvs_inner)) {
       return true;
     }
   }
@@ -646,7 +648,7 @@ bool isChainedReduction(
   // check producers of outer_reduction_tvs
   std::unordered_set<TensorView*> visited_tvs_outer;
   for (auto tv : outer_reduction_tvs) {
-    if (hasReductionInAllProducers(tv, visited_tvs_outer)) {
+    if (hasReductionInAnyProducer(tv, visited_tvs_outer)) {
       return true;
     }
   }
