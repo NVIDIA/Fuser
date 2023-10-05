@@ -601,58 +601,15 @@ bool isConnectedOnlyThroughReductionProducer(
   return true;
 }
 
-// Checks if any outer reduction tensor is produced directly or indirectly
-// by inner reduction tensor, and vice-versa.
-namespace {
-
-bool hasReductionInAnyProducer(
-    TensorView* tv,
-    std::unordered_set<TensorView*>& visited_tvs) {
-  // Start by adding direct producers of tv to the queue
-  std::queue<TensorView*> tensors_to_visit;
-  for (auto producer_tv : ir_utils::producerTvsOf(tv)) {
-    if (visited_tvs.insert(producer_tv).second) {
-      tensors_to_visit.push(producer_tv);
-    }
-  }
-
-  while (!tensors_to_visit.empty()) {
-    auto tv_to_visit = tensors_to_visit.front();
-    tensors_to_visit.pop();
-    if (tv_to_visit->hasReduction()) {
-      return true;
-    }
-    for (auto producer_tv : ir_utils::producerTvsOf(tv_to_visit)) {
-      if (visited_tvs.insert(producer_tv).second) {
-        tensors_to_visit.push(producer_tv);
-      }
-    }
-  }
-
-  return false;
-}
-
-} // namespace
-
-bool isChainedReduction(
-    const std::vector<TensorView*>& inner_reduction_tvs,
-    const std::vector<TensorView*>& outer_reduction_tvs) {
-  // check producers of inner_reduction_tvs
-  std::unordered_set<TensorView*> visited_tvs_inner;
-  for (auto tv : inner_reduction_tvs) {
-    if (hasReductionInAnyProducer(tv, visited_tvs_inner)) {
+bool isChainedReduction(const std::vector<TensorView*>& reduction_tvs) {
+  auto dep_vals = DependencyCheck::getAllDependentVals(
+      {reduction_tvs.begin(), reduction_tvs.end()});
+  auto dep_tvs = ir_utils::filterByType<TensorView>(dep_vals);
+  for (auto tv : dep_tvs) {
+    if (tv->hasReduction()) {
       return true;
     }
   }
-
-  // check producers of outer_reduction_tvs
-  std::unordered_set<TensorView*> visited_tvs_outer;
-  for (auto tv : outer_reduction_tvs) {
-    if (hasReductionInAnyProducer(tv, visited_tvs_outer)) {
-      return true;
-    }
-  }
-
   return false;
 }
 

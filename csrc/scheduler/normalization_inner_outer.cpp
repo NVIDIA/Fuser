@@ -91,11 +91,10 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     return false;
   }
 
-  if (normalization_scheduler_utils::isChainedReduction(
-          inner_reduction_tvs, outer_reduction_tvs)) {
+  if (normalization_scheduler_utils::isChainedReduction(inner_reduction_tvs) ||
+      normalization_scheduler_utils::isChainedReduction(outer_reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic,
-        "to use combined reduction, reduction tv shouldn't be produced directly or indirectly by other reduction tvs.");
+        schedule_heuristic, "chained reduction is not supported.");
     return false;
   }
 
