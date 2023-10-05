@@ -133,8 +133,8 @@ struct DimInfo {
   int64_t stride_order;
   std::optional<bool> contiguity = std::nullopt;
 
-  bool notBroadcast() {
-    return stride != 0 && size != 1;
+  bool isBroadcast() {
+    return stride == 0 || size == 1;
   }
 };
 
@@ -240,12 +240,12 @@ computeTensorDescriptor(
   // marked contiguous.
   for (int64_t i = 0; i < (int64_t)sizes.size();) {
     dim_info_vec[i].stride_order = (int64_t)sizes.size() - 1 - i;
-    if (dim_info_vec[i].notBroadcast()) {
+    if (!dim_info_vec[i].isBroadcast()) {
       auto l = i++;
       int64_t expected = 1;
       for (; i < (int64_t)sizes.size(); i++) {
         dim_info_vec[i].stride_order = (int64_t)sizes.size() - 1 - i;
-        if (dim_info_vec[i].notBroadcast()) {
+        if (!dim_info_vec[i].isBroadcast()) {
           expected = dim_info_vec[i].stride * dim_info_vec[i].size;
           break;
         }
@@ -256,15 +256,18 @@ computeTensorDescriptor(
     }
   }
 
-  std::vector<std::optional<bool>> contiguity(sizes.size(), std::nullopt);
-  std::vector<int64_t> stride_order(sizes.size(), -1);
-
-  for (auto i : c10::irange(sizes.size())) {
-    contiguity[i] = dim_info_vec[i].contiguity;
-    stride_order[dim_info_vec[i].index] = dim_info_vec[i].stride_order;
+  std::vector<int64_t> stride_order_vec(sizes.size(), -1);
+  for (const auto& dim_info : dim_info_vec) {
+    stride_order_vec[dim_info.index] = dim_info.stride_order;
   }
+  std::vector<std::optional<bool>> contiguity_vec;
+  std::transform(
+      dim_info_vec.begin(),
+      dim_info_vec.end(),
+      std::back_inserter(contiguity_vec),
+      [](const DimInfo& val) { return val.contiguity; });
 
-  return std::make_tuple(contiguity, stride_order);
+  return std::make_tuple(contiguity_vec, stride_order_vec);
 }
 
 void initNvFuserPythonBindings(PyObject* module) {
