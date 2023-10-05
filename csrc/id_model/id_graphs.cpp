@@ -8,6 +8,7 @@
 #include <id_model/id_graphs.h>
 #include <id_model/to_string.h>
 #include <id_model/transform_replay.h>
+#include <id_model/utils.h>
 #include <id_model/visitor.h>
 
 #include <device_lower/analysis/trivial_broadcast.h>
@@ -971,7 +972,8 @@ void IterDomainGraphs::build(
   idGraph(IdMappingMode::ALMOSTEXACT).removeTrivialExprs();
 
   // Only build loop map during lowering
-  if (FusionGuard::getCurFusion()->isA<kir::Kernel>()) {
+  // TODO: make this configurable
+  if (true || FusionGuard::getCurFusion()->isA<kir::Kernel>()) {
     validatePTypes(all_tvs);
 
     StatefulLoweringInfo info = buildInfo(
@@ -1320,15 +1322,13 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     }
   }
 
-  std::cerr << "Inline promotion done\n";
-
   std::stringstream ss;
   ss << "Inline promotion map\n";
   for (const auto& [iel_group, promoted_id] : iel_promotion_map) {
     ss << "\t" << nvfuser::toString(iel_group) << " -> " << promoted_id->name()
        << std::endl;
   }
-  std::cerr << ss.str();
+  VERBOSE() << ss.str();
 
   return iel_promotion_map;
 }
@@ -1762,9 +1762,73 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     }
   }
 
-  std::cerr << "Loop promotion map:\n";
+  // TODO: cleanup
+  // Set loop_promotion_map_[loop_group] = promotion.
+  // Make sure the existing mapping, if exists, matches with the given
+  // promotion.
+  auto setLoopPromotion =
+      [this](const IdGroup& loop_group, IterDomain* promotion) -> void {
+    if (auto it = loop_promotion_map_.find(loop_group);
+        it != loop_promotion_map_.end()) {
+      auto existing_promotion = it->second;
+      NVF_ERROR(
+          idGraph(IdMappingMode::EXACT).toGroup(promotion) ==
+              idGraph(IdMappingMode::EXACT).toGroup(existing_promotion),
+          "Different promotions found for ",
+          nvfuser::toString(loop_group),
+          ". ",
+          promotion->toString(),
+          ", ",
+          existing_promotion->toString());
+    } else {
+      loop_promotion_map_.emplace(loop_group, promotion);
+    }
+  };
+
+  // Set up the loop promotion map of loops groups to promotion IDs
+  for (const IdGroup& loop_group :
+       idGraph(IdMappingMode::LOOP).disjointIdSets().disjointSets()) {
+    bool promoted = false;
+    for (IterDomain* id : loop_group->vector()) {
+      const auto& iel_group = intersection_exact_loop_graph.toGroup(id);
+      if (auto iel_promotion_map_it = iel_promotion_map.find(iel_group);
+          iel_promotion_map_it != iel_promotion_map.end()) {
+        IterDomain* iel_promotion_id = iel_promotion_map_it->second;
+        setLoopPromotion(loop_group, iel_promotion_id);
+        promoted = true;
+      }
+    }
+
+    if (promoted) {
+      continue;
+    }
+
+    VERBOSE() << "No mapping in the IEL promotion map: "
+              << nvfuser::toString(loop_group) << std::endl;
+
+    // No mapping in the IEL promotion map. If the loop group is still
+    // mapped in the loop group promotion map, that should be the
+    // correct promotion for this group
+    if (auto loop_graph_copy_promotion_map_it =
+            loop_graph_copy_promotion_map.find(
+                loop_graph_copy.toGroup(loop_group->vector().at(0)));
+        loop_graph_copy_promotion_map_it !=
+        loop_graph_copy_promotion_map.end()) {
+      VERBOSE() << "Found in loop promotion: " << nvfuser::toString(loop_group)
+                << std::endl;
+      setLoopPromotion(loop_group, loop_graph_copy_promotion_map_it->second);
+      promoted = true;
+    }
+
+    NVF_ERROR(
+        promoted,
+        "Loop promotion not found for ",
+        nvfuser::toString(loop_group));
+  }
+
+  VERBOSE() << "Loop promotion map:" << std::endl;
   for (const auto& [iel_group, id] : iel_promotion_map) {
-    std::cerr << nvfuser::toString(iel_group) << " -> " << id->name()
+    VERBOSE() << nvfuser::toString(iel_group) << " -> " << id->name()
               << std::endl;
   }
 

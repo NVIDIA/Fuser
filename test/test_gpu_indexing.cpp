@@ -11,6 +11,8 @@
 
 #include <compute_at_map.h>
 #include <executor.h>
+#include <id_model/id_graphs.h>
+#include <id_model/to_string.h>
 #include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -50,6 +52,8 @@ TEST_F(NVFuserTest, FusionIndexing1_CUDA) {
   tv4->split(0, 4);
 
   tv2->computeAt(tv4, 1);
+
+  fusion.print();
 
   tv4->axis(0)->parallelize(ParallelType::BIDx);
   tv4->axis(1)->parallelize(ParallelType::Unroll);
@@ -877,8 +881,92 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
     tensor->inlineAt(1);
   }
 
-  fusion.print();
-  fusion.printKernel();
+  IterDomainGraphs id_model(&fusion);
+
+  // All of the IDs that are generated with merge operations from the
+  // root domains should be mapped to the single group.
+  const IdGroup& merge_loop_group =
+      id_model.idGraph(IdMappingMode::LOOP).toGroup(tv1->getRootDomain().at(0));
+  for (auto tv : {tv1, tv2, tv4, tv5, tv6, tv8, tv9}) {
+    for (auto id : ir_utils::allIDsOf(tv)) {
+      if (dynamic_cast<Split*>(id->definition()) == nullptr) {
+        const IdGroup& loop_group =
+            id_model.idGraph(IdMappingMode::LOOP).toGroup(id);
+        ASSERT_EQ(loop_group, merge_loop_group)
+            << "Unexpected loop group: " << nvfuser::toString(loop_group);
+      }
+    }
+  }
+
+  const auto& promotion_map = id_model.loopPromotionMap();
+
+  // The merge loop group should be promoted to the output of the
+  // final merge in tv10
+  auto ref_merge_out = tv10->axis(0)
+                           ->definition()
+                           ->input(0)
+                           ->definition()
+                           ->input(0)
+                           ->as<IterDomain>();
+
+  auto promotion_map_it = promotion_map.find(merge_loop_group);
+  ASSERT_TRUE(promotion_map_it != promotion_map.end())
+      << "Loop promotion not found for merge loop group";
+  ASSERT_EQ(
+      id_model.idGraph(IdMappingMode::EXACT).toGroup(promotion_map_it->second),
+      id_model.idGraph(IdMappingMode::EXACT).toGroup(ref_merge_out))
+      << "Merge loop group should be promoted to " << ref_merge_out->toString();
+
+  // Get the corresponding reference ID in tv10
+  auto getRefId = [&](TensorView* tv, IterDomain* id) -> IterDomain* {
+    if (dynamic_cast<Split*>(id->definition()) != nullptr) {
+      if (id->uses().empty()) {
+        auto it = std::find(
+            tv->getLeafDomain().begin(), tv->getLeafDomain().end(), id);
+        NVF_ERROR(it != tv->getLeafDomain().end());
+        int leaf_pos =
+            static_cast<int>(std::distance(tv->getLeafDomain().begin(), it));
+        return tv10->axis(leaf_pos);
+      } else {
+        return tv10->axis(0)->definition()->input(0)->as<IterDomain>();
+      }
+    } else {
+      return ref_merge_out;
+    }
+  };
+
+  // At this point, all of the IDs from the root until split are
+  // validated. Validating the remaining IDs
+  for (auto tv : {tv1, tv2, tv4, tv5, tv6, tv8, tv9}) {
+    for (auto id : ir_utils::allIDsOf(tv)) {
+      const auto& loop_group =
+          id_model.idGraph(IdMappingMode::LOOP).toGroup(id);
+      if (loop_group == merge_loop_group) {
+        // already validated
+        continue;
+      }
+
+      auto promotion_map_it = promotion_map.find(loop_group);
+      ASSERT_TRUE(promotion_map_it != promotion_map.end())
+          << "Loop promotion not found for " << id->toString() << " of "
+          << tv->toString()
+          << ". Loop group: " << nvfuser::toString(loop_group);
+
+      auto promotion_exact_group = id_model.idGraph(IdMappingMode::EXACT)
+                                       .toGroup(promotion_map_it->second);
+
+      auto ref_id = getRefId(tv, id);
+      auto ref_exact_group =
+          id_model.idGraph(IdMappingMode::EXACT).toGroup(ref_id);
+
+      ASSERT_EQ(promotion_exact_group, ref_exact_group)
+          << "Invalid promotion: " << id->toString() << " of " << tv->toString()
+          << ". Promotion group: " << nvfuser::toString(promotion_exact_group);
+    }
+  }
+
+  // The current ComputeAtMap fails with this fusion
+  // fusion.printKernel();
 }
 
 // TODO: Finish and enable test
@@ -1056,7 +1144,52 @@ TEST_F(NVFuserTest, FusionMultiPromotion2_CUDA) {
     tv->inlineAt(1);
   }
 
-  ASSERT_ANY_THROW(fusion.printKernel());
+  //
+
+  /*
+    This CA setting must be an error. Here's the fusion math
+
+    Inputs:
+  T0_g[ iS19{( (( (( T0 )).logical_size ))[0] )} ], float
+  T1_g[ iS21{( (( (( T0 )).logical_size ))[0] )}, iS22{( (( (( T1
+)).logical_size ))[1] )} ], float T2_g[ iS26{( (( (( T0 )).logical_size ))[0]
+)}, iS27{( (( (( T2 )).logical_size ))[1] )} ], float Outputs: T5_g[ iS15{( ( ((
+(( T0 )).logical_size ))[0] ) * ( (( (( T1 )).logical_size ))[1] ) )} ]
+produce_pos( 1 ), float T7_g[ iS17{( ( (( (( T0 )).logical_size ))[0] ) * ( ((
+(( T2 )).logical_size ))[1] ) )} ] produce_pos( 1 ), float
+
+%kernel_math {
+T3_l[ iS20{( (( (( T0 )).logical_size ))[0] )} ] ca_pos( 1 )
+   = Set( T0_g[ iS19{( (( (( T0 )).logical_size ))[0] )} ] )
+T4_l[ iS14{( ( (( (( T0 )).logical_size ))[0] ) * 1 )} ] ca_pos( 1 )
+produce_pos( 1 ) = broadcast( T3_l[ iS20{( (( (( T0 )).logical_size ))[0] )} ]
+ca_pos( 1 ) ) T5_g[ iS15{( ( (( (( T0 )).logical_size ))[0] ) * ( (( (( T1
+)).logical_size ))[1] ) )} ] produce_pos( 1 ) = T4_l[ iS14{( ( (( (( T0
+)).logical_size ))[0] ) * 1 )} ] ca_pos( 1 ) produce_pos( 1 )
+   + T1_g[ iS21{( (( (( T0 )).logical_size ))[0] )}, iS22{( (( (( T1
+)).logical_size ))[1] )} ]; T6_l[ iS16{( ( (( (( T0 )).logical_size ))[0] ) * 1
+)} ] ca_pos( 1 ) produce_pos( 1 ) = broadcast( T3_l[ iS20{( (( (( T0
+)).logical_size ))[0] )} ] ca_pos( 1 ) ) T7_g[ iS17{( ( (( (( T0 )).logical_size
+))[0] ) * ( (( (( T2 )).logical_size ))[1] ) )} ] produce_pos( 1 ) = T6_l[
+iS16{( ( (( (( T0 )).logical_size ))[0] ) * 1 )} ] ca_pos( 1 ) produce_pos( 1 )
+   + T2_g[ iS26{( (( (( T0 )).logical_size ))[0] )}, iS27{( (( (( T2
+)).logical_size ))[1] )} ];
+   }
+
+   T3, T4, and T6 are all CA at 1, which means the leaves of T5 and T7
+   must be mapped. However, there's no guarantee that their second
+   root axes are mapped, so their leaves must not be mapped.
+
+   We could detect an invalid CA like this case as there will be no
+   loop promotion for the group including 14 and 16. Note that 14 and
+   16 are loop-mapped, but 15 and 17 are not exactly mapped, so that
+   means the loop group needs to be promoted to two different ways,
+   which is invalid.
+
+   Can we detect this when setting CA positions?
+   */
+
+  ASSERT_ANY_THROW(IterDomainGraphs id_model(&fusion));
 }
 
 // TODO: All the above tests are merges followed by splits, we should make some
@@ -1107,6 +1240,27 @@ TEST_F(NVFuserTest, FusionIndexSplitMerge_CUDA) {
 
   testValidate(
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, TMP) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = broadcast(tv0, {false, true});
+  auto tv2 = broadcast(tv0, {false, true});
+  fusion.addOutput(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->merge(0);
+  tv2->merge(0);
+
+  IterDomainGraphs test(&fusion);
+
+  // The current ComputeAtMap fails with this fusion
+  // fusion.printKernel();
 }
 
 } // namespace nvfuser
