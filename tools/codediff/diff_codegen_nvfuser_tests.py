@@ -88,6 +88,7 @@ class GitRev:
 class CompiledKernel:
     filename: str
     code: str | None = None
+    ptx: str | None = None
     ptxas_info: str | None = None
     gmem_bytes: int = 0
     smem_bytes: int = 0
@@ -354,6 +355,13 @@ class TestRun:
         if strip_preamble and kern.code[-1] == "}":
             # trailing curly brace is close of namespace. This will clean it up so that we have just the kernel
             kern.code = kern.code[:-1].rstrip()
+        # find ptx file if it exists
+        ptx_basename = os.path.splitext(basename)[0] + ".ptx"
+        ptx_fullname = os.path.join(self.directory, "ptx", ptx_basename)
+        try:
+            kern.ptx = open(ptx_fullname, "r").read().rstrip()
+        except FileNotFoundError:
+            pass
         return kern
 
 
@@ -364,11 +372,15 @@ class KernelDiff:
     kernel1: CompiledKernel
     kernel2: CompiledKernel
     diff_lines: InitVar[list[str]]
+    ptx_diff_lines: InitVar[list[str] | None]
     diff: str = field(init=False)
     new_lines: int = 0
     removed_lines: int = 0
+    ptx_diff: str | None = None
+    new_ptx_lines: int = 0
+    removed_ptx_lines: int = 0
 
-    def __post_init__(self, diff_lines: list[str]):
+    def __post_init__(self, diff_lines: list[str], ptx_diff_lines: list[str] | None):
         self.diff = "\n".join(diff_lines)
 
         for line in diff_lines:
@@ -376,6 +388,15 @@ class KernelDiff:
                 self.new_lines += 1
             elif line[:2] == "- ":
                 self.removed_lines += 1
+
+        if ptx_diff_lines is not None:
+            self.ptx_diff = "\n".join(ptx_diff_lines)
+
+            for line in ptx_diff_lines:
+                if line[:2] == "+ ":
+                    self.new_ptx_lines += 1
+                elif line[:2] == "- ":
+                    self.removed_ptx_lines += 1
 
 
 @dataclass
@@ -455,6 +476,18 @@ class TestDifferences:
                 kern1 = self.run1.get_kernel(testname, kernel_num, strip_preamble=True)
                 kern2 = self.run2.get_kernel(testname, kernel_num, strip_preamble=True)
 
+                ptx_diff_lines = None
+                if kern1.ptx is not None and kern2.ptx is not None:
+                    ptx_diff_lines = list(
+                        difflib.unified_diff(
+                            kern1.ptx.splitlines(),
+                            kern2.ptx.splitlines(),
+                            fromfile=self.run1.name,
+                            tofile=self.run2.name,
+                            n=5,
+                        )
+                    )
+
                 diff_lines = list(
                     difflib.unified_diff(
                         kern1.code.splitlines(),
@@ -465,7 +498,14 @@ class TestDifferences:
                     )
                 )
                 if len(diff_lines) > 0:
-                    kd = KernelDiff(testname, kernel_num, kern1, kern2, diff_lines)
+                    kd = KernelDiff(
+                        testname,
+                        kernel_num,
+                        kern1,
+                        kern2,
+                        diff_lines,
+                        ptx_diff_lines=ptx_diff_lines,
+                    )
                     if show_diffs:
                         print(testname, kernel_num, kd.diff)
                     self.total_num_diffs += 1
