@@ -11,6 +11,8 @@
 
 #include <compute_at_map.h>
 #include <executor.h>
+#include <id_model/id_graphs.h>
+#include <id_model/to_string.h>
 #include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -877,8 +879,92 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
     tensor->inlineAt(1);
   }
 
-  fusion.print();
-  fusion.printKernel();
+  IterDomainGraphs id_model(&fusion);
+
+  // All of the IDs that are generated with merge operations from the
+  // root domains should be mapped to the single group.
+  const IdGroup& merge_loop_group =
+      id_model.idGraph(IdMappingMode::LOOP).toGroup(tv1->getRootDomain().at(0));
+  for (auto tv : {tv1, tv2, tv4, tv5, tv6, tv8, tv9}) {
+    for (auto id : ir_utils::allIDsOf(tv)) {
+      if (dynamic_cast<Split*>(id->definition()) == nullptr) {
+        const IdGroup& loop_group =
+            id_model.idGraph(IdMappingMode::LOOP).toGroup(id);
+        ASSERT_EQ(loop_group, merge_loop_group)
+            << "Unexpected loop group: " << nvfuser::toString(loop_group);
+      }
+    }
+  }
+
+  const auto& promotion_map = id_model.loopPromotionMap();
+
+  // The merge loop group should be promoted to the output of the
+  // final merge in tv10
+  auto ref_merge_out = tv10->axis(0)
+                           ->definition()
+                           ->input(0)
+                           ->definition()
+                           ->input(0)
+                           ->as<IterDomain>();
+
+  auto promotion_map_it = promotion_map.find(merge_loop_group);
+  ASSERT_TRUE(promotion_map_it != promotion_map.end())
+      << "Loop promotion not found for merge loop group";
+  ASSERT_EQ(
+      id_model.idGraph(IdMappingMode::EXACT).toGroup(promotion_map_it->second),
+      id_model.idGraph(IdMappingMode::EXACT).toGroup(ref_merge_out))
+      << "Merge loop group should be promoted to " << ref_merge_out->toString();
+
+  // Get the corresponding reference ID in tv10
+  auto getRefId = [&](TensorView* tv, IterDomain* id) -> IterDomain* {
+    if (dynamic_cast<Split*>(id->definition()) != nullptr) {
+      if (id->uses().empty()) {
+        auto it = std::find(
+            tv->getLeafDomain().begin(), tv->getLeafDomain().end(), id);
+        NVF_ERROR(it != tv->getLeafDomain().end());
+        int leaf_pos =
+            static_cast<int>(std::distance(tv->getLeafDomain().begin(), it));
+        return tv10->axis(leaf_pos);
+      } else {
+        return tv10->axis(0)->definition()->input(0)->as<IterDomain>();
+      }
+    } else {
+      return ref_merge_out;
+    }
+  };
+
+  // At this point, all of the IDs from the root until split are
+  // validated. Validating the remaining IDs
+  for (auto tv : {tv1, tv2, tv4, tv5, tv6, tv8, tv9}) {
+    for (auto id : ir_utils::allIDsOf(tv)) {
+      const auto& loop_group =
+          id_model.idGraph(IdMappingMode::LOOP).toGroup(id);
+      if (loop_group == merge_loop_group) {
+        // already validated
+        continue;
+      }
+
+      auto promotion_map_it = promotion_map.find(loop_group);
+      ASSERT_TRUE(promotion_map_it != promotion_map.end())
+          << "Loop promotion not found for " << id->toString() << " of "
+          << tv->toString()
+          << ". Loop group: " << nvfuser::toString(loop_group);
+
+      auto promotion_exact_group = id_model.idGraph(IdMappingMode::EXACT)
+                                       .toGroup(promotion_map_it->second);
+
+      auto ref_id = getRefId(tv, id);
+      auto ref_exact_group =
+          id_model.idGraph(IdMappingMode::EXACT).toGroup(ref_id);
+
+      ASSERT_EQ(promotion_exact_group, ref_exact_group)
+          << "Invalid promotion: " << id->toString() << " of " << tv->toString()
+          << ". Promotion group: " << nvfuser::toString(promotion_exact_group);
+    }
+  }
+
+  // The current ComputeAtMap fails with this fusion
+  // fusion.printKernel();
 }
 
 // TODO: Finish and enable test
