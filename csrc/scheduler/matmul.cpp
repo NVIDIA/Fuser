@@ -722,10 +722,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       "scheduleMatmul supports fusion with single mma op in definition, got ",
       mma_ops.size());
 
-  NVF_ERROR(roles_map.at(MatmulRole::INPUT_A).size() == 1);
-  NVF_ERROR(roles_map.at(MatmulRole::INPUT_B).size() == 1);
-  NVF_ERROR(roles_map.at(MatmulRole::OUTPUT_D).size() == 1);
-
   // Core roles: there can be only one... TV with assigned core role
   TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
   TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
@@ -951,6 +947,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // [..., Mo, No, Kf, Ko, Mi, Ni, Ki]
   mma_result->reorder({{-7, -5}});
 
+
   // [Kf, Mo, No, Ko, Mi, Ni, Ki]
   // Propagate tiling globally
   scheduler_utils::transformPropagateToAllFrom(mma_result, -1);
@@ -1015,31 +1012,33 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   acr->axis(-1)->parallelize(ParallelType::Vectorize);
   bcr->axis(-1)->parallelize(ParallelType::Vectorize);
 
-  //     -12 -11 -10 -9  -8  -7  -6 -5 -4  -3 -2 -1
-  // [... Kf  Mo  No Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
-  NVF_ERROR(
-      params.splitk_factor != 1 || num_batch_dims == 0,
+  //  0  1  2  3  4   5   6   7  8  9  10 11 12
+  // [B Kf Mo No Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
+  // or (no batch)
+  //  0  1  2  3  4   5   6   7  8   9  10 11
+  // [Kf Mo No Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
+  NVF_ERROR(params.splitk_factor != 1 || num_batch_dims == 0,
       "Splitk not supported with batch matmul");
   if (num_batch_dims != 0 || params.splitk_factor > 1) {
+    std::cout << "parallelize BIDz" << std::endl;
     mma_result->axis(0)->parallelize(ParallelType::BIDz);
   }
-
   switch (params.cta_order) {
     case MatmulParams::TileRasterizationOrder::RowMajor:
-      mma_result->axis(num_batch_dims)->parallelize(ParallelType::BIDx);
-      mma_result->axis(num_batch_dims + 1)->parallelize(ParallelType::BIDy);
+      mma_result->axis(num_batch_dims + 1)->parallelize(ParallelType::BIDx);
+      mma_result->axis(num_batch_dims + 2)->parallelize(ParallelType::BIDy);
       break;
     case MatmulParams::TileRasterizationOrder::ColumnMajor:
-      mma_result->axis(num_batch_dims)->parallelize(ParallelType::BIDy);
-      mma_result->axis(num_batch_dims + 1)->parallelize(ParallelType::BIDx);
+      mma_result->axis(num_batch_dims + 1)->parallelize(ParallelType::BIDy);
+      mma_result->axis(num_batch_dims + 2)->parallelize(ParallelType::BIDx);
       break;
     default:
       NVF_ERROR(
           false, "Invalid TileRasterizationOrder passed to Matmul scheduler");
   }
 
-  mma_result->axis(num_batch_dims + 4)->parallelize(ParallelType::TIDz);
-  mma_result->axis(num_batch_dims + 5)->parallelize(ParallelType::TIDy);
+  mma_result->axis(num_batch_dims + 5)->parallelize(ParallelType::TIDz);
+  mma_result->axis(num_batch_dims + 6)->parallelize(ParallelType::TIDy);
 
   scheduler_utils::parallelizeAllLike(
       mma_result,
@@ -1088,7 +1087,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb}));
 
   // if auto inline, will inline to position-7, leads to performance regression
-  inlineSelectedAt({acr, bcr, ab, bb}, mma_result, num_batch_dims + 6);
+  inlineSelectedAt({acr, bcr, ab, bb}, mma_result, num_batch_dims + 7);
 
   // Propagate mma output swizzle and parallelization down the DAG
   if (params.double_buffer_options.double_buffer_smem_write) {
@@ -1114,7 +1113,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   if (params.double_buffer_options.double_buffer_smem_read &&
       params.double_buffer_options.double_buffer_smem_write) {
-    scheduler_utils::rotateLoop(mma_result, num_batch_dims + 2, {acr, bcr});
+    scheduler_utils::rotateLoop(mma_result, num_batch_dims + 3, {acr, bcr});
   }
 }
 
