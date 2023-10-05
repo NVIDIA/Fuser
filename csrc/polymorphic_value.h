@@ -181,6 +181,12 @@ class StructHandle {
   StructHandle& operator=(const StructHandle& other) = default;
   StructHandle& operator=(StructHandle&& other) = default;
 
+  //! This is a shallow comparison operator that just checks whether we point to
+  //! the same exact Struct
+  bool operator==(const StructHandle& other) const {
+    return struct_ptr_ == other.struct_ptr_;
+  }
+
   template <typename T>
   bool is() const {
     return std::dynamic_pointer_cast<T>(struct_ptr_) != nullptr;
