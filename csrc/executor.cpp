@@ -326,7 +326,7 @@ void FusionExecutor::compileFusion(
   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
 
   const auto kernel = lowered_->kernel();
-  for (auto hook : post_lowering_hooks_) {
+  for (const auto& hook : post_lowering_hooks_) {
     hook(kernel);
   }
   fusion_ = lowered_->kernel()->as<Fusion>();
