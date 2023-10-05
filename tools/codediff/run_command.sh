@@ -105,7 +105,7 @@ if [ -n "$runname" ]
 then
 echo "$runname" > "$testdir/run_name"
 fi
-printenv > "$testdir/env"
+printenv | sort > "$testdir/env"
 nvcc --version > "$testdir/nvcc_version"
 nvidia-smi --query-gpu=gpu_name --format=csv,noheader > "$testdir/gpu_names"
 # save generated cuda and ptx files
