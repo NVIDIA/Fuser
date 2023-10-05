@@ -105,7 +105,7 @@ launchtime=$(date +%Y%m%d_%H%M%S)
 # We will be modifying the git repository. Since this might change the scripts
 # we need to run, we first copy the codediff directory to a temp dir, then we
 # can safely run the copied scripts from there.
-scriptdir=$(mktemp -d -t codediff)
+scriptdir=$(mktemp -d -t codediffXXXXXX)
 cp -r "$nvfuserdir/tools/codediff/*" "$scriptdir/"
 
 movecudafiles() {
