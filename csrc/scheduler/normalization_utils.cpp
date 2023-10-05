@@ -604,7 +604,9 @@ bool isConnectedOnlyThroughReductionProducer(
 bool isReductionIterationAxisMatched(
     const std::vector<TensorView*>& inner_reduction_tvs,
     const std::vector<TensorView*>& outer_reduction_tvs) {
-  // set up reference
+  // set up reference, checkIfReductionsAreInnerOuter already ensures all the
+  // iteration domains are either iteration or reduction, so we can just use a
+  // vector of bool.
   auto reference_tv = inner_reduction_tvs[0];
   std::vector<bool> is_reduction(reference_tv->nDims(), false);
   for (const auto i : c10::irange(reference_tv->nDims())) {
@@ -612,7 +614,7 @@ bool isReductionIterationAxisMatched(
       is_reduction[i] = true;
     }
   }
-  // check other inner reduction tvs, , the corresponding axis should be
+  // check other inner reduction tvs, the corresponding axis should be
   // reduction.
   for (auto i : c10::irange(1, inner_reduction_tvs.size())) {
     auto tv = inner_reduction_tvs[i];
