@@ -24,18 +24,8 @@ class DebugStream {
   DebugStream()
       : enabled_(getNvFuserEnv("ID_MODEL_VERBOSE")), out_(std::cerr) {}
 
-  virtual ~DebugStream() {
-    // std::cerr << "\n[DTOR]\n";
-    // if (enabled_) {
-    // ss_ << " [end-of-line]" << std::endl;
-    // std::cerr << ss_.str();
-    // }
-  }
-
   template <typename T>
   DebugStream& operator<<(const T& v) {
-    // std::cerr << "\nDEBUG:::" << v << std::endl;
-    // std::cerr << "Enabled:::" << enabled_ << std::endl;
     if (enabled_) {
       out_ << v;
     }

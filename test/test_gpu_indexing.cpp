@@ -53,8 +53,6 @@ TEST_F(NVFuserTest, FusionIndexing1_CUDA) {
 
   tv2->computeAt(tv4, 1);
 
-  fusion.print();
-
   tv4->axis(0)->parallelize(ParallelType::BIDx);
   tv4->axis(1)->parallelize(ParallelType::Unroll);
   tv4->axis(2)->parallelize(ParallelType::TIDx);
@@ -1144,52 +1142,7 @@ TEST_F(NVFuserTest, FusionMultiPromotion2_CUDA) {
     tv->inlineAt(1);
   }
 
-  //
-
-  /*
-    This CA setting must be an error. Here's the fusion math
-
-    Inputs:
-  T0_g[ iS19{( (( (( T0 )).logical_size ))[0] )} ], float
-  T1_g[ iS21{( (( (( T0 )).logical_size ))[0] )}, iS22{( (( (( T1
-)).logical_size ))[1] )} ], float T2_g[ iS26{( (( (( T0 )).logical_size ))[0]
-)}, iS27{( (( (( T2 )).logical_size ))[1] )} ], float Outputs: T5_g[ iS15{( ( ((
-(( T0 )).logical_size ))[0] ) * ( (( (( T1 )).logical_size ))[1] ) )} ]
-produce_pos( 1 ), float T7_g[ iS17{( ( (( (( T0 )).logical_size ))[0] ) * ( ((
-(( T2 )).logical_size ))[1] ) )} ] produce_pos( 1 ), float
-
-%kernel_math {
-T3_l[ iS20{( (( (( T0 )).logical_size ))[0] )} ] ca_pos( 1 )
-   = Set( T0_g[ iS19{( (( (( T0 )).logical_size ))[0] )} ] )
-T4_l[ iS14{( ( (( (( T0 )).logical_size ))[0] ) * 1 )} ] ca_pos( 1 )
-produce_pos( 1 ) = broadcast( T3_l[ iS20{( (( (( T0 )).logical_size ))[0] )} ]
-ca_pos( 1 ) ) T5_g[ iS15{( ( (( (( T0 )).logical_size ))[0] ) * ( (( (( T1
-)).logical_size ))[1] ) )} ] produce_pos( 1 ) = T4_l[ iS14{( ( (( (( T0
-)).logical_size ))[0] ) * 1 )} ] ca_pos( 1 ) produce_pos( 1 )
-   + T1_g[ iS21{( (( (( T0 )).logical_size ))[0] )}, iS22{( (( (( T1
-)).logical_size ))[1] )} ]; T6_l[ iS16{( ( (( (( T0 )).logical_size ))[0] ) * 1
-)} ] ca_pos( 1 ) produce_pos( 1 ) = broadcast( T3_l[ iS20{( (( (( T0
-)).logical_size ))[0] )} ] ca_pos( 1 ) ) T7_g[ iS17{( ( (( (( T0 )).logical_size
-))[0] ) * ( (( (( T2 )).logical_size ))[1] ) )} ] produce_pos( 1 ) = T6_l[
-iS16{( ( (( (( T0 )).logical_size ))[0] ) * 1 )} ] ca_pos( 1 ) produce_pos( 1 )
-   + T2_g[ iS26{( (( (( T0 )).logical_size ))[0] )}, iS27{( (( (( T2
-)).logical_size ))[1] )} ];
-   }
-
-   T3, T4, and T6 are all CA at 1, which means the leaves of T5 and T7
-   must be mapped. However, there's no guarantee that their second
-   root axes are mapped, so their leaves must not be mapped.
-
-   We could detect an invalid CA like this case as there will be no
-   loop promotion for the group including 14 and 16. Note that 14 and
-   16 are loop-mapped, but 15 and 17 are not exactly mapped, so that
-   means the loop group needs to be promoted to two different ways,
-   which is invalid.
-
-   Can we detect this when setting CA positions?
-   */
-
-  ASSERT_ANY_THROW(IterDomainGraphs id_model(&fusion));
+  ASSERT_ANY_THROW(fusion.printKernel());
 }
 
 // TODO: All the above tests are merges followed by splits, we should make some
@@ -1240,27 +1193,6 @@ TEST_F(NVFuserTest, FusionIndexSplitMerge_CUDA) {
 
   testValidate(
       &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
-}
-
-TEST_F(NVFuserTest, TMP) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeSymbolicTensor(1);
-  fusion.addInput(tv0);
-
-  auto tv1 = broadcast(tv0, {false, true});
-  auto tv2 = broadcast(tv0, {false, true});
-  fusion.addOutput(tv1);
-  fusion.addOutput(tv2);
-
-  tv1->merge(0);
-  tv2->merge(0);
-
-  IterDomainGraphs test(&fusion);
-
-  // The current ComputeAtMap fails with this fusion
-  // fusion.printKernel();
 }
 
 } // namespace nvfuser
