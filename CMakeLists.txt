@@ -241,8 +241,9 @@ set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD_REQUIRED ON)
 set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
 
 # Ensure we don't link against libcuda; we'll dlopen it ourselves.
-list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
+#list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE
+  torch
   flatbuffers
   dynamic_type
   ${CUDA_NVRTC_LIB}
