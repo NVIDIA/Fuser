@@ -244,8 +244,9 @@ target_include_directories(${NVFUSER_CODEGEN} PUBLIC
 set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
 
 # Ensure we don't link against libcuda; we'll dlopen it ourselves.
-list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
+#list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE
+  torch
   flatbuffers
   stdc++fs  # for compatibility with C++14
   dynamic_type
