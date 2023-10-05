@@ -126,6 +126,8 @@ TEST_F(MBarrierTest, Simple) {
 
   fe.compileFusion(&fusion);
 
+  // Make sure that the post-lowering hook successfully inserted all mbarrier
+  // operations
   std::unordered_set<const std::type_info*> remaining_mbarrier_exprs{
       &typeid(kir::MBarrierInit),
       &typeid(kir::MBarrierArrive),
