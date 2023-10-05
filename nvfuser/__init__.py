@@ -14,6 +14,11 @@ pytorch_lib_dir = os.path.join(os.path.dirname(torch.__file__), "lib")
 if pytorch_lib_dir not in sys.path:
     sys.path.append(pytorch_lib_dir)
 
+if torch.__version__ == (2, 1):
+    from nvfuser_python_utils import patch_installation_if_needed
+
+    patch_installation_if_needed()
+
 # we need to import _C here to avoid confusing error message generated from failure in this python script ended up with
 # complaining on `_C` not defined for `_C._FusionDefinition`
 try:
