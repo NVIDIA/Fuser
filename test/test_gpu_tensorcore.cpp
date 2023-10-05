@@ -4217,7 +4217,7 @@ TEST_F(NVFuserTest, FusionTuringMatmulSplitK_CUDA) {
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 8096;
 
-  for (auto layout : {MatmulLayout::TN}) {
+  for (auto layout : kAllSupportedMatmulLayout) {
     Fusion fusion;
     FusionGuard fg(&fusion);
     auto tv0 = makeContigTensor(2, DataType::Half);
