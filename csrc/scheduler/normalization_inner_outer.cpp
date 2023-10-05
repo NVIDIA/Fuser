@@ -142,7 +142,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     }
   }
 
-  // the reduction axis of outer reduction tv should math to the iteration axis
+  // the reduction axis of outer reduction tv should match to the iteration axis
   // of the inner reduction tv.
   if (!normalization_scheduler_utils::isReductionIterationAxisMatched(
           inner_reduction_tvs, outer_reduction_tvs)) {

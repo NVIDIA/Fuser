@@ -1033,7 +1033,6 @@ TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
     FusionExecutorCache fec(std::move(fusion_ptr));
     auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
 
-    // combined scheduler can sill schedule as an un-segmented fusion
     bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
     if (outer_reduction_axis.size() == 2) {
       NVF_ERROR(!is_segmented, "Fusion should NOT be segmented!");
