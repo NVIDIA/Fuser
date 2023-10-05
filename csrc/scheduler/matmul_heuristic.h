@@ -126,9 +126,7 @@ class MatmulParams : public HeuristicParams {
        << "Use shared memory epilogue: " << use_smem_epilogue << "\n"
        << "Promote re-use of prologue shared memory: "
        << promote_prologue_smem_reuse << "\n"
-       << "Split-K: "
-       << ((splitk_factor > 1) ? std::to_string(splitk_factor) : "false")
-       << "\n"
+       << "Split-K factor: " << splitk_factor << "\n"
        << "====================================\n";
     return ss.str();
   }

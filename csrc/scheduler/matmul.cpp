@@ -943,12 +943,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     auto mma_result_outer = mma_result->rFactor({-1, -4});
     std::swap(mma_result, mma_result_outer);
   }
-  //       -7  -6  -5  -4  -3  -2  -1
-  // [..., Mo, No, Kf, Ko, Mi, Ni, Ki]
-  mma_result->reorder({{-7, -5}});
+  mma_result->reorder({{-5, -7}});
 
-
-  // [Kf, Mo, No, Ko, Mi, Ni, Ki]
+  // [..., Kf, Mo, No, Ko, Mi, Ni, Ki]
   // Propagate tiling globally
   scheduler_utils::transformPropagateToAllFrom(mma_result, -1);
 
@@ -961,8 +958,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Schedule warp tile
   mma_utils::scheduleWarpTileWithReduction(mma_result, gemm_tile);
-  //  1   2  3  4   5   6   7   8  9 10 11
-  // [Mo  No Ko Kw Mwo Nwo Mwi Nwi Mi Ni Ki]
+  // [..., Kf, Mo, No, Ko, Kw, Mwo, Nwo, Mwi, Nwi, Mi, Ni, Ki]
 
   // Propagate warp tile to main loop and epilog/output tvs
   scheduler_utils::BoundedDirectionalTransformPropagator::bothWays(
@@ -973,6 +969,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // ------------------------------------------------------------------
   scheduleProlog(acw_smem, params);
   scheduleProlog(bcw_smem, params);
+  // [..., Kf, Mo, No, Ko, Kw, Mwo, Nwo, Mwi, Nwi, Mi, Ni, Ki]
 
   // Add mma swizzle:
   //   TODO: this section goes to a separate matmul util,
@@ -1012,33 +1009,35 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   acr->axis(-1)->parallelize(ParallelType::Vectorize);
   bcr->axis(-1)->parallelize(ParallelType::Vectorize);
 
-  //  0  1  2  3  4   5   6   7  8  9  10 11 12
-  // [B Kf Mo No Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
-  // or (no batch)
-  //  0  1  2  3  4   5   6   7  8   9  10 11
-  // [Kf Mo No Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
-  NVF_ERROR(params.splitk_factor != 1 || num_batch_dims == 0,
+  // batch +      1   2   3   4    5    6    7    8     9    10    11  12
+  //      -13 -12 -11 -10  -9   -8   -7   -6   -5    -4    -3    -2  -1
+  // [..., Kf, Mo, No, Ko, Kw, Mwo, Nwo, Mwi, Nwi, MNi1, MNi2, MNi3, Ki]
+  NVF_ERROR(
+      params.splitk_factor == 1 || num_batch_dims == 0,
       "Splitk not supported with batch matmul");
-  if (num_batch_dims != 0 || params.splitk_factor > 1) {
-    std::cout << "parallelize BIDz" << std::endl;
-    mma_result->axis(0)->parallelize(ParallelType::BIDz);
+  if (num_batch_dims != 0) {
+    mma_result->axis(-14)->parallelize(ParallelType::BIDz);
+  } else if (params.splitk_factor > 1) {
+    mma_result->axis(-13)->parallelize(ParallelType::BIDz);
   }
+  // parallelize Mo, No by block
   switch (params.cta_order) {
     case MatmulParams::TileRasterizationOrder::RowMajor:
-      mma_result->axis(num_batch_dims + 1)->parallelize(ParallelType::BIDx);
-      mma_result->axis(num_batch_dims + 2)->parallelize(ParallelType::BIDy);
+      mma_result->axis(-12)->parallelize(ParallelType::BIDx);
+      mma_result->axis(-11)->parallelize(ParallelType::BIDy);
       break;
     case MatmulParams::TileRasterizationOrder::ColumnMajor:
-      mma_result->axis(num_batch_dims + 1)->parallelize(ParallelType::BIDy);
-      mma_result->axis(num_batch_dims + 2)->parallelize(ParallelType::BIDx);
+      mma_result->axis(-12)->parallelize(ParallelType::BIDy);
+      mma_result->axis(-11)->parallelize(ParallelType::BIDx);
       break;
     default:
       NVF_ERROR(
           false, "Invalid TileRasterizationOrder passed to Matmul scheduler");
   }
 
-  mma_result->axis(num_batch_dims + 5)->parallelize(ParallelType::TIDz);
-  mma_result->axis(num_batch_dims + 6)->parallelize(ParallelType::TIDy);
+  // parallelize Mwo, Nwo by thread
+  mma_result->axis(-8)->parallelize(ParallelType::TIDz);
+  mma_result->axis(-7)->parallelize(ParallelType::TIDy);
 
   scheduler_utils::parallelizeAllLike(
       mma_result,
@@ -1046,6 +1045,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       {acr, bcr, ab, bb},
       {ParallelType::TIDy, ParallelType::TIDz});
 
+  // handle epilogue and always vectorize Ki
   if (params.use_smem_epilogue) {
     smem_epilogue->setMemoryType(MemoryType::Shared);
     swizzleSharedMemory(smem_epilogue, params);
@@ -1113,7 +1113,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   if (params.double_buffer_options.double_buffer_smem_read &&
       params.double_buffer_options.double_buffer_smem_write) {
-    scheduler_utils::rotateLoop(mma_result, num_batch_dims + 3, {acr, bcr});
+    // rotate Ko loop
+    scheduler_utils::rotateLoop(mma_result, -10, {acr, bcr});
   }
 }
 
