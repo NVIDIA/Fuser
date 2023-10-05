@@ -106,7 +106,7 @@ launchtime=$(date +%Y%m%d_%H%M%S)
 # we need to run, we first copy the codediff directory to a temp dir, then we
 # can safely run the copied scripts from there.
 scriptdir=$(mktemp -d -t codediffXXXXXX)
-cp -r "$nvfuserdir/tools/codediff/*" "$scriptdir/"
+cp -r "$nvfuserdir/tools/codediff/"* "$scriptdir/"
 
 movecudafiles() {
     find . -maxdepth 1 -name '__tmp_kernel*.cu' -exec mv '{}' "$1" \;
