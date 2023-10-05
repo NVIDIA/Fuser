@@ -939,9 +939,20 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // [..., Mo, No, Koo, Mi, Ni, Ki]
   // Split [Koo] -> [Kf, Ko]
   mma_result->split(-4, params.splitk_factor, /*inner*/ false);
+  // After split [..., Mo, No, Kf, Ko, Mi, Ni, Ki]
   if (params.splitk_factor > 1) {
-    auto mma_result_outer = mma_result->rFactor({-1, -4});
-    std::swap(mma_result, mma_result_outer);
+    // rFactor converts
+    //   mma_result = mma(A, B, {/*Kf*/-5, /*Ko*/-4, /*Ki*/-1});
+    // to
+    //   intermediate = mma(A, B, {-4, -1});
+    //   final_sum = sum(intermediate, {/*Kf*/-3});
+    // and the method returns "intermediate". We need mma_result to refer to
+    // the actual MmaOp output, so here we reassign that to the intermediate.
+    mma_result = mma_result->rFactor({-4, -1});
+
+    // the accumulator must be the output of the MMA op, which is now the
+    // rfactor TV
+    mma_builder.accumulatorTv(mma_result);
   }
   mma_result->reorder({{-5, -7}});
 

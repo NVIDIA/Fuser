@@ -4238,7 +4238,7 @@ TEST_F(NVFuserTest, FusionTuringMatmulSplitK_CUDA) {
     MatmulParams params;
     params.mma_macro = MmaOptions::MacroType::Turing_16_8_16;
     params.tile_sizes = gemm_tile;
-    params.splitk_factor = 1;
+    params.splitk_factor = 2;
     scheduleMatmul(&fusion, params);
 
     auto inputs = matmulAtInput(M, N, K, layout);
