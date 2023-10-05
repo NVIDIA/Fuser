@@ -179,6 +179,12 @@ bool isConnectedOnlyThroughReductionProducer(
     const std::vector<TensorView*>& inner_reduction_tvs,
     const std::vector<TensorView*>& outer_reduction_tvs);
 
+// Checks if any outer reduction tensor is produced directly or indirectly
+// by inner reduction tensor, and vice-versa.
+bool checkProducersOfReductionTvs(
+    const std::vector<TensorView*>& inner_reduction_tvs,
+    const std::vector<TensorView*>& outer_reduction_tvs);
+
 //! in combined_inner_outer_reduction, the partial results of outer reductions
 //! must be persistent, calculate the size of these buffers when estimate
 //! register usage

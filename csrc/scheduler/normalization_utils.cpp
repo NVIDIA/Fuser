@@ -601,6 +601,59 @@ bool isConnectedOnlyThroughReductionProducer(
   return true;
 }
 
+// Checks if any outer reduction tensor is produced directly or indirectly
+// by inner reduction tensor, and vice-versa.
+namespace {
+bool hasReductionInAllProducers(
+    TensorView* tv,
+    std::unordered_set<TensorView*>& visited_tvs) {
+  const auto& producers = ir_utils::producerTvsOf(tv);
+  std::queue<TensorView*> tensors_to_visit;
+  for (auto ptv : producers) {
+    if (!visited_tvs.insert(ptv).second) {
+      continue;
+    }
+    tensors_to_visit.push(ptv);
+    while (!tensors_to_visit.empty()) {
+      auto tv_to_visit = tensors_to_visit.front();
+      tensors_to_visit.pop();
+      if (tv_to_visit->hasReduction()) {
+        return true;
+      }
+      visited_tvs.emplace(tv_to_visit);
+      for (auto tv : ir_utils::producerTvsOf(tv_to_visit)) {
+        if (!visited_tvs.count(tv)) {
+          tensors_to_visit.push(tv);
+        }
+      }
+    }
+  }
+  return false;
+}
+} // namespace
+
+bool checkProducersOfReductionTvs(
+    const std::vector<TensorView*>& inner_reduction_tvs,
+    const std::vector<TensorView*>& outer_reduction_tvs) {
+  // check producers of inner_reduction_tvs
+  std::unordered_set<TensorView*> visited_tvs_inner;
+  for (auto tv : inner_reduction_tvs) {
+    if (hasReductionInAllProducers(tv, visited_tvs_inner)) {
+      return false;
+    }
+  }
+
+  // check producers of outer_reduction_tvs
+  std::unordered_set<TensorView*> visited_tvs_outer;
+  for (auto tv : outer_reduction_tvs) {
+    if (hasReductionInAllProducers(tv, visited_tvs_outer)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 int64_t partialReductionBufferSize(
     const std::vector<TensorView*>& outer_reduction_tvs,
     SchedulerRuntimeInfo& runtime_info) {

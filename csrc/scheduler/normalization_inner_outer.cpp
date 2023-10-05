@@ -40,12 +40,6 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     return false;
   }
 
-  if (ir_utils::hasOpsOfType<ExpandOp>(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic, "ExpandOp is not supported.");
-    return false;
-  }
-
   // check reduction type
   auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
   if (reduction_tvs.empty()) {
@@ -94,6 +88,14 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     scheduler_debug_utils::canScheduleRejectReason(
         schedule_heuristic,
         "to use combined reduction, inner reduction and outer reduction should not have shared consumer, their consumers should not have shared non-outer-reduction producer.");
+    return false;
+  }
+
+  if (!normalization_scheduler_utils::checkProducersOfReductionTvs(
+          inner_reduction_tvs, outer_reduction_tvs)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedule_heuristic,
+        "to use combined reduction, reduction tv shouldn't be produced directly or indirectly by other reduction tvs.");
     return false;
   }
 
