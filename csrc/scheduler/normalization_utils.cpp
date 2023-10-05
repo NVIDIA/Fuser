@@ -605,7 +605,7 @@ bool isReductionIterationAxisMatched(
     const std::vector<TensorView*>& inner_reduction_tvs,
     const std::vector<TensorView*>& outer_reduction_tvs) {
   // set up reference, checkIfReductionsAreInnerOuter already ensures all the
-  // iteration domains are either iteration or reduction, so we can just use a
+  // tensor domains are either iteration or reduction, so we can just use a
   // vector of bool.
   auto reference_tv = inner_reduction_tvs[0];
   std::vector<bool> is_reduction(reference_tv->nDims(), false);
