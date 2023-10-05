@@ -1334,6 +1334,32 @@ std::string ReductionOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+std::vector<PolymorphicValue> ReductionOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  bool is_allreduce = isAllreduce();
+  const auto output = out()->as<TensorView>();
+  std::vector<int64_t> reduction_axes;
+  for (const auto i: c10::irange(output->getRootDomain().size())){
+    auto ax = output->getRootDomain().at(i);
+    if (ax->isReduction())
+      reduction_axes.push_back(i);
+  }
+  switch (getReductionOpType()) {
+    case BinaryOpType::Add:
+      return {at::sum(in, reduction_axes, is_allreduce)};
+      break;
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected operator type: ",
+          getReductionOpType(),
+          " in ",
+          toString());
+  }
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(ReductionOp)
 
 GroupedReductionOp::GroupedReductionOp(
