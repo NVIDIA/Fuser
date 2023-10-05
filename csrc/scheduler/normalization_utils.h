@@ -181,7 +181,7 @@ bool isConnectedOnlyThroughReductionProducer(
 
 // Checks if any outer reduction tensor is produced directly or indirectly
 // by inner reduction tensor, and vice-versa.
-bool checkProducersOfReductionTvs(
+bool isChainedReduction(
     const std::vector<TensorView*>& inner_reduction_tvs,
     const std::vector<TensorView*>& outer_reduction_tvs);
 

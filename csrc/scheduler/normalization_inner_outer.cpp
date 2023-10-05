@@ -91,7 +91,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     return false;
   }
 
-  if (!normalization_scheduler_utils::checkProducersOfReductionTvs(
+  if (normalization_scheduler_utils::isChainedReduction(
           inner_reduction_tvs, outer_reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedule_heuristic,

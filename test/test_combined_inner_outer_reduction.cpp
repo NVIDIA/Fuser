@@ -1006,4 +1006,57 @@ TEST_F(NVFuserTest, CombinedReductionMultiPerBlock_CUDA) {
       __FILE__);
 }
 
+// Extend issue 1023 to conver different types of chained reductions
+TEST_F(NVFuserTest, CombinedSchedulerChainedReduction) {
+  auto test = [](int first_reduction_axis, int second_reduction_axis) {
+    std::vector<bool> is_broadcast_axis(3, false);
+    is_broadcast_axis[first_reduction_axis] = true;
+
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    const int x = 8, y = 16, z = 32;
+    auto tv0 = makeContigTensor(3);
+    fusion.addInput(tv0);
+    auto tv1 = sum(tv0, {first_reduction_axis});
+    auto tv2 = broadcast(tv1, is_broadcast_axis);
+    auto tv3 = add(tv2, tv0);
+    auto tv4 = sum(tv3, {second_reduction_axis});
+    fusion.addOutput(tv1);
+    fusion.addOutput(tv4);
+
+    fusion.printMath();
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::Tensor t0 = at::randn({x, y, z}, options);
+    std::vector<c10::IValue> aten_inputs = {t0};
+
+    FusionExecutorCache fec(std::move(fusion_ptr));
+    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+    bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
+    if (first_reduction_axis != second_reduction_axis) {
+      NVF_ERROR(is_segmented, "Fusion should be segmented!");
+    } else {
+      NVF_ERROR(!is_segmented, "Fusion should NOT be segmented!");
+    }
+
+    auto t1 = t0.sum({first_reduction_axis});
+    auto t2 = t1.unsqueeze(first_reduction_axis);
+    auto t3 = t0 + t2;
+    auto t4 = t3.sum({second_reduction_axis});
+
+    testValidate(
+        &fusion, cg_outputs, aten_inputs, {t1, t4}, __LINE__, __FILE__);
+  };
+  // (1) inner reduction followed by outer reduction
+  test(2, 0);
+  // (2) outer reduction followed by inner reduction
+  test(0, 2);
+  // (3) inner reduction followed by inner reduction
+  test(2, 2);
+  // (4) outer reduction followed by outer reduction
+  test(0, 0);
+}
 } // namespace nvfuser

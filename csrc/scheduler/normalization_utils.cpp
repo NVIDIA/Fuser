@@ -632,14 +632,14 @@ bool hasReductionInAllProducers(
 }
 } // namespace
 
-bool checkProducersOfReductionTvs(
+bool isChainedReduction(
     const std::vector<TensorView*>& inner_reduction_tvs,
     const std::vector<TensorView*>& outer_reduction_tvs) {
   // check producers of inner_reduction_tvs
   std::unordered_set<TensorView*> visited_tvs_inner;
   for (auto tv : inner_reduction_tvs) {
     if (hasReductionInAllProducers(tv, visited_tvs_inner)) {
-      return false;
+      return true;
     }
   }
 
@@ -647,11 +647,11 @@ bool checkProducersOfReductionTvs(
   std::unordered_set<TensorView*> visited_tvs_outer;
   for (auto tv : outer_reduction_tvs) {
     if (hasReductionInAllProducers(tv, visited_tvs_outer)) {
-      return false;
+      return true;
     }
   }
 
-  return true;
+  return false;
 }
 
 int64_t partialReductionBufferSize(
