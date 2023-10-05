@@ -46,7 +46,7 @@ usage() {
 }
 
 # top-level directory of nvfuser repo
-nvfuserdir="$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")"
+nvfuserdir="$(dirname "$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")")"
 
 comparetoref=origin/main
 outdir=$nvfuserdir/codegen_comparison
