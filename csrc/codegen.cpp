@@ -1372,22 +1372,26 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               kernel_->summary().sync_map->needsRawSync(in_tv).hasBID();
 
           if (localToGlobal) {
-            indent() << "loadLocalToGlobal<" << ldst->out()->dtype() << ", "
-                     << vector_word_size << ", "
+            indent() << "loadLocalToGlobal<" << ldst->out()->dtype()
+                     << ", /*vec_size=*/" << vector_word_size
+                     << ", /*is_volatile=*/"
                      << (is_volatile_to ? "true" : "false") << ">(";
             code_ << " &" << gen(ldst->out()) << ", &" << gen(ldst->in())
                   << ");\n";
           } else if (globalToLocal) {
-            indent() << "loadGlobalToLocal<" << ldst->out()->dtype() << ", "
-                     << vector_word_size << ", "
+            indent() << "loadGlobalToLocal<" << ldst->out()->dtype()
+                     << ", /*vec_size=*/" << vector_word_size
+                     << ", /*is_volatile=*/"
                      << (is_volatile_from ? "true" : "false") << ", "
                      << "CacheOp::" << ldst->cacheOp() << ">(&"
                      << gen(ldst->out()) << ", ";
             code_ << " &" << gen(ldst->in()) << ");\n";
           } else if (globalToGlobal) {
-            indent() << "loadGlobalToGlobal<" << ldst->out()->dtype() << ", "
-                     << vector_word_size << ", "
-                     << (is_volatile_to ? "true" : "false") << ", "
+            indent() << "loadGlobalToGlobal<" << ldst->out()->dtype()
+                     << ", /*vec_size=*/" << vector_word_size
+                     << ", /*is_volatile_to=*/"
+                     << (is_volatile_to ? "true" : "false")
+                     << ", /*is_volatile_from=*/"
                      << (is_volatile_from ? "true" : "false") << ">(";
             code_ << " &" << gen(ldst->out()) << ", ";
             code_ << " &" << gen(ldst->in()) << ");\n";

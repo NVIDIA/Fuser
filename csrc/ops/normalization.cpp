@@ -805,7 +805,6 @@ ForwardNormResult instance_norm(
         new_mean_channels_only =
             castOp(running_mean->getDataType().value(), new_mean_channels_only);
       }
-      // fusion->addOutput(new_mean_channels_only);
       fusion->aliasOutputToInput(new_mean_channels_only, running_mean);
 
       auto num_feature_decrement = sub(N, x->container()->oneVal(N->dtype()));
@@ -824,7 +823,6 @@ ForwardNormResult instance_norm(
         new_var_channels_only =
             castOp(running_var->getDataType().value(), new_var_channels_only);
       }
-      // fusion->addOutput(new_var_channels_only);
       fusion->aliasOutputToInput(new_var_channels_only, running_var);
     }
 
