@@ -16,10 +16,12 @@ struct KernelProfile {
 
 class KernelProfiler : public NonCopyable {
  public:
+  KernelProfiler();
   void start();
   KernelProfile stop();
 
  private:
+  CUpti_SubscriberHandle cupti_subscriber_handle_;
 
 };
 
