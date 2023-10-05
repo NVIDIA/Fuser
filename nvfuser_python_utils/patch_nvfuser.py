@@ -13,10 +13,7 @@ def patch_pytorch_nvfuser_binaries(torch_lib):
         # Only overwrite target torch/lib/libnvfuser_codegen.so if it exists. (before nvfuser removal from torch @ torch <= 2.1)
         # Don't copy anything there if it doesn't exist. (after nvfuser removal from torch @ torch > 2.1)
         if os.path.isfile(target_lib_path):
-            shutil.copyfile(
-                os.path.join(nvfuser_lib, f_name),
-                target_lib_path
-            )
+            shutil.copyfile(os.path.join(nvfuser_lib, f_name), target_lib_path)
 
 
 def remove_nvfuser_python_module(installed_nvfuser_dir):
