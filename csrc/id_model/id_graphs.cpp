@@ -2336,8 +2336,8 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
   }
 
   VERBOSE() << "Loop promotion map:" << std::endl;
-  for (const auto& [loop_group, promotion] : loop_promotion_map_) {
-    VERBOSE() << nvfuser::toString(loop_group) << " -> " << promotion->name()
+  for (const auto& [iel_group, id] : iel_promotion_map) {
+    VERBOSE() << nvfuser::toString(iel_group) << " -> " << id->name()
               << std::endl;
   }
 
