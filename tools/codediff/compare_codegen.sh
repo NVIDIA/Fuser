@@ -177,7 +177,6 @@ collect_kernels() {
     export NVFUSER_TEST_RANDOM_SEED=0
     export NVFUSER_DISABLE=parallel_compile
     # run tests and benchmarks with cuda_to_file and dump output to files
-    export NVFUSER_DUMP=cuda_to_file,ptxas_verbose
 
     mkdir -p "$outdir/$commit"
 

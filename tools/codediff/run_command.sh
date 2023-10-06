@@ -80,6 +80,28 @@ completelogbase=${logbase#incomplete-}
 mv "$stdoutfile" "$testdir/$completelogbase" 2> /dev/null || true
 }
 trap "cleanup" EXIT
+
+# Ensure given strings are elements of comma-separated string
+# Usage: ensure_in_list input_str a b c ...
+# Returns: comma-separated string input_str with a, b, c, ... appended if
+# needed
+ensure_in_list() {
+    IFS=","
+    read -ra l <<< "$1"
+    shift
+    for req in "$@"
+    do
+        joined="${l[*]}"
+        if [[ ",$joined," != *",$req,"* ]]
+        then
+            l+=("$req")
+        fi
+    done
+    echo "${l[*]}"
+}
+# ensure some NVFUSER_DUMP options are enabled
+NVFUSER_DUMP=$(ensure_in_list "$NVFUSER_DUMP" cuda_kernel ptxas_verbose ptx)
+
 # Allow command to fail, but record exit code
 set +e
 $testcmd | tee "$stdoutfile"
