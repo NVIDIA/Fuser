@@ -69,6 +69,23 @@ struct Containers {
       std::type_identity<MemberTypes>...,
       std::type_identity<Templates<DynamicType>>...>;
 
+#if __cplusplus < 202002L
+  template <typename DynamicType, typename... MemberTypes>
+  using TypeIdentitiesAsTupleMaybeNoContainer =
+      TypeIdentitiesAsTuple<DynamicType, MemberTypes...>;
+#else
+  // Removing containers from type list so that it does not have issue with
+  // C++20 concepts in the containers of standard library. I believe this is
+  // a compiler bug:
+  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=111316
+  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=111504
+  // https://github.com/llvm/llvm-project/issues/67056
+  template <typename DynamicType, typename... MemberTypes>
+  using TypeIdentitiesAsTupleMaybeNoContainer = std::tuple<
+      std::type_identity<std::monostate>,
+      std::type_identity<MemberTypes>...>;
+#endif // __cplusplus < 202002L
+
   template <typename DynamicType, typename... MemberTypes>
   using ForAllTypes = dynamic_type::
       ForAllTypes<std::monostate, MemberTypes..., Templates<DynamicType>...>;
@@ -91,6 +108,11 @@ struct DynamicType {
   using TypeIdentitiesAsTuple =
       typename Containers::template TypeIdentitiesAsTuple<DynamicType, Ts...>;
   static constexpr TypeIdentitiesAsTuple type_identities_as_tuple{};
+
+  using TypeIdentitiesAsTupleMaybeNoContainer = typename Containers::
+      template TypeIdentitiesAsTupleMaybeNoContainer<DynamicType, Ts...>;
+  static constexpr TypeIdentitiesAsTupleMaybeNoContainer
+      type_identities_as_tuple_maybe_no_container{};
 
   using ForAllTypes =
       typename Containers::template ForAllTypes<DynamicType, Ts...>;
@@ -446,7 +468,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
               DT::type_identities_as_tuple,                                \
               DT::type_identities_as_tuple),                               \
       DT>                                                                  \
-  operator op(const DT& x, const std::type_identity_t<DT>& y) {            \
+  operator op(const DT & x, const std::type_identity_t<DT>& y) {           \
     DT ret(std::monostate{});                                              \
     DT::for_all_types([&ret, &x, &y](auto lhs) {                           \
       using LHS = typename decltype(lhs)::type;                            \
@@ -494,7 +516,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
               opname##_rdefined_checker<RHS, typename DT::VariantType>,    \
               DT::type_identities_as_tuple),                               \
       DT>                                                                  \
-  operator op(const DT& x, const RHS& y) {                                 \
+  operator op(const DT & x, const RHS & y) {                               \
     DT ret(std::monostate{});                                              \
     DT::for_all_types([&ret, &x, &y](auto lhs) {                           \
       using LHS = typename decltype(lhs)::type;                            \
@@ -540,7 +562,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
                opname##_ldefined_checker<LHS, typename DT::VariantType>,   \
                DT::type_identities_as_tuple)),                             \
       DT>                                                                  \
-  operator op(const LHS& x, const DT& y) {                                 \
+  operator op(const LHS & x, const DT & y) {                               \
     DT ret(std::monostate{});                                              \
     DT::for_all_types([&ret, &x, &y](auto rhs) {                           \
       using RHS = typename decltype(rhs)::type;                            \
@@ -588,151 +610,153 @@ DEFINE_BINARY_OP(rshift, >>);
 
 #undef DEFINE_BINARY_OP
 
-#define DEFINE_COMPARE_OP(opname, op)                                          \
-  /*TODO: we should inline the definition of lambdas into enable_if,*/         \
-  /*but I can only do this in C++20 */                                         \
-  constexpr auto opname##_defined_checker = [](auto x, auto y) constexpr {     \
-    using X = typename decltype(x)::type;                                      \
-    using Y = typename decltype(y)::type;                                      \
-    if constexpr (opcheck<X> op opcheck<Y>) {                                  \
-      return std::is_convertible_v<                                            \
-          decltype(std::declval<X>() op std::declval<Y>()),                    \
-          bool>;                                                               \
-    }                                                                          \
-    return false;                                                              \
-  };                                                                           \
-  template <                                                                   \
-      typename DT,                                                             \
-      typename = std::enable_if_t<                                             \
-          is_dynamic_type_v<DT> &&                                             \
-          any_check(                                                           \
-              opname##_defined_checker,                                        \
-              DT::type_identities_as_tuple,                                    \
-              DT::type_identities_as_tuple)>>                                  \
-  inline constexpr bool operator op(                                           \
-      const DT& x, const std::type_identity_t<DT>& y) {                        \
-    std::optional<bool> ret = std::nullopt;                                    \
-    DT::for_all_types([&ret, &x, &y](auto lhs) {                               \
-      using LHS = typename decltype(lhs)::type;                                \
-      DT::for_all_types([&ret, &x, &y](auto rhs) {                             \
-        using RHS = typename decltype(rhs)::type;                              \
-        if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                        \
-          if constexpr (std::is_convertible_v<                                 \
-                            decltype(std::declval<LHS>()                       \
-                                         op std::declval<RHS>()),              \
-                            bool>) {                                           \
-            if (x.template is<LHS>() && y.template is<RHS>()) {                \
-              ret = x.template as<LHS>() op y.template as<RHS>();              \
-            }                                                                  \
-          }                                                                    \
-        }                                                                      \
-      });                                                                      \
-    });                                                                        \
-    DYNAMIC_TYPE_CHECK(                                                        \
-        ret.has_value(),                                                       \
-        "Cannot compute ",                                                     \
-        x.type().name(),                                                       \
-        " ",                                                                   \
-        #op,                                                                   \
-        " ",                                                                   \
-        y.type().name(),                                                       \
-        " : incompatible type");                                               \
-    return ret.value();                                                        \
-  }                                                                            \
-  /*TODO: we should inline the definition of lambdas into enable_if,*/         \
-  /*but I can only do this in C++20 */                                         \
-  template <typename T>                                                        \
-  constexpr auto opname##_rdefined_checker = [](auto x) constexpr {            \
-    using X = typename decltype(x)::type;                                      \
-    if constexpr (opcheck<X> op opcheck<T>) {                                  \
-      return std::is_convertible_v<                                            \
-          decltype(std::declval<X>() op std::declval<T>()),                    \
-          bool>;                                                               \
-    }                                                                          \
-    return false;                                                              \
-  };                                                                           \
-  template <                                                                   \
-      typename DT,                                                             \
-      typename RHS,                                                            \
-      typename = std::enable_if_t<                                             \
-          is_dynamic_type_v<DT> && !is_dynamic_type_v<RHS> &&                  \
-          any_check(                                                           \
-              opname##_rdefined_checker<RHS>, DT::type_identities_as_tuple)>>  \
-  inline constexpr bool operator op(const DT& x, const RHS& y) {               \
-    std::optional<bool> ret = std::nullopt;                                    \
-    DT::for_all_types([&ret, &x, &y](auto lhs) {                               \
-      using LHS = typename decltype(lhs)::type;                                \
-      if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                          \
-        if constexpr (std::is_convertible_v<                                   \
-                          decltype(std::declval<LHS>()                         \
-                                       op std::declval<RHS>()),                \
-                          bool>) {                                             \
-          if (x.template is<LHS>()) {                                          \
-            ret = x.template as<LHS>() op y;                                   \
-          }                                                                    \
-        }                                                                      \
-      }                                                                        \
-    });                                                                        \
-    DYNAMIC_TYPE_CHECK(                                                        \
-        ret.has_value(),                                                       \
-        "Cannot compute ",                                                     \
-        x.type().name(),                                                       \
-        " ",                                                                   \
-        #op,                                                                   \
-        " ",                                                                   \
-        typeid(RHS).name(),                                                    \
-        " : incompatible type");                                               \
-    return ret.value();                                                        \
-  }                                                                            \
-  /*TODO: we should inline the definition of lambdas into enable_if,*/         \
-  /*but I can only do this in C++20 */                                         \
-  template <typename T>                                                        \
-  constexpr auto opname##_ldefined_checker = [](auto y) constexpr {            \
-    using Y = typename decltype(y)::type;                                      \
-    if constexpr (opcheck<T> op opcheck<Y>) {                                  \
-      return std::is_convertible_v<                                            \
-          decltype(std::declval<T>() op std::declval<Y>()),                    \
-          bool>;                                                               \
-    }                                                                          \
-    return false;                                                              \
-  };                                                                           \
-  template <typename LHS, typename DT>                                         \
-  inline constexpr std::enable_if_t<                                           \
-      is_dynamic_type_v<DT> && !is_dynamic_type_v<LHS> &&                      \
-          (opcheck<LHS>.hasExplicitCastTo(opcheck<DT>) ||                      \
-           any_check(                                                          \
-               opname##_ldefined_checker<LHS>, DT::type_identities_as_tuple)), \
-      bool>                                                                    \
-  operator op(const LHS& x, const DT& y) {                                     \
-    std::optional<bool> ret = std::nullopt;                                    \
-    DT::for_all_types([&ret, &x, &y](auto rhs) {                               \
-      using RHS = typename decltype(rhs)::type;                                \
-      if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                          \
-        if constexpr (std::is_convertible_v<                                   \
-                          decltype(std::declval<LHS>()                         \
-                                       op std::declval<RHS>()),                \
-                          bool>) {                                             \
-          if (y.template is<RHS>()) {                                          \
-            ret = x op y.template as<RHS>();                                   \
-          }                                                                    \
-        }                                                                      \
-      }                                                                        \
-    });                                                                        \
-    if (ret.has_value()) {                                                     \
-      return ret.value();                                                      \
-    }                                                                          \
-    if constexpr (opcheck<LHS>.hasExplicitCastTo(opcheck<DT>)) {               \
-      return (DT)x op y;                                                       \
-    }                                                                          \
-    DYNAMIC_TYPE_CHECK(                                                        \
-        false,                                                                 \
-        "Cannot compute ",                                                     \
-        typeid(LHS).name(),                                                    \
-        " ",                                                                   \
-        #op,                                                                   \
-        " ",                                                                   \
-        y.type().name(),                                                       \
-        " : incompatible type");                                               \
+#define DEFINE_COMPARE_OP(opname, op)                                      \
+  /*TODO: we should inline the definition of lambdas into enable_if,*/     \
+  /*but I can only do this in C++20 */                                     \
+  constexpr auto opname##_defined_checker = [](auto x, auto y) constexpr { \
+    using X = typename decltype(x)::type;                                  \
+    using Y = typename decltype(y)::type;                                  \
+    if constexpr (opcheck<X> op opcheck<Y>) {                              \
+      return std::is_convertible_v<                                        \
+          decltype(std::declval<X>() op std::declval<Y>()),                \
+          bool>;                                                           \
+    }                                                                      \
+    return false;                                                          \
+  };                                                                       \
+  template <                                                               \
+      typename DT,                                                         \
+      typename = std::enable_if_t<                                         \
+          is_dynamic_type_v<DT> &&                                         \
+          any_check(                                                       \
+              opname##_defined_checker,                                    \
+              DT::type_identities_as_tuple_maybe_no_container,             \
+              DT::type_identities_as_tuple_maybe_no_container)>>           \
+  inline constexpr bool operator op(                                       \
+      const DT& x, const std::type_identity_t<DT>& y) {                    \
+    std::optional<bool> ret = std::nullopt;                                \
+    DT::for_all_types([&ret, &x, &y](auto lhs) {                           \
+      using LHS = typename decltype(lhs)::type;                            \
+      DT::for_all_types([&ret, &x, &y](auto rhs) {                         \
+        using RHS = typename decltype(rhs)::type;                          \
+        if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                    \
+          if constexpr (std::is_convertible_v<                             \
+                            decltype(std::declval<LHS>()                   \
+                                         op std::declval<RHS>()),          \
+                            bool>) {                                       \
+            if (x.template is<LHS>() && y.template is<RHS>()) {            \
+              ret = x.template as<LHS>() op y.template as<RHS>();          \
+            }                                                              \
+          }                                                                \
+        }                                                                  \
+      });                                                                  \
+    });                                                                    \
+    DYNAMIC_TYPE_CHECK(                                                    \
+        ret.has_value(),                                                   \
+        "Cannot compute ",                                                 \
+        x.type().name(),                                                   \
+        " ",                                                               \
+        #op,                                                               \
+        " ",                                                               \
+        y.type().name(),                                                   \
+        " : incompatible type");                                           \
+    return ret.value();                                                    \
+  }                                                                        \
+  /*TODO: we should inline the definition of lambdas into enable_if,*/     \
+  /*but I can only do this in C++20 */                                     \
+  template <typename T>                                                    \
+  constexpr auto opname##_rdefined_checker = [](auto x) constexpr {        \
+    using X = typename decltype(x)::type;                                  \
+    if constexpr (opcheck<X> op opcheck<T>) {                              \
+      return std::is_convertible_v<                                        \
+          decltype(std::declval<X>() op std::declval<T>()),                \
+          bool>;                                                           \
+    }                                                                      \
+    return false;                                                          \
+  };                                                                       \
+  template <                                                               \
+      typename DT,                                                         \
+      typename RHS,                                                        \
+      typename = std::enable_if_t<                                         \
+          is_dynamic_type_v<DT> && !is_dynamic_type_v<RHS> &&              \
+          any_check(                                                       \
+              opname##_rdefined_checker<RHS>,                              \
+              DT::type_identities_as_tuple_maybe_no_container)>>           \
+  inline constexpr bool operator op(const DT& x, const RHS& y) {           \
+    std::optional<bool> ret = std::nullopt;                                \
+    DT::for_all_types([&ret, &x, &y](auto lhs) {                           \
+      using LHS = typename decltype(lhs)::type;                            \
+      if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                      \
+        if constexpr (std::is_convertible_v<                               \
+                          decltype(std::declval<LHS>()                     \
+                                       op std::declval<RHS>()),            \
+                          bool>) {                                         \
+          if (x.template is<LHS>()) {                                      \
+            ret = x.template as<LHS>() op y;                               \
+          }                                                                \
+        }                                                                  \
+      }                                                                    \
+    });                                                                    \
+    DYNAMIC_TYPE_CHECK(                                                    \
+        ret.has_value(),                                                   \
+        "Cannot compute ",                                                 \
+        x.type().name(),                                                   \
+        " ",                                                               \
+        #op,                                                               \
+        " ",                                                               \
+        typeid(RHS).name(),                                                \
+        " : incompatible type");                                           \
+    return ret.value();                                                    \
+  }                                                                        \
+  /*TODO: we should inline the definition of lambdas into enable_if,*/     \
+  /*but I can only do this in C++20 */                                     \
+  template <typename T>                                                    \
+  constexpr auto opname##_ldefined_checker = [](auto y) constexpr {        \
+    using Y = typename decltype(y)::type;                                  \
+    if constexpr (opcheck<T> op opcheck<Y>) {                              \
+      return std::is_convertible_v<                                        \
+          decltype(std::declval<T>() op std::declval<Y>()),                \
+          bool>;                                                           \
+    }                                                                      \
+    return false;                                                          \
+  };                                                                       \
+  template <typename LHS, typename DT>                                     \
+  inline constexpr std::enable_if_t<                                       \
+      is_dynamic_type_v<DT> && !is_dynamic_type_v<LHS> &&                  \
+          (opcheck<LHS>.hasExplicitCastTo(opcheck<DT>) ||                  \
+           any_check(                                                      \
+               opname##_ldefined_checker<LHS>,                             \
+               DT::type_identities_as_tuple_maybe_no_container)),          \
+      bool>                                                                \
+  operator op(const LHS & x, const DT & y) {                               \
+    std::optional<bool> ret = std::nullopt;                                \
+    DT::for_all_types([&ret, &x, &y](auto rhs) {                           \
+      using RHS = typename decltype(rhs)::type;                            \
+      if constexpr ((opcheck<LHS> op opcheck<RHS>)) {                      \
+        if constexpr (std::is_convertible_v<                               \
+                          decltype(std::declval<LHS>()                     \
+                                       op std::declval<RHS>()),            \
+                          bool>) {                                         \
+          if (y.template is<RHS>()) {                                      \
+            ret = x op y.template as<RHS>();                               \
+          }                                                                \
+        }                                                                  \
+      }                                                                    \
+    });                                                                    \
+    if (ret.has_value()) {                                                 \
+      return ret.value();                                                  \
+    }                                                                      \
+    if constexpr (opcheck<LHS>.hasExplicitCastTo(opcheck<DT>)) {           \
+      return (DT)x op y;                                                   \
+    }                                                                      \
+    DYNAMIC_TYPE_CHECK(                                                    \
+        false,                                                             \
+        "Cannot compute ",                                                 \
+        typeid(LHS).name(),                                                \
+        " ",                                                               \
+        #op,                                                               \
+        " ",                                                               \
+        y.type().name(),                                                   \
+        " : incompatible type");                                           \
   }
 
 DEFINE_COMPARE_OP(eq, ==);
@@ -763,7 +787,7 @@ DEFINE_COMPARE_OP(ge, >=);
               opname##_helper<typename DT::VariantType>,                       \
               DT::type_identities_as_tuple),                                   \
       DT>                                                                      \
-  operator op(const DT& x) {                                                   \
+  operator op(const DT & x) {                                                  \
     DT ret(std::monostate{});                                                  \
     DT::for_all_types([&ret, &x](auto _) {                                     \
       using Type = typename decltype(_)::type;                                 \
@@ -882,7 +906,7 @@ std::ostream& operator<<(std::ostream& os, const DT& dt) {
       typename = std::enable_if_t<                                             \
           is_dynamic_type_v<DT> &&                                             \
           any_check(opname##_helper, DT::type_identities_as_tuple)>>           \
-  inline constexpr DT& operator op(DT& x) {                                    \
+  inline constexpr DT& operator op(DT & x) {                                   \
     bool computed = false;                                                     \
     DT::for_all_types([&computed, &x](auto _) {                                \
       using Type = typename decltype(_)::type;                                 \
@@ -930,7 +954,7 @@ DEFINE_LEFT_PPMM(lmm, --);
               opname##_helper<typename DT::VariantType>,                       \
               DT::type_identities_as_tuple),                                   \
       DT>                                                                      \
-  operator op(DT& x, int) {                                                    \
+  operator op(DT & x, int) {                                                   \
     DT ret;                                                                    \
     DT::for_all_types([&ret, &x](auto _) {                                     \
       using Type = typename decltype(_)::type;                                 \
@@ -964,7 +988,7 @@ DEFINE_RIGHT_PPMM(rmm, --);
       typename T,                                                \
       typename = std::enable_if_t<                               \
           is_dynamic_type_v<DT> && (opcheck<DT> op opcheck<T>)>> \
-  inline constexpr DT& operator assign_op(DT& x, const T& y) {   \
+  inline constexpr DT& operator assign_op(DT & x, const T & y) { \
     return x = x op y;                                           \
   }
 
