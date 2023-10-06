@@ -17,7 +17,9 @@ def patch_pytorch_nvfuser_binaries(torch_lib):
 def remove_nvfuser_python_module(installed_nvfuser_dir):
     # only remove if installed nvfuser is in a different path
     if installed_nvfuser_dir == os.path.join(_ROOT_DIR, "nvfuser"):
-        print(f"nvFuser [{installed_nvfuser_dir}] is in among installed packages; no action required.")
+        print(
+            f"nvFuser [{installed_nvfuser_dir}] is in among installed packages; no action required."
+        )
         return
     import shutil
 
