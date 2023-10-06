@@ -1337,9 +1337,12 @@ std::string ReductionOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> ReductionOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  const auto& in = inputs.at(0).as<at::Tensor>();
-  bool is_allreduce = isAllreduce();
+  const auto& input = inputs.at(0).as<at::Tensor>();
   const auto output = out()->as<TensorView>();
+
+  NVF_ERROR(output->getRFactorDomain().size() == 0, 
+    "Evaluation for rFactored reductions is not supported.");
+
   std::vector<int64_t> reduction_axes;
   for (const auto i: c10::irange(output->getRootDomain().size())){
     auto ax = output->getRootDomain().at(i);
@@ -1348,7 +1351,16 @@ std::vector<PolymorphicValue> ReductionOp::evaluate(
   }
   switch (getReductionOpType()) {
     case BinaryOpType::Add:
-      return {at::sum(in, reduction_axes, is_allreduce)};
+      return {at::sum(input, reduction_axes)};
+      break;
+    case BinaryOpType::Max:
+      NVF_CHECK(
+        reduction_axes.size() == 1, 
+        "Operator type: ", 
+        getReductionOpType(), 
+        " expects one reduction dimension. Found ",
+        reduction_axes.size(), " reduction dimensions.")
+      return {std::get<0>(at::max(input, reduction_axes[0]))};
       break;
     default:
       NVF_CHECK(
