@@ -611,7 +611,11 @@ bool isReductionIterationAxisMatched(
   std::vector<bool> is_reduction(reference_tv->nDims(), false);
   for (const auto i : c10::irange(reference_tv->nDims())) {
     auto id = reference_tv->axis((int)i);
-    NVF_CHECK(!id->isBroadcast(), "Shouldn't have a broadcast domain.");
+    NVF_CHECK(
+        id->getIterType() == IterType::Iteration ||
+            id->getIterType() == IterType::Reduction,
+        "Invalid iteration type: ",
+        id->getIterType());
     if (id->isReduction()) {
       is_reduction[i] = true;
     }
@@ -622,7 +626,12 @@ bool isReductionIterationAxisMatched(
     auto tv = inner_reduction_tvs[i];
     for (const auto i : c10::irange(tv->nDims())) {
       auto id = tv->axis((int)i);
-      NVF_CHECK(!id->isBroadcast(), "Shouldn't have a broadcast domain.");
+      NVF_CHECK(
+          id->getIterType() == IterType::Iteration ||
+              id->getIterType() == IterType::Reduction,
+          "Invalid iteration type: ",
+          id->getIterType());
+
       if (id->isReduction() != is_reduction.at(i)) {
         return false;
       }
@@ -632,7 +641,12 @@ bool isReductionIterationAxisMatched(
   for (auto tv : outer_reduction_tvs) {
     for (const auto i : c10::irange(tv->nDims())) {
       auto id = tv->axis((int)i);
-      NVF_CHECK(!id->isBroadcast(), "Shouldn't have a broadcast domain.");
+      NVF_CHECK(
+          id->getIterType() == IterType::Iteration ||
+              id->getIterType() == IterType::Reduction,
+          "Invalid iteration type: ",
+          id->getIterType());
+
       if (id->isIteration() != is_reduction.at(i)) {
         return false;
       }
