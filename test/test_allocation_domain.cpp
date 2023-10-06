@@ -26,7 +26,7 @@ class AllocationDomainTest : public NVFuserTest {};
 
 // A global->shared->global copy kernel, shared memory allocated transposed to
 // avoid bank conflict.
-TEST_F(AllocationDomainTest, TransposedIntermediate_CUDA) {
+TEST_F(AllocationDomainTest, TransposedIntermediate) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -64,7 +64,7 @@ TEST_F(AllocationDomainTest, TransposedIntermediate_CUDA) {
 
 // A global->global copy kernel converting NCHW memory format into NHWC, with a
 // 4d allocation domain in output.
-TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d_CUDA) {
+TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -108,7 +108,7 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d_CUDA) {
 
 // A global->global copy kernel converting NCHW memory format into NHWC, with a
 // 1d allocation domain in output.
-TEST_F(AllocationDomainTest, NCHW4d_To_NHWC1d_CUDA) {
+TEST_F(AllocationDomainTest, NCHW4d_To_NHWC1d) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -149,7 +149,7 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC1d_CUDA) {
 
 // A global->global copy kernel converting NCHW memory format into NHWC, with a
 // 2d allocation domain in output.
-TEST_F(AllocationDomainTest, NCHW4d_To_NHWC2d_CUDA) {
+TEST_F(AllocationDomainTest, NCHW4d_To_NHWC2d) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -191,7 +191,7 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC2d_CUDA) {
 
 // Reshape and transpose a 3d tensor into an NHWC tensor with a 3d allocation
 // domain in fusion output.
-TEST_F(AllocationDomainTest, Tensor3d_To_NHWC3d_CUDA) {
+TEST_F(AllocationDomainTest, Tensor3d_To_NHWC3d) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -247,7 +247,7 @@ TEST_F(AllocationDomainTest, Tensor3d_To_NHWC3d_CUDA) {
 // Reshape a 3d tensor into an NHWC tensor with a 4d allocation domain in fusion
 // output. The allocation domain is on both the producer and the consumer side
 // of the rFactor domain.
-TEST_F(AllocationDomainTest, Tensor3d_To_NHWC4d_FwdBwd_CUDA) {
+TEST_F(AllocationDomainTest, Tensor3d_To_NHWC4d_FwdBwd) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -306,7 +306,7 @@ TEST_F(AllocationDomainTest, Tensor3d_To_NHWC4d_FwdBwd_CUDA) {
 
 // A global->global copy kernel where both inputs and outputs are NHWC memory
 // format
-TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_CUDA) {
+TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -363,7 +363,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_CUDA) {
 
 // A global->global copy kernel where both inputs are NHWC memory format. The
 // allocation domain view the input as a 1d tensor.
-TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d_CUDA) {
+TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -424,7 +424,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d_CUDA) {
 
 // A global->global copy kernel where both inputs are NHWC memory format. The
 // allocation domain of the output view the output as a 1d tensor.
-TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d_CUDA) {
+TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -480,7 +480,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d_CUDA) {
 
 // A global->global copy kernel where both inputs are NHWC memory format. The
 // allocation domain view both the input and the output as a 1d tensors.
-TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d_CUDA) {
+TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -542,7 +542,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d_CUDA) {
 // A global->global copy kernel where both inputs are NHWC memory format. The
 // allocation domain view the input as a 2d tensor of shape [N*H/8, 8*W*C], and
 // view the output as a 2d tensor of shape [N*H*W*C/4, 4]
-TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_CUDA) {
+TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -607,8 +607,8 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-// Similar to NHWC4d_To_NHWC4d_CUDA, but does a cacheBefore
-TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheBefore_CUDA) {
+// Similar to NHWC4d_To_NHWC4d, but does a cacheBefore
+TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheBefore) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -674,8 +674,8 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheBefore_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-// Similar to NHWC2d_To_NHWC2d_CUDA, but does a cacheBefore
-TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheBefore_CUDA) {
+// Similar to NHWC2d_To_NHWC2d, but does a cacheBefore
+TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheBefore) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -751,8 +751,8 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheBefore_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-// Similar to NHWC4d_To_NHWC4d_CUDA, but does a cacheAfter
-TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheAfter_CUDA) {
+// Similar to NHWC4d_To_NHWC4d, but does a cacheAfter
+TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheAfter) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -818,10 +818,10 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheAfter_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-// NOT similar to NHWC2d_To_NHWC2d_CUDA, because cacheAfter requires the
+// NOT similar to NHWC2d_To_NHWC2d, because cacheAfter requires the
 // allocation tensor to be between rFactor domain and leaf domain, which is not
-// the case for NHWC2d_To_NHWC2d_CUDA
-TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheAfter_CUDA) {
+// the case for NHWC2d_To_NHWC2d
+TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheAfter) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -889,8 +889,8 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheAfter_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-// Similar to NHWC4d_To_NHWC4d_CUDA, but does a cacheFork
-TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheFork_CUDA) {
+// Similar to NHWC4d_To_NHWC4d, but does a cacheFork
+TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheFork) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -963,8 +963,8 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheFork_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0, t0}, __LINE__, __FILE__);
 }
 
-// Similar to NHWC2d_To_NHWC2d_CUDA, but does a cacheFork
-TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork_CUDA) {
+// Similar to NHWC2d_To_NHWC2d, but does a cacheFork
+TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1053,7 +1053,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t0, t0}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, AllocationDomainVectorizationIssue902) {
+TEST_F(AllocationDomainTest, VectorizationIssue902) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -1081,6 +1081,39 @@ TEST_F(NVFuserTest, AllocationDomainVectorizationIssue902) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   ASSERT_TRUE(cg_outputs[0].equal(t0));
+}
+
+TEST_F(AllocationDomainTest, TransposeMatrix) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const std::vector<int64_t> in_shape({2, 3});
+
+  auto tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = permute(tv0, {1, 0});
+  fusion->addOutput(tv1);
+
+  tv1->setAllocationDomain(
+      {tv1->axis(1), tv1->axis(0)}, /*new_contiguity=*/true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn(in_shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  std::vector<at::Tensor> outputs = executor_cache.runFusionWithInputs({t0});
+  at::Tensor t1 = outputs[0];
+
+  auto get_data = [](const at::Tensor& t) -> std::vector<float> {
+    const float* base = t.data_ptr<float>();
+    return std::vector<float>(base, base + t.numel());
+  };
+  std::vector<float> t0_data = get_data(t0.cpu());
+  std::vector<float> t1_data = get_data(t1.cpu());
+  EXPECT_EQ(t0_data, t1_data)
+      << "Although t1 is logically a transpose of t0, their underlying data "
+      << "should be the same due to setAllocationDomain. They can even be "
+      << "alias.";
 }
 
 } // namespace nvfuser
