@@ -1088,10 +1088,7 @@ TEST_F(NVFuserTest, AllocationDomainContiguityIssue1021) {
   Fusion* fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  auto tv0 = TensorViewBuilder()
-                 .ndims(2)
-                 .shape({-1, -1})
-                 .build();
+  auto tv0 = TensorViewBuilder().ndims(2).shape({-1, -1}).build();
 
   std::vector<IterDomain*> alloc_domain = {tv0->axis(1), tv0->axis(0)};
   tv0->setAllocationDomain(alloc_domain, {false, true});
