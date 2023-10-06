@@ -29,6 +29,7 @@ try:
         Tensor,
         version,
         compute_contiguity,
+        compute_tensor_descriptor,
     )
     from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 except ImportError:
@@ -1382,6 +1383,27 @@ class TestNvFuserFrontend(TestCase):
         contiguity = [False, None, True, None, None, True, False]
         self.assertEqual(compute_contiguity(sizes, strides), contiguity)
 
+    def test_compute_tensor_descriptor(self):
+        sizes = [2, 1, 3, 1, 4, 3]
+        strides = [12, 4, 4, 4, 1, 0]
+        contiguity = [True, None, True, None, True, None]
+        stride_order = [5, 4, 3, 2, 1, 0]
+        computed_contiguity, computed_stride_order = compute_tensor_descriptor(
+            sizes, strides
+        )
+        self.assertEqual(computed_contiguity, contiguity)
+        self.assertEqual(computed_stride_order, stride_order)
+
+        sizes = [2, 3, 1, 5, 4]
+        strides = [28, 4, 14, 0, 1]
+        contiguity = [False, None, True, True, None]
+        stride_order = [4, 2, 3, 0, 1]
+        computed_contiguity, computed_stride_order = compute_tensor_descriptor(
+            sizes, strides
+        )
+        self.assertEqual(computed_contiguity, contiguity)
+        self.assertEqual(computed_stride_order, stride_order)
+
     def test_prod(self):
         inputs = [
             torch.ones(2, 4, 8, device="cuda"),
@@ -2480,6 +2502,27 @@ class TestNvFuserFrontend(TestCase):
 
         self.assertEqual(nvf_out[0].shape, (0, 0))
         self.assertEqual(nvf_out[1].shape, (0, 0))
+
+    # Test that a pad of an expanded empty tensor works properly
+    # See https://github.com/NVIDIA/Fuser/issues/596#issuecomment-1714465618
+    def test_pad_expanded_empty(self):
+        inputs = [
+            torch.randn((0,), dtype=torch.float64, device="cuda:0").as_strided(
+                (2, 0, 3), (0, 0, 0)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            S1 = fd.define_scalar(-3.70753, dtype=DataType.Double)
+            T2 = fd.ops.pad(T0, [0, 0, 1, 1, 1, 0], S1)
+            fd.add_output(T2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        torch_ref = F.pad(inputs[0], (0, 0, 1, 1, 1, 0), "constant", -3.70753)
+
+        self.assertEqual(nvf_out[0], torch_ref)
 
 
 if __name__ == "__main__":
