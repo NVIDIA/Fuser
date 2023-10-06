@@ -1442,87 +1442,6 @@ std::string toString(const SegmentedFusion* segmented_fusion) {
   return ss.str();
 }
 
-//! Sets the rfactor as root and erases rfactor of all inputs in fusion. Any
-//! non-constant expressions in those extents are replaced by new scalars with
-//! no definition. These mutations are performed throughout the Fusion so that
-//! downstream expressions dependent on the original inputs' rfactor extents can
-//! be computed properly.
-void convertInputRfactorsToRoots(Fusion* fusion) {
-  FusionGuard fg(fusion);
-
-  // Holds all Val replacements across all inputs
-  std::unordered_map<Val*, Val*> replacement_map;
-
-  for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    // Create a new root domain and replacement TensorDomain.
-    // Given an rfactor domain, create a new IterDomain.
-    // Otherwise, clone the previous IterDomain
-    std::vector<IterDomain*> new_root_domain;
-    auto rfactor = tv->getMaybeRFactorDomain();
-    new_root_domain.reserve(rfactor.size());
-
-    // Does the domain (root / rfactor) contain all concrete sized extents?
-    bool tv_is_concrete = true;
-    for (auto id : rfactor) {
-      if (!id->extent()->isConstScalar()) {
-        tv_is_concrete = false;
-        break;
-      }
-    }
-
-    for (const auto& id : rfactor) {
-      if (id->isRFactorProduct()) {
-        // Create new symbolic extents for rfactor iterDomains
-        auto domain_extent = (!tv_is_concrete)
-            ? IrBuilder::create<Val>(DataType::Index)
-            : id->extent();
-        replacement_map.emplace(id->extent(), domain_extent);
-        new_root_domain.push_back(IterDomainBuilder(id)
-                                      .extent(domain_extent)
-                                      .resetSchedulingParams()
-                                      .build());
-      } else {
-        new_root_domain.push_back(id->cloneWithoutRFactor());
-      }
-    }
-
-    NVF_ERROR(new_root_domain.size() == tv->domain()->contiguity().size());
-    auto new_td = IrBuilder::create<TensorDomain>(
-        new_root_domain, tv->domain()->contiguity());
-
-    if (tv->domain()->hasAllocation()) {
-      // we need to reorder the root domain into allocation domain consistently
-      // with the mapping from the old TensorView rfactor domain to its
-      // allocation domain
-      const auto& alloc = tv->getAllocationDomain();
-      NVF_ERROR(
-          alloc.size() == rfactor.size(),
-          "size between rfactor and alloc doesn't match");
-      const auto rank = alloc.size();
-      std::vector<IterDomain*> new_alloc_domain(rank, nullptr);
-      for (auto i : c10::irange(rank)) {
-        bool found_match = false;
-        for (auto j : c10::irange(rank)) {
-          if (alloc[i] == rfactor[j]) {
-            new_alloc_domain[i] = new_root_domain[j];
-            found_match = true;
-            break;
-          }
-        }
-        NVF_ERROR(
-            found_match,
-            "cannot match IterDomain between allocation domain to rfactor domain");
-      }
-      new_td->setAllocationDomain(new_alloc_domain, new_td->contiguity());
-    }
-    replacement_map.emplace(tv->domain(), new_td);
-  }
-
-  // This will replace the values in the mapping replacement_map throughout the
-  // Fusion
-  ir_utils::replaceValue(fusion, replacement_map);
-}
-
 std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
   std::unique_ptr<Fusion> fusion_segment = std::make_unique<Fusion>();
 
@@ -1554,10 +1473,6 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
   for (auto out : getAllOutputs(sg)) {
     fusion_segment->addOutput(complete_to_segment_map.clone(out));
   }
-
-  // Replace all vals that are rfactor extents in fusion_segment->inputs() with
-  // new Vals so that they can be bound to the segment inputs.
-  convertInputRfactorsToRoots(fusion_segment.get());
 
   return fusion_segment;
 }
