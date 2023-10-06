@@ -2173,41 +2173,54 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     // Before replaying, check if there's already an expression like this, if so
     // use that for promotion. We're still only looking for representative iter
     // domains, so if there's already an expression that would produce something
-    // representative (matching in the exact graph) of what the new inputs would
+    // representative (matching in the IEL graph) of what the new inputs would
     // generate, just promote to that expressions outputs, don't bother
     // generating a new one.
     //
-    // Check all uses of the exact map the inputs are in, and look for one that
-    // would match. Grab all uses of the promoted inputs' groups in the exact
-    // map.
+    // Check all uses of the IEL map the inputs are in, and look for one that
+    // would match. Grab all uses of the promoted inputs' groups in the IEL
+    // map. Note that promotion should be to loop-mapped domains, so
+    // the IEL graph is used rather than the exact graph
     std::vector<IdGroup> promoted_input_groups;
 
     ExprGroups promoted_input_uses;
     for (auto inp_id : promoted_inputs) {
       VERBOSE() << "Promoted input: " << inp_id->toString() << std::endl;
-      auto inp_exact_group = idGraph(IdMappingMode::EXACT).toGroup(inp_id);
+      const auto& inp_exact_group =
+          intersection_exact_loop_graph.toGroup(inp_id);
       promoted_input_groups.push_back(inp_exact_group);
       promoted_input_uses.pushBack(
-          idGraph(IdMappingMode::EXACT).getUniqueUses(inp_exact_group));
+          intersection_exact_loop_graph.getUniqueUses(inp_exact_group));
     }
 
     // Check every use to see if it matches
-    for (const ExprGroup& exact_use_group : promoted_input_uses) {
-      VERBOSE() << "Exact use group: " << exact_use_group->front()->toString()
+    for (const ExprGroup& iel_use_group : promoted_input_uses) {
+      VERBOSE() << "IEL use group: " << iel_use_group->front()->toString()
                 << std::endl;
       // Check if all the attributes (including type) of the transform match
       if (!IdGraph::transformAtributesMatch(
-              iel_expr->front(), exact_use_group->front())) {
+              iel_expr->front(), iel_use_group->front())) {
         continue;
       }
       // Check if inputs all match
       if (promoted_input_groups !=
-          idGraph(IdMappingMode::EXACT).inputGroups(exact_use_group)) {
+          intersection_exact_loop_graph.inputGroups(iel_use_group)) {
         continue;
       }
-      replay = exact_use_group->front();
-      VERBOSE() << "Reusing " << replay->toString();
-      break;
+
+      if (auto replay_it = std::find_if(
+              iel_use_group->vector().begin(),
+              iel_use_group->vector().end(),
+              [&](Expr* iel_use) {
+                return idGraph(IdMappingMode::LOOP)
+                    .disjointExprSets()
+                    .permissiveAreMapped(iel_expr->front(), iel_use);
+              });
+          replay_it != iel_use_group->vector().end()) {
+        replay = *replay_it;
+        VERBOSE() << "Reusing " << replay->toString();
+        break;
+      }
     }
 
     bool replayed = replay == nullptr;
@@ -2299,6 +2312,9 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
        idGraph(IdMappingMode::LOOP).disjointIdSets().disjointSets()) {
     bool promoted = false;
     for (IterDomain* id : loop_group->vector()) {
+      if (!intersection_exact_loop_graph.hasGroup(id)) {
+        continue;
+      }
       const auto& iel_group = intersection_exact_loop_graph.toGroup(id);
       if (auto iel_promotion_map_it = iel_promotion_map.find(iel_group);
           iel_promotion_map_it != iel_promotion_map.end()) {
