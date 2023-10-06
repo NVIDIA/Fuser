@@ -1083,4 +1083,37 @@ TEST_F(AllocationDomainTest, VectorizationIssue902) {
   ASSERT_TRUE(cg_outputs[0].equal(t0));
 }
 
+TEST_F(AllocationDomainTest, TransposeMatrix) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const std::vector<int64_t> in_shape({2, 3});
+
+  auto tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = permute(tv0, {1, 0});
+  fusion->addOutput(tv1);
+
+  tv1->setAllocationDomain(
+      {tv1->axis(1), tv1->axis(0)}, /*new_contiguity=*/true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn(in_shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  std::vector<at::Tensor> outputs = executor_cache.runFusionWithInputs({t0});
+  at::Tensor t1 = outputs[0];
+
+  auto get_data = [](const at::Tensor& t) -> std::vector<float> {
+    const float* base = t.data_ptr<float>();
+    return std::vector<float>(base, base + t.numel());
+  };
+  std::vector<float> t0_data = get_data(t0.cpu());
+  std::vector<float> t1_data = get_data(t1.cpu());
+  EXPECT_EQ(t0_data, t1_data)
+      << "Although t1 is logically a transpose of t0, their underlying data "
+      << "should be the same due to setAllocationDomain. They can even be "
+      << "alias.";
+}
+
 } // namespace nvfuser

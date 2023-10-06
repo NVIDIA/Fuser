@@ -1006,4 +1006,61 @@ TEST_F(NVFuserTest, CombinedReductionMultiPerBlock_CUDA) {
       __FILE__);
 }
 
+// Reproduce of issue 1023, where iteration axis in inner reduction tv doesn't
+// match to reduction axis in outer reduction tv.
+TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
+  auto test = [](const std::vector<int>& outer_reduction_axis) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    const int x = 8, y = 16, z = 32;
+    auto tv0 = makeContigTensor(3);
+    fusion.addInput(tv0);
+    auto tv1 = sum(tv0, {-1});
+    auto tv2 = broadcast(tv1, {false, false, true});
+    auto tv3 = add(tv2, tv0);
+    auto tv4 = sum(tv0, outer_reduction_axis);
+    fusion.addOutput(tv3);
+    fusion.addOutput(tv4);
+
+    fusion.printMath();
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::Tensor t0 = at::randn({x, y, z}, options);
+    std::vector<c10::IValue> aten_inputs = {t0};
+
+    FusionExecutorCache fec(std::move(fusion_ptr));
+    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+    bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
+    if (outer_reduction_axis.size() == 2) {
+      NVF_ERROR(!is_segmented, "Fusion should NOT be segmented!");
+    } else {
+      NVF_ERROR(is_segmented, "Fusion should be segmented!");
+    }
+
+    std::vector<int64_t> vec64(
+        outer_reduction_axis.begin(), outer_reduction_axis.end());
+    auto t1 = t0.sum({-1});
+    auto t2 = t1.unsqueeze(-1);
+    auto t3 = t0 + t2;
+    auto t4 = t0.sum(vec64);
+    testValidate(
+        &fusion, cg_outputs, aten_inputs, {t3, t4}, __LINE__, __FILE__);
+  };
+
+  // inner reduction is [I, I, R]
+  // outer reduction is [R, R, I]
+  // every iteration domain in inner reduction tv is a reduction domain in outer
+  // reduction tv, matched.
+  test({0, 1});
+
+  // inner reduction is [I, I, R]
+  // outer reduction is [R, I, I]
+  // axis-1 is a iteration domain in inner reduction tv but it is not a
+  // reduction domain in outer reduction tv, not matched.
+  test({0});
+}
+
 } // namespace nvfuser
