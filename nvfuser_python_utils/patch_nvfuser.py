@@ -26,35 +26,17 @@ def remove_nvfuser_python_module(installed_nvfuser_dir):
         shutil.rmtree(installed_nvfuser_dir)
 
 
-def get_torch_dirs():
+def patch_installation():
     from importlib import util
 
     torch_dir = os.path.dirname(util.find_spec("torch").origin)
     torch_lib = os.path.join(torch_dir, "lib")
 
-    return (torch_dir, torch_lib)
-
-
-def patch_installation():
-    torch_dir, torch_lib = get_torch_dirs()
     installed_nvfuser_dir = os.path.join(os.path.dirname(torch_dir), "nvfuser")
 
     patch_pytorch_nvfuser_binaries(torch_lib)
     if os.path.exists(installed_nvfuser_dir):
         remove_nvfuser_python_module(installed_nvfuser_dir)
-
-
-def patch_installation_if_needed():
-    import filecmp
-
-    torch_dir, torch_lib = get_torch_dirs()
-    installed_nvfuser_dir = os.path.join(os.path.dirname(torch_dir), "nvfuser")
-
-    if not filecmp.cmp(
-        os.path.join(torch_lib, "libnvfuser_codegen.so"),
-        os.path.join(installed_nvfuser_dir, "lib", "libnvfuser_codegen.so"),
-    ):
-        patch_installation()
 
 
 if __name__ == "__main__":
