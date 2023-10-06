@@ -322,7 +322,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   //    scheduler
 
   // #1
-  auto mma_exprs = ir_utils::getMmaOps(fusion);
+  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
   if (mma_exprs.size() != 1) {
     std::stringstream ss;
     ss << "Matmul scheduler supports fusions only with a single MMA op, got: "
@@ -361,7 +361,7 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   auto params = std::make_shared<MatmulParams>();
 
   // Check initial conditions
-  auto mma_exprs = ir_utils::getMmaOps(fusion);
+  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
   NVF_ERROR(mma_exprs.size() == 1, "Support only fusion with a single mma op.");
 
   const auto problem_shape =

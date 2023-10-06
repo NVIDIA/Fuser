@@ -9,6 +9,17 @@ import os
 nvfuser_csrc_dir = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "..", "csrc"
 )
+dynamic_type_dir = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "lib", "dynamic_type", "src"
+)
+flatbuffers_dir = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..",
+    "..",
+    "third_party",
+    "flatbuffers",
+    "include",
+)
 
 setup(
     name="nvfuser_extension",
@@ -16,7 +27,7 @@ setup(
         CUDAExtension(
             name="nvfuser_extension",
             pkg="nvfuser_extension",
-            include_dirs=[nvfuser_csrc_dir],
+            include_dirs=[nvfuser_csrc_dir, dynamic_type_dir, flatbuffers_dir],
             libraries=["nvfuser_codegen"],
             sources=["main.cpp"],
         )

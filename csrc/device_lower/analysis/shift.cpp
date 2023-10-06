@@ -240,8 +240,7 @@ void HaloInfo::propagateRootAxisInfo(
     return;
   }
 
-  auto c2p = PairwiseRootDomainMap(producer, consumer)
-                 .mapConsumerToProducer(consumer->domain(), producer->domain());
+  auto c2p = PairwiseRootDomainMap(producer, consumer).mapConsumerToProducer();
 
   const auto& c_root = consumer->getRootDomain();
 

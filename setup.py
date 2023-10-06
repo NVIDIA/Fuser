@@ -29,6 +29,9 @@
 #   --debinfo
 #     Building nvfuser in release mode with debug info, a.k.a. RelwithDebInfo
 #
+#   --build-dir=<ABSOLUTE PATH>
+#     Specify in which directory to build nvfuser. If not specified, the default build directory is "./build".
+#
 #   -version-tag=TAG
 #     Specify the tag for build nvfuser version, this is used for pip wheel
 #     package nightly where we might want to add a date tag
@@ -61,11 +64,13 @@ NO_TEST = False
 NO_BENCHMARK = False
 NO_NINJA = False
 BUILD_WITH_UCC = False
+BUILD_WITH_ASAN = False
 PATCH_NVFUSER = True
 OVERWRITE_VERSION = False
 VERSION_TAG = None
 BUILD_TYPE = "Release"
 WHEEL_NAME = "nvfuser"
+BUILD_DIR = ""
 INSTALL_REQUIRES = []
 forward_args = []
 for i, arg in enumerate(sys.argv):
@@ -87,11 +92,17 @@ for i, arg in enumerate(sys.argv):
     if arg == "--build-with-ucc":
         BUILD_WITH_UCC = True
         continue
+    if arg == "--build-with-asan":
+        BUILD_WITH_ASAN = True
+        continue
     if arg == "--debug":
         BUILD_TYPE = "Debug"
         continue
     if arg == "--debinfo":
         BUILD_TYPE = "RelwithDebInfo"
+        continue
+    if arg.startswith("--build-dir"):
+        BUILD_DIR = arg.split("=")[1]
         continue
     if arg.startswith("-install_requires="):
         INSTALL_REQUIRES = arg.split("=")[1].split(",")
@@ -254,10 +265,10 @@ def version_tag():
 from tools.memory import get_available_memory_gb
 
 
-def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
+def cmake(install_prefix: str = "./nvfuser"):
     # make build directories
     cwd = os.path.dirname(os.path.abspath(__file__))
-    cmake_build_dir = os.path.join(cwd, "build" if not build_dir else build_dir)
+    cmake_build_dir = os.path.join(cwd, "build") if not BUILD_DIR else BUILD_DIR
     if not os.path.exists(cmake_build_dir):
         os.makedirs(cmake_build_dir)
 
@@ -296,6 +307,8 @@ def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
         cmd_str.append(f"-DPython_EXECUTABLE={sys.executable}")
     if not NO_BENCHMARK:
         cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
+    if BUILD_WITH_ASAN:
+        cmd_str.append("-DNVFUSER_BUILD_WITH_ASAN=ON")
     cmd_str.append(".")
 
     print(f"Configuring CMake with {' '.join(cmd_str)}")

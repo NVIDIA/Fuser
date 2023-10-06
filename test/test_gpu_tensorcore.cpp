@@ -86,7 +86,7 @@ TEST_F(NVFuserTest, FusionVoltaMMATT_CUDA) {
   auto mma_builder = MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
                          .layout(MmaOptions::MmaLayout::TT);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -188,7 +188,7 @@ TEST_F(NVFuserTest, FusionVoltaMMATN_CUDA) {
   auto mma_builder = MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
                          .layout(MmaOptions::MmaLayout::TN);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -257,7 +257,7 @@ TEST_F(NVFuserTest, FusionVoltaMMANT_CUDA) {
   auto mma_builder = MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
                          .layout(MmaOptions::MmaLayout::NT);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -335,7 +335,7 @@ TEST_F(NVFuserTest, FusionVoltaMMANN_CUDA) {
   auto mma_builder = MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
                          .layout(MmaOptions::MmaLayout::NN);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -509,7 +509,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATN_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TN);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -586,7 +586,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATT_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TT);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -667,7 +667,7 @@ TEST_F(NVFuserTest, FusionAmpereMMANT_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::NT);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -748,7 +748,7 @@ TEST_F(NVFuserTest, FusionAmpereMMANN_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::NN);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -1185,7 +1185,7 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile2)
           .layout(MmaOptions::MmaLayout::TN);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       2 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 2, got ",
@@ -1485,7 +1485,7 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TN);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       2 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 2, got ",
@@ -1811,7 +1811,7 @@ TEST_F(NVFuserTest, FusionTuringMMATN_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TN);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -1887,7 +1887,7 @@ TEST_F(NVFuserTest, FusionTuringMMATT_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TT);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -1965,7 +1965,7 @@ TEST_F(NVFuserTest, FusionTuringMMANT_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::NT);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -2045,7 +2045,7 @@ TEST_F(NVFuserTest, FusionTuringMMANN_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::NN);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -2164,7 +2164,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TN);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -2307,7 +2307,7 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TN);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -2489,7 +2489,7 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TN);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -2649,7 +2649,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossWarp_CUDA) {
   auto mma_builder = MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
                          .layout(MmaOptions::MmaLayout::TN);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -2810,7 +2810,7 @@ TEST_F(NVFuserTest, FusionVoltaMatmulTNCrossCTA_CUDA) {
   auto mma_builder = MmaBuilder(MmaOptions::MacroType::Volta_16_16_4, gemm_tile)
                          .layout(MmaOptions::MmaLayout::TN);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -2983,7 +2983,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
 
   fusion.addOutput(tv2);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -3504,7 +3504,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATNAlpha_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TN);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -3606,7 +3606,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATNAlphaBeta_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TN);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -3715,7 +3715,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATNBias_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(MmaOptions::MmaLayout::TN);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
@@ -3812,7 +3812,7 @@ TEST_F(NVFuserTest, FusionAmpereMMATNSplitKLikeStridedBatch_CUDA) {
       MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
           .layout(layout);
 
-  auto mma_ops = ir_utils::getMmaOps(&fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",

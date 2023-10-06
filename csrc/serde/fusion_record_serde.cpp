@@ -508,12 +508,22 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(serde::RecordType_PadOp, deserializePadRecord);
 
   auto deserializePermuteRecord = [](const serde::RecordFunctor* buffer) {
-    return new python_frontend::PermuteOpRecord(
+    return new python_frontend::DimsOpRecord<serde::RecordType_PermuteOp>(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        parseVector(buffer->data_as_Permute()->dims()));
+        parseVector(buffer->data_as_Dims()->dims()),
+        buffer->name()->str());
   };
   registerParser(serde::RecordType_PermuteOp, deserializePermuteRecord);
+
+  auto deserializeStrideOrderRecord = [](const serde::RecordFunctor* buffer) {
+    return new python_frontend::DimsOpRecord<serde::RecordType_StrideOrderOp>(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        parseVector(buffer->data_as_Dims()->dims()),
+        buffer->name()->str());
+  };
+  registerParser(serde::RecordType_StrideOrderOp, deserializeStrideOrderRecord);
 
   auto deserializeRandomRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_TensorCreationSymbolic();

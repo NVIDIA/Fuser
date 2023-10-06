@@ -32,6 +32,14 @@ inline void checkIntValue(
   EXPECT_EQ(actual_value, expected_value);
 }
 
+inline void checkConstEvaluate(
+    const ExpressionEvaluator& evaluator,
+    Val* val,
+    at::Tensor expected_value) {
+  auto actual_value = evaluator.evaluate(val);
+  EXPECT_TRUE(expected_value.equal(actual_value.as<at::Tensor>()));
+}
+
 } // namespace
 
 // Evaluate basic scalar operations with constant values
@@ -103,6 +111,28 @@ TEST_F(ExprEvalTest, Bindings) {
   checkIntValue(evaluator, mod(a, b), 2);
   checkIntValue(evaluator, ceilDiv(a, b), 1);
   checkIntValue(evaluator, d, -2);
+}
+
+// Evaluate known values with const expression evaluator reference
+TEST_F(ExprEvalTest, ConstReference) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  ExpressionEvaluator evaluator;
+  auto tv0 = makeContigTensor(1);
+  auto tv1 = makeContigTensor(1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({3}, options);
+  auto t1 = at::randn({3}, options);
+
+  evaluator.bind(tv0, t0);
+  evaluator.bind(tv1, t1);
+
+  checkConstEvaluate(evaluator, tv0, t0);
+  checkConstEvaluate(evaluator, neg(tv0), -t0);
+  checkConstEvaluate(evaluator, add(tv0, tv1), t0 + t1);
+  checkConstEvaluate(evaluator, add(tv0, neg(tv1)), t0 - t1);
 }
 
 // Evaluate expressions in a simple IR

@@ -63,6 +63,10 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
     expr_eval.bind(tv0->axis(1)->extent(), 3L);
     expr_eval.bind(reshape_shape0, 3L);
     expr_eval.bind(reshape_shape1, 4L);
+    // We cannot infer the shape of tv1 from the above bound values, since
+    // either axis of tv2 might be broadcast against one from tv1.
+    expr_eval.bind(tv1->axis(0)->extent(), 3L);
+    expr_eval.bind(tv1->axis(1)->extent(), 4L);
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);
     auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
@@ -187,6 +191,11 @@ TEST_F(NVFuserTest, DynamicTransform3_CUDA) {
   expr_eval.bind(tv0->axis(1)->extent(), shape_before.at(1));
   expr_eval.bind(tv1->axis(0)->extent(), shape_after.at(0));
   expr_eval.bind(tv1->axis(1)->extent(), shape_after.at(1));
+  // We cannot infer reshape_shape0 and reshape_shape1 from tv0's and tv1's
+  // extents alone, since either of these reshaped extents could either match
+  // that of tv1 or be 1, resulting in a broadcast.
+  expr_eval.bind(reshape_shape0, shape_after.at(0));
+  expr_eval.bind(reshape_shape1, shape_after.at(1));
 
   auto initial_info = DynamicTransform::getInitialInfo(&fusion);
   auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
@@ -251,6 +260,13 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
 
     for (const auto i : c10::irange(after_shape.size())) {
       expr_eval.bind(tv2->axis((int)i)->extent(), after_shape.at(i));
+      // We must bind tv1's extents, since they cannot be inferred until after
+      // concretization. Because tv2 is a dynamic reshape both its IterDomains
+      // are Symbolic, which means both of tv3's IterDomains are also Symbolic.
+      // tv1 has both IterDomains of type Iteration, but it since we add tv3 to
+      // it to get tv4, we do not know whether this will resolve broadcasts from
+      // tv3 or not until concretization.
+      expr_eval.bind(tv1->axis((int)i)->extent(), after_shape.at(i));
     }
 
     auto initial_info = DynamicTransform::getInitialInfo(&fusion);

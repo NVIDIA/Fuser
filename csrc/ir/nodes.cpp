@@ -1189,7 +1189,7 @@ SqueezeOp::SqueezeOp(
         // Check concrete broadcast extent here. For Symbolic inputs, this check
         // will be deferred to concretization. See dynamic_transform.cpp
         NVF_ERROR(
-            id->extent()->isOneInt(),
+            id->extent()->isConstScalar() && id->extent()->evaluateInt() == 1,
             "Can not squeeze dimension(s) with size != 1.");
       }
     } else {
@@ -2347,6 +2347,9 @@ std::string LoadStoreOp::toString(int indent_size) const {
     indent(ss, indent_size + 1)
         << std::string(optype.size() + 5, ' ') << predicate()->toInlineString();
   }
+  if (cacheOp() != CacheOp::Unspecified) {
+    ss << ", cache_op=" << cacheOp();
+  }
   ss << " )\n";
   return ss.str();
 }
@@ -3425,12 +3428,6 @@ void TensorDomain::merge(int axis_o, int axis_i) {
       axis_o != axis_i,
       "Invalid merge detected, axes provided are the same axis.");
 
-  if (axis_o > axis_i) {
-    auto tmp = axis_i;
-    axis_i = axis_o;
-    axis_o = tmp;
-  }
-
   IterDomain* first = axis(axis_o);
   IterDomain* second = axis(axis_i);
 
@@ -4060,6 +4057,22 @@ std::vector<Slice> SliceOp::getRanges() const {
   return ranges;
 }
 
+std::vector<PolymorphicValue> SliceOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  std::vector<at::indexing::TensorIndex> ranges;
+  auto ranges_offset = getRangeInputOffset();
+  auto num_dims = in.dim();
+  for (const auto i : c10::irange(num_dims)) {
+    auto start = (int64_t)inputs.at(ranges_offset + 3 * i);
+    auto stop = (int64_t)inputs.at(ranges_offset + 3 * i + 1);
+    auto step = (int64_t)inputs.at(ranges_offset + 3 * i + 2);
+    ranges.emplace_back(at::indexing::Slice(start, stop, step));
+  }
+  return {in.index(ranges)};
+}
+
 CatOp::CatOp(
     IrBuilderPasskey passkey,
     Val* out,
@@ -4153,6 +4166,18 @@ Val* CatOp::getPred(int input_idx) const {
       attr->toInlineString());
   auto pred = attr;
   return pred;
+}
+
+std::vector<PolymorphicValue> CatOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  std::vector<at::Tensor> in;
+  int64_t concat_dim = concatenatedDim();
+  for (auto i : c10::irange(inputs.size())) {
+    auto unpadded_inp = ee.evaluate(input(i)->definition()->input(0));
+    in.push_back(unpadded_inp.as<at::Tensor>());
+  }
+  return {at::cat(in, concat_dim)};
 }
 
 } // namespace nvfuser

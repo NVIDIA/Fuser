@@ -169,7 +169,7 @@ TEST_F(NVFuserTest, FusionClear_CUDA) {
   NVF_CHECK(fusion.inputs().empty());
   NVF_CHECK(fusion.outputs().empty());
 
-  NVF_CHECK(ir_utils::getReductionOps(&fusion).empty());
+  NVF_CHECK(!ir_utils::hasOpsOfType<ReductionOp>(&fusion));
 
   // 3. Rebuild the IR
 
@@ -888,26 +888,26 @@ TEST_F(NVFuserTest, FusionParser_CUDA) {
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 1, 1> T0, Tensor<float, 1, 1> T1, Tensor<float, 1, 1> T3) {
   nvfuser_index_t i0;
-  i0 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  if ((i0 < T0.logical_size[0])) {
-    float T5[1];
-    T5[0] = 0;
-    T5[0]
+  i0 = ((nvfuser_index_t)threadIdx.x) + (128LL * ((nvfuser_index_t)blockIdx.x));
+  if ((i0 < T0.logical_size[0LL])) {
+    float T5[1LL];
+    T5[0LL] = 0LL;
+    T5[0LL]
        = T1[i0];
-    float T4[1];
-    T4[0] = 0;
-    T4[0]
+    float T4[1LL];
+    T4[0LL] = 0LL;
+    T4[0LL]
        = T0[i0];
-    float T2[1];
-    T2[0]
-      = T4[0]
-      * T5[0];
-    float T6[1];
-    T6[0]
-      = T2[0]
-      * T4[0];
+    float T2[1LL];
+    T2[0LL]
+      = T4[0LL]
+      * T5[0LL];
+    float T6[1LL];
+    T6[0LL]
+      = T2[0LL]
+      * T4[0LL];
     T3[i0]
-       = T6[0];
+       = T6[0LL];
   }
 }
 )";
@@ -3632,7 +3632,7 @@ TEST_F(NVFuserTest, FusionReduction1_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(1, 128);
@@ -3940,7 +3940,7 @@ TEST_F(NVFuserTest, FusionReduction6_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(2, bdimx);
@@ -4976,7 +4976,7 @@ TEST_F(NVFuserTest, FusionGridReduction1_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(1, bdimx);
@@ -5037,7 +5037,7 @@ TEST_F(NVFuserTest, FusionGridReduction2_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(1, bdimx);
@@ -5099,7 +5099,7 @@ TEST_F(NVFuserTest, FusionGridReduction3dim1_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(1, gdimy);
@@ -5161,7 +5161,7 @@ TEST_F(NVFuserTest, FusionGridReduction3dim0_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(0, gdimy);
@@ -5217,7 +5217,7 @@ TEST_F(NVFuserTest, FusionGridReduction4_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(1, gdimx);
@@ -5285,7 +5285,7 @@ TEST_F(NVFuserTest, FusionGridReduction5_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(1, bdimx);
@@ -5336,7 +5336,7 @@ TEST_F(NVFuserTest, FusionGridReduction6_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   // Splitting for TID
@@ -7186,7 +7186,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerSoftmax_CUDA) {
     auto reduction_params = getInnerPersistentHeuristics(&fusion, {aten_input});
     NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
 
-    schedulePersistentKernel(&fusion, *reduction_params);
+    scheduleInnerPersistentKernel(&fusion, *reduction_params);
 
     auto lparams = reduction_params->lparams;
 
@@ -7254,7 +7254,7 @@ TEST_F(NVFuserTest, FusionTestMaskSoftmax_CUDA) {
       getInnerPersistentHeuristics(&fusion, {aten_input, aten_mask});
   NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
 
-  schedulePersistentKernel(&fusion, *reduction_params);
+  scheduleInnerPersistentKernel(&fusion, *reduction_params);
 
   auto lparams = reduction_params->lparams;
 

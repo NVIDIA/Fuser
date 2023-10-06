@@ -869,7 +869,7 @@ void ReductionScheduler::schedule(Fusion* fusion) {
 //! Check if the reduction heuristics apply in given fusion
 bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
   // Needs at least one reduction to consider.
-  if (ir_utils::getReductionOps(fusion).empty()) {
+  if (!ir_utils::hasAnyReductionOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         ScheduleHeuristic::Reduction, "No reduction op to schedule");
     return false;
@@ -888,7 +888,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
   }
 
   // Fusions handled by reduction scheduler cannot have MmaOp.
-  if (!ir_utils::getMmaOps(fusion).empty()) {
+  if (ir_utils::hasOpsOfType<MmaOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         ScheduleHeuristic::Reduction, "no support for mma ops.");
     return false;
@@ -929,7 +929,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
   }
 
   // Make sure reduction axes are consistent through the fusion
-  auto reduction_ops = ir_utils::getReductionOps(fusion);
+  auto reduction_ops = ir_utils::getAllTypesOfReductionOps(fusion);
   if (reduction_ops.size() > 1) {
     // Before examining the reduction axes want to quickly
     //   check the reductions have the same axis width

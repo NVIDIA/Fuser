@@ -8,6 +8,7 @@
 #include <kernel_cache.h>
 
 #include <debug.h>
+#include <driver_api.h>
 #include <dynamic_transform.h>
 #include <executor_params.h>
 #include <executor_utils.h>
@@ -896,8 +897,8 @@ FusionKernelRuntime::FusionKernelRuntime(
       fusion.get());
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
-    std::cout << "Fusion IR after pre-segmenter optimization passes:"
-              << std::endl;
+    debug() << "Fusion IR after pre-segmenter optimization passes:"
+            << std::endl;
     fusion->printMath();
   }
 

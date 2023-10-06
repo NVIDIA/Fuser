@@ -26,7 +26,7 @@ bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
     return true;
   }
   // Check there're no non-trivial reduction ops.
-  for (auto reduction : ir_utils::getReductionOps(fusion)) {
+  for (auto reduction : ir_utils::getAllTypesOfReductionOps(fusion)) {
     for (auto output :
          ir_utils::filterByType<TensorView>(reduction->outputs())) {
       auto concrete_dimension =

@@ -5,406 +5,45 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <scheduler/reduction.h>
-
-#include <debug.h>
-#include <executor_utils.h>
-#include <grouped_reduction.h>
-#include <inlining.h>
+#include <ATen/cuda/CUDAContext.h>
 #include <instrumentation.h>
-#include <ir/all_nodes.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <options.h>
+#include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_inner.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
-#include <scheduler/registry.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
-#include <scheduler/vectorize_helper.h>
-#include <transform_replay.h>
-
-#include <ATen/cuda/CUDAContext.h>
-
-#include <cmath>
 
 namespace nvfuser {
+
+constexpr auto schedule_heuristic = ScheduleHeuristic::InnerPersistent;
 
 InnerPersistentKernelScheduler::InnerPersistentKernelScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
-    : SchedulerEntry(ScheduleHeuristic::InnerPersistent) {
+    : SchedulerEntry(schedule_heuristic) {
   computeHeuristics(fusion, runtime_info, data_cache);
 }
 
 void InnerPersistentKernelScheduler::schedule(Fusion* fusion) {
-  FUSER_PERF_SCOPE("Schedule Persistent Fusion");
+  FUSER_PERF_SCOPE("Schedule InnerPersistent Fusion");
   scheduleInnerPersistentKernel(fusion, reductionParams());
 }
 
 bool InnerPersistentKernelScheduler::canScheduleCompileTime(Fusion* fusion) {
-  // Needs at least one reduction to consider.
-  auto reduction_ops = ir_utils::getReductionOps(fusion);
-  if (reduction_ops.empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent, "needs a reduction op");
-    return false;
-  }
-
-  if (ir_utils::filterByType<TensorView>(fusion->inputs()).empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent,
-        "Scheduling not supported with no input");
-    return false;
-  }
-
-  // Check that inputs of all select/gather-like ops are fusion inputs
-  if (registry_utils::rejectScheduleForMemoryPromotion(
-          fusion, ScheduleHeuristic::InnerPersistent)) {
-    return false;
-  }
-
-  // Fusions handled by persistent kernel scheduler cannot have MmaOp.
-  if (!ir_utils::getMmaOps(fusion).empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent, "no support for mma ops.");
-    return false;
-  }
-
-  if (registry_utils::hasNonUniqueBcast(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent,
-        "Broadcasting dimension might be broadcasting to multiple sizes.");
-    return false;
-  }
-
-  auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-
-  if (reduction_tvs.empty()) {
-    // Use pointwise logic
-    scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent, "no reduction tv");
-    return false;
-  }
-
-  std::vector<TensorView*> inner_reduction_tvs;
-  std::vector<TensorView*> outer_reduction_tvs;
-  for (auto tv : reduction_tvs) {
-    if (scheduler_utils::isFastestDimReduction(tv)) {
-      inner_reduction_tvs.emplace_back(tv);
-    } else {
-      outer_reduction_tvs.emplace_back(tv);
-    }
-  }
-  bool combined_inner_outer =
-      !inner_reduction_tvs.empty() && !outer_reduction_tvs.empty();
-
-  if (inner_reduction_tvs.empty() || !outer_reduction_tvs.empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent,
-        "ScheduleHeuristic::InnerPersistent requires inner reduction tvs without outer reduction tvs.");
-    return false;
-  }
-
-  if (!checkReductionPattern(
-          fusion, inner_reduction_tvs, outer_reduction_tvs)) {
-    return false;
-  }
-  // If there is both inner and outer reduction, we use the first inner
-  // reduction tv as reference, otherwise we use the first reduction tv,
-  // whether it is inner or outer.
-  TensorView* reference_tv =
-      combined_inner_outer ? inner_reduction_tvs[0] : reduction_tvs[0];
-
-  if (!ir_utils::getViewOps(fusion).empty()) {
-    ComputeAtMap ca_map(fusion);
-    if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::InnerPersistent,
-          "Fusion requires view being reversible.");
-      return false;
-    }
-
-    // Persistent scheduler simply uses reference_tv as the reference, if
-    // that changes, this needs to be changed.
-    if (registry_utils::reductionInterferingView(
-            fusion, ca_map, reference_tv)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::InnerPersistent,
-          "View may interfere with normalization scheduling.");
-      return false;
-    }
-  }
-
-  // Before examining the reduction axes want to quickly
-  //   check the reductions have the same axis width
-  //   to avoid building root domain map in easier cases
-  bool valid_axis_count = false;
-  size_t axis_count = 0;
-  auto reduction_root_size = [](TensorView* red_tv) {
-    size_t count = 0;
-    for (auto id : red_tv->getRootDomain()) {
-      if (!id->isBroadcast()) {
-        count++;
-      }
-    }
-    return count;
-  };
-
-  for (auto red : reduction_tvs) {
-    if (!valid_axis_count) {
-      valid_axis_count = true;
-      axis_count = reduction_root_size(red);
-    } else {
-      if (reduction_root_size(red) != axis_count) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            ScheduleHeuristic::InnerPersistent,
-            "inconsistent reduction root size: ",
-            red->toString(),
-            ", expected: ",
-            axis_count);
-        return false;
-      }
-    }
-  }
-
-  // Only accept persistent kernels
-  auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
-  if (persistent_buffer_info.persistent_buffers.empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent, "no persistent buffer identified");
-    return false;
-  }
-
-  if (registry_utils::SchedulerTopologyChecker::
-          hasNonNormalizePostReductionBCast(fusion)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent,
-        "unsupported post reduction normalization");
-    return false;
-  }
-
-  if (registry_utils::SchedulerTopologyChecker::
-          hasGatherToBroadcastBeforeReduction(fusion, reduction_tvs)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent,
-        "has unsupported gather-like ops before normalization");
-    return false;
-  }
-
-  return true;
+  return normalization_scheduler_utils::compileTimeCheck(
+      fusion, schedule_heuristic);
 }
 
-bool InnerPersistentKernelScheduler::canScheduleRunTime(
+namespace {
+
+std::pair<int64_t, int64_t> getPersistentBufferSize(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
-  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::canSchedule");
-  auto reduction_tv_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
-          data_cache, [&fusion]() {
-            return std::make_unique<std::vector<TensorView*>>(
-                scheduler_utils::getReductionTvs(fusion));
-          });
-
-  auto& reduction_tvs = reduction_tv_entry.get();
-  bool inner_reduction = false;
-  bool outer_reduction = false;
-  TensorView* first_inner_reduction_tv = nullptr;
-  for (auto tv : reduction_tvs) {
-    if (scheduler_utils::isFastestDimReduction(tv)) {
-      first_inner_reduction_tv = tv;
-      inner_reduction = true;
-    } else {
-      outer_reduction = true;
-    }
-  }
-
-  // If there is both inner and outer reduction, we use the first inner
-  // reduction tv to get properties, otherwise we use the first reduction tv,
-  // whether it is inner or outer.
-  auto reference_tv = inner_reduction && outer_reduction
-      ? first_inner_reduction_tv
-      : reduction_tvs[0];
-
-  auto properties = scheduler_utils::getReductionProperties(
-      fusion, runtime_info, reference_tv);
-
-  const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
-
-  if (!properties.fastest_dim_reduction) {
-    return canScheduleRunTimeOuter(
-        fusion, runtime_info, data_cache, reduction_tvs, properties);
-  }
-
-  // pair of persistent_buffer_size and available_persistent_buffer_size
-  const std::pair<int64_t, int64_t> buffer_size =
-      getPersistentBufferSize(fusion, runtime_info, data_cache, reduction_tvs);
-  const int64_t persistent_buffer_size = buffer_size.first;
-  const int64_t available_persistent_buffer_size = buffer_size.second;
-
-  const int64_t device_multiprocessor_count =
-      (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-
-  if (persistent_buffer_size > available_persistent_buffer_size) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent,
-        "not enough registers or shared memory for persistence");
-    return false;
-  }
-
-  if (inner_reduction && outer_reduction) {
-    // get vectorize_factor, same process to that in
-    // getInnerPersistentHeuristics
-    auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
-    const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-        runtime_info,
-        reduced_tv,
-        data_cache,
-        (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
-    // check if we can schedule the combined reductions with a reasonable
-    // batch size without register spills.
-    if (!normalization_scheduler_utils::
-             getOptionalInnerOuterPersistentBufferBatches(
-                 properties.total_reduction_numel,
-                 properties.total_iteration_numel,
-                 persistent_buffer_size,
-                 (int64_t)vectorize_factor,
-                 warp_size,
-                 false)
-                 .first.has_value()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::InnerPersistent,
-          "Required batch number is larger than available batch number! Will cause register spills!");
-      return false;
-    }
-  }
-
-  const int64_t device_max_threads_per_multiprocessor =
-      (int64_t)at::cuda::getCurrentDeviceProperties()
-          ->maxThreadsPerMultiProcessor;
-
-  // Maximum number of iteration dimensions we can have and still be
-  // persistent.
-  const int64_t max_multi_reduction_factor = scheduler_utils::safeDiv(
-      available_persistent_buffer_size, persistent_buffer_size);
-
-  const int64_t required_sm_per_norm =
-      ceilDiv(persistent_buffer_size, scheduler_utils::register_file_size);
-
-  // If the persistence requires over half the device don't do grid
-  // persistence as we can't overlap the grid comms.
-  if (required_sm_per_norm >
-      scheduler_utils::safeDiv(device_multiprocessor_count, 3)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent,
-        "requires over half GPU persistence.");
-    return false;
-  }
-
-  const int64_t norm_per_sm =
-      ceilDiv(scheduler_utils::register_file_size, persistent_buffer_size);
-
-  // If outer reduction, don't go persistent if we can't fit half a warp in
-  // the iter domain of the persistent reduction.
-  if (!properties.fastest_dim_reduction &&
-      !(norm_per_sm >= warp_size / 2 ||
-        max_multi_reduction_factor >= warp_size)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent, "not enough threads");
-    return false;
-  }
-
-  // Don't go persistent if we can't use a small fraction of the
-  // available SMs yet have a large reduction size.
-  if ( // Large reduction dim
-      properties.total_reduction_numel >=
-          device_max_threads_per_multiprocessor * 4 &&
-      properties.total_iteration_numel <
-          (properties.fastest_dim_reduction
-               ? scheduler_utils::safeDiv(device_multiprocessor_count, 8)
-               // Make sure we at least use a quarter of the device * a
-               // half warp
-               : (warp_size / 8) * device_multiprocessor_count)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent, "not enough blocks");
-    return false;
-  }
-
-  return true;
-}
-
-void InnerPersistentKernelScheduler::computeHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache) {
-  params_ = getInnerPersistentHeuristics(fusion, runtime_info, data_cache);
-  NVF_ERROR(params_ != nullptr);
-}
-
-bool InnerPersistentKernelScheduler::checkReductionPattern(
-    Fusion* fusion,
-    const std::vector<TensorView*>& inner_reduction_tvs,
-    const std::vector<TensorView*>& outer_reduction_tvs) {
-  // Use root domain map to check the reduction ops have the same axes
-  FusionGuard fg(fusion);
-  ComputeAtRootDomainMap root_map;
-  root_map.build(true);
-
-  // check inner and outer reductions seperately
-  for (const auto& rtvs : {inner_reduction_tvs, outer_reduction_tvs}) {
-    for (const auto it : c10::irange(1, rtvs.size())) {
-      if (!registry_utils::checkPatternEquivalence(
-              rtvs[it - 1], rtvs[it], root_map)) {
-        scheduler_debug_utils::canScheduleRejectReason(
-            ScheduleHeuristic::InnerPersistent,
-            "unmapped reduction ",
-            rtvs[it - 1],
-            " and ",
-            rtvs[it]);
-        return false;
-      }
-    }
-  }
-  // combined inner and outer reduction is of general purpose but only tested
-  // for layer norm backward
-  if (!inner_reduction_tvs.empty() && !outer_reduction_tvs.empty()) {
-    if (!normalization_scheduler_utils::checkIfReductionsAreInnerOuter(
-            inner_reduction_tvs, outer_reduction_tvs)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::InnerPersistent,
-          "to use combined reduction, inner reduction tensor should be [I,I,...,R,R] and outer reduction tensor should be [R,R,...,I,I]");
-      return false;
-    }
-
-    if (!normalization_scheduler_utils::hasSharedInput(
-            inner_reduction_tvs, outer_reduction_tvs)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::InnerPersistent,
-          "to use combined reduction, inner reduction and outer reduction should have shared input.");
-      return false;
-    }
-
-    if (!normalization_scheduler_utils::isConnectedOnlyThroughReductionProducer(
-            inner_reduction_tvs, outer_reduction_tvs)) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::InnerPersistent,
-          "to use combined reduction, inner reduction and outer reduction should not have shared consumer, their consumers should not have shared non-outer-reduction producer.");
-      return false;
-    }
-  }
-  return true;
-}
-
-std::pair<int64_t, int64_t> InnerPersistentKernelScheduler::
-    getPersistentBufferSize(
-        Fusion* fusion,
-        SchedulerRuntimeInfo& runtime_info,
-        HeuristicSummary* data_cache,
-        const std::vector<TensorView*>& reduction_tvs) {
+    HeuristicSummary* data_cache,
+    const std::vector<TensorView*>& reduction_tvs) {
   auto persistent_buffer_info_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
           data_cache, [&fusion]() {
@@ -425,568 +64,121 @@ std::pair<int64_t, int64_t> InnerPersistentKernelScheduler::
             persistent_buffer_size_info.persistent_buffer_size,
             persistent_buffer_size_info.projected_persistent_buffer_size);
 
-  // in combined_inner_outer_reduction, the partial results of outer
-  // reductions must be persistent, allow register spill avoid segmentation
-  int64_t inner_reduction_count = 0;
-  int64_t outer_reduction_count = 0;
-  std::vector<TensorView*> outer_reduction_tvs;
-  for (auto tv : reduction_tvs) {
-    if (scheduler_utils::isFastestDimReduction(tv)) {
-      inner_reduction_count++;
-    } else {
-      outer_reduction_count++;
-      outer_reduction_tvs.emplace_back(tv);
-    }
-  }
-  const bool combined_inner_outer_reduction =
-      inner_reduction_count && outer_reduction_count;
-  if (combined_inner_outer_reduction) {
-    persistent_buffer_size +=
-        normalization_scheduler_utils::partialReductionBufferSize(
-            outer_reduction_tvs, runtime_info);
-  }
+  // Init to register file size, which is half of the full register file size
+  int64_t available_persistent_buffer_size =
+      scheduler_utils::register_file_size;
 
-  // At this point, we use the full register file size only for the
-  // inner-outer case. It does not mean the full size shouldn't be used
-  // otherwise, but more detailed tuning of the heuristics would be required.
-  int64_t available_persistent_buffer_size = combined_inner_outer_reduction
-      ? scheduler_utils::register_file_size_full
-      : scheduler_utils::register_file_size;
-
-  // Use shared memory for persistent buffer is only tested for inner
-  // reduction
-  // TODO: extend to outer reduction and combined reduction
-  const bool allow_shared_memory =
-      inner_reduction_count > 0 && outer_reduction_count == 0;
-  if (allow_shared_memory) {
-    const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-    const int64_t max_shared_memory_size =
-        (int64_t)dev_prop->sharedMemPerBlockOptin;
-    // Some shared memories are reserved for kernel launch overhead and
-    // reduction_broadcast_workspace. Estimation is conservative, but should
-    // be good enough. The actual threads per block is set in the heuristics
-    // and it may be smaller than maxThreadsPerBlock.
-    // TODO: More accurate estimation of available shared memory size.
-    const int64_t kernel_overhead =
-        (int64_t)dev_prop->reservedSharedMemPerBlock;
-    int64_t max_buffer_dtype_size = 1;
-    for (auto tv : persistent_buffer_info.persistent_buffers) {
-      max_buffer_dtype_size = std::max(
-          max_buffer_dtype_size,
-          dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
-    }
-    const int64_t reduction_broadcast_workspace =
-        (int64_t)(dev_prop->maxThreadsPerBlock) * max_buffer_dtype_size;
-    const int64_t available_shared_memory_size = max_shared_memory_size -
-        kernel_overhead - reduction_broadcast_workspace;
-    available_persistent_buffer_size = std::max(
-        available_persistent_buffer_size, available_shared_memory_size);
+  // Check available shared memory
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  const int64_t max_shared_memory_size =
+      (int64_t)dev_prop->sharedMemPerBlockOptin;
+  // Some shared memories are reserved for kernel launch overhead and
+  // reduction_broadcast_workspace. Estimation is conservative, but should
+  // be good enough. The actual threads per block is set in the heuristics
+  // and it may be smaller than maxThreadsPerBlock.
+  // TODO: More accurate estimation of available shared memory size.
+  const int64_t kernel_overhead = (int64_t)dev_prop->reservedSharedMemPerBlock;
+  int64_t max_buffer_dtype_size = 1;
+  for (auto tv : persistent_buffer_info.persistent_buffers) {
+    max_buffer_dtype_size = std::max(
+        max_buffer_dtype_size,
+        dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
   }
+  const int64_t reduction_broadcast_workspace =
+      (int64_t)(dev_prop->maxThreadsPerBlock) * max_buffer_dtype_size;
+  const int64_t available_shared_memory_size =
+      max_shared_memory_size - kernel_overhead - reduction_broadcast_workspace;
+  available_persistent_buffer_size =
+      std::max(available_persistent_buffer_size, available_shared_memory_size);
 
   return std::make_pair(
       persistent_buffer_size, available_persistent_buffer_size);
 }
 
-bool InnerPersistentKernelScheduler::canScheduleRunTimeOuter(
+} // namespace
+
+bool InnerPersistentKernelScheduler::canScheduleRunTime(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache,
-    const std::vector<TensorView*>& reduction_tvs,
-    const scheduler_utils::ReductionTvProperties& properties) {
-  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::canScheduleRuntimeOuter");
-  FusionGuard fg(fusion);
-
-  const auto device_prop = at::cuda::getCurrentDeviceProperties();
-
-  const int64_t sm_register_file_size =
-      static_cast<int64_t>(device_prop->regsPerBlock * sizeof(int));
-
-  auto persistent_buffer_info_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
+    HeuristicSummary* data_cache) {
+  FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::canSchedule");
+  auto reduction_tv_entry =
+      HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
           data_cache, [&fusion]() {
-            return std::make_unique<scheduler_utils::PersistentBufferInfo>(
-                scheduler_utils::persistentBuffers(fusion));
+            return std::make_unique<std::vector<TensorView*>>(
+                scheduler_utils::getReductionTvs(fusion));
           });
 
-  const auto& persistent_buffer_info = persistent_buffer_info_entry.get();
+  auto& reduction_tvs = reduction_tv_entry.get();
 
-  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
-      fusion, runtime_info, persistent_buffer_info, data_cache);
+  auto reference_tv = reduction_tvs[0];
 
-  // Note that projected buffer size can be zero
-  auto persistent_buffer_size =
-      persistent_buffer_size_info.projected_persistent_buffer_size == 0
-      ? persistent_buffer_size_info.persistent_buffer_size
-      : std::min(
-            persistent_buffer_size_info.persistent_buffer_size,
-            persistent_buffer_size_info.projected_persistent_buffer_size);
+  auto properties = scheduler_utils::getReductionProperties(
+      fusion, runtime_info, reference_tv);
+
+  const int64_t warp_size = at::cuda::getCurrentDeviceProperties()->warpSize;
+
+  // pair of persistent_buffer_size and available_persistent_buffer_size
+  const std::pair<int64_t, int64_t> buffer_size =
+      getPersistentBufferSize(fusion, runtime_info, data_cache, reduction_tvs);
+  const int64_t persistent_buffer_size = buffer_size.first;
+  const int64_t available_persistent_buffer_size = buffer_size.second;
 
   const int64_t device_multiprocessor_count =
-      (int64_t)device_prop->multiProcessorCount;
-
-  const auto available_persistent_buffer_size =
-      sm_register_file_size * device_multiprocessor_count;
+      (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
 
   if (persistent_buffer_size > available_persistent_buffer_size) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent,
-        "not enough registers for persistence");
+        schedule_heuristic,
+        "not enough registers or shared memory for persistence");
     return false;
   }
 
-  auto reduced_tv = ir_utils::getSoleProducerTv(reduction_tvs.at(0));
+  const int64_t device_max_threads_per_multiprocessor =
+      (int64_t)at::cuda::getCurrentDeviceProperties()
+          ->maxThreadsPerMultiProcessor;
 
-  const int64_t vectorization_factor =
-      (int64_t)vectorize_helper::getVectorizationFactor(
-          runtime_info,
-          reduced_tv,
-          data_cache,
-          (int)reduced_tv->nDims() -
-              (int)properties.inner_most_dimension_ndims);
-
-  // Minimum required multi reduction factor.
-  const int64_t min_multi_reduction_factor = vectorization_factor *
-      normalization_scheduler_utils::PreferredLaunchConfig::kMinBdimx;
-
-  const int64_t required_sm_per_norm = ceilDiv(
-      persistent_buffer_size * min_multi_reduction_factor,
-      sm_register_file_size);
+  const int64_t required_sm_per_norm =
+      ceilDiv(persistent_buffer_size, scheduler_utils::register_file_size);
 
   // If the persistence requires over half the device don't do grid
   // persistence as we can't overlap the grid comms.
   if (required_sm_per_norm >
       scheduler_utils::safeDiv(device_multiprocessor_count, 2)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent,
-        "requires over half GPU persistence.",
-        " required SMs per normalization: ",
-        required_sm_per_norm);
+        schedule_heuristic, "requires over half GPU persistence.");
     return false;
   }
 
-  const bool is_cross_grid = required_sm_per_norm > 1;
-
-  std::optional<normalization_scheduler_utils::GridOuterNormalizationParams>
-      cross_grid_params;
-
-  if (is_cross_grid) {
-    // Don't try to be persistent unless at least 4-way vectorized
-    // as register usage is hard to control
-    // TODO: Is this necessary for block persistence as well?
-    if (vectorization_factor < 4) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::InnerPersistent, "not enough vectorized");
-      return false;
-    }
-
-    // Make sure there's a valid grid persistence launch config
-    cross_grid_params =
-        normalization_scheduler_utils::getGridOuterNormalizationParams(
-            properties.total_reduction_numel,
-            properties.total_iteration_numel,
-            vectorization_factor,
-            persistent_buffer_size);
-
-    if (!cross_grid_params.has_value()) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::InnerPersistent, "no valid launch config found");
-      return false;
-    }
-  }
-
-  NVF_ERROR(!is_cross_grid || cross_grid_params.has_value())
-
-  // Maximum number of iteration dimensions we can have and still be
-  // persistent.
-  const int64_t max_multi_reduction_factor = scheduler_utils::safeDiv(
-      is_cross_grid ? available_persistent_buffer_size : sm_register_file_size,
-      persistent_buffer_size);
-
-  // Don't go persistent if we can't fit the minimum multi reduction
-  // factor
-  if (max_multi_reduction_factor < min_multi_reduction_factor) {
+  // Don't go persistent if we can't use a small fraction of the
+  // available SMs yet have a large reduction size.
+  if ( // Large reduction dim
+      properties.total_reduction_numel >=
+          device_max_threads_per_multiprocessor * 4 &&
+      properties.total_iteration_numel <
+          (properties.fastest_dim_reduction
+               ? scheduler_utils::safeDiv(device_multiprocessor_count, 8)
+               // Make sure we at least use a quarter of the device * a
+               // half warp
+               : (warp_size / 8) * device_multiprocessor_count)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent,
-        "Not enough threads.",
-        " Multi reduction factor, ",
-        max_multi_reduction_factor,
-        ", is smaller than minimum multi reduction factor, ",
-        min_multi_reduction_factor);
-    return false;
-  }
-
-  const int64_t max_used_sms = is_cross_grid
-      ? ceilDiv(
-            ceilDiv(properties.total_iteration_numel, vectorization_factor),
-            cross_grid_params->launch_params.bdimx()) *
-          cross_grid_params->launch_params.gdimy()
-      : ceilDiv(
-            properties.total_iteration_numel * persistent_buffer_size,
-            sm_register_file_size);
-
-  // Bandwidth suffers if the number of used SMs is small. This is
-  // particularly impactful in the case of cross grid, so at least
-  // half of the SMs are required to be used. In the case of cross
-  // block, keep using the existing heuristics for now.
-  if (is_cross_grid &&
-      max_used_sms < scheduler_utils::safeDiv(device_multiprocessor_count, 2)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent,
-        "cross grid - not enough used SMs: ",
-        max_used_sms);
-    return false;
-  }
-
-  const int64_t device_max_threads_per_multiprocessor =
-      (int64_t)device_prop->maxThreadsPerMultiProcessor;
-  const int64_t min_fraction_of_sms =
-      scheduler_utils::safeDiv(device_multiprocessor_count, 8);
-  if (properties.total_reduction_numel >=
-          device_max_threads_per_multiprocessor * 4 && // Large reduction dim
-      max_used_sms < min_fraction_of_sms) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent, "not enough used SMs");
-    return false;
-  }
-
-  // The runtime kernel for grouped normal grid reductions is not
-  // well tuned, and it turned out to be quite difficult to get
-  // consistently better performances than non-persistent
-  // schedules. Disabled for now.
-  // TODO: Enable non-welford persistent reductions
-  if (is_cross_grid &&
-      std::any_of(
-          reduction_tvs.begin(),
-          reduction_tvs.end(),
-          [](TensorView* reduction_tv) {
-            return !reduction_tv->definition()->isA<WelfordOp>();
-          })) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent, "non-Welford not enabled yet");
-    return false;
-  }
-
-  // Had a hard time tuning on Titan RTX and V100 when the iteration
-  // space is not evenly divided by threads and thread blocks. It
-  // doesn't seem to be noticeably bad on A100, though. For now,
-  // disable the schedule if not evenly divisible on Titan RTX and
-  // V100, i.e., compute architecture version 7.
-  // TODO: Revisit
-  if (is_cross_grid &&
-      (properties.total_iteration_numel %
-           (vectorization_factor * cross_grid_params->launch_params.bdimx() *
-            cross_grid_params->launch_params.gdimx()) !=
-       0) &&
-      device_prop->major == 7) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::InnerPersistent, "iteration not evenly divided");
+        schedule_heuristic, "not enough blocks");
     return false;
   }
 
   return true;
 }
 
-namespace {
-// In normalization heuristics, we usually have several free parameters, e.g.
-// persistent batch size, unroll factors, thread block size, etc. This wrapper
-// class is used to make sure the parameters are set before they are used and
-// they will not be changed after they are finalized.
-class HeuristicParameterWrapper {
- private:
-  int64_t value_;
-  bool mutable_;
-
- public:
-  HeuristicParameterWrapper() : value_(-1), mutable_(true) {}
-  void set(int64_t val) {
-    if (mutable_) {
-      value_ = val;
-    } else {
-      NVF_ERROR(false, "Trying to set a non-mutable heuristic parameter!");
-    }
-  }
-
-  int64_t get() const {
-    NVF_ERROR(value_ != -1, "Heuristic parameter is not set!");
-    return value_;
-  }
-
-  void finalize() {
-    NVF_ERROR(value_ != -1, "Heuristic parameter is not set!");
-    mutable_ = false;
-  }
-
-  bool isMutable() const {
-    return mutable_;
-  }
-};
-
-} // namespace
-
-namespace {
-
-// The innerOuterPersistentHeuristic is tuned for layer_norm backward on A100
-// ======= Method if hidden_size > 1024 =======
-// (1) Inner reduction is one reduction per block. Reduction domain is
-// parallelized by TIDx and TIDy, Iteration domain is parallelized by BIDy. (2)
-// Outer reduction is done in two-steps. The first step is partial reduction,
-// reduction domain is parallelized by BIDy, iteration domain is parallelized by
-// TIDx and TIDy. The partial results are written to gmem followed by a grid
-// sync. The second step is block reduction, the reduction domain is
-// parallelized by TIDy, the iteration domain is parallelized by TIDx and BIDy.
-// ======= Method if hidden_size <= 1024 =======
-// (1) Inner reduction is multi-reductions per blocks. Reduction domain is
-// parallelized by TIDx, Iteration domain is parallelized by BIDy and TIDy
-// (2) Outer reduction is same to cases where hidden_size > 1024 except the
-// second step where in this case, the reduction domain is parallelized by TIDx
-// and the iteration domain is parallelized by TIDy and BIDy. This switch
-// between TIDx and TIDy is because (a) We can do warp reduction with TIDx and
-// (b) TIDx*BIDy is usually much larger than hidden_size, e.g. 128*216 = 1024*27
-// this means without switch only 1/27 of the threads is used.
-std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
-    const int64_t outer_dim_numel,
-    const int64_t inner_dim_numel,
-    const int64_t max_persistent_buffer_size,
-    const size_t tmp_gmem_dtype_size,
-    const size_t vectorize_factor) {
-  auto rparams = std::make_shared<ReductionParams>();
-  // Parameters for inner reduction:
-  // Reduction dim: inner_vect, inner_batch, bdimx and bdimy
-  // Iteration dim: gdimy
-
-  // Parameters for outer reduction:
-  // Reduction dim: bdimy
-  // Iteration dim: vectorization_factor_outer, bdimx, gdimy
-  struct InnerOuterParams {
-    int64_t inner_vect = -1;
-    int64_t inner_batch = -1;
-    int64_t bdimx = -1;
-    int64_t bdimy = -1;
-    int64_t gdimy = -1;
-    int64_t tmp_gmem_write_vect = -1;
-    int64_t vectorization_factor_outer = -1;
-
-    void verify() {
-      NVF_ERROR(inner_vect != -1, "inner_vect is not set.");
-      NVF_ERROR(inner_batch != -1, "inner_batch is not set.");
-      NVF_ERROR(bdimx != -1, "bdimx is not set.");
-      NVF_ERROR(bdimy != -1, "bdimy is not set.");
-      NVF_ERROR(gdimy != -1, "gdimy is not set.");
-      NVF_ERROR(tmp_gmem_write_vect != -1, "tmp_gmem_write_vect is not set.");
-      NVF_ERROR(
-          vectorization_factor_outer != -1,
-          "vectorization_factor_outer is not set.");
-    }
-  };
-
-  InnerOuterParams iop;
-
-  // Estimate register per thread based on buffer size, since inner reduction
-  // dim is fully parallelized, the buffer size of each thread equals the total
-  // buffer size divide by inner_dim_numel.
-  auto getEstimatedRegisterUsage = [&](int64_t batch_mul_vect) {
-    constexpr int64_t bytes_per_register = 4;
-    const int64_t persistent_buffer_size =
-        max_persistent_buffer_size / inner_dim_numel * batch_mul_vect;
-    const int64_t estimated_register_count =
-        persistent_buffer_size / bytes_per_register +
-        scheduler_utils::register_overhead;
-    return std::min(
-        estimated_register_count, scheduler_utils::max_registers_per_thread);
-  };
-
-  auto getBlocksPerSM = [&](const int64_t threads_per_sm,
-                            const int64_t threads_per_block,
-                            const int64_t warp_size) {
-    constexpr int64_t warp_allocation_granularity = 4;
-    const int64_t allocated_warps_per_block =
-        ceilDiv(
-            ceilDiv(threads_per_block, warp_size),
-            warp_allocation_granularity) *
-        warp_allocation_granularity;
-    return scheduler_utils::safeDiv(
-        threads_per_sm / warp_size, allocated_warps_per_block);
-  };
-
-  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  const int64_t device_multiprocessor_count =
-      (int64_t)dev_prop->multiProcessorCount;
-
-  // Step-1, set InnerParams reduction dim: inner_vect, inner_batch,
-  // threads_per_block (bdimx * bdimy). Start threads_per_block from a quarter
-  // warp, gradually increase it. Runtime checkCombinedReductionShape ensures
-  // inner_dim_numel is dividable by the multiplication of a quarter warp and
-  // vectorize_factor.
-  iop.inner_vect = (int64_t)vectorize_factor;
-
-  // ignore_register_size_limit will return a valid batch size.
-  // This is needed because we enforced projection for fp32 if the feature size
-  // is less or equal 14K. It leads to register spills but still faster than the
-  // unprojected version due to the reuse of a input para in this grid
-  // persistent kernel. However, when we do register usage check in
-  // canScheduleRuntime, the enforced projection is not considered. Thus,
-  // max_persistent_buffer_size used here is larger than the value used in
-  // canScheduleRuntime.
-  // This is a tmp solution before we have a new persistent heuristics, where
-  // the projection is not solely based on size of buffers. The enforced buffer
-  // projection is not considered in canScheduleRuntime Thus,
-  constexpr bool ignore_register_size_limit = true;
-  const auto& batch_and_block_size = normalization_scheduler_utils::
-      getOptionalInnerOuterPersistentBufferBatches(
-          inner_dim_numel,
-          outer_dim_numel,
-          max_persistent_buffer_size,
-          iop.inner_vect,
-          dev_prop->warpSize,
-          ignore_register_size_limit);
-  auto opt_inner_batch = batch_and_block_size.first;
-  NVF_ERROR(opt_inner_batch.has_value());
-  iop.inner_batch = opt_inner_batch.value();
-  int64_t threads_per_block = batch_and_block_size.second;
-
-  NVF_ERROR(
-      iop.inner_vect * iop.inner_batch * threads_per_block >= inner_dim_numel,
-      " iop.inner_vect * iop.inner_batch * threads_per_block should >= inner_dim_numel.");
-
-  // Step-2, set InnerParams Iteration dim: gdimy. reg_per_thread is estimated
-  // from buffer size, then it is used to calculate threads_per_sm and gdimy.
-  // gdimy_max ensures each block processes at least 8 rows to
-  // reduce the workload of the final outer reduction.
-  int64_t reg_per_thread =
-      getEstimatedRegisterUsage(iop.inner_vect * iop.inner_batch);
-  int64_t threads_per_sm = getThreadsPerSMGivenRegPerThread(reg_per_thread);
-  int64_t blocks_per_sm =
-      getBlocksPerSM(threads_per_sm, threads_per_block, dev_prop->warpSize);
-  iop.gdimy = blocks_per_sm * device_multiprocessor_count;
-  const int64_t outer_iter_min = 8;
-  const int64_t gdimy_max = scheduler_utils::roundUpToN(
-      ceilDiv(outer_dim_numel, outer_iter_min), device_multiprocessor_count);
-  while (iop.gdimy > gdimy_max && blocks_per_sm > 1) {
-    blocks_per_sm -= 1;
-    iop.gdimy = blocks_per_sm * device_multiprocessor_count;
-  }
-
-  // set the vectorization factor for the write to tmp gmem, may be different
-  // from inner_vect due to different data types, e.g. input is half and
-  // tmp_gmem is float
-  constexpr int64_t max_gmem_vect_access_bytes = 16;
-  const int64_t max_tmp_gmem_vect_factor = std::min(
-      max_gmem_vect_access_bytes / (int64_t)tmp_gmem_dtype_size,
-      iop.inner_vect);
-  iop.tmp_gmem_write_vect = max_tmp_gmem_vect_factor;
-
-  // Step-3, set OuterParams Iteration dim: vectorization_factor_outer, bdimx,
-  // gdimy (already done) The partial outer reduction result is stored in tmp
-  // gmem, set the vectorization factor for write and read
-  const int64_t workload_per_thread = inner_dim_numel >= 4096 ? 4l : 2l;
-  iop.vectorization_factor_outer =
-      std::min(workload_per_thread, max_tmp_gmem_vect_factor);
-  // For widely used hidden sizes, threads_per_block has factor of 8, roundup to
-  // increase the probability of bdimx * bdimy == threads_per_block.
-  iop.bdimx = scheduler_utils::roundUpPow2Or8(
-      ceilDiv(inner_dim_numel / iop.vectorization_factor_outer, iop.gdimy));
-  // if still not divisible, e.g. threads_per_block = 256, bdimx = 40.
-  // increase bdimx to make it divisible. Under worst case, bdimx equals to
-  // threads_per_block.
-  while (threads_per_block % iop.bdimx) {
-    iop.bdimx = std::min(iop.bdimx + 8, threads_per_block);
-  }
-  // Step-4, set OuterParams Reduction dim: bdimy.
-  iop.bdimy = threads_per_block / iop.bdimx;
-  NVF_ERROR(
-      iop.bdimy * iop.bdimx == threads_per_block,
-      " threads_per_block must be divisible by bdimx and bdimy.");
-  // Step-5, special case, when inner_dim_numel <= 1024, bdimx is usually small
-  // after divide by inner_vect and inner_batch. In this case, bdimy is used to
-  // parallelize outer_dim instead of inner_dim. This pattern is named multi
-  // reductions per block (mrpb).
-  if (inner_dim_numel <= 1024) {
-    rparams->multiple_reds_per_blk = true;
-    rparams->tidx_for_outer_reduction = true;
-    constexpr int64_t threads_per_block_mrpb = 512;
-
-    // Step-1, InnerParams, Reduction dim: inner_vect(reuse),
-    // inner_batch(reuse), bdimx
-    iop.bdimx = ceilDiv(inner_dim_numel, iop.inner_vect * iop.inner_batch);
-
-    // Step-2, InnerParams, Iteration dim: gdimy, bdimy (in next step)
-    reg_per_thread =
-        getEstimatedRegisterUsage(iop.inner_vect * iop.inner_batch);
-    threads_per_sm = getThreadsPerSMGivenRegPerThread(reg_per_thread);
-    blocks_per_sm = getBlocksPerSM(
-        threads_per_sm, threads_per_block_mrpb, dev_prop->warpSize);
-    iop.gdimy = blocks_per_sm * device_multiprocessor_count;
-
-    // Step-3, OuterParams, Iteration dim: vectorization_factor_outer(reuse),
-    // bdimy, gdimy (in previous step). We prefer bdimy to be larger enough to
-    // cover what is left in both the outer_dim and inner_dim. However, it
-    // should not exceed the limitation set by threads_per_block_mrpb.
-    int64_t bdimy_tmp = std::max(
-        ceilDiv(outer_dim_numel, iop.gdimy),
-        ceilDiv(inner_dim_numel, iop.vectorization_factor_outer * iop.gdimy));
-    iop.bdimy = std::min(threads_per_block_mrpb / iop.bdimx, bdimy_tmp);
-
-    // Step-4, OuterParams, Reduction dim: bdimx (already done)
-
-    if (iop.bdimx % dev_prop->warpSize == 0) {
-      rparams->pad_inner_reduction_to_warp = true;
-      rparams->pad_outer_reduction_to_warp = true;
-    }
-    rparams->block_dim_iter_dom = ParallelType::TIDy;
-  } else {
-    rparams->block_dim_inner_reduction_extra = ParallelType::TIDy;
-  }
-
-  // check all the parameters in InnerOuterParams are set.
-  iop.verify();
-
-  rparams->persistent_kernel = true;
-  rparams->fastest_dim = true;
-  rparams->combined_inner_outer = true;
-  // tmp_gmem is the intermediate result of outer reduction, its dtype is float,
-  // so the maximum vectorization factor is 4.
-  rparams->vectorization_factor_outer = iop.vectorization_factor_outer;
-  rparams->vectorization_factor_tmp_gmem_write = iop.tmp_gmem_write_vect;
-  rparams->cparams.maxrregcount = (int)getRegPerThreadGivenThreadsPerSM(
-      iop.bdimx * iop.bdimy * blocks_per_sm);
-  rparams->unroll_factor_inner_reduction = iop.inner_vect;
-  rparams->batches_per_block_inner_reduction = iop.inner_batch;
-  rparams->block_dim_inner_reduction = ParallelType::TIDx;
-  rparams->vectorize_inner_reduction = iop.inner_vect > 1;
-  rparams->split_grid_dim_iter_dom_outer = true;
-  rparams->grid_dim_iter_dom = ParallelType::BIDy;
-  rparams->lparams = LaunchParams(
-      LaunchParams::UNINITIALIZED_VAL,
-      iop.gdimy,
-      LaunchParams::UNINITIALIZED_VAL,
-      iop.bdimx,
-      iop.bdimy,
-      LaunchParams::UNINITIALIZED_VAL);
-
-  rparams->tag = "InnerOuter Persistent Heuristic.\n";
-
-  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    debug() << "\n===== Combined InnerOuter Reduction Stats ========\n"
-            << "outer_dim_numel: " << outer_dim_numel << "\n"
-            << "inner_dim_numel: " << inner_dim_numel << "\n"
-            << "max_persistent_buffer_size: " << max_persistent_buffer_size
-            << "\n"
-            << "vectorize_factor_input: " << iop.inner_vect << "\n"
-            << "vectorization_factor_tmp_gmem_write: "
-            << iop.tmp_gmem_write_vect << "\n"
-            << "vectorization_factor_outer: " << iop.vectorization_factor_outer
-            << "\n"
-            << "multiple_reds_per_blk: " << rparams->multiple_reds_per_blk
-            << "\n"
-            << "threads_per_sm: " << threads_per_sm << "\n"
-            << "gdimy: " << iop.gdimy << "\n"
-            << "block(" << (iop.bdimx) << ", " << iop.bdimy << ", " << 1 << ")";
-    debug() << rparams->toString() << std::endl;
-  }
-  return rparams;
+void InnerPersistentKernelScheduler::computeHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache) {
+  params_ = getInnerPersistentHeuristics(fusion, runtime_info, data_cache);
+  NVF_ERROR(params_ != nullptr);
 }
-// Copied from reduction scheduler, should generalize. Simply needed to take out
-// grid reductions.
+
+namespace {
+
 std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
@@ -1592,386 +784,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   return rparams;
 }
 
-// Heuristics for grid outer normalizations
-std::shared_ptr<ReductionParams> gridOuterPersistentHeuristic(
-    const int64_t total_reduction_numel,
-    const int64_t total_iteration_numel,
-    const int64_t n_tensor_inputs,
-    const int64_t max_input_dtype_size,
-    const int64_t max_persistent_buffer_size,
-    const size_t vectorize_factor) {
-  auto outer_params =
-      normalization_scheduler_utils::getGridOuterNormalizationParams(
-          total_reduction_numel,
-          total_iteration_numel,
-          (int64_t)vectorize_factor,
-          max_persistent_buffer_size);
-
-  NVF_ERROR(outer_params.has_value(), "No valid config found");
-
-  const auto pb_size = outer_params->persistent_buffer_factor;
-  const auto unswitch_factor = outer_params->unswitch_factor;
-
-  auto rparams = std::make_shared<ReductionParams>();
-
-  rparams->persistent_kernel = true;
-  rparams->cross_block_inner_reduction = true;
-  rparams->cross_grid_inner_reduction = true;
-  rparams->grid_dim_iter_dom = ParallelType::BIDx;
-  rparams->grid_dim_inner_reduction = ParallelType::BIDy;
-  rparams->block_dim_inner_reduction = ParallelType::TIDy;
-  rparams->batches_per_block_inner_reduction = pb_size;
-  rparams->multiple_reds_per_blk = true;
-  rparams->vectorize_iter_dom = true;
-  rparams->unroll_factor_iter_dom = (int64_t)vectorize_factor;
-  rparams->block_dim_iter_dom = ParallelType::TIDx;
-  rparams->unroll_factor_inner_reduction = unswitch_factor;
-  rparams->split_grid_dim_iter_dom_inner =
-      ceilDiv(
-          total_iteration_numel / (int64_t)vectorize_factor,
-          outer_params->launch_params.bdimx()) >
-      outer_params->launch_params.gdimx();
-  rparams->compute_persistent_buffer_with_first_consumer = true;
-  rparams->static_bdimx = true;
-  rparams->static_bdimy = true;
-
-  rparams->lparams = LaunchParams(
-      rparams->split_grid_dim_iter_dom_inner
-          ? outer_params->launch_params.gdimx()
-          : LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
-      outer_params->launch_params.bdimx(),
-      outer_params->launch_params.bdimy(),
-      LaunchParams::UNINITIALIZED_VAL);
-
-  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    debug() << "\n===== Reduction Stats ========\n"
-            << "total_reduction_numel: " << total_reduction_numel << "\n"
-            << "total_iteration_numel: " << total_iteration_numel << "\n"
-            << "vectorize_factor: " << vectorize_factor << "\n"
-            << "n_tensor_inputs: " << n_tensor_inputs << "\n"
-            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-            << "max_persistent_buffer_size: " << max_persistent_buffer_size
-            << "\n"
-            << "persistent_buffer_factor: " << pb_size << "\n"
-            << "block(" << outer_params->launch_params.bdimx() << ", "
-            << outer_params->launch_params.bdimy() << ", 1)" << std::endl;
-    debug() << rparams->toString() << std::endl;
-  }
-
-  return rparams;
-}
-
-// Copied from reduction scheduler, should generalize. Simply needed to take out
-// grid reductions.
-// TODO: Check adding iteration domain unrolling
-std::shared_ptr<ReductionParams> outerPersistentHeuristic(
-    const int64_t total_reduction_numel,
-    const int64_t total_iteration_numel,
-    const int64_t n_tensor_inputs,
-    const int64_t max_input_dtype_size,
-    const int64_t max_persistent_buffer_size,
-    const size_t vectorize_factor) {
-  // Set some targets for parallelization
-  const int64_t n_elems = total_reduction_numel * total_iteration_numel;
-  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-
-  const int64_t device_multiprocessor_count =
-      (int64_t)dev_prop->multiProcessorCount;
-
-  // If it fits in l2, we just want to make sure each warp uses 32Bytes. Set
-  // minimum warp as 16 threads instead of 32 as if we have a small reduction
-  // dim going a bit smaller than 32 usually helps.
-  const int64_t warp_size =
-      n_elems * max_input_dtype_size * n_tensor_inputs < dev_prop->l2CacheSize
-      ? (int64_t)32 / max_input_dtype_size
-      : 16;
-
-  const auto register_file_size =
-      dev_prop->regsPerBlock * scheduler_utils::bytes_per_register;
-  const int64_t device_warp_size = (int64_t)dev_prop->warpSize;
-
-  // Each block runs N reductions, where N is defined as:
-  // vectorize_factor * blockDim.x. The minimum number of SMs to run
-  // this as a persistent kernel is thus defined as:
-  const int64_t min_required_sm_per_norm = ceilDiv(
-      max_persistent_buffer_size * (int64_t)vectorize_factor *
-          normalization_scheduler_utils::PreferredLaunchConfig::kMinBdimx,
-      (int64_t)register_file_size);
-
-  if (min_required_sm_per_norm > 1) {
-    return gridOuterPersistentHeuristic(
-        total_reduction_numel,
-        total_iteration_numel,
-        n_tensor_inputs,
-        max_input_dtype_size,
-        max_persistent_buffer_size,
-        vectorize_factor);
-  }
-
-  // Compute maximum number of reductions we could do in the same kernel based
-  // on persistent buffer size
-  const int64_t max_multi_reduction_factor = scheduler_utils::safeDiv(
-      scheduler_utils::register_file_size, max_persistent_buffer_size);
-
-  struct HeuristicParams {
-    // Iteration dim, each CTA covers [bdimx] * [iter_unroll_factor] reductions.
-    // Needs total_iteration_numel / (bdimx * iter_unroll_factor) CTAs.
-    HeuristicParameterWrapper iter_unroll_factor;
-    HeuristicParameterWrapper bdimx;
-    // Reduction dim, each thread do [batches_per_block * redu_unroll_factor]
-    // serial reductions, then do block reductions along [bdimy].
-    // Total_reduction_numel <= bdimy [dynamic] * batches_per_block *
-    // redu_unroll_factor
-    HeuristicParameterWrapper redu_unroll_factor;
-    HeuristicParameterWrapper batches_per_block;
-    HeuristicParameterWrapper bdimy;
-    void verify() {
-      NVF_ERROR(
-          !iter_unroll_factor.isMutable(),
-          "iter_unroll_factor is not finalized.");
-      NVF_ERROR(!bdimx.isMutable(), "bdimx is not finalized.");
-      NVF_ERROR(
-          !redu_unroll_factor.isMutable(),
-          "redu_unroll_factor is not finalized.");
-      NVF_ERROR(
-          !batches_per_block.isMutable(),
-          "batches_per_block is not finalized.");
-      NVF_ERROR(!bdimy.isMutable(), "bdimy is not finalized.");
-    }
-  };
-  HeuristicParams hp;
-
-  // set iter_unroll_factor
-  // This controls vectorized load/store along the iteration dimension.
-  // The kernel calls block reduction [iter_unroll_factor] times.
-  // Test shows performance regression when iter_unroll_factor > 1 due to
-  // the high cost of calling block reduction multiple times per block.
-  hp.iter_unroll_factor.set(1l);
-  hp.iter_unroll_factor.finalize();
-
-  // set redu_unroll_factor
-  // This controls unroll along the reduction dimension.
-  // For case InstanceNormFP32 of [256, 28, 28, 128], if unroll 2, register
-  // usage increased from 89 to 118 but the occupancy is not changed. However,
-  // the bandwidth is dropped from 1029 GB/s to 840 GB/s due to more stalled
-  // warps. Unroll by 4 increased performance for some cases but has regression
-  // in many others. So we set redu_unroll_factor to 1.
-  hp.redu_unroll_factor.set(1l);
-  hp.redu_unroll_factor.finalize();
-
-  // set bdimx
-  // Start from warp_size, and decrease it until we can make more than 4 waves
-  const int64_t bdimx_max =
-      max_multi_reduction_factor / hp.iter_unroll_factor.get();
-  int64_t tmp_bdimx = std::min(bdimx_max, warp_size);
-  if (tmp_bdimx < warp_size) {
-    tmp_bdimx = scheduler_utils::lastPow2(tmp_bdimx);
-  }
-  // check if we can make more than 4 waves to hide memory access latency.
-  // InstanceNormFP32 of [32, 32, 32, 128] increased from 618 to 770 GB/s
-  int64_t num_CTAs =
-      ceilDiv(total_iteration_numel, tmp_bdimx * hp.iter_unroll_factor.get());
-  while (
-      num_CTAs < 4l * device_multiprocessor_count &&
-      tmp_bdimx >= 2l *
-              normalization_scheduler_utils::PreferredLaunchConfig::kMinBdimx) {
-    tmp_bdimx /= 2l;
-    num_CTAs =
-        ceilDiv(total_iteration_numel, tmp_bdimx * hp.iter_unroll_factor.get());
-  }
-  // we are not finalizing bdimx here, because we may need to change it later if
-  // bdimy is very small
-  hp.bdimx.set(tmp_bdimx);
-
-  // set bdimy and batches_per_block
-  // These two parameters controls the reduction. Each reduction is split into
-  // [batches_per_block] serial reductions and a block reduction along [bdimy].
-  // Test shows setting a serial workload larger than 8 improves performance
-  // since it reduces inter-threads communication.
-  const int64_t batches_per_block_min = std::min(8l, total_reduction_numel);
-
-  // A minimum of 128 threads in a block ensures the four warp schedulers are
-  // fully utilized even in cases where only one CTA is active per SM.
-  const int64_t min_threads_in_block = 128l;
-
-  // A maximum of 256 threads in a block ensures each thread can use up to 255
-  // registers.
-  const int64_t max_threads_in_block = 256l;
-
-  // Split reduction domain into redu_unroll_factor, bdimy, and
-  // batches_per_block. redu_unroll_factor is already finalized, so the problem
-  // changes to split after_unroll into bdimy and batches_per_block. The
-  // strategy is: prioritize divisible splits and search for bdimy in a fixed
-  // range under the constraint of batches_per_block_min.
-  const int64_t after_unroll =
-      total_reduction_numel / hp.redu_unroll_factor.get();
-  const int64_t bdimy_max = std::min(
-      ceilDiv(after_unroll, batches_per_block_min),
-      max_threads_in_block / hp.bdimx.get());
-  const int64_t bdimy_min =
-      std::min(bdimy_max, min_threads_in_block / hp.bdimx.get());
-  const int64_t bdimy_step = std::max(1l, device_warp_size / hp.bdimx.get());
-  NVF_ERROR(
-      device_warp_size % hp.bdimx.get() == 0,
-      "bdimx is no divisible by warp_size. bdimx= ",
-      hp.bdimx.get());
-
-  auto maybeNextDivisibleFactor =
-      [&after_unroll, &bdimy_step, &bdimy_max](int64_t cur) {
-        auto next = cur + bdimy_step;
-        while (next <= bdimy_max && after_unroll % next) {
-          next += bdimy_step;
-        }
-        return std::min(next, bdimy_max);
-      };
-  int64_t tmp_bdimy = bdimy_min;
-  int64_t tmp_batch = ceilDiv(after_unroll, tmp_bdimy);
-  while (tmp_bdimy < bdimy_max) {
-    int64_t next_bdimy = maybeNextDivisibleFactor(tmp_bdimy);
-    int64_t next_batch = ceilDiv(after_unroll, next_bdimy);
-    if (next_batch >= batches_per_block_min) {
-      tmp_bdimy = next_bdimy;
-      tmp_batch = next_batch;
-    } else {
-      break;
-    }
-  }
-  hp.bdimy.set(tmp_bdimy);
-  hp.bdimy.finalize();
-  hp.batches_per_block.set(tmp_batch);
-  hp.batches_per_block.finalize();
-
-  // final check on bdimx to avoid small threads_in_block
-  if (hp.bdimx.get() * hp.bdimy.get() < min_threads_in_block) {
-    hp.bdimx.set(min_threads_in_block / hp.bdimy.get());
-  }
-  hp.bdimx.finalize();
-
-  // make sure all paras are set
-  hp.verify();
-
-  // Final check of the requested registers
-  int64_t sm_required_per_norm_set = ceilDiv(
-      max_persistent_buffer_size * hp.bdimx.get() * hp.iter_unroll_factor.get(),
-      scheduler_utils::register_file_size);
-  NVF_ERROR(
-      sm_required_per_norm_set == 1,
-      "Tried to use multiple SMs on an outer persistent kernel ",
-      "yet this kernel should have been within block persistent.",
-      "\nbdimx= ",
-      hp.bdimx.get(),
-      ", iter_unroll_factor= ",
-      hp.iter_unroll_factor.get());
-
-  // copy to ReductionParams
-  auto rparams = std::make_shared<ReductionParams>();
-  auto gdimx = ceilDiv(total_iteration_numel, hp.bdimx.get());
-  rparams->batches_per_block_inner_reduction = hp.batches_per_block.get();
-  rparams->persistent_kernel = true;
-
-  rparams->fastest_dim = false;
-  rparams->cross_block_inner_reduction = true;
-  rparams->cross_grid_inner_reduction = false;
-  rparams->multiple_reds_per_blk = hp.bdimx.get() > 1;
-
-  if (rparams->multiple_reds_per_blk) {
-    rparams->block_dim_iter_dom = ParallelType::TIDx;
-  }
-
-  rparams->grid_dim_iter_dom = ParallelType::BIDx;
-  rparams->split_grid_dim_iter_dom_outer =
-      gdimx > scheduler_utils::x_grid_limit;
-
-  if (rparams->block_dim_iter_dom == ParallelType::TIDx) {
-    rparams->block_dim_inner_reduction = ParallelType::TIDy;
-  } else {
-    rparams->block_dim_inner_reduction = ParallelType::TIDx;
-  }
-
-  // Always need to mark inner reduction unroll for rfactor in outer persitent
-  // kernels
-  rparams->unroll_factor_inner_reduction = hp.redu_unroll_factor.get();
-
-  rparams->unroll_factor_iter_dom = hp.iter_unroll_factor.get();
-
-  rparams->vectorize_iter_dom =
-      vectorize_factor > 1 && hp.iter_unroll_factor.get() > 1;
-
-  rparams->lparams = LaunchParams(
-      LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
-      rparams->multiple_reds_per_blk ? hp.bdimx.get() : hp.bdimy.get(),
-      LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL);
-
-  rparams->tag = "Outer persistent kernel heuristic.\n";
-
-  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    debug() << "\n===== Reduction Stats ========\n"
-            << "total_reduction_numel: " << total_reduction_numel << "\n"
-            << "total_iteration_numel: " << total_iteration_numel << "\n"
-            << "vectorize_factor: " << vectorize_factor << "\n"
-            << "n_tensor_inputs: " << n_tensor_inputs << "\n"
-            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-            << "max_persistent_buffer_size: " << max_persistent_buffer_size
-            << "\n"
-            << "max_multi_reduction_factor: " << max_multi_reduction_factor
-            << "\n"
-            << "block(" << hp.bdimx.get() << ", " << hp.bdimy.get() << ", 1)"
-            << std::endl;
-    debug() << rparams->toString() << std::endl;
-  }
-
-  return rparams;
-}
-
-std::shared_ptr<ReductionParams> persistentHeuristic(
-    const int64_t total_reduction_numel,
-    const int64_t total_iteration_numel,
-    const int64_t inner_most_dimension_numel,
-    const bool fastest_dim_reduction,
-    const size_t n_tensor_inputs,
-    const size_t max_input_dtype_size,
-    const size_t tmp_gmem_dtype_size,
-    const int64_t max_persistent_buffer_size,
-    size_t vectorize_factor,
-    bool project_persistent_buffers,
-    const bool combined_inner_outer_reduction) {
-  std::shared_ptr<ReductionParams> rparams;
-  if (combined_inner_outer_reduction) {
-    const int64_t outer_dim_numel = total_iteration_numel;
-    const int64_t inner_dim_numel = inner_most_dimension_numel;
-    rparams = innerOuterPersistentHeuristic(
-        outer_dim_numel,
-        inner_dim_numel,
-        max_persistent_buffer_size,
-        tmp_gmem_dtype_size,
-        vectorize_factor);
-  } else if (fastest_dim_reduction) {
-    rparams = innerPersistentHeuristic(
-        total_reduction_numel,
-        total_iteration_numel,
-        inner_most_dimension_numel,
-        (int64_t)n_tensor_inputs,
-        (int64_t)max_input_dtype_size,
-        max_persistent_buffer_size,
-        vectorize_factor);
-  } else {
-    rparams = outerPersistentHeuristic(
-        total_reduction_numel,
-        total_iteration_numel,
-        (int64_t)n_tensor_inputs,
-        (int64_t)max_input_dtype_size,
-        max_persistent_buffer_size,
-        vectorize_factor);
-  }
-  rparams->project_persistent_buffers = project_persistent_buffers;
-  return rparams;
-}
-
 } // namespace
 
 std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
@@ -1981,198 +793,21 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
   FUSER_PERF_SCOPE("getInnerPersistentHeuristics");
   FusionGuard fg(fusion);
 
-  auto reduction_tv_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
-          data_cache, [&fusion]() {
-            return std::make_unique<std::vector<TensorView*>>(
-                scheduler_utils::getReductionTvs(fusion));
-          });
+  const auto& prop =
+      normalization_scheduler_utils::getPersistentKernelProperties(
+          fusion, runtime_info, data_cache, schedule_heuristic);
 
-  auto& reduction_tvs = reduction_tv_entry.get();
-
-  NVF_ERROR(!reduction_tvs.empty(), "Need reduction tensor views to schedule.");
-
-  int64_t n_tensor_inner_reduction = 0;
-  int64_t n_tensor_outer_reduction = 0;
-  TensorView* first_inner_reduction_tv = nullptr;
-  std::vector<TensorView*> outer_reduction_tvs;
-  for (auto tv : reduction_tvs) {
-    if (scheduler_utils::isFastestDimReduction(tv)) {
-      if (!first_inner_reduction_tv) {
-        first_inner_reduction_tv = tv;
-      }
-      n_tensor_inner_reduction++;
-    } else {
-      n_tensor_outer_reduction++;
-      outer_reduction_tvs.emplace_back(tv);
-    }
-  }
-  const bool combined_inner_outer_reduction =
-      n_tensor_inner_reduction && n_tensor_outer_reduction;
-
-  auto ref_red_tv = combined_inner_outer_reduction ? first_inner_reduction_tv
-                                                   : reduction_tvs[0];
-
-  NVF_ERROR(ref_red_tv != nullptr, "Reduction TensorView wasn't found.");
-
-  NVF_ERROR(ref_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
-  const auto red_expr = ref_red_tv->definition();
-
-  NVF_ERROR(
-      ir_utils::isReductionOp(red_expr),
-      "TensorView doesn't have a reduction.");
-
-  auto tv_inps = ir_utils::filterByType<TensorView>(fusion->inputs());
-  NVF_ERROR(
-      std::distance(tv_inps.begin(), tv_inps.end()) > 0,
-      "Tried to schedule a fusion with no tensor inputs, currently not supported.");
-
-  auto persistent_buffer_info_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
-          data_cache, [&fusion]() {
-            return std::make_unique<scheduler_utils::PersistentBufferInfo>(
-                scheduler_utils::persistentBuffers(fusion));
-          });
-
-  auto& persistent_buffer_info = persistent_buffer_info_entry.get();
-  NVF_ERROR(
-      !persistent_buffer_info.persistent_buffers.empty(),
-      "Persistent scheduler requires persistent buffers.");
-
-  auto properties =
-      scheduler_utils::getReductionProperties(fusion, runtime_info, ref_red_tv);
-
-  // Grab persistent buffer sizes
-  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
-      fusion, runtime_info, persistent_buffer_info, data_cache);
-
-  // Figure out if we want to projet persistent buffers to the inputs for
-  // exmaple if we have an input tensor t0 that's fp16:
-  //
-  // t0 = makeSymbolicTensor(2, DataType::Half)
-  // t1 = castOp(DataType::Float, t0)
-  // t2 = sum(t1, 1)
-  // t3 = broadcast(t2, {false, true})
-  // t4 = set(t1)
-  // t5 = add(t4, t3)
-  // t6 = castOp(DataType::Half, t5)
-  //
-  // The persistent buffer is detected as being t1, which would save the
-  // persistent buffer as a float, however we could obviously just save t0 which
-  // is half and would take half the memory. A more complex scenario of this
-  // which requires more advanced analysis is batch norm backwards.
-  // TODO: Fix projected persistent buffers with view
-  // https://github.com/csarofeen/pytorch/issues/2054
-  // If projected persistent buffers are smaller, they will be used.
-  bool can_project = ir_utils::getViewOps(fusion).empty() &&
-      persistent_buffer_size_info.projected_persistent_buffer_size > 0;
-  bool project_persistent_buffers = can_project &&
-      persistent_buffer_size_info.projected_persistent_buffer_size <
-          persistent_buffer_size_info.persistent_buffer_size;
-
-  auto max_persistent_size = project_persistent_buffers
-      ? persistent_buffer_size_info.projected_persistent_buffer_size
-      : persistent_buffer_size_info.persistent_buffer_size;
-
-  if (can_project && combined_inner_outer_reduction) {
-    // In combined_inner_outer_reduction, we have additional buffers for partial
-    // results of outer reductions.
-    int64_t outer_reduction_buffer_size =
-        normalization_scheduler_utils::partialReductionBufferSize(
-            outer_reduction_tvs, runtime_info);
-
-    // for layer_norm backward, enable project to input can reuse weight shared
-    // among different rows. Although it increased register usage and may lead
-    // to register spills, the overall performance is increased. The following
-    // code will check if we can do this projection by allowing more registers.
-    // This is a temporary solution, the issue is tracked by
-    // https://github.com/csarofeen/pytorch/issues/2525
-    if (!project_persistent_buffers) {
-      int64_t total_projected_buffer_size =
-          persistent_buffer_size_info.projected_persistent_buffer_size +
-          outer_reduction_buffer_size;
-      // allow 10% more to allow project to input, 14K float should do project
-      // and 16K float should't do. more_register_factor >= 14*1024*5(three
-      // inputs, two outer reduction results)*sizeof(float) /
-      // register_file_size_full
-      constexpr float more_register_factor = 1.1;
-      const int64_t avilable_register_file_size = static_cast<int64_t>(
-          scheduler_utils::register_file_size_full * more_register_factor);
-      if (avilable_register_file_size >= total_projected_buffer_size) {
-        project_persistent_buffers = true;
-      }
-    }
-    // now we have the final decision on whether we project to input or not.
-    if (project_persistent_buffers) {
-      max_persistent_size =
-          persistent_buffer_size_info.projected_persistent_buffer_size +
-          outer_reduction_buffer_size;
-    } else {
-      max_persistent_size = persistent_buffer_size_info.persistent_buffer_size +
-          outer_reduction_buffer_size;
-    }
-  }
-
-  auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
-
-  auto unrollable_inputs_outputs_entry =
-      HeuristicSummaryEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
-          data_cache, [&reduced_tv]() {
-            return std::make_unique<std::vector<TensorView*>>(
-                scheduler_utils::getInputsOutputsWithInnerDim(
-                    reduced_tv, false, false));
-          });
-
-  auto& unrollable_inputs_outputs = unrollable_inputs_outputs_entry.get();
-
-  const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-      runtime_info,
-      reduced_tv,
-      data_cache,
-      vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
-
-  // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
-  // share inner dimension with data pattern we're looking at).
-  int64_t max_dtype_size = 1;
-
-  // TODO: This might be better if it was the larger of input or outputs. Would
-  // be even better if we had better analysis as not all unrolled elements have
-  // to be alive at the same time.
-  int64_t n_tensor_inputs = 0;
-  for (auto tv : unrollable_inputs_outputs) {
-    if (!tv->isFusionInput()) {
-      continue;
-    }
-
-    max_dtype_size = std::max(
-        max_dtype_size,
-        dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
-    n_tensor_inputs++;
-  }
-
-  // dtype used to store partial outer reduction in combined reduction
-  const int64_t tmp_gmem_dtype_size = combined_inner_outer_reduction
-      ? dataTypeSize(outer_reduction_tvs[0]->getDataType().value())
-      : dataTypeSize(ref_red_tv->getDataType().value());
-
-  // Protect heuristics div by 0:
-  n_tensor_inputs = std::max(n_tensor_inputs, (int64_t)1);
-
-  auto heuristic = persistentHeuristic(
-      properties.total_reduction_numel,
-      properties.total_iteration_numel,
-      properties.inner_most_dimension_numel,
-      properties.fastest_dim_reduction,
-      n_tensor_inputs,
-      max_dtype_size,
-      tmp_gmem_dtype_size,
-      max_persistent_size,
-      vectorize_factor,
-      project_persistent_buffers,
-      combined_inner_outer_reduction);
-  heuristic->cparams.index_type = runtime_info.getIndexType();
-  return heuristic;
+  std::shared_ptr<ReductionParams> rparams = innerPersistentHeuristic(
+      prop.total_reduction_numel,
+      prop.total_iteration_numel,
+      prop.inner_most_dimension_numel,
+      prop.n_tensor_inputs,
+      prop.max_dtype_size,
+      prop.max_persistent_buffer_size,
+      prop.vectorize_factor);
+  rparams->project_persistent_buffers = prop.project_persistent_buffers;
+  rparams->cparams.index_type = runtime_info.getIndexType();
+  return rparams;
 }
 
 std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
@@ -2253,12 +888,6 @@ TensorView* scheduleReductionGeneral(
         scheduler_utils::domainReorderAsRfactorMap(reduction_tv));
   }
 
-  if (rparams.persistent_kernel && rparams.cross_grid_inner_reduction &&
-      !rparams.fastest_dim && reduction_tvs.size() > 1 &&
-      !rparams.combined_inner_outer) {
-    groupReductions(reduction_tvs, false);
-  }
-
   auto dim_analysis = scheduler_utils::canonicalDimReduction(
       fusion, reduction_tv, rparams.fastest_dim && rparams.schedule_3D);
   bool has_iter_axis = dim_analysis.first;
@@ -2278,280 +907,14 @@ TensorView* scheduleReductionGeneral(
       rparams, reduction_tv, has_iter_axis);
 }
 
-void scheduleReductionCombinedOuter(
-    Fusion* fusion,
-    const ReductionParams& rparams,
-    const std::vector<TensorView*>& outer_reduction_tvs,
-    std::vector<TensorView*>& cached_gmem,
-    std::vector<TensorView*>& cached_gmem_reload,
-    std::vector<TensorView*>& outer_reference_tvs,
-    std::unordered_set<TensorView*>& boundaryNodesSet) {
-  auto mergeReductionOrIterDomains = [](TensorView* tv, bool mergeReduction) {
-    int prev_i = -1;
-    for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
-      if (mergeReduction == tv->axis(i)->isReduction()) {
-        if (prev_i == -1) {
-          prev_i = i;
-        } else {
-          tv->merge(i, prev_i);
-          prev_i = i;
-        }
-      }
-    }
-  };
-  for (auto& outer_reduction_tv : outer_reduction_tvs) {
-    // merge tensorview to [reduction, iteraiton] domains
-    mergeReductionOrIterDomains(outer_reduction_tv, true);
-    mergeReductionOrIterDomains(outer_reduction_tv, false);
-    if (rparams.multiple_reds_per_blk) {
-      outer_reduction_tv->split(
-          0, NamedScalar::getParallelDim(rparams.block_dim_iter_dom));
-    }
-    outer_reduction_tv->split(
-        0, NamedScalar::getParallelDim(rparams.grid_dim_iter_dom), false);
-
-    if (rparams.multiple_reds_per_blk) {
-      outer_reduction_tv->rFactor({1});
-    }
-    TensorView* partialResult = outer_reduction_tv->rFactor({1});
-    partialResult->cacheBefore();
-    partialResult->setMemoryType(MemoryType::Global);
-    TensorView* partialResultReload = partialResult->cacheAfter();
-
-    boundaryNodesSet.insert(partialResultReload);
-    cached_gmem.emplace_back(partialResult);
-    cached_gmem_reload.emplace_back(partialResultReload);
-
-    if (rparams.multiple_reds_per_blk) {
-      if (rparams.tidx_for_outer_reduction) {
-        outer_reduction_tv->split(
-            0, NamedScalar::getParallelDim(ParallelType::TIDx));
-        outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDx);
-        // to use warp reduction
-        if (rparams.pad_outer_reduction_to_warp) {
-          outer_reduction_tv->axis(1)->padToMultipleOfWarp();
-        }
-      } else {
-        outer_reduction_tv->split(
-            0, NamedScalar::getParallelDim(ParallelType::TIDy));
-        outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
-      }
-      // iteration domain
-      int axisID = -1;
-      if (rparams.vectorization_factor_outer > 1) {
-        outer_reduction_tv->split(axisID, rparams.vectorization_factor_outer);
-        outer_reduction_tv->axis(axisID--)->parallelize(
-            ParallelType::Vectorize);
-      }
-
-      if (rparams.tidx_for_outer_reduction) {
-        outer_reduction_tv->split(
-            axisID, NamedScalar::getParallelDim(ParallelType::TIDy));
-        outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDy);
-      } else {
-        outer_reduction_tv->split(
-            axisID, NamedScalar::getParallelDim(ParallelType::TIDx));
-        outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
-      }
-
-      outer_reduction_tv->split(
-          axisID, NamedScalar::getParallelDim(ParallelType::BIDy));
-      outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
-
-    } else {
-      // reduction domain
-      outer_reduction_tv->split(
-          0, NamedScalar::getParallelDim(ParallelType::TIDy));
-      outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
-
-      // iteration domain
-      int axisID = -1;
-      if (rparams.vectorization_factor_outer > 1) {
-        outer_reduction_tv->split(axisID, rparams.vectorization_factor_outer);
-        outer_reduction_tv->axis(axisID--)->parallelize(
-            ParallelType::Vectorize);
-      }
-
-      if (rparams.lparams.bdimx() > 1) {
-        outer_reduction_tv->split(
-            axisID, NamedScalar::getParallelDim(ParallelType::TIDx));
-        outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
-      }
-
-      outer_reduction_tv->split(
-          axisID, NamedScalar::getParallelDim(ParallelType::BIDy));
-
-      outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
-    }
-    auto outer_reference_tv =
-        reduction_scheduler_utils::sortAndRFactor(outer_reduction_tv);
-    outer_reference_tvs.emplace_back(outer_reference_tv);
-  }
-}
-
-void scheduleInnerPersistentKernelInnerOuter(
-    Fusion* fusion,
-    const ReductionParams& rparams) {
-  FUSER_PERF_SCOPE("scheduleInnerPersistentKernelInnerOuter");
-
-  FusionGuard fg(fusion);
-
-  // Grab the reduction, input, and output tensor views. dummy_outputs are
-  // helper tensors for persistent buffer projection.
-  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
-  beforeSchedule(
-      fusion,
-      rparams,
-      dummy_outputs,
-      cached_inputs,
-      reduction_tvs,
-      cached_outputs);
-
-  // split reduction_tvs into inner and outer reduction_tvs
-  std::vector<TensorView*> inner_reduction_tvs, outer_reduction_tvs;
-  for (auto tv : reduction_tvs) {
-    if (scheduler_utils::isFastestDimReduction(tv)) {
-      inner_reduction_tvs.emplace_back(tv);
-    } else {
-      outer_reduction_tvs.emplace_back(tv);
-    }
-  }
-  NVF_ERROR(
-      !inner_reduction_tvs.empty(),
-      "schedulePersistentKernelInnerOuter is called but no inner reduction is found.");
-  NVF_ERROR(
-      !outer_reduction_tvs.empty(),
-      "schedulePersistentKernelInnerOuter is called but no outer reduction is found.");
-
-  // schedule inner reduction, only schedule the first inner reduction tv, then
-  // will be propagated to other inner reduction tvs.
-  TensorView* inner_reference_tv =
-      scheduleReductionGeneral(fusion, rparams, inner_reduction_tvs);
-
-  // schedule outer reduction, schedule all the outer reduction tvs since we
-  // need to store the intermediate results.
-  std::vector<TensorView*> cached_gmem;
-  std::vector<TensorView*> cached_gmem_reload;
-  std::vector<TensorView*> outer_reference_tvs;
-  std::unordered_set<TensorView*> boundaryNodesSet;
-  scheduleReductionCombinedOuter(
-      fusion,
-      rparams,
-      outer_reduction_tvs,
-      cached_gmem,
-      cached_gmem_reload,
-      outer_reference_tvs,
-      boundaryNodesSet);
-
-  // Propagate inner reduction and outer reductions
-  for (auto output : dummy_outputs) {
-    fusion->addOutput(output);
-  }
-
-  const bool unroll = rparams.isUnrolled();
-  const bool vectorize =
-      rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
-  const bool is_outer_grid_persistence = rparams.persistent_kernel &&
-      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
-
-  // Propagate inner reduction. There is a cutoff at boundaryNodesSet, so this
-  // propagation will not propagate to the final outer reduction.
-  reduction_scheduler_utils::propagateTransformation(
-      inner_reference_tv, boundaryNodesSet);
-  reduction_scheduler_utils::propagateRFactor(
-      inner_reference_tv, inner_reduction_tvs[0], inner_reduction_tvs);
-
-  // Don't allow parallelization propagation goes through boundaryNodesSet
-  const auto& selected_tvs_inner =
-      scheduler_utils::getAllTvsFrom(inner_reduction_tvs, boundaryNodesSet);
-  reduction_scheduler_utils::propagateParallelization(
-      fusion,
-      inner_reduction_tvs[0],
-      inner_reference_tv,
-      unroll,
-      vectorize,
-      is_outer_grid_persistence,
-      inner_reduction_tvs,
-      cached_inputs,
-      cached_outputs,
-      {selected_tvs_inner.begin(), selected_tvs_inner.end()});
-
-  // Propagate outer reduction. Each outer reduction is connected with its
-  // cached_gmem and output, since we added all the cached_gmem to the
-  // boundaryNodesSet, the transformation from one outer reduction can't
-  // propagate to other outer reductions due to the cutoff at boundaryNodesSet.
-  // Thus, we need a loop to initiate the propagation from each outer reduction.
-  // Don't allow parallelization propagation goes through cached_gmem, see issue
-  // 246.
-  for (long unsigned int i = 0; i < outer_reference_tvs.size(); i++) {
-    const auto& selected_tvs_outer = scheduler_utils::getAllTvsFrom(
-        {outer_reduction_tvs[i]}, {cached_gmem[i]});
-    reduction_scheduler_utils::propagateTransformation(
-        outer_reference_tvs[i], boundaryNodesSet);
-    reduction_scheduler_utils::propagateParallelization(
-        fusion,
-        outer_reduction_tvs[i],
-        outer_reference_tvs[i],
-        unroll,
-        vectorize,
-        is_outer_grid_persistence,
-        outer_reduction_tvs,
-        cached_inputs,
-        cached_outputs,
-        {selected_tvs_outer.begin(), selected_tvs_outer.end()});
-  }
-
-  // special vectorization of temp gmem, vectorization_factor_tmp_gmem_write is
-  // guaranteed to be smaller or equal to input vectorization factor.
-  if (rparams.vectorization_factor_tmp_gmem_write > 1) {
-    for (auto tv : cached_gmem) {
-      NVF_ERROR(
-          rparams.vectorization_factor_tmp_gmem_write <=
-              rparams.unroll_factor_inner_reduction,
-          "vectorization factor of temp gmem write should be smaller than that of inner reduction.")
-      if (rparams.vectorization_factor_tmp_gmem_write <
-          rparams.unroll_factor_inner_reduction) {
-        tv->split(-1, rparams.vectorization_factor_tmp_gmem_write);
-      }
-      tv->axis(-1)->parallelize(ParallelType::Vectorize);
-    }
-  }
-  // vectorization propagate through propagateParallelization only works for
-  // input and output tensors. propagate vectorization to cached_gmem_reload
-  // directly from output tv using parallelizeAllLike. must propagate seperaely
-  // for different tvs as outer reductions are transformed seperately.
-  if (rparams.vectorization_factor_outer > 1) {
-    for (auto tv : cached_gmem_reload) {
-      auto output_tvs = ir_utils::outputTvsOf(tv);
-      NVF_ERROR(
-          !output_tvs.empty(),
-          "cached_gmem_reload should have at least one output tensor.")
-      scheduler_utils::parallelizeAllLike(
-          output_tvs[0],
-          -1,
-          {cached_gmem_reload.begin(), cached_gmem_reload.end()},
-          {ParallelType::Vectorize});
-    }
-  }
-
-  // Remove dummy outputs as they can inadvertently affect CA positions
-  for (auto output : dummy_outputs) {
-    fusion->removeOutput(output);
-  }
-  inlineMost();
-}
-
 } // namespace
 
 // fusion is the input IR that will be modified by this function
 void scheduleInnerPersistentKernel(
     Fusion* fusion,
     const ReductionParams& rparams) {
-  FUSER_PERF_SCOPE("schedulePersistentKernel");
-  if (rparams.combined_inner_outer) {
-    return scheduleInnerPersistentKernelInnerOuter(fusion, rparams);
-  }
+  FUSER_PERF_SCOPE("scheduleInnerPersistentKernel");
+
   FusionGuard fg(fusion);
 
   // Grab the reduction, input, and output tensor views. dummy_outputs are
@@ -2606,6 +969,8 @@ void scheduleInnerPersistentKernel(
   }
 
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
+
+  refineCachePolicy(fusion);
 }
 
 } // namespace nvfuser
