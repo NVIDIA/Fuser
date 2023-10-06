@@ -40,7 +40,8 @@ using DoubleInt64BoolVec = DynamicType<
     bool,
     NonInstantiable>;
 struct DoubleInt64BoolVecTwo {
-#if __cplusplus >= 202002L
+#if __cplusplus >= 202002L && defined(__GLIBCXX__) && __GLIBCXX__ >= 20230714
+  // For older versions of libstdc++, we can not make this constexpr. The reason is unknown.
   constexpr
 #endif
   operator DoubleInt64BoolVec() const {
