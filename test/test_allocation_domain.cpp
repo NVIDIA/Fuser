@@ -1053,7 +1053,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork) {
   testValidate(&fusion, cg_outputs, {t0}, {t0, t0}, __LINE__, __FILE__);
 }
 
-TEST_F(AllocationDomainTest, AllocationDomainVectorizationIssue902) {
+TEST_F(AllocationDomainTest, VectorizationIssue902) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
