@@ -220,7 +220,7 @@ if(BUILD_PYTHON)
   )
 endif()
 
-set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
+set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegenx) # the "x" suffix is to make sure there is no naming conflict with the old libnvfuser_codegen.so in torch/lib
 add_library(${NVFUSER_CODEGEN} SHARED ${NVFUSER_SRCS})
 target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Wall -Wno-unused-function)
 target_compile_options(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
@@ -384,7 +384,7 @@ if(BUILD_PYTHON)
     target_link_libraries(${NVFUSER} PRIVATE dynamic_type)
     target_link_libraries(${NVFUSER} PRIVATE pybind11::pybind11)
     set_target_properties(${NVFUSER} PROPERTIES INSTALL_RPATH
-      "$ORIGIN/../torch/lib:$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib")
+      "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib:$ORIGIN/../torch/lib")
     install(TARGETS ${NVFUSER} DESTINATION lib)
   else() # PROJECT_IS_TOP_LEVEL
     torch_compile_options(${NVFUSER})
