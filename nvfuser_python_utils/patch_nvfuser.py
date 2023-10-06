@@ -13,7 +13,6 @@ def patch_pytorch_nvfuser_binaries(torch_lib):
         # Only overwrite target torch/lib/libnvfuser_codegen.so if it exists. (before nvfuser removal from torch @ torch <= 2.1)
         # Don't copy anything there if it doesn't exist. (after nvfuser removal from torch @ torch > 2.1)
         if os.path.isfile(target_lib_path):
-            shutil.move(target_lib_path, target_lib_path + ".old")
             shutil.copyfile(os.path.join(nvfuser_lib, f_name), target_lib_path)
 
 
@@ -49,26 +48,12 @@ def patch_installation_if_needed():
     import filecmp
 
     torch_dir, torch_lib = get_torch_dirs()
-
     installed_nvfuser_dir = os.path.join(os.path.dirname(torch_dir), "nvfuser")
-    nvfuser_lib = os.path.join(installed_nvfuser_dir, "lib")
 
-    f_name = "libnvfuser_codegen.so"
-
-    torch_libnvfuser_codegen = os.path.join(torch_lib, f_name)
-    nvfuser_libnvfuser_codegen = os.path.join(nvfuser_lib, f_name)
-
-    if (
-        os.path.isfile(torch_libnvfuser_codegen)
-        and os.path.isfile(nvfuser_libnvfuser_codegen)
-        and not filecmp.cmp(torch_libnvfuser_codegen, nvfuser_libnvfuser_codegen)
+    if not filecmp.cmp(
+        os.path.join(torch_lib, "libnvfuser_codegen.so"),
+        os.path.join(installed_nvfuser_dir, "lib", "libnvfuser_codegen.so"),
     ):
-        print(
-            f"nvfuser: found differences of {f_name} in {torch_lib} and {nvfuser_lib}. "
-            "The library is now patched automatically in the first `import nvfuser` run. "
-            f"The old {f_name} in {torch_lib} will be moved to {torch_lib}.old . "
-            "This is not an error. No action is needed."
-        )
         patch_installation()
 
 
