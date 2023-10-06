@@ -468,7 +468,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
               DT::type_identities_as_tuple,                                \
               DT::type_identities_as_tuple),                               \
       DT>                                                                  \
-  operator op(const DT & x, const std::type_identity_t<DT>& y) {           \
+  operator op(const DT& x, const std::type_identity_t<DT>& y) {            \
     DT ret(std::monostate{});                                              \
     DT::for_all_types([&ret, &x, &y](auto lhs) {                           \
       using LHS = typename decltype(lhs)::type;                            \
@@ -516,7 +516,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
               opname##_rdefined_checker<RHS, typename DT::VariantType>,    \
               DT::type_identities_as_tuple),                               \
       DT>                                                                  \
-  operator op(const DT & x, const RHS & y) {                               \
+  operator op(const DT& x, const RHS& y) {                                 \
     DT ret(std::monostate{});                                              \
     DT::for_all_types([&ret, &x, &y](auto lhs) {                           \
       using LHS = typename decltype(lhs)::type;                            \
@@ -562,7 +562,7 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
                opname##_ldefined_checker<LHS, typename DT::VariantType>,   \
                DT::type_identities_as_tuple)),                             \
       DT>                                                                  \
-  operator op(const LHS & x, const DT & y) {                               \
+  operator op(const LHS& x, const DT& y) {                                 \
     DT ret(std::monostate{});                                              \
     DT::for_all_types([&ret, &x, &y](auto rhs) {                           \
       using RHS = typename decltype(rhs)::type;                            \
@@ -727,7 +727,7 @@ DEFINE_BINARY_OP(rshift, >>);
                opname##_ldefined_checker<LHS>,                             \
                DT::type_identities_as_tuple_maybe_no_container)),          \
       bool>                                                                \
-  operator op(const LHS & x, const DT & y) {                               \
+  operator op(const LHS& x, const DT& y) {                                 \
     std::optional<bool> ret = std::nullopt;                                \
     DT::for_all_types([&ret, &x, &y](auto rhs) {                           \
       using RHS = typename decltype(rhs)::type;                            \
@@ -787,7 +787,7 @@ DEFINE_COMPARE_OP(ge, >=);
               opname##_helper<typename DT::VariantType>,                       \
               DT::type_identities_as_tuple),                                   \
       DT>                                                                      \
-  operator op(const DT & x) {                                                  \
+  operator op(const DT& x) {                                                   \
     DT ret(std::monostate{});                                                  \
     DT::for_all_types([&ret, &x](auto _) {                                     \
       using Type = typename decltype(_)::type;                                 \
@@ -906,7 +906,7 @@ std::ostream& operator<<(std::ostream& os, const DT& dt) {
       typename = std::enable_if_t<                                             \
           is_dynamic_type_v<DT> &&                                             \
           any_check(opname##_helper, DT::type_identities_as_tuple)>>           \
-  inline constexpr DT& operator op(DT & x) {                                   \
+  inline constexpr DT& operator op(DT& x) {                                    \
     bool computed = false;                                                     \
     DT::for_all_types([&computed, &x](auto _) {                                \
       using Type = typename decltype(_)::type;                                 \
@@ -954,7 +954,7 @@ DEFINE_LEFT_PPMM(lmm, --);
               opname##_helper<typename DT::VariantType>,                       \
               DT::type_identities_as_tuple),                                   \
       DT>                                                                      \
-  operator op(DT & x, int) {                                                   \
+  operator op(DT& x, int) {                                                    \
     DT ret;                                                                    \
     DT::for_all_types([&ret, &x](auto _) {                                     \
       using Type = typename decltype(_)::type;                                 \
@@ -988,7 +988,7 @@ DEFINE_RIGHT_PPMM(rmm, --);
       typename T,                                                \
       typename = std::enable_if_t<                               \
           is_dynamic_type_v<DT> && (opcheck<DT> op opcheck<T>)>> \
-  inline constexpr DT& operator assign_op(DT & x, const T & y) { \
+  inline constexpr DT& operator assign_op(DT& x, const T& y) {   \
     return x = x op y;                                           \
   }
 
