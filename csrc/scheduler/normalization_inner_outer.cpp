@@ -142,6 +142,16 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     }
   }
 
+  // the reduction axis of outer reduction tv should match to the iteration axis
+  // of the inner reduction tv.
+  if (!normalization_scheduler_utils::isReductionIterationAxisMatched(
+          inner_reduction_tvs, outer_reduction_tvs)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedule_heuristic,
+        "to use combined reduction, every iteration axis in inner reduction tv should match to a reduction domain in outer reduction tv.");
+    return false;
+  }
+
   if (!normalization_scheduler_utils::checkReductionPattern(
           fusion,
           schedule_heuristic,
