@@ -8,31 +8,37 @@
 namespace warp {
 
 template <typename T>
-__device__ __forceinline__ T shfl_xor(T var, int laneMask, int width = 32) {
-  return __shfl_xor_sync(0xffffffff, var, laneMask, width);
+__device__ __forceinline__ T
+shfl_xor(unsigned int participating_mask, T var, int laneMask, int width = 32) {
+  return __shfl_xor_sync(participating_mask, var, laneMask, width);
 }
 template <typename T>
 __device__ __forceinline__ std::complex<T> shfl_xor(
+    unsigned int participating_mask,
     std::complex<T> var,
     int laneMask,
     int width = 32) {
-  T real = __shfl_xor_sync(0xffffffff, var.real(), laneMask, width);
-  T imag = __shfl_xor_sync(0xffffffff, var.imag(), laneMask, width);
+  T real = __shfl_xor_sync(participating_mask, var.real(), laneMask, width);
+  T imag = __shfl_xor_sync(participating_mask, var.imag(), laneMask, width);
   return std::complex<T>(real, imag);
 }
 
 template <typename T>
-__device__ __forceinline__ T
-warp_broadcast(T var, int srcLane, int width = 32) {
-  return __shfl_sync(0xffffffff, var, srcLane, width);
+__device__ __forceinline__ T warp_broadcast(
+    unsigned int participating_mask,
+    T var,
+    int srcLane,
+    int width = 32) {
+  return __shfl_sync(participating_mask, var, srcLane, width);
 }
 
 template <typename T>
 __device__ __forceinline__ std::complex<T> warp_broadcast(
+    unsigned int participating_mask,
     std::complex<T> var,
     int width = 32) {
-  T real = __shfl_xor_sync(0xffffffff, var.real(), srcLane, width);
-  T imag = __shfl_xor_sync(0xffffffff, var.imag(), srcLane, width);
+  T real = __shfl_sync(participating_mask, var.real(), srcLane, width);
+  T imag = __shfl_sync(participating_mask, var.imag(), srcLane, width);
   return std::complex<T>(real, imag);
 }
 
@@ -65,11 +71,18 @@ __device__ void warpReduceTIDX(
   unsigned int lane_idx = threadIdx.x % WARP_SIZE;
   unsigned int reduction_size = blockDim.x;
   unsigned int num_of_warps = (reduction_size + WARP_SIZE - 1) / WARP_SIZE;
-  int hoist_idx = reduction_size - lane_idx - warp_idx * WARP_SIZE;
-  for (int i = 16; i >= 1; i /= 2) {
-    T shuffled_value = shfl_xor(reduce_val, i, WARP_SIZE);
-    if (Padded || i < hoist_idx) {
-      reduction_op(reduce_val, shuffled_value);
+  bool launch_condition = threadIdx.x < blockDim.x;
+  // For unpadded case, the mask of the last warp is setting the bit
+  // corresponding to the active threads, e.g. for a block with 35 threads, the
+  // active threads of the last warp is [32, 33, 34], the mask is
+  // [00,...,00111], which is 7.
+  const unsigned int mask = (Padded || warp_idx != num_of_warps - 1)
+      ? 0xffffffff
+      : __ballot_sync(0xffffffff, launch_condition);
+  if (launch_condition) {
+    for (int i = 16; i >= 1; i /= 2) {
+      T shf_val = shfl_xor(mask, reduce_val, i);
+      reduction_op(reduce_val, shf_val);
     }
   }
 
@@ -93,13 +106,16 @@ __device__ void warpReduceTIDX(
       // This assumes num_of_warps will be < 32, meaning < 1024 threads.
       //  Should be true for long enough.
       assert(num_of_warps <= 32);
+      const bool launch_condition = lane_idx < num_of_warps;
+      const unsigned int mask = __ballot_sync(0xffffffff, launch_condition);
 
-      reduce_val = lane_idx < num_of_warps ? shared_mem[smem_offset + lane_idx]
-                                           : init_val;
-
-      // Reduce within warp 0
-      for (int i = 16; i >= 1; i /= 2) {
-        reduction_op(reduce_val, shfl_xor(reduce_val, i, 32));
+      reduce_val =
+          launch_condition ? shared_mem[smem_offset + lane_idx] : init_val;
+      if (launch_condition) {
+        // Reduce within warp 0
+        for (int i = 16; i >= 1; i /= 2) {
+          reduction_op(reduce_val, shfl_xor(mask, reduce_val, i));
+        }
       }
     }
 
@@ -111,7 +127,7 @@ __device__ void warpReduceTIDX(
     block_sync::sync<Aligned>();
   } else {
     if (!Padded) {
-      reduce_val = warp_broadcast(reduce_val, 0);
+      reduce_val = warp_broadcast(mask, reduce_val, 0);
     }
     reduction_op(out, reduce_val);
   }

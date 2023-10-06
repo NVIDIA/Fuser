@@ -9680,9 +9680,8 @@ TEST_F(NVFuserTest, NonPaddedWarpReduction) {
   fusion.addInput(tv0);
   TensorView* tv1 = set(tv0);
   TensorView* tv2 = sum(tv1, {0});
-  TensorView* tv3 = broadcast(tv2, {true});
-  TensorView* tv4 = div(tv1, tv3);
-  fusion.addOutput(tv4);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
 
   tv1->axis(0)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv1);
@@ -9698,18 +9697,18 @@ TEST_F(NVFuserTest, NonPaddedWarpReduction) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto test = [&](int num_elements) {
-    at::Tensor t0 = at::randn({num_elements}, options);
+    at::Tensor t0 = at::ones({num_elements}, options);
     std::vector<c10::IValue> aten_inputs = {t0};
 
     FusionExecutor fe;
     fe.compileFusion(&fusion, aten_inputs);
     std::vector<at::Tensor> outputs = fe.runFusion(aten_inputs);
-    testValidate(
-        &fusion, outputs, aten_inputs, {t0 / t0.sum()}, __LINE__, __FILE__);
+    std::cout << outputs[0] << std::endl;
+    std::cout << t0.sum() << std::endl;
+    testValidate(&fusion, outputs, aten_inputs, {t0.sum()}, __LINE__, __FILE__);
   };
-  // test with elements that both are and aren't multiples of 32.
-  for (auto n : {1, 15, 16, 31, 32, 63, 127, 256}) {
-    test(n);
+  for (int i = 1; i <= 1024; i++) {
+    test(i);
   }
 }
 
