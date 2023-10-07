@@ -3168,7 +3168,8 @@ Val* Index::eye(
 
 Val* Index::cpAsyncBulkIndex(
     TensorView* tv,
-    const std::vector<kir::ForLoop*>& loops) {
+    const std::vector<kir::ForLoop*>& loops,
+    bool is_load) {
   using namespace tma;
 
   NVF_ERROR(
@@ -3234,13 +3235,30 @@ Val* Index::cpAsyncBulkIndex(
   auto coordinate =
       IrBuilder::arrayExpr(std::vector<Val*>(dim, tv->fusion()->zeroVal()));
 
-  std::stringstream ss;
-  ss << "Hopper::CpAsyncBulkTensorTileIndex<" << dim << ">";
+  Val* index = nullptr;
 
-  auto index = IrBuilder::structExpr(
-      {{"descriptor", IrBuilder::addressExpr(descriptor)},
-       {"coordinate", coordinate}},
-      ss.str());
+  if (is_load) {
+    Val* expect_bytes = nullptr;
+    for (auto id : tv->getLeafDomain()) {
+      expect_bytes = SimplifyingIrBuilder::mulExpr(expect_bytes, id->extent());
+    }
+    expect_bytes =
+        SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expect_bytes);
+    std::stringstream ss;
+    ss << "Hopper::CpAsyncBulkTensorTileG2SIndex<" << dim << ">";
+    index = IrBuilder::structExpr(
+        {{"descriptor", IrBuilder::addressExpr(descriptor)},
+         {"coordinate", coordinate},
+         {"expect_bytes", expect_bytes}},
+        ss.str());
+  } else {
+    std::stringstream ss;
+    ss << "Hopper::CpAsyncBulkTensorTileG2SIndex<" << dim << ">";
+    index = IrBuilder::structExpr(
+        {{"descriptor", IrBuilder::addressExpr(descriptor)},
+         {"coordinate", coordinate}},
+        ss.str());
+  }
 
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
 

@@ -587,7 +587,8 @@ class Index {
   //! zeros
   static Val* cpAsyncBulkIndex(
       TensorView* tv,
-      const std::vector<kir::ForLoop*>& loops);
+      const std::vector<kir::ForLoop*>& loops,
+      bool is_load);
 };
 
 // Used for local and shared index mapping. Returns a map from loops
