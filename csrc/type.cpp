@@ -681,8 +681,13 @@ static const char* parallel_type2string(ParallelType t) {
     case ParallelType::BIDy:
       return "blockIdx.y";
     case ParallelType::BIDx:
-    case ParallelType::CIDx:
       return "blockIdx.x";
+    case ParallelType::CIDz:
+      return "clusterIdx.z";
+    case ParallelType::CIDy:
+      return "clusterIdx.y";
+    case ParallelType::CIDx:
+      return "clusterIdx.x";      
     case ParallelType::TIDz:
       return "threadIdx.z";
     case ParallelType::TIDy:
@@ -716,7 +721,9 @@ std::unordered_set<ParallelType> allParallelTypesExcept(
       ParallelType::BIDz,
       ParallelType::BIDy,
       ParallelType::BIDx,
-      ParallelType::CIDx,
+      ParallelType::CIDz,
+      ParallelType::CIDy,
+      ParallelType::CIDx,      
       ParallelType::TIDz,
       ParallelType::TIDy,
       ParallelType::TIDx,
@@ -795,14 +802,18 @@ static const char* thread_size2string(ParallelType t) {
       return "gridDim.y";
     case ParallelType::BIDx:
       return "gridDim.x";
-    case ParallelType::CIDx:
-      return "clusterDim.x";
     case ParallelType::TIDz:
       return "blockDim.z";
     case ParallelType::TIDy:
       return "blockDim.y";
     case ParallelType::TIDx:
       return "blockDim.x";
+    case ParallelType::CIDz:
+      return "clusterDim.z";
+    case ParallelType::CIDy:
+      return "clusterDim.y";
+    case ParallelType::CIDx:
+      return "clusterDim.x";      
     default:
       NVF_ERROR(false, "Unexpected parallel type");
   }
@@ -1248,24 +1259,16 @@ bool isParallelTypeThreadDim(ParallelType ptype) {
 
 bool isParallelTypeBlockDim(ParallelType ptype) {
   return ptype == ParallelType::BIDx || ptype == ParallelType::BIDy ||
-      ptype == ParallelType::BIDz || ptype == ParallelType::CIDx;
+      ptype == ParallelType::BIDz;
 }
 
 bool isParallelTypeClusterDim(ParallelType ptype) {
-  return ptype == ParallelType::CIDx;
-}
-
-ParallelType clusterDimToBlockDim(ParallelType ptype) {
-  switch (ptype) {
-    case ParallelType::CIDx:
-      return ParallelType::BIDx;
-    default:
-      return ParallelType::Serial;
-  }
+  return ptype == ParallelType::CIDx || ptype == ParallelType::CIDy ||
+      ptype == ParallelType::CIDz;
 }
 
 bool isParallelTypeThread(ParallelType ptype) {
-  return isParallelTypeBlockDim(ptype) || isParallelTypeThreadDim(ptype);
+  return isParallelTypeBlockDim(ptype) || isParallelTypeThreadDim(ptype) || isParallelTypeClusterDim(ptype);
 }
 
 bool isParallelTypeVectorize(ParallelType ptype) {

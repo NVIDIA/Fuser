@@ -3279,13 +3279,6 @@ void TensorDomain::setContiguity(
   contiguity_ = contig;
 }
 
-bool TensorDomain::hasClusterReduction() const {
-  return std::any_of(
-      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
-        return id->isReduction() && id->isClusterDim();
-      });
-}
-
 bool TensorDomain::hasBlockReduction() const {
   return std::any_of(
       leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
@@ -3296,7 +3289,7 @@ bool TensorDomain::hasBlockReduction() const {
 bool TensorDomain::hasGridReduction() const {
   return std::any_of(
       leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
-        return id->isReduction() && id->isBlockDim() && !id->isClusterDim();
+        return id->isReduction() && id->isBlockDim();
       });
 }
 
