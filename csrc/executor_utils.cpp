@@ -722,6 +722,9 @@ ExpressionEvaluator bindInputs(
   ExpressionEvaluator expr_eval;
   const auto& inputs = kernel->inputs();
   for (const auto i : c10::irange(inputs.size())) {
+    // NOTE: we bind all inputs here, including at::Tensors. This means that
+    // expr_eval will create a PolymorphicValue containing *args[i], which means
+    // that at::Tensor's lifetime will be at least as long as that of expr_eval.
     expr_eval.bind(inputs[i], *args[i], true);
   }
 
