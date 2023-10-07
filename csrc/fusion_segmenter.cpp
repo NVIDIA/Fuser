@@ -1495,12 +1495,13 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
       // we need to replay the new root domain following the old rfactor domain
       // into allocation domain
       const auto& alloc = tv->getAllocationDomain();
-      std::vector<IterDomain*> new_alloc_domain;
       std::unordered_map<IterDomain*, IterDomain*> id_map;
       for (auto i : c10::irange(rfactor.size())) {
         id_map[rfactor[i]] = new_root_domain[i];
       }
       ReplayTransformations replay(alloc, id_map);
+      std::vector<IterDomain*> new_alloc_domain;
+      new_alloc_domain.reserve(alloc.size());
       for (auto id : alloc) {
         new_alloc_domain.push_back(replay.getReplay().at(id));
       }
