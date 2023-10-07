@@ -17,6 +17,7 @@
 #include <ops/arith.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
+#include <transform_iter.h>
 
 #include <sstream>
 
@@ -1491,27 +1492,17 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
         new_root_domain, tv->domain()->contiguity());
 
     if (tv->domain()->hasAllocation()) {
-      // we need to reorder the root domain into allocation domain consistently
-      // with the mapping from the old TensorView rfactor domain to its
-      // allocation domain
+      // we need to replay the new root domain following the old rfactor domain
+      // into allocation domain
       const auto& alloc = tv->getAllocationDomain();
-      NVF_ERROR(
-          alloc.size() == rfactor.size(),
-          "size between rfactor and alloc doesn't match");
-      const auto rank = alloc.size();
-      std::vector<IterDomain*> new_alloc_domain(rank, nullptr);
-      for (auto i : c10::irange(rank)) {
-        bool found_match = false;
-        for (auto j : c10::irange(rank)) {
-          if (alloc[i] == rfactor[j]) {
-            new_alloc_domain[i] = new_root_domain[j];
-            found_match = true;
-            break;
-          }
-        }
-        NVF_ERROR(
-            found_match,
-            "cannot match IterDomain between allocation domain to rfactor domain");
+      std::vector<IterDomain*> new_alloc_domain;
+      std::unordered_map<IterDomain*, IterDomain*> id_map;
+      for (auto i : c10::irange(rfactor.size())) {
+        id_map[rfactor[i]] = new_root_domain[i];
+      }
+      ReplayTransformations replay(alloc, id_map);
+      for (auto id : alloc) {
+        new_alloc_domain.push_back(replay.getReplay().at(id));
       }
       new_td->setAllocationDomain(new_alloc_domain, new_td->contiguity());
     }
