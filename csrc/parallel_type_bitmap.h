@@ -21,7 +21,7 @@ namespace nvfuser {
 constexpr int getParallelTypeBitMapOffset(ParallelType pt) {
   switch (pt) {
     case ParallelType::BIDx:
-    case ParallelType::BIDxCluster:
+    case ParallelType::CIDx:
       return 0;
     case ParallelType::BIDy:
       return 1;

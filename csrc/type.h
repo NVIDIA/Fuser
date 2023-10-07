@@ -653,7 +653,7 @@ enum class ParallelType {
   BIDz,
   BIDy,
   BIDx,
-  BIDxCluster,
+  CIDx,
   TIDz,
   TIDy,
   TIDx,

@@ -444,9 +444,6 @@ __device__ void clusterReduce(
   if (cluster_id - dsm_np2 >= 0) {
     shared_mem[0] += get_data_from_other_cta(shared_mem, cluster_id - dsm_np2);
   }
-  if (threadIdx.x == 0) {
-    printf("cluster_id= %d, cluster_size= %d\n", cluster_id, cluster_size);
-  }
   cluster_sync();
 
   // reduce results to last {factor} blocks of the cluster

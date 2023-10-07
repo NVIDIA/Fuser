@@ -681,7 +681,7 @@ static const char* parallel_type2string(ParallelType t) {
     case ParallelType::BIDy:
       return "blockIdx.y";
     case ParallelType::BIDx:
-    case ParallelType::BIDxCluster:
+    case ParallelType::CIDx:
       return "blockIdx.x";
     case ParallelType::TIDz:
       return "threadIdx.z";
@@ -716,7 +716,7 @@ std::unordered_set<ParallelType> allParallelTypesExcept(
       ParallelType::BIDz,
       ParallelType::BIDy,
       ParallelType::BIDx,
-      ParallelType::BIDxCluster,
+      ParallelType::CIDx,
       ParallelType::TIDz,
       ParallelType::TIDy,
       ParallelType::TIDx,
@@ -795,7 +795,7 @@ static const char* thread_size2string(ParallelType t) {
       return "gridDim.y";
     case ParallelType::BIDx:
       return "gridDim.x";
-    case ParallelType::BIDxCluster:
+    case ParallelType::CIDx:
       return "clusterDim.x";
     case ParallelType::TIDz:
       return "blockDim.z";
@@ -1248,16 +1248,16 @@ bool isParallelTypeThreadDim(ParallelType ptype) {
 
 bool isParallelTypeBlockDim(ParallelType ptype) {
   return ptype == ParallelType::BIDx || ptype == ParallelType::BIDy ||
-      ptype == ParallelType::BIDz || ptype == ParallelType::BIDxCluster;
+      ptype == ParallelType::BIDz || ptype == ParallelType::CIDx;
 }
 
 bool isParallelTypeClusterDim(ParallelType ptype) {
-  return ptype == ParallelType::BIDxCluster;
+  return ptype == ParallelType::CIDx;
 }
 
 ParallelType clusterDimToBlockDim(ParallelType ptype) {
   switch (ptype) {
-    case ParallelType::BIDxCluster:
+    case ParallelType::CIDx:
       return ParallelType::BIDx;
     default:
       return ParallelType::Serial;

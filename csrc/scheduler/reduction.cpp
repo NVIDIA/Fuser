@@ -794,7 +794,7 @@ std::shared_ptr<ReductionParams> outerReductionHeuristic(
   if (rparams->block_cluster_inner_reduction) {
     flip_grid = true;
     rparams->split_grid_dim_inner_reduction = true;
-    rparams->grid_dim_inner_reduction = ParallelType::BIDxCluster;
+    rparams->grid_dim_inner_reduction = ParallelType::CIDx;
   }
 
   rparams->multiple_reds_per_blk = bdimx > 1 || iter_unroll_factor > 1;
