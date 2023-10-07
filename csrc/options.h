@@ -43,6 +43,7 @@ enum class DebugDumpOption {
   KernelArgs, //!< Print the runtime kernel arguments when launching kernels
   EffectiveBandwidth, //! Measure kernel performance and print effective
                       //! bandwidth
+  FusionProfiler, //! Measures fusion, compile, and kernel performance
   FusionSegmentsDrawing, //!< Dump Segmented Fusion Graph
   PrintPtxasLog, //!< Print the ptxas verbose log including register usage
   BufferReuseInfo, //!< Dump the analysis details of local/shared buffer re-use
@@ -78,6 +79,7 @@ enum class DebugDumpOption {
 enum class EnableOption {
   Complex, //! Enable complex support on python
   ConvDecomposition, //! Enable conv-bias decomposition
+  FusionProfiler, //! Enable Fusion Profiler without printing to stdout
   GraphOp, //! Enable graphOps(index_select/gather/scatter)
   KernelDb, //! Enable Kernel Database
   KernelProfile, //! Enable intra-kernel performance profiling

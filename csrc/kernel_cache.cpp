@@ -12,12 +12,12 @@
 #include <dynamic_transform.h>
 #include <executor_params.h>
 #include <executor_utils.h>
+#include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <optimization/pre_segmenter.h>
 #include <options.h>
 #include <parser.h>
-#include <profiler.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
 #include <torch/csrc/jit/jit_log.h>
@@ -441,7 +441,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
 
-  FusionProfiler::start();
+  FUSION_PROFILER_START_PROFILE;
 
   // Permute input tensor for kernel execution.
   // See Part_1 in Note [ Channels-Last support in nvfuser ]
@@ -515,7 +515,8 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     outputs.erase(outputs.begin() + v - offset);
     offset++;
   }
-  FusionProfiler::stop();
+
+  FUSION_PROFILER_STOP_PROFILE;
 
   return outputs;
 }
