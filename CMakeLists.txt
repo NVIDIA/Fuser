@@ -374,6 +374,7 @@ if(BUILD_PYTHON)
 
   target_link_libraries(${NVFUSER} PRIVATE ${LIBNVTOOLSEXT})
   target_link_libraries(${NVFUSER} PRIVATE ${NVFUSER_CODEGEN})
+  target_link_libraries(${NVFUSER} PRIVATE Python::Python)
 
   target_compile_definitions(${NVFUSER} PRIVATE EXTENSION_NAME=_C)
 
