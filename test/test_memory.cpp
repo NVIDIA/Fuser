@@ -368,7 +368,7 @@ TEST_F(NVFuserTest, TMP) {
     fe.compileFusion(&fusion, aten_inputs);
 
     int64_t gdimx = cidx, gdimy = 1, gdimz = 1;
-    int64_t cdimx = cidx, cdimy = 1, cdimz = 1;
+    int64_t cdimx = 1, cdimy = 1, cdimz = 1;
     int64_t bdimx = tidx, bdimy = 1, bdimz = 1;
     LaunchParams lp(
         gdimx, gdimy, gdimz, bdimx, bdimy, bdimz, cdimx, cdimy, cdimz);
@@ -377,7 +377,7 @@ TEST_F(NVFuserTest, TMP) {
     testValidate(&fusion, outputs, aten_inputs, {t0}, __LINE__, __FILE__);
   };
   // test with elements that both are and aren't multiples of 32.
-  test(2);
+  test(4);
 }
 
 } // namespace nvfuser

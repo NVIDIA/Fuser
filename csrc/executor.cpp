@@ -1658,7 +1658,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   recompileKernel(executor_entry->launch_params, compile_params);
 
   // TODO: Why does this need to be stored in the class?
+  std::cout << "launch_constraints: " << launch_constraints.toString() << std::endl;
   launch_params_ = executor_entry->launch_params;
+  launch_params_ = launch_constraints;
+  std::cout << "launch_params_: " << launch_params_.toString() << std::endl;
 
   // context manager to disable auto grad for `empty_cuda` calls later
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
@@ -1827,9 +1830,9 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     if (has_thread_block_cluster) {
       CUlaunchAttribute attr;
       attr.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
-      attr.value.clusterDim.x = (int)launch_params_.gdimx();
-      attr.value.clusterDim.y = 1;
-      attr.value.clusterDim.z = 1;
+      attr.value.clusterDim.x = (int)launch_params_.cdimx();
+      attr.value.clusterDim.y = (int)launch_params_.cdimy();
+      attr.value.clusterDim.z = (int)launch_params_.cdimz();
       launch_attrs.push_back(attr);
     }
 
