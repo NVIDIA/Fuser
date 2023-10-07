@@ -380,7 +380,7 @@ def main():
             version=version_tag(),
             url="https://github.com/NVIDIA/Fuser",
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
-            packages=["nvfuser", "nvfuser_python_utils"],
+            packages=["nvfuser"],
             ext_modules=[Extension(name="nvfuser._C", sources=[])],
             license_files=("LICENSE",),
             cmdclass={
