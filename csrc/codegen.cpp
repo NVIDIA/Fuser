@@ -1266,7 +1266,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     func_args.arg(genCall(data_type, genInline(init)));
 
-    indent() << genCall("clusterReduce", template_args, func_args) << ";\n";
+    indent() << genCall("Hopper::clusterReduce", template_args, func_args)
+             << ";\n";
   }
 
   void handle(const ReductionOp* rop) final {

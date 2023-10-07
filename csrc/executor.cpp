@@ -86,8 +86,6 @@ static const std::string& includeStdComplex() {
 #ifdef __NVCC__
 #include <complex>
 #endif // __NVCC__
-// tmp solution for dev
-#include <cooperative_groups.h>
 )ESCAPE");
   return result;
 }

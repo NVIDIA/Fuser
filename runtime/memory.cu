@@ -23,6 +23,15 @@ DEVICE_INLINE unsigned toSmem(const void* raw_ptr) {
   return smem_ptr_uint;
 }
 
+// converting SMEM pointer to generic pointer, reverse op of toSmem
+__device__ inline void* fromSmem(unsigned smem_ptr_uint) {
+  void* raw_ptr;
+  asm("{ .reg .u64 smem_ptr_u64; cvt.u64.u32 smem_ptr_u64, %1; cvta.shared.u64 %0, smem_ptr_u64; }"
+      : "=l"(raw_ptr)
+      : "r"(smem_ptr_uint));
+  return raw_ptr;
+}
+
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 750))
 
 namespace Turing {
@@ -311,6 +320,172 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
         "r"(dest.crds[4])
       : "memory");
   _finalizeTMAStore();
+}
+
+// cluster
+DEVICE_INLINE void cluster_arrive() {
+  asm volatile("barrier.cluster.arrive.aligned;\n" : :);
+}
+
+DEVICE_INLINE void cluster_wait() {
+  asm volatile("barrier.cluster.wait.aligned;\n" : :);
+}
+
+DEVICE_INLINE void cluster_sync() {
+  cluster_arrive();
+  cluster_wait();
+}
+// cluster.block_rank()
+DEVICE_INLINE uint32_t cluster_block_rank() {
+  uint32_t rank;
+  asm volatile("mov.u32 %0, %cluster_ctarank;\n" : "=r"(rank) :);
+  return rank;
+}
+
+// cluster.dim_blocks()
+DEVICE_INLINE dim3 cluster_dim_blocks() {
+  uint32_t x, y, z;
+  asm volatile("mov.u32 %0, %cluster_nctaid.x;\n" : "=r"(x) :);
+  asm volatile("mov.u32 %0, %cluster_nctaid.y;\n" : "=r"(y) :);
+  asm volatile("mov.u32 %0, %cluster_nctaid.z;\n" : "=r"(z) :);
+  return {x, y, z};
+}
+
+// cluster.map_shared_rank()
+DEVICE_INLINE uint32_t
+cluster_map_shared_rank(uint32_t smemAddr, uint32_t rank) {
+  uint32_t result;
+  asm volatile("mapa.shared::cluster.u32  %0, %1, %2;\n"
+               : "=r"(result)
+               : "r"(smemAddr), "r"(rank));
+  return result;
+}
+
+// Maybe there is a ld/st instruction can achieve this without converting back
+// to generic pointer.
+template <typename T>
+DEVICE_INLINE T
+get_data_from_other_cta(T* my_smem_address, uint32_t other_cta_rank) {
+  // get SMEM pointer
+  uint32_t other_smem_address =
+      cluster_map_shared_rank(toSmem(my_smem_address), other_cta_rank);
+  // convert to generic pointer
+  T* generic_ptr = (T*)fromSmem(other_smem_address);
+  // return data
+  return *generic_ptr;
+}
+
+template <
+    bool X_REDUCE,
+    bool Y_REDUCE,
+    bool Z_REDUCE,
+    bool Aligned,
+    typename T,
+    typename Func>
+__device__ void clusterReduce(
+    T& out,
+    const T& inp_val,
+    Func reduction_op,
+    T* shared_mem,
+    bool read_pred,
+    bool write_pred,
+    T init_val) {
+  // If this thread will output a final result
+  bool should_write =
+      index_utils::maskedIsZero<X_REDUCE, Y_REDUCE, Z_REDUCE>(threadIdx);
+
+  // Size of the reduction segments
+  unsigned int reduction_size =
+      index_utils::maskedSize<X_REDUCE, Y_REDUCE, Z_REDUCE>(blockDim);
+
+  // Index into the reduction segment
+  unsigned int reduction_tid =
+      index_utils::maskedOffset<X_REDUCE, Y_REDUCE, Z_REDUCE>(
+          threadIdx, blockDim);
+
+  // Index of the reduction segment
+  unsigned int reduction_idx =
+      index_utils::maskedOffset<!X_REDUCE, !Y_REDUCE, !Z_REDUCE>(
+          threadIdx, blockDim);
+
+  // Offset into smem for the current thread
+  unsigned int smem_offset = reduction_idx * reduction_size + reduction_tid;
+
+  // Initialize shared memory
+  if (read_pred) {
+    shared_mem[smem_offset] = inp_val;
+  } else {
+    shared_mem[smem_offset] = init_val;
+  }
+
+  block_sync::sync<Aligned>();
+  // Reduce down to nearest power of 2 for the tree reduction:
+  int np2 = 1 << (31 - __clz(reduction_size));
+
+  if (reduction_tid < np2 && reduction_tid + np2 < reduction_size) {
+    reduction_op(shared_mem[smem_offset], shared_mem[smem_offset + np2]);
+  }
+
+  block_sync::sync<Aligned>();
+
+  for (int factor = np2 / 2; factor >= 1; factor >>= 1) {
+    if (reduction_tid < factor) {
+      reduction_op(shared_mem[smem_offset], shared_mem[smem_offset + factor]);
+    }
+    block_sync::sync<Aligned>();
+  }
+
+  // block reduciton is done, start inter-block reduction
+  int cluster_id = cluster_block_rank(); // cluster.block_rank();
+
+  int cluster_size = cluster_dim_blocks().x;
+  int dsm_np2 = 1 << (31 - __clz(cluster_size));
+  // reduce results to last {dsm_np2} blocks of the cluster
+  if (cluster_id - dsm_np2 >= 0) {
+    shared_mem[0] += get_data_from_other_cta(shared_mem, cluster_id - dsm_np2);
+  }
+  if (threadIdx.x == 0) {
+    printf("cluster_id= %d, cluster_size= %d\n", cluster_id, cluster_size);
+  }
+  cluster_sync();
+
+  // reduce results to last {factor} blocks of the cluster
+  for (int factor = dsm_np2 / 2; factor >= 1; factor >>= 1) {
+    if (cluster_size - cluster_id <= factor) {
+      shared_mem[0] += get_data_from_other_cta(shared_mem, cluster_id - factor);
+    }
+    cluster_sync();
+  }
+
+  if (should_write && write_pred) {
+    reduction_op(out, shared_mem[smem_offset]);
+  }
+  block_sync::sync<Aligned>();
+}
+
+// Use the same pred for both reads and writes
+template <
+    bool X_REDUCE,
+    bool Y_REDUCE,
+    bool Z_REDUCE,
+    bool Aligned,
+    typename T,
+    typename Func>
+__device__ void clusterReduce(
+    T& out,
+    const T& inp_val,
+    Func reduction_op,
+    T* shared_mem,
+    bool read_write_pred,
+    T init_val) {
+  clusterReduce<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, T, Func>(
+      out,
+      inp_val,
+      reduction_op,
+      shared_mem,
+      read_write_pred,
+      read_write_pred,
+      init_val);
 }
 
 } // namespace Hopper

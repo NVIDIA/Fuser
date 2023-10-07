@@ -967,7 +967,6 @@ void fillCompileOptions(
     const CompileParams& compile_params,
     std::optional<int64_t> opt_block_size) {
   nvrtc_compile_driver.setOption("--std=c++17");
-  nvrtc_compile_driver.setOption("--include-path=/usr/local/cuda/include/");
 
   // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
   // which gives better backwards compatibility to work on older driver,
