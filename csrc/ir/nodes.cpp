@@ -1189,7 +1189,7 @@ SqueezeOp::SqueezeOp(
         // Check concrete broadcast extent here. For Symbolic inputs, this check
         // will be deferred to concretization. See dynamic_transform.cpp
         NVF_ERROR(
-            id->extent()->isOneInt(),
+            id->extent()->isConstScalar() && id->extent()->evaluateInt() == 1,
             "Can not squeeze dimension(s) with size != 1.");
       }
     } else {
@@ -3427,12 +3427,6 @@ void TensorDomain::merge(int axis_o, int axis_i) {
   NVF_CHECK(
       axis_o != axis_i,
       "Invalid merge detected, axes provided are the same axis.");
-
-  if (axis_o > axis_i) {
-    auto tmp = axis_i;
-    axis_i = axis_o;
-    axis_o = tmp;
-  }
 
   IterDomain* first = axis(axis_o);
   IterDomain* second = axis(axis_i);

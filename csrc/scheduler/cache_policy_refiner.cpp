@@ -126,16 +126,17 @@ bool refineCachePolicy(LoadStoreOp* ldst) {
     return false;
   }
 
+  auto target_cache_op = CacheOp::AllLevels;
   scheduler_debug_utils::log(
       "Changed the cache op of ",
       ldst->toString(),
       " from ",
       ldst->cacheOp(),
       " to ",
-      CacheOp::AllLevels,
+      target_cache_op,
       " because it is expanded by ",
       expand->toString());
-  ldst->setCacheOp(CacheOp::AllLevels);
+  ldst->setCacheOp(target_cache_op);
   return true;
 }
 

@@ -20,6 +20,8 @@ set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
 option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
 
+string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
+
 if(PROJECT_IS_TOP_LEVEL)
   find_package(Torch REQUIRED)
   find_package(Python REQUIRED Development Interpreter)
@@ -256,7 +258,7 @@ endif()
 list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
 
 if(PROJECT_IS_TOP_LEVEL)
-  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
+  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES} dl)
 
   # this is to find pip installed nvrtc/nvtx .so
   set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH
@@ -304,11 +306,6 @@ else()
     target_link_libraries(${NVFUSER_CODEGEN} PRIVATE __nvfuser_ucc)
     target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE NVFUSER_BUILD_WITH_UCC)
   endif()
-
-  # installing nvfuser python tests
-  install(DIRECTORY "${NVFUSER_ROOT}/python_tests/"
-    DESTINATION "${TORCH_ROOT}/test/_nvfuser"
-    FILES_MATCHING PATTERN "*.py")
 
   # installing nvfuser lib
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${TORCH_INSTALL_LIB_DIR}")
