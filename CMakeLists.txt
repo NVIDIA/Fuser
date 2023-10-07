@@ -224,6 +224,13 @@ set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
 add_library(${NVFUSER_CODEGEN} SHARED ${NVFUSER_SRCS})
 target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Wall -Wno-unused-function)
 target_compile_options(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
+set_target_properties(${NVFUSER_CODEGEN} PROPERTIES
+  CUDA_STANDARD 17
+  CXX_STANDARD 17
+  CXX_STANDARD_REQUIRED ON
+  LINK_WHAT_YOU_USE ON
+  POSITION_INDEPENDENT_CODE ON
+)
 
 if(NOT MSVC)
   target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Werror)
@@ -285,6 +292,13 @@ if(PROJECT_IS_TOP_LEVEL)
     find_package(UCX REQUIRED)
 
     add_library(__nvfuser_ucc INTERFACE)
+    set_target_properties(__nvfuser_ucc PROPERTIES
+      CUDA_STANDARD 17
+      CXX_STANDARD 17
+      CXX_STANDARD_REQUIRED ON
+      LINK_WHAT_YOU_USE ON
+      POSITION_INDEPENDENT_CODE ON
+    )
     target_link_libraries(__nvfuser_ucc INTERFACE ucx::ucs ucx::ucp ucc::ucc)
     target_include_directories(__nvfuser_ucc INTERFACE ${UCC_INCLUDE_DIRS})
     target_link_libraries(${NVFUSER_CODEGEN} PRIVATE __nvfuser_ucc)
@@ -301,6 +315,13 @@ else()
 
   if(UCC_FOUND) # inherited from pytorch source build
     add_library(__nvfuser_ucc INTERFACE)
+    set_target_properties(__nvfuser_ucc PROPERTIES
+      CUDA_STANDARD 17
+      CXX_STANDARD 17
+      CXX_STANDARD_REQUIRED ON
+      LINK_WHAT_YOU_USE ON
+      POSITION_INDEPENDENT_CODE ON
+    )
     target_link_libraries(__nvfuser_ucc INTERFACE ucx::ucs ucx::ucp ucc::ucc)
     target_include_directories(__nvfuser_ucc INTERFACE ${UCC_INCLUDE_DIRS})
     target_link_libraries(${NVFUSER_CODEGEN} PRIVATE __nvfuser_ucc)
@@ -341,7 +362,13 @@ if(BUILD_PYTHON)
 
   set(NVFUSER "${PROJECT_NAME}")
   add_library(${NVFUSER} MODULE ${NVFUSER_PYTHON_SRCS})
-  set_property(TARGET ${NVFUSER} PROPERTY CXX_STANDARD 17)
+  set_target_properties(${NVFUSER} PROPERTIES
+    CUDA_STANDARD 17
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    LINK_WHAT_YOU_USE ON
+    POSITION_INDEPENDENT_CODE ON
+  )
 
   # setup python API version
   add_custom_command(
@@ -481,7 +508,14 @@ if(BUILD_TEST)
   add_executable(${NVFUSER_TESTS}
     ${JIT_TEST_SRCS}
     ${JIT_TEST_CU_SRCS})
-  set_property(TARGET ${NVFUSER_TESTS} PROPERTY CXX_STANDARD 17)
+  set_target_properties(${NVFUSER_TESTS} PROPERTIES
+    C_STANDARD 11
+    CUDA_STANDARD 17
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    LINK_WHAT_YOU_USE ON
+    POSITION_INDEPENDENT_CODE ON
+  )
   target_compile_definitions(${NVFUSER_TESTS} PRIVATE USE_GTEST)
   target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} dynamic_type gtest_main gmock_main flatbuffers)
   target_include_directories(${NVFUSER_TESTS} PRIVATE "${NVFUSER_ROOT}")
@@ -541,7 +575,14 @@ if(BUILD_NVFUSER_BENCHMARK)
 
   set(NVFUSER_BENCHMARK "${PROJECT_NAME}_bench")
   add_executable(${NVFUSER_BENCHMARK} ${BENCHMARK_SRCS})
-  set_property(TARGET ${NVFUSER_BENCHMARK} PROPERTY CXX_STANDARD 17)
+  set_target_properties(${NVFUSER_BENCHMARK} PROPERTIES
+    C_STANDARD 11
+    CUDA_STANDARD 17
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    LINK_WHAT_YOU_USE ON
+    POSITION_INDEPENDENT_CODE ON
+  )
 
   if(PROJECT_IS_TOP_LEVEL)
     target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Wall -Wno-unused-function)
