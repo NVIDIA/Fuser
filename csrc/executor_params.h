@@ -143,7 +143,6 @@ class LaunchParams {
     if (class_val == UNINITIALIZED_VAL) {
       class_val = incoming_val;
     }
-    assertValid();
   }
 
   // Binds dim assocaited with p_type to val

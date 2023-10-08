@@ -34,12 +34,10 @@ void LaunchParams::assertValid() {
       gdimz());
 
   if (dev_prop->clusterLaunch) {
-    // see table-1 at
-    // https://developer.nvidia.com/blog/nvidia-hopper-architecture-in-depth/
-    constexpr static int maxClusterSize = 16;
+    constexpr static int max_cluster_size = 8;
     NVF_ERROR(
         bdimx() * bdimy() * bdimz() > 0 &&
-            cdimx() * cdimy() * cdimz() <= maxClusterSize,
+            cdimx() * cdimy() * cdimz() <= max_cluster_size,
         "cluster size is not supported",
         ", cdimx= ",
         cdimx(),
@@ -49,16 +47,25 @@ void LaunchParams::assertValid() {
         cdimz());
     NVF_ERROR(
         cdimx() > 0 && gdimx() % cdimx() == 0,
-        "Invalid number of clusters in x direction: ",
-        cdimx());
+        "Invalid number of clusters in x direction.",
+        "cdimx= ",
+        cdimx(),
+        ", gdimx= ",
+        gdimx());
     NVF_ERROR(
         cdimy() > 0 && gdimy() % cdimy() == 0,
-        "Invalid number of clusters in x direction: ",
-        cdimy());
+        "Invalid number of clusters in y direction.",
+        "cdimy= ",
+        cdimy(),
+        ", gdimy= ",
+        gdimy());
     NVF_ERROR(
         cdimz() > 0 && gdimz() % cdimz() == 0,
-        "Invalid number of clusters in x direction: ",
-        cdimz());
+        "Invalid number of clusters in z direction.",
+        "cdimz= ",
+        cdimz(),
+        ", gdimz= ",
+        gdimz());
 
   } else {
     NVF_ERROR(
@@ -73,7 +80,11 @@ void LaunchParams::bind(int64_t val, ParallelType p_type) {
       checkAndSet(val, bdimx_, "blockDim.x");
       break;
     case ParallelType::BIDx:
+      checkAndSet(val, gdimx_, "gridDim.x");
+      break;
+    // only allows 1 cluster per gridDim, so gridDim.x = clusterDim.x
     case ParallelType::CIDx:
+      checkAndSet(val, cdimx_, "clusterDim.x");
       checkAndSet(val, gdimx_, "gridDim.x");
       break;
     case ParallelType::TIDy:
@@ -82,10 +93,18 @@ void LaunchParams::bind(int64_t val, ParallelType p_type) {
     case ParallelType::BIDy:
       checkAndSet(val, gdimy_, "gridDim.y");
       break;
+    case ParallelType::CIDy:
+      checkAndSet(val, cdimy_, "clusterDim.y");
+      checkAndSet(val, gdimy_, "gridDim.y");
+      break;
     case ParallelType::TIDz:
       checkAndSet(val, bdimz_, "blockdim.z");
       break;
     case ParallelType::BIDz:
+      checkAndSet(val, gdimz_, "gridDim.z");
+      break;
+    case ParallelType::CIDz:
+      checkAndSet(val, cdimz_, "clusterDim.z");
       checkAndSet(val, gdimz_, "gridDim.z");
       break;
     default:
@@ -102,16 +121,21 @@ int64_t LaunchParams::getDim(ParallelType p_type) const {
     case ParallelType::TIDx:
       return bdimx();
     case ParallelType::BIDx:
-    case ParallelType::CIDx:
       return gdimx();
+    case ParallelType::CIDx:
+      return cdimx();
     case ParallelType::TIDy:
       return bdimy();
     case ParallelType::BIDy:
       return gdimy();
+    case ParallelType::CIDy:
+      return cdimy();
     case ParallelType::TIDz:
       return bdimz();
     case ParallelType::BIDz:
       return gdimz();
+    case ParallelType::CIDz:
+      return cdimz();
     default:
       NVF_ERROR(
           false,
@@ -129,16 +153,21 @@ const int64_t& LaunchParams::getRawVal(ParallelType p_type) const {
     case ParallelType::TIDx:
       return bdimx_;
     case ParallelType::BIDx:
-    case ParallelType::CIDx:
       return gdimx_;
+    case ParallelType::CIDx:
+      return cdimx_;
     case ParallelType::TIDy:
       return bdimy_;
     case ParallelType::BIDy:
       return gdimy_;
+    case ParallelType::CIDy:
+      return cdimy_;
     case ParallelType::TIDz:
       return bdimz_;
     case ParallelType::BIDz:
       return gdimz_;
+    case ParallelType::CIDz:
+      return cdimz_;
     default:
       NVF_ERROR(
           false,
@@ -149,7 +178,10 @@ const int64_t& LaunchParams::getRawVal(ParallelType p_type) const {
 
 bool LaunchParams::operator==(const LaunchParams& other) const {
   return gdimx_ == other.gdimx_ && gdimy_ == other.gdimy_ &&
-      bdimx_ == other.bdimx_ && bdimy_ == other.bdimy_ && smem_ == other.smem_;
+      gdimz_ == other.gdimz_ && cdimx_ == other.cdimx_ &&
+      cdimy_ == other.cdimy_ && cdimz_ == other.cdimz_ &&
+      bdimx_ == other.bdimx_ && bdimy_ == other.bdimy_ &&
+      bdimz_ == other.bdimz_ && smem_ == other.smem_;
 }
 
 void LaunchParams::print() const {
@@ -164,7 +196,7 @@ std::string LaunchParams::toString() const {
      << "BlockDim.z = " << (bdimz_ == UNINITIALIZED_VAL ? -1 : bdimz_) << ", "
      << "ClusterDim.x = " << (cdimx_ == UNINITIALIZED_VAL ? -1 : cdimx_) << ", "
      << "ClusterDim.y = " << (cdimy_ == UNINITIALIZED_VAL ? -1 : cdimy_) << ", "
-     << "ClusterDim.z = " << (cdimz_ == UNINITIALIZED_VAL ? -1 : cdimz_) << ", "     
+     << "ClusterDim.z = " << (cdimz_ == UNINITIALIZED_VAL ? -1 : cdimz_) << ", "
      << "GridDim.x = " << (gdimx_ == UNINITIALIZED_VAL ? -1 : gdimx_) << ", "
      << "GridDim.y = " << (gdimy_ == UNINITIALIZED_VAL ? -1 : gdimy_) << ", "
      << "GridDim.z = " << (gdimz_ == UNINITIALIZED_VAL ? -1 : gdimz_) << ", "

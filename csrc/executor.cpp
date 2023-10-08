@@ -1076,6 +1076,7 @@ LaunchParams FusionExecutor::computeLaunchParams(
   // sure if they could be inferred the inference matches what was set.
   for (auto& entry : parallel_iter_extents) {
     auto p_type = entry.first;
+    std::cout << "p_type= " << p_type << std::endl;
     if (launch_constraints.hasDim(p_type)) {
       auto parallel_extents = entry.second;
       for (auto extent : parallel_extents) {
@@ -1660,7 +1661,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // TODO: Why does this need to be stored in the class?
   std::cout << "launch_constraints: " << launch_constraints.toString() << std::endl;
   launch_params_ = executor_entry->launch_params;
-  launch_params_ = launch_constraints;
   std::cout << "launch_params_: " << launch_params_.toString() << std::endl;
 
   // context manager to disable auto grad for `empty_cuda` calls later

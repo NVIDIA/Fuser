@@ -346,38 +346,47 @@ TEST_F(NVFuserTest, TMP) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(2);
+  auto tv0 = makeContigTensor(4);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   auto tv2 = set(tv1);
   fusion.addOutput(tv2);
 
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
   tv1->axis(0)->parallelize(ParallelType::CIDx);
-  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(1)->parallelize(ParallelType::CIDy);
+  tv1->axis(2)->parallelize(ParallelType::CIDz);
   scheduler_utils::parallelizeAllLike(tv1);
   inlineMost();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-  auto test = [&](int cidx) {
+  auto test = [&](int cidx, int cidy, int cidz) {
     constexpr int tidx = 32;
-    at::Tensor t0 = at::ones({cidx, tidx}, options);
+    at::Tensor t0 = at::randn({cidx, cidy, cidz, tidx}, options);
     std::vector<c10::IValue> aten_inputs = {t0};
 
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, aten_inputs);
-
-    int64_t gdimx = cidx, gdimy = 1, gdimz = 1;
-    int64_t cdimx = 1, cdimy = 1, cdimz = 1;
+    int64_t gdimx = cidx, gdimy = cidy, gdimz = cidz;
+    int64_t cdimx = cidx, cdimy = cidy, cdimz = cidz;
     int64_t bdimx = tidx, bdimy = 1, bdimz = 1;
     LaunchParams lp(
         gdimx, gdimy, gdimz, bdimx, bdimy, bdimz, cdimx, cdimy, cdimz);
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, aten_inputs, lp);
+
     std::vector<at::Tensor> outputs = fe.runFusion(aten_inputs, lp);
-    std::cout << outputs[0] << std::endl;
     testValidate(&fusion, outputs, aten_inputs, {t0}, __LINE__, __FILE__);
   };
-  // test with elements that both are and aren't multiples of 32.
-  test(4);
+  constexpr int max_cluster_size = 8;
+  for (auto x = 1; x <= 8; x++) {
+    for (auto y = 1; y <= max_cluster_size / x; y++) {
+      for (auto z = 1; z <= max_cluster_size / x / y; z++) {
+        std::cout << x << ", " << y << ", " << z << std::endl;
+        test(x, y, z);
+      }
+    }
+  }
 }
 
 } // namespace nvfuser

@@ -287,7 +287,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto& kernel_summary = kernel_->summary();
 
     // clusterIDx
-    indent() << "dim3 clusterIdx = getClusterIdx();\n";
+    indent() << "dim3 clusterIdx = block_id_in_cluster();\n";
 
 
     if (kernel_summary.has_philox_op) {
@@ -369,7 +369,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void genBody() {
-    std::cout << "beg of genBody" << std::endl;
     handle(kernel_->topLevelExprs());
   }
 
