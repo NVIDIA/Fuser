@@ -21,8 +21,10 @@ class CudaEventTimer {
     stream_(s),
     start_event_(),
     stop_event_(),
-    time_ms_(0.0)
-  {    
+    time_ms_(0.0), 
+    time_calculated_(false),
+    start_recorded_(false),
+    stop_recorded_(false) {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event_));
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&stop_event_));
   }
@@ -32,18 +34,35 @@ class CudaEventTimer {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(stop_event_));
   }
 
+  void reset() {
+    time_ms_ = 0.0;
+    time_calculated_ = false;
+    start_recorded_ = false;
+    stop_recorded_ = false;
+  }
+
   void start() {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start_event_, stream_));
+    start_recorded_ = true;
+    time_calculated_ = false;
   }
   void stop() {
+    NVF_CHECK(start_recorded_, "Cude Start Event was not recorded!");
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(stop_event_, stream_));
+    stop_recorded_ = true;
   }
 
   float time() {
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event_));
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(stop_event_));
-    NVFUSER_CUDA_RT_SAFE_CALL(
-        cudaEventElapsedTime(&time_ms_, start_event_, stop_event_));
+    if (!time_calculated_) {
+      NVF_CHECK(start_recorded_ && stop_recorded_, "Cuda Start and Stop events not recorded!");
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event_));
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(stop_event_));
+      NVFUSER_CUDA_RT_SAFE_CALL(
+          cudaEventElapsedTime(&time_ms_, start_event_, stop_event_));
+      time_calculated_ = true;
+      start_recorded_ = false;
+      stop_recorded_ = false;
+    }
     return time_ms_;
   }
 
@@ -52,6 +71,9 @@ class CudaEventTimer {
   cudaEvent_t start_event_;
   cudaEvent_t stop_event_;
   float time_ms_;
+  bool time_calculated_;
+  bool start_recorded_;
+  bool stop_recorded_;
 };
 
 /*struct KernelProfile {
@@ -104,8 +126,8 @@ class FusionProfiler : public NonCopyable {
   CudaEventTimer fusion_timer_;
   CudaEventTimer compile_timer_;
   FusionProfile profile_;
-  bool fusion_profile_started_;
-  bool kernel_compile_started_;
+  bool fusion_profile_recorded_;
+  bool kernel_compile_recorded_;
   bool kernel_profile_started_;
 };
 

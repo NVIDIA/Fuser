@@ -416,6 +416,7 @@ void FusionExecutor::compileFusion(
       (block_size.has_value() ? block_size.value() : 1),
       block_size_high_water_mark_);
   maxrregcount_high_water_mark_ = compile_params.maxrregcount;
+  FUSION_PROFILER_START_KERNEL_COMPILE 
   compiled_kernel_ = executor_utils::getCompiledKernel(
       kernel_code_,
       structured_code,
@@ -424,6 +425,7 @@ void FusionExecutor::compileFusion(
       compile_params,
       block_size);
   NVF_ERROR(fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
+  FUSION_PROFILER_STOP_KERNEL_COMPILE 
 
   // These should be nullopt at this point, but reset just in case
   resetCompiledKernelProperties();
@@ -1527,7 +1529,6 @@ void FusionExecutor::recompileKernel(
   block_size_high_water_mark_ = new_launch_params.nThreads();
   maxrregcount_high_water_mark_ = new_compile_params.maxrregcount;
 
-  FUSION_PROFILER_START_KERNEL_COMPILE 
   compiled_kernel_ = executor_utils::getCompiledKernel(
       kernel_code_,
       structured_code,
@@ -1535,7 +1536,6 @@ void FusionExecutor::recompileKernel(
       fusion_id_,
       new_compile_params,
       block_size_high_water_mark_);
-  FUSION_PROFILER_STOP_KERNEL_COMPILE 
   resetCompiledKernelProperties();
 
   if (kernel()->summary().has_cooperative_grid_reduction) {

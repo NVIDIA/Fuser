@@ -259,27 +259,16 @@ void FusionProfiler::start() {
   } else {
     singleton_->reset();
   }
-  NVF_ERROR(!singleton_->fusion_profile_started_,
-            "FusionProfiler profiler is already running!");
-  NVF_ERROR(!singleton_->kernel_compile_started_,
-            "FusionProfiler kernel compile is already running!");
-  NVF_ERROR(!singleton_->kernel_profile_started_,
-            "FusionProfiler kernel profile is already running!");
-
+  singleton_->fusion_timer_.reset();
   singleton_->fusion_timer_.start();
-  singleton_->fusion_profile_started_ = true;
+  singleton_->compile_timer_.reset();
+  singleton_->fusion_profile_recorded_ = true;
 }
 
 void FusionProfiler::stop() {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   NVF_ERROR(singleton_ != nullptr,
             "FusionProfiler singleton is unexpectedly null!");
-  NVF_ERROR(singleton_->fusion_profile_started_,
-            "FusionProfiler cannot stop a profile that is not started!");
-  NVF_ERROR(!singleton_->kernel_compile_started_,
-            "FusionProfiler kernel compile is still running!");
-  NVF_ERROR(!singleton_->kernel_profile_started_,
-            "FusionProfiler kernel profile is still running!");
 
   singleton_->fusion_profile_started_ = false;
   singleton_->fusion_timer_.stop();
@@ -291,25 +280,19 @@ void FusionProfiler::stop() {
 
 void FusionProfiler::start_kernel_compile() {
   std::lock_guard<std::mutex> guard(singleton_lock_);
+  std::cout << "Start Kernel Compile!" << std::endl;
   NVF_ERROR(singleton_ != nullptr,
             "FusionProfiler singleton is unexpectedly null!");
-  NVF_ERROR(singleton_->fusion_profile_started_,
-            "FusionProfiler profile is not started!");
-  NVF_ERROR(!singleton_->kernel_compile_started_,
-            "FusionProfiler kernel compile is already started!");
 
   singleton_->compile_timer_.start();
-  singleton_->kernel_compile_started_ = true;
+  singleton_->kernel_compile_recorded_ = true;
 }
 
 void FusionProfiler::stop_kernel_compile() {
   std::lock_guard<std::mutex> guard(singleton_lock_);
+  std::cout << "Stop Kernel Compile!" << std::endl;
   NVF_ERROR(singleton_ != nullptr,
             "FusionProfiler singleton is unexpectedly null!");
-  NVF_ERROR(singleton_->fusion_profile_started_,
-            "FusionProfiler profile is not started!");
-  NVF_ERROR(singleton_->kernel_compile_started_,
-            "FusionProfiler kernel compile is not started!");
 
   singleton_->compile_timer_.stop();
   singleton_->kernel_compile_started_ = false;
@@ -319,10 +302,6 @@ void FusionProfiler::start_kernel() {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   NVF_ERROR(singleton_ != nullptr,
             "FusionProfiler singleton is unexpectedly null!");
-  NVF_ERROR(singleton_->fusion_profile_started_,
-            "FusionProfiler fusion profile is not in progress!");
-  NVF_ERROR(!singleton_->kernel_profile_started_,
-            "FusionProfiler kernel profile is already in progress!");
   NVFUSER_CUPTI_SAFE_CALL(
       cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
   NVFUSER_CUPTI_SAFE_CALL(
@@ -336,10 +315,6 @@ void FusionProfiler::stop_kernel() {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   NVF_ERROR(singleton_ != nullptr,
             "FusionProfiler singleton is unexpectedly null!");
-  NVF_ERROR(singleton_->fusion_profile_started_,
-            "FusionProfiler fusion profile is not in progress!");
-  NVF_ERROR(singleton_->kernel_profile_started_,
-            "FusionProfiler kernel profile is not in progress!");
   uint64_t id = 0;
   NVFUSER_CUPTI_SAFE_CALL(cuptiActivityPopExternalCorrelationId(CUPTI_EXTERNAL_CORRELATION_KIND_UNKNOWN, &id));
   NVFUSER_CUPTI_SAFE_CALL(
