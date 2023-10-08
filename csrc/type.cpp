@@ -683,11 +683,11 @@ static const char* parallel_type2string(ParallelType t) {
     case ParallelType::BIDx:
       return "blockIdx.x";
     case ParallelType::CIDz:
-      return "clusterIdx.z";
+      return "blusterIdx.z";
     case ParallelType::CIDy:
-      return "clusterIdx.y";
+      return "blusterIdx.y";
     case ParallelType::CIDx:
-      return "clusterIdx.x";      
+      return "blusterIdx.x";
     case ParallelType::TIDz:
       return "threadIdx.z";
     case ParallelType::TIDy:

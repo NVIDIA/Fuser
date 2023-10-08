@@ -342,7 +342,18 @@ TEST_F(TMATest, DisableIndexHoisting) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, TMP) {
+class ThreadBlockClusterTest : public NVFuserTest {
+  void SetUp() override {
+    // requires Hopper or newer
+    if (!deviceMajorMinorCheck(9)) {
+      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
+
+// Group all blocks into a cluster
+TEST_F(ThreadBlockClusterTest, OneCluster) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -379,13 +390,65 @@ TEST_F(NVFuserTest, TMP) {
     testValidate(&fusion, outputs, aten_inputs, {t0}, __LINE__, __FILE__);
   };
   constexpr int max_cluster_size = 8;
-  for (auto x = 1; x <= 8; x++) {
+  for (auto x = 1; x <= max_cluster_size; x++) {
     for (auto y = 1; y <= max_cluster_size / x; y++) {
       for (auto z = 1; z <= max_cluster_size / x / y; z++) {
-        std::cout << x << ", " << y << ", " << z << std::endl;
         test(x, y, z);
       }
     }
+  }
+}
+
+// Group all the blocks in the same rwo into a cluster
+// GridDim.x  == clusterDim.x
+//            +----+----+----+----+
+// cluster-0  | 00 | 01 | 02 | 03 |
+//            +----+----+----+----+
+// cluster-1  | 10 | 11 | 12 | 13 |
+//            +----+----+----+----+
+// cluster-2  | 20 | 21 | 22 | 23 |
+//            +----+----+----+----+
+// This pattern can transform grid reduction using GridDim.x blocks into a
+// thread block cluster reduction.
+TEST_F(ThreadBlockClusterTest, OneClusterEachRow) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  // since the current assumption is GridDim.{xyz}  == clusterDim.{xyz},
+  // parallelize by CIDx also implies parallelize by BIDx, this is enforced in
+  // LaunchParams::bind()
+  tv1->axis(-1)->parallelize(ParallelType::CIDx);
+  tv1->axis(-2)->parallelize(ParallelType::BIDy);
+  scheduler_utils::parallelizeAllLike(tv1);
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto test = [&](int cidx, int bidy) {
+    at::Tensor t0 = at::randn({bidy, cidx}, options);
+    std::vector<c10::IValue> aten_inputs = {t0};
+
+    int64_t gdimx = cidx, gdimy = bidy, gdimz = 1;
+    int64_t cdimx = cidx, cdimy = 1, cdimz = 1;
+    int64_t bdimx = 1, bdimy = 1, bdimz = 1;
+    LaunchParams lp(
+        gdimx, gdimy, gdimz, bdimx, bdimy, bdimz, cdimx, cdimy, cdimz);
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, aten_inputs, lp);
+
+    std::vector<at::Tensor> outputs = fe.runFusion(aten_inputs, lp);
+    testValidate(&fusion, outputs, aten_inputs, {t0}, __LINE__, __FILE__);
+  };
+  constexpr int max_cluster_size = 8;
+  for (auto x = 1; x <= max_cluster_size; x++) {
+    test(x, 100);
   }
 }
 

@@ -1076,7 +1076,6 @@ LaunchParams FusionExecutor::computeLaunchParams(
   // sure if they could be inferred the inference matches what was set.
   for (auto& entry : parallel_iter_extents) {
     auto p_type = entry.first;
-    std::cout << "p_type= " << p_type << std::endl;
     if (launch_constraints.hasDim(p_type)) {
       auto parallel_extents = entry.second;
       for (auto extent : parallel_extents) {

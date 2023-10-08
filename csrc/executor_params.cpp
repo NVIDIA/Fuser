@@ -82,7 +82,8 @@ void LaunchParams::bind(int64_t val, ParallelType p_type) {
     case ParallelType::BIDx:
       checkAndSet(val, gdimx_, "gridDim.x");
       break;
-    // only allows 1 cluster per gridDim, so gridDim.x = clusterDim.x
+    // only allows 1 cluster per gridDim, so set gridDim.x and clusterDim.x to
+    // the same val
     case ParallelType::CIDx:
       checkAndSet(val, cdimx_, "clusterDim.x");
       checkAndSet(val, gdimx_, "gridDim.x");
@@ -98,7 +99,7 @@ void LaunchParams::bind(int64_t val, ParallelType p_type) {
       checkAndSet(val, gdimy_, "gridDim.y");
       break;
     case ParallelType::TIDz:
-      checkAndSet(val, bdimz_, "blockdim.z");
+      checkAndSet(val, bdimz_, "blockDim.z");
       break;
     case ParallelType::BIDz:
       checkAndSet(val, gdimz_, "gridDim.z");
