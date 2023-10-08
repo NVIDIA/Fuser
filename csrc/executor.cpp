@@ -1658,9 +1658,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   recompileKernel(executor_entry->launch_params, compile_params);
 
   // TODO: Why does this need to be stored in the class?
-  std::cout << "launch_constraints: " << launch_constraints.toString() << std::endl;
   launch_params_ = executor_entry->launch_params;
-  std::cout << "launch_params_: " << launch_params_.toString() << std::endl;
 
   // context manager to disable auto grad for `empty_cuda` calls later
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
@@ -1782,6 +1780,35 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       arg_buffer_ptrs.push_back(arg_buffer.data());
     }
 
+    // Set up CUlaunchAttribute for cooperative and cluster launch
+    std::vector<CUlaunchAttribute> launch_attrs;
+    if (kernel()->summary().has_cooperative_grid_reduction) {
+      CUlaunchAttribute attr;
+      attr.id = CU_LAUNCH_ATTRIBUTE_COOPERATIVE;
+      attr.value.cooperative = 1;
+      launch_attrs.push_back(attr);
+    }
+    if (launch_params_.cdimx() > 1 || launch_params_.cdimy() > 1 ||
+        launch_params_.cdimz() > 1) {
+      CUlaunchAttribute attr;
+      attr.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
+      attr.value.clusterDim.x = (int)launch_params_.cdimx();
+      attr.value.clusterDim.y = (int)launch_params_.cdimy();
+      attr.value.clusterDim.z = (int)launch_params_.cdimz();
+      launch_attrs.push_back(attr);
+    }
+    CUlaunchConfig config = {
+        .gridDimX = (unsigned int)launch_params_.gdimx(),
+        .gridDimY = (unsigned int)launch_params_.gdimy(),
+        .gridDimZ = (unsigned int)launch_params_.gdimz(),
+        .blockDimX = (unsigned int)launch_params_.bdimx(),
+        .blockDimY = (unsigned int)launch_params_.bdimy(),
+        .blockDimZ = (unsigned int)launch_params_.bdimz(),
+        .sharedMemBytes = (unsigned int)launch_params_.smem(),
+        .hStream = stream,
+        .attrs = launch_attrs.data(),
+        .numAttrs = (unsigned int)launch_attrs.size()};
+
     if (isDebugDumpEnabled(DebugDumpOption::Occupancy) ||
         isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
       int blocks_per_sm = -1;
@@ -1804,39 +1831,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
               << ", warps_per_sm= " << warps_per_sm
               << ", occupancy= " << oss.str() << std::endl;
     }
-
-    // Basic version of CUlaunchConfig without CUlaunchAttribute
-    CUlaunchConfig config = {
-        .gridDimX = (unsigned int)launch_params_.gdimx(),
-        .gridDimY = (unsigned int)launch_params_.gdimy(),
-        .gridDimZ = (unsigned int)launch_params_.gdimz(),
-        .blockDimX = (unsigned int)launch_params_.bdimx(),
-        .blockDimY = (unsigned int)launch_params_.bdimy(),
-        .blockDimZ = (unsigned int)launch_params_.bdimz(),
-        .sharedMemBytes = (unsigned int)launch_params_.smem(),
-        .hStream = stream};
-
-    // Set up CUlaunchAttribute for cooperative and cluster launch
-    std::vector<CUlaunchAttribute> launch_attrs;
-
-    if (kernel()->summary().has_cooperative_grid_reduction) {
-      CUlaunchAttribute attr;
-      attr.id = CU_LAUNCH_ATTRIBUTE_COOPERATIVE;
-      attr.value.cooperative = 1;
-      launch_attrs.push_back(attr);
-    }
-    bool has_thread_block_cluster = true;
-    if (has_thread_block_cluster) {
-      CUlaunchAttribute attr;
-      attr.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
-      attr.value.clusterDim.x = (int)launch_params_.cdimx();
-      attr.value.clusterDim.y = (int)launch_params_.cdimy();
-      attr.value.clusterDim.z = (int)launch_params_.cdimz();
-      launch_attrs.push_back(attr);
-    }
-
-    config.numAttrs = launch_attrs.size();
-    config.attrs = launch_attrs.data();
 
     if (measure_kernel_time) {
       timer.start();
