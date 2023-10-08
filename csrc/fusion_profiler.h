@@ -10,8 +10,8 @@
 #include <cuda_runtime.h>
 #include <cuda_utils.h>
 #include <cupti.h>
-#include <executor_utils.h>
 #include <options.h>
+#include <utils.h>
 
 namespace nvfuser {
 
@@ -20,7 +20,8 @@ class CudaEventTimer {
   CudaEventTimer(cudaStream_t s) : 
     stream_(s),
     start_event_(),
-    stop_event_()
+    stop_event_(),
+    time_ms_(0.0)
   {    
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event_));
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&stop_event_));
@@ -41,16 +42,16 @@ class CudaEventTimer {
   float time() {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event_));
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(stop_event_));
-    float time_ms = 0.0;
     NVFUSER_CUDA_RT_SAFE_CALL(
-        cudaEventElapsedTime(&time_ms, start_event_, stop_event_));
-    return time_ms;
+        cudaEventElapsedTime(&time_ms_, start_event_, stop_event_));
+    return time_ms_;
   }
 
  private:
   cudaStream_t stream_;
   cudaEvent_t start_event_;
   cudaEvent_t stop_event_;
+  float time_ms_;
 };
 
 /*struct KernelProfile {
@@ -116,7 +117,7 @@ class FusionProfiler : public NonCopyable {
 #define FUSION_PROFILER_STOP_PROFILE \
   if (isDebugDumpEnabled(DebugDumpOption::FusionProfiler) \
       || isOptionEnabled(EnableOption::FusionProfiler)) { \
-    nvfuser::FusionProfiler::stop(); \
+    FusionProfiler::stop(); \
   }
 #define FUSION_PROFILER_START_KERNEL \
   if (isDebugDumpEnabled(DebugDumpOption::FusionProfiler) \

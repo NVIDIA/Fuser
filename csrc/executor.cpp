@@ -1527,6 +1527,7 @@ void FusionExecutor::recompileKernel(
   block_size_high_water_mark_ = new_launch_params.nThreads();
   maxrregcount_high_water_mark_ = new_compile_params.maxrregcount;
 
+  FUSION_PROFILER_START_KERNEL_COMPILE 
   compiled_kernel_ = executor_utils::getCompiledKernel(
       kernel_code_,
       structured_code,
@@ -1534,7 +1535,7 @@ void FusionExecutor::recompileKernel(
       fusion_id_,
       new_compile_params,
       block_size_high_water_mark_);
-
+  FUSION_PROFILER_STOP_KERNEL_COMPILE 
   resetCompiledKernelProperties();
 
   if (kernel()->summary().has_cooperative_grid_reduction) {

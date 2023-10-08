@@ -21,42 +21,6 @@ namespace {
   (((uintptr_t) (buffer) & ((align)-1)) ? ((buffer) + (align) - ((uintptr_t) (buffer) & ((align)-1))) : (buffer))
 
 const char *
-GetJitEntryType(
-    CUpti_ActivityJitEntryType jitEntryType)
-{
-    switch (jitEntryType)
-    {
-        case CUPTI_ACTIVITY_JIT_ENTRY_INVALID:
-            return "INVALID";
-        case CUPTI_ACTIVITY_JIT_ENTRY_PTX_TO_CUBIN:
-            return "PTX_TO_CUBIN";
-        case CUPTI_ACTIVITY_JIT_ENTRY_NVVM_IR_TO_PTX:
-            return "NVVM_IR_TO_PTX";
-        default:
-            return "<unknown>";
-    }
-}
-
-const char *
-GetJitOperationType(
-    CUpti_ActivityJitOperationType jitOperationType)
-{
-    switch (jitOperationType)
-    {
-        case CUPTI_ACTIVITY_JIT_OPERATION_INVALID:
-            return "INVALID";
-        case CUPTI_ACTIVITY_JIT_OPERATION_CACHE_LOAD:
-            return "CACHE_LOAD";
-        case CUPTI_ACTIVITY_JIT_OPERATION_CACHE_STORE:
-            return "CACHE_STORE";
-        case CUPTI_ACTIVITY_JIT_OPERATION_COMPILE:
-            return "COMPILE";
-        default:
-            return "<unknown>";
-    }
-}
-
-const char *
 GetActivityKindString(
     CUpti_ActivityKind activityKind)
 {
@@ -66,8 +30,6 @@ GetActivityKindString(
             return "CONCURRENT_KERNEL";
         case CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION:
             return "EXTERNAL_CORRELATION";
-        case CUPTI_ACTIVITY_KIND_JIT:
-            return "JIT";
         case CUPTI_ACTIVITY_KIND_DRIVER:
             return "DRIVER";
         default:
@@ -184,26 +146,6 @@ PrintActivity(
 
             break;
         }
-        case CUPTI_ACTIVITY_KIND_JIT:
-        {
-            CUpti_ActivityJit *pJitRecord = (CUpti_ActivityJit *)pRecord;
-
-            fprintf(pFileHandle, "%s [ %llu, %llu ] duration %llu, deviceId %u, correlationId %u\n"
-                    "jitEntryType %s, jitOperationType %s, jitOperationCorrelationId %llu\n cacheSize %llu, cachePath %s\n",
-                    GetActivityKindString(pJitRecord->kind),
-                    (unsigned long long)pJitRecord->start,
-                    (unsigned long long)pJitRecord->end,
-                    (unsigned long long)(pJitRecord->end - pJitRecord->start),
-                    pJitRecord->deviceId,
-                    pJitRecord->correlationId,
-                    GetJitEntryType(pJitRecord->jitEntryType),
-                    GetJitOperationType(pJitRecord->jitOperationType),
-                    (unsigned long long)pJitRecord->jitOperationCorrelationId,
-                    (unsigned long long)pJitRecord->cacheSize,
-                    GetName(pJitRecord->cachePath));
-
-            break;
-        }
         case CUPTI_ACTIVITY_KIND_DRIVER:
         {
             CUpti_ActivityAPI *pApiRecord = (CUpti_ActivityAPI *)pRecord;
@@ -317,10 +259,14 @@ void FusionProfiler::start() {
   } else {
     singleton_->reset();
   }
+  NVF_ERROR(!singleton_->fusion_profile_started_,
+            "FusionProfiler profiler is already running!");
+  NVF_ERROR(!singleton_->kernel_compile_started_,
+            "FusionProfiler kernel compile is already running!");
+  NVF_ERROR(!singleton_->kernel_profile_started_,
+            "FusionProfiler kernel profile is already running!");
 
-  singleton_->fusion_timer_.init();
   singleton_->fusion_timer_.start();
-
   singleton_->fusion_profile_started_ = true;
 }
 
@@ -336,7 +282,9 @@ void FusionProfiler::stop() {
             "FusionProfiler kernel profile is still running!");
 
   singleton_->fusion_profile_started_ = false;
+  singleton_->fusion_timer_.stop();
   singleton_->profile_.total_time = singleton_->fusion_timer_.time();
+  singleton_->profile_.compile_time = singleton_->compile_timer_.time();
   singleton_->print();
   NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(0));
 }
@@ -409,6 +357,7 @@ FusionProfiler::FusionProfiler() :
   compile_timer_(at::cuda::getCurrentCUDAStream()),
   profile_(),
   fusion_profile_started_(false),
+  kernel_compile_started_(false),
   kernel_profile_started_(false) {
   NVFUSER_CUPTI_SAFE_CALL(
       cuptiActivityRegisterCallbacks(buffer_requested, buffer_completed));
@@ -422,6 +371,7 @@ void FusionProfiler::reset() {
 
 void FusionProfiler::print() const {
   std::cout << "\nFusion Total Time: " << profile_.total_time << " ms" << std::endl;
+  std::cout << "\nCompile Time: " << profile_.compile_time << " ms" << std::endl;
 }
 
 } // namespace nvfuser
