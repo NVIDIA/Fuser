@@ -23,7 +23,7 @@ def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
 
     if opinfo.symbolic_parameter_list is None:
         opinfo.symbolic_parameter_list = [ArgumentType.Symbolic] * len(args)
-    assert len(opinfo.symbolic_parameter_list) == len(args)
+    assert len(opinfo.symbolic_parameter_list) == len(args), f"{len(opinfo.symbolic_parameter_list)} vs {len(args)}"
 
     for arg_type, a in zip(opinfo.symbolic_parameter_list, args):
         if arg_type == ArgumentType.Symbolic:

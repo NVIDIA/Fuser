@@ -1079,8 +1079,13 @@ def reshape_generator(
         ((1, 7844, 1, 7), (1, 27454, 2)),
     )
 
-    for tensor_shape, output_shape in cases:
-        yield SampleInput(make_arg(tensor_shape), tensor_shape, output_shape)
+    for input_shape, output_shape in cases:
+        input_tensor = make_arg(input_shape)
+        if op.name == "reshape_symbolic":
+            reshaped_tensor = make_arg(output_shape)
+            yield SampleInput(input_tensor, reshaped_tensor)
+        else:
+            yield SampleInput(input_tensor, output_shape)
 
 
 def reshape_error_generator(
@@ -1094,14 +1099,15 @@ def reshape_error_generator(
 
     tensor_shape = (3, 14)
 
-    # Only a single inferred axis -1.
-    yield SampleInput(
-        make_arg(tensor_shape), tensor_shape, [3, -1, -1]
-    ), RuntimeError, "Only one dimension can by inferred"
+    # Only a single inferred axis -1. Only static reshapes can use -1.
+    if op.name == "reshape_constant":
+        yield SampleInput(
+            make_arg(tensor_shape), [3, -1, -1]
+        ), RuntimeError, "A maximum of one value of -1"
 
     # Number of elements must be equal for input and output tensors
     yield SampleInput(
-        make_arg(tensor_shape), tensor_shape, [3, 2, 8]
+        make_arg(tensor_shape), ([3, 2, 8] if op.name == "reshape_constant" else make_arg([3, 2, 8]))
     ), RuntimeError, "Total element counts across view operation must match"
 
 

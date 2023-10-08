@@ -85,44 +85,68 @@ Vector define_vector_fn(
 }
 
 template <class ShapeType>
+Vector ShapeAsVector(ShapeType shape, FusionDefinition& fd) {
+  static_assert(
+      std::is_same_v<ShapeType, Vector> ||
+      std::is_same_v<ShapeType, py::list> ||
+      std::is_same_v<ShapeType, py::tuple>);
+  if constexpr (std::is_same_v<ShapeType, Vector>) {
+    return shape;
+  } else {
+    // It's important to call define_vector_fn in the if-else branch.
+    //
+    // ```
+    // if constexpr (std::is_same_v<ShapeType, Vector>) {
+    //   return shape;
+    // }
+    // return define_vector_fn<ShapeType>(fd, shape);
+    // ```
+    // would not work because the compiler would try to instantiate
+    // define_vector_fn<Vector> and fail.
+    return define_vector_fn<ShapeType>(fd, shape);
+  }
+}
+
+template <class ShapeType>
 Tensor broadcast_in_dim_fn(
     FusionDefinition::Operators& op,
     Tensor arg,
-    ShapeType shape,
+    ShapeType generic_output_shape,
     std::vector<int64_t>& broadcast_dims) {
   FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
   FusionDefinition* fd = op.fusion_definition;
   NVF_CHECK(!fd->completed(), "Attempting to add to a completed definition!");
-  size_t output_size = 0;
-  if constexpr (std::is_same_v<ShapeType, Vector>) {
-    output_size = shape.size;
-  } else {
-    output_size = shape.size();
-  }
+
   NVF_CHECK(op.validUse(), "Attempting to add to a completed definition!");
+  Vector output_shape = ShapeAsVector(generic_output_shape, *fd);
   NVF_CHECK(
-      output_size >= broadcast_dims.size(),
+      output_shape.size >= broadcast_dims.size(),
       "broadcast_dims vector size is too big for output shape!");
 
-  Vector output_shape = [](FusionDefinition& fd, ShapeType shape) -> Vector {
-    if constexpr (std::is_same_v<ShapeType, Vector>) {
-      return shape;
-    } else {
-      if constexpr (!(std::is_same_v<ShapeType, py::list> ||
-                      std::is_same_v<ShapeType, py::tuple>)) {
-        NVF_CHECK(
-            false, "broadcast_in_dim's shape argument type is not supported!");
-      }
-      return define_vector_fn<ShapeType>(fd, shape);
-    }
-  }(*fd, shape);
-
-  Tensor output = fd->defineTensor(output_size);
+  Tensor output = fd->defineTensor(output_shape.size);
   fd->defineRecord(new BroadcastInDimOpRecord(
       {fd->recordingState(arg()), fd->recordingState(output_shape())},
       {fd->recordingState(output())},
-      output_size,
+      output_shape.size,
       broadcast_dims));
+  return output;
+}
+
+template <class ShapeType>
+Tensor reshape_fn(
+    FusionDefinition::Operators& self,
+    Tensor arg,
+    ShapeType generic_new_shape) {
+  NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
+
+  FusionDefinition* fd = self.fusion_definition;
+  Vector new_shape = ShapeAsVector(generic_new_shape, *fd);
+
+  Tensor output = fd->defineTensor(new_shape.size);
+  fd->defineRecord(new ReshapeOpRecord(
+      {fd->recordingState(arg()), fd->recordingState(new_shape())},
+      {fd->recordingState(output())},
+      new_shape.size));
   return output;
 }
 
@@ -1964,7 +1988,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   nvf_ops.def(
       "broadcast_in_dim",
-      broadcast_in_dim_fn<python_frontend::Vector>,
+      broadcast_in_dim_fn<Vector>,
       py::arg("arg"),
       py::arg("shape"),
       py::arg("broadcast_dims"),
@@ -2428,23 +2452,20 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   nvf_ops.def(
       "reshape",
-      [](FusionDefinition::Operators& self,
-         Tensor arg,
-         std::vector<int64_t>& original_shape,
-         std::vector<int64_t>& new_shape) -> Tensor {
-        NVF_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(new_shape.size());
-        self.fusion_definition->defineRecord(new ReshapeOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            std::move(original_shape),
-            std::move(new_shape)));
-        return output;
-      },
+      reshape_fn<Vector>,
       py::arg("arg"),
-      py::arg("original_shape"),
+      py::arg("new_shape"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "reshape",
+      reshape_fn<py::list>,
+      py::arg("arg"),
+      py::arg("new_shape"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "reshape",
+      reshape_fn<py::tuple>,
+      py::arg("arg"),
       py::arg("new_shape"),
       py::return_value_policy::reference);
   nvf_ops.def(

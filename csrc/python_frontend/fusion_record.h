@@ -322,84 +322,54 @@ struct OpRecord : RecordFunctor {
 };
 
 struct ReshapeOpRecord : RecordFunctor {
+  // Question: Should output_ndims_ be an argument? It's not an argument of the
+  // reshape op but putting it here may help debugging? I saw
+  // BroadcastInDimOpRecord has a similar argument too.
   ReshapeOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      std::vector<int64_t> original_shape,
-      std::vector<int64_t> new_shape)
+      size_t output_ndims)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "ops.reshape",
             serde::RecordType_ReshapeOp),
-        original_shape_(std::move(original_shape)),
-        new_shape_(std::move(new_shape)) {}
+        output_ndims_(output_ndims) {
+    arg_names_[1] = "new_shape";
+  }
   ~ReshapeOpRecord() override = default;
   RecordFunctor* clone() final {
     return new ReshapeOpRecord(*this);
   }
 
-  //! Child specific hash function in lower 32 bits.
-  //! | 31 -------------- 16 | 15 --------------  0 |
-  //! | original_shape hash  | new_shape hash       |
   size_t hash() const final {
-    auto result = RecordFunctor::hash();
-    size_t new_shape_hash = 0;
-    for (auto shape : new_shape_) {
-      new_shape_hash ^= static_cast<size_t>(shape);
-    }
-    size_t original_shape_hash = 0;
-    for (auto shape : original_shape_) {
-      original_shape_hash |= 1 << ((new_shape_.size() - 1) - shape);
-    }
-    original_shape_hash = (original_shape_hash & 0xffff) << 16;
-    return result | original_shape_hash | (new_shape_hash & 0xffff);
+    return RecordFunctor::hash() | output_ndims_;
   }
 
   bool operator==(const RecordFunctor& other) const final {
-    auto result = false;
     if (auto child_ptr = dynamic_cast<const ReshapeOpRecord*>(&other)) {
-      result = RecordFunctor::operator==(other);
-      result &= std::equal(
-          original_shape_.begin(),
-          original_shape_.end(),
-          child_ptr->original_shape_.begin());
-      result &= std::equal(
-          new_shape_.begin(), new_shape_.end(), child_ptr->new_shape_.begin());
+      return RecordFunctor::operator==(other) &&
+          output_ndims_ == child_ptr->output_ndims_;
     }
-    return result;
+    return false;
   }
 
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    auto output = reshape(arg, original_shape_, new_shape_);
+    const std::vector<Val*>& new_shape =
+        fd.getFusionStateVector(args_.at(1).index);
+    auto output = reshape(arg, new_shape);
+    NVF_CHECK(
+        new_shape.size() == output_ndims_,
+        "Output rank mismatch: ",
+        new_shape.size(),
+        " vs ",
+        output_ndims_);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
-    os << ", original_shape=[";
-    bool first_arg = true;
-    for (auto shape : original_shape_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      os << shape;
-    }
-    os << "]";
-    os << ", new_shape=[";
-    first_arg = true;
-    for (auto shape : new_shape_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      os << shape;
-    }
-    os << "]";
     if (close_function) {
       os << ")";
     }
@@ -409,15 +379,11 @@ struct ReshapeOpRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Reshape,
-        serde::CreateReshapeDirect(builder, &original_shape_, &new_shape_)
-            .Union()};
+        serde::CreateReshape(builder, output_ndims_).Union()};
   }
 
  private:
-  //! Represents the tensor dimensions of the input tensor.
-  std::vector<int64_t> original_shape_;
-  //! Represents the tensor dimensions of the output tensor.
-  std::vector<int64_t> new_shape_;
+  size_t output_ndims_;
 };
 
 struct PadOpRecord : RecordFunctor {

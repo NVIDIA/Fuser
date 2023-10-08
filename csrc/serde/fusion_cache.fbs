@@ -308,8 +308,7 @@ table Reduction {
 
 // Data for ReshapeOpRecord
 table Reshape {
-  original_shape: [long];
-  new_shape: [long];
+  output_ndims: ulong;
 }
 
 // Data for SizeOpRecord

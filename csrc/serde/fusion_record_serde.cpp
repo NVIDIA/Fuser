@@ -541,8 +541,7 @@ void RecordFunctorFactory::registerAllParsers() {
     return new python_frontend::ReshapeOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        parseVector(data->original_shape()),
-        parseVector(data->new_shape()));
+        data->output_ndims());
   };
   registerParser(serde::RecordType_ReshapeOp, deserializeReshapeRecord);
 

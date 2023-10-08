@@ -973,26 +973,38 @@ permute_opinfo = OpInfo(
 shape_ops.append(permute_opinfo)
 
 
-# nvfuser expects input and output shapes while pytorch only requires the output shape.
-def reshape_wrapper(
-    fn: callable, input: torch.Tensor, input_shape: List[int], output_shape: List[int]
-):
-    return fn(input, output_shape)
-
-
-reshape_opinfo = OpInfo(
+reshape_constant_opinfo = OpInfo(
     lambda fd: fd.ops.reshape,
-    "reshape",
+    "reshape_constant",
     sample_input_generator=reshape_generator,
     error_input_generator=reshape_error_generator,
-    reference=partial(reshape_wrapper, torch.reshape),
+    reference=torch.reshape,
     symbolic_parameter_list=(
         ArgumentType.Symbolic,
         ArgumentType.Constant,
-        ArgumentType.Constant,
     ),
 )
-shape_ops.append(reshape_opinfo)
+shape_ops.append(reshape_constant_opinfo)
+
+
+def reshape_sym_fn(fd, input_tensor, output_shaped_tensor):
+    return fd.ops.reshape(input_tensor, output_shaped_tensor.shape())
+
+def torch_reshape_sym_fn(input_tensor, output_shaped_tensor):
+    return torch.reshape(input_tensor, output_shaped_tensor.size())
+
+reshape_symbolic_opinfo = OpInfo(
+    lambda fd: partial(reshape_sym_fn, fd),
+    "reshape_symbolic",
+    sample_input_generator=reshape_generator,
+    error_input_generator=reshape_error_generator,
+    reference=torch_reshape_sym_fn,
+    symbolic_parameter_list=(
+        ArgumentType.Symbolic,
+        ArgumentType.Symbolic,
+    ),
+)
+shape_ops.append(reshape_symbolic_opinfo)
 
 
 slice_opinfo = OpInfo(
