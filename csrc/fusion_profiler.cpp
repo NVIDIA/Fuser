@@ -68,6 +68,8 @@ GetActivityKindString(
             return "EXTERNAL_CORRELATION";
         case CUPTI_ACTIVITY_KIND_JIT:
             return "JIT";
+        case CUPTI_ACTIVITY_KIND_DRIVER:
+            return "DRIVER";
         default:
             return "<unknown>";
     }
@@ -202,6 +204,26 @@ PrintActivity(
 
             break;
         }
+        case CUPTI_ACTIVITY_KIND_DRIVER:
+        {
+            CUpti_ActivityAPI *pApiRecord = (CUpti_ActivityAPI *)pRecord;
+            const char* pName = NULL;
+
+            cuptiGetCallbackName(CUPTI_CB_DOMAIN_DRIVER_API, pApiRecord->cbid, &pName);
+
+            fprintf(pFileHandle, "%s [ %llu, %llu ] duration %llu, \"%s\", cbid %u, processId %u, threadId %u, correlationId %u\n",
+                    GetActivityKindString(pApiRecord->kind),
+                    (unsigned long long)pApiRecord->start,
+                    (unsigned long long)pApiRecord->end,
+                    (unsigned long long)(pApiRecord->end - pApiRecord->start),
+                    GetName(pName),
+                    pApiRecord->cbid,
+                    pApiRecord->processId,
+                    pApiRecord->threadId,
+                    pApiRecord->correlationId);
+
+            break;
+        }
         default:
             fprintf(pFileHandle, "  <unknown>\n");
             break;
@@ -322,9 +344,14 @@ void FusionProfiler::start_kernel() {
             "FusionProfiler fusion profile is not in progress!");
   NVF_ERROR(!singleton_->kernel_profile_started_,
             "FusionProfiler kernel profile is already in progress!");
-  //NVFUSER_CUPTI_SAFE_CALL(
-  //    cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
+  NVFUSER_CUPTI_SAFE_CALL(
+      cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
+  /*NVFUSER_CUPTI_SAFE_CALL(
+      cuptiActivityEnable(CUPTI_ACTIVITY_KIND_DRIVER));
+  NVFUSER_CUPTI_SAFE_CALL(
+      cuptiActivityEnable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
   NVFUSER_CUPTI_SAFE_CALL(cuptiActivityPushExternalCorrelationId(CUPTI_EXTERNAL_CORRELATION_KIND_UNKNOWN, static_cast<uint64_t>(9999)));
+  */
   singleton_->kernel_profile_started_ = true;
 }
 void FusionProfiler::stop_kernel() {
@@ -335,11 +362,15 @@ void FusionProfiler::stop_kernel() {
             "FusionProfiler fusion profile is not in progress!");
   NVF_ERROR(singleton_->kernel_profile_started_,
             "FusionProfiler kernel profile is not in progress!");
-  uint64_t id = 0;
-  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityPopExternalCorrelationId(CUPTI_EXTERNAL_CORRELATION_KIND_UNKNOWN, &id));
-  //NVFUSER_CUPTI_SAFE_CALL(
-  //    cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
-  std::cout << "\nPopped External Correlation Id? " << id << std::endl;
+  //uint64_t id = 0;
+  //NVFUSER_CUPTI_SAFE_CALL(cuptiActivityPopExternalCorrelationId(CUPTI_EXTERNAL_CORRELATION_KIND_UNKNOWN, &id));
+  NVFUSER_CUPTI_SAFE_CALL(
+      cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
+  /*NVFUSER_CUPTI_SAFE_CALL(
+      cuptiActivityDisable(CUPTI_ACTIVITY_KIND_DRIVER));
+  NVFUSER_CUPTI_SAFE_CALL(
+      cuptiActivityDisable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));*/
+  //std::cout << "\nPopped External Correlation Id? " << id << std::endl;
   singleton_->kernel_profile_started_ = false;
 }
 
@@ -351,12 +382,6 @@ FusionProfiler::FusionProfiler() :
   kernel_profile_started_(false) {
   NVFUSER_CUPTI_SAFE_CALL(
       cuptiActivityRegisterCallbacks(buffer_requested, buffer_completed));
-  NVFUSER_CUPTI_SAFE_CALL(
-      cuptiActivityEnable(CUPTI_ACTIVITY_KIND_JIT));
-  NVFUSER_CUPTI_SAFE_CALL(
-      cuptiActivityEnable(CUPTI_ACTIVITY_KIND_RUNTIME));
-  NVFUSER_CUPTI_SAFE_CALL(
-      cuptiActivityEnable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
 }
 
 void FusionProfiler::reset() {
