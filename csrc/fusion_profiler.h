@@ -7,21 +7,62 @@
 // clang-format on
 
 #include <c10/cuda/CUDAStream.h>
+#include <cuda_runtime.h>
+#include <cuda_utils.h>
 #include <cupti.h>
 #include <executor_utils.h>
 #include <options.h>
 
 namespace nvfuser {
 
-struct KernelProfile {
-  float kernel_time;
+class CudaEventTimer {
+ public:
+  CudaEventTimer(cudaStream_t s) : 
+    stream_(s),
+    start_event_(),
+    stop_event_()
+  {    
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event_));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&stop_event_));
+  }
+
+  ~CudaEventTimer() {
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event_));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(stop_event_));
+  }
+
+  void start() {
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start_event_, stream_));
+  }
+  void stop() {
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(stop_event_, stream_));
+  }
+
+  float time() {
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event_));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(stop_event_));
+    float time_ms = 0.0;
+    NVFUSER_CUDA_RT_SAFE_CALL(
+        cudaEventElapsedTime(&time_ms, start_event_, stop_event_));
+    return time_ms;
+  }
+
+ private:
+  cudaStream_t stream_;
+  cudaEvent_t start_event_;
+  cudaEvent_t stop_event_;
 };
+
+/*struct KernelProfile {
+  float kernel_time;
+};*/
 
 struct FusionProfile {
   void reset();
 
   float total_time;
   float host_time;
+  float compile_time;
   float kernel_time;
 
   int64_t input_bytes;
@@ -43,8 +84,8 @@ class FusionProfiler : public NonCopyable {
   static void start();
   static void stop();
 
-  static void start_kernel_compile() {}
-  static void stop_kernel_compile() {}
+  static void start_kernel_compile();
+  static void stop_kernel_compile();
   
   static void start_kernel();
   static void stop_kernel();
@@ -59,10 +100,11 @@ class FusionProfiler : public NonCopyable {
   static FusionProfiler* singleton_;
   static std::mutex singleton_lock_;
 
-  executor_utils::CudaKernelTimer fusion_timer_;
-  executor_utils::CudaKernelTimer compile_timer_;
+  CudaEventTimer fusion_timer_;
+  CudaEventTimer compile_timer_;
   FusionProfile profile_;
   bool fusion_profile_started_;
+  bool kernel_compile_started_;
   bool kernel_profile_started_;
 };
 
