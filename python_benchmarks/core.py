@@ -3,7 +3,7 @@ import ctypes
 import torch
 from torch.profiler import profile, ProfilerActivity
 
-libnames = ('libcuda.so', 'libcuda.dylib', 'nvcuda.dll', 'cuda.dll')
+libnames = ("libcuda.so", "libcuda.dylib", "nvcuda.dll", "cuda.dll")
 for libname in libnames:
     try:
         cuda = ctypes.CDLL(libname)
@@ -12,19 +12,23 @@ for libname in libnames:
     else:
         break
 else:
-    raise OSError("could not load any of: " + ' '.join(libnames))
+    raise OSError("could not load any of: " + " ".join(libnames))
 
 CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE = 38
 l2_cache_size = ctypes.c_int()
 device = torch.cuda.current_device()
-cuda.cuDeviceGetAttribute(ctypes.byref(l2_cache_size), CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE, device)
+cuda.cuDeviceGetAttribute(
+    ctypes.byref(l2_cache_size), CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE, device
+)
 
 L2_CACHE_SIZE = l2_cache_size.value
+
 
 def clearL2Cache():
     n_elements = L2_CACHE_SIZE // 4
     x = torch.empty(n_elements, dtype=torch.float32, device="cuda", requires_grad=False)
     y = torch.clone(x)
+
 
 class NVFBenchmark(object):
     def __init__(self, benchmark_fixture, precision: float = 1e-6):
