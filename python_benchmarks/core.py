@@ -1,35 +1,30 @@
+import sys
+import ctypes
 import torch
 from torch.profiler import profile, ProfilerActivity
 
-gpu_name = torch.cuda.get_device_name()
-print(gpu_name)
-print(torch.cuda.get_device_properties(torch.cuda.current_device()).major)
-if "A100" in gpu_name:
-    GPU = "A100"
-elif "H100" in gpu_name:
-    GPU = "H100"
-elif "V100" in gpu_name:
-    GPU = "V100"
+libnames = ('libcuda.so', 'libcuda.dylib', 'nvcuda.dll', 'cuda.dll')
+for libname in libnames:
+    try:
+        cuda = ctypes.CDLL(libname)
+    except OSError:
+        continue
+    else:
+        break
 else:
-    raise ValueError("Invalid GPU name")
+    raise OSError("could not load any of: " + ' '.join(libnames))
 
-# set different properties for different GPUs
-if GPU == "A100":
-    L2_CACHE_SIZE = 40 * 1024 * 1024
-    SM_COUNT = 108
-elif GPU == "H100":
-    L2_CACHE_SIZE = 50 * 1024 * 1024
-    SM_COUNT = 132
-elif GPU == "V100":
-    L2_CACHE_SIZE = 6 * 1024 * 1024
-    SM_COUNT = 80
+CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE = 38
+l2_cache_size = ctypes.c_int()
+device = torch.cuda.current_device()
+cuda.cuDeviceGetAttribute(ctypes.byref(l2_cache_size), CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE, device)
 
+L2_CACHE_SIZE = l2_cache_size.value
 
 def clearL2Cache():
     n_elements = L2_CACHE_SIZE // 4
     x = torch.empty(n_elements, dtype=torch.float32, device="cuda", requires_grad=False)
     y = torch.clone(x)
-
 
 class NVFBenchmark(object):
     def __init__(self, benchmark_fixture, precision: float = 1e-6):
