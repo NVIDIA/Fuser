@@ -126,9 +126,9 @@ class FusionProfiler : public NonCopyable {
   CudaEventTimer fusion_timer_;
   CudaEventTimer compile_timer_;
   FusionProfile profile_;
-  bool fusion_profile_recorded_;
+  bool fusion_profile_started_;
   bool kernel_compile_recorded_;
-  bool kernel_profile_started_;
+  bool kernel_profile_recorded_;
 };
 
 #define FUSION_PROFILER_START_PROFILE \
