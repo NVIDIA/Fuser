@@ -311,8 +311,6 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   auto max_threads_per_block = vectorize_factor > 1
       ? scheduler_utils::max_threads_per_block_combined
       : scheduler_utils::max_threads_per_block_combined_unvectorized;
-  // Shared memory persistent is only implemented for the inner and combined
-  // case.
   buffer_params.smem_overhead =
       normalization_scheduler_utils::getSharedMemoryOverheadPerBlock(
           fusion, reduction_tvs, max_threads_per_block);
