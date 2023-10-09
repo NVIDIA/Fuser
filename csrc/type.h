@@ -653,12 +653,12 @@ enum class ParallelType {
   BIDz,
   BIDy,
   BIDx,
-  CIDz,
-  CIDy,
-  CIDx,
   TIDz,
   TIDy,
   TIDx,
+  CIDz,
+  CIDy,
+  CIDx,
   Vectorize,
   MisalignedVectorize,
   Unroll,
@@ -676,12 +676,12 @@ static constexpr std::array<ParallelType, 9> kParallelTypeThreads = {
     ParallelType::BIDx,
     ParallelType::BIDy,
     ParallelType::BIDz,
-    ParallelType::CIDx,
-    ParallelType::CIDy,
-    ParallelType::CIDz,
     ParallelType::TIDx,
     ParallelType::TIDy,
-    ParallelType::TIDz};
+    ParallelType::TIDz,
+    ParallelType::CIDx,
+    ParallelType::CIDy,
+    ParallelType::CIDz};
 
 static constexpr std::array<ParallelType, 3> kParallelTypeBIDs = {
     ParallelType::BIDx,

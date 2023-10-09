@@ -1605,6 +1605,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto par_domains = ir_utils::getParallelDomains(rop->outputs()[0]);
     ArgumentBuilder flags;
     for (const ParallelType pt : kParallelTypeThreads) {
+      // cluster dim is not used in current implementation
+      if (isParallelTypeClusterDim(pt)) {
+        continue;
+      }
       const bool parallel_reduction =
           par_domains.find(pt) != par_domains.end() &&
           par_domains.at(pt)->isReduction();
@@ -1636,6 +1640,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         ir_utils::getParallelDomains(ir_utils::getTvOutput(rop));
     ArgumentBuilder flags;
     for (const ParallelType pt : kParallelTypeThreads) {
+      // cluster dim is not used in current implementation
+      if (isParallelTypeClusterDim(pt)) {
+        continue;
+      }
       const bool parallel_reduction =
           par_domains.find(pt) != par_domains.end() &&
           par_domains.at(pt)->isReduction();
@@ -2367,6 +2375,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     ArgumentBuilder template_args;
     for (const ParallelType pt : kParallelTypeThreads) {
+      // cluster dim is not used in current implementation
+      if (isParallelTypeClusterDim(pt)) {
+        continue;
+      }
       template_args.arg(parallel_types.get(pt));
     }
     template_args.arg(isAligned());
@@ -2576,6 +2588,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         ReductionParallelTypeState::Inactive);
 
     for (const ParallelType pt : kParallelTypeThreads) {
+      // cluster dim is not used in current implementation
+      if (isParallelTypeClusterDim(pt)) {
+        continue;
+      }
       // It may be better to predicate grid reductions on dimensions they don't
       // actively use, however since that should generally be discouraged (they
       // should be part of the iter portion of the operation, or they should be
@@ -2611,6 +2627,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     ArgumentBuilder flags;
     for (auto pt : kParallelTypeThreads) {
+      // cluster dim is not used in current implementation
+      if (isParallelTypeClusterDim(pt)) {
+        continue;
+      }
       flags.arg(static_cast<int>(states[pt]));
     }
 
