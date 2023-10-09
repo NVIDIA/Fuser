@@ -1097,17 +1097,20 @@ def reshape_error_generator(
         make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
 
-    tensor_shape = (3, 14)
+    input_shape = (3, 14)
 
-    # Only a single inferred axis -1. Only static reshapes can use -1.
+    # Only a single inferred axis -1. Skip reshape_symbolic because
+    # make_arg can't create a tensor with negative dimensions.
     if op.name == "reshape_constant":
         yield SampleInput(
-            make_arg(tensor_shape), [3, -1, -1]
+            make_arg(input_shape), (3, -1, -1)
         ), RuntimeError, "A maximum of one value of -1"
 
     # Number of elements must be equal for input and output tensors
+    output_shape = (3, 2, 8)
     yield SampleInput(
-        make_arg(tensor_shape), ([3, 2, 8] if op.name == "reshape_constant" else make_arg([3, 2, 8]))
+        make_arg(input_shape),
+        (output_shape if op.name == "reshape_constant" else make_arg(output_shape)),
     ), RuntimeError, "Total element counts across view operation must match"
 
 
