@@ -56,7 +56,6 @@ from pytest_utils import (
     ArgumentType,
 )
 from functools import partial
-from typing import List
 
 eps = 1e-2
 
@@ -990,8 +989,10 @@ shape_ops.append(reshape_constant_opinfo)
 def reshape_sym_fn(fd, input_tensor, output_shaped_tensor):
     return fd.ops.reshape(input_tensor, output_shaped_tensor.shape())
 
+
 def torch_reshape_sym_fn(input_tensor, output_shaped_tensor):
     return torch.reshape(input_tensor, output_shaped_tensor.size())
+
 
 reshape_symbolic_opinfo = OpInfo(
     lambda fd: partial(reshape_sym_fn, fd),
