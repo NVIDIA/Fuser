@@ -18,7 +18,6 @@
 #include <utils.h>
 
 #include <cstdint>
-#include <iostream>
 #include <limits>
 #include <memory>
 #include <stdexcept>

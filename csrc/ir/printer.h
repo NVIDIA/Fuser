@@ -12,7 +12,7 @@
 #include <ir/iostream.h>
 #include <iter_visitor.h>
 
-#include <iostream>
+#include <iosfwd>
 
 namespace nvfuser {
 

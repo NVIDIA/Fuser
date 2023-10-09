@@ -34,10 +34,16 @@ def patch_installation():
     torch_lib = os.path.join(torch_dir, "lib")
 
     installed_nvfuser_dir = os.path.join(os.path.dirname(torch_dir), "nvfuser")
+    installed_nvfuser_dir = os.path.join("/usr", "local", "lib", "python3.10",
+      "lib", "site-packages", "nvfuser")
+    installed_nvfuser_dir = os.path.join("/home", "tfogal", ".local", "lib",
+      "python3.10", "site-packages", "nvfuser"
+    )
 
-    patch_pytorch_nvfuser_binaries(torch_lib)
-    if os.path.exists(installed_nvfuser_dir):
-        remove_nvfuser_python_module(installed_nvfuser_dir)
+    #patch_pytorch_nvfuser_binaries(torch_lib)
+    patch_pytorch_nvfuser_binaries(installed_nvfuser_dir)
+#    if os.path.exists(installed_nvfuser_dir):
+#        remove_nvfuser_python_module(installed_nvfuser_dir)
 
 
 if __name__ == "__main__":

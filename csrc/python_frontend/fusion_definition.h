@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 #include <exceptions.h>
-#include <iostream>
+#include <iosfwd>
 
 #include <c10/macros/Export.h>
 #include <kernel_cache.h>

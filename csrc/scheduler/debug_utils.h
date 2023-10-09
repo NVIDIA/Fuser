@@ -11,8 +11,6 @@
 #include <options.h>
 #include <utils.h>
 
-#include <iostream>
-
 namespace nvfuser {
 
 namespace scheduler_debug_utils {

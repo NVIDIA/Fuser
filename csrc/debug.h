@@ -10,6 +10,7 @@
 #include <c10/macros/Export.h>
 #include <c10/util/Exception.h>
 
+#include <iosfwd>
 #include <string>
 #include <unordered_map>
 #include <vector>

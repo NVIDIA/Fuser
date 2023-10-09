@@ -209,6 +209,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/optimization/consecutive_cast.cpp
   ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/optimization/remove_empty.cpp
+  ${NVFUSER_SRCS_DIR}/vm.cpp
 )
 
 if(BUILD_PYTHON)

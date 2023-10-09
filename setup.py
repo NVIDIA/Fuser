@@ -395,19 +395,8 @@ def main():
             extra_requires={
                 "test": ["numpy", "expecttest", "pytest"],
             },
-            entry_points={
-                "console_scripts": [
-                    "patch-nvfuser = nvfuser_python_utils:patch_installation",
-                ],
-            },
             license="BSD-3-Clause",
         )
-
-        if BUILD_SETUP and PATCH_NVFUSER:
-            sys.path.append("./nvfuser_python_utils")
-            from patch_nvfuser import patch_installation
-
-            patch_installation()
 
 
 if __name__ == "__main__":

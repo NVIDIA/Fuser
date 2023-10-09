@@ -86,7 +86,7 @@ class FusionExecutor : public NonCopyable {
   std::vector<at::Tensor> runFusion(
       KernelArgumentHolder& args,
       const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams(),
+      const CompileParams& compile_params = CompileParams(),
       std::vector<at::Tensor> outputs = {});
 
   std::vector<at::Tensor> runFusion(
@@ -456,6 +456,12 @@ class FusionExecutor : public NonCopyable {
 
   // Profiling support: kept copy of the cuda kernel
   std::string kernel_code_;
+
+  /// objects that we reuse launch-to-launch
+  ///@{
+  struct FixThisName;
+  std::shared_ptr<FixThisName> hack_;
+  ///@}
 };
 
 } // namespace nvfuser

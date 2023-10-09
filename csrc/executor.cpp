@@ -1,3 +1,4 @@
+#include <iostream>
 // clang-format off
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
@@ -35,6 +36,8 @@
 
 #include <cmath>
 #include <fstream>
+#include <functional>
+#include <numeric>
 
 namespace nvfuser {
 
@@ -1348,7 +1351,7 @@ namespace {
 
 // Make sure the index type of Kernel is valid
 void validateIndexType(
-    kir::Kernel* kernel,
+    const kir::Kernel* kernel,
     const CompileParams& compile_params) {
   NVF_ERROR(
       !compile_params.index_type.has_value() ||
@@ -1610,10 +1613,93 @@ void FusionExecutor::resetCompiledKernelProperties() {
   static_smem_size_.reset();
 }
 
+
+namespace {
+
+/// Two tensors are compatible if they have the same dimensions and strides.
+bool compatible(const at::Tensor& a, const at::Tensor& b) {
+  const at::IntArrayRef dimsA = a.sizes();
+  const at::IntArrayRef dimsB = b.sizes();
+  const at::IntArrayRef sa = a.strides();
+  const at::IntArrayRef sb = b.strides();
+  return std::equal(dimsA.cbegin(), dimsA.cend(), dimsB.cbegin()) &&
+         std::equal(sa.cbegin(), sa.cend(), sb.cbegin());
+}
+
+bool
+compatible(const PolymorphicValue& a, const PolymorphicValue& b) {
+  if(a.is<at::Tensor>() && b.is<at::Tensor>()) {
+    const at::Tensor& ta = a.as<at::Tensor>();
+    const at::Tensor& tb = b.as<at::Tensor>();
+    return compatible(ta, tb);
+  }
+  return a.type() == b.type();
+#if 0
+  {
+  std::ostringstream msg;
+  msg << "unexpected types a: " << PolymorphicValue_functions::toString(*a)
+      << ", and b: " << PolymorphicValue_functions::toString(*b);
+  NVF_ERROR(false, msg.str());
+  }
+#endif
+}
+bool compatible(const std::shared_ptr<PolymorphicValue>& a,
+                const std::shared_ptr<PolymorphicValue>& b) {
+  return compatible(*a, *b);
+}
+
+
+template<typename Container>
+bool compatible(const Container& a, const Container& b) {
+  auto it1 = a.cbegin();
+  auto it2 = b.cbegin();
+  for(; it1 != a.cend(); it1 = std::next(it1), it2 = std::next(it2)) {
+    if(!compatible(*it1, *it2)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+}
+
+
+struct FusionExecutor::FixThisName {
+  const KernelArgumentHolder& args_;
+  const std::vector<at::Tensor>& outputs_;
+  std::vector<at::Tensor> intermediates_;
+  CUstream stream_;
+
+  FixThisName(const KernelArgumentHolder& k,
+              const std::vector<at::Tensor>& out) : args_(k), outputs_(out) {}
+
+  void initialize(const LaunchParams& launch_constraints,
+                  const CompileParams& compile_params,
+                  std::vector<at::Tensor>& outputs,
+                  const kir::Kernel*);
+
+  /// Check if we can reuse this object for the new inputs/outputs. This is
+  /// true if the inputs and outputs can occupy the same memory, which happens
+  /// when e.g. a tensor's size is unchanged.
+  bool stillValid(const KernelArgumentHolder& args,
+                  const std::vector<at::Tensor>& outputs) const {
+    return compatible(args, args_) && compatible(outputs, outputs_);
+  }
+};
+
+void
+FusionExecutor::FixThisName::initialize(const LaunchParams& launch_constraints,
+                                        const CompileParams& compile_params,
+                                        std::vector<at::Tensor>& outputs,
+                                        const kir::Kernel* kernel) {
+  stream_ = at::cuda::getCurrentCUDAStream();
+  validateIndexType(kernel, compile_params);
+}
+
 std::vector<at::Tensor> FusionExecutor::runFusion(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
-    CompileParams compile_params,
+    const CompileParams& compile_params,
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
   NVF_ERROR(isCompiled());
@@ -1621,8 +1707,31 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   NVF_ERROR(
       !args.getCacheId().has_value() || outputs.empty(),
       "short cut input cache is not compatible with pre-allocated output");
-
-  validateIndexType(kernel(), compile_params);
+  {
+  std::ostringstream msg;
+  typedef std::vector<std::shared_ptr<PolymorphicValue>> copv;
+  msg << (void*)this << " - launching from args " << (void*)&args << ": \t";
+  for(copv::const_iterator v = args.cbegin(); v != args.cend(); ++v) {
+    const std::shared_ptr<PolymorphicValue> val = *v;
+    msg << PolymorphicValue_functions::toString(*val) << " ";
+  }
+  msg << " ; producing -> ";
+  for(const at::Tensor& t : outputs) {
+    msg << "tensor(sizes=" << t.sizes() << ", strides=" << t.strides() << ", "
+        << t.dtype() << ", " << t.device() << ") ";
+  }
+  std::cout << msg.str() << "\n";
+  std::cout.flush();
+  }
+  // If we never initialized this, or the arguments changed enough that we need
+  // to reinitialize it, then recreate the cached launcher.
+  if(!hack_ || !hack_->stillValid(args, outputs)) {
+    std::cout << "re-initiliazing because kernel args are too different.\n";
+    std::cout.flush();
+    hack_.reset(new FixThisName(args, outputs));
+    hack_->initialize(launch_constraints, compile_params, outputs,
+                      kernel());
+  }
 
   const auto num_inputs = args.size();
 
@@ -1631,21 +1740,20 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         fusion_id_, args, launch_constraints, compile_params, outputs);
   }
 
-  c10::DeviceGuard dg(options_.device);
-  auto stream = at::cuda::getCurrentCUDAStream();
-  at::cuda::jit::initializeCudaContext();
+  c10::DeviceGuard dg(options_.device); // device unlikely to be changing
+  at::cuda::jit::initializeCudaContext(); // should be done outside CP
   NVF_ERROR(lowered_);
 
   // Placeholder for the case where parameter cache is not used
-  ExecutorEntry temporary_executor_entry;
+  ExecutorEntry temporary_executor_entry; // this allocs, get rid of it
 
   ExecutorEntry* executor_entry =
       args.getCacheId().has_value() && !disable_parameter_cache_
-      ? &executor_entry_lookup_[*args.getCacheId()]
+      ? &executor_entry_lookup_[*args.getCacheId()] // must use find
       : &temporary_executor_entry;
 
   // Initialize the executor entry if not initlized
-  if (!executor_entry->init) {
+  if (!executor_entry->init) { // move outside CP, pre-initialize
     initializeExecutorEntry(
         *executor_entry,
         args,
@@ -1655,24 +1763,29 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         kernel()->indexType());
   }
 
+  // move outside CP, pre-initialize
   recompileKernel(executor_entry->launch_params, compile_params);
 
   // TODO: Why does this need to be stored in the class?
   launch_params_ = executor_entry->launch_params;
 
   // context manager to disable auto grad for `empty_cuda` calls later
+  // This appears to be for PyTorch's auto-differentiating, which we don't even
+  // use (and this might even be a backward kernel, we have no way of knowing).
+  // Just drop it.
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
 
-  ExpressionEvaluator expr_eval;
+  ExpressionEvaluator expr_eval; // todo ensure this doesn't alloc
   const auto& inputs = kernel()->inputs();
 
+  // what's wrong with a simple for loop?!
   for (const auto i : c10::irange(inputs.size())) {
-    expr_eval.bind(inputs[i], *args[i]);
+    expr_eval.bind(inputs[i], *args[i]); // ensure this doesn't alloc
   }
 
   // only allocate outputs when not given
   if (outputs.empty()) {
-    outputs = allocOutputs(
+    outputs = allocOutputs( // must be done outside CP
         kernel(),
         executor_entry->outputs,
         executor_entry->output_to_input_aliases,
@@ -1686,7 +1799,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         __func__,
         " provided number of outputs does not match fusion output");
   }
-  args.push(outputs);
+  args.push(outputs); // can't alloc in CP
 
   for (const auto i : c10::irange(outputs.size())) {
     auto output = kernel()->outputs()[i];
@@ -1700,8 +1813,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     expr_eval.bind(output, *args[inputs.size() + i]);
   }
 
-  std::vector<at::Tensor> intermediates;
+  std::vector<at::Tensor> intermediates; // can't alloc; preprep this
   at::Tensor profile_buffer;
+  // this whole thing needs to move outside the critical path.
+  // also why are we using all sorts of aten calls here?
   {
     FUSER_PERF_SCOPE("ExecutorRunFusion::IntermediateBufferAlloc");
     for (const auto i : c10::irange(executor_entry->intermediates.size())) {
@@ -1733,6 +1848,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     }
   }
 
+  // can't alloc, preprepare this vector
   std::vector<std::vector<std::byte>> arg_buffers;
   {
     FUSER_PERF_SCOPE("ExecutorRunFusion::GetArgsBuffers");
@@ -1743,10 +1859,12 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     }
   }
 
+  // move this to the end of setup instead of in the CP
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
     launch_params_.print();
   }
 
+  // move this to the end of setup instead of in the CP
   if (isDebugDumpEnabled(DebugDumpOption::KernelArgs)) {
     dumpKernelArgs(
         fusion_id_,
@@ -1757,6 +1875,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         executor_entry->intermediates);
   }
 
+  // move this to the end of setup instead of in the CP
   if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
     debug() << "Index type: " << kernel()->indexType() << std::endl;
   }
@@ -1765,13 +1884,13 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose);
 
-  executor_utils::CudaKernelTimer timer(stream);
+  executor_utils::CudaKernelTimer timer(hack_->stream_);
 
   if (measure_kernel_time) {
     timer.init();
   }
 
-  if (execute_kernel_) {
+  if (execute_kernel_) { // why would this ever be false?
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
 
     std::vector<void*> arg_buffer_ptrs;
@@ -1818,7 +1937,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           launch_params_.bdimy(),
           launch_params_.bdimz(),
           launch_params_.smem(),
-          stream,
+          hack_->stream_,
           arg_buffer_ptrs.data(),
           nullptr));
     } else {
@@ -1832,7 +1951,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           launch_params_.bdimy(),
           launch_params_.bdimz(),
           launch_params_.smem(),
-          stream,
+          hack_->stream_,
           arg_buffer_ptrs.data()));
     }
 
@@ -1964,6 +2083,7 @@ float FusionExecutor::runRtc(
 
 flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
+  FUSER_PERF_SCOPE("executor::serialize(bldr)");
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
   using fb_executor_entry = flatbuffers::Offset<serde::ExecutorEntry>;
 
@@ -2036,6 +2156,7 @@ flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
 flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const ExecutorEntry& data) const {
+  FUSER_PERF_SCOPE("executor::serialize(bldr, data)");
   // See table definition for ExecutorEntry in serde/fusion_cache.fbs
 
   // In the flatbuffer schema, we store the vector of pairs as a pair of
@@ -2103,6 +2224,7 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
     const GlobalBufferInfo& data,
     int64_t tv_position,
     bool is_fusion_output) const {
+  FUSER_PERF_SCOPE("bldr, data, tv_pos, is_output");
   // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
   return serde::CreateGlobalBufferInfoDirect(
       builder,
@@ -2119,6 +2241,7 @@ void FusionExecutor::deserialize(
     const serde::FusionExecutor* buffer,
     Fusion* fusion,
     CompileParams compile_params) {
+  FUSER_PERF_SCOPE("executor::deserialize(exc, fusion, params)");
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
 
   NVF_ERROR(buffer != nullptr, "serde::FusionExecutor is nullptr.");
@@ -2159,6 +2282,7 @@ void FusionExecutor::deserialize(
 
 FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
     const serde::ExecutorEntry* buffer) {
+  FUSER_PERF_SCOPE("executor::deserialize(exc)");
   // See table definition for ExecutorEntry in serde/fusion_cache.fbs
 
   NVF_ERROR(buffer != nullptr, "serde::ExecutorEntry is nullptr.");
@@ -2187,6 +2311,7 @@ FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
 
 FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
     const serde::GlobalBufferInfo* buffer) {
+  FUSER_PERF_SCOPE("executor::deserialize(buf)");
   // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
 
   NVF_ERROR(buffer != nullptr, "serde::GlobalBufferInfo is nullptr.");

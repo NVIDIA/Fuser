@@ -41,6 +41,7 @@ Trace::Trace() {
   // Note isOptionDisabled could throw an exception, so this
   // constructor should not be used from a destructor.
   if (isOptionDisabled(DisableOption::Nvtx)) {
+    fprintf(stderr, "nvtx is off!\n"); exit(-1);
     record_nvtx_range_ = false;
   }
 }

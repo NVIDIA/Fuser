@@ -461,6 +461,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
 
   if (!kernel_runtime->isCompiled()) {
+    printf("-- TJF %s, using new lib\n", __func__);
     kernel_runtime->compileFusionParallel(args);
   }
 

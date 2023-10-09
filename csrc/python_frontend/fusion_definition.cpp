@@ -152,6 +152,7 @@ std::vector<at::Tensor> FusionDefinition::execute(
     bool override_user_schedule,
     bool capture_debug_output,
     std::optional<int8_t> selected_device) const {
+  FUSER_PERF_SCOPE("FusionDefinition::execute");
   debug_output_ = std::nullopt;
   std::stringstream debug_ss;
   DebugStreamGuard dsg(capture_debug_output ? debug_ss : std::cout);

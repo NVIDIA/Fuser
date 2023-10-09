@@ -20,7 +20,7 @@
 #include <array>
 #include <complex>
 #include <cstdint>
-#include <iostream>
+#include <iosfwd>
 #include <optional>
 #include <string>
 #include <type_traits>
