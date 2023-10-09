@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <cuda.h>
 #include <cuda_runtime.h>
 #include <cupti.h>
 #include <driver_api.h>
