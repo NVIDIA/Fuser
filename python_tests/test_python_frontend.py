@@ -29,6 +29,7 @@ try:
         Tensor,
         version,
         compute_contiguity,
+        compute_tensor_descriptor,
     )
     from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 except ImportError:
@@ -1381,6 +1382,27 @@ class TestNvFuserFrontend(TestCase):
         strides = [800, 300, 300, 456456465465, 0, 60, 10]
         contiguity = [False, None, True, None, None, True, False]
         self.assertEqual(compute_contiguity(sizes, strides), contiguity)
+
+    def test_compute_tensor_descriptor(self):
+        sizes = [2, 1, 3, 1, 4, 3]
+        strides = [12, 4, 4, 4, 1, 0]
+        contiguity = [True, None, True, None, True, None]
+        stride_order = [5, 4, 3, 2, 1, 0]
+        computed_contiguity, computed_stride_order = compute_tensor_descriptor(
+            sizes, strides
+        )
+        self.assertEqual(computed_contiguity, contiguity)
+        self.assertEqual(computed_stride_order, stride_order)
+
+        sizes = [2, 3, 1, 5, 4]
+        strides = [28, 4, 14, 0, 1]
+        contiguity = [False, None, True, True, None]
+        stride_order = [4, 2, 3, 0, 1]
+        computed_contiguity, computed_stride_order = compute_tensor_descriptor(
+            sizes, strides
+        )
+        self.assertEqual(computed_contiguity, contiguity)
+        self.assertEqual(computed_stride_order, stride_order)
 
     def test_prod(self):
         inputs = [
