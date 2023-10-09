@@ -655,7 +655,7 @@ enum class ParallelType {
   BIDx,
   CIDz,
   CIDy,
-  CIDx,  
+  CIDx,
   TIDz,
   TIDy,
   TIDx,
@@ -672,10 +672,13 @@ enum class ParallelType {
 std::unordered_set<ParallelType> allParallelTypesExcept(
     const std::unordered_set<ParallelType>& except);
 
-static constexpr std::array<ParallelType, 6> kParallelTypeThreads = {
+static constexpr std::array<ParallelType, 9> kParallelTypeThreads = {
     ParallelType::BIDx,
     ParallelType::BIDy,
     ParallelType::BIDz,
+    ParallelType::CIDx,
+    ParallelType::CIDy,
+    ParallelType::CIDz,
     ParallelType::TIDx,
     ParallelType::TIDy,
     ParallelType::TIDz};
@@ -689,6 +692,11 @@ static constexpr std::array<ParallelType, 3> kParallelTypeTIDs = {
     ParallelType::TIDx,
     ParallelType::TIDy,
     ParallelType::TIDz};
+
+static constexpr std::array<ParallelType, 3> kParallelTypeCIDs = {
+    ParallelType::CIDx,
+    ParallelType::CIDy,
+    ParallelType::CIDz};
 
 enum class MemoryType { Local, Shared, Global };
 

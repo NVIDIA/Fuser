@@ -420,9 +420,6 @@ TEST_F(ThreadBlockClusterTest, OneClusterEachRow) {
   auto tv2 = set(tv1);
   fusion.addOutput(tv2);
 
-  // since the current assumption is GridDim.{xyz}  == clusterDim.{xyz},
-  // parallelize by CIDx also implies parallelize by BIDx, this is enforced in
-  // LaunchParams::bind()
   tv1->axis(-1)->parallelize(ParallelType::CIDx);
   tv1->axis(-2)->parallelize(ParallelType::BIDy);
   scheduler_utils::parallelizeAllLike(tv1);

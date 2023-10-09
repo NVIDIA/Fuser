@@ -723,7 +723,7 @@ std::unordered_set<ParallelType> allParallelTypesExcept(
       ParallelType::BIDx,
       ParallelType::CIDz,
       ParallelType::CIDy,
-      ParallelType::CIDx,      
+      ParallelType::CIDx,
       ParallelType::TIDz,
       ParallelType::TIDy,
       ParallelType::TIDx,
@@ -813,7 +813,7 @@ static const char* thread_size2string(ParallelType t) {
     case ParallelType::CIDy:
       return "clusterDim.y";
     case ParallelType::CIDx:
-      return "clusterDim.x";      
+      return "clusterDim.x";
     default:
       NVF_ERROR(false, "Unexpected parallel type");
   }
@@ -1268,7 +1268,8 @@ bool isParallelTypeClusterDim(ParallelType ptype) {
 }
 
 bool isParallelTypeThread(ParallelType ptype) {
-  return isParallelTypeBlockDim(ptype) || isParallelTypeThreadDim(ptype) || isParallelTypeClusterDim(ptype);
+  return isParallelTypeBlockDim(ptype) || isParallelTypeThreadDim(ptype) ||
+      isParallelTypeClusterDim(ptype);
 }
 
 bool isParallelTypeVectorize(ParallelType ptype) {

@@ -82,7 +82,8 @@ void LaunchParams::bind(int64_t val, ParallelType p_type) {
     case ParallelType::BIDx:
       checkAndSet(val, gdimx_, "gridDim.x");
       break;
-    // current implementation require: gridDim.{xyz} = clusterDim.{xyz} if clusterDim.{xyz} > 1
+    // current implementation require: gridDim.{xyz} = clusterDim.{xyz} if
+    // clusterDim.{xyz} > 1
     case ParallelType::CIDx:
       checkAndSet(val, cdimx_, "clusterDim.x");
       checkAndSet(val, gdimx_, "gridDim.x");

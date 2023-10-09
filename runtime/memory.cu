@@ -316,31 +316,29 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
 } // namespace Hopper
 
 // Returns the dim3 grid size in terms of number of clusters.
-DEVICE_INLINE dim3 cluster_grid_dims()
-{
+DEVICE_INLINE dim3 cluster_grid_dims() {
   uint32_t x, y, z;
-  asm volatile("mov.u32 %0, %nclusterid.x;\n" : "=r"(x) : );
-  asm volatile("mov.u32 %0, %nclusterid.y;\n" : "=r"(y) : );
-  asm volatile("mov.u32 %0, %nclusterid.z;\n" : "=r"(z) : );
+  asm volatile("mov.u32 %0, %nclusterid.x;\n" : "=r"(x) :);
+  asm volatile("mov.u32 %0, %nclusterid.y;\n" : "=r"(y) :);
+  asm volatile("mov.u32 %0, %nclusterid.z;\n" : "=r"(z) :);
   return {x, y, z};
 }
 
 // Returns the dim3 cluster rank in the grid.
 DEVICE_INLINE dim3 cluster_id_in_grid() {
   uint32_t x, y, z;
-  asm volatile("mov.u32 %0, %clusterid.x;\n" : "=r"(x) : );
-  asm volatile("mov.u32 %0, %clusterid.y;\n" : "=r"(y) : );
-  asm volatile("mov.u32 %0, %clusterid.z;\n" : "=r"(z) : );
+  asm volatile("mov.u32 %0, %clusterid.x;\n" : "=r"(x) :);
+  asm volatile("mov.u32 %0, %clusterid.y;\n" : "=r"(y) :);
+  asm volatile("mov.u32 %0, %clusterid.z;\n" : "=r"(z) :);
   return {x, y, z};
 }
 
 // Returns the relative dim3 block rank local to the cluster.
-DEVICE_INLINE dim3 block_id_in_cluster()
-{
+DEVICE_INLINE dim3 block_id_in_cluster() {
   uint32_t x, y, z;
-  asm volatile("mov.u32 %0, %cluster_ctaid.x;\n" : "=r"(x) : );
-  asm volatile("mov.u32 %0, %cluster_ctaid.y;\n" : "=r"(y) : );
-  asm volatile("mov.u32 %0, %cluster_ctaid.z;\n" : "=r"(z) : );
+  asm volatile("mov.u32 %0, %cluster_ctaid.x;\n" : "=r"(x) :);
+  asm volatile("mov.u32 %0, %cluster_ctaid.y;\n" : "=r"(y) :);
+  asm volatile("mov.u32 %0, %cluster_ctaid.z;\n" : "=r"(z) :);
   return {x, y, z};
 }
 

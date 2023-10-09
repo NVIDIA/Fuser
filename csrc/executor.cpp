@@ -1788,8 +1788,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       attr.value.cooperative = 1;
       launch_attrs.push_back(attr);
     }
-    if (launch_params_.cdimx() > 1 || launch_params_.cdimy() > 1 ||
-        launch_params_.cdimz() > 1) {
+    if (kernel()->summary().has_thread_block_cluster) {
       CUlaunchAttribute attr;
       attr.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
       attr.value.clusterDim.x = (int)launch_params_.cdimx();
@@ -1837,7 +1836,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     }
 
     NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
-        &config, compiled_kernel_->function, arg_buffer_ptrs.data(), NULL));
+        &config, compiled_kernel_->function, arg_buffer_ptrs.data(), nullptr));
 
     if (measure_kernel_time) {
       kernel_time_ms_ = timer.elapsed();

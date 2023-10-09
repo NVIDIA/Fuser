@@ -37,7 +37,7 @@ constexpr int getParallelTypeBitMapOffset(ParallelType pt) {
     case ParallelType::CIDy:
       return 7;
     case ParallelType::CIDz:
-      return 8;      
+      return 8;
     default:
       return -1;
   }
@@ -171,7 +171,6 @@ class ParallelTypeBitmap {
     return (bitset_ & kCIDBits).any();
   }
 
-
   //! Set all of the TID flags
   ParallelTypeBitmap& setAllTID() {
     *this |= ParallelTypeBitmap(kTIDBits);
@@ -271,7 +270,7 @@ class ParallelTypeBitmap {
   static constexpr std::bitset<ParallelTypeBitmap::kNumParallelTypes> kCIDBits{
       (1u << getParallelTypeBitMapOffset(ParallelType::CIDx)) |
       (1u << getParallelTypeBitMapOffset(ParallelType::CIDy)) |
-      (1u << getParallelTypeBitMapOffset(ParallelType::CIDz))};      
+      (1u << getParallelTypeBitMapOffset(ParallelType::CIDz))};
 };
 
 inline ParallelTypeBitmap operator&(

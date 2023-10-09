@@ -286,9 +286,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void genPrologue() {
     const auto& kernel_summary = kernel_->summary();
 
-    // block_id_in_cluster
-    indent() << "dim3 blusterIdx = block_id_in_cluster();\n";
-
+    // blusterIdx represents block id in this cluster
+    if (kernel_summary.has_thread_block_cluster) {
+      indent() << "dim3 blusterIdx = block_id_in_cluster();\n";
+    }
 
     if (kernel_summary.has_philox_op) {
       indent() << "uint4 rng_result;\n";
