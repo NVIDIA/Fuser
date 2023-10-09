@@ -3241,7 +3241,7 @@ Val* Index::cpAsyncBulkIndex(
   Val* index = nullptr;
 
   if (is_load) {
-    Val* expect_bytes = nullptr;
+    Val* expect_bytes = IrBuilder::create<Val>(dataTypeSize(consumer->dtype()));
     for (auto id : gmem_tv->getLeafDomain()) {
       expect_bytes = SimplifyingIrBuilder::mulExpr(expect_bytes, id->extent());
     }
