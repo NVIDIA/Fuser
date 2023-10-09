@@ -289,5 +289,5 @@ template deduction. I believe this is a compiler bug:
 - https://gcc.gnu.org/bugzilla/show_bug.cgi?id=111504
 - https://github.com/llvm/llvm-project/issues/67056
 
-The impact of this workaround should be small if your non-container types already defines compare operators.
-It should be just we would have to reject some illegal cases during runtime, where we should have rejected them during compile time.
+The impact of this workaround should be negligible if your container's compare ops are composed from its item type.
+If not, then we might be unable to dispatch compare ops to containers, you will have to manually cast the type to use these operators.
