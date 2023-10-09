@@ -1341,7 +1341,7 @@ std::vector<PolymorphicValue> ReductionOp::evaluate(
   const auto output = out()->as<TensorView>();
 
   NVF_ERROR(
-      output->hasRFactor(),
+      !output->hasRFactor(),
       "Evaluation for rFactored reductions is not supported.");
 
   std::vector<int64_t> reduction_axes;
