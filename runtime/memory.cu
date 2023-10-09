@@ -464,5 +464,3 @@ __device__ inline void cpAsyncBulkTensorTileS2G(
 } // namespace Hopper
 
 #endif // Arch 90
-
-#undef __device__ inline
