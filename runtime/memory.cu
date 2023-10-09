@@ -218,16 +218,15 @@ struct CpAsyncBulkTensorTileG2SIndex {
   const TensorMap* descriptor;
   Array<int32_t, dim> crds;
   uint32_t expect_bytes;
+  uint32_t mbarrier;
 };
 
 __device__ inline void cpAsyncBulkTensorTileG2S(
     const CpAsyncBulkTensorTileG2SIndex<1>& src,
     uint32_t smem_addr) {
   // TODO: This is a temporary solution for the build-out stage.
-  __shared__ uint64_t smem_mbar;
-  uint32_t smem_int_mbar = toSmem(&smem_mbar);
-  mbarrier::init(smem_int_mbar);
-  auto state = mbarrier::arriveExpectTX(smem_int_mbar, src.expect_bytes);
+  mbarrier::init(src.mbarrier);
+  auto state = mbarrier::arriveExpectTX(src.mbarrier, src.expect_bytes);
   // end TODO
 
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
@@ -235,22 +234,20 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       "cp.async.bulk.tensor.1d.shared::cluster.global.mbarrier::complete_tx::bytes"
       " [%0], [%1, {%3}], [%2];"
       :
-      : "r"(smem_addr), "l"(gmem_int_desc), "r"(smem_int_mbar), "r"(src.crds[0])
+      : "r"(smem_addr), "l"(gmem_int_desc), "r"(src.mbarrier), "r"(src.crds[0])
       : "memory");
 
   // TODO: This is a temporary solution for the build-out stage.
-  mbarrier::wait(smem_int_mbar, state);
-  mbarrier::inval(smem_int_mbar);
+  mbarrier::wait(src.mbarrier, state);
+  mbarrier::inval(src.mbarrier);
 }
 
 __device__ inline void cpAsyncBulkTensorTileG2S(
     const CpAsyncBulkTensorTileG2SIndex<2>& src,
     uint32_t smem_addr) {
   // TODO: This is a temporary solution for the build-out stage.
-  __shared__ uint64_t smem_mbar;
-  uint32_t smem_int_mbar = toSmem(&smem_mbar);
-  mbarrier::init(smem_int_mbar);
-  auto state = mbarrier::arriveExpectTX(smem_int_mbar, src.expect_bytes);
+  mbarrier::init(src.mbarrier);
+  auto state = mbarrier::arriveExpectTX(src.mbarrier, src.expect_bytes);
   // end TODO
 
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
@@ -260,24 +257,22 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       :
       : "r"(smem_addr),
         "l"(gmem_int_desc),
-        "r"(smem_int_mbar),
+        "r"(src.mbarrier),
         "r"(src.crds[0]),
         "r"(src.crds[1])
       : "memory");
 
   // TODO: This is a temporary solution for the build-out stage.
-  mbarrier::wait(smem_int_mbar, state);
-  mbarrier::inval(smem_int_mbar);
+  mbarrier::wait(src.mbarrier, state);
+  mbarrier::inval(src.mbarrier);
 }
 
 __device__ inline void cpAsyncBulkTensorTileG2S(
     const CpAsyncBulkTensorTileG2SIndex<3>& src,
     uint32_t smem_addr) {
   // TODO: This is a temporary solution for the build-out stage.
-  __shared__ uint64_t smem_mbar;
-  uint32_t smem_int_mbar = toSmem(&smem_mbar);
-  mbarrier::init(smem_int_mbar);
-  auto state = mbarrier::arriveExpectTX(smem_int_mbar, src.expect_bytes);
+  mbarrier::init(src.mbarrier);
+  auto state = mbarrier::arriveExpectTX(src.mbarrier, src.expect_bytes);
   // end TODO
 
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
@@ -287,25 +282,23 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       :
       : "r"(smem_addr),
         "l"(gmem_int_desc),
-        "r"(smem_int_mbar),
+        "r"(src.mbarrier),
         "r"(src.crds[0]),
         "r"(src.crds[1]),
         "r"(src.crds[2])
       : "memory");
 
   // TODO: This is a temporary solution for the build-out stage.
-  mbarrier::wait(smem_int_mbar, state);
-  mbarrier::inval(smem_int_mbar);
+  mbarrier::wait(src.mbarrier, state);
+  mbarrier::inval(src.mbarrier);
 }
 
 __device__ inline void cpAsyncBulkTensorTileG2S(
     const CpAsyncBulkTensorTileG2SIndex<4>& src,
     uint32_t smem_addr) {
   // TODO: This is a temporary solution for the build-out stage.
-  __shared__ uint64_t smem_mbar;
-  uint32_t smem_int_mbar = toSmem(&smem_mbar);
-  mbarrier::init(smem_int_mbar);
-  auto state = mbarrier::arriveExpectTX(smem_int_mbar, src.expect_bytes);
+  mbarrier::init(src.mbarrier);
+  auto state = mbarrier::arriveExpectTX(src.mbarrier, src.expect_bytes);
   // end TODO
 
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
@@ -315,7 +308,7 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       :
       : "r"(smem_addr),
         "l"(gmem_int_desc),
-        "r"(smem_int_mbar),
+        "r"(src.mbarrier),
         "r"(src.crds[0]),
         "r"(src.crds[1]),
         "r"(src.crds[2]),
@@ -323,18 +316,16 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       : "memory");
 
   // TODO: This is a temporary solution for the build-out stage.
-  mbarrier::wait(smem_int_mbar, state);
-  mbarrier::inval(smem_int_mbar);
+  mbarrier::wait(src.mbarrier, state);
+  mbarrier::inval(src.mbarrier);
 }
 
 __device__ inline void cpAsyncBulkTensorTileG2S(
     const CpAsyncBulkTensorTileG2SIndex<5>& src,
     uint32_t smem_addr) {
   // TODO: This is a temporary solution for the build-out stage.
-  __shared__ uint64_t smem_mbar;
-  uint32_t smem_int_mbar = toSmem(&smem_mbar);
-  mbarrier::init(smem_int_mbar);
-  auto state = mbarrier::arriveExpectTX(smem_int_mbar, src.expect_bytes);
+  mbarrier::init(src.mbarrier);
+  auto state = mbarrier::arriveExpectTX(src.mbarrier, src.expect_bytes);
   // end TODO
 
   uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
@@ -344,7 +335,7 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       :
       : "r"(smem_addr),
         "l"(gmem_int_desc),
-        "r"(smem_int_mbar),
+        "r"(src.mbarrier),
         "r"(src.crds[0]),
         "r"(src.crds[1]),
         "r"(src.crds[2]),
@@ -353,8 +344,8 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
       : "memory");
 
   // TODO: This is a temporary solution for the build-out stage.
-  mbarrier::wait(smem_int_mbar, state);
-  mbarrier::inval(smem_int_mbar);
+  mbarrier::wait(src.mbarrier, state);
+  mbarrier::inval(src.mbarrier);
 }
 
 // TMA Stores:

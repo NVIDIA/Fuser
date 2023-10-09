@@ -3169,6 +3169,7 @@ Val* Index::eye(
 Val* Index::cpAsyncBulkIndex(
     TensorView* gmem_tv,
     TensorView* consumer,
+    TensorView* mbarrier,
     const std::vector<kir::ForLoop*>& loops) {
   using namespace tma;
 
@@ -3241,18 +3242,30 @@ Val* Index::cpAsyncBulkIndex(
   Val* index = nullptr;
 
   if (is_load) {
+    // expect_bytes
     Val* expect_bytes = IrBuilder::create<Val>(dataTypeSize(consumer->dtype()));
     for (auto id : gmem_tv->getLeafDomain()) {
       expect_bytes = SimplifyingIrBuilder::mulExpr(expect_bytes, id->extent());
     }
     expect_bytes =
         SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expect_bytes);
+
+    // mbarrier
+    auto mbarrier_smem_addr = IrBuilder::create<Val>(DataType::SMemAddress);
+    IrBuilder::create<UnaryOp>(
+        UnaryOpType::ToUnsignedSmemAddr,
+        mbarrier_smem_addr,
+        IrBuilder::metadataExpr(mbarrier));
+    auto mbarrier_index =
+        IrBuilder::create<kir::TensorIndex>(mbarrier, mbarrier_smem_addr);
+
     std::stringstream ss;
     ss << "Hopper::CpAsyncBulkTensorTileG2SIndex<" << dim << ">";
     index = IrBuilder::structExpr(
         {{"descriptor", IrBuilder::addressExpr(descriptor)},
          {"coordinate", coordinate},
-         {"expect_bytes", expect_bytes}},
+         {"expect_bytes", expect_bytes},
+         {"mbarrier", mbarrier_index}},
         ss.str());
   } else {
     std::stringstream ss;

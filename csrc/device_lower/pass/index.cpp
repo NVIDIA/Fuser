@@ -1287,16 +1287,28 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
   Val* out = nullptr;
   if (ir_utils::isCpAsyncBulk(ldst)) {
     if (ir_utils::isCpAsyncBulkLoad(ldst)) {
+      // create and allocate a memory barrier
+      TensorView* mbarrier = TensorViewBuilder()
+                                 .shape(std::vector<int64_t>{})
+                                 .dtype(DataType::UInt)
+                                 .contiguity(true)
+                                 .build();
+      mbarrier->setMemoryType(MemoryType::Shared);
+      kir::Allocate* mbarrier_alloc =
+          IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
+      pushBack(mbarrier_alloc);
+
       out = lowerDstIndex(ldst->out(), {}, true);
       in = Index::cpAsyncBulkIndex(
           ldst->in()->as<TensorView>(),
           ldst->out()->as<TensorView>(),
+          mbarrier,
           for_loops_);
     } else {
       NVF_ERROR(ir_utils::isCpAsyncBulkStore(ldst));
       in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
       auto out_tv = ldst->out()->as<TensorView>();
-      out = Index::cpAsyncBulkIndex(out_tv, out_tv, for_loops_);
+      out = Index::cpAsyncBulkIndex(out_tv, out_tv, nullptr, for_loops_);
     }
   } else {
     in = lowerSrcIndex(
