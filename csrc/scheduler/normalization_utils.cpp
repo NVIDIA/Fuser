@@ -601,6 +601,88 @@ bool isConnectedOnlyThroughReductionProducer(
   return true;
 }
 
+bool isReductionIterationAxisMatched(
+    const std::vector<TensorView*>& inner_reduction_tvs,
+    const std::vector<TensorView*>& outer_reduction_tvs) {
+  // set up reference, checkIfReductionsAreInnerOuter already ensures all the
+  // tensor domains are either iteration or reduction, so we can just use a
+  // vector of bool.
+  auto reference_tv = inner_reduction_tvs[0];
+  std::vector<bool> is_reduction(reference_tv->nDims(), false);
+  for (const auto i : c10::irange(reference_tv->nDims())) {
+    auto id = reference_tv->axis((int)i);
+    NVF_CHECK(
+        id->getIterType() == IterType::Iteration ||
+            id->getIterType() == IterType::Reduction,
+        "Invalid iteration type: ",
+        id->getIterType());
+    if (id->isReduction()) {
+      is_reduction[i] = true;
+    }
+  }
+  // check other inner reduction tvs, the corresponding axis should be
+  // reduction.
+  for (auto i : c10::irange(1, inner_reduction_tvs.size())) {
+    auto tv = inner_reduction_tvs[i];
+    for (const auto i : c10::irange(tv->nDims())) {
+      auto id = tv->axis((int)i);
+      NVF_CHECK(
+          id->getIterType() == IterType::Iteration ||
+              id->getIterType() == IterType::Reduction,
+          "Invalid iteration type: ",
+          id->getIterType());
+
+      if (id->isReduction() != is_reduction.at(i)) {
+        return false;
+      }
+    }
+  }
+  // check outer reduction tvs, the corresponding axis should be iteration.
+  for (auto tv : outer_reduction_tvs) {
+    for (const auto i : c10::irange(tv->nDims())) {
+      auto id = tv->axis((int)i);
+      NVF_CHECK(
+          id->getIterType() == IterType::Iteration ||
+              id->getIterType() == IterType::Reduction,
+          "Invalid iteration type: ",
+          id->getIterType());
+
+      if (id->isIteration() != is_reduction.at(i)) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+int64_t partialReductionBufferSize(
+    const std::vector<TensorView*>& outer_reduction_tvs,
+    SchedulerRuntimeInfo& runtime_info) {
+  int64_t partial_reduction_buffer_size = 0;
+  for (auto buffer : outer_reduction_tvs) {
+    int64_t buffer_size = -1;
+    for (auto id : buffer->getMaybeRFactorDomain()) {
+      if (id->isReduction() || id->isBroadcast()) {
+        continue;
+      }
+      auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
+      NVF_ERROR(id_size.hasValue(), "Could not infer persistent buffer size.");
+      if (buffer_size == -1) {
+        buffer_size = id_size.as<int64_t>();
+      } else {
+        buffer_size *= id_size.as<int64_t>();
+      }
+    }
+    buffer_size = (buffer_size == -1) ? 0
+                                      : buffer_size *
+            (int64_t)dataTypeSize(buffer->getDataType().value(),
+                                  runtime_info.getIndexType());
+    partial_reduction_buffer_size += buffer_size;
+  }
+  return partial_reduction_buffer_size;
+}
+
 std::pair<std::optional<int64_t>, int64_t>
 getOptionalInnerOuterPersistentBufferBatches(
     const int64_t inner_dim_numel,
