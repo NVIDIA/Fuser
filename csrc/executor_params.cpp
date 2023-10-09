@@ -69,7 +69,7 @@ void LaunchParams::assertValid() {
 
   } else {
     NVF_ERROR(
-        cdimx() * cdimy() * cdimz() > 1,
+        cdimx() * cdimy() * cdimz() == 1,
         "cluster launch is not supported by current device.");
   }
 }
