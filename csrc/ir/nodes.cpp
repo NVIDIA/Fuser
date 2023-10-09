@@ -1340,11 +1340,12 @@ std::vector<PolymorphicValue> ReductionOp::evaluate(
   const auto& input = inputs.at(0).as<at::Tensor>();
   const auto output = out()->as<TensorView>();
 
-  NVF_ERROR(output->getRFactorDomain().size() == 0, 
-    "Evaluation for rFactored reductions is not supported.");
+  NVF_ERROR(
+      output->hasRFactor(),
+      "Evaluation for rFactored reductions is not supported.");
 
   std::vector<int64_t> reduction_axes;
-  for (const auto i: c10::irange(output->getRootDomain().size())){
+  for (const auto i : c10::irange(output->getRootDomain().size())) {
     auto ax = output->getRootDomain().at(i);
     if (ax->isReduction())
       reduction_axes.push_back(i);
@@ -1354,13 +1355,7 @@ std::vector<PolymorphicValue> ReductionOp::evaluate(
       return {at::sum(input, reduction_axes)};
       break;
     case BinaryOpType::Max:
-      NVF_CHECK(
-        reduction_axes.size() == 1, 
-        "Operator type: ", 
-        getReductionOpType(), 
-        " expects one reduction dimension. Found ",
-        reduction_axes.size(), " reduction dimensions.")
-      return {std::get<0>(at::max(input, reduction_axes[0]))};
+      return {at::amax(input, reduction_axes)};
       break;
     default:
       NVF_CHECK(
