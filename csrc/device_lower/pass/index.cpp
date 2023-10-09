@@ -1289,12 +1289,14 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     if (ir_utils::isCpAsyncBulkLoad(ldst)) {
       out = lowerDstIndex(ldst->out(), {}, true);
       in = Index::cpAsyncBulkIndex(
-          ldst->in()->as<TensorView>(), for_loops_, true);
+          ldst->in()->as<TensorView>(),
+          ldst->out()->as<TensorView>(),
+          for_loops_);
     } else {
       NVF_ERROR(ir_utils::isCpAsyncBulkStore(ldst));
       in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
-      out = Index::cpAsyncBulkIndex(
-          ldst->out()->as<TensorView>(), for_loops_, false);
+      auto out_tv = ldst->out()->as<TensorView>();
+      out = Index::cpAsyncBulkIndex(out_tv, out_tv, for_loops_);
     }
   } else {
     in = lowerSrcIndex(

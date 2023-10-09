@@ -572,16 +572,26 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void genCpAsyncBulkTensorTile(const LoadStoreOp* ldst) {
     auto in = ldst->in()->as<kir::TensorIndex>();
     auto out = ldst->out()->as<kir::TensorIndex>();
-    NVF_ERROR(
-        in->view()->getMemoryType() == MemoryType::Shared &&
-            out->view()->getMemoryType() == MemoryType::Global,
-        "Expected shared to global copy");
+
+    kir::TensorIndex* gmem_ti = nullptr;
+    kir::TensorIndex* smem_ti = nullptr;
+    std::string func_name;
+
+    if (out->view()->getMemoryType() == MemoryType::Shared) {
+      func_name = "Hopper::cpAsyncBulkTensorTileG2S";
+      smem_ti = out;
+      gmem_ti = in;
+    } else {
+      func_name = "Hopper::cpAsyncBulkTensorTileS2G";
+      smem_ti = in;
+      gmem_ti = out;
+    }
 
     ArgumentBuilder func_args;
-    func_args.arg(genInline(out->as<kir::TensorIndex>()->index()));
-    func_args.arg(genInline(in->as<kir::TensorIndex>()->index()));
+    func_args.arg(genInline(gmem_ti->index()));
+    func_args.arg(genInline(smem_ti->index()));
 
-    indent() << genCall("Hopper::cpAsyncBulkTensorTileS2G", func_args) << ";\n";
+    indent() << genCall(func_name, func_args) << ";\n";
   }
 
   void genLdMatrix(const LoadStoreOp* ldst, size_t vector_word_size) {
