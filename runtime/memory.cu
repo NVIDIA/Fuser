@@ -253,14 +253,14 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
   auto state = mbarrier::arriveExpectTX(smem_int_mbar, src.expect_bytes);
   // end TODO
 
-  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
   asm volatile(
       "cp.async.bulk.tensor.2d.shared::cluster.global.mbarrier::complete_tx::bytes"
       " [%0], [%1, {%3, %4}], [%2];"
       :
       : "r"(smem_addr),
         "l"(gmem_int_desc),
-        "r"(smem_mbar_addr),
+        "r"(smem_int_mbar),
         "r"(src.crds[0]),
         "r"(src.crds[1])
       : "memory");
@@ -280,14 +280,14 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
   auto state = mbarrier::arriveExpectTX(smem_int_mbar, src.expect_bytes);
   // end TODO
 
-  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
   asm volatile(
       "cp.async.bulk.tensor.3d.shared::cluster.global.mbarrier::complete_tx::bytes"
       " [%0], [%1, {%3, %4, %5}], [%2];"
       :
       : "r"(smem_addr),
         "l"(gmem_int_desc),
-        "r"(smem_mbar_addr),
+        "r"(smem_int_mbar),
         "r"(src.crds[0]),
         "r"(src.crds[1]),
         "r"(src.crds[2])
@@ -308,14 +308,14 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
   auto state = mbarrier::arriveExpectTX(smem_int_mbar, src.expect_bytes);
   // end TODO
 
-  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
   asm volatile(
       "cp.async.bulk.tensor.4d.shared::cluster.global.mbarrier::complete_tx::bytes"
       " [%0], [%1, {%3, %4, %5, %6}], [%2];"
       :
       : "r"(smem_addr),
         "l"(gmem_int_desc),
-        "r"(smem_mbar_addr),
+        "r"(smem_int_mbar),
         "r"(src.crds[0]),
         "r"(src.crds[1]),
         "r"(src.crds[2]),
@@ -337,14 +337,14 @@ __device__ inline void cpAsyncBulkTensorTileG2S(
   auto state = mbarrier::arriveExpectTX(smem_int_mbar, src.expect_bytes);
   // end TODO
 
-  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(desc_ptr);
+  uint64_t gmem_int_desc = reinterpret_cast<uint64_t>(src.descriptor);
   asm volatile(
       "cp.async.bulk.tensor.5d.shared::cluster.global.mbarrier::complete_tx::bytes"
       " [%0], [%1, {%3, %4, %5, %6, %7}], [%2];"
       :
       : "r"(smem_addr),
         "l"(gmem_int_desc),
-        "r"(smem_mbar_addr),
+        "r"(smem_int_mbar),
         "r"(src.crds[0]),
         "r"(src.crds[1]),
         "r"(src.crds[2]),
