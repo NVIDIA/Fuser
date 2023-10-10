@@ -87,7 +87,8 @@ __device__ void gridReduceLastBlock(
     Func reduction_op,
     T* shared_buf,
     bool write_pred,
-    T init_val) {
+    T init_val,
+    T last_block_val) {
   // We have to do num_reductions across reduction_size. The reductions are
   // contiguous, but offset by reduction_size. There is an entry in "in" for
   // every block, and every thread marked as true. Threads in dimensions marked
@@ -109,11 +110,12 @@ __device__ void gridReduceLastBlock(
   const auto input_stride_for_thread_in_segment =
       index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(blockDim);
 
-  T inp = init_val;
+  T inp = last_block_val;
 
   // Block stride across the reduction until we only have one value per thread
   for (nvfuser_index_t reduction_i = id_in_block_segment;
-       reduction_i < grid_reduction_segment_size;
+       reduction_i + input_stride_for_thread_in_segment <
+       grid_reduction_segment_size;
        reduction_i += input_stride_for_thread_in_segment) {
     auto work_buf_offset = reduction_i * block_reduction_segment_size +
         block_reduction_segment_idx;
@@ -245,8 +247,11 @@ __device__ void gridReduce(
   work_buf += (entrance_ind * grid_segment_size + idx_in_grid_segment) *
       grid_reduction_segment_size * block_reduction_segment_size;
 
-  if ((!X_THREAD || threadIdx.x == 0) && (!Y_THREAD || threadIdx.y == 0) &&
-      (!Z_THREAD || threadIdx.z == 0)) {
+  bool last_block =
+      index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
+
+  if (!last_block && (!X_THREAD || threadIdx.x == 0) &&
+      (!Y_THREAD || threadIdx.y == 0) && (!Z_THREAD || threadIdx.z == 0)) {
     auto block_offset =
         index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
     auto thread_offset =
@@ -267,9 +272,6 @@ __device__ void gridReduce(
         grid_reduction_segment_size);
   }
 
-  bool last_block =
-      index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
-
   if (last_block) {
     // Cleanup with block reduction
     gridReduceLastBlock<!X_THREAD, !Y_THREAD, !Z_THREAD, Aligned>(
@@ -280,7 +282,8 @@ __device__ void gridReduce(
         reduction_op,
         shared_buf,
         write_pred,
-        init_val);
+        init_val,
+        block_reduction_val);
   }
 
   if (PERSISTENT_REDUCTION) {
