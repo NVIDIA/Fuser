@@ -1140,4 +1140,70 @@ TEST_F(AllocationDomainTest, TransposeMatrix) {
       << "alias.";
 }
 
+TEST_F(NVFuserTest, MergedAllocationDomainContiguity) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = reshape(tv0, {2, 3}, {3, 2});
+  fusion->addInput(tv1);
+  auto s0 = IrBuilder::create<Val>(5, DataType::Float);
+  auto tv2 = add(tv1, s0);
+  fusion->addOutput(tv2);
+
+  auto intermediate_merge_domain = tv1->getRootDomain()[0]->uses()[0]->output(0)->as<IterDomain>();
+  tv1->setAllocationDomain({intermediate_merge_domain}, true);
+
+  fusion->printTransforms();
+  fusion->print();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({3, 2}, options);
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs({t0});
+
+  auto t1 = t0.add(5.0);
+  testValidate(fusion, outputs, {t0}, {t1}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, IsThisAValidFusion) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  std::vector<IterDomain*> domain(3, nullptr);
+  for (auto i : c10::irange(3)) {
+    domain[i] =
+      IterDomainBuilder(
+          FusionGuard::getCurFusion()->zeroVal(),
+          IrBuilder::create<Val>(DataType::Index))
+          .build();
+  }
+
+  IterDomain* merged_id =
+      IterDomainBuilder(fusion->zeroVal(), mul(domain[0]->extent(), domain[1]->extent())).build();
+  IrBuilder::create<Merge>(domain[0]->container(), merged_id, domain[0], domain[1]);
+
+  std::vector<IterDomain*> rfactor_domain = {merged_id, domain[2]};
+  std::vector<IterDomain*> alloc_domain = {domain[2], domain[0], domain[1]};
+  std::vector<std::optional<bool>> contiguity = {false, true, true};
+
+  auto tv0 = IrBuilder::create<TensorView>(
+    IrBuilder::create<TensorDomain>(domain, rfactor_domain, alloc_domain, rfactor_domain, contiguity), DataType::Float);
+  fusion->addInput(tv0);
+
+  auto s0 = IrBuilder::create<Val>(5, DataType::Float);
+  auto tv1 = add(tv0, s0);
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({8, 8}, options).as_strided({4, 4}, {1, 8});
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs({t0});
+
+  auto t1 = t0.add(5.0);
+  testValidate(fusion, outputs, {t0}, {t1}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
