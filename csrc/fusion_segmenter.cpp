@@ -1443,11 +1443,6 @@ std::string toString(const SegmentedFusion* segmented_fusion) {
   return ss.str();
 }
 
-//! Sets the rfactor as root and erases rfactor of all inputs in fusion. Any
-//! non-constant expressions in those extents are replaced by new scalars with
-//! no definition. These mutations are performed throughout the Fusion so that
-//! downstream expressions dependent on the original inputs' rfactor extents can
-//! be computed properly.
 void convertInputRfactorsToRoots(Fusion* fusion) {
   FusionGuard fg(fusion);
 
