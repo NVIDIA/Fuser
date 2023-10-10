@@ -364,9 +364,9 @@ TEST_F(ThreadBlockClusterTest, OneCluster) {
   fusion.addOutput(tv2);
 
   tv1->axis(-1)->parallelize(ParallelType::TIDx);
-  tv1->axis(0)->parallelize(ParallelType::CIDx);
-  tv1->axis(1)->parallelize(ParallelType::CIDy);
-  tv1->axis(2)->parallelize(ParallelType::CIDz);
+  tv1->axis(0)->parallelize(ParallelType::KIDx);
+  tv1->axis(1)->parallelize(ParallelType::KIDy);
+  tv1->axis(2)->parallelize(ParallelType::KIDz);
   scheduler_utils::parallelizeAllLike(tv1);
   inlineMost();
 
@@ -420,7 +420,7 @@ TEST_F(ThreadBlockClusterTest, OneClusterEachRow) {
   auto tv2 = set(tv1);
   fusion.addOutput(tv2);
 
-  tv1->axis(-1)->parallelize(ParallelType::CIDx);
+  tv1->axis(-1)->parallelize(ParallelType::KIDx);
   tv1->axis(-2)->parallelize(ParallelType::BIDy);
   scheduler_utils::parallelizeAllLike(tv1);
   inlineMost();

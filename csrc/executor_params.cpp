@@ -36,7 +36,7 @@ void LaunchParams::assertValid() {
   if (dev_prop->clusterLaunch) {
     constexpr static int max_cluster_size = 8;
     NVF_ERROR(
-        bdimx() * bdimy() * bdimz() > 0 &&
+        cdimx() * cdimy() * cdimz() >= 1 &&
             cdimx() * cdimy() * cdimz() <= max_cluster_size,
         "cluster size is not supported",
         ", cdimx= ",
@@ -45,28 +45,6 @@ void LaunchParams::assertValid() {
         cdimy(),
         ", cdimz= ",
         cdimz());
-    NVF_ERROR(
-        cdimx() > 0 && gdimx() % cdimx() == 0,
-        "Invalid number of clusters in x direction.",
-        "cdimx= ",
-        cdimx(),
-        ", gdimx= ",
-        gdimx());
-    NVF_ERROR(
-        cdimy() > 0 && gdimy() % cdimy() == 0,
-        "Invalid number of clusters in y direction.",
-        "cdimy= ",
-        cdimy(),
-        ", gdimy= ",
-        gdimy());
-    NVF_ERROR(
-        cdimz() > 0 && gdimz() % cdimz() == 0,
-        "Invalid number of clusters in z direction.",
-        "cdimz= ",
-        cdimz(),
-        ", gdimz= ",
-        gdimz());
-
   } else {
     NVF_ERROR(
         cdimx() * cdimy() * cdimz() == 1,
@@ -82,11 +60,17 @@ void LaunchParams::bind(int64_t val, ParallelType p_type) {
     case ParallelType::BIDx:
       checkAndSet(val, gdimx_, "gridDim.x");
       break;
-    // current implementation require: gridDim.{xyz} = clusterDim.{xyz} if
-    // clusterDim.{xyz} > 1
-    case ParallelType::CIDx:
+    case ParallelType::KIDx:
       checkAndSet(val, cdimx_, "clusterDim.x");
-      checkAndSet(val, gdimx_, "gridDim.x");
+      bind(
+          getDim(ParallelType::KIDx) * getDim(ParallelType::CIDx),
+          ParallelType::BIDx);
+      break;
+    case ParallelType::CIDx:
+      checkAndSet(val, gcdimx_, "gridClusterDim.x");
+      bind(
+          getDim(ParallelType::KIDx) * getDim(ParallelType::CIDx),
+          ParallelType::BIDx);
       break;
     case ParallelType::TIDy:
       checkAndSet(val, bdimy_, "blockDim.y");
@@ -94,9 +78,17 @@ void LaunchParams::bind(int64_t val, ParallelType p_type) {
     case ParallelType::BIDy:
       checkAndSet(val, gdimy_, "gridDim.y");
       break;
-    case ParallelType::CIDy:
+    case ParallelType::KIDy:
       checkAndSet(val, cdimy_, "clusterDim.y");
-      checkAndSet(val, gdimy_, "gridDim.y");
+      bind(
+          getDim(ParallelType::KIDy) * getDim(ParallelType::CIDy),
+          ParallelType::BIDy);
+      break;
+    case ParallelType::CIDy:
+      checkAndSet(val, gcdimy_, "gridClusterDim.y");
+      bind(
+          getDim(ParallelType::KIDy) * getDim(ParallelType::CIDy),
+          ParallelType::BIDy);
       break;
     case ParallelType::TIDz:
       checkAndSet(val, bdimz_, "blockDim.z");
@@ -104,9 +96,17 @@ void LaunchParams::bind(int64_t val, ParallelType p_type) {
     case ParallelType::BIDz:
       checkAndSet(val, gdimz_, "gridDim.z");
       break;
-    case ParallelType::CIDz:
+    case ParallelType::KIDz:
       checkAndSet(val, cdimz_, "clusterDim.z");
-      checkAndSet(val, gdimz_, "gridDim.z");
+      bind(
+          getDim(ParallelType::KIDz) * getDim(ParallelType::CIDz),
+          ParallelType::BIDz);
+      break;
+    case ParallelType::CIDz:
+      checkAndSet(val, gcdimz_, "gridClusterDim.z");
+      bind(
+          getDim(ParallelType::KIDz) * getDim(ParallelType::CIDz),
+          ParallelType::BIDz);
       break;
     default:
       NVF_ERROR(
@@ -114,29 +114,36 @@ void LaunchParams::bind(int64_t val, ParallelType p_type) {
           "Tried to bind invalid parallel type in launch config: ",
           p_type);
   }
+
   assertValid();
 }
 
 int64_t LaunchParams::getDim(ParallelType p_type) const {
   switch (p_type) {
     case ParallelType::TIDx:
-      return bdimx();
+      return bdimx(); // threads in block
     case ParallelType::BIDx:
-      return gdimx();
+      return gdimx(); // blocks in grid
+    case ParallelType::KIDx:
+      return cdimx(); // blocks in cluster
     case ParallelType::CIDx:
-      return cdimx();
+      return gcdimx(); // cluster in grid
     case ParallelType::TIDy:
       return bdimy();
     case ParallelType::BIDy:
       return gdimy();
-    case ParallelType::CIDy:
+    case ParallelType::KIDy:
       return cdimy();
+    case ParallelType::CIDy:
+      return gcdimy();
     case ParallelType::TIDz:
       return bdimz();
     case ParallelType::BIDz:
       return gdimz();
-    case ParallelType::CIDz:
+    case ParallelType::KIDz:
       return cdimz();
+    case ParallelType::CIDz:
+      return gcdimz();
     default:
       NVF_ERROR(
           false,
@@ -155,20 +162,26 @@ const int64_t& LaunchParams::getRawVal(ParallelType p_type) const {
       return bdimx_;
     case ParallelType::BIDx:
       return gdimx_;
-    case ParallelType::CIDx:
+    case ParallelType::KIDx:
       return cdimx_;
+    case ParallelType::CIDx:
+      return gcdimx_;
     case ParallelType::TIDy:
       return bdimy_;
     case ParallelType::BIDy:
       return gdimy_;
-    case ParallelType::CIDy:
+    case ParallelType::KIDy:
       return cdimy_;
+    case ParallelType::CIDy:
+      return gcdimy_;
     case ParallelType::TIDz:
       return bdimz_;
     case ParallelType::BIDz:
       return gdimz_;
-    case ParallelType::CIDz:
+    case ParallelType::KIDz:
       return cdimz_;
+    case ParallelType::CIDz:
+      return gcdimz_;
     default:
       NVF_ERROR(
           false,
@@ -181,8 +194,9 @@ bool LaunchParams::operator==(const LaunchParams& other) const {
   return gdimx_ == other.gdimx_ && gdimy_ == other.gdimy_ &&
       gdimz_ == other.gdimz_ && cdimx_ == other.cdimx_ &&
       cdimy_ == other.cdimy_ && cdimz_ == other.cdimz_ &&
-      bdimx_ == other.bdimx_ && bdimy_ == other.bdimy_ &&
-      bdimz_ == other.bdimz_ && smem_ == other.smem_;
+      gcdimx_ == other.gcdimx_ && gcdimy_ == other.gcdimy_ &&
+      gcdimz_ == other.gcdimz_ && bdimx_ == other.bdimx_ &&
+      bdimy_ == other.bdimy_ && bdimz_ == other.bdimz_ && smem_ == other.smem_;
 }
 
 void LaunchParams::print() const {

@@ -32,12 +32,18 @@ constexpr int getParallelTypeBitMapOffset(ParallelType pt) {
       return 4;
     case ParallelType::TIDz:
       return 5;
-    case ParallelType::CIDx:
+    case ParallelType::KIDx:
       return 6;
-    case ParallelType::CIDy:
+    case ParallelType::KIDy:
       return 7;
+    case ParallelType::KIDz:
+      return 8;      
+    case ParallelType::CIDx:
+      return 9;
+    case ParallelType::CIDy:
+      return 10;
     case ParallelType::CIDz:
-      return 8;
+      return 11;
     default:
       return -1;
   }
@@ -46,7 +52,7 @@ constexpr int getParallelTypeBitMapOffset(ParallelType pt) {
 //! Represents mapping to bool from BIDx, BIDy, BIDz, TIDx, TIDy and TIDz.
 class ParallelTypeBitmap {
  public:
-  static constexpr int kNumParallelTypes = 9;
+  static constexpr int kNumParallelTypes = 12;
 
   //! Iterator for ParallelTypeBitmap. Picks only set types.
   class Iterator {

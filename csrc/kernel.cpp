@@ -315,12 +315,18 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
     parameters_.push_back(alloc->buffer());
   }
   // If any cluster parallel type is used set has_thread_block_cluster
-  for (auto pt : kParallelTypeCIDs) {
+  for (auto pt : kParallelTypeKIDs) {
     if (GpuLower::current()->parallelDimensionMap().get(pt)) {
       summary_.has_thread_block_cluster = true;
       break;
     }
   }
+  for (auto pt : kParallelTypeCIDs) {
+    if (GpuLower::current()->parallelDimensionMap().get(pt)) {
+      summary_.has_multiple_clusters = true;
+      break;
+    }
+  }  
 }
 
 void Kernel::analyze() {

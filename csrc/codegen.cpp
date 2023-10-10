@@ -291,6 +291,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       indent() << "dim3 blusterIdx = block_id_in_cluster();\n";
     }
 
+    if (kernel_summary.has_multiple_clusters) {
+      indent() << "dim3 clusterIdx = cluster_id_in_grid();\n";
+    }
+
     if (kernel_summary.has_philox_op) {
       indent() << "uint4 rng_result;\n";
       indent() << "nvfuser_index_t rng_subseq = -1;\n";
@@ -1606,7 +1610,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder flags;
     for (const ParallelType pt : kParallelTypeThreads) {
       // cluster dim is not used in current implementation
-      if (isParallelTypeClusterDim(pt)) {
+      if (isParallelTypeClusterDim(pt) || isParallelTypeBlusterDim(pt)) {
         continue;
       }
       const bool parallel_reduction =
@@ -1641,7 +1645,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder flags;
     for (const ParallelType pt : kParallelTypeThreads) {
       // cluster dim is not used in current implementation
-      if (isParallelTypeClusterDim(pt)) {
+      if (isParallelTypeClusterDim(pt) || isParallelTypeBlusterDim(pt)) {
         continue;
       }
       const bool parallel_reduction =
@@ -2376,7 +2380,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder template_args;
     for (const ParallelType pt : kParallelTypeThreads) {
       // cluster dim is not used in current implementation
-      if (isParallelTypeClusterDim(pt)) {
+      if (isParallelTypeClusterDim(pt) || isParallelTypeBlusterDim(pt)) {
         continue;
       }
       template_args.arg(parallel_types.get(pt));
@@ -2589,7 +2593,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     for (const ParallelType pt : kParallelTypeThreads) {
       // cluster dim is not used in current implementation
-      if (isParallelTypeClusterDim(pt)) {
+      if (isParallelTypeClusterDim(pt) || isParallelTypeBlusterDim(pt)) {
         continue;
       }
       // It may be better to predicate grid reductions on dimensions they don't
@@ -2628,7 +2632,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder flags;
     for (auto pt : kParallelTypeThreads) {
       // cluster dim is not used in current implementation
-      if (isParallelTypeClusterDim(pt)) {
+      if (isParallelTypeClusterDim(pt) || isParallelTypeBlusterDim(pt)) {
         continue;
       }
       flags.arg(static_cast<int>(states[pt]));

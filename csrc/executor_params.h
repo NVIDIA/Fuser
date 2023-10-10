@@ -95,6 +95,10 @@ class LaunchParams {
     return static_cast<int64_t>(cdimx_ == UNINITIALIZED_VAL ? 1 : cdimx_);
   }
 
+  int64_t gcdimx() const {
+    return static_cast<int64_t>(gcdimx_ == UNINITIALIZED_VAL ? 1 : gcdimx_);
+  }
+
   int64_t bdimy() const {
     return static_cast<int64_t>(bdimy_ == UNINITIALIZED_VAL ? 1 : bdimy_);
   }
@@ -107,6 +111,10 @@ class LaunchParams {
     return static_cast<int64_t>(cdimy_ == UNINITIALIZED_VAL ? 1 : cdimy_);
   }
 
+  int64_t gcdimy() const {
+    return static_cast<int64_t>(gcdimy_ == UNINITIALIZED_VAL ? 1 : gcdimy_);
+  }
+
   int64_t bdimz() const {
     return static_cast<int64_t>(bdimz_ == UNINITIALIZED_VAL ? 1 : bdimz_);
   }
@@ -117,6 +125,10 @@ class LaunchParams {
 
   int64_t cdimz() const {
     return static_cast<int64_t>(cdimz_ == UNINITIALIZED_VAL ? 1 : cdimz_);
+  }
+
+  int64_t gcdimz() const {
+    return static_cast<int64_t>(gcdimz_ == UNINITIALIZED_VAL ? 1 : gcdimz_);
   }
 
   void checkAndSet(
@@ -174,15 +186,22 @@ class LaunchParams {
   // Spell them out because I want signed ints to know if they were initialized
   // or not.
   // TODO: convert to std::optional
+  // blocks in grid
   int64_t gdimx_ = UNINITIALIZED_VAL;
   int64_t gdimy_ = UNINITIALIZED_VAL;
   int64_t gdimz_ = UNINITIALIZED_VAL;
+  // threads in block
   int64_t bdimx_ = UNINITIALIZED_VAL;
   int64_t bdimy_ = UNINITIALIZED_VAL;
   int64_t bdimz_ = UNINITIALIZED_VAL;
+  // blocks in cluster
   int64_t cdimx_ = UNINITIALIZED_VAL;
   int64_t cdimy_ = UNINITIALIZED_VAL;
   int64_t cdimz_ = UNINITIALIZED_VAL;
+  // clusters in grid
+  int64_t gcdimx_ = UNINITIALIZED_VAL;
+  int64_t gcdimy_ = UNINITIALIZED_VAL;
+  int64_t gcdimz_ = UNINITIALIZED_VAL;  
   int64_t smem_ = 0;
 
   // TODO: Fill in output sizes
