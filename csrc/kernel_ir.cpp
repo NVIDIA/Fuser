@@ -280,7 +280,7 @@ std::string MBarrierInit::toString(int indent_size) const {
 }
 
 std::string MBarrierInit::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "MBarrierInit can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierInit)
@@ -299,7 +299,7 @@ std::string MBarrierInvalidate::toString(int indent_size) const {
 }
 
 std::string MBarrierInvalidate::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "MBarrierInvalidate can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierInvalidate)
@@ -323,7 +323,7 @@ std::string MBarrierArrive::toString(int indent_size) const {
 }
 
 std::string MBarrierArrive::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "MBarrierArrive can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierArrive)
@@ -344,7 +344,7 @@ std::string MBarrierWait::toString(int indent_size) const {
 }
 
 std::string MBarrierWait::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "MBarrierWait can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierWait)
