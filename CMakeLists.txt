@@ -357,7 +357,7 @@ if(BUILD_PYTHON)
   set_target_properties(${NVFUSER} PROPERTIES INSTALL_RPATH
     "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib:$ORIGIN/../torch/lib")
   install(TARGETS ${NVFUSER} DESTINATION lib)
-  
+
 endif()
 
 # -- build tests
