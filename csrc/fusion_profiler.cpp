@@ -230,7 +230,26 @@ void buffer_completed(
     free(pBuffer);
 }
 
+const char* profiler_state2string(const ProfilerState& pstate) {
+  switch (pstate) {
+    case ProfilerState::Ready:
+      return "Ready";
+    case ProfilerState::Running:
+      return "Running";
+    case ProfilerState::Finished:
+      return "Finished";
+    case ProfilerState::Processed:
+      return "Processed";
+    default:
+      NVF_ERROR(false, "Unexpected ProfilerState enum value!");
+  }
+}
+ 
 } // annonymous
+
+std::ostream& operator<<(std::ostream& out, const ProfilerState& pstate) {
+  return out << profiler_state2string(pstate); 
+}
 
 void FusionProfile::reset() {
   total_time = 0.0;
