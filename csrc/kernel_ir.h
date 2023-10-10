@@ -37,6 +37,10 @@ class TensorIndex;
 class Allocate;
 class BlockSync;
 class GridSync;
+class MBarrierInit;
+class MBarrierInvalidate;
+class MBarrierArrive;
+class MBarrierWait;
 class CpAsyncWait;
 class CpAsyncCommit;
 class InitMagicZero;
@@ -303,6 +307,97 @@ class GridSync final : public Expr {
 
   Val* syncBuffer() const {
     return attributeVal(1);
+  }
+};
+
+class MBarrierInit final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierInit(
+      IrBuilderPasskey passkey,
+      Val* mbarrier,
+      Val* thread_count);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierInit";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+
+  Val* threadCount() const {
+    return input(1);
+  }
+};
+
+class MBarrierInvalidate final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierInvalidate(IrBuilderPasskey passkey, Val* mbarrier);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierInvalidate";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+};
+
+class MBarrierArrive final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierArrive(IrBuilderPasskey passkey, Val* state, Val* mbarrier);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierArrive";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* state() const {
+    return output(0);
+  }
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+};
+
+class MBarrierWait final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierWait(IrBuilderPasskey passkey, Val* mbarrier, Val* state);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierWait";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+
+  Val* state() const {
+    return input(1);
   }
 };
 

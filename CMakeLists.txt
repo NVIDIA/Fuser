@@ -394,6 +394,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_polymorphic_value.cpp
     ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
+    ${NVFUSER_ROOT}/test/test_mbarrier.cpp
     ${NVFUSER_ROOT}/test/test_memory.cpp
     ${NVFUSER_ROOT}/test/test_gpu_view.cpp
     ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
@@ -515,6 +516,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/grid_sync.cu
   ${NVFUSER_ROOT}/runtime/helpers.cu
   ${NVFUSER_ROOT}/runtime/index_utils.cu
+  ${NVFUSER_ROOT}/runtime/mbarrier.cu
   ${NVFUSER_ROOT}/runtime/memory.cu
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu
