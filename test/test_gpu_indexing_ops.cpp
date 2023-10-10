@@ -75,8 +75,7 @@ TEST_F(NVFuserTest, FusionSelectOpReduction_CUDA) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, idx});
 
-  testValidate(
-      &fusion, cg_outputs, {t0, idx}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0, idx}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionSelectOpPersistent_CUDA) {
@@ -114,8 +113,7 @@ TEST_F(NVFuserTest, FusionSelectOpPersistent_CUDA) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, idx});
 
-  testValidate(
-      &fusion, cg_outputs, {t0, idx}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0, idx}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionIndexSelectSimple_CUDA) {
