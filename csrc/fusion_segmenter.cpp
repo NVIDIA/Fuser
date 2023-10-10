@@ -1504,15 +1504,17 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
         NVF_ERROR(
             alloc.size() == rfactor.size(),
             "size between rfactor and alloc doesn't match");
-        const auto rank = alloc.size();
         NVF_ERROR(
             std::all_of(
                 alloc.begin(),
                 alloc.end(),
-                [](auto alloc_id) {
+                [&rfactor](auto alloc_id) {
                   return std::any_of(
                       rfactor.begin(),
-                      rfactor.end()[](auto rfactor_id){alloc_id == rfactor_id});
+                      rfactor.end(),
+                      [&alloc_id](auto rfactor_id) {
+                        return alloc_id == rfactor_id;
+                      });
                 }),
             "cannot match IterDomain between allocation domain to rfactor domain");
       }
