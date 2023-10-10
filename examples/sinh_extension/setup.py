@@ -5,6 +5,8 @@ from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
 import os
+import pathlib
+import importlib.util
 
 nvfuser_csrc_dir = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "..", "csrc"
@@ -21,6 +23,8 @@ flatbuffers_dir = os.path.join(
     "include",
 )
 
+nvfuser_lib_dir = str(pathlib.Path(importlib.util.find_spec('nvfuser').origin).parent/'lib')
+
 setup(
     name="nvfuser_extension",
     ext_modules=[
@@ -28,7 +32,9 @@ setup(
             name="nvfuser_extension",
             pkg="nvfuser_extension",
             include_dirs=[nvfuser_csrc_dir, dynamic_type_dir, flatbuffers_dir],
-            libraries=["nvfuser_codegen"],
+            libraries=["nvfuser_codegenx"],
+            library_dirs=[nvfuser_lib_dir],
+            extra_link_args=[f"-Wl,-rpath,{nvfuser_lib_dir}"],
             sources=["main.cpp"],
         )
     ],
