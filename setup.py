@@ -349,7 +349,7 @@ def main():
         # TODO(crcrpar): Better avoid hardcoding `libnvfuser_codegen.so`
         # might can be treated by using `exclude_package_data`.
         nvfuser_package_data = [
-            "lib/libnvfuser_codegen.so",
+            "lib/libnvfuser_codegenx.so",
             "include/nvfuser/*.h",
             "include/nvfuser/struct.inl",
             "include/nvfuser/C++20/type_traits",
