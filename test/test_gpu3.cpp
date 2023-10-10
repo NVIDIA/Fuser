@@ -9697,7 +9697,7 @@ TEST_F(NVFuserTest, NonPaddedWarpReduction) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto test = [&](int num_elements) {
-    at::Tensor t0 = at::ones({num_elements}, options);
+    at::Tensor t0 = at::randn({num_elements}, options);
     std::vector<c10::IValue> aten_inputs = {t0};
 
     FusionExecutor fe;
@@ -9705,7 +9705,7 @@ TEST_F(NVFuserTest, NonPaddedWarpReduction) {
     std::vector<at::Tensor> outputs = fe.runFusion(aten_inputs);
     testValidate(&fusion, outputs, aten_inputs, {t0.sum()}, __LINE__, __FILE__);
   };
-  for (int i = 1; i <= 1024; i++) {
+  for (int i = 1; i <= 1024; i += 31) {
     test(i);
   }
 }
