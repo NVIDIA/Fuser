@@ -148,8 +148,6 @@ class IterDomainGraphs : public PolymorphicBase {
   // function will apply mapThroughExpr forward if inputs map in each
   // initialized map. Else does the same but backwards through the expression
   // from outputs.
-  //
-  // TODO-NM: Unused?
   Expr* addExprWithReplacement(
       const std::unordered_map<IterDomain*, IterDomain*>& old_2_new_ids,
       Expr* old_expr);
@@ -160,8 +158,6 @@ class IterDomainGraphs : public PolymorphicBase {
   // mappings through the expressions. Input domains will match exactly in all
   // properties as those in expr. This is unlike addReplayAs which will produce
   // new outputs using transformations directly.
-  //
-  // TODO-NM: Not implemented?
   Expr* addBackwardsReplayAs(
       const std::vector<IterDomain*>& new_outputs,
       Expr* expr);
@@ -169,8 +165,6 @@ class IterDomainGraphs : public PolymorphicBase {
   // Make an exact copy of provided IterDomain (without rfactor set), and map
   // the copy to the original in all registered IdGraphs. IterDomain copy will
   // not have any registered uses or definitions.
-  //
-  // TODO-NM: Unused?
   IterDomain* cloneIterDomain(IterDomain* id);
 
   const std::unordered_map<IdGroup, IterDomain*> loopPromotionMap() const {
@@ -216,8 +210,6 @@ class IterDomainGraphs : public PolymorphicBase {
   //! Run through disjoint sets in the LOOP map, make sure there's only one
   //! non-serial parallel type in each disjoint set, set the parallel type of
   //! all IterDomains in the disjoint set to that PType.
-  //
-  // TODO-NM: Unused
   void propagateLoopPTypes() const;
 
   // !! START Helper functions to build loop promotion and index map!!

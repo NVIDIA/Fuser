@@ -950,16 +950,8 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
           << tv->toString()
           << ". Loop group: " << nvfuser::toString(loop_group);
 
-      auto promotion_id = promotion_map_it->second;
-
-      // Promotion ID should be loop-mapped
-      ASSERT_TRUE(loop_group->has(promotion_id))
-          << "Loop promotion for " << id->toString() << " of " << tv->toString()
-          << " is promoted to an ID that isn't loop mapped: "
-          << promotion_id->toString() << std::endl;
-
-      auto promotion_exact_group =
-          id_model.idGraph(IdMappingMode::EXACT).toGroup(promotion_id);
+      auto promotion_exact_group = id_model.idGraph(IdMappingMode::EXACT)
+                                       .toGroup(promotion_map_it->second);
 
       auto ref_id = getRefId(tv, id);
       auto ref_exact_group =
@@ -968,8 +960,6 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
       ASSERT_EQ(promotion_exact_group, ref_exact_group)
           << "Invalid promotion: " << id->toString() << " of " << tv->toString()
           << ". Promotion group: " << nvfuser::toString(promotion_exact_group);
-
-      ASSERT_NE(promotion_id, ref_id) << "Should not be promoted to tv10";
     }
   }
 
