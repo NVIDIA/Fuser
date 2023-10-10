@@ -347,6 +347,7 @@ def main():
     if not CMAKE_ONLY:
         # NOTE: package include files for cmake
         # TODO(crcrpar): Better avoid hardcoding `libnvfuser_codegen.so`
+        # TODO (xwang233): ^^^ agree, +1
         # might can be treated by using `exclude_package_data`.
         nvfuser_package_data = [
             "lib/libnvfuser_codegenx.so",
