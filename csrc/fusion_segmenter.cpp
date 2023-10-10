@@ -1495,6 +1495,28 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
       // we need to replay the new root domain following the old rfactor domain
       // into allocation domain
       const auto& alloc = tv->getAllocationDomain();
+
+      // TODO: remove this restriction after we fix:
+      //   https://github.com/NVIDIA/Fuser/issues/1047
+      //   https://github.com/NVIDIA/Fuser/issues/1048
+      // asserts that alloc domain is just a re-order of rfactor domain.
+      {
+        NVF_ERROR(
+            alloc.size() == rfactor.size(),
+            "size between rfactor and alloc doesn't match");
+        const auto rank = alloc.size();
+        NVF_ERROR(
+            std::all_of(
+                alloc.begin(),
+                alloc.end(),
+                [](auto alloc_id) {
+                  return std::any_of(
+                      rfactor.begin(),
+                      rfactor.end()[](auto rfactor_id){alloc_id == rfactor_id});
+                }),
+            "cannot match IterDomain between allocation domain to rfactor domain");
+      }
+
       std::unordered_map<IterDomain*, IterDomain*> id_map;
       for (auto i : c10::irange(rfactor.size())) {
         id_map[rfactor[i]] = new_root_domain[i];
