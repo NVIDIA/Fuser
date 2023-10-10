@@ -1282,28 +1282,65 @@ void IndexLowering::handleGroupedGridWelford(
   }
 }
 
+void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
+  auto out_tv = ldst->out()->as<TensorView>();
+  auto in_tv = ldst->in()->as<TensorView>();
+
+  // indexing mbarrier
+  auto mbarrier = GpuLower::current()
+                      ->ldstMBarrierMap()
+                      .at(ldst)
+                      ->buffer()
+                      ->as<TensorView>();
+
+  auto mbarrier_smem_addr = IrBuilder::create<Val>(DataType::SMemAddress);
+  IrBuilder::create<UnaryOp>(
+      UnaryOpType::ToUnsignedSmemAddr,
+      mbarrier_smem_addr,
+      IrBuilder::metadataExpr(mbarrier));
+  auto mbarrier_index =
+      IrBuilder::create<kir::TensorIndex>(mbarrier, mbarrier_smem_addr);
+
+  // init mbarrier
+  pushBack(IrBuilder::create<kir::MBarrierInit>(
+      mbarrier_index, ldst->container()->oneVal(DataType::UInt32)));
+
+  // arrive and expect_tx mbarrier
+  auto state = IrBuilder::create<Val>(DataType::UInt);
+  pushBack(IrBuilder::create<kir::Allocate>(
+      state, MemoryType::Local, ldst->container()->oneVal()));
+  Val* expect_bytes = IrBuilder::create<Val>(dataTypeSize(in_tv->dtype()));
+  for (auto id : in_tv->getLeafDomain()) {
+    expect_bytes = SimplifyingIrBuilder::mulExpr(expect_bytes, id->extent());
+  }
+  expect_bytes =
+      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expect_bytes);
+  pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
+      state, mbarrier_index, expect_bytes));
+
+  // indexing ldst op
+  auto out = lowerDstIndex(ldst->out(), {}, true);
+  auto in = Index::cpAsyncBulkIndex(in_tv, out_tv, mbarrier_index, for_loops_);
+  auto new_ldst =
+      IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
+          ->withPredicate(ldst->predicate());
+  pushBack(new_ldst);
+  GpuLower::current()->propagateExprInfo(ldst, back());
+
+  // wait mbarrier
+  pushBack(IrBuilder::create<kir::MBarrierWait>(mbarrier_index, state));
+
+  // invalidate mbarrier
+  pushBack(IrBuilder::create<kir::MBarrierInvalidate>(mbarrier_index));
+}
+
 void IndexLowering::handle(const LoadStoreOp* ldst) {
   Val* in = nullptr;
   Val* out = nullptr;
   if (ir_utils::isCpAsyncBulk(ldst)) {
     if (ir_utils::isCpAsyncBulkLoad(ldst)) {
-      // create and allocate a memory barrier
-      TensorView* mbarrier = TensorViewBuilder()
-                                 .shape(std::vector<int64_t>{})
-                                 .dtype(DataType::UInt)
-                                 .contiguity(true)
-                                 .build();
-      mbarrier->setMemoryType(MemoryType::Shared);
-      kir::Allocate* mbarrier_alloc =
-          IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
-      pushBack(mbarrier_alloc);
-
-      out = lowerDstIndex(ldst->out(), {}, true);
-      in = Index::cpAsyncBulkIndex(
-          ldst->in()->as<TensorView>(),
-          ldst->out()->as<TensorView>(),
-          mbarrier,
-          for_loops_);
+      handleCpAsyncBulkLoad(ldst);
+      return;
     } else {
       NVF_ERROR(ir_utils::isCpAsyncBulkStore(ldst));
       in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);

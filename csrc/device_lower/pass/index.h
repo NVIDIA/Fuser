@@ -111,6 +111,8 @@ class IndexLowering : private OptOutConstDispatch {
       const std::unordered_map<int, Val*>& override_index = {},
       bool generate_pointer = false) const;
 
+  void handleCpAsyncBulkLoad(const LoadStoreOp* ldst);
+
   void handleBlockReduction(const ReductionOp* rop, Val* out, Val* in);
   void handleGridReduction(const ReductionOp* rop, Val* out, Val* in);
 

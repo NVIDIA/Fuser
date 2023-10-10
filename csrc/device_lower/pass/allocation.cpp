@@ -447,7 +447,7 @@ class AllocationInserter : public kir::ExprMutator {
       return;
     }
 
-    // // Found where the allocation needs to be inserted
+    // Found where the allocation needs to be inserted
 
     for (const auto i : c10::irange(expr->outputs().size())) {
       auto out = expr->output(i);
@@ -545,6 +545,24 @@ class AllocationInserter : public kir::ExprMutator {
             : &allocation.init_for_loop->body();
         registerInsertBefore(allocation.init_place_before, init_expr, scope);
       }
+    }
+
+    // Allocate mbarrier for cp.async.bulk, note that this is only a temporary
+    // solution, we should remove this after we have a better way to handle
+    // synchronizations for cp.async.bulk.
+    if (ir_utils::isCpAsyncBulkLoad(expr)) {
+      // create and allocate a memory barrier
+      TensorView* mbarrier = TensorViewBuilder()
+                                 .shape(std::vector<int64_t>{})
+                                 .dtype(DataType::UInt)
+                                 .contiguity(true)
+                                 .build();
+      mbarrier->setMemoryType(MemoryType::Shared);
+      kir::Allocate* mbarrier_alloc =
+          IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
+      kir::Scope* expr_scope = scope_.empty() ? nullptr : scope_.back();
+      registerInsertBefore(expr, mbarrier_alloc, expr_scope);
+      GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier_alloc;
     }
   }
 

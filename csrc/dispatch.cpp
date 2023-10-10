@@ -260,6 +260,10 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::MBarrierArrive>());
     return;
   }
+  if (expr->isStrictlyA<kir::MBarrierArriveExpectTx>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierArriveExpectTx>());
+    return;
+  }
   if (expr->isStrictlyA<kir::MBarrierWait>()) {
     ptr(handler)->handle(expr->as<kir::MBarrierWait>());
     return;
@@ -558,6 +562,10 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<kir::MBarrierArrive>()) {
     ptr(handler)->handle(expr->as<kir::MBarrierArrive>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierArriveExpectTx>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierArriveExpectTx>());
     return;
   }
   if (expr->isStrictlyA<kir::MBarrierWait>()) {
@@ -955,6 +963,9 @@ void OptOutConstDispatch::handle(const kir::MBarrierInvalidate* stmt) {
 void OptOutConstDispatch::handle(const kir::MBarrierArrive* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const kir::MBarrierArriveExpectTx* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const kir::MBarrierWait* stmt) {
   unhandled(stmt);
 }
@@ -1174,6 +1185,9 @@ void OptOutDispatch::handle(kir::MBarrierInvalidate* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::MBarrierArrive* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::MBarrierArriveExpectTx* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::MBarrierWait* stmt) {

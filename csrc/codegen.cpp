@@ -2931,6 +2931,21 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  void handle(const kir::MBarrierArriveExpectTx* arrive) final {
+    if (!print_inline_) {
+      indent() << gen(arrive->state()) << " = ";
+    }
+    auto call = genCall(
+        "mbarrier::arriveExpectTX",
+        ArgumentBuilder()
+            .arg(genInline(arrive->mbarrier()->as<kir::TensorIndex>()->index()))
+            .arg(genInline(arrive->txCount())));
+    code_ << call;
+    if (!print_inline_) {
+      code_ << ";\n";
+    }
+  }
+
   void handle(const kir::MBarrierWait* wait) final {
     auto call = genCall(
         "mbarrier::wait",
