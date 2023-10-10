@@ -1157,10 +1157,13 @@ TEST_F(NVFuserTest, AllocationDomainReplayInputsWithRfactorDomain) {
   IterDomain* merged_id =
       IterDomainBuilder(fusion->zeroVal(), mul(domain[0]->extent(), domain[1]->extent())).build();
   IrBuilder::create<Merge>(domain[0]->container(), merged_id, domain[0], domain[1]);
-
   std::vector<IterDomain*> rfactor_domain = {merged_id, domain[2]};
-  std::vector<IterDomain*> alloc_domain = {domain[2], domain[0], domain[1]};
-  std::vector<std::optional<bool>> contiguity = {false, true, true};
+  IterDomain* all_merged_id =
+      IterDomainBuilder(fusion->zeroVal(), mul(merged_id->extent(), domain[2]->extent())).build();
+  IrBuilder::create<Merge>(merged_id->container(), merged_id, domain[2]);
+
+  std::vector<IterDomain*> alloc_domain = {all_merged_id};
+  std::vector<std::optional<bool>> contiguity = {true};
 
   auto tv0 = IrBuilder::create<TensorView>(
     IrBuilder::create<TensorDomain>(domain, rfactor_domain, alloc_domain, rfactor_domain, contiguity), DataType::Float);
