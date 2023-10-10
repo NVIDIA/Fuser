@@ -9,5 +9,9 @@ find_package(Torch REQUIRED)
 find_package(Nvfuser REQUIRED)
 
 add_executable(sinh_example main.cpp)
+target_link_libraries(sinh_example "-Wl,-no-as-needed ${TORCH_INSTALL_PREFIX}/lib/libc10_cuda.so")
+# ^^^ This is a workaround if your nvfuser is installed with `python setup.py develop`.
+#     If your nvfuser is installed with pip wheel, you don't need this, but it doesn't hurt.
+
 target_link_libraries(sinh_example ${TORCH_LIBRARIES})
 target_link_libraries(sinh_example nvfuser_codegenx)
