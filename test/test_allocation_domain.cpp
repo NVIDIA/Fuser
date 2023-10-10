@@ -1140,42 +1140,4 @@ TEST_F(NVFuserTest, AllocationDomainContiguityIssue1021) {
   testValidate(fusion, outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, AllocationDomainReplayInputsWithRfactorDomain) {
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  Fusion* fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
-
-  std::vector<IterDomain*> domain(3, nullptr);
-  for (auto i : c10::irange(3)) {
-    domain[i] =
-      IterDomainBuilder(
-          FusionGuard::getCurFusion()->zeroVal(),
-          IrBuilder::create<Val>(DataType::Index))
-          .build();
-  }
-
-  IterDomain* merged_id =
-      IterDomainBuilder(fusion->zeroVal(), mul(domain[0]->extent(), domain[1]->extent())).build();
-  IrBuilder::create<Merge>(domain[0]->container(), merged_id, domain[0], domain[1]);
-  std::vector<IterDomain*> rfactor_domain = {merged_id, domain[2]};
-  IterDomain* all_merged_id =
-      IterDomainBuilder(fusion->zeroVal(), mul(merged_id->extent(), domain[2]->extent())).build();
-  IrBuilder::create<Merge>(merged_id->container(), merged_id, domain[2]);
-
-  std::vector<IterDomain*> alloc_domain = {all_merged_id};
-  std::vector<std::optional<bool>> contiguity = {true};
-
-  auto tv0 = IrBuilder::create<TensorView>(
-    IrBuilder::create<TensorDomain>(domain, rfactor_domain, alloc_domain, rfactor_domain, contiguity), DataType::Float);
-  fusion->addInput(tv0);
-
-  auto s0 = IrBuilder::create<Val>(5, DataType::Float);
-  auto tv1 = add(tv0, s0);
-  fusion->addOutput(tv1);
-
-  fusion->printTransforms();
-  convertInputRfactorsToRoots(fusion);
-  fusion->printTransforms();
-}
-
 } // namespace nvfuser

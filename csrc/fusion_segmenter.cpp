@@ -17,7 +17,6 @@
 #include <ops/arith.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
-#include <transform_iter.h>
 
 #include <sstream>
 
@@ -1443,6 +1442,11 @@ std::string toString(const SegmentedFusion* segmented_fusion) {
   return ss.str();
 }
 
+//! Sets the rfactor as root and erases rfactor of all inputs in fusion. Any
+//! non-constant expressions in those extents are replaced by new scalars with
+//! no definition. These mutations are performed throughout the Fusion so that
+//! downstream expressions dependent on the original inputs' rfactor extents can
+//! be computed properly.
 void convertInputRfactorsToRoots(Fusion* fusion) {
   FusionGuard fg(fusion);
 
@@ -1482,24 +1486,34 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
       }
     }
 
-    auto new_td = IrBuilder::create<TensorDomain>(new_root_domain);
+    NVF_ERROR(new_root_domain.size() == tv->domain()->contiguity().size());
+    auto new_td = IrBuilder::create<TensorDomain>(
+        new_root_domain, tv->domain()->contiguity());
+
     if (tv->domain()->hasAllocation()) {
-      // we need to replay the new root domain following the old rfactor domain
-      // into allocation domain
+      // we need to reorder the root domain into allocation domain consistently
+      // with the mapping from the old TensorView rfactor domain to its
+      // allocation domain
       const auto& alloc = tv->getAllocationDomain();
-      std::unordered_map<IterDomain*, IterDomain*> id_map;
-      for (auto i : c10::irange(rfactor.size())) {
-        id_map[rfactor[i]] = new_root_domain[i];
-      }
-      ReplayTransformations replay(alloc, id_map);
-      std::vector<IterDomain*> new_alloc_domain;
-      new_alloc_domain.reserve(alloc.size());
-      for (auto id : alloc) {
-        new_alloc_domain.push_back(replay.getReplay().at(id));
+      NVF_ERROR(
+          alloc.size() == rfactor.size(),
+          "size between rfactor and alloc doesn't match");
+      const auto rank = alloc.size();
+      std::vector<IterDomain*> new_alloc_domain(rank, nullptr);
+      for (auto i : c10::irange(rank)) {
+        bool found_match = false;
+        for (auto j : c10::irange(rank)) {
+          if (alloc[i] == rfactor[j]) {
+            new_alloc_domain[i] = new_root_domain[j];
+            found_match = true;
+            break;
+          }
+        }
+        NVF_ERROR(
+            found_match,
+            "cannot match IterDomain between allocation domain to rfactor domain");
       }
       new_td->setAllocationDomain(new_alloc_domain, new_td->contiguity());
-    } else {
-      new_td->setContiguity(tv->domain()->contiguity());
     }
     replacement_map.emplace(tv->domain(), new_td);
   }
