@@ -13,6 +13,8 @@
 
 namespace nvfuser {
 
+class TensorView;
+
 // Parameters of the reduction heuristic to describe the optimal schedule.
 // Warning: equal operator is intended for use in caching the kernel associated
 // with these reduction parameters. It does not check if the launch parameters
@@ -316,7 +318,8 @@ class ReductionParams : public HeuristicParams {
   }
 
   std::shared_ptr<HeuristicParams> clone() const override {
-    return std::make_shared<ReductionParams>(*this);
+    auto ptr = std::make_shared<ReductionParams>(*this);
+    return std::static_pointer_cast<HeuristicParams>(ptr);
   }
 };
 
