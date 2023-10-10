@@ -219,6 +219,8 @@ class Fusion : public IrContainer {
   // the input tensor to the section where output is produced.
   void aliasOutputToInput(Val* output, Val* input);
 
+  void markIdentity(Val* input, Val* output);
+
   //! Return the aliased input of a given output or nullptr if not aliased
   Val* getOutputAlias(Val* output);
 
@@ -452,6 +454,7 @@ class Fusion : public IrContainer {
 
   // io alias pointing from output to input
   std::unordered_map<Val*, Val*> io_alias_;
+  std::unordered_map<Val*, Val*> io_identity_;
 
   // See Note [ Permutation support in nvfuser ]
   // map from indices of input tensor to permutation

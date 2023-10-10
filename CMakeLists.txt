@@ -207,6 +207,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
   ${NVFUSER_SRCS_DIR}/optimization/add_axioms.cpp
   ${NVFUSER_SRCS_DIR}/optimization/consecutive_cast.cpp
+  ${NVFUSER_SRCS_DIR}/optimization/mark_identity.cpp
   ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/optimization/remove_empty.cpp
 )

@@ -770,6 +770,18 @@ void Fusion::aliasOutputToInput(Val* output, Val* input) {
   addOutput(output);
 }
 
+void Fusion::markIdentity(Val* input, Val* output) {
+  NVF_ERROR(
+      !io_identity_.count(output),
+      output->toString(),
+      " was already marked as an identity of ",
+      io_identity_.at(output)->toString());
+
+  debug() << "Mark " << output->toString() << " as an identity of "
+          << input->toString() << std::endl;
+  io_identity_[output] = input;
+}
+
 Val* Fusion::getOutputAlias(Val* output) {
   auto search = io_alias_.find(output);
   if (search != io_alias_.end()) {
