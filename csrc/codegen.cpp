@@ -1166,7 +1166,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder template_args;
     template_args.arg(kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
     template_args.arg(isAligned());
-    template_args.arg(is_padded_to_multiple_of_warp);
 
     ArgumentBuilder func_args;
     func_args.arg(gen(output));
@@ -1177,7 +1176,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genInline(read_pred));
     func_args.arg(genStaticCast(output->dtype(), genInline(init)));
 
-    indent() << genCall("warp::warpReduceTIDX", template_args, func_args)
+    // function template paras doesn't support partial specialization
+    indent() << genCall(
+                    is_padded_to_multiple_of_warp
+                        ? "warp::paddedWarpReduceTIDX"
+                        : "warp::unPaddedWarpReduceTIDX",
+                    template_args,
+                    func_args)
              << ";\n";
   }
 

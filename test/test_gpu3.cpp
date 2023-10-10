@@ -9690,8 +9690,8 @@ TEST_F(NVFuserTest, NonPaddedWarpReduction) {
   const std::string kernel_string =
       codegen::generateCudaKernel(GpuLower(&fusion).kernel());
   NVF_CHECK(
-      kernel_string.find("warp::warpReduceTIDX") != std::string::npos,
-      "warpReduceTIDX not found in:\n",
+      kernel_string.find("warp::unPaddedWarpReduceTIDX") != std::string::npos,
+      "unPaddedWarpReduceTIDX not found in:\n",
       kernel_string);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -9703,8 +9703,6 @@ TEST_F(NVFuserTest, NonPaddedWarpReduction) {
     FusionExecutor fe;
     fe.compileFusion(&fusion, aten_inputs);
     std::vector<at::Tensor> outputs = fe.runFusion(aten_inputs);
-    std::cout << outputs[0] << std::endl;
-    std::cout << t0.sum() << std::endl;
     testValidate(&fusion, outputs, aten_inputs, {t0.sum()}, __LINE__, __FILE__);
   };
   for (int i = 1; i <= 1024; i++) {

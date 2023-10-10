@@ -43,15 +43,8 @@ __device__ __forceinline__ std::complex<T> warp_broadcast(
   return std::complex<T>(real, imag);
 }
 
-// This function is used when Padded = false, a spceial overload for Padded =
-// true is also implemented.
-template <
-    bool SINGLE_WARP,
-    bool Aligned,
-    bool Padded,
-    typename T,
-    typename Func>
-__device__ void warpReduceTIDX(
+template <bool SINGLE_WARP, bool Aligned, typename T, typename Func>
+__device__ void unPaddedWarpReduceTIDX(
     T& out,
     const T& inp_val,
     Func reduction_op,
@@ -62,7 +55,6 @@ __device__ void warpReduceTIDX(
   // unpadded version only support 1D thread block.
   assert(blockDim.y == 1);
   assert(blockDim.z == 1);
-
   T reduce_val = init_val;
 
   // Do warp reduction
@@ -140,9 +132,8 @@ __device__ void warpReduceTIDX(
   }
 }
 
-// Overload specifically for Padded == true:
 template <bool SINGLE_WARP, bool Aligned, typename T, typename Func>
-__device__ void warpReduceTIDX<SINGLE_WARP, Aligned, true>(
+__device__ void paddedWarpReduceTIDX(
     T& out,
     const T& inp_val,
     Func reduction_op,
