@@ -381,7 +381,7 @@ def main():
             version=version_tag(),
             url="https://github.com/NVIDIA/Fuser",
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
-            packages=["nvfuser"],
+            packages=["nvfuser", "nvfuser_python_utils"],
             ext_modules=[Extension(name="nvfuser._C", sources=[])],
             license_files=("LICENSE",),
             cmdclass={
@@ -395,6 +395,11 @@ def main():
             install_requires=INSTALL_REQUIRES,
             extra_requires={
                 "test": ["numpy", "expecttest", "pytest"],
+            },
+            entry_points={
+                "console_scripts": [
+                    "patch-nvfuser = nvfuser_python_utils:patch_installation",
+                ],
             },
             license="BSD-3-Clause",
         )
