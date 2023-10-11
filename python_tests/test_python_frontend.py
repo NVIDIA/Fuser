@@ -2528,7 +2528,7 @@ class TestNvFuserFrontend(TestCase):
         def dynamic_reshape() -> FusionDefinition:
             with FusionDefinition() as fd:
                 x = fd.define_tensor([-1, -1], [True, True])
-                d0 = fd.define_scalar(dtype=DataType.Int32)
+                d0 = fd.ops.size(x, 0)
                 d1 = fd.define_scalar(dtype=DataType.Int32)
                 d2 = fd.define_scalar(dtype=DataType.Int32)
                 new_shape = fd.define_vector([d0, d1, d2])
@@ -2539,11 +2539,11 @@ class TestNvFuserFrontend(TestCase):
         fd = dynamic_reshape()
 
         x = torch.rand(3, 4, device="cuda")
-        ys = fd.execute([x, 2, 2, 3])
+        ys = fd.execute([x, 2, 2])
         self.assertEqual(len(ys), 1)
         y = ys[0]
 
-        self.assertEqual(y.shape, torch.Size([2, 2, 3]))
+        self.assertEqual(y.shape, torch.Size([3, 2, 2]))
         self.assertEqual(x.flatten(), y.flatten())
 
 
