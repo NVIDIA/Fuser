@@ -537,11 +537,8 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(serde::RecordType_RandomOp, deserializeRandomRecord);
 
   auto deserializeReshapeRecord = [](const serde::RecordFunctor* buffer) {
-    auto data = buffer->data_as_Reshape();
     return new python_frontend::ReshapeOpRecord(
-        parseStateArgs(buffer->args()),
-        parseStateArgs(buffer->outputs()),
-        data->output_ndims());
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
   };
   registerParser(serde::RecordType_ReshapeOp, deserializeReshapeRecord);
 

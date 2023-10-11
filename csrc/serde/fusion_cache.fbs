@@ -126,7 +126,6 @@ union RecordData {
   Slice,
   Squeeze,
   Reduction,
-  Reshape,
   Scalar,
   Size,
   Tensor,
@@ -304,11 +303,6 @@ table Reduction {
   axes: [int];
   keep_dim: bool;
   dtype: DataType;
-}
-
-// Data for ReshapeOpRecord
-table Reshape {
-  output_ndims: ulong;
 }
 
 // Data for SizeOpRecord

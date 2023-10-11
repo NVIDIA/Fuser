@@ -322,19 +322,12 @@ struct OpRecord : RecordFunctor {
 };
 
 struct ReshapeOpRecord : RecordFunctor {
-  // Question: Should output_ndims_ be an argument? It's not an argument of the
-  // reshape op but putting it here may help debugging? I saw
-  // BroadcastInDimOpRecord has a similar argument too.
-  ReshapeOpRecord(
-      std::vector<State> _args,
-      std::vector<State> _outputs,
-      size_t output_ndims)
+  ReshapeOpRecord(std::vector<State> _args, std::vector<State> _outputs)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "ops.reshape",
-            serde::RecordType_ReshapeOp),
-        output_ndims_(output_ndims) {
+            serde::RecordType_ReshapeOp) {
     arg_names_[1] = "new_shape";
   }
   ~ReshapeOpRecord() override = default;
@@ -342,48 +335,13 @@ struct ReshapeOpRecord : RecordFunctor {
     return new ReshapeOpRecord(*this);
   }
 
-  size_t hash() const final {
-    return RecordFunctor::hash() | output_ndims_;
-  }
-
-  bool operator==(const RecordFunctor& other) const final {
-    if (auto child_ptr = dynamic_cast<const ReshapeOpRecord*>(&other)) {
-      return RecordFunctor::operator==(other) &&
-          output_ndims_ == child_ptr->output_ndims_;
-    }
-    return false;
-  }
-
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     const std::vector<Val*>& new_shape =
         fd.getFusionStateVector(args_.at(1).index);
     auto output = reshape(arg, new_shape);
-    NVF_CHECK(
-        new_shape.size() == output_ndims_,
-        "Output rank mismatch: ",
-        new_shape.size(),
-        " vs ",
-        output_ndims_);
     fd.setFusionState(outputs_.at(0).index, output);
   }
-
-  void print(std::ostream& os, bool close_function = true) const final {
-    RecordFunctor::print(os, false);
-    if (close_function) {
-      os << ")";
-    }
-  }
-
-  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
-      flatbuffers::FlatBufferBuilder& builder) const final {
-    return {
-        serde::RecordData_Reshape,
-        serde::CreateReshape(builder, output_ndims_).Union()};
-  }
-
- private:
-  size_t output_ndims_;
 };
 
 struct PadOpRecord : RecordFunctor {

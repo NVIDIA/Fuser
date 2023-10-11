@@ -145,8 +145,7 @@ Tensor reshape_fn(
   Tensor output = fd->defineTensor(new_shape.size);
   fd->defineRecord(new ReshapeOpRecord(
       {fd->recordingState(arg()), fd->recordingState(new_shape())},
-      {fd->recordingState(output())},
-      new_shape.size));
+      {fd->recordingState(output())}));
   return output;
 }
 
