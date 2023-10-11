@@ -703,8 +703,6 @@ TEST_F(NVFuserTest, MultipleIndexSelectIssue_CUDA) {
   auto tv5 = add(tv3, tv4);
   fusion.addOutput(tv5);
 
-  fusion.printMath();
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
 

@@ -10,7 +10,7 @@
 #include <scheduler/pointwise_utils.h>
 #include <utils.h>
 
-#include <map>
+#include <unordered_map>
 
 namespace nvfuser {
 namespace pointwise_utils {
@@ -19,11 +19,11 @@ namespace {
 
 // Grab all exact set mappings from consumer to producer domains of
 // indexed accesses, e.g., index_select
-std::multimap<
+std::unordered_multimap<
     std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>,
     std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
 getIndexedConsumerToProducerMap(Fusion* fusion, const ComputeAtMap& ca_map) {
-  std::multimap<
+  std::unordered_multimap<
       std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>,
       std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
       indexed_id_map;
