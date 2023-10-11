@@ -562,7 +562,7 @@ Expr* IterDomainGraphs::addExprWithReplacement(
     for (auto in : ir_utils::filterByType<IterDomain>(replay->inputs())) {
       auto uses_pair = graph.getUses(graph.toGroup(in));
       if (uses_pair.second) {
-        for (auto use_group : uses_pair.first) {
+        for (const ExprGroup& use_group : uses_pair.first) {
           if (use_group == replay_group) {
             continue;
           }
@@ -580,7 +580,7 @@ Expr* IterDomainGraphs::addExprWithReplacement(
     for (auto out : ir_utils::filterByType<IterDomain>(replay->outputs())) {
       auto defs_pair = graph.getDefinitions(graph.toGroup(out));
       if (defs_pair.second) {
-        for (auto def_group : defs_pair.first) {
+        for (const ExprGroup& def_group : defs_pair.first) {
           if (def_group == replay_group) {
             continue;
           }
@@ -632,9 +632,7 @@ IterDomain* IterDomainGraphs::cloneIterDomain(IterDomain* id) {
 IdGraph IterDomainGraphs::initializeIdGraph(bool propagate_through_exprs) {
   IdGraph id_graph(propagate_through_exprs);
 
-  for (auto definition_entry : id_definitions_) {
-    auto id = definition_entry.first;
-    auto defs = definition_entry.second;
+  for (const auto& [id, defs] : id_definitions_) {
     auto uses_it = id_uses_.find(id);
     NVF_ERROR(
         uses_it != id_uses_.end(),
@@ -718,7 +716,7 @@ void IterDomainGraphs::buildPermissiveMap(const std::vector<Expr*>& exprs) {
       }
 
       // TODO: Should this just get rolled up in the forwarding map now?
-      for (auto entry : permissive_forwarding.producer_compliment_map) {
+      for (const auto& entry : permissive_forwarding.producer_compliment_map) {
         for (auto entry_2 : entry.second) {
           idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry_2);
         }
@@ -730,7 +728,7 @@ void IterDomainGraphs::buildPermissiveMap(const std::vector<Expr*>& exprs) {
 
       // TODO: Should this just get rolled up in the forwarding map now?
       // TODO: Why should IDs be mapped to their compliments? Is this right?
-      for (auto entry : permissive_forwarding.consumer_compliment_map) {
+      for (const auto& entry : permissive_forwarding.consumer_compliment_map) {
         for (auto entry_2 : entry.second) {
           idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry_2);
         }
