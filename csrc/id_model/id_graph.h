@@ -21,7 +21,7 @@ using IdGroups = VectorOfUniqueEntries<IdGroup>;
 using ExprGroup = std::shared_ptr<VectorOfUniqueEntries<Expr*>>;
 using ExprGroups = VectorOfUniqueEntries<ExprGroup>;
 
-class TORCH_CUDA_CU_API IdGraph {
+class IdGraph {
  public:
   IdGraph() = default;
 
@@ -121,7 +121,9 @@ class TORCH_CUDA_CU_API IdGraph {
   //! Same as iterDomainGroupDefinitions but for uses instead of
   //! definitions
   //!
-  //! TODO-NM: ExprGroups is a real container. Consider returning a reference
+  //! TODO-NM: ExprGroups is a real container. Consider returning a
+  //! reference
+  //! TODO-NM: Rename to getMaybeUses. See getUses
   std::pair<ExprGroups, bool> getUses(const IdGroup& id_group) const;
 
   std::string toString() const;

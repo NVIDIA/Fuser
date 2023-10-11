@@ -99,8 +99,13 @@ class VectorOfUniqueEntries {
 
   // Returns if any node was added
   bool pushBack(const VectorOfUniqueEntries<T, Hash>& other) {
+    return pushBack(other.vector());
+  }
+
+  // Returns if any node was added
+  bool pushBack(const std::vector<T>& other) {
     bool any_added = false;
-    for (auto entry : other) {
+    for (const auto& entry : other) {
       auto added = pushBack(entry);
       any_added = any_added || added;
     }
@@ -112,7 +117,7 @@ class VectorOfUniqueEntries {
   VectorOfUniqueEntries<T, Hash> intersect(
       const VectorOfUniqueEntries<T, Hash>& other) const {
     VectorOfUniqueEntries<T, Hash> intersection;
-    for (auto entry : vector()) {
+    for (const auto& entry : vector()) {
       if (other.has(entry)) {
         intersection.pushBack(entry);
       }
@@ -125,7 +130,7 @@ class VectorOfUniqueEntries {
   VectorOfUniqueEntries<T, Hash> subtract(
       const VectorOfUniqueEntries<T, Hash>& other) const {
     VectorOfUniqueEntries<T, Hash> subtraction;
-    for (auto entry : vector()) {
+    for (const auto& entry : vector()) {
       if (!other.has(entry)) {
         subtraction.pushBack(entry);
       }
@@ -139,7 +144,7 @@ class VectorOfUniqueEntries {
       const VectorOfUniqueEntries<T, Hash>& other) const {
     const VectorOfUniqueEntries<T, Hash>& this_ref = *this;
     VectorOfUniqueEntries<T, Hash> union_(this_ref);
-    for (auto entry : other.vector()) {
+    for (const auto& entry : other.vector()) {
       union_.pushBack(entry);
     }
     return union_;
@@ -253,7 +258,7 @@ class VectorOfUniqueEntries {
   std::string toString() const {
     std::stringstream ss;
     ss << "{ ";
-    for (auto entry : vector()) {
+    for (const auto& entry : vector()) {
       ss << abstractToString(entry);
       if (entry != vector().back()) {
         ss << "; ";
@@ -474,6 +479,10 @@ class DisjointSets {
     }
     ss << "}";
     return ss.str();
+  }
+
+  auto size() const {
+    return disjoint_sets_.size();
   }
 
  private:
