@@ -541,8 +541,9 @@ class TestDifferences:
         import jinja2
 
         tools_dir = os.path.dirname(__file__)
-        env = jinja2.Environment(loader=jinja2.FileSystemLoader(searchpath=tools_dir))
-        template = env.get_template("templates/codediff.html")
+        template_dir = os.path.join(tools_dir, 'templates')
+        env = jinja2.Environment(loader=jinja2.FileSystemLoader(searchpath=template_dir))
+        template = env.get_template("codediff.html")
         context = asdict(self)
         context["omit_preamble"] = omit_preamble
         context["max_diffs"] = max_diffs
