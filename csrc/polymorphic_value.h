@@ -234,15 +234,37 @@ inline std::string toString(const PolymorphicValue& v) {
   return ss.str();
 }
 
+template <typename T>
+inline bool isSameNanSensitive(const T& a, const T& b) {
+  if (std::isnan(a) && std::isnan(b)) {
+    return true;
+  }
+  return a == b;
+}
+
+template <typename T>
+inline bool isSameNanSensitive(
+    const std::complex<T>& a,
+    const std::complex<T>& b) {
+  return isSameNanSensitive(a.real(), b.real()) &&
+      isSameNanSensitive(a.imag(), b.imag());
+}
+
 inline bool isSame(const PolymorphicValue& a, const PolymorphicValue& b) {
   if (a.type() != b.type()) {
     return false;
   }
-  if (a.is<at::Tensor>() && b.is<at::Tensor>()) {
+  if (a.is<at::Tensor>()) {
     return (a.as<at::Tensor>().is_same(b.as<at::Tensor>()));
-  } else {
-    return (a == b);
   }
+  if (a.is<double>()) {
+    return isSameNanSensitive(a.as<double>(), b.as<double>());
+  }
+  if (a.is<std::complex<double>>()) {
+    return isSameNanSensitive(
+        a.as<std::complex<double>>(), b.as<std::complex<double>>());
+  }
+  return a == b;
 }
 
 inline PolymorphicValue ceildiv(
