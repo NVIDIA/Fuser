@@ -1303,6 +1303,13 @@ void IndexLowering::handle(const kir::MBarrierInit* minit) {
   GpuLower::current()->propagateExprInfo(minit, minit_indexed);
 }
 
+void IndexLowering::handle(const kir::MBarrierInvalidate* minval) {
+  auto minval_indexed = IrBuilder::create<kir::MBarrierInvalidate>(
+      getMBarrierSmemAddr(minval->mbarrier()->as<TensorView>()));
+  pushBack(minval_indexed);
+  GpuLower::current()->propagateExprInfo(minval, minval_indexed);
+}
+
 void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
   auto out_tv = ldst->out()->as<TensorView>();
   auto in_tv = ldst->in()->as<TensorView>();
@@ -1335,9 +1342,6 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
   // wait mbarrier
   pushBack(IrBuilder::create<kir::MBarrierWait>(mbarrier_index, state));
-
-  // invalidate mbarrier
-  pushBack(IrBuilder::create<kir::MBarrierInvalidate>(mbarrier_index));
 }
 
 void IndexLowering::handle(const LoadStoreOp* ldst) {

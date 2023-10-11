@@ -762,9 +762,7 @@ class AllocationInfoMap : private kir::IrVisitor {
       debug_printer_->pushBack(scope_map_.getExprPos(expr), expr);
     }
     kir::IrVisitor::dispatch(expr);
-    if (ir_utils::isTvOp(expr)) {
-      collectLivenessInfoOfExpr(expr);
-    }
+    collectLivenessInfoOfExpr(expr);
   }
 
   void handle(kir::ForLoop* for_loop) final {
@@ -868,10 +866,31 @@ class AllocationInfoMap : private kir::IrVisitor {
     return alloc_info;
   }
 
+  void collectLivenessInfoOfExprMBarrier(Expr* expr) {
+    const auto expr_pos = scope_map_.getExprPos(expr);
+
+    if (auto init = dynamic_cast<kir::MBarrierInit*>(expr)) {
+      auto alloc_info = getAllocInfoFromTV(init->mbarrier()->as<TensorView>());
+      alloc_info->inner_live_interval->markWrite(expr_pos);
+      auto outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
+      auto write_pos = outer_loop_info ? outer_loop_info->start_pos : expr_pos;
+      alloc_info->outer_live_interval->markWrite(write_pos);
+    } else if (auto inval = dynamic_cast<kir::MBarrierInvalidate*>(expr)) {
+      auto alloc_info = getAllocInfoFromTV(inval->mbarrier()->as<TensorView>());
+      alloc_info->inner_live_interval->markWrite(expr_pos);
+      auto outer_loop_info = ascendLoopNestToSameLevelAs(alloc_info);
+      auto write_pos = outer_loop_info ? outer_loop_info->start_pos : expr_pos;
+      alloc_info->outer_live_interval->markWrite(write_pos);
+    }
+  }
+
   // Iterate over the inputs and outputs of exprs and update
   //  the liveness info of local buffers if applicaable.
   void collectLivenessInfoOfExpr(Expr* expr) {
-    if (!ir_utils::isTvOp(expr)) {
+    if (expr->isOneOf<kir::MBarrierInit, kir::MBarrierInvalidate>()) {
+      collectLivenessInfoOfExprMBarrier(expr);
+      return;
+    } else if (!ir_utils::isTvOp(expr)) {
       return;
     }
 
@@ -1647,8 +1666,6 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
  private:
   void dispatch(Expr* expr) final {
     position_ = allocation_info_map_.getScopeMap().getExprPos(expr);
-    std::cout << "Position: " << position_ << std::endl;
-    std::cout << "Expr: " << expr->toString() << std::endl;
 
     // Check whether this is a first write position for any allocations
     auto it = first_write_positions_.find(position_);
@@ -1741,9 +1758,6 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
       if (alloc_info->mem_type != MemoryType::Shared) {
         continue;
       }
-      std::cout << "Alloc info: " << alloc_info->alloc_expr->toString()
-                << std::endl;
-      std::cout << alloc_info->outer_live_interval->toString() << std::endl;
       if (alloc_info->alias_to) {
         auto alias_info =
             allocation_info_map_.getAllocationInfo(alloc_info->alias_to);
