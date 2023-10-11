@@ -289,8 +289,9 @@ void ReplayTransformations::runReplay() {
   // Populate leaf_vec_ in a deterministic manner. This is deterministic
   // because size_t in leaf_ids is filled based on operation order.
   std::set<std::pair<IterDomain*, size_t>, id_int_lt> ordered_set;
-  for (auto entry : leaf_ids_)
+  for (auto entry : leaf_ids_) {
     ordered_set.emplace(entry);
+  }
 
   leaf_vec_.clear();
   leaf_vec_.resize(ordered_set.size());
@@ -781,19 +782,16 @@ namespace {
 IterDomain* getSwizzleFinalOutput(
     IterDomain* id,
     const std::unordered_map<IterDomain*, Expr*>& id2expr) {
-  bool is_swizzle_input = true;
-
   // Note: currently not supporting swizzling consumer of another
   //  swizzle id, so this should terminate in 1 iter, but eventually
   //  will try to support stacked swizzles so keeping this pass
   //  generic.
-  while (is_swizzle_input) {
+  while (true) {
     auto expr_it = id2expr.find(id);
 
     // This means id is a leaf that doesn't
     //  have any consumers. Stop iteration in this case.
     if (expr_it == id2expr.end()) {
-      is_swizzle_input = false;
       break;
     }
 
@@ -813,7 +811,7 @@ IterDomain* getSwizzleFinalOutput(
     } else {
       // Probably unreachable but if the expression
       //  is unknown type assume it is not a swizzle op.
-      is_swizzle_input = false;
+      break;
     }
   }
 
@@ -903,8 +901,9 @@ BestEffortReplay BestEffortReplay::replayCasP(
     bool skip_consumer_swizzle,
     bool skip_producer_swizzle,
     bool skip_resize) {
-  if (producer_compute_at_axis < 0)
+  if (producer_compute_at_axis < 0) {
     producer_compute_at_axis += (int)producer->nDims() + 1;
+  }
 
   NVF_ERROR(
       producer_compute_at_axis >= 0 &&
@@ -969,8 +968,9 @@ BestEffortReplay BestEffortReplay::replayPasC(
     bool skip_producer_swizzle,
     bool skip_consumer_swizzle,
     bool skip_resize) {
-  if (consumer_compute_at_axis < 0)
+  if (consumer_compute_at_axis < 0) {
     consumer_compute_at_axis += (int)consumer->nDims() + 1;
+  }
   NVF_ERROR(
       consumer_compute_at_axis >= 0 &&
           (unsigned int)consumer_compute_at_axis <= consumer->nDims(),
