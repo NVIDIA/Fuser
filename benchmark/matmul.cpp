@@ -217,7 +217,8 @@ size_t getSmemSize(GemmTile cta_tile, int stage_number) {
 MatmulParams getMatmulParams(
     GemmTile cta_tile,
     int stage_number,
-    MatmulLayout layout) {
+    MatmulLayout layout,
+    int splitk_factor = 1) {
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = cta_tile;
   // TODO: pipe through split K
@@ -231,17 +232,20 @@ MatmulParams getMatmulParams(
   params.double_buffer_options.double_buffer_smem_write = true;
   params.double_buffer_options.double_buffer_smem_read = true;
   params.double_buffer_options.smem_double_buffer_stage = stage_number;
+  params.splitk_factor = splitk_factor;
 
   return params;
 }
 
 static void NvFuserScheduler_Matmul_4warp3stage(
     benchmark::State& benchmark_state,
-    MatmulLayout layout) {
+    MatmulLayout layout,
+    int splitk_factor = 1) {
   auto cta_tile = GemmTile(128, 128, 32);
   int number_of_stage = 3;
 
-  auto params = getMatmulParams(cta_tile, number_of_stage, layout);
+  auto params =
+      getMatmulParams(cta_tile, number_of_stage, layout, splitk_factor);
 
   NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(
       8, 0, getSmemSize(cta_tile, number_of_stage), benchmark_state);
@@ -252,11 +256,13 @@ static void NvFuserScheduler_Matmul_4warp3stage(
 
 static void NvFuserScheduler_Matmul_8warp3stage(
     benchmark::State& benchmark_state,
-    MatmulLayout layout) {
+    MatmulLayout layout,
+    int splitk_factor = 1) {
   auto cta_tile = GemmTile(256, 128, 32);
   int number_of_stage = 3;
 
-  auto params = getMatmulParams(cta_tile, number_of_stage, layout);
+  auto params =
+      getMatmulParams(cta_tile, number_of_stage, layout, splitk_factor);
 
   NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(
       8, 0, getSmemSize(cta_tile, number_of_stage), benchmark_state);
@@ -267,11 +273,13 @@ static void NvFuserScheduler_Matmul_8warp3stage(
 
 static void NvFuserScheduler_Matmul_4warp4stage(
     benchmark::State& benchmark_state,
-    MatmulLayout layout) {
+    MatmulLayout layout,
+    int splitk_factor = 1) {
   auto cta_tile = GemmTile(128, 128, 32);
   int number_of_stage = 4;
 
-  auto params = getMatmulParams(cta_tile, number_of_stage, layout);
+  auto params =
+      getMatmulParams(cta_tile, number_of_stage, layout, splitk_factor);
 
   NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(
       8, 0, getSmemSize(cta_tile, number_of_stage), benchmark_state);
@@ -282,11 +290,13 @@ static void NvFuserScheduler_Matmul_4warp4stage(
 
 static void NvFuserScheduler_Matmul_8warp4stage(
     benchmark::State& benchmark_state,
-    MatmulLayout layout) {
+    MatmulLayout layout,
+    int splitk_factor = 1) {
   auto cta_tile = GemmTile(256, 128, 32);
   int number_of_stage = 4;
 
-  auto params = getMatmulParams(cta_tile, number_of_stage, layout);
+  auto params =
+      getMatmulParams(cta_tile, number_of_stage, layout, splitk_factor);
 
   NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(
       8, 0, getSmemSize(cta_tile, number_of_stage), benchmark_state);
@@ -377,3 +387,36 @@ ForAllLayouts(NvFuserScheduler_4warp4stage_test);
 ForAllLayouts(NvFuserScheduler_8warp3stage_test);
 ForAllLayouts(NvFuserScheduler_8warp4stage_test);
 ForAllLayouts(Baseline_test);
+
+#define SplitKMatmulShapes                                                  \
+  ArgsProduct(                                                              \
+      {{248}, {256}, benchmark::CreateDenseRange(128, 2048, /*step=*/512)}) \
+      ->Unit(benchmark::kMicrosecond)                                       \
+      ->UseManualTime();
+
+#define NvFuserScheduler_4warp3stage_splitk_test(                   \
+    layout_label, layout, splitk_factor)                            \
+  BENCHMARK_CAPTURE(                                                \
+      NvFuserScheduler_Matmul_4warp3stage,                          \
+      no_quant_nvfuser_4warp_splitk_##layout_label.##splitk_factor, \
+      layout,                                                       \
+      splitk_factor)                                                \
+      ->SplitKMatmulShapes
+
+#define SplitKForAllLayouts(run, splitk_factor) \
+  run(TT, MatmulLayout::TT, splitk_factor);     \
+  run(TN, MatmulLayout::TN, splitk_factor);     \
+  run(NT, MatmulLayout::NT, splitk_factor);     \
+  run(TN, MatmulLayout::TN, splitk_factor);
+
+SplitKForAllLayouts(NvFuserScheduler_4warp3stage_splitk_test, 1);
+SplitKForAllLayouts(NvFuserScheduler_4warp3stage_splitk_test, 2);
+SplitKForAllLayouts(NvFuserScheduler_4warp3stage_splitk_test, 4);
+SplitKForAllLayouts(NvFuserScheduler_4warp3stage_splitk_test, 8);
+SplitKForAllLayouts(NvFuserScheduler_4warp3stage_splitk_test, 16);
+
+SplitKForAllLayouts(NvFuserScheduler_8warp4stage_splitk_test, 1);
+SplitKForAllLayouts(NvFuserScheduler_8warp4stage_splitk_test, 2);
+SplitKForAllLayouts(NvFuserScheduler_8warp4stage_splitk_test, 4);
+SplitKForAllLayouts(NvFuserScheduler_8warp4stage_splitk_test, 8);
+SplitKForAllLayouts(NvFuserScheduler_8warp4stage_splitk_test, 16);
