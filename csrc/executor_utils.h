@@ -13,7 +13,6 @@
 #include <c10/core/DeviceType.h>
 #include <c10/util/Exception.h>
 
-#include <cuda.h>
 #include <cuda_runtime.h>
 
 #include <torch/csrc/jit/ir/ir.h>
