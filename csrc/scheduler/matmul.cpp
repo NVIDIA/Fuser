@@ -1025,9 +1025,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // [..., Mo, No, Kf, Ko, Kw, Mwo, Nwo, Mwi, Nwi, MNi1, MNi2, MNi3,  Ki]
   // Parallelization
   //  splitk:
-  //   (S) Bz  Bx  By  rS  rS   Tz   Ty   iS   iS  iMMA    Tx  iMMA rMMA
+  //  (iS) iBx iBy rBz rS  rS  iTz  iTy   iS   iS  iMMA   iTx  iMMA rMMA
   //  batch, no splitk:
-  //   (Bz) S  Bx  By  rS  rS   Tz   Ty   iS   iS  iMMA    Tx  iMMA rMMA
+  // (iBz) iBx iBy iS  rS  rS  iTz  iTy   iS   iS  iMMA   iTx  iMMA rMMA
   NVF_ERROR(
       params.splitk_factor == 1 || num_batch_dims == 0,
       "Splitk not supported with batch matmul");
@@ -1101,7 +1101,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   if (splitk_sum != nullptr) {
     // Inline the splitk sum with the output store
-    splitk_sum->computeAt(d, -3);
+    splitk_sum->computeAt(d, -2);
   }
 
   // auto inline for all tensors except register tensors
