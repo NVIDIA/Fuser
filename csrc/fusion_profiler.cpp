@@ -250,6 +250,55 @@ const char* profiler_state2string(const ProfilerState& pstate) {
 std::ostream& operator<<(std::ostream& out, const ProfilerState& pstate) {
   return out << profiler_state2string(pstate); 
 }
+  
+CudaEventTimer::CudaEventTimer(cudaStream_t s) : 
+  stream_(s),
+  start_event_(),
+  stop_event_(),
+  time_ms_(0.0), 
+  state_(ProfilerState::Ready) {
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event_));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&stop_event_));
+}
+
+CudaEventTimer::~CudaEventTimer() {
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event_));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(stop_event_));
+}
+
+void CudaEventTimer::reset() {
+  time_ms_ = 0.0;
+  state_ = ProfilerState::Ready;
+}
+
+void CudaEventTimer::start() {
+  NVF_CHECK(state_ == ProfilerState::Ready, "ProfilerState is not Ready! ", state_);
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start_event_, stream_));
+  state_ = ProfilerState::Running;
+}
+
+void CudaEventTimer::stop() {
+  NVF_CHECK(state_ == ProfilerState::Running, "ProfilerState is not Running! ", state_);
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(stop_event_, stream_));
+  state_ = ProfilerState::Finished;
+}
+
+float CudaEventTimer::time() {
+  if (state_ == ProfilerState::Finished) {
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event_));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(stop_event_));
+    NVFUSER_CUDA_RT_SAFE_CALL(
+        cudaEventElapsedTime(&time_ms_, start_event_, stop_event_));
+    state_ = ProfilerState::Processed;
+  } else {
+    NVF_CHECK(state_ == ProfilerState::Processed, "ProfilerState is not Processed! ", state_);
+  }
+  return time_ms_;
+}
+
+ProfilerState CudaEventTimer::state() const {
+  return state_;
+}
 
 void FusionProfile::reset() {
   total_time = 0.0;
@@ -271,15 +320,18 @@ void FusionProfile::reset() {
 std::mutex FusionProfiler::singleton_lock_;
 FusionProfiler* FusionProfiler::singleton_ = nullptr;
 
-void FusionProfiler::start() {
+FusionProfiler* FusionProfiler::get() {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ == nullptr) {
     singleton_ = new FusionProfiler();
   } else {
     singleton_->reset();
   }
-  singleton_->fusion_timer_.start();
-  singleton_->fusion_profile_started_ = true;
+  return singleton_;
+}
+
+void FusionProfiler::start()
+  FusionProfiler::get()->fusion_timer_.start();
 }
 
 void FusionProfiler::stop() {
