@@ -96,7 +96,7 @@ IdGraph initializeIdGraph(
     auto id = definition_entry.first;
     auto defs = definition_entry.second;
     auto uses_it = id_uses.find(id);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         uses_it != id_uses.end(),
         "Failed to initialize id: ",
         id->toString(),
@@ -123,7 +123,7 @@ void buildExactMap(const std::vector<Expr*>& exprs, IdGraph& id_graph) {
       // Sibling tv's must be exactly mapped with eachother so simply zip
       // their leaf iter domains.
 
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           other_tv_output->getRootDomain().size() ==
               c_tv->getRootDomain().size(),
           "Multiple outputs with mismatched TV domains is not supported.");
@@ -243,7 +243,7 @@ IdGraph buildExactMap(Fusion* fusion) {
 
   std::copy_if(
       exprs.begin(), exprs.end(), std::back_inserter(tv_exprs), [](Expr* expr) {
-        TORCH_INTERNAL_ASSERT(expr != nullptr);
+        NVF_ERROR(expr != nullptr);
         return ir_utils::isTvOp(expr);
       });
 
@@ -286,7 +286,7 @@ IdGraph buildPermissiveMap(Fusion* fusion) {
 
   std::copy_if(
       exprs.begin(), exprs.end(), std::back_inserter(tv_exprs), [](Expr* expr) {
-        TORCH_INTERNAL_ASSERT(expr != nullptr);
+        NVF_ERROR(expr != nullptr);
         return ir_utils::isTvOp(expr);
       });
 
