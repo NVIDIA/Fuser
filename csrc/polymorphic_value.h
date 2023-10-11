@@ -234,6 +234,7 @@ inline std::string toString(const PolymorphicValue& v) {
   return ss.str();
 }
 
+// NaNs are treated equal.
 template <typename T>
 inline bool isSameNanSensitive(const T& a, const T& b) {
   if (std::isnan(a) && std::isnan(b)) {
