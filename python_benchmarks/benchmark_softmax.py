@@ -3,7 +3,7 @@ from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark
 import torch
-from .global_params import pytestmark, RTOL, ATOL
+from .global_params import generate_input_sizes, FLOAT_DTYPES
 
 
 def softmax_fwd_fusion(
@@ -91,7 +91,8 @@ def softmax_bwd_fusion(
         T19 = fd.ops.cast(T19, dtype=dtype)
     fd.add_output(T19)
 
-
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0, 1])
 def test_softmax_fwd_benchmark(
     benchmark, size, dtype, reduction_axis, disable_validation, disable_benchmarking
@@ -111,7 +112,8 @@ def test_softmax_fwd_benchmark(
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
 
-
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0, 1])
 def test_softmax_bwd_benchmark(
     benchmark, size, dtype, reduction_axis, disable_validation, disable_benchmarking

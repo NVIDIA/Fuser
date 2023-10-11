@@ -1,8 +1,9 @@
+import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark
 import torch
-from .global_params import pytestmark, RTOL, ATOL
+from .global_params import generate_input_sizes, FLOAT_DTYPES
 
 
 def layernorm_fwd_fusion(
@@ -135,7 +136,8 @@ def layernorm_bwd_fusion(
     fd.add_output(T28)
 
 
-
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_layernorm_fwd_benchmark(benchmark, size, dtype, disable_validation, disable_benchmarking):
     inputs = [torch.randn(*size, device="cuda", dtype=dtype),
               torch.randn(size[1], device="cuda", dtype=dtype),
@@ -152,7 +154,8 @@ def test_layernorm_fwd_benchmark(benchmark, size, dtype, disable_validation, dis
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
 
-
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
+@pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_layernorm_bwd_benchmark(benchmark, size, dtype, disable_validation, disable_benchmarking, eps=1e-5):
     inputs = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(*size, device="cuda", dtype=dtype)
@@ -175,4 +178,4 @@ def test_layernorm_bwd_benchmark(benchmark, size, dtype, disable_validation, dis
         ), f"{torch.max(nvf_output[0] - inputs.grad)}"
 
     if not disable_benchmarking:
-        run_benchmark(benchmark, fd.execute, [inputs, grads, mean, invstd])
+        run_benchmark(benchmark, fd.execute, [inputs, grads, mean, invstd, weights])
