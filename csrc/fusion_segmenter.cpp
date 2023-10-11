@@ -1489,6 +1489,32 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
     NVF_ERROR(new_root_domain.size() == tv->domain()->contiguity().size());
     auto new_td = IrBuilder::create<TensorDomain>(
         new_root_domain, tv->domain()->contiguity());
+
+    if (tv->domain()->hasAllocation()) {
+      // we need to reorder the root domain into allocation domain consistently
+      // with the mapping from the old TensorView rfactor domain to its
+      // allocation domain
+      const auto& alloc = tv->getAllocationDomain();
+      NVF_ERROR(
+          alloc.size() == rfactor.size(),
+          "size between rfactor and alloc doesn't match");
+      const auto rank = alloc.size();
+      std::vector<IterDomain*> new_alloc_domain(rank, nullptr);
+      for (auto i : c10::irange(rank)) {
+        bool found_match = false;
+        for (auto j : c10::irange(rank)) {
+          if (alloc[i] == rfactor[j]) {
+            new_alloc_domain[i] = new_root_domain[j];
+            found_match = true;
+            break;
+          }
+        }
+        NVF_ERROR(
+            found_match,
+            "cannot match IterDomain between allocation domain to rfactor domain");
+      }
+      new_td->setAllocationDomain(new_alloc_domain, new_td->contiguity());
+    }
     replacement_map.emplace(tv->domain(), new_td);
   }
 
