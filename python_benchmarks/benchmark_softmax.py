@@ -91,11 +91,17 @@ def softmax_bwd_fusion(
         T19 = fd.ops.cast(T19, dtype=dtype)
     fd.add_output(T19)
 
+
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0, 1])
 def test_softmax_fwd_benchmark(
-    benchmark, size, dtype, reduction_axis, disable_validation, disable_benchmarking
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    reduction_axis: int,
+    disable_validation: bool,
+    disable_benchmarking: bool,
 ):
     inputs = [torch.randn(*size, device="cuda", dtype=dtype)]
 
@@ -112,11 +118,17 @@ def test_softmax_fwd_benchmark(
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
 
+
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0, 1])
 def test_softmax_bwd_benchmark(
-    benchmark, size, dtype, reduction_axis, disable_validation, disable_benchmarking
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    reduction_axis: int,
+    disable_validation: bool,
+    disable_benchmarking: bool,
 ):
     inputs = [
         torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True),

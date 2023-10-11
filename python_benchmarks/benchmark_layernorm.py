@@ -87,11 +87,11 @@ def layernorm_bwd_fusion(
 
     T23 = fd.ops.broadcast_in_dim(T4, shape=V12, broadcast_dims=[1])
     T28 = fd.ops.sum(T1, axes=[0], keepdim=False, dtype=DataType.Null)
-    
+
     T30 = fd.ops.mul(T1, T23)
     T31 = fd.ops.mul(T1, T19)
     T32 = fd.ops.sum(T31, axes=[0], keepdim=False, dtype=DataType.Null)
-    
+
     T34 = fd.ops.mul(T30, T18)
     T35 = fd.ops.mul(T30, T14)
     T36 = fd.ops.sum(T35, axes=[1], keepdim=False, dtype=DataType.Null)
@@ -138,25 +138,43 @@ def layernorm_bwd_fusion(
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_layernorm_fwd_benchmark(benchmark, size, dtype, disable_validation, disable_benchmarking):
-    inputs = [torch.randn(*size, device="cuda", dtype=dtype),
-              torch.randn(size[1], device="cuda", dtype=dtype),
-              torch.randn(size[1], device="cuda", dtype=dtype)]
+def test_layernorm_fwd_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    disable_validation: bool,
+    disable_benchmarking: bool,
+):
+    inputs = [
+        torch.randn(*size, device="cuda", dtype=dtype),
+        torch.randn(size[1], device="cuda", dtype=dtype),
+        torch.randn(size[1], device="cuda", dtype=dtype),
+    ]
 
     with FusionDefinition() as fd:
         layernorm_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
 
     if not disable_validation:
         nvf_output = fd.execute(inputs)
-        eager_output = torch.nn.functional.layer_norm(inputs[0], inputs[0].shape[1:], weight=inputs[1], bias=inputs[2])
+        eager_output = torch.nn.functional.layer_norm(
+            inputs[0], inputs[0].shape[1:], weight=inputs[1], bias=inputs[2]
+        )
         assert torch.allclose(nvf_output[0], eager_output, rtol=1e-3, atol=1e-3)
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
 
+
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-def test_layernorm_bwd_benchmark(benchmark, size, dtype, disable_validation, disable_benchmarking, eps=1e-5):
+def test_layernorm_bwd_benchmark(
+    benchmark,
+    size: tuple,
+    dtype: torch.dtype,
+    disable_validation: bool,
+    disable_benchmarking: bool,
+    eps: float = 1e-5,
+):
     inputs = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(*size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
@@ -170,7 +188,9 @@ def test_layernorm_bwd_benchmark(benchmark, size, dtype, disable_validation, dis
         layernorm_bwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
 
     if not disable_validation:
-        eager_output = torch.nn.functional.layer_norm(inputs, inputs.shape[1:], weight=weights, bias=bias)
+        eager_output = torch.nn.functional.layer_norm(
+            inputs, inputs.shape[1:], weight=weights, bias=bias
+        )
         eager_output.backward(grads)
         nvf_output = fd.execute([inputs, grads, mean, invstd, weights])
         assert torch.allclose(
