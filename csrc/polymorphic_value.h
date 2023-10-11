@@ -234,21 +234,26 @@ inline std::string toString(const PolymorphicValue& v) {
   return ss.str();
 }
 
+template <typename T>
+inline bool isNan(const T& a) {
+  return std::isnan(a);
+}
+
+// For example, `nan+i` and `nan-i` are treated equal because both are NaNs.
+// This is consistent with pytorch's implementation:
+// https://github.com/pytorch/pytorch/blob/6d8e0c4b5a3be8201cab731dfd1e6513162cf25c/c10/util/complex_utils.h#L43.
+template <typename T>
+inline bool isNan(const std::complex<T>& a) {
+  return std::isnan(a.real()) || std::isnan(a.imag());
+}
+
 // NaNs are treated equal.
 template <typename T>
 inline bool isSameNanSensitive(const T& a, const T& b) {
-  if (std::isnan(a) && std::isnan(b)) {
+  if (isNan(a) && isNan(b)) {
     return true;
   }
   return a == b;
-}
-
-template <typename T>
-inline bool isSameNanSensitive(
-    const std::complex<T>& a,
-    const std::complex<T>& b) {
-  return isSameNanSensitive(a.real(), b.real()) &&
-      isSameNanSensitive(a.imag(), b.imag());
 }
 
 inline bool isSame(const PolymorphicValue& a, const PolymorphicValue& b) {
