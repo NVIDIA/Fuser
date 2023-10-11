@@ -122,10 +122,6 @@ void IdGraphVisitor::traverse() {
         something_was_processed = true;
         visited_exprs.pushBack(current_expr_group);
 
-        // std::vector<IdGroup> out_groups =
-        // graph().outputGroups(current_expr_group); for (const IdGroup&
-        // out_group : out_groups) { to_visit_ids.pushBack(out_group);
-        // }
         to_visit_ids.pushBack(graph().outputGroups(current_expr_group));
       } else {
         still_to_visit_exprs.pushBack(current_expr_group);

@@ -913,7 +913,6 @@ StatefulLoweringInfo buildInfo(
                 << std::endl;
 
       info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
-
       for (auto consumer :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
         auto resolved_bcast_map = resolvedRootBroadcasts(producer, consumer);
@@ -1463,15 +1462,6 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
 
     iel_promotion_map[iel_group] = promoted_iel_groups.front()->front();
   }
-#if 0
-  for (const auto& iel_group :
-       intersection_exact_loop_graph.disjointIdSets().disjointSets()) {
-    auto entry_it = iel_promotion_map.find(iel_group);
-    if (entry_it == iel_promotion_map.end()) {
-      continue;
-    }
-  }
-#endif
 
   // Propagate promotion mappings from root domains to derived domains
   // by traversing IEL exprs. For each expr, if an input is promoted,
@@ -1528,8 +1518,6 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
       VERBOSE() << "No propagation\n";
       continue;
     }
-
-    VERBOSE() << "Propagating promotion through iel_expr\n";
 
     IdGroups promoted_input_groups;
     for (auto inp_id : promoted_inputs) {
@@ -1658,15 +1646,15 @@ std::unordered_map<IdGroup, IterDomain*> updateMap(
   std::unordered_map<IdGroup, IterDomain*> new_map;
 
   for (const auto& [stale_key, mapped_id] : stale_map) {
-    IdGroups new_groups = new_graph.toGroups(*stale_key);
+    const IdGroups& new_groups = new_graph.toGroups(*stale_key);
     NVF_ERROR(
         new_groups.size() == 1,
         "\nUpdate map assumes that new graph is equivalent to old graph plus extra mappings.\n",
         "i.e. all mappings in new_graph should exist in the graph stale_map was produced on.\n",
         "old:",
-        toString(stale_key),
+        nvfuser::toString(stale_key),
         "new: ",
-        toString(new_groups));
+        nvfuser::toString(new_groups));
     new_map[new_groups.front()] = mapped_id;
   }
   return new_map;
@@ -1801,7 +1789,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
       all_ids_in_groups = all_ids_in_groups.intersect(info.ordered_c_ids);
 
       // Grab the almost exact map of all iter domains in those loop groups
-      IdGroups ae_groups =
+      const IdGroups& ae_groups =
           idGraph(IdMappingMode::ALMOSTEXACT).toGroups(all_ids_in_groups);
 
       // If there's no broadcast promotion within the loop group then all the

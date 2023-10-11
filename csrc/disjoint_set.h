@@ -99,14 +99,10 @@ class VectorOfUniqueEntries {
 
   // Returns if any node was added
   bool pushBack(const VectorOfUniqueEntries<T, Hash>& other) {
-    bool any_added = false;
-    for (const auto& entry : other) {
-      auto added = pushBack(entry);
-      any_added = any_added || added;
-    }
-    return any_added;
+    return pushBack(other.vector());
   }
 
+  // Returns if any node was added
   bool pushBack(const std::vector<T>& other) {
     bool any_added = false;
     for (const auto& entry : other) {
