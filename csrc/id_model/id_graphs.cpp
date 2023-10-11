@@ -1681,9 +1681,7 @@ std::unordered_map<IdGroup, IdGroups> computeCoveredGroups(
     if (std::any_of(id_group->begin(), id_group->end(), [&](IterDomain* id) {
           return view_rfactor_ids.find(id) != view_rfactor_ids.end();
         })) {
-#if 1
       covered_ids[id_group] = {id_group};
-#endif
     }
 
     // Initialize broadcast groups to empty since broadcast domains
