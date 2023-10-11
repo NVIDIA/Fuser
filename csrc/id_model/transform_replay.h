@@ -26,8 +26,6 @@ class ReplayTransform : OptInConstDispatch {
       const Expr* expression_to_match);
 
  private:
-  ReplayTransform() = delete;
-
   ReplayTransform(
       const std::vector<IterDomain*>& ordered_inputs,
       const Expr* expression_to_match);
@@ -61,15 +59,13 @@ class ReplacementTransformCloner : OptInConstDispatch {
   // validation is done on provided inputs/outputs.
   //
   // In other words a split i0{I0}->i1{I0//2}, i2{2} with a map:
-  // i2{2} -> i3{48} wouldn't throw an error, but would not bevalid.
+  // i2{2} -> i3{48} wouldn't throw an error, but would not be valid.
   static Expr* clone(
       const std::unordered_map<IterDomain*, IterDomain*>&
           provided_expr_val_2_replacement_val,
       const Expr* expression_to_match);
 
  private:
-  ReplacementTransformCloner() = delete;
-
   ReplacementTransformCloner(
       const std::unordered_map<IterDomain*, IterDomain*>&
           expr_to_match_2_replacement,

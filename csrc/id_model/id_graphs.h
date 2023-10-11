@@ -82,7 +82,7 @@ struct StatefulLoweringInfo;
 //          PERMISSIVE)
 //   Forward through split one axes, i.e. id{ceilDiv(i0, 1)}, id{i0} are mapped
 //
-class TORCH_CUDA_CU_API IterDomainGraphs : public PolymorphicBase {
+class IterDomainGraphs : public PolymorphicBase {
  public:
   IterDomainGraphs(
       const std::vector<Expr*>& exprs,
@@ -246,7 +246,7 @@ class TORCH_CUDA_CU_API IterDomainGraphs : public PolymorphicBase {
   std::unordered_map<IdGroup, IterDomain*> buildLoopPromotionMap(
       const std::vector<Expr*>& exprs,
       StatefulLoweringInfo& info,
-      std::unordered_map<IdGroup, IterDomain*> stale_promotion_map);
+      const std::unordered_map<IdGroup, IterDomain*>& stale_promotion_map);
 
   // Builds idGraph(IdMappingMode::INDEX) and returns the iter domain promotion
   // map to go from leaf domains of each (consumer only?) tensor to their
@@ -292,6 +292,7 @@ class TORCH_CUDA_CU_API IterDomainGraphs : public PolymorphicBase {
   c10::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
       self_mapping_info_ = c10::nullopt;
 
+  // Promotion domain for each loop group
   std::unordered_map<IdGroup, IterDomain*> loop_promotion_map_;
 
   std::unordered_set<IterDomain*> view_rfactor_ids_;
