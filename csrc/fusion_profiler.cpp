@@ -324,49 +324,41 @@ FusionProfiler* FusionProfiler::get() {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ == nullptr) {
     singleton_ = new FusionProfiler();
-  } else {
-    singleton_->reset();
   }
   return singleton_;
 }
 
-void FusionProfiler::start()
-  FusionProfiler::get()->fusion_timer_.start();
+void FusionProfiler::start() {
+  reset();
+  fusion_timer_.start();
 }
 
 void FusionProfiler::stop() {
-  std::lock_guard<std::mutex> guard(singleton_lock_);
-  NVF_ERROR(singleton_ != nullptr,
-            "FusionProfiler singleton is unexpectedly null!");
-
-  singleton_->fusion_timer_.stop();
-  singleton_->profile_.total_time = singleton_->fusion_timer_.time();
-  if (singleton_->kernel_compile_recorded_) {
-    singleton_->profile_.compile_time = singleton_->compile_timer_.time();
-  }
-  singleton_->print();
+  fusion_timer_.stop();
+  profile_.total_time = fusion_timer_.time();
+  print();
   NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(0));
 }
 
-void FusionProfiler::start_kernel_compile() {
-  std::lock_guard<std::mutex> guard(singleton_lock_);
-  std::cout << "Start Kernel Compile!" << std::endl;
-  NVF_ERROR(singleton_ != nullptr,
-            "FusionProfiler singleton is unexpectedly null!");
-
-  singleton_->compile_timer_.start();
+FusionProfiler::FusionProfiler() :
+  profile_(),
+  fusion_timer_(at::cuda::getCurrentCUDAStream()),
+  segments_() {
+  NVFUSER_CUPTI_SAFE_CALL(
+      cuptiActivityRegisterCallbacks(buffer_requested, buffer_completed));
 }
 
-void FusionProfiler::stop_kernel_compile() {
-  std::lock_guard<std::mutex> guard(singleton_lock_);
-  std::cout << "Stop Kernel Compile!" << std::endl;
-  NVF_ERROR(singleton_ != nullptr,
-            "FusionProfiler singleton is unexpectedly null!");
-
-  singleton_->compile_timer_.stop();
-  singleton_->kernel_compile_recorded_ = true;
+void FusionProfiler::reset() {
+  profile_.reset();
+  fusion_timer_.reset();
 }
 
+void FusionProfiler::print() const {
+  std::cout << "\nFusion Total Time: " << profile_.total_time << " ms" << std::endl;
+  //std::cout << "\nCompile Time: " << profile_.compile_time << " ms" << std::endl;
+}
+
+/*
 void FusionProfiler::start_kernel() {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   NVF_ERROR(singleton_ != nullptr,
@@ -394,30 +386,6 @@ void FusionProfiler::stop_kernel() {
   std::cout << "\nPopped External Correlation Id? " << id << std::endl;
   singleton_->kernel_profile_recorded_ = true;
 }
-
-FusionProfiler::FusionProfiler() :
-  fusion_timer_(at::cuda::getCurrentCUDAStream()),
-  compile_timer_(at::cuda::getCurrentCUDAStream()),
-  profile_(),
-  fusion_profile_started_(false),
-  kernel_compile_recorded_(false),
-  kernel_profile_recorded_(false) {
-  NVFUSER_CUPTI_SAFE_CALL(
-      cuptiActivityRegisterCallbacks(buffer_requested, buffer_completed));
-}
-
-void FusionProfiler::reset() {
-  profile_.reset();
-  fusion_timer_.reset();
-  compile_timer_.reset();
-  fusion_profile_started_ = false;
-  kernel_compile_recorded_ = false;
-  kernel_profile_recorded_ = false;
-}
-
-void FusionProfiler::print() const {
-  std::cout << "\nFusion Total Time: " << profile_.total_time << " ms" << std::endl;
-  std::cout << "\nCompile Time: " << profile_.compile_time << " ms" << std::endl;
-}
+*/
 
 } // namespace nvfuser

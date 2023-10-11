@@ -117,25 +117,27 @@ class FusionProfiler : public NonCopyable {
 #define FP_ENABLE(code) \
   if (isDebugDumpEnabled(DebugDumpOption::FusionProfiler) \
       || isOptionEnabled(EnableOption::FusionProfiler)) { \
-    code \
+    code; \
   }
 // Fusion Level Profiling Macros
-#define FUSION_PROFILER_START_PROFILE FP_ENABLE(FusionProfiler::get->start())
-#define FUSION_PROFILER_STOP_PROFILE FP_ENABLE(FusionProfiler::get->stop())
+#define FUSION_PROFILER_START_PROFILE FP_ENABLE(FusionProfiler::get()->start())
+#define FUSION_PROFILER_STOP_PROFILE FP_ENABLE(FusionProfiler::get()->stop())
 #define FUSION_PROFILER_CREATE_SEGMENTS(n) \
-  FP_ENABLE(FusionProfiler::get->createSegments(n))
+  FP_ENABLE(FusionProfiler::get()->createSegments(n))
 #define FUSION_PROFILER_BYTES_ACCESSED(inputs, outputs) \
-  FP_ENABLE(FusionProfiler::get->bytesAcccessed(inputs, outputs))
+  FP_ENABLE(FusionProfiler::get()->bytesAcccessed(inputs, outputs))
 // Fusion Segment Profiling Macros
+/*
 #define FUSION_PROFILER_SEGMENT_START_COMPILE(idx) \
-  FP_ENABLE(FusionProfiler::get->segment(idx).startCompile())
+  FP_ENABLE(FusionProfiler::get()->segment(idx).startCompile())
 #define FUSION_PROFILER_SEGMENT_STOP_COMPILE(idx) \
-  FP_ENABLE(FusionProfiler::get->segment(idx).stopCompile())
+  FP_ENABLE(FusionProfiler::get()->segment(idx).stopCompile())
 #define FUSION_PROFILER_SEGMENT_START_KERNEL(idx) \
-  FP_ENABLE(FusionProfiler::get->segment(idx).startKernel())
+  FP_ENABLE(FusionProfiler::get()->segment(idx).startKernel())
 #define FUSION_PROFILER_SEGMENT_STOP_KERNEL(idx) \
-  FP_ENABLE(FusionProfiler::get->segment(idx).stopKernel())
+  FP_ENABLE(FusionProfiler::get()->segment(idx).stopKernel())
 #define FUSION_PROFILER_SEGMENT_BYTES_ACCESSED(idx, inputs, outputs) \
-  FP_ENABLE(FusionProfiler::get->segment(idx).bytesAccessed(inputs, outputs))
+  FP_ENABLE(FusionProfiler::get()->segment(idx).bytesAccessed(inputs, outputs))
+*/
 
 } // namespace nvfuser

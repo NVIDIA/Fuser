@@ -416,7 +416,7 @@ void FusionExecutor::compileFusion(
       (block_size.has_value() ? block_size.value() : 1),
       block_size_high_water_mark_);
   maxrregcount_high_water_mark_ = compile_params.maxrregcount;
-  FUSION_PROFILER_START_KERNEL_COMPILE 
+  //FUSION_PROFILER_START_KERNEL_COMPILE 
   compiled_kernel_ = executor_utils::getCompiledKernel(
       kernel_code_,
       structured_code,
@@ -425,7 +425,7 @@ void FusionExecutor::compileFusion(
       compile_params,
       block_size);
   NVF_ERROR(fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
-  FUSION_PROFILER_STOP_KERNEL_COMPILE 
+  //FUSION_PROFILER_STOP_KERNEL_COMPILE 
 
   // These should be nullopt at this point, but reset just in case
   resetCompiledKernelProperties();
@@ -1809,7 +1809,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       timer.start();
     }
 
-    FUSION_PROFILER_START_KERNEL
+    //FUSION_PROFILER_START_KERNEL
 
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
@@ -1840,7 +1840,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           arg_buffer_ptrs.data()));
     }
 
-    FUSION_PROFILER_STOP_KERNEL
+    //FUSION_PROFILER_STOP_KERNEL
 
     if (measure_kernel_time) {
       kernel_time_ms_ = timer.elapsed();
