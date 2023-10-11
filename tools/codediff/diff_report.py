@@ -16,7 +16,7 @@ Example usage:
 
 from dataclasses import asdict, dataclass, field, InitVar
 import difflib
-from enum import Enum
+from enum import auto, Enum
 import os
 import re
 import subprocess
@@ -158,9 +158,31 @@ class CommandType(Enum):
     """Denotes what type of command was run"""
 
     UNKNOWN = auto()
-    GTEST = auto()
-    GBENCH = auto()
+    GOOGLETEST = auto()
+    GOOGLEBENCH = auto()
     PYTEST = auto()
+
+    def __str__(self):
+        return self.name
+
+    @classmethod
+    def from_string(cls, type_str: str):
+        l = type_str.lower()
+        if l[:3] == "unk":
+            # Specified unknown. Don't print warning
+            return cls.UNKNOWN
+        elif l == "gtest" or l == "googletest":
+            return cls.GOOGLETEST
+        elif l == "gbench" or l == "googlebench":
+            return cls.GOOGLEBENCH
+        elif l == "pytest":
+            return cls.PYTEST
+        else:
+            print(
+                f"WARNING: Unrecognized command type '{type_str}'. Parsing as UNKNOWN.",
+                file=sys.stderr,
+            )
+            return cls.UNKNOWN
 
 
 @dataclass
@@ -169,7 +191,7 @@ class TestRun:
     git: GitRev = field(init=False)
     name: str = field(init=False)
     command: str = field(init=False)
-    command_type: CommandType = CommandType.UNKNOWN
+    command_type: CommandType = field(init=False)
     exit_code: int = field(init=False)
     env: str = field(init=False)
     gpu_names: str = field(init=False)
@@ -206,6 +228,18 @@ class TestRun:
         self.git = GitRev(git_hash, diff=gitdiff)
 
         self.command = open(os.path.join(self.directory, "command"), "r").read()
+
+        try:
+            self.command_type = CommandType.from_string(
+                (os.path.join(self.directory, "command_type"), "r").read().rstrip()
+            )
+        except FileNotFoundError:
+            print(
+                f"WARNING: Could not find {os.path.join(self.directory, 'command_type')}. "
+                "Parsing as UNKNOWN command type means kernels will be ungrouped.",
+                file=sys.stderr,
+            )
+            self.command_type = CommandType.UNKNOWN
 
         # check that command includes "nvfuser_tests"
         if self.command.find("nvfuser_tests") == -1:
@@ -557,7 +591,16 @@ class TestDifferences:
             loader=jinja2.FileSystemLoader(searchpath=template_dir)
         )
         template = env.get_template("codediff.html")
-        context = asdict(self)
+        # dict_factory lets us provide custom serializations for classes like Enums
+        # https://stackoverflow.com/questions/61338539/how-to-use-enum-value-in-asdict-function-from-dataclasses-module
+        context = asdict(
+            self,
+            dict_factory=lambda data: {
+                # Serialize CommandType as string so that jinja can recognize it
+                field: value.name if isinstance(value, dr.CommandType) else value
+                for field, value in data
+            },
+        )
         context["omit_preamble"] = omit_preamble
         context["max_diffs"] = max_diffs
         head_hash = (
