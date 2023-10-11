@@ -500,7 +500,7 @@ class TestDifferences:
                 if len(diff_lines) > 0:
                     kd = KernelDiff(
                         testname,
-                        kernel_num,
+                        kernel_num + 1,
                         kern1,
                         kern2,
                         diff_lines,
