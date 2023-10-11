@@ -130,7 +130,8 @@ NVFUSER_DUMP=$(ensure_in_list "$NVFUSER_DUMP" cuda_kernel ptxas_verbose ptx)
 # Allow command to fail, but record exit code
 set +e
 $testcmd | tee "$stdoutfile"
-echo $? > "$testdir/exitcode"
+# See https://unix.stackexchange.com/questions/14270/get-exit-status-of-process-thats-piped-to-another
+echo "${PIPESTATUS[0]}" > "$testdir/exitcode"
 set -e
 # Save command metadata in output directory.
 # We do this after running the command, so that if $testdir/command exists, we
