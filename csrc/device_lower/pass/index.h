@@ -78,6 +78,7 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const kir::Allocate*) final;
   void handle(const kir::BlockSync*) final;
   void handle(const kir::GridSync*) final;
+  void handle(const kir::MBarrierInit*) final;
   void handle(const kir::CpAsyncWait*) final;
   void handle(const kir::CpAsyncCommit*) final;
 

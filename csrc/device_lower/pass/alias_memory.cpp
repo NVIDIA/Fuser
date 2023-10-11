@@ -1647,6 +1647,8 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
  private:
   void dispatch(Expr* expr) final {
     position_ = allocation_info_map_.getScopeMap().getExprPos(expr);
+    std::cout << "Position: " << position_ << std::endl;
+    std::cout << "Expr: " << expr->toString() << std::endl;
 
     // Check whether this is a first write position for any allocations
     auto it = first_write_positions_.find(position_);
@@ -1739,6 +1741,9 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
       if (alloc_info->mem_type != MemoryType::Shared) {
         continue;
       }
+      std::cout << "Alloc info: " << alloc_info->alloc_expr->toString()
+                << std::endl;
+      std::cout << alloc_info->outer_live_interval->toString() << std::endl;
       if (alloc_info->alias_to) {
         auto alias_info =
             allocation_info_map_.getAllocationInfo(alloc_info->alias_to);

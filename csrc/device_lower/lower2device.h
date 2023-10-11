@@ -180,11 +180,11 @@ class GpuLower : public NonCopyable {
     return profile_;
   }
 
-  std::unordered_map<const Expr*, kir::Allocate*>& ldstMBarrierMap() {
+  std::unordered_map<const Expr*, TensorView*>& ldstMBarrierMap() {
     return ldst_mbarrier_map_;
   }
 
-  const std::unordered_map<const Expr*, kir::Allocate*>& ldstMBarrierMap() const {
+  const std::unordered_map<const Expr*, TensorView*>& ldstMBarrierMap() const {
     return ldst_mbarrier_map_;
   }
 
@@ -266,7 +266,7 @@ class GpuLower : public NonCopyable {
   std::vector<Val*> all_known_vals_;
 
   // keep track of the mbarrier used for each load/store operation
-  std::unordered_map<const Expr*, kir::Allocate*> ldst_mbarrier_map_;
+  std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_map_;
 
   Fusion* fusion_ = nullptr;
 };

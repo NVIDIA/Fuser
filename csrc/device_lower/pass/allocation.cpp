@@ -558,11 +558,15 @@ class AllocationInserter : public kir::ExprMutator {
                                  .contiguity(true)
                                  .build();
       mbarrier->setMemoryType(MemoryType::Shared);
+      auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
+          mbarrier, expr->container()->oneVal(DataType::UInt32));
+
       kir::Allocate* mbarrier_alloc =
           IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
       kir::Scope* expr_scope = scope_.empty() ? nullptr : scope_.back();
       registerInsertBefore(expr, mbarrier_alloc, expr_scope);
-      GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier_alloc;
+      registerInsertBefore(expr, mbarrier_init, expr_scope);
+      GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
     }
   }
 

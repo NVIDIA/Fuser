@@ -1282,28 +1282,34 @@ void IndexLowering::handleGroupedGridWelford(
   }
 }
 
-void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
-  auto out_tv = ldst->out()->as<TensorView>();
-  auto in_tv = ldst->in()->as<TensorView>();
+namespace {
 
-  // indexing mbarrier
-  auto mbarrier = GpuLower::current()
-                      ->ldstMBarrierMap()
-                      .at(ldst)
-                      ->buffer()
-                      ->as<TensorView>();
-
+kir::TensorIndex* getMBarrierSmemAddr(TensorView* mbarrier) {
   auto mbarrier_smem_addr = IrBuilder::create<Val>(DataType::SMemAddress);
   IrBuilder::create<UnaryOp>(
       UnaryOpType::ToUnsignedSmemAddr,
       mbarrier_smem_addr,
       IrBuilder::metadataExpr(mbarrier));
-  auto mbarrier_index =
-      IrBuilder::create<kir::TensorIndex>(mbarrier, mbarrier_smem_addr);
+  return IrBuilder::create<kir::TensorIndex>(mbarrier, mbarrier_smem_addr);
+}
 
-  // init mbarrier
-  pushBack(IrBuilder::create<kir::MBarrierInit>(
-      mbarrier_index, ldst->container()->oneVal(DataType::UInt32)));
+} // namespace
+
+void IndexLowering::handle(const kir::MBarrierInit* minit) {
+  auto minit_indexed = IrBuilder::create<kir::MBarrierInit>(
+      getMBarrierSmemAddr(minit->mbarrier()->as<TensorView>()),
+      minit->threadCount());
+  pushBack(minit_indexed);
+  GpuLower::current()->propagateExprInfo(minit, minit_indexed);
+}
+
+void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
+  auto out_tv = ldst->out()->as<TensorView>();
+  auto in_tv = ldst->in()->as<TensorView>();
+
+  // indexing mbarrier
+  auto mbarrier = GpuLower::current()->ldstMBarrierMap().at(ldst);
+  auto mbarrier_index = getMBarrierSmemAddr(mbarrier);
 
   // arrive and expect_tx mbarrier
   auto state = IrBuilder::create<Val>(DataType::UInt);
