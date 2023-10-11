@@ -16,6 +16,7 @@ Example usage:
 
 from dataclasses import asdict, dataclass, field, InitVar
 import difflib
+from enum import Enum
 import os
 import re
 import subprocess
@@ -153,12 +154,22 @@ class CompiledTest:
     passed: bool
 
 
+class CommandType(Enum):
+    """Denotes what type of command was run"""
+
+    UNKNOWN = auto()
+    GTEST = auto()
+    GBENCH = auto()
+    PYTEST = auto()
+
+
 @dataclass
 class TestRun:
     directory: str
     git: GitRev = field(init=False)
     name: str = field(init=False)
     command: str = field(init=False)
+    command_type: CommandType = CommandType.UNKNOWN
     exit_code: int = field(init=False)
     env: str = field(init=False)
     gpu_names: str = field(init=False)
@@ -541,8 +552,10 @@ class TestDifferences:
         import jinja2
 
         tools_dir = os.path.dirname(__file__)
-        template_dir = os.path.join(tools_dir, 'templates')
-        env = jinja2.Environment(loader=jinja2.FileSystemLoader(searchpath=template_dir))
+        template_dir = os.path.join(tools_dir, "templates")
+        env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(searchpath=template_dir)
+        )
         template = env.get_template("codediff.html")
         context = asdict(self)
         context["omit_preamble"] = omit_preamble
