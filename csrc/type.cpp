@@ -220,6 +220,10 @@ static std::string data_type2string(DataType t) {
               return "nvfuser_index_t";
             case DataType::Int32:
               return "int";
+            case DataType::UInt:
+              return "uint64_t";
+            case DataType::UInt32:
+              return "uint32_t";
             case DataType::SMemAddress:
               return "unsigned";
             case DataType::ComplexFloat:
@@ -1231,6 +1235,8 @@ std::string typePrefix(const DataType data_type) {
     case DataType::Index:
     case DataType::Int:
     case DataType::Int32:
+    case DataType::UInt:
+    case DataType::UInt32:
     case DataType::SMemAddress:
       return "i";
     case DataType::ComplexFloat:
