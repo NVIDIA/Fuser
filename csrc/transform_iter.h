@@ -441,8 +441,9 @@ class BestEffortReplay {
   // Returned ordered set of IDs in getUnorderedLeafIDs
   std::vector<IterDomain*> getLeafIDs() {
     std::set<std::pair<IterDomain*, size_t>, id_int_lt> ordered_set;
-    for (auto entry : leaf_ids_)
+    for (auto entry : leaf_ids_) {
       ordered_set.emplace(entry);
+    }
 
     std::vector<IterDomain*> leaf_vec_;
     leaf_vec_.resize(ordered_set.size());

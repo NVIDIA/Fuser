@@ -409,7 +409,7 @@ ExprGroups IdGraph::getExprsBetween(const IdGroups& from, const IdGroups& to)
         something_processed = true;
         sorted_exprs.pushBack(currently_visiting);
         auto outputs = outputGroups(currently_visiting);
-        for (auto out_id : outputs) {
+        for (const IdGroup& out_id : outputs) {
           visited.pushBack(out_id);
           auto use_pair = getUses(out_id);
           if (!use_pair.second) {
@@ -913,7 +913,7 @@ void IdGraph::mapExprs(Expr* expr0, Expr* expr1) {
     }
   }
 
-  for (auto producer_group : producers) {
+  for (const IdGroup& producer_group : producers) {
     unique_uses_.at(producer_group).erase(expr0_orig_group);
     unique_uses_.at(producer_group).erase(expr1_orig_group);
     unique_uses_.at(producer_group).pushBack(expr_new_group);
@@ -927,7 +927,7 @@ void IdGraph::mapExprs(Expr* expr0, Expr* expr1) {
     }
   }
 
-  for (auto consumer_group : consumers) {
+  for (const IdGroup& consumer_group : consumers) {
     unique_definitions_.at(consumer_group).erase(expr0_orig_group);
     unique_definitions_.at(consumer_group).erase(expr1_orig_group);
     unique_definitions_.at(consumer_group).pushBack(expr_new_group);
@@ -1027,7 +1027,7 @@ void IdGraph::removeTrivialExprs() {
   // from definitions and uses. They shouldn't be important in traversal, and
   // will break the terminal input/terminal output logic of traversal. Similar
   // to what's drafted in buildIndexGraph
-  for (auto trivial_expr_group : trivial_expr_groups) {
+  for (const ExprGroup& trivial_expr_group : trivial_expr_groups) {
     // Complexity of erase not good as both disjoint set and vector of unique
     // entries require a vector find to erase an entry.
     eraseExprGroup(trivial_expr_group);
@@ -1038,7 +1038,7 @@ void IdGraph::removeTrivialExprs() {
 // erasing multiple expr_groups.
 void IdGraph::eraseExprGroup(const ExprGroup& expr_group) {
   // Erase entries that exist in unique_definitions_ and unique_uses_
-  for (auto id_group : disjointIdSets().disjointSets()) {
+  for (const IdGroup& id_group : disjointIdSets().disjointSets()) {
     // Make sure the entries exists
     NVF_ERROR(
         unique_definitions_.find(id_group) != unique_definitions_.end(),

@@ -41,6 +41,7 @@ std::string toString(
     const std::vector<IterDomain*>& id_group,
     int indent_size) {
   std::vector<unsigned int> names;
+  names.reserve(id_group.size());
   for (auto id : id_group) {
     names.push_back(id->name());
   }
@@ -70,14 +71,14 @@ std::string toString(
 
   unsigned int pos = 0;
 
-  for (auto id_group : id_groups) {
+  for (const IdGroup& id_group : id_groups) {
     unsigned int min_id_name = std::numeric_limits<unsigned int>::max();
     for (auto id : *id_group) {
       if (id->name() < min_id_name) {
         min_id_name = id->name();
       }
     }
-    group_name_info.push_back(std::make_pair(min_id_name, pos++));
+    group_name_info.emplace_back(min_id_name, pos++);
   }
 
   ss << indent(indent_size) << "(idgs){\n";
@@ -105,14 +106,14 @@ std::string toString(
 
   unsigned int pos = 0;
 
-  for (auto id_group : id_groups) {
+  for (const IdGroup& id_group : id_groups) {
     unsigned int min_id_name = std::numeric_limits<unsigned int>::max();
     for (auto id : *id_group) {
       if (id->name() < min_id_name) {
         min_id_name = id->name();
       }
     }
-    group_name_info.push_back(std::make_pair(min_id_name, pos++));
+    group_name_info.emplace_back(min_id_name, pos++);
   }
 
   ss << indent(indent_size) << "(idgs){\n";
@@ -135,14 +136,14 @@ std::string toInlineString(const std::vector<IdGroup>& id_groups) {
 
   unsigned int pos = 0;
 
-  for (auto id_group : id_groups) {
+  for (const IdGroup& id_group : id_groups) {
     unsigned int min_id_name = std::numeric_limits<unsigned int>::max();
     for (auto id : *id_group) {
       if (id->name() < min_id_name) {
         min_id_name = id->name();
       }
     }
-    group_name_info.push_back(std::make_pair(min_id_name, pos++));
+    group_name_info.emplace_back(min_id_name, pos++);
   }
 
   // Sort based on minimum id in the group
@@ -168,6 +169,7 @@ std::string toInlineString(const std::vector<IdGroup>& id_groups) {
 
 std::string toString(const std::vector<Expr*>& expr_group, int indent_size) {
   std::vector<unsigned int> names;
+  names.reserve(expr_group.size());
   for (auto expr : expr_group) {
     names.push_back(expr->name());
   }
@@ -201,14 +203,14 @@ std::string toString(
 
   unsigned int pos = 0;
 
-  for (auto expr_group : expr_groups) {
+  for (const ExprGroup& expr_group : expr_groups) {
     unsigned int min_expr_name = std::numeric_limits<unsigned int>::max();
     for (auto expr : *expr_group) {
       if (expr->name() < min_expr_name) {
         min_expr_name = expr->name();
       }
     }
-    group_name_info.push_back(std::make_pair(min_expr_name, pos++));
+    group_name_info.emplace_back(min_expr_name, pos++);
   }
 
   ss << indent(indent_size) << "(exprgs){\n";
@@ -218,7 +220,7 @@ std::string toString(
 
   for (auto i : c10::irange(group_name_info.size())) {
     auto pos = group_name_info[i].second;
-    auto expr_group = expr_groups[pos];
+    const ExprGroup& expr_group = expr_groups[pos];
 
     auto inputs = IdGroups(id_graph.inputGroups(expr_group));
     auto outputs = IdGroups(id_graph.outputGroups(expr_group));
@@ -244,14 +246,14 @@ std::string toString(
 
   unsigned int pos = 0;
 
-  for (auto expr_group : expr_groups) {
+  for (const ExprGroup& expr_group : expr_groups) {
     unsigned int min_id_name = std::numeric_limits<unsigned int>::max();
     for (auto id : *expr_group) {
       if (id->name() < min_id_name) {
         min_id_name = id->name();
       }
     }
-    group_name_info.push_back(std::make_pair(min_id_name, pos++));
+    group_name_info.emplace_back(min_id_name, pos++);
   }
 
   ss << indent(indent_size) << "(exprgs){\n";
@@ -299,10 +301,10 @@ std::string definitionsString(
     int indent_size,
     bool with_ptr) {
   ExprGroups defs;
-  for (auto id_group : id_graph.disjointIdSets().disjointSets()) {
+  for (const IdGroup& id_group : id_graph.disjointIdSets().disjointSets()) {
     auto definition_pair = id_graph.getDefinitions(id_group);
     if (definition_pair.second) {
-      for (auto expr_group : definition_pair.first) {
+      for (const ExprGroup& expr_group : definition_pair.first) {
         defs.pushBack(expr_group);
       }
     }
@@ -315,10 +317,10 @@ std::string usesString(
     int indent_size,
     bool with_ptr) {
   ExprGroups uses;
-  for (auto id_group : id_graph.disjointIdSets().disjointSets()) {
+  for (const IdGroup& id_group : id_graph.disjointIdSets().disjointSets()) {
     auto definition_pair = id_graph.getUses(id_group);
     if (definition_pair.second) {
-      for (auto expr_group : definition_pair.first) {
+      for (const ExprGroup& expr_group : definition_pair.first) {
         uses.pushBack(expr_group);
       }
     }

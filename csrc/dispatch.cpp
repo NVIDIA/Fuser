@@ -248,6 +248,22 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::GridSync>());
     return;
   }
+  if (expr->isStrictlyA<kir::MBarrierInit>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierInit>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierInvalidate>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierInvalidate>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierArrive>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierArrive>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierWait>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierWait>());
+    return;
+  }
   if (expr->isStrictlyA<kir::CpAsyncWait>()) {
     ptr(handler)->handle(expr->as<kir::CpAsyncWait>());
     return;
@@ -530,6 +546,22 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<kir::GridSync>()) {
     ptr(handler)->handle(expr->as<kir::GridSync>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierInit>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierInit>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierInvalidate>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierInvalidate>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierArrive>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierArrive>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierWait>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierWait>());
     return;
   }
   if (expr->isStrictlyA<kir::CpAsyncWait>()) {
@@ -914,6 +946,18 @@ void OptOutConstDispatch::handle(const kir::BlockSync* stmt) {
 void OptOutConstDispatch::handle(const kir::GridSync* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const kir::MBarrierInit* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::MBarrierInvalidate* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::MBarrierArrive* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::MBarrierWait* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const kir::CpAsyncWait* stmt) {
   unhandled(stmt);
 }
@@ -1121,6 +1165,18 @@ void OptOutDispatch::handle(kir::BlockSync* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::GridSync* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::MBarrierInit* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::MBarrierInvalidate* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::MBarrierArrive* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::MBarrierWait* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::CpAsyncWait* stmt) {
