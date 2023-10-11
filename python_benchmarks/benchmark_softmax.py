@@ -1,7 +1,7 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import runBenchmark
+from .core import run_benchmark
 import torch
 from .global_params import pytestmark, RTOL, ATOL
 
@@ -94,26 +94,27 @@ def softmax_bwd_fusion(
 
 @pytest.mark.parametrize("reduction_axis", [0, 1])
 def test_softmax_fwd_benchmark(
-    benchmark, size, dtype, reduction_axis, test_correctness
+    benchmark, size, dtype, reduction_axis, disable_validation, disable_benchmarking
 ):
     inputs = [torch.randn(*size, device="cuda", dtype=dtype)]
 
     with FusionDefinition() as fd:
         softmax_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), reduction_axis)
 
-    if test_correctness:
+    if not disable_validation:
         nvf_output = fd.execute(inputs)
         eager_output = torch.nn.functional.softmax(inputs[0], dim=reduction_axis)
         assert torch.allclose(
-            nvf_output[0], eager_output, rtol=RTOL, atol=ATOL
+            nvf_output[0], eager_output, rtol=1e-3, atol=1e-3
         ), f"{torch.max(nvf_output[0] - eager_output)}"
 
-    runBenchmark(benchmark, fd.execute, inputs)
+    if not disable_benchmarking:
+        run_benchmark(benchmark, fd.execute, inputs)
 
 
 @pytest.mark.parametrize("reduction_axis", [0, 1])
 def test_softmax_bwd_benchmark(
-    benchmark, size, dtype, reduction_axis, test_correctness
+    benchmark, size, dtype, reduction_axis, disable_validation, disable_benchmarking
 ):
     inputs = [
         torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True),
@@ -123,13 +124,14 @@ def test_softmax_bwd_benchmark(
     with FusionDefinition() as fd:
         softmax_bwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), reduction_axis)
 
-    if test_correctness:
+    if not disable_validation:
         eager_output = torch.nn.functional.softmax(inputs[0], dim=reduction_axis)
         eager_output.backward(inputs[1])
 
         nvf_output = fd.execute([eager_output, inputs[1]])
         assert torch.allclose(
-            nvf_output[0], inputs[0].grad, rtol=RTOL, atol=ATOL
+            nvf_output[0], inputs[0].grad, rtol=1e-3, atol=1e-3
         ), f"{torch.max(nvf_output[0] - inputs[0].grad)}"
 
-    runBenchmark(benchmark, fd.execute, inputs)
+    if not disable_benchmarking:
+        run_benchmark(benchmark, fd.execute, inputs)
