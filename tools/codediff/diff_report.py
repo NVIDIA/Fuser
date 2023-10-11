@@ -283,20 +283,10 @@ class TestRun:
         """
         Compute a map from test name to list of cuda filenames
         """
-        # first find the stdout log file
-        logfile = None
-        for fname in os.listdir(self.directory):
-            if fname.find("stdout") != -1:
-                if logfile is not None:
-                    raise RuntimeError(
-                        f"Input directory {self.directory} contains multiple "
-                        'possible logs (filenames containing "stdout")'
-                    )
-                logfile = os.path.join(self.directory, fname)
-        if logfile is None:
+        logfile = os.path.join(self.directory, "stdout")
+        if not os.path.isfile(logfile):
             raise RuntimeError(
-                f"Input directory {self.directory} contains no log (filenames "
-                'containing "stdout")'
+                f"Input directory {self.directory} contains no file named 'stdout'"
             )
 
         # regex for stripping ANSI color codes
@@ -620,8 +610,8 @@ if __name__ == "__main__":
         epilog="This command must be run from within a git checkout of the NVFuser repo.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("dir1", help="Directory containing stdout-*.log and cuda/")
-    parser.add_argument("dir2", help="Directory containing stdout-*.log and cuda/")
+    parser.add_argument("dir1", help="Directory containing 'stdout' and 'cuda/'")
+    parser.add_argument("dir2", help="Directory containing 'stdout' and 'cuda/'")
     parser.add_argument(
         "--hide-env",
         action="store_true",

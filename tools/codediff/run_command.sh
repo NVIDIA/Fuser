@@ -8,7 +8,7 @@
 set -e
 set -o pipefail
 usage() {
-    echo -n "Usage: $0 [-h] [-n <run_name>] [-t <command_type>] "
+    echo -n "Usage: $0 [-h] [-n <run_name>] [-f <fuser_repo_dir> [-t <command_type>] "
     echo "-o <output_directory> -- command to run and arguments"
 
     cat << EOF
@@ -23,6 +23,9 @@ such as the same git commit or environment variables. To aid in readability,
 you may provide a short name for this run, which if given should match across
 commands within the same run.
 
+If given, the -f option tells the directory containing the NVFuser repo working
+directory.
+
 The diff_report.py tool will parse the STDOUT of these commands to collect
 information about CUDA kernels and group them appropriately. It must know what
 type of command this is in order to do so properly. By default, we look for
@@ -32,7 +35,7 @@ different command type. See diff_report.py (CommandType) for possible types.
 EOF
 
 }
-while getopts "n:o:t:h" arg
+while getopts "n:o:t:f:h" arg
     do
         case $arg in
             n)
@@ -43,6 +46,9 @@ while getopts "n:o:t:h" arg
                 ;;
             t)
                 commandtype=$OPTARG
+                ;;
+            f)
+                nvfuserdir=$OPTARG
                 ;;
             h | *)
                 usage
@@ -72,6 +78,28 @@ then
     usage
     exit 1
 fi
+
+if [[ -z $nvfuserdir ]]
+then
+    # User did not tell us where nvfuser checkout is.
+    nvfuserdir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+    while [[ "$nvfuserdir" != "/" ]]
+    do  # search up for git dir containing this script
+        if [[ -d "$nvfuserdir/.git" ]]
+        then
+            break
+        fi
+        nvfuserdir=$(dirname "$nvfuserdir")
+    done
+    if [[ "$nvfuserdir" == "/" ]]
+    then
+        >&2 echo "ERROR: Could not find NVFuser git repo. Please pass the -f argument."
+        exit 1
+    fi
+fi
+
+echo "NVFuser dir: $nvfuserdir"
+
 if [[ -f "$testdir/command" ]]
 then
     echo -n "Skipping since $testdir/command exists. "
@@ -81,8 +109,8 @@ fi
 mkdir -p "$testdir"
 movecudafiles() {
     mkdir -p "$1/cuda" "$1/ptx"
-    find . -maxdepth 1 -name '__tmp_kernel*.cu' -print0 | xargs -0 mv -t "$1/cuda"
-    find . -maxdepth 1 -name '__tmp_kernel*.ptx' -print0 | xargs -0 mv -t "$1/ptx"
+    find . -maxdepth 1 -name '__tmp_kernel*.cu' -print0 | xargs -0 --no-run-if-empty mv -t "$1/cuda"
+    find . -maxdepth 1 -name '__tmp_kernel*.ptx' -print0 | xargs -0 --no-run-if-empty mv -t "$1/ptx"
 }
 removecudafiles() {
     tmpdir="./.nvfuser_run_command_tmp"
@@ -90,7 +118,9 @@ removecudafiles() {
     movecudafiles "$tmpdir"
     rm -rf "$tmpdir"
 }
-stdoutfile="$testdir/incomplete-stdout-$(date +%Y%m%d_%H%M%S).log"
+date > "$testdir/date"
+stdoutfile="$testdir/incomplete-stdout"
+stderrfile="$testdir/incomplete-stderr"
 cleanup() {
     numcu=$(find . -maxdepth 1 -name '__tmp_kernel*.cu' | wc -l)
     numptx=$(find . -maxdepth 1 -name '__tmp_kernel*.ptx' | wc -l)
@@ -99,10 +129,15 @@ cleanup() {
         echo "Interrupted. Removing $numcu temporary .cu files and $numptx temporary .ptx files"
         removecudafiles
     fi
-    logbase=$(basename "$stdoutfile")
     # strip incomplete- from base name
-    completelogbase=${logbase#incomplete-}
-    mv "$stdoutfile" "$testdir/$completelogbase" 2> /dev/null || true
+    if [[ -f "$stdoutfile" ]]
+    then
+        mv "$stdoutfile" "$testdir/stdout" 2> /dev/null
+    fi
+    if [[ -f "$stderrfile" ]]
+    then
+        mv "$stderrfile" "$testdir/stderr" 2> /dev/null
+    fi
 }
 trap "cleanup" EXIT
 
@@ -129,7 +164,7 @@ NVFUSER_DUMP=$(ensure_in_list "$NVFUSER_DUMP" cuda_kernel ptxas_verbose ptx)
 
 # Allow command to fail, but record exit code
 set +e
-$testcmd | tee "$stdoutfile"
+$testcmd 1> >(tee "$stdoutfile") 2> >(tee "$stderrfile" >&2)
 # See https://unix.stackexchange.com/questions/14270/get-exit-status-of-process-thats-piped-to-another
 echo "${PIPESTATUS[0]}" > "$testdir/exitcode"
 set -e
@@ -160,18 +195,24 @@ then
     esac
 fi
 echo "$commandtype" > "$testdir/command_type"
-git rev-parse > /dev/null
+git -C "$nvfuserdir" rev-parse > /dev/null
 in_git_repo=$?
 if [ "$in_git_repo" ]
 then
-    git rev-parse HEAD > "$testdir/git_hash"
+    git -C "$nvfuserdir" rev-parse HEAD > "$testdir/git_hash"
     # the following shows both staged and unstaged changes
-    git diff --no-ext-diff HEAD > "$testdir/git_diff"
+    git -C "$nvfuserdir" diff --no-ext-diff HEAD > "$testdir/git_diff"
 else
     echo -n "WARNING: $0 expects to be run from the NVFuser git repository."
     echo -n "You do not appear to be in a git repository, so we will not be "
     echo "able to track git information for this command output to $testdir."
 fi
+
+# Record untracked files in the repo. We don't do anything with this but it
+# might be useful
+git -C "$nvfuserdir" ls-files --others --exclude-standard --directory \
+    > "$testdir/git_untracked"
+
 if [ -n "$runname" ]
 then
     echo "$runname" > "$testdir/run_name"
