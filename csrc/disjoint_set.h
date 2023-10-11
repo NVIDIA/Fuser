@@ -50,10 +50,8 @@ class VectorOfUniqueEntries {
     }
   }
 
-  VectorOfUniqueEntries(const VectorOfUniqueEntries<T>& other) {
-    vector_ = other.vector();
-    set_ = other.set();
-  }
+  VectorOfUniqueEntries(const VectorOfUniqueEntries<T>& other)
+      : vector_(other.vector()), set_(other.set()) {}
 
   VectorOfUniqueEntries& operator=(const VectorOfUniqueEntries<T>& other) {
     if (this != &other) {
