@@ -938,10 +938,11 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // split-K.
   // [..., Mo, No, Koo, Mi, Ni, Ki]
   // Split [Koo] -> [Kf, Ko]
-  mma_result->split(-4, params.splitk_factor, /*inner*/ false);
-  // After split [..., Mo, No, Kf, Ko, Mi, Ni, Ki]
+  int num_splitk_dims = 0;
   TensorView* splitk_sum = nullptr;
-  if (params.splitk_factor > 1) {
+  if (params.splitk_factor != 1) {
+    mma_result->split(-4, params.splitk_factor, /*inner*/ false);
+    // After split [..., Mo, No, Kf, Ko, Mi, Ni, Ki]
     // rFactor converts
     //   mma_result = mma(A, B, {/*Kf*/-5, /*Ko*/-4, /*Ki*/-1});
     // to
@@ -955,6 +956,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     // the accumulator must be the output of the MMA op, which is now the
     // rfactor TV
     mma_builder.accumulatorTv(mma_result);
+
+    num_splitk_dims = 1;
   }
 
   // Propagate tiling globally
@@ -969,7 +972,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Schedule warp tile
   mma_utils::scheduleWarpTileWithReduction(mma_result, gemm_tile);
-  // [..., Mo, No, Kf, Ko, Kw, Mwo, Nwo, Mwi, Nwi, Mi, Ni, Ki]
+  // [..., Mo, No, (Kf,) Ko, Kw, Mwo, Nwo, Mwi, Nwi, Mi, Ni, Ki]
 
   // Propagate warp tile to main loop and epilog/output tvs
   scheduler_utils::BoundedDirectionalTransformPropagator::bothWays(
@@ -980,7 +983,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // ------------------------------------------------------------------
   scheduleProlog(acw_smem, params);
   scheduleProlog(bcw_smem, params);
-  // [..., Mo, No, Kf, Ko, Kw, Mwo, Nwo, Mwi, Nwi, Mi, Ni, Ki]
+  // [..., Mo, No, (Kf,) Ko, Kw, Mwo, Nwo, Mwi, Nwi, Mi, Ni, Ki]
 
   // Add mma swizzle:
   //   TODO: this section goes to a separate matmul util,
@@ -1020,31 +1023,35 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   acr->axis(-1)->parallelize(ParallelType::Vectorize);
   bcr->axis(-1)->parallelize(ParallelType::Vectorize);
 
+  // Parallelization strategy:
+  //  with splitk:
   // nbatch +   1   2   3   4    5    6    7    8     9    10    11   12
   //      -13 -12 -11 -10  -9   -8   -7   -6   -5    -4    -3    -2   -1
   // [..., Mo, No, Kf, Ko, Kw, Mwo, Nwo, Mwi, Nwi, MNi1, MNi2, MNi3,  Ki]
-  // Parallelization
-  //  splitk:
   //  (iS) iBx iBy rBz rS  rS  iTz  iTy   iS   iS  iMMA   iTx  iMMA rMMA
-  //  batch, no splitk:
-  // (iBz) iBx iBy iS  rS  rS  iTz  iTy   iS   iS  iMMA   iTx  iMMA rMMA
+  //
+  //  without splitk:
+  // nbatch +   1       2   3    4    5    6    7     8     9    10   11
+  //      -12 -11     -10  -9   -8   -7   -6   -5    -4    -3    -2   -1
+  // [..., Mo, No,     Ko, Kw, Mwo, Nwo, Mwi, Nwi, MNi1, MNi2, MNi3,  Ki]
+  // (iBz) iBx iBy     rS  rS  iTz  iTy   iS   iS  iMMA   iTx  iMMA rMMA
   NVF_ERROR(
-      params.splitk_factor == 1 || num_batch_dims == 0,
+      num_splitk_dims == 0 || num_batch_dims == 0,
       "Splitk not supported with batch matmul");
   if (num_batch_dims != 0) {
-    mma_result->axis(-14)->parallelize(ParallelType::BIDz);
-  } else if (params.splitk_factor > 1) {
-    mma_result->axis(-11)->parallelize(ParallelType::BIDz);
+    mma_result->axis(0)->parallelize(ParallelType::BIDz);
+  } else if (num_splitk_dims != 0) {
+    mma_result->axis(2)->parallelize(ParallelType::BIDz);
   }
   // parallelize Mo, No by block
   switch (params.cta_order) {
     case MatmulParams::TileRasterizationOrder::RowMajor:
-      mma_result->axis(-13)->parallelize(ParallelType::BIDx);
-      mma_result->axis(-12)->parallelize(ParallelType::BIDy);
+      mma_result->axis(num_batch_dims)->parallelize(ParallelType::BIDx);
+      mma_result->axis(num_batch_dims + 1)->parallelize(ParallelType::BIDy);
       break;
     case MatmulParams::TileRasterizationOrder::ColumnMajor:
-      mma_result->axis(-13)->parallelize(ParallelType::BIDy);
-      mma_result->axis(-12)->parallelize(ParallelType::BIDx);
+      mma_result->axis(num_batch_dims)->parallelize(ParallelType::BIDy);
+      mma_result->axis(num_batch_dims + 1)->parallelize(ParallelType::BIDx);
       break;
     default:
       NVF_ERROR(
@@ -1052,8 +1059,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   }
 
   // parallelize Mwo, Nwo by thread
-  mma_result->axis(-8)->parallelize(ParallelType::TIDz);
-  mma_result->axis(-7)->parallelize(ParallelType::TIDy);
+  mma_result->axis(num_batch_dims + 4 + num_splitk_dims)
+      ->parallelize(ParallelType::TIDz);
+  mma_result->axis(num_batch_dims + 5 + num_splitk_dims)
+      ->parallelize(ParallelType::TIDy);
 
   scheduler_utils::parallelizeAllLike(
       mma_result,
@@ -1099,7 +1108,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     scheduleFusionInputsForEpilogue(roles_map, params.use_smem_epilogue);
   }
 
-  if (splitk_sum != nullptr) {
+  if (num_splitk_dims) {
     // Inline the splitk sum with the output store
     splitk_sum->computeAt(d, -2);
   }
@@ -1108,7 +1117,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb}));
 
   // if auto inline, will inline to position-7, leads to performance regression
-  inlineSelectedAt({acr, bcr, ab, bb}, mma_result, num_batch_dims + 7);
+  inlineSelectedAt(
+      {acr, bcr, ab, bb}, mma_result, num_batch_dims + 6 + num_splitk_dims);
 
   // Propagate mma output swizzle and parallelization down the DAG
   if (params.double_buffer_options.double_buffer_smem_write) {
@@ -1135,7 +1145,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   if (params.double_buffer_options.double_buffer_smem_read &&
       params.double_buffer_options.double_buffer_smem_write) {
     // rotate Ko loop
-    scheduler_utils::rotateLoop(mma_result, -10, {acr, bcr});
+    scheduler_utils::rotateLoop(
+        mma_result, num_batch_dims + 2 + num_splitk_dims, {acr, bcr});
   }
 }
 
