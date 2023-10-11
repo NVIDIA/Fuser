@@ -208,7 +208,7 @@ cleanup
 set +e  # exit status of diff is 1 if there are any mismatches
 # Note we use nvfuserdir here instead of scriptdir since we should be back on
 # original commit by now
-python "$nvfuserdir/tools/codediff/diff_codegen_nvfuser_tests.py" \
+python "$nvfuserdir/tools/codediff/diff_report.py" \
     "$outdir/$origcommit" "$outdir/$comparecommit" \
     -o "$outdir/codediff_${origcommit}_${comparecommit}.html" \
     --html --hide_diffs
