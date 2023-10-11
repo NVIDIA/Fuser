@@ -1099,8 +1099,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     scheduleFusionInputsForEpilogue(roles_map, params.use_smem_epilogue);
   }
 
-  // Inline the splitk sum with the output store
-  splitk_sum->computeAt(d, -3);
+  if (splitk_sum != nullptr) {
+    // Inline the splitk sum with the output store
+    splitk_sum->computeAt(d, -3);
+  }
 
   // auto inline for all tensors except register tensors
   inlineMost(ir_utils::allTvsExcept(fusion, {acr, bcr, ab, bb}));
