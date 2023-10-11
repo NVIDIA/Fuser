@@ -199,6 +199,10 @@ class IdGraph {
   // do anything.
   bool isTrivialExprGroup(const ExprGroup& expr_group) const;
 
+  void setPropagateThroughExprs(bool b) {
+    propagate_through_exprs_ = b;
+  }
+
  private:
   // Map expr0 and expr1 with eachother, update unique_definitions_ unique_uses_
   // TODO: Make this variant hidden?
