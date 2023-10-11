@@ -1579,15 +1579,15 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
 
       auto iel_promo_it = iel_promotion_map.find(iel_group);
       if (iel_promo_it == iel_promotion_map.end()) {
-        // If this terminal ID has a promotion, grab the promoted ID.
-        exact_promoted_terminal_ids.push_back(std::make_pair(
-            idGraph(IdMappingMode::EXACT).toGroup(loop_id), loop_id));
-      } else {
         // If this terminal ID doesn't have a promotion associated with it, save
         // the terminal ID.
-        exact_promoted_terminal_ids.emplace_back(std::make_pair(
+        exact_promoted_terminal_ids.emplace_back(
+            idGraph(IdMappingMode::EXACT).toGroup(loop_id), loop_id);
+      } else {
+        // If this terminal ID has a promotion, grab the promoted ID.
+        exact_promoted_terminal_ids.emplace_back(
             idGraph(IdMappingMode::EXACT).toGroup(iel_promo_it->second),
-            iel_promo_it->second));
+            iel_promo_it->second);
       }
     }
 
