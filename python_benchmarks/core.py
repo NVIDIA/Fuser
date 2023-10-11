@@ -14,18 +14,34 @@ def get_l2_cache_size() -> int:
     else:
         raise OSError("could not load any of: " + " ".join(libnames))
 
-    # Device attribute enum for L2 cache size
-    # https://nvidia.github.io/cuda-python/module/cuda.html?highlight=l2+cache+size#cuda.cuda.CUdevice_attribute.CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE
-    CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE = 38
+    # Device attribute enums (taken from cuda.h)
+    # https://nvidia.github.io/cuda-python/module/cuda.html
     
+    CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE = 36
+    CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH = 37
+    CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE = 38
+
     l2_cache_size = ctypes.c_int()
     device = torch.cuda.current_device()
+    memory_clock_rate = ctypes.c_int()
+    memory_bus_width = ctypes.c_int()
+
     cuda.cuDeviceGetAttribute(
         ctypes.byref(l2_cache_size), CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE, device
     )
-    return l2_cache_size.value
+    cuda.cuDeviceGetAttribute(
+        ctypes.byref(memory_clock_rate), CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, device
+    )
+    cuda.cuDeviceGetAttribute(
+        ctypes.byref(memory_bus_width), CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH, device
+    )
 
-L2_CACHE_SIZE = get_l2_cache_size()
+    # Compute peak bandwidth in GBps
+    peak_bandwidth = (2 * memory_bus_width.value * memory_clock_rate.value)/(1e6 * 8)
+
+    return l2_cache_size.value, peak_bandwidth
+
+L2_CACHE_SIZE, PEAK_BANDWIDTH = get_l2_cache_size()
 
 def clear_l2_cache() -> None:
     '''
@@ -127,8 +143,12 @@ class NVFBenchmark():
 
     def compute_metrics(self, inputs, outputs) -> None:
         '''
-        Utility function that computes IO Bytes processed by the 
-        target function and the bytes per second rate achieved. 
+        Utility function to compute metrics for the target function.
+        Current metrics:
+            IOBytes: Total bytes in inputs + outputs
+            BytesPerSecond: IOBytes * total_rounds / total_time
+            Bandwdith (GBps): BytesPerSecond / (1024**3)
+            % Peak Bandwidth (SOL): 100 * Bandwidth /PEAK_BANDWIDTH 
         '''
         iobytes = 0
         for inp in inputs:
@@ -138,9 +158,10 @@ class NVFBenchmark():
             iobytes += out.element_size() * out.numel()
 
         self.benchmark.extra_info["IOBytes"] = iobytes
-        self.benchmark.extra_info["BytesPerSecond"] = (
-            iobytes * self.benchmark.stats["rounds"]
-        ) / self.benchmark.stats["total"]
+        bytes_per_second = (iobytes * self.benchmark.stats["rounds"]) / self.benchmark.stats["total"]
+        self.benchmark.extra_info["BytesPerSecond"] = bytes_per_second
+        self.benchmark.extra_info["Bandwidth (GBps)"] = bytes_per_second / 1024**3
+        self.benchmark.extra_info["% Peak Bandwidth (SOL)"] = 100 * (bytes_per_second / 1024**3) / PEAK_BANDWIDTH
 
 
 def run_benchmark(benchmark, benchmark_fn, inputs):
