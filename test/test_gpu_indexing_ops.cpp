@@ -716,6 +716,9 @@ TEST_F(NVFuserTest, MultipleIndexSelectIssue_CUDA) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
+  ASSERT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented())
+      << "Should not segmented";
+
   auto ref = at::index_select(t0, 0, t2) + at::index_select(t1, 0, t2);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
