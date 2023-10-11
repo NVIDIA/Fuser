@@ -174,9 +174,9 @@ TEST_F(MemoryTest, RefineCachePolicy) {
 class TMATest : public NVFuserTest {
   void SetUp() override {
     // requires Hopper or newer
-    // if (!deviceMajorMinorCheck(9)) {
-    //   GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
-    // }
+    if (!deviceMajorMinorCheck(9)) {
+      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    }
     NVFuserTest::SetUp();
   }
 };
