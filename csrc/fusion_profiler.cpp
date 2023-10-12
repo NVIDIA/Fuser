@@ -148,7 +148,7 @@ PrintActivity(
         }
         case CUPTI_ACTIVITY_KIND_DRIVER:
         {
-            CUpti_ActivityAPI *pApiRecord = (CUpti_ActivityAPI *)pRecord;
+            /*CUpti_ActivityAPI *pApiRecord = (CUpti_ActivityAPI *)pRecord;
             const char* pName = NULL;
 
             cuptiGetCallbackName(CUPTI_CB_DOMAIN_DRIVER_API, pApiRecord->cbid, &pName);
@@ -163,7 +163,7 @@ PrintActivity(
                     pApiRecord->processId,
                     pApiRecord->threadId,
                     pApiRecord->correlationId);
-
+            */
             break;
         }
         default:
@@ -409,8 +409,33 @@ SegmentProfiler& FusionProfiler::segment(size_t idx) {
   return segments_.at(idx);
 }
 
+DeviceDescriptor::DeviceDescriptor(size_t _device) :
+    device(static_cast<int>(_device)),
+    name(),
+    bus_width(0),
+    memory_clock(0),
+    peak_bandwidth(0.0) {
+  name.reserve(100);
+  NVFUSER_CUDA_SAFE_CALL(
+      cuDeviceGetName(name.data(), 100, device));
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &bus_width,
+      CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH,
+      device));
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &memory_clock, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, device));
+
+    // Peak bandwidth calculation:
+    // Bus width is given in bits, so dividing by 8 converts to bytes.
+    // Clock is given in kHz. 1 GB = 1e9 bytes (don't report GiB = 1024^3 bytes)
+    // A factor of 2 is multiplied to account for double data rate (DDR):
+    // (clock in kHz * width in bits) * (1000 Hz / kHz) * (1 GB / 8e9 bits) * 2
+    // factor = 2.5e-7
+   peak_bandwidth = 2.5e-7 * (double)memory_clock * (double)bus_width;
+}
+
 FusionProfiler::FusionProfiler(size_t device) :
-  device_descriptor_(),
+  device_descriptor_(device),
   profile_(),
   fusion_timer_(at::cuda::getCurrentCUDAStream()),
   segments_() {

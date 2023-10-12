@@ -90,10 +90,14 @@ struct FusionProfile {
 };
 
 struct DeviceDescriptor{
+  DeviceDescriptor(size_t device);
+
   int device;
   std::string name;
   int bus_width;
   int memory_clock; 
+
+  double peak_bandwidth;
 };
 
 class FusionProfiler {
