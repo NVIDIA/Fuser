@@ -4,6 +4,7 @@
 
 import logging
 import os
+import re
 import sys
 from typing import Optional, Union  # noqa: F401
 
@@ -162,7 +163,18 @@ class FusionDefinition(_C._FusionDefinition):
                             f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
                         )
                 else:
-                    msg += f"    {i},\n"
+                    input_as_string = str(i)
+                    # `nan` and `inf` are stringified as is, which are not
+                    # defined in Python. So we replace them with `float("nan")`
+                    # and `float("inf")`. `-inf` is replaced with
+                    # `-float("inf")`, which equals `float("-inf")`.
+                    input_as_string = re.sub(
+                        r"\binf\b", 'float("inf")', input_as_string
+                    )
+                    input_as_string = re.sub(
+                        r"\bnan\b", 'float("nan")', input_as_string
+                    )
+                    msg += f"    {input_as_string},\n"
             msg += "]"
             msg += "\nfd.execute(inputs)\n"
             msg += "```\n"
