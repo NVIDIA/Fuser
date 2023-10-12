@@ -119,7 +119,7 @@ class NVFBenchmark:
             elapsed_cuda_time = self._get_kernel_time(prof_averages)
             self._increment_global_time(elapsed_cuda_time)
             self.prof.start()
-        except:
+        except AssertionError:
             self.prof.start()
         return self.current_time
 
@@ -144,7 +144,7 @@ class NVFBenchmark:
         """
         try:
             self.prof.stop()
-        except:
+        except AssertionError:
             pass
 
     def set_metrics(
