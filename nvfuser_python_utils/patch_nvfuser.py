@@ -53,6 +53,8 @@ def patch_installation():
     if os.path.exists(installed_nvfuser_dir):
         remove_nvfuser_python_module(installed_nvfuser_dir)
 
+    verify_binary_installation()
+
 
 if __name__ == "__main__":
     patch_installation()
