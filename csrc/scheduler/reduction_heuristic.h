@@ -143,7 +143,7 @@ class ReductionParams : public HeuristicParams {
   // extended to allow the move of these intermediate persistent tensors to
   // shared memory when the shared memory is larger than the register file.
   bool shared_mem_persistent_buffer = false;
-  std::vector<TensorView*> smem_tvs;
+  std::vector<TensorView*> smem_persistent_tvs;
 
  public:
   using HeuristicParams::HeuristicParams;

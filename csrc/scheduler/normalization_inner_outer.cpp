@@ -262,9 +262,9 @@ int64_t partialOuterReductionBufferSize(
 //! Decide where to store persistent buffers.
 //! By default, they reside in registers.
 //! If register space runs low but there's ample shared memory,
-//! the buffer is allocated there and noted in smem_tvs.
+//! the buffer is allocated there and noted in smem_persistent_tvs.
 struct PersistentBufferStorageParams {
-  std::vector<TensorView*> smem_tvs;
+  std::vector<TensorView*> smem_persistent_tvs;
   int64_t smem_buffer_size = -1;
   int64_t regs_buffer_size = -1;
   int64_t smem_overhead = -1;
@@ -378,7 +378,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 
     // move n_smem_buffer buffers to shared memory
     for (int i = 0; i < n_smem_buffer; i++) {
-      buffer_params.smem_tvs.emplace_back(sorted_candidate_tvs[i]);
+      buffer_params.smem_persistent_tvs.emplace_back(sorted_candidate_tvs[i]);
     }
     buffer_params.regs_buffer_size -= acc_regs_buffer_sizes[n_smem_buffer];
     buffer_params.smem_buffer_size = acc_smem_buffer_sizes[n_smem_buffer];
@@ -849,6 +849,7 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       buffer_params.smem_overhead,
       max_outer_reduction_dtype_size,
       vectorize_factor);
+  rparams->smem_persistent_tvs = buffer_params.smem_persistent_tvs;
   rparams->project_persistent_buffers = buffer_params.project_to_input;
   rparams->cparams.index_type = runtime_info.getIndexType();
   return rparams;
@@ -986,17 +987,62 @@ void scheduleInnerOuterPersistentKernel(
 
   FusionGuard fg(fusion);
 
-  // Grab the reduction, input, and output tensor views. dummy_outputs are
-  // helper tensors for persistent buffer projection.
-  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
-  normalization_scheduler_utils::beforeSchedule(
-      fusion,
-      rparams,
-      dummy_outputs,
-      cached_inputs,
-      reduction_tvs,
-      cached_outputs);
+  // Project the persistent buffers to the inputs. Inputs will be cached in a
+  // later step, this will move them to be in a register buffer as expected.
+  // dummy outputs are helper tensors to make sure persistent buffer projection
+  // does not create trouble for transform propagation.
+  const auto& dummy_outputs =
+      reduction_scheduler_utils::projectPersistentBuffers(
+          fusion, rparams.project_persistent_buffers);
+
+  // Cache tensors before grabbing any references to reductions as cache_before
+  // can invalidate the references since when applied to a reduction tensor view
+  // the new tensor view contains the reduction and original doesn't.
+  const bool unroll = rparams.isUnrolled();
+  // Cache inputs even if not unrolled, as otherwise we may not create a
+  // persistent buffer if that persistent buffer would be the input.
+  const auto& cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+
+  // Cache and fork outputs
+  const auto& cached_outputs =
+      scheduler_utils::cacheAndForkOutputs(fusion, unroll);
+
+  // Make sure we don't have global memory set on intermediate tensors from
+  // fusion segmentation
+  scheduler_utils::clearMemorySpace(fusion);
+  scheduler_utils::prepareForMemoryTypePromotion(fusion);
+
+  // Transfer the persistent buffer tensors to shared memory. These tensors are
+  // housed in smem_persistent_tvs. If a candidate tensor is input, move its
+  // associated cached tensors.
+  if (rparams.shared_mem_persistent_buffer) {
+    const auto& persistent_buffers =
+        scheduler_utils::persistentBuffers(fusion).persistent_buffers;
+    auto isSharedMemoryPersistent = [&rparams](const TensorView* lookup_tv) {
+      return std::any_of(
+          rparams.smem_persistent_tvs.begin(),
+          rparams.smem_persistent_tvs.end(),
+          [lookup_tv](const auto* tv) {
+            // there is a bug in sameAs to compare input tvs.
+            // return tv->sameAs(lookup_tv);
+            return tv->name() == lookup_tv->name();
+          });
+    };
+    for (auto tv : persistent_buffers) {
+      bool use_smem = isSharedMemoryPersistent(tv);
+      if (!use_smem &&
+          std::find(cached_inputs.begin(), cached_inputs.end(), tv) !=
+              cached_inputs.end()) {
+        auto input_tv = ir_utils::producerTvsOf(tv).at(0);
+        use_smem = isSharedMemoryPersistent(input_tv);
+      }
+      if (use_smem) {
+        tv->setMemoryType(MemoryType::Shared);
+      }
+    }
+  }
+
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 
   // split reduction_tvs into inner and outer reduction_tvs
   std::vector<TensorView*> inner_reduction_tvs, outer_reduction_tvs;
@@ -1040,7 +1086,6 @@ void scheduleInnerOuterPersistentKernel(
     fusion->addOutput(output);
   }
 
-  const bool unroll = rparams.isUnrolled();
   const bool vectorize =
       rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
   const bool is_outer_grid_persistence = rparams.persistent_kernel &&
