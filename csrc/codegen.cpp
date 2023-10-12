@@ -2858,12 +2858,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const kir::CpAsyncBulkS2GWait* cpasync_wait) final {
-    indent() << "Hopper::cpAsyncBulkPartialReadBarrier<"
+    indent() << "Hopper::cpAsyncBulkS2GPartialReadBarrier<"
              << cpasync_wait->keepStages() << ">();\n";
   }
 
   void handle(const kir::CpAsyncBulkS2GCommit* cpasync_wait) final {
-    indent() << "Hopper::cpAsyncBulkCommit();\n";
+    indent() << "Hopper::cpAsyncBulkS2GCommit();\n";
   }
 
   void handle(const kir::GridSync* sync) final {
