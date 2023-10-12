@@ -1124,6 +1124,132 @@ TEST_F(ResizeTest, FusionResizeSlice5) {
   testValidate(&fusion, cg_outputs, aten_inputs, {t2, t4}, __LINE__, __FILE__);
 }
 
+std::vector<std::pair<int64_t, int64_t>> slice_cases(
+    {{0, 5},
+     {3, 9},
+     {3, 4},
+     {7, 5},
+     {0, 11},
+     {11, 13},
+     {-3, 8},
+     {-3, -1},
+     {-3, -5},
+     {13, -1},
+     {-11, 9},
+     {-11, 0},
+     {-13, -11}});
+
+// Test slice with a variety of constant ranges
+TEST_F(NVFuserTest, FusionResizeSliceConstantShmoo_CUDA) {
+  for (auto [start, stop] : slice_cases) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    std::vector<int64_t> shape({9});
+
+    // concrete shapes to avoid dynamic Fusion
+    auto tv0 = makeConcreteTensor(shape);
+    fusion.addInput(tv0);
+
+    auto tv1 = slice(
+        tv0, {{IrBuilder::create<Val>(start), IrBuilder::create<Val>(stop)}});
+    fusion.addOutput(tv1);
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+    auto t0 = at::randn(shape, options);
+    std::vector<c10::IValue> aten_inputs({t0});
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, aten_inputs);
+    auto cg_outputs = fe.runFusion(aten_inputs);
+
+    testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  }
+}
+
+// Test slice with a variety of non-constant input ranges
+TEST_F(NVFuserTest, FusionResizeSliceInputShmoo_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({9});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape);
+  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s1 = IrBuilder::create<Val>(DataType::Index);
+  fusion.addInput(tv0);
+  fusion.addInput(s0);
+  fusion.addInput(s1);
+
+  auto tv1 = slice(tv0, {{s0, s1}});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  {
+    // Concretize so that we set output IterType as Iteration. We should now
+    // have expressions that work with any input range.
+    ExpressionEvaluator expr_eval;
+
+    expr_eval.bind(tv0->axis(0)->extent(), 9);
+    expr_eval.bind(s0, 0);
+    expr_eval.bind(s1, 9);
+
+    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+    auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
+
+    DynamicTransform::concretizeFusion(&fusion, &info);
+    NVF_CHECK(
+        !fusion.hasDynamicTransform(), "Expected to have no dynamic transform");
+  }
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion);
+
+  auto t0 = at::randn(shape, options);
+  for (auto [start, stop] : slice_cases) {
+    std::vector<c10::IValue> aten_inputs({t0, start, stop});
+    auto cg_outputs = fe.runFusion(aten_inputs);
+
+    testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  }
+}
+
+// Same as FusionResizeSliceInputShmoo_CUDA but use FusionExecutorCache, which
+// might re-concretize when output sizes change
+TEST_F(NVFuserTest, FusionResizeSliceInputShmooFusionExecutorCache_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  std::vector<int64_t> shape({9});
+
+  // concrete shapes to avoid dynamic Fusion
+  auto tv0 = makeConcreteTensor(shape);
+  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s1 = IrBuilder::create<Val>(DataType::Index);
+  fusion->addInput(tv0);
+  fusion->addInput(s0);
+  fusion->addInput(s1);
+
+  auto tv1 = slice(tv0, {{s0, s1}});
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto t0 = at::randn(shape, options);
+  for (auto [start, stop] : slice_cases) {
+    std::vector<c10::IValue> aten_inputs({t0, start, stop});
+    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+    testValidate(fec.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+  }
+}
+
 // Auto scheduled version of Slice1
 TEST_F(ResizeTest, FusionResizeSliceScheduler1) {
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -2240,6 +2366,200 @@ TEST_F(ResizeTest, SliceVectorization) {
   testValidate(&fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
+// Concretize a symbolic pad that results in a broadcast (static pads)
+// In this test, the sizes and pad widths are static, so there should be nothing
+// to concretize.
+TEST_F(NVFuserTest, ResizePadToBroadcastStatic_CUDA) {
+  std::vector<int64_t> t0_size = {2, 3, 2, 5, 6};
+  std::vector<int64_t> t1_size = {2, 4, 4, 3, 5};
+  // Note there are only 8 input scalars for 5D input. Implicit no-pad of dim 0
+  std::vector<int64_t> pad_widths = {
+      0,
+      -1, // dim=4 trim last element
+      0,
+      -4, // dim=3 pad to broadcast of first element
+      1,
+      1, // dim=2 pad with zeros on either side
+      -1,
+      -1, // dim=1 pad to broadcast of second element
+      // dim=0 is implicit 0, 0
+  };
+  std::vector<IterType> expected_itertypes = {
+      IterType::Iteration,
+      IterType::Broadcast,
+      IterType::Iteration,
+      IterType::Broadcast,
+      IterType::Iteration,
+  };
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeConcreteTensor(t0_size);
+  fusion->addInput(tv0);
+  auto tv1 = makeConcreteTensor(t1_size);
+  fusion->addInput(tv1);
+
+  std::vector<Val*> pad_width_vals;
+  pad_width_vals.reserve(pad_widths.size());
+  for (auto w : pad_widths) {
+    pad_width_vals.push_back(IrBuilder::create<Val>(w));
+  }
+
+  auto tv2 = pad(tv0, pad_width_vals);
+  auto tv3 = mul(tv1, tv2);
+  fusion->addOutput(tv3);
+
+  EXPECT_FALSE(fusion->hasDynamicTransform());
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(t0_size, options);
+  auto t1 = at::randn(t1_size, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  auto concretized_fusion = runtime->fusionSegments()->completeFusion();
+
+  auto conc_t2 = concretized_fusion->outputs()[0]
+                     ->definition()
+                     ->inputs()[1]
+                     ->as<TensorView>();
+  for (auto i : c10::irange(expected_itertypes.size())) {
+    EXPECT_EQ(conc_t2->axis(i)->getIterType(), expected_itertypes.at(i));
+  }
+
+  auto t2_padded = at::pad(t0, pad_widths);
+  auto ref_t2 = t1 * t2_padded;
+
+  testValidate(
+      concretized_fusion,
+      cg_outputs,
+      aten_inputs,
+      {ref_t2},
+      __LINE__,
+      __FILE__);
+}
+
+// Concretize a symbolic pad that results in a broadcast (dynamic pads)
+TEST_F(NVFuserTest, ResizePadToBroadcastDynamic_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(5);
+  fusion->addInput(tv0);
+  auto tv1 = makeSymbolicTensor(5);
+  fusion->addInput(tv1);
+
+  // Note there are only 8 input scalars for 5D input. Implicit no-pad of dim 0
+  std::vector<int64_t> pad_widths = {
+      0,
+      -1, // dim=4 trim last element
+      0,
+      -4, // dim=3 pad to broadcast of first element
+      1,
+      1, // dim=2 pad with zeros on either side
+      -1,
+      -1, // dim=1 pad to broadcast of second element
+      // dim=0 is implicit 0, 0
+  };
+  std::vector<Val*> pad_width_vals;
+  pad_width_vals.reserve(pad_widths.size());
+  for ([[maybe_unused]] auto _ : pad_widths) {
+    auto w_val = IrBuilder::create<Val>(DataType::Int);
+    fusion->addInput(w_val);
+    pad_width_vals.push_back(w_val);
+  }
+
+  auto tv2 = pad(tv0, pad_width_vals);
+  auto tv3 = mul(tv1, tv2);
+  fusion->addOutput(tv3);
+
+  EXPECT_TRUE(fusion->hasDynamicTransform());
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn({2, 3, 2, 5, 6}, options);
+  auto t1 = at::randn({2, 4, 4, 3, 5}, options);
+  // Keep dimension 0, pad to broadcast in dimension 1 and 3. Pad with zero in
+  // dimension 2. Trim by one element in dimension 4.
+  std::vector<c10::IValue> aten_inputs({
+      t0,
+      t1,
+  });
+  aten_inputs.insert(aten_inputs.end(), pad_widths.begin(), pad_widths.end());
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  auto concretized_fusion = runtime->fusionSegments()->completeFusion();
+
+  auto conc_t2 = concretized_fusion->outputs()[0]
+                     ->definition()
+                     ->inputs()[1]
+                     ->as<TensorView>();
+  EXPECT_EQ(conc_t2->axis(0)->getIterType(), IterType::Iteration);
+  EXPECT_EQ(conc_t2->axis(1)->getIterType(), IterType::Broadcast);
+  EXPECT_EQ(conc_t2->axis(2)->getIterType(), IterType::Iteration);
+  EXPECT_EQ(conc_t2->axis(3)->getIterType(), IterType::Broadcast);
+  EXPECT_EQ(conc_t2->axis(4)->getIterType(), IterType::Iteration);
+
+  auto t2_padded = at::pad(t0, pad_widths);
+  auto ref_t2 = t1 * t2_padded;
+
+  testValidate(
+      concretized_fusion,
+      cg_outputs,
+      aten_inputs,
+      {ref_t2},
+      __LINE__,
+      __FILE__);
+}
+
+// See https://github.com/NVIDIA/Fuser/issues/596
+TEST_F(NVFuserTest, ResizePadToBroadcastIssue596_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeConcreteTensor({2});
+  auto tv1 = makeConcreteTensor({3});
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = pad(tv0, {fusion->zeroVal(), IrBuilder::create<Val>(-1)});
+  auto tv3 = mul(tv1, tv2);
+  fusion->addOutput(tv3);
+
+  // Fusion is not dynamic
+  EXPECT_FALSE(fusion->hasDynamicTransform());
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn({2}, options);
+  auto t1 = at::randn({3}, options);
+  std::vector<c10::IValue> aten_inputs({t0, t1});
+
+  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  FusionKernelRuntime runtime(std::move(fusion), args);
+  runtime.compileFusionParallel(args);
+  auto cg_outputs = runtime.runWithInputs(args);
+
+  auto t2_padded = at::pad(t0, {0, -1});
+  auto ref_t2 = t1 * t2_padded;
+
+  testValidate(
+      runtime.fusionSegments()->completeFusion(),
+      cg_outputs,
+      aten_inputs,
+      {ref_t2},
+      __LINE__,
+      __FILE__);
+}
+
 // An input is sliced and then reshaped
 TEST_F(ResizeTest, SliceAndReshape1) {
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -2319,7 +2639,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual1) {
   FusionGuard fg(fusion_ptr.get());
 
   const int64_t slice_offset = 4;
-  const std::vector<int64_t> shape({1024 * 1024});
+  const std::vector<int64_t> shape({1024L * 1024L});
 
   // Using a concrete tensor to avoid dynamic reshape
   auto tv0 = makeContigConcreteTensor(shape);
@@ -2358,7 +2678,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual2) {
   FusionGuard fg(fusion_ptr.get());
 
   const int64_t slice_offset = 4;
-  const std::vector<int64_t> shape({1024 * 1024});
+  const std::vector<int64_t> shape({1024L * 1024L});
 
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -2414,7 +2734,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual3) {
   FusionGuard fg(fusion_ptr.get());
 
   const int64_t slice_offset = 4;
-  const std::vector<int64_t> shape({1024 * 1024});
+  const std::vector<int64_t> shape({1024L * 1024L});
 
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -2463,7 +2783,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual4) {
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  const std::vector<int64_t> shape({1024 * 1024});
+  const std::vector<int64_t> shape({1024L * 1024L});
 
   auto tv0 = makeContigConcreteTensor({shape[0] - 4});
   fusion.addInput(tv0);
@@ -2505,7 +2825,7 @@ TEST_F(ResizeTest, Slice2DVectorizeManual1) {
   // The extent of the innermost domain is just 2, and the outer
   // domain is sliced. This slicing should be vectorizable by a
   // factor of 4 as the two domains can be merged and vectorized.
-  const std::vector<int64_t> shape({1024 * 1024, 2});
+  const std::vector<int64_t> shape({1024L * 1024L, 2});
 
   auto tv0 = makeContigConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -2785,6 +3105,53 @@ TEST_F(ResizeTest, CatOfExpandedBroadcast) {
   auto ref = at::cat({at::expand_copy(t0, shape0e), t1}, 0);
 
   NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
+// Test that an empty input which is expanded in some non-zero directions can be
+// padded in the empty dim as well as the expanded dims.
+// This should match test_python_frontend.py::test_pad_expanded_empty
+// See https://github.com/NVIDIA/Fuser/issues/870
+TEST_F(ResizeTest, PadExpandedEmpty) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  auto i0 = IrBuilder::create<Val>(DataType::Index);
+  auto i1 = IrBuilder::create<Val>(DataType::Index);
+  auto i2 = IrBuilder::create<Val>(DataType::Index);
+
+  auto tv0 = TensorViewBuilder()
+                 .shape({i0, i1, i2})
+                 .expanded({true, false, true})
+                 .dtype(DataType::Double)
+                 .build();
+  fusion.addInput(tv0);
+
+  auto s0 = IrBuilder::create<Val>(-3.70753);
+
+  std::vector<Val*> pad_widths(
+      {fusion.zeroVal(DataType::Index),
+       fusion.zeroVal(DataType::Index),
+       fusion.oneVal(DataType::Index),
+       fusion.oneVal(DataType::Index),
+       fusion.oneVal(DataType::Index),
+       fusion.zeroVal(DataType::Index)});
+  auto tv1 = pad(tv0, pad_widths, s0);
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
+
+  auto t0 = at::randn({0}, options).as_strided({2, 0, 3}, {0, 0, 0});
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  std::cout << t0 << std::endl;
+  std::cout << t0.strides() << std::endl;
+
+  testValidate(
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test that we can pad properly along broadcast dims

@@ -228,7 +228,7 @@ TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
         NVF_CHECK(
             !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
         NVF_CHECK(
-            id->extent()->isOneInt(),
+            id->extent()->isConstScalar() && id->extent()->evaluateInt() == 1,
             "Can not squeeze dimension(s) with size != 1.");
       }
     } else {
@@ -690,9 +690,6 @@ TensorView* cat(
   return out;
 }
 
-// Currently there's no error check about  the actual values of the
-// Slice parameters. For example, the start parameter of a range of a
-// domain is assumed to be >= 0 and < the extent of the domain.
 TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
   const auto inp_dom = TensorDomain::noReductions(inp->getMaybeRFactorDomain());
   const int ndims = static_cast<int>(inp_dom.size());
@@ -704,28 +701,50 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
       ", Expected: ",
       ndims);
 
-  auto normalize_slice_range = [](Slice range, Val* extent) -> Slice {
+  const auto normalize_slice_range = [](Slice range, Val* extent) -> Slice {
+    auto cast_extent =
+        SimplifyingIrBuilder::maybeCastExpr(DataType::Index, extent);
+
+    auto zero = FusionGuard::getCurFusion()->zeroVal(DataType::Index);
+
+    // norm_start = max(0, start < 0 ? start + extent : start)
     if (range.start == nullptr) {
-      range.start = FusionGuard::getCurFusion()->zeroVal();
-    }
-    if (range.stop == nullptr) {
-      range.stop = extent;
-    }
-    if (range.step == nullptr) {
-      range.step = FusionGuard::getCurFusion()->oneVal();
-    }
-    if (range.start->dtype() != DataType::Index) {
+      range.start = zero;
+    } else if (!range.start->isZeroInt()) {
       range.start =
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.start);
+      range.start = SimplifyingIrBuilder::maxExpr(
+          zero,
+          SimplifyingIrBuilder::whereExpr(
+              SimplifyingIrBuilder::ltExpr(range.start, zero),
+              SimplifyingIrBuilder::addExpr(range.start, cast_extent),
+              range.start));
     }
-    if (range.stop->dtype() != DataType::Index) {
+
+    // norm_stop = max(norm_start, min(extent, stop < 0 ? stop + extent : stop)
+    if (range.stop == nullptr) {
+      range.stop = cast_extent;
+    } else if (!range.stop->sameAs(extent)) {
       range.stop =
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.stop);
+      range.stop = SimplifyingIrBuilder::maxExpr(
+          range.start,
+          SimplifyingIrBuilder::minExpr(
+              cast_extent,
+              SimplifyingIrBuilder::whereExpr(
+                  SimplifyingIrBuilder::ltExpr(range.stop, zero),
+                  SimplifyingIrBuilder::addExpr(range.stop, cast_extent),
+                  range.stop)));
     }
-    if (range.step->dtype() != DataType::Index) {
+
+    // Ensure step is of type Index
+    if (range.step == nullptr) {
+      range.step = FusionGuard::getCurFusion()->oneVal(DataType::Index);
+    } else {
       range.step =
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.step);
     }
+
     return range;
   };
 
@@ -733,7 +752,7 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
     // Step not supported yet
     NVF_CHECK(
         range.step == nullptr || range.step->isOneInt(),
-        "Unsupported step: ",
+        "Unsupported step (must be 1 or null): ",
         range.step->toString());
   }
 
@@ -754,12 +773,13 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
       out_root_id = inp_root_id->cloneWithoutRFactor();
       out_rf_id = out_root_id;
     } else {
+      // Clip the start and stop values to the extent of the input
       out_root_id =
           IterDomainBuilder(inp_root_id).is_rfactor_domain(true).build();
       out_rf_id = IterDomain::resize(
           out_root_id,
           SimplifyingIrBuilder::negExpr(range.start),
-          sub(range.stop, inp_root_id->extent()),
+          SimplifyingIrBuilder::subExpr(range.stop, inp_root_id->extent()),
           true);
       needs_real_slicing = true;
     }

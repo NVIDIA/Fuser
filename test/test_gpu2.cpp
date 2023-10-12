@@ -978,7 +978,7 @@ TEST_F(NVFuserTest, FusionTrivialReduction_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).empty(),
+      !ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Trivial reduction not converted to squeeze.");
 
   const auto options =
@@ -9095,47 +9095,47 @@ TEST_F(NVFuserTest, FusionChannelsLastParser_CUDA) {
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<__half, 4, 4> T0, Tensor<__half, 4, 4> T2, Tensor<__half, 4, 4> T7) {
   nvfuser_index_t i0;
-  i0 = T0.logical_size[2] * T0.logical_size[1];
+  i0 = T0.logical_size[2LL] * T0.logical_size[1LL];
   nvfuser_index_t i1;
-  i1 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
+  i1 = ((nvfuser_index_t)threadIdx.x) + (128LL * ((nvfuser_index_t)blockIdx.x));
   nvfuser_index_t i2;
-  i2 = (T0.logical_size[1] * T0.logical_size[2]) * T0.logical_size[3];
+  i2 = (T0.logical_size[1LL] * T0.logical_size[2LL]) * T0.logical_size[3LL];
   nvfuser_index_t i3;
   i3 = i1 % i2;
   nvfuser_index_t i4;
-  i4 = T0.logical_size[2] * T0.logical_size[3];
+  i4 = T0.logical_size[2LL] * T0.logical_size[3LL];
   nvfuser_index_t i5;
   i5 = i3 % i4;
-  if ((i1 < (((T0.logical_size[0] * T0.logical_size[1]) * T0.logical_size[2]) * T0.logical_size[3]))) {
-    __half T9[1];
-    T9[0] = 0;
-    T9[0]
-       = T2[(((((i0 * T0.logical_size[3]) * (i1 / i2)) + (i0 * (i5 % T0.logical_size[3]))) + (T0.logical_size[2] * (i3 / i4))) + (i5 / T0.logical_size[3]))];
-    __half T8[1];
-    T8[0] = 0;
-    T8[0]
+  if ((i1 < (((T0.logical_size[0LL] * T0.logical_size[1LL]) * T0.logical_size[2LL]) * T0.logical_size[3LL]))) {
+    __half T9[1LL];
+    T9[0LL] = 0LL;
+    T9[0LL]
+       = T2[(((((i0 * T0.logical_size[3LL]) * (i1 / i2)) + (i0 * (i5 % T0.logical_size[3LL]))) + (T0.logical_size[2LL] * (i3 / i4))) + (i5 / T0.logical_size[3LL]))];
+    __half T8[1LL];
+    T8[0LL] = 0LL;
+    T8[0LL]
        = T0[i1];
-    float T3[1];
-    T3[0]
-       = __half2float(T9[0]);
-    float T4[1];
-    T4[0]
-       = T3[0];
-    float T1[1];
-    T1[0]
-       = __half2float(T8[0]);
-    float T5[1];
-    T5[0]
-      = T1[0]
-      * T4[0];
-    float T6[1];
-    T6[0]
-       = relu(T5[0]);
-    __half T10[1];
-    T10[0]
-       = __float2half(T6[0]);
+    float T3[1LL];
+    T3[0LL]
+       = __half2float(T9[0LL]);
+    float T4[1LL];
+    T4[0LL]
+       = T3[0LL];
+    float T1[1LL];
+    T1[0LL]
+       = __half2float(T8[0LL]);
+    float T5[1LL];
+    T5[0LL]
+      = T1[0LL]
+      * T4[0LL];
+    float T6[1LL];
+    T6[0LL]
+       = relu(T5[0LL]);
+    __half T10[1LL];
+    T10[0LL]
+       = __float2half(T6[0LL]);
     T7[i1]
-       = T10[0];
+       = T10[0LL];
   }
 }
 )";

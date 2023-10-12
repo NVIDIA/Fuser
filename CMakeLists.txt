@@ -20,6 +20,8 @@ set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
 option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
 
+string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
+
 if(PROJECT_IS_TOP_LEVEL)
   find_package(Torch REQUIRED)
   find_package(Python REQUIRED Development Interpreter)
@@ -169,6 +171,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
   ${NVFUSER_SRCS_DIR}/serde/polymorphic_value_serde.cpp
   ${NVFUSER_SRCS_DIR}/serde/utils.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/cache_policy_refiner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic_types.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
@@ -255,7 +258,7 @@ endif()
 list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
 
 if(PROJECT_IS_TOP_LEVEL)
-  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
+  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES} dl)
 
   # this is to find pip installed nvrtc/nvtx .so
   set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH
@@ -303,11 +306,6 @@ else()
     target_link_libraries(${NVFUSER_CODEGEN} PRIVATE __nvfuser_ucc)
     target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE NVFUSER_BUILD_WITH_UCC)
   endif()
-
-  # installing nvfuser python tests
-  install(DIRECTORY "${NVFUSER_ROOT}/python_tests/"
-    DESTINATION "${TORCH_ROOT}/test/_nvfuser"
-    FILES_MATCHING PATTERN "*.py")
 
   # installing nvfuser lib
   install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION "${TORCH_INSTALL_LIB_DIR}")
@@ -451,6 +449,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_polymorphic_value.cpp
     ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
+    ${NVFUSER_ROOT}/test/test_mbarrier.cpp
     ${NVFUSER_ROOT}/test/test_memory.cpp
     ${NVFUSER_ROOT}/test/test_gpu_view.cpp
     ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
@@ -590,6 +589,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/grid_sync.cu
   ${NVFUSER_ROOT}/runtime/helpers.cu
   ${NVFUSER_ROOT}/runtime/index_utils.cu
+  ${NVFUSER_ROOT}/runtime/mbarrier.cu
   ${NVFUSER_ROOT}/runtime/memory.cu
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu

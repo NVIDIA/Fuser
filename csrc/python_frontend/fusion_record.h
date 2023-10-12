@@ -322,102 +322,26 @@ struct OpRecord : RecordFunctor {
 };
 
 struct ReshapeOpRecord : RecordFunctor {
-  ReshapeOpRecord(
-      std::vector<State> _args,
-      std::vector<State> _outputs,
-      std::vector<int64_t> original_shape,
-      std::vector<int64_t> new_shape)
+  ReshapeOpRecord(std::vector<State> _args, std::vector<State> _outputs)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "ops.reshape",
-            serde::RecordType_ReshapeOp),
-        original_shape_(std::move(original_shape)),
-        new_shape_(std::move(new_shape)) {}
+            serde::RecordType_ReshapeOp) {
+    arg_names_[1] = "new_shape";
+  }
   ~ReshapeOpRecord() override = default;
   RecordFunctor* clone() final {
     return new ReshapeOpRecord(*this);
   }
 
-  //! Child specific hash function in lower 32 bits.
-  //! | 31 -------------- 16 | 15 --------------  0 |
-  //! | original_shape hash  | new_shape hash       |
-  size_t hash() const final {
-    auto result = RecordFunctor::hash();
-    size_t new_shape_hash = 0;
-    for (auto shape : new_shape_) {
-      new_shape_hash ^= static_cast<size_t>(shape);
-    }
-    size_t original_shape_hash = 0;
-    for (auto shape : original_shape_) {
-      original_shape_hash |= 1 << ((new_shape_.size() - 1) - shape);
-    }
-    original_shape_hash = (original_shape_hash & 0xffff) << 16;
-    return result | original_shape_hash | (new_shape_hash & 0xffff);
-  }
-
-  bool operator==(const RecordFunctor& other) const final {
-    auto result = false;
-    if (auto child_ptr = dynamic_cast<const ReshapeOpRecord*>(&other)) {
-      result = RecordFunctor::operator==(other);
-      result &= std::equal(
-          original_shape_.begin(),
-          original_shape_.end(),
-          child_ptr->original_shape_.begin());
-      result &= std::equal(
-          new_shape_.begin(), new_shape_.end(), child_ptr->new_shape_.begin());
-    }
-    return result;
-  }
-
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    auto output = reshape(arg, original_shape_, new_shape_);
+    const std::vector<Val*>& new_shape =
+        fd.getFusionStateVector(args_.at(1).index);
+    auto output = reshape(arg, new_shape);
     fd.setFusionState(outputs_.at(0).index, output);
   }
-
-  void print(std::ostream& os, bool close_function = true) const final {
-    RecordFunctor::print(os, false);
-    os << ", original_shape=[";
-    bool first_arg = true;
-    for (auto shape : original_shape_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      os << shape;
-    }
-    os << "]";
-    os << ", new_shape=[";
-    first_arg = true;
-    for (auto shape : new_shape_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      os << shape;
-    }
-    os << "]";
-    if (close_function) {
-      os << ")";
-    }
-  }
-
-  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
-      flatbuffers::FlatBufferBuilder& builder) const final {
-    return {
-        serde::RecordData_Reshape,
-        serde::CreateReshapeDirect(builder, &original_shape_, &new_shape_)
-            .Union()};
-  }
-
- private:
-  //! Represents the tensor dimensions of the input tensor.
-  std::vector<int64_t> original_shape_;
-  //! Represents the tensor dimensions of the output tensor.
-  std::vector<int64_t> new_shape_;
 };
 
 struct PadOpRecord : RecordFunctor {
@@ -531,34 +455,32 @@ struct PadOpRecord : RecordFunctor {
   std::vector<int64_t> pad_widths_;
 };
 
-struct PermuteOpRecord : RecordFunctor {
-  PermuteOpRecord(
+template <serde::RecordType op_type>
+struct DimsOpRecord : RecordFunctor {
+  DimsOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      std::vector<int64_t> dims)
-      : RecordFunctor(
-            std::move(_args),
-            std::move(_outputs),
-            "ops.permute",
-            serde::RecordType_PermuteOp),
+      std::vector<int64_t> dims,
+      std::string name)
+      : RecordFunctor(std::move(_args), std::move(_outputs), name, op_type),
         dims_(std::move(dims)) {}
-  ~PermuteOpRecord() override = default;
+  ~DimsOpRecord() override = default;
   RecordFunctor* clone() final {
-    return new PermuteOpRecord(*this);
+    return new DimsOpRecord(*this);
   }
 
   size_t hash() const final {
     auto result = RecordFunctor::hash();
     size_t dims_hash = 0;
     for (auto dim : dims_) {
-      dims_hash ^= static_cast<size_t>(dim);
+      hashCombine(dims_hash, static_cast<size_t>(dim));
     }
     return result | (dims_hash & 0xffff);
   }
 
   bool operator==(const RecordFunctor& other) const final {
     auto result = false;
-    if (auto child_ptr = dynamic_cast<const PermuteOpRecord*>(&other)) {
+    if (auto child_ptr = dynamic_cast<const DimsOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
       if (result) {
         result = (dims_.size() == child_ptr->dims_.size());
@@ -576,14 +498,37 @@ struct PermuteOpRecord : RecordFunctor {
   }
 
   void operator()(FusionState& fd) final {
-    auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    auto output = permute(arg, dims_);
-    fd.setFusionState(outputs_.at(0).index, output);
+    if constexpr (op_type == serde::RecordType_PermuteOp) {
+      auto arg =
+          fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+      auto output = permute(arg, dims_);
+      fd.setFusionState(outputs_.at(0).index, output);
+    } else if constexpr (op_type == serde::RecordType_StrideOrderOp) {
+      auto arg =
+          fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+      auto output = set(arg);
+      int rank = static_cast<int>(dims_.size());
+      std::vector<IterDomain*> allocation_domain(rank);
+      for (int i : c10::irange(rank)) {
+        allocation_domain[rank - 1 - static_cast<int>(dims_[i])] =
+            output->axis(i);
+      }
+      output->setAllocationDomain(allocation_domain, true);
+      fd.setFusionState(outputs_.at(0).index, output);
+    } else {
+      NVF_ERROR(false, "op_type is not recognized by dims operator.");
+    }
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
-    os << ", dims=[";
+    if constexpr (op_type == serde::RecordType_PermuteOp) {
+      os << ", dims=[";
+    } else if constexpr (op_type == serde::RecordType_StrideOrderOp) {
+      os << ", stride_order=[";
+    } else {
+      NVF_ERROR(false, "op_type is not recognized by dims operator.");
+    }
     bool first_arg = true;
     for (auto dim : dims_) {
       if (first_arg) {
@@ -602,8 +547,8 @@ struct PermuteOpRecord : RecordFunctor {
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
-        serde::RecordData_Permute,
-        serde::CreatePermuteDirect(builder, &dims_).Union()};
+        serde::RecordData_Dims,
+        serde::CreateDimsDirect(builder, &dims_).Union()};
   }
 
  private:
@@ -1338,16 +1283,7 @@ struct OutputRecord : RecordFunctor {
       std::vector<int64_t> stride_order = {})
       : RecordFunctor(std::move(_args), {}, "add_output", record_type) {
     if (!stride_order.empty()) {
-      bool requires_permutation = false;
-      for (const auto i : c10::irange(stride_order.size())) {
-        if (stride_order[i] != (int64_t)i) {
-          requires_permutation = true;
-          break;
-        }
-      }
-      if (requires_permutation) {
-        stride_order_ = stride_order;
-      }
+      stride_order_ = stride_order;
     }
   }
   ~OutputRecord() override = default;
@@ -1406,26 +1342,15 @@ struct OutputRecord : RecordFunctor {
       // With C++17, this statement should be "if constexpr"
       if (std::is_same<OutputType, TensorView>::value) {
         auto tv_output = output->template as<TensorView>();
-
         if (!stride_order_.empty()) {
-          std::vector<int64_t> reverse_perm(stride_order_.size());
-          int64_t duplicate_check = 0;
-          for (const auto i : c10::irange((int64_t)stride_order_.size())) {
-            NVF_CHECK(
-                stride_order_[i] >= 0 &&
-                    stride_order_[i] < (int64_t)reverse_perm.size(),
-                "stride_order elements need to be within [0, stride_order.size())!");
-            reverse_perm[stride_order_[i]] = i;
-            duplicate_check |= 1 << stride_order_[i];
+          size_t rank = stride_order_.size();
+          std::vector<IterDomain*> allocation_domain(rank);
+          for (auto i : c10::irange(rank)) {
+            allocation_domain[rank - 1 - stride_order_[i]] = tv_output->axis(i);
           }
-          NVF_CHECK(
-              duplicate_check == (1 << reverse_perm.size()) - 1,
-              "duplicated elements in stride_order detected!");
-          tv_output = permute(tv_output, reverse_perm);
-          fd.addOutput(tv_output, stride_order_);
-        } else {
-          fd.addOutput(tv_output);
+          tv_output->setAllocationDomain(allocation_domain, true);
         }
+        fd.addOutput(tv_output);
       } else {
         NVF_CHECK(
             stride_order_.empty(),

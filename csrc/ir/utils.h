@@ -317,16 +317,6 @@ std::vector<TensorView*> allTvsExcept(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& except);
 
-std::vector<Expr*> getReductionOps(Fusion* fusion);
-
-std::vector<IndexSelectOp*> getIndexSelectOps(Fusion* fusion);
-
-std::vector<TorchGatherOp*> getTorchGatherOps(Fusion* fusion);
-
-std::vector<MmaOp*> getMmaOps(Fusion* fusion);
-
-std::vector<SelectOp*> getSelectOps(Fusion* fusion);
-
 // Returns the initialization value of tv or nullptr if not initialized.
 Val* getReductionInitValOf(TensorView* tv);
 
@@ -504,5 +494,38 @@ bool isTensorSize(const Val* val);
 
 //! Check if a Val is a tensor stride;
 bool isTensorStride(const Val* val);
+
+//! Returns a vector of the given op type or exprs if multiple types are given.
+template <typename... OpTypes>
+auto getOpsOfType(Fusion* fusion) {
+  using FirstOpType = std::tuple_element_t<0, std::tuple<OpTypes...>>;
+  using ExprType =
+      std::conditional_t<sizeof...(OpTypes) == 1, FirstOpType, Expr>;
+  std::vector<ExprType*> ops;
+  for (auto expr : fusion->exprs()) {
+    if (expr->isOneOf<OpTypes...>()) {
+      ops.push_back(expr->as<ExprType>());
+    }
+  }
+  return ops;
+}
+
+//! Returns true if fusion has any ops of the given type.
+template <typename... OpTypes>
+bool hasOpsOfType(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
+    if (expr->isOneOf<OpTypes...>()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+//! Returns expressions that are of type ReductionOp, GroupedReductionOp, or
+//! WelfordOp.
+std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion);
+
+//! Returns true if fusion has any reduction ops.
+bool hasAnyReductionOps(Fusion* fusion);
 
 } // namespace nvfuser::ir_utils

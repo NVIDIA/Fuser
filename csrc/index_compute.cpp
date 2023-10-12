@@ -43,11 +43,10 @@ int getProducerHaloOffset(
     const TensorView* consumer_tv) {
   // For indexing, having same extents is not required for root
   // domains
-  auto p2c =
-      PairwiseRootDomainMap(producer_tv, consumer_tv)
-          .mapBroadcast(true)
-          .mapDifferentExtents(true)
-          .mapProducerToConsumer(producer_tv->domain(), consumer_tv->domain());
+  auto p2c = PairwiseRootDomainMap(producer_tv, consumer_tv)
+                 .mapBroadcast(true)
+                 .mapDifferentExtents(true)
+                 .mapProducerToConsumer();
 
   auto producer_id = producer_tv->getMaybeRFactorDomain()[producer_axis];
 
@@ -277,8 +276,7 @@ Val* getProducerIndexWithPartialSplit(
   const auto gpu_lower = GpuLower::current();
 
   auto p2c =
-      PairwiseRootDomainMap(producer_tv, consumer_tv)
-          .mapProducerToConsumer(producer_tv->domain(), consumer_tv->domain());
+      PairwiseRootDomainMap(producer_tv, consumer_tv).mapProducerToConsumer();
 
   auto it = p2c.find(producer_root_id);
   if (it == p2c.end()) {
@@ -1686,10 +1684,9 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   // Map sent to best effort replay needs to match the exact incantation for
   // compute_at_mode.cpp with MappingMode::Index
-  auto c2p_root_map =
-      PairwiseRootDomainMap(producer_tv, consumer_tv)
-          .mapBroadcast(false)
-          .mapConsumerToProducer(consumer_tv->domain(), producer_tv->domain());
+  auto c2p_root_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
+                          .mapBroadcast(false)
+                          .mapConsumerToProducer();
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
@@ -1996,10 +1993,9 @@ std::vector<Val*> Index::getProducerAllocationIndices(
 
   // Map sent to best effort replay needs to match the exact incantation for
   // compute_at_mode.cpp with MappingMode::Index
-  auto c2p_root_map =
-      PairwiseRootDomainMap(producer_tv, consumer_tv)
-          .mapBroadcast(false)
-          .mapConsumerToProducer(consumer_tv->domain(), producer_tv->domain());
+  auto c2p_root_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
+                          .mapBroadcast(false)
+                          .mapConsumerToProducer();
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
@@ -2031,8 +2027,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
   for (const auto& kv : PairwiseRootDomainMap(producer_tv, consumer_tv)
                             .mapBroadcast(false)
                             .mapDifferentExtents(true)
-                            .mapConsumerToProducer(
-                                consumer_tv->domain(), producer_tv->domain())) {
+                            .mapConsumerToProducer()) {
     auto consumer_root_id = kv.first;
     auto producer_root_id = kv.second;
     if (c2p_map.find(consumer_root_id) == c2p_map.end() &&
