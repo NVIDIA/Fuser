@@ -680,7 +680,7 @@ void IterDomainGraphs::buildExactMap(const std::vector<Expr*>& exprs) {
       // non-broadcast dimensions. Prevent any broadcasted axes being mapped
       // to non-broadcasted axes.
       auto exact_c2p_root_map = PairwiseRootDomainMap(p_tv, c_tv)
-                                    .mapBroadcast(getenv("EXACT_MAP_BC"))
+                                    .mapBroadcast(false)
                                     .mapConsumerToProducer();
 
       for (auto c_id : getSortedKeys(exact_c2p_root_map, Statement::lessThan)) {
