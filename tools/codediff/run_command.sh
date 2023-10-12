@@ -160,7 +160,7 @@ ensure_in_list() {
     echo "${l[*]}"
 }
 # ensure some NVFUSER_DUMP options are enabled
-export NVFUSER_DUMP=$(ensure_in_list "$NVFUSER_DUMP" cuda_kernel ptxas_verbose ptx)
+export NVFUSER_DUMP=$(ensure_in_list "$NVFUSER_DUMP" cuda_to_file ptxas_verbose ptx)
 
 # Allow command to fail, but record exit code
 set +e
