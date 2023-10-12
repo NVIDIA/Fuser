@@ -1474,10 +1474,9 @@ Val* IndexLowering::getIterationIndexForBroadcast(
       "Expected broadcast ID but found ",
       broadcast_id->toString());
 
-  auto c2p_root_map =
-      PairwiseRootDomainMap(producer_tv, consumer_tv)
-          .mapBroadcast(false)
-          .mapConsumerToProducer(consumer_tv->domain(), producer_tv->domain());
+  auto c2p_root_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
+                          .mapBroadcast(false)
+                          .mapConsumerToProducer();
 
   // This replay has to be consistent with compute at index map.
   BestEffortReplay replay_producer_as_consumer(
