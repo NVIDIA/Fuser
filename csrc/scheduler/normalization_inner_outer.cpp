@@ -1023,8 +1023,8 @@ void scheduleInnerOuterPersistentKernel(
           rparams.smem_persistent_tvs.begin(),
           rparams.smem_persistent_tvs.end(),
           [lookup_tv](const auto* tv) {
-            // there is a bug in sameAs to compare input tvs.
-            // return tv->sameAs(lookup_tv);
+            // can't use `tv->sameAs(lookup_tv)` since the saved tvs in
+            // smem_persistent_tvs are from a cloned fusion.
             return tv->name() == lookup_tv->name();
           });
     };
