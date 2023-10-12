@@ -35,6 +35,16 @@ __device__ inline uint64_t arrive(uint32_t smem_barrier_ptr) {
   return state;
 }
 
+__device__ inline uint64_t arriveExpectTX(
+    uint32_t smem_barrier_ptr,
+    uint32_t tx_count) {
+  volatile uint64_t state;
+  asm volatile("mbarrier.arrive.expect_tx.shared.b64 %0, [%1], %2;\n"
+               : "=l"(state)
+               : "r"(smem_barrier_ptr), "r"(tx_count));
+  return state;
+}
+
 __device__ inline void wait(uint32_t smem_barrier_ptr, uint64_t state) {
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
   asm volatile(

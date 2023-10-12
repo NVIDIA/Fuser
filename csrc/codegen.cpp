@@ -2894,16 +2894,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto call = genCall(
         "mbarrier::init",
         ArgumentBuilder()
-            .arg(genInline(init->mbarrier()->as<kir::TensorIndex>()->index()))
+            .arg(genInline(init->mbarrier()))
             .arg(genInline(init->threadCount())));
     indent() << call << ";\n";
   }
 
   void handle(const kir::MBarrierInvalidate* inval) final {
     auto call = genCall(
-        "mbarrier::inval",
-        ArgumentBuilder().arg(
-            genInline(inval->mbarrier()->as<kir::TensorIndex>()->index())));
+        "mbarrier::inval", ArgumentBuilder().arg(genInline(inval->mbarrier())));
     indent() << call << ";\n";
   }
 
@@ -2913,8 +2911,22 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     auto call = genCall(
         "mbarrier::arrive",
-        ArgumentBuilder().arg(
-            genInline(arrive->mbarrier()->as<kir::TensorIndex>()->index())));
+        ArgumentBuilder().arg(genInline(arrive->mbarrier())));
+    code_ << call;
+    if (!print_inline_) {
+      code_ << ";\n";
+    }
+  }
+
+  void handle(const kir::MBarrierArriveExpectTx* arrive) final {
+    if (!print_inline_) {
+      indent() << gen(arrive->state()) << " = ";
+    }
+    auto call = genCall(
+        "mbarrier::arriveExpectTX",
+        ArgumentBuilder()
+            .arg(genInline(arrive->mbarrier()))
+            .arg(genInline(arrive->txCount())));
     code_ << call;
     if (!print_inline_) {
       code_ << ";\n";
@@ -2925,7 +2937,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto call = genCall(
         "mbarrier::wait",
         ArgumentBuilder()
-            .arg(genInline(wait->mbarrier()->as<kir::TensorIndex>()->index()))
+            .arg(genInline(wait->mbarrier()))
             .arg(genInline(wait->state())));
     indent() << call << ";\n";
   }

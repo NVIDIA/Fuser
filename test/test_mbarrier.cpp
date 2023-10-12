@@ -88,13 +88,11 @@ TEST_F(MBarrierTest, Simple) {
     smem_alloc_it = top_level_exprs.insert(smem_alloc_it, mbarrier_alloc);
 
     // Indexing mbarrier
-    auto mbarrier_smem_addr = IrBuilder::create<Val>(DataType::SMemAddress);
+    auto mbarrier_index = IrBuilder::create<Val>(DataType::SMemAddress);
     IrBuilder::create<UnaryOp>(
         UnaryOpType::ToUnsignedSmemAddr,
-        mbarrier_smem_addr,
+        mbarrier_index,
         IrBuilder::metadataExpr(mbarrier));
-    auto mbarrier_index =
-        IrBuilder::create<kir::TensorIndex>(mbarrier, mbarrier_smem_addr);
 
     // Initialize mbarrier
     smem_alloc_it++;

@@ -1282,6 +1282,34 @@ void IndexLowering::handleGroupedGridWelford(
   }
 }
 
+namespace {
+
+Val* getMBarrierSmemAddr(TensorView* mbarrier) {
+  auto mbarrier_smem_addr = IrBuilder::create<Val>(DataType::SMemAddress);
+  IrBuilder::create<UnaryOp>(
+      UnaryOpType::ToUnsignedSmemAddr,
+      mbarrier_smem_addr,
+      IrBuilder::metadataExpr(mbarrier));
+  return mbarrier_smem_addr;
+}
+
+} // namespace
+
+void IndexLowering::handle(const kir::MBarrierInit* minit) {
+  auto minit_indexed = IrBuilder::create<kir::MBarrierInit>(
+      getMBarrierSmemAddr(minit->mbarrier()->as<TensorView>()),
+      minit->threadCount());
+  pushBack(minit_indexed);
+  GpuLower::current()->propagateExprInfo(minit, minit_indexed);
+}
+
+void IndexLowering::handle(const kir::MBarrierInvalidate* minval) {
+  auto minval_indexed = IrBuilder::create<kir::MBarrierInvalidate>(
+      getMBarrierSmemAddr(minval->mbarrier()->as<TensorView>()));
+  pushBack(minval_indexed);
+  GpuLower::current()->propagateExprInfo(minval, minval_indexed);
+}
+
 void IndexLowering::handle(const LoadStoreOp* ldst) {
   Val* in = nullptr;
   Val* out = nullptr;
