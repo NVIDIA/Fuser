@@ -1116,4 +1116,31 @@ TEST_F(AllocationDomainTest, TransposeMatrix) {
       << "alias.";
 }
 
+TEST_F(AllocationDomainTest, SplitIterDomain) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const std::vector<int64_t> in_shape({6});
+
+  auto tv0 = makeContigTensor(1);
+  fusion->addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion->addOutput(tv1);
+
+  auto* three = IrBuilder::create<Val>(3, DataType::Index);
+  IterDomain* id0;
+  IterDomain* id1;
+  std::tie(id0, id1) = IterDomain::split(
+      tv1->axis(0), three, /*inner_split=*/true, /*trim_out_of_bounds=*/false);
+  tv1->setAllocationDomain({id0, id1}, /*new_contiguity=*/true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::arange(6, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  std::vector<at::Tensor> outputs = executor_cache.runFusionWithInputs({t0});
+  at::Tensor t1 = outputs[0];
+  std::cout << t1 << std::endl;
+}
+
 } // namespace nvfuser
