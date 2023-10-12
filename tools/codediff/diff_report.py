@@ -195,8 +195,7 @@ class LogParser:
     """
 
     def __init__(self, log_file: str):
-        # regex for stripping ANSI color codes
-        self.ansi_re = re.compile(r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]")
+        self.compile_regex()
 
         self.kernel_map = {}
 
@@ -204,20 +203,24 @@ class LogParser:
 
         self.parse(log_file)
 
-    def reset_state():
+    def compile_regex(self):
+        # regex for stripping ANSI color codes
+        self.ansi_re = re.compile(r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]")
+
+    def reset_state(self):
         """Initialize temporary variables used during parsing pass"""
-        current_test = None
-        current_file = None
+        self.current_test = None
+        self.current_file = None
         self.ptxas_info = ""
         self.kernels = []
 
     def parse(self, log_file: str):
         for line in open(log_file, "r").readlines():
-            line = ansi_re.sub("", line.rstrip())
+            line = self.ansi_re.sub("", line.rstrip())
             self.parse_line(line)
         self.finalize()
 
-    def finalize_kernel():
+    def finalize_kernel(self):
         if self.current_file is not None:
             self.kernels.append(
                 CompiledKernel(self.current_file, ptxas_info=self.ptxas_info)
@@ -225,7 +228,7 @@ class LogParser:
         self.ptxas_info = ""
         self.current_file = None
 
-    def finalize_test(passed: bool):
+    def finalize_test(self, passed: bool):
         assert self.current_test is not None
         self.finalize_kernel()
         self.kernel_map[self.current_test] = CompiledTest(
@@ -242,6 +245,7 @@ class LogParser:
         """Parse a line of log. Return True if consumed"""
         if line[:10] == "PRINTING: ":
             if line[-3:] == ".cu":
+                self.finalize_kernel()
                 # This avoids comparing the .ptx files that are created then
                 # removed by the MemoryTest.LoadCache tests
                 self.current_file = line[10:]
@@ -283,8 +287,8 @@ class LogParserGTest(LogParser):
 class LogParserGBench(LogParser):
     """Parse output of google benchmark binaries like nvfuser_bench"""
 
-    def __init__(self, log_file: str):
-        super().__init__(self, log_file)
+    def compile_regex(self):
+        super().compile_regex()
 
         # Example line:
         #   benchmark_name   34.0 us      1.53 ms   2007  /Launch_Parameters[block(2/2/32)/grid(32/2/2)/49664]
@@ -297,8 +301,8 @@ class LogParserGBench(LogParser):
         if super().parse_line(line):
             return True
 
-        m = re.search(self.result_re, line)
-        if m is not None and current_file is not None:
+        m = re.match(self.result_re, line)
+        if m is not None and self.current_file is not None:
             self.current_test = m.groups()[0]
             time = m.groups()[1]
             time_unit = m.groups()[2]
@@ -370,14 +374,6 @@ class TestRun:
             )
             self.command_type = CommandType.UNKNOWN
 
-        # check that command includes "nvfuser_tests"
-        if self.command.find("nvfuser_tests") == -1:
-            print(
-                "ERROR: Command does not appear to be nvfuser_tests. Aborting.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
         try:
             self.env = ""
             for line in open(os.path.join(self.directory, "env"), "r").readlines():
@@ -420,6 +416,8 @@ class TestRun:
 
         if self.command_type == CommandType.GOOGLETEST:
             parser = LogParserGTest(logfile)
+        elif self.command_type == CommandType.GOOGLEBENCH:
+            parser = LogParserGBench(logfile)
         else:
             # The base class provides a parser that groups everything into a
             # single "test" called "Ungrouped Kernels"
@@ -542,9 +540,10 @@ class TestDifferences:
     removed_tests: list[CompiledTest] = field(default_factory=list)
     total_num_diffs: int = 0
     show_diffs: InitVar[bool] = False
+    include_matches: InitVar[bool] = False
     preamble_diff: str = field(init=False)
 
-    def __post_init__(self, show_diffs: bool):
+    def __post_init__(self, show_diffs: bool, include_matches: bool):
         if self.run1.command != self.run2.command:
             print("WARNING: commands differ between runs", file=sys.stderr)
             print(f"  {self.run1.directory}: {self.run1.command}", file=sys.stderr)
@@ -621,7 +620,7 @@ class TestDifferences:
                         n=5,
                     )
                 )
-                if len(diff_lines) > 0:
+                if include_matches or len(diff_lines) > 0:
                     kd = KernelDiff(
                         testname,
                         kernel_num + 1,
@@ -676,7 +675,7 @@ class TestDifferences:
             self,
             dict_factory=lambda data: {
                 # Serialize CommandType as string so that jinja can recognize it
-                field: value.name if isinstance(value, dr.CommandType) else value
+                field: value.name if isinstance(value, CommandType) else value
                 for field, value in data
             },
         )
@@ -711,6 +710,9 @@ if __name__ == "__main__":
         "--hide-diffs", action="store_true", help="Print diffs to STDOUT?"
     )
     parser.add_argument(
+        "--include-matches", action="store_true", help="Include matching kernels?"
+    )
+    parser.add_argument(
         "--html-max-diffs",
         default=200,
         type=int,
@@ -731,7 +733,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     td = TestDifferences(
-        TestRun(args.dir1), TestRun(args.dir2), show_diffs=not args.hide_diffs
+        TestRun(args.dir1),
+        TestRun(args.dir2),
+        show_diffs=not args.hide_diffs,
+        include_matches=args.include_matches,
     )
 
     if args.hide_env:

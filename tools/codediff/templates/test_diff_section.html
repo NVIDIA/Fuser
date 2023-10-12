@@ -4,7 +4,7 @@ All rights reserved.
 SPDX-License-Identifier: BSD-3-Clause
 -#}
 <h3>
-    Test Diffs
+    {{ 'Benchmark' if run1.command_type == 'GOOGLEBENCH' else 'Test' }} Diffs
     <button onclick="toggleAllDiffs()">Toggle All</button>
 </h3>
 {% set loop_vars = namespace(total_diffs=0) %}
