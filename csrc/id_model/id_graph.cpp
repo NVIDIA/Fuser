@@ -618,24 +618,6 @@ void IdGraph::initializeId(
 }
 
 bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
-#if 0
-  bool debug = first->isA<Merge>() && second->isA<Merge>() &&
-      (first->as<Merge>()->out()->name() == 29 ||
-       first->as<Merge>()->out()->name() == 30 ||
-       second->as<Merge>()->out()->name() == 29 ||
-       second->as<Merge>()->out()->name() == 30 ||
-       first->as<Merge>()->out()->name() == 23 ||
-       first->as<Merge>()->out()->name() == 24 ||
-       second->as<Merge>()->out()->name() == 23 ||
-       second->as<Merge>()->out()->name() == 24);
-#else
-  bool debug = false;
-#endif
-
-  if (debug) {
-    VERBOSE() << "exprsMap? " << first->toString() << second->toString();
-  }
-
   if (!transformAtributesMatch(first, second)) {
     return false;
   }
@@ -662,10 +644,6 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
     for (const auto i : c10::irange(first_ids.size())) {
       if (!disjointIdSets().permissiveAreMapped(
               first_ids.at(i), second_ids.at(i))) {
-        if (debug) {
-          VERBOSE() << "exprsMap false: " << first->toString()
-                    << second->toString();
-        }
         return false;
       }
     }
@@ -725,10 +703,6 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
     }
   }
 
-  if (debug) {
-    VERBOSE() << "exprsMap true: " << first->toString() << second->toString();
-  }
-
   return true;
 }
 
@@ -755,17 +729,7 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
     return;
   }
 
-  bool debug = (id0->name() == 21 && id1->name() == 18) ||
-      (id0->name() == 17 && id1->name() == 29);
-
-  if (debug) {
-    VERBOSE() << "mapIds: " << id0->name() << ", " << id1->name() << std::endl;
-  }
-
   if (disjointIdSets().strictAreMapped(id0, id1)) {
-    if (debug) {
-      VERBOSE() << "mapIds: Already mapped\n";
-    }
     return;
   }
   // Definitions and uses are based on the groups of id0 and id1, don't merge
@@ -787,21 +751,6 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   unique_definitions_[new_id_group] = orig_defs0.computeUnion(orig_defs1);
   unique_uses_[new_id_group] = orig_uses0.computeUnion(orig_uses1);
 
-  if (debug) {
-    for (const auto& exprs : orig_uses0) {
-      VERBOSE() << "Expr use group 0 ->\n";
-      for (auto expr : exprs->vector()) {
-        VERBOSE() << "Expr0: " << expr->toString();
-      }
-    }
-    for (const auto& exprs : orig_uses1) {
-      VERBOSE() << "Expr use group 1 ->\n";
-      for (auto expr : exprs->vector()) {
-        VERBOSE() << "Expr1: " << expr->toString();
-      }
-    }
-  }
-
   // Propagate on uses
   if (!orig_uses0.empty() && !orig_uses1.empty()) {
     for (const ExprGroup& use_group_1 : orig_uses1) {
@@ -812,10 +761,6 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
         Expr* use0 = use_group_0->front();
         Expr* use1 = use_group_1->front();
         maybeMapThroughExprs(use0, use1, true);
-        if (debug) {
-          VERBOSE() << "mapIds: use maybeMapThroughExprs: " << use0->toString()
-                    << use1->toString();
-        }
       }
     }
   }
@@ -833,10 +778,6 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
         auto def0 = def_group_0->front();
         auto def1 = def_group_1->front();
         maybeMapThroughExprs(def0, def1, false);
-        if (debug) {
-          VERBOSE() << "mapIds: def maybeMapThroughExprs: " << def0->toString()
-                    << def1->toString();
-        }
       }
     }
   }
@@ -845,10 +786,6 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   unique_definitions_.erase(orig_id_group1);
   unique_uses_.erase(orig_id_group0);
   unique_uses_.erase(orig_id_group1);
-
-  if (debug) {
-    VERBOSE() << "mapIds done\n";
-  }
 }
 
 void IdGraph::maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward) {
