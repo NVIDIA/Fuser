@@ -217,6 +217,7 @@ if [ -n "$runname" ]
 then
     echo "$runname" > "$testdir/run_name"
 fi
+hostname > "$testdir/hostname"
 printenv | sort > "$testdir/env"
 nvcc --version > "$testdir/nvcc_version"
 nvidia-smi --query-gpu=gpu_name --format=csv,noheader > "$testdir/gpu_names"

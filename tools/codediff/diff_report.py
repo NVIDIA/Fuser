@@ -149,9 +149,11 @@ class CompiledKernel:
 
 @dataclass
 class CompiledTest:
+    """One grouping of kernels. A run holds multiple of these"""
+
     name: str
     kernels: list[CompiledKernel]
-    passed: bool
+    passed: bool = True
 
 
 class CommandType(Enum):
@@ -185,8 +187,135 @@ class CommandType(Enum):
             return cls.UNKNOWN
 
 
+class LogParser:
+    """General parser for STDOUT of NVFuser commands
+
+    This parser does not group into individual tests, but rather places all
+    kernels into a single CompiledTest whose name is "Ungrouped Kernels".
+    """
+
+    def __init__(self, log_file: str):
+        # regex for stripping ANSI color codes
+        self.ansi_re = re.compile(r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]")
+
+        self.kernel_map = {}
+
+        self.reset_state()
+
+        self.parse(log_file)
+
+    def reset_state():
+        """Initialize temporary variables used during parsing pass"""
+        current_test = None
+        current_file = None
+        self.ptxas_info = ""
+        self.kernels = []
+
+    def parse(self, log_file: str):
+        for line in open(log_file, "r").readlines():
+            line = ansi_re.sub("", line.rstrip())
+            self.parse_line(line)
+        self.finalize()
+
+    def finalize_kernel():
+        if self.current_file is not None:
+            self.kernels.append(
+                CompiledKernel(self.current_file, ptxas_info=self.ptxas_info)
+            )
+        self.ptxas_info = ""
+        self.current_file = None
+
+    def finalize_test(passed: bool):
+        assert self.current_test is not None
+        self.finalize_kernel()
+        self.kernel_map[self.current_test] = CompiledTest(
+            self.current_test, self.kernels, passed
+        )
+        self.reset_state()
+
+    def finalize(self):
+        if len(self.kernels) > 0:
+            group_name = "Ungrouped Kernels"
+            self.kernel_map[group_name] = CompiledTest(group_name, self.kernels)
+
+    def parse_line(self, line):
+        """Parse a line of log. Return True if consumed"""
+        if line[:10] == "PRINTING: ":
+            if line[-3:] == ".cu":
+                # This avoids comparing the .ptx files that are created then
+                # removed by the MemoryTest.LoadCache tests
+                self.current_file = line[10:]
+        elif line[:6] == "ptxas ":
+            # NVFUSER_DUMP=ptxas_verbose corresponds to nvcc --ptxas-options=-v
+            # or --resources-usage. This always prints after printing the cuda
+            # filename
+            if self.current_file is None:
+                print("WARNING: Cannot associate ptxas info with CUDA kernel")
+                return False
+            self.ptxas_info += line + "\n"
+        else:
+            return False
+        return True
+
+
+class LogParserGTest(LogParser):
+    """Parse output of googletest binaries like nvfuser_tests"""
+
+    def parse_line(self, line):
+        if super().parse_line(line):
+            return True
+
+        if line[:13] == "[ RUN      ] ":
+            current_test = line[13:]
+        elif line[:13] == "[       OK ] ":
+            self.finalize_test(True)
+        elif line[:13] == "[  FAILED  ] ":
+            if self.current_test is not None and self.current_file is not None:
+                # Avoid the summary of failed tests, such as
+                #   [  FAILED  ] 1 test, listed below:
+                #   [  FAILED  ] NVFuserTest.FusionTuringMatmulSplitK_CUDA
+                self.finalize_test(False)
+        else:
+            return False
+        return True
+
+
+class LogParserGBench(LogParser):
+    """Parse output of google benchmark binaries like nvfuser_bench"""
+
+    def __init__(self, log_file: str):
+        super().__init__(self, log_file)
+
+        # Example line:
+        #   benchmark_name   34.0 us      1.53 ms   2007  /Launch_Parameters[block(2/2/32)/grid(32/2/2)/49664]
+        # This is the only kind of line we match for benchmarks. Note that this is printed at the end of each benchmark
+        self.result_re = re.compile(
+            r"^(\S+)\s+([-+\.\d]+)\s+(\S+)\s+([-+\.\d]+)\s+(\S+)\s+(\d+).*$"
+        )
+
+    def parse_line(self, line):
+        if super().parse_line(line):
+            return True
+
+        m = re.search(self.result_re, line)
+        if m is not None and current_file is not None:
+            self.current_test = m.groups()[0]
+            time = m.groups()[1]
+            time_unit = m.groups()[2]
+            cpu = m.groups()[3]
+            cpu_unit = m.groups()[4]
+            iterations = m.groups()[5]
+            # Skip metadata which for nvfuser_bench sometimes includes LaunchParams
+            # meta = m.groups()[6]
+            self.finalize_test(True)
+            return True
+        return False
+
+
 @dataclass
 class TestRun:
+    """A single process that might contain many kernels, grouped into tests"""
+
     directory: str
     git: GitRev = field(init=False)
     name: str = field(init=False)
@@ -231,7 +360,7 @@ class TestRun:
 
         try:
             self.command_type = CommandType.from_string(
-                (os.path.join(self.directory, "command_type"), "r").read().rstrip()
+                open(os.path.join(self.directory, "command_type"), "r").read().rstrip()
             )
         except FileNotFoundError:
             print(
@@ -289,54 +418,14 @@ class TestRun:
                 f"Input directory {self.directory} contains no file named 'stdout'"
             )
 
-        # regex for stripping ANSI color codes
-        ansi_re = re.compile(r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]")
-        current_test = None
-        current_file = None
-        ptxas_info = ""
-        kernels = []
+        if self.command_type == CommandType.GOOGLETEST:
+            parser = LogParserGTest(logfile)
+        else:
+            # The base class provides a parser that groups everything into a
+            # single "test" called "Ungrouped Kernels"
+            parser = LogParser(logfile)
 
-        def finalize_kernel():
-            nonlocal ptxas_info
-            nonlocal current_file
-            nonlocal kernels
-            if current_file is not None:
-                kernels.append(CompiledKernel(current_file, ptxas_info=ptxas_info))
-            ptxas_info = ""
-            current_file = None
-
-        def finalize_test(passed: bool):
-            nonlocal current_test
-            nonlocal kernels
-            assert current_test is not None
-            finalize_kernel()
-            self.kernel_map[current_test] = CompiledTest(current_test, kernels, passed)
-            current_test = None
-            kernels = []
-
-        for line in open(logfile, "r").readlines():
-            line = ansi_re.sub("", line.rstrip())
-            if line[:13] == "[ RUN      ] ":
-                current_test = line[13:]
-            elif line[:13] == "[       OK ] ":
-                finalize_test(True)
-            elif line[:13] == "[  FAILED  ] ":
-                if current_test is not None and current_file is not None:
-                    # Avoid the summary of failed tests, such as below
-                    #   [  FAILED  ] 1 test, listed below:
-                    #   [  FAILED  ] NVFuserTest.FusionTuringMatmulSplitK_CUDA
-                    finalize_test(False)
-            elif line[:10] == "PRINTING: " and line[-3:] == ".cu":
-                # This avoids comparing the .ptx files that are created then
-                # removed by the MemoryTest.LoadCache tests
-                current_file = line[10:]
-            elif line[:6] == "ptxas ":
-                # NVFUSER_DUMP=ptxas_verbose corresponds to nvcc --ptxas-options=-v or --resources-usage
-                # This always prints after printing the cuda filename
-                if current_file is None:
-                    print("WARNING: Cannot associate ptxas info with CUDA kernel")
-                    continue
-                ptxas_info += line + "\n"
+        self.kernel_map = parser.kernel_map
 
     def find_preamble(self):
         """Look for common preamble in collected kernels"""
