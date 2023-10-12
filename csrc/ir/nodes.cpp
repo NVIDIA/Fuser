@@ -2610,8 +2610,9 @@ std::string IterDomain::toString(int indent_size) const {
     ss << extent()->toInlineString();
   }
   ss << "}";
-  if (isRFactorProduct())
+  if (isRFactorProduct()) {
     ss << "rf";
+  }
   if (hasPaddingToMultipleOfWarp()) {
     ss << "_p";
   }
@@ -3240,12 +3241,14 @@ bool TensorDomain::sameAs(const Statement* const other) const {
 bool TensorDomain::sameAs(
     const std::vector<IterDomain*>& lhs,
     const std::vector<IterDomain*>& rhs) {
-  if (lhs.size() != rhs.size())
+  if (lhs.size() != rhs.size()) {
     return false;
+  }
   size_t i = 0;
   for (auto td_lhs : lhs) {
-    if (!td_lhs->sameAs(rhs[i++]))
+    if (!td_lhs->sameAs(rhs[i++])) {
       return false;
+    }
   }
   return true;
 }
@@ -3360,8 +3363,9 @@ int64_t TensorDomain::posOf(IterDomain* id) const {
   NVF_ERROR(nDims() > 0, "Tried to find an axis in a 0-dim domain");
   int64_t i = 0;
   while (i < (int64_t)leaf_domain_.size()) {
-    if (leaf_domain_[i] == id)
+    if (leaf_domain_[i] == id) {
       return i;
+    }
     i++;
   }
   NVF_CHECK(false, "Provided id is not part of this domain.");
@@ -3382,8 +3386,9 @@ void TensorDomain::split(
     bool inner_split,
     bool trim_out_of_bounds) {
   NVF_ERROR(nDims() > 0, "Tried to do split on a 0-dim domain");
-  if (axis_ < 0)
+  if (axis_ < 0) {
     axis_ += (int)nDims();
+  }
 
   NVF_ERROR(
       axis_ >= 0 && (unsigned int)axis_ < nDims(),
@@ -3413,11 +3418,13 @@ void TensorDomain::split(
 // Merge "axis_o" and "axis_i" into 1 dimension
 void TensorDomain::merge(int axis_o, int axis_i) {
   NVF_ERROR(nDims() > 0, "Tried to do merge on a 0-dim domain");
-  if (axis_o < 0)
+  if (axis_o < 0) {
     axis_o += (int)nDims();
+  }
 
-  if (axis_i < 0)
+  if (axis_i < 0) {
     axis_i += (int)nDims();
+  }
 
   NVF_CHECK(
       axis_o >= 0 && (unsigned int)axis_o < nDims() && axis_i >= 0 &&
