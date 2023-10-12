@@ -210,7 +210,7 @@ if(BUILD_PYTHON)
   )
 endif()
 
-set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegenx) # the "x" suffix is to make sure there is no naming conflict with the old libnvfuser_codegen.so in torch/lib
+set(NVFUSER_CODEGEN ${PROJECT_NAME}_core)
 add_library(${NVFUSER_CODEGEN} SHARED ${NVFUSER_SRCS})
 target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Wall -Wno-unused-function)
 target_compile_options(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")

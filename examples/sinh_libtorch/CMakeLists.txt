@@ -14,4 +14,4 @@ target_link_libraries(sinh_example "-Wl,-no-as-needed ${TORCH_INSTALL_PREFIX}/li
 #     If your nvfuser is installed with pip wheel, you don't need this, but it doesn't hurt.
 
 target_link_libraries(sinh_example ${TORCH_LIBRARIES})
-target_link_libraries(sinh_example nvfuser_codegenx)
+target_link_libraries(sinh_example nvfuser_core)
