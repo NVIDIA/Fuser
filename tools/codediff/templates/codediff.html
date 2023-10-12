@@ -3,6 +3,7 @@ SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIAT
 All rights reserved.
 SPDX-License-Identifier: BSD-3-Clause
 -#}
+{%- set testorbench = 'Benchmark' if run1.command_type == 'GOOGLEBENCH' else 'Test' -%}
 <html>
     <head>{% include 'header.html' %}</head>
     <body>

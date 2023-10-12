@@ -4,7 +4,7 @@ All rights reserved.
 SPDX-License-Identifier: BSD-3-Clause
 -#}
 <h3>
-    {{ 'Benchmark' if run1.command_type == 'GOOGLEBENCH' else 'Test' }} Diffs
+    {{ testorbench }} Diffs
     <button onclick="toggleAllDiffs()">Toggle All</button>
 </h3>
 {% set loop_vars = namespace(total_diffs=0) %}
@@ -57,51 +57,30 @@ SPDX-License-Identifier: BSD-3-Clause
                  width: 32pt;
                  text-align: left;
                  display: inline-block">+{{ kernel_diff.new_lines }}</span>
-    index type:
-    {%- if kernel_diff.kernel1.index_type == kernel_diff.kernel2.index_type %}
-        {{ kernel_diff.kernel1.index_type }}
-    {% else -%}
-        <span style="color: red">{{ kernel_diff.kernel1.index_type }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.index_type }}</span>
-    {%- endif %}
-    {%- if kernel_diff.kernel1.registers != kernel_diff.kernel2.registers -%}
-        registers: <span style="color: red">{{ kernel_diff.kernel1.registers }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.registers }}</span>
-    {%- else -%}
-        registers: {{ kernel_diff.kernel1.registers }}
-    {%- endif %}
-    {% if kernel_diff.kernel1.gmem_bytes != kernel_diff.kernel2.gmem_bytes -%}
-        gmem: <span style="color: red">{{ kernel_diff.kernel1.gmem_bytes }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.gmem_bytes }}</span>
-    {%- endif %}
-    {% if kernel_diff.kernel1.smem_bytes != kernel_diff.kernel2.smem_bytes -%}
-        smem: <span style="color: red">{{ kernel_diff.kernel1.smem_bytes }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.smem_bytes }}</span>
-    {%- elif kernel_diff.kernel1.smem_bytes > 0 -%}
-        smem: {{ kernel_diff.kernel1.smem_bytes }}
-    {%- endif %}
-    {% if kernel_diff.kernel1.stack_frame_bytes != kernel_diff.kernel2.stack_frame_bytes -%}
-        stack frame: <span style="color: red">{{ kernel_diff.kernel1.stack_frame_bytes }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.stack_frame_bytes }}</span>
-    {%- elif kernel_diff.kernel1.stack_frame_bytes >0 -%}
-        stack frame: {{ kernel_diff.kernel1.stack_frame_bytes }}
-    {%- endif %}
-    {% if kernel_diff.kernel1.spill_store_bytes != kernel_diff.kernel2.spill_store_bytes -%}
-        spill stores: <span style="color: red">{{ kernel_diff.kernel1.spill_store_bytes }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.spill_store_bytes }}</span>
-    {%- elif kernel_diff.kernel1.spill_store_bytes >0 -%}
-        spill stores: {{ kernel_diff.kernel1.spill_store_bytes }}
-    {%- endif %}
-    {% if kernel_diff.kernel1.spill_load_bytes != kernel_diff.kernel2.spill_load_bytes -%}
-        spill loads: <span style="color: red">{{ kernel_diff.kernel1.spill_load_bytes }}</span> &#8594; <span style="color: green">{{ kernel_diff.kernel2.spill_load_bytes }}</span>
-    {%- elif kernel_diff.kernel1.spill_load_bytes > 0 -%}
-        spill loads: {{ kernel_diff.kernel1.spill_load_bytes }}
-    {%- endif %}
+    {%- macro meta_diff(name, old, new) -%}
+        {%- if kernel_diff.kernel1.registers != kernel_diff.kernel2.registers -%}
+            {{ name }}: <span style="color: red">{{ old }}</span> &#8594; <span style="color: green">{{ new }}</span>
+        {%- elif old > 0 -%}
+            {{ name }}: {{ old }}
+        {%- endif %}
+    {%- endmacro -%}
+    {{ meta_diff('index type', kernel_diff.kernel1.index_type, kernel_diff.kernel2.index_type) }}
+    {{ meta_diff('registers', kernel_diff.kernel1.registers, kernel_diff.kernel2.registers) }}
+    {{ meta_diff('gmem', kernel_diff.kernel1.gmem_bytes, kernel_diff.kernel2.gmem_bytes) }}
+    {{ meta_diff('static smem', kernel_diff.kernel1.smem_bytes, kernel_diff.kernel2.smem_bytes) }}
+    {{ meta_diff('stack frame', kernel_diff.kernel1.stack_frame_bytes, kernel_diff.kernel2.stack_frame_bytes) }}
+    {{ meta_diff('spill stores', kernel_diff.kernel1.spill_store_bytes, kernel_diff.kernel2.spill_store_bytes) }}
+    {{ meta_diff('spill loads', kernel_diff.kernel1.spill_load_bytes, kernel_diff.kernel2.spill_load_bytes) }}
     {% if kernel_diff.kernel1.cmem_bank_bytes is not none and kernel_diff.kernel2.cmem_bank_bytes is not none %}
         {% for cmem_bank in range([kernel_diff.kernel1.cmem_bank_bytes|length, kernel_diff.kernel2.cmem_bank_bytes|length] | max) %}
             {% set cmem1 = kernel_diff.kernel1.cmem_bank_bytes[cmem_bank] if cmem_bank < kernel_diff.kernel1.cmem_bank_bytes|length else 0 %}
             {% set cmem2 = kernel_diff.kernel2.cmem_bank_bytes[cmem_bank] if cmem_bank < kernel_diff.kernel2.cmem_bank_bytes|length else 0 %}
-            {% if cmem1 != cmem2 %}
-                cmem[{{ cmem_bank }}]: <span style="color: red">{{ cmem1 }}</span> &#8594; <span style="color: green">{{ cmem2 }}</span>
-            {% elif cmem1 > 0 %}
-                cmem[{{ cmem_bank }}]: {{ cmem1 }}
-            {% endif %}
+            {{ meta_diff(f'cmem[{cmem_bank}]', cmem1, cmem2) }}
         {% endfor %}
     {% endif %}
+    {%- if kernel_diff.kernel1.launch_params is not none and kernel_diff.kernel2.launch_params is not none -%}
+        {{ meta_diff('dyn smem', kernel_diff.kernel1.launch_params.dynamic_smem_bytes, kernel_diff.kernel2.launch_params.dynamic_smem_bytes) }}
+    {%- endif -%}
     <br>
     <div id="oldcode_{{ outer_index }}_{{ loop.index }}" style="display:none">
         <pre><code class="language-cpp">{{ kernel_diff.kernel1.code|e }}</code></pre>

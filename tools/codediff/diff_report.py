@@ -86,11 +86,20 @@ class GitRev:
 
 
 @dataclass
+class LaunchParams:
+    blockDim: tuple[int]
+    gridDim: tuple[int]
+    dynamic_smem_bytes: int
+
+
+@dataclass
 class CompiledKernel:
     filename: str
     code: str | None = None
     ptx: str | None = None
+    launch_params_str: str | None = None
     ptxas_info: str | None = None
+    launch_params: LaunchParams | None = None
     gmem_bytes: int = 0
     smem_bytes: int = 0
     cmem_bank_bytes: list[int] | None = None
@@ -104,6 +113,7 @@ class CompiledKernel:
 
     def __post_init__(self):
         self.parse_ptxas()
+        self.parse_launch_params()
 
     def parse_ptxas(self):
         # Example input:
@@ -145,6 +155,34 @@ class CompiledKernel:
                 self.cmem_bank_bytes += [0] * (bank + 1 - len(self.cmem_bank_bytes))
             self.cmem_bank_bytes[bank] = int(nbytes_str)
             cmem_banks += 1
+
+    def parse_launch_params(self):
+        # If NVFUSER_DUMP=launch_param is given we will get a line like this for every launch:
+        #   Launch Parameters: BlockDim.x = 32, BlockDim.y = 2, BlockDim.z = 2, GridDim.x = 8, GridDim.y = 8, GridDim.z = -1, Smem Size = 49152
+        # This is not done by default since we might have hundreds of thousands of these lines.
+        # Still, if we recognize it, we will parse this info. If there are
+        # multiple lines, we just check that they are all equal and if not then
+        # we keep the first version and print a warning.
+        if self.launch_params_str is None:
+            return
+
+        for m in re.finditer(
+            r"^Launch Parameters: "
+            r"BlockDim.x = (.*) BlockDim.y = (.*) BlockDim.z = (.*) "
+            r"GridDim.x = (.*) GridDim.y = (.*) GridDim.z = (.*), "
+            r"Smem Size = (.*)$",
+            self.launch_params_str,
+        ):
+            lp = LaunchParams(*m.groups())
+            if self.launch_params is None:
+                self.launch_params = lp
+            else:
+                if lp != self.launch_params:
+                    print(
+                        "WARNING: Found multiple mismatched launch params for one kernel. Only using first",
+                        file=sys.stderr,
+                    )
+                    return
 
 
 @dataclass
@@ -199,7 +237,7 @@ class LogParser:
 
         self.kernel_map = {}
 
-        self.reset_state()
+        self.reset_test_state()
 
         self.parse(log_file)
 
@@ -207,11 +245,15 @@ class LogParser:
         # regex for stripping ANSI color codes
         self.ansi_re = re.compile(r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]")
 
-    def reset_state(self):
-        """Initialize temporary variables used during parsing pass"""
-        self.current_test = None
+    def reset_kernel_state(self):
         self.current_file = None
         self.ptxas_info = ""
+        self.launch_param_text = ""
+
+    def reset_test_state(self):
+        """Initialize temporary variables used during parsing pass"""
+        self.reset_kernel_state()
+        self.current_test = None
         self.kernels = []
 
     def parse(self, log_file: str):
@@ -222,11 +264,9 @@ class LogParser:
 
     def finalize_kernel(self):
         if self.current_file is not None:
-            self.kernels.append(
-                CompiledKernel(self.current_file, ptxas_info=self.ptxas_info)
-            )
-        self.ptxas_info = ""
-        self.current_file = None
+            k = CompiledKernel(self.current_file, ptxas_info=self.ptxas_info)
+            self.kernels.append(k)
+        self.reset_kernel_state()
 
     def finalize_test(self, passed: bool):
         assert self.current_test is not None
@@ -234,7 +274,7 @@ class LogParser:
         self.kernel_map[self.current_test] = CompiledTest(
             self.current_test, self.kernels, passed
         )
-        self.reset_state()
+        self.reset_test_state()
 
     def finalize(self):
         if len(self.kernels) > 0:
@@ -257,6 +297,11 @@ class LogParser:
                 print("WARNING: Cannot associate ptxas info with CUDA kernel")
                 return False
             self.ptxas_info += line + "\n"
+        elif line[:19] == "Launch Parameters: ":
+            if self.current_file is None:
+                print("WARNING: Cannot associate launch params with CUDA kernel")
+                return False
+            self.launch_param_text += line + "\n"
         else:
             return False
         return True
@@ -581,7 +626,8 @@ class TestDifferences:
             if len(compiled_test1.kernels) != len(compiled_test2.kernels):
                 print(
                     f"WARNING: Test {testname} has different number of kernels "
-                    f"in {dir1} than in {dir2}. Not showing diffs for this test.",
+                    f"in {self.run1.directory} than in {self.run2.directory}. "
+                    "Not showing diffs for this test.",
                     file=sys.stderr,
                 )
                 self.test_diffs.append(
