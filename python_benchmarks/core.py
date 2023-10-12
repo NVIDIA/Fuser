@@ -5,9 +5,9 @@ from typing import List, Callable, Union
 from torch.autograd import DeviceType
 
 
-def get_device_properties() -> tuple:
+def get_device_properties() -> tuple[int, float]:
     """
-    Computes L2 cache size and peak device bandwidth using ctypes and cuda.
+    Computes L2 cache size and peak device bandwidth (GBps) using ctypes and cuda.
     """
     libnames = ("libcuda.so", "libcuda.dylib", "nvcuda.dll", "cuda.dll")
     for libname in libnames:
@@ -50,7 +50,7 @@ def get_device_properties() -> tuple:
     return l2_cache_size.value, peak_bandwidth
 
 
-L2_CACHE_SIZE, PEAK_BANDWIDTH = get_device_properties()
+L2_CACHE_SIZE, PEAK_BANDWIDTH_GBPS = get_device_properties()
 
 
 def clear_l2_cache() -> None:
@@ -123,8 +123,10 @@ class NVFBenchmark:
             self.prof.start()
         return self.current_time
 
-    def _get_kernel_time(self, prof_averages) -> float:
+    def _get_kernel_time(self, prof_averages: torch.autograd.profiler_util.EventList) -> float:
         """
+        Arguments:
+            prof_averages: Output of self.prof.key_averages()
         Returns:
             time_value: Elapsed CUDA time in seconds.
         """
@@ -145,7 +147,7 @@ class NVFBenchmark:
         except:
             pass
 
-    def compute_metrics(
+    def set_metrics(
         self, inputs: Union[torch.Tensor, List], outputs: Union[torch.Tensor, List]
     ) -> None:
         """
@@ -170,13 +172,13 @@ class NVFBenchmark:
                 iobytes += out.element_size() * out.numel()
 
         self.benchmark.extra_info["IOBytes"] = iobytes
-        bytes_per_second = (
+        bandwidth_bps = (
             iobytes * self.benchmark.stats["rounds"]
         ) / self.benchmark.stats["total"]
-        self.benchmark.extra_info["BytesPerSecond"] = bytes_per_second
-        self.benchmark.extra_info["Bandwidth (GBps)"] = bytes_per_second / 1024**3
+        self.benchmark.extra_info["Bandwidth (Bps)"] = bandwidth_bps
+        self.benchmark.extra_info["Bandwidth (GBps)"] = bandwidth_bps / 1024**3
         self.benchmark.extra_info["% Peak Bandwidth (SOL)"] = (
-            100 * (bytes_per_second / 1024**3) / PEAK_BANDWIDTH
+            100 * (bandwidth_bps / 1024**3) / PEAK_BANDWIDTH_GBPS
         )
 
 
@@ -194,9 +196,9 @@ def run_benchmark(
     Returns:
         outputs: Output of the target function
     """
-    nvf_bench = NVFBenchmark(benchmark)
+    nvf_benchmark = NVFBenchmark(benchmark)
     clear_l2_cache()
-    outputs = nvf_bench(benchmark_fn, inputs)
-    nvf_bench.compute_metrics(inputs, outputs)
-    nvf_bench.cleanup()
+    outputs = nvf_benchmark(benchmark_fn, inputs)
+    nvf_benchmark.set_metrics(inputs, outputs)
+    nvf_benchmark.cleanup()
     return outputs
