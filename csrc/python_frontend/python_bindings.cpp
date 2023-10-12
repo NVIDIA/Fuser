@@ -270,13 +270,6 @@ computeTensorDescriptor(
   return std::make_pair(contiguity_vec, stride_order_vec);
 }
 
-std::string _binary_verification() {
-  // This is a function that doesn't exist in the legacy version of nvfuser
-  // submodule of pytorch. We use this function to make sure the shared library
-  // imported by nvfuser is correct.
-  return "nvfuser_c_python_bindings";
-}
-
 void initNvFuserPythonBindings(PyObject* module) {
   auto nvfuser = py::handle(module).cast<py::module>();
 
