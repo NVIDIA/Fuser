@@ -261,6 +261,94 @@ std::string GridSync::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GridSync)
 
+MBarrierInit::MBarrierInit(
+    IrBuilderPasskey passkey,
+    Val* mbarrier,
+    Val* thread_count)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_CHECK(thread_count->dtype() == DataType::UInt32);
+  addInput(mbarrier);
+  addInput(thread_count);
+}
+
+std::string MBarrierInit::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "MBarrierInit(" << mbarrier()->toString() << ", "
+                          << threadCount()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string MBarrierInit::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "MBarrierInit can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierInit)
+
+MBarrierInvalidate::MBarrierInvalidate(IrBuilderPasskey passkey, Val* mbarrier)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  addInput(mbarrier);
+}
+
+std::string MBarrierInvalidate::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "MBarrierInvalidate(" << mbarrier()->toString()
+                          << ")\n";
+  return ss.str();
+}
+
+std::string MBarrierInvalidate::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "MBarrierInvalidate can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierInvalidate)
+
+MBarrierArrive::MBarrierArrive(
+    IrBuilderPasskey passkey,
+    Val* state,
+    Val* mbarrier)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_CHECK(state->dtype() == DataType::UInt);
+  addInput(mbarrier);
+  addOutput(state);
+}
+
+std::string MBarrierArrive::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "MBarrierArrive(" << mbarrier()->toString() << ", "
+                          << state()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string MBarrierArrive::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "MBarrierArrive can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierArrive)
+
+MBarrierWait::MBarrierWait(IrBuilderPasskey passkey, Val* mbarrier, Val* state)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_CHECK(state->dtype() == DataType::UInt);
+  addInput(mbarrier);
+  addInput(state);
+}
+
+std::string MBarrierWait::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "MBarrierWait(" << mbarrier()->toString() << ", "
+                          << state()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string MBarrierWait::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "MBarrierWait can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierWait)
+
 CpAsyncWait::CpAsyncWait(IrBuilderPasskey passkey, int64_t keep_stages)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
