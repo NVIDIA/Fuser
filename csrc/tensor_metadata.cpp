@@ -253,7 +253,10 @@ void validateAllocationSizesAndStrides(
     contiguity_rev++;
   }
   NVF_ERROR(
-      contiguity_rev == contiguity.crend(),
+      std::none_of(
+          contiguity_rev,
+          contiguity.crend(),
+          [](auto c_flag) { return c_flag.has_value(); }),
       "The size of contiguity mismatch with the dimensionality of allocation domain");
 
   // Validate that for expanded broadcast, the stride must be zero.
