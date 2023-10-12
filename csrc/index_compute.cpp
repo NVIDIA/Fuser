@@ -3251,7 +3251,7 @@ Val* Index::cpAsyncBulkIndex(
         ss.str());
   } else {
     std::stringstream ss;
-    ss << "Hopper::CpAsyncBulkTensorTileG2SIndex<" << dim << ">";
+    ss << "Hopper::CpAsyncBulkTensorTileS2GIndex<" << dim << ">";
     index = IrBuilder::structExpr(
         {{"descriptor", IrBuilder::addressExpr(descriptor)},
          {"coordinate", coordinate}},
