@@ -908,6 +908,9 @@ void initNvFuserPythonBindings(PyObject* module) {
         FUSER_PERF_SCOPE("Operators.stride_order");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
+        NVF_CHECK(
+            arg.dims == stride_order.size(),
+            "Operator stride_order expects `stride_order` argument to have the same length as input!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
         fd->defineRecord(new DimsOpRecord<serde::RecordType_StrideOrderOp>(
@@ -2237,6 +2240,10 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::vector<int64_t>& dims) -> Tensor {
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
+        NVF_CHECK(
+            arg.dims == dims.size(),
+            "Operator permute expects `dims` argument to have the same length as input!");
+        FusionDefinition* fd = self.fusion_definition;
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
         self.fusion_definition->defineRecord(

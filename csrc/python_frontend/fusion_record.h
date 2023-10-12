@@ -462,8 +462,30 @@ struct DimsOpRecord : RecordFunctor {
       std::vector<State> _outputs,
       std::vector<int64_t> dims,
       std::string name)
-      : RecordFunctor(std::move(_args), std::move(_outputs), name, op_type),
-        dims_(std::move(dims)) {}
+      : RecordFunctor(std::move(_args), std::move(_outputs), name, op_type) {
+    int64_t rank = (int64_t)dims.size();
+    dims_.reserve(rank);
+    std::unordered_set<int64_t> dims_set;
+    for (auto dim : dims) {
+      dim_set.insert(dim);
+      if (dim < 0) {
+        NVF_CHECK(
+            dim >= -rank,
+            name + " dims argument is out of range, expects >= -" +
+                string(rank) + ", but got: " + dim);
+        dim += rank;
+      } else {
+        NVF_CHECK(
+            dim < rank,
+            name + " dims argument is out of range, expects < " + string(rank) +
+                ", but got: " + dim);
+      }
+      dims_.push_back(dim);
+    }
+    NVF_CHECK(
+        dims_set.size() != dims.size(),
+        name + " got duplicated dimension entries" + toDelimitedString(dims));
+  }
   ~DimsOpRecord() override = default;
   RecordFunctor* clone() final {
     return new DimsOpRecord(*this);
@@ -1103,7 +1125,31 @@ struct TensorRecord : RecordFunctor {
         contiguity_(std::move(_contiguity)),
         stride_order_(std::move(_stride_order)),
         dtype_(_dtype),
-        is_cpu_(_is_cpu) {}
+        is_cpu_(_is_cpu) {
+    if (!stride_order_.empty()) {
+      int64_t rank = (int64_t)stride_order_.size();
+      std::unordered_set<int64_t> order_set;
+      for (auto& order : stride_order_) {
+        order_set.insert(order);
+        if (order < 0) {
+          NVF_CHECK(
+              order >= -rank,
+              name + " dims argument is out of range, expects >= -" +
+                  string(rank) + ", but got: " + order);
+          order += rank;
+        } else {
+          NVF_CHECK(
+              order < rank,
+              name + " dims argument is out of range, expects < " +
+                  string(rank) + ", but got: " + order);
+        }
+      }
+      NVF_CHECK(
+          dims_set.size() != stride_order.size(),
+          name + " got duplicated dimension entries" +
+              toDelimitedString(stride_order_));
+    }
+  }
   ~TensorRecord() override = default;
   RecordFunctor* clone() final {
     return new TensorRecord(*this);
