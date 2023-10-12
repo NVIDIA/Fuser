@@ -315,10 +315,11 @@ void SegmentProfiler::startCompile() {
 
 void SegmentProfiler::stopCompile() {
   compile_timer_.stop();
+  std::cout << "\nCompile Time: " << compile_timer_.time() << " ms" << std::endl;
 }
 
 void SegmentProfiler::startKernel() {
-  NVF_CHECK(segment_id_ > -1, "Segment Id is not valid! ", segment_id_);
+  //NVF_CHECK(segment_id_ > -1, "Segment Id is not valid! ", segment_id_);
   NVF_CHECK(kernel_profile_state_ == ProfilerState::Ready, "ProfilerState is not Ready!", kernel_profile_state_);
   NVFUSER_CUPTI_SAFE_CALL(
       cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
@@ -342,6 +343,10 @@ void SegmentProfiler::stopKernel() {
       cuptiActivityDisable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
   NVF_CHECK(corr_id == static_cast<uint64_t>(segment_id_), "Correlation Id does not match segment id! Corr Id: ", corr_id, " Segment Id: ", segment_id_);
   kernel_profile_state_ = ProfilerState::Finished;
+}
+
+void SegmentProfiler::bytesAccessed(size_t input_bytes, size_t output_bytes) {
+  std::cout << "\nSegment Bytes Accessed: " << input_bytes << " " << output_bytes << std::endl;
 }
 
 void FusionProfile::reset() {
@@ -377,7 +382,7 @@ FusionProfiler& Profiler::get(size_t device) {
       singleton_->fusion_profilers_.emplace_back(i);
     }
   }
-  return singleton_->fusion_profilers_[device];
+  return singleton_->fusion_profilers_.at(device);
 }
 
 FusionProfiler& Profiler::get(std::optional<int8_t> device) {
@@ -400,6 +405,9 @@ void FusionProfiler::stop() {
 void FusionProfiler::createSegments(size_t num) {
   segments_.resize(num);
 }
+SegmentProfiler& FusionProfiler::segment(size_t idx) {
+  return segments_.at(idx);
+}
 
 FusionProfiler::FusionProfiler(size_t device) :
   device_descriptor_(),
@@ -408,6 +416,10 @@ FusionProfiler::FusionProfiler(size_t device) :
   segments_() {
   NVFUSER_CUPTI_SAFE_CALL(
       cuptiActivityRegisterCallbacks(buffer_requested, buffer_completed));
+}
+
+void FusionProfiler::bytesAccessed(size_t input_bytes, size_t output_bytes) {
+  std::cout << "\nFusion Bytes Accessed: " << input_bytes << " " << output_bytes << std::endl;
 }
 
 void FusionProfiler::reset() {

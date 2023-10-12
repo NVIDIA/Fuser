@@ -190,6 +190,22 @@ class FusionExecutor : public NonCopyable {
     }
     return bytes_processed;
   }
+  //! Returns the number of bytes processed last kernel execution
+  int64_t inputBytesProcessed() const {
+    int64_t input_bytes_processed = 0;
+    for (auto bp : bytes_processed_per_input_) {
+      input_bytes_processed += bp;
+    }
+    return input_bytes_processed;
+  }
+  //! Returns the number of bytes processed last kernel execution
+  int64_t outputBytesProcessed() const {
+    int64_t output_bytes_processed = 0;
+    for (auto bp : bytes_processed_per_output_) {
+      output_bytes_processed += bp;
+    }
+    return output_bytes_processed;
+  }
 
   //! Get a vector of bytes processed across all kernel inputs
   const std::vector<int64_t>& bytesInputsProcessed() const {

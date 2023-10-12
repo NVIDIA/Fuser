@@ -150,17 +150,16 @@ class Profiler : public NonCopyable {
 #define FUSION_PROFILER_BYTES_ACCESSED(device, inputs, outputs) \
   _FP_ENABLE(Profiler::get(device).bytesAcccessed(inputs, outputs))
 // Fusion Segment Profiling Macros
-/*
-#define FUSION_PROFILER_SEGMENT_START_COMPILE(idx) \
-  FP_ENABLE(FusionProfiler::get()->segment(idx).startCompile())
-#define FUSION_PROFILER_SEGMENT_STOP_COMPILE(idx) \
-  FP_ENABLE(FusionProfiler::get()->segment(idx).stopCompile())
-#define FUSION_PROFILER_SEGMENT_START_KERNEL(idx) \
-  FP_ENABLE(FusionProfiler::get()->segment(idx).startKernel())
-#define FUSION_PROFILER_SEGMENT_STOP_KERNEL(idx) \
-  FP_ENABLE(FusionProfiler::get()->segment(idx).stopKernel())
-#define FUSION_PROFILER_SEGMENT_BYTES_ACCESSED(idx, inputs, outputs) \
-  FP_ENABLE(FusionProfiler::get()->segment(idx).bytesAccessed(inputs, outputs))
-*/
+
+#define FUSION_PROFILER_SEGMENT_START_COMPILE(device, idx) \
+  _FP_ENABLE(Profiler::get(device).segment(idx).startCompile())
+#define FUSION_PROFILER_SEGMENT_STOP_COMPILE(device, idx) \
+  _FP_ENABLE(Profiler::get(device).segment(idx).stopCompile())
+#define FUSION_PROFILER_SEGMENT_START_KERNEL(device, idx) \
+  _FP_ENABLE(Profiler::get(device).segment(idx).startKernel())
+#define FUSION_PROFILER_SEGMENT_STOP_KERNEL(device, idx) \
+  _FP_ENABLE(Profiler::get(device).segment(idx).stopKernel())
+#define FUSION_PROFILER_SEGMENT_BYTES_ACCESSED(device, idx, inputs, outputs) \
+  _FP_ENABLE(Profiler::get(device).segment(idx).bytesAccessed(inputs, outputs))
 
 } // namespace nvfuser
