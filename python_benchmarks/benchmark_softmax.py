@@ -3,7 +3,7 @@ from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark
 import torch
-from .global_params import generate_input_sizes, FLOAT_DTYPES
+from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
 
 def softmax_fwd_fusion(
@@ -15,7 +15,7 @@ def softmax_fwd_fusion(
         dtype=dtype,
         is_cpu=False,
     )
-    if dtype is not DataType.Float:
+    if dtype in PROMOTE_DTYPES:
         T0 = fd.ops.cast(T0, dtype=DataType.Float)
     T2 = fd.ops.max(T0, axes=[reduction_axis], keepdim=False, dtype=DataType.Null)
 
@@ -39,7 +39,7 @@ def softmax_fwd_fusion(
     T26 = fd.ops.reciprocal(T25)
     T27 = fd.ops.mul(T14, T26)
 
-    if dtype is not DataType.Float:
+    if dtype in PROMOTE_DTYPES:
         T27 = fd.ops.cast(T27, dtype=dtype)
     fd.add_output(T27)
 

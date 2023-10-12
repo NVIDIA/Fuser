@@ -3,7 +3,7 @@ from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark
 import torch
-from .global_params import generate_input_sizes, FLOAT_DTYPES
+from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
 
 def layernorm_fwd_fusion(
@@ -17,7 +17,7 @@ def layernorm_fwd_fusion(
     T1 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False)
     T2 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False)
 
-    if dtype is not DataType.Float:
+    if dtype in PROMOTE_DTYPES:
         T0 = fd.ops.cast(T0, dtype=DataType.Float)
         T1 = fd.ops.cast(T1, dtype=DataType.Float)
         T2 = fd.ops.cast(T2, dtype=DataType.Float)
@@ -43,7 +43,7 @@ def layernorm_fwd_fusion(
     T27 = fd.ops.broadcast_in_dim(T2, shape=V17, broadcast_dims=[1])
     T28 = fd.ops.add(T26, T27)
 
-    if dtype is not DataType.Float:
+    if dtype in PROMOTE_DTYPES:
         T28 = fd.ops.cast(T28, dtype=dtype)
 
     fd.add_output(T28)
@@ -71,7 +71,7 @@ def layernorm_bwd_fusion(
 
     T4 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False)
 
-    if dtype is not DataType.Float:
+    if dtype in PROMOTE_DTYPES:
         T0 = fd.ops.cast(T0, dtype=DataType.Float)
         T1 = fd.ops.cast(T1, dtype=DataType.Float)
         T4 = fd.ops.cast(T4, dtype=DataType.Float)
@@ -126,7 +126,7 @@ def layernorm_bwd_fusion(
     T89 = fd.ops.add(T78, T88)
     T90 = fd.ops.add(T34, T89)
 
-    if dtype is not DataType.Float:
+    if dtype in PROMOTE_DTYPES:
         T28 = fd.ops.cast(T28, dtype=dtype)
         T90 = fd.ops.cast(T90, dtype=dtype)
         T32 = fd.ops.cast(T32, dtype=dtype)
