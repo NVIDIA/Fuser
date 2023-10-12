@@ -743,11 +743,10 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   // Propagate on uses
   if (!orig_uses0.empty() && !orig_uses1.empty()) {
     for (const ExprGroup& use_group_1 : orig_uses1) {
-      if (orig_uses0.has(use_group_1)) {
-        continue;
-      }
-
       for (const ExprGroup& use_group_0 : orig_uses0) {
+        if (use_group_0 == use_group_1) {
+          continue;
+        }
         Expr* use0 = use_group_0->front();
         Expr* use1 = use_group_1->front();
         maybeMapThroughExprs(use0, use1, true);
