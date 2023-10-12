@@ -300,6 +300,50 @@ ProfilerState CudaEventTimer::state() const {
   return state_;
 }
 
+SegmentProfiler::SegmentProfiler() :
+  segment_id_(-1),
+  compile_timer_(at::cuda::getCurrentCUDAStream()),
+  kernel_profile_state_(ProfilerState::Ready) {}
+
+void SegmentProfiler::setSegmentId(int64_t id) {
+  segment_id_ = id;
+}
+
+void SegmentProfiler::startCompile() {
+  compile_timer_.start();
+}
+
+void SegmentProfiler::stopCompile() {
+  compile_timer_.stop();
+}
+
+void SegmentProfiler::startKernel() {
+  NVF_CHECK(segment_id_ > -1, "Segment Id is not valid! ", segment_id_);
+  NVF_CHECK(kernel_profile_state_ == ProfilerState::Ready, "ProfilerState is not Ready!", kernel_profile_state_);
+  NVFUSER_CUPTI_SAFE_CALL(
+      cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
+  NVFUSER_CUPTI_SAFE_CALL(
+      cuptiActivityEnable(CUPTI_ACTIVITY_KIND_DRIVER));
+  NVFUSER_CUPTI_SAFE_CALL(
+      cuptiActivityEnable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
+  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityPushExternalCorrelationId(CUPTI_EXTERNAL_CORRELATION_KIND_UNKNOWN, static_cast<uint64_t>(segment_id_)));
+  kernel_profile_state_ = ProfilerState::Running;
+}
+
+void SegmentProfiler::stopKernel() {
+  NVF_CHECK(kernel_profile_state_ == ProfilerState::Running, "ProfilerState is not Running!", kernel_profile_state_);
+  uint64_t corr_id = 0;
+  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityPopExternalCorrelationId(CUPTI_EXTERNAL_CORRELATION_KIND_UNKNOWN, &corr_id));
+  NVFUSER_CUPTI_SAFE_CALL(
+      cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
+  NVFUSER_CUPTI_SAFE_CALL(
+      cuptiActivityDisable(CUPTI_ACTIVITY_KIND_DRIVER));
+  NVFUSER_CUPTI_SAFE_CALL(
+      cuptiActivityDisable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
+  NVF_CHECK(corr_id == static_cast<uint64_t>(segment_id_), "Correlation Id does not match segment id! Corr Id: ", corr_id, " Segment Id: ", segment_id_);
+  kernel_profile_state_ = ProfilerState::Finished;
+}
+
 void FusionProfile::reset() {
   total_time = 0.0;
   host_time = 0.0;
@@ -317,15 +361,28 @@ void FusionProfile::reset() {
   perentage_peak_bandwidth = 0.0;
 }
 
-std::mutex FusionProfiler::singleton_lock_;
-FusionProfiler* FusionProfiler::singleton_ = nullptr;
+std::mutex Profiler::singleton_lock_;
+Profiler* Profiler::singleton_ = nullptr;
 
-FusionProfiler* FusionProfiler::get() {
+Profiler::Profiler(size_t devices) :
+  fusion_profilers_() {}
+
+FusionProfiler& Profiler::get(size_t device) {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ == nullptr) {
-    singleton_ = new FusionProfiler();
+    singleton_ = new Profiler(device + 1);
+  } 
+  if (device >= singleton_->fusion_profilers_.size()) {
+    for (size_t i = singleton_->fusion_profilers_.size(); i < device + 1; ++i) {
+      singleton_->fusion_profilers_.emplace_back(i);
+    }
   }
-  return singleton_;
+  return singleton_->fusion_profilers_[device];
+}
+
+FusionProfiler& Profiler::get(std::optional<int8_t> device) {
+  int selected_device = device.has_value() ? static_cast<int>(device.value()) : 0;
+  return get(selected_device);
 }
 
 void FusionProfiler::start() {
@@ -340,7 +397,12 @@ void FusionProfiler::stop() {
   NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(0));
 }
 
-FusionProfiler::FusionProfiler() :
+void FusionProfiler::createSegments(size_t num) {
+  segments_.resize(num);
+}
+
+FusionProfiler::FusionProfiler(size_t device) :
+  device_descriptor_(),
   profile_(),
   fusion_timer_(at::cuda::getCurrentCUDAStream()),
   segments_() {
@@ -351,41 +413,12 @@ FusionProfiler::FusionProfiler() :
 void FusionProfiler::reset() {
   profile_.reset();
   fusion_timer_.reset();
+  segments_.clear();
 }
 
 void FusionProfiler::print() const {
   std::cout << "\nFusion Total Time: " << profile_.total_time << " ms" << std::endl;
   //std::cout << "\nCompile Time: " << profile_.compile_time << " ms" << std::endl;
 }
-
-/*
-void FusionProfiler::start_kernel() {
-  std::lock_guard<std::mutex> guard(singleton_lock_);
-  NVF_ERROR(singleton_ != nullptr,
-            "FusionProfiler singleton is unexpectedly null!");
-  NVFUSER_CUPTI_SAFE_CALL(
-      cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
-  NVFUSER_CUPTI_SAFE_CALL(
-      cuptiActivityEnable(CUPTI_ACTIVITY_KIND_DRIVER));
-  NVFUSER_CUPTI_SAFE_CALL(
-      cuptiActivityEnable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
-  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityPushExternalCorrelationId(CUPTI_EXTERNAL_CORRELATION_KIND_UNKNOWN, static_cast<uint64_t>(9999)));
-}
-void FusionProfiler::stop_kernel() {
-  std::lock_guard<std::mutex> guard(singleton_lock_);
-  NVF_ERROR(singleton_ != nullptr,
-            "FusionProfiler singleton is unexpectedly null!");
-  uint64_t id = 0;
-  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityPopExternalCorrelationId(CUPTI_EXTERNAL_CORRELATION_KIND_UNKNOWN, &id));
-  NVFUSER_CUPTI_SAFE_CALL(
-      cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
-  NVFUSER_CUPTI_SAFE_CALL(
-      cuptiActivityDisable(CUPTI_ACTIVITY_KIND_DRIVER));
-  NVFUSER_CUPTI_SAFE_CALL(
-      cuptiActivityDisable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
-  std::cout << "\nPopped External Correlation Id? " << id << std::endl;
-  singleton_->kernel_profile_recorded_ = true;
-}
-*/
 
 } // namespace nvfuser

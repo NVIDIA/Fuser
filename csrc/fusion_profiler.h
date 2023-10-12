@@ -51,6 +51,8 @@ class SegmentProfiler {
  public:
   SegmentProfiler();
 
+  void setSegmentId(int64_t id);
+
   void startCompile();
   void stopCompile();
 
@@ -63,6 +65,7 @@ class SegmentProfiler {
   int64_t segment_id_;
 
   CudaEventTimer compile_timer_;
+  ProfilerState kernel_profile_state_;
 };
 
 struct FusionProfile {
@@ -86,46 +89,66 @@ struct FusionProfile {
   //std::vector<SegmentProfile> segment_profiles;
 };
 
-// Singleton
-class FusionProfiler : public NonCopyable {
+struct DeviceDescriptor{
+  int device;
+  std::string name;
+  int bus_width;
+  int memory_clock; 
+};
+
+class FusionProfiler {
  public:
-  static FusionProfiler* get();
+  FusionProfiler(size_t device);
+  
+  void createSegments(size_t num);
+  SegmentProfiler& segment(size_t idx);
 
   void start();
   void stop();
 
-  void createSegments(size_t num);
-  SegmentProfiler& segment(size_t idx);
-
   void bytesAccessed(size_t input_bytes, size_t output_bytes);
 
  private:
-  FusionProfiler();
-
   void reset();
   void print() const;
 
  private:
-  static FusionProfiler* singleton_;
-  static std::mutex singleton_lock_;
-
+  DeviceDescriptor device_descriptor_;
   FusionProfile profile_;
   CudaEventTimer fusion_timer_;
   std::vector<SegmentProfiler> segments_;
 };
 
-#define FP_ENABLE(code) \
+// Singleton
+class Profiler : public NonCopyable {
+ public:
+  static FusionProfiler& get(size_t device);
+  static FusionProfiler& get(std::optional<int8_t> device);
+
+ private:
+  Profiler(size_t devices);
+ 
+ private:
+  static Profiler* singleton_;
+  static std::mutex singleton_lock_;
+
+  std::vector<FusionProfiler> fusion_profilers_;
+};
+
+#define _FP_ENABLE(code) \
   if (isDebugDumpEnabled(DebugDumpOption::FusionProfiler) \
       || isOptionEnabled(EnableOption::FusionProfiler)) { \
     code; \
   }
 // Fusion Level Profiling Macros
-#define FUSION_PROFILER_START_PROFILE FP_ENABLE(FusionProfiler::get()->start())
-#define FUSION_PROFILER_STOP_PROFILE FP_ENABLE(FusionProfiler::get()->stop())
-#define FUSION_PROFILER_CREATE_SEGMENTS(n) \
-  FP_ENABLE(FusionProfiler::get()->createSegments(n))
-#define FUSION_PROFILER_BYTES_ACCESSED(inputs, outputs) \
-  FP_ENABLE(FusionProfiler::get()->bytesAcccessed(inputs, outputs))
+#define FUSION_PROFILER_START_PROFILE(device) \
+  _FP_ENABLE(Profiler::get(device).start())
+#define FUSION_PROFILER_STOP_PROFILE(device) \
+  _FP_ENABLE(Profiler::get(device).stop())
+#define FUSION_PROFILER_CREATE_SEGMENTS(device, segments) \
+  _FP_ENABLE(Profiler::get(device).createSegments(segments))
+#define FUSION_PROFILER_BYTES_ACCESSED(device, inputs, outputs) \
+  _FP_ENABLE(Profiler::get(device).bytesAcccessed(inputs, outputs))
 // Fusion Segment Profiling Macros
 /*
 #define FUSION_PROFILER_SEGMENT_START_COMPILE(idx) \

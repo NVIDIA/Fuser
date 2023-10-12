@@ -441,7 +441,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
 
-  FUSION_PROFILER_START_PROFILE;
+  FUSION_PROFILER_START_PROFILE(selected_device);
 
   // Permute input tensor for kernel execution.
   // See Part_1 in Note [ Channels-Last support in nvfuser ]
@@ -462,6 +462,8 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
 
   KernelArgumentHolder args = prepareInputs(perm_inputs, selected_device);
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
+
+  FUSION_PROFILER_CREATE_SEGMENTS(selected_device, kernel_runtime->executors().size());
 
   if (!kernel_runtime->isCompiled()) {
     kernel_runtime->compileFusionParallel(args);
@@ -516,7 +518,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     offset++;
   }
 
-  FUSION_PROFILER_STOP_PROFILE;
+  FUSION_PROFILER_STOP_PROFILE(selected_device);
 
   return outputs;
 }
