@@ -28,6 +28,19 @@ def remove_nvfuser_python_module(installed_nvfuser_dir):
     shutil.rmtree(installed_nvfuser_dir)
 
 
+def verify_binary_installation():
+    import nvfuser
+
+    try:
+        assert nvfuser._C._binary_verification() == "nvfuser_c_python_bindings"
+    except (AttributeError, AssertionError) as err:
+        logging.getLogger("nvfuser").error(
+            "nvfuser probably loaded the wrong _C library from torch's legacy nvfuser submodule, "
+            "try to reinstall nvfuser package AFTER torch, and run `patch-nvfuser` after installation"
+        )
+        raise err
+
+
 def patch_installation():
     from importlib import util
 

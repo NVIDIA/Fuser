@@ -20,15 +20,6 @@ except ImportError as err:
     raise err
 from ._C import *  # noqa: F401,F403
 
-try:
-    assert _C._binary_verification() == "nvfuser_c_python_bindings"
-except (AttributeError, AssertionError) as err2:
-    logging.getLogger("nvfuser").error(
-        "nvfuser probably loaded the wrong _C library from torch's legacy nvfuser submodule, "
-        "try to reinstall nvfuser package AFTER torch, and run `patch-nvfuser` after installation"
-    )
-    raise err2
-
 from . import contrib  # noqa: F401
 
 
