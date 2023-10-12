@@ -388,9 +388,12 @@ ForAllLayouts(NvFuserScheduler_8warp3stage_test);
 ForAllLayouts(NvFuserScheduler_8warp4stage_test);
 ForAllLayouts(Baseline_test);
 
-#define SplitKMatmulShapes                                                  \
+#define SplitKM 248
+#define SplitKN 256
+
+#define SplitKMatmulShapes \
   ArgsProduct(                                                              \
-      {{248}, {256}, benchmark::CreateDenseRange(128, 2048, /*step=*/512)}) \
+      {{SplitKM}, {SplitKN}, {128, 256, 512, 1024, 2048, 4096}}) \
       ->Unit(benchmark::kMicrosecond)                                       \
       ->UseManualTime();
 
@@ -403,20 +406,31 @@ ForAllLayouts(Baseline_test);
       splitk_factor)                                                \
       ->SplitKMatmulShapes
 
+#define NvFuserScheduler_8warp4stage_splitk_test(                   \
+    layout_label, layout, splitk_factor)                            \
+  BENCHMARK_CAPTURE(                                                \
+      NvFuserScheduler_Matmul_8warp4stage,                          \
+      no_quant_nvfuser_8warp_splitk_##layout_label.##splitk_factor, \
+      layout,                                                       \
+      splitk_factor)                                                \
+      ->SplitKMatmulShapes
+
 #define SplitKForAllLayouts(run, splitk_factor) \
   run(TT, MatmulLayout::TT, splitk_factor);     \
   run(TN, MatmulLayout::TN, splitk_factor);     \
   run(NT, MatmulLayout::NT, splitk_factor);     \
-  run(TN, MatmulLayout::TN, splitk_factor);
+  run(NN, MatmulLayout::NN, splitk_factor);
 
 SplitKForAllLayouts(NvFuserScheduler_4warp3stage_splitk_test, 1);
 SplitKForAllLayouts(NvFuserScheduler_4warp3stage_splitk_test, 2);
 SplitKForAllLayouts(NvFuserScheduler_4warp3stage_splitk_test, 4);
 SplitKForAllLayouts(NvFuserScheduler_4warp3stage_splitk_test, 8);
 SplitKForAllLayouts(NvFuserScheduler_4warp3stage_splitk_test, 16);
+SplitKForAllLayouts(NvFuserScheduler_4warp3stage_splitk_test, 32);
 
 SplitKForAllLayouts(NvFuserScheduler_8warp4stage_splitk_test, 1);
 SplitKForAllLayouts(NvFuserScheduler_8warp4stage_splitk_test, 2);
 SplitKForAllLayouts(NvFuserScheduler_8warp4stage_splitk_test, 4);
 SplitKForAllLayouts(NvFuserScheduler_8warp4stage_splitk_test, 8);
 SplitKForAllLayouts(NvFuserScheduler_8warp4stage_splitk_test, 16);
+SplitKForAllLayouts(NvFuserScheduler_8warp4stage_splitk_test, 32);
