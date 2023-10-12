@@ -1284,13 +1284,13 @@ void IndexLowering::handleGroupedGridWelford(
 
 namespace {
 
-kir::TensorIndex* getMBarrierSmemAddr(TensorView* mbarrier) {
+Val* getMBarrierSmemAddr(TensorView* mbarrier) {
   auto mbarrier_smem_addr = IrBuilder::create<Val>(DataType::SMemAddress);
   IrBuilder::create<UnaryOp>(
       UnaryOpType::ToUnsignedSmemAddr,
       mbarrier_smem_addr,
       IrBuilder::metadataExpr(mbarrier));
-  return IrBuilder::create<kir::TensorIndex>(mbarrier, mbarrier_smem_addr);
+  return mbarrier_smem_addr;
 }
 
 } // namespace
