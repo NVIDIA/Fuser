@@ -1280,9 +1280,9 @@ struct TensorRecord : RecordFunctor {
 
     if (!stride_order_.empty()) {
       std::vector<IterDomain*> allocation_domain(rank);
-      for (int i : c10::irange(rank)) {
+      for (auto i : c10::irange(rank)) {
         allocation_domain[rank - 1 - static_cast<int>(stride_order_[i])] =
-            tv->axis(i);
+            tv->axis((int)i);
       }
       // NOTE: this is awkward.
       // updating allocation domain requires an update on contiguity flag

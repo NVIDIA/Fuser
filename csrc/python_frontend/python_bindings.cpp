@@ -596,7 +596,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              std::vector<std::optional<bool>>& contiguity,
              PrimDataType dtype = DataType::Float,
              bool is_cpu = false,
-             std::vector<int64_t> stride_order) -> Tensor {
+             std::vector<int64_t> stride_order = {}) -> Tensor {
             FUSER_PERF_SCOPE("FusionDefinition.define_tensor (default)");
             NVF_CHECK(
                 !self.completed(),
