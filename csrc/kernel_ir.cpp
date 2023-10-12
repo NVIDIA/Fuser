@@ -360,12 +360,12 @@ CpAsyncWait::CpAsyncWait(IrBuilderPasskey passkey, int64_t keep_stages)
 
 std::string CpAsyncWait::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "CPASYNC_WAIT(" << keepStages() << ")\n";
+  indent(ss, indent_size) << "CpAsyncWait(" << keepStages() << ")\n";
   return ss.str();
 }
 
 std::string CpAsyncWait::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "CpAsyncWait can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncWait)
@@ -379,15 +379,58 @@ CpAsyncCommit::CpAsyncCommit(IrBuilderPasskey passkey) : Expr(passkey) {
 
 std::string CpAsyncCommit::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "CPASYNC_WAIT()\n";
+  indent(ss, indent_size) << "CpAsyncCommit()\n";
   return ss.str();
 }
 
 std::string CpAsyncCommit::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "CpAsyncCommit can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncCommit)
+
+CpAsyncBulkS2GWait::CpAsyncBulkS2GWait(
+    IrBuilderPasskey passkey,
+    int64_t keep_stages)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+  addDataAttribute(keep_stages);
+}
+
+std::string CpAsyncBulkS2GWait::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "CpAsyncBulkS2GWait(" << keepStages() << ")\n";
+  return ss.str();
+}
+
+std::string CpAsyncBulkS2GWait::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "CpAsyncBulkS2GWait can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncBulkS2GWait)
+
+CpAsyncBulkS2GCommit::CpAsyncBulkS2GCommit(IrBuilderPasskey passkey)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+}
+
+std::string CpAsyncBulkS2GCommit::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "CpAsyncBulkS2GCommit()\n";
+  return ss.str();
+}
+
+std::string CpAsyncBulkS2GCommit::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "CpAsyncBulkS2GCommit can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncBulkS2GCommit)
 
 InitMagicZero::InitMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);

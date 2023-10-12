@@ -223,15 +223,6 @@ DEVICE_INLINE void cpAsyncBulkPartialReadBarrier() {
                : "memory");
 }
 
-// TODO: Remove this. This is a temporary solution for the build-out stage.
-// Our system can not automatically insert barriers for now, so we manually
-// insert barriers after each TMA operation. That is, we are making TMA
-// synchronous.
-DEVICE_INLINE void _finalizeTMAStore() {
-  cpAsyncBulkCommit();
-  cpAsyncBulkPartialReadBarrier<0>();
-}
-
 template <int dim>
 struct CpAsyncBulkTensorTileIndex {
   const TensorMap* descriptor;
@@ -247,7 +238,6 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
       :
       : "l"(gmem_int_desc), "r"(smem_addr), "r"(dest.crds[0])
       : "memory");
-  _finalizeTMAStore();
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
@@ -259,7 +249,6 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
       :
       : "l"(gmem_int_desc), "r"(smem_addr), "r"(dest.crds[0]), "r"(dest.crds[1])
       : "memory");
-  _finalizeTMAStore();
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
@@ -275,7 +264,6 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
         "r"(dest.crds[1]),
         "r"(dest.crds[2])
       : "memory");
-  _finalizeTMAStore();
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
@@ -292,7 +280,6 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
         "r"(dest.crds[2]),
         "r"(dest.crds[3])
       : "memory");
-  _finalizeTMAStore();
 }
 
 DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
@@ -310,7 +297,6 @@ DEVICE_INLINE void cpAsyncBulkTensorTileS2G(
         "r"(dest.crds[3]),
         "r"(dest.crds[4])
       : "memory");
-  _finalizeTMAStore();
 }
 
 } // namespace Hopper
