@@ -685,4 +685,43 @@ TEST_F(NVFuserTest, IndexSelectBroadcastIndex_CUDA) {
   ASSERT_TRUE(cg_outputs[0].equal(ref));
 }
 
+// See #1049
+TEST_F(NVFuserTest, MultipleIndexSelectIssue_CUDA) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+  auto tv2 = makeContigTensor(1, DataType::Int);
+  fusion.addInput(tv2);
+
+  auto tv3 = index_select(tv0, 0, tv2);
+  auto tv4 = index_select(tv1, 0, tv2);
+  auto tv5 = add(tv3, tv4);
+  fusion.addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+
+  std::vector<int64_t> shape1({17, 19});
+  std::vector<int64_t> shape2({3});
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randn(shape1, options);
+  auto t2 = at::randint(0, shape1[0], shape2, options_i);
+  std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  ASSERT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented())
+      << "Should not segmented";
+
+  auto ref = at::index_select(t0, 0, t2) + at::index_select(t1, 0, t2);
+
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
