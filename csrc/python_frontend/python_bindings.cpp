@@ -273,8 +273,6 @@ computeTensorDescriptor(
 void initNvFuserPythonBindings(PyObject* module) {
   auto nvfuser = py::handle(module).cast<py::module>();
 
-  nvfuser.def("_binary_verification", _binary_verification);
-
   //! DataTypes supported by nvFuser in the FusionDefinition
   py::enum_<PrimDataType>(nvfuser, "DataType")
       .value("Double", DataType::Double)
