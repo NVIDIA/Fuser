@@ -2,6 +2,7 @@ import ctypes
 import torch
 from torch.profiler import profile, ProfilerActivity
 from typing import List, Callable, Union
+from torch.autograd import DeviceType
 
 
 def get_device_properties() -> tuple:
@@ -114,35 +115,23 @@ class NVFBenchmark:
         """
         try:
             self.prof.stop()
-            prof_output = self.prof.key_averages().table()
-            elapsed_cuda_time = self._get_kernel_time(prof_output)
+            prof_averages = self.prof.key_averages()
+            elapsed_cuda_time = self._get_kernel_time(prof_averages)
             self._increment_global_time(elapsed_cuda_time)
             self.prof.start()
         except:
             self.prof.start()
         return self.current_time
 
-    def _get_kernel_time(self, prof_output: str) -> float:
+    def _get_kernel_time(self, prof_averages) -> float:
         """
-        Parses the profiler output to obtain the total CUDA time.
         Returns:
-            time_value: Elapsed CUDA time.
+            time_value: Elapsed CUDA time in seconds.
         """
-        prof_averages = prof_output.split("\n")[-2:]
-        cuda_avg_str = None
-        for time_avg_str in prof_averages:
-            if "CUDA" not in time_avg_str:
-                continue
-            cuda_avg_str = time_avg_str
-
-        time_str = cuda_avg_str.split()[-1]
-        time_unit = time_str[-2:]
-        time_value = float(time_str[:-2])
-        if time_unit == "us":
-            time_value /= 1e6
-        elif time_unit == "ms":
-            time_value /= 1e3
-        return time_value
+        elapsed_cuda_time = sum([event.self_cuda_time_total
+            for event in prof_averages 
+            if event.device_type == DeviceType.CUDA])/ 1e6
+        return elapsed_cuda_time
 
     def _increment_global_time(self, elapsed_time: float) -> None:
         self.current_time += elapsed_time
