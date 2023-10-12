@@ -694,17 +694,10 @@ void IterDomainGraphs::buildExactMap(const std::vector<Expr*>& exprs) {
 }
 
 void IterDomainGraphs::buildPermissiveMap(const std::vector<Expr*>& exprs) {
-  VERBOSE() << "buildPermissiveMap\n";
-  if (getenv("PERMISSIVE_ALMOST_EXACT")) {
-    idGraph(IdMappingMode::PERMISSIVE) = idGraph(IdMappingMode::ALMOSTEXACT);
-  } else {
-    idGraph(IdMappingMode::PERMISSIVE) = idGraph(IdMappingMode::EXACT);
-  }
-  if (getenv("NO_PERMISSIVE_PROP")) {
-    idGraph(IdMappingMode::PERMISSIVE).setPropagateThroughExprs(false);
-  } else {
-    idGraph(IdMappingMode::PERMISSIVE).setPropagateThroughExprs(true);
-  }
+  // Use the exact map as the starting map rather than the
+  // almost-exact map. Almost exact is useful for index hoisting but
+  // not necessary for permissive and loop maps
+  idGraph(IdMappingMode::PERMISSIVE) = idGraph(IdMappingMode::EXACT);
 
   for (auto expr : exprs) {
     // Multiple outputs are already mapped, we can ignore all but the first

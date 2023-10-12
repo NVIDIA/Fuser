@@ -805,21 +805,6 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   // Propagate on uses
   if (!orig_uses0.empty() && !orig_uses1.empty()) {
     for (const ExprGroup& use_group_1 : orig_uses1) {
-      // TODO-NM: why this?
-      // In Indexing19, when iS17 and iS29 are mapped in the
-      // permissive map, we want to propagate the mapping to the the
-      // merge of iS23 and iS22 and the merge of iS29 and
-      // iS19. However, since the merge of iS29 and iS19 are included
-      // as a use of both IDs, no propagation happens.
-#if 0
-      if (orig_uses0.has(use_group_1)) {
-        if (debug) {
-          VERBOSE() << "Expr included in both: " << use_group_1->front()->toString();
-        }
-        continue;
-      }
-#endif
-
       for (const ExprGroup& use_group_0 : orig_uses0) {
         if (use_group_0 == use_group_1) {
           continue;
