@@ -25,5 +25,6 @@ def disable_validation(request):
 def disable_benchmarking(request):
     return request.config.getoption("--disable-benchmarking")
 
+
 def pytest_make_parametrize_id(val):
     return repr(val)

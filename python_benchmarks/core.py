@@ -8,6 +8,7 @@ from torch.autograd import DeviceType
 def get_device_properties() -> tuple[int, float]:
     """
     Computes L2 cache size and peak device bandwidth (GBps) using ctypes and cuda.
+    Note: Consider using CUDA-Python when CUDA support >= 12.0.
     """
     libnames = ("libcuda.so", "libcuda.dylib", "nvcuda.dll", "cuda.dll")
     for libname in libnames:
@@ -123,16 +124,25 @@ class NVFBenchmark:
             self.prof.start()
         return self.current_time
 
-    def _get_kernel_time(self, prof_averages: torch.autograd.profiler_util.EventList) -> float:
+    def _get_kernel_time(
+        self, prof_averages: torch.autograd.profiler_util.EventList
+    ) -> float:
         """
         Arguments:
             prof_averages: Output of self.prof.key_averages()
         Returns:
             time_value: Elapsed CUDA time in seconds.
         """
-        elapsed_cuda_time = sum([event.self_cuda_time_total
-            for event in prof_averages 
-            if event.device_type == DeviceType.CUDA])/ 1e6
+        elapsed_cuda_time = (
+            sum(
+                [
+                    event.self_cuda_time_total
+                    for event in prof_averages
+                    if event.device_type == DeviceType.CUDA
+                ]
+            )
+            / 1e6
+        )
         return elapsed_cuda_time
 
     def _increment_global_time(self, elapsed_time: float) -> None:
