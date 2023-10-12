@@ -36,7 +36,7 @@ def patch_installation():
 
     installed_nvfuser_dir = os.path.join(os.path.dirname(torch_dir), "nvfuser")
 
-    # patch_pytorch_nvfuser_binaries(torch_lib) # no longer needed after we rename our libnvfuser_codegen.so to libnvfuser_core.so
+    patch_pytorch_nvfuser_binaries(torch_lib)
     if os.path.exists(installed_nvfuser_dir):
         remove_nvfuser_python_module(installed_nvfuser_dir)
 
