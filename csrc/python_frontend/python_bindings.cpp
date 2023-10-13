@@ -2244,7 +2244,6 @@ void initNvFuserPythonBindings(PyObject* module) {
             arg.dims == dims.size(),
             "Operator permute expects `dims` argument to have the same length as input!");
         FusionDefinition* fd = self.fusion_definition;
-        FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
         self.fusion_definition->defineRecord(
             new DimsOpRecord<serde::RecordType_PermuteOp>(

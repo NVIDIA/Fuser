@@ -472,13 +472,13 @@ struct DimsOpRecord : RecordFunctor {
         NVF_CHECK(
             dim >= -rank,
             name + " dims argument is out of range, expects >= -" +
-                std::string(rank) + ", but got: " + dim);
+                std::to_string(rank) + ", but got: " + std::to_string(dim));
         dim += rank;
       } else {
         NVF_CHECK(
             dim < rank,
-            name + " dims argument is out of range, expects < " + std::string(rank) +
-                ", but got: " + dim);
+            name + " dims argument is out of range, expects < " +
+                std::to_string(rank) + ", but got: " + std::to_string(dim));
       }
       dims_.push_back(dim);
     }
@@ -1135,17 +1135,17 @@ struct TensorRecord : RecordFunctor {
           NVF_CHECK(
               order >= -rank,
               "define_tensor stride_order argument is out of range, expects >= -" +
-                  std::string(rank) + ", but got: " + order);
+                  std::to_string(rank) + ", but got: " + std::to_string(order));
           order += rank;
         } else {
           NVF_CHECK(
               order < rank,
               "define_tensor stride_order argument is out of range, expects < " +
-                  std::string(rank) + ", but got: " + order);
+                  std::to_string(rank) + ", but got: " + std::to_string(order));
         }
       }
       NVF_CHECK(
-          dims_set.size() != stride_order_.size(),
+          order_set.size() != stride_order_.size(),
           "define_tensor got duplicated stride_order entries: " +
               toDelimitedString(stride_order_));
     }
