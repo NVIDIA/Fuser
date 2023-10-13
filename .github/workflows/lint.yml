@@ -101,14 +101,18 @@ jobs:
       - name: Run lintrunner
         working-directory: ${{ env.working_directory }}
         run: |
+          tools/apt-install-things.sh &
+          tools/pip-install-things.sh &
+          source tools/setup-env.sh
+
           # Install lintrunner
           pip install lintrunner
-
-          # Initialize lintrunner
-          lintrunner init 2> /dev/null
 
           # Install dependencies
           sudo apt install -y libtinfo5
 
+          # Initialize lintrunner
+          lintrunner init
+
           # Run lintrunner except clang-tidy
-          lintrunner --force-color --take FLAKE8,MYPY,CLANGFORMAT,NOQA,TYPEIGNORE,NEWLINE,MYPYSTRICT,TABS,SPACES,EXEC,BLACK,TORCH_INTERNAL_ASSERT,TORCH_CHECK,C10_ERROR,TORCH_CUDA_CU_API --all-files
+          lintrunner --force-color --skip CLANGTIDY --all-files
