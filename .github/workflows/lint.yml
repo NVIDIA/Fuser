@@ -108,11 +108,8 @@ jobs:
           # Install lintrunner
           pip install lintrunner
 
-          # Install dependencies
-          sudo apt install -y libtinfo5
-
           # Initialize lintrunner
           lintrunner init
 
           # Run lintrunner except clang-tidy
-          lintrunner --force-color --skip CLANGTIDY --all-files --verbose
+          lintrunner --skip CLANGTIDY --all-files --verbose
