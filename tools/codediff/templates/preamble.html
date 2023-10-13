@@ -8,27 +8,26 @@ SPDX-License-Identifier: BSD-3-Clause
     <button onclick="toggleOldPreamble()">
         <i>{{ run1.name }}</i>
     </button>
-</span>
-<button style="width: 60pt" onclick="togglePreambleDiff()">Diff</button>
-</span>
-<button onclick="toggleNewPreamble()">{{ run2.name }}</button>
-</span>
-<br>
-<div id="old_preamble" style="display:none">
-    <pre><code class="language-cpp">{{ run1.preamble|e }}</code></pre>
-</div>
-<div id="new_preamble" style="display:none">
-    <pre><code class="language-cpp">{{ run2.preamble|e }}</code></pre>
-</div>
-<div id="preamble_diff" style="display:none">
-    <pre><code class="language-diff">{{ preamble_diff|e }}</code></pre>
-</div>
+    <button style="width: 60pt" onclick="togglePreambleDiff()">Diff</button>
+    <button onclick="toggleNewPreamble()">
+        <i>{{ run2.name }}</i>
+    </button>
+    <br>
+    <div id="old_preamble" style="display:none">
+        <pre><code class="language-cpp">{{ 'PREAMBLE OMITTED TO SAVE SPACE' if omit_preamble else run1.preamble|e }}</code></pre>
+    </div>
+    <div id="new_preamble" style="display:none">
+        <pre><code class="language-cpp">{{ 'PREAMBLE OMITTED TO SAVE SPACE' if omit_preamble else run2.preamble|e }}</code></pre>
+    </div>
+    <div id="preamble_diff" style="display:none">
+        <pre><code class="language-diff">{{ preamble_diff|e }}</code></pre>
+    </div>
 {% else %}
-<br>
-<button onclick="toggleDiv('preamble')">NVFuser preamble</button>
-matches between runs
-<br>
-<div id="preamble" style="display:none">
-    <pre><code class="language-cpp">{{ run1.preamble|e }}</code></pre>
-</div>
+    <br>
+    <button onclick="toggleDiv('preamble')">NVFuser preamble</button>
+    matches between runs
+    <br>
+    <div id="preamble" style="display:none">
+        <pre><code class="language-cpp">{{ 'PREAMBLE OMITTED TO SAVE SPACE' if omit_preamble else run1.preamble|e }}</code></pre>
+    </div>
 {% endif %}

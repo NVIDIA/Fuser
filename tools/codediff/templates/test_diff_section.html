@@ -13,8 +13,8 @@ SPDX-License-Identifier: BSD-3-Clause
         <span class="test_name">{{ loop.index }}: <b>{{ test_diff.testname }}</b></span>
         {% if is_benchmark %}
             {% if test_diff.test1.benchmark_result is not none and test_diff.test2.benchmark_result is not none -%}
-                <span style="color: red; font-weight: bold">{{ test_diff.test1.benchmark_result.gpu_time}} {{ test_diff.test1.benchmark_result.gpu_time_unit}}</span> &#8594;
-                <span style="color: green; font-weight: bold">{{ test_diff.test2.benchmark_result.gpu_time}} {{ test_diff.test2.benchmark_result.gpu_time_unit}}</span>
+                <span style="color: red; font-weight: bold">{{ test_diff.test1.benchmark_result.gpu_time }} {{ test_diff.test1.benchmark_result.gpu_time_unit }}</span> &#8594;
+                <span style="color: green; font-weight: bold">{{ test_diff.test2.benchmark_result.gpu_time }} {{ test_diff.test2.benchmark_result.gpu_time_unit }}</span>
             {%- endif -%}
         {% else %}
             {% if not test_diff.test1.passed or not test_diff.test2.passed -%}

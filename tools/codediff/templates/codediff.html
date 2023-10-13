@@ -18,10 +18,7 @@ SPDX-License-Identifier: BSD-3-Clause
         <br>
         <br>
         {% include 'command_env_info.html' %}
-        <br>
-        {% if not omit_preamble %}
-            {% include 'preamble.html' %}
-        {% endif %}
+        {% include 'preamble.html' %}
         {% if new_tests|length > 0 %}
             <hr>
             {% include 'new_test_section.html' %}
