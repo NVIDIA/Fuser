@@ -256,7 +256,7 @@ TEST_F(Tutorial, Reduction) {
   }
 
   // We can of course mix BIDx and TIDx.
-  tv1->axis(0)->parallelize(ParallelType::BIDy);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::TIDx);
 
   if (verbose_) {
