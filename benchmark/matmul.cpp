@@ -388,11 +388,11 @@ ForAllLayouts(NvFuserScheduler_8warp3stage_test);
 ForAllLayouts(NvFuserScheduler_8warp4stage_test);
 ForAllLayouts(Baseline_test);
 
-#define SplitKM 248
-#define SplitKN 256
+#define SplitKM 128
+#define SplitKN 128
 
 #define SplitKMatmulShapes                                               \
-  ArgsProduct({{SplitKM}, {SplitKN}, {128, 256, 512, 1024, 2048, 4096}}) \
+  ArgsProduct({{SplitKM}, {SplitKN}, {256, 1024, 8192, 65536}}) \
       ->Unit(benchmark::kMicrosecond)                                    \
       ->UseManualTime();
 
