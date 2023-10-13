@@ -48,6 +48,38 @@ static void setupReduction(Fusion* fusion, DataType dtype, int red_axis) {
   fusion->addOutput(tv1_cast);
 }
 
+static void setupManyReductions(Fusion* fusion, DataType dtype, int red_axis) {
+  FusionGuard fg(fusion);
+
+  bool is_fp16 = dtype == DataType::Half;
+
+  TensorView* tv0 = makeContigTensor(2, dtype);
+  fusion->addInput(tv0);
+
+  TensorView* tv0_cast = tv0;
+  if (is_fp16) {
+    tv0_cast = castOp(DataType::Float, tv0);
+  }
+  auto tv1 = add(tv0_cast, IrBuilder::create<Val>(1.0));
+  auto tv2 = add(tv0_cast, IrBuilder::create<Val>(2.0));
+  auto tv3 = add(tv0_cast, IrBuilder::create<Val>(3.0));
+  auto tv4 = add(tv0_cast, IrBuilder::create<Val>(4.0));
+
+  auto tv1sum = sum(tv1, {red_axis});
+  auto tv2sum = sum(tv2, {red_axis});
+  auto tv3sum = sum(tv3, {red_axis});
+  auto tv4sum = sum(tv4, {red_axis});
+
+  auto tvout12 = add(tv1sum, tv2sum);
+  auto tvout34 = add(tv3sum, tv4sum);
+  auto tvout = add(tvout12, tvout34);
+  TensorView* tv1_cast = tvout;
+  if (is_fp16) {
+    tv1_cast = castOp(DataType::Half, tv1_cast);
+  }
+  fusion->addOutput(tv1_cast);
+}
+
 static void NvFuserScheduler_Reduction(
     benchmark::State& benchmark_state,
     FusionExecutorCache* fusion_executor_cache,
@@ -121,6 +153,36 @@ static void Baseline_Reduction_Inner_fp16(benchmark::State& benchmark_state) {
   Baseline_Reduction(benchmark_state, DataType::Half, 1);
 }
 
+//------------------------------------------------------------------------------
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_ManyReductions_fp16,
+    setupManyReductions,
+    NvFuserScheduler_Reduction,
+    DataType::Half,
+    1);
+void addReduction16Waves128To32K(benchmark::internal::Benchmark* b) {
+  const auto properties = at::cuda::getCurrentDeviceProperties();
+  int batch_size = 16 * properties->multiProcessorCount;
+  for (auto hidden_size = 1024; hidden_size <= 4096; hidden_size += 32) {
+    b->Args({hidden_size, batch_size});
+  }
+}
+
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_ManyReductions_fp16)
+    ->Apply(addReduction16Waves128To32K)
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
+
+NVFUSER_BENCHMARK_DEFINE(
+    NvFuserScheduler_ManyReductions_3968_fp16,
+    setupManyReductions,
+    NvFuserScheduler_Reduction,
+    DataType::Half,
+    1);
+NVFUSER_BENCHMARK_RUN(NvFuserScheduler_ManyReductions_3968_fp16)
+    ->Ranges({{3968, 3968}, {1728, 1728}})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
 //------------------------------------------------------------------------------
 
 NVFUSER_BENCHMARK_DEFINE(
