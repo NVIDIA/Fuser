@@ -97,8 +97,8 @@ class CompiledKernel:
     filename: str
     code: str | None = None
     ptx: str | None = None
-    launch_params_str: str | None = None
     ptxas_info: str | None = None
+    launch_params_str: str | None = None
     launch_params: LaunchParams | None = None
     gmem_bytes: int = 0
     smem_bytes: int = 0
@@ -136,6 +136,7 @@ class CompiledKernel:
             self.mangled_name, self.arch = m.groups()
 
         def find_unique_int(pattern) -> int | None:
+            assert self.ptxas_info is not None
             m = re.search(pattern, self.ptxas_info)
             return 0 if m is None else int(m.groups()[0])
 
@@ -166,14 +167,14 @@ class CompiledKernel:
         if self.launch_params_str is None:
             return
 
-        for m in re.finditer(
-            r"^Launch Parameters: "
-            r"BlockDim.x = (.*) BlockDim.y = (.*) BlockDim.z = (.*) "
-            r"GridDim.x = (.*) GridDim.y = (.*) GridDim.z = (.*), "
-            r"Smem Size = (.*)$",
-            self.launch_params_str,
-        ):
-            lp = LaunchParams(*m.groups())
+        for line in self.launch_params_str.splitlines():
+            m = re.search(
+                r"Launch Parameters: BlockDim.x = (.*), BlockDim.y = (.*), BlockDim.z = (.*), "
+                r"GridDim.x = (.*), GridDim.y = (.*), GridDim.z = (.*), Smem Size = (.*)$",
+                line,
+            )
+            bx, by, bz, gx, gy, gz, s = m.groups()
+            lp = LaunchParams((bx, by, bz), (gx, gy, gz), s)
             if self.launch_params is None:
                 self.launch_params = lp
             else:
@@ -186,12 +187,22 @@ class CompiledKernel:
 
 
 @dataclass
+class BenchmarkResult:
+    gpu_time: float
+    gpu_time_unit: str
+    cpu_time: float
+    cpu_time_unit: float
+    iterations: int | None = None
+
+
+@dataclass
 class CompiledTest:
     """One grouping of kernels. A run holds multiple of these"""
 
     name: str
     kernels: list[CompiledKernel]
     passed: bool = True
+    benchmark_result: BenchmarkResult | None = None
 
 
 class CommandType(Enum):
@@ -235,7 +246,7 @@ class LogParser:
     def __init__(self, log_file: str):
         self.compile_regex()
 
-        self.kernel_map = {}
+        self.kernel_map: dict[str, CompiledTest] = {}
 
         self.reset_test_state()
 
@@ -248,7 +259,7 @@ class LogParser:
     def reset_kernel_state(self):
         self.current_file = None
         self.ptxas_info = ""
-        self.launch_param_text = ""
+        self.launch_params_str = ""
 
     def reset_test_state(self):
         """Initialize temporary variables used during parsing pass"""
@@ -264,17 +275,21 @@ class LogParser:
 
     def finalize_kernel(self):
         if self.current_file is not None:
-            k = CompiledKernel(self.current_file, ptxas_info=self.ptxas_info)
+            k = CompiledKernel(
+                self.current_file,
+                ptxas_info=self.ptxas_info,
+                launch_params_str=self.launch_params_str,
+            )
             self.kernels.append(k)
         self.reset_kernel_state()
 
     def finalize_test(self, passed: bool):
         assert self.current_test is not None
         self.finalize_kernel()
-        self.kernel_map[self.current_test] = CompiledTest(
-            self.current_test, self.kernels, passed
-        )
+        new_test = CompiledTest(self.current_test, self.kernels, passed)
+        self.kernel_map[self.current_test] = new_test
         self.reset_test_state()
+        return new_test
 
     def finalize(self):
         if len(self.kernels) > 0:
@@ -301,7 +316,7 @@ class LogParser:
             if self.current_file is None:
                 print("WARNING: Cannot associate launch params with CUDA kernel")
                 return False
-            self.launch_param_text += line + "\n"
+            self.launch_params_str += line + "\n"
         else:
             return False
         return True
@@ -315,7 +330,7 @@ class LogParserGTest(LogParser):
             return True
 
         if line[:13] == "[ RUN      ] ":
-            current_test = line[13:]
+            self.current_test = line[13:]
         elif line[:13] == "[       OK ] ":
             self.finalize_test(True)
         elif line[:13] == "[  FAILED  ] ":
@@ -348,15 +363,13 @@ class LogParserGBench(LogParser):
 
         m = re.match(self.result_re, line)
         if m is not None and self.current_file is not None:
-            self.current_test = m.groups()[0]
-            time = m.groups()[1]
-            time_unit = m.groups()[2]
-            cpu = m.groups()[3]
-            cpu_unit = m.groups()[4]
-            iterations = m.groups()[5]
+            self.current_test, time, time_unit, cpu, cpu_unit, iterations = m.groups()
             # Skip metadata which for nvfuser_bench sometimes includes LaunchParams
             # meta = m.groups()[6]
-            self.finalize_test(True)
+            new_test = self.finalize_test(True)
+            new_test.benchmark_result = BenchmarkResult(
+                time, time_unit, cpu, cpu_unit, iterations
+            )
             return True
         return False
 
@@ -569,10 +582,9 @@ class KernelDiff:
 @dataclass
 class TestDiff:
     testname: str
-    test1_passed: bool
-    test2_passed: bool
+    test1: CompiledTest
+    test2: CompiledTest
     kernel_diffs: list[KernelDiff] | None = None
-    kernel_number_mismatch: tuple[int, int] | None = None
 
 
 @dataclass
@@ -633,10 +645,9 @@ class TestDifferences:
                 self.test_diffs.append(
                     TestDiff(
                         testname,
-                        compiled_test1.passed,
-                        compiled_test2.passed,
+                        compiled_test1,
+                        compiled_test2,
                         None,
-                        (len(compiled_test1.kernels), len(compiled_test2.kernels)),
                     )
                 )
 
@@ -644,6 +655,8 @@ class TestDifferences:
             for kernel_num in range(len(compiled_test1.kernels)):
                 kern1 = self.run1.get_kernel(testname, kernel_num, strip_preamble=True)
                 kern2 = self.run2.get_kernel(testname, kernel_num, strip_preamble=True)
+                assert kern1.code is not None
+                assert kern2.code is not None
 
                 ptx_diff_lines = None
                 if kern1.ptx is not None and kern2.ptx is not None:
@@ -684,8 +697,8 @@ class TestDifferences:
                 self.test_diffs.append(
                     TestDiff(
                         testname,
-                        compiled_test1.passed,
-                        compiled_test2.passed,
+                        compiled_test1,
+                        compiled_test2,
                         kernel_diffs,
                     )
                 )

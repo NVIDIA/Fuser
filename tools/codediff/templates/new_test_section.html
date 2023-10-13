@@ -14,12 +14,8 @@ SPDX-License-Identifier: BSD-3-Clause
         {% set test_num = loop.index %}
         {% for kernel in test.kernels %}
             &nbsp;&nbsp;&nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ loop.index }}</span>
-            {% if kernel.ptx is not none %}
-                <button style="width: 60pt"
-                        onclick="toggleDiv('newtestcode_{{ test_num }}_{{ loop.index }}')">Code</button>
-            {% endif %}
             <button style="width: 60pt"
-                    onclick="toggleDiv('newtestcode_{{ test_num }}_{{ loop.index }}')">Code</button>
+                    onclick="toggleDiv('newtestcode_{{ test_num }}_{{ loop.index }}')">CUDA</button>
         </span>
         index type: {{ kernel.index_type }}
         arch: {{ kernel.arch }}
@@ -42,11 +38,6 @@ SPDX-License-Identifier: BSD-3-Clause
             {% endfor %}
         {% endif %}
         <br>
-        {% if kernel.ptx is not none %}
-            <div id="newtestptx_{{ test_num }}_{{ loop.index }}" style="display:none">
-                <pre><code class="language-x86asm">{{ kernel.ptx|e }}</code></pre>
-            </div>
-        {% endif %}
         <div id="newtestcode_{{ test_num }}_{{ loop.index }}" style="display:none">
             <pre><code class="language-cpp">{{ kernel.code|e }}</code></pre>
         </div>

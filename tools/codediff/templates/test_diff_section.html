@@ -11,10 +11,17 @@ SPDX-License-Identifier: BSD-3-Clause
 {% for test_diff in test_diffs %}
     {% if loop_vars.total_diffs < max_diffs %}
         <span class="test_name">{{ loop.index }}: <b>{{ test_diff.testname }}</b></span>
-        {% if not test_diff.test1_passed or not test_diff.test2_passed -%}
-            <span style="color: red; font-weight: bold">{{"SUCCESS" if test_diff.test1_passed else "FAILED"}}</span> &#8594;
-            <span style="color: green; font-weight: bold">{{"SUCCESS" if test_diff.test2_passed else "FAILED"}}</span>
-        {%- endif -%}
+        {% if is_benchmark %}
+            {% if test_diff.test1.benchmark_result is not none and test_diff.test2.benchmark_result is not none -%}
+                <span style="color: red; font-weight: bold">{{ test_diff.test1.benchmark_result.gpu_time}} {{ test_diff.test1.benchmark_result.gpu_time_unit}}</span> &#8594;
+                <span style="color: green; font-weight: bold">{{ test_diff.test2.benchmark_result.gpu_time}} {{ test_diff.test2.benchmark_result.gpu_time_unit}}</span>
+            {%- endif -%}
+        {% else %}
+            {% if not test_diff.test1.passed or not test_diff.test2.passed -%}
+                <span style="color: red; font-weight: bold">{{"SUCCESS" if test_diff.test1.passed else "FAILED"}}</span> &#8594;
+                <span style="color: green; font-weight: bold">{{"SUCCESS" if test_diff.test2.passed else "FAILED"}}</span>
+            {%- endif -%}
+        {% endif %}
         <br>
         {% set outer_index = loop.index %}
         {% for kernel_diff in test_diff.kernel_diffs %}
@@ -23,7 +30,7 @@ SPDX-License-Identifier: BSD-3-Clause
                 <b>WARNING: Only showing {{ max_diffs }} out of {{ total_num_diffs }}
                     total modified kernels. To show more kernels pass a higher value in
                     the <code>--html-max-diffs</code> argument to
-                    <code>tools/diff_codegen_nvfuser_tests.py</code>.</b>
+                    <code>tools/diff_report.py</code>.</b>
                 <br>
             {% elif loop_vars.total_diffs < max_diffs %}
                 &nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ kernel_diff.kernel_num }}</span>
@@ -60,7 +67,7 @@ SPDX-License-Identifier: BSD-3-Clause
     {%- macro meta_diff(name, old, new) -%}
         {%- if kernel_diff.kernel1.registers != kernel_diff.kernel2.registers -%}
             {{ name }}: <span style="color: red">{{ old }}</span> &#8594; <span style="color: green">{{ new }}</span>
-        {%- elif old > 0 -%}
+        {%- elif old != 0 -%}
             {{ name }}: {{ old }}
         {%- endif %}
     {%- endmacro -%}
@@ -75,7 +82,7 @@ SPDX-License-Identifier: BSD-3-Clause
         {% for cmem_bank in range([kernel_diff.kernel1.cmem_bank_bytes|length, kernel_diff.kernel2.cmem_bank_bytes|length] | max) %}
             {% set cmem1 = kernel_diff.kernel1.cmem_bank_bytes[cmem_bank] if cmem_bank < kernel_diff.kernel1.cmem_bank_bytes|length else 0 %}
             {% set cmem2 = kernel_diff.kernel2.cmem_bank_bytes[cmem_bank] if cmem_bank < kernel_diff.kernel2.cmem_bank_bytes|length else 0 %}
-            {{ meta_diff(f'cmem[{cmem_bank}]', cmem1, cmem2) }}
+            {{ meta_diff('cmem[' + (cmem_bank|string) + ']', cmem1, cmem2) }}
         {% endfor %}
     {% endif %}
     {%- if kernel_diff.kernel1.launch_params is not none and kernel_diff.kernel2.launch_params is not none -%}

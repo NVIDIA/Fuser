@@ -1,4 +1,9 @@
+{%- if run1.command == run2.command -%}
 Command: <code>{{ run1.command|e }}</code>
+{%- else -%}
+<i>{{run1.name|e}} command: <code>{{ run1.command|e }}</code><br>
+<i>{{run2.name|e}} command: <code>{{ run2.command|e }}</code>
+{%- endif -%}
 {% if run1.gpu_names is not none %}
     <br>
     {%- if run1.gpu_names | length > 1 %}
@@ -13,12 +18,15 @@ Command: <code>{{ run1.command|e }}</code>
     {%- endif %}
 {% endif %}
 {% if run1.nvcc_version is not none %}
-    <pre><code class="language-console">&gt; nvcc --version {%- if run1.nvcc_version != run2.nvcc_version %}# {{run1.name}}{% endif %}
+<button onclick="toggleDiv('old_nvcc_version')">nvcc --version</button>
+<div id="old_nvcc_version" style="display:none">
+    <pre><code class="language-console">&gt; nvcc --version {%- if run1.nvcc_version != run2.nvcc_version %}  # {{run1.name|e}}{% endif %}
 {{run1.nvcc_version | e}}</code></pre>
+</div>
 {% endif %}
 {%- if run1.env is not none %}
     {%- if run1.env != run2.env %}
-        <button onclick="toggleDiv('old_env')">{{ run1.name }} Env</button>
+        <button onclick="toggleDiv('old_env')">{{ run1.name|e }} Env</button>
     {% else %}
         <button onclick="toggleDiv('old_env')">Env</button>
         matches between runs
