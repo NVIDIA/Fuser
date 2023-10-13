@@ -955,17 +955,17 @@ def permute_error_generator(
     # TODO Add duplicate axis check.
     yield SampleInput(
         make_arg(input_shape), [0, 1, 1, 3]
-    ), RuntimeError, "Duplicate entries in transformation map"
+    ), RuntimeError, "duplicated dimension entries"
 
     # TODO Add in-range axis check.
     yield SampleInput(
         make_arg(input_shape), [0, 1, 2, 4]
-    ), RuntimeError, "New2Old axes are not within the number of dimensions of the provided domain"
+    ), RuntimeError, "dims argument is out of range, expects"
 
     # TODO Add in-range axis check.
     yield SampleInput(
         make_arg(input_shape), [0, 1, 2, -5]
-    ), RuntimeError, "New2Old axes are not within the number of dimensions of the provided domain"
+    ), RuntimeError, "dims argument is out of range, expects"
 
     # TODO Add missing axes check.
     # If dims list is empty, NvFuser ignores the permute operation.
