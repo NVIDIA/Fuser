@@ -400,19 +400,31 @@ def define_tensor_error_generator(
     )
 
     check_stride_order_duplicate = ErrorSample(
-        {"shape": [-1, -1, -1], "contiguity": [True, True, True], "stride_order": [0, 1, 1]},
+        {
+            "shape": [-1, -1, -1],
+            "contiguity": [True, True, True],
+            "stride_order": [0, 1, 1],
+        },
         "duplicated stride_order entries",
         RuntimeError,
     )
 
     check_stride_order_out_of_range = ErrorSample(
-        {"shape": [-1, -1, -1], "contiguity": [True, True, True], "stride_order": [0, 1, 5]},
+        {
+            "shape": [-1, -1, -1],
+            "contiguity": [True, True, True],
+            "stride_order": [0, 1, 5],
+        },
         "stride_order argument is out of range",
         RuntimeError,
     )
 
     check_stride_order_out_of_negative_range = ErrorSample(
-        {"shape": [-1, -1, -1], "contiguity": [True, True, True], "stride_order": [0, 1, -4]},
+        {
+            "shape": [-1, -1, -1],
+            "contiguity": [True, True, True],
+            "stride_order": [0, 1, -4],
+        },
         "stride_order argument is out of range",
         RuntimeError,
     )
