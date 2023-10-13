@@ -757,11 +757,10 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   // Propagate on definitions
   if (!orig_defs0.empty() && !orig_defs1.empty()) {
     for (const ExprGroup& def_group_1 : orig_defs1) {
-      if (orig_defs0.has(def_group_1)) {
-        continue;
-      }
-
       for (const ExprGroup& def_group_0 : orig_defs0) {
+        if (def_group_0 == def_group_1) {
+          continue;
+        }
         auto def0 = def_group_0->front();
         auto def1 = def_group_1->front();
         maybeMapThroughExprs(def0, def1, false);
