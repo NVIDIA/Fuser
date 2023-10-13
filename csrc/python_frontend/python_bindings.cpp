@@ -242,7 +242,7 @@ computeTensorDescriptor(
     const std::vector<int64_t>& strides) {
   NVF_CHECK(
       sizes.size() == strides.size(),
-      "compute_contiguity: Sizes and strides must have the same number of dimensions");
+      "compute_tensor_descriptor: Sizes and strides must have the same number of dimensions");
   std::vector<DimInfo> dim_info_vec;
   for (auto i : c10::irange(sizes.size())) {
     // NOTE: not supporting negative stride yet.
