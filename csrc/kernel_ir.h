@@ -379,6 +379,10 @@ class MBarrierArrive final : public Expr {
   }
 };
 
+// IR node for: mbarrier.arrive.expect_tx
+// This is usually used to specify the number of bytes that will be
+// transferred for cp.async and cp.async.bulk, so that future mbarrier.wait
+// can wait for the completion of the transfer.
 class MBarrierArriveExpectTx final : public Expr {
  public:
   using Expr::Expr;
