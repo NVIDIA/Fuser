@@ -34,7 +34,7 @@ setup(
             name="nvfuser_extension",
             pkg="nvfuser_extension",
             include_dirs=[nvfuser_csrc_dir, dynamic_type_dir, flatbuffers_dir],
-            libraries=["nvfuser_core"],
+            libraries=["nvfuser_codegen"],
             library_dirs=[nvfuser_lib_dir],
             extra_link_args=[f"-Wl,-rpath,{nvfuser_lib_dir}"],
             sources=["main.cpp"],

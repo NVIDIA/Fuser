@@ -350,7 +350,7 @@ def main():
         # TODO (xwang233): ^^^ agree, +1
         # might can be treated by using `exclude_package_data`.
         nvfuser_package_data = [
-            "lib/libnvfuser_core.so",
+            "lib/libnvfuser_codegen.so",
             "include/nvfuser/*.h",
             "include/nvfuser/struct.inl",
             "include/nvfuser/C++20/type_traits",
