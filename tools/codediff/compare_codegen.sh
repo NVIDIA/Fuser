@@ -206,11 +206,19 @@ cleanup
 
 # Diff produced files and produce report
 set +e  # exit status of diff is 1 if there are any mismatches
-# Note we use nvfuserdir here instead of scriptdir since we should be back on
-# original commit by now
-python "$nvfuserdir/tools/codediff/diff_report.py" \
-    "$outdir/$origcommit" "$outdir/$comparecommit" \
-    -o "$outdir/codediff_${origcommit}_${comparecommit}.html" \
-    --html --hide_diffs
-exit $?
+found_diffs=0
+for d in "$outdir/$origcommit"/*
+do
+    b=$(basename "$d")
+    # Note we use nvfuserdir here instead of scriptdir since we should be back on
+    # original commit by now
+    if ! python "$nvfuserdir/tools/codediff/diff_report.py" \
+        "$outdir/$origcommit/$b" "$outdir/$comparecommit/$b" \
+        -o "$outdir/codediff_${origcommit}_${comparecommit}_${b}.html" \
+        --html --hide_diffs;
+    then
+        found_diffs=1
+    fi
+done
+exit "$found_diffs"
 }
