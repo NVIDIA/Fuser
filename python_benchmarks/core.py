@@ -1,11 +1,11 @@
 import ctypes
 import torch
 from torch.profiler import profile, ProfilerActivity
-from typing import List, Callable, Union
+from typing import List, Callable, Union, Tuple
 from torch.autograd import DeviceType
 
 
-def get_device_properties() -> tuple[int, float]:
+def get_device_properties() -> Tuple[int, float]:
     """
     Computes L2 cache size and peak device bandwidth (GBps) using ctypes and cuda.
     Note: Consider using CUDA-Python when CUDA support >= 12.0.

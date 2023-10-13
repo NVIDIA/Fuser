@@ -1,10 +1,10 @@
 import torch
-from typing import Union, List
+from typing import Union, List, Tuple
 from nvfuser import Datatype
 
 
 # Utility function to generate input sizes for benchmarks
-def generate_input_sizes(dims: Union[int, List] = 2) -> List[tuple]:
+def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
     inputs = []
     if isinstance(dims, int):
         dims = [dims]
