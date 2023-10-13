@@ -483,7 +483,7 @@ struct DimsOpRecord : RecordFunctor {
       dims_.push_back(dim);
     }
     NVF_CHECK(
-        dims_set.size() != dims.size(),
+        dims_set.size() == dims.size(),
         name + " got duplicated dimension entries: " + toDelimitedString(dims));
   }
   ~DimsOpRecord() override = default;
@@ -1145,7 +1145,7 @@ struct TensorRecord : RecordFunctor {
         }
       }
       NVF_CHECK(
-          order_set.size() != stride_order_.size(),
+          order_set.size() == stride_order_.size(),
           "define_tensor got duplicated stride_order entries: " +
               toDelimitedString(stride_order_));
     }
