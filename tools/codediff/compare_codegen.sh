@@ -139,10 +139,10 @@ collect_kernels() {
     commit=$2
 
     # Make sure we are doing a clean rebuild. Otherwise we might get linking error.
-    #python setup.py clean
+    python setup.py clean
 
-    #git -c advice.detachedHead=false checkout "$commit"
-    #git submodule update --init --recursive
+    git -c advice.detachedHead=false checkout "$commit"
+    git submodule update --init --recursive
     currentcommit=$commit
 
     customcmddir=$outdir/$commit/custom_command_$launchtime
@@ -173,7 +173,7 @@ collect_kernels() {
     (
         cd "$nvfuserdir"
         CUSTOM_BUILD_COMMAND="${CUSTOM_BUILD_COMMAND:-python setup.py develop}"
-        #bash -c "${CUSTOM_BUILD_COMMAND}"
+        bash -c "${CUSTOM_BUILD_COMMAND}"
     )
 
     # Make tests reproducible
@@ -183,29 +183,29 @@ collect_kernels() {
 
     mkdir -p "$outdir/$commit"
 
-    if [[ -z $quiet ]]
+    bashcmd=("bash" "$scriptdir/run_command.sh")
+
+    if [[ -n $quiet ]]
     then
-        quietarg=""
-    else
-        quietarg="-q"
+        bashcmd+=("-q")
     fi
 
     if [[ $hascustomcommand ]]
     then
-      bash "$scriptdir/run_command.sh" "$quietarg" -o "$customcmddir" -- "${customcommand[@]}"
+        "${bashcmd[@]}" -o "$customcmddir" -- "${customcommand[@]}"
     else
-      # python tests
-      # Using -s to disable capturing stdout. This is important as it will let us see which tests creates each .cu file
-      bash "$scriptdir/run_command.sh" "$quietarg" -o "$pyopsdir" -- \
-          python -m pytest "$nvfuserdir/python_tests/pytest_ops.py" -n 0 -v -s --color=yes
-      bash "$scriptdir/run_command.sh" "$quietarg" -o "$pyschedopsdir" -- \
-          python -m pytest "$nvfuserdir/python_tests/test_schedule_ops.py" -n 0 -v -s --color=yes
-      bash "$scriptdir/run_command.sh" "$quietarg" -o "$pyfrontenddir" -- \
-          python -m pytest "$nvfuserdir/python_tests/test_python_frontend.py" -n 0 -v -s --color=yes
+        # python tests
+        # Using -s to disable capturing stdout. This is important as it will let us see which tests creates each .cu file
+        "${bashcmd[@]}" -o "$pyopsdir" -- \
+            python -m pytest "$nvfuserdir/python_tests/pytest_ops.py" -n 0 -v -s --color=yes
+        "${bashcmd[@]}" -o "$pyschedopsdir" -- \
+            python -m pytest "$nvfuserdir/python_tests/test_schedule_ops.py" -n 0 -v -s --color=yes
+        "${bashcmd[@]}" -o "$pyfrontenddir" -- \
+            python -m pytest "$nvfuserdir/python_tests/test_python_frontend.py" -n 0 -v -s --color=yes
 
-      # binary tests
-      bash "$scriptdir/run_command.sh" "$quietarg" -o "$binarytestdir" -- \
-          "$nvfuserdir/build/nvfuser_tests" --gtest_color=yes
+        # binary tests
+        "${bashcmd[@]}" -o "$binarytestdir" -- \
+            "$nvfuserdir/build/nvfuser_tests" --gtest_color=yes
     fi
 }
 
