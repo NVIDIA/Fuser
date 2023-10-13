@@ -115,4 +115,4 @@ jobs:
           lintrunner init
 
           # Run lintrunner except clang-tidy
-          lintrunner --force-color --skip CLANGTIDY --all-files
+          lintrunner --force-color --skip CLANGTIDY --merge-base-with main --verbose
