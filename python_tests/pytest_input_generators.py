@@ -971,12 +971,12 @@ def permute_error_generator(
     # If dims list is empty, NvFuser ignores the permute operation.
     yield SampleInput(
         make_arg(input_shape), [0]
-    ), RuntimeError, "The number of dimensions in the tensor input does not match the length of the desired ordering of dimensions"
+    ), RuntimeError, "argument to have the same length as input"
 
     # TODO Add out-of-bounds axes check.
     yield SampleInput(
         make_arg(input_shape), [0, 1, 2, 3, 4]
-    ), RuntimeError, "The number of dimensions in the tensor input does not match the length of the desired ordering of dimensions"
+    ), RuntimeError, "argument to have the same length as input"
 
 
 def reduction_generator(
