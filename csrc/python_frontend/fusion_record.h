@@ -467,24 +467,24 @@ struct DimsOpRecord : RecordFunctor {
     dims_.reserve(rank);
     std::unordered_set<int64_t> dims_set;
     for (auto dim : dims) {
-      dim_set.insert(dim);
+      dims_set.insert(dim);
       if (dim < 0) {
         NVF_CHECK(
             dim >= -rank,
             name + " dims argument is out of range, expects >= -" +
-                string(rank) + ", but got: " + dim);
+                std::string(rank) + ", but got: " + dim);
         dim += rank;
       } else {
         NVF_CHECK(
             dim < rank,
-            name + " dims argument is out of range, expects < " + string(rank) +
+            name + " dims argument is out of range, expects < " + std::string(rank) +
                 ", but got: " + dim);
       }
       dims_.push_back(dim);
     }
     NVF_CHECK(
         dims_set.size() != dims.size(),
-        name + " got duplicated dimension entries" + toDelimitedString(dims));
+        name + " got duplicated dimension entries: " + toDelimitedString(dims));
   }
   ~DimsOpRecord() override = default;
   RecordFunctor* clone() final {
@@ -1134,19 +1134,19 @@ struct TensorRecord : RecordFunctor {
         if (order < 0) {
           NVF_CHECK(
               order >= -rank,
-              name + " dims argument is out of range, expects >= -" +
-                  string(rank) + ", but got: " + order);
+              "define_tensor stride_order argument is out of range, expects >= -" +
+                  std::string(rank) + ", but got: " + order);
           order += rank;
         } else {
           NVF_CHECK(
               order < rank,
-              name + " dims argument is out of range, expects < " +
-                  string(rank) + ", but got: " + order);
+              "define_tensor stride_order argument is out of range, expects < " +
+                  std::string(rank) + ", but got: " + order);
         }
       }
       NVF_CHECK(
-          dims_set.size() != stride_order.size(),
-          name + " got duplicated dimension entries" +
+          dims_set.size() != stride_order_.size(),
+          "define_tensor got duplicated stride_order entries: " +
               toDelimitedString(stride_order_));
     }
   }
