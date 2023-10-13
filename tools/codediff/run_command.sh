@@ -8,7 +8,7 @@
 set -e
 set -o pipefail
 usage() {
-    echo -n "Usage: $0 [-h] [-n <run_name>] [-f <fuser_repo_dir> [-t <command_type>] "
+    echo -n "Usage: $0 [-h] [-q] [-n <run_name>] [-f <fuser_repo_dir> [-t <command_type>] "
     echo "-o <output_directory> -- command to run and arguments"
 
     cat << EOF
@@ -35,9 +35,14 @@ different command type. See diff_report.py (CommandType) for possible types.
 EOF
 
 }
-while getopts "n:o:t:f:h" arg
+while getopts "n:o:t:f:hq" arg
     do
         case $arg in
+            q)
+                # Don't show program output when running. This is useful for CI
+                # which has a 5MB log limit.
+                quiet=1
+                ;;
             n)
                 runname=$OPTARG
                 ;;
@@ -97,8 +102,6 @@ then
         exit 1
     fi
 fi
-
-echo "NVFuser dir: $nvfuserdir"
 
 if [[ -f "$testdir/command" ]]
 then
@@ -160,11 +163,17 @@ ensure_in_list() {
     echo "${l[*]}"
 }
 # ensure some NVFUSER_DUMP options are enabled
-export NVFUSER_DUMP=$(ensure_in_list "$NVFUSER_DUMP" cuda_to_file ptxas_verbose ptx)
+appended_dump=$(ensure_in_list "$NVFUSER_DUMP" cuda_to_file ptxas_verbose ptx)
+export NVFUSER_DUMP=$appended_dump
 
 # Allow command to fail, but record exit code
 set +e
-$testcmd 1> >(tee "$stdoutfile") 2> >(tee "$stderrfile" >&2)
+if [[ -z $quiet ]]
+then
+    $testcmd 1> >(tee "$stdoutfile") 2> >(tee "$stderrfile" >&2)
+else
+    $testcmd 1> "$stdoutfile" 2> "$stderrfile"
+fi
 # See https://unix.stackexchange.com/questions/14270/get-exit-status-of-process-thats-piped-to-another
 echo "${PIPESTATUS[0]}" > "$testdir/exitcode"
 set -e

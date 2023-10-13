@@ -40,7 +40,7 @@ set -e
 set -o pipefail
 
 usage() {
-  echo "Usage: $0 [-h] [-r origin/main] [-o codegen_comparison] [-- custom command to run]"
+  echo "Usage: $0 [-h] [-q] [-r origin/main] [-o codegen_comparison] [-- custom command to run]"
   echo -n "If given, the custom command should only run a single executable. "
   echo "If multiple executables are run, kernel files may be overwritten."
 }
@@ -51,7 +51,7 @@ nvfuserdir="$(dirname "$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")"
 comparetoref=origin/main
 outdir=$nvfuserdir/codegen_comparison
 
-while getopts "r:o:h-" arg
+while getopts "r:o:hq-" arg
 do
   case $arg in
     r)
@@ -59,6 +59,9 @@ do
       ;;
     o)
       outdir=$OPTARG
+      ;;
+    q)
+      quiet=1
       ;;
     h | ?)
       usage
@@ -136,10 +139,10 @@ collect_kernels() {
     commit=$2
 
     # Make sure we are doing a clean rebuild. Otherwise we might get linking error.
-    python setup.py clean
+    #python setup.py clean
 
-    git -c advice.detachedHead=false checkout "$commit"
-    git submodule update --init --recursive
+    #git -c advice.detachedHead=false checkout "$commit"
+    #git submodule update --init --recursive
     currentcommit=$commit
 
     customcmddir=$outdir/$commit/custom_command_$launchtime
@@ -170,7 +173,7 @@ collect_kernels() {
     (
         cd "$nvfuserdir"
         CUSTOM_BUILD_COMMAND="${CUSTOM_BUILD_COMMAND:-python setup.py develop}"
-        bash -c "${CUSTOM_BUILD_COMMAND}"
+        #bash -c "${CUSTOM_BUILD_COMMAND}"
     )
 
     # Make tests reproducible
@@ -180,21 +183,28 @@ collect_kernels() {
 
     mkdir -p "$outdir/$commit"
 
+    if [[ -z $quiet ]]
+    then
+        quietarg=""
+    else
+        quietarg="-q"
+    fi
+
     if [[ $hascustomcommand ]]
     then
-      bash "$scriptdir/run_command.sh" -o "$customcmddir" -- "${customcommand[@]}"
+      bash "$scriptdir/run_command.sh" "$quietarg" -o "$customcmddir" -- "${customcommand[@]}"
     else
       # python tests
       # Using -s to disable capturing stdout. This is important as it will let us see which tests creates each .cu file
-      bash "$scriptdir/run_command.sh" -o "$pyopsdir" -- \
+      bash "$scriptdir/run_command.sh" "$quietarg" -o "$pyopsdir" -- \
           python -m pytest "$nvfuserdir/python_tests/pytest_ops.py" -n 0 -v -s --color=yes
-      bash "$scriptdir/run_command.sh" -o "$pyschedopsdir" -- \
+      bash "$scriptdir/run_command.sh" "$quietarg" -o "$pyschedopsdir" -- \
           python -m pytest "$nvfuserdir/python_tests/test_schedule_ops.py" -n 0 -v -s --color=yes
-      bash "$scriptdir/run_command.sh" -o "$pyfrontenddir" -- \
+      bash "$scriptdir/run_command.sh" "$quietarg" -o "$pyfrontenddir" -- \
           python -m pytest "$nvfuserdir/python_tests/test_python_frontend.py" -n 0 -v -s --color=yes
 
       # binary tests
-      bash "$scriptdir/run_command.sh" -o "$binarytestdir" -- \
+      bash "$scriptdir/run_command.sh" "$quietarg" -o "$binarytestdir" -- \
           "$nvfuserdir/build/nvfuser_tests" --gtest_color=yes
     fi
 }
