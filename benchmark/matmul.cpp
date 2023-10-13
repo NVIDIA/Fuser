@@ -391,9 +391,9 @@ ForAllLayouts(Baseline_test);
 #define SplitKM 128
 #define SplitKN 128
 
-#define SplitKMatmulShapes                                               \
+#define SplitKMatmulShapes                                      \
   ArgsProduct({{SplitKM}, {SplitKN}, {256, 1024, 8192, 65536}}) \
-      ->Unit(benchmark::kMicrosecond)                                    \
+      ->Unit(benchmark::kMicrosecond)                           \
       ->UseManualTime();
 
 #define NvFuserScheduler_4warp3stage_splitk_test(                   \
