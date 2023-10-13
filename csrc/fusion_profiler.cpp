@@ -20,183 +20,82 @@ namespace {
 #define ALIGN_BUFFER(buffer, align)                                                 \
   (((uintptr_t) (buffer) & ((align)-1)) ? ((buffer) + (align) - ((uintptr_t) (buffer) & ((align)-1))) : (buffer))
 
-const char *
-GetActivityKindString(
-    CUpti_ActivityKind activityKind)
-{
-    switch (activityKind)
-    {
-        case CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL:
-            return "CONCURRENT_KERNEL";
-        case CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION:
-            return "EXTERNAL_CORRELATION";
-        case CUPTI_ACTIVITY_KIND_DRIVER:
-            return "DRIVER";
-        default:
-            return "<unknown>";
-    }
+const char* GetName(const char *pName) {
+  if (pName == nullptr) {
+    return "<null>";
+  }
+  int status = 0;
+  return abi::__cxa_demangle(pName, nullptr, nullptr, &status);
 }
 
-const char *
-GetName(
-    const char *pName)
-{
-    if (pName == NULL)
-    {
-        return "<null>";
-    }
-    int status = 0;
-    return abi::__cxa_demangle(pName, 0, 0, &status);
-    //return cppDemange(pName);
-}
-
-const char *
-GetChannelType(
-    CUpti_ChannelType channelType)
-{
-    switch (channelType)
-    {
-        case CUPTI_CHANNEL_TYPE_INVALID:
-            return "INVALID";
-        case CUPTI_CHANNEL_TYPE_COMPUTE:
-            return "COMPUTE";
-        case CUPTI_CHANNEL_TYPE_ASYNC_MEMCPY:
-            return "ASYNC_MEMCPY";
-        default:
-            return "<unknown>";
-    }
-}
-
-const char *
-GetExternalCorrelationKindString(
-    CUpti_ExternalCorrelationKind externalCorrelationKind)
-{
-    switch (externalCorrelationKind)
-    {
-        case CUPTI_EXTERNAL_CORRELATION_KIND_INVALID:
-            return "INVALID";
-        case CUPTI_EXTERNAL_CORRELATION_KIND_UNKNOWN:
-            return "UNKNOWN";
-        case CUPTI_EXTERNAL_CORRELATION_KIND_OPENACC:
-            return "OPENACC";
-        case CUPTI_EXTERNAL_CORRELATION_KIND_CUSTOM0:
-            return "CUSTOM0";
-        case CUPTI_EXTERNAL_CORRELATION_KIND_CUSTOM1:
-            return "CUSTOM1";
-        case CUPTI_EXTERNAL_CORRELATION_KIND_CUSTOM2:
-            return "CUSTOM2";
-        default:
-            return "<unknown>";
-    }
-}
-
-void
-PrintActivity(
-    CUpti_Activity *pRecord,
-    FILE *pFileHandle)
-{
+void PrintActivity(CUpti_Activity *pRecord, FILE *pFileHandle) {
   CUpti_ActivityKind activityKind = pRecord->kind;
 
-    switch (activityKind)
+  switch (activityKind) {
+    case CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL:
     {
-        case CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL:
-        {
-            CUpti_ActivityKernel8 *pKernelRecord = (CUpti_ActivityKernel8 *)pRecord;
+      CUpti_ActivityKernel8 *pKernelRecord = (CUpti_ActivityKernel8 *)pRecord;
 
-            fprintf(pFileHandle, "%s [ %llu, %llu ] duration %f ms, \"%s\", correlationId %u\n"
-                    "\tgrid [ %u, %u, %u ], block [ %u, %u, %u ], cluster [ %u, %u, %u ], sharedMemory (static %u, dynamic %u)\n"
-                    "\tdeviceId %u, contextId %u, streamId %u, graphId %u, graphNodeId %llu, channelId %u, channelType %s\n",
-                    GetActivityKindString(pKernelRecord->kind),
-                    (unsigned long long)pKernelRecord->start,
-                    (unsigned long long)pKernelRecord->end,
-                    //(unsigned long long)(pKernelRecord->end - pKernelRecord->start) / 1000000.0,
-                    (pKernelRecord->end - pKernelRecord->start) / 1000000.0,
-                    GetName(pKernelRecord->name),
-                    pKernelRecord->correlationId,
-                    pKernelRecord->gridX,
-                    pKernelRecord->gridY,
-                    pKernelRecord->gridZ,
-                    pKernelRecord->blockX,
-                    pKernelRecord->blockY,
-                    pKernelRecord->blockZ,
-                    pKernelRecord->clusterX,
-                    pKernelRecord->clusterY,
-                    pKernelRecord->clusterZ,
-                    pKernelRecord->staticSharedMemory,
-                    pKernelRecord->dynamicSharedMemory,
-                    pKernelRecord->deviceId,
-                    pKernelRecord->contextId,
-                    pKernelRecord->streamId,
-                    pKernelRecord->graphId,
-                    (unsigned long long)pKernelRecord->graphNodeId,
-                    pKernelRecord->channelID,
-                    GetChannelType(pKernelRecord->channelType));
+      KernelProfile profile;
+      profile.name.assign(pKernelRecord->name);
+      profile.device = pKernelRecord->deviceId;
+      profile.stream = pKernelRecord->streamId;
+      profile.correlation_id = pKernelRecord->correlationId;
+      profile.time_ms = static_cast<double>(pKernelRecord->end - pKernelRecord->start) / 1000000.0; 
+      profile.grid_x = pKernelRecord->gridX;
+      profile.grid_y = pKernelRecord->gridY;
+      profile.grid_z = pKernelRecord->gridZ;
+      profile.block_x = pKernelRecord->blockX;
+      profile.block_y = pKernelRecord->blockY;
+      profile.block_z = pKernelRecord->blockZ;
+      profile.cluster_x = pKernelRecord->clusterX;
+      profile.cluster_y = pKernelRecord->clusterY;
+      profile.cluster_z = pKernelRecord->clusterZ;
+      profile.dynamic_shared_mem = pKernelRecord->dynamicSharedMemory;
+      profile.static_shared_mem = pKernelRecord->staticSharedMemory;
+      profile.registers = pKernelRecord->registersPerThread;
 
-            break;
-        }
-        case CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION:
-        {
-            CUpti_ActivityExternalCorrelation *pExternalCorrelationRecord = (CUpti_ActivityExternalCorrelation *)pRecord;
+      Profiler::recordAsyncKernelActivity(pKernelRecord->deviceId, pKernelRecord->correlationId, std::move(profile));
 
-            fprintf(pFileHandle, "%s externalKind %s, correlationId %llu, externalId %llu\n",
-                    GetActivityKindString(pExternalCorrelationRecord->kind),
-                    GetExternalCorrelationKindString(pExternalCorrelationRecord->externalKind),
-                    (long long unsigned)pExternalCorrelationRecord->correlationId,
-                    (long long unsigned)pExternalCorrelationRecord->externalId);
-
-            break;
-        }
-        case CUPTI_ACTIVITY_KIND_DRIVER:
-        {
-            /*CUpti_ActivityAPI *pApiRecord = (CUpti_ActivityAPI *)pRecord;
-            const char* pName = NULL;
-
-            cuptiGetCallbackName(CUPTI_CB_DOMAIN_DRIVER_API, pApiRecord->cbid, &pName);
-
-            fprintf(pFileHandle, "%s [ %llu, %llu ] duration %llu, \"%s\", cbid %u, processId %u, threadId %u, correlationId %u\n",
-                    GetActivityKindString(pApiRecord->kind),
-                    (unsigned long long)pApiRecord->start,
-                    (unsigned long long)pApiRecord->end,
-                    (unsigned long long)(pApiRecord->end - pApiRecord->start),
-                    GetName(pName),
-                    pApiRecord->cbid,
-                    pApiRecord->processId,
-                    pApiRecord->threadId,
-                    pApiRecord->correlationId);
-            */
-            break;
-        }
-        default:
-            fprintf(pFileHandle, "  <unknown>\n");
-            break;
+      break;
     }
+    case CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION:
+    {
+      CUpti_ActivityExternalCorrelation *pExternalCorrelationRecord = (CUpti_ActivityExternalCorrelation *)pRecord;
+      Profiler::recordAsyncCorrIdActivity(pExternalCorrelationRecord->externalId, pExternalCorrelationRecord->correlationId);
+      break;
+    }
+    case CUPTI_ACTIVITY_KIND_DRIVER:
+      break;
+    default:
+      fprintf(pFileHandle, "  <unknown>\n");
+      break;
+  }
 }
 
-void
-PrintActivityBuffer(
+void PrintActivityBuffer(
     uint8_t *pBuffer,
     size_t validBytes,
     FILE *pFileHandle,
-    void *pUserData)
-{
-    CUpti_Activity *pRecord = NULL;
-    CUptiResult status = CUPTI_SUCCESS;
+    void *pUserData) {
+  CUpti_Activity *pRecord = nullptr;
+  CUptiResult status = CUPTI_SUCCESS;
 
-    do {
-      status = cuptiActivityGetNextRecord(pBuffer, validBytes, &pRecord);
-      if (status == CUPTI_SUCCESS) {
-        std::cout << "\nKernel Profile Success!" << std::endl;
-        PrintActivity(pRecord, stdout);
-      }
-      else if (status == CUPTI_ERROR_MAX_LIMIT_REACHED) {
-        std::cout << "\nKernel Profile Max Limit Reached!" << std::endl;
-         break;
-      }
-      else {
-        std::cout << "\nKernel Profile Error?" << std::endl;
-        NVFUSER_CUPTI_SAFE_CALL(status);
-      }
-    } while (1);
+  do {
+    status = cuptiActivityGetNextRecord(pBuffer, validBytes, &pRecord);
+    if (status == CUPTI_SUCCESS) {
+      std::cout << "\nKernel Profile Success!" << std::endl;
+      PrintActivity(pRecord, stdout);
+    }
+    else if (status == CUPTI_ERROR_MAX_LIMIT_REACHED) {
+      std::cout << "\nKernel Profile Max Limit Reached!" << std::endl;
+       break;
+    }
+    else {
+      std::cout << "\nKernel Profile Error?" << std::endl;
+      NVFUSER_CUPTI_SAFE_CALL(status);
+    }
+  } while (true);
 }
 
 void buffer_requested(
@@ -372,7 +271,7 @@ Profiler* Profiler::singleton_ = nullptr;
 Profiler::Profiler(size_t devices) :
   fusion_profilers_() {}
 
-FusionProfiler& Profiler::get(size_t device) {
+FusionProfiler& Profiler::getProfiler(size_t device) {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ == nullptr) {
     singleton_ = new Profiler(device + 1);
@@ -385,9 +284,9 @@ FusionProfiler& Profiler::get(size_t device) {
   return singleton_->fusion_profilers_.at(device);
 }
 
-FusionProfiler& Profiler::get(std::optional<int8_t> device) {
+FusionProfiler& Profiler::getProfiler(std::optional<int8_t> device) {
   int selected_device = device.has_value() ? static_cast<int>(device.value()) : 0;
-  return get(selected_device);
+  return getProfiler(selected_device);
 }
 
 void FusionProfiler::start() {
@@ -411,7 +310,7 @@ SegmentProfiler& FusionProfiler::segment(size_t idx) {
 
 DeviceDescriptor::DeviceDescriptor(size_t _device) :
     device(static_cast<int>(_device)),
-    name(),
+    name("NVIDIA Graphics Device"),
     bus_width(0),
     memory_clock(0),
     peak_bandwidth(0.0) {
@@ -432,6 +331,8 @@ DeviceDescriptor::DeviceDescriptor(size_t _device) :
     // (clock in kHz * width in bits) * (1000 Hz / kHz) * (1 GB / 8e9 bits) * 2
     // factor = 2.5e-7
    peak_bandwidth = 2.5e-7 * (double)memory_clock * (double)bus_width;
+
+  std::cout << "\n" << device << " " << name << " " << bus_width << " " << memory_clock << " " << peak_bandwidth << std::endl;
 }
 
 FusionProfiler::FusionProfiler(size_t device) :

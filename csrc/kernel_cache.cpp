@@ -1009,10 +1009,10 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   }
 
  
-  FUSION_PROFILER_SEGMENT_START_KERNEL(args.getDeviceIndex(), group_id)
+  SEGMENT_PROFILER_START_KERNEL(args.getDeviceIndex(), group_id)
   auto outputs = executor.runFusion(args, launch_params, compile_params);
-  FUSION_PROFILER_SEGMENT_STOP_KERNEL(args.getDeviceIndex(), group_id)
-  FUSION_PROFILER_SEGMENT_BYTES_ACCESSED(args.getDeviceIndex(), group_id, executor.inputBytesProcessed(), executor.outputBytesProcessed());
+  SEGMENT_PROFILER_STOP_KERNEL(args.getDeviceIndex(), group_id)
+  SEGMENT_PROFILER_BYTES_ACCESSED(args.getDeviceIndex(), group_id, executor.inputBytesProcessed(), executor.outputBytesProcessed());
   
   // Accumulate the kernel time of each segment
   kernel_time_ms_ += executor.kernelTimeMs();
@@ -1187,13 +1187,13 @@ void FusionKernelRuntime::compileKernel(
   NVF_ERROR(
       scheduler_entry->params()->cparams.index_type.has_value(),
       "Kernel index type is not defined.");
-  FUSION_PROFILER_SEGMENT_START_COMPILE(args.getDeviceIndex(), group_id);
+  SEGMENT_PROFILER_START_COMPILE(args.getDeviceIndex(), group_id);
   executors_.at(group_id).compileFusion(
       fusion_to_run.get(),
       args,
       scheduler_entry->params()->lparams,
       scheduler_entry->params()->cparams);
-  FUSION_PROFILER_SEGMENT_STOP_COMPILE(args.getDeviceIndex(), group_id);
+  SEGMENT_PROFILER_STOP_COMPILE(args.getDeviceIndex(), group_id);
 }
 
 std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(

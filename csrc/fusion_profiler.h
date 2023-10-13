@@ -6,6 +6,8 @@
  */
 // clang-format on
 
+#include <unordered_map>
+
 #include <c10/cuda/CUDAStream.h>
 #include <cuda_runtime.h>
 #include <cuda_utils.h>
@@ -43,9 +45,30 @@ class CudaEventTimer {
   ProfilerState state_;
 };
 
-/*struct KernelProfile {
-  float kernel_time;
-};*/
+struct KernelProfile {
+  std::string name;
+  uint32_t device = 0;
+  uint32_t stream = 0;
+  uint32_t correlation_id = 0;
+
+  double time_ms;
+
+  int32_t grid_x = 1;
+  int32_t grid_y = 1;
+  int32_t grid_z = 1;
+
+  int32_t block_x = 1;
+  int32_t block_y = 1;
+  int32_t block_z = 1;
+
+  uint32_t cluster_x = 1;
+  uint32_t cluster_y = 1;
+  uint32_t cluster_z = 1;
+
+  int32_t dynamic_shared_mem = 0;
+  int32_t static_shared_mem = 0;
+  uint32_t registers = 0;
+};
 
 class SegmentProfiler {
  public:
@@ -121,13 +144,23 @@ class FusionProfiler {
   FusionProfile profile_;
   CudaEventTimer fusion_timer_;
   std::vector<SegmentProfiler> segments_;
+  std::unordered_map<uint32_t, KernelProfile> corrid_2_kernel_profile_;
 };
 
 // Singleton
 class Profiler : public NonCopyable {
  public:
-  static FusionProfiler& get(size_t device);
-  static FusionProfiler& get(std::optional<int8_t> device);
+  static FusionProfiler& getProfiler(size_t device);
+  static FusionProfiler& getProfiler(std::optional<int8_t> device);
+ 
+  // Static Methods to capture Asynchronous CUPTI activity
+  // Collects CUPTI activity to map Profiler Id -> CUPTI Correlation Id
+  // Segment ID -> Correlation ID
+  static void recordAsyncCorrIdActivity(uint32_t seg_id, uint32_t corr_id);
+  // Collects CUPTI Kernel Activity
+  // Segment ID -> KernelProfile
+  static void recordAsyncKernelActivity(
+      size_t device, uint32_t corr_id, KernelProfile profile);
 
  private:
   Profiler(size_t devices);
@@ -137,6 +170,7 @@ class Profiler : public NonCopyable {
   static std::mutex singleton_lock_;
 
   std::vector<FusionProfiler> fusion_profilers_;
+  std::unordered_map<uint32_t, uint32_t> segid_2_corrid_;
 };
 
 #define _FP_ENABLE(code) \
@@ -144,26 +178,26 @@ class Profiler : public NonCopyable {
       || isOptionEnabled(EnableOption::FusionProfiler)) { \
     code; \
   }
-// Fusion Level Profiling Macros
+// Fusion Profiling Macros
 #define FUSION_PROFILER_START_PROFILE(device) \
-  _FP_ENABLE(Profiler::get(device).start())
+  _FP_ENABLE(Profiler::getProfiler(device).start())
 #define FUSION_PROFILER_STOP_PROFILE(device) \
-  _FP_ENABLE(Profiler::get(device).stop())
+  _FP_ENABLE(Profiler::getProfiler(device).stop())
 #define FUSION_PROFILER_CREATE_SEGMENTS(device, segments) \
-  _FP_ENABLE(Profiler::get(device).createSegments(segments))
+  _FP_ENABLE(Profiler::getProfiler(device).createSegments(segments))
 #define FUSION_PROFILER_BYTES_ACCESSED(device, inputs, outputs) \
-  _FP_ENABLE(Profiler::get(device).bytesAcccessed(inputs, outputs))
-// Fusion Segment Profiling Macros
+  _FP_ENABLE(Profiler::getProfiler(device).bytesAcccessed(inputs, outputs))
 
-#define FUSION_PROFILER_SEGMENT_START_COMPILE(device, idx) \
-  _FP_ENABLE(Profiler::get(device).segment(idx).startCompile())
-#define FUSION_PROFILER_SEGMENT_STOP_COMPILE(device, idx) \
-  _FP_ENABLE(Profiler::get(device).segment(idx).stopCompile())
-#define FUSION_PROFILER_SEGMENT_START_KERNEL(device, idx) \
-  _FP_ENABLE(Profiler::get(device).segment(idx).startKernel())
-#define FUSION_PROFILER_SEGMENT_STOP_KERNEL(device, idx) \
-  _FP_ENABLE(Profiler::get(device).segment(idx).stopKernel())
-#define FUSION_PROFILER_SEGMENT_BYTES_ACCESSED(device, idx, inputs, outputs) \
-  _FP_ENABLE(Profiler::get(device).segment(idx).bytesAccessed(inputs, outputs))
+// Segment Profiling Macros
+#define SEGMENT_PROFILER_START_COMPILE(device, idx) \
+  _FP_ENABLE(Profiler::getProfiler(device).segment(idx).startCompile())
+#define SEGMENT_PROFILER_STOP_COMPILE(device, idx) \
+  _FP_ENABLE(Profiler::getProfiler(device).segment(idx).stopCompile())
+#define SEGMENT_PROFILER_START_KERNEL(device, idx) \
+  _FP_ENABLE(Profiler::getProfiler(device).segment(idx).startKernel())
+#define SEGMENT_PROFILER_STOP_KERNEL(device, idx) \
+  _FP_ENABLE(Profiler::getProfiler(device).segment(idx).stopKernel())
+#define SEGMENT_PROFILER_BYTES_ACCESSED(device, idx, inputs, outputs) \
+  _FP_ENABLE(Profiler::getProfiler(device).segment(idx).bytesAccessed(inputs, outputs))
 
 } // namespace nvfuser
