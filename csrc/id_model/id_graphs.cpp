@@ -1737,15 +1737,15 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
       if (iel_promo_it == iel_promotion_map.end()) {
         // If this terminal ID doesn't have a promotion associated with it, save
         // the terminal ID.
-        exact_promoted_terminal_ids.emplace_back(std::make_pair(
-            idGraph(IdMappingMode::EXACT).toGroup(loop_id), loop_id));
+        exact_promoted_terminal_ids.emplace_back(
+            idGraph(IdMappingMode::EXACT).toGroup(loop_id), loop_id);
         VERBOSE() << "No promotion; map to terminal. " << loop_id->name()
                   << std::endl;
       } else {
         // If this terminal ID has a promotion, grab the promoted ID.
-        exact_promoted_terminal_ids.emplace_back(std::make_pair(
+        exact_promoted_terminal_ids.emplace_back(
             idGraph(IdMappingMode::EXACT).toGroup(iel_promo_it->second),
-            iel_promo_it->second));
+            iel_promo_it->second);
         VERBOSE() << "Exact promoted; " << loop_id->name() << " -> "
                   << iel_promo_it->second->name() << std::endl;
       }
