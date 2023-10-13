@@ -330,8 +330,8 @@ def define_tensor_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
     yield SampleInput(shape=[-1], contiguity=[True])
-    yield SampleInput(shape=[-1, -1], contiguity=[True], stride_order=[0, 1])
-    yield SampleInput(shape=[-1, -1], contiguity=[True], stride_order=[-1, -2])
+    yield SampleInput(shape=[-1, -1], contiguity=[True, True], stride_order=[0, 1])
+    yield SampleInput(shape=[-1, -1], contiguity=[True, True], stride_order=[-1, -2])
 
 
 def define_tensor_error_generator(
@@ -401,19 +401,19 @@ def define_tensor_error_generator(
 
     check_stride_order_duplicate = ErrorSample(
         {"shape": [-1, -1, -1], "contiguity": [True, True, True], "stride_order": [0, 1, 1]},
-        "define_tensor(): incompatible function arguments.",
+        "duplicated stride_order entries",
         RuntimeError,
     )
 
     check_stride_order_out_of_range = ErrorSample(
         {"shape": [-1, -1, -1], "contiguity": [True, True, True], "stride_order": [0, 1, 5]},
-        "define_tensor(): incompatible function arguments.",
+        "stride_order argument is out of range",
         RuntimeError,
     )
 
     check_stride_order_out_of_negative_range = ErrorSample(
         {"shape": [-1, -1, -1], "contiguity": [True, True, True], "stride_order": [0, 1, -4]},
-        "define_tensor(): incompatible function arguments.",
+        "stride_order argument is out of range",
         RuntimeError,
     )
 
