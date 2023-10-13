@@ -158,6 +158,13 @@ class IndexLowering : private OptOutConstDispatch {
   // fused reduction.
   void allocateUniqueFusedReduction(Expr* expr, TensorView* out_tv);
 
+  //! Get index of producer_tv as if broadcast_id had Iteration type instead of
+  //! Broadcast
+  Val* getIterationIndexForBroadcast(
+      TensorView* producer_tv,
+      TensorView* consumer_tv,
+      IterDomain* broadcast_id) const;
+
  private:
   std::vector<Expr*> lowered_exprs_;
 

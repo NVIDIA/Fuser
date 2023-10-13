@@ -838,7 +838,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
     const TensorView* consumer_tv,
     const TensorView* producer_tv,
     bool is_global,
-    std::unordered_map<IterDomain*, IterDomain*> c2p_map) {
+    const std::unordered_map<IterDomain*, IterDomain*>& c2p_map) {
   bool index_producer = producer_tv != nullptr;
   auto target_tv = index_producer ? producer_tv : consumer_tv;
 
