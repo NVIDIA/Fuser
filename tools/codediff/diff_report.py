@@ -179,10 +179,7 @@ class CompiledKernel:
                 self.launch_params = lp
             else:
                 if lp != self.launch_params:
-                    print(
-                        "WARNING: Found multiple mismatched launch params for one kernel. Only using first",
-                        file=sys.stderr,
-                    )
+                    # Found multiple mismatched launch params for one kernel. Only using first
                     return
 
 
@@ -374,6 +371,53 @@ class LogParserGBench(LogParser):
         return False
 
 
+class LogParserPyTest(LogParser):
+    """Parse output of pytest tests.
+
+    Note that the tests must be run with both the -v and -s options
+    """
+
+    def compile_regex(self):
+        super().compile_regex()
+
+        self.all_test_names: list[str] | None = None
+
+    def parse_line(self, line):
+        if self.all_test_names is None:
+            m = re.match(r"Running \d+ items in this shard: (.*)$", line)
+            if m is not None:
+                # grab the test list
+                self.all_test_names = m.groups()[0].split(", ")
+                return True
+
+        if self.all_test_names is not None:
+            # Try to match a line like this:
+            #
+            #   python_tests/test_python_frontend.py::TestNvFuserFrontend::test_pad_expanded_empty PRINTING: __tmp_kernel5.cu
+            #
+            # The first column is the test name, which should not have spaces.
+            # After that is an ordinary line of STDOUT. In these cases we should
+            # mark the beginning of a new test, and process the remainder of the
+            # line as a separate line.
+            testrest = line.split(maxsplit=1)
+            if len(testrest) > 0 and testrest[0] in self.all_test_names:
+                self.current_test = testrest[0]
+                if len(testrest) > 1:
+                    line = testrest[1]
+                else:
+                    return True
+
+        if line == "PASSED":
+            self.finalize_test(True)
+        elif line == "FAILED" and self.current_test is not None:
+            self.finalize_test(False)
+
+        if super().parse_line(line):
+            return True
+
+        return False
+
+
 @dataclass
 class TestRun:
     """A single process that might contain many kernels, grouped into tests"""
@@ -476,6 +520,8 @@ class TestRun:
             parser = LogParserGTest(logfile)
         elif self.command_type == CommandType.GOOGLEBENCH:
             parser = LogParserGBench(logfile)
+        elif self.command_type == CommandType.PYTEST:
+            parser = LogParserPyTest(logfile)
         else:
             # The base class provides a parser that groups everything into a
             # single "test" called "Ungrouped Kernels"
