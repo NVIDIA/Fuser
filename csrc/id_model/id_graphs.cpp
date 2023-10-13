@@ -721,17 +721,13 @@ void IterDomainGraphs::buildPermissiveMap(const std::vector<Expr*>& exprs) {
                   << entry.second->name() << std::endl;
       }
 
-      if (!getenv("NO_MAP_COMPLIMENT")) {
-        // TODO: Should this just get rolled up in the forwarding map now?
-        // TODO: Why should IDs be mapped to their compliments? Is this right?
-        for (const auto& entry :
-             permissive_forwarding.producer_compliment_map) {
-          for (auto entry_2 : entry.second) {
-            idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry_2);
-            VERBOSE() << "Permissive map producer compliment: "
-                      << entry.first->name() << ", " << entry_2->name()
-                      << std::endl;
-          }
+      // TODO: Should this just get rolled up in the forwarding map now?
+      for (const auto& entry : permissive_forwarding.producer_compliment_map) {
+        for (auto entry_2 : entry.second) {
+          idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry_2);
+          VERBOSE() << "Permissive map producer compliment: "
+                    << entry.first->name() << ", " << entry_2->name()
+                    << std::endl;
         }
       }
 
@@ -741,17 +737,13 @@ void IterDomainGraphs::buildPermissiveMap(const std::vector<Expr*>& exprs) {
                   << entry.second->name() << std::endl;
       }
 
-      if (!getenv("NO_MAP_COMPLIMENT")) {
-        // TODO: Should this just get rolled up in the forwarding map now?
-        // TODO: Why should IDs be mapped to their compliments? Is this right?
-        for (const auto& entry :
-             permissive_forwarding.consumer_compliment_map) {
-          for (auto entry_2 : entry.second) {
-            idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry_2);
-            VERBOSE() << "Permissive map consumer compliment: "
-                      << entry.first->name() << ", " << entry_2->name()
-                      << std::endl;
-          }
+      // TODO: Should this just get rolled up in the forwarding map now?
+      for (const auto& entry : permissive_forwarding.consumer_compliment_map) {
+        for (auto entry_2 : entry.second) {
+          idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry_2);
+          VERBOSE() << "Permissive map consumer compliment: "
+                    << entry.first->name() << ", " << entry_2->name()
+                    << std::endl;
         }
       }
 
@@ -1228,9 +1220,7 @@ void IterDomainGraphs::initializeLoopMap(StatefulLoweringInfo& info) {
           }
           // TODO-NM: Now that compliments are mapped, I don't think
           // this would hit:
-          if (!getenv("NO_MAP_COMPLIMENT")) {
-            NVF_ERROR(false);
-          }
+          NVF_ERROR(false);
           VERBOSE() << "Back-prop loop map: " << id_i->name() << ", "
                     << id_j->name() << std::endl;
           loop_graph.mapIds(id_i, id_j);
