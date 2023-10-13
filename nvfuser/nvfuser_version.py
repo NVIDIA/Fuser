@@ -24,7 +24,7 @@ class _LazyImport:
     def __init__(self, cls_name: str) -> None:
         self._cls_name = cls_name
 
-    def get_cls(self):
+    def get_cls(self) -> Any:
         try:
             import packaging.version  # type: ignore[import]
         except ImportError:
