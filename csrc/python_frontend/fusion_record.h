@@ -1530,32 +1530,21 @@ struct ReductionOpRecord : RecordFunctor {
         result = result &&
             (*fusion_op_.template target<
 
-                 TensorView* (*)(TensorView*,
-                                 const std::vector<int>&,
-                                 bool,
-                                 DataType)>() ==
+                 TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>() ==
              *child_ptr->fusion_op_.template target<
 
-                 TensorView* (*)(TensorView*,
-                                 const std::vector<int>&,
-                                 bool,
-                                 DataType)>());
+                 TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-          debug() << " Target  Ptr [self: 0x" << std::hex
-                  << (size_t)*fusion_op_.template target<
+          debug()
+              << " Target  Ptr [self: 0x" << std::hex
+              << (size_t)*fusion_op_.template target<
 
-                         TensorView* (*)(TensorView*,
-                                         const std::vector<int>&,
-                                         bool,
-                                         DataType)>()
-                  << "] [other: 0x" << std::hex
-                  << (size_t)*child_ptr->fusion_op_.template target<
+                     TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>()
+              << "] [other: 0x" << std::hex
+              << (size_t)*child_ptr->fusion_op_.template target<
 
-                         TensorView* (*)(TensorView*,
-                                         const std::vector<int>&,
-                                         bool,
-                                         DataType)>()
-                  << "]\n";
+                     TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>()
+              << "]\n";
         }
         result = result && (keep_dim_ == child_ptr->keep_dim_);
         result = result && (dtype_ == child_ptr->dtype_);
