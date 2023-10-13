@@ -1647,7 +1647,7 @@ class TestNvFuserFrontend(TestCase):
 
     def test_pad(self):
         inputs = [
-            torch.testing.make_tensor((2, 3), dtype=torch.float32, device="cuda"),
+            torch.testing.make_tensor((1, 2, 3), dtype=torch.float32, device="cuda"),
         ]
 
         def fusion_func(fd: FusionDefinition):
@@ -1673,6 +1673,10 @@ class TestNvFuserFrontend(TestCase):
             t5 = fd.ops.pad(t0, [2, 3], fill_val)
             fd.add_output(t5)
 
+            # pad a broadcast dimension with a value other than 0
+            t6 = fd.ops.pad(t0, [2, 3, 0, 0, 0, 0])
+            fd.add_output(t6)
+
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
         self.assertEqual(F.pad(inputs[0], [1, 1, 1, 1]), nvf_out[0])
@@ -1680,6 +1684,7 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(F.pad(inputs[0], [0, 0, 0, 0]), nvf_out[2])
         self.assertEqual(F.pad(inputs[0], [2, 3]), nvf_out[3])
         self.assertEqual(F.pad(inputs[0], [2, 3], "constant", 2.0), nvf_out[4])
+        self.assertEqual(F.pad(inputs[0], [2, 3, 0, 0, 0, 0]), nvf_out[5])
 
     def test_pad_cache(self):
         """Test that using different pad widths causes a cache miss.
