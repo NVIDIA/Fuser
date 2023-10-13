@@ -59,11 +59,11 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
       properties->warpSize * vector_word;
   const int mk = gemm_tile.cta_tile.m * gemm_tile.cta_tile.k;
   const int nk = gemm_tile.cta_tile.n * gemm_tile.cta_tile.k;
-  const size_t smem_a = (size_t)(ceilDiv(mk, round_to_factor) *
-                                 round_to_factor * smem_double_buffer_stage) *
+  const size_t smem_a =
+      (size_t)(ceilDiv(mk, round_to_factor) * round_to_factor * smem_double_buffer_stage) *
       dataTypeSize(data_types[0]);
-  const size_t smem_b = (size_t)(ceilDiv(nk, round_to_factor) *
-                                 round_to_factor * smem_double_buffer_stage) *
+  const size_t smem_b =
+      (size_t)(ceilDiv(nk, round_to_factor) * round_to_factor * smem_double_buffer_stage) *
       dataTypeSize(data_types[1]);
   const size_t smem_c = (size_t)(gemm_tile.cta_tile.m * gemm_tile.cta_tile.n) *
       dataTypeSize(data_types[2]);
