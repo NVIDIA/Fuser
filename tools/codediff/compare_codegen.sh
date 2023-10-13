@@ -51,7 +51,7 @@ nvfuserdir="$(dirname "$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")"
 comparetoref=origin/main
 outdir=$nvfuserdir/codegen_comparison
 
-while getopts "r:o:hq-" arg
+while getopts "r:o:hq" arg
 do
   case $arg in
     r)
