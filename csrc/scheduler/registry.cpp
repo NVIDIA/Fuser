@@ -26,7 +26,11 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     : complete_fusion_(complete_fusion) {
   NVF_ERROR(
       complete_fusion_->inputs().size() == args.size(),
-      "Invalid number of arguments passed in for provided fusion group.");
+      "The provided fusion group expects ",
+      complete_fusion_->inputs().size(),
+      " arguments, but ",
+      args.size(),
+      " arguments were passed in.");
 
   expression_evaluator_ = getExpressionEvaluator(args, precomputed_values);
 
