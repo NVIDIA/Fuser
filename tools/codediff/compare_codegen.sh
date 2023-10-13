@@ -183,7 +183,7 @@ collect_kernels() {
 
     mkdir -p "$outdir/$commit"
 
-    bashcmd=("bash" "$scriptdir/run_command.sh")
+    bashcmd=("bash" "$scriptdir/run_command.sh" "-f" "$nvfuserdir")
 
     if [[ -n $quiet ]]
     then

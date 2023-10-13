@@ -172,6 +172,7 @@ if [[ -z $quiet ]]
 then
     $testcmd 1> >(tee "$stdoutfile") 2> >(tee "$stderrfile" >&2)
 else
+    echo "Running: $testcmd"
     $testcmd 1> "$stdoutfile" 2> "$stderrfile"
 fi
 # See https://unix.stackexchange.com/questions/14270/get-exit-status-of-process-thats-piped-to-another
