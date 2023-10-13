@@ -210,7 +210,7 @@ if(BUILD_PYTHON)
   )
 endif()
 
-set(NVFUSER_CODEGEN ${PROJECT_NAME}_core)
+set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
 add_library(${NVFUSER_CODEGEN} SHARED ${NVFUSER_SRCS})
 target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Wall -Wno-unused-function)
 target_compile_options(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
