@@ -163,7 +163,7 @@ NVFUSER_BENCHMARK_DEFINE(
 void addReduction16Waves128To32K(benchmark::internal::Benchmark* b) {
   const auto properties = at::cuda::getCurrentDeviceProperties();
   int batch_size = 16 * properties->multiProcessorCount;
-  for (auto hidden_size = 1024; hidden_size <= 4096; hidden_size += 32) {
+  for (auto hidden_size = 2112; hidden_size <= 8192; hidden_size += 64) {
     b->Args({hidden_size, batch_size});
   }
 }
