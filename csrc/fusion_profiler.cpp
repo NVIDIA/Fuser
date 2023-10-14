@@ -49,14 +49,14 @@ void PrintActivity(CUpti_Activity *pRecord, FILE *pFileHandle) {
       prof.static_shared_mem = pKARecord->staticSharedMemory;
       prof.registers = pKARecord->registersPerThread;
 
-      Profiler::recordAsyncKernelActivity(pKARecord->deviceId, pKARecord->correlationId, std::move(prof));
+      FusionProfiler::recordAsyncKernelActivity(pKARecord->correlationId, std::move(prof));
 
       break;
     }
     case CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION:
     {
       CUpti_ActivityExternalCorrelation *pExternalCorrelationRecord = (CUpti_ActivityExternalCorrelation *)pRecord;
-      Profiler::recordAsyncCorrIdActivity(pExternalCorrelationRecord->externalId, pExternalCorrelationRecord->correlationId);
+      FusionProfiler::recordAsyncCorrIdActivity(pExternalCorrelationRecord->externalId, pExternalCorrelationRecord->correlationId);
       break;
     }
     case CUPTI_ACTIVITY_KIND_DRIVER:
@@ -193,16 +193,14 @@ ProfilerState CudaEventTimer::state() const {
   return state_;
 }
 
-SegmentProfiler::SegmentProfiler() :
-  segment_id_(-1),
+SegmentProfiler::SegmentProfiler(size_t id) :
+  device_(-1),
+  segment_id_(id),
   compile_timer_(at::cuda::getCurrentCUDAStream()),
   kernel_profile_state_(ProfilerState::Ready) {}
 
-void SegmentProfiler::setSegmentId(int64_t id) {
-  segment_id_ = id;
-}
-
-void SegmentProfiler::startCompile() {
+void SegmentProfiler::startCompile(int device) {
+  device_ = device;
   compile_timer_.start();
 }
 
@@ -211,7 +209,8 @@ void SegmentProfiler::stopCompile() {
   std::cout << "\nCompile Time: " << compile_timer_.time() << " ms" << std::endl;
 }
 
-void SegmentProfiler::startKernel() {
+void SegmentProfiler::startKernel(int device) {
+  device_ = device;
   //NVF_CHECK(segment_id_ > -1, "Segment Id is not valid! ", segment_id_);
   NVF_CHECK(kernel_profile_state_ == ProfilerState::Ready, "ProfilerState is not Ready!", kernel_profile_state_);
   NVFUSER_CUPTI_SAFE_CALL(
@@ -259,28 +258,15 @@ void FusionProfile::reset() {
   perentage_peak_bandwidth = 0.0;
 }
 
-std::mutex Profiler::singleton_lock_;
-Profiler* Profiler::singleton_ = nullptr;
+std::mutex FusionProfiler::singleton_lock_;
+FusionProfiler* FusionProfiler::singleton_ = nullptr;
 
-Profiler::Profiler(size_t devices) :
-  fusion_profilers_() {}
-
-FusionProfiler& Profiler::getProfiler(size_t device) {
+FusionProfiler& FusionProfiler::get() {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ == nullptr) {
-    singleton_ = new Profiler(device + 1);
+    singleton_ = new FusionProfiler();
   } 
-  if (device >= singleton_->fusion_profilers_.size()) {
-    for (size_t i = singleton_->fusion_profilers_.size(); i < device + 1; ++i) {
-      singleton_->fusion_profilers_.emplace_back(i);
-    }
-  }
-  return singleton_->fusion_profilers_.at(device);
-}
-
-FusionProfiler& Profiler::getProfiler(std::optional<int8_t> device) {
-  int selected_device = device.has_value() ? static_cast<int>(device.value()) : 0;
-  return getProfiler(selected_device);
+  return singleton_;
 }
 
 void FusionProfiler::start() {
@@ -290,13 +276,26 @@ void FusionProfiler::start() {
 
 void FusionProfiler::stop() {
   fusion_timer_.stop();
-  profile_.total_time = fusion_timer_.time();
+  profile_.time_ms = fusion_timer_.time();
   print();
   NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(0));
 }
+  
+void FusionProfiler::recordAsyncCorrIdActivity(uint32_t seg_id, uint32_t corr_id) {
+  return;
+}
+void FusionProfiler::recordAsyncKernelActivity(uint32_t corr_id, KernelProfile prof) {
+  return;
+}
 
 void FusionProfiler::createSegments(size_t num) {
-  segments_.resize(num);
+  segments_.reserve(num);
+  size_t hash_preamble = fusion_id_ << 15;
+  for (size_t i = 0; i < num; ++i) {
+    size_t id = hash_preamble | (0xffff & i);
+    segments_.emplace_back(id);
+    segid_2_segprofiler_idx_[id] = i;
+  }
 }
 SegmentProfiler& FusionProfiler::segment(size_t idx) {
   return segments_.at(idx);
@@ -325,11 +324,14 @@ void DeviceDescriptor::generate(size_t _device) {
   std::cout << "\n" << device << " " << name << " " << bus_width << " " << memory_clock << " " << peak_bandwidth << std::endl;
 }
 
-FusionProfiler::FusionProfiler(size_t device) :
-  device_descriptor_(device),
+FusionProfiler::FusionProfiler() :
+  fusion_id_(0),
   profile_(),
   fusion_timer_(at::cuda::getCurrentCUDAStream()),
-  segments_() {
+  segments_(),
+  device_descriptors_(),
+  corrid_2_kernelprof_(),
+  segid_2_segprofiler_idx_() {
   NVFUSER_CUPTI_SAFE_CALL(
       cuptiActivityRegisterCallbacks(buffer_requested, buffer_completed));
 }
@@ -339,13 +341,17 @@ void FusionProfiler::bytesAccessed(size_t input_bytes, size_t output_bytes) {
 }
 
 void FusionProfiler::reset() {
+  ++fusion_id_; 
+
   profile_.reset();
   fusion_timer_.reset();
   segments_.clear();
+  corrid_2_kernelprof_.clear();
+  segid_2_segprofiler_idx_.clear();
 }
 
 void FusionProfiler::print() const {
-  std::cout << "\nFusion Total Time: " << profile_.total_time << " ms" << std::endl;
+  std::cout << "\nFusion Total Time: " << profile_.time_ms << " ms" << std::endl;
   //std::cout << "\nCompile Time: " << profile_.compile_time << " ms" << std::endl;
 }
 

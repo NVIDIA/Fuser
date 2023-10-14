@@ -441,7 +441,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
 
-  FUSION_PROFILER_START_PROFILE(selected_device);
+  FUSION_PROFILER_START_PROFILE;
 
   // Permute input tensor for kernel execution.
   // See Part_1 in Note [ Channels-Last support in nvfuser ]
@@ -463,7 +463,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   KernelArgumentHolder args = prepareInputs(perm_inputs, selected_device);
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
 
-  FUSION_PROFILER_CREATE_SEGMENTS(selected_device, kernel_runtime->executors().size());
+  FUSION_PROFILER_CREATE_SEGMENTS(kernel_runtime->executors().size());
 
   if (!kernel_runtime->isCompiled()) {
     kernel_runtime->compileFusionParallel(args);
@@ -518,7 +518,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     offset++;
   }
 
-  FUSION_PROFILER_STOP_PROFILE(selected_device);
+  FUSION_PROFILER_STOP_PROFILE;
 
   return outputs;
 }
@@ -1011,8 +1011,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
  
   SEGMENT_PROFILER_START_KERNEL(args.getDeviceIndex(), group_id)
   auto outputs = executor.runFusion(args, launch_params, compile_params);
-  SEGMENT_PROFILER_STOP_KERNEL(args.getDeviceIndex(), group_id)
-  SEGMENT_PROFILER_BYTES_ACCESSED(args.getDeviceIndex(), group_id, executor.inputBytesProcessed(), executor.outputBytesProcessed());
+  SEGMENT_PROFILER_STOP_KERNEL(group_id)
+  SEGMENT_PROFILER_BYTES_ACCESSED(group_id, executor.inputBytesProcessed(), executor.outputBytesProcessed());
   
   // Accumulate the kernel time of each segment
   kernel_time_ms_ += executor.kernelTimeMs();
@@ -1193,7 +1193,7 @@ void FusionKernelRuntime::compileKernel(
       args,
       scheduler_entry->params()->lparams,
       scheduler_entry->params()->cparams);
-  SEGMENT_PROFILER_STOP_COMPILE(args.getDeviceIndex(), group_id);
+  SEGMENT_PROFILER_STOP_COMPILE(group_id);
 }
 
 std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(

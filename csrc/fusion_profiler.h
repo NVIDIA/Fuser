@@ -45,6 +45,8 @@ class CudaEventTimer {
   ProfilerState state_;
 };
 
+// TODO: Make a CudaEvent Marker to collect outstanding profiles
+
 struct DeviceDescriptor{
   void generate(size_t device);
 
@@ -101,20 +103,19 @@ struct FusionProfile {
 
 class SegmentProfiler {
  public:
-  SegmentProfiler();
+  SegmentProfiler(size_t id);
 
-  void setSegmentId(int64_t id);
-
-  void startCompile();
+  void startCompile(int device);
   void stopCompile();
 
-  void startKernel();
+  void startKernel(int device);
   void stopKernel();
 
   void bytesAccessed(size_t input_bytes, size_t output_bytes);
 
  private:
-  int64_t segment_id_;
+  int device_;
+  size_t segment_id_;
 
   CudaEventTimer compile_timer_;
   ProfilerState kernel_profile_state_;
@@ -131,8 +132,7 @@ class FusionProfiler {
   static void recordAsyncCorrIdActivity(uint32_t seg_id, uint32_t corr_id);
   // Collects CUPTI Kernel Activity
   // Segment ID -> KernelProfile
-  static void recordAsyncKernelActivity(
-      size_t device, uint32_t corr_id, KernelProfile profile);
+  static void recordAsyncKernelActivity(uint32_t corr_id, KernelProfile prof);
 
  public:
   FusionProfiler(size_t device);
@@ -154,11 +154,19 @@ class FusionProfiler {
   static FusionProfiler* singleton_;
   static std::mutex singleton_lock_;
 
-  DeviceDescriptor device_descriptor_;
+  size_t fusion_id_;
+
   FusionProfile profile_;
   CudaEventTimer fusion_timer_;
   std::vector<SegmentProfiler> segments_;
-  std::unordered_map<uint32_t, KernelProfile> corrid_2_kprof_;
+  std::vector<DeviceDescriptor> device_descriptors_;
+
+  // Asynchronously collect the KernelProfiles and then associate
+  // them with a SegmentProfiler as the CUPTI Activity that maps
+  // Correlation Ids to SegmentProfilers asynchronously arrives
+  // after each Kernel Activity Record
+  std::unordered_map<uint32_t, KernelProfile> corrid_2_kernelprof_;
+  std::unordered_map<size_t, size_t> segid_2_segprofiler_idx_;
 };
 
 #define _FP_ENABLE(code) \
@@ -178,14 +186,14 @@ class FusionProfiler {
 
 // Segment Profiling Macros
 #define SEGMENT_PROFILER_START_COMPILE(device, idx) \
-  _FP_ENABLE(FusionProfiler::get()->segment(idx).startCompile())
-#define SEGMENT_PROFILER_STOP_COMPILE(device, idx) \
+  _FP_ENABLE(FusionProfiler::get()->segment(idx).startCompile(device))
+#define SEGMENT_PROFILER_STOP_COMPILE(idx) \
   _FP_ENABLE(FusionProfiler::get()->segment(idx).stopCompile())
 #define SEGMENT_PROFILER_START_KERNEL(device, idx) \
-  _FP_ENABLE(FusionProfiler::get()->segment(idx).startKernel())
-#define SEGMENT_PROFILER_STOP_KERNEL(device, idx) \
+  _FP_ENABLE(FusionProfiler::get()->segment(idx).startKernel(device))
+#define SEGMENT_PROFILER_STOP_KERNEL(idx) \
   _FP_ENABLE(FusionProfiler::get()->segment(idx).stopKernel())
-#define SEGMENT_PROFILER_BYTES_ACCESSED(device, idx, inputs, outputs) \
+#define SEGMENT_PROFILER_BYTES_ACCESSED(idx, inputs, outputs) \
   _FP_ENABLE(FusionProfiler::get()->segment(idx).bytesAccessed(inputs, outputs))
 
 } // namespace nvfuser
