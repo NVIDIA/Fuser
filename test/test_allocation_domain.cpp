@@ -22,7 +22,17 @@
 
 namespace nvfuser {
 
-class AllocationDomainTest : public NVFuserTest {};
+class AllocationDomainTest : public NVFuserTest {
+ protected:
+  template <typename T>
+  std::vector<T> compactTensorToVector(const at::Tensor& tensor) {
+    at::Tensor cpu_tensor = tensor.cpu();
+    const T* base = cpu_tensor.data_ptr<T>();
+    // Non-compact tensors might not store all data in the first `numel`
+    // elements. Therefore, the function name.
+    return std::vector<T>(base, base + cpu_tensor.numel());
+  };
+};
 
 // A global->shared->global copy kernel, shared memory allocated transposed to
 // avoid bank conflict.
@@ -1104,12 +1114,8 @@ TEST_F(AllocationDomainTest, TransposeMatrix) {
   std::vector<at::Tensor> outputs = executor_cache.runFusionWithInputs({t0});
   at::Tensor t1 = outputs[0];
 
-  auto get_data = [](const at::Tensor& t) -> std::vector<float> {
-    const float* base = t.data_ptr<float>();
-    return std::vector<float>(base, base + t.numel());
-  };
-  std::vector<float> t0_data = get_data(t0.cpu());
-  std::vector<float> t1_data = get_data(t1.cpu());
+  auto t0_data = compactTensorToVector<float>(t0);
+  auto t1_data = compactTensorToVector<float>(t1);
   EXPECT_EQ(t0_data, t1_data)
       << "Although t1 is logically a transpose of t0, their underlying data "
       << "should be the same due to setAllocationDomain. They can even be "
@@ -1141,6 +1147,30 @@ TEST_F(AllocationDomainTest, SplitIterDomain) {
   std::vector<at::Tensor> outputs = executor_cache.runFusionWithInputs({t0});
   at::Tensor t1 = outputs[0];
   std::cout << t1 << std::endl;
+}
+
+TEST_F(AllocationDomainTest, VectorAsColumnMajorMatrix) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const std::vector<int64_t> in_shape({6});
+
+  auto tv0 = makeContigTensor(1);
+  fusion->addInput(tv0);
+  auto tv1 = reshape(tv0, {6}, {2, 3});
+  fusion->addOutput(tv1);
+
+  tv1->setAllocationDomain(
+      {tv1->axis(1), tv1->axis(0)}, /*new_contiguity=*/true);
+
+  at::Tensor t0 = at::arange(6, at::dtype(at::kFloat).device(at::kCUDA, 0));
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  std::vector<at::Tensor> outputs = executor_cache.runFusionWithInputs({t0});
+  at::Tensor t1 = outputs[0];
+
+  auto t1_data = compactTensorToVector<float>(t1);
+  EXPECT_THAT(t1_data, testing::ElementsAre(0, 3, 1, 4, 2, 5));
 }
 
 } // namespace nvfuser
