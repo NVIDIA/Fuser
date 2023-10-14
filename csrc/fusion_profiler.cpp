@@ -242,17 +242,14 @@ void SegmentProfiler::bytesAccessed(size_t input_bytes, size_t output_bytes) {
 }
 
 void FusionProfile::reset() {
-  total_time = 0.0;
-  host_time = 0.0;
-  compile_time = 0.0;
-  kernel_time = 0.0;
-
+  time_ms = 0.0;
+  host_time_ms = 0.0;
+  compile_time_ms = 0.0;
+  kernel_time_ms = 0.0;
+  
   input_bytes = 0;
   output_bytes = 0;
   total_bytes = 0;
-
-  device_name.clear();
-  device_peak_bandwidth = 0.0;
 
   effective_bandwidth = 0.0;
   perentage_peak_bandwidth = 0.0;
@@ -261,7 +258,7 @@ void FusionProfile::reset() {
 std::mutex FusionProfiler::singleton_lock_;
 FusionProfiler* FusionProfiler::singleton_ = nullptr;
 
-FusionProfiler& FusionProfiler::get() {
+FusionProfiler* FusionProfiler::get() {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ == nullptr) {
     singleton_ = new FusionProfiler();
