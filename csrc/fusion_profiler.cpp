@@ -34,28 +34,22 @@ void PrintActivity(CUpti_Activity *pRecord, FILE *pFileHandle) {
   switch (activityKind) {
     case CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL:
     {
-      CUpti_ActivityKernel8 *pKernelRecord = (CUpti_ActivityKernel8 *)pRecord;
+      CUpti_ActivityKernel8 *pKARecord = (CUpti_ActivityKernel8 *)pRecord;
 
-      KernelProfile profile;
-      profile.name.assign(pKernelRecord->name);
-      profile.device = pKernelRecord->deviceId;
-      profile.stream = pKernelRecord->streamId;
-      profile.correlation_id = pKernelRecord->correlationId;
-      profile.time_ms = static_cast<double>(pKernelRecord->end - pKernelRecord->start) / 1000000.0; 
-      profile.grid_x = pKernelRecord->gridX;
-      profile.grid_y = pKernelRecord->gridY;
-      profile.grid_z = pKernelRecord->gridZ;
-      profile.block_x = pKernelRecord->blockX;
-      profile.block_y = pKernelRecord->blockY;
-      profile.block_z = pKernelRecord->blockZ;
-      profile.cluster_x = pKernelRecord->clusterX;
-      profile.cluster_y = pKernelRecord->clusterY;
-      profile.cluster_z = pKernelRecord->clusterZ;
-      profile.dynamic_shared_mem = pKernelRecord->dynamicSharedMemory;
-      profile.static_shared_mem = pKernelRecord->staticSharedMemory;
-      profile.registers = pKernelRecord->registersPerThread;
+      KernelProfile prof;
+      prof.name.assign(pKARecord->name);
+      prof.device = pKARecord->deviceId;
+      prof.stream = pKARecord->streamId;
+      prof.correlation_id = pKARecord->correlationId;
+      prof.time_ms = (double)(pKARecord->end - pKARecord->start) / 1000000.0; 
+      prof.grid = {pKARecord->gridX, pKARecord->gridY, pKARecord->gridZ};
+      prof.block = {pKARecord->blockX, pKARecord->blockY, pKARecord->blockZ};
+      prof.cluster = {pKARecord->clusterX, pKARecord->clusterY, pKARecord->clusterZ};
+      prof.dynamic_shared_mem = pKARecord->dynamicSharedMemory;
+      prof.static_shared_mem = pKARecord->staticSharedMemory;
+      prof.registers = pKARecord->registersPerThread;
 
-      Profiler::recordAsyncKernelActivity(pKernelRecord->deviceId, pKernelRecord->correlationId, std::move(profile));
+      Profiler::recordAsyncKernelActivity(pKARecord->deviceId, pKARecord->correlationId, std::move(prof));
 
       break;
     }
@@ -308,12 +302,8 @@ SegmentProfiler& FusionProfiler::segment(size_t idx) {
   return segments_.at(idx);
 }
 
-DeviceDescriptor::DeviceDescriptor(size_t _device) :
-    device(static_cast<int>(_device)),
-    name("NVIDIA Graphics Device"),
-    bus_width(0),
-    memory_clock(0),
-    peak_bandwidth(0.0) {
+void DeviceDescriptor::generate(size_t _device) {
+  device = static_cast<int>(_device);
   name.reserve(100);
   NVFUSER_CUDA_SAFE_CALL(
       cuDeviceGetName(name.data(), 100, device));
