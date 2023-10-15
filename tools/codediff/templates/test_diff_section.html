@@ -37,8 +37,14 @@ SPDX-License-Identifier: BSD-3-Clause
                 {% if kernel_diff.kernel1.ptx is not none and kernel_diff.kernel2.ptx is not none %}
                     <button disabled="true"
                             id="cudabutton_{{ outer_index }}_{{ loop.index }}"
+                            {% if kernel_diff.diff|length > 0 %}
+                            class="differing"
+                            {% endif %}
                             onclick="switchToCUDA({{ outer_index }}, {{ loop.index }})">CUDA</button>
                     <button id="ptxbutton_{{ outer_index }}_{{ loop.index }}"
+                            {% if kernel_diff.ptx_diff|length > 0 %}
+                            class="differing"
+                            {% endif %}
                             onclick="switchToPTX({{ outer_index }}, {{ loop.index }})">PTX</button>
                     &nbsp;&nbsp;
                 {% endif %}
@@ -65,7 +71,7 @@ SPDX-License-Identifier: BSD-3-Clause
                  text-align: left;
                  display: inline-block">+{{ kernel_diff.new_lines }}</span>
     {%- macro meta_diff(name, old, new) -%}
-        {%- if kernel_diff.kernel1.registers != kernel_diff.kernel2.registers -%}
+        {%- if old != new -%}
             {{ name }}: <span style="color: red">{{ old }}</span> &#8594; <span style="color: green">{{ new }}</span>
         {%- elif old != 0 -%}
             {{ name }}: {{ old }}
