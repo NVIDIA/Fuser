@@ -1694,10 +1694,10 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   c2p_index_map = replay_producer_as_consumer.getReplay();
 
-  auto producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
+  const auto& producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
       loops, rotated_loops, consumer_tv, producer_tv, false, c2p_index_map);
 
-  auto producer_indexing = producer_indexing_from_idgraph.index;
+  const auto& producer_indexing = producer_indexing_from_idgraph.index;
 
   IndexSwizzle index_swizzle(
       producer_tv,
@@ -2036,7 +2036,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
     }
   }
 
-  auto producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
+  const auto& producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
       loops, rotated_loops, consumer_tv, producer_tv, true, c2p_map);
 
   auto producer_indexing = producer_indexing_from_idgraph.index;
@@ -2049,13 +2049,15 @@ std::vector<Val*> Index::getProducerAllocationIndices(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
 
   for (const auto i : c10::irange(alloc_dom.size())) {
-    if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast()) {
+    auto override_it = override_index.find(alloc_dom[i]);
+    const bool is_overriden = override_it != override_index.end();
+
+    if (alloc_dom[i]->isReduction() ||
+        (alloc_dom[i]->isBroadcast() && !is_overriden)) {
       continue;
     }
 
     Val* alloc_ind = nullptr;
-    auto override_it = override_index.find(alloc_dom[i]);
-    const bool is_overriden = override_it != override_index.end();
     if (is_overriden) {
       alloc_ind = override_it->second;
     } else if (
@@ -2073,18 +2075,21 @@ std::vector<Val*> Index::getProducerAllocationIndices(
         " id: ",
         alloc_dom[i]->toString());
 
-    alloc_ind = getProducerIndexWithHalo(
-        producer_tv, i, alloc_ind, consumer_tv, is_overriden);
+    if (!alloc_dom[i]->isBroadcast() || !is_overriden) {
+      // This is an Iteration domain or a non-padded broadcast domain
+      alloc_ind = getProducerIndexWithHalo(
+          producer_tv, i, alloc_ind, consumer_tv, is_overriden);
 
-    alloc_ind = getProducerIndexWithGather(
-        alloc_ind,
-        i,
-        producer_tv,
-        consumer_tv,
-        producer_indexing_from_idgraph.concrete_index.indexMap());
+      alloc_ind = getProducerIndexWithGather(
+          alloc_ind,
+          i,
+          producer_tv,
+          consumer_tv,
+          producer_indexing_from_idgraph.concrete_index.indexMap());
 
-    alloc_ind = getProducerIndexWithPartialSplit(
-        alloc_ind, alloc_dom[i], producer_tv, consumer_tv);
+      alloc_ind = getProducerIndexWithPartialSplit(
+          alloc_ind, alloc_dom[i], producer_tv, consumer_tv);
+    }
 
     alloc_inds.at(i) = alloc_ind;
   }

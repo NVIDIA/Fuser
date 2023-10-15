@@ -181,6 +181,12 @@ class StructHandle {
   StructHandle& operator=(const StructHandle& other) = default;
   StructHandle& operator=(StructHandle&& other) = default;
 
+  //! This is a shallow comparison operator that just checks whether we point to
+  //! the same exact Struct
+  bool operator==(const StructHandle& other) const {
+    return struct_ptr_ == other.struct_ptr_;
+  }
+
   template <typename T>
   bool is() const {
     return std::dynamic_pointer_cast<T>(struct_ptr_) != nullptr;
@@ -228,15 +234,43 @@ inline std::string toString(const PolymorphicValue& v) {
   return ss.str();
 }
 
+template <typename T>
+inline bool isNan(const T& a) {
+  return std::isnan(a);
+}
+
+// For example, `nan+i` and `nan-i` are treated equal because both are NaNs.
+// This is consistent with pytorch's implementation:
+// https://github.com/pytorch/pytorch/blob/6d8e0c4b5a3be8201cab731dfd1e6513162cf25c/c10/util/complex_utils.h#L43.
+template <typename T>
+inline bool isNan(const std::complex<T>& a) {
+  return std::isnan(a.real()) || std::isnan(a.imag());
+}
+
+// NaNs are treated equal.
+template <typename T>
+inline bool isSameNanSensitive(const T& a, const T& b) {
+  if (isNan(a) && isNan(b)) {
+    return true;
+  }
+  return a == b;
+}
+
 inline bool isSame(const PolymorphicValue& a, const PolymorphicValue& b) {
   if (a.type() != b.type()) {
     return false;
   }
-  if (a.is<at::Tensor>() && b.is<at::Tensor>()) {
+  if (a.is<at::Tensor>()) {
     return (a.as<at::Tensor>().is_same(b.as<at::Tensor>()));
-  } else {
-    return (a == b);
   }
+  if (a.is<double>()) {
+    return isSameNanSensitive(a.as<double>(), b.as<double>());
+  }
+  if (a.is<std::complex<double>>()) {
+    return isSameNanSensitive(
+        a.as<std::complex<double>>(), b.as<std::complex<double>>());
+  }
+  return a == b;
 }
 
 inline PolymorphicValue ceildiv(
