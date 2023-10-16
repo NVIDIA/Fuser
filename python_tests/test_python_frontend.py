@@ -1647,7 +1647,7 @@ class TestNvFuserFrontend(TestCase):
 
     def test_pad(self):
         inputs = [
-            torch.testing.make_tensor((2, 3), dtype=torch.float32, device="cuda"),
+            torch.testing.make_tensor((1, 2, 3), dtype=torch.float32, device="cuda"),
         ]
 
         def fusion_func(fd: FusionDefinition):
@@ -1673,6 +1673,10 @@ class TestNvFuserFrontend(TestCase):
             t5 = fd.ops.pad(t0, [2, 3], fill_val)
             fd.add_output(t5)
 
+            # pad a broadcast dimension with a value other than 0
+            t6 = fd.ops.pad(t0, [2, 3, 0, 0, 0, 0])
+            fd.add_output(t6)
+
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
         self.assertEqual(F.pad(inputs[0], [1, 1, 1, 1]), nvf_out[0])
@@ -1680,6 +1684,7 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(F.pad(inputs[0], [0, 0, 0, 0]), nvf_out[2])
         self.assertEqual(F.pad(inputs[0], [2, 3]), nvf_out[3])
         self.assertEqual(F.pad(inputs[0], [2, 3], "constant", 2.0), nvf_out[4])
+        self.assertEqual(F.pad(inputs[0], [2, 3, 0, 0, 0, 0]), nvf_out[5])
 
     def test_pad_cache(self):
         """Test that using different pad widths causes a cache miss.
@@ -1900,9 +1905,9 @@ class TestNvFuserFrontend(TestCase):
             T0_slice1 = fd.ops.slice(T0, [0, 0, 0], [16, 128, 1024], [1, 1, 1])
             T0_slice2 = fd.ops.slice(T0, [0, 0, 1024], [16, 128, 2048], [1, 1, 1])
             T0_slice3 = fd.ops.slice(T0, [0, 0, 2048], [16, 128, 3072], [1, 1, 1])
-            T1_slice1 = fd.ops.reshape(T0_slice1, [16, 128, 1024], [16, 128, 16, 64])
-            T1_slice2 = fd.ops.reshape(T0_slice2, [16, 128, 1024], [16, 128, 16, 64])
-            T1_slice3 = fd.ops.reshape(T0_slice3, [16, 128, 1024], [16, 128, 16, 64])
+            T1_slice1 = fd.ops.reshape(T0_slice1, [16, 128, 16, 64])
+            T1_slice2 = fd.ops.reshape(T0_slice2, [16, 128, 16, 64])
+            T1_slice3 = fd.ops.reshape(T0_slice3, [16, 128, 16, 64])
             T2_slice1 = fd.ops.permute(T1_slice1, [0, 2, 1, 3])
             T2_slice2 = fd.ops.permute(T1_slice2, [0, 2, 1, 3])
             T2_slice3 = fd.ops.permute(T1_slice3, [0, 2, 1, 3])
@@ -2523,6 +2528,28 @@ class TestNvFuserFrontend(TestCase):
         torch_ref = F.pad(inputs[0], (0, 0, 1, 1, 1, 0), "constant", -3.70753)
 
         self.assertEqual(nvf_out[0], torch_ref)
+
+    def test_dynamic_reshape(self):
+        def dynamic_reshape() -> FusionDefinition:
+            with FusionDefinition() as fd:
+                x = fd.define_tensor([-1, -1], [True, True])
+                d0 = fd.ops.size(x, 0)
+                d1 = fd.define_scalar(dtype=DataType.Int32)
+                d2 = fd.define_scalar(dtype=DataType.Int32)
+                new_shape = fd.define_vector([d0, d1, d2])
+                y = fd.ops.reshape(x, new_shape)
+                fd.add_output(y)
+            return fd
+
+        fd = dynamic_reshape()
+
+        x = torch.rand(3, 4, device="cuda")
+        ys = fd.execute([x, 2, 2])
+        self.assertEqual(len(ys), 1)
+        y = ys[0]
+
+        self.assertEqual(y.shape, torch.Size([3, 2, 2]))
+        self.assertEqual(x.flatten(), y.flatten())
 
 
 if __name__ == "__main__":
