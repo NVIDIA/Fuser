@@ -884,13 +884,24 @@ StatefulLoweringInfo buildInfo(
            ir_utils::filterByType<TensorView>(expr->outputs())) {
         auto resolved_bcast_map = resolvedRootBroadcasts(producer, consumer);
 
-        for (auto entry : resolved_bcast_map) {
-          info.p2c_root_broadcast_resolution_map[entry.first].pushBack(
-              entry.second);
-          for (auto other_exact_bcast : *exact_graph.toGroup(entry.first)) {
+        for (const auto& [p_id, c_id] : resolved_bcast_map) {
+          info.p2c_root_broadcast_resolution_map[p_id].pushBack(c_id);
+          for (auto other_exact_bcast : *(exact_graph.toGroup(p_id))) {
+            if (p_id == other_exact_bcast) {
+              continue;
+            }
             if (all_producer_ca_deps.has(other_exact_bcast)) {
+              // TODO-NM: Why is this here? Can be removed?
+              NVF_ERROR(
+                  false,
+                  "Can this happen? Adding other exact: ",
+                  other_exact_bcast->name(),
+                  " in addition to ",
+                  p_id->name(),
+                  " of ",
+                  producer->toString());
               info.p2c_root_broadcast_resolution_map[other_exact_bcast]
-                  .pushBack(entry.second);
+                  .pushBack(c_id);
             }
           }
         }
