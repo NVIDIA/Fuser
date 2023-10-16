@@ -5,7 +5,7 @@ SPDX-License-Identifier: BSD-3-Clause
 -#}
 <title>{{ run1.name }} vs {{ run2.name }} - NVFuser codegen diff</title>
 <link rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/default.min.css">
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/cpp.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/diff.min.js"></script>
@@ -13,8 +13,11 @@ SPDX-License-Identifier: BSD-3-Clause
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/shell.min.js"></script>
 <script>hljs.highlightAll();</script>
 <style>
-button.selected {
-    border: 2px solid #0000ff;
+button.selected,
+*:focus {
+    outline-style: solid;
+    outline-width: 2px;
+    outline-color: #0000ff;
 }
 button.differing {
     background-color: #fff2c1;

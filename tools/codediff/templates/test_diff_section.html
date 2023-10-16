@@ -13,13 +13,15 @@ SPDX-License-Identifier: BSD-3-Clause
         <span class="test_name">{{ loop.index }}: <b>{{ test_diff.testname }}</b></span>
         {% if is_benchmark %}
             {% if test_diff.test1.benchmark_result is not none and test_diff.test2.benchmark_result is not none -%}
-                <span style="color: red; font-weight: bold">{{ test_diff.test1.benchmark_result.gpu_time }} {{ test_diff.test1.benchmark_result.gpu_time_unit }}</span> &#8594;
-                <span style="color: green; font-weight: bold">{{ test_diff.test2.benchmark_result.gpu_time }} {{ test_diff.test2.benchmark_result.gpu_time_unit }}</span>
+                {{ test_diff.test1.benchmark_result.gpu_time }} {{ test_diff.test1.benchmark_result.gpu_time_unit }} &#8594;
+                <span style="color: {{ 'green' if test_diff.test2.benchmark_result.gpu_time < test_diff.test1.benchmark_result.gpu_time else 'red' }};
+                             font-weight: bold">{{ test_diff.test2.benchmark_result.gpu_time }} {{ test_diff.test2.benchmark_result.gpu_time_unit }}</span>
             {%- endif -%}
         {% else %}
             {% if not test_diff.test1.passed or not test_diff.test2.passed -%}
-                <span style="color: red; font-weight: bold">{{"SUCCESS" if test_diff.test1.passed else "FAILED"}}</span> &#8594;
-                <span style="color: green; font-weight: bold">{{"SUCCESS" if test_diff.test2.passed else "FAILED"}}</span>
+                {{"SUCCESS" if test_diff.test1.passed else "FAILED"}} &#8594;
+                <span style="color: {{ 'green' if test_diff.test2.passed else 'red' }};
+                             font-weight: bold">{{"SUCCESS" if test_diff.test2.passed else "FAILED"}}</span>
             {%- endif -%}
         {% endif %}
         <br>
@@ -37,14 +39,10 @@ SPDX-License-Identifier: BSD-3-Clause
                 {% if kernel_diff.kernel1.ptx is not none and kernel_diff.kernel2.ptx is not none %}
                     <button disabled="true"
                             id="cudabutton_{{ outer_index }}_{{ loop.index }}"
-                            {% if kernel_diff.diff|length > 0 %}
-                            class="differing"
-                            {% endif %}
+                            {% if kernel_diff.diff|length > 0 %}class="differing"{% endif %}
                             onclick="switchToCUDA({{ outer_index }}, {{ loop.index }})">CUDA</button>
                     <button id="ptxbutton_{{ outer_index }}_{{ loop.index }}"
-                            {% if kernel_diff.ptx_diff|length > 0 %}
-                            class="differing"
-                            {% endif %}
+                            {% if kernel_diff.ptx_diff|length > 0 %}class="differing"{% endif %}
                             onclick="switchToPTX({{ outer_index }}, {{ loop.index }})">PTX</button>
                     &nbsp;&nbsp;
                 {% endif %}
@@ -62,19 +60,21 @@ SPDX-License-Identifier: BSD-3-Clause
             <i>{{ run2.name }}</i>
         </button>
     </span>
-    <span style="color: red;
-                 width: 32pt;
+    <span class="hljs-deletion"
+          style="width: 32pt;
                  text-align: right;
                  display: inline-block">-{{ kernel_diff.removed_lines }}</span>
-    <span style="color: green;
-                 width: 32pt;
+    <span class="hljs-addition"
+          style="width: 32pt;
                  text-align: left;
                  display: inline-block">+{{ kernel_diff.new_lines }}</span>
     {%- macro meta_diff(name, old, new) -%}
-        {%- if old != new -%}
-            {{ name }}: <span style="color: red">{{ old }}</span> &#8594; <span style="color: green">{{ new }}</span>
-        {%- elif old != 0 -%}
-            {{ name }}: {{ old }}
+        {{ name }}: {{ old }}
+        {%- if new < old -%}
+            {#- blue is a little more visible for improvements than red -#}
+            &#8594; <span style="font-weight:bold; color: blue">{{ new }}</span>
+        {%- elif new != old -%}
+            &#8594; <span style="font-weight:bold; color: red">{{ new }}</span>
         {%- endif %}
     {%- endmacro -%}
     {{ meta_diff('index type', kernel_diff.kernel1.index_type, kernel_diff.kernel2.index_type) }}
