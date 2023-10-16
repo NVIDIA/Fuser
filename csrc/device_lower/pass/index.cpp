@@ -1305,7 +1305,7 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
   // indexing mbarrier
   auto mbarrier = GpuLower::current()->ldstMBarrierMap().at(ldst);
-  auto mbarrier_index = getMBarrierSmemAddr(mbarrier);
+  auto mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
 
   // arrive and expect_tx mbarrier
   auto state = IrBuilder::create<Val>(DataType::UInt);
@@ -1334,7 +1334,8 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
 void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
   auto in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
-  auto out = Index::cpAsyncBulkIndex(ldst->out()->as<TensorView>(), for_loops_);
+  auto out_tv = ldst->out()->as<TensorView>();
+  auto out = Index::cpAsyncBulkIndex(out_tv, out_tv, nullptr, for_loops_);
   auto new_ldst =
       IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
           ->withPredicate(ldst->predicate());
