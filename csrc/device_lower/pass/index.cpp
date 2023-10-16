@@ -1351,7 +1351,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
   if (ir_utils::isCpAsyncBulk(ldst)) {
     if (ir_utils::isCpAsyncBulkLoad(ldst)) {
       handleCpAsyncBulkLoad(ldst);
-    } else {
+    } else if (ir_utils::isCpAsyncBulkStore(ldst)) {
       handleCpAsyncBulkStore(ldst);
     } else {
       NVF_ERROR(false);
