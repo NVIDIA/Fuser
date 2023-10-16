@@ -17,7 +17,200 @@
 
 namespace nvfuser {
 
-class ViewTransform;
+//! There's three domains associated with performing a view operation:
+//! 1) Original Domain:
+//!   This view is the original input to the view operation. It has no
+//!   transforms on it, it is however passed in without its reduction domains
+//!   (as is expected since we're trying to generate the output of the
+//!   operations).
+//!
+//! Squeezed domain:
+//!   Predicting which operations are squeezed are not trivial. If a broadcast
+//!   is between two iter domains in the original domain that must be merged for
+//!   the view transform:
+//!     - If the broadcast domain lines up with a broadcast domain in the final
+//!       tensor domain keep it.
+//!     - If the domain is size-1 but not marked as a broadcast domain (runtime
+//!       size==1)
+//!       Note: This isn't something we generally support consistently
+//!     - If the broadcast domain is marked as a compile time broadcast domain,
+//!       and doesn't line up with a broadcast domain in the final result.
+//!       squeeze it.
+//!   The index for these transformations is marked as the index of the original
+//!   domain, as that's the input for the squeeze. This produces the squeezed
+//!   domain.
+//!
+//! Post-view Domain:
+//!   This domain is the original domain after the squeeze and all
+//!   transformations. This domain holds the rfactor domains determined by
+//!   merge/split operations of the find transformations pass. It is the final
+//!   domain without all the broadcast operations (can have some that were
+//!   preserved through the transformations).
+//!       For example: {1, 2, 1, 4} -> {1, 2, 1, 2, 2} doesn't have any
+//!         conflicts of the view transformation and the broadcast dimensions,
+//!         so they won't be squeezed, they will simply be propagated
+//!         through the view.
+//!         {1, 2, 1, 4} -> {1, 8, 1} does have the second 1 dimension in
+//!         between the 2 and 8 that have to be merged. The first broadcast axis
+//!         will be propagated through the domains unafected, yet the second
+//!         braodcast axis will be squeezed, then rebroadcasted.
+//!  The transformation index marked for the splits/merges to produce this
+//!  domain are done based on an "in progress" tensor view (called transform
+//!  view index in the find transformation pass). This allows us to simply apply
+//!  these transformations serially to produce this domain.
+//!
+//! Post-broadcast Domain:
+//!    This domain finally matches the output of the view operation fully and
+//!    can be used in further computations.
+//!
+//! View process at compute time:
+//!   1) View takes in the input TensorView x, original runtime
+//!      std::vector<int64_t>, and viewed runtime std::vector<int64_t>.
+//!   2) AnalyzeView is called Which will figure out what series of
+//!      transformations is required from the input tensor to the output tensor.
+//!      These transformations are recorded.
+//!   3) Squeeze operation is called on the squeezed axes from the analysis.
+//!   4) applyViewTransforms will generate the output domain of the view
+//!      operation.
+//!        Calls TensorDomain::view(view_analysis) which returns the rfactored
+//!        domain.
+//!        Gets forwarded to transformView(TensorDomain, view_analysis)
+//!        Gets forwarded to createViewDomain(TensorDomain, view_analysis)
+//!        createViewDomain creates the new root domain, and calls
+//!        createRfactorDomain on view_analysis.transforms().
+//!   5) brooadcast will be called with view_analysis.broadcast_axes
+//!
+//! TODO: Caching assumes that all size-1 inputs are correctly marked as a
+//! broadcast dimension. We should probably remove the runtime size-1 merge
+//! support in find transformation.
+//!
+//! Simple abstract class to record transformation and the indices required to
+//! apply it.
+class Transform : public PolymorphicBase {
+ public:
+  virtual std::string toString() const = 0;
+
+  int64_t index() const {
+    return index_;
+  }
+
+  bool operator==(const Transform& other) const {
+    return index() == other.index();
+  }
+
+  bool operator!=(const Transform& other) const {
+    return !(*this == other);
+  }
+
+ protected:
+  // Relevant location information for the transformation. Stored information is
+  // related to when we have to apply that transformation (see long comment at
+  // top of this file).
+  Transform(int64_t index) : index_(index) {}
+
+  const int64_t index_ = 0;
+};
+
+class ViewTransform : public Transform {
+ public:
+  // Function to apply the transformation. Transformation is applied on
+  // current_transformed_domain. root_domain is required here to replace
+  // IterDomains so we can flip the rfactor flag on the root domain if it's
+  // involved in merge/split trasnforms to produce the rfactor domain.
+  virtual void createRfactorDomain(
+      std::vector<IterDomain*>& root_domain,
+      std::vector<IterDomain*>& current_transformed_domain) = 0;
+
+  // Convenience function to replace id in root_domain with an id that has
+  // expand expanded, and rfactor flag turned on.
+  static IterDomain* replaceRootIdWithRFactor(
+      std::vector<IterDomain*>& root_domain,
+      IterDomain* id);
+
+  // Debugging utility to convert the transformation into a string.
+  std::string toString() const override = 0;
+
+  bool operator==(const ViewTransform& other) const {
+    return Transform::operator==(other);
+  }
+
+  bool operator!=(const ViewTransform& other) const {
+    return !(*this == other);
+  }
+
+ protected:
+  ViewTransform(const int64_t& index) : Transform(index) {}
+};
+
+//! The merge tranformation either combines two root iterDomains together OR
+//! the last rfactor iterDomain with a root iterDomain. Unlike the general
+//! TensorView merge there's no merging across axes not placed in consecutive
+//! positions for View.
+class MergeTransform final : public ViewTransform {
+ public:
+  MergeTransform(int64_t index) : ViewTransform(index) {}
+
+  std::string toString() const override;
+
+  void createRfactorDomain(
+      std::vector<IterDomain*>& root_domain,
+      std::vector<IterDomain*>& current_transformed_domain) override;
+
+  bool operator==(const MergeTransform& other) const {
+    return ViewTransform::operator==(other);
+  }
+
+  bool operator!=(const MergeTransform& other) const {
+    return !(*this == other);
+  }
+};
+
+//! The split tranformation creates two new iterDomains via an outer split.
+class SplitTransform final : public ViewTransform {
+ public:
+  SplitTransform(const int64_t index, int64_t split_factor);
+
+  std::string toString() const override;
+
+  void createRfactorDomain(
+      std::vector<IterDomain*>& root_domain,
+      std::vector<IterDomain*>& current_transformed_domain) override;
+
+  int64_t split_factor() const {
+    return split_factor_;
+  }
+
+  bool operator==(const SplitTransform& other) const {
+    return ViewTransform::operator==(other) &&
+        split_factor_ == other.split_factor_;
+  }
+
+  bool operator!=(const SplitTransform& other) const {
+    return !(*this == other);
+  }
+
+ private:
+  const int64_t split_factor_ = 0;
+};
+
+//! For any singleton dimensions in the new view, we create an implicit
+//! broadcast dimension. We apply these transforms after the squeeze
+//! and view transformation steps.
+class BroadcastTransform final : public Transform {
+ public:
+  BroadcastTransform(int64_t index) : Transform(index) {}
+
+  std::string toString() const override;
+};
+
+//! For any implicit broadcast dimensions in the original view, we remove
+//! them using squeeze.
+class SqueezeTransform final : public Transform {
+ public:
+  SqueezeTransform(int64_t index) : Transform(index) {}
+
+  std::string toString() const override;
+};
 
 //!
 //! The goal of analyzeView is to find the minimum number of transformations
