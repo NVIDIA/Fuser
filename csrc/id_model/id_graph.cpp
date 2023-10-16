@@ -674,16 +674,6 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
     if (!(extent_o_match || extent_i_match)) {
       return false;
     }
-
-    // TODO-NM: With compliment mapping, this should be fine to merge
-    if (extent_o_match &&
-        disjointIdSets().permissiveAreMapped(merge0->out(), merge0->outer())) {
-      return false;
-    }
-    if (extent_i_match &&
-        disjointIdSets().permissiveAreMapped(merge0->out(), merge0->inner())) {
-      return false;
-    }
   }
 
   // TODO: For now we're using same as, however we could know what val's are
