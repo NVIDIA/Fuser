@@ -899,6 +899,7 @@ StatefulLoweringInfo buildInfo(
       for (auto consumer :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
         auto resolved_bcast_map = resolvedRootBroadcasts(producer, consumer);
+
         for (const auto& [p_id, c_id] : resolved_bcast_map) {
           info.p2c_root_broadcast_resolution_map[p_id].pushBack(c_id);
           for (auto other_exact_bcast : *(exact_graph.toGroup(p_id))) {

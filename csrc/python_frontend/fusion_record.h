@@ -322,102 +322,26 @@ struct OpRecord : RecordFunctor {
 };
 
 struct ReshapeOpRecord : RecordFunctor {
-  ReshapeOpRecord(
-      std::vector<State> _args,
-      std::vector<State> _outputs,
-      std::vector<int64_t> original_shape,
-      std::vector<int64_t> new_shape)
+  ReshapeOpRecord(std::vector<State> _args, std::vector<State> _outputs)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "ops.reshape",
-            serde::RecordType_ReshapeOp),
-        original_shape_(std::move(original_shape)),
-        new_shape_(std::move(new_shape)) {}
+            serde::RecordType_ReshapeOp) {
+    arg_names_[1] = "new_shape";
+  }
   ~ReshapeOpRecord() override = default;
   RecordFunctor* clone() final {
     return new ReshapeOpRecord(*this);
   }
 
-  //! Child specific hash function in lower 32 bits.
-  //! | 31 -------------- 16 | 15 --------------  0 |
-  //! | original_shape hash  | new_shape hash       |
-  size_t hash() const final {
-    auto result = RecordFunctor::hash();
-    size_t new_shape_hash = 0;
-    for (auto shape : new_shape_) {
-      new_shape_hash ^= static_cast<size_t>(shape);
-    }
-    size_t original_shape_hash = 0;
-    for (auto shape : original_shape_) {
-      original_shape_hash |= 1 << ((new_shape_.size() - 1) - shape);
-    }
-    original_shape_hash = (original_shape_hash & 0xffff) << 16;
-    return result | original_shape_hash | (new_shape_hash & 0xffff);
-  }
-
-  bool operator==(const RecordFunctor& other) const final {
-    auto result = false;
-    if (auto child_ptr = dynamic_cast<const ReshapeOpRecord*>(&other)) {
-      result = RecordFunctor::operator==(other);
-      result &= std::equal(
-          original_shape_.begin(),
-          original_shape_.end(),
-          child_ptr->original_shape_.begin());
-      result &= std::equal(
-          new_shape_.begin(), new_shape_.end(), child_ptr->new_shape_.begin());
-    }
-    return result;
-  }
-
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    auto output = reshape(arg, original_shape_, new_shape_);
+    const std::vector<Val*>& new_shape =
+        fd.getFusionStateVector(args_.at(1).index);
+    auto output = reshape(arg, new_shape);
     fd.setFusionState(outputs_.at(0).index, output);
   }
-
-  void print(std::ostream& os, bool close_function = true) const final {
-    RecordFunctor::print(os, false);
-    os << ", original_shape=[";
-    bool first_arg = true;
-    for (auto shape : original_shape_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      os << shape;
-    }
-    os << "]";
-    os << ", new_shape=[";
-    first_arg = true;
-    for (auto shape : new_shape_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      os << shape;
-    }
-    os << "]";
-    if (close_function) {
-      os << ")";
-    }
-  }
-
-  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
-      flatbuffers::FlatBufferBuilder& builder) const final {
-    return {
-        serde::RecordData_Reshape,
-        serde::CreateReshapeDirect(builder, &original_shape_, &new_shape_)
-            .Union()};
-  }
-
- private:
-  //! Represents the tensor dimensions of the input tensor.
-  std::vector<int64_t> original_shape_;
-  //! Represents the tensor dimensions of the output tensor.
-  std::vector<int64_t> new_shape_;
 };
 
 struct PadOpRecord : RecordFunctor {
@@ -1530,21 +1454,32 @@ struct ReductionOpRecord : RecordFunctor {
         result = result &&
             (*fusion_op_.template target<
 
-                 TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>() ==
+                 TensorView* (*)(TensorView*,
+                                 const std::vector<int>&,
+                                 bool,
+                                 DataType)>() ==
              *child_ptr->fusion_op_.template target<
 
-                 TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>());
+                 TensorView* (*)(TensorView*,
+                                 const std::vector<int>&,
+                                 bool,
+                                 DataType)>());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-          debug()
-              << " Target  Ptr [self: 0x" << std::hex
-              << (size_t)*fusion_op_.template target<
+          debug() << " Target  Ptr [self: 0x" << std::hex
+                  << (size_t)*fusion_op_.template target<
 
-                     TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>()
-              << "] [other: 0x" << std::hex
-              << (size_t)*child_ptr->fusion_op_.template target<
+                         TensorView* (*)(TensorView*,
+                                         const std::vector<int>&,
+                                         bool,
+                                         DataType)>()
+                  << "] [other: 0x" << std::hex
+                  << (size_t)*child_ptr->fusion_op_.template target<
 
-                     TensorView* (*)(TensorView*, const std::vector<int>&, bool, DataType)>()
-              << "]\n";
+                         TensorView* (*)(TensorView*,
+                                         const std::vector<int>&,
+                                         bool,
+                                         DataType)>()
+                  << "]\n";
         }
         result = result && (keep_dim_ == child_ptr->keep_dim_);
         result = result && (dtype_ == child_ptr->dtype_);

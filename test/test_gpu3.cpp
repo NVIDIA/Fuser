@@ -6011,6 +6011,8 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
       DataType::Half,
       DataType::Int,
       DataType::Int32,
+      DataType::UInt,
+      DataType::UInt32,
       DataType::Bool,
       DataType::ComplexFloat,
       DataType::ComplexDouble};
@@ -6021,11 +6023,32 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
   }
 #endif
 
+  // ATen does not support uint32_t and uint64_t as dtype, so we need to
+  // use int32_t and int64_t as a proxy for these two types.
+  auto convert_aten_unsupported_dtype = [](DataType dt) -> DataType {
+    if (dt == DataType::UInt) {
+      return DataType::Int;
+    } else if (dt == DataType::UInt32) {
+      return DataType::Int32;
+    }
+    return dt;
+  };
+
   for (const auto& input_type : data_types) {
-    auto tv_in = makeContigTensor(2, input_type);
+    DataType proxy_input_type = convert_aten_unsupported_dtype(input_type);
+    auto tv_in = makeContigTensor(2, proxy_input_type);
     fusion.addInput(tv_in);
+
+    if (proxy_input_type != input_type) {
+      tv_in = bitCastOp(input_type, tv_in);
+    }
+
     for (const auto& output_type : data_types) {
+      DataType proxy_output_type = convert_aten_unsupported_dtype(output_type);
       auto tv_out = castOp(output_type, tv_in);
+      if (proxy_output_type != output_type) {
+        tv_out = bitCastOp(proxy_output_type, tv_out);
+      }
       fusion.addOutput(tv_out);
     }
   }
@@ -6035,10 +6058,16 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
   std::vector<c10::IValue> inputs;
   std::vector<at::Tensor> outputs;
   for (const auto& input_type : data_types) {
-    at::Tensor t = at::randn({x, y}, options).to(data_type_to_aten(input_type));
+    DataType proxy_input_type = convert_aten_unsupported_dtype(input_type);
+    at::Tensor t = at::randn({x, y}, options)
+                       .relu() // Discard negative numbers so that signed and
+                               // unsigned types are equivalent. There is no way
+                               // to represent unsigned numbers in PyTorch.
+                       .to(data_type_to_aten(proxy_input_type));
     inputs.emplace_back(t);
     for (const auto& output_type : data_types) {
-      outputs.emplace_back(t.to(data_type_to_aten(output_type)));
+      DataType proxy_output_type = convert_aten_unsupported_dtype(output_type);
+      outputs.emplace_back(t.to(data_type_to_aten(proxy_output_type)));
     }
   }
 
