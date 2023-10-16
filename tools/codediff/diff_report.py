@@ -643,10 +643,10 @@ class TestDifferences:
     removed_tests: list[CompiledTest] = field(default_factory=list)
     total_num_diffs: int = 0
     show_diffs: InitVar[bool] = False
-    include_matches: InitVar[bool] = False
+    inclusion_criterion: InitVar[str] = "mismatched_cuda_or_ptx"
     preamble_diff: str = field(init=False)
 
-    def __post_init__(self, show_diffs: bool, include_matches: bool):
+    def __post_init__(self, show_diffs: bool, kernel_inclusion_criterion: str):
         if self.run1.command != self.run2.command:
             print("WARNING: commands differ between runs", file=sys.stderr)
             print(f"  {self.run1.directory}: {self.run1.command}", file=sys.stderr)
@@ -725,7 +725,18 @@ class TestDifferences:
                         n=5,
                     )
                 )
-                if include_matches or len(diff_lines) > 0:
+                if (
+                    kernel_inclusion_criterion == "all"
+                    or (
+                        kernel_inclusion_criterion == "mismatched_cuda_or_ptx"
+                        and len(diff_lines) > 0
+                    )
+                    or (
+                        kernel_inclusion_criterion
+                        in ["mismatched_cuda_or_ptx", "mismatched_ptx"]
+                        and len(ptx_diff_lines) > 0
+                    )
+                ):
                     kd = KernelDiff(
                         testname,
                         kernel_num + 1,
@@ -815,7 +826,11 @@ if __name__ == "__main__":
         "--hide-diffs", action="store_true", help="Print diffs to STDOUT?"
     )
     parser.add_argument(
-        "--include-matches", action="store_true", help="Include matching kernels?"
+        "--kernel-inclusion-criterion",
+        "-i",
+        choices=("mismatched_cuda_or_ptx", "mismatched_ptx", "all"),
+        default="mismatched_cuda_or_ptx",
+        help="Which kernels should we include?",
     )
     parser.add_argument(
         "--html-max-diffs",
@@ -841,7 +856,7 @@ if __name__ == "__main__":
         TestRun(args.dir1),
         TestRun(args.dir2),
         show_diffs=not args.hide_diffs,
-        include_matches=args.include_matches,
+        inclusion_criterion=args.kernel_inclusion_criterion,
     )
 
     if args.hide_env:

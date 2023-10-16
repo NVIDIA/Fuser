@@ -63,11 +63,11 @@ SPDX-License-Identifier: BSD-3-Clause
     <span class="hljs-deletion"
           style="width: 32pt;
                  text-align: right;
-                 display: inline-block">-{{ kernel_diff.removed_lines }}</span>
+                 display: inline-block">{{ ('-' + (kernel_diff.removed_lines|string)) if kernel_diff.removed_lines != 0 else '' }}</span>
     <span class="hljs-addition"
           style="width: 32pt;
                  text-align: left;
-                 display: inline-block">+{{ kernel_diff.new_lines }}</span>
+                 display: inline-block">{{ ('+' + (kernel_diff.new_lines|string)) if kernel_diff.new_lines != 0 else '' }}</span>
     {%- macro meta_diff(name, old, new) -%}
         {{ name }}: {{ old }}
         {%- if new < old -%}
