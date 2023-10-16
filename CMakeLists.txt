@@ -6,19 +6,6 @@ project(nvfuser)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# compensating the lack of PROJECT_IS_TOP_LEVEL for older cmake version
-if(CMAKE_VERSION VERSION_LESS 3.21)
-  if("${CMAKE_PROJECT_NAME}" STREQUAL "${PROJECT_NAME}")
-    set(PROJECT_IS_TOP_LEVEL ON)
-  endif()
-endif()
-
-if(NOT PROJECT_IS_TOP_LEVEL)
-  message(WARNING "Building nvFuser as a submodule of pytorch is no longer supported. "
-                  "Building nvFuser as a CMake subproject is not maintained and not actively supported. "
-                  "Please use `python setup.py develop` in nvFuser's root dir or download a pre-built nvFuser pip wheel.")
-endif()
-
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
