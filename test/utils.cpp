@@ -304,34 +304,40 @@ TensorView* matmulTuringOrLater(
     TensorView* a,
     TensorView* b,
     MatmulLayout layout) {
-  NVF_CHECK(
-      a->nDims() == 2 && b->nDims() == 2, "only pure matmuls for these tests");
+  NVF_CHECK(a->nDims() == b->nDims());
   TensorView *tv2 = nullptr, *tv0t = nullptr, *tv1t = nullptr, *tv0b = nullptr,
              *tv1b = nullptr;
   switch (layout) {
       // Canonicalize all inputs to [M, K] and [N, K]
     case MatmulLayout::TT:
       tv0t = a;
-      tv1t = transpose(b, 0, 1);
+      tv1t = transpose(b, -2, -1);
       break;
     case MatmulLayout::TN:
       tv0t = a;
       tv1t = b;
       break;
     case MatmulLayout::NT:
-      tv0t = transpose(a, 0, 1);
-      tv1t = transpose(b, 0, 1);
+      tv0t = transpose(a, -2, -1);
+      tv1t = transpose(b, -2, -1);
       break;
     case MatmulLayout::NN:
-      tv0t = transpose(a, 0, 1);
+      tv0t = transpose(a, -2, -1);
       tv1t = b;
       break;
     default:
       NVF_CHECK(false, "unsupported data layout.");
   }
-  tv0b = broadcast(tv0t, {false, true, false});
-  tv1b = broadcast(tv1t, {true, false, false});
-  tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+  std::vector<bool> bcast_dims(a->nDims() + 1, false);
+  bcast_dims.at(bcast_dims.size() - 2) = true;
+  tv0b = broadcast(tv0t, bcast_dims);
+  bcast_dims.at(bcast_dims.size() - 2) = false;
+  bcast_dims.at(bcast_dims.size() - 3) = true;
+  tv1b = broadcast(tv1t, bcast_dims);
+  std::cout << tv0b->toString() << std::endl;
+  std::cout << tv1b->toString() << std::endl;
+  tv2 = fusedMultiplySum(tv0b, tv1b, {-1});
+  std::cout << "tv2=" << tv2->toString() << std::endl;
   return tv2;
 }
 
