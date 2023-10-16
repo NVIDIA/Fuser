@@ -910,10 +910,16 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
   auto promotion_map_it = promotion_map.find(merge_loop_group);
   ASSERT_TRUE(promotion_map_it != promotion_map.end())
       << "Loop promotion not found for merge loop group";
+  auto merge_out_promotion_id = promotion_map_it->second;
   ASSERT_EQ(
-      id_model.idGraph(IdMappingMode::EXACT).toGroup(promotion_map_it->second),
+      id_model.idGraph(IdMappingMode::EXACT).toGroup(merge_out_promotion_id),
       id_model.idGraph(IdMappingMode::EXACT).toGroup(ref_merge_out))
       << "Merge loop group should be promoted to " << ref_merge_out->toString();
+  ASSERT_NE(
+      id_model.idGraph(IdMappingMode::LOOP).toGroup(merge_out_promotion_id),
+      id_model.idGraph(IdMappingMode::LOOP).toGroup(ref_merge_out))
+      << "Should not be loop-mapped with ref: "
+      << merge_out_promotion_id->toString();
 
   // Get the corresponding reference ID in tv10
   auto getRefId = [&](TensorView* tv, IterDomain* id) -> IterDomain* {
@@ -969,7 +975,12 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
           << "Invalid promotion: " << id->toString() << " of " << tv->toString()
           << ". Promotion group: " << nvfuser::toString(promotion_exact_group);
 
-      ASSERT_NE(promotion_id, ref_id) << "Should not be promoted to tv10";
+      auto ref_loop_group =
+          id_model.idGraph(IdMappingMode::LOOP).toGroup(ref_id);
+      ASSERT_NE(loop_group, ref_loop_group)
+          << "Invalid promotion: " << id->toString() << " of " << tv->toString()
+          << ". Should not be loop-mapped with ref: "
+          << nvfuser::toString(loop_group);
     }
   }
 

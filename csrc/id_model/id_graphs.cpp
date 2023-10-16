@@ -1453,6 +1453,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     // graph with the (promoted) inputs of iel_expr. If found, no need
     // to create a new expr to produce promoted outputs
     for (const ExprGroup& iel_use_group : non_promoted_input_uses) {
+      // No need to check itself
       if (iel_expr == iel_use_group) {
         continue;
       }
@@ -1987,6 +1988,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
 
     // Check every use to see if it matches
     for (const ExprGroup& iel_use_group : promoted_input_uses) {
+      NVF_ERROR(!iel_use_group->empty());      
       VERBOSE() << "IEL use group: " << iel_use_group->front()->toString()
                 << std::endl;
       // Check if all the attributes (including type) of the transform match
@@ -1999,20 +2001,33 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
           intersection_exact_loop_graph.inputGroups(iel_use_group)) {
         continue;
       }
-
-      if (auto replay_it = std::find_if(
+      // Input mapping doesn't always mean expr and output
+      // mappings. Make sure the exprs are mapped, which automatically
+      // means the outputs are mapped in the case of the LOOP map
+      if (!idGraph(IdMappingMode::LOOP)
+               .disjointExprSets()
+               .permissiveAreMapped(
+                   iel_expr->front(), iel_use_group->front())) {
+        continue;
+      }
+      // This is just an extra sanity check. Make sure all exprs in
+      // the use group are mapped
+      NVF_ERROR(
+          std::all_of(
               iel_use_group->vector().begin(),
               iel_use_group->vector().end(),
               [&](Expr* iel_use) {
                 return idGraph(IdMappingMode::LOOP)
                     .disjointExprSets()
                     .permissiveAreMapped(iel_expr->front(), iel_use);
-              });
-          replay_it != iel_use_group->vector().end()) {
-        replay = *replay_it;
-        VERBOSE() << "Reusing " << replay->toString();
-        break;
-      }
+              }),
+          "Not all mapped: ",
+          nvfuser::toString(iel_expr),
+          "\n",
+          nvfuser::toString(iel_use_group));
+
+      replay = iel_use_group->front();
+      break;
     }
 
     bool replayed = replay == nullptr;
@@ -2099,11 +2114,14 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     }
   };
 
-  // Set up the loop promotion map of loops groups to promotion IDs
+  // Set up the loop promotion map of loop groups to promotion IDs
   for (const IdGroup& loop_group :
        idGraph(IdMappingMode::LOOP).disjointIdSets().disjointSets()) {
     bool promoted = false;
     for (IterDomain* id : loop_group->vector()) {
+      // Additional domains are added to the LOOP graph after the IEL
+      // graph was built. Those auxiliary domains should be fine to
+      // ignore.
       if (!intersection_exact_loop_graph.hasGroup(id)) {
         continue;
       }
