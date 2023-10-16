@@ -1335,6 +1335,10 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     // graph with the (promoted) inputs of iel_expr. If found, no need
     // to create a new expr to produce promoted outputs
     for (const ExprGroup& iel_use_group : non_promoted_input_uses) {
+      // No need to check itself
+      if (iel_expr == iel_use_group) {
+        continue;
+      }
       if (IdGraph::transformAtributesMatch(
               iel_expr->front(), iel_use_group->front())) {
         auto use_inps =
