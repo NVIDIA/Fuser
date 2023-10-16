@@ -3287,14 +3287,34 @@ bool TensorDomain::sameAs(
   return true;
 }
 
-std::string TensorDomain::toString(int indent_size) const {
+std::string TensorDomain::toString(const int indent_size, const bool leaf_only)
+    const {
   std::stringstream ss;
   if (nDims() == 0) {
-    ss << "[ 0 ]";
+    indent(ss, indent_size) << "[ ]";
     return ss.str();
   }
-  ss << "[ " << toDelimitedString(leaf()) << " ]";
+  indent(ss, indent_size) << "[ " << toDelimitedString(leaf()) << " ]";
+  if (!leaf_only) {
+    ss << "," << std::endl;
+    indent(ss, indent_size + 1)
+        << "root=[ " << toDelimitedString(root()) << " ]";
+    if (hasRFactor()) {
+      ss << "," << std::endl;
+      indent(ss, indent_size + 1)
+          << "rfactor=[ " << toDelimitedString(rfactor()) << " ]";
+    }
+    if (!allocation_domain_.empty()) {
+      ss << "," << std::endl;
+      indent(ss, indent_size + 1)
+          << "allocation=[ " << toDelimitedString(allocation()) << " ]";
+    }
+  }
   return ss.str();
+}
+
+std::string TensorDomain::toString(const int indent_size) const {
+  return toString(indent_size, /*leaf_only=*/true);
 }
 
 std::string TensorDomain::toInlineString(int indent_size) const {
