@@ -1783,6 +1783,34 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       arg_buffer_ptrs.push_back(arg_buffer.data());
     }
 
+    // Set up CUlaunchAttribute for cooperative and cluster launch
+    std::vector<CUlaunchAttribute> launch_attrs;
+    if (kernel()->summary().has_cooperative_grid_reduction) {
+      CUlaunchAttribute attr;
+      attr.id = CU_LAUNCH_ATTRIBUTE_COOPERATIVE;
+      attr.value.cooperative = 1;
+      launch_attrs.push_back(attr);
+    }
+    if (kernel()->summary().has_thread_block_cluster) {
+      CUlaunchAttribute attr;
+      attr.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
+      attr.value.clusterDim.x = (int)launch_params_.cdimx();
+      attr.value.clusterDim.y = (int)launch_params_.cdimy();
+      attr.value.clusterDim.z = (int)launch_params_.cdimz();
+      launch_attrs.push_back(attr);
+    }
+    CUlaunchConfig config = {
+        .gridDimX = (unsigned int)launch_params_.gdimx(),
+        .gridDimY = (unsigned int)launch_params_.gdimy(),
+        .gridDimZ = (unsigned int)launch_params_.gdimz(),
+        .blockDimX = (unsigned int)launch_params_.bdimx(),
+        .blockDimY = (unsigned int)launch_params_.bdimy(),
+        .blockDimZ = (unsigned int)launch_params_.bdimz(),
+        .sharedMemBytes = (unsigned int)launch_params_.smem(),
+        .hStream = stream,
+        .attrs = launch_attrs.data(),
+        .numAttrs = (unsigned int)launch_attrs.size()};
+
     if (isDebugDumpEnabled(DebugDumpOption::Occupancy) ||
         isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
       int blocks_per_sm = -1;
@@ -1810,34 +1838,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       timer.start();
     }
 
-    if (!kernel()->summary().has_cooperative_grid_reduction) {
-      FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
-      NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
-          compiled_kernel_->function,
-          launch_params_.gdimx(),
-          launch_params_.gdimy(),
-          launch_params_.gdimz(),
-          launch_params_.bdimx(),
-          launch_params_.bdimy(),
-          launch_params_.bdimz(),
-          launch_params_.smem(),
-          stream,
-          arg_buffer_ptrs.data(),
-          nullptr));
-    } else {
-      FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
-      NVFUSER_CUDA_SAFE_CALL(cuLaunchCooperativeKernel(
-          compiled_kernel_->function,
-          launch_params_.gdimx(),
-          launch_params_.gdimy(),
-          launch_params_.gdimz(),
-          launch_params_.bdimx(),
-          launch_params_.bdimy(),
-          launch_params_.bdimz(),
-          launch_params_.smem(),
-          stream,
-          arg_buffer_ptrs.data()));
-    }
+    NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
+        &config, compiled_kernel_->function, arg_buffer_ptrs.data(), nullptr));
 
     if (measure_kernel_time) {
       kernel_time_ms_ = timer.elapsed();

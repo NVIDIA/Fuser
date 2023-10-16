@@ -13,11 +13,11 @@
 namespace nvfuser {
 
 void LaunchParams::assertValid() {
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
   NVF_ERROR(
       bdimx() * bdimy() * bdimz() > 0 &&
           bdimx() * bdimy() * bdimz() <=
-              (int64_t)at::cuda::getCurrentDeviceProperties()
-                  ->maxThreadsPerMultiProcessor,
+              (int64_t)dev_prop->maxThreadsPerMultiProcessor,
       "Selected invalid number of threads for cuda: ",
       bdimx() * bdimy() * bdimz());
   NVF_ERROR(
@@ -32,6 +32,24 @@ void LaunchParams::assertValid() {
       gdimz() > 0 && gdimz() <= 65535,
       "Invalid number of blocks in z direction: ",
       gdimz());
+
+  if (dev_prop->clusterLaunch) {
+    constexpr static int max_cluster_size = 8;
+    NVF_ERROR(
+        cdimx() * cdimy() * cdimz() >= 1 &&
+            cdimx() * cdimy() * cdimz() <= max_cluster_size,
+        "cluster size is not supported",
+        ", cdimx= ",
+        cdimx(),
+        ", cdimy= ",
+        cdimy(),
+        ", cdimz= ",
+        cdimz());
+  } else {
+    NVF_ERROR(
+        cdimx() * cdimy() * cdimz() == 1,
+        "cluster launch is not supported by current device.");
+  }
 }
 
 void LaunchParams::bind(int64_t val, ParallelType p_type) {
@@ -42,17 +60,53 @@ void LaunchParams::bind(int64_t val, ParallelType p_type) {
     case ParallelType::BIDx:
       checkAndSet(val, gdimx_, "gridDim.x");
       break;
+    case ParallelType::KIDx:
+      checkAndSet(val, cdimx_, "clusterDim.x");
+      bind(
+          getDim(ParallelType::KIDx) * getDim(ParallelType::CIDx),
+          ParallelType::BIDx);
+      break;
+    case ParallelType::CIDx:
+      checkAndSet(val, gcdimx_, "gridClusterDim.x");
+      bind(
+          getDim(ParallelType::KIDx) * getDim(ParallelType::CIDx),
+          ParallelType::BIDx);
+      break;
     case ParallelType::TIDy:
       checkAndSet(val, bdimy_, "blockDim.y");
       break;
     case ParallelType::BIDy:
       checkAndSet(val, gdimy_, "gridDim.y");
       break;
+    case ParallelType::KIDy:
+      checkAndSet(val, cdimy_, "clusterDim.y");
+      bind(
+          getDim(ParallelType::KIDy) * getDim(ParallelType::CIDy),
+          ParallelType::BIDy);
+      break;
+    case ParallelType::CIDy:
+      checkAndSet(val, gcdimy_, "gridClusterDim.y");
+      bind(
+          getDim(ParallelType::KIDy) * getDim(ParallelType::CIDy),
+          ParallelType::BIDy);
+      break;
     case ParallelType::TIDz:
-      checkAndSet(val, bdimz_, "blockdim.z");
+      checkAndSet(val, bdimz_, "blockDim.z");
       break;
     case ParallelType::BIDz:
       checkAndSet(val, gdimz_, "gridDim.z");
+      break;
+    case ParallelType::KIDz:
+      checkAndSet(val, cdimz_, "clusterDim.z");
+      bind(
+          getDim(ParallelType::KIDz) * getDim(ParallelType::CIDz),
+          ParallelType::BIDz);
+      break;
+    case ParallelType::CIDz:
+      checkAndSet(val, gcdimz_, "gridClusterDim.z");
+      bind(
+          getDim(ParallelType::KIDz) * getDim(ParallelType::CIDz),
+          ParallelType::BIDz);
       break;
     default:
       NVF_ERROR(
@@ -60,23 +114,36 @@ void LaunchParams::bind(int64_t val, ParallelType p_type) {
           "Tried to bind invalid parallel type in launch config: ",
           p_type);
   }
+
   assertValid();
 }
 
 int64_t LaunchParams::getDim(ParallelType p_type) const {
   switch (p_type) {
     case ParallelType::TIDx:
-      return bdimx();
+      return bdimx(); // threads in block
     case ParallelType::BIDx:
-      return gdimx();
+      return gdimx(); // blocks in grid
+    case ParallelType::KIDx:
+      return cdimx(); // blocks in cluster
+    case ParallelType::CIDx:
+      return gcdimx(); // cluster in grid
     case ParallelType::TIDy:
       return bdimy();
     case ParallelType::BIDy:
       return gdimy();
+    case ParallelType::KIDy:
+      return cdimy();
+    case ParallelType::CIDy:
+      return gcdimy();
     case ParallelType::TIDz:
       return bdimz();
     case ParallelType::BIDz:
       return gdimz();
+    case ParallelType::KIDz:
+      return cdimz();
+    case ParallelType::CIDz:
+      return gcdimz();
     default:
       NVF_ERROR(
           false,
@@ -95,14 +162,26 @@ const int64_t& LaunchParams::getRawVal(ParallelType p_type) const {
       return bdimx_;
     case ParallelType::BIDx:
       return gdimx_;
+    case ParallelType::KIDx:
+      return cdimx_;
+    case ParallelType::CIDx:
+      return gcdimx_;
     case ParallelType::TIDy:
       return bdimy_;
     case ParallelType::BIDy:
       return gdimy_;
+    case ParallelType::KIDy:
+      return cdimy_;
+    case ParallelType::CIDy:
+      return gcdimy_;
     case ParallelType::TIDz:
       return bdimz_;
     case ParallelType::BIDz:
       return gdimz_;
+    case ParallelType::KIDz:
+      return cdimz_;
+    case ParallelType::CIDz:
+      return gcdimz_;
     default:
       NVF_ERROR(
           false,
@@ -113,7 +192,11 @@ const int64_t& LaunchParams::getRawVal(ParallelType p_type) const {
 
 bool LaunchParams::operator==(const LaunchParams& other) const {
   return gdimx_ == other.gdimx_ && gdimy_ == other.gdimy_ &&
-      bdimx_ == other.bdimx_ && bdimy_ == other.bdimy_ && smem_ == other.smem_;
+      gdimz_ == other.gdimz_ && cdimx_ == other.cdimx_ &&
+      cdimy_ == other.cdimy_ && cdimz_ == other.cdimz_ &&
+      gcdimx_ == other.gcdimx_ && gcdimy_ == other.gcdimy_ &&
+      gcdimz_ == other.gcdimz_ && bdimx_ == other.bdimx_ &&
+      bdimy_ == other.bdimy_ && bdimz_ == other.bdimz_ && smem_ == other.smem_;
 }
 
 void LaunchParams::print() const {
@@ -126,6 +209,9 @@ std::string LaunchParams::toString() const {
      << "BlockDim.x = " << (bdimx_ == UNINITIALIZED_VAL ? -1 : bdimx_) << ", "
      << "BlockDim.y = " << (bdimy_ == UNINITIALIZED_VAL ? -1 : bdimy_) << ", "
      << "BlockDim.z = " << (bdimz_ == UNINITIALIZED_VAL ? -1 : bdimz_) << ", "
+     << "ClusterDim.x = " << (cdimx_ == UNINITIALIZED_VAL ? -1 : cdimx_) << ", "
+     << "ClusterDim.y = " << (cdimy_ == UNINITIALIZED_VAL ? -1 : cdimy_) << ", "
+     << "ClusterDim.z = " << (cdimz_ == UNINITIALIZED_VAL ? -1 : cdimz_) << ", "
      << "GridDim.x = " << (gdimx_ == UNINITIALIZED_VAL ? -1 : gdimx_) << ", "
      << "GridDim.y = " << (gdimy_ == UNINITIALIZED_VAL ? -1 : gdimy_) << ", "
      << "GridDim.z = " << (gdimz_ == UNINITIALIZED_VAL ? -1 : gdimz_) << ", "

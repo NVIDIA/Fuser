@@ -45,6 +45,12 @@ struct KernelSummary {
   //! Indicate the need to generate random numbers
   bool has_philox_op = false;
 
+  //! Indicate the use of thread block cluster.
+  bool has_thread_block_cluster = false;
+
+  //! Indicate has multiple clusters in a grid.
+  bool has_multiple_clusters = false;  
+
   //! Do we have any block reductions?
   bool has_block_reductions = false;
 

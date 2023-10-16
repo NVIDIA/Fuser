@@ -32,6 +32,18 @@ constexpr int getParallelTypeBitMapOffset(ParallelType pt) {
       return 4;
     case ParallelType::TIDz:
       return 5;
+    case ParallelType::KIDx:
+      return 6;
+    case ParallelType::KIDy:
+      return 7;
+    case ParallelType::KIDz:
+      return 8;      
+    case ParallelType::CIDx:
+      return 9;
+    case ParallelType::CIDy:
+      return 10;
+    case ParallelType::CIDz:
+      return 11;
     default:
       return -1;
   }
@@ -40,7 +52,7 @@ constexpr int getParallelTypeBitMapOffset(ParallelType pt) {
 //! Represents mapping to bool from BIDx, BIDy, BIDz, TIDx, TIDy and TIDz.
 class ParallelTypeBitmap {
  public:
-  static constexpr int kNumParallelTypes = 6;
+  static constexpr int kNumParallelTypes = 12;
 
   //! Iterator for ParallelTypeBitmap. Picks only set types.
   class Iterator {
@@ -160,6 +172,11 @@ class ParallelTypeBitmap {
     return (bitset_ & kBIDBits).any();
   }
 
+  //! Return true if CIDx/y/z is included
+  bool hasCID() const {
+    return (bitset_ & kCIDBits).any();
+  }
+
   //! Set all of the TID flags
   ParallelTypeBitmap& setAllTID() {
     *this |= ParallelTypeBitmap(kTIDBits);
@@ -172,10 +189,17 @@ class ParallelTypeBitmap {
     return *this;
   }
 
+  //! Set all of the CID flags
+  ParallelTypeBitmap& setAllCID() {
+    *this |= ParallelTypeBitmap(kCIDBits);
+    return *this;
+  }
+
   //! Set all flags
   ParallelTypeBitmap& setAll() {
     setAllTID();
     setAllBID();
+    setAllCID();
     return *this;
   }
 
@@ -195,10 +219,19 @@ class ParallelTypeBitmap {
     return *this;
   }
 
+  //! Clear all of the CID flags
+  ParallelTypeBitmap& clearAllCID() {
+    auto bid_bits = ParallelTypeBitmap(kCIDBits);
+    auto not_bid_bits = ~bid_bits;
+    *this &= not_bid_bits;
+    return *this;
+  }
+
   //! Clear all flags
   ParallelTypeBitmap& clearAll() {
     clearAllTID();
     clearAllBID();
+    clearAllCID();
     return *this;
   }
 
@@ -239,6 +272,11 @@ class ParallelTypeBitmap {
       (1u << getParallelTypeBitMapOffset(ParallelType::BIDx)) |
       (1u << getParallelTypeBitMapOffset(ParallelType::BIDy)) |
       (1u << getParallelTypeBitMapOffset(ParallelType::BIDz))};
+
+  static constexpr std::bitset<ParallelTypeBitmap::kNumParallelTypes> kCIDBits{
+      (1u << getParallelTypeBitMapOffset(ParallelType::CIDx)) |
+      (1u << getParallelTypeBitMapOffset(ParallelType::CIDy)) |
+      (1u << getParallelTypeBitMapOffset(ParallelType::CIDz))};
 };
 
 inline ParallelTypeBitmap operator&(

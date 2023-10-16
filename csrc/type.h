@@ -651,6 +651,12 @@ enum class ParallelType {
   TIDz,
   TIDy,
   TIDx,
+  KIDz,
+  KIDy,
+  KIDx,  
+  CIDz,
+  CIDy,
+  CIDx,
   Vectorize,
   MisalignedVectorize,
   Unroll,
@@ -664,13 +670,19 @@ enum class ParallelType {
 std::unordered_set<ParallelType> allParallelTypesExcept(
     const std::unordered_set<ParallelType>& except);
 
-static constexpr std::array<ParallelType, 6> kParallelTypeThreads = {
+static constexpr std::array<ParallelType, 12> kParallelTypeThreads = {
     ParallelType::BIDx,
     ParallelType::BIDy,
     ParallelType::BIDz,
     ParallelType::TIDx,
     ParallelType::TIDy,
-    ParallelType::TIDz};
+    ParallelType::TIDz,
+    ParallelType::KIDx,
+    ParallelType::KIDy,
+    ParallelType::KIDz,    
+    ParallelType::CIDx,
+    ParallelType::CIDy,
+    ParallelType::CIDz};
 
 static constexpr std::array<ParallelType, 3> kParallelTypeBIDs = {
     ParallelType::BIDx,
@@ -681,6 +693,17 @@ static constexpr std::array<ParallelType, 3> kParallelTypeTIDs = {
     ParallelType::TIDx,
     ParallelType::TIDy,
     ParallelType::TIDz};
+
+static constexpr std::array<ParallelType, 3> kParallelTypeKIDs = {
+    ParallelType::KIDx,
+    ParallelType::KIDy,
+    ParallelType::KIDz};
+
+static constexpr std::array<ParallelType, 3> kParallelTypeCIDs = {
+    ParallelType::CIDx,
+    ParallelType::CIDy,
+    ParallelType::CIDz};
+
 
 enum class MemoryType { Local, Shared, Global };
 
@@ -898,6 +921,10 @@ std::string typePrefix(const DataType);
 bool isParallelTypeThreadDim(ParallelType);
 // Returns if parallel type is BID[x, y, z]
 bool isParallelTypeBlockDim(ParallelType);
+// Returns if parallel type is KID[x, y, z]
+bool isParallelTypeBlusterDim(ParallelType);
+// Returns if parallel type is CID[x, y, z]
+bool isParallelTypeClusterDim(ParallelType);
 // Returns if parallel type is a grid or block parallelization dimension
 bool isParallelTypeThread(ParallelType);
 

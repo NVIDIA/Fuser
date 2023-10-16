@@ -224,9 +224,19 @@ class IterDomain : public Val {
     return isParallelTypeThreadDim(getParallelType());
   }
 
+  //! Return if this iter domain is mapped to a cluster dimension
+  bool isClusterDim() const {
+    return isParallelTypeClusterDim(getParallelType());
+  }
+
+  //! Return if this iter domain is mapped to a cluster dimension
+  bool isBlusterDim() const {
+    return isParallelTypeBlusterDim(getParallelType());
+  }
+
   //! Return if this iter domain is either mapped to a block or grid dimension
   bool isThread() const {
-    return (isBlockDim() || isThreadDim());
+    return (isBlockDim() || isThreadDim() || isClusterDim());
   }
 
   void parallelize(ParallelType t);
