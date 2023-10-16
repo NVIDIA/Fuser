@@ -40,6 +40,7 @@ class GridSync;
 class MBarrierInit;
 class MBarrierInvalidate;
 class MBarrierArrive;
+class MBarrierArriveExpectTx;
 class MBarrierWait;
 class CpAsyncWait;
 class CpAsyncCommit;
@@ -375,6 +376,41 @@ class MBarrierArrive final : public Expr {
 
   Val* mbarrier() const {
     return input(0);
+  }
+};
+
+// IR node for: mbarrier.arrive.expect_tx
+// This is usually used to specify the number of bytes that will be
+// transferred for cp.async and cp.async.bulk, so that future mbarrier.wait
+// can wait for the completion of the transfer.
+class MBarrierArriveExpectTx final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierArriveExpectTx(
+      IrBuilderPasskey passkey,
+      Val* state,
+      Val* mbarrier,
+      Val* tx_count);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierArriveExpectTx";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* state() const {
+    return output(0);
+  }
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+
+  Val* txCount() const {
+    return input(1);
   }
 };
 
