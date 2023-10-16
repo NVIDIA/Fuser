@@ -46,7 +46,6 @@ namespace util {
 //    so this function is a no-op on Ampere or above.
 __device__ inline void adjustPartialLdMatrixAddrInTuring(
     unsigned& addr_in_byte) {
-#if (__CUDA_ARCH__ < 800)
   const unsigned thread_id = threadIdx.x;
   // Upper half warp has 8 bytes offset from aligned in .x2 option
   //  of ldmatrix. Currently no support for .x1 so assume always
@@ -60,7 +59,6 @@ __device__ inline void adjustPartialLdMatrixAddrInTuring(
     // mask out the bits where adjust_mask has 1.
     addr_in_byte &= (~mask_out);
   }
-#endif //(__CUDA_ARCH__ < 800)
 }
 
 } // namespace util
@@ -80,7 +78,9 @@ template <typename T>
 __device__ inline void ldMatrix(Array<T, 4, 4>* out, unsigned addr) {
   static_assert(sizeof(T) == 2);
   uint2* val = reinterpret_cast<uint2*>(out);
+#if (__CUDA_ARCH__ < 800)
   util::adjustPartialLdMatrixAddrInTuring(addr);
+#endif
   asm volatile("ldmatrix.sync.aligned.x2.m8n8.shared.b16 {%0,%1}, [%2];"
                : "=r"(val->x), "=r"(val->y)
                : "r"(addr));
@@ -93,7 +93,9 @@ template <typename T>
 __device__ inline void ldMatrixT(Array<T, 4, 4>* out, unsigned addr) {
   static_assert(sizeof(T) == 2);
   uint2* val = reinterpret_cast<uint2*>(out);
+#if (__CUDA_ARCH__ < 800)
   util::adjustPartialLdMatrixAddrInTuring(addr);
+#endif
   asm volatile("ldmatrix.sync.aligned.x2.trans.m8n8.shared.b16 {%0,%1}, [%2];"
                : "=r"(val->x), "=r"(val->y)
                : "r"(addr));
