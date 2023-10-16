@@ -50,13 +50,15 @@ TEST_F(TransformViewTest, MergeSplit) {
   TensorView* out = reshape(in, in_shape, out_shape);
   fusion.addOutput(out);
 
-  AnalyzeViewResult result = analyzeView(in, in_shape, out_shape);
+  AnalyzeViewResult view_analysis = analyzeView(in, in_shape, out_shape);
   // The last dimension of out_shape is broadcast.
-  EXPECT_THAT(result.broadcast_axes, ElementsAre(false, false, false, true));
+  EXPECT_THAT(
+      view_analysis.broadcast_axes, ElementsAre(false, false, false, true));
   // Dimension 1 is squeezed.
-  EXPECT_THAT(result.squeeze_axes, ElementsAre(false, true, false, false));
+  EXPECT_THAT(
+      view_analysis.squeeze_axes, ElementsAre(false, true, false, false));
 
-  EXPECT_THAT(result.transforms, ElementsAre(isMerge(0), isSplit(1, 2)));
+  EXPECT_THAT(view_analysis.transforms, ElementsAre(isMerge(0), isSplit(1, 2)));
 }
 
 } // namespace nvfuser
