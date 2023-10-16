@@ -328,6 +328,32 @@ std::string MBarrierArrive::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierArrive)
 
+MBarrierArriveExpectTx::MBarrierArriveExpectTx(
+    IrBuilderPasskey passkey,
+    Val* state,
+    Val* mbarrier,
+    Val* tx_count)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_CHECK(tx_count->dtype() == DataType::UInt32);
+  addInput(mbarrier);
+  addInput(tx_count);
+  addOutput(state);
+}
+
+std::string MBarrierArriveExpectTx::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "MBarrierArriveExpectTx(" << mbarrier()->toString()
+                          << ", " << txCount()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string MBarrierArriveExpectTx::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "MBarrierArriveExpectTx can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierArriveExpectTx)
+
 MBarrierWait::MBarrierWait(IrBuilderPasskey passkey, Val* mbarrier, Val* state)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);

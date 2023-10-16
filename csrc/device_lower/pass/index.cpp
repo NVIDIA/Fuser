@@ -1284,6 +1284,21 @@ void IndexLowering::handleGroupedGridWelford(
   }
 }
 
+void IndexLowering::handle(const kir::MBarrierInit* minit) {
+  auto minit_indexed = IrBuilder::create<kir::MBarrierInit>(
+      lower_utils::u32IndexScalarSmemTv(minit->mbarrier()->as<TensorView>()),
+      minit->threadCount());
+  pushBack(minit_indexed);
+  GpuLower::current()->propagateExprInfo(minit, minit_indexed);
+}
+
+void IndexLowering::handle(const kir::MBarrierInvalidate* minval) {
+  auto minval_indexed = IrBuilder::create<kir::MBarrierInvalidate>(
+      lower_utils::u32IndexScalarSmemTv(minval->mbarrier()->as<TensorView>()));
+  pushBack(minval_indexed);
+  GpuLower::current()->propagateExprInfo(minval, minval_indexed);
+}
+
 void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
   auto in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
   auto out = Index::cpAsyncBulkIndex(ldst->out()->as<TensorView>(), for_loops_);
