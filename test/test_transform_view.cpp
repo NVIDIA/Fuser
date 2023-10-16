@@ -39,7 +39,7 @@ MATCHER_P2(isSplit, index, factor, "") {
   return false;
 }
 
-TEST_F(TransformViewTest, testStaticReshape) {
+TEST_F(TransformViewTest, MergeSplit) {
   const std::vector<int64_t> in_shape({2, 1, 3, 4});
   const std::vector<int64_t> out_shape({6, 2, 2, 1});
 
