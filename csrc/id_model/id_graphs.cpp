@@ -1137,7 +1137,7 @@ IdGraph IterDomainGraphs::buildIntersection(
 void IterDomainGraphs::initializeLoopMap(StatefulLoweringInfo& info) {
   // See Indexing20 example for why we shouldn't propagate when generating loop
   // groups
-  idGraph(IdMappingMode::LOOP) = initializeIdGraph(getenv("LOOP_PROP"));
+  idGraph(IdMappingMode::LOOP) = initializeIdGraph(false);
 
   // Make sure this is called in a deterministic order. Build all inlined
   // relationships in loop graph.
@@ -1988,7 +1988,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
 
     // Check every use to see if it matches
     for (const ExprGroup& iel_use_group : promoted_input_uses) {
-      NVF_ERROR(!iel_use_group->empty());      
+      NVF_ERROR(!iel_use_group->empty());
       VERBOSE() << "IEL use group: " << iel_use_group->front()->toString()
                 << std::endl;
       // Check if all the attributes (including type) of the transform match
