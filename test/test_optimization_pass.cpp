@@ -655,7 +655,8 @@ TEST_F(NVFuserTest, FusionRemoveEmptyMatmul_CUDA) {
   EXPECT_NE(preseg_fusion->outputs()[0]->definition(), nullptr);
   auto rewritten_def = preseg_fusion->outputs()[0]->definition();
   EXPECT_TRUE(rewritten_def->isA<FullOp>());
-  EXPECT_EQ(rewritten_def->as<FullOp>()->getFillValue()->evaluateDouble(), 0.0);
+  ExpressionEvaluator ee;
+  EXPECT_EQ(rewritten_def->as<FullOp>()->getFillValue()->evaluate(), 0.0);
 
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);

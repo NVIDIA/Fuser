@@ -72,7 +72,7 @@ TEST_F(ExprEvalTest, Double) {
   auto three = IrBuilder::create<Val>(3.0);
   auto val = castOp(DataType::Int, ceilDiv(sub(ten, two), three));
   auto reference = static_cast<int64_t>(std::ceil((10.0 - 2.0) / 3.0));
-  EXPECT_EQ(reference, val->evaluateInt());
+  EXPECT_EQ(reference, val->evaluate());
 }
 
 // Evaluate basic scalar operations with bound values

@@ -822,7 +822,7 @@ class AllocationInfoMap : private kir::IrVisitor {
             "Lower_alias_memory : dynamic sized register allocation");
         return;
       }
-      if (alloc->size()->evaluateInt() <= kRegisterSizeThreshold) {
+      if (alloc->size()->evaluate() <= kRegisterSizeThreshold) {
         should_try_alias = false;
       }
     }

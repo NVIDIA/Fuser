@@ -6342,10 +6342,9 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
             std::find(cond_inputs.begin(), cond_inputs.end(), loop_index);
         auto vec_factor_it =
             std::find_if(cond_inputs.begin(), cond_inputs.end(), [](Val* inp) {
-              auto int_val = inp->getInt();
-              return int_val.has_value() &&
-                  (int_val.value() == vec_factor - 1 ||
-                   int_val.value() == -(vec_factor - 1));
+              auto int_val = inp->value();
+              return int_val.hasValue() &&
+                  (int_val == vec_factor - 1 || int_val == -(vec_factor - 1));
             });
         // If vectorized, the predicate should use (vec_factor - 1) or
         // -(vec_factor - 1) rather than the loop index.
@@ -8667,7 +8666,7 @@ TEST_F(NVFuserTest, Repro413_CUDA) {
       auto getVectorizationFactor = [](TensorView* tv) -> int64_t {
         for (auto i : tv->getLeafDomain()) {
           if (i->getParallelType() == ParallelType::Vectorize) {
-            return i->extent()->evaluateInt();
+            return i->extent()->evaluate().as<int64_t>();
           }
         }
         return 1;

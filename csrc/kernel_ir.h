@@ -122,7 +122,8 @@ class Predicate final : public Val {
   }
 
   bool isTrivial() const {
-    return isConst() && value_->getBool() == true;
+    return isConst() && value_->value().hasValue() &&
+        value_->value().is<bool>() && value_->value().as<bool>();
   }
 
  private:

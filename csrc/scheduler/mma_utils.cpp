@@ -510,7 +510,7 @@ bool canValidateIsInnerDim(
   if (!leaf->extent()->isConstInt()) {
     return false;
   }
-  if (leaf->extent()->evaluateInt() != inner_dim_size) {
+  if (leaf->extent()->evaluate() != inner_dim_size) {
     return false;
   }
 
@@ -569,11 +569,11 @@ void checkDimSize(
         id->extent()->isConstInt(),
         "Mma warp mapping: instruction tile has to be constant");
     NVF_CHECK(
-        id->extent()->evaluateInt() == expect[axis_index],
+        id->extent()->evaluate() == expect[axis_index],
         "Mma warp mapping: unexpected tile size at",
         axis_index,
         ":",
-        id->extent()->evaluateInt(),
+        id->extent()->evaluate(),
         "vs",
         expect[axis_index],
         "\n for tv: ",

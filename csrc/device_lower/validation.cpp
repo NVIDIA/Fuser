@@ -433,7 +433,7 @@ class VectorizeValidator : public OptInDispatch {
         v_id->extent()->isConstInt(),
         "Vectorizing a domain requires a constant integer size.");
 
-    auto vector_word_size = v_id->extent()->evaluateInt();
+    auto vector_word_size = v_id->extent()->evaluate();
     auto vector_size =
         ((int64_t)dataTypeSize(
             tv->getDataType().value(), GpuLower::current()->indexType())) *
@@ -730,6 +730,7 @@ std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> getLiveRangeOffsets
             "Can't evaluate stop value of ",
             consumer_root->stopOffset());
         auto it = map.find(consumer_root);
+
         if (it == map.end() || consumer->isFusionOutput()) {
           // No range set for this root domain, which means this
           // consumer_tensor is an output tensor or the consumer_root
@@ -742,19 +743,17 @@ std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> getLiveRangeOffsets
           // is visible to outside of the fusion.
           map.insert(
               {consumer_root,
-               {consumer_root->start()->evaluateInt(),
-                consumer_root->stopOffset()->evaluateInt()}});
+               {consumer_root->start()->evaluate().as<int64_t>(),
+                consumer_root->stopOffset()->evaluate().as<int64_t>()}});
         } else {
           // When the range of this root domain is already set, it
           // must be set by its consumers. Make sure the required
           // range by the consumers is covered by the defined range of
           // this root domain.
           auto& consumer_range = it->second;
+          NVF_ERROR(consumer_root->start()->evaluate() <= consumer_range.first);
           NVF_ERROR(
-              consumer_root->start()->evaluateInt() <= consumer_range.first);
-          NVF_ERROR(
-              consumer_root->stopOffset()->evaluateInt() <=
-              consumer_range.second);
+              consumer_root->stopOffset()->evaluate() <= consumer_range.second);
         }
       }
 
@@ -810,11 +809,11 @@ void validateSplit(
       split_offset);
 
   NVF_ERROR(
-      split_offset->evaluateInt() <= domain_offset,
+      split_offset->evaluate() <= domain_offset,
       err_msg_prefix,
       ": Split offset is larger than the domain offset.",
       " Split offset: ",
-      split_offset->evaluateInt(),
+      split_offset->evaluate(),
       ". Domain offset: ",
       domain_offset);
 }
@@ -898,7 +897,7 @@ void validateMmaTensors(MmaOp* mma) {
           NVF_ERROR(
               lower_utils::isExtentEqualToMaxParallelTypeExtent(id) &&
                   paralel_dim_map.get(ptype)->isConstInt() &&
-                  paralel_dim_map.get(ptype)->evaluateInt() ==
+                  paralel_dim_map.get(ptype)->evaluate() ==
                       at::cuda::warp_size(),
               "TIDx is reserved for lane id in mma kernels, and it needs to be exactly a warp");
           tidx_validated = true;
@@ -1022,7 +1021,7 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
   auto output = ldst->out()->as<TensorView>();
   for (auto id : output->getLeafDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
-      byte_size = (int)id->extent()->evaluateInt();
+      byte_size = static_cast<int>(id->extent()->evaluate());
       break;
     }
   }
@@ -1192,7 +1191,8 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
 
       // Extent must be static
       NVF_CHECK(
-          id->extent()->getInt().has_value(),
+          (id->extent()->value().hasValue() &&
+           id->extent()->value().is<int64_t>()),
           "Invalid use of ParallelType::Group.",
           " IterDomain must have a static extent: ",
           id->toString());
@@ -1314,7 +1314,7 @@ void validateGroupedReductions(Fusion* fusion) {
       auto out_tv = ir_utils::getTvOutput(grouped_reduction_op);
       for (auto axis : out_tv->getLeafDomain()) {
         if (axis->getParallelType() == ParallelType::Group) {
-          num_grouped_iterations *= (int)axis->extent()->getInt().value();
+          num_grouped_iterations *= (int)axis->extent()->value();
         }
       }
       NVF_CHECK(

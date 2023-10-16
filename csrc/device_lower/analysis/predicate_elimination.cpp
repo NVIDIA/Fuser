@@ -153,16 +153,15 @@ class PredicateAnalyzer : public OptOutDispatch {
   // axis. Otherwise, we can't skip predication as it might cause
   // out-bound accesses with the producer tensor
   void handle(Split* split) override {
-    auto factor = split->factor()->getInt();
-    if (!factor.has_value()) {
+    auto factor = split->factor()->value();
+    if (!factor.hasValue() || !factor.is<int64_t>()) {
       needs_predicate_ = true;
       return;
     }
 
     auto in_extent = split->in()->extent();
 
-    if (!in_extent->isConstInt() ||
-        ((in_extent->evaluateInt() % factor.value()) != 0)) {
+    if (!in_extent->isConstInt() || ((in_extent->evaluate() % factor) != 0)) {
       needs_predicate_ = true;
       return;
     }

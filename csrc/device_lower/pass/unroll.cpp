@@ -299,7 +299,7 @@ bool UnrollPass::canOmitElseClause(kir::ForLoop* fl) {
       visit_once = true;
     }
     if (!visit_once) {
-      if (loop->stop()->isConstInt() && loop->stop()->evaluateInt() == 1) {
+      if (loop->stop()->isConstInt() && loop->stop()->evaluate() == 1) {
         visit_once = true;
       }
     }
