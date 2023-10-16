@@ -59,6 +59,18 @@ struct DeviceDescriptor{
 };
 
 struct KernelProfile {
+  void print() const {
+    std::cout << "\n" << name << " "
+              << device << " "
+              << stream << " "
+              << time_ms << " "
+              << "[" << std::get<0>(grid) << ", " << std::get<1>(grid) << ", " << std::get<2>(grid) << "] "
+              << "[" << std::get<0>(block) << ", " << std::get<1>(block) << ", " << std::get<2>(block) << "] "
+              << "[" << std::get<0>(cluster) << ", " << std::get<1>(cluster) << ", " << std::get<2>(cluster) << "] "
+              << "[" << dynamic_shared_mem << ", " << static_shared_mem << "] "
+              << registers << std::endl;
+  }
+
   std::string name;
   uint32_t device{0};
   uint32_t stream{0};
@@ -103,7 +115,7 @@ struct FusionProfile {
 
 class SegmentProfiler {
  public:
-  SegmentProfiler(size_t id);
+  SegmentProfiler(uint32_t id);
 
   void startCompile(int device);
   void stopCompile();
@@ -113,9 +125,11 @@ class SegmentProfiler {
 
   void bytesAccessed(size_t input_bytes, size_t output_bytes);
 
+  uint32_t segmentId() const;
+
  private:
   int device_;
-  size_t segment_id_;
+  uint32_t segment_id_;
 
   CudaEventTimer compile_timer_;
   ProfilerState kernel_profile_state_;
@@ -126,16 +140,16 @@ class FusionProfiler {
  public: // Static Methods
   static FusionProfiler* get();
  
+ public:
+  FusionProfiler(size_t device);
+  
   // Static Methods to capture Asynchronous CUPTI activity
   // Collects CUPTI activity to map Profiler Id -> CUPTI Correlation Id
   // Segment ID -> Correlation ID
-  static void recordAsyncCorrIdActivity(uint32_t seg_id, uint32_t corr_id);
+  void recordAsyncCorrIdActivity(uint32_t seg_id, uint32_t corr_id);
   // Collects CUPTI Kernel Activity
   // Segment ID -> KernelProfile
-  static void recordAsyncKernelActivity(uint32_t corr_id, KernelProfile prof);
-
- public:
-  FusionProfiler(size_t device);
+  void recordAsyncKernelActivity(uint32_t corr_id, KernelProfile prof);
   
   void createSegments(size_t num);
   SegmentProfiler& segment(size_t idx);
@@ -154,7 +168,7 @@ class FusionProfiler {
   static FusionProfiler* singleton_;
   static std::mutex singleton_lock_;
 
-  size_t fusion_id_;
+  uint32_t fusion_id_;
 
   FusionProfile profile_;
   CudaEventTimer fusion_timer_;
@@ -166,7 +180,7 @@ class FusionProfiler {
   // Correlation Ids to SegmentProfilers asynchronously arrives
   // after each Kernel Activity Record
   std::unordered_map<uint32_t, KernelProfile> corrid_2_kernelprof_;
-  std::unordered_map<size_t, size_t> segid_2_segprofiler_idx_;
+  std::unordered_map<uint32_t, uint32_t> segid_2_corrid_; 
 };
 
 #define _FP_ENABLE(code) \

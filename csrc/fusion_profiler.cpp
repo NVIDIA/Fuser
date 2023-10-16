@@ -49,14 +49,14 @@ void PrintActivity(CUpti_Activity *pRecord, FILE *pFileHandle) {
       prof.static_shared_mem = pKARecord->staticSharedMemory;
       prof.registers = pKARecord->registersPerThread;
 
-      FusionProfiler::recordAsyncKernelActivity(pKARecord->correlationId, std::move(prof));
+      FusionProfiler::get()->recordAsyncKernelActivity(pKARecord->correlationId, std::move(prof));
 
       break;
     }
     case CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION:
     {
       CUpti_ActivityExternalCorrelation *pExternalCorrelationRecord = (CUpti_ActivityExternalCorrelation *)pRecord;
-      FusionProfiler::recordAsyncCorrIdActivity(pExternalCorrelationRecord->externalId, pExternalCorrelationRecord->correlationId);
+      FusionProfiler::get()->recordAsyncCorrIdActivity(pExternalCorrelationRecord->externalId, pExternalCorrelationRecord->correlationId);
       break;
     }
     case CUPTI_ACTIVITY_KIND_DRIVER:
@@ -193,7 +193,7 @@ ProfilerState CudaEventTimer::state() const {
   return state_;
 }
 
-SegmentProfiler::SegmentProfiler(size_t id) :
+SegmentProfiler::SegmentProfiler(uint32_t id) :
   device_(-1),
   segment_id_(id),
   compile_timer_(at::cuda::getCurrentCUDAStream()),
@@ -241,6 +241,10 @@ void SegmentProfiler::bytesAccessed(size_t input_bytes, size_t output_bytes) {
   std::cout << "\nSegment Bytes Accessed: " << input_bytes << " " << output_bytes << std::endl;
 }
 
+uint32_t SegmentProfiler::segmentId() const {
+  return segment_id_;
+}
+
 void FusionProfile::reset() {
   time_ms = 0.0;
   host_time_ms = 0.0;
@@ -274,24 +278,34 @@ void FusionProfiler::start() {
 void FusionProfiler::stop() {
   fusion_timer_.stop();
   profile_.time_ms = fusion_timer_.time();
+
+  for(auto &seg : segments_) {
+    NVF_CHECK(segid_2_corrid_.count(seg.segmentId()) > 0, "Segment Id does not exist!");
+    auto corr_id = segid_2_corrid_[seg.segmentId()];
+    NVF_CHECK(corrid_2_kernelprof_.count(corr_id) > 0, "Correlation id does not exist!");
+    auto kernel_prof_node = corrid_2_kernelprof_.extract(corr_id);
+    kernel_prof_node.mapped().print();
+  }
   print();
   NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(0));
 }
   
 void FusionProfiler::recordAsyncCorrIdActivity(uint32_t seg_id, uint32_t corr_id) {
-  return;
+  NVF_CHECK(segid_2_corrid_.count(seg_id) == 0, "Segment Correlation Activity asociated with this segment id already exists! ", seg_id);
+  segid_2_corrid_[seg_id] = corr_id;
 }
+
 void FusionProfiler::recordAsyncKernelActivity(uint32_t corr_id, KernelProfile prof) {
-  return;
+  NVF_CHECK(corrid_2_kernelprof_.count(corr_id) == 0, "Kernel Activity for the associated correlation id has alraedy been recorded! ", corr_id);
+  corrid_2_kernelprof_[corr_id] = std::move(prof);
 }
 
 void FusionProfiler::createSegments(size_t num) {
   segments_.reserve(num);
-  size_t hash_preamble = fusion_id_ << 15;
+  uint32_t hash_preamble = (0xffff & fusion_id_) << 15;
   for (size_t i = 0; i < num; ++i) {
-    size_t id = hash_preamble | (0xffff & i);
+    uint32_t id = hash_preamble | (0xffff & static_cast<uint32_t>(i));
     segments_.emplace_back(id);
-    segid_2_segprofiler_idx_[id] = i;
   }
 }
 SegmentProfiler& FusionProfiler::segment(size_t idx) {
@@ -328,7 +342,7 @@ FusionProfiler::FusionProfiler() :
   segments_(),
   device_descriptors_(),
   corrid_2_kernelprof_(),
-  segid_2_segprofiler_idx_() {
+  segid_2_corrid_() {
   NVFUSER_CUPTI_SAFE_CALL(
       cuptiActivityRegisterCallbacks(buffer_requested, buffer_completed));
 }
@@ -344,7 +358,7 @@ void FusionProfiler::reset() {
   fusion_timer_.reset();
   segments_.clear();
   corrid_2_kernelprof_.clear();
-  segid_2_segprofiler_idx_.clear();
+  segid_2_corrid_.clear();
 }
 
 void FusionProfiler::print() const {
