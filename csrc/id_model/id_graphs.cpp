@@ -1700,37 +1700,64 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     // Before replaying, check if there's already an expression like this, if so
     // use that for promotion. We're still only looking for representative iter
     // domains, so if there's already an expression that would produce something
-    // representative (matching in the exact graph) of what the new inputs would
+    // representative (matching in the IEL graph) of what the new inputs would
     // generate, just promote to that expressions outputs, don't bother
     // generating a new one.
     //
-    // Check all uses of the exact map the inputs are in, and look for one that
-    // would match. Grab all uses of the promoted inputs' groups in the exact
-    // map.
+    // Check all uses of the IEL map the inputs are in, and look for one that
+    // would match. Grab all uses of the promoted inputs' groups in the IEL
+    // map. Note that promotion should be to loop-mapped domains, so
+    // the IEL graph is used rather than the exact graph
     std::vector<IdGroup> promoted_input_groups;
 
     ExprGroups promoted_input_uses;
     for (auto inp_id : promoted_inputs) {
       const auto& inp_exact_group =
-          idGraph(IdMappingMode::EXACT).toGroup(inp_id);
+          intersection_exact_loop_graph.toGroup(inp_id);
       promoted_input_groups.push_back(inp_exact_group);
       promoted_input_uses.pushBack(
-          idGraph(IdMappingMode::EXACT).getUniqueUses(inp_exact_group));
+          intersection_exact_loop_graph.getUniqueUses(inp_exact_group));
     }
 
     // Check every use to see if it matches
-    for (const ExprGroup& exact_use_group : promoted_input_uses) {
+    for (const ExprGroup& iel_use_group : promoted_input_uses) {
+      NVF_ERROR(!iel_use_group->empty());
       // Check if all the attributes (including type) of the transform match
       if (!IdGraph::transformAtributesMatch(
-              iel_expr->front(), exact_use_group->front())) {
+              iel_expr->front(), iel_use_group->front())) {
         continue;
       }
       // Check if inputs all match
       if (promoted_input_groups !=
-          idGraph(IdMappingMode::EXACT).inputGroups(exact_use_group)) {
+          intersection_exact_loop_graph.inputGroups(iel_use_group)) {
         continue;
       }
-      replay = exact_use_group->front();
+      // Input mapping doesn't always mean expr and output
+      // mappings. Make sure the exprs are mapped, which automatically
+      // means the outputs are mapped in the case of the LOOP map
+      if (!idGraph(IdMappingMode::LOOP)
+               .disjointExprSets()
+               .permissiveAreMapped(
+                   iel_expr->front(), iel_use_group->front())) {
+        continue;
+      }
+      // This is just an extra sanity check. Make sure all exprs in
+      // the use group are mapped
+      NVF_ERROR(
+          std::all_of(
+              iel_use_group->vector().begin(),
+              iel_use_group->vector().end(),
+              [&](Expr* iel_use) {
+                return idGraph(IdMappingMode::LOOP)
+                    .disjointExprSets()
+                    .permissiveAreMapped(iel_expr->front(), iel_use);
+              }),
+          "Not all mapped: ",
+          nvfuser::toString(iel_expr),
+          "\n",
+          nvfuser::toString(iel_use_group));
+
+      replay = iel_use_group->front();
       break;
     }
 
@@ -1801,11 +1828,17 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     }
   };
 
-  // Set up the loop promotion map of loops groups to promotion IDs
+  // Set up the loop promotion map of loop groups to promotion IDs
   for (const IdGroup& loop_group :
        idGraph(IdMappingMode::LOOP).disjointIdSets().disjointSets()) {
     bool promoted = false;
     for (IterDomain* id : loop_group->vector()) {
+      // Additional domains are added to the LOOP graph after the IEL
+      // graph was built. Those auxiliary domains should be fine to
+      // ignore.
+      if (!intersection_exact_loop_graph.hasGroup(id)) {
+        continue;
+      }
       const auto& iel_group = intersection_exact_loop_graph.toGroup(id);
       if (auto iel_promotion_map_it = iel_promotion_map.find(iel_group);
           iel_promotion_map_it != iel_promotion_map.end()) {
