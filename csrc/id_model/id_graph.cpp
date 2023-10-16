@@ -783,12 +783,6 @@ void IdGraph::maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward) {
   // Expr inputs are mapped. If propagate_exprs_ is true, map the
   // exprs and outputs
   if (propagate_through_exprs_) {
-#if 0
-    VERBOSE() << "propagate through (" << forward << "): "
-              << expr0->toString()
-              << expr1->toString()
-              << std::endl;
-#endif
     mapExprs(expr0, expr1);
     mapThroughExpr(expr0, expr1, forward);
   } else if (
@@ -915,8 +909,6 @@ void IdGraph::mapThroughTrivialExprs() {
     // Map through trivial expressions
     for (auto mapped_id_group : mapped_ids) {
       for (auto id : mapped_id_group) {
-        VERBOSE() << "Map trivial: " << mapped_id_group.front()->name() << ", "
-                  << id->name() << std::endl;
         mapIds(mapped_id_group.front(), id);
       }
     }
