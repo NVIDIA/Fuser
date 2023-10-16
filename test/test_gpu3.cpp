@@ -2834,112 +2834,6 @@ TEST_F(NVFuserTest, FusionExactRootDomainMap_CUDA) {
   }
 }
 
-class NVFuserMultithreadedTest : public ::testing::Test {
- protected:
-  bool was_enabled = false;
-
-  void SetUp() override {
-    was_enabled = torch::jit::fuser::cuda::setEnabled(true);
-  }
-
-  void TearDown() override {
-    torch::jit::fuser::cuda::setEnabled(was_enabled);
-  }
-};
-
-TEST_F(NVFuserMultithreadedTest, SingleFunction_CUDA) {
-  std::string ir = R"IR(
-graph(%x.1 : Tensor,
-      %y.1 : Tensor):
-  %12 : NoneType = prim::Constant()
-  %11 : bool = prim::Constant[value=0]()
-  %9 : int = prim::Constant[value=1]()
-  %3 : Tensor = aten::exp(%x.1)
-  %5 : Tensor = aten::relu(%y.1)
-  %6 : Tensor = aten::sin(%5)
-  %8 : Tensor = aten::add(%3, %6, %9)
-  %10 : int[] = prim::ListConstruct(%9)
-  %13 : Tensor = aten::sum(%8, %10, %11, %12)
-  return (%13)
-)IR";
-  auto g = std::make_shared<torch::jit::Graph>();
-  torch::jit::parseIR(ir, g.get());
-  torch::jit::GraphFunction fn("nvfuser_test", g, nullptr);
-
-  auto run_kernel = [&fn]() {
-    auto x = torch::rand({32, 32}, at::TensorOptions(at::kCUDA));
-    auto y = torch::rand({32, 32}, at::TensorOptions(at::kCUDA));
-    std::vector<c10::IValue> results;
-    for (const auto& i : c10::irange(10)) {
-      (void)i; // Suppress unused variable warning
-      auto stack = createStack({x.clone(), y.clone()});
-      fn.run(stack);
-      results.push_back(stack.back());
-    }
-    for (const auto& i : c10::irange(1, 10)) {
-      auto t0 = results[0].toTensor();
-      auto ti = results[i].toTensor();
-      ASSERT_TRUE(at::allclose(t0, ti));
-    }
-  };
-
-  constexpr size_t kNumThreads = 4;
-  std::vector<std::thread> threads;
-  for (size_t id = 0; id < kNumThreads; ++id) {
-    threads.emplace_back(run_kernel);
-  }
-  for (auto& t : threads) {
-    t.join();
-  }
-}
-
-TEST_F(NVFuserMultithreadedTest, MultipleFunctions_CUDA) {
-  auto run_kernel = []() {
-    const std::string ir = R"IR(
-  graph(%x.1 : Tensor,
-        %y.1 : Tensor):
-    %12 : NoneType = prim::Constant()
-    %11 : bool = prim::Constant[value=0]()
-    %9 : int = prim::Constant[value=1]()
-    %3 : Tensor = aten::exp(%x.1)
-    %5 : Tensor = aten::relu(%y.1)
-    %6 : Tensor = aten::sin(%5)
-    %8 : Tensor = aten::add(%3, %6, %9)
-    %10 : int[] = prim::ListConstruct(%9)
-    %13 : Tensor = aten::sum(%8, %10, %11, %12)
-    return (%13)
-  )IR";
-    auto g = std::make_shared<torch::jit::Graph>();
-    torch::jit::parseIR(ir, g.get());
-    torch::jit::GraphFunction fn("nvfuser_test", g, nullptr);
-
-    auto x = torch::rand({32, 32}, at::TensorOptions(at::kCUDA));
-    auto y = torch::rand({32, 32}, at::TensorOptions(at::kCUDA));
-    std::vector<c10::IValue> results;
-    constexpr size_t numRuns = 10;
-    for (const auto& i : c10::irange(numRuns)) {
-      (void)i; // Suppress unused variable warning
-      auto stack = createStack({x.clone(), y.clone()});
-      fn.run(stack);
-      results.push_back(stack.back());
-    }
-    for (const auto& i : c10::irange(1, numRuns)) {
-      auto t0 = results[0].toTensor();
-      auto ti = results[i].toTensor();
-      ASSERT_TRUE(at::allclose(t0, ti));
-    }
-  };
-
-  constexpr size_t kNumThreads = 4;
-  std::vector<std::thread> threads;
-  for (size_t id = 0; id < kNumThreads; ++id) {
-    threads.emplace_back(run_kernel);
-  }
-  for (auto& t : threads) {
-    t.join();
-  }
-}
-
 // Repro of issue #1655
 TEST_F(NVFuserTest, FusionIncompleteConcreteID_CUDA) {
   Fusion fusion;
@@ -6152,6 +6046,8 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
       DataType::Half,
       DataType::Int,
       DataType::Int32,
+      DataType::UInt,
+      DataType::UInt32,
       DataType::Bool,
       DataType::ComplexFloat,
       DataType::ComplexDouble};
@@ -6162,11 +6058,32 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
   }
 #endif
 
+  // ATen does not support uint32_t and uint64_t as dtype, so we need to
+  // use int32_t and int64_t as a proxy for these two types.
+  auto convert_aten_unsupported_dtype = [](DataType dt) -> DataType {
+    if (dt == DataType::UInt) {
+      return DataType::Int;
+    } else if (dt == DataType::UInt32) {
+      return DataType::Int32;
+    }
+    return dt;
+  };
+
   for (const auto& input_type : data_types) {
-    auto tv_in = makeContigTensor(2, input_type);
+    DataType proxy_input_type = convert_aten_unsupported_dtype(input_type);
+    auto tv_in = makeContigTensor(2, proxy_input_type);
     fusion.addInput(tv_in);
+
+    if (proxy_input_type != input_type) {
+      tv_in = bitCastOp(input_type, tv_in);
+    }
+
     for (const auto& output_type : data_types) {
+      DataType proxy_output_type = convert_aten_unsupported_dtype(output_type);
       auto tv_out = castOp(output_type, tv_in);
+      if (proxy_output_type != output_type) {
+        tv_out = bitCastOp(proxy_output_type, tv_out);
+      }
       fusion.addOutput(tv_out);
     }
   }
@@ -6176,10 +6093,16 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
   std::vector<c10::IValue> inputs;
   std::vector<at::Tensor> outputs;
   for (const auto& input_type : data_types) {
-    at::Tensor t = at::randn({x, y}, options).to(data_type_to_aten(input_type));
+    DataType proxy_input_type = convert_aten_unsupported_dtype(input_type);
+    at::Tensor t = at::randn({x, y}, options)
+                       .relu() // Discard negative numbers so that signed and
+                               // unsigned types are equivalent. There is no way
+                               // to represent unsigned numbers in PyTorch.
+                       .to(data_type_to_aten(proxy_input_type));
     inputs.emplace_back(t);
     for (const auto& output_type : data_types) {
-      outputs.emplace_back(t.to(data_type_to_aten(output_type)));
+      DataType proxy_output_type = convert_aten_unsupported_dtype(output_type);
+      outputs.emplace_back(t.to(data_type_to_aten(proxy_output_type)));
     }
   }
 

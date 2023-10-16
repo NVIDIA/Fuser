@@ -198,13 +198,13 @@ class Fusion : public IrContainer {
   //! Run fusion segmentation algorithm to create a segmented fusion
   std::unique_ptr<SegmentedFusion> segment(const KernelArgumentHolder& args);
 
-  const auto& inputs() const {
+  const std::vector<Val*>& inputs() const {
     return inputs_;
   }
 
   std::vector<Val*> inputsAndCreated();
 
-  const auto& outputs() const {
+  const std::vector<Val*>& outputs() const {
     return outputs_;
   }
 

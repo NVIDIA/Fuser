@@ -2857,6 +2857,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "Ampere::cpAsyncCommit();\n";
   }
 
+  void handle(const kir::CpAsyncBulkS2GWait* cpasync_wait) final {
+    indent() << "Hopper::cpAsyncBulkS2GPartialReadBarrier<"
+             << cpasync_wait->keepStages() << ">();\n";
+  }
+
+  void handle(const kir::CpAsyncBulkS2GCommit* cpasync_wait) final {
+    indent() << "Hopper::cpAsyncBulkS2GCommit();\n";
+  }
+
   void handle(const kir::GridSync* sync) final {
     // Use a custom synchronization method if enabled
     bool bidx = sync->syncDims().get(ParallelType::BIDx);
@@ -2888,6 +2897,58 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         genCall("grid_sync::sync", sync_call_template_parms, sync_call_args);
 
     indent() << sync_call << ";\n";
+  }
+
+  void handle(const kir::MBarrierInit* init) final {
+    auto call = genCall(
+        "mbarrier::init",
+        ArgumentBuilder()
+            .arg(genInline(init->mbarrier()))
+            .arg(genInline(init->threadCount())));
+    indent() << call << ";\n";
+  }
+
+  void handle(const kir::MBarrierInvalidate* inval) final {
+    auto call = genCall(
+        "mbarrier::inval", ArgumentBuilder().arg(genInline(inval->mbarrier())));
+    indent() << call << ";\n";
+  }
+
+  void handle(const kir::MBarrierArrive* arrive) final {
+    if (!print_inline_) {
+      indent() << gen(arrive->state()) << " = ";
+    }
+    auto call = genCall(
+        "mbarrier::arrive",
+        ArgumentBuilder().arg(genInline(arrive->mbarrier())));
+    code_ << call;
+    if (!print_inline_) {
+      code_ << ";\n";
+    }
+  }
+
+  void handle(const kir::MBarrierArriveExpectTx* arrive) final {
+    if (!print_inline_) {
+      indent() << gen(arrive->state()) << " = ";
+    }
+    auto call = genCall(
+        "mbarrier::arriveExpectTX",
+        ArgumentBuilder()
+            .arg(genInline(arrive->mbarrier()))
+            .arg(genInline(arrive->txCount())));
+    code_ << call;
+    if (!print_inline_) {
+      code_ << ";\n";
+    }
+  }
+
+  void handle(const kir::MBarrierWait* wait) final {
+    auto call = genCall(
+        "mbarrier::wait",
+        ArgumentBuilder()
+            .arg(genInline(wait->mbarrier()))
+            .arg(genInline(wait->state())));
+    indent() << call << ";\n";
   }
 
   void handle(const kir::InitMagicZero*) final {
