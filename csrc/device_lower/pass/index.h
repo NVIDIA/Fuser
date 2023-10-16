@@ -82,6 +82,8 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const kir::MBarrierInvalidate*) final;
   void handle(const kir::CpAsyncWait*) final;
   void handle(const kir::CpAsyncCommit*) final;
+  void handle(const kir::CpAsyncBulkS2GWait*) final;
+  void handle(const kir::CpAsyncBulkS2GCommit*) final;
 
   void generate(const std::vector<Expr*>& exprs);
 
@@ -114,6 +116,7 @@ class IndexLowering : private OptOutConstDispatch {
       bool generate_pointer = false) const;
 
   void handleCpAsyncBulkLoad(const LoadStoreOp* ldst);
+  void handleCpAsyncBulkStore(const LoadStoreOp* ldst);
 
   void handleBlockReduction(const ReductionOp* rop, Val* out, Val* in);
   void handleGridReduction(const ReductionOp* rop, Val* out, Val* in);
@@ -159,6 +162,13 @@ class IndexLowering : private OptOutConstDispatch {
   // TensorView. Parameter expr is the expression corresponding to the
   // fused reduction.
   void allocateUniqueFusedReduction(Expr* expr, TensorView* out_tv);
+
+  //! Get index of producer_tv as if broadcast_id had Iteration type instead of
+  //! Broadcast
+  Val* getIterationIndexForBroadcast(
+      TensorView* producer_tv,
+      TensorView* consumer_tv,
+      IterDomain* broadcast_id) const;
 
  private:
   std::vector<Expr*> lowered_exprs_;

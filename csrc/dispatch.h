@@ -130,6 +130,8 @@ class MBarrierArriveExpectTx;
 class MBarrierWait;
 class CpAsyncWait;
 class CpAsyncCommit;
+class CpAsyncBulkS2GWait;
+class CpAsyncBulkS2GCommit;
 class ForLoop;
 class IfThenElse;
 class GridReduction;
@@ -221,6 +223,8 @@ class OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const kir::MBarrierWait*);
   virtual void handle(const kir::CpAsyncWait*);
   virtual void handle(const kir::CpAsyncCommit*);
+  virtual void handle(const kir::CpAsyncBulkS2GWait*);
+  virtual void handle(const kir::CpAsyncBulkS2GCommit*);
   virtual void handle(const kir::InitMagicZero*);
   virtual void handle(const kir::UpdateMagicZero*);
   virtual void handle(const kir::ForLoop*);
@@ -312,6 +316,8 @@ class OptOutDispatch : public PolymorphicBase {
   virtual void handle(kir::MBarrierWait* stmt);
   virtual void handle(kir::CpAsyncWait* stmt);
   virtual void handle(kir::CpAsyncCommit* stmt);
+  virtual void handle(kir::CpAsyncBulkS2GWait* stmt);
+  virtual void handle(kir::CpAsyncBulkS2GCommit* stmt);
   virtual void handle(kir::InitMagicZero* stmt);
   virtual void handle(kir::UpdateMagicZero* stmt);
   virtual void handle(kir::ForLoop* stmt);

@@ -6,8 +6,6 @@
  */
 // clang-format on
 
-// Utility macro for this file
-
 // Utility for converting generic pointer to SMEM pointer in PTX.
 //  We should review vectorized load/stores with shared memory.
 //  SMEM memory movement PTX is only Global -> SMEM, SMEM -> Local, Local ->
@@ -312,25 +310,16 @@ struct CpAsyncBulkTensorTileS2GIndex {
   Array<int32_t, dim> crds;
 };
 
-__device__ inline void cpAsyncBulkCommit() {
+__device__ inline void cpAsyncBulkS2GCommit() {
   asm volatile("cp.async.bulk.commit_group;");
 }
 
 template <int keep_stages>
-__device__ inline void cpAsyncBulkPartialReadBarrier() {
+__device__ inline void cpAsyncBulkS2GPartialReadBarrier() {
   asm volatile("cp.async.bulk.wait_group.read %0;"
                :
                : "n"(keep_stages)
                : "memory");
-}
-
-// TODO: Remove this. This is a temporary solution for the build-out stage.
-// Our system can not automatically insert barriers for now, so we manually
-// insert barriers after each TMA operation. That is, we are making TMA
-// synchronous.
-__device__ inline void _finalizeTMAStore() {
-  cpAsyncBulkCommit();
-  cpAsyncBulkPartialReadBarrier<0>();
 }
 
 __device__ inline void cpAsyncBulkTensorTileS2G(
@@ -342,7 +331,6 @@ __device__ inline void cpAsyncBulkTensorTileS2G(
       :
       : "l"(gmem_int_desc), "r"(smem_addr), "r"(dest.crds[0])
       : "memory");
-  _finalizeTMAStore();
 }
 
 __device__ inline void cpAsyncBulkTensorTileS2G(
@@ -354,7 +342,6 @@ __device__ inline void cpAsyncBulkTensorTileS2G(
       :
       : "l"(gmem_int_desc), "r"(smem_addr), "r"(dest.crds[0]), "r"(dest.crds[1])
       : "memory");
-  _finalizeTMAStore();
 }
 
 __device__ inline void cpAsyncBulkTensorTileS2G(
@@ -370,7 +357,6 @@ __device__ inline void cpAsyncBulkTensorTileS2G(
         "r"(dest.crds[1]),
         "r"(dest.crds[2])
       : "memory");
-  _finalizeTMAStore();
 }
 
 __device__ inline void cpAsyncBulkTensorTileS2G(
@@ -387,7 +373,6 @@ __device__ inline void cpAsyncBulkTensorTileS2G(
         "r"(dest.crds[2]),
         "r"(dest.crds[3])
       : "memory");
-  _finalizeTMAStore();
 }
 
 __device__ inline void cpAsyncBulkTensorTileS2G(
@@ -405,7 +390,6 @@ __device__ inline void cpAsyncBulkTensorTileS2G(
         "r"(dest.crds[3]),
         "r"(dest.crds[4])
       : "memory");
-  _finalizeTMAStore();
 }
 
 } // namespace Hopper

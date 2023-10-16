@@ -276,6 +276,14 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::CpAsyncCommit>());
     return;
   }
+  if (expr->isStrictlyA<kir::CpAsyncBulkS2GWait>()) {
+    ptr(handler)->handle(expr->as<kir::CpAsyncBulkS2GWait>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::CpAsyncBulkS2GCommit>()) {
+    ptr(handler)->handle(expr->as<kir::CpAsyncBulkS2GCommit>());
+    return;
+  }
   if (expr->isStrictlyA<kir::InitMagicZero>()) {
     ptr(handler)->handle(expr->as<kir::InitMagicZero>());
     return;
@@ -578,6 +586,14 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<kir::CpAsyncCommit>()) {
     ptr(handler)->handle(expr->as<kir::CpAsyncCommit>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::CpAsyncBulkS2GWait>()) {
+    ptr(handler)->handle(expr->as<kir::CpAsyncBulkS2GWait>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::CpAsyncBulkS2GCommit>()) {
+    ptr(handler)->handle(expr->as<kir::CpAsyncBulkS2GCommit>());
     return;
   }
   if (expr->isStrictlyA<kir::InitMagicZero>()) {
@@ -975,6 +991,12 @@ void OptOutConstDispatch::handle(const kir::CpAsyncWait* stmt) {
 void OptOutConstDispatch::handle(const kir::CpAsyncCommit* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const kir::CpAsyncBulkS2GWait* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::CpAsyncBulkS2GCommit* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const kir::InitMagicZero* stmt) {
   unhandled(stmt);
 }
@@ -1197,6 +1219,12 @@ void OptOutDispatch::handle(kir::CpAsyncWait* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::CpAsyncCommit* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::CpAsyncBulkS2GWait* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::CpAsyncBulkS2GCommit* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::InitMagicZero* stmt) {
