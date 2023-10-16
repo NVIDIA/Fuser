@@ -448,10 +448,7 @@ static void SingleMatmulPartitionedK(
     benchmark::State& benchmark_state,
     MatmulLayout layout,
     MatmulParams params,
-    int64_t splitk_factor,
-    bool reduction_segment = false // false: partitionedK matmul kernel true:
-                                   // split-K reduction kernel
-) {
+    int64_t splitk_factor) {
   int64_t M = benchmark_state.range(0);
   int64_t N = benchmark_state.range(1);
   int64_t K = benchmark_state.range(2);
@@ -478,74 +475,49 @@ static void SingleMatmulPartitionedK(
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  KernelArgumentHolder args;
-  auto lparams = LaunchParams();
-
-  std::vector<c10::IValue> aten_inputs;
-  at::Tensor expected_output;
-
-  if (!reduction_segment) {
-    at::Tensor aten_a, aten_b;
-    // Here we mimic splitting and transposing. For example, given an [M,K]
-    // tensor, we would split it into [M,B,Ki] then transpose the batch dim to
-    // the front to get [B, M, Ki]. Thus the tensor should be contiguous in [M,
-    // B, Ki] order but transposed.
-    // TODO: set strides or permute manually to accomplish the above
-    switch (layout) {
-      case MatmulLayout::TT:
-        aten_a = at::randn({splitk_factor, M, Ki}, options);
-        aten_b = at::randn({splitk_factor, Ki, N}, options);
-        break;
-      case MatmulLayout::TN:
-        aten_a = at::randn({splitk_factor, M, Ki}, options);
-        aten_b = at::randn({splitk_factor, N, Ki}, options);
-        break;
-      case MatmulLayout::NT:
-        aten_a = at::randn({splitk_factor, Ki, M}, options);
-        aten_b = at::randn({splitk_factor, Ki, N}, options);
-        break;
-      case MatmulLayout::NN:
-        aten_a = at::randn({splitk_factor, Ki, M}, options);
-        aten_b = at::randn({splitk_factor, N, Ki}, options);
-        break;
-      default:
-        NVF_CHECK(false, "unsupported data layout.");
-    }
-
-    // Define fusion graph
-    auto a = makeContigTensor(3, DataType::Half);
-    auto b = makeContigTensor(3, DataType::Half);
-    fusion->addInput(a);
-    fusion->addInput(b);
-
-    // partitioned-k matmul
-    auto c = matmul(a, b, layout, turing_or_later);
-
-    fusion->addOutput(c);
-
-    scheduleMatmul(fusion, params);
-
-    aten_inputs = {aten_a, aten_b};
-    expected_output =
-        atMatmul(aten_a.to(at::kDouble), aten_b.to(at::kDouble), layout);
-  } else {
-    auto aten_c = at::randn({splitk_factor, M, N}, options);
-
-    auto c = makeContigTensor(3, DataType::Half);
-    fusion->addInput(c);
-    auto d = castOp(DataType::Float, c);
-    auto e = sum(d, {0});
-    fusion->addOutput(e);
-
-    aten_inputs = {aten_c};
-
-    auto reduction_params = getReductionHeuristics(fusion, aten_inputs);
-    NVF_CHECK(reduction_params, "Reduction schedule failed");
-    scheduleReduction(fusion, *reduction_params);
-    lparams = reduction_params->lparams; // copy LaunchParams
-
-    expected_output = aten_c.to(at::kDouble).sum(0);
+  at::Tensor aten_a, aten_b;
+  // Here we mimic splitting and transposing. For example, given an [M,K]
+  // tensor, we would split it into [M,B,Ki] then transpose the batch dim to
+  // the front to get [B, M, Ki]. Thus the tensor should be contiguous in [M,
+  // B, Ki] order but transposed.
+  // TODO: set strides or permute manually to accomplish the above
+  switch (layout) {
+    case MatmulLayout::TT:
+      aten_a = at::randn({splitk_factor, M, Ki}, options);
+      aten_b = at::randn({splitk_factor, Ki, N}, options);
+      break;
+    case MatmulLayout::TN:
+      aten_a = at::randn({splitk_factor, M, Ki}, options);
+      aten_b = at::randn({splitk_factor, N, Ki}, options);
+      break;
+    case MatmulLayout::NT:
+      aten_a = at::randn({splitk_factor, Ki, M}, options);
+      aten_b = at::randn({splitk_factor, Ki, N}, options);
+      break;
+    case MatmulLayout::NN:
+      aten_a = at::randn({splitk_factor, Ki, M}, options);
+      aten_b = at::randn({splitk_factor, N, Ki}, options);
+      break;
+    default:
+      NVF_CHECK(false, "unsupported data layout.");
   }
+
+  // Define fusion graph
+  auto a = makeContigTensor(3, DataType::Half);
+  auto b = makeContigTensor(3, DataType::Half);
+  fusion->addInput(a);
+  fusion->addInput(b);
+
+  // partitioned-k matmul
+  auto c = matmul(a, b, layout, turing_or_later);
+
+  fusion->addOutput(c);
+
+  scheduleMatmul(fusion, params);
+
+  std::vector<c10::IValue> aten_inputs = {aten_a, aten_b};
+  auto expected_output =
+      atMatmul(aten_a.to(at::kDouble), aten_b.to(at::kDouble), layout);
 
   // Disable magic zero
   CompileParams cparams;
@@ -553,7 +525,81 @@ static void SingleMatmulPartitionedK(
   // Always use 32b indexing mode for now.
   cparams.index_type = PrimDataType::Int32;
 
-  args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+
+  // Compile kernel
+  FusionExecutor fe;
+  auto lparams = LaunchParams();
+  fe.compileFusion(fusion, args, lparams, cparams);
+  if (turing_or_later) {
+    NVF_CHECK(
+        getBankConflictInfo(fe.kernel(), lparams).empty(),
+        "Shared memory bank conflict not removed.");
+  }
+
+  // Warm up run
+  auto outputs = fe.runFusion(aten_inputs);
+
+  checkMatch(expected_output, outputs.at(0).to(at::kDouble), K);
+
+  runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
+
+  // TODO: FLOPS calculation
+}
+
+// This is the second kernel in a two-kernel split-K
+static void SplitKReduction(
+    benchmark::State& benchmark_state,
+    int64_t splitk_factor) {
+  int64_t M = benchmark_state.range(0);
+  int64_t N = benchmark_state.range(1);
+  int64_t K = benchmark_state.range(2);
+
+  NVF_CHECK(
+      K % splitk_factor == 0,
+      "splitk_factor ",
+      splitk_factor,
+      " must divide K ",
+      K,
+      " evenly for this benchmark");
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+
+  // Architecture
+  auto properties = at::cuda::getDeviceProperties(0);
+  bool turing_or_later = properties->major >= 8 ||
+      (properties->major == 7 && properties->minor >= 5);
+
+  at::manual_seed(0);
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto aten_c = at::randn({splitk_factor, M, N}, options);
+
+  auto c = makeContigTensor(3, DataType::Half);
+  fusion->addInput(c);
+  auto d = castOp(DataType::Float, c);
+  auto e = sum(d, {0});
+  fusion->addOutput(e);
+
+  std::vector<c10::IValue> aten_inputs = {aten_c};
+
+  auto reduction_params = getReductionHeuristics(fusion, aten_inputs);
+  NVF_CHECK(reduction_params, "Reduction schedule failed");
+  scheduleReduction(fusion, *reduction_params);
+  auto lparams = reduction_params->lparams; // copy LaunchParams
+
+  auto expected_output = aten_c.to(at::kDouble).sum(0);
+
+  // Disable magic zero
+  CompileParams cparams;
+  cparams.enable_magic_zero = false;
+  // Always use 32b indexing mode for now.
+  cparams.index_type = PrimDataType::Int32;
+
+  KernelArgumentHolder args =
+      KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
 
   // Compile kernel
   FusionExecutor fe;
@@ -577,8 +623,7 @@ static void SingleMatmulPartitionedK(
 static void NvFuserScheduler_Matmul_partitionedk_4warp3stage(
     benchmark::State& benchmark_state,
     MatmulLayout layout,
-    int splitk_factor,
-    bool reduction_segment) {
+    int splitk_factor) {
   auto cta_tile = GemmTile(128, 128, 32);
   int number_of_stage = 3;
 
@@ -589,8 +634,7 @@ static void NvFuserScheduler_Matmul_partitionedk_4warp3stage(
       8, 0, getSmemSize(cta_tile, number_of_stage), benchmark_state);
 
   // Run benchmark:
-  SingleMatmulPartitionedK(
-      benchmark_state, layout, params, splitk_factor, reduction_segment);
+  SingleMatmulPartitionedK(benchmark_state, layout, params, splitk_factor);
 }
 
 #define NvFuserScheduler_4warp3stage_partitionedk_test(                \
@@ -599,19 +643,21 @@ static void NvFuserScheduler_Matmul_partitionedk_4warp3stage(
       NvFuserScheduler_Matmul_partitionedk_4warp3stage,                \
       nvfuser_4warp3stage_partitionedk_##layout_label.##splitk_factor, \
       layout,                                                          \
-      splitk_factor,                                                   \
-      false)                                                           \
+      splitk_factor)                                                   \
       ->SplitKMatmulShapes
 
 SplitKForAllLayouts(NvFuserScheduler_4warp3stage_partitionedk_test, 2);
 
-#define NvFuserScheduler_splitkreduction_test(splitk_factor) \
-  BENCHMARK_CAPTURE(                                         \
-      NvFuserScheduler_Matmul_partitionedk_4warp3stage,      \
-      nvfuser_splitkreduction.##splitk_factor,               \
-      MatmulLayout::TN,                                      \
-      splitk_factor,                                         \
-      true)                                                  \
+static void NvFuserScheduler_Matmul_splitk_reduction(
+    benchmark::State& benchmark_state,
+    int splitk_factor) {
+  // Run benchmark:
+  SplitKReduction(benchmark_state, splitk_factor);
+}
+
+#define NvFuserScheduler_splitkreduction_test(splitk_factor)                   \
+  BENCHMARK_CAPTURE(                                                           \
+      SplitKReduction, nvfuser_splitkreduction.##splitk_factor, splitk_factor) \
       ->SplitKMatmulShapes
 
 NvFuserScheduler_splitkreduction_test(2);
