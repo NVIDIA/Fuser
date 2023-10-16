@@ -1293,6 +1293,7 @@ void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
   pushBack(new_ldst);
   GpuLower::current()->propagateExprInfo(ldst, back());
   pushBack(IrBuilder::create<kir::CpAsyncBulkS2GCommit>());
+  // Waits on all the prior bulk async-groups to complete.
   pushBack(IrBuilder::create<kir::CpAsyncBulkS2GWait>(0));
 }
 
@@ -1302,7 +1303,6 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
   if (ir_utils::isCpAsyncBulk(ldst)) {
     NVF_ERROR(ir_utils::isCpAsyncBulkStore(ldst));
     handleCpAsyncBulkStore(ldst);
-    return;
   } else {
     in = lowerSrcIndex(
         ldst->in(),
@@ -1310,12 +1310,12 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
         {},
         ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
     out = lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst));
+    auto new_ldst =
+        IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
+            ->withPredicate(ldst->predicate());
+    pushBack(new_ldst);
+    GpuLower::current()->propagateExprInfo(ldst, back());
   }
-  auto new_ldst =
-      IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
-          ->withPredicate(ldst->predicate());
-  pushBack(new_ldst);
-  GpuLower::current()->propagateExprInfo(ldst, back());
 }
 
 void IndexLowering::handle(const MmaOp* mma) {
