@@ -7,9 +7,17 @@ SPDX-License-Identifier: BSD-3-Clause
     {{ testorbench }} Diffs
     <button onclick="toggleAllDiffs()">Toggle All</button>
 </h3>
-{% set loop_vars = namespace(total_diffs=0) %}
-{% for test_diff in test_diffs %}
-    {% if loop_vars.total_diffs < max_diffs %}
+{% set loop_vars = namespace(total_diffs=0, warned=False) %}
+{%- for test_diff in test_diffs -%}
+    {%- if loop_vars.total_diffs >= max_diffs -%}
+        {%- if not loop_vars.warned -%}
+            <b>WARNING: Only showing {{ max_diffs }} out of {{ total_num_diffs }}
+                total modified kernels. To show more kernels pass a higher value in
+                the <code>--html-max-diffs</code> argument to
+                <code>tools/diff_report.py</code>.</b>
+            {%- set loop_vars.warned = True -%}
+        {%- endif -%}
+    {%- else -%}
         <span class="test_name">{{ loop.index }}: <b>{{ test_diff.testname }}</b></span>
         {% if is_benchmark %}
             {% if test_diff.test1.benchmark_result is not none and test_diff.test2.benchmark_result is not none -%}
@@ -34,6 +42,7 @@ SPDX-License-Identifier: BSD-3-Clause
                     the <code>--html-max-diffs</code> argument to
                     <code>tools/diff_report.py</code>.</b>
                 <br>
+                {%- set loop_vars.warned = True -%}
             {% elif loop_vars.total_diffs < max_diffs %}
                 &nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ kernel_diff.kernel_num }}</span>
                 {% if kernel_diff.kernel1.ptx is not none and kernel_diff.kernel2.ptx is not none %}
@@ -114,10 +123,9 @@ SPDX-License-Identifier: BSD-3-Clause
     <div id="ptxdiff_{{ outer_index }}_{{ loop.index }}" style="display:none">
         <pre><code class="language-diff">{{ kernel_diff.ptx_diff|e }}</code></pre>
     </div>
-    {#{% endif %}#}
-{% endif %}
-{% set loop_vars.total_diffs = loop_vars.total_diffs + 1 %}
-{% endfor %}
+{%- endif -%}
+{%- set loop_vars.total_diffs = loop_vars.total_diffs + 1 -%}
+{%- endfor -%}
 <br>
-{% endif %}
-{% endfor %}
+{%- endif -%}
+{%- endfor -%}
