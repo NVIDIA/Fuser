@@ -1035,15 +1035,14 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //      -12 -11     -10  -9   -8   -7   -6   -5    -4    -3    -2   -1
   // [..., Mo, No,     Ko, Kw, Mwo, Nwo, Mwi, Nwi, MNi1, MNi2, MNi3,  Ki]
   // (iBz) iBx iBy     rS  rS  iTz  iTy   iS   iS  iMMA   iTx  iMMA rMMA
-  NVF_ERROR(
-      num_splitk_dims == 0 || num_batch_dims == 0,
-      "Splitk not supported with batch matmul");
-  if (num_batch_dims != 0) {
-    mma_result->axis(0)->parallelize(ParallelType::BIDz);
-  } else if (num_splitk_dims != 0) {
+
+  // When we have both batch dims and splitk, parallelize splitk only.
+  // If we only have batch dim, parallelize the batch dim.
+  if (num_splitk_dims != 0) {
     mma_result->axis(2)->parallelize(ParallelType::BIDz);
+  } else if (num_batch_dims != 0) {
+    mma_result->axis(0)->parallelize(ParallelType::BIDz);
   }
-  // parallelize Mo, No by block
   switch (params.cta_order) {
     case MatmulParams::TileRasterizationOrder::RowMajor:
       mma_result->axis(num_batch_dims)->parallelize(ParallelType::BIDx);
