@@ -71,10 +71,6 @@ void checkMatch(at::Tensor expect, at::Tensor result, int64_t k) {
   auto ndim = result.ndimension();
   auto is_close = at::isclose(expect, result, rtol, atol);
 
-  std::cout << expect << std::endl;
-  std::cout << result << std::endl;
-  std::cout << is_close << std::endl;
-
   auto allclose = is_close.all().item<bool>();
   if (allclose) {
     return;
@@ -396,8 +392,8 @@ ForAllLayouts(NvFuserScheduler_8warp3stage_test);
 ForAllLayouts(NvFuserScheduler_8warp4stage_test);
 ForAllLayouts(Baseline_test);
 
-#define SplitKM 4
-#define SplitKN 4
+#define SplitKM 128
+#define SplitKN 128
 
 #define SplitKMatmulShapes                                      \
   ArgsProduct({{SplitKM}, {SplitKN}, {256, 1024, 8192, 65536}}) \
@@ -547,7 +543,9 @@ static void SingleMatmulPartitionedK(
   // TODO: FLOPS calculation
 }
 
-// This is the second kernel in a two-kernel split-K
+// This is the second kernel in a two-kernel split-K.
+// The input is a contiguous [M, N, splitk_factor] tensor.
+// The kernel sums the last dimension.
 static void SplitKReduction(
     benchmark::State& benchmark_state,
     int64_t splitk_factor) {
@@ -575,12 +573,12 @@ static void SplitKReduction(
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  auto aten_c = at::randn({splitk_factor, M, N}, options);
+  auto aten_c = at::randn({M, N, splitk_factor}, options);
 
   auto c = makeContigTensor(3, DataType::Half);
   fusion->addInput(c);
   auto d = castOp(DataType::Float, c);
-  auto e = sum(d, {0});
+  auto e = sum(d, {-1});
   fusion->addOutput(e);
 
   std::vector<c10::IValue> aten_inputs = {aten_c};
@@ -590,7 +588,7 @@ static void SplitKReduction(
   scheduleReduction(fusion, *reduction_params);
   auto lparams = reduction_params->lparams; // copy LaunchParams
 
-  auto expected_output = aten_c.to(at::kDouble).sum(0);
+  auto expected_output = aten_c.to(at::kDouble).sum(-1);
 
   // Disable magic zero
   CompileParams cparams;
@@ -611,11 +609,11 @@ static void SplitKReduction(
   }
 
   // Warm up run
-  auto outputs = fe.runFusion(aten_inputs);
+  auto outputs = fe.runFusion(aten_inputs, lparams);
 
   checkMatch(expected_output, outputs.at(0).to(at::kDouble), K);
 
-  runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
+  runBenchmarkIterations(benchmark_state, &fe, aten_inputs, lparams);
 
   // TODO: FLOPS calculation
 }
