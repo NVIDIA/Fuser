@@ -44,6 +44,8 @@ class MBarrierArriveExpectTx;
 class MBarrierWait;
 class CpAsyncWait;
 class CpAsyncCommit;
+class CpAsyncBulkS2GWait;
+class CpAsyncBulkS2GCommit;
 class InitMagicZero;
 class UpdateMagicZero;
 class ForLoop;
@@ -473,6 +475,44 @@ class CpAsyncCommit final : public Expr {
 
   const char* getOpString() const override {
     return "CpAsyncCommit";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+};
+
+class CpAsyncBulkS2GWait final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit CpAsyncBulkS2GWait(
+      IrBuilderPasskey passkey,
+      int64_t keep_stages = 0);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "CpAsyncBulkS2GWait";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  int64_t keepStages() const {
+    return attribute<int64_t>(0);
+  }
+};
+
+class CpAsyncBulkS2GCommit final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit CpAsyncBulkS2GCommit(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "CpAsyncBulkS2GCommit";
   }
 
   std::string toString(int indent_size = 0) const override;

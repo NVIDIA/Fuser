@@ -2857,6 +2857,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "Ampere::cpAsyncCommit();\n";
   }
 
+  void handle(const kir::CpAsyncBulkS2GWait* cpasync_wait) final {
+    indent() << "Hopper::cpAsyncBulkS2GPartialReadBarrier<"
+             << cpasync_wait->keepStages() << ">();\n";
+  }
+
+  void handle(const kir::CpAsyncBulkS2GCommit* cpasync_wait) final {
+    indent() << "Hopper::cpAsyncBulkS2GCommit();\n";
+  }
+
   void handle(const kir::GridSync* sync) final {
     // Use a custom synchronization method if enabled
     bool bidx = sync->syncDims().get(ParallelType::BIDx);

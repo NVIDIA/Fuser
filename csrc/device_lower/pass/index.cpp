@@ -1299,13 +1299,25 @@ void IndexLowering::handle(const kir::MBarrierInvalidate* minval) {
   GpuLower::current()->propagateExprInfo(minval, minval_indexed);
 }
 
+void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
+  auto in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
+  auto out = Index::cpAsyncBulkIndex(ldst->out()->as<TensorView>(), for_loops_);
+  auto new_ldst =
+      IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
+          ->withPredicate(ldst->predicate());
+  pushBack(new_ldst);
+  GpuLower::current()->propagateExprInfo(ldst, back());
+  pushBack(IrBuilder::create<kir::CpAsyncBulkS2GCommit>());
+  // Waits on all the prior bulk async-groups to complete.
+  pushBack(IrBuilder::create<kir::CpAsyncBulkS2GWait>(0));
+}
+
 void IndexLowering::handle(const LoadStoreOp* ldst) {
   Val* in = nullptr;
   Val* out = nullptr;
   if (ir_utils::isCpAsyncBulk(ldst)) {
     NVF_ERROR(ir_utils::isCpAsyncBulkStore(ldst));
-    in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
-    out = Index::cpAsyncBulkIndex(ldst->out()->as<TensorView>(), for_loops_);
+    handleCpAsyncBulkStore(ldst);
   } else {
     in = lowerSrcIndex(
         ldst->in(),
@@ -1313,12 +1325,12 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
         {},
         ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
     out = lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst));
+    auto new_ldst =
+        IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
+            ->withPredicate(ldst->predicate());
+    pushBack(new_ldst);
+    GpuLower::current()->propagateExprInfo(ldst, back());
   }
-  auto new_ldst =
-      IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
-          ->withPredicate(ldst->predicate());
-  pushBack(new_ldst);
-  GpuLower::current()->propagateExprInfo(ldst, back());
 }
 
 void IndexLowering::handle(const MmaOp* mma) {
@@ -1408,6 +1420,16 @@ void IndexLowering::handle(const kir::CpAsyncWait* wait) {
 void IndexLowering::handle(const kir::CpAsyncCommit* commit) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::CpAsyncCommit*>(commit)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::CpAsyncBulkS2GWait* wait) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::CpAsyncBulkS2GWait*>(wait)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::CpAsyncBulkS2GCommit* commit) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::CpAsyncBulkS2GCommit*>(commit)); // NOLINT
 }
 
 void IndexLowering::generate(const std::vector<Expr*>& exprs) {
