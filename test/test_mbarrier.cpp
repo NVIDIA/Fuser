@@ -8,6 +8,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <device_lower/utils.h>
 #include <executor.h>
 #include <fusion.h>
 #include <ops/all_ops.h>
@@ -88,13 +89,7 @@ TEST_F(MBarrierTest, Simple) {
     smem_alloc_it = top_level_exprs.insert(smem_alloc_it, mbarrier_alloc);
 
     // Indexing mbarrier
-    auto mbarrier_smem_addr = IrBuilder::create<Val>(DataType::SMemAddress);
-    IrBuilder::create<UnaryOp>(
-        UnaryOpType::ToUnsignedSmemAddr,
-        mbarrier_smem_addr,
-        IrBuilder::metadataExpr(mbarrier));
-    auto mbarrier_index =
-        IrBuilder::create<kir::TensorIndex>(mbarrier, mbarrier_smem_addr);
+    auto mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
 
     // Initialize mbarrier
     smem_alloc_it++;
