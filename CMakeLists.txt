@@ -464,7 +464,6 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_rng.cpp
     ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
     ${NVFUSER_ROOT}/test/test_tutorial.cpp
-    ${NVFUSER_ROOT}/test/test_memory.cpp
   )
 
   if(BUILD_PYTHON)
@@ -514,28 +513,30 @@ if(BUILD_NVFUSER_BENCHMARK)
     ${NVFUSER_ROOT}/benchmark/batch_norm_channels_last_backward.cpp
     ${NVFUSER_ROOT}/benchmark/bert.cpp
     ${NVFUSER_ROOT}/benchmark/broadcast.cpp
-    ${NVFUSER_ROOT}/benchmark/gelu_backward.cpp
     ${NVFUSER_ROOT}/benchmark/gelu_backward_reduction.cpp
+    ${NVFUSER_ROOT}/benchmark/gelu_backward.cpp
+    ${NVFUSER_ROOT}/benchmark/heuristic_cache.cpp
     ${NVFUSER_ROOT}/benchmark/heuristic_lookup.cpp
-    ${NVFUSER_ROOT}/benchmark/shape_inference.cpp
+    ${NVFUSER_ROOT}/benchmark/indexselect.cpp
     ${NVFUSER_ROOT}/benchmark/instance_norm.cpp
-    ${NVFUSER_ROOT}/benchmark/many_pointwise_ops.cpp
-    ${NVFUSER_ROOT}/benchmark/layer_norm.cpp
     ${NVFUSER_ROOT}/benchmark/layer_norm_backward.cpp
     ${NVFUSER_ROOT}/benchmark/layer_norm_fused.cpp
-    ${NVFUSER_ROOT}/benchmark/rms_norm.cpp
-    ${NVFUSER_ROOT}/benchmark/rms_norm_backward.cpp
+    ${NVFUSER_ROOT}/benchmark/layer_norm.cpp
     ${NVFUSER_ROOT}/benchmark/lstm_cell.cpp
-    ${NVFUSER_ROOT}/benchmark/reduction.cpp
-    ${NVFUSER_ROOT}/benchmark/softmax.cpp
-    ${NVFUSER_ROOT}/benchmark/softmax_backward.cpp
-    ${NVFUSER_ROOT}/benchmark/scale_bias_relu.cpp
-    ${NVFUSER_ROOT}/benchmark/transpose.cpp
-    ${NVFUSER_ROOT}/benchmark/matmul.cpp
-    ${NVFUSER_ROOT}/benchmark/timm.cpp
-    ${NVFUSER_ROOT}/benchmark/indexselect.cpp
-    ${NVFUSER_ROOT}/benchmark/utils.cpp
     ${NVFUSER_ROOT}/benchmark/main.cpp
+    ${NVFUSER_ROOT}/benchmark/many_pointwise_ops.cpp
+    ${NVFUSER_ROOT}/benchmark/matmul.cpp
+    ${NVFUSER_ROOT}/benchmark/reduction.cpp
+    ${NVFUSER_ROOT}/benchmark/rms_norm_backward.cpp
+    ${NVFUSER_ROOT}/benchmark/rms_norm.cpp
+    ${NVFUSER_ROOT}/benchmark/scale_bias_relu.cpp
+    ${NVFUSER_ROOT}/benchmark/shape_inference.cpp
+    ${NVFUSER_ROOT}/benchmark/softmax_backward.cpp
+    ${NVFUSER_ROOT}/benchmark/softmax_dropout.cpp
+    ${NVFUSER_ROOT}/benchmark/softmax.cpp
+    ${NVFUSER_ROOT}/benchmark/timm.cpp
+    ${NVFUSER_ROOT}/benchmark/transpose.cpp
+    ${NVFUSER_ROOT}/benchmark/utils.cpp
     ${NVFUSER_ROOT}/test/utils.cpp
   )
 
