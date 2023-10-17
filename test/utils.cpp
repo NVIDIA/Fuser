@@ -308,7 +308,7 @@ TensorView* matmulTuringOrLater(
   TensorView *tv2 = nullptr, *tv0t = nullptr, *tv1t = nullptr, *tv0b = nullptr,
              *tv1b = nullptr;
   switch (layout) {
-      // Canonicalize all inputs to [M, K] and [N, K]
+      // Canonicalize all inputs to [B, M, K] and [B, N, K]
     case MatmulLayout::TT:
       tv0t = a;
       tv1t = transpose(b, -2, -1);
@@ -403,11 +403,11 @@ at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
     case MatmulLayout::TT:
       return a.matmul(b);
     case MatmulLayout::TN:
-      return a.matmul(b.t());
+      return a.matmul(b.transpose(-1, -2));
     case MatmulLayout::NT:
-      return a.t().matmul(b);
+      return a.transpose(-1, -2).matmul(b);
     case MatmulLayout::NN:
-      return a.t().matmul(b.t());
+      return a.transpose(-1, -2).matmul(b.transpose(-1, -2));
     default:
       NVF_CHECK(false, "unsupported data layout.");
   }
