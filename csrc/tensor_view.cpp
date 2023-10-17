@@ -1470,7 +1470,7 @@ TensorViewBuilder& TensorViewBuilder::shape(std::vector<Val*> shape) {
 }
 
 TensorViewBuilder& TensorViewBuilder::strideOrder(std::vector<int64_t> stride_order) {
-  NVF_CHECK(stride_order.empty(), "Attempting to reset stride_order");
+  NVF_CHECK(stride_order_.empty(), "Attempting to reset stride_order");
   if (!stride_order.empty()) {
     NVF_CHECK(ndims_ == 0 || ndims_ == stride_order.size());
     ndims_ = stride_order.size();
