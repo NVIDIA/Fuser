@@ -482,7 +482,6 @@ if(BUILD_TEST)
   set(NVFUSER_TESTS_KERNELS "${NVFUSER_TESTS}_kernels")
 
   add_library(${NVFUSER_TESTS_KERNELS} SHARED ${NVFUSER_ROOT}/test/rng_kernels.cu)
-
   # CUDA 11 does not support C++20, so hard code C++17 here
   set_property(TARGET ${NVFUSER_TESTS_KERNELS} PROPERTY CXX_STANDARD 17)
   target_link_libraries(${NVFUSER_TESTS_KERNELS} PRIVATE torch ${TORCH_LIBRARIES} ${NVFUSER_CODEGEN})
