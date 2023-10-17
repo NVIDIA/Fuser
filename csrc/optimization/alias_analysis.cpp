@@ -22,7 +22,7 @@ namespace {
 // IterDomain.
 bool isContiguous(const TensorView& tv) {
   NVF_ERROR(tv.nDims() == tv.getContiguity().size());
-  for (int i = 0, n_dims = tv.nDims(); i < n_dims; i++) {
+  for (const auto i : c10::irange(tv.nDims())) {
     if (!tv.axis(i)->isBroadcast() && !tv.getContiguity()[i]) {
       return false;
     }
