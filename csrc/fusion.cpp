@@ -26,21 +26,24 @@
 
 namespace nvfuser {
 
-static thread_local const Fusion* ACTIVE_FUSION = nullptr; // NOLINT
+/*static*/ thread_local const Fusion* FusionGuard::active_fusion_ = nullptr;
 
-FusionGuard::FusionGuard(const Fusion* fusion) : prev_fusion{ACTIVE_FUSION} {
-  ACTIVE_FUSION = fusion;
+FusionGuard::FusionGuard(const Fusion* fusion) : prev_fusion_(active_fusion_) {
+  active_fusion_ = fusion;
 }
 
 FusionGuard::~FusionGuard() {
-  ACTIVE_FUSION = prev_fusion;
+  active_fusion_ = prev_fusion_;
 }
 
+// Cast to non-cast because many users need it.
 Fusion* FusionGuard::getCurFusion() {
-  return const_cast<Fusion*>(ACTIVE_FUSION);
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+  return const_cast<Fusion*>(active_fusion_);
 }
+
 void FusionGuard::setCurFusion(const Fusion* fusion) {
-  ACTIVE_FUSION = fusion;
+  active_fusion_ = fusion;
 }
 
 void swap(Fusion& a, Fusion& b) noexcept {

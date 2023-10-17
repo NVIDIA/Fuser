@@ -70,8 +70,6 @@ class DynamicTransformConcretizationInfo;
 //! allows it to be accessed anywhere through FusionGuard::getCurFusion()
 class FusionGuard {
  public:
-  const Fusion* prev_fusion;
-
   //! Set the active fusion so it can be manipulated.
   explicit FusionGuard(const Fusion* fusion);
 
@@ -79,6 +77,11 @@ class FusionGuard {
 
   static Fusion* getCurFusion();
   static void setCurFusion(const Fusion* fusion);
+
+ private:
+  const Fusion* prev_fusion_;
+
+  static thread_local const Fusion* active_fusion_;
 };
 
 //! Fusion is mutable but unique. Nodes cannot be copied in any way from one
