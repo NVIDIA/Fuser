@@ -288,9 +288,11 @@ TensorView* getTvInput(const Expr* expr) {
 }
 
 bool isScalarOp(const Expr* expr) {
-  for (auto out : expr->outputs())
-    if (!out->isScalar())
+  for (auto out : expr->outputs()) {
+    if (!out->isScalar()) {
       return false;
+    }
+  }
   return true;
 }
 
@@ -808,6 +810,15 @@ bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id) {
   }
   auto* is_exact_val = IrBuilder::eqExpr(id->extent(), pdm_max_extent);
   return simplifyExpr(is_exact_val)->isTrue();
+}
+
+Val* u32IndexScalarSmemTv(TensorView* smem_tv) {
+  auto u32addr = IrBuilder::create<Val>(DataType::SMemAddress);
+  IrBuilder::create<UnaryOp>(
+      UnaryOpType::ToUnsignedSmemAddr,
+      u32addr,
+      IrBuilder::metadataExpr(smem_tv));
+  return u32addr;
 }
 
 } // namespace lower_utils

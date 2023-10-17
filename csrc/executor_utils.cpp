@@ -46,6 +46,7 @@
 #include <nvfuser_resources/grid_sync.h>
 #include <nvfuser_resources/helpers.h>
 #include <nvfuser_resources/index_utils.h>
+#include <nvfuser_resources/mbarrier.h>
 #include <nvfuser_resources/memory.h>
 #include <nvfuser_resources/random_numbers.h>
 #include <nvfuser_resources/tensor.h>
@@ -89,6 +90,7 @@ std::string kernelPreamble() {
     ss << nvfuser_resources::block_sync_default_cu;
   }
   ss << nvfuser_resources::grid_sync_cu;
+  ss << nvfuser_resources::mbarrier_cu;
 
   // Communication classes
   ss << nvfuser_resources::block_reduction_cu;
@@ -722,6 +724,9 @@ ExpressionEvaluator bindInputs(
   ExpressionEvaluator expr_eval;
   const auto& inputs = kernel->inputs();
   for (const auto i : c10::irange(inputs.size())) {
+    // NOTE: we bind all inputs here, including at::Tensors. This means that
+    // expr_eval will create a PolymorphicValue containing *args[i], which means
+    // that at::Tensor's lifetime will be at least as long as that of expr_eval.
     expr_eval.bind(inputs[i], *args[i], true);
   }
 

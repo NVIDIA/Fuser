@@ -1,6 +1,8 @@
-# Runs nvfuser_bench on two commits and compares their results. See
-# https://github.com/NVIDIA/Fuser/wiki/Developer-guide#benchmark-nvfuser for
-# usage.
+# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# "compare_benchmark.py -h" for help.
 
 import argparse
 from dataclasses import dataclass
@@ -136,7 +138,7 @@ def load_comparison(comparison_out: str) -> list[Comparison]:
 
 
 def summarize_comparison(comparisons: Iterable[Comparison], out_dir: str) -> None:
-    sorted_comparisons = sorted(comparisons, key=lambda x: x.change)
+    comparisons = sorted(comparisons, key=lambda x: x.change)
 
     # Print top improvements and regressions.
     num_tops = 5
@@ -181,7 +183,10 @@ def get_head_branch_or_commit() -> str:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Runs nvfuser_bench on two commits and compares their results. See https://github.com/NVIDIA/Fuser/wiki/Developer-guide#benchmark-nvfuser for usage."
+    )
+
     parser.add_argument("baseline", type=str, help="The baseline branch or commit")
     parser.add_argument("contender", type=str, help="The contender branch or commit")
     parser.add_argument(

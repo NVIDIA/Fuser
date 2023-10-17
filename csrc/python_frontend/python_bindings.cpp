@@ -85,46 +85,82 @@ Vector define_vector_fn(
 }
 
 template <class ShapeType>
+Vector ShapeAsVector(ShapeType shape, FusionDefinition& fd) {
+  static_assert(
+      std::is_same_v<ShapeType, Vector> ||
+      std::is_same_v<ShapeType, py::list> ||
+      std::is_same_v<ShapeType, py::tuple>);
+  if constexpr (std::is_same_v<ShapeType, Vector>) {
+    return shape;
+  } else {
+    // It's important to call define_vector_fn in the if-else branch.
+    //
+    // ```
+    // if constexpr (std::is_same_v<ShapeType, Vector>) {
+    //   return shape;
+    // }
+    // return define_vector_fn<ShapeType>(fd, shape);
+    // ```
+    // would not work because the compiler would try to instantiate
+    // define_vector_fn<Vector> and fail.
+    return define_vector_fn<ShapeType>(fd, shape);
+  }
+}
+
+template <class ShapeType>
 Tensor broadcast_in_dim_fn(
     FusionDefinition::Operators& op,
     Tensor arg,
-    ShapeType shape,
+    ShapeType generic_output_shape,
     std::vector<int64_t>& broadcast_dims) {
   FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
   FusionDefinition* fd = op.fusion_definition;
   NVF_CHECK(!fd->completed(), "Attempting to add to a completed definition!");
-  size_t output_size = 0;
-  if constexpr (std::is_same_v<ShapeType, Vector>) {
-    output_size = shape.size;
-  } else {
-    output_size = shape.size();
-  }
+
   NVF_CHECK(op.validUse(), "Attempting to add to a completed definition!");
+  Vector output_shape = ShapeAsVector(generic_output_shape, *fd);
   NVF_CHECK(
-      output_size >= broadcast_dims.size(),
+      output_shape.size >= broadcast_dims.size(),
       "broadcast_dims vector size is too big for output shape!");
 
-  Vector output_shape = [](FusionDefinition& fd, ShapeType shape) -> Vector {
-    if constexpr (std::is_same_v<ShapeType, Vector>) {
-      return shape;
-    } else {
-      if constexpr (!(std::is_same_v<ShapeType, py::list> ||
-                      std::is_same_v<ShapeType, py::tuple>)) {
-        NVF_CHECK(
-            false, "broadcast_in_dim's shape argument type is not supported!");
-      }
-      return define_vector_fn<ShapeType>(fd, shape);
-    }
-  }(*fd, shape);
-
-  Tensor output = fd->defineTensor(output_size);
+  Tensor output = fd->defineTensor(output_shape.size);
   fd->defineRecord(new BroadcastInDimOpRecord(
       {fd->recordingState(arg()), fd->recordingState(output_shape())},
       {fd->recordingState(output())},
-      output_size,
+      output_shape.size,
       broadcast_dims));
   return output;
 }
+
+template <class ShapeType>
+Tensor reshape_fn(
+    FusionDefinition::Operators& self,
+    Tensor arg,
+    ShapeType generic_new_shape) {
+  NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
+
+  FusionDefinition* fd = self.fusion_definition;
+  Vector new_shape = ShapeAsVector(generic_new_shape, *fd);
+
+  Tensor output = fd->defineTensor(new_shape.size);
+  fd->defineRecord(new ReshapeOpRecord(
+      {fd->recordingState(arg()), fd->recordingState(new_shape())},
+      {fd->recordingState(output())}));
+  return output;
+}
+
+struct DimInfo {
+  int64_t index;
+  int64_t size;
+  int64_t stride;
+  int64_t stride_order;
+  std::optional<bool> contiguity = std::nullopt;
+
+  bool isBroadcast() {
+    return stride == 0 || size == 1;
+  }
+};
+
 } // namespace
 
 std::vector<std::optional<bool>> computeContiguity(
@@ -171,6 +207,92 @@ std::vector<std::optional<bool>> computeContiguity(
   return contiguity;
 }
 
+// [ Note stride order and contiguity vector ]
+//
+// `stride order` vector corresponds to the order for each logical domain in
+//     physical memory;
+// `contiguity` vector to whether or not indexing could be collaped
+//     corresponding to each physical domain;
+//
+// e.g. Given size and stride as follow:
+//   sizes   = [2, 1, 3, 1, 4, 3]
+//   strides = [12, 4, 4, 4, 1, 0]
+// we would compute stride order as: [5, 4, 3, 2, 1, 0]. Since the original
+// stride is in descending order. Note that there's more than one way to define
+// a stride order when we have equal strides. In the context of index
+// collapsing, how we resolve that shouldn't matter, hence we just go with
+// preserving their original order. Similarly, we compute contiguity as: [True,
+// None, True, None, True, None], Since the physical order is the same as the
+// logical order, this one is trivial to compute.
+//
+// e.g. Given size and stride as follow:
+//   sizes   = [2, 3, 1, 5, 4]
+//   strides = [28, 4, 14, 0, 1]
+// stride_order would be: [4, 2, 3, 0, 1], marking the order of strides in the
+// vector. Meanwhile, contiguity would be computed on the physical domain, i.e.
+// on sorted sizes & strides.
+//   sorted_size    = [2, 1, 3, 4, 5]
+//   sorted_strides = [28, 14, 4, 1, 0]
+//   contiguity would be: [False, None, True, True, None]
+//
+// This function returns a pair of <contiguity, stride_order>
+std::pair<std::vector<std::optional<bool>>, std::vector<int64_t>>
+computeTensorDescriptor(
+    const std::vector<int64_t>& sizes,
+    const std::vector<int64_t>& strides) {
+  NVF_CHECK(
+      sizes.size() == strides.size(),
+      "compute_contiguity: Sizes and strides must have the same number of dimensions");
+  std::vector<DimInfo> dim_info_vec;
+  for (auto i : c10::irange(sizes.size())) {
+    // NOTE: not supporting negative stride yet.
+    NVF_CHECK(strides[i] >= 0, "negative stride on tensor is not supported");
+    dim_info_vec.emplace_back(DimInfo{(int64_t)i, sizes[i], strides[i]});
+  }
+  // sort by stride
+  std::sort(
+      dim_info_vec.begin(),
+      dim_info_vec.end(),
+      [](const auto& l, const auto& r) { return l.stride > r.stride; });
+
+  // Dimensions are marked contiguous by inspecting the current dimension and
+  // one to the right towards the inner dimension while skipping over broadcast
+  // dimensions.
+  // The innermost dimension, that is not broadcasted, does not have any
+  // dimension to it's right and needs to have stride equal to 1 in order to be
+  // marked contiguous.
+  for (int64_t i = 0; i < (int64_t)sizes.size();) {
+    dim_info_vec[i].stride_order = (int64_t)sizes.size() - 1 - i;
+    if (!dim_info_vec[i].isBroadcast()) {
+      auto l = i++;
+      int64_t expected = 1;
+      for (; i < (int64_t)sizes.size(); i++) {
+        dim_info_vec[i].stride_order = (int64_t)sizes.size() - 1 - i;
+        if (!dim_info_vec[i].isBroadcast()) {
+          expected = dim_info_vec[i].stride * dim_info_vec[i].size;
+          break;
+        }
+      }
+      dim_info_vec[l].contiguity = (dim_info_vec[l].stride == expected);
+    } else {
+      i++;
+    }
+  }
+
+  std::vector<int64_t> stride_order_vec(sizes.size(), -1);
+  for (const auto& dim_info : dim_info_vec) {
+    stride_order_vec[dim_info.index] = dim_info.stride_order;
+  }
+  std::vector<std::optional<bool>> contiguity_vec;
+  std::transform(
+      dim_info_vec.begin(),
+      dim_info_vec.end(),
+      std::back_inserter(contiguity_vec),
+      [](const DimInfo& val) { return val.contiguity; });
+
+  return std::make_pair(contiguity_vec, stride_order_vec);
+}
+
 void initNvFuserPythonBindings(PyObject* module) {
   auto nvfuser = py::handle(module).cast<py::module>();
 
@@ -188,6 +310,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("Null", DataType::Null);
 
   nvfuser.def("compute_contiguity", computeContiguity);
+  nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
 
   //! Binding the FusionCache that holds a cache of Fusions
   //! This is only bound to provide an interface to get the number of fusions
@@ -569,6 +692,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             }
 
             Tensor out = self.defineTensor(sizes.size());
+            // TODO: replace computeContiguity with computeTensorDescriptor
             self.defineRecord(new TensorRecord(
                 {self.recordingState(out())},
                 std::move(dim_sizes),
@@ -1863,7 +1987,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   nvf_ops.def(
       "broadcast_in_dim",
-      broadcast_in_dim_fn<python_frontend::Vector>,
+      broadcast_in_dim_fn<Vector>,
       py::arg("arg"),
       py::arg("shape"),
       py::arg("broadcast_dims"),
@@ -2327,23 +2451,20 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   nvf_ops.def(
       "reshape",
-      [](FusionDefinition::Operators& self,
-         Tensor arg,
-         std::vector<int64_t>& original_shape,
-         std::vector<int64_t>& new_shape) -> Tensor {
-        NVF_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(new_shape.size());
-        self.fusion_definition->defineRecord(new ReshapeOpRecord(
-            {fd->recordingState(arg())},
-            {fd->recordingState(output())},
-            std::move(original_shape),
-            std::move(new_shape)));
-        return output;
-      },
+      reshape_fn<Vector>,
       py::arg("arg"),
-      py::arg("original_shape"),
+      py::arg("new_shape"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "reshape",
+      reshape_fn<py::list>,
+      py::arg("arg"),
+      py::arg("new_shape"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
+      "reshape",
+      reshape_fn<py::tuple>,
+      py::arg("arg"),
       py::arg("new_shape"),
       py::return_value_policy::reference);
   nvf_ops.def(

@@ -20,6 +20,8 @@
 
 #include <c10/core/DeviceType.h>
 
+#include <functional>
+
 namespace nvfuser {
 
 bool shouldFillAllocationWithNan();
@@ -109,6 +111,12 @@ class FusionExecutor : public NonCopyable {
       CompileParams compile_params = CompileParams(),
       const std::optional<size_t>& opt_code = std::nullopt) {
     return runFusion(inputs, {}, launch_constraints, compile_params, opt_code);
+  }
+
+  // Register a post-lowering hooks that are called to modify the kernel after
+  // lowering. The main use case is for unit tests to modify the kernel.
+  void registerPostLoweringHook(std::function<void(kir::Kernel*)> hook) {
+    post_lowering_hooks_.push_back(std::move(hook));
   }
 
   // function to query whether a `FusionExecutor` has a compiled kernel to
@@ -456,6 +464,10 @@ class FusionExecutor : public NonCopyable {
 
   // Profiling support: kept copy of the cuda kernel
   std::string kernel_code_;
+
+  // Post-lowering hooks that are called to modify the kernel after lowering.
+  // The main use case is for unit tests to modify the kernel.
+  std::vector<std::function<void(kir::Kernel*)>> post_lowering_hooks_;
 };
 
 } // namespace nvfuser

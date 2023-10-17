@@ -13,6 +13,7 @@
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <tensor_metadata.h>
 
 #include <optional>
 
@@ -342,6 +343,32 @@ void PrecomputedValues::bindTensorMetaData(
       bindValue(extent->evaluatorIndex(), value);
     }
   }
+
+  // Here we bind TensorMetaData so that GetMetaData expressions can be
+  // evaluated. Note that we do not bind the at::Tensor itself here since that
+  // would mean PrecomputedValues will own the tensor. Unlike
+  // ExpressionEvaluator, PrecomputedValues objects are typically long-lived, so
+  // we do not want them to own large objects.
+  // To do this we create a temporary ExpressionEvaluator so that we can compute
+  // the metadata once, then save it
+  ExpressionEvaluator ee;
+  ee.bindPrecomputedValues(this);
+  ee.bind(tv, tensor);
+  auto metadata_val = IrBuilder::metadataExpr(tv);
+  auto metadata = ee.evaluate(metadata_val);
+  // NOTE: In some cases we may not be able to evaluate metadata. For example,
+  // if there exists a split expression between the root and rfactor domains
+  // of tv whose split factor is not able to be evaluated. For that reason,
+  // calling code should ensure that all inputs required to propagate strides
+  // from root to allocation domains are already bound to "this" before binding
+  // a TensorView's metadata.
+  NVF_ERROR(
+      metadata.hasValue(),
+      "Could not evaluate metadata expression for ",
+      tv->toString(),
+      " with input tensor ",
+      tensor);
+  bindValue(metadata_val->evaluatorIndex(), metadata);
 }
 
 NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)

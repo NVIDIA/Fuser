@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <arith.h>
 #include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <executor.h>
@@ -35,9 +34,6 @@ static void setupSoftmaxDropout(
 
   FusionGuard fg(fusion);
 
-  constexpr int kHiddenSize = 768;
-  constexpr int kNumAttentionHeads = 12;
-  constexpr int kAttentionHeadSize = kHiddenSize / kNumAttentionHeads;
   constexpr float kDropoutProbability = 0.9;
   constexpr float kScale = 1.0f / kDropoutProbability;
 
@@ -90,8 +86,6 @@ static void NvFuserScheduler_SoftmaxDropout(
   constexpr int kHiddenSize = 768;
   constexpr int kNumAttentionHeads = 12;
   constexpr int kAttentionHeadSize = kHiddenSize / kNumAttentionHeads;
-  constexpr float kDropoutProbability = 0.9;
-  constexpr float kScale = 1.0f / kDropoutProbability;
 
   // inputs
   at::manual_seed(0);

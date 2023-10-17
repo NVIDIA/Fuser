@@ -258,7 +258,7 @@ endif()
 list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
 
 if(PROJECT_IS_TOP_LEVEL)
-  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES})
+  target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES} dl)
 
   # this is to find pip installed nvrtc/nvtx .so
   set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH
@@ -449,6 +449,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_polymorphic_value.cpp
     ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
+    ${NVFUSER_ROOT}/test/test_mbarrier.cpp
     ${NVFUSER_ROOT}/test/test_memory.cpp
     ${NVFUSER_ROOT}/test/test_gpu_view.cpp
     ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
@@ -463,7 +464,6 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_rng.cpp
     ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
     ${NVFUSER_ROOT}/test/test_tutorial.cpp
-    ${NVFUSER_ROOT}/test/test_memory.cpp
   )
 
   if(BUILD_PYTHON)
@@ -513,28 +513,30 @@ if(BUILD_NVFUSER_BENCHMARK)
     ${NVFUSER_ROOT}/benchmark/batch_norm_channels_last_backward.cpp
     ${NVFUSER_ROOT}/benchmark/bert.cpp
     ${NVFUSER_ROOT}/benchmark/broadcast.cpp
-    ${NVFUSER_ROOT}/benchmark/gelu_backward.cpp
     ${NVFUSER_ROOT}/benchmark/gelu_backward_reduction.cpp
+    ${NVFUSER_ROOT}/benchmark/gelu_backward.cpp
+    ${NVFUSER_ROOT}/benchmark/heuristic_cache.cpp
     ${NVFUSER_ROOT}/benchmark/heuristic_lookup.cpp
-    ${NVFUSER_ROOT}/benchmark/shape_inference.cpp
+    ${NVFUSER_ROOT}/benchmark/indexselect.cpp
     ${NVFUSER_ROOT}/benchmark/instance_norm.cpp
-    ${NVFUSER_ROOT}/benchmark/many_pointwise_ops.cpp
-    ${NVFUSER_ROOT}/benchmark/layer_norm.cpp
     ${NVFUSER_ROOT}/benchmark/layer_norm_backward.cpp
     ${NVFUSER_ROOT}/benchmark/layer_norm_fused.cpp
-    ${NVFUSER_ROOT}/benchmark/rms_norm.cpp
-    ${NVFUSER_ROOT}/benchmark/rms_norm_backward.cpp
+    ${NVFUSER_ROOT}/benchmark/layer_norm.cpp
     ${NVFUSER_ROOT}/benchmark/lstm_cell.cpp
-    ${NVFUSER_ROOT}/benchmark/reduction.cpp
-    ${NVFUSER_ROOT}/benchmark/softmax.cpp
-    ${NVFUSER_ROOT}/benchmark/softmax_backward.cpp
-    ${NVFUSER_ROOT}/benchmark/scale_bias_relu.cpp
-    ${NVFUSER_ROOT}/benchmark/transpose.cpp
-    ${NVFUSER_ROOT}/benchmark/matmul.cpp
-    ${NVFUSER_ROOT}/benchmark/timm.cpp
-    ${NVFUSER_ROOT}/benchmark/indexselect.cpp
-    ${NVFUSER_ROOT}/benchmark/utils.cpp
     ${NVFUSER_ROOT}/benchmark/main.cpp
+    ${NVFUSER_ROOT}/benchmark/many_pointwise_ops.cpp
+    ${NVFUSER_ROOT}/benchmark/matmul.cpp
+    ${NVFUSER_ROOT}/benchmark/reduction.cpp
+    ${NVFUSER_ROOT}/benchmark/rms_norm_backward.cpp
+    ${NVFUSER_ROOT}/benchmark/rms_norm.cpp
+    ${NVFUSER_ROOT}/benchmark/scale_bias_relu.cpp
+    ${NVFUSER_ROOT}/benchmark/shape_inference.cpp
+    ${NVFUSER_ROOT}/benchmark/softmax_backward.cpp
+    ${NVFUSER_ROOT}/benchmark/softmax_dropout.cpp
+    ${NVFUSER_ROOT}/benchmark/softmax.cpp
+    ${NVFUSER_ROOT}/benchmark/timm.cpp
+    ${NVFUSER_ROOT}/benchmark/transpose.cpp
+    ${NVFUSER_ROOT}/benchmark/utils.cpp
     ${NVFUSER_ROOT}/test/utils.cpp
   )
 
@@ -588,6 +590,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/grid_sync.cu
   ${NVFUSER_ROOT}/runtime/helpers.cu
   ${NVFUSER_ROOT}/runtime/index_utils.cu
+  ${NVFUSER_ROOT}/runtime/mbarrier.cu
   ${NVFUSER_ROOT}/runtime/memory.cu
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu

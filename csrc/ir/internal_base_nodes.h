@@ -32,7 +32,7 @@ struct AnalyzeViewResult;
 
 // Convenience utility to initialize IterDomain's without having to sort through
 // all the default values. Intended to be used with
-// IterDomain::IterDomain(IrBuilderPasskey IterDomainBuildArgs)
+// IterDomain::IterDomain(IrBuilderPasskey, IterDomainBuilder).
 class IterDomainBuilder {
  public:
   // Match legacy constructor
@@ -86,8 +86,8 @@ class IterDomain : public Val {
  public:
   IterDomain(IrBuilderPasskey, const IterDomainBuilder& args);
 
-  // Legacy constructor, TODO: should start moving to use IterDomainBuildArgs
-  // constructor Same as the above but can set the offset of the stop point
+  // Legacy constructor, TODO: should start moving to use the IterDomainBuilder
+  // constructor. Same as the above but can set the offset of the stop point.
   IterDomain(
       IrBuilderPasskey,
       Val* start,
@@ -482,8 +482,10 @@ class TensorDomain : public Val {
       const std::vector<IterDomain*>& lhs,
       const std::vector<IterDomain*>& rhs);
 
+  // When `leaf_only` is false, prints also the root, rfactor and allocation
+  // domain if not empty.
+  std::string toString(int indent_size, bool leaf_only) const;
   std::string toString(int indent_size = 0) const override;
-
   std::string toInlineString(int indent_size = 0) const override;
 
   // Note: [Contiguity]
