@@ -1121,10 +1121,12 @@ TEST_F(NVFuserTest, AllocationDomainContiguityIssue1021) {
   Fusion* fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  auto tv0 = TensorViewBuilder().ndims(2).shape({-1, -1}).build();
-
-  std::vector<IterDomain*> alloc_domain = {tv0->axis(1), tv0->axis(0)};
-  tv0->setAllocationDomain(alloc_domain, {false, true});
+  auto tv0 = TensorViewBuilder()
+                 .ndims(2)
+                 .shape({-1, -1})
+                 .contiguity({false, true})
+                 .strideOrder({1, 0})
+                 .build();
   fusion->addInput(tv0);
 
   auto s0 = IrBuilder::create<Val>(5, DataType::Float);
@@ -1145,10 +1147,12 @@ TEST_F(NVFuserTest, AllocationDomainContiguityForBroadcast) {
   Fusion* fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  auto tv0 = TensorViewBuilder().ndims(2).shape({1, 1}).build();
-
-  std::vector<IterDomain*> alloc_domain = {tv0->axis(1), tv0->axis(0)};
-  tv0->setAllocationDomain(alloc_domain, {std::nullopt, std::nullopt});
+  auto tv0 = TensorViewBuilder()
+                 .ndims(2)
+                 .shape({1, 1})
+                 .contiguity({std::nullopt, std::nullopt})
+                 .strideOrder({1, 0})
+                 .build();
   fusion->addInput(tv0);
 
   auto s0 = IrBuilder::create<Val>(5, DataType::Float);
