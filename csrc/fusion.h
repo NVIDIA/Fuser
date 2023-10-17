@@ -76,7 +76,7 @@ class FusionGuard {
   ~FusionGuard();
 
   static Fusion* getCurFusion();
-  static void setCurFusion(const Fusion* fusion);
+  static void setCurFusion(Fusion* fusion);
 
  private:
   Fusion* prev_fusion_;

@@ -38,13 +38,12 @@ FusionGuard::~FusionGuard() {
 }
 
 // Cast to non-cast because many users need it.
-Fusion* FusionGuard::getCurFusion() {
+/*static*/ Fusion* FusionGuard::getCurFusion() {
   return active_fusion_;
 }
 
-void FusionGuard::setCurFusion(const Fusion* fusion) {
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-  active_fusion_ = const_cast<Fusion*>(fusion);
+/*static*/ void FusionGuard::setCurFusion(Fusion* fusion) {
+  active_fusion_ = fusion;
 }
 
 void swap(Fusion& a, Fusion& b) noexcept {
