@@ -3093,7 +3093,7 @@ TensorDomain::TensorDomain(
       has_reduction_(false) {
   // setting the proper allocation domain
   if (!stride_order.empty()) {
-    auto rank = root_domain.size();
+    auto rank = root_domain_.size();
     NVF_ERROR(
       rank == stride_order.size(),
       "Invalid size of stride_order vector");
