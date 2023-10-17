@@ -9623,6 +9623,62 @@ TEST_F(NVFuserTest, ConstLongExpressions) {
   testValidate(fusion, outputs, {}, {t0}, __LINE__, __FILE__);
 }
 
+// Related to https://github.com/NVIDIA/Fuser/issues/1084.
+// On H100, the generated kernel is vectorized by 8, has a persistent batch
+// of 6. It uses 256 threads (padded from 11264/8/6=235), nsys shows kernel
+// duration is 0.459 ms. If eliminate predicate for RNG ops by comment out
+// predicateRNGOp(), the kernel duration is increased to 0.625 ms.
+TEST_F(NVFuserTest, SoftmaxDropout) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+  constexpr float kDropoutProbability = 0.8;
+  constexpr float kScale = 1.0f / kDropoutProbability;
+  auto dtype = DataType::Half;
+  std::vector<int64_t> shape0({10240, 11264});
+
+  auto tv0 = makeSymbolicTensor(2, dtype);
+  fusion.addInput(tv0);
+  if (dtype == DataType::Half) {
+    tv0 = castOp(DataType::Float, tv0);
+  }
+  auto tv1 = softmax(tv0, -1);
+  auto dropout_results = dropout(
+      tv1,
+      IrBuilder::create<Val>(kDropoutProbability),
+      IrBuilder::create<Val>(kScale));
+  auto output = dropout_results.output;
+  if (dtype == DataType::Half) {
+    output = castOp(DataType::Half, output);
+  }
+  fusion.addOutput(output);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::ones(shape0, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  auto reduction_params = getInnerPersistentHeuristics(&fusion, {t0});
+  NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
+  scheduleInnerPersistentKernel(&fusion, *reduction_params);
+
+  GpuLower gpulw(&fusion);
+  auto all_exprs = KernelExprVisitor::getAllExprs(gpulw.kernel());
+  std::unordered_set<TensorView*> rng_consumers;
+  for (const auto& expr : all_exprs) {
+    if (expr->isA<RNGOp>() && expr->output(0)->isA<TensorView>()) {
+      TensorView* tv = expr->output(0)->as<TensorView>();
+      rng_consumers.insert(tv);
+    }
+  }
+  for (auto tv : rng_consumers) {
+    NVF_CHECK(PredicatedChecker::isPredicated(tv, gpulw));
+  }
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto cg_outputs = fe.runFusion(inputs);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
