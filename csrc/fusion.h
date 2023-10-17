@@ -79,9 +79,9 @@ class FusionGuard {
   static void setCurFusion(const Fusion* fusion);
 
  private:
-  const Fusion* prev_fusion_;
+  Fusion* prev_fusion_;
 
-  static thread_local const Fusion* active_fusion_;
+  static thread_local Fusion* active_fusion_;
 };
 
 //! Fusion is mutable but unique. Nodes cannot be copied in any way from one

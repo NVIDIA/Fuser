@@ -29,7 +29,8 @@ namespace nvfuser {
 /*static*/ thread_local const Fusion* FusionGuard::active_fusion_ = nullptr;
 
 FusionGuard::FusionGuard(const Fusion* fusion) : prev_fusion_(active_fusion_) {
-  active_fusion_ = fusion;
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+  active_fusion_ = const_cast<Fusion*>(fusion);
 }
 
 FusionGuard::~FusionGuard() {
@@ -38,12 +39,12 @@ FusionGuard::~FusionGuard() {
 
 // Cast to non-cast because many users need it.
 Fusion* FusionGuard::getCurFusion() {
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-  return const_cast<Fusion*>(active_fusion_);
+  return active_fusion_;
 }
 
 void FusionGuard::setCurFusion(const Fusion* fusion) {
-  active_fusion_ = fusion;
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+  active_fusion_ = const_cast<Fusion*>(fusion);
 }
 
 void swap(Fusion& a, Fusion& b) noexcept {
