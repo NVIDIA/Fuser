@@ -17,45 +17,30 @@ namespace nvfuser::optimization {
 
 namespace {
 
-using AllocationDomain = std::vector<IterDomain*>;
-
-bool isCompatible(
-    const AllocationDomain& existing_allocation_domain,
-    const AllocationDomain& preferred_allocation_domain) {
-  if (existing_allocation_domain.empty()) {
-    return true;
-  }
-  return existing_allocation_domain == preferred_allocation_domain;
-}
-
-AllocationDomain explicitAllocationDomain(const TensorView* in) {
-  AllocationDomain allocation_domain = in->getAllocationDomain();
-  if (allocation_domain.empty()) {
-    allocation_domain.reserve(in->nDims());
-    for (size_t i = 0; i < in->nDims(); i++) {
-      allocation_domain.push_back(in->axis(i));
+bool isContiguous(const TensorView& tv) {
+  NVF_ERROR(tv.nDims() == tv.getContiguity().size());
+  for (size_t i = 0; i < tv.nDims(); i++) {
+    if (!tv.axis(i)->isBroadcast() && !tv.getContiguity()[i]) {
+      return false;
     }
   }
-  return allocation_domain;
+  return true;
 }
 
-void findAliasingOutput(
+void findAliasesOfSource(
     const TensorView* source,
-    std::unordered_map<
-        const TensorView*,
-        std::pair<TensorView*, AllocationDomain>>&
-        preferred_allocation_domain) {
+    AliasAnalysisResult& alias_to_source) {
   std::queue<const TensorView*> q;
-  q.push(source);
-  preferred_allocation_domain[source] = {
-      const_cast<TensorView*>(source), explicitAllocationDomain(source)};
-  while (q.empty()) {
+  if (!source->hasAllocation() && isContiguous(*source)) {
+    q.push(source);
+  }
+
+  while (!q.empty()) {
     const TensorView* in_tv = q.front();
-    auto in_allocation_domain = preferred_allocation_domain.at(in_tv).second;
     q.pop();
 
     for (Expr* use : in_tv->uses()) {
-      if (!use->isOneOf<LoadStoreOp, ViewOp>()) {
+      if (!use->isA<ViewOp>()) {
         continue;
       }
 
@@ -65,42 +50,9 @@ void findAliasingOutput(
         continue;
       }
 
-      // FIXME: set preferred allocation domain.
-      if (use->isA<LoadStoreOp>() &&
-          use->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set) {
+      if (!out_tv->hasAllocation() && isContiguous(*out_tv)) {
         q.push(out_tv);
-      } else if (use->isA<ViewOp>()) {
-        q.push(out_tv);
-      }
-    }
-  }
-}
-
-void markIdentity(Fusion* fusion) {
-  std::cerr << "[jingyue] MarkIdentity" << std::endl;
-  fusion->print();
-
-  std::
-      unordered_map<const TensorView*, std::pair<TensorView*, AllocationDomain>>
-          preferred_allocation_domain;
-
-  for (const Val* in : fusion->inputs()) {
-    const TensorView* in_tv = dynamic_cast<const TensorView*>(in);
-    if (in_tv == nullptr) {
-      continue;
-    }
-
-    findAliasingOutput(in_tv, preferred_allocation_domain);
-  }
-
-  for (Val* out : fusion->outputs()) {
-    if (TensorView* out_tv = dynamic_cast<TensorView*>(out)) {
-      if (auto i = preferred_allocation_domain.find(out_tv);
-          i != preferred_allocation_domain.end()) {
-        const auto& [in_tv, allocation_domain] = i->second;
-        // FIXME: set the right contiguity.
-        out_tv->setAllocationDomain(allocation_domain, /*new_contiguity=*/true);
-        fusion->markIdentity(in_tv, out_tv);
+        alias_to_source[out_tv] = in_tv;
       }
     }
   }
@@ -108,8 +60,16 @@ void markIdentity(Fusion* fusion) {
 
 } // namespace
 
-void MarkIdentityPass::runPass(Fusion* fusion) {
-  markIdentity(fusion);
+AliasAnalysisResult findAliases(const Fusion& fusion) {
+  fusion.print();
+
+  AliasAnalysisResult alias_to_source;
+  for (const Val* in : fusion.inputs()) {
+    if (const TensorView* in_tv = dynamic_cast<const TensorView*>(in)) {
+      findAliasesOfSource(in_tv, alias_to_source);
+    }
+  }
+  return alias_to_source;
 }
 
 } // namespace nvfuser::optimization

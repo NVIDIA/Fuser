@@ -1,0 +1,60 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
+#include <vector>
+
+#include <gmock/gmock-matchers.h>
+#include <gmock/gmock-more-matchers.h>
+#include <gtest/gtest.h>
+
+#include <csrc/fusion.h>
+#include <csrc/ops/alias.h>
+#include <csrc/optimization/mark_identity.h>
+#include <test/utils.h>
+
+namespace nvfuser {
+
+using AliasAnalysisTest = NVFuserTest;
+using testing::IsEmpty;
+using testing::Pair;
+using testing::UnorderedElementsAre;
+
+TEST_F(AliasAnalysisTest, View) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const std::vector<int64_t> in_shape({2, 3, 4});
+  const std::vector<int64_t> out_shape({2, 12});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  fusion.addInput(in);
+  TensorView* out = reshape(in, in_shape, out_shape);
+  fusion.addOutput(out);
+
+  optimization::AliasAnalysisResult alias_analysis =
+      optimization::findAliases(fusion);
+  EXPECT_THAT(alias_analysis, UnorderedElementsAre(Pair(out, in)));
+}
+
+TEST_F(AliasAnalysisTest, Permute) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const std::vector<int64_t> in_shape({2, 3, 4});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  fusion.addInput(in);
+  TensorView* out = permute(in, {1, 2, 0});
+  fusion.addOutput(out);
+
+  // We haven't handled `Set.Permute` yet.
+  optimization::AliasAnalysisResult alias_analysis =
+      optimization::findAliases(fusion);
+  EXPECT_THAT(alias_analysis, IsEmpty());
+}
+
+} // namespace nvfuser

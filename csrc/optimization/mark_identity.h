@@ -5,15 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <optimization/optimization_pass.h>
+#include <unordered_map>
 
 namespace nvfuser::optimization {
 
-class MarkIdentityPass : public OptimizationPass<MarkIdentityPass> {
-  friend class OptimizationPass<MarkIdentityPass>;
+using AliasAnalysisResult =
+    std::unordered_map<const TensorView*, const TensorView*>;
 
- protected:
-  static void runPass(Fusion* fusion);
-};
+AliasAnalysisResult findAliases(const Fusion& fusion);
 
 } // namespace nvfuser::optimization
