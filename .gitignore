@@ -1,6 +1,8 @@
 # binary reference
 bin
 
+trigger-ci
+
 # cmake build directory
 build
 .lintbin
