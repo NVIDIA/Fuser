@@ -73,7 +73,7 @@ void testValidateMultidevice(
                       ->as<PipelineVal>()
                       ->getStage()
                       ->descriptor()
-                      ->mesh.deviceIndices()
+                      ->mesh.vector()
                       .at(0);
     buffer = {inputs.at(i).toTensor()};
     if (tester != sender &&
@@ -92,7 +92,7 @@ void testValidateMultidevice(
                       ->as<PipelineVal>()
                       ->getStage()
                       ->descriptor()
-                      ->mesh.deviceIndices()
+                      ->mesh.vector()
                       .at(0);
     buffer = {outputs.at(i)};
     if (tester != sender &&
@@ -187,13 +187,13 @@ TEST_F(MultiDeviceTest, Pipeline) {
   stage4.addVal({tv8, tv9, tv10, tv11, tv12, tv13});
 
   // binding each stage to a device mesh
-  stage0_.mesh.set({5});
-  stage1_.mesh.set({2, 4});
-  stage0.mesh.set({0});
-  stage1.mesh.set({0, 1, 4});
-  stage2.mesh.set({1, 3});
-  stage3.mesh.set({2});
-  stage4.mesh.set({4, 5});
+  stage0_.mesh = {5};
+  stage1_.mesh = {2, 4};
+  stage0.mesh = {0};
+  stage1.mesh = {0, 1, 4};
+  stage2.mesh = {1, 3};
+  stage3.mesh = {2};
+  stage4.mesh = {4, 5};
 
   PipelineDescriptor descriptor{.stage_descriptors{
       std::move(stage0_),
