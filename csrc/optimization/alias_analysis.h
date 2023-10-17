@@ -9,9 +9,11 @@
 
 namespace nvfuser::optimization {
 
+// Maps aliases (e.g. fusion outputs) to their sources (e.g. fusion inputs).
 using AliasAnalysisResult =
     std::unordered_map<const TensorView*, const TensorView*>;
 
+// Finds aliases of the fusion inputs.
 AliasAnalysisResult findAliases(const Fusion& fusion);
 
 } // namespace nvfuser::optimization

@@ -17,6 +17,8 @@ namespace nvfuser::optimization {
 
 namespace {
 
+// Returns whether the input TensorView is contiguous on every non-broadcast
+// IterDomain.
 bool isContiguous(const TensorView& tv) {
   NVF_ERROR(tv.nDims() == tv.getContiguity().size());
   for (size_t i = 0; i < tv.nDims(); i++) {
@@ -27,9 +29,13 @@ bool isContiguous(const TensorView& tv) {
   return true;
 }
 
+// Finds aliases of `source` and stores the findings in `alias_to_source`.
 void findAliasesOfSource(
     const TensorView* source,
     AliasAnalysisResult& alias_to_source) {
+  // The current implementation does the bare minimum to detect some aliasing
+  // that the codegen can use to generate a kernel skipping unnecessary
+  // computation.
   std::queue<const TensorView*> q;
   if (!source->hasAllocation() && isContiguous(*source)) {
     q.push(source);
