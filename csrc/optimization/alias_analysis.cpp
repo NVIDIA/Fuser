@@ -18,13 +18,20 @@ namespace nvfuser::optimization {
 
 namespace {
 
-// Returns whether the input TensorView is contiguous on every non-broadcast
-// IterDomain.
+// Returns whether the input TensorView is allocated contiguously.
 bool isContiguous(const TensorView& tv) {
-  NVF_ERROR(tv.nDims() == tv.getContiguity().size());
-  for (const auto i : c10::irange(tv.nDims())) {
-    if (!tv.axis(static_cast<int>(i))->isBroadcast() &&
-        !tv.getContiguity()[i]) {
+  const std::vector<IterDomain*>& allocation_domain =
+      tv.getMaybeAllocationDomain();
+  for (size_t i = 0; i < allocation_domain.size(); i++) {
+    // Broadcast and reduction dims are always contiguous because their sizes
+    // are essentially 1.
+    if (allocation_domain[i]->isBroadcast() ||
+        allocation_domain[i]->isReduction()) {
+      continue;
+    }
+    // Note: getContiguity() returns a vector of optional<bool>, so the `*` is
+    // necessary.
+    if (*tv.getContiguity()[i] == false) {
       return false;
     }
   }
@@ -39,7 +46,8 @@ void findAliasesOfSource(
   // that the codegen can use to generate a kernel skipping unnecessary
   // computation.
   std::queue<const TensorView*> q;
-  if (!source->hasAllocation() && isContiguous(*source)) {
+  if (source->getMaybeAllocationDomain() == source->getMaybeRFactorDomain() &&
+      isContiguous(*source)) {
     q.push(source);
   }
 
@@ -58,7 +66,13 @@ void findAliasesOfSource(
         continue;
       }
 
-      if (!out_tv->hasAllocation() && isContiguous(*out_tv)) {
+      // This is a sufficient but not necessary condition for `out_tv` to alias
+      // `in_tv`.
+      if (out_tv->getMaybeAllocationDomain() ==
+              out_tv->getMaybeRFactorDomain() &&
+          isContiguous(*out_tv)) {
+        // Both `in_tv` and `out_tv` are allocated contiguously per the rfactor
+        // domain.
         q.push(out_tv);
         alias_to_source[out_tv] = in_tv;
       }

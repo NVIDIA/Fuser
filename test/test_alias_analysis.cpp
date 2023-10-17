@@ -23,7 +23,7 @@ using testing::IsEmpty;
 using testing::Pair;
 using testing::UnorderedElementsAre;
 
-TEST_F(AliasAnalysisTest, View) {
+TEST_F(AliasAnalysisTest, View_ContiguousAndSameAllocationOrder) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -38,6 +38,44 @@ TEST_F(AliasAnalysisTest, View) {
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(fusion);
   EXPECT_THAT(alias_analysis, UnorderedElementsAre(Pair(out, in)));
+}
+
+TEST_F(AliasAnalysisTest, View_DifferentAllocationOrder) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const std::vector<int64_t> in_shape({2, 3, 4});
+  const std::vector<int64_t> out_shape({2, 12});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  fusion.addInput(in);
+  TensorView* out = reshape(in, in_shape, out_shape);
+  fusion.addOutput(out);
+  out->setAllocationDomain(
+      {out->axis(1), out->axis(0)}, /*new_contiguity=*/true);
+
+  optimization::AliasAnalysisResult alias_analysis =
+      optimization::findAliases(fusion);
+  EXPECT_THAT(alias_analysis, IsEmpty());
+}
+
+TEST_F(AliasAnalysisTest, View_NonContiguous) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const std::vector<int64_t> in_shape({2, 3, 4});
+  const std::vector<int64_t> out_shape({2, 12});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  fusion.addInput(in);
+  TensorView* out = reshape(in, in_shape, out_shape);
+  fusion.addOutput(out);
+  out->setAllocationDomain(
+      {out->axis(0), out->axis(1)}, /*new_contiguity=*/{true, false});
+
+  optimization::AliasAnalysisResult alias_analysis =
+      optimization::findAliases(fusion);
+  EXPECT_THAT(alias_analysis, IsEmpty());
 }
 
 TEST_F(AliasAnalysisTest, Permute) {
