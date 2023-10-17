@@ -482,8 +482,10 @@ class TensorDomain : public Val {
       const std::vector<IterDomain*>& lhs,
       const std::vector<IterDomain*>& rhs);
 
+  // When `leaf_only` is false, prints also the root, rfactor and allocation
+  // domain if not empty.
+  std::string toString(int indent_size, bool leaf_only) const;
   std::string toString(int indent_size = 0) const override;
-
   std::string toInlineString(int indent_size = 0) const override;
 
   // Note: [Contiguity]
