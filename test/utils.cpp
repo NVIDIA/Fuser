@@ -334,10 +334,7 @@ TensorView* matmulTuringOrLater(
   bcast_dims.at(bcast_dims.size() - 2) = false;
   bcast_dims.at(bcast_dims.size() - 3) = true;
   tv1b = broadcast(tv1t, bcast_dims);
-  std::cout << tv0b->toString() << std::endl;
-  std::cout << tv1b->toString() << std::endl;
   tv2 = fusedMultiplySum(tv0b, tv1b, {-1});
-  std::cout << "tv2=" << tv2->toString() << std::endl;
   return tv2;
 }
 
