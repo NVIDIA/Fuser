@@ -1125,7 +1125,7 @@ TEST_F(NVFuserTest, AllocationDomainContiguityIssue1021) {
                  .ndims(2)
                  .shape({-1, -1})
                  .contiguity({false, true})
-                 .strideOrder({1, 0})
+                 .strideOrder({0, 1})
                  .build();
   fusion->addInput(tv0);
 
@@ -1151,7 +1151,7 @@ TEST_F(NVFuserTest, AllocationDomainContiguityForBroadcast) {
                  .ndims(2)
                  .shape({1, 1})
                  .contiguity({std::nullopt, std::nullopt})
-                 .strideOrder({1, 0})
+                 .strideOrder({0, 1})
                  .build();
   fusion->addInput(tv0);
 
