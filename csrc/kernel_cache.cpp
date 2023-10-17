@@ -1132,12 +1132,13 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       compileKernel(group_runtime_inputs, group_to_run);
     } else {
       // launch compileKernel thread here
-      getThreadPool()->run([=, this]() {
-        FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
-        c10::cuda::CUDAGuard dg(args.getDeviceIndex());
-        c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
-        compileKernel(group_runtime_inputs, group_to_run);
-      });
+      getThreadPool()->run(
+          [this, &args, &group_runtime_inputs, &group_to_run]() {
+            FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
+            c10::cuda::CUDAGuard dg(args.getDeviceIndex());
+            c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
+            compileKernel(group_runtime_inputs, group_to_run);
+          });
     }
 
     auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run);
