@@ -9625,9 +9625,9 @@ TEST_F(NVFuserTest, ConstLongExpressions) {
 
 // Related to https://github.com/NVIDIA/Fuser/issues/1084.
 // On H100, the generated kernel is vectorized by 8, has a persistent batch
-// of 6. It uses 256 threads (padded from 11264/8/6=235), nsys shows kernel
-// duration is 0.459 ms. If eliminate predicate for RNG ops by comment out
-// predicateRNGOp(), the kernel duration is increased to 0.625 ms.
+// of 5. It uses 106 threads without padding, nsys shows kernel
+// duration is 0.252 ms. If eliminate predicate for RNG ops by comment out
+// predicateRNGOp(), the kernel duration is increased to 0.258 ms.
 TEST_F(NVFuserTest, SoftmaxDropout) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -9635,7 +9635,7 @@ TEST_F(NVFuserTest, SoftmaxDropout) {
   constexpr float kDropoutProbability = 0.8;
   constexpr float kScale = 1.0f / kDropoutProbability;
   auto dtype = DataType::Half;
-  std::vector<int64_t> shape0({10240, 11264});
+  std::vector<int64_t> shape0({10240, 4224});
 
   auto tv0 = makeSymbolicTensor(2, dtype);
   fusion.addInput(tv0);
@@ -9659,6 +9659,9 @@ TEST_F(NVFuserTest, SoftmaxDropout) {
   std::vector<c10::IValue> inputs = {t0};
 
   auto reduction_params = getInnerPersistentHeuristics(&fusion, {t0});
+  // override to introduce non-divisible split
+  reduction_params->batches_per_block_inner_reduction = 5;
+  reduction_params->pad_inner_reduction_to_warp = false;
   NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
   scheduleInnerPersistentKernel(&fusion, *reduction_params);
 
