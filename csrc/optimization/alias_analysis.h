@@ -7,6 +7,9 @@
 // clang-format on
 #include <unordered_map>
 
+#include <fusion.h>
+#include <ir/interface_nodes.h>
+
 namespace nvfuser::optimization {
 
 // Maps aliases (e.g. fusion outputs) to their sources (e.g. fusion inputs).

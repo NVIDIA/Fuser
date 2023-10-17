@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <fusion.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
@@ -21,7 +22,7 @@ namespace {
 // IterDomain.
 bool isContiguous(const TensorView& tv) {
   NVF_ERROR(tv.nDims() == tv.getContiguity().size());
-  for (size_t i = 0; i < tv.nDims(); i++) {
+  for (int i = 0, n_dims = tv.nDims(); i < n_dims; i++) {
     if (!tv.axis(i)->isBroadcast() && !tv.getContiguity()[i]) {
       return false;
     }
