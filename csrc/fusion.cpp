@@ -26,7 +26,7 @@
 
 namespace nvfuser {
 
-/*static*/ thread_local const Fusion* FusionGuard::active_fusion_ = nullptr;
+/*static*/ thread_local Fusion* FusionGuard::active_fusion_ = nullptr;
 
 FusionGuard::FusionGuard(const Fusion* fusion) : prev_fusion_(active_fusion_) {
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
