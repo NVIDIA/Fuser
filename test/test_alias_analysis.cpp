@@ -13,7 +13,7 @@
 
 #include <csrc/fusion.h>
 #include <csrc/ops/alias.h>
-#include <csrc/optimization/mark_identity.h>
+#include <csrc/optimization/alias_analysis.h>
 #include <test/utils.h>
 
 namespace nvfuser {

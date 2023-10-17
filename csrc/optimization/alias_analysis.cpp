@@ -11,7 +11,7 @@
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
-#include <optimization/mark_identity.h>
+#include <optimization/alias_analysis.h>
 
 namespace nvfuser::optimization {
 
@@ -61,8 +61,6 @@ void findAliasesOfSource(
 } // namespace
 
 AliasAnalysisResult findAliases(const Fusion& fusion) {
-  fusion.print();
-
   AliasAnalysisResult alias_to_source;
   for (const Val* in : fusion.inputs()) {
     if (const TensorView* in_tv = dynamic_cast<const TensorView*>(in)) {
