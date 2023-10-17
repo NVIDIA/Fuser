@@ -71,7 +71,7 @@ class DynamicTransformConcretizationInfo;
 class FusionGuard {
  public:
   //! Set the active fusion so it can be manipulated.
-  explicit FusionGuard(const Fusion* fusion);
+  explicit FusionGuard(Fusion* fusion);
 
   ~FusionGuard();
 
