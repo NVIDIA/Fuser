@@ -43,7 +43,7 @@ jobs:
         working-directory: ${{ env.working_directory }}
         run: |
           sudo apt update && sudo apt install -y libgtest-dev libgmock-dev libbenchmark-dev &
-          pip install meson ninja &
+          pip install git+https://github.com/mesonbuild/meson ninja &
           wait
           cd lib/dynamic_type
           meson setup build

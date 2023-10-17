@@ -153,7 +153,7 @@ class PipelineBuilder final {
         if (isGlobalInput(val)) {
           pipeline_->addInput(p_val);
           NVF_ERROR(
-              stage_desc.mesh.size() == 1,
+              stage_desc.mesh.vector().size() == 1,
               "A global input must belong to a stage which mesh is of size 1");
         } else {
           // if the Val is a stage input but not a global input, it must be

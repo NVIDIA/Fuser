@@ -17,8 +17,8 @@ bool PipelineExecutor::shouldRun(PipelineStage* stage) {
     should_run_.emplace(
         stage,
         std::count(
-            stage->descriptor()->mesh.deviceIndices().begin(),
-            stage->descriptor()->mesh.deviceIndices().end(),
+            stage->descriptor()->mesh.vector().begin(),
+            stage->descriptor()->mesh.vector().end(),
             runtime_.comm_.deviceId()));
   }
   return should_run_[stage];
@@ -64,20 +64,14 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
   std::vector<SendRecvDescriptor> communications;
   {
     Team senders;
-    for (auto& d_id : c->in()
-                          ->as<PipelineVal>()
-                          ->getStage()
-                          ->descriptor()
-                          ->mesh.deviceIndices()) {
+    for (auto& d_id :
+         c->in()->as<PipelineVal>()->getStage()->descriptor()->mesh.vector()) {
       senders.push_back(d_id);
     }
 
     Team receivers;
-    for (auto& d_id : c->out()
-                          ->as<PipelineVal>()
-                          ->getStage()
-                          ->descriptor()
-                          ->mesh.deviceIndices()) {
+    for (auto& d_id :
+         c->out()->as<PipelineVal>()->getStage()->descriptor()->mesh.vector()) {
       receivers.push_back(d_id);
     }
 
@@ -113,8 +107,9 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
     for (auto receiver_rank : communication.team) {
       if ((sender_rank == receiver_rank) ||
           !(runtime_.comm_.deviceId() == sender_rank ||
-            runtime_.comm_.deviceId() == receiver_rank))
+            runtime_.comm_.deviceId() == receiver_rank)) {
         continue;
+      }
       runtime_.comm_.sendRecv(receiver_rank, sender_rank, tensor);
     }
   }
