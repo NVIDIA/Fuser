@@ -23,7 +23,8 @@ namespace {
 bool isContiguous(const TensorView& tv) {
   NVF_ERROR(tv.nDims() == tv.getContiguity().size());
   for (const auto i : c10::irange(tv.nDims())) {
-    if (!tv.axis(i)->isBroadcast() && !tv.getContiguity()[i]) {
+    if (!tv.axis(static_cast<int>(i))->isBroadcast() &&
+        !tv.getContiguity()[i]) {
       return false;
     }
   }
