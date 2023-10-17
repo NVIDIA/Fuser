@@ -939,6 +939,16 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
     }
   };
 
+  // Check if id is a leaf of a consumer tensor of tv
+  auto isIdOfConsumerTensor = [&](IterDomain* id, TensorView* tv) -> bool {
+    auto consumer_tvs = ir_utils::consumerTvsOf(tv);
+    return std::any_of(
+        consumer_tvs.begin(), consumer_tvs.end(), [&](auto consumer_tv) {
+          auto all_ids = ir_utils::allIDsOf(consumer_tv);
+          return std::find(all_ids.begin(), all_ids.end(), id) != all_ids.end();
+        });
+  };
+
   // At this point, all of the IDs from the root until split are
   // validated. Validating the remaining IDs
   for (auto tv : {tv1, tv2, tv4, tv5, tv6, tv8, tv9}) {
@@ -981,6 +991,23 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
           << "Invalid promotion: " << id->toString() << " of " << tv->toString()
           << ". Should not be loop-mapped with ref: "
           << nvfuser::toString(loop_group);
+
+      // If id is a leaf, make sure it isn't mapped with
+      auto leaf_id_it =
+          std::find(tv->getLeafDomain().begin(), tv->getLeafDomain().end(), id);
+      if (leaf_id_it != tv->getLeafDomain().end() &&
+          std::distance(tv->getLeafDomain().begin(), leaf_id_it) >=
+              tv->getComputeAtPosition()) {
+        for (auto loop_mapped_id : *loop_group) {
+          if (loop_mapped_id == id) {
+            continue;
+          }
+          ASSERT_FALSE(isIdOfConsumerTensor(loop_mapped_id, tv))
+              << "Invalid promotion: " << id->toString() << " of "
+              << tv->toString() << ". Found to mapped a consumer tensor: "
+              << loop_mapped_id->name();
+        }
+      }
     }
   }
 
