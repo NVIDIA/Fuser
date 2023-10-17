@@ -339,6 +339,7 @@ static void NvFuserScheduler_Matmul_8warp4stage(
       ->Args({784, 72, 8})                                                   \
       ->Args({784, 8, 72}) /*->Args({1, 1, 2048})*/                          \
       ->Args({1024, 1024, 1024})                                             \
+      ->Args({128, 128, 65536})                                              \
       ->Unit(benchmark::kMicrosecond)                                        \
       ->UseManualTime();
 
@@ -536,7 +537,7 @@ static void SingleMatmulPartitionedK(
   // Warm up run
   auto outputs = fe.runFusion(aten_inputs);
 
-  checkMatch(expected_output, outputs.at(0).to(at::kDouble), K);
+  checkMatch(expected_output, outputs.at(0).to(at::kDouble), Ki);
 
   runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
 
@@ -621,15 +622,15 @@ static void SplitKReduction(
 static void NvFuserScheduler_Matmul_partitionedk_4warp3stage(
     benchmark::State& benchmark_state,
     MatmulLayout layout,
+    int num_warps,
+    int num_stages,
     int splitk_factor) {
-  auto cta_tile = GemmTile(128, 128, 32);
-  int number_of_stage = 3;
+  auto cta_tile = GemmTile(32 * num_warps, 128, 32);
 
-  auto params =
-      getMatmulParams(cta_tile, number_of_stage, layout, splitk_factor);
+  auto params = getMatmulParams(cta_tile, num_stages, layout, splitk_factor);
 
   NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(
-      8, 0, getSmemSize(cta_tile, number_of_stage), benchmark_state);
+      8, 0, getSmemSize(cta_tile, num_stages), benchmark_state);
 
   // Run benchmark:
   SingleMatmulPartitionedK(benchmark_state, layout, params, splitk_factor);
@@ -641,6 +642,8 @@ static void NvFuserScheduler_Matmul_partitionedk_4warp3stage(
       NvFuserScheduler_Matmul_partitionedk_4warp3stage,                \
       nvfuser_4warp3stage_partitionedk_##layout_label.##splitk_factor, \
       layout,                                                          \
+      4,                                                               \
+      3,                                                               \
       splitk_factor)                                                   \
       ->SplitKMatmulShapes
 
