@@ -478,16 +478,19 @@ if(BUILD_TEST)
       ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp)
   endif()
 
-  list(APPEND JIT_TEST_CU_SRCS ${NVFUSER_ROOT}/test/rng_kernels.cu)
-
   set(NVFUSER_TESTS "${PROJECT_NAME}_tests")
+  set(NVFUSER_TESTS_KERNELS "${NVFUSER_TESTS}_kernels")
 
-  add_executable(${NVFUSER_TESTS}
-    ${JIT_TEST_SRCS}
-    ${JIT_TEST_CU_SRCS})
+  add_library(${NVFUSER_TESTS_KERNELS} SHARED ${NVFUSER_ROOT}/test/rng_kernels.cu)
+
+  # CUDA 11 does not support C++20, so hard code C++17 here
+  set_property(TARGET ${NVFUSER_TESTS_KERNELS} PROPERTY CXX_STANDARD 17)
+  target_link_libraries(${NVFUSER_TESTS_KERNELS} PRIVATE torch ${TORCH_LIBRARIES} ${NVFUSER_CODEGEN})
+
+  add_executable(${NVFUSER_TESTS} ${JIT_TEST_SRCS})
   set_property(TARGET ${NVFUSER_TESTS} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
   target_compile_definitions(${NVFUSER_TESTS} PRIVATE USE_GTEST)
-  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} dynamic_type gtest_main gmock_main flatbuffers)
+  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} ${NVFUSER_TESTS_KERNELS} dynamic_type gtest_main gmock_main flatbuffers)
   target_include_directories(${NVFUSER_TESTS} PRIVATE "${NVFUSER_ROOT}")
 
   if(PROJECT_IS_TOP_LEVEL)
