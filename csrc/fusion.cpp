@@ -26,9 +26,9 @@
 
 namespace nvfuser {
 
-static thread_local Fusion* ACTIVE_FUSION = nullptr; // NOLINT
+static thread_local const Fusion* ACTIVE_FUSION = nullptr; // NOLINT
 
-FusionGuard::FusionGuard(Fusion* fusion) : prev_fusion{ACTIVE_FUSION} {
+FusionGuard::FusionGuard(const Fusion* fusion) : prev_fusion{ACTIVE_FUSION} {
   ACTIVE_FUSION = fusion;
 }
 
@@ -37,9 +37,9 @@ FusionGuard::~FusionGuard() {
 }
 
 Fusion* FusionGuard::getCurFusion() {
-  return ACTIVE_FUSION;
+  return const_cast<Fusion*>(ACTIVE_FUSION);
 }
-void FusionGuard::setCurFusion(Fusion* fusion) {
+void FusionGuard::setCurFusion(const Fusion* fusion) {
   ACTIVE_FUSION = fusion;
 }
 
@@ -359,7 +359,8 @@ void Fusion::validateInputs() {
   }
 }
 
-std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms) {
+std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
+    const {
   FUSER_PERF_SCOPE("Fusion::print");
   FusionGuard fg(this);
   os << "\n%kernel {\n";
