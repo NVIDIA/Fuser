@@ -60,7 +60,8 @@ struct DeviceDescriptor{
 
 struct KernelProfile {
   void print() const {
-    std::cout << "\n" << name << " "
+    size_t pos = name.find('(');
+    std::cout << "\n" << name.substr(0, pos) << " "
               << device << " "
               << stream << " "
               << time_ms << " "
@@ -76,8 +77,10 @@ struct KernelProfile {
   uint32_t stream{0};
   uint32_t correlation_id{0};
 
-  double compile_time_ms{0.0};
-  double time_ms{0.0};
+  float compile_time_ms{0.0};
+  float time_ms{0.0};
+  float effective_bandwidth{0.0};
+  float perentage_peak_bandwidth{0.0};
 
   std::array<int32_t, 3> grid{0, 0, 0};
   std::array<int32_t, 3> block{0, 0, 0};
@@ -89,10 +92,9 @@ struct KernelProfile {
   
   size_t input_bytes{0};
   size_t output_bytes{0};
-  size_t total_bytes{0};
   
-  float effective_bandwidth{0.0};
-  float perentage_peak_bandwidth{0.0};
+  std::string device_name;
+  float peak_bandwidth;
 };
 
 struct FusionProfile {
@@ -105,7 +107,6 @@ struct FusionProfile {
 
   size_t input_bytes{0};
   size_t output_bytes{0};
-  size_t total_bytes{0};
 
   float effective_bandwidth{0.0};
   float perentage_peak_bandwidth{0.0};
@@ -136,20 +137,14 @@ class SegmentProfiler {
 };
 
 class FusionProfiler {
+  FusionProfiler();
+  void reset();
+  void print() const;
 
  public: // Static Methods
   static FusionProfiler* get();
  
- public:
   FusionProfiler(size_t device);
-  
-  // Static Methods to capture Asynchronous CUPTI activity
-  // Collects CUPTI activity to map Profiler Id -> CUPTI Correlation Id
-  // Segment ID -> Correlation ID
-  void recordAsyncCorrIdActivity(uint32_t seg_id, uint32_t corr_id);
-  // Collects CUPTI Kernel Activity
-  // Segment ID -> KernelProfile
-  void recordAsyncKernelActivity(uint32_t corr_id, KernelProfile prof);
   
   void createSegments(size_t num);
   SegmentProfiler& segment(size_t idx);
@@ -157,12 +152,13 @@ class FusionProfiler {
   void start();
   void stop();
 
-  void bytesAccessed(size_t input_bytes, size_t output_bytes);
-
- private:
-  FusionProfiler();
-  void reset();
-  void print() const;
+  void bytesAccessed(std::tuple<size_t, size_t> input_output);
+  
+  // Methods to capture Asynchronous CUPTI activity
+  // Correlation ID -> Segment ID
+  void recordAsyncCorrIdActivity(uint32_t seg_id, uint32_t corr_id);
+  // Collects CUPTI Kernel Activity
+  void recordAsyncKernelActivity(KernelProfile prof);
 
  private:
   static FusionProfiler* singleton_;
@@ -175,12 +171,8 @@ class FusionProfiler {
   std::vector<SegmentProfiler> segments_;
   std::vector<DeviceDescriptor> device_descriptors_;
 
-  // Asynchronously collect the KernelProfiles and then associate
-  // them with a SegmentProfiler as the CUPTI Activity that maps
-  // Correlation Ids to SegmentProfilers asynchronously arrives
-  // after each Kernel Activity Record
-  std::unordered_map<uint32_t, KernelProfile> corrid_2_kernelprof_;
-  std::unordered_map<uint32_t, uint32_t> segid_2_corrid_; 
+  std::vector<KernelProfile> kernel_profiles_;
+  std::unordered_map<uint32_t, uint32_t> corrid_2_segid_; 
 };
 
 #define _FP_ENABLE(code) \
@@ -195,8 +187,8 @@ class FusionProfiler {
   _FP_ENABLE(FusionProfiler::get()->stop())
 #define FUSION_PROFILER_CREATE_SEGMENTS(segments) \
   _FP_ENABLE(FusionProfiler::get()->createSegments(segments))
-#define FUSION_PROFILER_BYTES_ACCESSED(inputs, outputs) \
-  _FP_ENABLE(FusionProfiler::get()->bytesAcccessed(inputs, outputs))
+#define FUSION_PROFILER_BYTES_ACCESSED(fn) \
+  _FP_ENABLE(FusionProfiler::get()->bytesAccessed(fn()))
 
 // Segment Profiling Macros
 #define SEGMENT_PROFILER_START_COMPILE(device, idx) \

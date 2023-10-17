@@ -37,7 +37,7 @@ void PrintActivity(CUpti_Activity *pRecord, FILE *pFileHandle) {
       CUpti_ActivityKernel8 *pKARecord = (CUpti_ActivityKernel8 *)pRecord;
 
       KernelProfile prof;
-      prof.name.assign(pKARecord->name);
+      prof.name.assign(GetName(pKARecord->name));
       prof.device = pKARecord->deviceId;
       prof.stream = pKARecord->streamId;
       prof.correlation_id = pKARecord->correlationId;
@@ -49,7 +49,7 @@ void PrintActivity(CUpti_Activity *pRecord, FILE *pFileHandle) {
       prof.static_shared_mem = pKARecord->staticSharedMemory;
       prof.registers = pKARecord->registersPerThread;
 
-      FusionProfiler::get()->recordAsyncKernelActivity(pKARecord->correlationId, std::move(prof));
+      FusionProfiler::get()->recordAsyncKernelActivity(std::move(prof));
 
       break;
     }
@@ -253,7 +253,6 @@ void FusionProfile::reset() {
   
   input_bytes = 0;
   output_bytes = 0;
-  total_bytes = 0;
 
   effective_bandwidth = 0.0;
   perentage_peak_bandwidth = 0.0;
@@ -278,33 +277,33 @@ void FusionProfiler::start() {
 void FusionProfiler::stop() {
   fusion_timer_.stop();
   profile_.time_ms = fusion_timer_.time();
+  
+  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(0));
 
-  for(auto &seg : segments_) {
-    NVF_CHECK(segid_2_corrid_.count(seg.segmentId()) > 0, "Segment Id does not exist!");
-    auto corr_id = segid_2_corrid_[seg.segmentId()];
-    NVF_CHECK(corrid_2_kernelprof_.count(corr_id) > 0, "Correlation id does not exist!");
-    auto kernel_prof_node = corrid_2_kernelprof_.extract(corr_id);
-    kernel_prof_node.mapped().print();
+  NVF_CHECK(kernel_profiles_.size() == segments_.size(), "All of the kernel profiles have not been recorded!");
+
+  for(auto &kp : kernel_profiles_) {
+    kp.print();
   }
   print();
-  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(0));
 }
   
 void FusionProfiler::recordAsyncCorrIdActivity(uint32_t seg_id, uint32_t corr_id) {
-  NVF_CHECK(segid_2_corrid_.count(seg_id) == 0, "Segment Correlation Activity asociated with this segment id already exists! ", seg_id);
-  segid_2_corrid_[seg_id] = corr_id;
+  NVF_CHECK(corrid_2_segid_.count(corr_id) == 0, "Segment Correlation Activity asociated with this correlation id already exists! ", corr_id);
+  corrid_2_segid_[corr_id] = seg_id;
 }
 
-void FusionProfiler::recordAsyncKernelActivity(uint32_t corr_id, KernelProfile prof) {
-  NVF_CHECK(corrid_2_kernelprof_.count(corr_id) == 0, "Kernel Activity for the associated correlation id has alraedy been recorded! ", corr_id);
-  corrid_2_kernelprof_[corr_id] = std::move(prof);
+void FusionProfiler::recordAsyncKernelActivity(KernelProfile prof) {
+  kernel_profiles_.emplace_back(std::move(prof));
 }
 
 void FusionProfiler::createSegments(size_t num) {
   segments_.reserve(num);
+  kernel_profiles_.reserve(num);
   uint32_t hash_preamble = (0xffff & fusion_id_) << 15;
   for (size_t i = 0; i < num; ++i) {
     uint32_t id = hash_preamble | (0xffff & static_cast<uint32_t>(i));
+    std::cout << "Create Segment Id! " << id << std::endl;
     segments_.emplace_back(id);
   }
 }
@@ -341,14 +340,14 @@ FusionProfiler::FusionProfiler() :
   fusion_timer_(at::cuda::getCurrentCUDAStream()),
   segments_(),
   device_descriptors_(),
-  corrid_2_kernelprof_(),
-  segid_2_corrid_() {
+  kernel_profiles_(),
+  corrid_2_segid_() {
   NVFUSER_CUPTI_SAFE_CALL(
       cuptiActivityRegisterCallbacks(buffer_requested, buffer_completed));
 }
 
-void FusionProfiler::bytesAccessed(size_t input_bytes, size_t output_bytes) {
-  std::cout << "\nFusion Bytes Accessed: " << input_bytes << " " << output_bytes << std::endl;
+void FusionProfiler::bytesAccessed(std::tuple<size_t, size_t> input_output) {
+  std::cout << "\nFusion Bytes Accessed: " << std::get<0>(input_output) << " " << std::get<1>(input_output) << std::endl;
 }
 
 void FusionProfiler::reset() {
@@ -357,8 +356,8 @@ void FusionProfiler::reset() {
   profile_.reset();
   fusion_timer_.reset();
   segments_.clear();
-  corrid_2_kernelprof_.clear();
-  segid_2_corrid_.clear();
+  kernel_profiles_.clear();
+  corrid_2_segid_.clear();
 }
 
 void FusionProfiler::print() const {

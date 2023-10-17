@@ -1012,7 +1012,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   SEGMENT_PROFILER_START_KERNEL(args.getDeviceIndex(), group_id)
   auto outputs = executor.runFusion(args, launch_params, compile_params);
   SEGMENT_PROFILER_STOP_KERNEL(group_id)
-  SEGMENT_PROFILER_BYTES_ACCESSED(group_id, executor.inputBytesProcessed(), executor.outputBytesProcessed());
+  std::cout << "\n!!!Segment Bytes Accessed: " << executor.bytesProcessed() << " " << executor.inputBytesProcessed() << " " << executor.outputBytesProcessed() << std::endl;
+  SEGMENT_PROFILER_BYTES_ACCESSED(group_id, (size_t)executor.inputBytesProcessed(), (size_t)executor.outputBytesProcessed());
   
   // Accumulate the kernel time of each segment
   kernel_time_ms_ += executor.kernelTimeMs();
@@ -1344,6 +1345,26 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
       }
     }
   }
+
+  FUSION_PROFILER_BYTES_ACCESSED(([&]() {
+    size_t input_bytes = 0;
+    for (auto inp : fusionSegments()->inputs()) {
+      if (auto tv = dynamic_cast<TensorView*>(inp)) {
+        auto aten_ten = args_manager.checkTensorMap(inp);
+        input_bytes += aten_ten->as<at::Tensor>().numel() *
+            dataTypeSize(tv->dtype());
+      }
+    }
+    size_t output_bytes = 0;
+    for (auto outp : fusionSegments()->outputs()) {
+      if (auto tv = dynamic_cast<TensorView*>(outp)) {
+        auto aten_ten = args_manager.checkTensorMap(outp);
+        output_bytes += aten_ten->as<at::Tensor>().numel() *
+            dataTypeSize(tv->dtype());
+      }
+    }
+    return std::tuple<size_t, size_t>(input_bytes, output_bytes);
+  }));
 
   if (compute_overall_bw) {
     // Get peak bandwidth for device
