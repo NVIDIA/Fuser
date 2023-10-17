@@ -3082,6 +3082,36 @@ TensorDomain::TensorDomain(
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> root_domain,
+    std::vector<int64_t> stride_order,
+    std::vector<std::optional<bool>> contiguity)
+    : Val(passkey, ValType::TensorDomain, DataType::Null),
+      root_domain_(std::move(root_domain)),
+      leaf_domain_(root_domain_),
+      contiguity_(
+          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
+                             : std::move(contiguity)),
+      has_reduction_(false) {
+  // setting the proper allocation domain
+  if (!stride_order.empty()) {
+    auto rank = root_domain.size();
+    NVF_ERROR(
+      rank == stride_order.size(),
+      "Invalid size of stride_order vector");
+    allocation_domain_.reserve(rank);
+    for (auto i : c10::irange(rank)) {
+      allocation_domain_[rank - 1 - static_cast<int>(stride_order[i])] =
+          root_domain_[i];
+    }
+  }
+  validateContiguity(maybeAllocation(), contiguity_);
+
+  // Just due to clang-tidy, correct value set in resetDomains
+  resetDomains();
+}
+
+TensorDomain::TensorDomain(
+    IrBuilderPasskey passkey,
+    std::vector<IterDomain*> root_domain,
     std::vector<IterDomain*> leaf_domain,
     std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),

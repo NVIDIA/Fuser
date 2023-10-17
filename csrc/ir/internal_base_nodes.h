@@ -443,6 +443,12 @@ class TensorDomain : public Val {
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
+      std::vector<int64_t> stride_order,
+      std::vector<std::optional<bool>> contiguity = {});
+
+  TensorDomain(
+      IrBuilderPasskey,
+      std::vector<IterDomain*> root_domain,
       std::vector<IterDomain*> leaf_domain,
       std::vector<std::optional<bool>> contiguity = {});
 

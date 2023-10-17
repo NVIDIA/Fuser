@@ -1469,6 +1469,16 @@ TensorViewBuilder& TensorViewBuilder::shape(std::vector<Val*> shape) {
   return *this;
 }
 
+TensorViewBuilder& TensorViewBuilder::strideOrder(std::vector<int64_t> stride_order) {
+  NVF_CHECK(stride_order.empty(), "Attempting to reset stride_order");
+  if (!stride_order.empty()) {
+    NVF_CHECK(ndims_ == 0 || ndims_ == stride_order.size());
+    ndims_ = stride_order.size();
+  }
+  stride_order_ = std::move(stride_order);
+  return *this;
+}
+
 TensorViewBuilder& TensorViewBuilder::expanded(std::vector<bool> expanded) {
   NVF_CHECK(expanded_.empty(), "Attempting to reset expanded shape");
   if (!expanded.empty()) {
@@ -1522,13 +1532,6 @@ TensorView* TensorViewBuilder::build() const {
       contiguity_.empty() || contiguity_.size() == domain.size(),
       "The size of contiguity must equal to the number of non-broadcasting IterDomains");
 
-  for (auto i : c10::irange(contiguity_.size())) {
-    NVF_CHECK(
-        domain.at(i)->isBroadcast() != contiguity_.at(i).has_value(),
-        "The contiguity of a broadcast dimension must be None. "
-        "The contiguity of a non-broadcast dimension must be true/false");
-  }
-
   if (uniform_contiguity_.has_value()) {
     NVF_ERROR(
         contiguity_.empty(),
@@ -1537,13 +1540,14 @@ TensorView* TensorViewBuilder::build() const {
     return IrBuilder::create<TensorView>(
         IrBuilder::create<TensorDomain>(
             domain,
+            stride_order_,
             TensorDomain::getContiguityFilledWith(
                 domain, *uniform_contiguity_)),
         dtype_);
   } else {
     // Create the final TensorView
     return IrBuilder::create<TensorView>(
-        IrBuilder::create<TensorDomain>(domain, contiguity_), dtype_);
+        IrBuilder::create<TensorDomain>(domain, stride_order_, contiguity_), dtype_);
   }
 }
 
