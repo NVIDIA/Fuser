@@ -20,6 +20,10 @@ set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
 option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
 
+if(NOT NVFUSER_CPP_STANDARD)
+  set(NVFUSER_CPP_STANDARD 17)
+endif()
+
 string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 
 if(PROJECT_IS_TOP_LEVEL)
@@ -249,7 +253,7 @@ target_include_directories(${NVFUSER_CODEGEN} PUBLIC
   "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
 )
-set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
+set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
 
 if(NVFUSER_BUILD_WITH_ASAN)
   add_compile_options(-fsanitize=address)
@@ -342,7 +346,7 @@ if(BUILD_PYTHON)
 
   set(NVFUSER "${PROJECT_NAME}")
   add_library(${NVFUSER} MODULE ${NVFUSER_PYTHON_SRCS})
-  set_property(TARGET ${NVFUSER} PROPERTY CXX_STANDARD 17)
+  set_property(TARGET ${NVFUSER} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
 
   # setup python API version
   add_custom_command(
@@ -481,7 +485,7 @@ if(BUILD_TEST)
   add_executable(${NVFUSER_TESTS}
     ${JIT_TEST_SRCS}
     ${JIT_TEST_CU_SRCS})
-  set_property(TARGET ${NVFUSER_TESTS} PROPERTY CXX_STANDARD 17)
+  set_property(TARGET ${NVFUSER_TESTS} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
   target_compile_definitions(${NVFUSER_TESTS} PRIVATE USE_GTEST)
   target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} dynamic_type gtest_main gmock_main flatbuffers)
   target_include_directories(${NVFUSER_TESTS} PRIVATE "${NVFUSER_ROOT}")
@@ -543,7 +547,7 @@ if(BUILD_NVFUSER_BENCHMARK)
 
   set(NVFUSER_BENCHMARK "${PROJECT_NAME}_bench")
   add_executable(${NVFUSER_BENCHMARK} ${BENCHMARK_SRCS})
-  set_property(TARGET ${NVFUSER_BENCHMARK} PROPERTY CXX_STANDARD 17)
+  set_property(TARGET ${NVFUSER_BENCHMARK} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
 
   if(PROJECT_IS_TOP_LEVEL)
     target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Wall -Wno-unused-function)
