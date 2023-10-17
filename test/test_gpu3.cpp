@@ -9662,18 +9662,29 @@ TEST_F(NVFuserTest, SoftmaxDropout) {
   NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
   scheduleInnerPersistentKernel(&fusion, *reduction_params);
 
-  GpuLower gpulw(&fusion);
-  auto all_exprs = KernelExprVisitor::getAllExprs(gpulw.kernel());
-  std::unordered_set<TensorView*> rng_consumers;
-  for (const auto& expr : all_exprs) {
-    if (expr->isA<RNGOp>() && expr->output(0)->isA<TensorView>()) {
-      TensorView* tv = expr->output(0)->as<TensorView>();
-      rng_consumers.insert(tv);
+  // check RNGOp is predicated without else branch.
+  class PredicateChecker : public kir::IrVisitor {
+   public:
+    using kir::IrVisitor::handle;
+    bool predicate_rngop = false;
+
+   private:
+    void handle(RNGOp* uop) final {
+      for (auto expr : scope_exprs_) {
+        if (!expr->isA<kir::IfThenElse>() ||
+            expr->as<kir::IfThenElse>()->hasElse()) {
+          continue;
+        }
+        if (!expr->as<kir::IfThenElse>()->predicate()->isTrivial()) {
+          predicate_rngop = true;
+        }
+      }
     }
-  }
-  for (auto tv : rng_consumers) {
-    NVF_CHECK(PredicatedChecker::isPredicated(tv, gpulw));
-  }
+  } pred_checker;
+  GpuLower gpulw(&fusion);
+  pred_checker.handle(gpulw.kernel()->topLevelExprs());
+  ASSERT_TRUE(pred_checker.predicate_rngop);
+
   FusionExecutor fe;
   fe.compileFusion(&fusion, inputs);
   auto cg_outputs = fe.runFusion(inputs);
