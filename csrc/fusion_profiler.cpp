@@ -38,10 +38,10 @@ void PrintActivity(CUpti_Activity *pRecord, FILE *pFileHandle) {
 
       KernelProfile prof;
       prof.name.assign(GetName(pKARecord->name));
-      prof.device = pKARecord->deviceId;
+      prof.device = (int)pKARecord->deviceId;
       prof.stream = pKARecord->streamId;
       prof.correlation_id = pKARecord->correlationId;
-      prof.time_ms = (double)(pKARecord->end - pKARecord->start) / 1000000.0; 
+      prof.time_ms = (float)(pKARecord->end - pKARecord->start) / (float)1000000.0; 
       prof.grid = {pKARecord->gridX, pKARecord->gridY, pKARecord->gridZ};
       prof.block = {pKARecord->blockX, pKARecord->blockY, pKARecord->blockZ};
       prof.cluster = {pKARecord->clusterX, pKARecord->clusterY, pKARecord->clusterZ};
@@ -78,15 +78,12 @@ void PrintActivityBuffer(
   do {
     status = cuptiActivityGetNextRecord(pBuffer, validBytes, &pRecord);
     if (status == CUPTI_SUCCESS) {
-      std::cout << "\nKernel Profile Success!" << std::endl;
       PrintActivity(pRecord, stdout);
     }
     else if (status == CUPTI_ERROR_MAX_LIMIT_REACHED) {
-      std::cout << "\nKernel Profile Max Limit Reached!" << std::endl;
        break;
     }
     else {
-      std::cout << "\nKernel Profile Error?" << std::endl;
       NVFUSER_CUPTI_SAFE_CALL(status);
     }
   } while (true);
@@ -103,7 +100,6 @@ void buffer_requested(
     *pSize = BUF_SIZE;
     *ppBuffer = ALIGN_BUFFER(pBuffer, ALIGN_SIZE);
     *pMaxNumRecords = 0;
-     std::cout << "\nBuffer requested!" << std::endl;
 }
 
 void buffer_completed(
@@ -113,7 +109,6 @@ void buffer_completed(
     size_t size,
     size_t validSize)
 {
-    std::cout << "\nBuffer completed!" << std::endl;
     if (validSize > 0) {
       PrintActivityBuffer(pBuffer, validSize, stdout, nullptr); 
       //FusionProfiler::kernel_profiler()->
@@ -254,8 +249,10 @@ void FusionProfile::reset() {
   input_bytes = 0;
   output_bytes = 0;
 
-  effective_bandwidth = 0.0;
+  effective_bandwidth_gbs = 0.0;
   perentage_peak_bandwidth = 0.0;
+
+  kernel_profiles.clear();
 }
 
 std::mutex FusionProfiler::singleton_lock_;
@@ -277,13 +274,32 @@ void FusionProfiler::start() {
 void FusionProfiler::stop() {
   fusion_timer_.stop();
   profile_.time_ms = fusion_timer_.time();
+  kernel_profiles_.reserve(segments_.size());
+  profile_.kernel_profiles.resize(segments_.size());
   
   NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(0));
 
   NVF_CHECK(kernel_profiles_.size() == segments_.size(), "All of the kernel profiles have not been recorded!");
-
+  
   for(auto &kp : kernel_profiles_) {
-    kp.print();
+    auto corr_id = kp.correlation_id;
+    NVF_CHECK(kp.device >= 0, "Device Descriptor index is not valid! ", kp.device);
+    if ((size_t)kp.device >= device_descriptors_.size()) {
+      device_descriptors_.resize(kp.device + 1);
+    }
+    NVF_CHECK((size_t)kp.device < device_descriptors_.size(), "Device idx is beyond size of Device Descriptors! ", kp.device);
+    if (device_descriptors_[kp.device].device != kp.device) {
+      device_descriptors_[kp.device].generate(kp.device);
+    }
+    kp.device_name = device_descriptors_[kp.device].name;
+    kp.peak_bandwidth_gbs = device_descriptors_[kp.device].peak_bandwidth_gbs;
+    NVF_CHECK(corrid_2_segid_.count(corr_id) > 0, "Correlation Id is not found in corrid -> segid hashmap! ", corr_id);
+    auto seg_id = corrid_2_segid_[corr_id];
+    NVF_CHECK(segid_2_idx_.count(seg_id) > 0, "Seg id is not found in seg id -> idx hashmap! ", seg_id);
+    auto kp_idx = segid_2_idx_[seg_id];
+    NVF_CHECK(kp_idx < profile_.kernel_profiles.size(), "Index is out of range of Kernel Profiles size! ", kp_idx, " ", profile_.kernel_profiles.size());
+    profile_.kernel_profiles[kp_idx] = std::move(kp);
+    profile_.kernel_profiles[kp_idx].print();
   }
   print();
 }
@@ -299,11 +315,10 @@ void FusionProfiler::recordAsyncKernelActivity(KernelProfile prof) {
 
 void FusionProfiler::createSegments(size_t num) {
   segments_.reserve(num);
-  kernel_profiles_.reserve(num);
   uint32_t hash_preamble = (0xffff & fusion_id_) << 15;
   for (size_t i = 0; i < num; ++i) {
     uint32_t id = hash_preamble | (0xffff & static_cast<uint32_t>(i));
-    std::cout << "Create Segment Id! " << id << std::endl;
+    segid_2_idx_[id] = segments_.size();
     segments_.emplace_back(id);
   }
 }
@@ -311,7 +326,7 @@ SegmentProfiler& FusionProfiler::segment(size_t idx) {
   return segments_.at(idx);
 }
 
-void DeviceDescriptor::generate(size_t _device) {
+void DeviceDescriptor::generate(int _device) {
   device = static_cast<int>(_device);
   name.reserve(100);
   NVFUSER_CUDA_SAFE_CALL(
@@ -329,9 +344,9 @@ void DeviceDescriptor::generate(size_t _device) {
     // A factor of 2 is multiplied to account for double data rate (DDR):
     // (clock in kHz * width in bits) * (1000 Hz / kHz) * (1 GB / 8e9 bits) * 2
     // factor = 2.5e-7
-   peak_bandwidth = 2.5e-7 * (double)memory_clock * (double)bus_width;
+  peak_bandwidth_gbs = (float)2.5e-7 * (float)memory_clock * (float)bus_width;
 
-  std::cout << "\n" << device << " " << name << " " << bus_width << " " << memory_clock << " " << peak_bandwidth << std::endl;
+  std::cout << "\n" << device << " " << name << " " << bus_width << " " << memory_clock << " " << peak_bandwidth_gbs << std::endl;
 }
 
 FusionProfiler::FusionProfiler() :

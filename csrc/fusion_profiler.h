@@ -12,6 +12,7 @@
 #include <cuda_runtime.h>
 #include <cuda_utils.h>
 #include <cupti.h>
+#include <debug.h>
 #include <options.h>
 #include <utils.h>
 
@@ -45,23 +46,22 @@ class CudaEventTimer {
   ProfilerState state_;
 };
 
-// TODO: Make a CudaEvent Marker to collect outstanding profiles
-
 struct DeviceDescriptor{
-  void generate(size_t device);
+  void generate(int device);
 
-  int device{0};
+  int device{-1};
   std::string name{"NVIDIA Unknown GPU"};
   int bus_width{0};
   int memory_clock{0}; 
 
-  double peak_bandwidth{0.0};
+  float peak_bandwidth_gbs{0.0};
 };
 
 struct KernelProfile {
   void print() const {
+    size_t beg = name.find("kernel");
     size_t pos = name.find('(');
-    std::cout << "\n" << name.substr(0, pos) << " "
+    std::cout << "\n" << name.substr(beg, pos-beg) << " "
               << device << " "
               << stream << " "
               << time_ms << " "
@@ -73,13 +73,13 @@ struct KernelProfile {
   }
 
   std::string name;
-  uint32_t device{0};
+  int device{-1};
   uint32_t stream{0};
   uint32_t correlation_id{0};
 
   float compile_time_ms{0.0};
   float time_ms{0.0};
-  float effective_bandwidth{0.0};
+  float effective_bandwidth_gbs{0.0};
   float perentage_peak_bandwidth{0.0};
 
   std::array<int32_t, 3> grid{0, 0, 0};
@@ -94,25 +94,27 @@ struct KernelProfile {
   size_t output_bytes{0};
   
   std::string device_name;
-  float peak_bandwidth;
+  float peak_bandwidth_gbs{0.0};
 };
 
 struct FusionProfile {
   void reset();
 
-  double time_ms{0.0};
-  double host_time_ms{0.0};
-  double compile_time_ms{0.0};
-  double kernel_time_ms{0.0};
+  float time_ms{0.0};
+  float host_time_ms{0.0};
+  float compile_time_ms{0.0};
+  float kernel_time_ms{0.0};
 
   size_t input_bytes{0};
   size_t output_bytes{0};
 
-  float effective_bandwidth{0.0};
+  float effective_bandwidth_gbs{0.0};
   float perentage_peak_bandwidth{0.0};
 
-  //std::vector<SegmentProfile> segment_profiles;
+  std::vector<KernelProfile> kernel_profiles;
 };
+
+std::ostream& operator<<(std::ostream&, const FusionProfile&);
 
 class SegmentProfiler {
  public:
@@ -151,8 +153,8 @@ class FusionProfiler {
 
   void start();
   void stop();
-
   void bytesAccessed(std::tuple<size_t, size_t> input_output);
+  FusionProfile profile() const;
   
   // Methods to capture Asynchronous CUPTI activity
   // Correlation ID -> Segment ID
@@ -173,6 +175,7 @@ class FusionProfiler {
 
   std::vector<KernelProfile> kernel_profiles_;
   std::unordered_map<uint32_t, uint32_t> corrid_2_segid_; 
+  std::unordered_map<uint32_t, size_t> segid_2_idx_;
 };
 
 #define _FP_ENABLE(code) \
@@ -189,6 +192,10 @@ class FusionProfiler {
   _FP_ENABLE(FusionProfiler::get()->createSegments(segments))
 #define FUSION_PROFILER_BYTES_ACCESSED(fn) \
   _FP_ENABLE(FusionProfiler::get()->bytesAccessed(fn()))
+#define FUSION_PROFILER_PRINT \
+  if (isDebugDumpEnabled(DebugDumpOption::FusionProfiler) { \
+    debug() << FusionProfiler::get()->profile(); \
+  }
 
 // Segment Profiling Macros
 #define SEGMENT_PROFILER_START_COMPILE(device, idx) \

@@ -1012,7 +1012,6 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   SEGMENT_PROFILER_START_KERNEL(args.getDeviceIndex(), group_id)
   auto outputs = executor.runFusion(args, launch_params, compile_params);
   SEGMENT_PROFILER_STOP_KERNEL(group_id)
-  std::cout << "\n!!!Segment Bytes Accessed: " << executor.bytesProcessed() << " " << executor.inputBytesProcessed() << " " << executor.outputBytesProcessed() << std::endl;
   SEGMENT_PROFILER_BYTES_ACCESSED(group_id, (size_t)executor.inputBytesProcessed(), (size_t)executor.outputBytesProcessed());
   
   // Accumulate the kernel time of each segment
