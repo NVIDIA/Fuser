@@ -1177,7 +1177,7 @@ TEST_F(NVFuserTest, AllocationDomainContiguityForExplicitBroadcast) {
                  .ndims(3)
                  .shape({-1, -1, -1})
                  .contiguity({true, true, std::nullopt})
-                .expanded({true, false, false})
+                 .expanded({true, false, false})
                  .strideOrder({0, 1, 2})
                  .build();
   fusion->addInput(tv0);

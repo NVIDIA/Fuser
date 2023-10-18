@@ -1503,7 +1503,7 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
         bool found_match = false;
         for (auto j : c10::irange(rank)) {
           if (alloc[i] == rfactor[j]) {
-            stride_order[j] = rank - 1 - i;
+            stride_order[j] = static_cast<int64_t>(rank - 1 - i);
             found_match = true;
             break;
           }
