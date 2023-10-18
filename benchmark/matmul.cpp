@@ -396,9 +396,9 @@ ForAllLayouts(Baseline_test);
 #define SplitKM 128
 #define SplitKN 128
 
-#define SplitKMatmulShapes                                      \
-  ArgsProduct({{SplitKM}, {SplitKN}, {256, 1024, 8192, 65536}}) \
-      ->Unit(benchmark::kMicrosecond)                           \
+#define SplitKMatmulShapes                                 \
+  ArgsProduct({{SplitKM}, {SplitKN}, {1024, 8192, 65536}}) \
+      ->Unit(benchmark::kMicrosecond)                      \
       ->UseManualTime();
 
 #define NvFuserScheduler_4warp3stage_splitk_test(                   \
@@ -472,6 +472,12 @@ static void SingleMatmulPartitionedK(
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
+  // Define fusion graph
+  auto a = makeContigTensor(3, DataType::Half);
+  auto b = makeContigTensor(3, DataType::Half);
+  fusion->addInput(a);
+  fusion->addInput(b);
+
   at::Tensor aten_a, aten_b;
   // Here we mimic splitting and transposing. For example, given an [M,K]
   // tensor, we would split it into [M,B,Ki] then transpose the batch dim to
@@ -482,6 +488,7 @@ static void SingleMatmulPartitionedK(
     case MatmulLayout::TT:
       aten_a = at::randn({splitk_factor, M, Ki}, options);
       aten_b = at::randn({splitk_factor, Ki, N}, options);
+      b = transpose(b, 1, 2);
       break;
     case MatmulLayout::TN:
       aten_a = at::randn({splitk_factor, M, Ki}, options);
@@ -490,23 +497,24 @@ static void SingleMatmulPartitionedK(
     case MatmulLayout::NT:
       aten_a = at::randn({splitk_factor, Ki, M}, options);
       aten_b = at::randn({splitk_factor, Ki, N}, options);
+      a = transpose(a, 1, 2);
+      b = transpose(b, 1, 2);
       break;
     case MatmulLayout::NN:
       aten_a = at::randn({splitk_factor, Ki, M}, options);
       aten_b = at::randn({splitk_factor, N, Ki}, options);
+      a = transpose(a, 1, 2);
       break;
     default:
       NVF_CHECK(false, "unsupported data layout.");
   }
 
-  // Define fusion graph
-  auto a = makeContigTensor(3, DataType::Half);
-  auto b = makeContigTensor(3, DataType::Half);
-  fusion->addInput(a);
-  fusion->addInput(b);
-
-  // partitioned-k matmul
-  auto c = matmul(a, b, layout, turing_or_later);
+  // batch matmul
+  // auto c = matmul(a, b, layout, turing_or_later);
+  // auto c = splitkLikeBatchedMatmul(a, b, layout);
+  a = broadcast(a, {false, false, true, false});
+  b = broadcast(b, {false, true, false, false});
+  auto c = fusedMultiplySum(a, b, {3});
 
   fusion->addOutput(c);
 
@@ -516,13 +524,13 @@ static void SingleMatmulPartitionedK(
   auto expected_output =
       atMatmul(aten_a.to(at::kDouble), aten_b.to(at::kDouble), layout);
 
+  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+
   // Disable magic zero
   CompileParams cparams;
   cparams.enable_magic_zero = false;
   // Always use 32b indexing mode for now.
   cparams.index_type = PrimDataType::Int32;
-
-  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
 
   // Compile kernel
   FusionExecutor fe;
@@ -552,15 +560,7 @@ static void SplitKReduction(
     int64_t splitk_factor) {
   int64_t M = benchmark_state.range(0);
   int64_t N = benchmark_state.range(1);
-  int64_t K = benchmark_state.range(2);
 
-  NVF_CHECK(
-      K % splitk_factor == 0,
-      "splitk_factor ",
-      splitk_factor,
-      " must divide K ",
-      K,
-      " evenly for this benchmark");
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
 
   // Architecture
@@ -612,7 +612,7 @@ static void SplitKReduction(
   // Warm up run
   auto outputs = fe.runFusion(aten_inputs, lparams);
 
-  checkMatch(expected_output, outputs.at(0).to(at::kDouble), K);
+  checkMatch(expected_output, outputs.at(0).to(at::kDouble), splitk_factor);
 
   runBenchmarkIterations(benchmark_state, &fe, aten_inputs, lparams);
 
@@ -627,7 +627,9 @@ static void NvFuserScheduler_Matmul_partitionedk_4warp3stage(
     int splitk_factor) {
   auto cta_tile = GemmTile(32 * num_warps, 128, 32);
 
-  auto params = getMatmulParams(cta_tile, num_stages, layout, splitk_factor);
+  // For partitioned-K, we will manually split the K dimension, so we set
+  // splitk_factor=1 here
+  auto params = getMatmulParams(cta_tile, num_stages, layout, 1);
 
   NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(
       8, 0, getSmemSize(cta_tile, num_stages), benchmark_state);
@@ -648,17 +650,26 @@ static void NvFuserScheduler_Matmul_partitionedk_4warp3stage(
       ->SplitKMatmulShapes
 
 SplitKForAllLayouts(NvFuserScheduler_4warp3stage_partitionedk_test, 2);
-
-static void NvFuserScheduler_Matmul_splitk_reduction(
-    benchmark::State& benchmark_state,
-    int splitk_factor) {
-  // Run benchmark:
-  SplitKReduction(benchmark_state, splitk_factor);
-}
+SplitKForAllLayouts(NvFuserScheduler_4warp3stage_partitionedk_test, 4);
+SplitKForAllLayouts(NvFuserScheduler_4warp3stage_partitionedk_test, 8);
+SplitKForAllLayouts(NvFuserScheduler_4warp3stage_partitionedk_test, 16);
+SplitKForAllLayouts(NvFuserScheduler_4warp3stage_partitionedk_test, 32);
+SplitKForAllLayouts(NvFuserScheduler_4warp3stage_partitionedk_test, 64);
+SplitKForAllLayouts(NvFuserScheduler_4warp3stage_partitionedk_test, 128);
+SplitKForAllLayouts(NvFuserScheduler_4warp3stage_partitionedk_test, 256);
 
 #define NvFuserScheduler_splitkreduction_test(splitk_factor)                   \
   BENCHMARK_CAPTURE(                                                           \
       SplitKReduction, nvfuser_splitkreduction.##splitk_factor, splitk_factor) \
-      ->SplitKMatmulShapes
+      ->ArgsProduct({{SplitKM}, {SplitKM}})                                    \
+      ->Unit(benchmark::kMicrosecond)                                          \
+      ->UseManualTime();
 
 NvFuserScheduler_splitkreduction_test(2);
+NvFuserScheduler_splitkreduction_test(4);
+NvFuserScheduler_splitkreduction_test(8);
+NvFuserScheduler_splitkreduction_test(16);
+NvFuserScheduler_splitkreduction_test(32);
+NvFuserScheduler_splitkreduction_test(64);
+NvFuserScheduler_splitkreduction_test(128);
+NvFuserScheduler_splitkreduction_test(256);
