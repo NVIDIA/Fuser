@@ -23,15 +23,10 @@ bool isContiguous(const TensorView& tv) {
   const std::vector<IterDomain*>& allocation_domain =
       tv.getMaybeAllocationDomain();
   for (size_t i = 0; i < allocation_domain.size(); i++) {
-    // Broadcast and reduction dims are always contiguous because their sizes
-    // are essentially 1.
-    if (allocation_domain[i]->isBroadcast() ||
-        allocation_domain[i]->isReduction()) {
-      continue;
-    }
-    // Note: getContiguity() returns a vector of optional<bool>, so the `*` is
-    // necessary.
-    if (*tv.getContiguity()[i] == false) {
+    // We skip std::nullopt contiguity. It represents a broadcast or reduction
+    // dimension, which is of size 1 and always contiguous.
+    std::optional<bool> contiguity = tv.getContiguity()[i];
+    if (contiguity.has_value() && contiguity.value() == false) {
       return false;
     }
   }
