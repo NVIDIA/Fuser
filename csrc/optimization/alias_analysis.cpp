@@ -45,6 +45,12 @@ void findAliasesOfSource(
   // The current implementation does the bare minimum to detect some aliasing
   // that the codegen can use to generate a kernel skipping unnecessary
   // computation.
+  //
+  // Many improvements are to be made. For example,
+  // 1. Alias analysis should recommend non-default allocation domain
+  // to proactively make output aliases.
+  // 2. It should handle more op types such as `Set.Permute`.
+  // 3. It should detect alias between non-packed tensors.
   std::queue<const TensorView*> q;
   if (source->getMaybeAllocationDomain() == source->getMaybeRFactorDomain() &&
       isContiguous(*source)) {
