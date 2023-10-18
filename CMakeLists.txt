@@ -13,6 +13,10 @@ set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
 option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
 
+if(NOT NVFUSER_CPP_STANDARD)
+  set(NVFUSER_CPP_STANDARD 17)
+endif()
+
 string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 
 find_package(Torch REQUIRED)
@@ -226,7 +230,7 @@ target_include_directories(${NVFUSER_CODEGEN} PUBLIC
   "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
 )
-set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD 17)
+set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
 
 if(NVFUSER_BUILD_WITH_ASAN)
   add_compile_options(-fsanitize=address)
@@ -301,7 +305,7 @@ if(BUILD_PYTHON)
 
   set(NVFUSER "${PROJECT_NAME}")
   add_library(${NVFUSER} MODULE ${NVFUSER_PYTHON_SRCS})
-  set_property(TARGET ${NVFUSER} PROPERTY CXX_STANDARD 17)
+  set_property(TARGET ${NVFUSER} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
 
   # setup python API version
   add_custom_command(
@@ -406,16 +410,18 @@ if(BUILD_TEST)
       ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp)
   endif()
 
-  list(APPEND JIT_TEST_CU_SRCS ${NVFUSER_ROOT}/test/rng_kernels.cu)
-
   set(NVFUSER_TESTS "${PROJECT_NAME}_tests")
+  set(NVFUSER_TESTS_KERNELS "${NVFUSER_TESTS}_kernels")
 
-  add_executable(${NVFUSER_TESTS}
-    ${JIT_TEST_SRCS}
-    ${JIT_TEST_CU_SRCS})
-  set_property(TARGET ${NVFUSER_TESTS} PROPERTY CXX_STANDARD 17)
+  add_library(${NVFUSER_TESTS_KERNELS} SHARED ${NVFUSER_ROOT}/test/rng_kernels.cu)
+  # CUDA 11 does not support C++20, so hard code C++17 here
+  set_property(TARGET ${NVFUSER_TESTS_KERNELS} PROPERTY CXX_STANDARD 17)
+  target_link_libraries(${NVFUSER_TESTS_KERNELS} PRIVATE torch ${TORCH_LIBRARIES} ${NVFUSER_CODEGEN})
+
+  add_executable(${NVFUSER_TESTS} ${JIT_TEST_SRCS})
+  set_property(TARGET ${NVFUSER_TESTS} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
   target_compile_definitions(${NVFUSER_TESTS} PRIVATE USE_GTEST)
-  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} dynamic_type gtest_main gmock_main flatbuffers)
+  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} ${NVFUSER_TESTS_KERNELS} dynamic_type gtest_main gmock_main flatbuffers)
   target_include_directories(${NVFUSER_TESTS} PRIVATE "${NVFUSER_ROOT}")
 
   target_compile_options(${NVFUSER_TESTS} PRIVATE -Wall -Wno-unused-function)
@@ -466,7 +472,7 @@ if(BUILD_NVFUSER_BENCHMARK)
 
   set(NVFUSER_BENCHMARK "${PROJECT_NAME}_bench")
   add_executable(${NVFUSER_BENCHMARK} ${BENCHMARK_SRCS})
-  set_property(TARGET ${NVFUSER_BENCHMARK} PROPERTY CXX_STANDARD 17)
+  set_property(TARGET ${NVFUSER_BENCHMARK} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
 
   target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Wall -Wno-unused-function)
   target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE dynamic_type)
