@@ -174,14 +174,13 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
         (dtype == DataType::Half ? 14l : (dtype == DataType::Float ? 20l : 0l));
     ASSERT_TRUE(persistent_buffer_size) << "Unsupported data type!";
 
-    if (persistent_buffer_size > scheduler_utils::register_file_size_combined) {
+    if (persistent_buffer_size > register_file_size_combined) {
       auto dev_prop = at::cuda::getCurrentDeviceProperties();
-      int64_t available_smem =
-          (int64_t)dev_prop->sharedMemPerBlockOptin -
-          normalization_scheduler_utils::getSharedMemoryOverheadPerBlock(
-              &fusion,
-              scheduler_utils::getReductionTvs(&fusion),
-              scheduler_utils::max_threads_per_block_combined);
+      int64_t available_smem = (int64_t)dev_prop->sharedMemPerBlockOptin -
+          scheduler_utils::getSharedMemoryOverheadPerBlock(
+                                   &fusion,
+                                   scheduler_utils::getReductionTvs(&fusion),
+                                   max_threads_per_block_combined);
 
       if (available_smem >= persistent_buffer_size) {
         const auto& kernel_runtime = fec.getMostRecentKernelRuntime();

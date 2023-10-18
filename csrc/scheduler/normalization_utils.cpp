@@ -1123,24 +1123,6 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
   return true;
 }
 
-int64_t getSharedMemoryOverheadPerBlock(
-    Fusion* fusion,
-    const std::vector<TensorView*>& reduction_tvs,
-    const int64_t max_threads_per_block) {
-  const auto& dev_prop = at::cuda::getCurrentDeviceProperties();
-  int64_t dtype_size = 1;
-  for (auto tv : reduction_tvs) {
-    dtype_size = std::max(dtype_size, dataTypeSize(tv->getDataType().value()));
-  }
-  int64_t welford_factor = ir_utils::hasOpsOfType<WelfordOp>(fusion) ? 3l : 1l;
-  int64_t reduction_broadcast_workspace =
-      max_threads_per_block * dtype_size * welford_factor;
-  int64_t smem_overhead_per_block =
-      (int64_t)dev_prop->reservedSharedMemPerBlock +
-      reduction_broadcast_workspace;
-  return smem_overhead_per_block;
-}
-
 // common prepare for all persistent schedulers
 void beforeSchedule(
     Fusion* fusion,

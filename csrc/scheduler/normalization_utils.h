@@ -260,13 +260,6 @@ bool checkReductionPattern(
 // using checkOpsAndInputs, checkReductionPattern, and checkViewBufferTopology.
 bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic);
 
-//! Returns the shared memory overhead per block includes reserved by the CUDA
-//! driver and the space for the reduction broadcast workspace.
-int64_t getSharedMemoryOverheadPerBlock(
-    Fusion* fusion,
-    const std::vector<TensorView*>& reduction_tvs,
-    const int64_t max_threads_per_block);
-
 // Common preparations before the actual schedule, used by all persistent
 // schedulers. Write to dummy_outputs, cached_inputs, reduction_tvs, and
 // cached_outputs.

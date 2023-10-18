@@ -307,13 +307,13 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   auto available_regs = vectorize_factor > 1
-      ? scheduler_utils::register_file_size_combined
-      : scheduler_utils::register_file_size_combined_unvectorized;
+      ? register_file_size_combined
+      : register_file_size_combined_nonvectorized;
   auto max_threads_per_block = vectorize_factor > 1
-      ? scheduler_utils::max_threads_per_block_combined
-      : scheduler_utils::max_threads_per_block_combined_unvectorized;
+      ? max_threads_per_block_combined
+      : max_threads_per_block_combined_nonvectorized;
   buffer_params.smem_overhead =
-      normalization_scheduler_utils::getSharedMemoryOverheadPerBlock(
+      scheduler_utils::getSharedMemoryOverheadPerBlock(
           fusion, reduction_tvs, max_threads_per_block);
   int64_t available_smem =
       (int64_t)dev_prop->sharedMemPerBlockOptin - buffer_params.smem_overhead;
@@ -343,8 +343,11 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     std::vector<int64_t> acc_regs_buffer_sizes(n_buffers + 1, 0);
     std::vector<int64_t> acc_smem_buffer_sizes(n_buffers + 1, 0);
     for (int i = 1; i <= n_buffers; i++) {
-      int64_t tv_buffer_size_regs = scheduler_utils::getOnePersistentBufferSize(
-          sorted_candidate_tvs[i - 1], runtime_info, persistent_buffer_info);
+      int64_t tv_buffer_size_regs =
+          scheduler_utils::getPersistentBufferSizeOfTensor(
+              sorted_candidate_tvs[i - 1],
+              runtime_info,
+              persistent_buffer_info);
       int64_t tv_buffer_size_smem = roundUpSharedMemory(
           sorted_candidate_tvs[i - 1],
           tv_buffer_size_regs,

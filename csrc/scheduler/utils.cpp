@@ -19,6 +19,8 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 
+#include <ATen/cuda/CUDAContext.h>
+
 #include <algorithm>
 #include <queue>
 
@@ -781,7 +783,7 @@ getScopePersistenceFactors(
 
 } // namespace
 
-int64_t getOnePersistentBufferSize(
+int64_t getPersistentBufferSizeOfTensor(
     const TensorView* buffer,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info) {
@@ -852,7 +854,7 @@ PersistentBufferSizeReturn persistentBufferSize(
 
   for (auto buffer_i : c10::irange(all_buffers.size())) {
     auto buffer = all_buffers[buffer_i];
-    persistent_buffer_sizes[buffer_i] = getOnePersistentBufferSize(
+    persistent_buffer_sizes[buffer_i] = getPersistentBufferSizeOfTensor(
         buffer, runtime_info, persistent_buffer_info);
   }
 
@@ -2335,6 +2337,24 @@ std::unordered_set<TensorView*> getAllTvsFrom(
     }
   }
   return tv_group;
+}
+
+int64_t getSharedMemoryOverheadPerBlock(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs,
+    const int64_t max_threads_per_block) {
+  const auto& dev_prop = at::cuda::getCurrentDeviceProperties();
+  int64_t dtype_size = 1;
+  for (auto tv : reduction_tvs) {
+    dtype_size = std::max(dtype_size, dataTypeSize(tv->getDataType().value()));
+  }
+  int64_t welford_factor = ir_utils::hasOpsOfType<WelfordOp>(fusion) ? 3l : 1l;
+  int64_t reduction_broadcast_workspace =
+      max_threads_per_block * dtype_size * welford_factor;
+  int64_t smem_overhead_per_block =
+      (int64_t)dev_prop->reservedSharedMemPerBlock +
+      reduction_broadcast_workspace;
+  return smem_overhead_per_block;
 }
 
 } // namespace scheduler_utils
