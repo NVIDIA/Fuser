@@ -12,7 +12,10 @@
 
 namespace nvfuser::optimization {
 
-// Maps aliases (e.g. fusion outputs) to their sources (e.g. fusion inputs).
+// Maps aliases (e.g. the output of a View) to their direct sources (e.g. the
+// input of the same View). Consider path compression, a common optimization
+// used in disjoint-set data structure, so it's easy to figure out the root of
+// an alias.
 using AliasAnalysisResult =
     std::unordered_map<const TensorView*, const TensorView*>;
 

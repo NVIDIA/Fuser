@@ -38,9 +38,9 @@ bool isContiguous(const TensorView& tv) {
   return true;
 }
 
-// Finds aliases of `source` and stores the findings in `alias_to_source`.
-void findAliasesOfSource(
-    const TensorView* source,
+// Finds aliases of `root` and stores the findings in `alias_to_source`.
+void findAliasesOfRoot(
+    const TensorView* root,
     AliasAnalysisResult& alias_to_source) {
   // The current implementation does the bare minimum to detect some aliasing
   // that the codegen can use to generate a kernel skipping unnecessary
@@ -52,9 +52,9 @@ void findAliasesOfSource(
   // 2. It should handle more op types such as `Set.Permute`.
   // 3. It should detect alias between non-packed tensors.
   std::queue<const TensorView*> q;
-  if (source->getMaybeAllocationDomain() == source->getMaybeRFactorDomain() &&
-      isContiguous(*source)) {
-    q.push(source);
+  if (root->getMaybeAllocationDomain() == root->getMaybeRFactorDomain() &&
+      isContiguous(*root)) {
+    q.push(root);
   }
 
   while (!q.empty()) {
@@ -92,7 +92,7 @@ AliasAnalysisResult findAliases(const Fusion& fusion) {
   AliasAnalysisResult alias_to_source;
   for (const Val* in : fusion.inputs()) {
     if (const TensorView* in_tv = dynamic_cast<const TensorView*>(in)) {
-      findAliasesOfSource(in_tv, alias_to_source);
+      findAliasesOfRoot(in_tv, alias_to_source);
     }
   }
   return alias_to_source;
