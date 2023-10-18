@@ -1487,8 +1487,7 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
     }
 
     NVF_ERROR(new_root_domain.size() == tv->domain()->contiguity().size());
-    auto new_td = IrBuilder::create<TensorDomain>(
-        new_root_domain, tv->domain()->contiguity());
+    TensorDomain* new_td = nullptr;
 
     if (tv->domain()->hasAllocation()) {
       // we need to reorder the root domain into allocation domain consistently
@@ -1499,12 +1498,13 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
           alloc.size() == rfactor.size(),
           "size between rfactor and alloc doesn't match");
       const auto rank = alloc.size();
-      std::vector<IterDomain*> new_alloc_domain(rank, nullptr);
+      std::vector<int64_t> stride_order(rank, -1);
       for (auto i : c10::irange(rank)) {
         bool found_match = false;
         for (auto j : c10::irange(rank)) {
           if (alloc[i] == rfactor[j]) {
-            new_alloc_domain[i] = new_root_domain[j];
+            // new_alloc_domain[i] = new_root_domain[j];
+	    stride_order[j] = rank - 1 - i;
             found_match = true;
             break;
           }
@@ -1513,7 +1513,12 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
             found_match,
             "cannot match IterDomain between allocation domain to rfactor domain");
       }
-      new_td->setAllocationDomain(new_alloc_domain, new_td->contiguity());
+      new_td = IrBuilder::create<TensorDomain>(
+          new_root_domain, stride_order, tv->domain()->contiguity());
+      // new_td->setAllocationDomain(new_alloc_domain, new_td->contiguity());
+    } else {
+      new_td = IrBuilder::create<TensorDomain>(
+          new_root_domain, tv->domain()->contiguity());
     }
     replacement_map.emplace(tv->domain(), new_td);
   }
