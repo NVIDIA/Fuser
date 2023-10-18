@@ -40,10 +40,6 @@
 #include <transform_rfactor.h>
 #include <transform_view.h>
 
-// fuser and IR parser
-#include <parser.h>
-#include <torch/csrc/jit/ir/irparser.h>
-
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAStream.h>
