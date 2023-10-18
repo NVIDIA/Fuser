@@ -3098,14 +3098,11 @@ TensorDomain::TensorDomain(
         rank == stride_order.size(), "Invalid size of stride_order vector");
 
     // checking stride_order is indeed a permutation
-    std::set<int64_t> order_set;
-    std::for_each(
-        stride_order.begin(), stride_order.end(), [&order_set](int64_t v) {
-          order_set.insert(v);
-        });
+    std::vector<int64_t> inc_vec(rank);
+    std::iota(inc_vec.begin(), inc_vec.end(), 0);
     NVF_ERROR(
-        rank == order_set.size() && 0 == *order_set.begin() &&
-            int64_t(rank) - 1 == *order_set.end(),
+        std::is_permutation(
+            stride_order.begin(), stride_order.end(), inc_vec.begin()),
         "stride_order is not a valid: " + toDelimitedString(stride_order));
 
     allocation_domain_.resize(rank, nullptr);
