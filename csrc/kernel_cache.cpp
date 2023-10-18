@@ -1471,41 +1471,4 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
   return ret;
 }
 
-void GraphCache::createFusion(const std::shared_ptr<torch::jit::Graph>& graph) {
-  FUSER_PERF_SCOPE("GraphCache::createFusion");
-
-  fusion_executor_cache_ =
-      std::make_unique<FusionExecutorCache>(parseJitIR(graph));
-
-  num_of_outputs_ = graph->outputs().size();
-}
-
-// NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-GraphCache::GraphCache(const std::shared_ptr<torch::jit::Graph>& graph) {
-  FUSER_PERF_SCOPE("GraphCache::GraphCache");
-  NVF_ERROR(
-      torch::jit::IsNewExecutorEnabled(),
-      "legacy executor is not supported by nvfuser");
-
-  GRAPH_DEBUG("GraphCache constructor: ", this);
-  GRAPH_DUMP("GraphCache created for graph", graph);
-  createFusion(graph);
-}
-
-std::vector<at::Tensor> GraphCache::runGraphWithInputs(
-    const at::ArrayRef<c10::IValue>& inputs) {
-  FUSER_PERF_SCOPE("GraphCache::runGraphWithInputs");
-
-  GRAPH_DEBUG("running GraphCache: ", this);
-  auto outputs = fusion_executor_cache_->runFusionWithInputs(inputs);
-  NVF_ERROR(
-      outputs.size() == num_of_outputs_,
-      "FusionExecutorCache returned ",
-      outputs.size(),
-      " outputs, doesn't match computational graph, which requires ",
-      num_of_outputs_);
-
-  return outputs;
-}
-
 } // namespace nvfuser
