@@ -1011,14 +1011,17 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
  
   SEGMENT_PROFILER_START_KERNEL(args.getDeviceIndex(), group_id)
   auto outputs = executor.runFusion(args, launch_params, compile_params);
-  SEGMENT_PROFILER_STOP_KERNEL(group_id)
-  SEGMENT_PROFILER_BYTES_ACCESSED(group_id, (size_t)executor.inputBytesProcessed(), (size_t)executor.outputBytesProcessed());
+  SEGMENT_PROFILER_STOP_KERNEL(group_id);
+  SEGMENT_PROFILER_BYTES_PROCESSED(group_id,
+      ([&args, &outputs, &executor]() { return executor.inputBytesProcessed(args, outputs);}),
+      ([&outputs, &executor]() { return executor.outputBytesProcessed(outputs);}));
   
   // Accumulate the kernel time of each segment
   kernel_time_ms_ += executor.kernelTimeMs();
 
   // Print relevant information all at once for easy debuging of perf
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
+    int64_t bytes_processed = executor.inputBytesProcessed(args, outputs) + executor.outputBytesProcessed(outputs);
     debug() << "\nRun kernel:\n";
     if (sg) {
       segmented_fusion_->makeFusion(sg)->printMath();
@@ -1033,10 +1036,10 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
             << "\n";
     debug() << scheduler_entry->params()->toString() << "\n";
     debug() << "With arguments: " << executor.lastLaunchParams().toString();
-    debug() << executor.kernelName() << " " << executor.bytesProcessed()
+    debug() << executor.kernelName() << " " << bytes_processed 
             << " bytes/ " << std::setprecision(3) << executor.kernelTimeMs()
             << " ms "
-            << ((double)executor.bytesProcessed() /
+            << ((double)bytes_processed /
                 ((double)executor.kernelTimeMs() / 1000)) /
             (double)1.0e9
             << " GB/s" << std::endl;
@@ -1335,17 +1338,13 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
 
     if (compute_overall_bw) {
-      const auto& executor = executors_.at(group_id);
-      for (auto bytes : executor.bytesInputsProcessed()) {
-        total_bytes_processed += bytes;
-      }
-      for (auto bytes : executor.bytesOutputsProcessed()) {
-        total_bytes_processed += bytes;
-      }
+      auto& executor = executors_.at(group_id);
+      total_bytes_processed += executor.inputBytesProcessed(group_runtime_inputs, group_runtime_outputs);
+      total_bytes_processed += executor.outputBytesProcessed(group_runtime_outputs);
     }
   }
 
-  FUSION_PROFILER_BYTES_ACCESSED(([&]() {
+  FUSION_PROFILER_BYTES_PROCESSED(([&]() {
     size_t input_bytes = 0;
     for (auto inp : fusionSegments()->inputs()) {
       if (auto tv = dynamic_cast<TensorView*>(inp)) {

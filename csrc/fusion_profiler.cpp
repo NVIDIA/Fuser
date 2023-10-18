@@ -41,7 +41,8 @@ void PrintActivity(CUpti_Activity *pRecord, FILE *pFileHandle) {
       prof.device = (int)pKARecord->deviceId;
       prof.stream = pKARecord->streamId;
       prof.correlation_id = pKARecord->correlationId;
-      prof.time_ms = (float)(pKARecord->end - pKARecord->start) / (float)1000000.0; 
+      constexpr double ms_convert = 1.0 / 1000000.0;
+      prof.time_ms = static_cast<double>(pKARecord->end - pKARecord->start) * ms_convert;
       prof.grid = {pKARecord->gridX, pKARecord->gridY, pKARecord->gridZ};
       prof.block = {pKARecord->blockX, pKARecord->blockY, pKARecord->blockZ};
       prof.cluster = {pKARecord->clusterX, pKARecord->clusterY, pKARecord->clusterZ};
@@ -171,12 +172,14 @@ void CudaEventTimer::stop() {
   state_ = ProfilerState::Finished;
 }
 
-float CudaEventTimer::time() {
+double CudaEventTimer::time() {
   if (state_ == ProfilerState::Finished) {
+    float tmp{0.0};
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event_));
     NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(stop_event_));
     NVFUSER_CUDA_RT_SAFE_CALL(
-        cudaEventElapsedTime(&time_ms_, start_event_, stop_event_));
+        cudaEventElapsedTime(&tmp, start_event_, stop_event_));
+    time_ms_ = static_cast<double>(tmp);
     state_ = ProfilerState::Processed;
   } else {
     NVF_CHECK(state_ == ProfilerState::Processed, "ProfilerState is not Processed! ", state_);
@@ -232,7 +235,7 @@ void SegmentProfiler::stopKernel() {
   kernel_profile_state_ = ProfilerState::Finished;
 }
 
-void SegmentProfiler::bytesAccessed(size_t input_bytes, size_t output_bytes) {
+void SegmentProfiler::bytesProcessed(size_t input_bytes, size_t output_bytes) {
   std::cout << "\nSegment Bytes Accessed: " << input_bytes << " " << output_bytes << std::endl;
 }
 
@@ -344,7 +347,7 @@ void DeviceDescriptor::generate(int _device) {
     // A factor of 2 is multiplied to account for double data rate (DDR):
     // (clock in kHz * width in bits) * (1000 Hz / kHz) * (1 GB / 8e9 bits) * 2
     // factor = 2.5e-7
-  peak_bandwidth_gbs = (float)2.5e-7 * (float)memory_clock * (float)bus_width;
+  peak_bandwidth_gbs = 2.5e-7 * static_cast<double>(memory_clock) * static_cast<double>(bus_width);
 
   std::cout << "\n" << device << " " << name << " " << bus_width << " " << memory_clock << " " << peak_bandwidth_gbs << std::endl;
 }
@@ -361,7 +364,9 @@ FusionProfiler::FusionProfiler() :
       cuptiActivityRegisterCallbacks(buffer_requested, buffer_completed));
 }
 
-void FusionProfiler::bytesAccessed(std::tuple<size_t, size_t> input_output) {
+void FusionProfiler::bytesProcessed(std::tuple<size_t, size_t> input_output) {
+  profile_.input_bytes = std::get<0>(input_output);
+  profile_.output_bytes = std::get<1>(input_output);
   std::cout << "\nFusion Bytes Accessed: " << std::get<0>(input_output) << " " << std::get<1>(input_output) << std::endl;
 }
 
@@ -373,6 +378,7 @@ void FusionProfiler::reset() {
   segments_.clear();
   kernel_profiles_.clear();
   corrid_2_segid_.clear();
+  segid_2_idx_.clear();
 }
 
 void FusionProfiler::print() const {

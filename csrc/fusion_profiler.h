@@ -35,14 +35,14 @@ class CudaEventTimer {
   void reset();
   void start();
   void stop();
-  float time();
+  double time();
   ProfilerState state() const;
 
  private:
   cudaStream_t stream_;
   cudaEvent_t start_event_;
   cudaEvent_t stop_event_;
-  float time_ms_;
+  double time_ms_;
   ProfilerState state_;
 };
 
@@ -54,7 +54,7 @@ struct DeviceDescriptor{
   int bus_width{0};
   int memory_clock{0}; 
 
-  float peak_bandwidth_gbs{0.0};
+  double peak_bandwidth_gbs{0.0};
 };
 
 struct KernelProfile {
@@ -77,10 +77,10 @@ struct KernelProfile {
   uint32_t stream{0};
   uint32_t correlation_id{0};
 
-  float compile_time_ms{0.0};
-  float time_ms{0.0};
-  float effective_bandwidth_gbs{0.0};
-  float perentage_peak_bandwidth{0.0};
+  double compile_time_ms{0.0};
+  double time_ms{0.0};
+  double effective_bandwidth_gbs{0.0};
+  double perentage_peak_bandwidth{0.0};
 
   std::array<int32_t, 3> grid{0, 0, 0};
   std::array<int32_t, 3> block{0, 0, 0};
@@ -94,22 +94,22 @@ struct KernelProfile {
   size_t output_bytes{0};
   
   std::string device_name;
-  float peak_bandwidth_gbs{0.0};
+  double peak_bandwidth_gbs{0.0};
 };
 
 struct FusionProfile {
   void reset();
 
-  float time_ms{0.0};
-  float host_time_ms{0.0};
-  float compile_time_ms{0.0};
-  float kernel_time_ms{0.0};
+  double time_ms{0.0};
+  double host_time_ms{0.0};
+  double compile_time_ms{0.0};
+  double kernel_time_ms{0.0};
 
   size_t input_bytes{0};
   size_t output_bytes{0};
 
-  float effective_bandwidth_gbs{0.0};
-  float perentage_peak_bandwidth{0.0};
+  double effective_bandwidth_gbs{0.0};
+  double perentage_peak_bandwidth{0.0};
 
   std::vector<KernelProfile> kernel_profiles;
 };
@@ -126,7 +126,7 @@ class SegmentProfiler {
   void startKernel(int device);
   void stopKernel();
 
-  void bytesAccessed(size_t input_bytes, size_t output_bytes);
+  void bytesProcessed(size_t input_bytes, size_t output_bytes);
 
   uint32_t segmentId() const;
 
@@ -153,7 +153,7 @@ class FusionProfiler {
 
   void start();
   void stop();
-  void bytesAccessed(std::tuple<size_t, size_t> input_output);
+  void bytesProcessed(std::tuple<size_t, size_t> input_output);
   FusionProfile profile() const;
   
   // Methods to capture Asynchronous CUPTI activity
@@ -190,8 +190,8 @@ class FusionProfiler {
   _FP_ENABLE(FusionProfiler::get()->stop())
 #define FUSION_PROFILER_CREATE_SEGMENTS(segments) \
   _FP_ENABLE(FusionProfiler::get()->createSegments(segments))
-#define FUSION_PROFILER_BYTES_ACCESSED(fn) \
-  _FP_ENABLE(FusionProfiler::get()->bytesAccessed(fn()))
+#define FUSION_PROFILER_BYTES_PROCESSED(fn) \
+  _FP_ENABLE(FusionProfiler::get()->bytesProcessed(fn()))
 #define FUSION_PROFILER_PRINT \
   if (isDebugDumpEnabled(DebugDumpOption::FusionProfiler) { \
     debug() << FusionProfiler::get()->profile(); \
@@ -206,7 +206,7 @@ class FusionProfiler {
   _FP_ENABLE(FusionProfiler::get()->segment(idx).startKernel(device))
 #define SEGMENT_PROFILER_STOP_KERNEL(idx) \
   _FP_ENABLE(FusionProfiler::get()->segment(idx).stopKernel())
-#define SEGMENT_PROFILER_BYTES_ACCESSED(idx, inputs, outputs) \
-  _FP_ENABLE(FusionProfiler::get()->segment(idx).bytesAccessed(inputs, outputs))
+#define SEGMENT_PROFILER_BYTES_PROCESSED(idx, input_fn, output_fn) \
+  _FP_ENABLE(FusionProfiler::get()->segment(idx).bytesProcessed(input_fn(), output_fn()))
 
 } // namespace nvfuser

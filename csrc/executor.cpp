@@ -1812,8 +1812,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       timer.start();
     }
 
-    //FUSION_PROFILER_START_KERNEL
-
     if (!kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
@@ -1843,33 +1841,14 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
           arg_buffer_ptrs.data()));
     }
 
-    //FUSION_PROFILER_STOP_KERNEL
-
     if (measure_kernel_time) {
       kernel_time_ms_ = timer.elapsed();
 
-      bytes_processed_per_input_.resize(num_inputs, 0);
-      // Figure how many bytes are inputs, outputs, and temporary buffers
-      for (auto i : c10::irange(num_inputs)) {
-        if (args[i]->is<at::Tensor>()) {
-          auto t = args[i]->as<at::Tensor>();
-          auto num_bytes = t.numel() *
-              (int64_t)dataTypeSize(aten_to_data_type(t.scalar_type()));
-          bytes_processed_per_input_.at(i) = num_bytes;
-        }
-      }
-      bytes_processed_per_output_.resize(outputs.size(), 0);
-      for (auto i : c10::irange(outputs.size())) {
-        const auto& output = outputs.at(i);
-        // NOTE: this assumes that all output elements correspond to a single
-        // store
-        bytes_processed_per_output_.at(i) = output.numel() *
-            (int64_t)dataTypeSize(aten_to_data_type(output.scalar_type()));
-      }
+      int64_t bytes_processed = inputBytesProcessed(args) + outputBytesProcessed(outputs);
 
       if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth)) {
         double gb_per_s =
-            ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
+            ((double)bytes_processed / ((double)kernel_time_ms_ / 1000)) /
             (double)1.0e9;
         debug() << "kernel" << fusion_id_ << " run in " << kernel_time_ms_
                 << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
