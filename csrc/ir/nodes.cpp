@@ -3095,8 +3095,7 @@ TensorDomain::TensorDomain(
   if (!stride_order.empty()) {
     auto rank = root_domain_.size();
     NVF_ERROR(
-      rank == stride_order.size(),
-      "Invalid size of stride_order vector");
+        rank == stride_order.size(), "Invalid size of stride_order vector");
     allocation_domain_.resize(rank, nullptr);
     for (auto i : c10::irange(rank)) {
       allocation_domain_[rank - 1 - static_cast<int>(stride_order[i])] =
