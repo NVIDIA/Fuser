@@ -690,7 +690,8 @@ void ContiguousInnerDimensionsMapper::propagateSibling(
 Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     TensorView* of_tv) {
   Val* product_of_inner_extents = of_tv->container()->oneVal();
-  auto of_tv_root = of_tv->getMaybeRFactorDomain();
+  // TODO: rename these variables
+  auto of_tv_root = of_tv->getMaybeAllocationDomain();
 
   NVF_ERROR(hasMappedDims(of_tv));
 
