@@ -3105,7 +3105,7 @@ TensorDomain::TensorDomain(
         });
     NVF_ERROR(
         rank == order_set.size() && 0 == *order_set.begin() &&
-            rank - 1 == *order_set.end(),
+            int64_t(rank) - 1 == *order_set.end(),
         "stride_order is not a valid: " + toDelimitedString(stride_order));
 
     allocation_domain_.resize(rank, nullptr);
