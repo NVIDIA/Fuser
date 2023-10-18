@@ -554,18 +554,26 @@ class TensorDomain : public Val {
     return no_bcast_domain_;
   }
 
+  // The input logical domain. The root domain of a consumer should equal the
+  // rfactor domain of its producer.
   const std::vector<IterDomain*>& root() const {
     return root_domain_;
   };
 
+  // The output logical domain. If empty, the same as the root domain.
+  // See also the helper function `maybeRFactor`.
   const std::vector<IterDomain*>& rfactor() const {
     return rfactor_domain_;
   };
 
+  // The allocation domain. This describes how data is stored in memory in
+  // outer-to-inner order.
   const std::vector<IterDomain*>& allocation() const {
     return allocation_domain_;
   }
 
+  // The index domain after scheduling. nvFuser generates loop indices according
+  // to leaf domain.
   const std::vector<IterDomain*>& leaf() const {
     return leaf_domain_;
   }
