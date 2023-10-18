@@ -17,6 +17,9 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
             range_inner = [32 * 1024 * 2**i for i in range(11)]
             inputs.extend([(i, j) for i in range_outer for j in range_inner])
             inputs.extend([(j, i) for i in range_outer for j in range_inner])
+        elif dim == 4:
+            dim_range = [2**i for i in range(1, 10)]
+            inputs.extend([(i, j, k, l) for i in dim_range for j in dim_range for k in dim_range for l in dim_range])
         else:
             raise NotImplementedError(
                 f"Generating input sizes of dimension {dim} is not implemented"
