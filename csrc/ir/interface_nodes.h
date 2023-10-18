@@ -133,7 +133,7 @@ class TensorView : public Val {
         TensorDomain::getContiguityFilledWith(getMaybeRFactorDomain(), contig));
   }
 
-  const std::vector<std::optional<bool>>& getContiguity() {
+  const std::vector<std::optional<bool>>& getContiguity() const {
     return domain()->contiguity();
   }
 
