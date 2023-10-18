@@ -1504,7 +1504,7 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
         for (auto j : c10::irange(rank)) {
           if (alloc[i] == rfactor[j]) {
             // new_alloc_domain[i] = new_root_domain[j];
-	    stride_order[j] = rank - 1 - i;
+            stride_order[j] = rank - 1 - i;
             found_match = true;
             break;
           }
@@ -1515,7 +1515,6 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
       }
       new_td = IrBuilder::create<TensorDomain>(
           new_root_domain, stride_order, tv->domain()->contiguity());
-      // new_td->setAllocationDomain(new_alloc_domain, new_td->contiguity());
     } else {
       new_td = IrBuilder::create<TensorDomain>(
           new_root_domain, tv->domain()->contiguity());
