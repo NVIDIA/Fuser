@@ -84,6 +84,11 @@ class FusionGuard {
   static thread_local Fusion* active_fusion_;
 };
 
+enum class IoAliasType {
+  ReuseBuffer,
+  ReinterpretCast,
+};
+
 //! Fusion is mutable but unique. Nodes cannot be copied in any way from one
 //! Fusion to another. If anything like that is desired, it would require
 //! duplicating all associated values and exprs. Fusion is considered to be SSA,
@@ -262,7 +267,8 @@ class Fusion : public IrContainer {
     return is_during_update_uses_;
   }
 
-  const auto& ioAlias() const {
+  const std::unordered_map<Val*, std::pair<Val*, IoAliasType>>& ioAlias()
+      const {
     return io_alias_;
   }
 
@@ -455,7 +461,7 @@ class Fusion : public IrContainer {
   std::vector<Val*> outputs_;
 
   // io alias pointing from output to input
-  std::unordered_map<Val*, Val*> io_alias_;
+  std::unordered_map<Val*, std::pair<Val*, IoAliasType>> io_alias_;
 
   // See Note [ Permutation support in nvfuser ]
   // map from indices of input tensor to permutation

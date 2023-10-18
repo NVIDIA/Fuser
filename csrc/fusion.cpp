@@ -87,8 +87,8 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   // TODO: put this into ir_cloner instead
   for (const auto& entry : from->io_alias_) {
     Val* copied_output = ir_cloner.clone(entry.first);
-    Val* copied_input = ir_cloner.clone(entry.second);
-    to->io_alias_[copied_output] = copied_input;
+    Val* copied_input = ir_cloner.clone(entry.second.first);
+    to->io_alias_[copied_output] = {copied_input, entry.second.second};
   }
 
   to->permuted_input_map_ = from->permuted_input_map_;
@@ -766,16 +766,15 @@ void Fusion::aliasOutputToInput(Val* output, Val* input) {
   NVF_ERROR(
       isAliasCompatible(input, output),
       "The input and output values are not alias-compatible.");
-  io_alias_[output] = input;
+  io_alias_[output] = {input, IoAliasType::ReuseBuffer};
 
   // TODO: output should be marked at the end of fusion definition #1488
   addOutput(output);
 }
 
 Val* Fusion::getOutputAlias(Val* output) {
-  auto search = io_alias_.find(output);
-  if (search != io_alias_.end()) {
-    return search->second;
+  if (auto search = io_alias_.find(output); search != io_alias_.end()) {
+    return search->second.first;
   }
   return nullptr;
 }
