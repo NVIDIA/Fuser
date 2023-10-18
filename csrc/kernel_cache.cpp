@@ -1132,7 +1132,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       compileKernel(group_runtime_inputs, group_to_run);
     } else {
       // launch compileKernel thread here
-      getThreadPool()->run([=]() {
+      getThreadPool()->run([this, args, group_runtime_inputs, group_to_run]() {
         FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
         c10::cuda::CUDAGuard dg(args.getDeviceIndex());
         c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
