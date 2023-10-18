@@ -25,7 +25,7 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
 
 
 # Datatypes to benchmark
-FLOAT_DTYPES = [torch.bfloat16, torch.float16, torch.float32]
+FLOAT_DTYPES = [torch.float16, torch.float32]
 
 # Datatypes that will be promoted to Datatype.Float in Fusion Definitions
 PROMOTE_DTYPES = [DataType.BFloat16, DataType.Half]
