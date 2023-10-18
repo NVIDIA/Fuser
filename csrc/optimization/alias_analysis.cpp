@@ -87,6 +87,11 @@ AliasAnalysisResult findAliases(const Fusion& fusion) {
   AliasAnalysisResult alias_to_source;
   for (const Val* in : fusion.inputs()) {
     if (const TensorView* in_tv = dynamic_cast<const TensorView*>(in)) {
+      // A potential improvement suggested by @tfogal: Let findAliasesOfRoot
+      // return the AliasAnalysisResult instead of taking a mutable
+      // `alias_to_source` arg. This might be somewhat easily parallelizable
+      // (albeit with a serialized merge step afterwards that inserts the
+      // results).
       findAliasesOfRoot(in_tv, alias_to_source);
     }
   }
