@@ -1228,8 +1228,14 @@ struct TensorRecord : RecordFunctor {
     auto rank = shape_.size();
     std::vector<bool> is_expand(rank);
 
-    for (const auto index : c10::irange(rank)) {
-      bool is_broadcast = !contiguity_[index].has_value();
+    for (const auto contig_index : c10::irange(rank)) {
+      bool is_broadcast = !contiguity_[contig_index].has_value();
+      // since contiguity_ vector is given to the corresponding order in alloc
+      // domain, while is_expand is given to root domain, we need to map it
+      // correctly with `contig_index` and `index`.
+      const auto index = stride_order_.empty()
+          ? contig_index
+          : rank - 1 - static_cast<size_t>(stride_order_[contig_index]);
       bool has_symbolic_size = (shape_[index] == -1);
       is_expand[index] = is_broadcast && has_symbolic_size;
     }
@@ -1240,23 +1246,13 @@ struct TensorRecord : RecordFunctor {
                   .shape(shape_)
                   .dtype(dtype_)
                   .expanded(std::move(is_expand))
+                  .strideOrder(stride_order_)
                   .build();
 
     if (shape_.empty() && is_cpu_) {
       tv->setCpuScalar(true);
     } else {
       NVF_CHECK(!is_cpu_, "CPU non-scalar tensor is not supported!");
-    }
-
-    if (!stride_order_.empty()) {
-      std::vector<IterDomain*> allocation_domain(rank);
-      for (auto i : c10::irange(rank)) {
-        allocation_domain[rank - 1 - static_cast<int>(stride_order_[i])] =
-            tv->axis((int)i);
-      }
-      // NOTE: this is awkward.
-      // updating allocation domain requires an update on contiguity flag
-      tv->setAllocationDomain(allocation_domain, contiguity_);
     }
 
     fd.setFusionState(outputs_.at(0).index, tv);
