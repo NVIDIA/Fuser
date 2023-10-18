@@ -3075,7 +3075,7 @@ TensorDomain::TensorDomain(
       has_reduction_(false) {
   validateContiguity(maybeAllocation(), contiguity_);
 
-  // Just due to clang-tidy, correct value set in resetDomains
+  // resetDomains initializes other member variables, required by clang-tidy
   resetDomains();
 }
 
@@ -3096,6 +3096,18 @@ TensorDomain::TensorDomain(
     auto rank = root_domain_.size();
     NVF_ERROR(
         rank == stride_order.size(), "Invalid size of stride_order vector");
+
+    // checking stride_order is indeed a permutation
+    std::set<int64_t> order_set;
+    std::for_each(
+        stride_order.begin(), stride_order.end(), [&order_set](int64_t v) {
+          order_set.insert(v);
+        });
+    NVF_ERROR(
+        rank == order_set.size() && 0 == *order_set.begin() &&
+            rank - 1 == *order_set.end(),
+        "stride_order is not a valid: " + toDelimitedString(stride_order));
+
     allocation_domain_.resize(rank, nullptr);
     for (auto i : c10::irange(rank)) {
       allocation_domain_[rank - 1 - static_cast<int>(stride_order[i])] =
@@ -3104,7 +3116,7 @@ TensorDomain::TensorDomain(
   }
   validateContiguity(maybeAllocation(), contiguity_);
 
-  // Just due to clang-tidy, correct value set in resetDomains
+  // resetDomains initializes other member variables, required by clang-tidy
   resetDomains();
 }
 
@@ -3126,7 +3138,7 @@ TensorDomain::TensorDomain(
     ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
   }
 
-  // Just due to clang-tidy, correct value set in resetDomains
+  // resetDomains initializes other member variables, required by clang-tidy
   has_reduction_ = false;
   resetDomains();
 }
@@ -3155,7 +3167,7 @@ TensorDomain::TensorDomain(
     }
   }
 
-  // Just due to clang-tidy, correct value set in resetDomains
+  // resetDomains initializes other member variables, required by clang-tidy
   has_reduction_ = false;
   resetDomains();
 }
@@ -3190,7 +3202,7 @@ TensorDomain::TensorDomain(
     }
   }
 
-  // Just due to clang-tidy, correct value set in resetDomains
+  // resetDomains initializes other member variables, required by clang-tidy
   has_reduction_ = false;
   resetDomains();
 }

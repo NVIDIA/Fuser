@@ -440,6 +440,8 @@ class TensorDomain : public Val {
       std::vector<IterDomain*> root_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
+  // See notes [ Note stride order and contiguity vector ] in
+  // python_bindings.cpp
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
