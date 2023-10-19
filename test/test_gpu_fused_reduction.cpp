@@ -2561,4 +2561,38 @@ TEST_F(NVFuserTest, FusionCrossEntropyGatherPattern_CUDA) {
   testValidate(&fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
+// Test iteration-grouped (as opposed to horizontally fused) grid reduction
+TEST_F(NVFuserTest, FusionCrossIterationGroupedGridReduce1_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto tv1 = sum(tv0, {0});
+  fusion.addOutput(tv1);
+
+  int64_t bdimx = 64;
+  // parallelize like T1[ rblockIdx.x1{i0}, iS2{ceilDiv(i1, 16 * bdimx)},
+  // iS3{4}, iS4{4}, ithreadIdx.x5{bdimx} ] This is a grid reduction with a nest
+  // of three loops that should be
+
+  tv1->split(-1, bdimx);
+  tv1->split(-2, 4);
+  tv1->split(-3, 4);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  // this size gives us loop sizes 4, 4, 4 (64 threads per block) with 256
+  // blocks
+  auto t0 = at::randn({256, 4096}, options);
+  std::vector<c10::IValue> inputs = {t0};
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, inputs);
+  auto cg_outputs = fe.runFusion(inputs);
+
+  testValidate(&fusion, cg_outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
