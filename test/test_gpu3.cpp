@@ -9623,11 +9623,11 @@ TEST_F(NVFuserTest, ConstLongExpressions) {
 }
 
 // Related to https://github.com/NVIDIA/Fuser/issues/1084.
-// On H100, the generated kernel is vectorized by 8, has a persistent batch
+// On H100, the generated kernel is vectorized by 8, has a serial batch
 // of 5. It uses 106 threads without padding, nsys shows kernel
-// duration is 0.252 ms. If eliminate predicate for RNG ops by comment out
-// predicateRNGOp(), the kernel duration is increased to 0.258 ms.
-TEST_F(RNGTest, TMP) {
+// duration is 0.271 ms. If eliminate predicate for RNG ops by comment out
+// predicateRNGOp(), the kernel duration is increased to 0.376 ms.
+TEST_F(NVFuserTest, TMP) {
   int64_t size = 4224;
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
@@ -9679,19 +9679,18 @@ TEST_F(RNGTest, TMP) {
       }
     }
   } pred_checker;
-  GpuLower gpulw(&fusion);
+  GpuLower gpulw(fusion);
   pred_checker.handle(gpulw.kernel()->topLevelExprs());
   ASSERT_TRUE(pred_checker.predicate_rngop);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::Tensor t0 = at::zeros({2048,size}, options);
+  at::Tensor t0 = at::zeros({2048, size}, options);
 
   FusionExecutor fe;
   fe.compileFusion(fusion, {t0});
 
   at::manual_seed(0);
   auto cg_outputs = fe.runFusion({t0});
-
 }
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 

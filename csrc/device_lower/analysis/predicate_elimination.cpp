@@ -247,11 +247,7 @@ class PredicateChcker : public IterVisitor {
 
   // Always predicate rng ops as they are expensive.
   bool predicateRNGOp(Expr* expr) const {
-    if(std::getenv("USE_NEW")){
-      return expr->isA<RNGOp>();
-    }else{
-      return false;
-    }
+    return expr->isA<RNGOp>();
   }
 
   // Always predicate integer division and related ops as we don't
