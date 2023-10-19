@@ -555,7 +555,7 @@ class TensorDomain : public Val {
   }
 
   // The input logical domain. The root domain of a consumer should equal the
-  // rfactor domain of its producer.
+  // rfactor domain of its producer ignoring reduction dimensions.
   const std::vector<IterDomain*>& root() const {
     return root_domain_;
   };
@@ -572,8 +572,7 @@ class TensorDomain : public Val {
     return allocation_domain_;
   }
 
-  // The index domain after scheduling. nvFuser generates loop indices according
-  // to leaf domain.
+  // The loop domain after scheduling. This defines loop nests and loop indices.
   const std::vector<IterDomain*>& leaf() const {
     return leaf_domain_;
   }
