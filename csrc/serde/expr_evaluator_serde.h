@@ -82,11 +82,12 @@ class ExpressionSerializer {
       std::vector<Val*> domain);
 
   void printStack() const {
+    size_t idx = 0;
     std::cout << "================ ExpressionSerializer Stack ================"
               << std::endl;
     for (auto item : operation_stack_) {
-      std::cout << "ptr\t" << ((void*)item.first) << "\t" << item.first << "\t"
-                << item.second << std::endl;
+      std::cout << (++idx) << " ptr\t" << ((void*)item.first) << "\t" << item.first
+                << "\t" << item.second << std::endl;
     }
     std::cout << "============================================================"
               << std::endl;
@@ -120,8 +121,8 @@ class ExpressionBuilder {
     std::cout << "================ ExpressionBuilder Stack ================"
               << std::endl;
     for (auto idx : c10::irange(operation_stack_.size())) {
-      auto value = operation_stack_.at(idx);
-      std::cout << idx << " ptr: " << ((void*)value) << "\t" << value
+      auto item = operation_stack_.at(idx);
+      std::cout << idx << " ptr: " << ((void*)item) << "\t" << item
                 << std::endl;
     }
     std::cout << "========================================================="

@@ -72,13 +72,6 @@ std::vector<VALTYPE*> makeSortedEvaluationList(std::vector<VALTYPE*> input) {
         }
       }
 
-      for (auto attribute : getAttributes(top_val)) {
-        if (!visited.count(attribute)) {
-          ready_to_pop = false;
-          to_sort.push_back(attribute);
-        }
-      }
-
       if (ready_to_pop) {
         // Some definition operations generate multiple outputs. e.g., split and
         // resize. We add sibling outputs together in the sorted list.
