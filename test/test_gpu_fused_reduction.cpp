@@ -2567,20 +2567,37 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridReduce1_CUDA) {
   FusionGuard fg(&fusion);
 
   auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
   auto tv1 = sum(tv0, {0});
   fusion.addOutput(tv1);
 
-  int64_t bdimx = 64;
   // parallelize like T1[ rblockIdx.x1{i0}, iS2{ceilDiv(i1, 16 * bdimx)},
-  // iS3{4}, iS4{4}, ithreadIdx.x5{bdimx} ] This is a grid reduction with a nest
-  // of three loops that should be
+  // iS3{4}, iS4{4}, ithreadIdx.x5{bdimx} ]
+  int64_t bdimx = 64;
 
-  tv1->split(-1, bdimx);
-  tv1->split(-2, 4);
-  tv1->split(-3, 4);
+  tv0->cacheAfter();
+  auto tv3 = tv1->cacheBefore();
 
-  tv1->axis(0)->parallelize(ParallelType::BIDx);
-  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv3->split(-1, bdimx);
+  tv3->split(-2, 4);
+  tv3->split(-3, 4);
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
+
+  // Move BIDx dimension last so we can inline with output
+  tv3->reorder({
+      {1, 0},
+      {2, 1},
+      {3, 2},
+      {0, 3},
+  });
+
+  TransformPropagator propagator(tv3);
+  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+  scheduler_utils::parallelizeAllLike(tv3);
+
+  inlineMost();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   // this size gives us loop sizes 4, 4, 4 (64 threads per block) with 256
