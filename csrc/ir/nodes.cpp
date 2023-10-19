@@ -3075,7 +3075,45 @@ TensorDomain::TensorDomain(
       has_reduction_(false) {
   validateContiguity(maybeAllocation(), contiguity_);
 
-  // Just due to clang-tidy, correct value set in resetDomains
+  // resetDomains initializes other member variables, required by clang-tidy
+  resetDomains();
+}
+
+TensorDomain::TensorDomain(
+    IrBuilderPasskey passkey,
+    std::vector<IterDomain*> root_domain,
+    std::vector<int64_t> stride_order,
+    std::vector<std::optional<bool>> contiguity)
+    : Val(passkey, ValType::TensorDomain, DataType::Null),
+      root_domain_(std::move(root_domain)),
+      leaf_domain_(root_domain_),
+      contiguity_(
+          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
+                             : std::move(contiguity)),
+      has_reduction_(false) {
+  // setting the proper allocation domain
+  if (!stride_order.empty()) {
+    auto rank = root_domain_.size();
+    NVF_ERROR(
+        rank == stride_order.size(), "Invalid size of stride_order vector");
+
+    // checking stride_order is indeed a permutation
+    std::vector<int64_t> inc_vec(rank);
+    std::iota(inc_vec.begin(), inc_vec.end(), 0);
+    NVF_ERROR(
+        std::is_permutation(
+            stride_order.begin(), stride_order.end(), inc_vec.begin()),
+        "stride_order is not a valid: " + toDelimitedString(stride_order));
+
+    allocation_domain_.resize(rank, nullptr);
+    for (auto i : c10::irange(rank)) {
+      allocation_domain_[rank - 1 - static_cast<int>(stride_order[i])] =
+          root_domain_[i];
+    }
+  }
+  validateContiguity(maybeAllocation(), contiguity_);
+
+  // resetDomains initializes other member variables, required by clang-tidy
   resetDomains();
 }
 
@@ -3097,7 +3135,7 @@ TensorDomain::TensorDomain(
     ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
   }
 
-  // Just due to clang-tidy, correct value set in resetDomains
+  // resetDomains initializes other member variables, required by clang-tidy
   has_reduction_ = false;
   resetDomains();
 }
@@ -3126,7 +3164,7 @@ TensorDomain::TensorDomain(
     }
   }
 
-  // Just due to clang-tidy, correct value set in resetDomains
+  // resetDomains initializes other member variables, required by clang-tidy
   has_reduction_ = false;
   resetDomains();
 }
@@ -3161,7 +3199,7 @@ TensorDomain::TensorDomain(
     }
   }
 
-  // Just due to clang-tidy, correct value set in resetDomains
+  // resetDomains initializes other member variables, required by clang-tidy
   has_reduction_ = false;
   resetDomains();
 }

@@ -30,7 +30,6 @@
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 #include <ops/all_ops.h>
-#include <register_interface.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
@@ -41,10 +40,8 @@
 #include <transform_rfactor.h>
 #include <utils.h>
 
-#include <parser.h>
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
-#include <torch/csrc/jit/ir/irparser.h>
 #include <torch/torch.h>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -1048,99 +1045,6 @@ TEST_F(NVFuserTest, FusionInputsIdLookup_CUDA) {
       {t0, t1, 2.5, 2, false}, /*scalar_inputs_to_record*/ {});
   NVF_CHECK(id_3.id != id_3_lookup.id);
   NVF_CHECK(id_3_norecord.id == id_3_lookup_norecord.id);
-}
-
-TEST_F(NVFuserTest, FusionGroupGuardSimpleTensor_CUDA) {
-  std::vector<int64_t> sizes_vec({16, 8, 8});
-  std::vector<int64_t> strides_vec({64, 8, 1});
-  auto tensor_type = at::TensorType::create(
-      at::kFloat, c10::nullopt, sizes_vec, strides_vec, c10::nullopt);
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
-  // pass with identical shape
-  auto t0 = at::randn({16, 8, 8}, options);
-  NVF_CHECK(complyWith(t0, tensor_type));
-
-  // pass with dynamic shape
-  auto t1 = at::randn({16, 16, 8}, options);
-  NVF_CHECK(complyWith(t1, tensor_type));
-
-  // broadcasting semantic change failure
-  auto t2 = at::randn({16, 1, 8}, options);
-  NVF_CHECK(!complyWith(t2, tensor_type));
-
-  // contiguity failure via slicing
-  auto t3 = t0.slice(1, 0, 8, 2);
-  NVF_CHECK(!complyWith(t3, tensor_type));
-
-  // contiguity failure via slicing
-  auto t4 = t0.slice(2, 0, 8, 2);
-  NVF_CHECK(!complyWith(t4, tensor_type));
-
-  // rank failure
-  auto t5 = at::randn({16, 8, 8, 8}, options);
-  NVF_CHECK(!complyWith(t5, tensor_type));
-
-  // contiguity on stride 1 dimension with implicit broadcasting
-  auto t = at::randn({4}, options);
-  auto t6 = t.unsqueeze(1).expand({4, 8});
-  NVF_CHECK(complyWith(t6, at::TensorType::create(t6)));
-}
-
-TEST_F(NVFuserTest, FusionGroupGuardBroadcastTensor_CUDA) {
-  std::vector<int64_t> sizes_vec({16, 1, 8});
-  std::vector<int64_t> strides_vec({8, 8, 1});
-  auto tensor_type = at::TensorType::create(
-      at::kFloat, c10::nullopt, sizes_vec, strides_vec, c10::nullopt);
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
-  // broadcasting semantic change
-  auto t0 = at::randn({16, 8, 8}, options);
-  NVF_CHECK(!complyWith(t0, tensor_type));
-
-  // dtype failure
-  auto t1 = at::randn({16, 1, 8}, options.dtype(at::kHalf));
-  NVF_CHECK(!complyWith(t1, tensor_type));
-
-  // dtype failure
-  auto t2 = at::randn({16, 1, 8}, options);
-  NVF_CHECK(complyWith(t2, tensor_type));
-
-  // device inconsistency shouldn't fail
-  auto t3 = at::randn({16, 1, 8}, options.device(at::kCPU, 0));
-  NVF_CHECK(complyWith(t3, tensor_type));
-}
-
-TEST_F(NVFuserTest, FusionGroupGuardPermutedTensor_CUDA) {
-  std::vector<int64_t> sizes_vec({16, 8, 8});
-  std::vector<int64_t> strides_vec({64, 1, 8});
-  auto tensor_type = at::TensorType::create(
-      at::kFloat, c10::nullopt, sizes_vec, strides_vec, c10::nullopt);
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
-  // failing permutation
-  auto t0 = at::randn({16, 8, 8}, options);
-  NVF_CHECK(!complyWith(t0, tensor_type));
-
-  // passing with dynamic shape
-  auto t1 = t0.permute({0, 2, 1});
-  NVF_CHECK(complyWith(t1, tensor_type));
-}
-
-TEST_F(NVFuserTest, FusionGroupGuardRelaxedCheck_CUDA) {
-  std::vector<int64_t> sizes_vec({16, 8, 8});
-  std::vector<int64_t> strides_vec({128, 16, 1});
-  auto tensor_type = at::TensorType::create(
-      at::kFloat, c10::nullopt, sizes_vec, strides_vec, c10::nullopt);
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
-  // contiguity check passes although it differs
-  auto t0 = at::randn({16, 16, 8}, options);
-  NVF_CHECK(complyWith(t0, tensor_type));
-
-  // passing with dynamic shape
-  auto t1 = t0.slice(1, 0, 16, 2);
-  NVF_CHECK(complyWith(t1, tensor_type));
 }
 
 TEST_F(NVFuserTest, FusionDisjointSet_CUDA) {
@@ -8792,112 +8696,6 @@ TEST_F(NVFuserTest, FusionIssue1127_CUDA) {
   // Lowering should fail since tv5 is predicated and paralellized with TIDx.
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
   ASSERT_ANY_THROW(fusion.printKernel());
-}
-
-TEST_F(NVFuserTest, FusionChannelsLastParser_CUDA) {
-  // This test may not pass if using a custom block sync as there may
-  // be additional calls. Skip the test as it's not specifically
-  // relevant with block synchronizatin.
-  if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
-    return;
-  }
-  auto g = std::make_shared<torch::jit::Graph>();
-  const auto graph0_string = R"IR(
-  graph(%0 : Half(8, 4, 10, 16, strides=[640, 1, 64, 4]),
-        %1 : Half(8, 4, 10, 16, strides=[640, 160, 16, 1])):
-    %o.1 : Half(8, 4, 10, 16, strides=[640, 1, 64, 4]) = aten::mul(%0, %1) # sum_dyn.py:5:6
-    %3 : Half(8, 4, 10, 16, strides=[640, 1, 64, 4]) = aten::relu(%o.1) # sum_dyn.py:6:9
-    return (%3))IR";
-  parseIR(graph0_string, g.get());
-
-  // strides are not yet supported in the irparser.
-  {
-    auto val = g->block()->inputs()[0];
-    val->setType(val->type()->castRaw<at::TensorType>()->withSizesStrides(
-        {8, 4, 10, 16}, {640, 1, 64, 4}));
-  }
-
-  {
-    auto val = g->block()->inputs()[1];
-    val->setType(val->type()->castRaw<at::TensorType>()->withSizesStrides(
-        {8, 4, 10, 16}, {640, 160, 16, 1}));
-  }
-
-  for (auto node : g->block()->nodes()) {
-    for (auto val : node->outputs()) {
-      if (val->isCompleteTensor())
-        val->setType(val->type()->castRaw<at::TensorType>()->withSizesStrides(
-            {8, 4, 10, 16}, {640, 1, 64, 4}));
-    }
-  }
-
-  auto fusion = parseJitIR(g);
-  FusionGuard fg(fusion.get());
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::Tensor input0 =
-      at::randn({2, 2, 2, 16}, options).clone(c10::MemoryFormat::ChannelsLast);
-  at::Tensor input1 = at::randn({2, 2, 2, 16}, options);
-  auto lparams = schedulePointwise(fusion.get(), {input0, input1});
-
-  // CONSIDER:
-  // 1. this can be moved to a dedicated "golden" file
-  // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
-  const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<__half, 4, 4> T0, Tensor<__half, 4, 4> T2, Tensor<__half, 4, 4> T7) {
-  nvfuser_index_t i0;
-  i0 = T0.logical_size[2LL] * T0.logical_size[1LL];
-  nvfuser_index_t i1;
-  i1 = ((nvfuser_index_t)threadIdx.x) + (128LL * ((nvfuser_index_t)blockIdx.x));
-  nvfuser_index_t i2;
-  i2 = (T0.logical_size[1LL] * T0.logical_size[2LL]) * T0.logical_size[3LL];
-  nvfuser_index_t i3;
-  i3 = i1 % i2;
-  nvfuser_index_t i4;
-  i4 = T0.logical_size[2LL] * T0.logical_size[3LL];
-  nvfuser_index_t i5;
-  i5 = i3 % i4;
-  if ((i1 < (((T0.logical_size[0LL] * T0.logical_size[1LL]) * T0.logical_size[2LL]) * T0.logical_size[3LL]))) {
-    __half T9[1LL];
-    T9[0LL] = 0LL;
-    T9[0LL]
-       = T2[(((((i0 * T0.logical_size[3LL]) * (i1 / i2)) + (i0 * (i5 % T0.logical_size[3LL]))) + (T0.logical_size[2LL] * (i3 / i4))) + (i5 / T0.logical_size[3LL]))];
-    __half T8[1LL];
-    T8[0LL] = 0LL;
-    T8[0LL]
-       = T0[i1];
-    float T3[1LL];
-    T3[0LL]
-       = __half2float(T9[0LL]);
-    float T4[1LL];
-    T4[0LL]
-       = T3[0LL];
-    float T1[1LL];
-    T1[0LL]
-       = __half2float(T8[0LL]);
-    float T5[1LL];
-    T5[0LL]
-      = T1[0LL]
-      * T4[0LL];
-    float T6[1LL];
-    T6[0LL]
-       = relu(T5[0LL]);
-    __half T10[1LL];
-    T10[0LL]
-       = __float2half(T6[0LL]);
-    T7[i1]
-       = T10[0LL];
-  }
-}
-)";
-
-  assertCUDAKernel(fusion.get(), expected_kernel);
-
-  // TODO: runFusion hits assertion. I'm probably doing something wrong here.
-  // FusionExecutor fe;
-  // fe.compileFusion(fusion.get());
-  // auto outputs = fe.runFusion({input0, input1}, lparams);
-  // at::Tensor output_ref = (input0 * input1).relu();
-  // NVF_CHECK(output_ref.equal(outputs[0]));
 }
 
 TEST_F(NVFuserTest, FusionThreadPredicateUnswitch_CUDA) {
