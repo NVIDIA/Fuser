@@ -179,7 +179,10 @@ class FusionExecutor : public NonCopyable {
     return measure_kernel_time_ ? kernel_time_ms_ : 0;
   }
 
-  //! Returns the number of bytes processed last kernel execution
+  //! Returns the number of bytes of inputs and outputs processed by the last
+  //! kernel execution. Note that this ignores intermediates and thus represents
+  //! the _minimum_ number of bytes corresponding to reading every input element
+  //! and writing every output element exactly once.
   int64_t bytesProcessed() const {
     int64_t bytes_processed = 0;
     for (auto bp : bytes_processed_per_input_) {
