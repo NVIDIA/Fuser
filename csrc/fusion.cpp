@@ -800,7 +800,6 @@ std::vector<std::pair<int, int>> Fusion::getOutputToInputAliasIndices() const {
     return {};
   }
 
-  std::vector<std::pair<int, int>> alias_indices;
   std::unordered_map<const Val*, size_t> in_val_index, out_val_index;
   for (const auto input_idx : c10::irange(inputs_.size())) {
     in_val_index[inputs_[input_idx]] = input_idx;
@@ -809,6 +808,7 @@ std::vector<std::pair<int, int>> Fusion::getOutputToInputAliasIndices() const {
     out_val_index[outputs_[output_idx]] = output_idx;
   }
 
+  std::vector<std::pair<int, int>> alias_indices;
   std::for_each(
       io_alias_.begin(),
       io_alias_.end(),
@@ -828,7 +828,6 @@ std::vector<std::pair<int, int>> Fusion::getOutputToInputAliasIndices() const {
             static_cast<int>(out_val_index.at(out)),
             static_cast<int>(in_val_index.at(in)));
       });
-
   return alias_indices;
 }
 
