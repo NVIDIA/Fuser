@@ -800,25 +800,34 @@ std::vector<std::pair<int, int>> Fusion::getOutputToInputAliasIndices() const {
     return {};
   }
 
-  std::vector<std::pair<int, int>> alias_indices;
-  for (const auto output_idx : c10::irange(outputs_.size())) {
-    if (io_alias_.count(outputs_[output_idx]) != 0) {
-      bool found = false;
-      for (const auto input_idx : c10::irange(inputs_.size())) {
-        if (io_alias_.at(outputs_[output_idx]) == inputs_[input_idx]) {
-          alias_indices.emplace_back(output_idx, input_idx);
-          found = true;
-          break;
-        }
-      }
-      NVF_ERROR(
-          found,
-          "io_alias_ mapping failure, alias output is not present in inputs");
-    }
+  std::unordered_map<const Val*, size_t> in_val_index, out_val_index;
+  for (const auto input_idx : c10::irange(inputs_.size())) {
+    in_val_index[inputs_[input_idx]] = input_idx;
   }
-  // can't assert here, we could have segmented fusion where not all alias
-  // outputs are present
+  for (const auto output_idx : c10::irange(inputs_.size())) {
+    out_val_index[outputs_[output_idx]] = output_idx;
+  }
 
+  std::vector<std::pair<int, int>> alias_indices;
+  std::for_each(
+      io_alias_.begin(),
+      io_alias_.end(),
+      [&](const std::pair<Val*, Val*>& alias) {
+        const Val* out = alias.first;
+        if (!out_val_index.count(out)) {
+          // Can't assert false here. We may have segmented fusion where not all
+          // alias outputs are present.
+          return;
+        }
+        const Val* in = alias.second;
+        NVF_ERROR(
+            in_val_index.count(in),
+            in->toString(),
+            " is marked as an input alias but isn't a fusion input.");
+        alias_indices.emplace_back(
+            static_cast<int>(out_val_index.at(out)),
+            static_cast<int>(in_val_index.at(in)));
+      });
   return alias_indices;
 }
 
