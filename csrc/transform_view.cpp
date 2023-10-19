@@ -371,7 +371,10 @@ class AnalyzeViewTransformation {
         new_view_.begin(), new_view.end(), 1, std::multiplies<>());
     NVF_ERROR(
         original_num_elements == new_num_elements,
-        "Total element counts across view operation must match.");
+        "Total element counts across view operation must match: ",
+        original_num_elements,
+        " vs ",
+        new_num_elements);
   }
 
   AnalyzeViewConstraint constraint() {
