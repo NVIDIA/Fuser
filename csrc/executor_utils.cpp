@@ -1241,7 +1241,7 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
         full_src_code, func_name, id, compile_to_sass, nvrtc_compile_driver);
     log << compiled_kernel->compile_log << std::endl;
     if (use_kernel_db) {
-      auto result = kernel_db.write(
+      kernel_db.write(
           kernel_code.value(),
           compile_args,
           compiled_kernel->kernel_name,
