@@ -29,7 +29,6 @@
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 #include <ops/all_ops.h>
-#include <register_interface.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
@@ -39,10 +38,6 @@
 #include <transform_replay.h>
 #include <transform_rfactor.h>
 #include <transform_view.h>
-
-// fuser and IR parser
-#include <parser.h>
-#include <torch/csrc/jit/ir/irparser.h>
 
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>

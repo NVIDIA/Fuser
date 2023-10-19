@@ -100,6 +100,8 @@ struct KernelProfile {
 struct FusionProfile {
   void reset();
 
+  int64_t fusion_id;
+
   double time_ms{0.0};
   double host_time_ms{0.0};
   double compile_time_ms{0.0};
@@ -173,7 +175,7 @@ class FusionProfiler {
   static FusionProfiler* singleton_;
   static std::mutex singleton_lock_;
 
-  uint32_t fusion_id_;
+  int64_t fusion_id_;
 
   FusionProfile profile_;
   CudaEventTimer fusion_timer_;

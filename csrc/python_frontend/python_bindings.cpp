@@ -209,8 +209,12 @@ std::vector<std::optional<bool>> computeContiguity(
 
 // [ Note stride order and contiguity vector ]
 //
+// for n-d tensor. we should have stride_order and contiguity both be a size n
+// vector.
+//
 // `stride order` vector corresponds to the order for each logical domain in
-//     physical memory;
+//     physical memory; For any 0 <= i < n , we know the dimension i has the
+//     stride_order[i]-th smallest stride.
 // `contiguity` vector to whether or not indexing could be collaped
 //     corresponding to each physical domain;
 //

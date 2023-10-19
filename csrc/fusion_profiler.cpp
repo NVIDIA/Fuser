@@ -284,6 +284,20 @@ void FusionProfile::reset() {
   kernel_profiles.clear();
 }
 
+std::ostream& operator<<(std::ostream&, const FusionProfile&) {
+  constexpr std::array<const char*,  23> column_strs{"Fus#", "NumSegs",
+      "Time(ms)", "HstTime(ms)", "CmpTime(ms)", "KerTime(ms)", "EffBw(GB/s)",
+      "%PeakBw", "Seg#", "S-KerName", "S-Dev", "S-Str", "S-KerTime(ms)",
+      "S-CmpTime(ms)", "S-EffBw(GB/s)", "S-%PeakBw", "S-Grid",
+      "S-Block", "S-Cluster", "S-Smem[Dyn,Stat]", "S-Regs", "S-In(MB)",
+      "S-Out(MB)"};
+
+  
+
+  
+
+}
+
 std::mutex FusionProfiler::singleton_lock_;
 FusionProfiler* FusionProfiler::singleton_ = nullptr;
 
@@ -382,6 +396,7 @@ void FusionProfiler::stop() {
   for (auto &seg : segments_) {
     NVF_CHECK(seg.device() == device, "All Segment profiles must be on the same device!");
   }
+  profile_.fusion_id = fusion_id_;
   profile_.host_time_ms = profile_.time_ms - compile_time_ms - kernel_time_ms;
   profile_.compile_time_ms = compile_time_ms;
   profile_.kernel_time_ms = compile_time_ms;

@@ -10,7 +10,7 @@
 // dynamic_type.h with nvcc is not supported.
 
 #include <ATen/cuda/CUDAGeneratorImpl.h>
-#include <csrc/exceptions.h>
+#include <exceptions.h>
 #include <torch/torch.h>
 #include <ATen/cuda/CUDAGraphsUtils.cuh>
 
