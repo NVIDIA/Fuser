@@ -1008,12 +1008,13 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     executor.setMeasureKernelTimeFlag(true);
   }
 
+  SEGMENT_PROFILER_INPUT_BYTES_ACCESSED(group_id,
+      ([&args, &executor]() { return executor.inputBytesProcessed(args);}));
   SEGMENT_PROFILER_START_KERNEL(args.getDeviceIndex(), group_id)
   auto outputs = executor.runFusion(args, launch_params, compile_params);
   SEGMENT_PROFILER_STOP_KERNEL(group_id);
-  //SEGMENT_PROFILER_BYTES_PROCESSED(group_id,
-  //    ([&args, &outputs, &executor]() { return executor.inputBytesProcessed(args, outputs);}),
-  //    ([&outputs, &executor]() { return executor.outputBytesProcessed(outputs);}));
+  SEGMENT_PROFILER_OUTPUT_BYTES_ACCESSED(group_id,
+      ([&outputs, &executor]() { return executor.outputBytesProcessed(outputs);}));
   
   // Accumulate the kernel time of each segment
   kernel_time_ms_ += executor.kernelTimeMs();

@@ -1673,6 +1673,14 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     expr_eval.bind(inputs[i], *args[i]);
   }
 
+  const bool measure_kernel_time = measure_kernel_time_ ||
+      isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
+      isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose);
+
+  if (measure_kernel_time) {
+    inputBytesProcessed(args);
+  }
+
   // only allocate outputs when not given
   if (outputs.empty()) {
     outputs = allocOutputs(
@@ -1764,10 +1772,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     debug() << "Index type: " << kernel()->indexType() << std::endl;
   }
 
-  const bool measure_kernel_time = measure_kernel_time_ ||
-      isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
-      isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose);
-
   executor_utils::CudaKernelTimer timer(stream);
 
   if (measure_kernel_time) {
@@ -1842,6 +1846,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     if (measure_kernel_time) {
       kernel_time_ms_ = timer.elapsed();
 
+      /*
       bytes_processed_per_input_.resize(num_inputs, 0);
       // Figure how many bytes are inputs, outputs, and temporary buffers
       for (auto i : c10::irange(num_inputs)) {
@@ -1860,6 +1865,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         bytes_processed_per_output_.at(i) = output.numel() *
             (int64_t)dataTypeSize(aten_to_data_type(output.scalar_type()));
       }
+      */
+      outputBytesProcessed(outputs);
 
       if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth)) {
         double gb_per_s =

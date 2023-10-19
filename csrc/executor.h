@@ -179,13 +179,60 @@ class FusionExecutor : public NonCopyable {
     return measure_kernel_time_ ? kernel_time_ms_ : 0;
   }
 
+  int64_t inputBytesProcessed(KernelArgumentHolder& args) {
+    int64_t total_bytes = 0;
+    if(!bytes_processed_per_input_.has_value()) {
+      int64_t num_bytes = 0;
+      bytes_processed_per_input_ = std::optional<std::vector<int64_t>>(std::vector<int64_t>(args.size(), 0));
+      // Figure how many bytes are inputs, outputs, and temporary buffers
+      for (auto i : c10::irange(args.size())) {
+        if (args[i]->is<at::Tensor>()) {
+          auto t = args[i]->as<at::Tensor>();
+          num_bytes = t.numel() *
+              (int64_t)dataTypeSize(aten_to_data_type(t.scalar_type()));
+          bytes_processed_per_input_.value().at(i) = num_bytes;
+          total_bytes += num_bytes;
+        }
+      }
+    } else {
+      for (auto bp : bytes_processed_per_input_.value()) {
+        total_bytes += bp;
+      }
+    }
+    return total_bytes;
+  }
+  
+  int64_t outputBytesProcessed(std::vector<at::Tensor>& outputs) {
+    int64_t total_bytes = 0;
+    if(!bytes_processed_per_output_.has_value()) {
+      int64_t num_bytes = 0;
+      bytes_processed_per_output_ = std::optional<std::vector<int64_t>>(std::vector<int64_t>(outputs.size(), 0));
+      for (auto i : c10::irange(outputs.size())) {
+        const auto& output = outputs.at(i);
+        // NOTE: this assumes that all output elements correspond to a single
+        // store
+        num_bytes = output.numel() *
+            (int64_t)dataTypeSize(aten_to_data_type(output.scalar_type()));
+        bytes_processed_per_output_.value().at(i) = num_bytes;
+        total_bytes += num_bytes;
+      }
+    } else {
+      for (auto bp : bytes_processed_per_output_.value()) {
+        total_bytes += bp;
+      }
+    }
+    return total_bytes;
+  }
+
   //! Returns the number of bytes processed last kernel execution
   int64_t bytesProcessed() const {
+    NVF_CHECK(bytes_processed_per_input_.has_value(), "bytes_processed_per_input_ is not defined!");
+    NVF_CHECK(bytes_processed_per_output_.has_value(), "bytes_processed_per_output_ is not defined!");
     int64_t bytes_processed = 0;
-    for (auto bp : bytes_processed_per_input_) {
+    for (auto bp : bytes_processed_per_input_.value()) {
       bytes_processed += bp;
     }
-    for (auto bp : bytes_processed_per_output_) {
+    for (auto bp : bytes_processed_per_output_.value()) {
       bytes_processed += bp;
     }
     return bytes_processed;
@@ -193,12 +240,14 @@ class FusionExecutor : public NonCopyable {
 
   //! Get a vector of bytes processed across all kernel inputs
   const std::vector<int64_t>& bytesInputsProcessed() const {
-    return bytes_processed_per_input_;
+    NVF_CHECK(bytes_processed_per_input_.has_value(), "bytes_processed_per_input_ is not defined!");
+    return bytes_processed_per_input_.value();
   }
 
   //! Get a vector of bytes processed across all kernel outputs
   const std::vector<int64_t>& bytesOutputsProcessed() const {
-    return bytes_processed_per_output_;
+    NVF_CHECK(bytes_processed_per_output_.has_value(), "bytes_processed_per_output_ is not defined!");
+    return bytes_processed_per_output_.value();
   }
 
   //! Returns the launch parameters from the last kernel execution
@@ -448,10 +497,10 @@ class FusionExecutor : public NonCopyable {
   float kernel_time_ms_ = 0;
 
   // Profiling support: last kernel bytes processed in each input
-  std::vector<int64_t> bytes_processed_per_input_;
+  std::optional<std::vector<int64_t>> bytes_processed_per_input_ = std::nullopt;
 
   // Profiling support: last kernel bytes processed in each output
-  std::vector<int64_t> bytes_processed_per_output_;
+  std::optional<std::vector<int64_t>> bytes_processed_per_output_ = std::nullopt;
 
   // Profiling support: the last launch param used
   LaunchParams launch_params_;

@@ -80,7 +80,7 @@ struct KernelProfile {
   double compile_time_ms{0.0};
   double time_ms{0.0};
   double effective_bandwidth_gbs{0.0};
-  double perentage_peak_bandwidth{0.0};
+  double percentage_peak_bandwidth{0.0};
 
   std::array<int32_t, 3> grid{0, 0, 0};
   std::array<int32_t, 3> block{0, 0, 0};
@@ -90,8 +90,8 @@ struct KernelProfile {
   int32_t static_shared_mem{0};
   uint32_t registers{0};
   
-  size_t input_bytes{0};
-  size_t output_bytes{0};
+  int64_t input_bytes{0};
+  int64_t output_bytes{0};
   
   std::string device_name;
   double peak_bandwidth_gbs{0.0};
@@ -105,11 +105,11 @@ struct FusionProfile {
   double compile_time_ms{0.0};
   double kernel_time_ms{0.0};
 
-  size_t input_bytes{0};
-  size_t output_bytes{0};
+  int64_t input_bytes{0};
+  int64_t output_bytes{0};
 
   double effective_bandwidth_gbs{0.0};
-  double perentage_peak_bandwidth{0.0};
+  double percentage_peak_bandwidth{0.0};
 
   std::vector<KernelProfile> kernel_profiles;
 };
@@ -126,37 +126,42 @@ class SegmentProfiler {
   void startKernel(int device);
   void stopKernel();
 
-  void inputBytesAccessed(size_t bytes);
-  void outputBytesAccessed(size_t bytes);
+  void inputBytesAccessed(int64_t bytes);
+  void outputBytesAccessed(int64_t bytes);
 
   uint32_t segmentId() const;
+  int device() const { return device_; }
+
+  int64_t inputBytes() const { return input_bytes_; }
+  int64_t outputBytes() const { return output_bytes_; }
+  double compileTime() { return compile_timer_.time(); }
+  ProfilerState state() const { return kernel_profile_state_; }
 
  private:
   int device_;
   uint32_t segment_id_;
 
   CudaEventTimer compile_timer_;
+  int64_t input_bytes_;
+  int64_t output_bytes_;
   ProfilerState kernel_profile_state_;
 };
 
 class FusionProfiler {
   FusionProfiler();
   void reset();
-  void print() const;
 
  public: // Static Methods
   static FusionProfiler* get();
  
-  FusionProfiler(size_t device);
-  
   void createSegments(size_t num);
   SegmentProfiler& segment(size_t idx);
 
   void start();
   void stop();
-  void inputBytesAccessed(size_t bytes);
-  void outputBytesAccessed(size_t bytes);
-  FusionProfile profile() const;
+  void inputBytesAccessed(int64_t bytes);
+  void outputBytesAccessed(int64_t bytes);
+  const FusionProfile& profile() const;
   
   // Methods to capture Asynchronous CUPTI activity
   // Correlation ID -> Segment ID
@@ -213,8 +218,8 @@ class FusionProfiler {
 #define SEGMENT_PROFILER_STOP_KERNEL(idx) \
   _FP_ENABLE(FusionProfiler::get()->segment(idx).stopKernel())
 #define SEGMENT_PROFILER_INPUT_BYTES_ACCESSED(idx, input_fn) \
-  _FP_ENABLE(FusionProfiler::get()->segment(idx).inputBytesAccessed(input_fn())
+  _FP_ENABLE(FusionProfiler::get()->segment(idx).inputBytesAccessed(input_fn()));
 #define SEGMENT_PROFILER_OUTPUT_BYTES_ACCESSED(idx, output_fn) \
-  _FP_ENABLE(FusionProfiler::get()->segment(idx).outputBytesAccessed(output_fn())
+  _FP_ENABLE(FusionProfiler::get()->segment(idx).outputBytesAccessed(output_fn()));
 
 } // namespace nvfuser

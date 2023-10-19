@@ -191,10 +191,35 @@ ProfilerState CudaEventTimer::state() const {
   return state_;
 }
 
+void DeviceDescriptor::generate(int _device) {
+  device = static_cast<int>(_device);
+  name.reserve(100);
+  NVFUSER_CUDA_SAFE_CALL(
+      cuDeviceGetName(name.data(), 100, device));
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &bus_width,
+      CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH,
+      device));
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &memory_clock, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, device));
+
+    // Peak bandwidth calculation:
+    // Bus width is given in bits, so dividing by 8 converts to bytes.
+    // Clock is given in kHz. 1 GB = 1e9 bytes (don't report GiB = 1024^3 bytes)
+    // A factor of 2 is multiplied to account for double data rate (DDR):
+    // (clock in kHz * width in bits) * (1000 Hz / kHz) * (1 GB / 8e9 bits) * 2
+    // factor = 2.5e-7
+  peak_bandwidth_gbs = 2.5e-7 * static_cast<double>(memory_clock) * static_cast<double>(bus_width);
+
+  std::cout << "\n" << device << " " << name << " " << bus_width << " " << memory_clock << " " << peak_bandwidth_gbs << std::endl;
+}
+
 SegmentProfiler::SegmentProfiler(uint32_t id) :
   device_(-1),
   segment_id_(id),
   compile_timer_(at::cuda::getCurrentCUDAStream()),
+  input_bytes_(0),
+  output_bytes_(0),
   kernel_profile_state_(ProfilerState::Ready) {}
 
 void SegmentProfiler::startCompile(int device) {
@@ -204,7 +229,6 @@ void SegmentProfiler::startCompile(int device) {
 
 void SegmentProfiler::stopCompile() {
   compile_timer_.stop();
-  std::cout << "\nCompile Time: " << compile_timer_.time() << " ms" << std::endl;
 }
 
 void SegmentProfiler::startKernel(int device) {
@@ -235,11 +259,12 @@ void SegmentProfiler::stopKernel() {
   kernel_profile_state_ = ProfilerState::Finished;
 }
 
-void SegmentProfiler::inputBytesAccessed(size_t bytes) {
-  std::cout << "\nSegment Input Bytes Accessed: " << bytes << std::endl;
+void SegmentProfiler::inputBytesAccessed(int64_t bytes) {
+  input_bytes_ = bytes;
 }
-void SegmentProfiler::outputBytesAccessed(size_t bytes) {
-  std::cout << "\nSegment Output Bytes Accessed: " << bytes << std::endl;
+
+void SegmentProfiler::outputBytesAccessed(int64_t bytes) {
+  output_bytes_ = bytes;
 }
 
 uint32_t SegmentProfiler::segmentId() const {
@@ -256,7 +281,7 @@ void FusionProfile::reset() {
   output_bytes = 0;
 
   effective_bandwidth_gbs = 0.0;
-  perentage_peak_bandwidth = 0.0;
+  percentage_peak_bandwidth = 0.0;
 
   kernel_profiles.clear();
 }
@@ -264,12 +289,48 @@ void FusionProfile::reset() {
 std::mutex FusionProfiler::singleton_lock_;
 FusionProfiler* FusionProfiler::singleton_ = nullptr;
 
+FusionProfiler::FusionProfiler() :
+  fusion_id_(0),
+  profile_(),
+  fusion_timer_(at::cuda::getCurrentCUDAStream()),
+  segments_(),
+  device_descriptors_(),
+  kernel_profiles_(),
+  corrid_2_segid_() {
+  NVFUSER_CUPTI_SAFE_CALL(
+      cuptiActivityRegisterCallbacks(buffer_requested, buffer_completed));
+}
+
+void FusionProfiler::reset() {
+  ++fusion_id_; 
+
+  profile_.reset();
+  fusion_timer_.reset();
+  segments_.clear();
+  kernel_profiles_.clear();
+  corrid_2_segid_.clear();
+  segid_2_idx_.clear();
+}
+
 FusionProfiler* FusionProfiler::get() {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ == nullptr) {
     singleton_ = new FusionProfiler();
   } 
   return singleton_;
+}
+
+void FusionProfiler::createSegments(size_t num) {
+  segments_.reserve(num);
+  uint32_t hash_preamble = (0xffff & fusion_id_) << 15;
+  for (size_t i = 0; i < num; ++i) {
+    uint32_t id = hash_preamble | (0xffff & static_cast<uint32_t>(i));
+    segid_2_idx_[id] = segments_.size();
+    segments_.emplace_back(id);
+  }
+}
+SegmentProfiler& FusionProfiler::segment(size_t idx) {
+  return segments_.at(idx);
 }
 
 void FusionProfiler::start() {
@@ -286,7 +347,10 @@ void FusionProfiler::stop() {
   NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(0));
 
   NVF_CHECK(kernel_profiles_.size() == segments_.size(), "All of the kernel profiles have not been recorded!");
-  
+ 
+  double compile_time_ms = 0.0;
+  double kernel_time_ms = 0.0;
+  constexpr double mb_divider = 1.0 / 1.0e6;
   for(auto &kp : kernel_profiles_) {
     auto corr_id = kp.correlation_id;
     NVF_CHECK(kp.device >= 0, "Device Descriptor index is not valid! ", kp.device);
@@ -304,12 +368,41 @@ void FusionProfiler::stop() {
     NVF_CHECK(segid_2_idx_.count(seg_id) > 0, "Seg id is not found in seg id -> idx hashmap! ", seg_id);
     auto kp_idx = segid_2_idx_[seg_id];
     NVF_CHECK(kp_idx < profile_.kernel_profiles.size(), "Index is out of range of Kernel Profiles size! ", kp_idx, " ", profile_.kernel_profiles.size());
+    NVF_CHECK(segments_[kp_idx].state() == ProfilerState::Finished, "SegmentProfiler ProfilerState is not Finished!", segments_[kp_idx].state());
+    kp.input_bytes = segments_.at(kp_idx).inputBytes();
+    kp.output_bytes = segments_.at(kp_idx).outputBytes();
+    kp.effective_bandwidth_gbs = (double)(kp.input_bytes + kp.output_bytes) / kp.time_ms * mb_divider;
+    kp.percentage_peak_bandwidth = kp.effective_bandwidth_gbs / kp.peak_bandwidth_gbs * 100.0;
+    kp.compile_time_ms = segments_.at(kp_idx).compileTime();
+
+    compile_time_ms += kp.compile_time_ms;
+    kernel_time_ms += kp.time_ms;
     profile_.kernel_profiles[kp_idx] = std::move(kp);
-    profile_.kernel_profiles[kp_idx].print();
   }
-  print();
+
+  int device = segments_[0].device();
+  for (auto &seg : segments_) {
+    NVF_CHECK(seg.device() == device, "All Segment profiles must be on the same device!");
+  }
+  profile_.host_time_ms = profile_.time_ms - compile_time_ms - kernel_time_ms;
+  profile_.compile_time_ms = compile_time_ms;
+  profile_.kernel_time_ms = compile_time_ms;
+  profile_.effective_bandwidth_gbs = (double)(profile_.input_bytes + profile_.output_bytes) / profile_.time_ms * mb_divider;
+  profile_.percentage_peak_bandwidth = profile_.effective_bandwidth_gbs / device_descriptors_[segments_[0].device()].peak_bandwidth_gbs * 100.0;
 }
   
+void FusionProfiler::inputBytesAccessed(int64_t bytes) {
+  profile_.input_bytes = bytes;
+}
+
+void FusionProfiler::outputBytesAccessed(int64_t bytes) {
+  profile_.output_bytes = bytes;
+}
+
+const FusionProfile& FusionProfiler::profile() const {
+  return profile_;
+}
+
 void FusionProfiler::recordAsyncCorrIdActivity(uint32_t seg_id, uint32_t corr_id) {
   NVF_CHECK(corrid_2_segid_.count(corr_id) == 0, "Segment Correlation Activity asociated with this correlation id already exists! ", corr_id);
   corrid_2_segid_[corr_id] = seg_id;
@@ -317,77 +410,6 @@ void FusionProfiler::recordAsyncCorrIdActivity(uint32_t seg_id, uint32_t corr_id
 
 void FusionProfiler::recordAsyncKernelActivity(KernelProfile prof) {
   kernel_profiles_.emplace_back(std::move(prof));
-}
-
-void FusionProfiler::createSegments(size_t num) {
-  segments_.reserve(num);
-  uint32_t hash_preamble = (0xffff & fusion_id_) << 15;
-  for (size_t i = 0; i < num; ++i) {
-    uint32_t id = hash_preamble | (0xffff & static_cast<uint32_t>(i));
-    segid_2_idx_[id] = segments_.size();
-    segments_.emplace_back(id);
-  }
-}
-SegmentProfiler& FusionProfiler::segment(size_t idx) {
-  return segments_.at(idx);
-}
-
-void DeviceDescriptor::generate(int _device) {
-  device = static_cast<int>(_device);
-  name.reserve(100);
-  NVFUSER_CUDA_SAFE_CALL(
-      cuDeviceGetName(name.data(), 100, device));
-  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
-      &bus_width,
-      CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH,
-      device));
-  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
-      &memory_clock, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, device));
-
-    // Peak bandwidth calculation:
-    // Bus width is given in bits, so dividing by 8 converts to bytes.
-    // Clock is given in kHz. 1 GB = 1e9 bytes (don't report GiB = 1024^3 bytes)
-    // A factor of 2 is multiplied to account for double data rate (DDR):
-    // (clock in kHz * width in bits) * (1000 Hz / kHz) * (1 GB / 8e9 bits) * 2
-    // factor = 2.5e-7
-  peak_bandwidth_gbs = 2.5e-7 * static_cast<double>(memory_clock) * static_cast<double>(bus_width);
-
-  std::cout << "\n" << device << " " << name << " " << bus_width << " " << memory_clock << " " << peak_bandwidth_gbs << std::endl;
-}
-
-FusionProfiler::FusionProfiler() :
-  fusion_id_(0),
-  profile_(),
-  fusion_timer_(at::cuda::getCurrentCUDAStream()),
-  segments_(),
-  device_descriptors_(),
-  kernel_profiles_(),
-  corrid_2_segid_() {
-  NVFUSER_CUPTI_SAFE_CALL(
-      cuptiActivityRegisterCallbacks(buffer_requested, buffer_completed));
-}
-
-void FusionProfiler::inputBytesAccessed(size_t bytes) {
-  std::cout << "\nFusionInput Bytes Accessed: " << bytes << std::endl;
-}
-void FusionProfiler::outputBytesAccessed(size_t bytes) {
-  std::cout << "\nFusion Output Bytes Accessed: " << bytes << std::endl;
-}
-
-void FusionProfiler::reset() {
-  ++fusion_id_; 
-
-  profile_.reset();
-  fusion_timer_.reset();
-  segments_.clear();
-  kernel_profiles_.clear();
-  corrid_2_segid_.clear();
-  segid_2_idx_.clear();
-}
-
-void FusionProfiler::print() const {
-  std::cout << "\nFusion Total Time: " << profile_.time_ms << " ms" << std::endl;
-  //std::cout << "\nCompile Time: " << profile_.compile_time << " ms" << std::endl;
 }
 
 } // namespace nvfuser
