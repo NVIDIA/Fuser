@@ -82,12 +82,16 @@ class ExpressionSerializer {
       std::vector<Val*> domain);
 
   void printStack() const {
-    size_t idx = 0;
+    std::vector<nvfuser::Val*> ordered_stack(operation_stack_.size());
+    for (auto item : operation_stack_) {
+        ordered_stack.at(item.second) = item.first;
+    }
     std::cout << "================ ExpressionSerializer Stack ================"
               << std::endl;
-    for (auto item : operation_stack_) {
-      std::cout << (++idx) << " ptr\t" << ((void*)item.first) << "\t" << item.first
-                << "\t" << item.second << std::endl;
+    for (auto idx : c10::irange(ordered_stack.size())) {
+      auto item = ordered_stack.at(idx);
+      std::cout << idx << " ptr: " << ((void*)item) << "\t" << item
+                << std::endl;
     }
     std::cout << "============================================================"
               << std::endl;
