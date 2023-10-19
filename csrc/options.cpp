@@ -186,10 +186,10 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
 
   auto options = parseEnvOptions("DISABLE", available_options);
 
-  if (options.count(DisableOption::Fma)) {
-    TORCH_WARN(
-        "fmad is disabled for nvrtc, which could negatively affect performance. Try removing `fma` from env variable NVFUSER_DISABLE for optimal performance.");
-  }
+  // if (options.count(DisableOption::Fma)) {
+  //   TORCH_WARN(
+  //       "fmad is disabled for nvrtc, which could negatively affect performance. Try removing `fma` from env variable NVFUSER_DISABLE for optimal performance.");
+  // }
 
   return options;
 }

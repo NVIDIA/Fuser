@@ -743,8 +743,8 @@ void initNvFuserPythonBindings(PyObject* module) {
          PolymorphicValue::VariantType value,
          std::optional<PrimDataType> dtype) -> Scalar {
         FUSER_PERF_SCOPE("FusionDefinition.define_contant");
-        TORCH_WARN_ONCE(
-            "Deprecating define_constant functions in favor of define_scalar for constants.");
+        // TORCH_WARN_ONCE(
+        //     "Deprecating define_constant functions in favor of define_scalar for constants.");
         Scalar out = self.defineScalar();
         self.defineRecord(
             new ScalarRecord({self.recordingState(out())}, value, dtype));

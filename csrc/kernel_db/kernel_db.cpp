@@ -66,9 +66,9 @@ KernelDb& KernelDb::get(
     try {
       success = singleton.open(kernel_db_dir, kernel_db_file, use_temp_dir);
     } catch (const std::exception& e) {
-      TORCH_WARN(
-          "nvFuser's kernel_db had an unexpected exception while opening. Exception: ",
-          e.what());
+      // TORCH_WARN(
+      //     "nvFuser's kernel_db had an unexpected exception while opening. Exception: ",
+      //     e.what());
     }
     if (!success) {
       singleton.disabled_ = true;
@@ -99,10 +99,10 @@ bool KernelDb::open(
       try {
         fs::create_directory(kernel_db_path_);
       } catch (const std::exception& e) {
-        TORCH_WARN(
-            "Unable to create nvFuser Kernel DB directory! ",
-            kernel_db_path_.string(),
-            e.what());
+        // TORCH_WARN(
+        //     "Unable to create nvFuser Kernel DB directory! ",
+        //     kernel_db_path_.string(),
+        //     e.what());
         return false;
       }
     }
@@ -134,9 +134,9 @@ bool KernelDb::open(
               matched_header = true;
             } else {
               // Header is corrupted or badly formed
-              TORCH_WARN(
-                  "Kernel DB: CSV file header is corrupted or badly formed - Resetting!: ",
-                  line);
+              // TORCH_WARN(
+              //     "Kernel DB: CSV file header is corrupted or badly formed - Resetting!: ",
+              //     line);
               read_db_file = false;
               break;
             }
@@ -154,14 +154,14 @@ bool KernelDb::open(
                 std::string code;
                 if (copy_from_text_file(code_path.string(), code)) {
                   kernel_map_[code] = temp;
-                } else {
-                  TORCH_WARN(
-                      "Kernel DB: Unable to copy cuda file: ",
-                      code_path.string());
+                  // } else {
+                  //   TORCH_WARN(
+                  //       "Kernel DB: Unable to copy cuda file: ",
+                  //       code_path.string());
                 }
               }
-            } else {
-              TORCH_WARN("Kernel DB: CSV line Doesn't match: ", line);
+              // } else {
+              //   TORCH_WARN("Kernel DB: CSV line Doesn't match: ", line);
             }
           }
         }

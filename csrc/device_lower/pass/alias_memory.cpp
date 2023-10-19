@@ -818,8 +818,8 @@ class AllocationInfoMap : private kir::IrVisitor {
     bool should_try_alias = true;
     if (mem_type == MemoryType::Local) {
       if (!alloc->size()->isConstInt()) {
-        TORCH_WARN_ONCE(
-            "Lower_alias_memory : dynamic sized register allocation");
+        // TORCH_WARN_ONCE(
+        //     "Lower_alias_memory : dynamic sized register allocation");
         return;
       }
       if (alloc->size()->evaluateInt() <= kRegisterSizeThreshold) {

@@ -1021,23 +1021,23 @@ void fillCompileOptions(
   if (ptxas_opt_level) {
     int val = atoi(ptxas_opt_level);
     if (val <= 4 && val >= 0) {
-      if (val < 4) {
-        TORCH_WARN(
-            "ptxas optimization level manually set as ",
-            val,
-            ", which could negatively affect performance. Try removing env variable NVFUSER_JIT_OPT_LEVEL for optimal performance.");
-      }
+      // if (val < 4) {
+      //   TORCH_WARN(
+      //       "ptxas optimization level manually set as ",
+      //       val,
+      //       ", which could negatively affect performance. Try removing env variable NVFUSER_JIT_OPT_LEVEL for optimal performance.");
+      // }
       if (compile_to_sass) {
         nvrtc_compile_driver.setOption("--ptxas-options");
         nvrtc_compile_driver.setOption("-O" + std::to_string(val));
       } else {
         module_load_driver.setOption(CU_JIT_OPTIMIZATION_LEVEL, val);
       }
-    } else {
-      TORCH_WARN_ONCE(
-          "acceptable range for NVFUSER_JIT_OPT_LEVEL is between 0 and 4, but received ",
-          val,
-          ", ignoring the option");
+      // } else {
+      //   TORCH_WARN_ONCE(
+      //       "acceptable range for NVFUSER_JIT_OPT_LEVEL is between 0 and 4, but received ",
+      //       val,
+      //       ", ignoring the option");
     }
   }
 
@@ -1246,11 +1246,11 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
           compile_args,
           compiled_kernel->kernel_name,
           (compile_to_sass ? compiled_kernel->cubin : compiled_kernel->ptx));
-      if (!result) {
-        TORCH_WARN(
-            "kernel_db was unable to write kernel: ",
-            compiled_kernel->kernel_name);
-      }
+      // if (!result) {
+      //   TORCH_WARN(
+      //       "kernel_db was unable to write kernel: ",
+      //       compiled_kernel->kernel_name);
+      // }
     }
   }
 

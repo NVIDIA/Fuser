@@ -38,14 +38,14 @@ Val* castOp(DataType dtype, Val* v1) {
         dtype);
   }
 
-  if (isComplexType(orig_dtype) && !isComplexType(dtype)) {
-    TORCH_WARN(
-        "Casting from ",
-        orig_dtype,
-        " to ",
-        dtype,
-        " discards the imaginary part.");
-  }
+  // if (isComplexType(orig_dtype) && !isComplexType(dtype)) {
+  //   TORCH_WARN(
+  //       "Casting from ",
+  //       orig_dtype,
+  //       " to ",
+  //       dtype,
+  //       " discards the imaginary part.");
+  // }
 
   Val* out = ops::newValLike(v1, dtype);
   IrBuilder::create<UnaryOp>(UnaryOpType::Cast, out, v1);

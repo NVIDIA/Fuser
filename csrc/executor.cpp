@@ -1089,9 +1089,10 @@ LaunchParams FusionExecutor::computeLaunchParams(
               inferred_val.as<int64_t>() == launch_constraints.getDim(p_type) ||
               launch_constraints.getRawVal(p_type) == -1;
           if (!useFallback() && !valid) {
-            TORCH_WARN_ONCE(
-                "Cannot validate parallelization scheme, "
-                "this may be due to mixed broadcast axes that are parallelized.");
+            printf("warn once is disabled\n");
+            // TORCH_WARN_ONCE(
+            //     "Cannot validate parallelization scheme, "
+            //     "this may be due to mixed broadcast axes that are parallelized.");
           }
         } else if (!expr_eval.precomputedValues()) {
           expr_eval.bind(extent, launch_constraints.getDim(p_type));

@@ -290,8 +290,8 @@ UserSchedule* FusionCache::createUserSchedule(
     if (static_cast<size_t>(device) >= user_scheds[input_id.id].size()) {
       user_scheds[input_id.id].resize(device + 1);
     } else {
-      TORCH_WARN(
-          "You are overwriting the current user schedule for a definition!");
+      // TORCH_WARN(
+      //     "You are overwriting the current user schedule for a definition!");
       user_scheds[input_id.id].at(device) = UserSchedule();
     }
   }

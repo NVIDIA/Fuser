@@ -222,12 +222,12 @@ char* getNvFuserEnv(const char* env_name) {
   auto pyt_prefixed_name = pyt_prefix + env_name;
   auto pyt_env = std::getenv(pyt_prefixed_name.c_str());
   if (pyt_env) {
-    TORCH_WARN(
-        "Environment variable, ",
-        pyt_prefixed_name,
-        ", is deprecated. Please use ",
-        prefixed_name,
-        " instead.");
+    // TORCH_WARN(
+    //     "Environment variable, ",
+    //     pyt_prefixed_name,
+    //     ", is deprecated. Please use ",
+    //     prefixed_name,
+    //     " instead.");
     return pyt_env;
   }
 

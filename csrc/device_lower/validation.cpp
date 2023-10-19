@@ -1106,10 +1106,10 @@ void validateLoopSwizzle(
     NVF_ERROR(
         leaf_domains.count(out_id),
         "Loop swizzle can only be direct producer of leaf domains.");
-    if (GpuLower::current()->caMap()->getConcreteMappedID(
-            out_id, IdMappingMode::LOOP) != out_id) {
-      TORCH_WARN_ONCE("Ignored loop swizzle :", swizzle_expr->toString());
-    }
+    // if (GpuLower::current()->caMap()->getConcreteMappedID(
+    //         out_id, IdMappingMode::LOOP) != out_id) {
+    //   TORCH_WARN_ONCE("Ignored loop swizzle :", swizzle_expr->toString());
+    // }
   }
 }
 

@@ -82,9 +82,9 @@ bool parseEnv(
   } else if (local_size == size) {
     master_addr = "localhost";
   } else {
-    TORCH_WARN(
-        "the environment variable MASTER_ADDR "
-        "must be specified in multi-node environment");
+    // TORCH_WARN(
+    //     "the environment variable MASTER_ADDR "
+    //     "must be specified in multi-node environment");
     return false;
   }
 
@@ -92,10 +92,10 @@ bool parseEnv(
   env = std::getenv("MASTER_PORT");
   if (env) {
     master_port = std::atoi(env);
-  } else {
-    TORCH_WARN(
-        "the environment variable MASTER_PORT "
-        "has not been specified. Set to default");
+    // } else {
+    //   TORCH_WARN(
+    //       "the environment variable MASTER_PORT "
+    //       "has not been specified. Set to default");
   }
 
   return true;
