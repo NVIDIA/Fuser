@@ -182,7 +182,7 @@ double CudaEventTimer::time() {
     time_ms_ = static_cast<double>(tmp);
     state_ = ProfilerState::Processed;
   } else {
-    NVF_CHECK(state_ == ProfilerState::Processed, "ProfilerState is not Processed! ", state_);
+    NVF_CHECK((state_ == ProfilerState::Processed) || (state_ == ProfilerState::Ready), "ProfilerState is not Processed or Ready! ", state_);
   }
   return time_ms_;
 }
@@ -210,8 +210,6 @@ void DeviceDescriptor::generate(int _device) {
     // (clock in kHz * width in bits) * (1000 Hz / kHz) * (1 GB / 8e9 bits) * 2
     // factor = 2.5e-7
   peak_bandwidth_gbs = 2.5e-7 * static_cast<double>(memory_clock) * static_cast<double>(bus_width);
-
-  std::cout << "\n" << device << " " << name << " " << bus_width << " " << memory_clock << " " << peak_bandwidth_gbs << std::endl;
 }
 
 SegmentProfiler::SegmentProfiler(uint32_t id) :
