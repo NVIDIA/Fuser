@@ -7,7 +7,6 @@
 // clang-format on
 #include <index_compute.h>
 
-#include <c10/util/Exception.h>
 #include <c10/util/irange.h>
 #include <contiguity.h>
 #include <device_lower/analysis/index_compute.h>

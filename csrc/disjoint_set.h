@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/util/Exception.h>
 #include <exceptions.h>
 
 #include <algorithm>

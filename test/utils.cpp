@@ -7,8 +7,6 @@
 // clang-format on
 #include <test/utils.h>
 
-#include <c10/util/Exception.h>
-
 #include <ops/all_ops.h>
 
 #include <sstream>

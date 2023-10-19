@@ -8,7 +8,6 @@
 #pragma once
 
 #include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
 
 #include <string>

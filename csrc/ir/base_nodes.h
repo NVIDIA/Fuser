@@ -9,7 +9,6 @@
 
 #include <c10/core/ScalarType.h>
 #include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
 
 #include <ir/builder_passkey.h>

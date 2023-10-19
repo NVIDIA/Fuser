@@ -8,7 +8,6 @@
 #pragma once
 
 #include <ATen/ATen.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
 #include <torch/csrc/jit/ir/ir.h>
 

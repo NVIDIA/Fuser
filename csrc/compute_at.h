@@ -13,7 +13,6 @@
 #include <transform_replay.h>
 
 #include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
 
 #include <deque>
 #include <unordered_map>
