@@ -36,6 +36,7 @@ TEST_F(AliasAnalysisTest, View_ContiguousAndSameAllocationOrder) {
   TensorView* in = makeContigConcreteTensor(in_shape);
   fusion.addInput(in);
   TensorView* out = reshape(in, in_shape, out_shape);
+  fusion.aliasOutputToInput(out, in, IoAliasType::ReinterpretCast);
   fusion.addOutput(out);
 
   optimization::AliasAnalysisResult alias_analysis =

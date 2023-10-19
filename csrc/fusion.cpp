@@ -730,14 +730,18 @@ bool Fusion::isAliasCompatible(Val* left, Val* right) {
     return false;
   }
 
+#if 0
   // Check same number of dimensions if both values are TensorViews
   if (ir_utils::isTV(left) && ir_utils::isTV(right)) {
-    return left->as<TensorView>()->nDims() == right->as<TensorView>()->nDims();
+    if (left->as<TensorView>()->nDims() != right->as<TensorView>()->nDims()) {
+      return false;
+    }
   }
-  return false;
+#endif
+  return true;
 }
 
-void Fusion::aliasOutputToInput(Val* output, Val* input) {
+void Fusion::aliasOutputToInput(Val* output, Val* input, IoAliasType type) {
   // Because we could cast output when input is cast.
   NVF_ERROR(
       !output->isFusionOutput(),
@@ -766,7 +770,7 @@ void Fusion::aliasOutputToInput(Val* output, Val* input) {
   NVF_ERROR(
       isAliasCompatible(input, output),
       "The input and output values are not alias-compatible.");
-  io_alias_[output] = {input, IoAliasType::ReuseBuffer};
+  io_alias_[output] = {input, type};
 
   // TODO: output should be marked at the end of fusion definition #1488
   addOutput(output);
@@ -811,14 +815,14 @@ std::vector<std::pair<int, int>> Fusion::getOutputToInputAliasIndices() const {
   std::for_each(
       io_alias_.begin(),
       io_alias_.end(),
-      [&](const std::pair<Val*, Val*>& alias) {
+      [&](const std::pair<Val*, std::pair<Val*, IoAliasType>>& alias) {
         const Val* out = alias.first;
         if (!out_val_index.count(out)) {
           // Can't assert false here. We may have segmented fusion where not all
           // alias outputs are present.
           return;
         }
-        const Val* in = alias.second;
+        const Val* in = alias.second.first;
         NVF_ERROR(
             in_val_index.count(in),
             in->toString(),

@@ -226,7 +226,10 @@ class Fusion : public IrContainer {
   // normalization.
   // TODO: alias should be made aware to segmentation, so we'll always include
   // the input tensor to the section where output is produced.
-  void aliasOutputToInput(Val* output, Val* input);
+  void aliasOutputToInput(
+      Val* output,
+      Val* input,
+      IoAliasType type = IoAliasType::ReuseBuffer);
 
   //! Return the aliased input of a given output or nullptr if not aliased
   Val* getOutputAlias(Val* output);
