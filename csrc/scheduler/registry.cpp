@@ -26,7 +26,11 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     : complete_fusion_(complete_fusion) {
   NVF_ERROR(
       complete_fusion_->inputs().size() == args.size(),
-      "Invalid number of arguments passed in for provided fusion group.");
+      "The provided fusion group expects ",
+      complete_fusion_->inputs().size(),
+      " arguments, but ",
+      args.size(),
+      " arguments were passed in.");
 
   expression_evaluator_ = getExpressionEvaluator(args, precomputed_values);
 
@@ -384,13 +388,15 @@ void HeuristicSummary::validate() const {
     }
     case ScheduleHeuristic::InnerPersistent:
     case ScheduleHeuristic::OuterPersistent:
+      NVF_ERROR(
+          entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
+    // No break, fall through additional checks
     case ScheduleHeuristic::InnerOuterPersistent: {
       NVF_ERROR(entry_type_map_.count(EntryType::REDUCTION_TVS));
       NVF_ERROR(
           entry_type_map_.count(EntryType::VECTORIZABLE_INPUTS_AND_OUTPUTS));
       NVF_ERROR(entry_type_map_.count(EntryType::TV_TO_CONTIG_INNER_SIZE_MAPS));
-      NVF_ERROR(
-          entry_type_map_.count(EntryType::UNROLLABLE_INPUTS_AND_OUTPUTS));
+
       NVF_ERROR(entry_type_map_.count(EntryType::PERSISTENT_BUFFER_INFO));
       // If check persistent factor only when persistent buffers needed.
       auto persistent_buffer_info =

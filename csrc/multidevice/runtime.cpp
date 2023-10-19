@@ -25,7 +25,7 @@ void MultiDeviceRuntime::validate() const {
   // stores all the device indices present in the pipeline accross all stages
   std::unordered_set<DeviceIdxType> device_indices;
   for (auto& stage_desc : pipeline_->descriptor().stage_descriptors) {
-    for (auto d_id : stage_desc.mesh.deviceIndices()) {
+    for (auto d_id : stage_desc.mesh.vector()) {
       device_indices.insert(d_id);
     }
   }

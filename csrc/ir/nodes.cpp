@@ -1189,7 +1189,7 @@ SqueezeOp::SqueezeOp(
         // Check concrete broadcast extent here. For Symbolic inputs, this check
         // will be deferred to concretization. See dynamic_transform.cpp
         NVF_ERROR(
-            id->extent()->isOneInt(),
+            id->extent()->isConstScalar() && id->extent()->evaluateInt() == 1,
             "Can not squeeze dimension(s) with size != 1.");
       }
     } else {
@@ -1332,6 +1332,40 @@ std::string ReductionOp::toString(int indent_size) const {
 
 std::string ReductionOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> ReductionOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& input = inputs.at(0).as<at::Tensor>();
+  const auto output = out()->as<TensorView>();
+
+  NVF_ERROR(
+      !output->hasRFactor(),
+      "Evaluation for rFactored reductions is not supported.");
+
+  std::vector<int64_t> reduction_axes;
+  for (const auto i : c10::irange(int64_t(output->getRootDomain().size()))) {
+    auto ax = output->getRootDomain().at(i);
+    if (ax->isReduction()) {
+      reduction_axes.push_back(i);
+    }
+  }
+  switch (getReductionOpType()) {
+    case BinaryOpType::Add:
+      return {at::sum(input, reduction_axes)};
+      break;
+    case BinaryOpType::Max:
+      return {at::amax(input, reduction_axes)};
+      break;
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected operator type: ",
+          getReductionOpType(),
+          " in ",
+          toString());
+  }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ReductionOp)
@@ -2347,6 +2381,9 @@ std::string LoadStoreOp::toString(int indent_size) const {
     indent(ss, indent_size + 1)
         << std::string(optype.size() + 5, ' ') << predicate()->toInlineString();
   }
+  if (cacheOp() != CacheOp::Unspecified) {
+    ss << ", cache_op=" << cacheOp();
+  }
   ss << " )\n";
   return ss.str();
 }
@@ -2607,8 +2644,9 @@ std::string IterDomain::toString(int indent_size) const {
     ss << extent()->toInlineString();
   }
   ss << "}";
-  if (isRFactorProduct())
+  if (isRFactorProduct()) {
     ss << "rf";
+  }
   if (hasPaddingToMultipleOfWarp()) {
     ss << "_p";
   }
@@ -3037,7 +3075,45 @@ TensorDomain::TensorDomain(
       has_reduction_(false) {
   validateContiguity(maybeAllocation(), contiguity_);
 
-  // Just due to clang-tidy, correct value set in resetDomains
+  // resetDomains initializes other member variables, required by clang-tidy
+  resetDomains();
+}
+
+TensorDomain::TensorDomain(
+    IrBuilderPasskey passkey,
+    std::vector<IterDomain*> root_domain,
+    std::vector<int64_t> stride_order,
+    std::vector<std::optional<bool>> contiguity)
+    : Val(passkey, ValType::TensorDomain, DataType::Null),
+      root_domain_(std::move(root_domain)),
+      leaf_domain_(root_domain_),
+      contiguity_(
+          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
+                             : std::move(contiguity)),
+      has_reduction_(false) {
+  // setting the proper allocation domain
+  if (!stride_order.empty()) {
+    auto rank = root_domain_.size();
+    NVF_ERROR(
+        rank == stride_order.size(), "Invalid size of stride_order vector");
+
+    // checking stride_order is indeed a permutation
+    std::vector<int64_t> inc_vec(rank);
+    std::iota(inc_vec.begin(), inc_vec.end(), 0);
+    NVF_ERROR(
+        std::is_permutation(
+            stride_order.begin(), stride_order.end(), inc_vec.begin()),
+        "stride_order is not a valid: " + toDelimitedString(stride_order));
+
+    allocation_domain_.resize(rank, nullptr);
+    for (auto i : c10::irange(rank)) {
+      allocation_domain_[rank - 1 - static_cast<int>(stride_order[i])] =
+          root_domain_[i];
+    }
+  }
+  validateContiguity(maybeAllocation(), contiguity_);
+
+  // resetDomains initializes other member variables, required by clang-tidy
   resetDomains();
 }
 
@@ -3059,7 +3135,7 @@ TensorDomain::TensorDomain(
     ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
   }
 
-  // Just due to clang-tidy, correct value set in resetDomains
+  // resetDomains initializes other member variables, required by clang-tidy
   has_reduction_ = false;
   resetDomains();
 }
@@ -3088,7 +3164,7 @@ TensorDomain::TensorDomain(
     }
   }
 
-  // Just due to clang-tidy, correct value set in resetDomains
+  // resetDomains initializes other member variables, required by clang-tidy
   has_reduction_ = false;
   resetDomains();
 }
@@ -3123,7 +3199,7 @@ TensorDomain::TensorDomain(
     }
   }
 
-  // Just due to clang-tidy, correct value set in resetDomains
+  // resetDomains initializes other member variables, required by clang-tidy
   has_reduction_ = false;
   resetDomains();
 }
@@ -3237,24 +3313,46 @@ bool TensorDomain::sameAs(const Statement* const other) const {
 bool TensorDomain::sameAs(
     const std::vector<IterDomain*>& lhs,
     const std::vector<IterDomain*>& rhs) {
-  if (lhs.size() != rhs.size())
+  if (lhs.size() != rhs.size()) {
     return false;
+  }
   size_t i = 0;
   for (auto td_lhs : lhs) {
-    if (!td_lhs->sameAs(rhs[i++]))
+    if (!td_lhs->sameAs(rhs[i++])) {
       return false;
+    }
   }
   return true;
 }
 
-std::string TensorDomain::toString(int indent_size) const {
+std::string TensorDomain::toString(const int indent_size, const bool leaf_only)
+    const {
   std::stringstream ss;
   if (nDims() == 0) {
-    ss << "[ 0 ]";
+    indent(ss, indent_size) << "[ ]";
     return ss.str();
   }
-  ss << "[ " << toDelimitedString(leaf()) << " ]";
+  indent(ss, indent_size) << "[ " << toDelimitedString(leaf()) << " ]";
+  if (!leaf_only) {
+    ss << "," << std::endl;
+    indent(ss, indent_size + 1)
+        << "root=[ " << toDelimitedString(root()) << " ]";
+    if (hasRFactor()) {
+      ss << "," << std::endl;
+      indent(ss, indent_size + 1)
+          << "rfactor=[ " << toDelimitedString(rfactor()) << " ]";
+    }
+    if (!allocation_domain_.empty()) {
+      ss << "," << std::endl;
+      indent(ss, indent_size + 1)
+          << "allocation=[ " << toDelimitedString(allocation()) << " ]";
+    }
+  }
   return ss.str();
+}
+
+std::string TensorDomain::toString(const int indent_size) const {
+  return toString(indent_size, /*leaf_only=*/true);
 }
 
 std::string TensorDomain::toInlineString(int indent_size) const {
@@ -3357,8 +3455,9 @@ int64_t TensorDomain::posOf(IterDomain* id) const {
   NVF_ERROR(nDims() > 0, "Tried to find an axis in a 0-dim domain");
   int64_t i = 0;
   while (i < (int64_t)leaf_domain_.size()) {
-    if (leaf_domain_[i] == id)
+    if (leaf_domain_[i] == id) {
       return i;
+    }
     i++;
   }
   NVF_CHECK(false, "Provided id is not part of this domain.");
@@ -3379,8 +3478,9 @@ void TensorDomain::split(
     bool inner_split,
     bool trim_out_of_bounds) {
   NVF_ERROR(nDims() > 0, "Tried to do split on a 0-dim domain");
-  if (axis_ < 0)
+  if (axis_ < 0) {
     axis_ += (int)nDims();
+  }
 
   NVF_ERROR(
       axis_ >= 0 && (unsigned int)axis_ < nDims(),
@@ -3410,11 +3510,13 @@ void TensorDomain::split(
 // Merge "axis_o" and "axis_i" into 1 dimension
 void TensorDomain::merge(int axis_o, int axis_i) {
   NVF_ERROR(nDims() > 0, "Tried to do merge on a 0-dim domain");
-  if (axis_o < 0)
+  if (axis_o < 0) {
     axis_o += (int)nDims();
+  }
 
-  if (axis_i < 0)
+  if (axis_i < 0) {
     axis_i += (int)nDims();
+  }
 
   NVF_CHECK(
       axis_o >= 0 && (unsigned int)axis_o < nDims() && axis_i >= 0 &&
@@ -3424,12 +3526,6 @@ void TensorDomain::merge(int axis_o, int axis_i) {
   NVF_CHECK(
       axis_o != axis_i,
       "Invalid merge detected, axes provided are the same axis.");
-
-  if (axis_o > axis_i) {
-    auto tmp = axis_i;
-    axis_i = axis_o;
-    axis_o = tmp;
-  }
 
   IterDomain* first = axis(axis_o);
   IterDomain* second = axis(axis_i);

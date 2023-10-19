@@ -130,6 +130,12 @@ run_test() {
     mkdir -p "$testdir"
     echo "$testcmd" > "$testdir/command"
 
+    # exclude $testdir when printing env
+    printenv | grep -v '^testdir=' > "$testdir/env"
+
+    nvcc --version > "$testdir/nvcc_version"
+    nvidia-smi --query-gpu=gpu_name --format=csv,noheader > "$testdir/gpu_names"
+
     # Allow next command to fail
     set +e
     $testcmd | tee "$testdir/stdout-$(date +%Y%m%d_%H%M%S).log"
@@ -157,7 +163,6 @@ collect_kernels() {
     pyfrontenddir=$outdir/$commit/python_frontend_tests
     pyopsdir=$outdir/$commit/python_ops_tests
     pyschedopsdir=$outdir/$commit/python_shedule_ops_tests
-    torchscriptdir=$outdir/$commit/python_torchscript_tests
 
     # Test for output directories and return early if they exist. This
     # avoids rebuilds when we are changing code and comparing repeatedly to
@@ -170,8 +175,7 @@ collect_kernels() {
       fi
     else
       if [[ -d "$binarytestdir/cuda" && -d "$pyfrontenddir/cuda" &&
-          -d "$pyopsdir/cuda" && -d "$pyschedopsdir/cuda" &&
-          -d "$torchscriptdir/cuda" ]]
+          -d "$pyopsdir/cuda" && -d "$pyschedopsdir/cuda" ]]
       then
           return
       fi
@@ -188,7 +192,7 @@ collect_kernels() {
     export NVFUSER_TEST_RANDOM_SEED=0
     export NVFUSER_DISABLE=parallel_compile
     # run tests and benchmarks with cuda_to_file and dump output to files
-    export NVFUSER_DUMP=cuda_to_file
+    export NVFUSER_DUMP=cuda_to_file,ptxas_verbose
 
     mkdir -p "$outdir/$commit"
 
@@ -201,7 +205,6 @@ collect_kernels() {
       run_test "$pyopsdir" python -m pytest $nvfuserdir/python_tests/pytest_ops.py -n 0 -v -s --color=yes
       run_test "$pyschedopsdir" python -m pytest $nvfuserdir/python_tests/test_schedule_ops.py -n 0 -v -s --color=yes
       run_test "$pyfrontenddir" python -m pytest $nvfuserdir/python_tests/test_python_frontend.py -n 0 -v -s --color=yes
-      run_test "$torchscriptdir" python -m pytest $nvfuserdir/python_tests/test_torchscript.py -n 0 -v -s --color=yes
 
       # binary tests
       run_test "$binarytestdir" $nvfuserdir/build/nvfuser_tests --gtest_color=yes

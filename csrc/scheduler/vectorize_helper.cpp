@@ -462,7 +462,7 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
   // Then i1 and i2 are contiguous in both T0 and T5, but due to the realization
   // of the broadcast on T4 we will have removed i1 from the mapped set.
   PairwiseRootDomainMap root_map(to, from);
-  auto c2p_map = root_map.mapConsumerToProducer(from->domain(), to->domain());
+  auto c2p_map = root_map.mapConsumerToProducer();
 
   // Id's in consumer to clear from the mapped set due to broadcast
   // concretization.
@@ -535,7 +535,7 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
   // Then i1 and i2 are contiguous in both T0 and T3, but due to the sum on T1
   // we will have removed i1.
   PairwiseRootDomainMap root_map(from, to);
-  auto p2c_map = root_map.mapProducerToConsumer(from->domain(), to->domain());
+  auto p2c_map = root_map.mapProducerToConsumer();
   std::vector<IterDomain*> consumer_root_ids;
 
   // Id's in producer to clear from the mapped set due to reductions.
@@ -690,36 +690,36 @@ void ContiguousInnerDimensionsMapper::propagateSibling(
 Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     TensorView* of_tv) {
   Val* product_of_inner_extents = of_tv->container()->oneVal();
-  auto of_tv_root = of_tv->getMaybeRFactorDomain();
+  auto of_tv_alloc = of_tv->getMaybeAllocationDomain();
 
   NVF_ERROR(hasMappedDims(of_tv));
 
   const std::vector<IterDomain*>& projected_dims = mappedRFactorIds(of_tv);
-  auto of_tv_root_no_reductions = TensorDomain::noReductions(of_tv_root);
+  auto of_tv_alloc_no_reductions = TensorDomain::noReductions(of_tv_alloc);
 
   auto contiguity = of_tv->domain()->contiguity();
   // Appears after reductions the reduction domain often has a contiguity entry.
   // This only matters if the result of the reduction is an output
-  if (contiguity.size() == of_tv_root.size() &&
-      contiguity.size() != of_tv_root_no_reductions.size()) {
+  if (contiguity.size() == of_tv_alloc.size() &&
+      contiguity.size() != of_tv_alloc_no_reductions.size()) {
     std::vector<std::optional<bool>> new_contiguity;
-    for (auto i : c10::irange(of_tv_root.size())) {
-      if (!of_tv_root[i]->isReduction()) {
+    for (auto i : c10::irange(of_tv_alloc.size())) {
+      if (!of_tv_alloc[i]->isReduction()) {
         new_contiguity.push_back(contiguity[i]);
       }
     }
     contiguity = new_contiguity;
   }
 
-  auto of_tv_root_no_reductions_size = of_tv_root_no_reductions.size();
+  auto of_tv_alloc_no_reductions_size = of_tv_alloc_no_reductions.size();
 
   // Filter out 0-dim tensors
-  if (of_tv_root_no_reductions_size < 1) {
+  if (of_tv_alloc_no_reductions_size < 1) {
     return product_of_inner_extents;
   }
 
   NVF_ERROR(
-      of_tv_root_no_reductions_size == contiguity.size(),
+      of_tv_alloc_no_reductions_size == contiguity.size(),
       "Contiguity mismatch found.");
 
   // Order is important, need to make sure dimensions match up correctly with
@@ -729,23 +729,23 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
   // vectorize dimension.
   size_t projected_dims_i = projected_dims.size();
 
-  for (auto i : c10::irange(of_tv_root_no_reductions_size)) {
+  for (auto i : c10::irange(of_tv_alloc_no_reductions_size)) {
     if (projected_dims_i == 0) {
       break;
     }
-    auto root_i = of_tv_root_no_reductions_size - i - 1;
-    auto root_id = of_tv_root_no_reductions.at(root_i);
+    auto alloc_ii = of_tv_alloc_no_reductions_size - i - 1;
+    auto alloc_iid = of_tv_alloc_no_reductions.at(alloc_ii);
 
-    if (root_id->extent()->isOneInt() || root_id->isBroadcast()) {
-      if (projected_dims[projected_dims_i - 1] == root_id) {
+    if (alloc_iid->extent()->isOneInt() || alloc_iid->isBroadcast()) {
+      if (projected_dims[projected_dims_i - 1] == alloc_iid) {
         --projected_dims_i;
       }
       continue;
     }
 
-    auto contiguity_i = contiguity.at(root_i);
+    auto contiguity_i = contiguity.at(alloc_ii);
     if (!contiguity_i.has_value()) {
-      NVF_ERROR(false, "contiguity flag at root_i can't be null");
+      NVF_ERROR(false, "contiguity flag at alloc_ii can't be null");
     } else {
       // Not contiguous
       if (!contiguity_i.value()) {
@@ -754,12 +754,12 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
     }
 
     // Mapping order isn't correct, cannot expand vectorization dimension.
-    if (projected_dims[--projected_dims_i] != root_id) {
+    if (projected_dims[--projected_dims_i] != alloc_iid) {
       break;
     }
 
     product_of_inner_extents = SimplifyingIrBuilder::mulExpr(
-        product_of_inner_extents, getProjectedExtent(root_id));
+        product_of_inner_extents, getProjectedExtent(alloc_iid));
   }
   return simplifyExpr(product_of_inner_extents);
 }
@@ -918,10 +918,8 @@ int64_t getVectorizationBreakPointOfReductionProducer(
       ". ",
       reduction_producer->toString());
 
-  const auto c2p =
-      PairwiseRootDomainMap(reduction_producer, reduction_consumer)
-          .mapConsumerToProducer(
-              reduction_consumer->domain(), reduction_producer->domain());
+  const auto c2p = PairwiseRootDomainMap(reduction_producer, reduction_consumer)
+                       .mapConsumerToProducer();
 
   // Grab all the corresponding producer IDs that are mapped with the
   // innermost consumer IDs

@@ -716,7 +716,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   NVF_ERROR(roles_map_opt.isValid(), roles_map_opt.getErrorMsg());
   const auto roles_map = roles_map_opt.getData();
 
-  auto mma_ops = ir_utils::getMmaOps(fusion);
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
   NVF_ERROR(
       mma_ops.size() == 1,
       "scheduleMatmul supports fusion with single mma op in definition, got ",

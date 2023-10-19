@@ -40,10 +40,8 @@
 #include <transform_rfactor.h>
 #include <utils.h>
 
-#include <parser.h>
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
-#include <torch/csrc/jit/ir/irparser.h>
 #include <torch/torch.h>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -169,7 +167,7 @@ TEST_F(NVFuserTest, FusionClear_CUDA) {
   NVF_CHECK(fusion.inputs().empty());
   NVF_CHECK(fusion.outputs().empty());
 
-  NVF_CHECK(ir_utils::getReductionOps(&fusion).empty());
+  NVF_CHECK(!ir_utils::hasOpsOfType<ReductionOp>(&fusion));
 
   // 3. Rebuild the IR
 
@@ -843,82 +841,6 @@ TEST_F(NVFuserTest, FusionDependency_CUDA) {
 
   dep_chain = DependencyCheck::getSingleDependencyChain(d11, d2);
   NVF_CHECK(dep_chain.empty());
-}
-
-TEST_F(NVFuserTest, FusionParser_CUDA) {
-  // This test may not pass if using a custom block sync as there may
-  // be additional calls. Skip the test as it's not specifically
-  // relevant with block synchronizatin.
-  if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
-    return;
-  }
-  auto g = std::make_shared<torch::jit::Graph>();
-  const auto graph0_string = R"IR(
-    graph(%0 : Float(2, strides=[1]),
-          %1 : Float(2, strides=[1])):
-      %c0 : Float(2, strides=[1]) = aten::mul(%0, %1)
-      %d0 : Float(2, strides=[1]) = aten::mul(%c0, %0)
-      return (%d0))IR";
-  parseIR(graph0_string, g.get());
-
-  // strides are not yet supported in the irparser.
-  for (auto val : g->block()->inputs()) {
-    if (val->isCompleteTensor())
-      val->setType(val->type()->castRaw<at::TensorType>()->contiguous());
-  }
-  for (auto node : g->block()->nodes()) {
-    for (auto val : node->outputs()) {
-      if (val->isCompleteTensor())
-        val->setType(val->type()->castRaw<at::TensorType>()->contiguous());
-    }
-  }
-
-  auto fusion = parseJitIR(g);
-  FusionGuard fg(fusion.get());
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  // Avoid vectorization here as those kernels can't be lowered twice at the
-  // moment
-  at::Tensor input1 = at::randn({16}, options);
-  at::Tensor input2 = at::randn({16}, options);
-  auto lparams = schedulePointwise(fusion.get(), {input1, input2});
-
-  // CONSIDER:
-  // 1. this can be moved to a dedicated "golden" file
-  // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
-  const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 1, 1> T0, Tensor<float, 1, 1> T1, Tensor<float, 1, 1> T3) {
-  nvfuser_index_t i0;
-  i0 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  if ((i0 < T0.logical_size[0])) {
-    float T5[1];
-    T5[0] = 0;
-    T5[0]
-       = T1[i0];
-    float T4[1];
-    T4[0] = 0;
-    T4[0]
-       = T0[i0];
-    float T2[1];
-    T2[0]
-      = T4[0]
-      * T5[0];
-    float T6[1];
-    T6[0]
-      = T2[0]
-      * T4[0];
-    T3[i0]
-       = T6[0];
-  }
-}
-)";
-
-  assertCUDAKernel(fusion.get(), expected_kernel);
-
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {input1, input2}, lparams);
-  auto outputs = fe.runFusion({input1, input2}, lparams);
-  at::Tensor output_ref = input1 * input2 * input1;
-  NVF_CHECK(output_ref.equal(outputs[0]));
 }
 
 TEST_F(NVFuserTest, FusionOuterSplit_CUDA) {
@@ -3632,7 +3554,7 @@ TEST_F(NVFuserTest, FusionReduction1_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(1, 128);
@@ -3940,7 +3862,7 @@ TEST_F(NVFuserTest, FusionReduction6_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(2, bdimx);
@@ -4976,7 +4898,7 @@ TEST_F(NVFuserTest, FusionGridReduction1_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(1, bdimx);
@@ -5037,7 +4959,7 @@ TEST_F(NVFuserTest, FusionGridReduction2_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(1, bdimx);
@@ -5099,7 +5021,7 @@ TEST_F(NVFuserTest, FusionGridReduction3dim1_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(1, gdimy);
@@ -5161,7 +5083,7 @@ TEST_F(NVFuserTest, FusionGridReduction3dim0_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(0, gdimy);
@@ -5217,7 +5139,7 @@ TEST_F(NVFuserTest, FusionGridReduction4_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(1, gdimx);
@@ -5285,7 +5207,7 @@ TEST_F(NVFuserTest, FusionGridReduction5_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   tv1->split(1, bdimx);
@@ -5336,7 +5258,7 @@ TEST_F(NVFuserTest, FusionGridReduction6_CUDA) {
   fusion.addOutput(tv1);
 
   NVF_CHECK(
-      ir_utils::getReductionOps(&fusion).size(),
+      ir_utils::hasOpsOfType<ReductionOp>(&fusion),
       "Could not detect reduction in fusion.");
 
   // Splitting for TID

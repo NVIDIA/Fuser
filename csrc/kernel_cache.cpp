@@ -16,7 +16,6 @@
 #include <ir/utils.h>
 #include <optimization/pre_segmenter.h>
 #include <options.h>
-#include <parser.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
 #include <torch/csrc/jit/jit_log.h>
@@ -897,8 +896,8 @@ FusionKernelRuntime::FusionKernelRuntime(
       fusion.get());
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
-    std::cout << "Fusion IR after pre-segmenter optimization passes:"
-              << std::endl;
+    debug() << "Fusion IR after pre-segmenter optimization passes:"
+            << std::endl;
     fusion->printMath();
   }
 
@@ -1132,7 +1131,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       compileKernel(group_runtime_inputs, group_to_run);
     } else {
       // launch compileKernel thread here
-      getThreadPool()->run([=]() {
+      getThreadPool()->run([this, args, group_runtime_inputs, group_to_run]() {
         FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
         c10::cuda::CUDAGuard dg(args.getDeviceIndex());
         c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
@@ -1469,43 +1468,6 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
   }
 
   return ret;
-}
-
-void GraphCache::createFusion(const std::shared_ptr<torch::jit::Graph>& graph) {
-  FUSER_PERF_SCOPE("GraphCache::createFusion");
-
-  fusion_executor_cache_ =
-      std::make_unique<FusionExecutorCache>(parseJitIR(graph));
-
-  num_of_outputs_ = graph->outputs().size();
-}
-
-// NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-GraphCache::GraphCache(const std::shared_ptr<torch::jit::Graph>& graph) {
-  FUSER_PERF_SCOPE("GraphCache::GraphCache");
-  NVF_ERROR(
-      torch::jit::IsNewExecutorEnabled(),
-      "legacy executor is not supported by nvfuser");
-
-  GRAPH_DEBUG("GraphCache constructor: ", this);
-  GRAPH_DUMP("GraphCache created for graph", graph);
-  createFusion(graph);
-}
-
-std::vector<at::Tensor> GraphCache::runGraphWithInputs(
-    const at::ArrayRef<c10::IValue>& inputs) {
-  FUSER_PERF_SCOPE("GraphCache::runGraphWithInputs");
-
-  GRAPH_DEBUG("running GraphCache: ", this);
-  auto outputs = fusion_executor_cache_->runFusionWithInputs(inputs);
-  NVF_ERROR(
-      outputs.size() == num_of_outputs_,
-      "FusionExecutorCache returned ",
-      outputs.size(),
-      " outputs, doesn't match computational graph, which requires ",
-      num_of_outputs_);
-
-  return outputs;
 }
 
 } // namespace nvfuser

@@ -326,6 +326,9 @@ void FusionExecutor::compileFusion(
   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
 
   const auto kernel = lowered_->kernel();
+  for (const auto& hook : post_lowering_hooks_) {
+    hook(kernel);
+  }
   fusion_ = lowered_->kernel()->as<Fusion>();
   kernel_summary_ = kernel->summary();
 
@@ -1541,7 +1544,7 @@ void FusionExecutor::recompileKernel(
     // false positives
     ensureAvailableDynamicSmemSize(new_launch_params.smem());
     validateCooperativeLaunch(
-        compiled_kernel_.function, new_launch_params, options_.device.index());
+        compiled_kernel_->function, new_launch_params, options_.device.index());
   }
 }
 
@@ -1553,7 +1556,7 @@ int64_t FusionExecutor::getAvailableDynamicSmemSize() {
     NVFUSER_CUDA_SAFE_CALL(cuFuncGetAttribute(
         &size,
         CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-        compiled_kernel_.function));
+        compiled_kernel_->function));
     available_dynamic_smem_size_ = size;
   }
   return available_dynamic_smem_size_.value();
@@ -1566,7 +1569,9 @@ int64_t FusionExecutor::getStaticSmemSize() {
     int size = 0;
     // Is this really a costly operation worth caching?
     NVFUSER_CUDA_SAFE_CALL(cuFuncGetAttribute(
-        &size, CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES, compiled_kernel_.function));
+        &size,
+        CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES,
+        compiled_kernel_->function));
     static_smem_size_ = size;
   }
   return static_smem_size_.value();
@@ -1593,7 +1598,7 @@ int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
   if (dynamic_smem_size > getAvailableDynamicSmemSize()) {
     validateDynamicSmemSize(dynamic_smem_size);
     NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
-        compiled_kernel_.function,
+        compiled_kernel_->function,
         CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
         dynamic_smem_size));
     available_dynamic_smem_size_ = dynamic_smem_size;
@@ -1807,7 +1812,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       int blocks_per_sm = -1;
       NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
           &blocks_per_sm,
-          compiled_kernel_.function,
+          compiled_kernel_->function,
           launch_params_.nThreads(),
           launch_params_.smem()));
       const int64_t device_id =
@@ -1832,7 +1837,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     if (!kernel_summary_.has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
-          compiled_kernel_.function,
+          compiled_kernel_->function,
           launch_params_.gdimx(),
           launch_params_.gdimy(),
           launch_params_.gdimz(),
@@ -1846,7 +1851,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     } else {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchCooperativeKernel(
-          compiled_kernel_.function,
+          compiled_kernel_->function,
           launch_params_.gdimx(),
           launch_params_.gdimy(),
           launch_params_.gdimz(),
@@ -1959,7 +1964,7 @@ float FusionExecutor::runRtc(
   }
 
   NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
-      compiled_kernel_.function,
+      compiled_kernel_->function,
       launch_params.gdimx(),
       launch_params.gdimy(),
       launch_params.gdimz(),
@@ -2011,7 +2016,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       &executor_entry_lookup_values_fb,
       serde::mapToSerdeDtype(kernel()->indexType()),
       serialize(builder, kernel_summary_),
-      serialize(builder, compiled_kernel_));
+      serialize(builder, *compiled_kernel_));
 }
 
 flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
@@ -2041,7 +2046,7 @@ flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
     uint8_t* ptx_ptr = nullptr;
     fb_ptx =
         builder.CreateUninitializedVector(compiled_kernel.ptx.size(), &ptx_ptr);
-    std::copy(compiled_kernel_.ptx.begin(), compiled_kernel.ptx.end(), ptx_ptr);
+    std::copy(compiled_kernel.ptx.begin(), compiled_kernel.ptx.end(), ptx_ptr);
     fb_ptx_filename = builder.CreateString(compiled_kernel.ptx_filename);
   }
 

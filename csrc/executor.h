@@ -20,6 +20,8 @@
 
 #include <c10/core/DeviceType.h>
 
+#include <functional>
+
 namespace nvfuser {
 
 bool shouldFillAllocationWithNan();
@@ -111,10 +113,19 @@ class FusionExecutor : public NonCopyable {
     return runFusion(inputs, {}, launch_constraints, compile_params, opt_code);
   }
 
+  // Register a post-lowering hooks that are called to modify the kernel after
+  // lowering. The main use case is for unit tests to modify the kernel.
+  void registerPostLoweringHook(std::function<void(kir::Kernel*)> hook) {
+    post_lowering_hooks_.push_back(std::move(hook));
+  }
+
   // function to query whether a `FusionExecutor` has a compiled kernel to
   // execute
   bool isCompiled() const {
-    return fusion_id_ != -1 && lowered_ && compiled_kernel_.function != nullptr;
+    if (compiled_kernel_ != nullptr) {
+      NVF_ERROR(compiled_kernel_->function != nullptr);
+    }
+    return fusion_id_ != -1 && lowered_ && compiled_kernel_ != nullptr;
   };
 
   void evictCache(size_t cache_id) {
@@ -210,19 +221,19 @@ class FusionExecutor : public NonCopyable {
 
   //! Returns a const reference to the latest compiled kernel.
   const executor_utils::CompiledKernel& compiledKernel() const {
-    return compiled_kernel_;
+    return *compiled_kernel_;
   }
 
   //! Returns the disassembled latest compiled binary
   std::string disassembledBinary(const std::string& nvdisasm_args = "") const {
     return executor_utils::disassembleBinary(
-        compiled_kernel_.cubin, nvdisasm_args);
+        compiled_kernel_->cubin, nvdisasm_args);
   }
 
   //! Returns the disassembled latest compiled binary
   std::string disassembledKernelSASS() const {
     return executor_utils::disassembleBinary(
-        compiled_kernel_.cubin, "-fun 1 -c");
+        compiled_kernel_->cubin, "-fun 1 -c");
   }
 
   std::string getCanonicalKernelName() const {
@@ -404,7 +415,7 @@ class FusionExecutor : public NonCopyable {
   const int64_t max_static_smem_ = 48 << 10;
 
   int64_t warp_size_ = 0;
-  executor_utils::CompiledKernel compiled_kernel_;
+  std::unique_ptr<executor_utils::CompiledKernel> compiled_kernel_;
 
   // TensorViews actually used in the kernel.
   std::vector<TensorView*> used_tvs_;
@@ -464,6 +475,10 @@ class FusionExecutor : public NonCopyable {
 
   // Profiling support: kept copy of the cuda kernel
   std::string kernel_code_;
+
+  // Post-lowering hooks that are called to modify the kernel after lowering.
+  // The main use case is for unit tests to modify the kernel.
+  std::vector<std::function<void(kir::Kernel*)>> post_lowering_hooks_;
 };
 
 } // namespace nvfuser

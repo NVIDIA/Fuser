@@ -7,12 +7,12 @@
 // clang-format on
 #pragma once
 
-#include <ATen/Context.h>
-#include <exceptions.h>
-#include <torch/csrc/jit/ir/ir.h>
+#include <fusion.h>
 
 namespace nvfuser {
 
-void TypePropagate(std::shared_ptr<torch::jit::Graph>& graph);
+// Visits all global-to-local vector loads in `fusion` and refines their cache
+// policies.
+void refineCachePolicy(Fusion* fusion);
 
 } // namespace nvfuser
