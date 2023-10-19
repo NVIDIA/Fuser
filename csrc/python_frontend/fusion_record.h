@@ -726,7 +726,8 @@ struct BroadcastInDimOpRecord : RecordFunctor {
 
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    const auto& output_shape = fd.getFusionStateVector(args_.at(1).index);
+    const std::vector<Val*>& output_shape =
+        fd.getFusionStateVector(args_.at(1).index);
 
     const auto& arg_domains_nr = arg->domain()->noReductions();
     const auto arg_ndims = arg_domains_nr.size();
@@ -2378,7 +2379,7 @@ struct AtOpRecord : RecordFunctor {
   void operator()(FusionState& fd) final {
     NVF_CHECK(
         args_.at(0).stype == serde::StateType_Vector, "Expected Vector State!");
-    auto arg = fd.getFusionStateVector(args_.at(0).index);
+    const std::vector<Val*>& arg = fd.getFusionStateVector(args_.at(0).index);
     auto result = at(arg, index_);
     fd.setFusionState(outputs_.at(0).index, result);
   }
