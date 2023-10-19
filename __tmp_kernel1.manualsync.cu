@@ -9974,11 +9974,28 @@ __global__ void kernel1(
           T2[0LL] = T0[(i13 + (i4 * i18))];
         }
         // GRID REDUCTION
+
+        /*
+        reduction::
+            gridReduce<true, false, false, false, false, false, false, true>(
+                T3[0LL],  // out
+                T2[0LL],  // inp_val
+                [](float& a, float b) { a = a + b; },  // reduction_op
+                &T4[0],  // work_buf
+                &T5[0],  // sync_flags
+                static_cast<float*>(shared_mem),  // shared_buf
+                true,  // read_pred
+                true,  // write_pred
+                float(0.000000000e+00f),  // init_val
+                ((((i7 * 4LL) + i12) * 4LL) + i17),  // entrance_ind
+                ((i0 * 4LL) * 4LL));  // n_entrances (unused)
+        */
+        T& out = T3[0LL];
         const T inp_val = T2[0LL];
-        auto& out = T3[0LL];
+        const auto entrance_ind = ((((i7 * 4LL) + i12) * 4LL) + i17);
 
         // POSSIBLE BLOCK REDUCTION
-        T block_reduction_val = T2[0LL];
+        T block_reduction_val = init_val;
 
         // Do block reduction when required
         if (X_THREAD || Y_THREAD || Z_THREAD) {
@@ -9997,8 +10014,7 @@ __global__ void kernel1(
 
         // advance to the offset for this segment
         // index of reduction * size of the reduction * size of threads
-        const auto entrance_ind = ((((i7 * 4LL) + i12) * 4LL) + i17);
-        volatile T* work_buf = shared_buf +
+        volatile T* work_buf_iter = work_buf +
             (entrance_ind * grid_segment_size + idx_in_grid_segment) *
                 grid_reduction_segment_size * block_reduction_segment_size;
 
@@ -10013,7 +10029,7 @@ __global__ void kernel1(
                   threadIdx, blockDim);
           auto work_buf_offset =
               block_offset * block_reduction_segment_size + thread_offset;
-          work_buf[work_buf_offset] = block_reduction_val;
+          work_buf_iter[work_buf_offset] = block_reduction_val;
         }
         if (PERSISTENT_REDUCTION) {
           grid_sync::
@@ -10031,30 +10047,17 @@ __global__ void kernel1(
 
         if (last_block) {
           // Cleanup with block reduction
-          gridReduceLastBlock<!X_THREAD, !Y_THREAD, !Z_THREAD, Aligned>(
-              out,
-              (T*)work_buf,
-              grid_reduction_segment_size,
-              block_reduction_segment_size,
-              reduction_op,
-              shared_buf,
-              write_pred,
-              init_val);
+          reduction::
+              gridReduceLastBlock<!X_THREAD, !Y_THREAD, !Z_THREAD, Aligned>(
+                  out,
+                  (T*)work_buf_iter,
+                  grid_reduction_segment_size,
+                  block_reduction_segment_size,
+                  reduction_op,
+                  shared_buf,
+                  write_pred,
+                  init_val);
         }
-
-        reduction::
-            gridReduce<true, false, false, false, false, false, false, true>(
-                T3[0LL],
-                T2[0LL],
-                [](float& a, float b) { a = a + b; },
-                &T4[0],
-                &T5[0],
-                static_cast<float*>(shared_mem),
-                true,
-                true,
-                float(0.000000000e+00f),
-                ((((i7 * 4LL) + i12) * 4LL) + i17),
-                ((i0 * 4LL) * 4LL));
 
         if (PERSISTENT_REDUCTION) {
           // Make sure we're done with global memory before we allow the kernel
