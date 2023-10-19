@@ -156,7 +156,7 @@ def test_batchnorm_fwd_benchmark(
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [inputs, running_mean, running_var, weight, bias])
 
-@pytest.mark.parametrize("size", [(16, 64, 32, 8)])
+@pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_batchnorm_bwd_benchmark(
     benchmark,

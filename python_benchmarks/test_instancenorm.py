@@ -39,8 +39,7 @@ def instancenorm_fwd_fusion(
     
     fd.add_output(output)
 
-
-@pytest.mark.parametrize("size",[(128, 64, 32, 8)])
+@pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_instancenorm_fwd_benchmark(
     benchmark,
