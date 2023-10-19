@@ -9627,7 +9627,7 @@ TEST_F(NVFuserTest, ConstLongExpressions) {
 // of 5. It uses 106 threads without padding, nsys shows kernel
 // duration is 0.271 ms. If eliminate predicate for RNG ops by comment out
 // predicateRNGOp(), the kernel duration is increased to 0.376 ms.
-TEST_F(NVFuserTest, TMP) {
+TEST_F(NVFuserTest, PredicateRNGOps) {
   int64_t size = 4224;
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
