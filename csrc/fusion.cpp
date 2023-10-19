@@ -26,21 +26,23 @@
 
 namespace nvfuser {
 
-static thread_local Fusion* ACTIVE_FUSION = nullptr; // NOLINT
+/*static*/ thread_local Fusion* FusionGuard::active_fusion_ = nullptr;
 
-FusionGuard::FusionGuard(Fusion* fusion) : prev_fusion{ACTIVE_FUSION} {
-  ACTIVE_FUSION = fusion;
+FusionGuard::FusionGuard(Fusion* fusion) : prev_fusion_(active_fusion_) {
+  active_fusion_ = fusion;
 }
 
 FusionGuard::~FusionGuard() {
-  ACTIVE_FUSION = prev_fusion;
+  active_fusion_ = prev_fusion_;
 }
 
-Fusion* FusionGuard::getCurFusion() {
-  return ACTIVE_FUSION;
+// Cast to non-cast because many users need it.
+/*static*/ Fusion* FusionGuard::getCurFusion() {
+  return active_fusion_;
 }
-void FusionGuard::setCurFusion(Fusion* fusion) {
-  ACTIVE_FUSION = fusion;
+
+/*static*/ void FusionGuard::setCurFusion(Fusion* fusion) {
+  active_fusion_ = fusion;
 }
 
 void swap(Fusion& a, Fusion& b) noexcept {
@@ -199,9 +201,9 @@ void Fusion::removeVal(Val* val) {
       !val->isFusionOutput(),
       "Cannot remove val as it is an output of the fusion.");
 
-  Expr* orig = val->definition();
-  if (orig != nullptr)
-    removeExpr(val->definition());
+  if (Expr* orig = val->definition()) {
+    removeExpr(orig);
+  }
 
   for (Expr* use : unordered_uses(val)) {
     removeExpr(use);
@@ -359,9 +361,9 @@ void Fusion::validateInputs() {
   }
 }
 
-std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms) {
+std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
+    const {
   FUSER_PERF_SCOPE("Fusion::print");
-  FusionGuard fg(this);
   os << "\n%kernel {\n";
   IrMathPrinter op_exprs(os);
   op_exprs.handle(this);
