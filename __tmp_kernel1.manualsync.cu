@@ -10047,16 +10047,72 @@ __global__ void kernel1(
 
         if (last_block) {
           // Cleanup with block reduction
+          // GRID REDUCE LAST BLOCK
+          /*
           reduction::
               gridReduceLastBlock<!X_THREAD, !Y_THREAD, !Z_THREAD, Aligned>(
-                  out,
-                  (T*)work_buf_iter,
+                  out,  // out
+                  (T*)work_buf_iter,  // in
                   grid_reduction_segment_size,
                   block_reduction_segment_size,
                   reduction_op,
                   shared_buf,
                   write_pred,
                   init_val);
+                  */
+          const volatile T* in = (T*)work_buf_iter;
+          // NOTE We have reverse the thread template argument flags
+          const bool NOT_X_THREAD = !X_THREAD;
+          const bool NOT_Y_THREAD = !Y_THREAD;
+          const bool NOT_Z_THREAD = !Z_THREAD;
+
+          // We have to do num_reductions across reduction_size. The reductions
+          // are contiguous, but offset by reduction_size. There is an entry in
+          // "in" for every block, and every thread marked as true. Threads in
+          // dimensions marked as false can be used to parallelize the
+          // reduction.
+
+          // Find the reduction id of the participating threads
+          const auto block_reduction_segment_idx = index_utils::
+              maskedOffset<NOT_X_THREAD, NOT_Y_THREAD, NOT_Z_THREAD>(
+                  threadIdx, blockDim);
+
+          // Find an id associated within a reduction segment for all
+          // "non-participating" threads, which will parallelize the reductions
+          // for the "participating" threads
+          const auto id_in_block_segment = index_utils::
+              maskedOffset<!NOT_X_THREAD, !NOT_Y_THREAD, !NOT_Z_THREAD>(
+                  threadIdx, blockDim);
+
+          // Stride by the "non-participating" threads
+          const auto input_stride_for_thread_in_segment = index_utils::
+              maskedSize<!NOT_X_THREAD, !NOT_Y_THREAD, !NOT_Z_THREAD>(blockDim);
+
+          T inp = init_val;
+
+          // Block stride across the reduction until we only have one value per
+          // thread
+          for (nvfuser_index_t reduction_i = id_in_block_segment;
+               reduction_i < grid_reduction_segment_size;
+               reduction_i += input_stride_for_thread_in_segment) {
+            auto work_buf_offset = reduction_i * block_reduction_segment_size +
+                block_reduction_segment_idx;
+            reduction_op(inp, in[work_buf_offset]);
+          }
+
+          // Block reduce the per thread values into per "participating" thread
+          // values
+          T inp_tmp = init_val;
+          blockReduce<!NOT_X_THREAD, !NOT_Y_THREAD, !NOT_Z_THREAD, Aligned>(
+              inp_tmp, inp, reduction_op, shared_buf, true, init_val);
+          const bool should_write = (NOT_X_THREAD || threadIdx.x == 0) &&
+              (NOT_Y_THREAD || threadIdx.y == 0) &&
+              (NOT_Z_THREAD || threadIdx.z == 0);
+          if (should_write && write_pred) {
+            reduction_op(out, inp_tmp);
+          }
+
+          // END GRID REDUCE LAST BLOCK
         }
 
         if (PERSISTENT_REDUCTION) {
