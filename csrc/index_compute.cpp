@@ -48,7 +48,7 @@ int getProducerHaloOffset(
                  .mapDifferentExtents(true)
                  .mapProducerToConsumer();
 
-  auto producer_id = producer_tv->getMaybeRFactorDomain()[producer_axis];
+  auto producer_id = producer_tv->getMaybeAllocationDomain()[producer_axis];
 
   auto it = p2c.find(producer_id);
   // p2c should always have a mapping for producer_id. The only case
