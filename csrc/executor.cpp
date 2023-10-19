@@ -14,7 +14,6 @@
 #include <driver_api.h>
 #include <executor_kernel_arg.h>
 #include <executor_utils.h>
-#include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
@@ -419,7 +418,6 @@ void FusionExecutor::compileFusion(
       (block_size.has_value() ? block_size.value() : 1),
       block_size_high_water_mark_);
   maxrregcount_high_water_mark_ = compile_params.maxrregcount;
-  //FUSION_PROFILER_START_KERNEL_COMPILE 
   compiled_kernel_ = executor_utils::getCompiledKernel(
       kernel_code_,
       structured_code,
@@ -428,7 +426,6 @@ void FusionExecutor::compileFusion(
       compile_params,
       block_size);
   NVF_ERROR(fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
-  //FUSION_PROFILER_STOP_KERNEL_COMPILE 
 
   // These should be nullopt at this point, but reset just in case
   resetCompiledKernelProperties();
@@ -1539,6 +1536,7 @@ void FusionExecutor::recompileKernel(
       fusion_id_,
       new_compile_params,
       block_size_high_water_mark_);
+
   resetCompiledKernelProperties();
 
   if (kernel()->summary().has_cooperative_grid_reduction) {
@@ -1844,11 +1842,28 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     if (measure_kernel_time) {
       kernel_time_ms_ = timer.elapsed();
 
-      int64_t bytes_processed = inputBytesProcessed(args) + outputBytesProcessed(outputs);
+      bytes_processed_per_input_.resize(num_inputs, 0);
+      // Figure how many bytes are inputs, outputs, and temporary buffers
+      for (auto i : c10::irange(num_inputs)) {
+        if (args[i]->is<at::Tensor>()) {
+          auto t = args[i]->as<at::Tensor>();
+          auto num_bytes = t.numel() *
+              (int64_t)dataTypeSize(aten_to_data_type(t.scalar_type()));
+          bytes_processed_per_input_.at(i) = num_bytes;
+        }
+      }
+      bytes_processed_per_output_.resize(outputs.size(), 0);
+      for (auto i : c10::irange(outputs.size())) {
+        const auto& output = outputs.at(i);
+        // NOTE: this assumes that all output elements correspond to a single
+        // store
+        bytes_processed_per_output_.at(i) = output.numel() *
+            (int64_t)dataTypeSize(aten_to_data_type(output.scalar_type()));
+      }
 
       if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth)) {
         double gb_per_s =
-            ((double)bytes_processed / ((double)kernel_time_ms_ / 1000)) /
+            ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
             (double)1.0e9;
         debug() << "kernel" << fusion_id_ << " run in " << kernel_time_ms_
                 << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;

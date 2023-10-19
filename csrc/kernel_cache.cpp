@@ -1008,20 +1008,18 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     executor.setMeasureKernelTimeFlag(true);
   }
 
- 
   SEGMENT_PROFILER_START_KERNEL(args.getDeviceIndex(), group_id)
   auto outputs = executor.runFusion(args, launch_params, compile_params);
   SEGMENT_PROFILER_STOP_KERNEL(group_id);
-  SEGMENT_PROFILER_BYTES_PROCESSED(group_id,
-      ([&args, &outputs, &executor]() { return executor.inputBytesProcessed(args, outputs);}),
-      ([&outputs, &executor]() { return executor.outputBytesProcessed(outputs);}));
+  //SEGMENT_PROFILER_BYTES_PROCESSED(group_id,
+  //    ([&args, &outputs, &executor]() { return executor.inputBytesProcessed(args, outputs);}),
+  //    ([&outputs, &executor]() { return executor.outputBytesProcessed(outputs);}));
   
   // Accumulate the kernel time of each segment
   kernel_time_ms_ += executor.kernelTimeMs();
 
   // Print relevant information all at once for easy debuging of perf
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    int64_t bytes_processed = executor.inputBytesProcessed(args, outputs) + executor.outputBytesProcessed(outputs);
     debug() << "\nRun kernel:\n";
     if (sg) {
       segmented_fusion_->makeFusion(sg)->printMath();
@@ -1036,10 +1034,10 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
             << "\n";
     debug() << scheduler_entry->params()->toString() << "\n";
     debug() << "With arguments: " << executor.lastLaunchParams().toString();
-    debug() << executor.kernelName() << " " << bytes_processed 
+    debug() << executor.kernelName() << " " << executor.bytesProcessed()
             << " bytes/ " << std::setprecision(3) << executor.kernelTimeMs()
             << " ms "
-            << ((double)bytes_processed /
+            << ((double)executor.bytesProcessed() /
                 ((double)executor.kernelTimeMs() / 1000)) /
             (double)1.0e9
             << " GB/s" << std::endl;
@@ -1338,13 +1336,17 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
 
     if (compute_overall_bw) {
-      auto& executor = executors_.at(group_id);
-      total_bytes_processed += executor.inputBytesProcessed(group_runtime_inputs, group_runtime_outputs);
-      total_bytes_processed += executor.outputBytesProcessed(group_runtime_outputs);
+      const auto& executor = executors_.at(group_id);
+      for (auto bytes : executor.bytesInputsProcessed()) {
+        total_bytes_processed += bytes;
+      }
+      for (auto bytes : executor.bytesOutputsProcessed()) {
+        total_bytes_processed += bytes;
+      }
     }
   }
 
-  FUSION_PROFILER_BYTES_PROCESSED(([&]() {
+  FUSION_PROFILER_INPUT_BYTES_ACCESSED(([&]() {
     size_t input_bytes = 0;
     for (auto inp : fusionSegments()->inputs()) {
       if (auto tv = dynamic_cast<TensorView*>(inp)) {
@@ -1353,6 +1355,9 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
             dataTypeSize(tv->dtype());
       }
     }
+    return input_bytes;
+  }));
+  FUSION_PROFILER_OUTPUT_BYTES_ACCESSED(([&]() {
     size_t output_bytes = 0;
     for (auto outp : fusionSegments()->outputs()) {
       if (auto tv = dynamic_cast<TensorView*>(outp)) {
@@ -1361,7 +1366,7 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
             dataTypeSize(tv->dtype());
       }
     }
-    return std::tuple<size_t, size_t>(input_bytes, output_bytes);
+    return output_bytes;
   }));
 
   if (compute_overall_bw) {

@@ -126,7 +126,8 @@ class SegmentProfiler {
   void startKernel(int device);
   void stopKernel();
 
-  void bytesProcessed(size_t input_bytes, size_t output_bytes);
+  void inputBytesAccessed(size_t bytes);
+  void outputBytesAccessed(size_t bytes);
 
   uint32_t segmentId() const;
 
@@ -153,7 +154,8 @@ class FusionProfiler {
 
   void start();
   void stop();
-  void bytesProcessed(std::tuple<size_t, size_t> input_output);
+  void inputBytesAccessed(size_t bytes);
+  void outputBytesAccessed(size_t bytes);
   FusionProfile profile() const;
   
   // Methods to capture Asynchronous CUPTI activity
@@ -190,8 +192,12 @@ class FusionProfiler {
   _FP_ENABLE(FusionProfiler::get()->stop())
 #define FUSION_PROFILER_CREATE_SEGMENTS(segments) \
   _FP_ENABLE(FusionProfiler::get()->createSegments(segments))
-#define FUSION_PROFILER_BYTES_PROCESSED(fn) \
-  _FP_ENABLE(FusionProfiler::get()->bytesProcessed(fn()))
+#define FUSION_PROFILER_BYTES_ACCESSED(fn) \
+  _FP_ENABLE(FusionProfiler::get()->bytesAccessed(fn()))
+#define FUSION_PROFILER_INPUT_BYTES_ACCESSED(input_fn) \
+  _FP_ENABLE(FusionProfiler::get()->inputBytesAccessed(input_fn()))
+#define FUSION_PROFILER_OUTPUT_BYTES_ACCESSED(output_fn) \
+  _FP_ENABLE(FusionProfiler::get()->outputBytesAccessed(output_fn()))
 #define FUSION_PROFILER_PRINT \
   if (isDebugDumpEnabled(DebugDumpOption::FusionProfiler) { \
     debug() << FusionProfiler::get()->profile(); \
@@ -206,7 +212,9 @@ class FusionProfiler {
   _FP_ENABLE(FusionProfiler::get()->segment(idx).startKernel(device))
 #define SEGMENT_PROFILER_STOP_KERNEL(idx) \
   _FP_ENABLE(FusionProfiler::get()->segment(idx).stopKernel())
-#define SEGMENT_PROFILER_BYTES_PROCESSED(idx, input_fn, output_fn) \
-  _FP_ENABLE(FusionProfiler::get()->segment(idx).bytesProcessed(input_fn(), output_fn()))
+#define SEGMENT_PROFILER_INPUT_BYTES_ACCESSED(idx, input_fn) \
+  _FP_ENABLE(FusionProfiler::get()->segment(idx).inputBytesAccessed(input_fn())
+#define SEGMENT_PROFILER_OUTPUT_BYTES_ACCESSED(idx, output_fn) \
+  _FP_ENABLE(FusionProfiler::get()->segment(idx).outputBytesAccessed(output_fn())
 
 } // namespace nvfuser

@@ -235,8 +235,11 @@ void SegmentProfiler::stopKernel() {
   kernel_profile_state_ = ProfilerState::Finished;
 }
 
-void SegmentProfiler::bytesProcessed(size_t input_bytes, size_t output_bytes) {
-  std::cout << "\nSegment Bytes Accessed: " << input_bytes << " " << output_bytes << std::endl;
+void SegmentProfiler::inputBytesAccessed(size_t bytes) {
+  std::cout << "\nSegment Input Bytes Accessed: " << bytes << std::endl;
+}
+void SegmentProfiler::outputBytesAccessed(size_t bytes) {
+  std::cout << "\nSegment Output Bytes Accessed: " << bytes << std::endl;
 }
 
 uint32_t SegmentProfiler::segmentId() const {
@@ -364,10 +367,11 @@ FusionProfiler::FusionProfiler() :
       cuptiActivityRegisterCallbacks(buffer_requested, buffer_completed));
 }
 
-void FusionProfiler::bytesProcessed(std::tuple<size_t, size_t> input_output) {
-  profile_.input_bytes = std::get<0>(input_output);
-  profile_.output_bytes = std::get<1>(input_output);
-  std::cout << "\nFusion Bytes Accessed: " << std::get<0>(input_output) << " " << std::get<1>(input_output) << std::endl;
+void FusionProfiler::inputBytesAccessed(size_t bytes) {
+  std::cout << "\nFusionInput Bytes Accessed: " << bytes << std::endl;
+}
+void FusionProfiler::outputBytesAccessed(size_t bytes) {
+  std::cout << "\nFusion Output Bytes Accessed: " << bytes << std::endl;
 }
 
 void FusionProfiler::reset() {
