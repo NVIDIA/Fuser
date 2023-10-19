@@ -2573,7 +2573,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridReduce1_CUDA) {
 
   // parallelize like T1[ rblockIdx.x1{i0}, iS2{ceilDiv(i1, 16 * bdimx)},
   // iS3{4}, iS4{4}, ithreadIdx.x5{bdimx} ]
-  int64_t bdimx = 64;
+  int64_t bdimx = 768;
 
   tv0->cacheAfter();
   auto tv3 = tv1->cacheBefore();

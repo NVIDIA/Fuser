@@ -9870,20 +9870,23 @@ __global__ void kernel1(
     Tensor<float, 1, 1> T1,
     Tensor<float, 1, 1> T4,
     Tensor<int64_t, 1, 1> T5) {
+  // This is a compile-time constant that must match the launch
+  const int64_t BDIMX = 768LL;
+
   alignas(16) extern __shared__ char array[];
   void* shared_mem = array;
   NVFUSER_DEFINE_MAGIC_ZERO;
   nvfuser_index_t i0;
-  i0 = ceilDiv((ceilDiv((ceilDiv(T0.logical_size[1LL], 64LL)), 4LL)), 4LL);
+  i0 = ceilDiv((ceilDiv((ceilDiv(T0.logical_size[1LL], BDIMX)), 4LL)), 4LL);
   nvfuser_index_t i1;
   i1 = (T0.alloc_stride[1LL] * ((nvfuser_index_t)threadIdx.x)) +
       (T0.alloc_stride[0LL] * ((nvfuser_index_t)blockIdx.x));
   nvfuser_index_t i2;
-  i2 = 1024LL * T0.alloc_stride[1LL];
+  i2 = (BDIMX * 16LL) * T0.alloc_stride[1LL];
   nvfuser_index_t i3;
-  i3 = 256LL * T0.alloc_stride[1LL];
+  i3 = (BDIMX * 4LL) * T0.alloc_stride[1LL];
   nvfuser_index_t i4;
-  i4 = 64LL * T0.alloc_stride[1LL];
+  i4 = BDIMX * T0.alloc_stride[1LL];
   nvfuser_index_t i5;
   i5 = (-T0.logical_size[1LL]) + ((nvfuser_index_t)threadIdx.x);
   bool b6;
@@ -9936,6 +9939,10 @@ __global__ void kernel1(
   bool last_block =
       index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
 
+  if (last_block) {
+    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
+        sync_flags[idx_in_grid_segment], grid_reduction_segment_size - 1);
+  }
   // END INITIALIZE GRIDREDUCE
 
 #pragma unroll 1
@@ -9943,7 +9950,7 @@ __global__ void kernel1(
     nvfuser_index_t i8;
     i8 = i1 + (i2 * i7);
     nvfuser_index_t i9;
-    i9 = 1024LL * i7;
+    i9 = (BDIMX * 16LL) * i7;
     nvfuser_index_t i10;
     i10 = ((nvfuser_index_t)threadIdx.x) + i9;
     nvfuser_index_t i11;
@@ -9953,7 +9960,7 @@ __global__ void kernel1(
       nvfuser_index_t i13;
       i13 = i8 + (i3 * i12);
       nvfuser_index_t i14;
-      i14 = 256LL * i12;
+      i14 = (BDIMX * 4LL) * i12;
       nvfuser_index_t i15;
       i15 = i10 + i14;
       nvfuser_index_t i16;
@@ -9963,7 +9970,7 @@ __global__ void kernel1(
         nvfuser_index_t i18;
         i18 = i17 + nvfuser_zero;
         nvfuser_index_t i19;
-        i19 = 64LL * i18;
+        i19 = BDIMX * i18;
         bool b20;
         b20 = i11 < (i16 - i19);
         float T3[1LL];
@@ -10030,19 +10037,6 @@ __global__ void kernel1(
           auto work_buf_offset =
               block_offset * block_reduction_segment_size + thread_offset;
           work_buf_iter[work_buf_offset] = block_reduction_val;
-        }
-        if (PERSISTENT_REDUCTION) {
-          grid_sync::
-              sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-                  sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
-
-        } else {
-          // Use a different sync flag for each call
-          grid_sync::
-              sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-                  sync_flags
-                      [entrance_ind * grid_segment_size + idx_in_grid_segment],
-                  grid_reduction_segment_size);
         }
 
         if (last_block) {
@@ -10114,14 +10108,6 @@ __global__ void kernel1(
 
           // END GRID REDUCE LAST BLOCK
         }
-
-        if (PERSISTENT_REDUCTION) {
-          // Make sure we're done with global memory before we allow the kernel
-          // to continue
-          grid_sync::
-              sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-                  sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
-        }
         // END GRID REDUCTION
 
         if ((b6 && b20)) {
@@ -10131,5 +10117,11 @@ __global__ void kernel1(
     }
     NVFUSER_UPDATE_MAGIC_ZERO;
   }
+  // GRID REDUCE SYNC
+  if (!last_block || PERSISTENT_REDUCTION) {
+    grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
+        sync_flags[idx_in_grid_segment], grid_reduction_segment_size - 1);
+  }
+  // END GRID REDUCE SYNC
 }
 } // namespace CudaCodeGen
