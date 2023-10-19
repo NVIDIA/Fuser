@@ -197,8 +197,6 @@ class FusionProfiler {
   _FP_ENABLE(FusionProfiler::get()->stop())
 #define FUSION_PROFILER_CREATE_SEGMENTS(segments) \
   _FP_ENABLE(FusionProfiler::get()->createSegments(segments))
-#define FUSION_PROFILER_BYTES_ACCESSED(fn) \
-  _FP_ENABLE(FusionProfiler::get()->bytesAccessed(fn()))
 #define FUSION_PROFILER_INPUT_BYTES_ACCESSED(input_fn) \
   _FP_ENABLE(FusionProfiler::get()->inputBytesAccessed(input_fn()))
 #define FUSION_PROFILER_OUTPUT_BYTES_ACCESSED(output_fn) \
