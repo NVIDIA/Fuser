@@ -993,4 +993,70 @@ TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
   test({0});
 }
 
+TEST_F(NVFuserTest, TMP) {
+  auto test = [](int hidden_size) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeContigTensor(2,dtype);
+    auto tv1 = makeContigTensor(2,dtype);
+    auto tv2 = makeContigTensor(1,dtype);
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+    fusion.addInput(tv2);
+    if (dtype == DataType::Half) {
+      tv0 = castOp(DataType::Float, tv0);
+      tv1 = castOp(DataType::Float, tv1);
+      tv2 = castOp(DataType::Float, tv2);
+    }    
+    auto tv3 = broadcast(tv2, {true, false});
+    auto tv4 = add(tv0, tv3);   // persistent, project to tv0 & tv2
+    auto tv5 = sum(tv4, {-1}); //inner reduction
+    auto tv6 = broadcast(tv5, {false, true});
+    auto tv7 = add(tv4, tv6); // inner output
+
+    auto tv8 = add(tv4,tv1) // persistent, project to tv1
+    auto tv9 = sum(tv8, {0}); // outer reduction
+    auto tv10 = broadcast(tv9, {true, false});
+    auto tv11 = add(tv8, tv10); // outer output
+    fusion.addOutput(tv3);
+    fusion.addOutput(tv4);
+
+    auto options = at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+    at::Tensor t0 = at::randn({2048, hidden_size}, options);
+    std::vector<c10::IValue> aten_inputs = {t0};
+
+    FusionExecutorCache fec(std::move(fusion_ptr));
+    auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+    // bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
+    // if (outer_reduction_axis.size() == 2) {
+    //   NVF_ERROR(!is_segmented, "Fusion should NOT be segmented!");
+    // } else {
+    //   NVF_ERROR(is_segmented, "Fusion should be segmented!");
+    // }
+
+    // std::vector<int64_t> vec64(
+    //     outer_reduction_axis.begin(), outer_reduction_axis.end());
+    // auto t1 = t0.sum({-1});
+    // auto t2 = t1.unsqueeze(-1);
+    // auto t3 = t0 + t2;
+    // auto t4 = t0.sum(vec64);
+    // testValidate(
+    //     &fusion, cg_outputs, aten_inputs, {t3, t4}, __LINE__, __FILE__);
+  };
+
+  // inner reduction is [I, I, R]
+  // outer reduction is [R, R, I]
+  // every iteration domain in inner reduction tv is a reduction domain in outer
+  // reduction tv, matched.
+  test({0, 1});
+
+  // inner reduction is [I, I, R]
+  // outer reduction is [R, I, I]
+  // axis-1 is a iteration domain in inner reduction tv but it is not a
+  // reduction domain in outer reduction tv, not matched.
+  test({0});
+}
 } // namespace nvfuser

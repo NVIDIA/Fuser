@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <exceptions.h>
-#include <torch/csrc/jit/passes/cuda_graph_fuser.h>
+// #include <torch/csrc/jit/passes/cuda_graph_fuser.h>
 
 #include <c10/util/Exception.h>
 #include <c10/util/irange.h>
