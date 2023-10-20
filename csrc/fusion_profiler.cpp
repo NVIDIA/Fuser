@@ -299,63 +299,77 @@ struct StringDescriptor {
 
 std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
   constexpr std::array<const char*,  25> column_strs{"Fus#", "NSegs",
-      "Time(ms)", "HstTime(ms)", "CmpTime(ms)", "KerTime(ms)", "EffBw(GB/s)",
-      "%PkBw", "Seg#", "S-KerName", "S-Dev", "S-Stm", "S-KerTime(ms)",
-      "S-CmpTime(ms)", "S-EffBw(GB/s)", "S-%PkBw", "S-Grid",
+      "Time(ms)", "HstTm(ms)", "CmpTm(ms)", "KerTm(ms)", "EffBw(GB/s)",
+      "%PeakBw", "Seg#", "S-KerName", "S-Dev", "S-Stm", "S-KerTm(ms)",
+      "S-CmpTm(ms)", "S-EffBw(GB/s)", "S-%PeakBw", "S-Grid",
       "S-Block", "S-Cluster", "S-Smem[Dyn,Stat]", "S-Regs", "S-In(MB)",
-      "S-Out(MB)", "S-DevName", "S-PkBw"};
+      "S-Out(MB)", "S-DeviceName", "S-PeakBw(GB/s)"};
 
   if (fp.fusion_id == 0) {
-    os << std::setw(5)  << std::left << std::get<0>(column_strs)
-       << " " << std::setw(5)  << std::left << std::get<1>(column_strs)
-       << " " << std::setw(8)  << std::left << std::get<2>(column_strs)
-       << " " << std::setw(11) << std::left << std::get<3>(column_strs)
-       << " " << std::setw(11) << std::left << std::get<4>(column_strs)
-       << " " << std::setw(11) << std::left << std::get<5>(column_strs)
-       << " " << std::setw(11) << std::left << std::get<6>(column_strs)
-       << " " << std::setw(11) << std::left << std::get<7>(column_strs)
-       << " " << std::setw(4)  << std::left << std::get<8>(column_strs)
-       << " " << std::setw(10) << std::left << std::get<9>(column_strs)
-       << " " << std::setw(5)  << std::left << std::get<10>(column_strs)
-       << " " << std::setw(5)  << std::left << std::get<11>(column_strs)
-       << " " << std::setw(11) << std::left << std::get<12>(column_strs)
-       << " " << std::setw(11) << std::left << std::get<13>(column_strs)
-       << " " << std::setw(13) << std::left << std::get<14>(column_strs)
-       << " " << std::setw(7)  << std::left << std::get<15>(column_strs)
-       << " " << std::setw(16) << std::left << std::get<16>(column_strs)
-       << " " << std::setw(16) << std::left << std::get<17>(column_strs)
-       << " " << std::setw(16) << std::left << std::get<18>(column_strs)
-       << " " << std::setw(16) << std::left << std::get<19>(column_strs)
-       << " " << std::setw(6)  << std::left << std::get<20>(column_strs)
-       << " " << std::setw(8)  << std::left << std::get<21>(column_strs)
-       << " " << std::setw(8)  << std::left << std::get<22>(column_strs)
-       //<< " " << std::setw(16) << std::left << std::get<23>(column_strs)
-       //<< " " << std::setw(7)  << std::left << std::get<24>(column_strs)
-       << " " << std::endl;
+    os << std::left <<std::setw(5) << std::get<0>(column_strs)
+       << " " << std::setw(5)  << std::get<1>(column_strs)
+       << " " << std::setw(8)  << std::get<2>(column_strs)
+       << " " << std::setw(9) << std::get<3>(column_strs);
+
+    if (fp.verbose) {
+      os << " " << std::setw(9) << std::get<4>(column_strs)
+         << " " << std::setw(9) << std::get<5>(column_strs)
+         << " " << std::setw(11) << std::get<6>(column_strs)
+         << " " << std::setw(9) << std::get<7>(column_strs);
+    }
+
+    os << " " << std::setw(4)  << std::get<8>(column_strs)
+       << " " << std::setw(10) << std::get<9>(column_strs)
+       << " " << std::setw(5)  << std::get<10>(column_strs)
+       << " " << std::setw(5)  << std::get<11>(column_strs)
+       << " " << std::setw(11) << std::get<12>(column_strs)
+       << " " << std::setw(11) << std::get<13>(column_strs)
+       << " " << std::setw(13) << std::get<14>(column_strs)
+       << " " << std::setw(9)  << std::get<15>(column_strs)
+       << " " << std::setw(16) << std::get<16>(column_strs)
+       << " " << std::setw(16) << std::get<17>(column_strs)
+       << " " << std::setw(16) << std::get<18>(column_strs)
+       << " " << std::setw(16) << std::get<19>(column_strs)
+       << " " << std::setw(6)  << std::get<20>(column_strs)
+       << " " << std::setw(9)  << std::get<21>(column_strs)
+       << " " << std::setw(9)  << std::get<22>(column_strs);
+
+    if (fp.verbose) {
+      os << " " << std::setw(20) << std::left << std::get<23>(column_strs)
+         << " " << std::setw(14) << std::left << std::get<24>(column_strs);
+    }
+
+    os << " " << std::endl;
   }
 
   bool first_prof = true;
   int idx = 0;
   for (auto& kp : fp.kernel_profiles) {
     if (first_prof) {
-      os << std::setfill(' ') << std::setw(5) << std::right << fp.fusion_id
-         << " " << std::setw(5)  << std::right << fp.kernel_profiles.size()
-         << " " << std::setw(8)  << std::right << fp.time_ms
-         << " " << std::setw(11) << std::right << fp.host_time_ms
-         << " " << std::setw(11) << std::right << fp.compile_time_ms
-         << " " << std::setw(11) << std::right << fp.kernel_time_ms
-         << " " << std::setw(11) << std::right << fp.effective_bandwidth_gbs 
-         << " " << std::setw(11)  << std::right << fp.percentage_peak_bandwidth;
+      os << std::setfill(' ') << std::right << std::fixed 
+                << std::setw(5) << fp.fusion_id
+         << " " << std::setw(5) << fp.kernel_profiles.size()
+         << " " << std::setw(8) << std::setprecision(3) << fp.time_ms
+         << " " << std::setw(9) << std::setprecision(3) << fp.host_time_ms;
+      if (fp.verbose) {
+        os << std::setfill(' ') << std::right << std::fixed 
+           << " " << std::setw(9)  << std::setprecision(3) << fp.compile_time_ms
+           << " " << std::setw(9)  << std::setprecision(3) << fp.kernel_time_ms
+           << " " << std::setw(11) << std::setprecision(2) << fp.effective_bandwidth_gbs 
+           << " " << std::setw(9)  << std::setprecision(2) << fp.percentage_peak_bandwidth;
+      }
       first_prof = false;
     } else {
       os << std::setfill(' ') << std::setw(5)
          << " " << std::setw(5)
          << " " << std::setw(8)
-         << " " << std::setw(11) 
-         << " " << std::setw(11) 
-         << " " << std::setw(11) 
-         << " " << std::setw(11) 
-         << " " << std::setw(11);
+         << " " << std::setw(9);
+      if (fp.verbose) {
+        os << " " << std::setw(9) 
+           << " " << std::setw(9) 
+           << " " << std::setw(11) 
+           << " " << std::setw(9);
+      }
 
     }
     std::stringstream grid;
@@ -366,24 +380,27 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
     cluster << "[" << std::get<0>(kp.cluster) << ", " << std::get<1>(kp.cluster) << ", " << std::get<2>(kp.cluster) << "]";
     std::stringstream smem;
     smem << "[" << kp.dynamic_shared_mem << ", " << kp.static_shared_mem << "]";
-    os << " " << std::setfill(' ') << std::setw(4) << std::right << idx
-       << " " << std::setw(10) << std::right << kp.name
-       << " " << std::setw(5)  << std::right << kp.device
-       << " " << std::setw(5)  << std::right << kp.stream
-       << " " << std::setw(11) << std::right << kp.time_ms
-       << " " << std::setw(11) << std::right << kp.compile_time_ms
-       << " " << std::setw(13) << std::right << kp.effective_bandwidth_gbs
-       << " " << std::setw(7)  << std::right << kp.percentage_peak_bandwidth
-       << " " << std::setw(16) << std::right << grid.str()
-       << " " << std::setw(16) << std::right << block.str()
-       << " " << std::setw(16) << std::right << cluster.str()
-       << " " << std::setw(16) << std::right << smem.str()
-       << " " << std::setw(6)  << std::right << kp.registers
-       << " " << std::setw(8)  << std::right << (kp.input_bytes / 1000000)
-       << " " << std::setw(8)  << std::right << (kp.output_bytes / 1000000)
-       //<< " " << std::setw(16) << std::right << kp.device_name
-       //<< " " << std::setw(7)  << std::right << kp.peak_bandwidth_gbs
-       << " " << std::endl;
+    os << std::setfill(' ') << std::right << std::fixed 
+       << " " << std::setw(4)  << idx
+       << " " << std::setw(10) << kp.name
+       << " " << std::setw(5)  << kp.device
+       << " " << std::setw(5)  << kp.stream
+       << " " << std::setw(11) << std::setprecision(3) << kp.time_ms
+       << " " << std::setw(11) << std::setprecision(3) << kp.compile_time_ms
+       << " " << std::setw(13) << std::setprecision(2) << kp.effective_bandwidth_gbs
+       << " " << std::setw(9)  << std::setprecision(2) << kp.percentage_peak_bandwidth
+       << " " << std::setw(16) << grid.str()
+       << " " << std::setw(16) << block.str()
+       << " " << std::setw(16) << cluster.str()
+       << " " << std::setw(16) << smem.str()
+       << " " << std::setw(6)  << kp.registers
+       << " " << std::setw(9)  << std::setprecision(3) << ((double)kp.input_bytes / 1000000.0)
+       << " " << std::setw(9)  << std::setprecision(3) << ((double)kp.output_bytes / 1000000.0);
+    if (fp.verbose) {
+       os << " " << std::setw(20) << kp.device_name
+          << " " << std::setw(14) << std::setprecision(2) << kp.peak_bandwidth_gbs;
+    }
+    os << " " << std::endl;
     ++idx;
   }
   return os;
@@ -446,7 +463,7 @@ void FusionProfiler::stop() {
   profile_.time_ms = fusion_timer_.time();
   kernel_profiles_.reserve(segments_.size());
   profile_.kernel_profiles.resize(segments_.size());
-  
+ 
   NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(0));
 
   NVF_CHECK(kernel_profiles_.size() == segments_.size(), "All of the kernel profiles have not been recorded!");

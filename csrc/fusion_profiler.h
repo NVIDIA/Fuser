@@ -100,6 +100,7 @@ struct KernelProfile {
 struct FusionProfile {
   void reset();
 
+  bool verbose{false};
   int64_t fusion_id;
 
   double time_ms{0.0};
