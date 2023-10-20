@@ -81,6 +81,10 @@ class ExpressionSerializer {
       flatbuffers::FlatBufferBuilder& builder,
       std::vector<Val*> domain);
 
+  flatbuffers::Offset<IterationDomain> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const nvfuser::IterDomain* id);
+
   void printStack() const {
     std::vector<nvfuser::Val*> ordered_stack(operation_stack_.size());
     for (auto item : operation_stack_) {

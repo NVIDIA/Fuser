@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <type.h>
 #include <ops/arith.h>
 #include <serde/expr_evaluator_serde.h>
 #include <serde/polymorphic_value_serde.h>
@@ -30,8 +31,16 @@ std::vector<VALTYPE*> getAttributes(VALTYPE* val) {
 
 template <typename VALTYPE>
 std::vector<VALTYPE*> getImmediateProducers(VALTYPE* val) {
-  return (val->definition()) ? val->definition()->inputs()
-                             : std::vector<VALTYPE*>();
+  if (val->definition() != nullptr) {
+    return val->definition()->inputs();
+  } else if(auto id = dynamic_cast<nvfuser::IterDomain*>(val)) {
+    std::vector<VALTYPE*> inputs;
+    inputs.push_back(id->start());
+    inputs.push_back(id->extent());
+    return inputs;
+  } else {
+    return std::vector<VALTYPE*>();
+  }
 }
 
 template <typename VALTYPE>
@@ -122,6 +131,7 @@ void bindRootDomain(
     std::vector<IterDomain*> domain) {
   for (auto d : domain) {
     NVF_ERROR(d->definition() == nullptr);
+    bind(all_values, d->start());
     bind(all_values, d->extent());
   }
 }
@@ -140,9 +150,9 @@ void bindDomain(
 // allocation, and leaf domains
 void bind(std::vector<Val*>& all_values, nvfuser::TensorView* tv) {
   bindRootDomain(all_values, tv->getRootDomain());
-  // bindDomain(all_values, tv->getRFactorDomain());
-  // bindDomain(all_values, tv->getAllocationDomain());
-  // bindDomain(all_values, tv->getLeafDomain());
+  bindDomain(all_values, tv->getRFactorDomain());
+  bindDomain(all_values, tv->getAllocationDomain());
+  bindDomain(all_values, tv->getLeafDomain());
 }
 
 } // namespace
@@ -294,6 +304,7 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
       bind(all_values, tv);
     }
   }
+
   // A deserialized fusion may not contain all its allocations in its
   // kir::Kernel. Add allocations directly to handle this case.
   for (auto allocate : allocations) {
@@ -327,6 +338,21 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
     }
   }
 
+  std::vector<Val*> iterdomain_without_definition;
+  std::copy_if(
+      all_values.begin(),
+      all_values.end(),
+      std::back_inserter(iterdomain_without_definition),
+      [](Val* v) {
+        return v->isA<nvfuser::IterDomain>();
+      });
+  for (auto v : iterdomain_without_definition) {
+    auto id = dynamic_cast<nvfuser::IterDomain*>(v);
+    NVF_CHECK(id != nullptr);
+    all_values.push_back(id->start());
+    all_values.push_back(id->extent());
+  }
+
   // 2) Sort values by dependency order
   // 3) Divide values into NamedScalar, Int, Symbolic, and Derived values
   for (auto v : makeSortedEvaluationList(all_values)) {
@@ -335,6 +361,8 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
         insert_item(named_scalar_values, ns);
       } else if (v->isConstInt()) {
         insert_item(const_int_values, v);
+      } else if (auto id = dynamic_cast<nvfuser::IterDomain*>(v)) {
+        insert_item(derived_values, id);
       } else {
         insert_item(symbolic_values, v);
       }
@@ -385,6 +413,16 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
     derived_values.pop_front();
 
     if (operation_stack_.count(val)) {
+      continue;
+    }
+
+    if (def == nullptr && val->isA<nvfuser::IterDomain>()) {
+      auto id = dynamic_cast<nvfuser::IterDomain*>(val);
+      auto fb_id = serialize(builder, id);
+      auto fb_inst = serde::CreateInstruction(
+          builder, serde::InstructionData_IterationDomain, fb_id.Union());
+      instructions_fb.push_back(fb_inst);
+      operation_stack_.emplace(val, operation_stack_.size());
       continue;
     }
 
@@ -491,6 +529,30 @@ flatbuffers::Offset<flatbuffers::Vector<int64_t>> ExpressionSerializer::
   return builder.CreateVector(fb_domain);
 }
 
+flatbuffers::Offset<serde::IterationDomain> ExpressionSerializer::serialize(
+    flatbuffers::FlatBufferBuilder& builder,
+    const nvfuser::IterDomain* id) {
+    NVF_ERROR(
+        operation_stack_.count(id->start()),
+        "Missing iterDomain extent in NaiveValueGenerator stack.\t",
+        id->start()->toString());
+
+    NVF_ERROR(
+        operation_stack_.count(id->extent()),
+        "Missing iterDomain extent in NaiveValueGenerator stack.\t",
+        id->extent()->toString());
+
+    return serde::CreateIterationDomain(
+        builder,
+        operation_stack_.at(id->start()),
+        operation_stack_.at(id->extent()),
+        castEnumToUnderlyingType(id->getParallelType()),
+        castEnumToUnderlyingType(id->getIterType()),
+        id->isRFactorProduct(),
+        id->hasPaddingToMultipleOfWarp(),
+        id->isMmaSwizzled());
+}
+
 // TODO create separate functions for TensorDomain and IterDomain
 flatbuffers::Offset<serde::SymbolicTensor> ExpressionSerializer::serialize(
     flatbuffers::FlatBufferBuilder& builder,
@@ -499,12 +561,7 @@ flatbuffers::Offset<serde::SymbolicTensor> ExpressionSerializer::serialize(
   // operations to move between rfactor, allocate, and leaf domains.
   std::vector<flatbuffers::Offset<IterationDomain>> fb_root_domain;
   for (auto id : tv->getRootDomain()) {
-    NVF_ERROR(
-        operation_stack_.count(id->extent()),
-        "Missing iterDomain extent in NaiveValueGenerator stack.\t",
-        id->extent()->toString());
-    auto extent_id = operation_stack_.at(id->extent());
-    fb_root_domain.push_back(serde::CreateIterationDomain(builder, extent_id));
+    fb_root_domain.push_back(serialize(builder, id));
   }
 
   return serde::CreateSymbolicTensor(
@@ -584,6 +641,21 @@ void ExpressionBuilder::deserialize(const Instruction* buffer) {
         auto bop = buildBinaryOp(data);
         operation_stack_.push_back(bop);
       }
+      break;
+    }
+    case serde::InstructionData_IterationDomain: {
+      auto data = buffer->data_as_IterationDomain();
+      NVF_ERROR(data != nullptr, "serde::IterationDomain is nullptr.")
+      auto id = nvfuser::IterDomainBuilder(
+          operation_stack_.at(data->start()),
+          operation_stack_.at(data->extent()))
+          .parallel_type(static_cast<nvfuser::ParallelType>(data->parallel_type()))
+          .iter_type(static_cast<nvfuser::IterType>(data->iter_type()))
+          .is_rfactor_domain(data->is_rfactor_domain())
+          .is_padded_dimension(data->is_padded_dimension())
+          .is_mma_swizzled(data->is_mma_swizzled())
+          .build();
+      operation_stack_.push_back(id);
       break;
     }
     case serde::InstructionData_GetAttr: {

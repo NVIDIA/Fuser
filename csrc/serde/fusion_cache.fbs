@@ -188,6 +188,7 @@ union InstructionData {
   GetAttr,
   GetItem,
   GetMetaData,
+  IterationDomain,
   Merge,
   NamedScalar,
   Resize,
@@ -308,7 +309,13 @@ table NaiveValueGenerator {
 
 // The extent maps to an instruction in the NaiveValueGenerator.
 table IterationDomain {
+  start: long;
   extent: long;
+  parallel_type: int;
+  iter_type: int;
+  is_rfactor_domain: bool;
+  is_padded_dimension: bool;
+  is_mma_swizzled: bool;
 }
 
 // Table represents a single TensorView domain
