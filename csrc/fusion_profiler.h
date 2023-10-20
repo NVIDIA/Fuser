@@ -204,7 +204,7 @@ class FusionProfiler {
 #define FUSION_PROFILER_OUTPUT_BYTES_ACCESSED(output_fn) \
   _FP_ENABLE(FusionProfiler::get()->outputBytesAccessed(output_fn()))
 #define FUSION_PROFILER_PRINT \
-  if (isDebugDumpEnabled(DebugDumpOption::FusionProfiler) { \
+  if (isDebugDumpEnabled(DebugDumpOption::FusionProfiler)) { \
     debug() << FusionProfiler::get()->profile(); \
   }
 

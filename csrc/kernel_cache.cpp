@@ -518,6 +518,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   }
 
   FUSION_PROFILER_STOP_PROFILE;
+  FUSION_PROFILER_PRINT;
 
   return outputs;
 }
