@@ -804,7 +804,7 @@ std::vector<std::pair<int, int>> Fusion::getOutputToInputAliasIndices() const {
   for (const auto input_idx : c10::irange(inputs_.size())) {
     in_val_index[inputs_[input_idx]] = input_idx;
   }
-  for (const auto output_idx : c10::irange(inputs_.size())) {
+  for (const auto output_idx : c10::irange(outputs_.size())) {
     out_val_index[outputs_[output_idx]] = output_idx;
   }
 
