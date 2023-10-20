@@ -408,7 +408,7 @@ std::vector<Val*> tensor_sizes(TensorView* inp);
 std::vector<Val*> shape(TensorView* inp);
 // Get the symbolic size of a specific dimension of a tensor
 Val* size(TensorView* inp, int64_t dim);
-Val* at(std::vector<Val*>& inp, int64_t index);
+Val* at(const std::vector<Val*>& inp, int64_t index);
 
 // BINARY OPERATIONS
 // add

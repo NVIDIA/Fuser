@@ -403,7 +403,8 @@ inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
     auto device_stats = allocator->getDeviceStats(0);
     // allocated_bytes[] holds multiple statistics but the first is sum across
     // both small and large blocks
-    if (device_stats.reserved_bytes[0].current > uint64_t(max_bytes)) {
+    if (uint64_t(device_stats.reserved_bytes[0].current) >
+        uint64_t(max_bytes)) {
       allocator->emptyCache();
       return true;
     }

@@ -75,7 +75,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/evaluator_common.cpp
   ${NVFUSER_SRCS_DIR}/executor_utils.cpp
   ${NVFUSER_SRCS_DIR}/fusion.cpp
-  ${NVFUSER_SRCS_DIR}/graph_fuser.cpp
   ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
   ${NVFUSER_SRCS_DIR}/index_compute.cpp
   ${NVFUSER_SRCS_DIR}/instrumentation.cpp
@@ -124,7 +123,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/utils.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/validation.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/lower2device.cpp
-  ${NVFUSER_SRCS_DIR}/manager.cpp
   ${NVFUSER_SRCS_DIR}/maxinfo_propagator.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communication.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communicator.cpp
@@ -144,11 +142,8 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/options.cpp
   ${NVFUSER_SRCS_DIR}/parallel_dimension_map.cpp
   ${NVFUSER_SRCS_DIR}/parallel_type_bitmap.cpp
-  ${NVFUSER_SRCS_DIR}/parser.cpp
   ${NVFUSER_SRCS_DIR}/partial_split_map.cpp
-  ${NVFUSER_SRCS_DIR}/partition.cpp
   ${NVFUSER_SRCS_DIR}/predicate_compute.cpp
-  ${NVFUSER_SRCS_DIR}/register_interface.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
   ${NVFUSER_SRCS_DIR}/serde/polymorphic_value_serde.cpp
@@ -173,7 +168,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/vectorize_helper.cpp
   ${NVFUSER_SRCS_DIR}/swizzle.cpp
   ${NVFUSER_SRCS_DIR}/sys_utils.cpp
-  ${NVFUSER_SRCS_DIR}/type_inference.cpp
   ${NVFUSER_SRCS_DIR}/type_promotion.cpp
   ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/tensor_metadata.cpp
@@ -188,6 +182,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/mma_type.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
   ${NVFUSER_SRCS_DIR}/optimization/add_axioms.cpp
+  ${NVFUSER_SRCS_DIR}/optimization/alias_analysis.cpp
   ${NVFUSER_SRCS_DIR}/optimization/consecutive_cast.cpp
   ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/optimization/remove_empty.cpp
@@ -401,6 +396,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_rng.cpp
     ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
     ${NVFUSER_ROOT}/test/test_tutorial.cpp
+    ${NVFUSER_ROOT}/test/test_alias_analysis.cpp
   )
 
   if(BUILD_PYTHON)

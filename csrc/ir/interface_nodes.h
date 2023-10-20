@@ -629,6 +629,9 @@ class TensorViewBuilder {
   //! Set if a dimension is expanded
   TensorViewBuilder& expanded(std::vector<bool> expanded);
 
+  //! Set the permutation from allocation domain on root domain
+  TensorViewBuilder& strideOrder(std::vector<int64_t> stride_order);
+
   //! Creates a new TensorView with the specified options
   TensorView* build() const;
 
@@ -649,6 +652,8 @@ class TensorViewBuilder {
   std::optional<bool> uniform_contiguity_ = std::nullopt;
 
   std::vector<Val*> shape_;
+
+  std::vector<int64_t> stride_order_;
   std::vector<bool> expanded_;
 };
 
