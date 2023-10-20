@@ -88,7 +88,7 @@ class ExpressionSerializer {
   void printStack() const {
     std::vector<nvfuser::Val*> ordered_stack(operation_stack_.size());
     for (auto item : operation_stack_) {
-        ordered_stack.at(item.second) = item.first;
+      ordered_stack.at(item.second) = item.first;
     }
     std::cout << "================ ExpressionSerializer Stack ================"
               << std::endl;

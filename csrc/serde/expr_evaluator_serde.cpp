@@ -5,11 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <type.h>
 #include <ops/arith.h>
 #include <serde/expr_evaluator_serde.h>
 #include <serde/polymorphic_value_serde.h>
 #include <serde/utils.h>
+#include <type.h>
 
 namespace nvfuser::serde {
 
@@ -33,7 +33,7 @@ template <typename VALTYPE>
 std::vector<VALTYPE*> getImmediateProducers(VALTYPE* val) {
   if (val->definition() != nullptr) {
     return val->definition()->inputs();
-  } else if(auto id = dynamic_cast<nvfuser::IterDomain*>(val)) {
+  } else if (auto id = dynamic_cast<nvfuser::IterDomain*>(val)) {
     std::vector<VALTYPE*> inputs;
     inputs.push_back(id->start());
     inputs.push_back(id->extent());
@@ -343,9 +343,7 @@ flatbuffers::Offset<serde::NaiveValueGenerator> ExpressionSerializer::serialize(
       all_values.begin(),
       all_values.end(),
       std::back_inserter(iterdomain_without_definition),
-      [](Val* v) {
-        return v->isA<nvfuser::IterDomain>();
-      });
+      [](Val* v) { return v->isA<nvfuser::IterDomain>(); });
   for (auto v : iterdomain_without_definition) {
     auto id = dynamic_cast<nvfuser::IterDomain*>(v);
     NVF_CHECK(id != nullptr);
@@ -491,25 +489,20 @@ std::vector<flatbuffers::Offset<AllocateBuffer>> ExpressionSerializer::
         flatbuffers::FlatBufferBuilder& builder,
         const std::vector<const kir::Allocate*>& allocations) {
   using fb_allocate = flatbuffers::Offset<serde::AllocateBuffer>;
-  std::vector<fb_allocate> fb_global_allocations;
+  std::vector<fb_allocate> fb_allocations;
 
   for (auto alloc : allocations) {
     auto alloc_buffer_tv = alloc->buffer()->as<nvfuser::TensorView>();
     NVF_ERROR(alloc_buffer_tv);
-
-    // Serde only gmem tensorviews because of missing values in operation_stack
-    if (alloc_buffer_tv->getMemoryType() != nvfuser::MemoryType::Global) {
-      continue;
-    }
 
     auto fb_alloc = serde::CreateAllocateBuffer(
         builder,
         serialize(builder, alloc_buffer_tv),
         serialize(builder, alloc->shape()),
         alloc->zeroInit());
-    fb_global_allocations.push_back(fb_alloc);
+    fb_allocations.push_back(fb_alloc);
   }
-  return fb_global_allocations;
+  return fb_allocations;
 }
 
 // TODO create separate functions for TensorDomain and IterDomain
@@ -532,42 +525,69 @@ flatbuffers::Offset<flatbuffers::Vector<int64_t>> ExpressionSerializer::
 flatbuffers::Offset<serde::IterationDomain> ExpressionSerializer::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::IterDomain* id) {
-    NVF_ERROR(
-        operation_stack_.count(id->start()),
-        "Missing iterDomain extent in NaiveValueGenerator stack.\t",
-        id->start()->toString());
+  NVF_ERROR(
+      operation_stack_.count(id->start()),
+      "Missing iterDomain extent in NaiveValueGenerator stack.\t",
+      id->start()->toString());
 
-    NVF_ERROR(
-        operation_stack_.count(id->extent()),
-        "Missing iterDomain extent in NaiveValueGenerator stack.\t",
-        id->extent()->toString());
+  NVF_ERROR(
+      operation_stack_.count(id->extent()),
+      "Missing iterDomain extent in NaiveValueGenerator stack.\t",
+      id->extent()->toString());
 
-    return serde::CreateIterationDomain(
-        builder,
-        operation_stack_.at(id->start()),
-        operation_stack_.at(id->extent()),
-        castEnumToUnderlyingType(id->getParallelType()),
-        castEnumToUnderlyingType(id->getIterType()),
-        id->isRFactorProduct(),
-        id->hasPaddingToMultipleOfWarp(),
-        id->isMmaSwizzled());
+  return serde::CreateIterationDomain(
+      builder,
+      operation_stack_.at(id->start()),
+      operation_stack_.at(id->extent()),
+      castEnumToUnderlyingType(id->getParallelType()),
+      castEnumToUnderlyingType(id->getIterType()),
+      id->isRFactorProduct(),
+      id->hasPaddingToMultipleOfWarp(),
+      id->isMmaSwizzled());
 }
 
 // TODO create separate functions for TensorDomain and IterDomain
 flatbuffers::Offset<serde::SymbolicTensor> ExpressionSerializer::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::TensorView* tv) {
-  // Only serialize root domain because we do not support split, merge, reorder
-  // operations to move between rfactor, allocate, and leaf domains.
   std::vector<flatbuffers::Offset<IterationDomain>> fb_root_domain;
   for (auto id : tv->getRootDomain()) {
     fb_root_domain.push_back(serialize(builder, id));
   }
+  auto root_domain_fb = serde::CreateDomainDirect(builder, &fb_root_domain);
 
-  return serde::CreateSymbolicTensor(
-      builder,
-      mapToSerdeDtype(tv->getDataType().value()),
-      serde::CreateDomainDirect(builder, &fb_root_domain));
+  flatbuffers::Offset<nvfuser::serde::Domain> rfactor_domain_fb = 0;
+  if (tv->hasRFactor()) {
+    std::vector<flatbuffers::Offset<IterationDomain>> fb_rfactor_domain;
+    for (auto id : tv->getRFactorDomain()) {
+      fb_rfactor_domain.push_back(serialize(builder, id));
+    }
+    rfactor_domain_fb = serde::CreateDomainDirect(builder, &fb_rfactor_domain);
+  }
+
+  flatbuffers::Offset<nvfuser::serde::Domain> allocation_domain_fb = 0;
+  if (tv->hasAllocation()) {
+    std::vector<flatbuffers::Offset<IterationDomain>> fb_allocation_domain;
+    for (auto id : tv->getAllocationDomain()) {
+      fb_allocation_domain.push_back(serialize(builder, id));
+    }
+    allocation_domain_fb =
+        serde::CreateDomainDirect(builder, &fb_allocation_domain);
+  }
+
+  std::vector<flatbuffers::Offset<IterationDomain>> fb_leaf_domain;
+  for (auto id : tv->getLeafDomain()) {
+    fb_leaf_domain.push_back(serialize(builder, id));
+  }
+  auto leaf_domain_fb = serde::CreateDomainDirect(builder, &fb_leaf_domain);
+
+  SymbolicTensorBuilder tensor_builder(builder);
+  tensor_builder.add_dtype(mapToSerdeDtype(tv->getDataType().value()));
+  tensor_builder.add_root(root_domain_fb);
+  tensor_builder.add_rfactor(rfactor_domain_fb);
+  tensor_builder.add_allocate(allocation_domain_fb);
+  tensor_builder.add_leaf(leaf_domain_fb);
+  return tensor_builder.Finish();
 }
 
 ExpressionBuilder::ExpressionBuilder(kir::Kernel* kernel) : kernel_(kernel) {
@@ -646,15 +666,17 @@ void ExpressionBuilder::deserialize(const Instruction* buffer) {
     case serde::InstructionData_IterationDomain: {
       auto data = buffer->data_as_IterationDomain();
       NVF_ERROR(data != nullptr, "serde::IterationDomain is nullptr.")
-      auto id = nvfuser::IterDomainBuilder(
-          operation_stack_.at(data->start()),
-          operation_stack_.at(data->extent()))
-          .parallel_type(static_cast<nvfuser::ParallelType>(data->parallel_type()))
-          .iter_type(static_cast<nvfuser::IterType>(data->iter_type()))
-          .is_rfactor_domain(data->is_rfactor_domain())
-          .is_padded_dimension(data->is_padded_dimension())
-          .is_mma_swizzled(data->is_mma_swizzled())
-          .build();
+      auto id =
+          nvfuser::IterDomainBuilder(
+              operation_stack_.at(data->start()),
+              operation_stack_.at(data->extent()))
+              .parallel_type(
+                  static_cast<nvfuser::ParallelType>(data->parallel_type()))
+              .iter_type(static_cast<nvfuser::IterType>(data->iter_type()))
+              .is_rfactor_domain(data->is_rfactor_domain())
+              .is_padded_dimension(data->is_padded_dimension())
+              .is_mma_swizzled(data->is_mma_swizzled())
+              .build();
       operation_stack_.push_back(id);
       break;
     }
@@ -823,14 +845,25 @@ std::vector<const kir::Allocate*> ExpressionBuilder::deserialize(
 
   std::vector<const kir::Allocate*> results;
   for (auto buffer : *buffers) {
-    std::vector<IterDomain*> new_buffer_ids;
+    std::vector<IterDomain*> new_root;
     for (auto fb_id : *buffer->tv()->root()->dims()) {
-      auto id = IrBuilder::create<IterDomain>(IterDomainBuilder(
-          kernel_->zeroVal(), operation_stack_.at(fb_id->extent())));
-      new_buffer_ids.push_back(id);
+      auto id =
+          nvfuser::IterDomainBuilder(
+              operation_stack_.at(fb_id->start()),
+              operation_stack_.at(fb_id->extent()))
+              .parallel_type(
+                  static_cast<nvfuser::ParallelType>(fb_id->parallel_type()))
+              .iter_type(static_cast<nvfuser::IterType>(fb_id->iter_type()))
+              .is_rfactor_domain(fb_id->is_rfactor_domain())
+              .is_padded_dimension(fb_id->is_padded_dimension())
+              .is_mma_swizzled(fb_id->is_mma_swizzled())
+              .build();
+      new_root.push_back(id);
     }
 
-    const auto buffer_domain = IrBuilder::create<TensorDomain>(new_buffer_ids);
+    // TODO Deserialize rfactor, allocation, and root domains
+
+    const auto buffer_domain = IrBuilder::create<TensorDomain>(new_root);
 
     const auto buffer_tv = IrBuilder::create<TensorView>(
         buffer_domain,
