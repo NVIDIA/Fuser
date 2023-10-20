@@ -203,24 +203,54 @@ int64_t roundUpSharedMemory(
   return n_batch * vectorize_factor * threads_per_block * data_type_size;
 }
 
-bool isDirectlyUsedByBroadcast(TensorView* tv) {
+// set broadcast mask using the first outer reduction tv as reference. e.g.
+// reduction_tv has [R,R,I,I], then the outer broadcast mask is [T,T,F,F]
+std::vector<bool> getOuterBroadcastMask(
+    const std::vector<TensorView*>& reduction_tvs) {
+  TensorView* ref_tv = nullptr;
+  for (auto tv : reduction_tvs) {
+    if (!scheduler_utils::isFastestDimReduction(tv)) {
+      ref_tv = tv;
+      break;
+    }
+  }
+  NVF_ERROR(ref_tv != nullptr, "Outer reduction tv is not found!");
+
+  const auto& root = ref_tv->getMaybeAllocationDomain();
+  std::vector<bool> broadcast_mask(root.size(), false);
+  for (const auto i : c10::irange(root.size())) {
+    if (root.at(i)->isReduction()) {
+      broadcast_mask[i] = true;
+    }
+  }
+  return broadcast_mask;
+}
+
+bool isDirectlyUsedByOuterBroadcast(
+    TensorView* tv,
+    const std::vector<bool>& broadcast_mask) {
   for (auto consumer : ir_utils::consumerTvsOf(tv)) {
-    if (consumer->hasBroadcast()) {
-      return true;
+    if (auto bcast = dynamic_cast<BroadcastOp*>(consumer->definition())) {
+      if (bcast->getBroadcastDimFlags() == broadcast_mask) {
+        return true;
+      }
     } else if (auto op = dynamic_cast<UnaryOp*>(consumer->definition())) {
-      return op->getUnaryOpType() == UnaryOpType::Cast
-          ? isDirectlyUsedByBroadcast(consumer)
-          : false;
+      if (op->getUnaryOpType() == UnaryOpType::Cast &&
+          isDirectlyUsedByOuterBroadcast(consumer, broadcast_mask)) {
+        return true;
+      }
     }
   }
   return false;
 }
 
-// sorted vector of tvs represents which tv should be moved to shared memory
-// first. The sorting is based on the two general rules: (a) minimize the r/w
-// traffic between gmem and smem. (b) minimize the r/w traffic between registers
-// and smem.
-bool sort_buffer_tvs(TensorView* tv1, TensorView* tv2) {
+// Sorts tvs to determine their move order to shared memory, prioritizing:
+// (a) Reducing global-to-shared memory traffic.
+// (b) Minimizing register-to-shared memory traffic.
+bool sort_buffer_tvs(
+    const std::vector<bool>& broadcast_mask,
+    TensorView* tv1,
+    TensorView* tv2) {
   // (1) First priority: data type size. This minimize both gmem/smem traffic
   // and register/smem traffic.
   auto tv1_dtype_size = dataTypeSize(tv1->getDataType().value());
@@ -231,8 +261,8 @@ bool sort_buffer_tvs(TensorView* tv1, TensorView* tv2) {
 
   // (2) Second priority: broadcast usage. This minimize gmem/smem traffic,
   // because the outer broadcasted tv is reused in every grid loop.
-  bool tv1_is_broadcast = isDirectlyUsedByBroadcast(tv1);
-  bool tv2_is_broadcast = isDirectlyUsedByBroadcast(tv2);
+  bool tv1_is_broadcast = isDirectlyUsedByOuterBroadcast(tv1, broadcast_mask);
+  bool tv2_is_broadcast = isDirectlyUsedByOuterBroadcast(tv2, broadcast_mask);
   if (tv1_is_broadcast != tv2_is_broadcast) {
     return tv1_is_broadcast;
   }
@@ -356,10 +386,13 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   if (buffer_params.regs_buffer_size > available_regs) {
     const int64_t n_buffers = (int64_t)persistent_buffers.size();
     std::vector<TensorView*> sorted_candidate_tvs = persistent_buffers;
+    const auto& broadcast_mask = getOuterBroadcastMask(reduction_tvs);
     std::sort(
         sorted_candidate_tvs.begin(),
         sorted_candidate_tvs.end(),
-        sort_buffer_tvs);
+        [&broadcast_mask](TensorView* tv1, TensorView* tv2) {
+          return sort_buffer_tvs(broadcast_mask, tv1, tv2);
+        });
 
     // calculate the accumulated buffer size of the first N buffers
     std::vector<int64_t> acc_regs_buffer_sizes(n_buffers + 1, 0);

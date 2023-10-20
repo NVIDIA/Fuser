@@ -993,12 +993,11 @@ TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
   test({0});
 }
 
-// In this test, all the 3 input tvs are persistent.
-// tv2 is broadcasted in outer dim, it will be move to shared memory first to
-// minimize gmem to smem traffic. tv1 has 1 direct consumer and tv2 has 2
-// direct consumers, so tv1 has higher priority than tv2 to minimize smem to
-// register traffic.
-TEST_F(NVFuserTest, TMP) {
+// In this test, all 3 input tvs are persistent.
+// To reduce global to shared memory traffic, tv2, broadcasted in the outer dim,
+// moves to shared memory first. Since tv1 has 1 direct consumer and tv2 has 2,
+// tv1 takes precedence to decrease shared to register memory traffic.
+TEST_F(NVFuserTest, CombinedSharedMemoryPersistent) {
   auto test = [](int hidden_size) {
     auto dtype = DataType::Float;
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
