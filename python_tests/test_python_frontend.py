@@ -1406,7 +1406,7 @@ class TestNvFuserFrontend(TestCase):
 
     def test_stride_order_with_explicit_broadcast(self):
         inputs = [
-            torch.randn(2, device="cuda").unsqueeze(-1),
+            torch.randn(3, device="cuda").unsqueeze(-1),
             torch.randn(2, 3, device="cuda")
             .unsqueeze(-1)
             .expand(2, 3, 4)
