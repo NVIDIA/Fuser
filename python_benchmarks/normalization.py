@@ -55,8 +55,13 @@ def norm_fwd_fusion(
     rev_momentum = fd.define_scalar(1-momentum, dtype=DataType.Double)
     momentum = fd.define_scalar(momentum, dtype=DataType.Double)
     
-    # running_mean = fd.ops.add(fd.ops.mul(momentum, mean), fd.ops.mul(rev_momentum, running_mean))
-    # running_var = fd.ops.add(fd.ops.mul(momentum, var), fd.ops.mul(rev_momentum, running_var))
+    updated_mean = fd.ops.add(fd.ops.mul(momentum, mean), fd.ops.mul(rev_momentum, running_mean))
+    updated_var = fd.ops.add(fd.ops.mul(momentum, var), fd.ops.mul(rev_momentum, running_var))
+
+    if batch_dim not in reduction_axes:
+        inverse_batch_size = fd.ops.reciprocal(input.size(0))
+        updated_mean = fd.ops.mul(fd.ops.sum(updated_mean, batch_dim), inverse_batch_size)
+        updated_var = fd.ops.mul(fd.ops.sum(updated_var, batch_dim), inverse_batch_size)
 
     if dtype in PROMOTE_DTYPES:
         output = fd.ops.cast(output, dtype=dtype)
@@ -64,6 +69,8 @@ def norm_fwd_fusion(
     fd.add_output(output)
     fd.add_output(mean)
     fd.add_output(invstd)
+    fd.add_output(updated_mean, alias_input=running_mean)
+    fd.add_output(updated_var, alias_input=running_var)
 
 def norm_bwd_fusion(
     fd: FusionDefinition,
@@ -124,8 +131,13 @@ def norm_bwd_fusion(
     proj = fd.ops.mul(proj_scale, x_sub_mean)
     
     grad_input = fd.ops.mul(fd.ops.sub(fd.ops.sub(grad, proj), grad_mean), grad_scale)
-    grad_weight = fd.ops.sum(fd.ops.mul(dot_p, invstd), batch_dim)
-    grad_bias = fd.ops.sum(grad_sum, batch_dim)
+    grad_weight = fd.ops.mul(dot_p, invstd)
+    grad_bias = grad_sum
+
+    if batch_dim not in reduction_axes:
+        # Weights and bias are channel-only
+        grad_weight = fd.ops.sum(grad_weight, batch_dim, keepdim = False)
+        grad_bias = fd.ops.sum(grad_bias, batch_dim, keepdim = False)
 
     if dtype in PROMOTE_DTYPES:
         grad_input = fd.ops.cast(grad_input, dtype=dtype)
@@ -189,7 +201,7 @@ def norm_fwd_benchmark(
             nvf_output[0] = nvf_output[0].permute((0, -1, *range(1, num_dims-1)))
 
         assert torch.allclose(nvf_output[0], eager_output, rtol=1e-3, atol=1e-3),\
-                              f"{torch.max(nvf_output[0] - eager_output)}"
+                    f"{torch.max(nvf_output[0] - eager_output)}"
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [inputs, weight, bias, running_mean, running_var])
@@ -231,8 +243,11 @@ def norm_bwd_benchmark(
         inputs = at_inputs
         grads = at_grads
 
+    batch_dim = 0
     channel_dim = 1 if not channels_last else num_dims - 1
     reduction_axes = [i for i in range(len(size)) if i != channel_dim]
+    if norm == "instance_norm":
+        reduction_axes.remove(batch_dim)
     mean = inputs.to(torch.float).mean(dim = reduction_axes)
     var = inputs.to(torch.float).var(dim = reduction_axes, unbiased=False)
     invstd = (1.0 / torch.sqrt(var + eps))
@@ -240,13 +255,13 @@ def norm_bwd_benchmark(
     with FusionDefinition() as fd:
         norm_bwd_fusion(fd = fd, 
             dtype = torch_dtype_to_nvfuser_dtype(dtype), 
-            norm = "batch_norm", 
+            norm = norm, 
             num_dims=num_dims, 
             channels_last=channels_last)
 
     if not disable_validation:
         nvf_output = fd.execute([inputs, grads, weight, running_mean, running_var, mean, invstd])
-        
+
         # PyTorch expects running mean and variance to be of same type as input.
         if norm == "batch_norm":
             eager_output = torch.nn.functional.batch_norm(
@@ -262,7 +277,10 @@ def norm_bwd_benchmark(
             nvf_output[0] = nvf_output[0].permute((0, -1, *range(1, num_dims-1)))
 
         assert torch.allclose(nvf_output[0], at_inputs.grad, rtol=1e-3, atol=1e-3),\
-                              f"{torch.max(nvf_output[0] - at_inputs.grad)}"
+                    f"{torch.max(nvf_output[0] - at_inputs.grad)}"
+        assert nvf_output[1].shape == weight.grad.shape
+        assert nvf_output[2].shape == bias.grad.shape
+        
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [inputs, grads, weight, running_mean, running_var, mean, invstd])
