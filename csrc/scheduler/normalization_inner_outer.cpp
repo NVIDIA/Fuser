@@ -226,6 +226,7 @@ std::vector<bool> getOuterBroadcastMask(
   return broadcast_mask;
 }
 
+// Only outer broadcast tv can be reused in grid loop.
 bool isDirectlyUsedByOuterBroadcast(
     TensorView* tv,
     const std::vector<bool>& broadcast_mask) {

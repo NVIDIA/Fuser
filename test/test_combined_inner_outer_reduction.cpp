@@ -995,8 +995,9 @@ TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
 
 // In this test, all 3 input tvs are persistent.
 // To reduce global to shared memory traffic, tv2, broadcasted in the outer dim,
-// moves to shared memory first. Since tv1 has 1 direct consumer and tv2 has 2,
-// tv1 takes precedence to decrease shared to register memory traffic.
+// moves to shared memory first. tv1 has 1 consumer and tv0 has 2 consumers,
+// tv1 takes precedence to decrease shared to register memory traffic. So the
+// the priority order should be tv2, tv1, tv0.
 TEST_F(NVFuserTest, CombinedSharedMemoryPersistent) {
   auto test = [](int hidden_size) {
     auto dtype = DataType::Float;
