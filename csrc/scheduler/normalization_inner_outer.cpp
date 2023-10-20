@@ -216,6 +216,33 @@ bool isDirectlyUsedByBroadcast(TensorView* tv) {
   return false;
 }
 
+// sorted vector of tvs represents which tv should be moved to shared memory
+// first. The sorting is based on the two general rules: (a) minimize the r/w
+// traffic between gmem and smem. (b) minimize the r/w traffic between registers
+// and smem.
+bool sort_buffer_tvs(TensorView* tv1, TensorView* tv2) {
+  // (1) First priority: data type size. This minimize both gmem/smem traffic
+  // and register/smem traffic.
+  auto tv1_dtype_size = dataTypeSize(tv1->getDataType().value());
+  auto tv2_dtype_size = dataTypeSize(tv2->getDataType().value());
+  if (tv1_dtype_size != tv2_dtype_size) {
+    return tv1_dtype_size < tv2_dtype_size;
+  }
+
+  // (2) Second priority: broadcast usage. This minimize gmem/smem traffic,
+  // because the outer broadcasted tv is reused in every grid loop.
+  bool tv1_is_broadcast = isDirectlyUsedByBroadcast(tv1);
+  bool tv2_is_broadcast = isDirectlyUsedByBroadcast(tv2);
+  if (tv1_is_broadcast != tv2_is_broadcast) {
+    return tv1_is_broadcast;
+  }
+  
+  // (3) Third priority: number of consumers. This minimize register/smem
+  // traffic.
+  return ir_utils::consumerTvsOf(tv1).size() <
+      ir_utils::consumerTvsOf(tv2).size();
+}
+
 int64_t getMaxOutReductionDataTypeSize(
     const std::vector<TensorView*>& reduction_tvs) {
   int64_t dtype_size = 1;
@@ -326,19 +353,38 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // within the allowable limit. Prioritize the relocation of buffers directly
   // involved in broadcast operations by inserting them to the front of the
   // candidate vector.
+  std::cout << "persistent_buffers:" << std::endl;
+  for (auto tv : persistent_buffers) {
+    std::cout << tv->toString() << std::endl;
+  }
+
   if (buffer_params.regs_buffer_size > available_regs) {
     const int64_t n_buffers = (int64_t)persistent_buffers.size();
-    int64_t n_broadcast_buffers = 0;
-    std::vector<TensorView*> sorted_candidate_tvs;
-    sorted_candidate_tvs.reserve(n_buffers);
-    for (auto tv : persistent_buffers) {
-      if (isDirectlyUsedByBroadcast(tv)) {
-        sorted_candidate_tvs.insert(sorted_candidate_tvs.begin(), tv);
-        n_broadcast_buffers++;
-      } else {
-        sorted_candidate_tvs.push_back(tv);
-      }
+    // int64_t n_broadcast_buffers = 0;
+    // std::vector<TensorView*> sorted_candidate_tvs;
+    // sorted_candidate_tvs.reserve(n_buffers);
+    // for (auto tv : persistent_buffers) {
+    //   if (isDirectlyUsedByBroadcast(tv)) {
+    //     sorted_candidate_tvs.insert(sorted_candidate_tvs.begin(), tv);
+    //     n_broadcast_buffers++;
+    //   } else {
+    //     sorted_candidate_tvs.push_back(tv);
+    //   }
+    // }
+
+    std::vector<TensorView*> sorted_candidate_tvs = persistent_buffers;
+    std::sort(
+        sorted_candidate_tvs.begin(),
+        sorted_candidate_tvs.end(),
+        sort_buffer_tvs);
+
+    std::cout << "sorted_candidate_tvs:" << std::endl;
+    for (auto tv : sorted_candidate_tvs) {
+      std::cout << tv->toString()
+                << ", consumers= " << ir_utils::consumerTvsOf(tv).size()
+                << std::endl;
     }
+
     // calculate the accumulated buffer size of the first N buffers
     std::vector<int64_t> acc_regs_buffer_sizes(n_buffers + 1, 0);
     std::vector<int64_t> acc_smem_buffer_sizes(n_buffers + 1, 0);
@@ -390,7 +436,6 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   buffer_params.has_enough_regs_and_smem =
       (buffer_params.smem_buffer_size <= available_smem) &&
       (buffer_params.regs_buffer_size <= available_regs);
-
   NVF_ERROR(
       buffer_params.has_enough_regs_and_smem,
       "Not enough registers and shared memory for persistence! Should return early.");

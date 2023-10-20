@@ -993,70 +993,104 @@ TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
   test({0});
 }
 
+// In this test, all the 3 input tvs are persistent.
+// tv2 is broadcasted in outer dim, it will be move to shared memory first to
+// minimize gmem to smem traffic. tv1 has 1 direct consumer and tv2 has 2
+// direct consumers, so tv1 has higher priority than tv2 to minimize smem to
+// register traffic.
 TEST_F(NVFuserTest, TMP) {
   auto test = [](int hidden_size) {
+    auto dtype = DataType::Float;
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
     FusionGuard fg(&fusion);
 
-    auto tv0 = makeContigTensor(2,dtype);
-    auto tv1 = makeContigTensor(2,dtype);
-    auto tv2 = makeContigTensor(1,dtype);
+    auto tv0 = makeContigTensor(2, dtype);
+    auto tv1 = makeContigTensor(2, dtype);
+    auto tv2 = makeContigTensor(1, dtype);
     fusion.addInput(tv0);
     fusion.addInput(tv1);
     fusion.addInput(tv2);
-    if (dtype == DataType::Half) {
-      tv0 = castOp(DataType::Float, tv0);
-      tv1 = castOp(DataType::Float, tv1);
-      tv2 = castOp(DataType::Float, tv2);
-    }    
-    auto tv3 = broadcast(tv2, {true, false});
-    auto tv4 = add(tv0, tv3);   // persistent, project to tv0 & tv2
-    auto tv5 = sum(tv4, {-1}); //inner reduction
-    auto tv6 = broadcast(tv5, {false, true});
-    auto tv7 = add(tv4, tv6); // inner output
+    auto tv3 = set(tv1);
+    auto tv4 = broadcast(tv2, {true, false});
+    auto tv5 = add(tv0, tv4);
+    auto tv6 = sum(tv5, {-1});
+    auto tv7 = add(tv3, tv5);
+    auto tv8 = sum(tv7, {-1});
+    auto tv9 = add(tv0, tv3);
+    auto tv10 = sum(tv9, {0});
+    auto tv11 = broadcast(tv6, {false, true});
+    auto tv12 = add(tv11, tv5);
+    auto tv13 = broadcast(tv8, {false, true});
+    auto tv14 = add(tv13, tv7);
+    fusion.addOutput(tv12);
+    fusion.addOutput(tv14);
+    fusion.addOutput(tv10);
 
-    auto tv8 = add(tv4,tv1) // persistent, project to tv1
-    auto tv9 = sum(tv8, {0}); // outer reduction
-    auto tv10 = broadcast(tv9, {true, false});
-    auto tv11 = add(tv8, tv10); // outer output
-    fusion.addOutput(tv3);
-    fusion.addOutput(tv4);
-
-    auto options = at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-    at::Tensor t0 = at::randn({2048, hidden_size}, options);
-    std::vector<c10::IValue> aten_inputs = {t0};
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
+    at::Tensor t0 = at::randn({528, hidden_size}, options);
+    at::Tensor t1 = at::randn({528, hidden_size}, options);
+    at::Tensor t2 = at::randn({hidden_size}, options);
+    std::vector<c10::IValue> aten_inputs = {t0, t1, t2};
 
     FusionExecutorCache fec(std::move(fusion_ptr));
     auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
 
-    // bool is_segmented = fec.getMostRecentKernelRuntime()->isSegmented();
-    // if (outer_reduction_axis.size() == 2) {
-    //   NVF_ERROR(!is_segmented, "Fusion should NOT be segmented!");
-    // } else {
-    //   NVF_ERROR(is_segmented, "Fusion should be segmented!");
-    // }
-
-    // std::vector<int64_t> vec64(
-    //     outer_reduction_axis.begin(), outer_reduction_axis.end());
-    // auto t1 = t0.sum({-1});
-    // auto t2 = t1.unsqueeze(-1);
-    // auto t3 = t0 + t2;
-    // auto t4 = t0.sum(vec64);
-    // testValidate(
-    //     &fusion, cg_outputs, aten_inputs, {t3, t4}, __LINE__, __FILE__);
+    const auto& kernel_runtime = fec.getMostRecentKernelRuntime();
+    if (!kernel_runtime->isSegmented()) {
+      auto heuristic_params = kernel_runtime->schedulerHeuristics()
+                                  ->heuristicsList()
+                                  .at(0)
+                                  ->params();
+      ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
+      auto rparams = heuristic_params->as<ReductionParams>();
+      // if shared memory persistent is being used, check which tv is stored in
+      // shared memory. since the priority order should be tv2, tv1, tv0.
+      // if there is only 1, it must be tv2; if there are 2, they must be tv2
+      // and tv1.
+      if (rparams->shared_mem_persistent_buffer) {
+        const auto& sm_tvs = rparams->smem_persistent_tvs;
+        if (sm_tvs.size() == 1) {
+          NVF_ERROR(
+              sm_tvs.at(0)->name() == tv2->name(),
+              "tv2 should be shared memory persistent!");
+        } else if (sm_tvs.size() == 2) {
+          NVF_ERROR(
+              sm_tvs.at(0)->name() != tv0->name() &&
+                  sm_tvs.at(1)->name() != tv0->name(),
+              "tv0 shouldn't be shared memory persistent!");
+        }
+      }
+      auto t3 = t1;
+      auto t4 = t2.unsqueeze(0);
+      auto t5 = t0 + t4;
+      auto t6 = t5.sum({-1});
+      auto t7 = t3 + t5;
+      auto t8 = t7.sum({-1});
+      auto t9 = t0 + t3;
+      auto t10 = t9.sum({0});
+      auto t11 = t6.unsqueeze(-1);
+      auto t12 = t11 + t5;
+      auto t13 = t8.unsqueeze(-1);
+      auto t14 = t13 + t7;
+      testValidate(
+          &fusion,
+          cg_outputs,
+          aten_inputs,
+          {t12, t14, t10},
+          __LINE__,
+          __FILE__);
+    }
   };
 
-  // inner reduction is [I, I, R]
-  // outer reduction is [R, R, I]
-  // every iteration domain in inner reduction tv is a reduction domain in outer
-  // reduction tv, matched.
-  test({0, 1});
+  // on H100, only tv2 is moved to shared memory, latency is 0.261 ms, will
+  // increase to 0.311 ms if reverse order in sort_buffer_tvs.
+  test(18 * 1024);
 
-  // inner reduction is [I, I, R]
-  // outer reduction is [R, I, I]
-  // axis-1 is a iteration domain in inner reduction tv but it is not a
-  // reduction domain in outer reduction tv, not matched.
-  test({0});
+  // on H100, only tv2 and tv1 are moved to shared memory, latency is 0.436 ms,
+  // will increase to 0.481 ms if reverse order in sort_buffer_tvs.
+  test(27 * 1024);
 }
 } // namespace nvfuser
