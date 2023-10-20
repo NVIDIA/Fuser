@@ -20,6 +20,7 @@
 namespace nvfuser {
 
 using AliasAnalysisTest = NVFuserTest;
+using testing::ElementsAre;
 using testing::IsEmpty;
 using testing::Pair;
 using testing::UnorderedElementsAre;
@@ -117,7 +118,7 @@ TEST_F(AliasAnalysisTest, Permute) {
   EXPECT_THAT(alias_analysis, IsEmpty());
 }
 
-TEST_F(AliasAnalysisTest, View_ExpandedBroadcast) {
+TEST_F(AliasAnalysisTest, View_SplitExpandedBroadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -129,13 +130,69 @@ TEST_F(AliasAnalysisTest, View_ExpandedBroadcast) {
       {IrBuilder::create<Val>(4),
        IrBuilder::create<Val>(5),
        IrBuilder::create<Val>(6)});
-  // tryStaticReshape failed to get the expanded extent, which is 6.
+  // tryStaticReshape used to fail to get the expanded extent, which is 6.
   out = reshape(out, {IrBuilder::create<Val>(40), IrBuilder::create<Val>(3)});
   fusion.addOutput(out);
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
   EXPECT_THAT(alias_analysis, IsEmpty());
+}
+
+TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({4, 5});
+  fusion.addInput(in);
+  TensorView* broadcast_out = broadcast(in, {false, false, true});
+  TensorView* expand_out = expand(
+      broadcast_out,
+      {IrBuilder::create<Val>(4),
+       IrBuilder::create<Val>(5),
+       IrBuilder::create<Val>(6)});
+  TensorView* out = reshape(expand_out, {4, 5, 6}, {20, -1});
+  fusion.addOutput(out);
+
+  optimization::AliasAnalysisResult alias_analysis =
+      optimization::findAliases(&fusion);
+  EXPECT_THAT(alias_analysis, UnorderedElementsAre(Pair(out, expand_out)));
+
+  FusionExecutor fe;
+  at::Tensor in_tensor =
+      at::randn({4, 5}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  fe.compileFusion(&fusion, {in_tensor});
+  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+
+  std::cerr << out_tensor.strides() << std::endl;
+  EXPECT_THAT(out_tensor.strides(), ElementsAre(1, 0));
+}
+
+TEST_F(AliasAnalysisTest, View_MergeExpandedBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({4, 5});
+  fusion.addInput(in);
+  TensorView* out = broadcast(in, {false, false, true});
+  out = expand(
+      out,
+      {IrBuilder::create<Val>(4),
+       IrBuilder::create<Val>(5),
+       IrBuilder::create<Val>(6)});
+  out = reshape(out, {4, 5, 6}, {4, -1});
+  fusion.addOutput(out);
+
+  optimization::AliasAnalysisResult alias_analysis =
+      optimization::findAliases(&fusion);
+  EXPECT_THAT(alias_analysis, IsEmpty());
+
+  FusionExecutor fe;
+  at::Tensor in_tensor =
+      at::randn({4, 5}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  fe.compileFusion(&fusion, {in_tensor});
+  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+  EXPECT_THAT(out_tensor.strides(), ElementsAre(30, 1));
 }
 
 } // namespace nvfuser
