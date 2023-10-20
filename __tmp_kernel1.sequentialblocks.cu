@@ -9889,8 +9889,6 @@ __global__ void kernel1(
   i4 = BDIMX * T0.alloc_stride[1LL];
   nvfuser_index_t i5;
   i5 = (-T0.logical_size[1LL]) + ((nvfuser_index_t)threadIdx.x);
-  bool b6; // last_block predicate
-  b6 = ((nvfuser_index_t)blockIdx.x) == (((nvfuser_index_t)gridDim.x) + -1LL);
   // Allocate global tensor T4
   // Allocate global tensor T5
 
@@ -9908,13 +9906,9 @@ __global__ void kernel1(
   using T = float;
   // Fixed function arguments
   const auto reduction_op = [](float& a, float b) { a = a + b; };
-  const bool read_pred = true;
-  const bool write_pred = true;
-  auto shared_buf = static_cast<float*>(shared_mem);
   volatile T* work_buf = &T4[0LL];
   int64_t* sync_flags = &T5[0LL];
 
-  const T init_val = 0.0;
 
   // Number of values to reduce across blocks in the reduction segment
   const auto segment_grid_dim =
@@ -9942,7 +9936,7 @@ __global__ void kernel1(
   bool last_block =
       index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
 
-   END INITIALIZE GRIDREDUCE
+  // END INITIALIZE GRIDREDUCE
 
   // SEQUENTIAL SYNC
   int64_t& semaphore = sync_flags[segment_idx];
@@ -9959,8 +9953,27 @@ __global__ void kernel1(
       // semaphore, giving a better chance for other warps/blocks to catch up.
 #if __CUDA_ARCH__ >= 700
       // __nanosleep only available on compute capability 7.0 or higher
-      unsigned int ns = 2 * (segment_block_idx - sem_val);
-      __nanosleep(ns); // avoids busy waiting
+
+      // Avoid busy waiting, but sleep less as we get closer to our turn.
+      //
+      // The intention here is to reduce IO from many blocks reading the same
+      // semaphore at once. If sleep time is proportional to expected wait
+      // time, and if all blocks are launched at once (i.e. a single wave),
+      // then this means the rate of requests at the beginning of the launch is
+      // approximately
+      //
+      //   sum_{i=1}^{N-1} 1/(a * i) = 1/a * H_{N-1}
+      //
+      // where H_n is the nth harmonic number, which is approximately ln(n). So
+      // this gives us log scaling in rate of loads compared to linear scaling
+      // if we used a fixed wait time.
+
+      // I tested wait time factors that were powers of two from 0, 1, 2, 4,
+      // ... 2048 Runtime for this test is pretty much unchanged until we get
+      // to a factor of 256 after which it starts falling off.
+      // (GeForce 3090 Ti)
+      unsigned int ns = 8 * (segment_block_idx - sem_val);
+      __nanosleep(ns);
 #endif
       sem_val = grid_sync::globalAsVolatile(semaphore);
     }
@@ -9999,11 +10012,8 @@ __global__ void kernel1(
         i19 = BDIMX * i18;
         bool b20;
         b20 = i11 < (i16 - i19);
-        float T3[1LL];
-        T3[0LL] = 0.000000000e+00f;
         float T2[1LL];
         T2[0LL] = 0.000000000e+00f;
-        T2[0LL] = T0[(i13 + (i4 * i18))];
         // SEQUENTIAL GRID REDUCTION
         // NOTE: I removed a lot of stuff from gridReduce to specialize on
         // in-place reduction (ignores work_buf). This is because we are
@@ -10014,11 +10024,15 @@ __global__ void kernel1(
         // b6 is last_block predicate and b20 is thread predicate
         // We ignore the last block predicate now, since all blocks function
         // the same way with in-place reduction.
-        T& cur_val = T2[0LL];
         if (b20) {
+          T2[0LL] = T0[(i13 + (i4 * i18))];
+          T& cur_val = T2[0LL];
           if (segment_block_idx > 0) {
             reduction_op(cur_val, T1[(i15 + i19)]);
           }
+          // Note: This ignores init_val and just uses block 0's value with no
+          // first op. This assumption requires init_val to be the identity
+          // with respect to binary_op.
           T1[(i15 + i19)] = cur_val;
         }
 
@@ -10028,9 +10042,7 @@ __global__ void kernel1(
     NVFUSER_UPDATE_MAGIC_ZERO;
   }
 
-
-
-  EQUENTIAL SYNC AFTER
+  // SEQUENTIAL SYNC AFTER
 
   // Sync block to make sure all threads are done updating the output
   block_sync::sync<Aligned>();
@@ -10054,4 +10066,4 @@ __global__ void kernel1(
   // END SEQUENTIAL SYNC AFTER
 }
 } // namespace CudaCodeGen
-    
+
