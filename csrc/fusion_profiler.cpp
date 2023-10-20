@@ -335,11 +335,11 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
        << " " << std::setw(9)  << std::get<22>(column_strs);
 
     if (fp.verbose) {
-      os << " " << std::setw(20) << std::left << std::get<23>(column_strs)
-         << " " << std::setw(14) << std::left << std::get<24>(column_strs);
+      os << " " << std::setw(20) << std::get<23>(column_strs)
+         << " " << std::setw(14) << std::get<24>(column_strs);
     }
 
-    os << " " << std::endl;
+    os << std::endl;
   }
 
   bool first_prof = true;
@@ -360,15 +360,17 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
       }
       first_prof = false;
     } else {
-      os << std::setfill(' ') << std::setw(5)
-         << " " << std::setw(5)
-         << " " << std::setw(8)
-         << " " << std::setw(9);
+      os << std::setfill(' ') << std::right << std::fixed 
+                << std::setw(5) << "-"
+         << " " << std::setw(5) << "-"
+         << " " << std::setw(8) << "-"
+         << " " << std::setw(9) << "-";
       if (fp.verbose) {
-        os << " " << std::setw(9) 
-           << " " << std::setw(9) 
-           << " " << std::setw(11) 
-           << " " << std::setw(9);
+        os << std::setfill(' ') << std::right << std::fixed 
+           << " " << std::setw(9)  << "-"
+           << " " << std::setw(9)  << "-"
+           << " " << std::setw(11) << "-" 
+           << " " << std::setw(9)  << "-";
       }
 
     }
@@ -400,7 +402,7 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
        os << " " << std::setw(20) << kp.device_name
           << " " << std::setw(14) << std::setprecision(2) << kp.peak_bandwidth_gbs;
     }
-    os << " " << std::endl;
+    os << std::endl;
     ++idx;
   }
   return os;
@@ -466,13 +468,16 @@ void FusionProfiler::stop() {
  
   NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(0));
 
-  NVF_CHECK(kernel_profiles_.size() == segments_.size(), "All of the kernel profiles have not been recorded!");
+  NVF_CHECK(kernel_profiles_.size() >= segments_.size(), "All of the kernel profiles have not been recorded!");
  
   double compile_time_ms = 0.0;
   double kernel_time_ms = 0.0;
   constexpr double mb_divider = 1.0 / 1.0e6;
   for(auto &kp : kernel_profiles_) {
     auto corr_id = kp.correlation_id;
+    if (corrid_2_segid_.count(corr_id) == 0) {
+      continue;
+    }
     NVF_CHECK(kp.device >= 0, "Device Descriptor index is not valid! ", kp.device);
     if ((size_t)kp.device >= device_descriptors_.size()) {
       device_descriptors_.resize(kp.device + 1);
