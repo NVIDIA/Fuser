@@ -336,7 +336,7 @@ struct ReshapeOpRecord : RecordFunctor {
   }
 
   void operator()(FusionState& fd) final {
-    auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    TensorView* arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
     const std::vector<Val*>& new_shape =
         fd.getFusionStateVector(args_.at(1).index);
     auto output = reshape(arg, new_shape);
