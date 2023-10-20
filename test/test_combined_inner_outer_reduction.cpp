@@ -1086,11 +1086,13 @@ TEST_F(NVFuserTest, TMP) {
   };
 
   // on H100, only tv2 is moved to shared memory, latency is 0.261 ms, will
-  // increase to 0.311 ms if reverse order in sort_buffer_tvs.
+  // increase to 0.311 ms if reverse order in sort_buffer_tvs. This was tested
+  // on a pre-production card, only relative change matters.
   test(18 * 1024);
 
   // on H100, only tv2 and tv1 are moved to shared memory, latency is 0.436 ms,
-  // will increase to 0.481 ms if reverse order in sort_buffer_tvs.
+  // will increase to 0.481 ms if reverse order in sort_buffer_tvs. This was
+  // tested on a pre-production card, only relative change matters.
   test(27 * 1024);
 }
 } // namespace nvfuser

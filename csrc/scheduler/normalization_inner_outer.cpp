@@ -236,7 +236,7 @@ bool sort_buffer_tvs(TensorView* tv1, TensorView* tv2) {
   if (tv1_is_broadcast != tv2_is_broadcast) {
     return tv1_is_broadcast;
   }
-  
+
   // (3) Third priority: number of consumers. This minimize register/smem
   // traffic.
   return ir_utils::consumerTvsOf(tv1).size() <
@@ -353,37 +353,13 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // within the allowable limit. Prioritize the relocation of buffers directly
   // involved in broadcast operations by inserting them to the front of the
   // candidate vector.
-  std::cout << "persistent_buffers:" << std::endl;
-  for (auto tv : persistent_buffers) {
-    std::cout << tv->toString() << std::endl;
-  }
-
   if (buffer_params.regs_buffer_size > available_regs) {
     const int64_t n_buffers = (int64_t)persistent_buffers.size();
-    // int64_t n_broadcast_buffers = 0;
-    // std::vector<TensorView*> sorted_candidate_tvs;
-    // sorted_candidate_tvs.reserve(n_buffers);
-    // for (auto tv : persistent_buffers) {
-    //   if (isDirectlyUsedByBroadcast(tv)) {
-    //     sorted_candidate_tvs.insert(sorted_candidate_tvs.begin(), tv);
-    //     n_broadcast_buffers++;
-    //   } else {
-    //     sorted_candidate_tvs.push_back(tv);
-    //   }
-    // }
-
     std::vector<TensorView*> sorted_candidate_tvs = persistent_buffers;
     std::sort(
         sorted_candidate_tvs.begin(),
         sorted_candidate_tvs.end(),
         sort_buffer_tvs);
-
-    std::cout << "sorted_candidate_tvs:" << std::endl;
-    for (auto tv : sorted_candidate_tvs) {
-      std::cout << tv->toString()
-                << ", consumers= " << ir_utils::consumerTvsOf(tv).size()
-                << std::endl;
-    }
 
     // calculate the accumulated buffer size of the first N buffers
     std::vector<int64_t> acc_regs_buffer_sizes(n_buffers + 1, 0);
