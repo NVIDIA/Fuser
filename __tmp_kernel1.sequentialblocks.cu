@@ -9984,6 +9984,12 @@ __global__ void kernel1(
 
   // END SEQUENTIAL SYNC
 
+  // Finish all global memory transactions before looping to update the output
+  __threadfence();
+
+// NOTE: predicating out the loop nest here using either "if (false) {" or
+// "if (threadIdx.x > 100000) {", the runtime reduces from 5500 us to 190 us
+// (GeForce 3090 Ti)
 #pragma unroll
   for (nvfuser_index_t i7 = 0; i7 < i0; ++i7) {
     nvfuser_index_t i8;
@@ -10028,13 +10034,27 @@ __global__ void kernel1(
           T2[0LL] = T0[(i13 + (i4 * i18))];
           T& cur_val = T2[0LL];
           if (segment_block_idx > 0) {
-            reduction_op(cur_val, T1[(i15 + i19)]);
+            float T3[1LL];
+
+            // I tried using these with all three CacheOp types. They are all
+            // slower than direct copy (e.g. 6.6 ms vs 5.5 ms).
+            //loadGlobalToLocalCached<T, CacheOp::AllLevels>(&T3[0LL], &T1[(i15 + i19)]);
+
+            T3[0LL] = T1[(i15 + i19)];
+
+            reduction_op(cur_val, T3[0LL]);
           }
-          // Note: This ignores init_val and just uses block 0's value with no
-          // first op. This assumption requires init_val to be the identity
-          // with respect to binary_op.
           T1[(i15 + i19)] = cur_val;
         }
+        // NOTE: This ignores init_val and just uses block 0's value with no
+        // first op. This assumption requires init_val to be the identity
+        // with respect to binary_op.
+
+        // NOTE: these global loads/stores should all be coalesced since
+        //
+        //   the index is i15 + i19
+        //    i15 = i10 + i14
+        //    i10 = ((nvfuser_index_t)threadIdx.x) + i9
 
         // END SEQUENTIAL GRID REDUCTION
       }
@@ -10047,18 +10067,9 @@ __global__ void kernel1(
   // Sync block to make sure all threads are done updating the output
   block_sync::sync<Aligned>();
 
-  // Finish all global memory transactions before synchronizing
-  __threadfence();
-
   // Only allow linear_tid == 0 to participate in the synchronization
   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-    if (last_block) {
-      if (PERSISTENT_REDUCTION) {
-        // Only need to reset semaphore for persistent reductions
-        semaphore = 0LL;
-      }
-    } else {
-      // Increment semaphore
+    if (!last_block) { // Increment semaphore unless we're already done
       semaphore = segment_block_idx + 1LL;
     }
   }
