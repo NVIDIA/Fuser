@@ -33,10 +33,9 @@ bool isContiguous(const TensorView& tv) {
   return true;
 }
 
-// Finds aliases of `root` and stores the findings in `alias_to_source`.
-void findAliasesOfRoot(
-    const TensorView* root,
-    AliasAnalysisResult& alias_to_source) {
+// Finds aliases between `expr`'s inputs and outputs and stores the findings in
+// `alias_to_source`.
+void findAliasesFromExpr(Expr* expr, AliasAnalysisResult& alias_to_source) {
   // The current implementation does the bare minimum to detect some aliasing
   // that the codegen can use to generate a kernel skipping unnecessary
   // computation.
@@ -46,54 +45,44 @@ void findAliasesOfRoot(
   // to proactively make output aliases.
   // 2. It should handle more op types such as `Set.Permute`.
   // 3. It should detect alias between non-packed tensors.
-  std::queue<const TensorView*> q;
-  if (root->getMaybeAllocationDomain() == root->getMaybeRFactorDomain() &&
-      isContiguous(*root)) {
-    q.push(root);
-  }
+  if (ViewOp* view = dynamic_cast<ViewOp*>(expr)) {
+    TensorView* in_tv = dynamic_cast<TensorView*>(view->in());
+    if (in_tv == nullptr) {
+      return;
+    }
 
-  while (!q.empty()) {
-    const TensorView* in_tv = q.front();
-    q.pop();
+    TensorView* out_tv = dynamic_cast<TensorView*>(view->out());
+    if (out_tv == nullptr) {
+      return;
+    }
 
-    for (Expr* use : in_tv->uses()) {
-      if (!use->isA<ViewOp>()) {
-        continue;
-      }
-
-      Val* out = use->output(0);
-      TensorView* out_tv = dynamic_cast<TensorView*>(out);
-      if (out_tv == nullptr) {
-        continue;
-      }
-
-      // This is a sufficient but not necessary condition for `out_tv` to alias
-      // `in_tv`.
-      if (out_tv->getMaybeAllocationDomain() ==
-              out_tv->getMaybeRFactorDomain() &&
-          isContiguous(*out_tv)) {
-        // Both `in_tv` and `out_tv` are allocated contiguously per the rfactor
-        // domain.
-        q.push(out_tv);
-        alias_to_source[out_tv] = in_tv;
-      }
+    // This is a sufficient but not necessary condition for `out_tv` to alias
+    // `in_tv`.
+    if (in_tv->getMaybeAllocationDomain() == in_tv->getMaybeRFactorDomain() &&
+        isContiguous(*in_tv) &&
+        out_tv->getMaybeAllocationDomain() == out_tv->getMaybeRFactorDomain() &&
+        isContiguous(*out_tv)) {
+      // Both `in_tv` and `out_tv` are allocated contiguously per the rfactor
+      // domain.
+      alias_to_source[out_tv] = in_tv;
     }
   }
 }
 
 } // namespace
 
-AliasAnalysisResult findAliases(const Fusion& fusion) {
+AliasAnalysisResult findAliases(Fusion* fusion) {
+  fusion->print();
+
   AliasAnalysisResult alias_to_source;
-  for (const Val* in : fusion.inputs()) {
-    if (const TensorView* in_tv = dynamic_cast<const TensorView*>(in)) {
-      // A potential improvement suggested by @tfogal: Let findAliasesOfRoot
-      // return the AliasAnalysisResult instead of taking a mutable
-      // `alias_to_source` arg. This might be somewhat easily parallelizable
-      // (albeit with a serialized merge step afterwards that inserts the
-      // results).
-      findAliasesOfRoot(in_tv, alias_to_source);
-    }
+  // Fusion::exprs() returns topological order.
+  for (Expr* expr : fusion->exprs()) {
+    // A potential improvement suggested by @tfogal: Let findAliasesFromExpr
+    // return the AliasAnalysisResult instead of taking a mutable
+    // `alias_to_source` arg. This might be somewhat easily parallelizable
+    // (albeit with a serialized merge step afterwards that inserts the
+    // results).
+    findAliasesFromExpr(expr, alias_to_source);
   }
   return alias_to_source;
 }

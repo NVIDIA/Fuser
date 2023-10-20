@@ -11,9 +11,10 @@
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
-#include <csrc/fusion.h>
-#include <csrc/ops/alias.h>
-#include <csrc/optimization/alias_analysis.h>
+#include <fusion.h>
+#include <ops/alias.h>
+#include <ops/arith.h>
+#include <optimization/alias_analysis.h>
 #include <test/utils.h>
 
 namespace nvfuser {
@@ -36,7 +37,7 @@ TEST_F(AliasAnalysisTest, View_ContiguousAndSameAllocationOrder) {
   fusion.addOutput(out);
 
   optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(fusion);
+      optimization::findAliases(&fusion);
   EXPECT_THAT(alias_analysis, UnorderedElementsAre(Pair(out, in)));
 }
 
@@ -55,7 +56,7 @@ TEST_F(AliasAnalysisTest, ChainOfViews) {
   fusion.addOutput(out);
 
   optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(fusion);
+      optimization::findAliases(&fusion);
   EXPECT_THAT(
       alias_analysis,
       UnorderedElementsAre(Pair(out, intermediate), Pair(intermediate, in)));
@@ -76,7 +77,7 @@ TEST_F(AliasAnalysisTest, View_DifferentAllocationOrder) {
       {out->axis(1), out->axis(0)}, /*new_contiguity=*/true);
 
   optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(fusion);
+      optimization::findAliases(&fusion);
   EXPECT_THAT(alias_analysis, IsEmpty());
 }
 
@@ -95,7 +96,7 @@ TEST_F(AliasAnalysisTest, View_NonContiguous) {
       {out->axis(0), out->axis(1)}, /*new_contiguity=*/{true, false});
 
   optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(fusion);
+      optimization::findAliases(&fusion);
   EXPECT_THAT(alias_analysis, IsEmpty());
 }
 
@@ -112,7 +113,28 @@ TEST_F(AliasAnalysisTest, Permute) {
 
   // We haven't handled `Set.Permute` yet.
   optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(fusion);
+      optimization::findAliases(&fusion);
+  EXPECT_THAT(alias_analysis, IsEmpty());
+}
+
+TEST_F(AliasAnalysisTest, View_ExpandedBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({4, 5});
+  fusion.addInput(in);
+  TensorView* out = broadcast(in, {false, false, true});
+  out = expand(
+      out,
+      {IrBuilder::create<Val>(4),
+       IrBuilder::create<Val>(5),
+       IrBuilder::create<Val>(6)});
+  // tryStaticReshape failed to get the expanded extent, which is 6.
+  out = reshape(out, {IrBuilder::create<Val>(40), IrBuilder::create<Val>(3)});
+  fusion.addOutput(out);
+
+  optimization::AliasAnalysisResult alias_analysis =
+      optimization::findAliases(&fusion);
   EXPECT_THAT(alias_analysis, IsEmpty());
 }
 
