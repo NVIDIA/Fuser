@@ -60,6 +60,7 @@ int getProducerHaloOffset(
     TORCH_WARN(
         "getProducerHaloOffset p2c mapping has failed. See "
         "https://github.com/NVIDIA/Fuser/issues/1122");
+    return 0;
   }
   IterDomain* consumer_id = it->second;
 
