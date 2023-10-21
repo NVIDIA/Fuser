@@ -56,7 +56,11 @@ int getProducerHaloOffset(
   // reduction axis. Since this function is only used for indexing
   // producer tensors, where reduction axes are skipped, producer_id
   // should never be a reduction axis.
-  NVF_ERROR(it != p2c.end());
+  if (it == p2c.end()) {
+    TORCH_WARN(
+        "getProducerHaloOffset p2c mapping has failed. See "
+        "https://github.com/NVIDIA/Fuser/issues/1122");
+  }
   IterDomain* consumer_id = it->second;
 
   const auto& halo_map = GpuLower::current()->haloInfo();
