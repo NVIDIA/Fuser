@@ -1,6 +1,6 @@
 import torch
 from typing import Union, List, Tuple
-from nvfuser import Datatype
+from nvfuser import DataType
 
 
 # Utility function to generate input sizes for benchmarks
@@ -28,4 +28,4 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
 FLOAT_DTYPES = [torch.bfloat16, torch.float16, torch.float32]
 
 # Datatypes that will be promoted to Datatype.Float in Fusion Definitions
-PROMOTE_DTYPES = [Datatype.Bfloat16, Datatype.Half]
+PROMOTE_DTYPES = [DataType.BFloat16, DataType.Half]
