@@ -2573,6 +2573,32 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(y.shape, torch.Size([3, 2, 2]))
         self.assertEqual(x.flatten(), y.flatten())
 
+    def test_allocation_domain_index_select(self):
+        inputs = [
+            torch.randn((252,), dtype=torch.float32, device="cuda:0").as_strided(
+                (9, 28), (1, 9)
+            ),
+            torch.randint(0, 28, (4,), dtype=torch.int64, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T1 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[0, 1],
+            )
+            T2 = fd.define_tensor(
+                shape=[-1], contiguity=[True], dtype=DataType.Int, is_cpu=False
+            )
+            T3 = fd.ops.index_select(T1, T2, dim=1)
+            fd.add_output(T3)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        torch_ref = torch.index_select(inputs[0], 1, inputs[1])
+        self.assertEqual(nvf_out[0], torch_ref)
+
 
 if __name__ == "__main__":
     run_tests()
