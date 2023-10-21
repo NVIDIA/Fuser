@@ -16,6 +16,7 @@
 #include <ops/arith.h>
 #include <optimization/alias_analysis.h>
 #include <test/utils.h>
+#include <test/validator.h>
 
 namespace nvfuser {
 

@@ -56,6 +56,31 @@ void findAliasesFromExpr(Expr* expr, AliasAnalysisResult& alias_to_source) {
       return;
     }
 
+    const std::vector<IterDomain*>& out_root = out_tv->getRootDomain();
+    const std::vector<IterDomain*>& out_rfactor =
+        out_tv->getMaybeRFactorDomain();
+    std::vector<Expr*> transforms = DependencyCheck::getAllExprsBetween(
+        {out_root.begin(), out_root.end()},
+        {out_rfactor.begin(), out_rfactor.end()});
+
+    std::unordered_set<Val*> expanded_broadcast_dims;
+    expanded_broadcast_dims.reserve(in_tv->getMaybeRFactorDomain().size());
+    for (size_t i = 0, size = in_tv->getMaybeRFactorDomain().size(); i < size;
+         i++) {
+      IterDomain* id = in_tv->getMaybeRFactorDomain()[i];
+      if (id->isBroadcast() && id->hasExpandedExtent()) {
+        expanded_broadcast_dims.insert(out_root[i]);
+      }
+    }
+
+    for (const auto* transform : transforms) {
+      for (Val* input : transform->inputs()) {
+        if (expanded_broadcast_dims.count(input)) {
+          return;
+        }
+      }
+    }
+
     // This is a sufficient but not necessary condition for `out_tv` to alias
     // `in_tv`.
     if (in_tv->getMaybeAllocationDomain() == in_tv->getMaybeRFactorDomain() &&
