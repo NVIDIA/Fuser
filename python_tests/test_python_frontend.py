@@ -2585,7 +2585,7 @@ class TestNvFuserFrontend(TestCase):
             T1 = fd.define_tensor(
                 shape=[-1, -1],
                 contiguity=[True, True],
-                dtype=DataType.Int,
+                dtype=DataType.Float,
                 is_cpu=False,
                 stride_order=[0, 1],
             )
