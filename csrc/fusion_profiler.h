@@ -58,20 +58,6 @@ struct DeviceDescriptor{
 };
 
 struct KernelProfile {
-  void print() const {
-    size_t beg = name.find("kernel");
-    size_t pos = name.find('(');
-    std::cout << "\n" << name.substr(beg, pos-beg) << " "
-              << device << " "
-              << stream << " "
-              << time_ms << " "
-              << "[" << std::get<0>(grid) << ", " << std::get<1>(grid) << ", " << std::get<2>(grid) << "] "
-              << "[" << std::get<0>(block) << ", " << std::get<1>(block) << ", " << std::get<2>(block) << "] "
-              << "[" << std::get<0>(cluster) << ", " << std::get<1>(cluster) << ", " << std::get<2>(cluster) << "] "
-              << "[" << dynamic_shared_mem << ", " << static_shared_mem << "] "
-              << registers << std::endl;
-  }
-
   std::string name;
   int device{-1};
   uint32_t stream{0};
@@ -98,10 +84,12 @@ struct KernelProfile {
 };
 
 struct FusionProfile {
+  static std::array<const char*, 25> column_strs;
+
   void reset();
 
-  bool verbose{false};
-  int64_t fusion_id;
+  bool verbose{isDebugDumpEnabled(DebugDumpOption::FusionProfilerVerbose)};
+  int64_t fusion_id{-1};
 
   double time_ms{0.0};
   double host_time_ms{0.0};
@@ -190,6 +178,7 @@ class FusionProfiler {
 
 #define _FP_ENABLE(code) \
   if (isDebugDumpEnabled(DebugDumpOption::FusionProfiler) \
+      || isDebugDumpEnabled(DebugDumpOption::FusionProfilerVerbose) \
       || isOptionEnabled(EnableOption::FusionProfiler)) { \
     code; \
   }
@@ -205,7 +194,8 @@ class FusionProfiler {
 #define FUSION_PROFILER_OUTPUT_BYTES_ACCESSED(output_fn) \
   _FP_ENABLE(FusionProfiler::get()->outputBytesAccessed(output_fn()))
 #define FUSION_PROFILER_PRINT \
-  if (isDebugDumpEnabled(DebugDumpOption::FusionProfiler)) { \
+  if (isDebugDumpEnabled(DebugDumpOption::FusionProfiler) || \
+      isDebugDumpEnabled(DebugDumpOption::FusionProfilerVerbose)) { \
     debug() << FusionProfiler::get()->profile(); \
   }
 

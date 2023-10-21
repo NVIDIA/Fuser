@@ -122,6 +122,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"fusion_ir_math", DebugDumpOption::FusionIrMath},
       {"fusion_ir_presched", DebugDumpOption::FusionIrPresched},
       {"fusion_profiler", DebugDumpOption::FusionProfiler},
+      {"fusion_profiler_verbose", DebugDumpOption::FusionProfilerVerbose},
       {"halo", DebugDumpOption::Halo},
       {"index_type", DebugDumpOption::IndexType},
       {"kernel_args", DebugDumpOption::KernelArgs},

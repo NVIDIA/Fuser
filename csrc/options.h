@@ -44,6 +44,7 @@ enum class DebugDumpOption {
   EffectiveBandwidth, //! Measure kernel performance and print effective
                       //! bandwidth
   FusionProfiler, //! Measures fusion, compile, and kernel performance
+  FusionProfilerVerbose, //! Measures fusion, compile, and kernel performance
   FusionSegmentsDrawing, //!< Dump Segmented Fusion Graph
   PrintPtxasLog, //!< Print the ptxas verbose log including register usage
   BufferReuseInfo, //!< Dump the analysis details of local/shared buffer re-use

@@ -288,23 +288,14 @@ void FusionProfile::reset() {
   kernel_profiles.clear();
 }
 
-namespace {
-struct StringDescriptor {
-  std::string header;
-  bool number{false};
-  uint32_t precision{0};
-  uint32_t col_width{0};
-};
-} // annonymouse namespace
+std::array<const char*,  25> column_strs{"Fus#", "NSegs", "Time(ms)",
+    "HstTm(ms)", "CmpTm(ms)", "KerTm(ms)", "EffBw(GB/s)", "%PeakBw", "Seg#",
+    "S-KerName", "S-Dev", "S-Stm", "S-KerTm(ms)", "S-CmpTm(ms)",
+    "S-EffBw(GB/s)", "S-%PeakBw", "S-Grid", "S-Block", "S-Cluster",
+    "S-Smem[Dyn,Stat]", "S-Regs", "S-In(MB)", "S-Out(MB)", "S-DeviceName",
+    "S-PeakBw(GB/s)"};
 
 std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
-  constexpr std::array<const char*,  25> column_strs{"Fus#", "NSegs",
-      "Time(ms)", "HstTm(ms)", "CmpTm(ms)", "KerTm(ms)", "EffBw(GB/s)",
-      "%PeakBw", "Seg#", "S-KerName", "S-Dev", "S-Stm", "S-KerTm(ms)",
-      "S-CmpTm(ms)", "S-EffBw(GB/s)", "S-%PeakBw", "S-Grid",
-      "S-Block", "S-Cluster", "S-Smem[Dyn,Stat]", "S-Regs", "S-In(MB)",
-      "S-Out(MB)", "S-DeviceName", "S-PeakBw(GB/s)"};
-
   if (fp.fusion_id == 0) {
     os << std::left <<std::setw(5) << std::get<0>(column_strs)
        << " " << std::setw(5)  << std::get<1>(column_strs)
