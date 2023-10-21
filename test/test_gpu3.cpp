@@ -42,7 +42,6 @@
 
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
-#include <torch/csrc/jit/ir/irparser.h>
 #include <torch/torch.h>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -9623,6 +9622,76 @@ TEST_F(NVFuserTest, ConstLongExpressions) {
   testValidate(fusion, outputs, {}, {t0}, __LINE__, __FILE__);
 }
 
+// Related to https://github.com/NVIDIA/Fuser/issues/1084.
+// On H100, the generated kernel is vectorized by 8, has a serial batch
+// of 5. It uses 106 threads without padding, nsys shows kernel
+// duration is 0.271 ms. If eliminate predicate for RNG ops by comment out
+// predicateRNGOp(), the kernel duration is increased to 0.376 ms.
+TEST_F(NVFuserTest, PredicateRNGOps) {
+  int64_t size = 4224;
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2, DataType::Half);
+  fusion->addInput(tv0);
+  auto tv1 = rand_like(tv0);
+  auto tv2 = rand_like(tv0);
+  auto tv3 = rand_like(tv0);
+  auto tv4 = rand_like(tv0);
+  auto tv5 = add(tv1, tv2);
+  auto tv6 = add(tv3, tv4);
+  auto tv7 = add(tv5, tv6);
+  auto tv8 = castOp(DataType::Half, tv7);
+  auto tv9 = set(tv8);
+  fusion->addOutput(tv9);
+
+  tv1->split(-1, 8);
+  tv1->split(-2, 5);
+  tv1->split(-2, 1);
+  tv1->axis(-2)->parallelize(ParallelType::Unswitch);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+
+  TransformPropagator propagator(tv1);
+  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv9->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  // check RNGOp is predicated without else branch.
+  class PredicateChecker : public kir::IrVisitor {
+   public:
+    using kir::IrVisitor::handle;
+    bool predicate_rngop = false;
+
+   private:
+    void handle(RNGOp* uop) final {
+      for (auto expr : scope_exprs_) {
+        if (!expr->isA<kir::IfThenElse>() ||
+            expr->as<kir::IfThenElse>()->hasElse()) {
+          continue;
+        }
+        if (!expr->as<kir::IfThenElse>()->predicate()->isTrivial()) {
+          predicate_rngop = true;
+        }
+      }
+    }
+  } pred_checker;
+  GpuLower gpulw(fusion);
+  pred_checker.handle(gpulw.kernel()->topLevelExprs());
+  ASSERT_TRUE(pred_checker.predicate_rngop);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor t0 = at::zeros({2048, size}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion, {t0});
+
+  at::manual_seed(0);
+  auto cg_outputs = fe.runFusion({t0});
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

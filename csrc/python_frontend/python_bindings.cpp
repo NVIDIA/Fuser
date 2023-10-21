@@ -246,7 +246,7 @@ computeTensorDescriptor(
     const std::vector<int64_t>& strides) {
   NVF_CHECK(
       sizes.size() == strides.size(),
-      "compute_contiguity: Sizes and strides must have the same number of dimensions");
+      "compute_tensor_descriptor: Sizes and strides must have the same number of dimensions");
   std::vector<DimInfo> dim_info_vec;
   for (auto i : c10::irange(sizes.size())) {
     // NOTE: not supporting negative stride yet.
@@ -622,7 +622,8 @@ void initNvFuserPythonBindings(PyObject* module) {
              std::vector<int64_t>& shape,
              std::vector<std::optional<bool>>& contiguity,
              PrimDataType dtype = DataType::Float,
-             bool is_cpu = false) -> Tensor {
+             bool is_cpu = false,
+             std::vector<int64_t> stride_order = {}) -> Tensor {
             FUSER_PERF_SCOPE("FusionDefinition.define_tensor (default)");
             NVF_CHECK(
                 !self.completed(),
@@ -644,7 +645,8 @@ void initNvFuserPythonBindings(PyObject* module) {
                 shape,
                 contiguity,
                 dtype,
-                is_cpu));
+                is_cpu,
+                stride_order));
 
             return out;
           },
@@ -652,6 +654,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::arg("contiguity"),
           py::arg("dtype") = DataType::Float,
           py::arg("is_cpu") = false,
+          py::arg("stride_order") = py::list(),
           py::return_value_policy::reference)
       .def(
           "define_tensor",
@@ -696,13 +699,17 @@ void initNvFuserPythonBindings(PyObject* module) {
             }
 
             Tensor out = self.defineTensor(sizes.size());
-            // TODO: replace computeContiguity with computeTensorDescriptor
-            self.defineRecord(new TensorRecord(
-                {self.recordingState(out())},
-                std::move(dim_sizes),
-                computeContiguity(sizes, strides),
-                dtype,
-                is_cpu));
+            std::vector<std::optional<bool>> contiguity;
+            std::vector<int64_t> stride_order;
+            std::tie(contiguity, stride_order) =
+                computeTensorDescriptor(sizes, strides),
+                                 self.defineRecord(new TensorRecord(
+                                     {self.recordingState(out())},
+                                     std::move(dim_sizes),
+                                     contiguity,
+                                     dtype,
+                                     is_cpu,
+                                     stride_order));
 
             return out;
           },
@@ -905,6 +912,9 @@ void initNvFuserPythonBindings(PyObject* module) {
         FUSER_PERF_SCOPE("Operators.stride_order");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
+        NVF_CHECK(
+            arg.dims == stride_order.size(),
+            "Operator stride_order expects `stride_order` argument to have the same length as input!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
         fd->defineRecord(new DimsOpRecord<serde::RecordType_StrideOrderOp>(
@@ -2234,6 +2244,9 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::vector<int64_t>& dims) -> Tensor {
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
+        NVF_CHECK(
+            arg.dims == dims.size(),
+            "Operator permute expects `dims` argument to have the same length as input!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
         self.fusion_definition->defineRecord(

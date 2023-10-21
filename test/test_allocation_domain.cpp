@@ -1168,4 +1168,31 @@ TEST_F(NVFuserTest, AllocationDomainContiguityForBroadcast) {
   testValidate(fusion, outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, AllocationDomainContiguityForExplicitBroadcast) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = TensorViewBuilder()
+                 .ndims(3)
+                 .shape({-1, -1, -1})
+                 .contiguity({true, true, std::nullopt})
+                 .expanded({true, false, false})
+                 .strideOrder({0, 1, 2})
+                 .build();
+  fusion->addInput(tv0);
+
+  auto s0 = IrBuilder::create<Val>(5, DataType::Float);
+  auto tv1 = add(tv0, s0);
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({4, 8}, options).as_strided({3, 8, 4}, {0, 1, 8});
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs({t0});
+
+  auto t1 = t0.add(5.0);
+  testValidate(fusion, outputs, {t0}, {t1}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
