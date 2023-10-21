@@ -21,7 +21,7 @@ namespace {
 #define ALIGN_BUFFER(buffer, align)                                                 \
   (((uintptr_t) (buffer) & ((align)-1)) ? ((buffer) + (align) - ((uintptr_t) (buffer) & ((align)-1))) : (buffer))
 
-const char* GetName(const char *pName) {
+const char* get_demangled_name(const char *pName) {
   if (pName == nullptr) {
     return "<null>";
   }
@@ -29,7 +29,7 @@ const char* GetName(const char *pName) {
   return abi::__cxa_demangle(pName, nullptr, nullptr, &status);
 }
 
-void PrintActivity(CUpti_Activity *pRecord, FILE *pFileHandle) {
+void record_cupti_activity(CUpti_Activity *pRecord, FILE *pFileHandle) {
   CUpti_ActivityKind activityKind = pRecord->kind;
 
   switch (activityKind) {
@@ -38,7 +38,7 @@ void PrintActivity(CUpti_Activity *pRecord, FILE *pFileHandle) {
       CUpti_ActivityKernel8 *pKARecord = (CUpti_ActivityKernel8 *)pRecord;
 
       KernelProfile prof;
-      prof.name.assign(GetName(pKARecord->name));
+      prof.name.assign(get_demangled_name(pKARecord->name));
       int start = prof.name.find("kernel");
       int end = prof.name.find('(');
       prof.name = prof.name.substr(start, end - start);
@@ -72,7 +72,7 @@ void PrintActivity(CUpti_Activity *pRecord, FILE *pFileHandle) {
   }
 }
 
-void PrintActivityBuffer(
+void record_cupti_activity_buffer(
     uint8_t *pBuffer,
     size_t validBytes,
     FILE *pFileHandle,
@@ -83,7 +83,7 @@ void PrintActivityBuffer(
   do {
     status = cuptiActivityGetNextRecord(pBuffer, validBytes, &pRecord);
     if (status == CUPTI_SUCCESS) {
-      PrintActivity(pRecord, stdout);
+      record_cupti_activity(pRecord, stdout);
     }
     else if (status == CUPTI_ERROR_MAX_LIMIT_REACHED) {
        break;
@@ -94,7 +94,7 @@ void PrintActivityBuffer(
   } while (true);
 }
 
-void buffer_requested(
+void cupti_buffer_requested(
     uint8_t **ppBuffer,
     size_t *pSize,
     size_t *pMaxNumRecords)
@@ -107,7 +107,7 @@ void buffer_requested(
     *pMaxNumRecords = 0;
 }
 
-void buffer_completed(
+void cupti_buffer_completed(
     CUcontext context,
     uint32_t streamId,
     uint8_t *pBuffer,
@@ -115,7 +115,7 @@ void buffer_completed(
     size_t validSize)
 {
     if (validSize > 0) {
-      PrintActivityBuffer(pBuffer, validSize, stdout, nullptr); 
+      record_cupti_activity_buffer(pBuffer, validSize, stdout, nullptr); 
       //FusionProfiler::kernel_profiler()->
       //    recordKernelActivity(pBuffer, validSize);
     }
@@ -216,7 +216,8 @@ void DeviceDescriptor::generate(int _device) {
   peak_bandwidth_gbs = 2.5e-7 * static_cast<double>(memory_clock) * static_cast<double>(bus_width);
 }
 
-SegmentProfiler::SegmentProfiler(uint32_t id) :
+SegmentProfiler::SegmentProfiler(uint32_t id, bool disable_cupti) :
+  disable_cupti_(disable_cupti),
   device_(-1),
   segment_id_(id),
   compile_timer_(at::cuda::getCurrentCUDAStream()),
@@ -402,7 +403,8 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
 std::mutex FusionProfiler::singleton_lock_;
 FusionProfiler* FusionProfiler::singleton_ = nullptr;
 
-FusionProfiler::FusionProfiler() :
+FusionProfiler::FusionProfiler(bool disable_cupti) :
+  disable_cupti_(disable_cupti),
   fusion_id_(-1),
   profile_(),
   fusion_timer_(at::cuda::getCurrentCUDAStream()),
@@ -411,7 +413,8 @@ FusionProfiler::FusionProfiler() :
   kernel_profiles_(),
   corrid_2_segid_() {
   NVFUSER_CUPTI_SAFE_CALL(
-      cuptiActivityRegisterCallbacks(buffer_requested, buffer_completed));
+      cuptiActivityRegisterCallbacks(
+          cupti_buffer_requested, cupti_buffer_completed));
 }
 
 void FusionProfiler::reset() {
@@ -425,10 +428,10 @@ void FusionProfiler::reset() {
   segid_2_idx_.clear();
 }
 
-FusionProfiler* FusionProfiler::get() {
+FusionProfiler* FusionProfiler::get(bool disable_cupti) {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ == nullptr) {
-    singleton_ = new FusionProfiler();
+    singleton_ = new FusionProfiler(disable_cupti);
   } 
   return singleton_;
 }
@@ -439,7 +442,7 @@ void FusionProfiler::createSegments(size_t num) {
   for (size_t i = 0; i < num; ++i) {
     uint32_t id = hash_preamble | (0xffff & static_cast<uint32_t>(i));
     segid_2_idx_[id] = segments_.size();
-    segments_.emplace_back(id);
+    segments_.emplace_back(id, disable_cupti_);
   }
 }
 SegmentProfiler& FusionProfiler::segment(size_t idx) {

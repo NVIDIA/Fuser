@@ -109,7 +109,7 @@ std::ostream& operator<<(std::ostream&, const FusionProfile&);
 
 class SegmentProfiler {
  public:
-  SegmentProfiler(uint32_t id);
+  SegmentProfiler(uint32_t id, bool disable_cupti);
 
   void startCompile(int device);
   void stopCompile();
@@ -129,6 +129,9 @@ class SegmentProfiler {
   ProfilerState state() const { return kernel_profile_state_; }
 
  private:
+  // The disable_cupti option is for testing
+  bool disable_cupti_;
+
   int device_;
   uint32_t segment_id_;
 
@@ -139,11 +142,13 @@ class SegmentProfiler {
 };
 
 class FusionProfiler {
-  FusionProfiler();
+  // The disable_cupti option is for testing
+  FusionProfiler(bool disable_cupti);
   void reset();
 
- public: // Static Methods
-  static FusionProfiler* get();
+ public: 
+  // The disable_cupti option is for testing
+  static FusionProfiler* get(bool disable_cupti = false);
  
   void createSegments(size_t num);
   SegmentProfiler& segment(size_t idx);
@@ -163,6 +168,9 @@ class FusionProfiler {
  private:
   static FusionProfiler* singleton_;
   static std::mutex singleton_lock_;
+
+  // This is a debug option for testing.
+  bool disable_cupti_;
 
   int64_t fusion_id_;
 
