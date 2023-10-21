@@ -165,7 +165,6 @@ TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
   fe.compileFusion(&fusion, {in_tensor});
   at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
 
-  std::cerr << out_tensor.strides() << std::endl;
   EXPECT_THAT(out_tensor.strides(), ElementsAre(1, 0));
 }
 

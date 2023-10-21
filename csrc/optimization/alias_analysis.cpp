@@ -33,6 +33,49 @@ bool isContiguous(const TensorView& tv) {
   return true;
 }
 
+// Whether a ViewOp transforms any expanded broadcast IterDomain in the input.
+// This is a corner case in which we can't turn `out` into an alias.
+//
+// For example, given
+//
+//   t0 = makeContigConcreteTensor({4, 5});
+//   t1 = broadcast(t0, {false, false, true});
+//   t2 = expand(t1, {4, 5, 6});
+//
+// `reshape(t2, {40, 3})` and `reshape(t2, {4, 30})` have to copy data because
+// the former splits the expanded broadcast IterDomain (which is 6) and the
+// latter merges it.  However, `reshape(t2, {20, 6})` can simply be an alias
+// because the expanded broadcast IterDomain is forwarded not transformed.
+//
+// Obviously, this function assumes `in` and `out` are the input and output
+// TensorView of the same ViewOp.
+bool transformsExpandedBroadcastIterDomain(TensorView* in, TensorView* out) {
+  const std::vector<IterDomain*>& in_rfactor = in->getMaybeRFactorDomain();
+  const std::vector<IterDomain*>& out_root = out->getRootDomain();
+  const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
+
+  std::unordered_set<Val*> expanded_broadcast_dims;
+  for (size_t i = 0, size = in_rfactor.size(); i < size; i++) {
+    IterDomain* id = in_rfactor[i];
+    if (id->isBroadcast() && id->hasExpandedExtent()) {
+      expanded_broadcast_dims.insert(out_root[i]);
+    }
+  }
+
+  const std::vector<Expr*> transforms = DependencyCheck::getAllExprsBetween(
+      {out_root.begin(), out_root.end()},
+      {out_rfactor.begin(), out_rfactor.end()});
+
+  for (const auto* transform : transforms) {
+    for (Val* input : transform->inputs()) {
+      if (expanded_broadcast_dims.count(input)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // Finds aliases between `expr`'s inputs and outputs and stores the findings in
 // `alias_to_source`.
 void findAliasesFromExpr(Expr* expr, AliasAnalysisResult& alias_to_source) {
@@ -46,50 +89,25 @@ void findAliasesFromExpr(Expr* expr, AliasAnalysisResult& alias_to_source) {
   // 2. It should handle more op types such as `Set.Permute`.
   // 3. It should detect alias between non-packed tensors.
   if (ViewOp* view = dynamic_cast<ViewOp*>(expr)) {
-    TensorView* in_tv = dynamic_cast<TensorView*>(view->in());
-    if (in_tv == nullptr) {
+    TensorView* in = dynamic_cast<TensorView*>(view->in());
+    if (in == nullptr) {
       return;
     }
 
-    TensorView* out_tv = dynamic_cast<TensorView*>(view->out());
-    if (out_tv == nullptr) {
+    TensorView* out = dynamic_cast<TensorView*>(view->out());
+    if (out == nullptr) {
       return;
     }
 
-    const std::vector<IterDomain*>& out_root = out_tv->getRootDomain();
-    const std::vector<IterDomain*>& out_rfactor =
-        out_tv->getMaybeRFactorDomain();
-    std::vector<Expr*> transforms = DependencyCheck::getAllExprsBetween(
-        {out_root.begin(), out_root.end()},
-        {out_rfactor.begin(), out_rfactor.end()});
-
-    std::unordered_set<Val*> expanded_broadcast_dims;
-    expanded_broadcast_dims.reserve(in_tv->getMaybeRFactorDomain().size());
-    for (size_t i = 0, size = in_tv->getMaybeRFactorDomain().size(); i < size;
-         i++) {
-      IterDomain* id = in_tv->getMaybeRFactorDomain()[i];
-      if (id->isBroadcast() && id->hasExpandedExtent()) {
-        expanded_broadcast_dims.insert(out_root[i]);
-      }
-    }
-
-    for (const auto* transform : transforms) {
-      for (Val* input : transform->inputs()) {
-        if (expanded_broadcast_dims.count(input)) {
-          return;
-        }
-      }
-    }
-
-    // This is a sufficient but not necessary condition for `out_tv` to alias
-    // `in_tv`.
-    if (in_tv->getMaybeAllocationDomain() == in_tv->getMaybeRFactorDomain() &&
-        isContiguous(*in_tv) &&
-        out_tv->getMaybeAllocationDomain() == out_tv->getMaybeRFactorDomain() &&
-        isContiguous(*out_tv)) {
-      // Both `in_tv` and `out_tv` are allocated contiguously per the rfactor
-      // domain.
-      alias_to_source[out_tv] = in_tv;
+    if (in->getMaybeAllocationDomain() == in->getMaybeRFactorDomain() &&
+        isContiguous(*in) &&
+        out->getMaybeAllocationDomain() == out->getMaybeRFactorDomain() &&
+        isContiguous(*out) && !transformsExpandedBroadcastIterDomain(in, out)) {
+      // This is a sufficient but not necessary condition for `out` to alias
+      // `in`. Both `in` and `out` are allocated contiguously per the
+      // rfactor domain. Also, the ViewOp can't transform any expanded broadcast
+      // IterDomain.
+      alias_to_source[out] = in;
     }
   }
 }
