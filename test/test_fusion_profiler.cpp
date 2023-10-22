@@ -36,45 +36,25 @@ TEST_F(FusionProfilerTest, Profile1Segment) {
   ASSERT_FALSE(fp == nullptr);
 
   try {
-    fp->start();
-    Fusion fusion;
-    FusionGuard fg(&fusion);
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+    EnableOptionsGuard::getCurOptions().set(EnableOption::FusionProfiler);
  
     auto shape = std::vector<int64_t>({4, 4});
     auto tv0 = makeConcreteTensor(shape);
     auto tv1 = makeConcreteTensor(shape);
-    fusion.addInput(tv0);
-    fusion.addInput(tv1);
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
  
     auto tv2 = add(tv0, tv1);
-    fusion.addOutput(tv2);
+    fusion->addOutput(tv2);
 
-    fp->createSegments(1);
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn(shape, options);
     auto t1 = at::randn(shape, options);
-    std::vector<c10::IValue> aten_inputs({t0, t1});
-    FusionExecutor fe;
-    fp->segment(0).startCompile(/*device*/0);
-    fe.compileFusion(&fusion, aten_inputs);
-    fp->segment(0).stopCompile();
-
-    fp->segment(0).startKernel(/*device*/0);
-    auto cg_outputs = fe.runFusion(aten_inputs);
-    fp->segment(0).stopKernel();
-    int64_t bytes = 0;
-    for (auto size : shape) {
-      if (bytes == 0) {
-        bytes = size * (int64_t)sizeof(float);
-      } else {
-        bytes *= size * (int64_t)sizeof(float);
-      }
-    }
-    fp->segment(0).inputBytesAccessed(2 * bytes);
-    fp->segment(0).outputBytesAccessed(bytes);
-    fp->inputBytesAccessed(2 * bytes);
-    fp->outputBytesAccessed(bytes);
-    fp->stop();
+  
+    FusionExecutorCache executor_cache(std::move(fusion));
+    auto outputs = executor_cache.runFusionWithInputs({t0, t1});
     SUCCEED();
   } catch (const std::exception& e) {
     FAIL() << "Defining and profiling the fusion failed!" << e.what();
@@ -82,5 +62,55 @@ TEST_F(FusionProfilerTest, Profile1Segment) {
 
   auto fprof = fp->profile();
   ASSERT_TRUE(fprof.kernel_profiles.size() == 1);
+}
+
+TEST_F(FusionProfilerTest, Profile3Segments) {
+  FusionProfiler* fp = nullptr;
+  try {
+    fp = FusionProfiler::get();
+    SUCCEED();
+  } catch (const std::exception& e) {
+    FAIL() << "Getting the FusionProfiler singleton failed!" << e.what();
+  }
+
+  ASSERT_FALSE(fp == nullptr);
+
+  try {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+    EnableOptionsGuard::getCurOptions().set(EnableOption::FusionProfiler);
+ 
+    auto shape1 = std::vector<int64_t>({11});
+    auto shape2 = std::vector<int64_t>({13});
+    auto shape3 = std::vector<int64_t>({17});
+    auto tv0 = makeConcreteTensor(shape1);
+    auto tv1 = makeConcreteTensor(shape2);
+    auto tv2 = makeConcreteTensor(shape3);
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+    fusion->addInput(tv2);
+ 
+    auto s0 = IrBuilder::create<Val>(2.0);
+    auto tv3 = mul(tv0, s0);
+    auto tv4 = mul(tv1, s0);
+    auto tv5 = mul(tv2, s0);
+    fusion->addOutput(tv3);
+    fusion->addOutput(tv4);
+    fusion->addOutput(tv5);
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    auto t0 = at::randn(shape1, options);
+    auto t1 = at::randn(shape2, options);
+    auto t2 = at::randn(shape3, options);
+    
+    FusionExecutorCache executor_cache(std::move(fusion));
+    auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+    SUCCEED();
+  } catch (const std::exception& e) {
+    FAIL() << "Defining and profiling the fusion failed!" << e.what();
+  }
+
+  auto fprof = fp->profile();
+  ASSERT_TRUE(fprof.kernel_profiles.size() == 3);
 }
 } // namespace nvfuser
