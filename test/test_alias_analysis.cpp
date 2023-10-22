@@ -20,11 +20,12 @@
 
 namespace nvfuser {
 
-using AliasAnalysisTest = NVFuserTest;
 using testing::ElementsAre;
 using testing::IsEmpty;
 using testing::Pair;
 using testing::UnorderedElementsAre;
+
+using AliasAnalysisTest = NVFuserTest;
 
 TEST_F(AliasAnalysisTest, View_ContiguousAndSameAllocationOrder) {
   Fusion fusion;
@@ -36,7 +37,6 @@ TEST_F(AliasAnalysisTest, View_ContiguousAndSameAllocationOrder) {
   TensorView* in = makeContigConcreteTensor(in_shape);
   fusion.addInput(in);
   TensorView* out = reshape(in, in_shape, out_shape);
-  fusion.aliasOutputToInput(out, in, IoAliasType::ReinterpretCast);
   fusion.addOutput(out);
 
   optimization::AliasAnalysisResult alias_analysis =
@@ -204,6 +204,30 @@ TEST_F(AliasAnalysisTest, View_MergeExpandedBroadcast) {
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
   EXPECT_THAT(alias_analysis, IsEmpty());
+}
+
+using AliasTest = NVFuserTest;
+
+TEST_F(AliasTest, ReinterpretCast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const std::vector<int64_t> in_shape({2, 3, 4});
+  const std::vector<int64_t> out_shape({2, 12});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  fusion.addInput(in);
+  TensorView* out = reshape(in, in_shape, out_shape);
+  fusion.addOutput(out);
+
+  fusion.aliasOutputToInput(out, in, IoAliasType::ReinterpretCast);
+
+  FusionExecutor fe;
+  at::Tensor in_tensor =
+      at::randn({4, 5}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  fe.compileFusion(&fusion, {in_tensor});
+  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+  EXPECT_EQ(in_tensor.data_ptr<float>(), out_tensor.data_ptr<float>());
 }
 
 } // namespace nvfuser
