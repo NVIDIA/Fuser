@@ -405,6 +405,7 @@ FusionProfiler* FusionProfiler::singleton_ = nullptr;
 
 FusionProfiler::FusionProfiler(bool disable_cupti) :
   disable_cupti_(disable_cupti),
+  state_(ProfilerState::Ready),
   fusion_id_(-1),
   profile_(),
   fusion_timer_(at::cuda::getCurrentCUDAStream()),
@@ -418,6 +419,7 @@ FusionProfiler::FusionProfiler(bool disable_cupti) :
 }
 
 void FusionProfiler::reset() {
+  state_ = ProfilerState::Ready;
   ++fusion_id_; 
 
   profile_.reset();
@@ -436,7 +438,12 @@ FusionProfiler* FusionProfiler::get(bool disable_cupti) {
   return singleton_;
 }
 
+ProfilerState FusionProfiler::state() const {
+  return state_;
+}
+
 void FusionProfiler::createSegments(size_t num) {
+  NVF_CHECK(state_ == ProfilerState::Running, "FusionProfiler state is not Running!", state_);
   segments_.reserve(num);
   uint32_t hash_preamble = (0xffff & fusion_id_) << 15;
   for (size_t i = 0; i < num; ++i) {
@@ -452,10 +459,13 @@ SegmentProfiler& FusionProfiler::segment(size_t idx) {
 void FusionProfiler::start() {
   reset();
   fusion_timer_.start();
+  state_ = ProfilerState::Running;
 }
 
 void FusionProfiler::stop() {
+  NVF_CHECK(state_ == ProfilerState::Running, "FusionProfiler state is not Running!", state_);
   fusion_timer_.stop();
+  state_ = ProfilerState::Finished;
   profile_.time_ms = fusion_timer_.time();
   kernel_profiles_.reserve(segments_.size());
   profile_.kernel_profiles.resize(segments_.size());
@@ -509,17 +519,22 @@ void FusionProfiler::stop() {
   profile_.kernel_time_ms = kernel_time_ms;
   profile_.effective_bandwidth_gbs = (double)(profile_.input_bytes + profile_.output_bytes) / profile_.kernel_time_ms * mb_divider;
   profile_.percentage_peak_bandwidth = profile_.effective_bandwidth_gbs / device_descriptors_[segments_[0].device()].peak_bandwidth_gbs * 100.0;
+
+  state_ = ProfilerState::Processed;
 }
   
 void FusionProfiler::inputBytesAccessed(int64_t bytes) {
+  NVF_CHECK(state_ == ProfilerState::Running, "FusionProfiler state is not Running!", state_);
   profile_.input_bytes = bytes;
 }
 
 void FusionProfiler::outputBytesAccessed(int64_t bytes) {
+  NVF_CHECK(state_ == ProfilerState::Running, "FusionProfiler state is not Running!", state_);
   profile_.output_bytes = bytes;
 }
 
 const FusionProfile& FusionProfiler::profile() const {
+  NVF_CHECK(state_ == ProfilerState::Processed, "The FusionProfile struct data is not valid because it has not been processed! ", state_);
   return profile_;
 }
 

@@ -113,4 +113,46 @@ TEST_F(FusionProfilerTest, Profile3Segments) {
   auto fprof = fp->profile();
   ASSERT_TRUE(fprof.kernel_profiles.size() == 3);
 }
+
+TEST_F(FusionProfilerTest, FusionProfilerErrorChecks) {
+  FusionProfiler* fp = nullptr;
+  try {
+    fp = FusionProfiler::get();
+    SUCCEED();
+  } catch (const std::exception& e) {
+    FAIL() << "Getting the FusionProfiler singleton failed!" << e.what();
+  }
+
+  ASSERT_FALSE(fp == nullptr);
+
+  // Make error checks for state when it is Ready and methods expect
+  // something else.
+
+  try {
+    fp->stop();
+    FAIL() << "Expected FusionProfiler::stop to assert because state is not Running! " << fp->state();
+  } catch (const std::exception& e) {
+    SUCCEED();
+  }
+  
+  try {
+    fp->profile();
+    FAIL() << "Expected FusionProfiler::profile to assert because state is not Processed! " << fp->state();
+  } catch (const std::exception& e) {
+    SUCCEED();
+  }
+
+  fp->start();
+  
+  // Make error checks for state when it is Running and methods expect
+  // something else.
+  
+  try {
+    fp->profile();
+    FAIL() << "Expected FusionProfiler::profile to assert because state is not Processed! " << fp->state();
+  } catch (const std::exception& e) {
+    SUCCEED();
+  }
+}
+
 } // namespace nvfuser
