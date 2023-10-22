@@ -1124,6 +1124,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
   num_live_args_after_segment_runs_.reserve(num_groups);
+  SEGMENT_PROFILER_START_PARALLEL_COMPILE(num_groups);
   for (int64_t group_id = 0; group_id < num_groups; ++group_id) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
 
@@ -1140,9 +1141,11 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
     if (num_groups == 1 || isOptionDisabled(DisableOption::ParallelCompile)) {
       FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
+      SEGMENT_PROFILER_START_COMPILE(args.getDeviceIndex(), group_id);
       c10::cuda::CUDAGuard dg(args.getDeviceIndex());
       c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
       compileKernel(group_runtime_inputs, group_to_run);
+      SEGMENT_PROFILER_STOP_COMPILE(group_id);
     } else {
       // launch compileKernel thread here
       getThreadPool()->run([this, args, group_runtime_inputs, group_to_run]() {
@@ -1168,6 +1171,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     // wait until all segments finish compiling
     getThreadPool()->waitWorkComplete();
   }
+  SEGMENT_PROFILER_STOP_PARALLEL_COMPILE(num_groups);
 }
 
 void FusionKernelRuntime::compileKernel(
