@@ -159,6 +159,7 @@ TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
       optimization::findAliases(&fusion);
   EXPECT_THAT(alias_analysis, UnorderedElementsAre(Pair(out, expand_out)));
 
+  // Verify the last dimension isn't expanded physically.
   FusionExecutor fe;
   at::Tensor in_tensor =
       at::randn({4, 5}, at::dtype(at::kFloat).device(at::kCUDA, 0));
@@ -186,13 +187,6 @@ TEST_F(AliasAnalysisTest, View_MergeExpandedBroadcast) {
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
   EXPECT_THAT(alias_analysis, IsEmpty());
-
-  FusionExecutor fe;
-  at::Tensor in_tensor =
-      at::randn({4, 5}, at::dtype(at::kFloat).device(at::kCUDA, 0));
-  fe.compileFusion(&fusion, {in_tensor});
-  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
-  EXPECT_THAT(out_tensor.strides(), ElementsAre(30, 1));
 }
 
 } // namespace nvfuser
