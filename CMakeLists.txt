@@ -367,6 +367,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_evaluator.cpp
     ${NVFUSER_ROOT}/test/test_exceptions.cpp
     ${NVFUSER_ROOT}/test/test_expr_sort.cpp
+    ${NVFUSER_ROOT}/test/test_fusion_profiler.cpp
     ${NVFUSER_ROOT}/test/test_gather.cpp
     ${NVFUSER_ROOT}/test/test_gpu1.cpp
     ${NVFUSER_ROOT}/test/test_gpu2.cpp
