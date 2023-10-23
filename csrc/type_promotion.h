@@ -9,7 +9,6 @@
 
 #include <exceptions.h>
 #include <ir/interface_nodes.h>
-#include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
 
 namespace nvfuser {
@@ -47,10 +46,6 @@ static const TypePromotionConfig float_only_op_config{
 // Implements the the behavior of the following flags:
 //   - promote_inputs_to_common_dtype
 //   - promote_integer_inputs_to_float
-DataType computeTypes(
-    const TypePromotionConfig& config,
-    const std::vector<torch::jit::TypePtr>& operands);
-
 DataType computeTypes(
     const TypePromotionConfig& config,
     const std::vector<Val*>& operands,
