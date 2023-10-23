@@ -657,7 +657,7 @@ class FusionExecutorCache {
       flatbuffers::FlatBufferBuilder& builder) const;
 
   //! Deserialize Fusion Executor Cache using flatbuffers
-  void deserialize(const serde::FusionExecutorCache* buffer);
+  void deserialize(const serde::FusionExecutorCache* buffer, int64_t fusion_id);
 
   //! Allocate the outputs of the Fusion given inputs
   //! TODO: re-implement

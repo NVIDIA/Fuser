@@ -800,11 +800,15 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
 }
 
 void FusionExecutorCache::deserialize(
-    const serde::FusionExecutorCache* buffer) {
+    const serde::FusionExecutorCache* buffer,
+    int64_t fusion_id) {
   // See definitions in serde/fusion_cache.fbs for tables
   // FusionExecutorCache and KernelRuntimes
 
   NVF_ERROR(buffer != nullptr, "serde::FusionExecutorCache is nullptr.");
+  NVF_ERROR(
+      fusion_id == buffer->fusion_id(),
+      "Expected serde fusion_id to match given fusion_id.");
 
   fusion_id_ = buffer->fusion_id();
 
