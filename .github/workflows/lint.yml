@@ -34,7 +34,7 @@ jobs:
           pip install lintrunner
 
           # Initialize lintrunner
-          lintrunner --config .lintrunner.toml init 2> /dev/null
+          lintrunner init 2> /dev/null
 
           wait
 
@@ -75,7 +75,7 @@ jobs:
           pip install lintrunner
 
           # Initialize lintrunner
-          lintrunner --config .lintrunner.toml init
+          lintrunner init
 
           # Run lintrunner except clang-tidy
           lintrunner --config .lintrunner.toml --skip CLANGTIDY --all-files --verbose
