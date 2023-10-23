@@ -3177,29 +3177,34 @@ Val* Index::eye(
 }
 
 Val* Index::cpAsyncBulkIndex(
-    TensorView* tv,
+    TensorView* gmem_tv,
+    TensorView* consumer,
+    Val* mbarrier,
     const std::vector<kir::ForLoop*>& loops) {
   using namespace tma;
 
+  bool is_load = (gmem_tv != consumer);
+
   NVF_ERROR(
-      tv->getMemoryType() == MemoryType::Global,
+      gmem_tv->getMemoryType() == MemoryType::Global,
       "cpAsyncBulkIndex is only for global memory tensors");
   NVF_ERROR(
-      tv->getMaybeRFactorDomain() == tv->getLeafDomain(), "not supported yet");
-  NVF_ERROR(
-      tv->getMaybeAllocationDomain() == tv->getLeafDomain(),
+      gmem_tv->getMaybeRFactorDomain() == gmem_tv->getLeafDomain(),
       "not supported yet");
-  for (auto id : tv->getMaybeRFactorDomain()) {
+  NVF_ERROR(
+      gmem_tv->getMaybeAllocationDomain() == gmem_tv->getLeafDomain(),
+      "not supported yet");
+  for (auto id : consumer->getMaybeRFactorDomain()) {
     NVF_ERROR(
         id->isBulk(),
         "cpAsyncBulkIndex only support whole tensor copy for now.");
   }
 
-  int64_t dim = (int64_t)tv->nDims();
+  int64_t dim = (int64_t)gmem_tv->nDims();
   NVF_ERROR(dim > 0);
-  int64_t itemsize = dataTypeSize(tv->dtype());
+  int64_t itemsize = dataTypeSize(gmem_tv->dtype());
 
-  auto metadata = IrBuilder::metadataExpr(tv);
+  auto metadata = IrBuilder::metadataExpr(gmem_tv);
   auto global_address = IrBuilder::getAttrExpr(metadata, "data");
   // As required by the hardware, tensors used by TMA must be in column major
   // that is, stride[0] must be implicitly 1 (therefore omitted)
@@ -3228,9 +3233,9 @@ Val* Index::cpAsyncBulkIndex(
       IrBuilder::reverseArrayExpr(
           IrBuilder::getAttrExpr(metadata, "alloc_size"));
   auto element_strides =
-      IrBuilder::arrayExpr(std::vector<Val*>(dim, tv->fusion()->oneVal()));
+      IrBuilder::arrayExpr(std::vector<Val*>(dim, gmem_tv->fusion()->oneVal()));
   auto descriptor = encodeTensorMapTiled(
-      tv->dtype(),
+      gmem_tv->dtype(),
       global_address,
       global_dim,
       global_strides,
@@ -3241,20 +3246,31 @@ Val* Index::cpAsyncBulkIndex(
       TensorMapL2Promotion::NoL2Promotion,
       TensorMapFloatOOBFill::NoOOBFill);
 
-  auto coordinate =
-      IrBuilder::arrayExpr(std::vector<Val*>(dim, tv->fusion()->zeroVal()));
+  auto coordinate = IrBuilder::arrayExpr(
+      std::vector<Val*>(dim, gmem_tv->fusion()->zeroVal()));
 
-  std::stringstream ss;
-  ss << "Hopper::CpAsyncBulkTensorTileIndex<" << dim << ">";
+  Val* index = nullptr;
 
-  auto index = IrBuilder::structExpr(
-      {{"descriptor", IrBuilder::addressExpr(descriptor)},
-       {"coordinate", coordinate}},
-      ss.str());
+  if (is_load) {
+    std::stringstream ss;
+    ss << "Hopper::CpAsyncBulkTensorTileG2SIndex<" << dim << ">";
+    index = IrBuilder::structExpr(
+        {{"descriptor", IrBuilder::addressExpr(descriptor)},
+         {"coordinate", coordinate},
+         {"mbarrier", mbarrier}},
+        ss.str());
+  } else {
+    std::stringstream ss;
+    ss << "Hopper::CpAsyncBulkTensorTileS2GIndex<" << dim << ">";
+    index = IrBuilder::structExpr(
+        {{"descriptor", IrBuilder::addressExpr(descriptor)},
+         {"coordinate", coordinate}},
+        ss.str());
+  }
 
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
 
-  return IrBuilder::create<kir::TensorIndex>(tv, index);
+  return IrBuilder::create<kir::TensorIndex>(gmem_tv, index);
 }
 
 } // namespace nvfuser
