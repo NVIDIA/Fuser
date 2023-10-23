@@ -1124,7 +1124,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
   num_live_args_after_segment_runs_.reserve(num_groups);
-  SEGMENT_PROFILER_START_PARALLEL_COMPILE(num_groups);
+  FUSION_PROFILER_START_PARALLEL_COMPILE(num_groups);
   for (int64_t group_id = 0; group_id < num_groups; ++group_id) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
 
@@ -1171,7 +1171,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     // wait until all segments finish compiling
     getThreadPool()->waitWorkComplete();
   }
-  SEGMENT_PROFILER_STOP_PARALLEL_COMPILE(num_groups);
+  FUSION_PROFILER_STOP_PARALLEL_COMPILE(num_groups);
 }
 
 void FusionKernelRuntime::compileKernel(
@@ -1193,13 +1193,11 @@ void FusionKernelRuntime::compileKernel(
   NVF_ERROR(
       scheduler_entry->params()->cparams.index_type.has_value(),
       "Kernel index type is not defined.");
-  SEGMENT_PROFILER_START_COMPILE(args.getDeviceIndex(), group_id);
   executors_.at(group_id).compileFusion(
       fusion_to_run.get(),
       args,
       scheduler_entry->params()->lparams,
       scheduler_entry->params()->cparams);
-  SEGMENT_PROFILER_STOP_COMPILE(group_id);
 }
 
 std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(

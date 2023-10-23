@@ -301,11 +301,11 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
     os << std::left <<std::setw(5) << std::get<0>(column_strs)
        << " " << std::setw(5)  << std::get<1>(column_strs)
        << " " << std::setw(8)  << std::get<2>(column_strs)
-       << " " << std::setw(9) << std::get<3>(column_strs);
+       << " " << std::setw(9) << std::get<3>(column_strs)
+       << " " << std::setw(9) << std::get<4>(column_strs);
 
     if (fp.verbose) {
-      os << " " << std::setw(9) << std::get<4>(column_strs)
-         << " " << std::setw(9) << std::get<5>(column_strs)
+      os << " " << std::setw(9) << std::get<5>(column_strs)
          << " " << std::setw(11) << std::get<6>(column_strs)
          << " " << std::setw(9) << std::get<7>(column_strs);
     }
@@ -314,9 +314,13 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
        << " " << std::setw(10) << std::get<9>(column_strs)
        << " " << std::setw(5)  << std::get<10>(column_strs)
        << " " << std::setw(5)  << std::get<11>(column_strs)
-       << " " << std::setw(11) << std::get<12>(column_strs)
-       << " " << std::setw(11) << std::get<13>(column_strs)
-       << " " << std::setw(13) << std::get<14>(column_strs)
+       << " " << std::setw(11) << std::get<12>(column_strs);
+
+    if (fp.verbose) {
+      os << " " << std::setw(11) << std::get<13>(column_strs);
+    }
+
+    os << " " << std::setw(13) << std::get<14>(column_strs)
        << " " << std::setw(9)  << std::get<15>(column_strs)
        << " " << std::setw(16) << std::get<16>(column_strs)
        << " " << std::setw(16) << std::get<17>(column_strs)
@@ -342,10 +346,10 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
                 << std::setw(5) << fp.fusion_id
          << " " << std::setw(5) << fp.kernel_profiles.size()
          << " " << std::setw(8) << std::setprecision(3) << fp.time_ms
-         << " " << std::setw(9) << std::setprecision(3) << fp.host_time_ms;
+         << " " << std::setw(9) << std::setprecision(3) << fp.host_time_ms
+         << " " << std::setw(9)  << std::setprecision(3) << fp.compile_time_ms;
       if (fp.verbose) {
         os << std::setfill(' ') << std::right << std::fixed 
-           << " " << std::setw(9)  << std::setprecision(3) << fp.compile_time_ms
            << " " << std::setw(9)  << std::setprecision(3) << fp.kernel_time_ms
            << " " << std::setw(11) << std::setprecision(2) << fp.effective_bandwidth_gbs 
            << " " << std::setw(9)  << std::setprecision(2) << fp.percentage_peak_bandwidth;
@@ -356,10 +360,10 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
                 << std::setw(5) << "-"
          << " " << std::setw(5) << "-"
          << " " << std::setw(8) << "-"
+         << " " << std::setw(9) << "-"
          << " " << std::setw(9) << "-";
       if (fp.verbose) {
         os << std::setfill(' ') << std::right << std::fixed 
-           << " " << std::setw(9)  << "-"
            << " " << std::setw(9)  << "-"
            << " " << std::setw(11) << "-" 
            << " " << std::setw(9)  << "-";
@@ -379,9 +383,13 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
        << " " << std::setw(10) << kp.name
        << " " << std::setw(5)  << kp.device
        << " " << std::setw(5)  << kp.stream
-       << " " << std::setw(11) << std::setprecision(3) << kp.time_ms
-       << " " << std::setw(11) << std::setprecision(3) << kp.compile_time_ms
-       << " " << std::setw(13) << std::setprecision(2) << kp.effective_bandwidth_gbs
+       << " " << std::setw(11) << std::setprecision(3) << kp.time_ms;
+
+    if (fp.verbose) {
+      os << " " << std::setw(11) << std::setprecision(3) << kp.compile_time_ms;
+    }
+
+    os << " " << std::setw(13) << std::setprecision(2) << kp.effective_bandwidth_gbs
        << " " << std::setw(9)  << std::setprecision(2) << kp.percentage_peak_bandwidth
        << " " << std::setw(16) << grid.str()
        << " " << std::setw(16) << block.str()
@@ -407,8 +415,10 @@ FusionProfiler::FusionProfiler(bool disable_cupti) :
   disable_cupti_(disable_cupti),
   state_(ProfilerState::Ready),
   fusion_id_(-1),
+  parallel_compile_(false),
   profile_(),
   fusion_timer_(at::cuda::getCurrentCUDAStream()),
+  parallel_compile_timer_(at::cuda::getCurrentCUDAStream()),
   segments_(),
   device_descriptors_(),
   kernel_profiles_(),
@@ -424,6 +434,7 @@ void FusionProfiler::reset() {
 
   profile_.reset();
   fusion_timer_.reset();
+  parallel_compile_timer_.reset();
   segments_.clear();
   kernel_profiles_.clear();
   corrid_2_segid_.clear();
@@ -514,13 +525,25 @@ void FusionProfiler::stop() {
     NVF_CHECK(seg.device() == device, "All Segment profiles must be on the same device!");
   }
   profile_.fusion_id = fusion_id_;
-  profile_.host_time_ms = profile_.time_ms - compile_time_ms - kernel_time_ms;
-  profile_.compile_time_ms = compile_time_ms;
   profile_.kernel_time_ms = kernel_time_ms;
+  profile_.compile_time_ms = parallel_compile_ ? parallel_compile_timer_.time() : compile_time_ms;
+  profile_.host_time_ms = profile_.time_ms - profile_.compile_time_ms - kernel_time_ms;
   profile_.effective_bandwidth_gbs = (double)(profile_.input_bytes + profile_.output_bytes) / profile_.kernel_time_ms * mb_divider;
   profile_.percentage_peak_bandwidth = profile_.effective_bandwidth_gbs / device_descriptors_[segments_[0].device()].peak_bandwidth_gbs * 100.0;
 
   state_ = ProfilerState::Processed;
+}
+
+void FusionProfiler::startParallelCompile() {
+  NVF_CHECK(state_ == ProfilerState::Running, "FusionProfiler state is not Running!", state_);
+  parallel_compile_timer_.start();
+  parallel_compile_ = true;
+}
+
+void FusionProfiler::stopParallelCompile() {
+  NVF_CHECK(state_ == ProfilerState::Running, "FusionProfiler state is not Running!", state_);
+  NVF_CHECK(parallel_compile_, "FusionProfiler parallel_compile is not enabled!");
+  parallel_compile_timer_.stop();
 }
   
 void FusionProfiler::inputBytesAccessed(int64_t bytes) {

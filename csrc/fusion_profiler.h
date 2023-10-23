@@ -157,6 +157,8 @@ class FusionProfiler {
 
   void start();
   void stop();
+  void startParallelCompile();
+  void stopParallelCompile();
   void inputBytesAccessed(int64_t bytes);
   void outputBytesAccessed(int64_t bytes);
   const FusionProfile& profile() const;
@@ -179,8 +181,10 @@ class FusionProfiler {
 
   // Data members with information that is aggregated into a FusionProfile
   int64_t fusion_id_;
+  bool parallel_compile_;
   FusionProfile profile_;
   CudaEventTimer fusion_timer_;
+  CudaEventTimer parallel_compile_timer_;
   std::vector<SegmentProfiler> segments_;
   // The FusionProfiler collects a cache of device descriptors so each segment
   // does not need to spend time re-generating the information.
@@ -206,6 +210,16 @@ class FusionProfiler {
   _FP_ENABLE(FusionProfiler::get()->stop())
 #define FUSION_PROFILER_CREATE_SEGMENTS(segments) \
   _FP_ENABLE(FusionProfiler::get()->createSegments(segments))
+#define FUSION_PROFILER_START_PARALLEL_COMPILE(segments) \
+  _FP_ENABLE( \
+    if ((segments > 1) && !isOptionDisabled(DisableOption::ParallelCompile)) { \
+      FusionProfiler::get()->startParallelCompile(); \
+    })
+#define FUSION_PROFILER_STOP_PARALLEL_COMPILE(segments) \
+  _FP_ENABLE( \
+    if ((segments > 1) && !isOptionDisabled(DisableOption::ParallelCompile)) { \
+      FusionProfiler::get()->stopParallelCompile(); \
+    })
 #define FUSION_PROFILER_INPUT_BYTES_ACCESSED(input_fn) \
   _FP_ENABLE(FusionProfiler::get()->inputBytesAccessed(input_fn()))
 #define FUSION_PROFILER_OUTPUT_BYTES_ACCESSED(output_fn) \
