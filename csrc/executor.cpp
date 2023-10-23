@@ -1918,7 +1918,9 @@ void FusionExecutor::compileRtc(
   } else {
     scode = code;
   }
-  fusion_id_ = 1;
+  fusion_id_ = 0;
+  concrete_id_ = 0;
+  segment_id_ = 0;
 
   compiled_kernel_ =
       executor_utils::getCompiledKernel(std::nullopt, scode, name, kernelId());
