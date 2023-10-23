@@ -15,8 +15,7 @@ using uint64_t = unsigned long long int;
 
 // Modified from cuda.h
 struct TensorMap {
-  alignas(64)
-  uint64_t opaque[16];
+  alignas(64) uint64_t opaque[16];
 };
 typedef int64_t nvfuser_index_t;
 
@@ -868,7 +867,6 @@ inline constexpr typename __libcpp_complex_overload_traits<_Tp>::_ValueType real
 
 // imag
 
-
 template <class _Tp>
 inline constexpr _Tp imag(const complex<_Tp>& __c) {
   return __c.imag();
@@ -1495,7 +1493,6 @@ __device__ std::complex<float> lerp(
   if (abs(weight) < 0.5f) {
     return start + weight * (end - start);
   } else {
-
     return end - (end - start) * (1.0f - weight);
   }
 }
@@ -3813,7 +3810,6 @@ __inline__ __device__ static void setTuple(
     typename DstType::template ValType<0> src) {
   TupleSet<DstType, DstType::num_vals>::set(dst, dst_offset, src);
 };
-
 
 template <typename DstType>
 __inline__ __device__ static void setTuple(
@@ -7690,7 +7686,6 @@ __device__ __inline__ void ParallelReduce<
         if (block_reduce_participate && write_pred) {
           copyTuple(
               out, shared_buf, block_reduction_idx * block_reduction_size);
-
         }
       }
 
@@ -9870,14 +9865,19 @@ __device__ __inline__ void ParallelReduce<
 }
 
 } // namespace fused_reduction
-__global__ void kernel1(Tensor<float, 2, 2> T0, Tensor<float, 1, 1> T1, Tensor<float, 1, 1> T4, Tensor<int64_t, 1, 1> T5) {
+__global__ void kernel1(
+    Tensor<float, 2, 2> T0,
+    Tensor<float, 1, 1> T1,
+    Tensor<float, 1, 1> T4,
+    Tensor<int64_t, 1, 1> T5) {
   alignas(16) extern __shared__ char array[];
   void* shared_mem = array;
   NVFUSER_DEFINE_MAGIC_ZERO;
   nvfuser_index_t i0;
   i0 = ceilDiv((ceilDiv((ceilDiv(T0.logical_size[1LL], 64LL)), 4LL)), 4LL);
   nvfuser_index_t i1;
-  i1 = (T0.alloc_stride[1LL] * ((nvfuser_index_t)threadIdx.x)) + (T0.alloc_stride[0LL] * ((nvfuser_index_t)blockIdx.x));
+  i1 = (T0.alloc_stride[1LL] * ((nvfuser_index_t)threadIdx.x)) +
+      (T0.alloc_stride[0LL] * ((nvfuser_index_t)blockIdx.x));
   nvfuser_index_t i2;
   i2 = 1024LL * T0.alloc_stride[1LL];
   nvfuser_index_t i3;
@@ -9888,10 +9888,10 @@ __global__ void kernel1(Tensor<float, 2, 2> T0, Tensor<float, 1, 1> T1, Tensor<f
   i5 = (-T0.logical_size[1LL]) + ((nvfuser_index_t)threadIdx.x);
   bool b6;
   b6 = ((nvfuser_index_t)blockIdx.x) == (((nvfuser_index_t)gridDim.x) + -1LL);
-  // Allocate global tensor T4
-  // Allocate global tensor T5
-  #pragma unroll 1
-  for(nvfuser_index_t i7 = 0; i7 < i0; ++i7) {
+// Allocate global tensor T4
+// Allocate global tensor T5
+#pragma unroll 1
+  for (nvfuser_index_t i7 = 0; i7 < i0; ++i7) {
     nvfuser_index_t i8;
     i8 = i1 + (i2 * i7);
     nvfuser_index_t i9;
@@ -9900,8 +9900,8 @@ __global__ void kernel1(Tensor<float, 2, 2> T0, Tensor<float, 1, 1> T1, Tensor<f
     i10 = ((nvfuser_index_t)threadIdx.x) + i9;
     nvfuser_index_t i11;
     i11 = i5 + i9;
-    #pragma unroll
-    for(nvfuser_index_t i12 = 0; i12 < 4LL; ++i12) {
+#pragma unroll
+    for (nvfuser_index_t i12 = 0; i12 < 4LL; ++i12) {
       nvfuser_index_t i13;
       i13 = i8 + (i3 * i12);
       nvfuser_index_t i14;
@@ -9910,8 +9910,8 @@ __global__ void kernel1(Tensor<float, 2, 2> T0, Tensor<float, 1, 1> T1, Tensor<f
       i15 = i10 + i14;
       nvfuser_index_t i16;
       i16 = -i14;
-      #pragma unroll
-      for(nvfuser_index_t i17 = 0; i17 < 4LL; ++i17) {
+#pragma unroll
+      for (nvfuser_index_t i17 = 0; i17 < 4LL; ++i17) {
         nvfuser_index_t i18;
         i18 = i17 + nvfuser_zero;
         nvfuser_index_t i19;
@@ -9923,29 +9923,27 @@ __global__ void kernel1(Tensor<float, 2, 2> T0, Tensor<float, 1, 1> T1, Tensor<f
         float T2[1LL];
         T2[0LL] = 0.000000000e+00f;
         if (b20) {
-          T2[0LL]
-             = T0[(i13 + (i4 * i18))];
+          T2[0LL] = T0[(i13 + (i4 * i18))];
         }
-        reduction::gridReduce<true, false, false, false, false, false, false, true>(
-          T3[0LL],
-          T2[0LL],
-          [](float &a, float b) { a = a + b; },
-          &T4[0],
-          &T5[0],
-          static_cast<float*>(shared_mem),
-          true,
-          true,
-          float(0.000000000e+00f),
-          ((((i7 * 4LL) + i12) * 4LL) + i17),
-          ((i0 * 4LL) * 4LL));
+        reduction::
+            gridReduce<true, false, false, false, false, false, false, true>(
+                T3[0LL],
+                T2[0LL],
+                [](float& a, float b) { a = a + b; },
+                &T4[0],
+                &T5[0],
+                static_cast<float*>(shared_mem),
+                true,
+                true,
+                float(0.000000000e+00f),
+                ((((i7 * 4LL) + i12) * 4LL) + i17),
+                ((i0 * 4LL) * 4LL));
         if ((b6 && b20)) {
-          T1[(i15 + i19)]
-             = T3[0LL];
+          T1[(i15 + i19)] = T3[0LL];
         }
       }
     }
     NVFUSER_UPDATE_MAGIC_ZERO;
   }
 }
-}
-
+} // namespace CudaCodeGen
