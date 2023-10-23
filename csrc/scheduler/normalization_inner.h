@@ -40,6 +40,10 @@ class InnerPersistentKernelScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
 
+  constexpr static ScheduleHeuristic heuristicType() {
+    return ScheduleHeuristic::NoOp;
+  }
+
  private:
   void computeHeuristics(
       Fusion* fusion,
