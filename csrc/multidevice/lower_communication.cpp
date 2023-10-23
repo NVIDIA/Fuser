@@ -274,8 +274,8 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
       c->out()->as<PipelineVal>()->getStage()->descriptor()->mesh;
 
   // Stores whether the I/O has its first axis parallelized on Didx
-  bool is_input_parallel_d = isParallelD(input_tv);
-  bool is_output_parallel_d = isParallelD(output_tv);
+  bool is_input_parallel_d = isParallelD(input_tv) && sender_mesh.vector().size() > 1;
+  bool is_output_parallel_d = isParallelD(output_tv) && receiver_mesh.vector().size() > 1;
 
   NVF_ERROR(
       !is_input_parallel_d ||
