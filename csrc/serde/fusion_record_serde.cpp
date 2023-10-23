@@ -578,7 +578,8 @@ void RecordFunctorFactory::registerAllParsers() {
         parseVector(data->sizes()),
         contiguity,
         mapToNvfuserDtype(data->dtype()),
-        data->is_cpu());
+        data->is_cpu(),
+        parseVector(data->stride_order()));
   };
   registerParser(serde::RecordType_Tensor, deserializeTensorRecord);
 

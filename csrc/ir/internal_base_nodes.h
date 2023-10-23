@@ -440,6 +440,14 @@ class TensorDomain : public Val {
       std::vector<IterDomain*> root_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
+  // See notes [ Note stride order and contiguity vector ] in
+  // python_bindings.cpp
+  TensorDomain(
+      IrBuilderPasskey,
+      std::vector<IterDomain*> root_domain,
+      std::vector<int64_t> stride_order,
+      std::vector<std::optional<bool>> contiguity = {});
+
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
@@ -554,18 +562,25 @@ class TensorDomain : public Val {
     return no_bcast_domain_;
   }
 
+  // The input logical domain. The root domain of a consumer should equal the
+  // rfactor domain of its producer ignoring reduction dimensions.
   const std::vector<IterDomain*>& root() const {
     return root_domain_;
   };
 
+  // The output logical domain. If empty, the same as the root domain.
+  // See also the helper function `maybeRFactor`.
   const std::vector<IterDomain*>& rfactor() const {
     return rfactor_domain_;
   };
 
+  // The allocation domain. This describes how data is stored in memory in
+  // outer-to-inner order.
   const std::vector<IterDomain*>& allocation() const {
     return allocation_domain_;
   }
 
+  // The loop domain after scheduling. This defines loop nests and loop indices.
   const std::vector<IterDomain*>& leaf() const {
     return leaf_domain_;
   }

@@ -217,7 +217,8 @@ class PredicateChcker : public IterVisitor {
         predicateMisalignedVectorize(expr) || predicateShift(expr) ||
         needs_predicate_smem_access || predicateProducerConsumerPair(expr) ||
         predicateNonDivisibleRootDomains(expr) ||
-        predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr);
+        predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||
+        predicateRNGOp(expr);
 
     // A cp.async op would need a predicate for either the global
     //  input or its shared mem output, or both.
@@ -243,6 +244,11 @@ class PredicateChcker : public IterVisitor {
 
   // All "predicateXYZ" functions return true if an expr needs to be
   // predicated.
+
+  // Always predicate rng ops as they are expensive.
+  bool predicateRNGOp(Expr* expr) const {
+    return expr->isA<RNGOp>();
+  }
 
   // Always predicate integer division and related ops as we don't
   // know what values are in the out-of-bound region and they may

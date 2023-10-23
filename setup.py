@@ -45,6 +45,9 @@
 #     Specify the wheel name this is used for pip wheel package where we want
 #     to identify the cuda toolkit version
 #
+#   --cpp=STANDARD
+#     Specify the C++ standard to use for building nvfuser. The default is C++17.
+#
 
 import multiprocessing
 import os
@@ -72,6 +75,7 @@ BUILD_TYPE = "Release"
 WHEEL_NAME = "nvfuser"
 BUILD_DIR = ""
 INSTALL_REQUIRES = []
+CPP_STANDARD = 17
 forward_args = []
 for i, arg in enumerate(sys.argv):
     if arg == "--cmake-only":
@@ -113,6 +117,9 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg.startswith("-wheel-name="):
         WHEEL_NAME = arg.split("=")[1]
+        continue
+    if arg.startswith("--cpp="):
+        CPP_STANDARD = int(arg.split("=")[1])
         continue
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
@@ -292,6 +299,7 @@ def cmake(install_prefix: str = "./nvfuser"):
         pytorch_cmake_config,
         "-DCMAKE_BUILD_TYPE=" + BUILD_TYPE,
         f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
+        f"-DNVFUSER_CPP_STANDARD={CPP_STANDARD}",
         "-B",
         cmake_build_dir,
     ]
