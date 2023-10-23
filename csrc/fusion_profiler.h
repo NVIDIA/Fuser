@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <chrono>
 #include <unordered_map>
 
 #include <c10/cuda/CUDAStream.h>
@@ -42,6 +43,25 @@ class CudaEventTimer {
   cudaStream_t stream_;
   cudaEvent_t start_event_;
   cudaEvent_t stop_event_;
+  double time_ms_;
+  ProfilerState state_;
+};
+
+class HostTimer {
+ public:
+  using Clock = std::chrono::steady_clock;
+
+  HostTimer();
+
+  void reset();
+  void start();
+  void stop();
+  double time();
+  ProfilerState state() const;
+
+ private:
+  Clock::time_point start_event_;
+  Clock::time_point stop_event_;
   double time_ms_;
   ProfilerState state_;
 };
@@ -135,7 +155,7 @@ class SegmentProfiler {
   int device_;
   uint32_t segment_id_;
 
-  CudaEventTimer compile_timer_;
+  HostTimer compile_timer_;
   int64_t input_bytes_;
   int64_t output_bytes_;
   ProfilerState kernel_profile_state_;
@@ -184,7 +204,8 @@ class FusionProfiler {
   bool parallel_compile_;
   FusionProfile profile_;
   CudaEventTimer fusion_timer_;
-  CudaEventTimer parallel_compile_timer_;
+  HostTimer host_timer_;
+  HostTimer parallel_compile_timer_;
   std::vector<SegmentProfiler> segments_;
   // The FusionProfiler collects a cache of device descriptors so each segment
   // does not need to spend time re-generating the information.

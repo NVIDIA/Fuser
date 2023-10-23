@@ -195,6 +195,45 @@ ProfilerState CudaEventTimer::state() const {
   return state_;
 }
 
+HostTimer::HostTimer() : 
+  start_event_(),
+  stop_event_(),
+  time_ms_(0.0), 
+  state_(ProfilerState::Ready) {
+}
+
+void HostTimer::reset() {
+  time_ms_ = 0.0;
+  state_ = ProfilerState::Ready;
+}
+
+void HostTimer::start() {
+  NVF_CHECK(state_ == ProfilerState::Ready, "ProfilerState is not Ready! ", state_);
+  start_event_ = Clock::now();
+  state_ = ProfilerState::Running;
+}
+
+void HostTimer::stop() {
+  NVF_CHECK(state_ == ProfilerState::Running, "ProfilerState is not Running! ", state_);
+  stop_event_ = Clock::now();
+  state_ = ProfilerState::Finished;
+}
+
+double HostTimer::time() {
+  if (state_ == ProfilerState::Finished) {
+    std::chrono::duration<double> tmp = stop_event_ - start_event_;
+    time_ms_ = tmp.count() * 1.0e3;
+    state_ = ProfilerState::Processed;
+  } else {
+    NVF_CHECK((state_ == ProfilerState::Processed) || (state_ == ProfilerState::Ready), "ProfilerState is not Processed or Ready! ", state_);
+  }
+  return time_ms_;
+}
+
+ProfilerState HostTimer::state() const {
+  return state_;
+}
+
 void DeviceDescriptor::generate(int _device) {
   device = static_cast<int>(_device);
   name.reserve(100);
@@ -220,7 +259,7 @@ SegmentProfiler::SegmentProfiler(uint32_t id, bool disable_cupti) :
   disable_cupti_(disable_cupti),
   device_(-1),
   segment_id_(id),
-  compile_timer_(at::cuda::getCurrentCUDAStream()),
+  compile_timer_(),
   input_bytes_(0),
   output_bytes_(0),
   kernel_profile_state_(ProfilerState::Ready) {}
@@ -418,7 +457,8 @@ FusionProfiler::FusionProfiler(bool disable_cupti) :
   parallel_compile_(false),
   profile_(),
   fusion_timer_(at::cuda::getCurrentCUDAStream()),
-  parallel_compile_timer_(at::cuda::getCurrentCUDAStream()),
+  host_timer_(),
+  parallel_compile_timer_(),
   segments_(),
   device_descriptors_(),
   kernel_profiles_(),
@@ -434,6 +474,7 @@ void FusionProfiler::reset() {
 
   profile_.reset();
   fusion_timer_.reset();
+  host_timer_.reset();
   parallel_compile_timer_.reset();
   segments_.clear();
   kernel_profiles_.clear();
@@ -470,11 +511,13 @@ SegmentProfiler& FusionProfiler::segment(size_t idx) {
 void FusionProfiler::start() {
   reset();
   fusion_timer_.start();
+  host_timer_.start();
   state_ = ProfilerState::Running;
 }
 
 void FusionProfiler::stop() {
   NVF_CHECK(state_ == ProfilerState::Running, "FusionProfiler state is not Running!", state_);
+  host_timer_.stop();
   fusion_timer_.stop();
   state_ = ProfilerState::Finished;
   profile_.time_ms = fusion_timer_.time();
@@ -527,7 +570,7 @@ void FusionProfiler::stop() {
   profile_.fusion_id = fusion_id_;
   profile_.kernel_time_ms = kernel_time_ms;
   profile_.compile_time_ms = parallel_compile_ ? parallel_compile_timer_.time() : compile_time_ms;
-  profile_.host_time_ms = profile_.time_ms - profile_.compile_time_ms - kernel_time_ms;
+  profile_.host_time_ms = host_timer_.time();
   profile_.effective_bandwidth_gbs = (double)(profile_.input_bytes + profile_.output_bytes) / profile_.kernel_time_ms * mb_divider;
   profile_.percentage_peak_bandwidth = profile_.effective_bandwidth_gbs / device_descriptors_[segments_[0].device()].peak_bandwidth_gbs * 100.0;
 
