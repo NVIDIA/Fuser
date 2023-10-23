@@ -374,6 +374,7 @@ table FusionExecutor {
   block_size_high_water_mark: long;
   maxrregcount_high_water_mark: long;
   warp_size: long;
+  heuristic: long;
   fusion_id: long;
   device_id: long;
   concrete_id: long;

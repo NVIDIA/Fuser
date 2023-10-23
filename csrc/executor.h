@@ -15,6 +15,7 @@
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
+#include <scheduler/heuristic_types.h>
 #include <serde/fusion_cache_generated.h>
 #include <utils.h>
 
@@ -74,6 +75,7 @@ class FusionExecutor : public NonCopyable {
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
       CompileParams compile_params,
+      ScheduleHeuristic heuristic = ScheduleHeuristic::None,
       int64_t fusion_id = 0,
       int64_t device_id = 0,
       int64_t concrete_id = 0,
@@ -101,7 +103,13 @@ class FusionExecutor : public NonCopyable {
     KernelArgumentHolder args =
         KernelArgumentHolder::createKernelArgumentHolder(inputs);
     compileFusion(
-        fusion, args, LaunchParams(), CompileParams(), fusion_id, device_id);
+        fusion,
+        args,
+        LaunchParams(),
+        CompileParams(),
+        ScheduleHeuristic::None,
+        fusion_id,
+        device_id);
   }
 
   std::vector<at::Tensor> runFusion(
@@ -260,6 +268,7 @@ class FusionExecutor : public NonCopyable {
   }
 
   void createKernelId(
+      ScheduleHeuristic heuristic = ScheduleHeuristic::None,
       int64_t fusion_id = 0,
       int64_t device_id = 0,
       int64_t concrete_id = 0,
@@ -269,14 +278,18 @@ class FusionExecutor : public NonCopyable {
     NVF_ERROR(concrete_id > -1, "Invalid concrete_id.");
     NVF_ERROR(segment_id > -1, "Invalid segment_id");
 
+    heuristic_ = heuristic;
     fusion_id_ = fusion_id;
     device_id_ = device_id;
     concrete_id_ = concrete_id;
     segment_id_ = segment_id;
 
     std::stringstream ss;
-    ss << "f" << fusion_id_ << "_d" << device_id_ << "_c" << concrete_id_
-       << "_s" << segment_id_;
+    ss << toString(heuristic_);
+    ss << "_f" << fusion_id_;
+    ss << "_d" << device_id_;
+    ss << "_c" << concrete_id_;
+    ss << "_s" << segment_id_;
     kernel_id_ = ss.str();
   }
 
@@ -319,6 +332,7 @@ class FusionExecutor : public NonCopyable {
       const serde::FusionExecutor* buffer,
       Fusion* fusion,
       CompileParams compile_params,
+      ScheduleHeuristic heuristic,
       int64_t fusion_id,
       int64_t device_id,
       int64_t concrete_id,
@@ -466,6 +480,8 @@ class FusionExecutor : public NonCopyable {
 
   // ID of segment in fusion
   int64_t segment_id_ = -1;
+
+  ScheduleHeuristic heuristic_ = ScheduleHeuristic::None;
 
   // Kernel name for fusion executor
   // "f[fusion_id]_d[device_id]_c[concrete_id]_s[segment_id]"

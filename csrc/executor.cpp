@@ -213,7 +213,8 @@ void FusionExecutor::debugCompileFusionFromStr(
   lowered_ = std::make_unique<GpuLower>(fusion);
   const auto kernel = lowered_->kernel();
   fusion_ = lowered_->kernel();
-  createKernelId(fusion_id, device_id, concrete_id, segment_id);
+  createKernelId(
+      ScheduleHeuristic::None, fusion_id, device_id, concrete_id, segment_id);
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
@@ -243,6 +244,7 @@ void FusionExecutor::compileFusion(
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
+    ScheduleHeuristic heuristic,
     int64_t fusion_id,
     int64_t device_id,
     int64_t concrete_id,
@@ -334,7 +336,7 @@ void FusionExecutor::compileFusion(
     hook(kernel);
   }
   fusion_ = lowered_->kernel()->as<Fusion>();
-  createKernelId(fusion_id, device_id, concrete_id, segment_id);
+  createKernelId(heuristic, fusion_id, device_id, concrete_id, segment_id);
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
@@ -1988,6 +1990,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       block_size_high_water_mark_,
       maxrregcount_high_water_mark_,
       warp_size_,
+      castEnumToUnderlyingType(heuristic_),
       fusion_id_,
       device_id_,
       concrete_id_,
@@ -2127,6 +2130,7 @@ void FusionExecutor::deserialize(
     const serde::FusionExecutor* buffer,
     Fusion* fusion,
     CompileParams compile_params,
+    ScheduleHeuristic heuristic,
     int64_t fusion_id,
     int64_t device_id,
     int64_t concrete_id,
@@ -2146,6 +2150,7 @@ void FusionExecutor::deserialize(
   NVF_ERROR(
       segment_id == buffer->segment_id(),
       "Expected given segment_id to match serde segment_id.");
+  NVF_ERROR(castEnumToUnderlyingType(heuristic) == buffer->heuristic());
 
   // Initialize internal fields
   device_smem_limit_ = buffer->device_smem_limit();
@@ -2165,6 +2170,7 @@ void FusionExecutor::deserialize(
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
   fusion_ = lowered_->kernel()->as<Fusion>();
   createKernelId(
+      heuristic,
       buffer->fusion_id(),
       buffer->device_id(),
       buffer->concrete_id(),

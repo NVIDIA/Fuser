@@ -10,6 +10,7 @@
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
+#include <scheduler/heuristic_types.h>
 #include <utils.h>
 
 // Require namespace for perf scope instrumentation
