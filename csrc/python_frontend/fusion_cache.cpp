@@ -538,12 +538,12 @@ void FusionCache::deserialize(std::string filename) {
       getThreadPool()->run([=]() {
         FUSER_PERF_SCOPE("FusionCache::deserializeFusionParallel");
         fusion_schedule->auto_gen_schedules->deserialize(
-            fb_fec_node, trie_node->fusion_id);
+            fb_fec_node, (int64_t)trie_node->fusion_id);
       });
     } else {
       FUSER_PERF_SCOPE("FusionCache::deserializeFusionSerial");
       fusion_schedule->auto_gen_schedules->deserialize(
-          fb_fec_node, trie_node->fusion_id);
+          fb_fec_node, (int64_t)trie_node->fusion_id);
     }
   }
 

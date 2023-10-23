@@ -865,6 +865,10 @@ void FusionExecutorCache::deserialize(
       KernelArgumentHolder args;
       args.deserialize(runtime->args());
 
+      NVF_ERROR(
+          (int8_t)fb_device_runtimes->device_id() == args.getDeviceIndex(),
+          "Expected serde FusionKernelRuntime device_id to match KernelArgumentHolder metadata device id.");
+
       // 2. Construct new FusionKernelRuntime
       device_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
           std::move(conc_fusion),
@@ -979,10 +983,15 @@ void FusionKernelRuntime::deserialize(
 
   NVF_ERROR(buffer != nullptr, "serde::FusionKernelRuntime is nullptr.");
   NVF_ERROR(runtime_workspace_.group_run_order.size() == executors_.size());
-
-  fusion_id_ = buffer->fusion_id();
-  device_id_ = buffer->device_id();
-  concrete_id_ = buffer->concrete_id();
+  NVF_ERROR(
+      fusion_id_ == buffer->fusion_id(),
+      "Expected FusionKernelRuntime fusion_id to match serde fusion_id.");
+  NVF_ERROR(
+      device_id_ == buffer->device_id(),
+      "Expected FusionKernelRuntime device_id to match serde device_id.");
+  NVF_ERROR(
+      concrete_id_ == buffer->concrete_id(),
+      "Expected FusionKernelRuntime concrete_id to match serde concrete_id.");
 
   // 1. Deserialize FusionExecutor objects
   for (auto idx : c10::irange(buffer->executors()->size())) {
