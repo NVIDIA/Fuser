@@ -10,8 +10,9 @@ def patch_pytorch_nvfuser_binaries(torch_lib):
     for f_name in ["libnvfuser_codegen.so"]:
         src_file = os.path.join(nvfuser_lib, f_name)
         tgt_file = os.path.join(torch_lib, f_name)
-        print(f"Copy `{src_file}` -> `{tgt_file}`")
-        shutil.copyfile(src_file, tgt_file)
+        if os.path.exists(src_file) and os.path.exists(tgt_file):
+            print(f"Copy `{src_file}` -> `{tgt_file}`")
+            shutil.copyfile(src_file, tgt_file)
 
 
 def remove_nvfuser_python_module(installed_nvfuser_dir):

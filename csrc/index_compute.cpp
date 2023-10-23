@@ -48,7 +48,7 @@ int getProducerHaloOffset(
                  .mapDifferentExtents(true)
                  .mapProducerToConsumer();
 
-  auto producer_id = producer_tv->getMaybeRFactorDomain()[producer_axis];
+  auto producer_id = producer_tv->getMaybeAllocationDomain()[producer_axis];
 
   auto it = p2c.find(producer_id);
   // p2c should always have a mapping for producer_id. The only case
@@ -56,7 +56,12 @@ int getProducerHaloOffset(
   // reduction axis. Since this function is only used for indexing
   // producer tensors, where reduction axes are skipped, producer_id
   // should never be a reduction axis.
-  NVF_ERROR(it != p2c.end());
+  if (it == p2c.end()) {
+    TORCH_WARN(
+        "getProducerHaloOffset p2c mapping has failed. See "
+        "https://github.com/NVIDIA/Fuser/issues/1122");
+    return 0;
+  }
   IterDomain* consumer_id = it->second;
 
   const auto& halo_map = GpuLower::current()->haloInfo();

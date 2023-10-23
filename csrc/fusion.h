@@ -70,8 +70,6 @@ class DynamicTransformConcretizationInfo;
 //! allows it to be accessed anywhere through FusionGuard::getCurFusion()
 class FusionGuard {
  public:
-  Fusion* prev_fusion;
-
   //! Set the active fusion so it can be manipulated.
   explicit FusionGuard(Fusion* fusion);
 
@@ -79,6 +77,11 @@ class FusionGuard {
 
   static Fusion* getCurFusion();
   static void setCurFusion(Fusion* fusion);
+
+ private:
+  Fusion* prev_fusion_;
+
+  static thread_local Fusion* active_fusion_;
 };
 
 //! Fusion is mutable but unique. Nodes cannot be copied in any way from one
@@ -135,10 +138,11 @@ class Fusion : public IrContainer {
   void validateInputs();
 
   //! Print this fusion to an output stream
-  std::ostream& print(std::ostream& os, bool include_tensor_transforms = true);
+  std::ostream& print(std::ostream& os, bool include_tensor_transforms = true)
+      const;
 
   //! Print to default debugging output stream
-  std::ostream& print() {
+  std::ostream& print() const {
     return print(debug());
   }
 
