@@ -43,9 +43,9 @@ bool isContiguous(const TensorView& tv) {
 //   t2 = expand(t1, {4, 5, 6});
 //
 // `reshape(t2, {40, 3})` and `reshape(t2, {4, 30})` because both merge the
-// expanded broadcast IterDomain (which is 6) with preceding IterDomains.
-// However, the output of `reshape(t2, {20, 6})` can simply be an alias because
-// the expanded broadcast IterDomain is forwarded not transformed.
+// expanded broadcast IterDomain (6) or a subspace of it with preceding
+// IterDomains.  However, the output of `reshape(t2, {20, 6})` can simply be an
+// alias because the expanded broadcast IterDomain is forwarded not transformed.
 //
 // As a future improvement, when an expanded broadcast dimension is only split,
 // the output of the reshape can be an alias. However, nvFuser currently decides
