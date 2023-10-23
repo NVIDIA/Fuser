@@ -34,7 +34,7 @@ bool isContiguous(const TensorView& tv) {
 }
 
 // Whether a ViewOp transforms any expanded broadcast IterDomain in the input.
-// This is a corner case in which we can't turn `out` into an alias.
+// This is a corner case in which we can't always turn `out` into an alias.
 //
 // For example, given
 //
@@ -42,10 +42,16 @@ bool isContiguous(const TensorView& tv) {
 //   t1 = broadcast(t0, {false, false, true});
 //   t2 = expand(t1, {4, 5, 6});
 //
-// `reshape(t2, {40, 3})` and `reshape(t2, {4, 30})` have to copy data because
-// the former splits the expanded broadcast IterDomain (which is 6) and the
-// latter merges it.  However, `reshape(t2, {20, 6})` can simply be an alias
-// because the expanded broadcast IterDomain is forwarded not transformed.
+// `reshape(t2, {40, 3})` and `reshape(t2, {4, 30})` have to copy data.
+// `reshape(t2, {40, 3})` splits the expanded broadcast IterDomain (which is 6)
+// into 2 and 3 and merges the 2 with preceding IterDomains. `reshape(t2, {4,
+// 30})` merges the expanded broadcast IterDomain. However, the output of
+// `reshape(t2, {20, 6})` can simply be an alias because the expanded broadcast
+// IterDomain is forwarded not transformed.
+//
+// As a future improvement, when an expanded broadcast dimension is only split,
+// the output of the reshape can be an alias. However, nvFuser currently decides
+// to materialize the expansion, making the output not an alias (#1126).
 //
 // Obviously, this function assumes `in` and `out` are the input and output
 // TensorView of the same ViewOp.
