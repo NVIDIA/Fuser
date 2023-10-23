@@ -5849,7 +5849,7 @@ TEST_F(NVFuserTest, FusionSegmentIoAlias_CUDA) {
   TensorView* tv6 = add(tv5, tv2); //  Group 1 (Broadcast after reduce)
 
   // Note: test alias;
-  fusion->aliasOutputToInput(tv6, tv0);
+  fusion->aliasOutputToInput(tv6, tv0, /*hide_output=*/true);
   // TODO: support output on aliased fusion #1488
   // remove tv7 after #1488
   // fusion->addOutput(tv6);

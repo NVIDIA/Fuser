@@ -241,7 +241,7 @@ bool isConnectedFusionGraph(Fusion* fusion) {
   std::for_each(
       fusion->ioAlias().begin(),
       fusion->ioAlias().end(),
-      [&](const std::pair<Val*, std::pair<Val*, IoAliasType>>& alias) {
+      [&](const std::pair<Val*, std::pair<Val*, bool>>& alias) {
         component_sets.mapEntries(alias.first, alias.second.first);
       });
 

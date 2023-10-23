@@ -161,7 +161,7 @@ void FusionState::addOutput(
 
 void FusionState::aliasOutputToInput(Val* output, Val* input) {
   NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
-  fusion_->aliasOutputToInput(output, input);
+  fusion_->aliasOutputToInput(output, input, /*hide_output=*/true);
 }
 
 } // namespace nvfuser::python_frontend

@@ -84,10 +84,12 @@ class FusionGuard {
   static thread_local Fusion* active_fusion_;
 };
 
+#if 0
 enum class IoAliasType {
   ReuseBuffer,
   ReinterpretCast,
 };
+#endif
 
 //! Fusion is mutable but unique. Nodes cannot be copied in any way from one
 //! Fusion to another. If anything like that is desired, it would require
@@ -226,10 +228,7 @@ class Fusion : public IrContainer {
   // normalization.
   // TODO: alias should be made aware to segmentation, so we'll always include
   // the input tensor to the section where output is produced.
-  void aliasOutputToInput(
-      Val* output,
-      Val* input,
-      IoAliasType type = IoAliasType::ReuseBuffer);
+  void aliasOutputToInput(Val* output, Val* input, bool hide_output);
 
   //! Return the aliased input of a given output or nullptr if not aliased
   Val* getOutputAlias(Val* output);
@@ -270,8 +269,7 @@ class Fusion : public IrContainer {
     return is_during_update_uses_;
   }
 
-  const std::unordered_map<Val*, std::pair<Val*, IoAliasType>>& ioAlias()
-      const {
+  const std::unordered_map<Val*, std::pair<Val*, bool>>& ioAlias() const {
     return io_alias_;
   }
 
@@ -464,7 +462,7 @@ class Fusion : public IrContainer {
   std::vector<Val*> outputs_;
 
   // io alias pointing from output to input
-  std::unordered_map<Val*, std::pair<Val*, IoAliasType>> io_alias_;
+  std::unordered_map<Val*, std::pair<Val*, bool>> io_alias_;
 
   // See Note [ Permutation support in nvfuser ]
   // map from indices of input tensor to permutation

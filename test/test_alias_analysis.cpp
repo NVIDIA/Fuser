@@ -220,11 +220,11 @@ TEST_F(AliasTest, ReinterpretCast) {
   TensorView* out = reshape(in, in_shape, out_shape);
   fusion.addOutput(out);
 
-  fusion.aliasOutputToInput(out, in, IoAliasType::ReinterpretCast);
+  fusion.aliasOutputToInput(out, in, /*hide_output=*/false);
 
   FusionExecutor fe;
   at::Tensor in_tensor =
-      at::randn({4, 5}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+      at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
   fe.compileFusion(&fusion, {in_tensor});
   at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
   EXPECT_EQ(in_tensor.data_ptr<float>(), out_tensor.data_ptr<float>());

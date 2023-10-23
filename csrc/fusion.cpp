@@ -741,16 +741,13 @@ bool Fusion::isAliasCompatible(Val* left, Val* right) {
   return true;
 }
 
-void Fusion::aliasOutputToInput(Val* output, Val* input, IoAliasType type) {
-  // Because we could cast output when input is cast.
-  NVF_ERROR(
-      !output->isFusionOutput(),
-      "Do NOT add aliased output to fusion output outside of `aliasOutputToInput");
-
+void Fusion::aliasOutputToInput(
+    Val* output,
+    Val* input,
+    const bool hide_output) {
+  // `input` can be a cast of a fusion input.
   if (!input->isFusionInput()) {
     auto input_expr = input->definition();
-    // NVF_ERROR(input_def->isA<UnaryOp>(),
-    //     "expected unary op for aliased input");
     NVF_ERROR(
         input_expr->isA<UnaryOp>(), "expected unary op for aliased input");
     auto input_uop = input_expr->as<UnaryOp>();
@@ -770,10 +767,12 @@ void Fusion::aliasOutputToInput(Val* output, Val* input, IoAliasType type) {
   NVF_ERROR(
       isAliasCompatible(input, output),
       "The input and output values are not alias-compatible.");
-  io_alias_[output] = {input, type};
+  io_alias_[output] = {input, hide_output};
 
   // TODO: output should be marked at the end of fusion definition #1488
-  addOutput(output);
+  if (!output->isFusionOutput()) {
+    addOutput(output);
+  }
 }
 
 Val* Fusion::getOutputAlias(Val* output) {
@@ -815,7 +814,7 @@ std::vector<std::pair<int, int>> Fusion::getOutputToInputAliasIndices() const {
   std::for_each(
       io_alias_.begin(),
       io_alias_.end(),
-      [&](const std::pair<Val*, std::pair<Val*, IoAliasType>>& alias) {
+      [&](const std::pair<Val*, std::pair<Val*, bool>>& alias) {
         const Val* out = alias.first;
         if (!out_val_index.count(out)) {
           // Can't assert false here. We may have segmented fusion where not all
