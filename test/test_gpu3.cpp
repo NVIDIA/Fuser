@@ -9594,6 +9594,43 @@ TEST_F(NVFuserTest, ConstLongExpressions) {
   testValidate(fusion, outputs, {}, {t0}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, ReproIssue93) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  int64_t vocab_size = 300;
+  int64_t embedding_dim = 96;
+  int64_t sentence_len = 256;
+  int64_t batch_size = 20;
+
+  auto tv0 = makeSymbolicTensor(2, DataType::Int);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, false, true, true});
+  auto tv3 = broadcast(tv1, {true, true, false, false});
+  auto tv4 = torch_gather(tv3, 1, tv2);
+  // auto tv4 = take_along_axis(tv3, tv2, 2);
+  auto tv5 = squeeze(tv4, std::vector<bool>{false, false, true, false});
+  fusion->addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::manual_seed(0);
+
+  auto terms = at::randint(
+      0, vocab_size, {batch_size, sentence_len}, options.dtype(at::kLong));
+  auto embedding_table = at::randn({vocab_size, embedding_dim}, options);
+  std::vector<c10::IValue> aten_inputs({terms, embedding_table});
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+  auto ref = at::embedding(embedding_table, terms);
+
+  NVF_CHECK(ref.equal(cg_outputs[0]));
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
