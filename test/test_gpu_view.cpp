@@ -1018,6 +1018,7 @@ TEST_F(GpuViewTest, FusionExpandView2) {
       expand(tv0, {IrBuilder::create<Val>(12L), IrBuilder::create<Val>(8L)});
 
   auto tv3 = reshape(tv2, {12, 8}, {3, 4, 8});
+  fusion->addOutput(tv3);
   auto tv4 = add(tv3, tv1);
   fusion->addOutput(tv4);
 
@@ -1028,10 +1029,66 @@ TEST_F(GpuViewTest, FusionExpandView2) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  auto ref = at::reshape(t0.expand({12, 8}), {3, 4, 8}) + t1;
+  auto t3 = at::reshape(t0.expand({12, 8}), {3, 4, 8});
+  auto t4 = t3 + t1;
+
+  // Reshape output should be expanded. Resolved broadcast should be contiguous
+  // See https://github.com/NVIDIA/Fuser/issues/1126
+  EXPECT_EQ(cg_outputs[0].strides(), t3.strides());
+  EXPECT_EQ(cg_outputs[1].strides(), t4.strides());
 
   testValidate(
-      executor_cache.fusion(), cg_outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      cg_outputs,
+      {t0, t1},
+      {t3, t4},
+      __LINE__,
+      __FILE__);
+}
+
+// Test that merge of two expanded axes is expanded
+TEST_F(NVFuserTest, FusionExpandView3_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeConcreteTensor({1, 1, 8});
+  fusion->addInput(tv0);
+
+  auto tv1 = makeConcreteTensor({12, 8});
+  fusion->addInput(tv1);
+
+  auto tv2 = expand(
+      tv0,
+      {IrBuilder::create<Val>(4L),
+       IrBuilder::create<Val>(3L),
+       IrBuilder::create<Val>(8L)});
+
+  auto tv3 = reshape(tv2, {4, 3, 8}, {12, 8});
+  fusion->addOutput(tv3);
+  auto tv4 = add(tv3, tv1);
+  fusion->addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1, 1, 8}, options);
+  auto t1 = at::randn({12, 8}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  auto t3 = at::reshape(t0.expand({4, 3, 8}), {12, 8});
+  auto t4 = t3 + t1;
+
+  // Merge of two expanded axes should be expanded.
+  EXPECT_EQ(cg_outputs[0].strides(), t3.strides());
+  EXPECT_EQ(cg_outputs[1].strides(), t4.strides());
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      {t0, t1},
+      {t3, t4},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(GpuViewTest, FusionReshapeTransformCache) {
