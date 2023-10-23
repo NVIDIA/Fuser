@@ -330,6 +330,8 @@ def define_tensor_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
     yield SampleInput(shape=[-1], contiguity=[True])
+    yield SampleInput(shape=[-1, -1], contiguity=[True, True], stride_order=[0, 1])
+    yield SampleInput(shape=[-1, -1], contiguity=[True, True], stride_order=[-1, -2])
 
 
 def define_tensor_error_generator(
@@ -395,6 +397,36 @@ def define_tensor_error_generator(
         {"shape": [10.0], "contiguity": [True]},
         "define_tensor(): incompatible function arguments.",
         TypeError,
+    )
+
+    check_stride_order_duplicate = ErrorSample(
+        {
+            "shape": [-1, -1, -1],
+            "contiguity": [True, True, True],
+            "stride_order": [0, 1, 1],
+        },
+        "duplicated stride_order entries",
+        RuntimeError,
+    )
+
+    check_stride_order_out_of_range = ErrorSample(
+        {
+            "shape": [-1, -1, -1],
+            "contiguity": [True, True, True],
+            "stride_order": [0, 1, 5],
+        },
+        "stride_order argument is out of range",
+        RuntimeError,
+    )
+
+    check_stride_order_out_of_negative_range = ErrorSample(
+        {
+            "shape": [-1, -1, -1],
+            "contiguity": [True, True, True],
+            "stride_order": [0, 1, -4],
+        },
+        "stride_order argument is out of range",
+        RuntimeError,
     )
 
     # TODO: Fix empty and maximum tensor dimensionality error checks.
@@ -955,28 +987,28 @@ def permute_error_generator(
     # TODO Add duplicate axis check.
     yield SampleInput(
         make_arg(input_shape), [0, 1, 1, 3]
-    ), RuntimeError, "Duplicate entries in transformation map"
+    ), RuntimeError, "duplicated dimension entries"
 
     # TODO Add in-range axis check.
     yield SampleInput(
         make_arg(input_shape), [0, 1, 2, 4]
-    ), RuntimeError, "New2Old axes are not within the number of dimensions of the provided domain"
+    ), RuntimeError, "dims argument is out of range, expects"
 
     # TODO Add in-range axis check.
     yield SampleInput(
         make_arg(input_shape), [0, 1, 2, -5]
-    ), RuntimeError, "New2Old axes are not within the number of dimensions of the provided domain"
+    ), RuntimeError, "dims argument is out of range, expects"
 
     # TODO Add missing axes check.
     # If dims list is empty, NvFuser ignores the permute operation.
     yield SampleInput(
         make_arg(input_shape), [0]
-    ), RuntimeError, "The number of dimensions in the tensor input does not match the length of the desired ordering of dimensions"
+    ), RuntimeError, "argument to have the same length as input"
 
     # TODO Add out-of-bounds axes check.
     yield SampleInput(
         make_arg(input_shape), [0, 1, 2, 3, 4]
-    ), RuntimeError, "The number of dimensions in the tensor input does not match the length of the desired ordering of dimensions"
+    ), RuntimeError, "argument to have the same length as input"
 
 
 def reduction_generator(
@@ -1079,8 +1111,13 @@ def reshape_generator(
         ((1, 7844, 1, 7), (1, 27454, 2)),
     )
 
-    for tensor_shape, output_shape in cases:
-        yield SampleInput(make_arg(tensor_shape), tensor_shape, output_shape)
+    for input_shape, output_shape in cases:
+        input_tensor = make_arg(input_shape)
+        if op.name == "reshape_symbolic":
+            reshaped_tensor = make_arg(output_shape)
+            yield SampleInput(input_tensor, reshaped_tensor)
+        else:
+            yield SampleInput(input_tensor, output_shape)
 
 
 def reshape_error_generator(
@@ -1092,16 +1129,20 @@ def reshape_error_generator(
         make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
     )
 
-    tensor_shape = (3, 14)
+    input_shape = (3, 14)
 
-    # Only a single inferred axis -1.
-    yield SampleInput(
-        make_arg(tensor_shape), tensor_shape, [3, -1, -1]
-    ), RuntimeError, "Only one dimension can by inferred"
+    # Only a single inferred axis -1. Skip reshape_symbolic because
+    # make_arg can't create a tensor with negative dimensions.
+    if op.name == "reshape_constant":
+        yield SampleInput(
+            make_arg(input_shape), (3, -1, -1)
+        ), RuntimeError, "A maximum of one value of -1"
 
     # Number of elements must be equal for input and output tensors
+    output_shape = (3, 2, 8)
     yield SampleInput(
-        make_arg(tensor_shape), tensor_shape, [3, 2, 8]
+        make_arg(input_shape),
+        (output_shape if op.name == "reshape_constant" else make_arg(output_shape)),
     ), RuntimeError, "Total element counts across view operation must match"
 
 

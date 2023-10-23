@@ -812,6 +812,15 @@ bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id) {
   return simplifyExpr(is_exact_val)->isTrue();
 }
 
+Val* u32IndexScalarSmemTv(TensorView* smem_tv) {
+  auto u32addr = IrBuilder::create<Val>(DataType::SMemAddress);
+  IrBuilder::create<UnaryOp>(
+      UnaryOpType::ToUnsignedSmemAddr,
+      u32addr,
+      IrBuilder::metadataExpr(smem_tv));
+  return u32addr;
+}
+
 } // namespace lower_utils
 
 } // namespace nvfuser

@@ -119,7 +119,7 @@ Val* FusionState::getFusionState(size_t index) const {
   return ret[0];
 }
 
-std::vector<Val*> FusionState::getFusionStateVector(size_t index) const {
+const std::vector<Val*>& FusionState::getFusionStateVector(size_t index) const {
   return fusion_state_.at(index);
 }
 

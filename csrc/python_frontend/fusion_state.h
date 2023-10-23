@@ -54,7 +54,7 @@ class FusionState {
   //! Gets a Fusion IR Tensor/Scalar object
   Val* getFusionState(size_t index) const;
   //! Gets a Fusion IR Vector of Scalars
-  std::vector<Val*> getFusionStateVector(size_t index) const;
+  const std::vector<Val*>& getFusionStateVector(size_t index) const;
   //! Number of fusion states
   size_t numFusionStates() const;
   //! Sets a Fusion IR Tensor/Scalar object

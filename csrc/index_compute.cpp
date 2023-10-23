@@ -48,7 +48,7 @@ int getProducerHaloOffset(
                  .mapDifferentExtents(true)
                  .mapProducerToConsumer();
 
-  auto producer_id = producer_tv->getMaybeRFactorDomain()[producer_axis];
+  auto producer_id = producer_tv->getMaybeAllocationDomain()[producer_axis];
 
   auto it = p2c.find(producer_id);
   // p2c should always have a mapping for producer_id. The only case
@@ -56,7 +56,12 @@ int getProducerHaloOffset(
   // reduction axis. Since this function is only used for indexing
   // producer tensors, where reduction axes are skipped, producer_id
   // should never be a reduction axis.
-  NVF_ERROR(it != p2c.end());
+  if (it == p2c.end()) {
+    TORCH_WARN(
+        "getProducerHaloOffset p2c mapping has failed. See "
+        "https://github.com/NVIDIA/Fuser/issues/1122");
+    return 0;
+  }
   IterDomain* consumer_id = it->second;
 
   const auto& halo_map = GpuLower::current()->haloInfo();
@@ -1694,10 +1699,10 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   c2p_index_map = replay_producer_as_consumer.getReplay();
 
-  auto producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
+  const auto& producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
       loops, rotated_loops, consumer_tv, producer_tv, false, c2p_index_map);
 
-  auto producer_indexing = producer_indexing_from_idgraph.index;
+  const auto& producer_indexing = producer_indexing_from_idgraph.index;
 
   IndexSwizzle index_swizzle(
       producer_tv,
@@ -2036,7 +2041,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
     }
   }
 
-  auto producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
+  const auto& producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
       loops, rotated_loops, consumer_tv, producer_tv, true, c2p_map);
 
   auto producer_indexing = producer_indexing_from_idgraph.index;
@@ -2049,13 +2054,15 @@ std::vector<Val*> Index::getProducerAllocationIndices(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
 
   for (const auto i : c10::irange(alloc_dom.size())) {
-    if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast()) {
+    auto override_it = override_index.find(alloc_dom[i]);
+    const bool is_overriden = override_it != override_index.end();
+
+    if (alloc_dom[i]->isReduction() ||
+        (alloc_dom[i]->isBroadcast() && !is_overriden)) {
       continue;
     }
 
     Val* alloc_ind = nullptr;
-    auto override_it = override_index.find(alloc_dom[i]);
-    const bool is_overriden = override_it != override_index.end();
     if (is_overriden) {
       alloc_ind = override_it->second;
     } else if (
@@ -2073,18 +2080,21 @@ std::vector<Val*> Index::getProducerAllocationIndices(
         " id: ",
         alloc_dom[i]->toString());
 
-    alloc_ind = getProducerIndexWithHalo(
-        producer_tv, i, alloc_ind, consumer_tv, is_overriden);
+    if (!alloc_dom[i]->isBroadcast() || !is_overriden) {
+      // This is an Iteration domain or a non-padded broadcast domain
+      alloc_ind = getProducerIndexWithHalo(
+          producer_tv, i, alloc_ind, consumer_tv, is_overriden);
 
-    alloc_ind = getProducerIndexWithGather(
-        alloc_ind,
-        i,
-        producer_tv,
-        consumer_tv,
-        producer_indexing_from_idgraph.concrete_index.indexMap());
+      alloc_ind = getProducerIndexWithGather(
+          alloc_ind,
+          i,
+          producer_tv,
+          consumer_tv,
+          producer_indexing_from_idgraph.concrete_index.indexMap());
 
-    alloc_ind = getProducerIndexWithPartialSplit(
-        alloc_ind, alloc_dom[i], producer_tv, consumer_tv);
+      alloc_ind = getProducerIndexWithPartialSplit(
+          alloc_ind, alloc_dom[i], producer_tv, consumer_tv);
+    }
 
     alloc_inds.at(i) = alloc_ind;
   }
@@ -3167,29 +3177,34 @@ Val* Index::eye(
 }
 
 Val* Index::cpAsyncBulkIndex(
-    TensorView* tv,
+    TensorView* gmem_tv,
+    TensorView* consumer,
+    Val* mbarrier,
     const std::vector<kir::ForLoop*>& loops) {
   using namespace tma;
 
+  bool is_load = (gmem_tv != consumer);
+
   NVF_ERROR(
-      tv->getMemoryType() == MemoryType::Global,
+      gmem_tv->getMemoryType() == MemoryType::Global,
       "cpAsyncBulkIndex is only for global memory tensors");
   NVF_ERROR(
-      tv->getMaybeRFactorDomain() == tv->getLeafDomain(), "not supported yet");
-  NVF_ERROR(
-      tv->getMaybeAllocationDomain() == tv->getLeafDomain(),
+      gmem_tv->getMaybeRFactorDomain() == gmem_tv->getLeafDomain(),
       "not supported yet");
-  for (auto id : tv->getMaybeRFactorDomain()) {
+  NVF_ERROR(
+      gmem_tv->getMaybeAllocationDomain() == gmem_tv->getLeafDomain(),
+      "not supported yet");
+  for (auto id : consumer->getMaybeRFactorDomain()) {
     NVF_ERROR(
         id->isBulk(),
         "cpAsyncBulkIndex only support whole tensor copy for now.");
   }
 
-  int64_t dim = (int64_t)tv->nDims();
+  int64_t dim = (int64_t)gmem_tv->nDims();
   NVF_ERROR(dim > 0);
-  int64_t itemsize = dataTypeSize(tv->dtype());
+  int64_t itemsize = dataTypeSize(gmem_tv->dtype());
 
-  auto metadata = IrBuilder::metadataExpr(tv);
+  auto metadata = IrBuilder::metadataExpr(gmem_tv);
   auto global_address = IrBuilder::getAttrExpr(metadata, "data");
   // As required by the hardware, tensors used by TMA must be in column major
   // that is, stride[0] must be implicitly 1 (therefore omitted)
@@ -3218,9 +3233,9 @@ Val* Index::cpAsyncBulkIndex(
       IrBuilder::reverseArrayExpr(
           IrBuilder::getAttrExpr(metadata, "alloc_size"));
   auto element_strides =
-      IrBuilder::arrayExpr(std::vector<Val*>(dim, tv->fusion()->oneVal()));
+      IrBuilder::arrayExpr(std::vector<Val*>(dim, gmem_tv->fusion()->oneVal()));
   auto descriptor = encodeTensorMapTiled(
-      tv->dtype(),
+      gmem_tv->dtype(),
       global_address,
       global_dim,
       global_strides,
@@ -3231,20 +3246,31 @@ Val* Index::cpAsyncBulkIndex(
       TensorMapL2Promotion::NoL2Promotion,
       TensorMapFloatOOBFill::NoOOBFill);
 
-  auto coordinate =
-      IrBuilder::arrayExpr(std::vector<Val*>(dim, tv->fusion()->zeroVal()));
+  auto coordinate = IrBuilder::arrayExpr(
+      std::vector<Val*>(dim, gmem_tv->fusion()->zeroVal()));
 
-  std::stringstream ss;
-  ss << "Hopper::CpAsyncBulkTensorTileIndex<" << dim << ">";
+  Val* index = nullptr;
 
-  auto index = IrBuilder::structExpr(
-      {{"descriptor", IrBuilder::addressExpr(descriptor)},
-       {"coordinate", coordinate}},
-      ss.str());
+  if (is_load) {
+    std::stringstream ss;
+    ss << "Hopper::CpAsyncBulkTensorTileG2SIndex<" << dim << ">";
+    index = IrBuilder::structExpr(
+        {{"descriptor", IrBuilder::addressExpr(descriptor)},
+         {"coordinate", coordinate},
+         {"mbarrier", mbarrier}},
+        ss.str());
+  } else {
+    std::stringstream ss;
+    ss << "Hopper::CpAsyncBulkTensorTileS2GIndex<" << dim << ">";
+    index = IrBuilder::structExpr(
+        {{"descriptor", IrBuilder::addressExpr(descriptor)},
+         {"coordinate", coordinate}},
+        ss.str());
+  }
 
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
 
-  return IrBuilder::create<kir::TensorIndex>(tv, index);
+  return IrBuilder::create<kir::TensorIndex>(gmem_tv, index);
 }
 
 } // namespace nvfuser
