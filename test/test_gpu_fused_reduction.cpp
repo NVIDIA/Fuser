@@ -2578,12 +2578,13 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridReduce1_CUDA) {
   tv0->cacheAfter();
   auto tv3 = tv1->cacheBefore();
 
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->split(-1, bdimx);
+  tv3->axis(-1)->parallelize(ParallelType::TIDx);
+  // Create a couple loops to simulate the matmul case of three nested serial
+  // loops
   tv3->split(-2, 4);
   tv3->split(-3, 4);
-
-  tv3->axis(0)->parallelize(ParallelType::BIDx);
-  tv3->axis(-1)->parallelize(ParallelType::TIDx);
 
   // Move BIDx dimension last so we can inline with output
   tv3->reorder({
@@ -2599,10 +2600,13 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridReduce1_CUDA) {
 
   inlineMost();
 
+  fusion.printMath();
+
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  // this size gives us loop sizes 4, 4, 4 (64 threads per block) with 256
-  // blocks
-  auto t0 = at::randn({256, 4096}, options);
+  // this size gives us loop sizes 4, 4, 4 (by bdimx threads per block) with
+  // splitk_factor many blocks
+  int splitk_factor = 2;
+  auto t0 = at::randn({splitk_factor, 128 * 128}, options);
   std::vector<c10::IValue> inputs = {t0};
 
   FusionExecutor fe;
