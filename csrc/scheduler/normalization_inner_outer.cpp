@@ -365,11 +365,13 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   auto available_regs = vectorize_factor > 1
-      ? register_file_size_combined
-      : register_file_size_combined_nonvectorized;
+      ? InnerOuterPersistentKernelScheduler::register_file_size_combined
+      : InnerOuterPersistentKernelScheduler::
+            register_file_size_combined_nonvectorized;
   auto max_threads_per_block = vectorize_factor > 1
-      ? max_threads_per_block_combined
-      : max_threads_per_block_combined_nonvectorized;
+      ? InnerOuterPersistentKernelScheduler::max_threads_per_block_combined
+      : InnerOuterPersistentKernelScheduler::
+            max_threads_per_block_combined_nonvectorized;
   buffer_params.smem_overhead =
       scheduler_utils::getSharedMemoryOverheadPerBlock(
           fusion, reduction_tvs, max_threads_per_block);
