@@ -30,7 +30,8 @@ TEST_F(CommunicationTest, Communication_Gather) {
   for (int j : c10::irange(number_of_repetitions)) {
     resetDstBuffers();
     params.src_bufs.at(0).copy_(
-        at::arange(tensor_size, tensor_options) + (communicator->deviceId() + 1) * j);
+        at::arange(tensor_size, tensor_options) +
+        (communicator->deviceId() + 1) * j);
 
     auto work = communication.post(*communicator);
     work->wait();
@@ -47,7 +48,8 @@ TEST_F(CommunicationTest, Communication_Gather) {
 
 TEST_F(CommunicationTest, Communication_Allgather) {
   params.team = all_ranks;
-  params.src_bufs = {at::empty(tensor_size, tensor_options) * communicator->deviceId()};
+  params.src_bufs = {
+      at::empty(tensor_size, tensor_options) * communicator->deviceId()};
   for (uint64_t i = 0; i < communicator->size(); i++) {
     params.dst_bufs.push_back(at::empty(tensor_size, tensor_options));
   }
@@ -56,7 +58,8 @@ TEST_F(CommunicationTest, Communication_Allgather) {
   for (int j : c10::irange(number_of_repetitions)) {
     resetDstBuffers();
     params.src_bufs.at(0).copy_(
-        at::arange(tensor_size, tensor_options) + (communicator->deviceId() + 1) * j);
+        at::arange(tensor_size, tensor_options) +
+        (communicator->deviceId() + 1) * j);
 
     auto work = communication.post(*communicator);
     work->wait();
@@ -92,7 +95,8 @@ TEST_F(CommunicationTest, Communication_Scatter) {
     work->wait();
 
     auto obtained = params.dst_bufs.at(0);
-    auto ref = at::arange(tensor_size, tensor_options) + (communicator->deviceId() + 1) * j;
+    auto ref = at::arange(tensor_size, tensor_options) +
+        (communicator->deviceId() + 1) * j;
     validate(obtained, ref);
   }
 }

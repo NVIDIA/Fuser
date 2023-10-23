@@ -6,17 +6,18 @@
  */
 // clang-format on
 #ifdef USE_DISTRIBUTED
-#include <test/multidevice.h>
-#include <torch/cuda.h>
-#include <ops/all_ops.h>
 #include <ir/all_nodes.h>
 #include <multidevice/pipeline_ir.h>
 #include <multidevice/runtime.h>
+#include <ops/all_ops.h>
+#include <test/multidevice.h>
 #include <test/validator.h>
+#include <torch/cuda.h>
 
 namespace nvfuser {
 
-auto multidevice_env = static_cast<MultiDeviceEnvironment*>(testing::AddGlobalTestEnvironment(new MultiDeviceEnvironment));
+auto multidevice_env = static_cast<MultiDeviceEnvironment*>(
+    testing::AddGlobalTestEnvironment(new MultiDeviceEnvironment));
 
 void MultiDeviceEnvironment::SetUp() {
   communicator_ = new Communicator();
@@ -28,32 +29,31 @@ void MultiDeviceEnvironment::TearDown() {
 }
 
 void MultiDeviceTest::SetUp() {
-    NVFuserTest::SetUp();
-    communicator = multidevice_env->communicator();
-    if (!communicator->is_available() ||
-        communicator->size() < 2 ||
-        torch::cuda::device_count() < 2) {
-        GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks";
-    }
-    tensor_options =
+  NVFuserTest::SetUp();
+  communicator = multidevice_env->communicator();
+  if (!communicator->is_available() || communicator->size() < 2 ||
+      torch::cuda::device_count() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks";
+  }
+  tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator->device());
 }
 
 void CommunicationTest::SetUp() {
-    MultiDeviceTest::SetUp();
-    all_ranks = std::vector<DeviceIdxType> (communicator->size());
-    std::iota(all_ranks.begin(), all_ranks.end(), 0);
+  MultiDeviceTest::SetUp();
+  all_ranks = std::vector<DeviceIdxType>(communicator->size());
+  std::iota(all_ranks.begin(), all_ranks.end(), 0);
 }
 
 void CommunicationTest::validate(at::Tensor obtained, at::Tensor expected) {
   NVF_ERROR(
-    obtained.equal(expected),
-    "Device ",
-    communicator->deviceId(),
-    " expected tensor:\n",
-    expected,
-    "\nbut obtained tensor:\n",
-    obtained);
+      obtained.equal(expected),
+      "Device ",
+      communicator->deviceId(),
+      " expected tensor:\n",
+      expected,
+      "\nbut obtained tensor:\n",
+      obtained);
 }
 
 void CommunicationTest::resetDstBuffers() {
@@ -82,7 +82,8 @@ void SendToTester(
       buffer = {tensor.index({j, "..."})};
       auto sender = mesh.vector().at(j);
       if (tester != sender &&
-          (communicator->deviceId() == sender || communicator->deviceId() == tester)) {
+          (communicator->deviceId() == sender ||
+           communicator->deviceId() == tester)) {
         communicator->sendRecv(tester, sender, buffer)->wait();
       }
     }
@@ -90,7 +91,8 @@ void SendToTester(
     buffer = {tensor};
     auto sender = mesh.vector().at(0);
     if (tester != sender &&
-        (communicator->deviceId() == sender || communicator->deviceId() == tester)) {
+        (communicator->deviceId() == sender ||
+         communicator->deviceId() == tester)) {
       communicator->sendRecv(tester, sender, buffer)->wait();
     }
   }
@@ -115,7 +117,8 @@ void testValidateMultidevice(
     SendToTester(
         runtime.pipeline()->inputs().at(i)->as<PipelineVal>(),
         inputs.at(i).toTensor(),
-        tester, communicator);
+        tester,
+        communicator);
   }
 
   // gathering all the outputs at tester
@@ -123,7 +126,8 @@ void testValidateMultidevice(
     SendToTester(
         runtime.pipeline()->outputs().at(i)->as<PipelineVal>(),
         outputs.at(i),
-        tester, communicator);
+        tester,
+        communicator);
   }
 
   if (communicator->deviceId() == tester) {
@@ -218,7 +222,8 @@ void PipelineTest::SetUp() {
 }
 
 void PipelineTest::validate() {
-    executeAndValidatePipeline(std::move(fusion), *pipeline, inputs, communicator, print);
+  executeAndValidatePipeline(
+      std::move(fusion), *pipeline, inputs, communicator, print);
 }
 
 void PipelineTestTwoStages::SetUp() {
@@ -250,7 +255,7 @@ void PipelineTestTwoStages::SetUp() {
   }
 
   PipelineDescriptor descriptor{
-    .stage_descriptors{std::move(stage0), std::move(stage1)}};
+      .stage_descriptors{std::move(stage0), std::move(stage1)}};
   pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
 
   int first_axis_extent = 16;
@@ -260,7 +265,8 @@ void PipelineTestTwoStages::SetUp() {
     first_axis_extent = mesh1.vector().size();
   }
   inputs = {
-      at::ones({first_axis_extent, 4, 3, 5}, tensor_options) * communicator->deviceId()};
+      at::ones({first_axis_extent, 4, 3, 5}, tensor_options) *
+      communicator->deviceId()};
 
   validate();
 }

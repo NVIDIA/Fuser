@@ -130,46 +130,55 @@ TEST_F(PipelineTest, Pipeline) {
   // Note: each process is binded to a different GPU
   // Note: the concrete values are only used at the relevant ranks
   inputs = {
-      at::randn({3096, 1123}, tensor_options), at::randn({2048, 73, 81}, tensor_options)};
+      at::randn({3096, 1123}, tensor_options),
+      at::randn({2048, 73, 81}, tensor_options)};
 
   validate();
 }
 
 DeviceMesh mesh0({0});
 DeviceMesh mesh1({1});
-DeviceMesh mesh2({0,1,2,3});
-DeviceMesh mesh3({0,2,3});
+DeviceMesh mesh2({0, 1, 2, 3});
+DeviceMesh mesh3({0, 2, 3});
 auto all_meshes = ::testing::Values(mesh0, mesh1, mesh2, mesh3);
 
 TEST_P(PipelineTestTwoStages, Communication) {}
 
-INSTANTIATE_TEST_SUITE_P(Gather, PipelineTestTwoStages,
-      ::testing::Combine(
-      all_meshes,
-      all_meshes,
-      ::testing::Values(true),
-      ::testing::Values(false)));
+INSTANTIATE_TEST_SUITE_P(
+    Gather,
+    PipelineTestTwoStages,
+    ::testing::Combine(
+        all_meshes,
+        all_meshes,
+        ::testing::Values(true),
+        ::testing::Values(false)));
 
-INSTANTIATE_TEST_SUITE_P(Scatter, PipelineTestTwoStages,
-      ::testing::Combine(
-      all_meshes,
-      all_meshes,
-      ::testing::Values(false),
-      ::testing::Values(true)));
+INSTANTIATE_TEST_SUITE_P(
+    Scatter,
+    PipelineTestTwoStages,
+    ::testing::Combine(
+        all_meshes,
+        all_meshes,
+        ::testing::Values(false),
+        ::testing::Values(true)));
 
-INSTANTIATE_TEST_SUITE_P(Bcast, PipelineTestTwoStages,
-      ::testing::Combine(
-      all_meshes,
-      all_meshes,
-      ::testing::Values(false),
-      ::testing::Values(false)));
+INSTANTIATE_TEST_SUITE_P(
+    Bcast,
+    PipelineTestTwoStages,
+    ::testing::Combine(
+        all_meshes,
+        all_meshes,
+        ::testing::Values(false),
+        ::testing::Values(false)));
 
-INSTANTIATE_TEST_SUITE_P(Bcast_sharded, PipelineTestTwoStages,
-      ::testing::Combine(
-      ::testing::Values(mesh2),
-      ::testing::Values(mesh2),
-      ::testing::Values(true),
-      ::testing::Values(true)));
+INSTANTIATE_TEST_SUITE_P(
+    Bcast_sharded,
+    PipelineTestTwoStages,
+    ::testing::Combine(
+        ::testing::Values(mesh2),
+        ::testing::Values(mesh2),
+        ::testing::Values(true),
+        ::testing::Values(true)));
 
 } // namespace nvfuser
 

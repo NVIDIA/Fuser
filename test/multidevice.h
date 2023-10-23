@@ -8,8 +8,8 @@
 #ifdef USE_DISTRIBUTED
 #pragma once
 
-#include <multidevice/communicator.h>
 #include <multidevice/communication.h>
+#include <multidevice/communicator.h>
 #include <multidevice/pipeline.h>
 #include <test/utils.h>
 
@@ -57,9 +57,13 @@ class PipelineTest : public MultiDeviceTest {
   std::vector<c10::IValue> inputs;
 };
 
-//(first stage's mesh, second stage's mesh, is first stage sharded, is second stage sharded)
-using PipelineTestTwoStagesParams = std::tuple<DeviceMesh, DeviceMesh, bool, bool>;
-class PipelineTestTwoStages : public PipelineTest, public ::testing::WithParamInterface<PipelineTestTwoStagesParams> {
+//(first stage's mesh, second stage's mesh, is first stage sharded, is second
+// stage sharded)
+using PipelineTestTwoStagesParams =
+    std::tuple<DeviceMesh, DeviceMesh, bool, bool>;
+class PipelineTestTwoStages
+    : public PipelineTest,
+      public ::testing::WithParamInterface<PipelineTestTwoStagesParams> {
  protected:
   void SetUp() override;
 };
