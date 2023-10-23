@@ -426,7 +426,6 @@ table KernelRuntimeState {
 // The unscheduled fusion is defined by traversing Trie in FusionCache.
 table FusionExecutorCache {
   fusion_id: long;
-  
   inputs_cache: InputsIdLookup;
 
   // This field represents a map<<size_t, DynamicTransformConcretizationInfo>, vector<FusionKernelRuntime>>.

@@ -2126,20 +2126,32 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
 void FusionExecutor::deserialize(
     const serde::FusionExecutor* buffer,
     Fusion* fusion,
-    CompileParams compile_params) {
+    CompileParams compile_params,
+    int64_t fusion_id,
+    int64_t device_id,
+    int64_t concrete_id,
+    int64_t segment_id) {
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
 
   NVF_ERROR(buffer != nullptr, "serde::FusionExecutor is nullptr.");
+  NVF_ERROR(
+      fusion_id == buffer->fusion_id(),
+      "Expected given fusion_id to match serde fusion_id.");
+  NVF_ERROR(
+      device_id == buffer->device_id(),
+      "Expected given device_id to match serde device_id.");
+  NVF_ERROR(
+      concrete_id == buffer->concrete_id(),
+      "Expected given concrete_id to match serde concrete_id.");
+  NVF_ERROR(
+      segment_id == buffer->segment_id(),
+      "Expected given segment_id to match serde segment_id.");
 
   // Initialize internal fields
   device_smem_limit_ = buffer->device_smem_limit();
   block_size_high_water_mark_ = buffer->block_size_high_water_mark();
   maxrregcount_high_water_mark_ = buffer->maxrregcount_high_water_mark();
   warp_size_ = buffer->warp_size();
-  fusion_id_ = buffer->fusion_id();
-  device_id_ = buffer->device_id();
-  concrete_id_ = buffer->concrete_id();
-  segment_id_ = buffer->segment_id();
   kernel_code_ = buffer->kernel_code()->str();
 
   // KernelDB query checks kernel_code string and compile_params before
@@ -2152,7 +2164,11 @@ void FusionExecutor::deserialize(
 
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
   fusion_ = lowered_->kernel()->as<Fusion>();
-  createKernelId();
+  createKernelId(
+      buffer->fusion_id(),
+      buffer->device_id(),
+      buffer->concrete_id(),
+      buffer->segment_id());
   setUsedTVs();
 
   // GlobalBufferInfo requires lowered kernel before deserialization

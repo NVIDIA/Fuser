@@ -1010,7 +1010,11 @@ void FusionKernelRuntime::deserialize(
     executors_.at(group_id).deserialize(
         buffer->executors()->Get(group_id),
         fusion_to_run.get(),
-        scheduler_entry->params()->cparams);
+        scheduler_entry->params()->cparams,
+        fusion_id_,
+        device_id_,
+        concrete_id_,
+        group_id);
   }
 }
 

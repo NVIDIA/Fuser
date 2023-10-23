@@ -318,7 +318,11 @@ class FusionExecutor : public NonCopyable {
   void deserialize(
       const serde::FusionExecutor* buffer,
       Fusion* fusion,
-      CompileParams compile_params);
+      CompileParams compile_params,
+      int64_t fusion_id,
+      int64_t device_id,
+      int64_t concrete_id,
+      int64_t segment_id);
 
  private:
   static std::string kernelNamespace() {
