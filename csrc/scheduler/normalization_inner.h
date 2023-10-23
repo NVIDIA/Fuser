@@ -41,7 +41,7 @@ class InnerPersistentKernelScheduler : public SchedulerEntry {
       HeuristicSummary* data_cache = nullptr);
 
   constexpr static ScheduleHeuristic heuristicType() {
-    return ScheduleHeuristic::NoOp;
+    return ScheduleHeuristic::InnerPersistent;
   }
 
  private:

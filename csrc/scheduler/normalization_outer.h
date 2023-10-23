@@ -39,6 +39,7 @@ class OuterPersistentKernelScheduler : public SchedulerEntry {
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
+
   constexpr static ScheduleHeuristic heuristicType() {
     return ScheduleHeuristic::OuterPersistent;
   }
