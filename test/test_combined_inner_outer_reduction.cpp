@@ -174,13 +174,15 @@ TEST_F(NVFuserTest, CombinedSchedulerLayerNormBackward_CUDA) {
         (dtype == DataType::Half ? 14l : (dtype == DataType::Float ? 20l : 0l));
     ASSERT_TRUE(persistent_buffer_size) << "Unsupported data type!";
 
-    if (persistent_buffer_size > register_file_size_combined) {
+    if (persistent_buffer_size >
+        InnerOuterPersistentKernelScheduler::register_file_size_combined) {
       auto dev_prop = at::cuda::getCurrentDeviceProperties();
       int64_t available_smem = (int64_t)dev_prop->sharedMemPerBlockOptin -
           scheduler_utils::getSharedMemoryOverheadPerBlock(
                                    &fusion,
                                    scheduler_utils::getReductionTvs(&fusion),
-                                   max_threads_per_block_combined);
+                                   InnerOuterPersistentKernelScheduler::
+                                       max_threads_per_block_combined);
 
       if (available_smem >= persistent_buffer_size) {
         const auto& kernel_runtime = fec.getMostRecentKernelRuntime();
@@ -994,10 +996,11 @@ TEST_F(NVFuserTest, CombinedSchedulerInnerOuterMismatch) {
 }
 
 // In this test, all 3 input tvs are persistent.
-// To reduce global to shared memory traffic, tv2, broadcasted in the outer dim,
-// moves to shared memory first. tv1 has 1 consumer and tv0 has 2 consumers,
-// tv1 takes precedence to decrease shared to register memory traffic. So the
-// the priority order should be tv2, tv1, tv0.
+// tv2, broadcasted in the outer dim, is shared across different rows.
+// To reduce global to shared memory traffic, it is moved to shared memory
+// first. tv1 has 1 consumer and tv0 has 2 consumers. To reduce shared memory to
+// register traffic, tv1 is moved to shared memory pritor to move tv0. The
+// priority order should be tv2, tv1, tv0.
 TEST_F(NVFuserTest, CombinedSharedMemoryPersistent) {
   auto test = [](int hidden_size) {
     auto dtype = DataType::Float;
@@ -1047,7 +1050,7 @@ TEST_F(NVFuserTest, CombinedSharedMemoryPersistent) {
       ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
       auto rparams = heuristic_params->as<ReductionParams>();
       // if shared memory persistent is being used, check which tv is stored in
-      // shared memory. since the priority order should be tv2, tv1, tv0.
+      // shared memory. since the priority order should be tv2, tv1, tv0,
       // if there is only 1, it must be tv2; if there are 2, they must be tv2
       // and tv1.
       if (rparams->shared_mem_persistent_buffer) {

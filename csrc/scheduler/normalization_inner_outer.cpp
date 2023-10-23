@@ -247,13 +247,13 @@ bool isDirectlyUsedByOuterBroadcast(
 
 // Sorts tvs to determine their move order to shared memory, prioritizing:
 // (a) Reducing global-to-shared memory traffic.
-// (b) Minimizing register-to-shared memory traffic.
+// (b) Minimizing shared memory-to-register traffic.
 bool sort_buffer_tvs(
     const std::vector<bool>& broadcast_mask,
     TensorView* tv1,
     TensorView* tv2) {
   // (1) First priority: data type size. This minimize both gmem/smem traffic
-  // and register/smem traffic.
+  // and smem/register traffic.
   auto tv1_dtype_size = dataTypeSize(tv1->getDataType().value());
   auto tv2_dtype_size = dataTypeSize(tv2->getDataType().value());
   if (tv1_dtype_size != tv2_dtype_size) {
@@ -268,7 +268,7 @@ bool sort_buffer_tvs(
     return tv1_is_broadcast;
   }
 
-  // (3) Third priority: number of consumers. This minimize register/smem
+  // (3) Third priority: number of consumers. This minimize smem/register
   // traffic.
   return ir_utils::consumerTvsOf(tv1).size() <
       ir_utils::consumerTvsOf(tv2).size();
