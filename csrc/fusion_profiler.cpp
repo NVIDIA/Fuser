@@ -221,8 +221,8 @@ void HostTimer::stop() {
 
 double HostTimer::time() {
   if (state_ == ProfilerState::Finished) {
-    std::chrono::duration<double> tmp = stop_event_ - start_event_;
-    time_ms_ = tmp.count() * 1.0e3;
+    double elapsed_seconds = std::chrono::duration_cast< std::chrono::duration<double>>(stop_event_ - start_event_).count();
+    time_ms_ = elapsed_seconds * 1000.0;
     state_ = ProfilerState::Processed;
   } else {
     NVF_CHECK((state_ == ProfilerState::Processed) || (state_ == ProfilerState::Ready), "ProfilerState is not Processed or Ready! ", state_);
