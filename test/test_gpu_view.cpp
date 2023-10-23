@@ -1091,6 +1091,50 @@ TEST_F(NVFuserTest, FusionExpandView3_CUDA) {
       __FILE__);
 }
 
+// Test that reshape which does not include expanded axis preserves expand
+TEST_F(NVFuserTest, FusionExpandView4_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeConcreteTensor({4, 3, 1});
+  fusion->addInput(tv0);
+
+  auto tv1 = makeConcreteTensor({12, 8});
+  fusion->addInput(tv1);
+
+  auto tv2 = expand(
+      tv0,
+      {IrBuilder::create<Val>(4L),
+       IrBuilder::create<Val>(3L),
+       IrBuilder::create<Val>(8L)});
+
+  auto tv3 = reshape(tv2, {4, 3, 8}, {12, 8});
+  fusion->addOutput(tv3);
+  auto tv4 = add(tv3, tv1);
+  fusion->addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 3, 1}, options);
+  auto t1 = at::randn({12, 8}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  auto t3 = at::reshape(t0.expand({4, 3, 8}), {12, 8});
+  auto t4 = t3 + t1;
+
+  EXPECT_EQ(cg_outputs[0].strides(), t3.strides());
+  EXPECT_EQ(cg_outputs[1].strides(), t4.strides());
+
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      {t0, t1},
+      {t3, t4},
+      __LINE__,
+      __FILE__);
+}
+
 TEST_F(GpuViewTest, FusionReshapeTransformCache) {
   auto assert_matches = [](reshape_example example_0,
                            reshape_example example_1) {
