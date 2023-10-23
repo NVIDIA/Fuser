@@ -630,4 +630,28 @@ TEST_F(Tutorial, Reshape) {
   }
 }
 
+TEST_F(Tutorial, ShapeEqual) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({2});
+  fusion.addInput(in);
+  TensorView* out = broadcast(in, {false, true});
+  fusion.addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in_tensor = at::ones({2}, options);
+  at::Tensor ref_out_tensor = in_tensor.unsqueeze(-1).expand({2, 3});
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {in_tensor});
+  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+
+  std::cerr << out_tensor.sizes() << std::endl;
+  std::cerr << ref_out_tensor.sizes() << std::endl;
+
+  testValidate(
+      &fusion, {out_tensor}, {in_tensor}, {ref_out_tensor}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
