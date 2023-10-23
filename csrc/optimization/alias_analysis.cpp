@@ -121,8 +121,6 @@ void findAliasesFromExpr(Expr* expr, AliasAnalysisResult& alias_to_source) {
 } // namespace
 
 AliasAnalysisResult findAliases(Fusion* fusion) {
-  fusion->print();
-
   AliasAnalysisResult alias_to_source;
   // Fusion::exprs() returns topological order.
   for (Expr* expr : fusion->exprs()) {
