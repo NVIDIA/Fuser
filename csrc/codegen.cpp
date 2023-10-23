@@ -573,15 +573,27 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto in = ldst->in()->as<kir::TensorIndex>();
     auto out = ldst->out()->as<kir::TensorIndex>();
 
+    auto in_tv = in->view();
+    auto out_tv = out->view();
+
     kir::TensorIndex* gmem_ti = nullptr;
     kir::TensorIndex* smem_ti = nullptr;
     std::string func_name;
 
     if (out->view()->getMemoryType() == MemoryType::Shared) {
       func_name = "Hopper::cpAsyncBulkTensorTileG2S";
+      NVF_ERROR(
+          in_tv->getMemoryType() == MemoryType::Global,
+          "Expected input in global for G2S operation");
       smem_ti = out;
       gmem_ti = in;
     } else {
+      NVF_ERROR(
+          in_tv->getMemoryType() == MemoryType::Shared,
+          "Expected input in shared for S2G operation");
+      NVF_ERROR(
+          out_tv->getMemoryType() == MemoryType::Global,
+          "Expected input in shared for S2G operation");
       func_name = "Hopper::cpAsyncBulkTensorTileS2G";
       smem_ti = in;
       gmem_ti = out;
