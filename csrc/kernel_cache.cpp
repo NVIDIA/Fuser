@@ -730,6 +730,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         args,
         forced_index_type,
         fusion_id_,
+        args.getDeviceIndex(),
         kernel_runtimes.size()));
     kernel_runtime = kernel_runtimes.back().get();
 
@@ -866,6 +867,7 @@ void FusionExecutorCache::deserialize(
           args,
           std::nullopt,
           fusion_id_,
+          args.getDeviceIndex(),
           device_runtimes.size()));
 
       // 3. For FusionKernelRuntime, we have a separate deserialize function
@@ -893,8 +895,9 @@ FusionKernelRuntime::FusionKernelRuntime(
     const KernelArgumentHolder& args,
     std::optional<PrimDataType> forced_index_type,
     int64_t fusion_id,
+    int64_t device_id,
     int64_t concrete_id)
-    : fusion_id_{fusion_id}, concrete_id_{concrete_id} {
+    : fusion_id_{fusion_id}, device_id_{device_id}, concrete_id_{concrete_id} {
   FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
 
   NVF_ERROR(
@@ -960,6 +963,7 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
   return serde::CreateFusionKernelRuntimeDirect(
       builder,
       fusion_id_,
+      device_id_,
       concrete_id_,
       args_metadata_.serialize(builder),
       &executors_fb);
@@ -973,6 +977,7 @@ void FusionKernelRuntime::deserialize(
   NVF_ERROR(runtime_workspace_.group_run_order.size() == executors_.size());
 
   fusion_id_ = buffer->fusion_id();
+  device_id_ = buffer->device_id();
   concrete_id_ = buffer->concrete_id();
 
   // 1. Deserialize FusionExecutor objects
@@ -1204,6 +1209,7 @@ void FusionKernelRuntime::compileKernel(
       scheduler_entry->params()->lparams,
       scheduler_entry->params()->cparams,
       fusion_id_,
+      device_id_,
       concrete_id_,
       group_id);
 }

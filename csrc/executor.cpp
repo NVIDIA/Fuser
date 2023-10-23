@@ -170,7 +170,7 @@ std::string FusionExecutor::getStructuredCode(
   if (isDebugDumpEnabled(DebugDumpOption::CudaToFile) ||
       isDebugDumpEnabled(DebugDumpOption::DebugInfo)) {
     std::stringstream file_name;
-    file_name << "__tmp_kernel" << kernelId() << ".cu";
+    file_name << "__tmp_kernel" << kernel_id_ << ".cu";
     debug() << "PRINTING: " << file_name.str() << std::endl;
     std::ofstream out(file_name.str());
     out << code << std::endl;
@@ -190,6 +190,7 @@ void FusionExecutor::debugCompileFusionFromStr(
     const std::string& code,
     const std::string& name,
     int64_t fusion_id,
+    int64_t device_id,
     int64_t concrete_id,
     int64_t segment_id,
     CompileOptions options) {
@@ -212,18 +213,7 @@ void FusionExecutor::debugCompileFusionFromStr(
   lowered_ = std::make_unique<GpuLower>(fusion);
   const auto kernel = lowered_->kernel();
   fusion_ = lowered_->kernel();
-
-  NVF_ERROR(fusion_id_ == -1, "Expected default fusion id before compilation.");
-  fusion_id_ = fusion_id;
-
-  NVF_ERROR(
-      concrete_id_ == -1, "Expected default concrete id before compilation.");
-  concrete_id_ = concrete_id;
-
-  NVF_ERROR(
-      segment_id_ == -1, "Expected default segment id before compilation.");
-  segment_id_ = segment_id;
-
+  createKernelId(fusion_id, device_id, concrete_id, segment_id);
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
@@ -244,7 +234,7 @@ void FusionExecutor::debugCompileFusionFromStr(
   }
 
   compiled_kernel_ =
-      executor_utils::getCompiledKernel(std::nullopt, code, name, kernelId());
+      executor_utils::getCompiledKernel(std::nullopt, code, name, kernel_id_);
   NVF_ERROR(fusion_id_ >= 0, "assign a fusion_id_ < 0 is not accepted.");
 }
 
@@ -254,6 +244,7 @@ void FusionExecutor::compileFusion(
     const LaunchParams& launch_constraints,
     CompileParams compile_params,
     int64_t fusion_id,
+    int64_t device_id,
     int64_t concrete_id,
     int64_t segment_id) {
   FUSER_PERF_SCOPE("FusionExecutor::compileFusion");
@@ -343,18 +334,7 @@ void FusionExecutor::compileFusion(
     hook(kernel);
   }
   fusion_ = lowered_->kernel()->as<Fusion>();
-
-  NVF_ERROR(fusion_id_ == -1, "Expected default fusion id before compilation.");
-  fusion_id_ = fusion_id;
-
-  NVF_ERROR(
-      concrete_id_ == -1, "Expected default concrete id before compilation.");
-  concrete_id_ = concrete_id;
-
-  NVF_ERROR(
-      segment_id_ == -1, "Expected default segment id before compilation.");
-  segment_id_ = segment_id;
-
+  createKernelId(fusion_id, device_id, concrete_id, segment_id);
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
@@ -445,7 +425,7 @@ void FusionExecutor::compileFusion(
       kernel_code_,
       structured_code,
       getCanonicalKernelName(),
-      kernelId(),
+      kernel_id_,
       compile_params,
       block_size);
   NVF_ERROR(
@@ -1557,7 +1537,7 @@ void FusionExecutor::recompileKernel(
       kernel_code_,
       structured_code,
       getCanonicalKernelName(),
-      kernelId(),
+      kernel_id_,
       new_compile_params,
       block_size_high_water_mark_);
 
@@ -1889,7 +1869,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         double gb_per_s =
             ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
             (double)1.0e9;
-        debug() << "kernel" << kernelId() << " run in " << kernel_time_ms_
+        debug() << "kernel" << kernel_id_ << " run in " << kernel_time_ms_
                 << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
       }
     }
@@ -1918,12 +1898,9 @@ void FusionExecutor::compileRtc(
   } else {
     scode = code;
   }
-  fusion_id_ = 0;
-  concrete_id_ = 0;
-  segment_id_ = 0;
-
+  createKernelId();
   compiled_kernel_ =
-      executor_utils::getCompiledKernel(std::nullopt, scode, name, kernelId());
+      executor_utils::getCompiledKernel(std::nullopt, scode, name, kernel_id_);
 }
 
 float FusionExecutor::runRtc(
@@ -2012,6 +1989,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       maxrregcount_high_water_mark_,
       warp_size_,
       fusion_id_,
+      device_id_,
       concrete_id_,
       segment_id_,
       kernel_code_.c_str(),
@@ -2159,6 +2137,7 @@ void FusionExecutor::deserialize(
   maxrregcount_high_water_mark_ = buffer->maxrregcount_high_water_mark();
   warp_size_ = buffer->warp_size();
   fusion_id_ = buffer->fusion_id();
+  device_id_ = buffer->device_id();
   concrete_id_ = buffer->concrete_id();
   segment_id_ = buffer->segment_id();
   kernel_code_ = buffer->kernel_code()->str();
@@ -2173,6 +2152,7 @@ void FusionExecutor::deserialize(
 
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
   fusion_ = lowered_->kernel()->as<Fusion>();
+  createKernelId();
   setUsedTVs();
 
   // GlobalBufferInfo requires lowered kernel before deserialization

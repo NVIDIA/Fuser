@@ -50,6 +50,7 @@ class FusionExecutor : public NonCopyable {
       const std::string& code,
       const std::string& name,
       int64_t fusion_id,
+      int64_t device_id,
       int64_t concrete_id,
       int64_t segment_id,
       CompileOptions options = CompileOptions());
@@ -74,6 +75,7 @@ class FusionExecutor : public NonCopyable {
       const LaunchParams& launch_constraints,
       CompileParams compile_params,
       int64_t fusion_id = 0,
+      int64_t device_id = 0,
       int64_t concrete_id = 0,
       int64_t segment_id = 0);
 
@@ -90,15 +92,16 @@ class FusionExecutor : public NonCopyable {
     compileFusion(fusion, args, launch_constraints, compile_params);
   }
 
+  //! Used by user defined schedules in python frontend
   void compileFusion(
       Fusion* fusion,
       const at::ArrayRef<c10::IValue>& inputs,
       int64_t fusion_id,
-      int64_t concrete_id) {
+      int64_t device_id) {
     KernelArgumentHolder args =
         KernelArgumentHolder::createKernelArgumentHolder(inputs);
     compileFusion(
-        fusion, args, LaunchParams(), CompileParams(), fusion_id, concrete_id);
+        fusion, args, LaunchParams(), CompileParams(), fusion_id, device_id);
   }
 
   std::vector<at::Tensor> runFusion(
@@ -141,7 +144,7 @@ class FusionExecutor : public NonCopyable {
     if (compiled_kernel_ != nullptr) {
       NVF_ERROR(compiled_kernel_->function != nullptr);
     }
-    return fusion_id_ != -1 && lowered_ && compiled_kernel_ != nullptr;
+    return !kernel_id_.empty() && lowered_ && compiled_kernel_ != nullptr;
   };
 
   void evictCache(size_t cache_id) {
@@ -256,18 +259,31 @@ class FusionExecutor : public NonCopyable {
     return kernelNamespace() + "::" + kernelName();
   }
 
-  std::string kernelId() const {
-    NVF_ERROR(fusion_id_ > -1, "Invalid fusion_id_ in kernel name.");
-    NVF_ERROR(concrete_id_ > -1, "Invalid concrete_id_ in kernel name.");
-    NVF_ERROR(segment_id_ > -1, "Invalid segment_id_ in kernel_name");
+  void createKernelId(
+      int64_t fusion_id = 0,
+      int64_t device_id = 0,
+      int64_t concrete_id = 0,
+      int64_t segment_id = 0) {
+    NVF_ERROR(fusion_id > -1, "Invalid fusion_id.");
+    NVF_ERROR(device_id > -1, "Invalid device_id.");
+    NVF_ERROR(concrete_id > -1, "Invalid concrete_id.");
+    NVF_ERROR(segment_id > -1, "Invalid segment_id");
+
+    fusion_id_ = fusion_id;
+    device_id_ = device_id;
+    concrete_id_ = concrete_id;
+    segment_id_ = segment_id;
+
     std::stringstream ss;
-    ss << "f" << fusion_id_ << "_c" << concrete_id_ << "_s" << segment_id_;
-    return ss.str();
+    ss << "f" << fusion_id_ << "_d" << device_id_ << "_c" << concrete_id_
+       << "_s" << segment_id_;
+    kernel_id_ = ss.str();
   }
 
   std::string kernelName() const {
+    NVF_ERROR(!kernel_id_.empty(), "Invalid kernel name for fusion executor.");
     std::stringstream ss;
-    ss << "nvfuser_" << kernelId();
+    ss << "nvfuser_" << kernel_id_;
     return ss.str();
   }
 
@@ -438,11 +454,18 @@ class FusionExecutor : public NonCopyable {
   // ID of fusion in python frontend fusion cache
   int64_t fusion_id_ = -1;
 
+  // ID of device in fusion executor cache
+  int64_t device_id_ = -1;
+
   // ID of concrete fusion in fusion executor cache
   int64_t concrete_id_ = -1;
 
   // ID of segment in fusion
   int64_t segment_id_ = -1;
+
+  // Kernel name for fusion executor
+  // "f[fusion_id]_d[device_id]_c[concrete_id]_s[segment_id]"
+  std::string kernel_id_;
 
   std::unique_ptr<GpuLower> lowered_;
   // Copy of lowered_->kernel()

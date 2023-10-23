@@ -94,6 +94,7 @@ class FusionKernelRuntime {
       const KernelArgumentHolder& inputs,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       int64_t fusion_id = 0,
+      int64_t device_id = 0,
       int64_t concrete_id = 0);
 
   //! Type notations within FusionKernelRuntime Context
@@ -301,6 +302,9 @@ class FusionKernelRuntime {
 
   // ID of fusion in python frontend fusion cache
   int64_t fusion_id_ = -1;
+
+  // ID of device in fusion executor cache
+  int64_t device_id_ = -1;
 
   // ID of concretized fusion in fusion executor cache
   int64_t concrete_id_ = -1;
