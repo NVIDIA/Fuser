@@ -375,7 +375,8 @@ table FusionExecutor {
   maxrregcount_high_water_mark: long;
   warp_size: long;
   fusion_id: long;
-  fusion_id_counter : long;
+  concrete_id : long;
+  segment_id : long;
   kernel_code : string;
   executor_entry_lookup_keys : [ulong];
   executor_entry_lookup_values : [ExecutorEntry];
@@ -389,6 +390,8 @@ table FusionExecutor {
 // Each fusion segment is given a FusionExecutor.
 // The unscheduled fusion is defined by traversing Trie in FusionCache.
 table FusionKernelRuntime {
+  fusion_id : long;
+  concrete_id : long;
   args : KernelArgumentHolder;
   executors : [FusionExecutor];
 }
@@ -420,6 +423,8 @@ table KernelRuntimeState {
 // This table describes the FusionExecutorCache.
 // The unscheduled fusion is defined by traversing Trie in FusionCache.
 table FusionExecutorCache {
+  fusion_id : long;
+
   inputs_cache : InputsIdLookup;
 
   // This field represents a map<<size_t, DynamicTransformConcretizationInfo>, vector<FusionKernelRuntime>>.

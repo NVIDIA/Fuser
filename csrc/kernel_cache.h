@@ -92,7 +92,9 @@ class FusionKernelRuntime {
   explicit FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      std::optional<PrimDataType> forced_index_type = std::nullopt);
+      std::optional<PrimDataType> forced_index_type = std::nullopt,
+      int64_t fusion_id = 0,
+      int64_t concrete_id = 0);
 
   //! Type notations within FusionKernelRuntime Context
   using HashType = size_t;
@@ -297,6 +299,12 @@ class FusionKernelRuntime {
 
   std::mutex mutex_;
 
+  // ID of fusion in python frontend fusion cache
+  int64_t fusion_id_ = -1;
+
+  // ID of concretized fusion in fusion executor cache
+  int64_t concrete_id_ = -1;
+
   // The heuristics and executor for most recent kernel launch
   ExecutorLog most_recent_executor_log_;
 };
@@ -490,7 +498,9 @@ class FusionExecutorCache {
   //! create new fusion executor cache at a given device to handle kernel
   //! generation of dynamic sizes
   //! fusion executor is taking the ownership of `fusion`
-  explicit FusionExecutorCache(std::unique_ptr<Fusion> fusion);
+  explicit FusionExecutorCache(
+      std::unique_ptr<Fusion> fusion,
+      int64_t fusion_id = 0);
 
   //! Execute fusion graph with given inputs, create `FusionExecutor` as needed
   //! Note this function also handles permutation & input update outside of
@@ -717,6 +727,9 @@ class FusionExecutorCache {
 
   //! Initial concretization info
   std::optional<DynamicTransformInitialInfo> initial_info_ = std::nullopt;
+
+  // ID of fusion in python frontend fusion cache
+  int64_t fusion_id_ = -1;
 };
 
 } // namespace nvfuser

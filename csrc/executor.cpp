@@ -38,8 +38,6 @@
 
 namespace nvfuser {
 
-int64_t FusionExecutor::fusion_id_counter_ = 0;
-
 bool fill_allocation_with_nan_ = false;
 
 bool shouldFillAllocationWithNan() {
@@ -172,7 +170,7 @@ std::string FusionExecutor::getStructuredCode(
   if (isDebugDumpEnabled(DebugDumpOption::CudaToFile) ||
       isDebugDumpEnabled(DebugDumpOption::DebugInfo)) {
     std::stringstream file_name;
-    file_name << "__tmp_kernel" << fusion_id_ << ".cu";
+    file_name << "__tmp_kernel" << kernelId() << ".cu";
     debug() << "PRINTING: " << file_name.str() << std::endl;
     std::ofstream out(file_name.str());
     out << code << std::endl;
@@ -191,7 +189,9 @@ void FusionExecutor::debugCompileFusionFromStr(
     Fusion* fusion,
     const std::string& code,
     const std::string& name,
-    int id,
+    int64_t fusion_id,
+    int64_t concrete_id,
+    int64_t segment_id,
     CompileOptions options) {
   options_ = options;
 
@@ -213,7 +213,17 @@ void FusionExecutor::debugCompileFusionFromStr(
   const auto kernel = lowered_->kernel();
   fusion_ = lowered_->kernel();
 
-  fusion_id_ = id;
+  NVF_ERROR(fusion_id_ == -1, "Expected default fusion id before compilation.");
+  fusion_id_ = fusion_id;
+
+  NVF_ERROR(
+      concrete_id_ == -1, "Expected default concrete id before compilation.");
+  concrete_id_ = concrete_id;
+
+  NVF_ERROR(
+      segment_id_ == -1, "Expected default segment id before compilation.");
+  segment_id_ = segment_id;
+
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
@@ -234,15 +244,18 @@ void FusionExecutor::debugCompileFusionFromStr(
   }
 
   compiled_kernel_ =
-      executor_utils::getCompiledKernel(std::nullopt, code, name, fusion_id_);
-  NVF_ERROR(fusion_id_ > 0, "assign a fusion_id_ <= 0 is not accepted.");
+      executor_utils::getCompiledKernel(std::nullopt, code, name, kernelId());
+  NVF_ERROR(fusion_id_ >= 0, "assign a fusion_id_ < 0 is not accepted.");
 }
 
 void FusionExecutor::compileFusion(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
-    CompileParams compile_params) {
+    CompileParams compile_params,
+    int64_t fusion_id,
+    int64_t concrete_id,
+    int64_t segment_id) {
   FUSER_PERF_SCOPE("FusionExecutor::compileFusion");
 
   NVF_ERROR(
@@ -331,7 +344,17 @@ void FusionExecutor::compileFusion(
   }
   fusion_ = lowered_->kernel()->as<Fusion>();
 
-  fusion_id_ = ++fusion_id_counter_;
+  NVF_ERROR(fusion_id_ == -1, "Expected default fusion id before compilation.");
+  fusion_id_ = fusion_id;
+
+  NVF_ERROR(
+      concrete_id_ == -1, "Expected default concrete id before compilation.");
+  concrete_id_ = concrete_id;
+
+  NVF_ERROR(
+      segment_id_ == -1, "Expected default segment id before compilation.");
+  segment_id_ = segment_id;
+
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
@@ -422,10 +445,11 @@ void FusionExecutor::compileFusion(
       kernel_code_,
       structured_code,
       getCanonicalKernelName(),
-      fusion_id_,
+      kernelId(),
       compile_params,
       block_size);
-  NVF_ERROR(fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
+  NVF_ERROR(
+      fusion_id_ > -1, "failed to assign a fusion_id_ after compilation.");
 
   // These should be nullopt at this point, but reset just in case
   resetCompiledKernelProperties();
@@ -1533,7 +1557,7 @@ void FusionExecutor::recompileKernel(
       kernel_code_,
       structured_code,
       getCanonicalKernelName(),
-      fusion_id_,
+      kernelId(),
       new_compile_params,
       block_size_high_water_mark_);
 
@@ -1620,7 +1644,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
   NVF_ERROR(isCompiled());
-  NVF_ERROR(fusion_id_ > 0, "Cannot run fusion, it was not compiled.");
+  NVF_ERROR(fusion_id_ >= 0, "Cannot run fusion, it was not compiled.");
   NVF_ERROR(
       !args.getCacheId().has_value() || outputs.empty(),
       "short cut input cache is not compatible with pre-allocated output");
@@ -1865,7 +1889,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         double gb_per_s =
             ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
             (double)1.0e9;
-        debug() << "kernel" << fusion_id_ << " run in " << kernel_time_ms_
+        debug() << "kernel" << kernelId() << " run in " << kernel_time_ms_
                 << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
       }
     }
@@ -1897,7 +1921,7 @@ void FusionExecutor::compileRtc(
   fusion_id_ = 1;
 
   compiled_kernel_ =
-      executor_utils::getCompiledKernel(std::nullopt, scode, name, fusion_id_);
+      executor_utils::getCompiledKernel(std::nullopt, scode, name, kernelId());
 }
 
 float FusionExecutor::runRtc(
@@ -1986,7 +2010,8 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       maxrregcount_high_water_mark_,
       warp_size_,
       fusion_id_,
-      fusion_id_counter_,
+      concrete_id_,
+      segment_id_,
       kernel_code_.c_str(),
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
@@ -2132,7 +2157,8 @@ void FusionExecutor::deserialize(
   maxrregcount_high_water_mark_ = buffer->maxrregcount_high_water_mark();
   warp_size_ = buffer->warp_size();
   fusion_id_ = buffer->fusion_id();
-  fusion_id_counter_ = buffer->fusion_id_counter();
+  concrete_id_ = buffer->concrete_id();
+  segment_id_ = buffer->segment_id();
   kernel_code_ = buffer->kernel_code()->str();
 
   // KernelDB query checks kernel_code string and compile_params before

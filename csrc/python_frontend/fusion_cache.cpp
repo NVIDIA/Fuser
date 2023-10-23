@@ -26,14 +26,15 @@ UserSchedule::UserSchedule() : schedule(nullptr), executor(nullptr) {
   executor = std::make_unique<FusionExecutor>();
 }
 
-FusionSchedules::FusionSchedules()
+FusionSchedules::FusionSchedules(int64_t fusion_id)
     : auto_gen_schedules(nullptr),
       user_def_schedules(),
       last_user_def_scheduled_ir(nullptr),
       last_user_def_executor(nullptr),
-      scheds_lock() {
-  auto_gen_schedules =
-      std::make_unique<FusionExecutorCache>(std::make_unique<Fusion>());
+      scheds_lock(),
+      fusion_id_{fusion_id} {
+  auto_gen_schedules = std::make_unique<FusionExecutorCache>(
+      std::make_unique<Fusion>(), fusion_id);
 }
 
 Fusion* FusionSchedules::preschedFusion() {
@@ -248,8 +249,8 @@ TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
           max_fusions_,
           "fusions.  The max_fusions for the FusionCache might need to be ",
           "increased if the max number is not being exceeded due to an error.");
-      fusions_.emplace_back(std::make_unique<FusionSchedules>());
-      fusion_id = fusions_.size() - 1;
+      fusion_id = fusions_.size();
+      fusions_.emplace_back(std::make_unique<FusionSchedules>(fusion_id));
     }
 
     // Copying the record owned by the FusionDefinition that calls this function
@@ -295,6 +296,8 @@ UserSchedule* FusionCache::createUserSchedule(
       user_scheds[input_id.id].at(device) = UserSchedule();
     }
   }
+  user_scheds[input_id.id].at(device).fusion_id_ = scheds->fusion_id_;
+  user_scheds[input_id.id].at(device).device_id_ = device;
   return &user_scheds[input_id.id].at(device);
 }
 

@@ -49,7 +49,9 @@ class FusionExecutor : public NonCopyable {
       Fusion* fusion,
       const std::string& code,
       const std::string& name,
-      int id,
+      int64_t fusion_id,
+      int64_t concrete_id,
+      int64_t segment_id,
       CompileOptions options = CompileOptions());
 
   //! This function is useful for parallel compilation of segmented fusions.
@@ -70,7 +72,10 @@ class FusionExecutor : public NonCopyable {
       Fusion* fusion,
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
-      CompileParams compile_params);
+      CompileParams compile_params,
+      int64_t fusion_id = 0,
+      int64_t concrete_id = 0,
+      int64_t segment_id = 0);
 
   // TODO: merge it with the overload above.
   //! This API is merely here so we don't have to go back and update all cpp
@@ -83,6 +88,17 @@ class FusionExecutor : public NonCopyable {
     KernelArgumentHolder args =
         KernelArgumentHolder::createKernelArgumentHolder(inputs);
     compileFusion(fusion, args, launch_constraints, compile_params);
+  }
+
+  void compileFusion(
+      Fusion* fusion,
+      const at::ArrayRef<c10::IValue>& inputs,
+      int64_t fusion_id,
+      int64_t concrete_id) {
+    KernelArgumentHolder args =
+        KernelArgumentHolder::createKernelArgumentHolder(inputs);
+    compileFusion(
+        fusion, args, LaunchParams(), CompileParams(), fusion_id, concrete_id);
   }
 
   std::vector<at::Tensor> runFusion(
@@ -240,9 +256,18 @@ class FusionExecutor : public NonCopyable {
     return kernelNamespace() + "::" + kernelName();
   }
 
+  std::string kernelId() const {
+    NVF_ERROR(fusion_id_ > -1, "Invalid fusion_id_ in kernel name.");
+    NVF_ERROR(concrete_id_ > -1, "Invalid concrete_id_ in kernel name.");
+    NVF_ERROR(segment_id_ > -1, "Invalid segment_id_ in kernel_name");
+    std::stringstream ss;
+    ss << "f" << fusion_id_ << "_c" << concrete_id_ << "_s" << segment_id_;
+    return ss.str();
+  }
+
   std::string kernelName() const {
     std::stringstream ss;
-    ss << "kernel" << fusion_id_;
+    ss << "nvfuser_" << kernelId();
     return ss.str();
   }
 
@@ -410,9 +435,14 @@ class FusionExecutor : public NonCopyable {
   // TensorViews actually used in the kernel.
   std::vector<TensorView*> used_tvs_;
 
-  // Counter to be used for kernel name.
+  // ID of fusion in python frontend fusion cache
   int64_t fusion_id_ = -1;
-  static int64_t fusion_id_counter_;
+
+  // ID of concrete fusion in fusion executor cache
+  int64_t concrete_id_ = -1;
+
+  // ID of segment in fusion
+  int64_t segment_id_ = -1;
 
   std::unique_ptr<GpuLower> lowered_;
   // Copy of lowered_->kernel()
