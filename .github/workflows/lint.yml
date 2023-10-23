@@ -30,7 +30,7 @@ jobs:
           pip install lintrunner
 
           # Initialize lintrunner
-          lintrunner init 2> /dev/null
+          lintrunner --config .lintrunner.toml init 2> /dev/null
 
           wait
 
@@ -49,7 +49,7 @@ jobs:
           git checkout $this_commit
           # diff-filter for lower case letter:
           # https://github.com/git/git/commit/7f2ea5f0f2fb056314092cce23202096ca70f076
-          git --no-pager diff --diff-filter=d --name-only $head_commit | grep -e "csrc/.*\.cpp" -e "csrc/.*\.h" | xargs lintrunner --take CLANGTIDY --force-color
+          git --no-pager diff --diff-filter=d --name-only $head_commit | grep -e "csrc/.*\.cpp" -e "csrc/.*\.h" | xargs lintrunner --config .lintrunner.toml --take CLANGTIDY --force-color
 
   lintrunner:
     runs-on: ubuntu-latest
@@ -71,7 +71,7 @@ jobs:
           pip install lintrunner
 
           # Initialize lintrunner
-          lintrunner init
+          lintrunner --config .lintrunner.toml init
 
           # Run lintrunner except clang-tidy
-          lintrunner --skip CLANGTIDY --all-files --verbose
+          lintrunner --config .lintrunner.toml --skip CLANGTIDY --all-files --verbose
