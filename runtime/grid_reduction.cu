@@ -623,4 +623,157 @@ __device__ void gridReduceGroup(
 }
 #endif // NVFUSER_PROFILE_KERNEL
 
+namespace gridsequential {
+
+template <
+    bool X_BLOCK,
+    bool Y_BLOCK,
+    bool Z_BLOCK,
+    bool X_THREAD,
+    bool Y_THREAD,
+    bool Z_THREAD,
+    bool PERSISTENT_REDUCTION,
+    bool Aligned>
+__device__ void initialSync(int64_t* sync_flags) {
+  // Only allow linear_tid == 0 to participate in the synchronization
+  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+    // Which block is this within this segment
+    const auto segment_block_idx =
+        index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
+
+    int64_t& semaphore = sync_flags[segment_idx];
+
+    int64_t sem_val = 0LL;
+
+    // If for persistent kernels, lock all blocks until the semaphore has been
+    // reached. Make sure we access semaphore as a volatile address so we get
+    // the global memory updates.
+    while (sem_val < segment_block_idx) {
+      // Put a sleep here so we have some breaks in probing the global
+      // semaphore, giving a better chance for other warps/blocks to catch up.
+#if __CUDA_ARCH__ >= 700
+      // __nanosleep only available on compute capability 7.0 or higher
+
+      // Avoid busy waiting, but sleep less as we get closer to our turn.
+      //
+      // The intention here is to reduce IO from many blocks reading the same
+      // semaphore at once. If sleep time is proportional to expected wait
+      // time, and if all blocks are launched at once (i.e. a single wave),
+      // then this means the rate of requests at the beginning of the launch is
+      // approximately
+      //
+      //   sum_{i=1}^{N-1} 1/(a * i) = 1/a * H_{N-1}
+      //
+      // where H_n is the nth harmonic number, which is approximately ln(n). So
+      // this gives us log scaling in rate of loads compared to linear scaling
+      // if we used a fixed wait time.
+
+      // I tested wait time factors that were powers of two from 0, 1, 2, 4,
+      // ... 2048 Runtime for this test is pretty much unchanged until we get
+      // to a factor of 256 after which it starts falling off.
+      // (GeForce 3090 Ti)
+      unsigned int ns = 8 * (segment_block_idx - sem_val);
+      __nanosleep(ns);
+#endif
+      sem_val = grid_sync::globalAsVolatile(semaphore);
+    }
+  }
+
+  // Sync block to make sure all other threads are waiting on the sync
+  block_sync::sync<Aligned>();
+}
+
+template <
+    bool X_BLOCK,
+    bool Y_BLOCK,
+    bool Z_BLOCK,
+    bool X_THREAD,
+    bool Y_THREAD,
+    bool Z_THREAD,
+    bool PERSISTENT_REDUCTION,
+    bool Aligned>
+__device__ void finalSync(int64_t* sync_flags) {
+  // Which block is this within this segment
+  const auto segment_block_idx =
+      index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
+
+  bool last_block =
+      index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
+
+  int64_t& semaphore = sync_flags[segment_idx];
+
+  // Sync block to make sure all threads are done updating the output
+  block_sync::sync<Aligned>();
+
+  // Only allow linear_tid == 0 to participate in the synchronization
+  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+    if (!last_block) { // Increment semaphore unless we're already done
+      semaphore = segment_block_idx + 1LL;
+    }
+  }
+}
+
+template <
+    bool X_BLOCK,
+    bool Y_BLOCK,
+    bool Z_BLOCK,
+    bool X_THREAD,
+    bool Y_THREAD,
+    bool Z_THREAD,
+    bool PERSISTENT_REDUCTION,
+    bool Aligned,
+    typename T,
+    typename Func>
+__device__ void reduceValue(
+    T& out,
+    const T& inp_val,
+    const nvfuser_index_t index,
+    Func reduction_op,
+    volatile T* work_buf,
+    int64_t* sync_flags,
+    T* shared_buf,
+    bool read_pred,
+    bool write_pred,
+    T init_val) {
+  T block_reduction_val = init_val;
+
+  // Do block reduction when required
+  if (X_THREAD || Y_THREAD || Z_THREAD) {
+    blockReduce<X_THREAD, Y_THREAD, Z_THREAD, Aligned>(
+        block_reduction_val,
+        inp_val,
+        reduction_op,
+        shared_buf,
+        read_pred,
+        true,
+        init_val);
+  } else if (read_pred) {
+    block_reduction_val = inp_val;
+  }
+
+  // Number of values to reduce in the reduction segment
+  const auto grid_reduction_segment_size =
+      index_utils::maskedSize<X_BLOCK, Y_BLOCK, Z_BLOCK>(gridDim);
+
+  // Index of the reduction we're performing out of the
+  // grid_reduction_segment_size
+  const auto idx_in_grid_segment =
+      index_utils::maskedOffset<!X_BLOCK, !Y_BLOCK, !Z_BLOCK>(
+          blockIdx, gridDim);
+
+  if ((!X_THREAD || threadIdx.x == 0) && (!Y_THREAD || threadIdx.y == 0) &&
+      (!Z_THREAD || threadIdx.z == 0)) {
+    reduction_op(block_reduction_val, work_buf[index]);
+  }
+
+  bool last_block =
+      index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
+
+  if (!last_block && write_pred) {
+    work_buf[index] = block_reduction_val;
+  }
+}
+
+} // namespace gridsequential
+
 } // namespace reduction
