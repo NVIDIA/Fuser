@@ -6,7 +6,8 @@ on:
     branches:
       - main
       - nWEIdia-patch-1
-# the most recent commit in the PR would cancel older commit's in-progress workflows
+# cancels concurrent in-progress runs of the pull request, if not a PR, do not cancel
+# pushes to main branch will generate an uniq run_id, PR.number will be
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id}}
   cancel-in-progress: true
