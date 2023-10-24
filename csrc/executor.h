@@ -53,7 +53,8 @@ class FusionExecutor : public NonCopyable {
       int64_t fusion_id,
       int64_t device_id,
       int64_t concrete_id,
-      int64_t segment_id,
+      int64_t schedule_id,
+      int64_t group_id,
       CompileOptions options = CompileOptions());
 
   //! This function is useful for parallel compilation of segmented fusions.
@@ -79,7 +80,8 @@ class FusionExecutor : public NonCopyable {
       int64_t fusion_id = 0,
       int64_t device_id = 0,
       int64_t concrete_id = 0,
-      int64_t segment_id = 0);
+      int64_t schedule_id = 0,
+      int64_t group_id = 0);
 
   // TODO: merge it with the overload above.
   //! This API is merely here so we don't have to go back and update all cpp
@@ -272,24 +274,28 @@ class FusionExecutor : public NonCopyable {
       int64_t fusion_id = 0,
       int64_t device_id = 0,
       int64_t concrete_id = 0,
-      int64_t segment_id = 0) {
+      int64_t schedule_id = 0,
+      int64_t group_id = 0) {
     NVF_ERROR(fusion_id > -1, "Invalid fusion_id.");
     NVF_ERROR(device_id > -1, "Invalid device_id.");
     NVF_ERROR(concrete_id > -1, "Invalid concrete_id.");
-    NVF_ERROR(segment_id > -1, "Invalid segment_id");
+    NVF_ERROR(schedule_id > -1, "Invalid schedule_id.");
+    NVF_ERROR(group_id > -1, "Invalid group_id");
 
     heuristic_ = heuristic;
     fusion_id_ = fusion_id;
     device_id_ = device_id;
     concrete_id_ = concrete_id;
-    segment_id_ = segment_id;
+    schedule_id_ = schedule_id;
+    group_id_ = group_id;
 
     std::stringstream ss;
     ss << toString(heuristic_);
     ss << "_f" << fusion_id_;
     ss << "_d" << device_id_;
     ss << "_c" << concrete_id_;
-    ss << "_s" << segment_id_;
+    ss << "_s" << schedule_id_;
+    ss << "_g" << group_id_;
     kernel_id_ = ss.str();
   }
 
@@ -336,7 +342,8 @@ class FusionExecutor : public NonCopyable {
       int64_t fusion_id,
       int64_t device_id,
       int64_t concrete_id,
-      int64_t segment_id);
+      int64_t schedule_id,
+      int64_t group_id);
 
  private:
   static std::string kernelNamespace() {
@@ -478,13 +485,17 @@ class FusionExecutor : public NonCopyable {
   // ID of concrete fusion in fusion executor cache
   int64_t concrete_id_ = -1;
 
+  // ID of scheduled fusion given (device, concrete_info) key in fusion executor
+  // cache
+  int64_t schedule_id_ = -1;
+
   // ID of segment in fusion
-  int64_t segment_id_ = -1;
+  int64_t group_id_ = -1;
 
   ScheduleHeuristic heuristic_ = ScheduleHeuristic::None;
 
   // Kernel name for fusion executor
-  // "f[fusion_id]_d[device_id]_c[concrete_id]_s[segment_id]"
+  // "f[fusion_id]_d[device_id]_c[concrete_id]_s[group_id]"
   std::string kernel_id_;
 
   std::unique_ptr<GpuLower> lowered_;

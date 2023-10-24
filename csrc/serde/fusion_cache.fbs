@@ -378,7 +378,8 @@ table FusionExecutor {
   fusion_id: long;
   device_id: long;
   concrete_id: long;
-  segment_id: long;
+  schedule_id: long;
+  group_id: long;
   kernel_code: string;
   executor_entry_lookup_keys: [ulong];
   executor_entry_lookup_values: [ExecutorEntry];
@@ -395,6 +396,7 @@ table FusionKernelRuntime {
   fusion_id: long;
   device_id: long;
   concrete_id: long;
+  schedule_id: long;
   args: KernelArgumentHolder;
   executors: [FusionExecutor];
 }
@@ -420,6 +422,7 @@ table InputsIdLookup {
 table KernelRuntimeState {
   device_id: ulong;
   has_dynamic_transform_info: bool;
+  concrete_id: long;
   runtimes: [FusionKernelRuntime];
 }
 

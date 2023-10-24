@@ -95,7 +95,8 @@ class FusionKernelRuntime {
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       int64_t fusion_id = 0,
       int64_t device_id = 0,
-      int64_t concrete_id = 0);
+      int64_t concrete_id = 0,
+      int64_t schedule_id = 0);
 
   //! Type notations within FusionKernelRuntime Context
   using HashType = size_t;
@@ -308,6 +309,10 @@ class FusionKernelRuntime {
 
   // ID of concretized fusion in fusion executor cache
   int64_t concrete_id_ = -1;
+
+  // ID of scheduled fusion given (device, concrete_info) key in fusion executor
+  // cache
+  int64_t schedule_id_ = -1;
 
   // The heuristics and executor for most recent kernel launch
   ExecutorLog most_recent_executor_log_;
@@ -711,6 +716,12 @@ class FusionExecutorCache {
       cached_initial_info_;
   std::vector<std::unique_ptr<DynamicTransformConcretizationInfo>>
       cached_conc_info_;
+  std::unordered_map<
+      std::pair<int8_t, const DynamicTransformConcretizationInfo*>,
+      int64_t,
+      PairPointerHash,
+      PairPointerEquals>
+      conc_info_id_map_;
 
   //! Logging state for most recent compilation
   bool profiling_ = false;

@@ -192,7 +192,8 @@ void FusionExecutor::debugCompileFusionFromStr(
     int64_t fusion_id,
     int64_t device_id,
     int64_t concrete_id,
-    int64_t segment_id,
+    int64_t schedule_id,
+    int64_t group_id,
     CompileOptions options) {
   options_ = options;
 
@@ -214,7 +215,12 @@ void FusionExecutor::debugCompileFusionFromStr(
   const auto kernel = lowered_->kernel();
   fusion_ = lowered_->kernel();
   createKernelId(
-      ScheduleHeuristic::None, fusion_id, device_id, concrete_id, segment_id);
+      ScheduleHeuristic::None,
+      fusion_id,
+      device_id,
+      concrete_id,
+      schedule_id,
+      group_id);
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
@@ -248,7 +254,8 @@ void FusionExecutor::compileFusion(
     int64_t fusion_id,
     int64_t device_id,
     int64_t concrete_id,
-    int64_t segment_id) {
+    int64_t schedule_id,
+    int64_t group_id) {
   FUSER_PERF_SCOPE("FusionExecutor::compileFusion");
 
   NVF_ERROR(
@@ -336,7 +343,8 @@ void FusionExecutor::compileFusion(
     hook(kernel);
   }
   fusion_ = lowered_->kernel()->as<Fusion>();
-  createKernelId(heuristic, fusion_id, device_id, concrete_id, segment_id);
+  createKernelId(
+      heuristic, fusion_id, device_id, concrete_id, schedule_id, group_id);
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
@@ -1994,7 +2002,8 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       fusion_id_,
       device_id_,
       concrete_id_,
-      segment_id_,
+      schedule_id_,
+      group_id_,
       kernel_code_.c_str(),
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
@@ -2134,7 +2143,8 @@ void FusionExecutor::deserialize(
     int64_t fusion_id,
     int64_t device_id,
     int64_t concrete_id,
-    int64_t segment_id) {
+    int64_t schedule_id,
+    int64_t group_id) {
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
 
   NVF_ERROR(buffer != nullptr, "serde::FusionExecutor is nullptr.");
@@ -2148,8 +2158,11 @@ void FusionExecutor::deserialize(
       concrete_id == buffer->concrete_id(),
       "Expected given concrete_id to match serde concrete_id.");
   NVF_ERROR(
-      segment_id == buffer->segment_id(),
-      "Expected given segment_id to match serde segment_id.");
+      schedule_id == buffer->schedule_id(),
+      "Expected given schedule_id to match serde schedule_id.");
+  NVF_ERROR(
+      group_id == buffer->group_id(),
+      "Expected given group_id to match serde group_id.");
   NVF_ERROR(castEnumToUnderlyingType(heuristic) == buffer->heuristic());
 
   // Initialize internal fields
@@ -2174,7 +2187,8 @@ void FusionExecutor::deserialize(
       buffer->fusion_id(),
       buffer->device_id(),
       buffer->concrete_id(),
-      buffer->segment_id());
+      buffer->schedule_id(),
+      buffer->group_id());
   setUsedTVs();
 
   // GlobalBufferInfo requires lowered kernel before deserialization
