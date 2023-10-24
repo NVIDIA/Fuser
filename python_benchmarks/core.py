@@ -197,7 +197,7 @@ def run_benchmark(
     benchmark_fn: Callable,
     inputs: Union[torch.Tensor, List],
     rounds: int = 10,
-    warmup_rounds: int = 0,
+    warmup_rounds: int = 1,
 ) -> Union[torch.Tensor, List]:
     """
     Benchmarks the target function using torchprofiler and stores metrics as extra information.
