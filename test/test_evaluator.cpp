@@ -435,13 +435,44 @@ TEST_F(ExprEvalTest, ViewAndPermute) {
   out = reshape(out, {IrBuilder::create<Val>(6), size(out, 2)});
   fusion.addOutput(out);
 
-  at::Tensor in_tensor = at::rand({9, 8}).as_strided({9, 6}, {8, 1}).cuda();
-  std::cerr << in_tensor.strides() << std::endl;
+  at::Tensor in_tensor = at::rand({9, 8}).cuda().as_strided({9, 6}, {8, 1});
+  EXPECT_THAT(in_tensor.strides(), testing::ElementsAre(8, 1));
 
   ExpressionEvaluator evaluator;
   evaluator.bind(in, in_tensor);
   at::Tensor out_tensor = evaluator.evaluate(out).as<at::Tensor>();
   std::cerr << out_tensor.strides() << std::endl;
+}
+
+TEST_F(ExprEvalTest, ViewAndPermuteMetadata) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in =
+      TensorViewBuilder().shape({-1, 6}).dtype(DataType::Float).build();
+  fusion.addInput(in);
+  TensorView* out = reshape(
+      in, {size(in, 0), IrBuilder::create<Val>(2), IrBuilder::create<Val>(3)});
+  out = permute(out, {1, 2, 0});
+  out = reshape(out, {IrBuilder::create<Val>(6), size(out, 2)});
+  fusion.addOutput(out);
+
+  Val* in_metadata = IrBuilder::metadataExpr(in);
+  Val* in_shape = IrBuilder::getAttrExpr(in_metadata, "logical_size");
+  Val* dim_0 = IrBuilder::getItemExpr(in_shape, fusion.zeroVal());
+  Val* dim_1 = IrBuilder::getItemExpr(in_shape, fusion.oneVal());
+
+  at::Tensor in_tensor = at::rand({72}).cuda().as_strided({9, 6}, {8, 1});
+  EXPECT_THAT(in_tensor.strides(), testing::ElementsAre(8, 1));
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(in, in_tensor);
+  EXPECT_EQ(evaluator.evaluate(dim_0), 9);
+  EXPECT_EQ(evaluator.evaluate(dim_1), 6);
+  // ExpressionEvaluator is able to compute the rfactor domain extents without
+  // evaluating `View` or `Set.Permute`.
+  EXPECT_EQ(evaluator.evaluate(out->getRFactorDomain()[0]->extent()), 6);
+  EXPECT_EQ(evaluator.evaluate(out->getRFactorDomain()[1]->extent()), 9);
 }
 
 TEST_F(ExprEvalTest, TensorMetaData) {
