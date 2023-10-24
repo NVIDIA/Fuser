@@ -9,7 +9,7 @@ on:
 # the most recent commit in the PR would cancel older commit's in-progress workflows
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
-  cancel-in-progress: ${{ github.head_ref? 'true':'false' }}
+  cancel-in-progress: ${{ github.event.pull_request? 'true':'false' }}
 
 env:
   working_directory: .
