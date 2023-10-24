@@ -122,6 +122,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"fusion_ir_math", DebugDumpOption::FusionIrMath},
       {"fusion_ir_presched", DebugDumpOption::FusionIrPresched},
       {"fusion_profiler", DebugDumpOption::FusionProfiler},
+      {"fusion_profiler_nocupti", DebugDumpOption::FusionProfilerNocupti},
       {"fusion_profiler_verbose", DebugDumpOption::FusionProfilerVerbose},
       {"halo", DebugDumpOption::Halo},
       {"index_type", DebugDumpOption::IndexType},
@@ -154,7 +155,8 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
   const std::unordered_map<std::string, EnableOption> available_options = {
       {"complex", EnableOption::Complex},
       {"conv_decomposition", EnableOption::ConvDecomposition},
-      {"fuson_profiler", EnableOption::FusionProfiler},
+      {"fusion_profiler", EnableOption::FusionProfiler},
+      {"fusion_profiler_nocupti", EnableOption::FusionProfilerNocupti},
       {"graph_op_fusion", EnableOption::GraphOp},
       {"kernel_db", EnableOption::KernelDb},
       {"kernel_profile", EnableOption::KernelProfile},
