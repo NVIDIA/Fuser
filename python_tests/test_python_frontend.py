@@ -29,6 +29,7 @@ try:
         Tensor,
         version,
         compute_contiguity,
+        compute_tensor_descriptor,
     )
     from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 except ImportError:
@@ -1382,6 +1383,49 @@ class TestNvFuserFrontend(TestCase):
         contiguity = [False, None, True, None, None, True, False]
         self.assertEqual(compute_contiguity(sizes, strides), contiguity)
 
+    def test_compute_tensor_descriptor(self):
+        sizes = [2, 1, 3, 1, 4, 3]
+        strides = [12, 4, 4, 4, 1, 0]
+        contiguity = [True, None, True, None, True, None]
+        stride_order = [5, 4, 3, 2, 1, 0]
+        computed_contiguity, computed_stride_order = compute_tensor_descriptor(
+            sizes, strides
+        )
+        self.assertEqual(computed_contiguity, contiguity)
+        self.assertEqual(computed_stride_order, stride_order)
+
+        sizes = [2, 3, 1, 5, 4]
+        strides = [28, 4, 14, 0, 1]
+        contiguity = [False, None, True, True, None]
+        stride_order = [4, 2, 3, 0, 1]
+        computed_contiguity, computed_stride_order = compute_tensor_descriptor(
+            sizes, strides
+        )
+        self.assertEqual(computed_contiguity, contiguity)
+        self.assertEqual(computed_stride_order, stride_order)
+
+    def test_stride_order_with_explicit_broadcast(self):
+        inputs = [
+            torch.randn(3, device="cuda").unsqueeze(-1),
+            torch.randn(2, 3, device="cuda")
+            .unsqueeze(-1)
+            .expand(2, 3, 4)
+            .transpose(2, 0),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+
+            t0_b = fd.ops.broadcast(t0, [True, False, False])
+            t2 = fd.ops.add(t0_b, t1)
+
+            fd.add_output(t2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = inputs[0] + inputs[1]
+        self.assertEqual(eager_out, nvf_out[0])
+
     def test_prod(self):
         inputs = [
             torch.ones(2, 4, 8, device="cuda"),
@@ -1625,7 +1669,7 @@ class TestNvFuserFrontend(TestCase):
 
     def test_pad(self):
         inputs = [
-            torch.testing.make_tensor((2, 3), dtype=torch.float32, device="cuda"),
+            torch.testing.make_tensor((1, 2, 3), dtype=torch.float32, device="cuda"),
         ]
 
         def fusion_func(fd: FusionDefinition):
@@ -1651,6 +1695,10 @@ class TestNvFuserFrontend(TestCase):
             t5 = fd.ops.pad(t0, [2, 3], fill_val)
             fd.add_output(t5)
 
+            # pad a broadcast dimension with a value other than 0
+            t6 = fd.ops.pad(t0, [2, 3, 0, 0, 0, 0])
+            fd.add_output(t6)
+
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
         self.assertEqual(F.pad(inputs[0], [1, 1, 1, 1]), nvf_out[0])
@@ -1658,6 +1706,7 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(F.pad(inputs[0], [0, 0, 0, 0]), nvf_out[2])
         self.assertEqual(F.pad(inputs[0], [2, 3]), nvf_out[3])
         self.assertEqual(F.pad(inputs[0], [2, 3], "constant", 2.0), nvf_out[4])
+        self.assertEqual(F.pad(inputs[0], [2, 3, 0, 0, 0, 0]), nvf_out[5])
 
     def test_pad_cache(self):
         """Test that using different pad widths causes a cache miss.
@@ -1878,9 +1927,9 @@ class TestNvFuserFrontend(TestCase):
             T0_slice1 = fd.ops.slice(T0, [0, 0, 0], [16, 128, 1024], [1, 1, 1])
             T0_slice2 = fd.ops.slice(T0, [0, 0, 1024], [16, 128, 2048], [1, 1, 1])
             T0_slice3 = fd.ops.slice(T0, [0, 0, 2048], [16, 128, 3072], [1, 1, 1])
-            T1_slice1 = fd.ops.reshape(T0_slice1, [16, 128, 1024], [16, 128, 16, 64])
-            T1_slice2 = fd.ops.reshape(T0_slice2, [16, 128, 1024], [16, 128, 16, 64])
-            T1_slice3 = fd.ops.reshape(T0_slice3, [16, 128, 1024], [16, 128, 16, 64])
+            T1_slice1 = fd.ops.reshape(T0_slice1, [16, 128, 16, 64])
+            T1_slice2 = fd.ops.reshape(T0_slice2, [16, 128, 16, 64])
+            T1_slice3 = fd.ops.reshape(T0_slice3, [16, 128, 16, 64])
             T2_slice1 = fd.ops.permute(T1_slice1, [0, 2, 1, 3])
             T2_slice2 = fd.ops.permute(T1_slice2, [0, 2, 1, 3])
             T2_slice3 = fd.ops.permute(T1_slice3, [0, 2, 1, 3])
@@ -2480,6 +2529,75 @@ class TestNvFuserFrontend(TestCase):
 
         self.assertEqual(nvf_out[0].shape, (0, 0))
         self.assertEqual(nvf_out[1].shape, (0, 0))
+
+    # Test that a pad of an expanded empty tensor works properly
+    # See https://github.com/NVIDIA/Fuser/issues/596#issuecomment-1714465618
+    def test_pad_expanded_empty(self):
+        inputs = [
+            torch.randn((0,), dtype=torch.float64, device="cuda:0").as_strided(
+                (2, 0, 3), (0, 0, 0)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            S1 = fd.define_scalar(-3.70753, dtype=DataType.Double)
+            T2 = fd.ops.pad(T0, [0, 0, 1, 1, 1, 0], S1)
+            fd.add_output(T2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        torch_ref = F.pad(inputs[0], (0, 0, 1, 1, 1, 0), "constant", -3.70753)
+
+        self.assertEqual(nvf_out[0], torch_ref)
+
+    def test_dynamic_reshape(self):
+        def dynamic_reshape() -> FusionDefinition:
+            with FusionDefinition() as fd:
+                x = fd.define_tensor([-1, -1], [True, True])
+                d0 = fd.ops.size(x, 0)
+                d1 = fd.define_scalar(dtype=DataType.Int32)
+                d2 = fd.define_scalar(dtype=DataType.Int32)
+                new_shape = fd.define_vector([d0, d1, d2])
+                y = fd.ops.reshape(x, new_shape)
+                fd.add_output(y)
+            return fd
+
+        fd = dynamic_reshape()
+
+        x = torch.rand(3, 4, device="cuda")
+        ys = fd.execute([x, 2, 2])
+        self.assertEqual(len(ys), 1)
+        y = ys[0]
+
+        self.assertEqual(y.shape, torch.Size([3, 2, 2]))
+        self.assertEqual(x.flatten(), y.flatten())
+
+    def test_allocation_domain_index_select(self):
+        inputs = [
+            torch.randn((252,), dtype=torch.float32, device="cuda:0").as_strided(
+                (9, 28), (1, 9)
+            ),
+            torch.randint(0, 28, (4,), dtype=torch.int64, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T1 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[0, 1],
+            )
+            T2 = fd.define_tensor(
+                shape=[-1], contiguity=[True], dtype=DataType.Int, is_cpu=False
+            )
+            T3 = fd.ops.index_select(T1, T2, dim=1)
+            fd.add_output(T3)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        torch_ref = torch.index_select(inputs[0], 1, inputs[1])
+        self.assertEqual(nvf_out[0], torch_ref)
 
 
 if __name__ == "__main__":

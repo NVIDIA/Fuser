@@ -40,18 +40,18 @@ set -e
 set -o pipefail
 
 usage() {
-  echo "Usage: $0 [-h] [-r origin/main] [-o codegen_comparison] [-- custom command to run]"
+  echo "Usage: $0 [-h] [-q] [-r origin/main] [-o codegen_comparison] [-- custom command to run]"
   echo -n "If given, the custom command should only run a single executable. "
   echo "If multiple executables are run, kernel files may be overwritten."
 }
 
 # top-level directory of nvfuser repo
-nvfuserdir=$(dirname $(dirname $(readlink -f $BASH_SOURCE)))
+nvfuserdir="$(dirname "$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")")"
 
 comparetoref=origin/main
 outdir=$nvfuserdir/codegen_comparison
 
-while getopts "r:o:h-" arg
+while getopts "r:o:hq" arg
 do
   case $arg in
     r)
@@ -59,6 +59,9 @@ do
       ;;
     o)
       outdir=$OPTARG
+      ;;
+    q)
+      quiet=1
       ;;
     h | ?)
       usage
@@ -85,6 +88,13 @@ then
     exit 1
 fi
 
+# These braces are important since they will force bash to read the entire file
+# into memory before execution. Otherwise, if the script changes during
+# execution we might run the updated code instead of the original. See the
+# later note about $scriptdir which addresses this problem for other scripts
+# called by this one.
+{
+
 # save current commit and current head so we can switch back to branch
 currentcommit=$(git describe --always --long)
 origcommit=$currentcommit
@@ -94,6 +104,12 @@ comparecommit=$(git describe --always --long "$comparetoref")
 
 # record launch time to name custom command directories consistently
 launchtime=$(date +%Y%m%d_%H%M%S)
+
+# We will be modifying the git repository. Since this might change the scripts
+# we need to run, we first copy the codediff directory to a temp dir, then we
+# can safely run the copied scripts from there.
+scriptdir=$(mktemp -d -t codediffXXXXXX)
+cp -r "$nvfuserdir/tools/codediff/"* "$scriptdir/"
 
 movecudafiles() {
     find . -maxdepth 1 -name '__tmp_kernel*.cu' -exec mv '{}' "$1" \;
@@ -112,33 +128,11 @@ cleanup() {
 
     git switch "$orighead"
     git submodule update --init --recursive
+
+    rm -rf "$scriptdir"
 }
 
 trap "cleanup" EXIT
-
-run_test() {
-    export testdir=$1
-    if [[ -d "$testdir/cuda" ]]
-    then
-        echo "Skipping since $testdir/cuda exists"
-        return
-    fi
-
-    shift
-    testcmd=$*
-
-    mkdir -p "$testdir"
-    echo "$testcmd" > "$testdir/command"
-
-    # Allow next command to fail
-    set +e
-    $testcmd | tee "$testdir/stdout-$(date +%Y%m%d_%H%M%S).log"
-    echo $? > "$testdir/exitcode"
-    set -e
-    mkdir -p "$testdir/cuda"
-    movecudafiles "$testdir/cuda"
-}
-
 
 collect_kernels() {
     outdir=$1
@@ -177,7 +171,7 @@ collect_kernels() {
 
     # Build in Release mode
     (
-        cd $nvfuserdir
+        cd "$nvfuserdir"
         CUSTOM_BUILD_COMMAND="${CUSTOM_BUILD_COMMAND:-python setup.py develop}"
         bash -c "${CUSTOM_BUILD_COMMAND}"
     )
@@ -186,22 +180,32 @@ collect_kernels() {
     export NVFUSER_TEST_RANDOM_SEED=0
     export NVFUSER_DISABLE=parallel_compile
     # run tests and benchmarks with cuda_to_file and dump output to files
-    export NVFUSER_DUMP=cuda_to_file
 
     mkdir -p "$outdir/$commit"
 
+    bashcmd=("bash" "$scriptdir/run_command.sh" "-f" "$nvfuserdir")
+
+    if [[ -n $quiet ]]
+    then
+        bashcmd+=("-q")
+    fi
+
     if [[ $hascustomcommand ]]
     then
-      run_test "$customcmddir" $customcommand
+        "${bashcmd[@]}" -o "$customcmddir" -- "${customcommand[@]}"
     else
-      # python tests
-      # Using -s to disable capturing stdout. This is important as it will let us see which tests creates each .cu file
-      run_test "$pyopsdir" python -m pytest $nvfuserdir/python_tests/pytest_ops.py -n 0 -v -s --color=yes
-      run_test "$pyschedopsdir" python -m pytest $nvfuserdir/python_tests/test_schedule_ops.py -n 0 -v -s --color=yes
-      run_test "$pyfrontenddir" python -m pytest $nvfuserdir/python_tests/test_python_frontend.py -n 0 -v -s --color=yes
+        # python tests
+        # Using -s to disable capturing stdout. This is important as it will let us see which tests creates each .cu file
+        "${bashcmd[@]}" -o "$pyopsdir" -- \
+            python -m pytest "$nvfuserdir/python_tests/pytest_ops.py" -n 0 -v -s --color=yes
+        "${bashcmd[@]}" -o "$pyschedopsdir" -- \
+            python -m pytest "$nvfuserdir/python_tests/test_schedule_ops.py" -n 0 -v -s --color=yes
+        "${bashcmd[@]}" -o "$pyfrontenddir" -- \
+            python -m pytest "$nvfuserdir/python_tests/test_python_frontend.py" -n 0 -v -s --color=yes
 
-      # binary tests
-      run_test "$binarytestdir" $nvfuserdir/build/nvfuser_tests --gtest_color=yes
+        # binary tests
+        "${bashcmd[@]}" -o "$binarytestdir" -- \
+            "$nvfuserdir/build/nvfuser_tests" --gtest_color=yes
     fi
 }
 
@@ -210,9 +214,21 @@ collect_kernels "$outdir" "$comparecommit"
 
 cleanup
 
-# Print mismatching files. Note that logs are expected to differ since timings are included
+# Diff produced files and produce report
 set +e  # exit status of diff is 1 if there are any mismatches
-echo -e "\n\nDIFF RESULT:\n"
-diff -qr -x '*.log' "$outdir/$origcommit" "$outdir/$comparecommit" && echo "No difference found"
-
-exit $?
+found_diffs=0
+for d in "$outdir/$origcommit"/*
+do
+    b=$(basename "$d")
+    # Note we use nvfuserdir here instead of scriptdir since we should be back on
+    # original commit by now
+    if ! python "$nvfuserdir/tools/codediff/diff_report.py" \
+        "$outdir/$origcommit/$b" "$outdir/$comparecommit/$b" \
+        -o "$outdir/codediff_${origcommit}_${comparecommit}_${b}.html" \
+        --html --hide_diffs;
+    then
+        found_diffs=1
+    fi
+done
+exit "$found_diffs"
+}

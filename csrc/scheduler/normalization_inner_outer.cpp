@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ATen/cuda/CUDAContext.h>
 #include <inlining.h>
 #include <instrumentation.h>
 #include <scheduler/debug_utils.h>
@@ -14,6 +13,8 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/utils.h>
+
+#include <ATen/cuda/CUDAContext.h>
 
 namespace nvfuser {
 
@@ -40,7 +41,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     return false;
   }
 
-  // check reduction types and pattern
+  // check reduction type
   auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
   if (reduction_tvs.empty()) {
     scheduler_debug_utils::canScheduleRejectReason(
@@ -64,13 +65,6 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     } else {
       outer_reduction_tvs.emplace_back(tv);
     }
-  }
-  if (!normalization_scheduler_utils::checkReductionPattern(
-          fusion,
-          schedule_heuristic,
-          inner_reduction_tvs,
-          outer_reduction_tvs)) {
-    return false;
   }
 
   // check connections between inner reduction and outer reduction tvs.
@@ -147,6 +141,24 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
         return false;
       }
     }
+  }
+
+  // the reduction axis of outer reduction tv should match to the iteration axis
+  // of the inner reduction tv.
+  if (!normalization_scheduler_utils::isReductionIterationAxisMatched(
+          inner_reduction_tvs, outer_reduction_tvs)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedule_heuristic,
+        "to use combined reduction, every iteration axis in inner reduction tv should match to a reduction domain in outer reduction tv.");
+    return false;
+  }
+
+  if (!normalization_scheduler_utils::checkReductionPattern(
+          fusion,
+          schedule_heuristic,
+          inner_reduction_tvs,
+          outer_reduction_tvs)) {
+    return false;
   }
 
   // Only accept persistent kernels
@@ -652,19 +664,9 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
 
   auto ref_red_tv = first_inner_reduction_tv;
 
-  NVF_ERROR(ref_red_tv != nullptr, "Reduction TensorView wasn't found.");
-
-  NVF_ERROR(ref_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
-  const auto red_expr = ref_red_tv->definition();
-
-  NVF_ERROR(
-      ir_utils::isReductionOp(red_expr),
-      "TensorView doesn't have a reduction.");
-
-  auto tv_inps = ir_utils::filterByType<TensorView>(fusion->inputs());
-  NVF_ERROR(
-      std::distance(tv_inps.begin(), tv_inps.end()) > 0,
-      "Tried to schedule a fusion with no tensor inputs, currently not supported.");
+  // Verify the presence of a reduction TensorView connected to a Fusion input
+  normalization_scheduler_utils::checkReductionTvForScheduling(
+      fusion, ref_red_tv);
 
   auto persistent_buffer_info_entry =
       HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
@@ -786,94 +788,6 @@ std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
 }
 
 namespace {
-
-// common prepare for both inner outer combined and seperated reductions
-void beforeSchedule(
-    Fusion* fusion,
-    const ReductionParams& rparams,
-    std::vector<TensorView*>& dummy_outputs,
-    std::vector<TensorView*>& cached_inputs,
-    std::vector<TensorView*>& reduction_tvs,
-    std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
-  // Project the persistent buffers to the inputs. Inputs will be cached in a
-  // later step, this will move them to be in a register buffer as expected.
-  // dummy outputs are helper tensors to make sure persistent buffer
-  // projection does not create trouble for transform propagation.
-  dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
-      fusion, rparams.project_persistent_buffers);
-
-  // Cache tensors before grabbing any references to reductions as
-  // cache_before can invalidate the references since when applied to a
-  // reduction tensor view the new tensor view contains the reduction and
-  // original doesn't.
-  bool unroll = rparams.isUnrolled();
-  // Cache inputs even if not unrolled, as otherwise we may not create a
-  // persistent buffer if that persistent buffer would be the input.
-  cached_inputs = scheduler_utils::cacheInputs(fusion, true);
-
-  // Cache and fork outputs
-  cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, unroll);
-
-  // Make sure we don't have global memory set on intermediate tensors from
-  // fusion segmentation
-  scheduler_utils::clearMemorySpace(fusion);
-  scheduler_utils::prepareForMemoryTypePromotion(fusion);
-
-  // Use shared memory to store persistent buffers
-  if (rparams.shared_mem_persistent_buffer) {
-    const auto& persistent_buffers =
-        scheduler_utils::persistentBuffers(fusion).persistent_buffers;
-    for (auto tv : persistent_buffers) {
-      tv->setMemoryType(MemoryType::Shared);
-    }
-  }
-
-  reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-}
-
-// If called from schedulePersistentKernel, reduction_tvs are either inner
-// reductions or outer reductions. If called from
-// schedulePersistentKernelInnerOuter, reduction_tvs are inner reductions,
-// outer reductions are handled by scheduleCombinedOuter.
-TensorView* scheduleReductionGeneral(
-    Fusion* fusion,
-    const ReductionParams& rparams,
-    std::vector<TensorView*>& reduction_tvs) {
-  NVF_ERROR(!reduction_tvs.empty());
-  // Registry assumes the reference tv is the first reduction_tv, if this
-  // changes registry needs to change.
-  auto reduction_tv = reduction_tvs[0];
-
-  if (!ir_utils::getViewOps(fusion).empty()) {
-    ComputeAtMap ca_map(fusion);
-    // Propagate reshape transforms through the graph, expecially the
-    // reference.
-    scheduler_utils::propagateReshapeTransforms(fusion, ca_map);
-
-    // Reorder reference_tv after propagating the view operation. This will
-    // reorder for better merging.
-    reduction_tv->reorder(
-        scheduler_utils::domainReorderAsRfactorMap(reduction_tv));
-  }
-
-  auto dim_analysis = scheduler_utils::canonicalDimReduction(
-      fusion, reduction_tv, rparams.fastest_dim && rparams.schedule_3D);
-  bool has_iter_axis = dim_analysis.first;
-  bool has_red_axis = dim_analysis.second;
-
-  NVF_ERROR(
-      has_red_axis,
-      "Could not find reduction axis in tensor used for reduction scheduler.");
-
-  if (!has_iter_axis) {
-    NVF_ERROR(
-        rparams.fastest_dim,
-        "If all dims are reduction, should be sending it to fastest dim scheduler.");
-  }
-
-  return reduction_scheduler_utils::scheduleReductionTV(
-      rparams, reduction_tv, has_iter_axis);
-}
 
 void scheduleReductionCombinedOuter(
     Fusion* fusion,
@@ -1000,7 +914,7 @@ void scheduleInnerOuterPersistentKernel(
   // helper tensors for persistent buffer projection.
   std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
-  beforeSchedule(
+  normalization_scheduler_utils::beforeSchedule(
       fusion,
       rparams,
       dummy_outputs,
@@ -1027,7 +941,8 @@ void scheduleInnerOuterPersistentKernel(
   // schedule inner reduction, only schedule the first inner reduction tv,
   // then will be propagated to other inner reduction tvs.
   TensorView* inner_reference_tv =
-      scheduleReductionGeneral(fusion, rparams, inner_reduction_tvs);
+      normalization_scheduler_utils::scheduleReductionGeneral(
+          fusion, rparams, inner_reduction_tvs, schedule_heuristic);
 
   // schedule outer reduction, schedule all the outer reduction tvs since we
   // need to store the intermediate results.

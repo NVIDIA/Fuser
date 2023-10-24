@@ -126,7 +126,6 @@ union RecordData {
   Slice,
   Squeeze,
   Reduction,
-  Reshape,
   Scalar,
   Size,
   Tensor,
@@ -306,12 +305,6 @@ table Reduction {
   dtype: DataType;
 }
 
-// Data for ReshapeOpRecord
-table Reshape {
-  original_shape: [long];
-  new_shape: [long];
-}
-
 // Data for SizeOpRecord
 table Size {
   dim: long;
@@ -334,6 +327,7 @@ table Squeeze {
 table Tensor {
   sizes: [long];
   contiguity: [Contiguity];
+  stride_order: [long];
   dtype: DataType;
   is_cpu: bool;
 }

@@ -42,7 +42,6 @@
 
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
-#include <torch/csrc/jit/ir/irparser.h>
 #include <torch/torch.h>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -2831,112 +2830,6 @@ TEST_F(NVFuserTest, FusionExactRootDomainMap_CUDA) {
           "Invalid exact root domain map: ",
           exact_map.toString());
     }
-  }
-}
-
-class NVFuserMultithreadedTest : public ::testing::Test {
- protected:
-  bool was_enabled = false;
-
-  void SetUp() override {
-    was_enabled = torch::jit::fuser::cuda::setEnabled(true);
-  }
-
-  void TearDown() override {
-    torch::jit::fuser::cuda::setEnabled(was_enabled);
-  }
-};
-
-TEST_F(NVFuserMultithreadedTest, SingleFunction_CUDA) {
-  std::string ir = R"IR(
-graph(%x.1 : Tensor,
-      %y.1 : Tensor):
-  %12 : NoneType = prim::Constant()
-  %11 : bool = prim::Constant[value=0]()
-  %9 : int = prim::Constant[value=1]()
-  %3 : Tensor = aten::exp(%x.1)
-  %5 : Tensor = aten::relu(%y.1)
-  %6 : Tensor = aten::sin(%5)
-  %8 : Tensor = aten::add(%3, %6, %9)
-  %10 : int[] = prim::ListConstruct(%9)
-  %13 : Tensor = aten::sum(%8, %10, %11, %12)
-  return (%13)
-)IR";
-  auto g = std::make_shared<torch::jit::Graph>();
-  torch::jit::parseIR(ir, g.get());
-  torch::jit::GraphFunction fn("nvfuser_test", g, nullptr);
-
-  auto run_kernel = [&fn]() {
-    auto x = torch::rand({32, 32}, at::TensorOptions(at::kCUDA));
-    auto y = torch::rand({32, 32}, at::TensorOptions(at::kCUDA));
-    std::vector<c10::IValue> results;
-    for (const auto& i : c10::irange(10)) {
-      (void)i; // Suppress unused variable warning
-      auto stack = createStack({x.clone(), y.clone()});
-      fn.run(stack);
-      results.push_back(stack.back());
-    }
-    for (const auto& i : c10::irange(1, 10)) {
-      auto t0 = results[0].toTensor();
-      auto ti = results[i].toTensor();
-      ASSERT_TRUE(at::allclose(t0, ti));
-    }
-  };
-
-  constexpr size_t kNumThreads = 4;
-  std::vector<std::thread> threads;
-  for (size_t id = 0; id < kNumThreads; ++id) {
-    threads.emplace_back(run_kernel);
-  }
-  for (auto& t : threads) {
-    t.join();
-  }
-}
-
-TEST_F(NVFuserMultithreadedTest, MultipleFunctions_CUDA) {
-  auto run_kernel = []() {
-    const std::string ir = R"IR(
-  graph(%x.1 : Tensor,
-        %y.1 : Tensor):
-    %12 : NoneType = prim::Constant()
-    %11 : bool = prim::Constant[value=0]()
-    %9 : int = prim::Constant[value=1]()
-    %3 : Tensor = aten::exp(%x.1)
-    %5 : Tensor = aten::relu(%y.1)
-    %6 : Tensor = aten::sin(%5)
-    %8 : Tensor = aten::add(%3, %6, %9)
-    %10 : int[] = prim::ListConstruct(%9)
-    %13 : Tensor = aten::sum(%8, %10, %11, %12)
-    return (%13)
-  )IR";
-    auto g = std::make_shared<torch::jit::Graph>();
-    torch::jit::parseIR(ir, g.get());
-    torch::jit::GraphFunction fn("nvfuser_test", g, nullptr);
-
-    auto x = torch::rand({32, 32}, at::TensorOptions(at::kCUDA));
-    auto y = torch::rand({32, 32}, at::TensorOptions(at::kCUDA));
-    std::vector<c10::IValue> results;
-    constexpr size_t numRuns = 10;
-    for (const auto& i : c10::irange(numRuns)) {
-      (void)i; // Suppress unused variable warning
-      auto stack = createStack({x.clone(), y.clone()});
-      fn.run(stack);
-      results.push_back(stack.back());
-    }
-    for (const auto& i : c10::irange(1, numRuns)) {
-      auto t0 = results[0].toTensor();
-      auto ti = results[i].toTensor();
-      ASSERT_TRUE(at::allclose(t0, ti));
-    }
-  };
-
-  constexpr size_t kNumThreads = 4;
-  std::vector<std::thread> threads;
-  for (size_t id = 0; id < kNumThreads; ++id) {
-    threads.emplace_back(run_kernel);
-  }
-  for (auto& t : threads) {
-    t.join();
   }
 }
 
@@ -6152,6 +6045,8 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
       DataType::Half,
       DataType::Int,
       DataType::Int32,
+      DataType::UInt,
+      DataType::UInt32,
       DataType::Bool,
       DataType::ComplexFloat,
       DataType::ComplexDouble};
@@ -6162,11 +6057,32 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
   }
 #endif
 
+  // ATen does not support uint32_t and uint64_t as dtype, so we need to
+  // use int32_t and int64_t as a proxy for these two types.
+  auto convert_aten_unsupported_dtype = [](DataType dt) -> DataType {
+    if (dt == DataType::UInt) {
+      return DataType::Int;
+    } else if (dt == DataType::UInt32) {
+      return DataType::Int32;
+    }
+    return dt;
+  };
+
   for (const auto& input_type : data_types) {
-    auto tv_in = makeContigTensor(2, input_type);
+    DataType proxy_input_type = convert_aten_unsupported_dtype(input_type);
+    auto tv_in = makeContigTensor(2, proxy_input_type);
     fusion.addInput(tv_in);
+
+    if (proxy_input_type != input_type) {
+      tv_in = bitCastOp(input_type, tv_in);
+    }
+
     for (const auto& output_type : data_types) {
+      DataType proxy_output_type = convert_aten_unsupported_dtype(output_type);
       auto tv_out = castOp(output_type, tv_in);
+      if (proxy_output_type != output_type) {
+        tv_out = bitCastOp(proxy_output_type, tv_out);
+      }
       fusion.addOutput(tv_out);
     }
   }
@@ -6176,10 +6092,16 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
   std::vector<c10::IValue> inputs;
   std::vector<at::Tensor> outputs;
   for (const auto& input_type : data_types) {
-    at::Tensor t = at::randn({x, y}, options).to(data_type_to_aten(input_type));
+    DataType proxy_input_type = convert_aten_unsupported_dtype(input_type);
+    at::Tensor t = at::randn({x, y}, options)
+                       .relu() // Discard negative numbers so that signed and
+                               // unsigned types are equivalent. There is no way
+                               // to represent unsigned numbers in PyTorch.
+                       .to(data_type_to_aten(proxy_input_type));
     inputs.emplace_back(t);
     for (const auto& output_type : data_types) {
-      outputs.emplace_back(t.to(data_type_to_aten(output_type)));
+      DataType proxy_output_type = convert_aten_unsupported_dtype(output_type);
+      outputs.emplace_back(t.to(data_type_to_aten(proxy_output_type)));
     }
   }
 
@@ -9700,6 +9622,76 @@ TEST_F(NVFuserTest, ConstLongExpressions) {
   testValidate(fusion, outputs, {}, {t0}, __LINE__, __FILE__);
 }
 
+// Related to https://github.com/NVIDIA/Fuser/issues/1084.
+// On H100, the generated kernel is vectorized by 8, has a serial batch
+// of 5. It uses 106 threads without padding, nsys shows kernel
+// duration is 0.271 ms. If eliminate predicate for RNG ops by comment out
+// predicateRNGOp(), the kernel duration is increased to 0.376 ms.
+TEST_F(NVFuserTest, PredicateRNGOps) {
+  int64_t size = 4224;
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2, DataType::Half);
+  fusion->addInput(tv0);
+  auto tv1 = rand_like(tv0);
+  auto tv2 = rand_like(tv0);
+  auto tv3 = rand_like(tv0);
+  auto tv4 = rand_like(tv0);
+  auto tv5 = add(tv1, tv2);
+  auto tv6 = add(tv3, tv4);
+  auto tv7 = add(tv5, tv6);
+  auto tv8 = castOp(DataType::Half, tv7);
+  auto tv9 = set(tv8);
+  fusion->addOutput(tv9);
+
+  tv1->split(-1, 8);
+  tv1->split(-2, 5);
+  tv1->split(-2, 1);
+  tv1->axis(-2)->parallelize(ParallelType::Unswitch);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+
+  TransformPropagator propagator(tv1);
+  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv9->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  // check RNGOp is predicated without else branch.
+  class PredicateChecker : public kir::IrVisitor {
+   public:
+    using kir::IrVisitor::handle;
+    bool predicate_rngop = false;
+
+   private:
+    void handle(RNGOp* uop) final {
+      for (auto expr : scope_exprs_) {
+        if (!expr->isA<kir::IfThenElse>() ||
+            expr->as<kir::IfThenElse>()->hasElse()) {
+          continue;
+        }
+        if (!expr->as<kir::IfThenElse>()->predicate()->isTrivial()) {
+          predicate_rngop = true;
+        }
+      }
+    }
+  } pred_checker;
+  GpuLower gpulw(fusion);
+  pred_checker.handle(gpulw.kernel()->topLevelExprs());
+  ASSERT_TRUE(pred_checker.predicate_rngop);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor t0 = at::zeros({2048, size}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion, {t0});
+
+  at::manual_seed(0);
+  auto cg_outputs = fe.runFusion({t0});
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

@@ -572,16 +572,38 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void genCpAsyncBulkTensorTile(const LoadStoreOp* ldst) {
     auto in = ldst->in()->as<kir::TensorIndex>();
     auto out = ldst->out()->as<kir::TensorIndex>();
-    NVF_ERROR(
-        in->view()->getMemoryType() == MemoryType::Shared &&
-            out->view()->getMemoryType() == MemoryType::Global,
-        "Expected shared to global copy");
+
+    auto in_tv = in->view();
+    auto out_tv = out->view();
+
+    kir::TensorIndex* gmem_ti = nullptr;
+    kir::TensorIndex* smem_ti = nullptr;
+    std::string func_name;
+
+    if (out->view()->getMemoryType() == MemoryType::Shared) {
+      func_name = "Hopper::cpAsyncBulkTensorTileG2S";
+      NVF_ERROR(
+          in_tv->getMemoryType() == MemoryType::Global,
+          "Expected input in global for G2S operation");
+      smem_ti = out;
+      gmem_ti = in;
+    } else {
+      NVF_ERROR(
+          in_tv->getMemoryType() == MemoryType::Shared,
+          "Expected input in shared for S2G operation");
+      NVF_ERROR(
+          out_tv->getMemoryType() == MemoryType::Global,
+          "Expected input in shared for S2G operation");
+      func_name = "Hopper::cpAsyncBulkTensorTileS2G";
+      smem_ti = in;
+      gmem_ti = out;
+    }
 
     ArgumentBuilder func_args;
-    func_args.arg(genInline(out->as<kir::TensorIndex>()->index()));
-    func_args.arg(genInline(in->as<kir::TensorIndex>()->index()));
+    func_args.arg(genInline(gmem_ti->index()));
+    func_args.arg(genInline(smem_ti->index()));
 
-    indent() << genCall("Hopper::cpAsyncBulkTensorTileS2G", func_args) << ";\n";
+    indent() << genCall(func_name, func_args) << ";\n";
   }
 
   void genLdMatrix(const LoadStoreOp* ldst, size_t vector_word_size) {
@@ -2857,6 +2879,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "Ampere::cpAsyncCommit();\n";
   }
 
+  void handle(const kir::CpAsyncBulkS2GWait* cpasync_wait) final {
+    indent() << "Hopper::cpAsyncBulkS2GPartialReadBarrier<"
+             << cpasync_wait->keepStages() << ">();\n";
+  }
+
+  void handle(const kir::CpAsyncBulkS2GCommit* cpasync_wait) final {
+    indent() << "Hopper::cpAsyncBulkS2GCommit();\n";
+  }
+
   void handle(const kir::GridSync* sync) final {
     // Use a custom synchronization method if enabled
     bool bidx = sync->syncDims().get(ParallelType::BIDx);
@@ -2888,6 +2919,58 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         genCall("grid_sync::sync", sync_call_template_parms, sync_call_args);
 
     indent() << sync_call << ";\n";
+  }
+
+  void handle(const kir::MBarrierInit* init) final {
+    auto call = genCall(
+        "mbarrier::init",
+        ArgumentBuilder()
+            .arg(genInline(init->mbarrier()))
+            .arg(genInline(init->threadCount())));
+    indent() << call << ";\n";
+  }
+
+  void handle(const kir::MBarrierInvalidate* inval) final {
+    auto call = genCall(
+        "mbarrier::inval", ArgumentBuilder().arg(genInline(inval->mbarrier())));
+    indent() << call << ";\n";
+  }
+
+  void handle(const kir::MBarrierArrive* arrive) final {
+    if (!print_inline_) {
+      indent() << gen(arrive->state()) << " = ";
+    }
+    auto call = genCall(
+        "mbarrier::arrive",
+        ArgumentBuilder().arg(genInline(arrive->mbarrier())));
+    code_ << call;
+    if (!print_inline_) {
+      code_ << ";\n";
+    }
+  }
+
+  void handle(const kir::MBarrierArriveExpectTx* arrive) final {
+    if (!print_inline_) {
+      indent() << gen(arrive->state()) << " = ";
+    }
+    auto call = genCall(
+        "mbarrier::arriveExpectTX",
+        ArgumentBuilder()
+            .arg(genInline(arrive->mbarrier()))
+            .arg(genInline(arrive->txCount())));
+    code_ << call;
+    if (!print_inline_) {
+      code_ << ";\n";
+    }
+  }
+
+  void handle(const kir::MBarrierWait* wait) final {
+    auto call = genCall(
+        "mbarrier::wait",
+        ArgumentBuilder()
+            .arg(genInline(wait->mbarrier()))
+            .arg(genInline(wait->state())));
+    indent() << call << ";\n";
   }
 
   void handle(const kir::InitMagicZero*) final {
