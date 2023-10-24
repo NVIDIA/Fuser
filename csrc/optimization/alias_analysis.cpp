@@ -93,15 +93,8 @@ void findAliasesFromExpr(Expr* expr, AliasAnalysisResult& alias_to_source) {
   // 2. It should handle more op types such as `Set.Permute`.
   // 3. It should detect alias between non-packed tensors.
   if (ViewOp* view = dynamic_cast<ViewOp*>(expr)) {
-    TensorView* in = dynamic_cast<TensorView*>(view->in());
-    if (in == nullptr) {
-      return;
-    }
-
-    TensorView* out = dynamic_cast<TensorView*>(view->out());
-    if (out == nullptr) {
-      return;
-    }
+    TensorView* in = view->in();
+    TensorView* out = view->out();
 
     if (in->getMaybeAllocationDomain() == in->getMaybeRFactorDomain() &&
         isContiguous(*in) &&
