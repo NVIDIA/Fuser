@@ -641,6 +641,11 @@ __device__ void initialSync(int64_t* sync_flags) {
     const auto segment_block_idx =
         index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
 
+    // get segment ID among all segments
+    const size_t segment_idx =
+        index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
+            threadIdx, blockDim);
+
     int64_t& semaphore = sync_flags[segment_idx];
 
     int64_t sem_val = 0LL;
@@ -699,6 +704,11 @@ __device__ void finalSync(int64_t* sync_flags) {
 
   bool last_block =
       index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
+
+  // get segment ID among all segments
+  const size_t segment_idx =
+      index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
+          threadIdx, blockDim);
 
   int64_t& semaphore = sync_flags[segment_idx];
 
