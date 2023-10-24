@@ -193,7 +193,7 @@ class NVFBenchmark:
 
 
 def run_benchmark(
-    benchmark, benchmark_fn: Callable, inputs: Union[torch.Tensor, List]
+    benchmark, benchmark_fn: Callable, inputs: Union[torch.Tensor, List], rounds:int = 10
 ) -> Union[torch.Tensor, List]:
     """
     Benchmarks the target function using torchprofiler and stores metrics as extra information.
@@ -206,9 +206,13 @@ def run_benchmark(
     Returns:
         outputs: Output of the target function
     """
+
+    def setup():
+        clear_l2_cache()
+        return [inputs], {}
+    
     nvf_benchmark = NVFBenchmark(benchmark)
-    clear_l2_cache()
-    outputs = nvf_benchmark(benchmark_fn, inputs)
+    outputs = nvf_benchmark.pedantic(benchmark_fn, setup=setup, rounds=rounds)
     nvf_benchmark.set_metrics(inputs, outputs)
     nvf_benchmark.cleanup()
     return outputs
