@@ -422,6 +422,28 @@ TEST_F(ExprEvalTest, TensorEagerExecution) {
   EXPECT_TRUE(at::allclose(evaluator.evaluate(tv2).as<at::Tensor>(), a + b));
 }
 
+TEST_F(ExprEvalTest, ViewAndPermute) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in =
+      TensorViewBuilder().shape({-1, 6}).dtype(DataType::Float).build();
+  fusion.addInput(in);
+  TensorView* out = reshape(
+      in, {size(in, 0), IrBuilder::create<Val>(2), IrBuilder::create<Val>(3)});
+  out = permute(out, {1, 2, 0});
+  out = reshape(out, {IrBuilder::create<Val>(6), size(out, 2)});
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor = at::rand({9, 8}).as_strided({9, 6}, {8, 1}).cuda();
+  std::cerr << in_tensor.strides() << std::endl;
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(in, in_tensor);
+  at::Tensor out_tensor = evaluator.evaluate(out).as<at::Tensor>();
+  std::cerr << out_tensor.strides() << std::endl;
+}
+
 TEST_F(ExprEvalTest, TensorMetaData) {
   Fusion fusion;
   FusionGuard fg(&fusion);
