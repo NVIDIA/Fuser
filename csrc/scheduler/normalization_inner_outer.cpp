@@ -492,7 +492,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
 
   if (!buffer_params.has_enough_regs_and_smem) {
     scheduler_debug_utils::canScheduleRejectReason(
-        schedule_heuristic,
+        heuristicType(),
         "not enough registers or shared memory for persistence");
     return false;
   }
