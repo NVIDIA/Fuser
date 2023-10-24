@@ -268,8 +268,9 @@ void TensorView::setCpuScalar(bool is_cpu_scalar) {
 
 IterDomain* TensorView::axis(int pos) const {
   NVF_ERROR(nDims() > 0, "Tried to access an axis in a 0-dim TensorView");
-  if (pos < 0)
+  if (pos < 0) {
     pos += (int)domain()->nDims();
+  }
   NVF_CHECK(
       pos >= 0 && (unsigned int)pos < domain()->nDims(),
       "Tried to access position ",
@@ -631,8 +632,9 @@ TensorView* TensorView::split(
       "Tensor: ",
       toString());
 
-  if (axis_ < 0)
+  if (axis_ < 0) {
     axis_ += (int)domain()->nDims();
+  }
 
   NVF_ERROR(
       axis_ >= 0,
@@ -692,11 +694,13 @@ TensorView* TensorView::split(
 TensorView* TensorView::merge(int axis_o, int axis_i) {
   NVF_ERROR(nDims() > 0, "Tried to do merge on a 0-dim TensorView");
 
-  if (axis_o < 0)
+  if (axis_o < 0) {
     axis_o += (int)domain()->nDims();
+  }
 
-  if (axis_i < 0)
+  if (axis_i < 0) {
     axis_i += (int)domain()->nDims();
+  }
 
   NVF_CHECK(
       axis_o >= (int)getMaxComputePosition() &&
@@ -1469,6 +1473,17 @@ TensorViewBuilder& TensorViewBuilder::shape(std::vector<Val*> shape) {
   return *this;
 }
 
+TensorViewBuilder& TensorViewBuilder::strideOrder(
+    std::vector<int64_t> stride_order) {
+  NVF_CHECK(stride_order_.empty(), "Attempting to reset stride_order");
+  if (!stride_order.empty()) {
+    NVF_CHECK(ndims_ == 0 || ndims_ == stride_order.size());
+    ndims_ = stride_order.size();
+  }
+  stride_order_ = std::move(stride_order);
+  return *this;
+}
+
 TensorViewBuilder& TensorViewBuilder::expanded(std::vector<bool> expanded) {
   NVF_CHECK(expanded_.empty(), "Attempting to reset expanded shape");
   if (!expanded.empty()) {
@@ -1522,13 +1537,6 @@ TensorView* TensorViewBuilder::build() const {
       contiguity_.empty() || contiguity_.size() == domain.size(),
       "The size of contiguity must equal to the number of non-broadcasting IterDomains");
 
-  for (auto i : c10::irange(contiguity_.size())) {
-    NVF_CHECK(
-        domain.at(i)->isBroadcast() != contiguity_.at(i).has_value(),
-        "The contiguity of a broadcast dimension must be None. "
-        "The contiguity of a non-broadcast dimension must be true/false");
-  }
-
   if (uniform_contiguity_.has_value()) {
     NVF_ERROR(
         contiguity_.empty(),
@@ -1537,13 +1545,15 @@ TensorView* TensorViewBuilder::build() const {
     return IrBuilder::create<TensorView>(
         IrBuilder::create<TensorDomain>(
             domain,
+            stride_order_,
             TensorDomain::getContiguityFilledWith(
                 domain, *uniform_contiguity_)),
         dtype_);
   } else {
     // Create the final TensorView
     return IrBuilder::create<TensorView>(
-        IrBuilder::create<TensorDomain>(domain, contiguity_), dtype_);
+        IrBuilder::create<TensorDomain>(domain, stride_order_, contiguity_),
+        dtype_);
   }
 }
 

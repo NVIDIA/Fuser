@@ -586,7 +586,9 @@ class Index {
   //! Compute the global index for isCpAsyncBulk, currently just generate naive
   //! zeros
   static Val* cpAsyncBulkIndex(
-      TensorView* tv,
+      TensorView* gmem_tv,
+      TensorView* consumer,
+      Val* mbarrier,
       const std::vector<kir::ForLoop*>& loops);
 };
 

@@ -329,7 +329,7 @@ class InputsIdLookup : public NonCopyable {
   //! Encode each input sets to with an unique id;
   //! The returned data structure also indicates whether eviction has happened
   //! within the lookup cache. This is needed because lookup shortcut is also
-  //! cached in nested `GraphCache`, `FusionExecutorCache` and `FusionExecutor`.
+  //! cached in nested `FusionExecutorCache` and `FusionExecutor`.
   //! see [ Note -- Post-definition cache implementation ] and [ Note -- 2 level
   //! cache implementation ].
   //!
@@ -717,57 +717,6 @@ class FusionExecutorCache {
 
   //! Initial concretization info
   std::optional<DynamicTransformInitialInfo> initial_info_ = std::nullopt;
-};
-
-//! [ Note -- 2 level cache implementation ]
-//!
-//! Compiling PyTorch IR requires an addition translation to Fusion IR, which is
-//! cached using `GraphCache`.
-//!
-//! 2 level hierarchically nested cache is to handle the code generation and
-//! execution of a given PyTorch IR graph that is unique in its computational
-//! graph (see note on unique computational graph down).
-//!
-//! The nested cache structures are:
-//!     a. GraphCache
-//!        - GraphCache translates PyTorch IR into Fusion IR and pass it to a
-//!          `FusionExecutorCache`;
-//!        - GraphCache assumes all inputs to comply with profiling information,
-//!          mostly tensor size & contiguity (see note on unique computational
-//!          graph). The assumption is assured at runtime by
-//!          `prim::CudaFusionGuard`;
-//!     b. FusionExecutorCache
-//!        - has a single `Fusion`, FusionExecutorCache handles kernel schedule
-//!          and passed scheduled tensor to `FusionExecutor` to generate code;
-//!        - create `FusionExecutor` instances to handle heuristics from dynamic
-//!          shape (varying tensor sizes);
-//!        - create `FusionExecutor` instances to handle different devices;
-//!        - holds input cache `InputsIdLookup`, which allow cache on heuristics
-//!          and launch parameters to reduce latency.
-//!
-class GraphCache {
- public:
-  //! TODO: we should probably change shared_ptr to unique_ptr, as we want to
-  //!       claim the ownership of the computational graph.
-  //! create GraphCache on a given graph;
-  //! We extract global stride index order and translate PyTorch JIT IR to
-  //! Fusion IR.
-  explicit GraphCache(const std::shared_ptr<torch::jit::Graph>& graph);
-
-  //! execute graph with given inputs
-  std::vector<at::Tensor> runGraphWithInputs(
-      const at::ArrayRef<c10::IValue>& inputs);
-
- private:
-  //! construct FusionExecutorCache
-  void createFusion(const std::shared_ptr<torch::jit::Graph>& graph);
-
- private:
-  //! FusionExecutorCache that performs schedule and kernel execution;
-  std::unique_ptr<FusionExecutorCache> fusion_executor_cache_;
-
-  //! num of outputs
-  size_t num_of_outputs_ = 0;
 };
 
 } // namespace nvfuser
