@@ -58,6 +58,10 @@ class InnerOuterPersistentKernelScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
 
+  constexpr static ScheduleHeuristic heuristicType() {
+    return ScheduleHeuristic::InnerOuterPersistent;
+  }
+
  private:
   void computeHeuristics(
       Fusion* fusion,

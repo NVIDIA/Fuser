@@ -1418,14 +1418,13 @@ struct OutputRecord : RecordFunctor {
       NVF_CHECK(
           stride_order_.empty(),
           "stride_order can't be dictated for aliased outputs.");
-      if (std::is_same<OutputType, TensorView>::value) {
+      if constexpr (std::is_same_v<OutputType, TensorView>) {
         fd.aliasOutputToInput(output, alias_input);
       } else {
         NVF_ERROR(false, "Scalar outputs should not alias inputs.");
       }
     } else {
-      // With C++17, this statement should be "if constexpr"
-      if (std::is_same<OutputType, TensorView>::value) {
+      if constexpr (std::is_same_v<OutputType, TensorView>) {
         auto tv_output = output->template as<TensorView>();
         if (!stride_order_.empty()) {
           size_t rank = stride_order_.size();
