@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - main
-      - nWEIdia-patch-1
 # cancels concurrent in-progress runs of the pull request, if not a PR, do not cancel
 # pushes to main branch will generate an uniq run_id, PR.number will be
 concurrency:
