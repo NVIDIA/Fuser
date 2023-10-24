@@ -3,7 +3,8 @@ import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES
 from .normalization import norm_fwd_benchmark, norm_bwd_benchmark
 
-@pytest.mark.parametrize("size",  generate_input_sizes(dims=4))
+
+@pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("channels_last", [True, False])
 def test_batchnorm_fwd_benchmark(
@@ -15,8 +16,15 @@ def test_batchnorm_fwd_benchmark(
     disable_benchmarking: bool,
 ):
     norm_fwd_benchmark(
-        benchmark, size, dtype, "batch_norm", channels_last, disable_validation, disable_benchmarking
+        benchmark,
+        size,
+        dtype,
+        "batch_norm",
+        channels_last,
+        disable_validation,
+        disable_benchmarking,
     )
+
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -29,7 +37,13 @@ def test_batchnorm_bwd_benchmark(
     disable_validation: bool,
     disable_benchmarking: bool,
     eps: float = 1e-5,
-):  
+):
     norm_bwd_benchmark(
-        benchmark, size, dtype, "batch_norm", channels_last, disable_validation, disable_benchmarking
+        benchmark,
+        size,
+        dtype,
+        "batch_norm",
+        channels_last,
+        disable_validation,
+        disable_benchmarking,
     )
