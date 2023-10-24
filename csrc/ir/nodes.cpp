@@ -2305,6 +2305,14 @@ std::string ViewAsScalar::toInlineString(int indent_size) const {
 NVFUSER_DEFINE_CLONE_AND_CREATE(ViewAsScalar)
 
 ViewOp::ViewOp(IrBuilderPasskey passkey, Val* out, Val* in) : Expr(passkey) {
+  NVF_ERROR(
+      in->isA<TensorView>(),
+      in->toString(),
+      " is expected to be a TensorView.");
+  NVF_ERROR(
+      out->isA<TensorView>(),
+      out->toString(),
+      " is expected to be a TensorView.");
   addOutput(out);
   addInput(in);
 }
