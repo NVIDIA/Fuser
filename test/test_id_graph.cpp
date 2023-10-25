@@ -457,7 +457,7 @@ TEST_F(IdGraphTest, MultiPromotionPermissiveMap) {
       // Gather all IDs produced by merge
       for (auto tv : ir_utils::allTvs(&fusion)) {
         for (auto id : ir_utils::allIDsOf(tv)) {
-          if (auto merge = dynamic_cast<Merge*>(id->definition())) {
+          if (dynamic_cast<Merge*>(id->definition())) {
             ref_set.insert(id);
           }
         }
