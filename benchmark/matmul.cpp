@@ -241,12 +241,44 @@ MatmulParams getMatmulParams(
   return params;
 }
 
+// Compute splitk_factor that would fill a block
+int computeAutoSplitKFactor(
+    int M,
+    int N,
+    int tile_M,
+    int tile_N,
+    int num_SMs = 108) {
+  int num_blocks = ceilDiv(M, tile_M) * ceilDiv(N, tile_N);
+  NVF_CHECK(
+      num_SMs % num_blocks == 0,
+      "Matrix size ",
+      M,
+      " by ",
+      N,
+      " with tile size ",
+      tile_M,
+      " by ",
+      tile_N,
+      " uses ",
+      num_blocks,
+      " blocks which does not divide evenly in to ",
+      num_SMs,
+      " SMs");
+  return num_SMs / num_blocks;
+}
+
 static void NvFuserScheduler_Matmul_4warp3stage(
     benchmark::State& benchmark_state,
     MatmulLayout layout,
     int splitk_factor = 1) {
   auto cta_tile = GemmTile(128, 128, 32);
   int number_of_stage = 3;
+
+  if (splitk_factor == -1) {
+    int M = benchmark_state.range(0);
+    int N = benchmark_state.range(1);
+    splitk_factor = computeAutoSplitKFactor(M, N, cta_tile.m, cta_tile.n);
+  }
 
   auto params =
       getMatmulParams(cta_tile, number_of_stage, layout, splitk_factor);
@@ -311,6 +343,23 @@ static void NvFuserScheduler_Matmul_8warp4stage(
 
 // ----------------------------- Benchmark Instantiation-------
 
+// For 4warp splitk experiments, we use a tile size of (128, 128). To avoid
+// wave quantization, we look at sizes that are integer multiples of the block
+// size. Below you will find all the factors of 108, which is the number of SMs
+// on an A100. Note that 8warp uses tile size (256, 128) in which case SplitKMs
+// should be changed to 256.
+#define SplitKMs \
+  { 128 }
+#define SplitKNs                                                              \
+  {                                                                           \
+    1 * 128, 2 * 128, 3 * 128, 4 * 128, 6 * 128, 9 * 128, 12 * 128, 18 * 128, \
+        27 * 128, 36 * 128, 54 * 128, 108 * 128                               \
+  }
+#define SplitKKs \
+  { 65536 }
+
+#define SplitKMatmulA100Shapes ArgsProduct({SplitKMs, SplitKNs, SplitKKs})
+
 // Common utils:
 #define LegacyMatmulShapes                                                    \
   ArgsProduct(                                                                \
@@ -339,8 +388,7 @@ static void NvFuserScheduler_Matmul_8warp4stage(
       ->Args({784, 72, 8})                                                   \
       ->Args({784, 8, 72}) /*->Args({1, 1, 2048})*/                          \
       ->Args({1024, 1024, 1024})                                             \
-      ->Args({128, 128, 65536})                                              \
-      ->Unit(benchmark::kMicrosecond)                                        \
+      ->SplitKMatmulA100Shapes->Unit(benchmark::kMicrosecond)                \
       ->UseManualTime();
 
 #define ForAllLayouts(run)                              \
@@ -393,14 +441,6 @@ ForAllLayouts(NvFuserScheduler_8warp3stage_test);
 ForAllLayouts(NvFuserScheduler_8warp4stage_test);
 ForAllLayouts(Baseline_test);
 
-#define SplitKM 128
-#define SplitKN 128
-
-#define SplitKMatmulShapes                                 \
-  ArgsProduct({{SplitKM}, {SplitKN}, {1024, 8192, 65536}}) \
-      ->Unit(benchmark::kMicrosecond)                      \
-      ->UseManualTime();
-
 #define NvFuserScheduler_4warp3stage_splitk_test(                   \
     layout_label, layout, splitk_factor)                            \
   BENCHMARK_CAPTURE(                                                \
@@ -408,7 +448,8 @@ ForAllLayouts(Baseline_test);
       no_quant_nvfuser_4warp_splitk_##layout_label.##splitk_factor, \
       layout,                                                       \
       splitk_factor)                                                \
-      ->SplitKMatmulShapes
+      ->SplitKMatmulA100Shapes->Unit(benchmark::kMicrosecond)       \
+      ->UseManualTime();
 
 #define NvFuserScheduler_8warp4stage_splitk_test(                   \
     layout_label, layout, splitk_factor)                            \
@@ -417,13 +458,30 @@ ForAllLayouts(Baseline_test);
       no_quant_nvfuser_8warp_splitk_##layout_label.##splitk_factor, \
       layout,                                                       \
       splitk_factor)                                                \
-      ->SplitKMatmulShapes
+      ->SplitKMatmulA100Shapes->Unit(benchmark::kMicrosecond)       \
+      ->UseManualTime();
 
 #define SplitKForAllLayouts(run, splitk_factor) \
   run(TT, MatmulLayout::TT, splitk_factor);     \
   run(TN, MatmulLayout::TN, splitk_factor);     \
   run(NT, MatmulLayout::NT, splitk_factor);     \
   run(NN, MatmulLayout::NN, splitk_factor);
+
+// Automatically determine splitk_factor to fill one wave
+
+#define AutoSplitK(layout_label)                              \
+  BENCHMARK_CAPTURE(                                          \
+      NvFuserScheduler_Matmul_4warp3stage,                    \
+      nvfuser_108block_auto_splitk_##layout_label,            \
+      MatmulLayout::layout_label,                             \
+      -1)                                                     \
+      ->SplitKMatmulA100Shapes->Unit(benchmark::kMicrosecond) \
+      ->UseManualTime();
+
+AutoSplitK(TT);
+AutoSplitK(TN);
+AutoSplitK(NT);
+AutoSplitK(NN);
 
 SplitKForAllLayouts(NvFuserScheduler_4warp3stage_splitk_test, 1);
 SplitKForAllLayouts(NvFuserScheduler_4warp3stage_splitk_test, 2);
@@ -647,7 +705,8 @@ static void NvFuserScheduler_Matmul_partitionedk_4warp3stage(
       4,                                                               \
       3,                                                               \
       splitk_factor)                                                   \
-      ->SplitKMatmulShapes
+      ->SplitKMatmulA100Shapes->Unit(benchmark::kMicrosecond)          \
+      ->UseManualTime();
 
 SplitKForAllLayouts(NvFuserScheduler_4warp3stage_partitionedk_test, 2);
 SplitKForAllLayouts(NvFuserScheduler_4warp3stage_partitionedk_test, 4);
@@ -661,7 +720,7 @@ SplitKForAllLayouts(NvFuserScheduler_4warp3stage_partitionedk_test, 256);
 #define NvFuserScheduler_splitkreduction_test(splitk_factor)                   \
   BENCHMARK_CAPTURE(                                                           \
       SplitKReduction, nvfuser_splitkreduction.##splitk_factor, splitk_factor) \
-      ->ArgsProduct({{SplitKM}, {SplitKM}})                                    \
+      ->ArgsProduct({SplitKMs, SplitKNs})                                      \
       ->Unit(benchmark::kMicrosecond)                                          \
       ->UseManualTime();
 
