@@ -1804,13 +1804,6 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     }
   }
 
-  for (const IdGroup& group :
-       intersection_exact_loop_graph.disjointIdSets().disjointSets()) {
-    if (iel_promotion_map.find(group) == iel_promotion_map.end()) {
-      continue;
-    }
-  }
-
   // TODO: cleanup
   // Set loop_promotion_map_[loop_group] = promotion.
   // Make sure the existing mapping, if exists, matches with the given
