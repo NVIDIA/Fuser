@@ -5,6 +5,11 @@ on:
   push:
     branches:
       - main
+# cancels concurrent in-progress runs of a pull request. If it is a push, do not cancel concurrent runs.
+# Pushes will generate a uniq run_id, github.event.pull_request.number will be empty
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id}}
+  cancel-in-progress: true
 
 env:
   working_directory: .
