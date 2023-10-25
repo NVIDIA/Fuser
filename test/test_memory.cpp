@@ -51,9 +51,7 @@ TEST_P(MemoryTest, LoadCache) {
 
   TensorView* tv0 = makeContigTensor(1);
   fusion.addInput(tv0);
-  TensorView* tv1 =
-      ops::newValLike(tv0, tv0->getDataType().value())->as<TensorView>();
-  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, tv1, tv0, cache_op);
+  TensorView* tv1 = set(tv0, cache_op);
   TensorView* tv2 = add(tv1, IrBuilder::create<Val>(1.0));
   TensorView* tv3 = set(tv2);
   fusion.addOutput(tv3);

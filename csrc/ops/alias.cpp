@@ -22,8 +22,18 @@ Val* set(Val* v) {
   return out;
 }
 
+Val* set(Val* v, CacheOp cache_op) {
+  Val* out = ops::newValLike(v, v->getDataType().value());
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, v, cache_op);
+  return out;
+}
+
 TensorView* set(TensorView* tv) {
   return set(tv->as<Val>())->as<TensorView>();
+}
+
+TensorView* set(TensorView* tv, CacheOp cache_op) {
+  return set(tv->as<Val>(), cache_op)->as<TensorView>();
 }
 
 Val* segment_set(Val* v) {
