@@ -151,7 +151,7 @@ class VectorizedTensorValidation {
 //!    Stores position info of aliased input tensors
 class InputAliasIndices {
  public:
-  using DataType = std::vector<std::pair<int, int>>;
+  using DataType = std::vector<std::pair<int, std::pair<int, bool>>>;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::INPUT_ALIAS_INDICES;
 };

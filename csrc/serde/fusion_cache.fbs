@@ -237,6 +237,7 @@ table ExecutorEntry {
     // Aliased output and input mappings
     output_aliases : [int];
     input_aliases : [int];
+    alias_types : [bool];
     outputs : [GlobalBufferInfo];
     intermediates : [GlobalBufferInfo];
 }

@@ -909,6 +909,18 @@ at::Tensor transformOutputFromAllocationToRFactor(
   return tensor.permute(dims);
 }
 
+// TODO: consolidate with isContiguous in alias_analysis.cpp.
+bool isContiguous(const TensorView& tv) {
+  for (const std::optional<bool>& contiguity : tv.getContiguity()) {
+    // We skip std::nullopt contiguity. It represents a broadcast or reduction
+    // dimension, which is of size 1 and always contiguous.
+    if (contiguity.has_value() && contiguity.value() == false) {
+      return false;
+    }
+  }
+  return true;
+}
+
 } // namespace
 
 // Allocate output tensors for a given kernel. Outputs may alias inputs, in
@@ -916,7 +928,8 @@ at::Tensor transformOutputFromAllocationToRFactor(
 std::vector<at::Tensor> allocOutputs(
     const kir::Kernel* kernel,
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
-    const std::vector<std::pair<int, int>>& output_to_input_aliases,
+    const std::vector<std::pair<int, std::pair<int, bool>>>&
+        output_to_input_aliases,
     const KernelArgumentHolder& inputs,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
@@ -930,18 +943,33 @@ std::vector<at::Tensor> allocOutputs(
     auto alias_it = std::find_if(
         output_to_input_aliases.begin(),
         output_to_input_aliases.end(),
-        [&](const auto output_to_input) {
+        [&](const auto& output_to_input) {
           return output_to_input.first == (int)output_idx;
         });
 
     // Note: aliased output is not returned as output. But we still need it
     // for kernel execution, so would need to push them to args
     if (alias_it != output_to_input_aliases.end()) {
-      const auto aliased_input_index = alias_it->second;
+      const auto aliased_input_index = alias_it->second.first;
       NVF_ERROR(
           inputs[aliased_input_index]->is<at::Tensor>(),
           "alias io only supports tensor");
-      outputs.emplace_back(*inputs[aliased_input_index]);
+      at::Tensor input_tensor = inputs[aliased_input_index]->as<at::Tensor>();
+      if (alias_it->second.second) {
+        outputs.emplace_back(input_tensor);
+      } else {
+        auto* input_tv =
+            kernel->inputs()[aliased_input_index]->as<TensorView>();
+        auto* output_tv = kernel->outputs()[output_idx]->as<TensorView>();
+        NVF_ERROR(isContiguous(*input_tv));
+        NVF_ERROR(isContiguous(*output_tv));
+        std::vector<int64_t> output_shape;
+        for (IterDomain* output_id : output_tv->getMaybeRFactorDomain()) {
+          output_shape.push_back(
+              ee.evaluate(output_id->extent()).as<int64_t>());
+        }
+        outputs.emplace_back(input_tensor.view(output_shape));
+      }
     } else if (kernel->outputs().at(output_idx)->isFusionInput()) {
       // Note [ trivial forwarding ]
       //
@@ -1455,7 +1483,8 @@ void FusionExecutor::initializeExecutorEntry(
       executor_utils::caching::ExecutorCompileTimeEntry<
           executor_utils::caching::InputAliasIndices>(
           compileTimeDataCache(), [&]() {
-            return std::make_unique<std::vector<std::pair<int, int>>>(
+            return std::make_unique<
+                std::vector<std::pair<int, std::pair<int, bool>>>>(
                 fusion_->getOutputToInputAliasIndices());
           });
 
@@ -2012,11 +2041,14 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
   // vectors.
   std::vector<int> output_aliases_fb;
   std::vector<int> input_aliases_fb;
+  std::vector<uint8_t> alias_types_fb;
   output_aliases_fb.reserve(data.output_to_input_aliases.size());
   input_aliases_fb.reserve(data.output_to_input_aliases.size());
+  alias_types_fb.reserve(data.output_to_input_aliases.size());
   for (auto [out, in] : data.output_to_input_aliases) {
     output_aliases_fb.push_back(out);
-    input_aliases_fb.push_back(in);
+    input_aliases_fb.push_back(in.first);
+    alias_types_fb.push_back(in.second);
   }
 
   // Serialize GlobalBufferInfo for outputs.
@@ -2064,6 +2096,7 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
       data.launch_params.serialize(builder),
       &output_aliases_fb,
       &input_aliases_fb,
+      &alias_types_fb,
       &outputs_fb,
       &intermediates_fb);
 }
@@ -2141,7 +2174,10 @@ FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
 
   for (auto idx : c10::irange(buffer->output_aliases()->size())) {
     entry.output_to_input_aliases.emplace_back(
-        buffer->output_aliases()->Get(idx), buffer->input_aliases()->Get(idx));
+        buffer->output_aliases()->Get(idx),
+        std::make_pair(
+            buffer->input_aliases()->Get(idx),
+            static_cast<bool>(buffer->alias_types()->Get(idx))));
   }
 
   for (auto output_buffer : *buffer->outputs()) {

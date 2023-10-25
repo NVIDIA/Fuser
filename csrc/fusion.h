@@ -237,7 +237,8 @@ class Fusion : public IrContainer {
   std::unordered_set<int> getIndicesOfAliasedOutputs() const;
 
   //! Get alias mappings from fusion outputs to inputs
-  std::vector<std::pair<int, int>> getOutputToInputAliasIndices() const;
+  std::vector<std::pair<int, std::pair<int, bool>>>
+  getOutputToInputAliasIndices() const;
 
   // mark input at index to be permuted by permutation
   void setPermutationOnInput(int index, std::vector<int64_t> permutation) {

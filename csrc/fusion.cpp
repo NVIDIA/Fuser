@@ -797,7 +797,8 @@ std::unordered_set<int> Fusion::getIndicesOfAliasedOutputs() const {
   return alias_indices;
 }
 
-std::vector<std::pair<int, int>> Fusion::getOutputToInputAliasIndices() const {
+std::vector<std::pair<int, std::pair<int, bool>>> Fusion::
+    getOutputToInputAliasIndices() const {
   if (io_alias_.empty()) {
     return {};
   }
@@ -810,7 +811,7 @@ std::vector<std::pair<int, int>> Fusion::getOutputToInputAliasIndices() const {
     out_val_index[outputs_[output_idx]] = output_idx;
   }
 
-  std::vector<std::pair<int, int>> alias_indices;
+  std::vector<std::pair<int, std::pair<int, bool>>> alias_indices;
   std::for_each(
       io_alias_.begin(),
       io_alias_.end(),
@@ -828,7 +829,8 @@ std::vector<std::pair<int, int>> Fusion::getOutputToInputAliasIndices() const {
             " is marked as an input alias but isn't a fusion input.");
         alias_indices.emplace_back(
             static_cast<int>(out_val_index.at(out)),
-            static_cast<int>(in_val_index.at(in)));
+            std::pair(
+                static_cast<int>(in_val_index.at(in)), alias.second.second));
       });
   return alias_indices;
 }
