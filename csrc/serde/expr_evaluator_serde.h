@@ -23,7 +23,7 @@ class ExpressionSerializer {
  public:
   ExpressionSerializer() = default;
 
-  flatbuffers::Offset<serde::NaiveValueGenerator> serialize(
+  flatbuffers::Offset<NaiveValueGenerator> serialize(
       flatbuffers::FlatBufferBuilder& builder,
       kir::Kernel* kernel,
       const std::vector<const kir::Allocate*>& allocations);
@@ -81,7 +81,7 @@ class ExpressionSerializer {
       flatbuffers::FlatBufferBuilder& builder,
       std::vector<Val*> domain);
 
-  flatbuffers::Offset<IterationDomain> serialize(
+  flatbuffers::Offset<IterDomain> serialize(
       flatbuffers::FlatBufferBuilder& builder,
       const nvfuser::IterDomain* id);
 
@@ -122,8 +122,9 @@ class ExpressionBuilder {
 
  private:
   void deserialize(const Instruction* buffer);
-  Val* buildUnaryOp(const UnaryOp* buffer);
-  Val* buildBinaryOp(const BinaryOp* buffer);
+  nvfuser::Val* buildUnaryOp(const UnaryOp* buffer);
+  nvfuser::Val* buildBinaryOp(const BinaryOp* buffer);
+  nvfuser::IterDomain* buildIterDomain(const IterDomain* buffer);
 
   void printStack() const {
     std::cout << "================ ExpressionBuilder Stack ================"
