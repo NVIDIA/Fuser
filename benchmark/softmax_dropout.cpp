@@ -265,6 +265,12 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Dropout_Inner_fp16)
     ->Arg(112)
     ->Arg(120)
     ->Arg(128)
+    // add 4 cases not divisible by 8 (vect) x 32 (warp) to benchmark padded
+    // reduction.
+    ->Arg(1600)
+    ->Arg(3200)
+    ->Arg(4224)
+    ->Arg(5140)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 

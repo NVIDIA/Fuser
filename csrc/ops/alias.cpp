@@ -77,21 +77,21 @@ TensorView* tryStaticReshape(
     const std::vector<Val*>& new_sizes) {
   std::vector<int64_t> inp_sizes(inp_dom.size());
   for (const auto i : c10::irange(inp_dom.size())) {
-    auto id = inp_dom.at(i);
-    auto id_size = id->extent()->getInt();
-    if (!id_size.has_value()) {
+    IterDomain* id = inp_dom[i];
+    Val* id_size = id->getMaybeExpandedExtent();
+    if (!id_size->isConstInt()) {
       return nullptr;
     }
-    inp_sizes.at(i) = id_size.value();
+    inp_sizes[i] = id_size->evaluateInt();
   }
 
   std::vector<int64_t> out_sizes(new_sizes.size());
   for (const auto i : c10::irange(new_sizes.size())) {
-    auto id_size = new_sizes.at(i)->getInt();
-    if (!id_size.has_value()) {
+    Val* id_size = new_sizes[i];
+    if (!id_size->isConstInt()) {
       return nullptr;
     }
-    out_sizes.at(i) = id_size.value();
+    out_sizes[i] = id_size->evaluateInt();
   }
 
   // Both inputs are outputs are static. Just use the static version
