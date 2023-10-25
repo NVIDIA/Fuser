@@ -42,12 +42,10 @@ bool isContiguous(const TensorView& tv) {
 //   t1 = broadcast(t0, {false, false, true});
 //   t2 = expand(t1, {4, 5, 6});
 //
-// `reshape(t2, {40, 3})` and `reshape(t2, {4, 30})` have to copy data.
-// `reshape(t2, {40, 3})` splits the expanded broadcast IterDomain (which is 6)
-// into 2 and 3 and merges the 2 with preceding IterDomains. `reshape(t2, {4,
-// 30})` merges the expanded broadcast IterDomain. However, the output of
-// `reshape(t2, {20, 6})` can simply be an alias because the expanded broadcast
-// IterDomain is forwarded not transformed.
+// `reshape(t2, {40, 3})` and `reshape(t2, {4, 30})` because both merge the
+// expanded broadcast IterDomain (6) or a subspace of it with preceding
+// IterDomains.  However, the output of `reshape(t2, {20, 6})` can simply be an
+// alias because the expanded broadcast IterDomain is forwarded not transformed.
 //
 // As a future improvement, when an expanded broadcast dimension is only split,
 // the output of the reshape can be an alias. However, nvFuser currently decides
@@ -95,15 +93,8 @@ void findAliasesFromExpr(Expr* expr, AliasAnalysisResult& alias_to_source) {
   // 2. It should handle more op types such as `Set.Permute`.
   // 3. It should detect alias between non-packed tensors.
   if (ViewOp* view = dynamic_cast<ViewOp*>(expr)) {
-    TensorView* in = dynamic_cast<TensorView*>(view->in());
-    if (in == nullptr) {
-      return;
-    }
-
-    TensorView* out = dynamic_cast<TensorView*>(view->out());
-    if (out == nullptr) {
-      return;
-    }
+    TensorView* in = view->in();
+    TensorView* out = view->out();
 
     if (in->getMaybeAllocationDomain() == in->getMaybeRFactorDomain() &&
         isContiguous(*in) &&
@@ -121,8 +112,6 @@ void findAliasesFromExpr(Expr* expr, AliasAnalysisResult& alias_to_source) {
 } // namespace
 
 AliasAnalysisResult findAliases(Fusion* fusion) {
-  fusion->print();
-
   AliasAnalysisResult alias_to_source;
   // Fusion::exprs() returns topological order.
   for (Expr* expr : fusion->exprs()) {

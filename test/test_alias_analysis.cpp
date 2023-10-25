@@ -43,6 +43,22 @@ TEST_F(AliasAnalysisTest, View_ContiguousAndSameAllocationOrder) {
   EXPECT_THAT(alias_analysis, UnorderedElementsAre(Pair(out, in)));
 }
 
+TEST_F(AliasAnalysisTest, View_SymbolicTensor) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({-1, -1, -1});
+  fusion.addInput(in);
+  std::vector<Val*> in_shape = shape(in);
+  ASSERT_EQ(in_shape.size(), 3);
+  TensorView* out = reshape(in, {in_shape[0], mul(in_shape[1], in_shape[2])});
+  fusion.addOutput(out);
+
+  optimization::AliasAnalysisResult alias_analysis =
+      optimization::findAliases(&fusion);
+  EXPECT_THAT(alias_analysis, UnorderedElementsAre(Pair(out, in)));
+}
+
 TEST_F(AliasAnalysisTest, ChainOfViews) {
   Fusion fusion;
   FusionGuard fg(&fusion);
