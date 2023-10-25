@@ -1292,7 +1292,6 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
   expr_eval.precomputedValues() = evaluator_precomputed_values.get();
 
   auto arg_index_type = args.getSmallestIndexTypeOfArguments();
-  const auto& output_to_input_aliases = fusion->getOutputToInputAliasIndices();
 
   KernelArgumentHolder ret;
   ret.setDeviceIndex(args.getDeviceIndex());
