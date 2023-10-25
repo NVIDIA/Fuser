@@ -1618,7 +1618,7 @@ Val* size(TensorView* inp, int64_t dim) {
   return iter_domains.at(idx)->getMaybeExpandedExtent();
 }
 
-Val* at(std::vector<Val*>& inp, int64_t index) {
+Val* at(const std::vector<Val*>& inp, int64_t index) {
   auto idx = index;
   if (idx < 0) {
     idx = static_cast<int64_t>(inp.size()) + idx;

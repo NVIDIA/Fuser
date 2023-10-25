@@ -132,6 +132,9 @@ class DynamicTransformConcretizationInfo {
       const DynamicTransformInitialInfo* initial_info,
       ExpressionEvaluator* expr_eval);
 
+  //! Return a vector of integers each corresponding to the position in
+  //! initialInfo()->getMaybeZeroExtents() of an extent Val which is guaranteed
+  //! to be zero.
   const std::vector<size_t>& getEmptyExtents() const {
     return empty_extents_;
   }
