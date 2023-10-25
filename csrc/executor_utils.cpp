@@ -761,7 +761,7 @@ std::string dumpCompiledCodeToFile(
     const std::string& id,
     const std::string& suffix) {
   std::stringstream file_name;
-  file_name << "__tmp_kernel" << id << suffix;
+  file_name << "__tmp_kernel_" << id << suffix;
   debug() << "PRINTING: " << file_name.str() << std::endl;
   std::ofstream out(file_name.str());
   NVF_ERROR(out.is_open());
@@ -1098,7 +1098,7 @@ void createNvrtcProgram(
     const std::string& id,
     const std::string& full_src_code) {
   std::stringstream ss;
-  ss << "__tmp_kernel" << id << ".cu";
+  ss << "__tmp_kernel_" << id << ".cu";
   std::string name = ss.str();
   FUSER_PERF_SCOPE("executor_utils::NvrtcCreateProgram");
   NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
