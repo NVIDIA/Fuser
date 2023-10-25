@@ -1712,6 +1712,12 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
 
     ExprGroups promoted_input_uses;
     for (auto inp_id : promoted_inputs) {
+      // inp_id may have been just replayed, in which case it should
+      // not exist in the IEL graph. It should be just ignored as it
+      // should not have any use yet.
+      if (!intersection_exact_loop_graph.hasGroup(inp_id)) {
+        continue;
+      }
       const auto& inp_exact_group =
           intersection_exact_loop_graph.toGroup(inp_id);
       promoted_input_groups.push_back(inp_exact_group);
