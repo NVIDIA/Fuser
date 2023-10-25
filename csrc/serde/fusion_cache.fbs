@@ -546,6 +546,8 @@ table KernelSummary {
   outer_grouped_grid_welford_largest_smem_size: int = 0;
   generator: NaiveValueGenerator;
   global_allocations: [AllocateBuffer];
+  dynamic_smem_allocations: [AllocateBuffer];
+  static_smem_allocations: [AllocateBuffer];
 }
 
 // Each CudaKernel represents a single, compiled kernel.
