@@ -651,10 +651,9 @@ void FusionProfiler::stop() {
       profile_.kernel_profiles[kp_idx] = std::move(kp);
     }
 
-    int device = segments_[0].device();
     for (auto& seg : segments_) {
       NVF_CHECK(
-          seg.device() == device,
+          seg.device() == segments_[0].device(),
           "All Segment profiles must be on the same device!");
     }
     profile_.kernel_time_ms = kernel_time_ms;

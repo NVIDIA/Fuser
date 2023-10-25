@@ -123,7 +123,7 @@ struct FusionProfile {
   double effective_bandwidth_gbs{0.0};
   double percentage_peak_bandwidth{0.0};
 
-  std::vector<KernelProfile> kernel_profiles;
+  std::vector<KernelProfile> kernel_profiles{};
 };
 
 std::ostream& operator<<(std::ostream&, const FusionProfile&);
