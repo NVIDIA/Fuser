@@ -619,6 +619,13 @@ static void SplitKReduction(
   int64_t M = benchmark_state.range(0);
   int64_t N = benchmark_state.range(1);
 
+  if (splitk_factor == -1) {
+    int M = benchmark_state.range(0);
+    int N = benchmark_state.range(1);
+    splitk_factor =
+        computeAutoSplitKFactor(M, N, std::vector<int>(SplitKMs)[0], 128);
+  }
+
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
 
   // Architecture
@@ -685,6 +692,12 @@ static void NvFuserScheduler_Matmul_partitionedk_4warp3stage(
     int splitk_factor) {
   auto cta_tile = GemmTile(32 * num_warps, 128, 32);
 
+  if (splitk_factor == -1) {
+    int M = benchmark_state.range(0);
+    int N = benchmark_state.range(1);
+    splitk_factor = computeAutoSplitKFactor(M, N, cta_tile.m, cta_tile.n);
+  }
+
   // For partitioned-K, we will manually split the K dimension, so we set
   // splitk_factor=1 here
   auto params = getMatmulParams(cta_tile, num_stages, layout, 1);
@@ -708,6 +721,22 @@ static void NvFuserScheduler_Matmul_partitionedk_4warp3stage(
       ->SplitKMatmulA100Shapes->Unit(benchmark::kMicrosecond)          \
       ->UseManualTime();
 
+#define AutoPartitionedK(layout_label)                        \
+  BENCHMARK_CAPTURE(                                          \
+      NvFuserScheduler_Matmul_partitionedk_4warp3stage,       \
+      nvfuser_108block_auto_partitionedk_##layout_label,      \
+      MatmulLayout::layout_label,                             \
+      4,                                                      \
+      3,                                                      \
+      -1)                                                     \
+      ->SplitKMatmulA100Shapes->Unit(benchmark::kMicrosecond) \
+      ->UseManualTime();
+
+AutoPartitionedK(TT);
+AutoPartitionedK(TN);
+AutoPartitionedK(NT);
+AutoPartitionedK(NN);
+
 SplitKForAllLayouts(NvFuserScheduler_4warp3stage_partitionedk_test, 2);
 SplitKForAllLayouts(NvFuserScheduler_4warp3stage_partitionedk_test, 4);
 SplitKForAllLayouts(NvFuserScheduler_4warp3stage_partitionedk_test, 8);
@@ -723,6 +752,11 @@ SplitKForAllLayouts(NvFuserScheduler_4warp3stage_partitionedk_test, 256);
       ->ArgsProduct({SplitKMs, SplitKNs})                                      \
       ->Unit(benchmark::kMicrosecond)                                          \
       ->UseManualTime();
+
+BENCHMARK_CAPTURE(SplitKReduction, nvfuser_108block_auto_splitkreduction, -1)
+    ->ArgsProduct({SplitKMs, SplitKNs})
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime();
 
 NvFuserScheduler_splitkreduction_test(2);
 NvFuserScheduler_splitkreduction_test(4);
