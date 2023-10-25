@@ -386,8 +386,24 @@ void multiReductionInliner(
   }
 
   // Inline the schedule
-  if(!std::getenv("DISABLE_INLINE_MOST")){
+  if (!std::getenv("DISABLE_INLINE_MOST")) {
     inlineMost();
+  } else {
+    auto all_tvs = ir_utils::allTvs(fusion);
+
+    // Inline at the inner most position. The CA position of all tensors except
+    // inputs, cached inputs and outputs will be updated.
+    std::unordered_set<TensorView*> inner_most_tensors(
+        all_tvs.begin(), all_tvs.end());
+    for (auto cached_input : cached_inputs) {
+      std::cout << "cached_input= " << cached_input->toString() << std::endl;
+      inner_most_tensors.erase(cached_input);
+    }
+    for (auto entry : cached_outputs) {
+      std::cout << "entry.first= " << entry.first->toString() << std::endl;
+      inner_most_tensors.erase(entry.first);
+    }
+    inlineMost(inner_most_tensors);
   }
 }
 
