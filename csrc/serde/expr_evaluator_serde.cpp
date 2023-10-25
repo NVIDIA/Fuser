@@ -303,6 +303,9 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
     if (nvfuser::TensorView* tv =
             dynamic_cast<nvfuser::TensorView*>(allocate->buffer())) {
       bind(all_values, tv);
+      for (auto v : allocate->shape()) {
+        bind(all_values, v);
+      }
     }
   }
 
@@ -312,6 +315,9 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
     if (nvfuser::TensorView* tv =
             dynamic_cast<nvfuser::TensorView*>(allocate->buffer())) {
       bind(all_values, tv);
+      for (auto v : allocate->shape()) {
+        bind(all_values, v);
+      }
     }
   }
 
@@ -329,11 +335,11 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
   // Add TensorView RootDomain IterDomain Extents for all kernel inputs
   // TODO Get deterministic order
   for (auto input : kernel->inputs()) {
-    if (TensorView* tv = dynamic_cast<TensorView*>(input)) {
+    if (nvfuser::TensorView* tv = dynamic_cast<nvfuser::TensorView*>(input)) {
       insert_item(symbolic_values, tv);
       for (auto id : tv->getRootDomain()) {
         auto extent = id->extent();
-        if (!extent->isA<NamedScalar>() && !extent->isConstInt()) {
+        if (!extent->isA<nvfuser::NamedScalar>() && !extent->isConstInt()) {
           insert_item(symbolic_values, extent);
         }
       }
@@ -495,8 +501,7 @@ std::vector<flatbuffers::Offset<AllocateBuffer>> ExpressionSerializer::
 
   for (auto alloc : allocations) {
     auto alloc_buffer_tv = alloc->buffer()->as<nvfuser::TensorView>();
-    NVF_ERROR(alloc_buffer_tv);
-
+    NVF_ERROR(alloc_buffer_tv != nullptr);
     auto fb_alloc = CreateAllocateBuffer(
         builder,
         serialize(builder, alloc_buffer_tv),
@@ -520,7 +525,6 @@ flatbuffers::Offset<flatbuffers::Vector<int64_t>> ExpressionSerializer::
         val->toString());
     fb_domain.push_back(operation_stack_.at(val));
   }
-
   return builder.CreateVector(fb_domain);
 }
 
