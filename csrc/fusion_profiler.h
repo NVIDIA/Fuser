@@ -78,7 +78,7 @@ struct DeviceDescriptor {
 };
 
 struct KernelProfile {
-  std::string name;
+  std::string name{};
   int device{-1};
   uint32_t stream{0};
   uint32_t correlation_id{0};
@@ -99,7 +99,7 @@ struct KernelProfile {
   int64_t input_bytes{0};
   int64_t output_bytes{0};
 
-  std::string device_name;
+  std::string device_name{};
   double peak_bandwidth_gbs{0.0};
 };
 
@@ -172,12 +172,14 @@ class SegmentProfiler {
 };
 
 class FusionProfiler {
-  FusionProfiler(bool cupti_disabled);
-  void reset();
+  FusionProfiler();
 
  public:
-  static FusionProfiler* get(bool cupti_disabled = false);
+  static FusionProfiler* get();
 
+  void reset();
+
+  void disableCupti(bool value);
   ProfilerState state() const;
 
   void createSegments(size_t num);
@@ -235,11 +237,13 @@ class FusionProfiler {
     code;                                                           \
   }
 // Fusion Profiling Macros
-#define FUSION_PROFILER_START                                                  \
-  _FP_ENABLE(FusionProfiler::get(                                              \
-                 isDebugDumpEnabled(DebugDumpOption::FusionProfilerNocupti) || \
-                 isOptionEnabled(EnableOption::FusionProfilerNocupti))         \
-                 ->start())
+#define FUSION_PROFILER_START                                         \
+  _FP_ENABLE({                                                        \
+    FusionProfiler::get()->disableCupti(                              \
+        isDebugDumpEnabled(DebugDumpOption::FusionProfilerNocupti) || \
+        isOptionEnabled(EnableOption::FusionProfilerNocupti));        \
+    FusionProfiler::get()->start();                                   \
+  })
 #define FUSION_PROFILER_STOP _FP_ENABLE(FusionProfiler::get()->stop())
 #define FUSION_PROFILER_CREATE_SEGMENTS(segments) \
   _FP_ENABLE(FusionProfiler::get()->createSegments(segments))

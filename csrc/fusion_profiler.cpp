@@ -498,8 +498,8 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
 std::mutex FusionProfiler::singleton_lock_;
 FusionProfiler* FusionProfiler::singleton_ = nullptr;
 
-FusionProfiler::FusionProfiler(bool cupti_disabled)
-    : cupti_disabled_(cupti_disabled),
+FusionProfiler::FusionProfiler()
+    : cupti_disabled_(false),
       cupti_buffer_((size_t)4 * 1024),
       state_(ProfilerState::Ready),
       fusion_id_(-1),
@@ -532,12 +532,16 @@ void FusionProfiler::reset() {
   corrid_2_segid_.clear();
 }
 
-FusionProfiler* FusionProfiler::get(bool cupti_disabled) {
+FusionProfiler* FusionProfiler::get() {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ == nullptr) {
-    singleton_ = new FusionProfiler(cupti_disabled);
+    singleton_ = new FusionProfiler();
   }
   return singleton_;
+}
+
+void FusionProfiler::disableCupti(bool value) {
+  cupti_disabled_ = value;
 }
 
 ProfilerState FusionProfiler::state() const {

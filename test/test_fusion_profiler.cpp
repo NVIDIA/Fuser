@@ -38,6 +38,8 @@ TEST_F(FusionProfilerTest, Profile1Segment) {
   try {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
+    EnableOptionsGuard::getCurOptions().unset(
+        EnableOption::FusionProfilerNocupti);
     EnableOptionsGuard::getCurOptions().set(EnableOption::FusionProfiler);
 
     auto shape = std::vector<int64_t>({4, 4});
@@ -61,7 +63,80 @@ TEST_F(FusionProfilerTest, Profile1Segment) {
   }
 
   auto fprof = fp->profile();
+  ASSERT_TRUE(fprof.fusion_id >= 0);
+  ASSERT_TRUE(fprof.segments == 1);
+  ASSERT_TRUE(fprof.cuda_evt_time_ms > 0.0);
+  ASSERT_TRUE(fprof.host_time_ms > 0.0);
+  ASSERT_TRUE(fprof.compile_time_ms > 0.0);
+  ASSERT_TRUE(fprof.kernel_time_ms > 0.0);
+  ASSERT_TRUE(fprof.kernel_time_ms == fprof.kernel_profiles.at(0).time_ms);
+  ASSERT_TRUE(fprof.input_bytes == int64_t(2 * 16 * 4));
+  ASSERT_TRUE(fprof.output_bytes == int64_t(16 * 4));
+  ASSERT_TRUE(fprof.effective_bandwidth_gbs > 0.0);
+  ASSERT_TRUE(fprof.percentage_peak_bandwidth > 0.0);
   ASSERT_TRUE(fprof.kernel_profiles.size() == 1);
+
+  auto& sprof = fp->profile().kernel_profiles.at(0);
+  ASSERT_FALSE(sprof.name.empty());
+  ASSERT_TRUE(sprof.device >= 0);
+  ASSERT_TRUE(sprof.compile_time_ms > 0.0);
+  ASSERT_TRUE(sprof.effective_bandwidth_gbs > 0.0);
+  ASSERT_TRUE(sprof.percentage_peak_bandwidth > 0.0);
+  ASSERT_TRUE(sprof.registers > 0);
+  ASSERT_TRUE(sprof.input_bytes == int64_t(2 * 16 * 4));
+  ASSERT_TRUE(sprof.output_bytes == int64_t(16 * 4));
+  ASSERT_FALSE(sprof.device_name.empty());
+}
+
+TEST_F(FusionProfilerTest, ProfileNocupti1Segment) {
+  FusionProfiler* fp = nullptr;
+  try {
+    fp = FusionProfiler::get();
+    SUCCEED();
+  } catch (const std::exception& e) {
+    FAIL() << "Getting the FusionProfiler singleton failed!" << e.what();
+  }
+
+  ASSERT_FALSE(fp == nullptr);
+
+  try {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::FusionProfilerNocupti);
+
+    auto shape = std::vector<int64_t>({4, 4});
+    auto tv0 = makeConcreteTensor(shape);
+    auto tv1 = makeConcreteTensor(shape);
+    fusion->addInput(tv0);
+    fusion->addInput(tv1);
+
+    auto tv2 = add(tv0, tv1);
+    fusion->addOutput(tv2);
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    auto t0 = at::randn(shape, options);
+    auto t1 = at::randn(shape, options);
+
+    FusionExecutorCache executor_cache(std::move(fusion));
+    auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+    SUCCEED();
+  } catch (const std::exception& e) {
+    FAIL() << "Defining and profiling the fusion failed!" << e.what();
+  }
+
+  auto fprof = fp->profile();
+  ASSERT_TRUE(fprof.fusion_id >= 0);
+  ASSERT_TRUE(fprof.segments == 1);
+  ASSERT_TRUE(fprof.cuda_evt_time_ms > 0.0);
+  ASSERT_TRUE(fprof.host_time_ms > 0.0);
+  ASSERT_TRUE(fprof.compile_time_ms > 0.0);
+  ASSERT_TRUE(fprof.kernel_time_ms == 0.0);
+  ASSERT_TRUE(fprof.input_bytes == int64_t(2 * 16 * 4));
+  ASSERT_TRUE(fprof.output_bytes == int64_t(16 * 4));
+  ASSERT_TRUE(fprof.effective_bandwidth_gbs == 0.0);
+  ASSERT_TRUE(fprof.percentage_peak_bandwidth == 0.0);
+  ASSERT_TRUE(fprof.kernel_profiles.empty());
 }
 
 TEST_F(FusionProfilerTest, Profile3Segments) {
@@ -78,6 +153,8 @@ TEST_F(FusionProfilerTest, Profile3Segments) {
   try {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
+    EnableOptionsGuard::getCurOptions().unset(
+        EnableOption::FusionProfilerNocupti);
     EnableOptionsGuard::getCurOptions().set(EnableOption::FusionProfiler);
 
     auto shape1 = std::vector<int64_t>({11});
@@ -111,7 +188,18 @@ TEST_F(FusionProfilerTest, Profile3Segments) {
   }
 
   auto fprof = fp->profile();
+  ASSERT_TRUE(fprof.fusion_id >= 0);
+  ASSERT_TRUE(fprof.segments == 3);
   ASSERT_TRUE(fprof.kernel_profiles.size() == 3);
+  ASSERT_TRUE(fprof.cuda_evt_time_ms > 0.0);
+  ASSERT_TRUE(fprof.host_time_ms > 0.0);
+  ASSERT_TRUE(fprof.compile_time_ms > 0.0);
+  ASSERT_TRUE(fprof.kernel_time_ms > 0.0);
+  ASSERT_TRUE(fprof.kernel_time_ms != fprof.kernel_profiles.at(0).time_ms);
+  ASSERT_TRUE(fprof.input_bytes == int64_t((11 + 13 + 17) * 4));
+  ASSERT_TRUE(fprof.output_bytes == int64_t((11 + 13 + 17) * 4));
+  ASSERT_TRUE(fprof.effective_bandwidth_gbs > 0.0);
+  ASSERT_TRUE(fprof.percentage_peak_bandwidth > 0.0);
 }
 
 TEST_F(FusionProfilerTest, FusionProfilerErrorChecks) {
@@ -124,6 +212,8 @@ TEST_F(FusionProfilerTest, FusionProfilerErrorChecks) {
   }
 
   ASSERT_FALSE(fp == nullptr);
+
+  fp->reset();
 
   // Make error checks for state when it is Ready and methods expect
   // something else.
