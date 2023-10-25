@@ -311,6 +311,7 @@ table NaiveValueGenerator {
 table IterDomain {
   start: long;
   extent: long;
+  out: long;
   parallel_type: int;
   iter_type: int;
   is_rfactor_domain: bool;
@@ -320,7 +321,7 @@ table IterDomain {
 
 // Table represents a single TensorView domain
 table Domain {
-  dims: [IterDomain];
+  dims: [long];
 }
 
 // Table represents nvfuser::TensorView

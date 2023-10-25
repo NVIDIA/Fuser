@@ -541,6 +541,7 @@ flatbuffers::Offset<IterDomain> ExpressionSerializer::serialize(
       builder,
       operation_stack_.at(id->start()),
       operation_stack_.at(id->extent()),
+      (int64_t)operation_stack_.size(),
       castEnumToUnderlyingType(id->getParallelType()),
       castEnumToUnderlyingType(id->getIterType()),
       id->isRFactorProduct(),
@@ -552,33 +553,33 @@ flatbuffers::Offset<IterDomain> ExpressionSerializer::serialize(
 flatbuffers::Offset<SymbolicTensor> ExpressionSerializer::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::TensorView* tv) {
-  std::vector<flatbuffers::Offset<IterDomain>> fb_root_domain;
+  std::vector<int64_t> fb_root_domain;
   for (auto id : tv->getRootDomain()) {
-    fb_root_domain.push_back(serialize(builder, id));
+    fb_root_domain.push_back(operation_stack_.at(id));
   }
   auto root_domain_fb = CreateDomainDirect(builder, &fb_root_domain);
 
   flatbuffers::Offset<Domain> rfactor_domain_fb = 0;
   if (tv->hasRFactor()) {
-    std::vector<flatbuffers::Offset<IterDomain>> fb_rfactor_domain;
+    std::vector<int64_t> fb_rfactor_domain;
     for (auto id : tv->getRFactorDomain()) {
-      fb_rfactor_domain.push_back(serialize(builder, id));
+      fb_rfactor_domain.push_back(operation_stack_.at(id));
     }
     rfactor_domain_fb = CreateDomainDirect(builder, &fb_rfactor_domain);
   }
 
   flatbuffers::Offset<Domain> allocation_domain_fb = 0;
   if (tv->hasAllocation()) {
-    std::vector<flatbuffers::Offset<IterDomain>> fb_allocation_domain;
+    std::vector<int64_t> fb_allocation_domain;
     for (auto id : tv->getAllocationDomain()) {
-      fb_allocation_domain.push_back(serialize(builder, id));
+      fb_allocation_domain.push_back(operation_stack_.at(id));
     }
     allocation_domain_fb = CreateDomainDirect(builder, &fb_allocation_domain);
   }
 
-  std::vector<flatbuffers::Offset<IterDomain>> fb_leaf_domain;
+  std::vector<int64_t> fb_leaf_domain;
   for (auto id : tv->getLeafDomain()) {
-    fb_leaf_domain.push_back(serialize(builder, id));
+    fb_leaf_domain.push_back(operation_stack_.at(id));
   }
   auto leaf_domain_fb = CreateDomainDirect(builder, &fb_leaf_domain);
 
@@ -667,7 +668,9 @@ void ExpressionBuilder::deserialize(const Instruction* buffer) {
     case serde::InstructionData_IterDomain: {
       auto data = buffer->data_as_IterDomain();
       NVF_ERROR(data != nullptr, "serde::IterDomain is nullptr.")
-      operation_stack_.push_back(buildIterDomain(data));
+      if (!exists(data->out())) {
+        operation_stack_.push_back(buildIterDomain(data));
+      }
       break;
     }
     case serde::InstructionData_GetAttr: {
@@ -850,21 +853,49 @@ std::vector<const kir::Allocate*> ExpressionBuilder::deserialize(
   std::vector<const kir::Allocate*> results;
   for (auto buffer : *buffers) {
     std::vector<nvfuser::IterDomain*> new_root;
-    for (auto fb_id : *buffer->tv()->root()->dims()) {
-      new_root.push_back(buildIterDomain(fb_id));
+    if (buffer->tv()->root() != nullptr) {
+      for (auto fb_id : *buffer->tv()->root()->dims()) {
+        auto val = operation_stack_.at(fb_id);
+        NVF_ERROR(val->isA<nvfuser::IterDomain>());
+        new_root.push_back(val->as<nvfuser::IterDomain>());
+      }
     }
 
-    // TODO Deserialize rfactor, allocation, and root domains
+    std::vector<nvfuser::IterDomain*> new_rfactor;
+    if (buffer->tv()->rfactor() != nullptr) {
+      for (auto fb_id : *buffer->tv()->rfactor()->dims()) {
+        auto val = operation_stack_.at(fb_id);
+        NVF_ERROR(val->isA<nvfuser::IterDomain>());
+        new_rfactor.push_back(val->as<nvfuser::IterDomain>());
+      }
+    }
 
-    const auto buffer_domain =
-        IrBuilder::create<nvfuser::TensorDomain>(new_root);
+    std::vector<nvfuser::IterDomain*> new_allocation;
+    if (buffer->tv()->allocate() != nullptr) {
+      for (auto fb_id : *buffer->tv()->allocate()->dims()) {
+        auto val = operation_stack_.at(fb_id);
+        NVF_ERROR(val->isA<nvfuser::IterDomain>());
+        new_allocation.push_back(val->as<nvfuser::IterDomain>());
+      }
+    }
+
+    std::vector<nvfuser::IterDomain*> new_leaf;
+    if (buffer->tv()->leaf() != nullptr) {
+      for (auto fb_id : *buffer->tv()->leaf()->dims()) {
+        auto val = operation_stack_.at(fb_id);
+        NVF_ERROR(val->isA<nvfuser::IterDomain>());
+        new_leaf.push_back(val->as<nvfuser::IterDomain>());
+      }
+    }
+
+    const auto buffer_domain = IrBuilder::create<nvfuser::TensorDomain>(
+        new_root, new_rfactor, new_allocation, new_leaf);
 
     const auto buffer_tv = IrBuilder::create<nvfuser::TensorView>(
         buffer_domain,
         mapToNvfuserDtype(buffer->tv()->dtype()),
         MemoryType::Global);
 
-    // TODO use stl map
     std::vector<nvfuser::Val*> shape;
     for (auto fb_id : *buffer->shape()) {
       shape.push_back(operation_stack_.at(fb_id));
