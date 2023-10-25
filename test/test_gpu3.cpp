@@ -9692,6 +9692,20 @@ TEST_F(NVFuserTest, PredicateRNGOps) {
   at::manual_seed(0);
   auto cg_outputs = fe.runFusion({t0});
 }
+
+// Dummy tests to reproduce the issue. Will be deleted
+TEST_F(NVFuserTest, CaptureTest1) {
+  captureStdout();
+  NVF_ERROR(false);
+  stopCaptureStdout();
+}
+
+// Dummy tests to reproduce the issue. Will be deleted
+TEST_F(NVFuserTest, CaptureTest2) {
+  captureStdout();
+  stopCaptureStdout();
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
