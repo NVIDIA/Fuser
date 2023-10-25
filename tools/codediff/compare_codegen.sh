@@ -225,7 +225,7 @@ do
     if ! python "$nvfuserdir/tools/codediff/diff_report.py" \
         "$outdir/$origcommit/$b" "$outdir/$comparecommit/$b" \
         -o "$outdir/codediff_${origcommit}_${comparecommit}_${b}.html" \
-        --html --hide_diffs;
+        --html --hide-diffs;
     then
         found_diffs=1
     fi
