@@ -9715,6 +9715,76 @@ TEST_F(NVFuserTest, PredicateRNGOps) {
   at::manual_seed(0);
   auto cg_outputs = fe.runFusion({t0});
 }
+
+// Test non-persistent softmax
+// kernel duration reported by nsys on ipp2-0123 is 0.935 ms.
+TEST_F(NVFuserTest, NonPersistentSoftmax) {
+  int64_t batch = 32 * 1024;
+  int64_t size = 18 * 1024;
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto dtype = DataType::Half;
+  TensorView* x = makeContigTensor(2, dtype);
+  fusion->addInput(x);
+
+  // load and calc fmax(x)
+  auto x1 = set(x, CacheOp::AllLevels);
+  auto x1_cast = castOp(DataType::Float, x1);
+  auto max_val = max(x1_cast, {-1});
+  auto bcast_max = broadcast(max_val, {false, true});
+
+  // load and calc sum(exp(x-bcast_max))
+  auto x2 = set(x, CacheOp::AllLevels);
+  auto x2_cast = castOp(DataType::Float, x2);
+  auto x_max_sub = sub(x2_cast, bcast_max);
+  auto exp_val = exp(x_max_sub);
+  auto sum_exp = sum(exp_val, {-1});
+  auto bcast_sum = broadcast(sum_exp, {false, true});
+
+  // load and calc exp(x-xmax)/bcast_sum
+  auto x3 = set(x, CacheOp::Streaming);
+  auto x3_cast = castOp(DataType::Float, x3);
+  auto x_max_sub_2 = sub(x3_cast, bcast_max);
+  exp_val = exp(x_max_sub_2);
+  auto y = mul(exp_val, reciprocal(bcast_sum));
+  auto y_cast = castOp(DataType::Half, y);
+  auto y_out = set(y_cast, CacheOp::Streaming);
+  fusion->addOutput(y_out);
+
+  max_val->split(-1, 8);
+  max_val->split(-2, 256);
+  max_val->split(-2, 1);
+  //[I, i/8/256, 256, 1, 8]
+  auto ref1 = max_val->rFactor({1, 4});
+  ref1->axis(0)->parallelize(ParallelType::BIDx);
+  ref1->axis(2)->parallelize(ParallelType::TIDx);
+  ref1->axis(2)->padToMultipleOfWarp(256);
+  ref1->axis(3)->parallelize(ParallelType::Unswitch);
+
+  TransformPropagator propagator(ref1);
+  MaxRootDomainInfoSpanningTree(ref1).traverse(&propagator);
+
+  sum_exp->rFactor({1, 4});
+
+  scheduler_utils::parallelizeAllLike(ref1, ir_utils::allTvs(fusion));
+  x1->axis(-1)->parallelize(ParallelType::Vectorize);
+  x2->axis(-1)->parallelize(ParallelType::Vectorize);
+  x3->axis(-1)->parallelize(ParallelType::Vectorize);
+  y_out->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({batch, size}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion, {t0});
+
+  at::manual_seed(0);
+  auto cg_outputs = fe.runFusion({t0});
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
