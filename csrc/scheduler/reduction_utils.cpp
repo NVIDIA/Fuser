@@ -386,7 +386,9 @@ void multiReductionInliner(
   }
 
   // Inline the schedule
-  inlineMost();
+  if(!std::getenv("DISABLE_INLINE_MOST")){
+    inlineMost();
+  }
 }
 
 void propagateTransformation(

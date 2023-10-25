@@ -700,7 +700,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
           blocks_per_sm_estimated * threads_per_block);
     }
   }
-
   // Will be used once supporting inter-block persistence
   int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
@@ -770,6 +769,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
             << "vectorize_factor: " << vectorize_factor << "\n"
             << "n_tensor_inputs: " << n_tensor_inputs << "\n"
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
+            << "nvrtc_register_per_thread: " << nvrtc_register_per_thread << "\n"
             << "max_persistent_buffer_size: " << max_persistent_buffer_size
             << "\n"
             << "max_multi_reduction_factor: " << max_multi_reduction_factor
