@@ -450,7 +450,32 @@ class NVFuserTest : public ::testing::Test {
                 << test_info->test_suite_name() << "." << test_info->name()
                 << "'" << std::endl;
     }
+
+    // Make sure capturing of stdout is stopped
+    stopCaptureStdout();
   }
+
+  // Start capturing of stdout if not already started
+  void captureStdout() {
+    if (!capturing_) {
+      testing::internal::CaptureStdout();
+      capturing_ = true;
+    }
+  }
+
+  // Stop capturing of stdout if being captured
+  std::string stopCaptureStdout() {
+    if (capturing_) {
+      auto str = testing::internal::GetCapturedStdout();
+      capturing_ = false;
+      return str;
+    } else {
+      return "";
+    }
+  }
+
+ private:
+  bool capturing_ = false;
 };
 
 // assert that the given fusion lowers to the given CUDA kernel

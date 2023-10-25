@@ -8383,7 +8383,7 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
       aten_input, norm_shape, aten_weight, aten_bias, kEps);
 
   // capture stdout and check stdout contains register spill warning
-  testing::internal::CaptureStdout();
+  captureStdout();
   {
     // generate persistent kernel
     auto persistent_params =
@@ -8412,7 +8412,7 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
         __FILE__,
         "");
   }
-  std::string output = testing::internal::GetCapturedStdout();
+  std::string output = stopCaptureStdout();
   NVF_CHECK(
       output.find("Register spill detected") != std::string::npos,
       "Register spill is not captured!");
@@ -8795,7 +8795,7 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
   scheduleInnerPersistentKernel(&fusion, *persistent_params);
 
   // capture stdout and check stdout contains register spill warning
-  testing::internal::CaptureStdout();
+  captureStdout();
 
   // compile and run persistent kernel
   // intentionally set maxrregcount to 32 to trigger register spill
@@ -8808,7 +8808,7 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {aten_input}, lparams, compile_opts);
 
-  std::string output = testing::internal::GetCapturedStdout();
+  std::string output = stopCaptureStdout();
   ASSERT_NE(output.find("Register spill detected"), std::string::npos)
       << "Register spill is not captured!";
 }
