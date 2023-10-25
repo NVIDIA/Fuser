@@ -41,6 +41,7 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
 
 
 # Datatypes to benchmark
+# TODO: Add torch.bfloat16 after adding support for variable thresholds
 FLOAT_DTYPES = [torch.float16, torch.float32]
 
 # Datatypes that will be promoted to Datatype.Float in Fusion Definitions
