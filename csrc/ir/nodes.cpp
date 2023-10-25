@@ -2371,7 +2371,9 @@ std::vector<int64_t> Permutation(
     const std::vector<T>& out) {
   std::vector<int64_t> permutation;
   permutation.reserve(out.size());
-  // O(n^2)! Can be improved if we assume T is hashable and/or comparable.
+  // O(n^2) is totally fine for the current use case of computing the
+  // root-to-rfactor permutation. If needed, this can be improved by requiring T
+  // to be hashable and/or comparable.
   for (const T& out_element : out) {
     permutation.push_back(
         std::find(in.begin(), in.end(), out_element) - in.begin());
