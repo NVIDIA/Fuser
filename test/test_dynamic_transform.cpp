@@ -116,7 +116,7 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
               DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
         },
         ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-            "Total element counts across view operation must match.")));
+            "Total element counts across view operation must match:")));
   }
 }
 

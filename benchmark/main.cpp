@@ -29,14 +29,39 @@ std::string getHostName() {
 #endif
 }
 
-std::string getDeviceName() {
-  int dev_idx;
+void addGPUBenchmarkContext() {
+  int dev_idx = 0;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&dev_idx));
 
   cudaDeviceProp prop;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, dev_idx));
 
-  return std::string(prop.name);
+  ::benchmark::AddCustomContext("gpu_name", prop.name);
+  ::benchmark::AddCustomContext(
+      "gpu_gmem_bytes", std::to_string(prop.totalGlobalMem));
+  ::benchmark::AddCustomContext(
+      "gpu_smem_bytes_per_block", std::to_string(prop.sharedMemPerBlock));
+  ::benchmark::AddCustomContext(
+      "gpu_regs_per_block", std::to_string(prop.regsPerBlock));
+  ::benchmark::AddCustomContext(
+      "gpu_clock_khz", std::to_string(prop.clockRate));
+  ::benchmark::AddCustomContext(
+      "gpu_mem_clock_khz", std::to_string(prop.memoryClockRate));
+  ::benchmark::AddCustomContext(
+      "gpu_mem_bus_width_bits", std::to_string(prop.memoryBusWidth));
+  ::benchmark::AddCustomContext(
+      "gpu_compute_capability_major", std::to_string(prop.major));
+  ::benchmark::AddCustomContext(
+      "gpu_compute_capability_minor", std::to_string(prop.minor));
+  ::benchmark::AddCustomContext(
+      "gpu_sm_count", std::to_string(prop.multiProcessorCount));
+  ::benchmark::AddCustomContext(
+      "gpu_l2_bytes", std::to_string(prop.l2CacheSize));
+  ::benchmark::AddCustomContext(
+      "gpu_max_threads_per_sm",
+      std::to_string(prop.maxThreadsPerMultiProcessor));
+  ::benchmark::AddCustomContext(
+      "gpu_max_threads_per_block", std::to_string(prop.maxThreadsPerBlock));
 }
 
 } // namespace
@@ -48,8 +73,9 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  ::benchmark::AddCustomContext("Host", getHostName());
-  ::benchmark::AddCustomContext("GPU", getDeviceName());
+  ::benchmark::AddCustomContext("host", getHostName());
+
+  addGPUBenchmarkContext();
 
   // Disable kernel reuse during all benchmarks.
   // This is important since some benchmarks use FusionExecutorCache in order to

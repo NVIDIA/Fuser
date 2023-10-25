@@ -185,6 +185,14 @@ class GpuLower : public NonCopyable {
     return profile_;
   }
 
+  std::unordered_map<const Expr*, TensorView*>& ldstMBarrierMap() {
+    return ldst_mbarrier_map_;
+  }
+
+  const std::unordered_map<const Expr*, TensorView*>& ldstMBarrierMap() const {
+    return ldst_mbarrier_map_;
+  }
+
   bool isNvFuserZeroEnabled() {
     if (isOptionDisabled(DisableOption::MagicZero)) {
       return false;
@@ -262,6 +270,9 @@ class GpuLower : public NonCopyable {
   // All vals that are known to the kernel, including fusion inputs and
   // precomputed values
   std::vector<Val*> all_known_vals_;
+
+  // keep track of the mbarrier used for each load/store operation
+  std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_map_;
 
   Fusion* fusion_ = nullptr;
 };
