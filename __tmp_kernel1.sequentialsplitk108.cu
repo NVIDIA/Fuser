@@ -9968,7 +9968,7 @@ __global__ void kernel1(Tensor<__half, 2, 2> T0, Tensor<__half, 2, 2> T1, Tensor
   //void* shared_mem = array;
   const unsigned smem_offset = alignBufferSize(blockDim.x * blockDim.y * blockDim.z * sizeof(float), 16);
   nvfuser_index_t i0;
-  i0 = ceilDiv((ceilDiv(T0.logical_size[1LL], 32)), 2);
+  i0 = ceilDiv((ceilDiv(T0.logical_size[1LL], 32)), 108);
   nvfuser_index_t i1;
   i1 = ((nvfuser_index_t)threadIdx.x) / 4;
   nvfuser_index_t i2;
@@ -10026,319 +10026,311 @@ __global__ void kernel1(Tensor<__half, 2, 2> T0, Tensor<__half, 2, 2> T1, Tensor
   nvfuser_index_t i28;
   i28 = 4096 * ((nvfuser_index_t)threadIdx.z);
   nvfuser_index_t i29;
-  i29 = 512 * i24;
+  i29 = i24 / 2;
   nvfuser_index_t i30;
-  i30 = 64 * (i20 / 4);
+  i30 = i20 + i29;
   nvfuser_index_t i31;
-  i31 = 16 * (i26 ^ (i20 % 4));
+  i31 = 64 * (i30 / 4);
   nvfuser_index_t i32;
-  i32 = 4096 * ((nvfuser_index_t)threadIdx.y);
-  __half* ptr33;
-  ptr33 = ((((((64 + T1.data) + i3) + i4) + i5) + i6) + i7) + i9;
-  __half* ptr34;
-  ptr34 = ((((((64 + T0.data) + i3) + i4) + i5) + i6) + i7) + i17;
-  nvfuser_index_t i35;
-  i35 = 2LL + i24;
-  nvfuser_index_t i36;
-  i36 = 64 * (i35 / 4);
+  i32 = 16 * (i26 ^ (i30 % 4));
+  nvfuser_index_t i33;
+  i33 = 8 * (i24 % 2);
+  nvfuser_index_t i34;
+  i34 = 4096 * ((nvfuser_index_t)threadIdx.y);
+  __half* ptr35;
+  ptr35 = ((((((64 + T1.data) + i3) + i4) + i5) + i6) + i7) + i9;
+  __half* ptr36;
+  ptr36 = ((((((64 + T0.data) + i3) + i4) + i5) + i6) + i7) + i17;
   nvfuser_index_t i37;
-  i37 = 16 * (i26 ^ (i35 % 4));
+  i37 = 2LL + i24;
   nvfuser_index_t i38;
-  i38 = 2LL + i20;
+  i38 = 64 * (i37 / 4);
   nvfuser_index_t i39;
-  i39 = 64 * (i38 / 4);
+  i39 = 16 * (i26 ^ (i37 % 4));
   nvfuser_index_t i40;
-  i40 = 16 * (i26 ^ (i38 % 4));
+  i40 = (2 + i20) + i29;
   nvfuser_index_t i41;
-  i41 = 128LL * ((nvfuser_index_t)blockIdx.y);
+  i41 = 64 * (i40 / 4);
   nvfuser_index_t i42;
-  i42 = 2LL * i2;
+  i42 = 16 * (i26 ^ (i40 % 4));
   nvfuser_index_t i43;
-  i43 = 64LL * ((nvfuser_index_t)threadIdx.y);
+  i43 = 128LL * ((nvfuser_index_t)blockIdx.y);
   nvfuser_index_t i44;
-  i44 = ((((i42 + (T1.logical_size[0LL] * i1)) + i43) + ((64LL * T1.logical_size[0LL]) * ((nvfuser_index_t)threadIdx.z))) + i41) + ((128LL * T1.logical_size[0LL]) * ((nvfuser_index_t)blockIdx.x));
+  i44 = 2LL * i2;
   nvfuser_index_t i45;
-  i45 = 16LL * T1.logical_size[0LL];
+  i45 = 64LL * ((nvfuser_index_t)threadIdx.y);
   nvfuser_index_t i46;
-  i46 = 8LL * T1.logical_size[0LL];
+  i46 = ((((i44 + (T1.logical_size[0LL] * i1)) + i45) + ((64LL * T1.logical_size[0LL]) * ((nvfuser_index_t)threadIdx.z))) + i43) + ((128LL * T1.logical_size[0LL]) * ((nvfuser_index_t)blockIdx.x));
   nvfuser_index_t i47;
-  i47 = 8 * i2;
+  i47 = 16LL * T1.logical_size[0LL];
   nvfuser_index_t i48;
-  i48 = ((7 - T0.logical_size[1LL]) + i47) + i7;
+  i48 = 8LL * T1.logical_size[0LL];
   nvfuser_index_t i49;
-  i49 = 8 * ((nvfuser_index_t)threadIdx.y);
+  i49 = 8 * i2;
   nvfuser_index_t i50;
-  i50 = 16 * ((nvfuser_index_t)threadIdx.z);
+  i50 = ((7 - T0.logical_size[1LL]) + i49) + i7;
   nvfuser_index_t i51;
-  i51 = ((((-T1.logical_size[0LL]) + i1) + i49) + i50) + i41;
+  i51 = 8 * ((nvfuser_index_t)threadIdx.y);
   nvfuser_index_t i52;
-  i52 = (-T0.logical_size[0LL]) + i1;
+  i52 = 16 * ((nvfuser_index_t)threadIdx.z);
   nvfuser_index_t i53;
-  i53 = 128LL * ((nvfuser_index_t)blockIdx.x);
+  i53 = ((((-T1.logical_size[0LL]) + i1) + i51) + i52) + i43;
   nvfuser_index_t i54;
-  i54 = ((i52 + i49) + i50) + i53;
+  i54 = (-T0.logical_size[0LL]) + i1;
   nvfuser_index_t i55;
-  i55 = (71 + i47) + i7;
+  i55 = 128LL * ((nvfuser_index_t)blockIdx.x);
   nvfuser_index_t i56;
-  i56 = (((1 - T1.logical_size[0LL]) + i42) + i43) + i41;
+  i56 = ((i54 + i51) + i52) + i55;
   nvfuser_index_t i57;
-  i57 = (i52 + (64LL * ((nvfuser_index_t)threadIdx.z))) + i53;
-  bool b58;  // same as last_block
-  b58 = ((nvfuser_index_t)blockIdx.z) == (((nvfuser_index_t)gridDim.z) + -1);
+  i57 = (71 + i49) + i7;
+  nvfuser_index_t i58;
+  i58 = (((1 - T1.logical_size[0LL]) + i44) + i45) + i43;
+  nvfuser_index_t i59;
+  i59 = (i54 + (64LL * ((nvfuser_index_t)threadIdx.z))) + i55;
+  bool b60;
+  b60 = ((nvfuser_index_t)blockIdx.z) == (((nvfuser_index_t)gridDim.z) + -1);
   __half* T7 = reinterpret_cast<__half*>(array + smem_offset + 24576LL);
   __half* T6 = reinterpret_cast<__half*>(array + smem_offset + 0);
   // Allocate global tensor T11
   // Allocate global tensor T12
   float T10[128];
   #pragma unroll
-  for(nvfuser_index_t i59 = 0; i59 < 4; ++i59) {
-    nvfuser_index_t i60;
-    i60 = 32 * i59;
+  for(nvfuser_index_t i61 = 0; i61 < 4; ++i61) {
+    nvfuser_index_t i62;
+    i62 = 32 * i61;
     #pragma unroll
-    for(nvfuser_index_t i61 = 0; i61 < 4; ++i61) {
-      Ampere::initM16N16K16TN<16>(reinterpret_cast<Array<float,8,8>*>(&T10[(i60 + (4 * i61))]));
+    for(nvfuser_index_t i63 = 0; i63 < 8; ++i63) {
+      Ampere::initM16N8K16TN<16>(reinterpret_cast<Array<float,4,4>*>(&T10[(i62 + (2LL * i63))]));
     }
   }
-  unsigned i62;
-  i62 = toSmem(T7);
-  unsigned i63;
-  i63 = ((((i62 + i12) + i13) + i14) + i15) + i16;
   unsigned i64;
-  i64 = toSmem(T6);
+  i64 = toSmem(T7);
   unsigned i65;
   i65 = ((((i64 + i12) + i13) + i14) + i15) + i16;
   unsigned i66;
-  i66 = (i64 + i21) + i23;
+  i66 = toSmem(T6);
   unsigned i67;
-  i67 = ((i66 + i25) + i27) + i28;
+  i67 = ((((i66 + i12) + i13) + i14) + i15) + i16;
   unsigned i68;
-  i68 = (i62 + i29) + i23;
+  i68 = (i66 + i21) + i23;
   unsigned i69;
-  i69 = ((i68 + i30) + i31) + i32;
+  i69 = ((i68 + i25) + i27) + i28;
   unsigned i70;
-  i70 = ((i66 + i36) + i37) + i28;
+  i70 = i64 + i23;
   unsigned i71;
-  i71 = ((i68 + i39) + i40) + i32;
+  i71 = (((i70 + i31) + i32) + i33) + i34;
+  unsigned i72;
+  i72 = ((i68 + i38) + i39) + i28;
+  unsigned i73;
+  i73 = (((i70 + i41) + i42) + i33) + i34;
   #pragma unroll
-  for(nvfuser_index_t i72 = 0; i72 < 2; ++i72) {
-    nvfuser_index_t i73;
-    i73 = 32LL * i72;
-    __half* ptr74;
-    ptr74 = ptr10 + i73;
+  for(nvfuser_index_t i74 = 0; i74 < 2; ++i74) {
     nvfuser_index_t i75;
-    i75 = 8192 * i72;
-    unsigned i76;
-    i76 = i63 + i75;
-    __half* ptr77;
-    ptr77 = ptr18 + i73;
+    i75 = 32LL * i74;
+    __half* ptr76;
+    ptr76 = ptr10 + i75;
+    nvfuser_index_t i77;
+    i77 = 8192 * i74;
     unsigned i78;
-    i78 = i65 + i75;
-    bool b79;
-    b79 = i48 < (-i73);
+    i78 = i65 + i77;
+    __half* ptr79;
+    ptr79 = ptr18 + i75;
+    unsigned i80;
+    i80 = i67 + i77;
+    bool b81;
+    b81 = i50 < (-i75);
     #pragma unroll
-    for(nvfuser_index_t i80 = 0; i80 < 4; ++i80) {
-      Ampere::cpAsyncCg<__half, 8>((i76 + (2048 * i80)), (ptr74 + (i11 * i80)), (b79 && (i51 < (-(32 * i80)))));
+    for(nvfuser_index_t i82 = 0; i82 < 4; ++i82) {
+      Ampere::cpAsyncCg<__half, 8>((i78 + (2048 * i82)), (ptr76 + (i11 * i82)), (b81 && (i53 < (-(32 * i82)))));
     }
     #pragma unroll
-    for(nvfuser_index_t i81 = 0; i81 < 4; ++i81) {
-      Ampere::cpAsyncCg<__half, 8>((i78 + (2048 * i81)), (ptr77 + (i11 * i81)), (b79 && (i54 < (-(32 * i81)))));
+    for(nvfuser_index_t i83 = 0; i83 < 4; ++i83) {
+      Ampere::cpAsyncCg<__half, 8>((i80 + (2048 * i83)), (ptr79 + (i11 * i83)), (b81 && (i56 < (-(32 * i83)))));
     }
     Ampere::cpAsyncCommit();
   }
   Ampere::cpAsyncPartialBarrier<1>();
   __syncthreads();
   Array<__half, 64, 8> T8;
-  Array<__half, 64, 8> T9;
+  Array<__half, 64, 4> T9;
   #pragma unroll
-  for(nvfuser_index_t i82 = 0; i82 < 4; ++i82) {
-    Turing::ldMatrix(reinterpret_cast<Array<__half,8,8>*>(&T8[(8LL * i82)]), (i67 + (1024 * i82)));
+  for(nvfuser_index_t i84 = 0; i84 < 4; ++i84) {
+    Turing::ldMatrix(reinterpret_cast<Array<__half,8,8>*>(&T8[(8LL * i84)]), (i69 + (1024 * i84)));
   }
   #pragma unroll
-  for(nvfuser_index_t i83 = 0; i83 < 4; ++i83) {
-    Turing::ldMatrix(reinterpret_cast<Array<__half,8,8>*>(&T9[(8LL * i83)]), (i69 + (1024 * i83)));
+  for(nvfuser_index_t i85 = 0; i85 < 8; ++i85) {
+    Turing::ldMatrix(reinterpret_cast<Array<__half,4,4>*>(&T9[(4LL * i85)]), (i71 + (512 * i85)));
   }
   #pragma unroll 1
-  for(nvfuser_index_t i84 = 0; i84 < i0; ++i84) {
-    nvfuser_index_t i85;
-    i85 = 32LL * i84;
-    __half* ptr86;
-    ptr86 = ptr33 + i85;
+  for(nvfuser_index_t i86 = 0; i86 < i0; ++i86) {
     nvfuser_index_t i87;
-    i87 = 8192 * ((2 + i84) % 3);
-    unsigned i88;
-    i88 = i63 + i87;
-    __half* ptr89;
-    ptr89 = ptr34 + i85;
+    i87 = 32LL * i86;
+    __half* ptr88;
+    ptr88 = ptr35 + i87;
+    nvfuser_index_t i89;
+    i89 = 8192 * ((2 + i86) % 3);
     unsigned i90;
-    i90 = i65 + i87;
-    nvfuser_index_t i91;
-    i91 = 8192 * (i84 % 3);
+    i90 = i65 + i89;
+    __half* ptr91;
+    ptr91 = ptr36 + i87;
     unsigned i92;
-    i92 = i70 + i91;
-    unsigned i93;
-    i93 = i71 + i91;
-    nvfuser_index_t i94;
-    i94 = 8192 * ((1 + i84) % 3);
+    i92 = i67 + i89;
+    nvfuser_index_t i93;
+    i93 = 8192 * (i86 % 3);
+    unsigned i94;
+    i94 = i72 + i93;
     unsigned i95;
-    i95 = i67 + i94;
-    unsigned i96;
-    i96 = i69 + i94;
-    bool b97;
-    b97 = (i55 + i85) < T0.logical_size[1LL];
-    #pragma unroll
-    for(nvfuser_index_t i80 = 0; i80 < 4; ++i80) {
-      Ampere::cpAsyncCg<__half, 8>((i88 + (2048 * i80)), (ptr86 + (i11 * i80)), (b97 && (i51 < (-(32 * i80)))));
-    }
-    #pragma unroll
-    for(nvfuser_index_t i81 = 0; i81 < 4; ++i81) {
-      Ampere::cpAsyncCg<__half, 8>((i90 + (2048 * i81)), (ptr89 + (i11 * i81)), (b97 && (i54 < (-(32 * i81)))));
-    }
-    Ampere::cpAsyncCommit();
+    i95 = i73 + i93;
+    nvfuser_index_t i96;
+    i96 = 8192 * ((1 + i86) % 3);
+    unsigned i97;
+    i97 = i69 + i96;
+    unsigned i98;
+    i98 = i71 + i96;
+    bool b99;
+    b99 = (i57 + i87) < T0.logical_size[1LL];
     #pragma unroll
     for(nvfuser_index_t i82 = 0; i82 < 4; ++i82) {
-      Turing::ldMatrix(reinterpret_cast<Array<__half,8,8>*>(&T8[(32 + (8LL * i82))]), (i92 + (1024 * i82)));
-    }
-    __half T2[32];
-    #pragma unroll
-    for(nvfuser_index_t i98 = 0; i98 < 4; ++i98) {
-      nvfuser_index_t i99;
-      i99 = 8LL * i98;
-      #pragma unroll
-      for(nvfuser_index_t i100 = 0; i100 < 8; ++i100) {
-        T2[(i99 + i100)] = 0.00000000000000000e+00;
-      }
-    }
-    #pragma unroll
-    for(nvfuser_index_t i98 = 0; i98 < 4; ++i98) {
-      nvfuser_index_t i101;
-      i101 = 8LL * i98;
-      #pragma unroll
-      for(nvfuser_index_t i100 = 0; i100 < 8; ++i100) {
-        nvfuser_index_t i102;
-        i102 = i101 + i100;
-        T2[i102]
-           = T8[i102];
-      }
+      Ampere::cpAsyncCg<__half, 8>((i90 + (2048 * i82)), (ptr88 + (i11 * i82)), (b99 && (i53 < (-(32 * i82)))));
     }
     #pragma unroll
     for(nvfuser_index_t i83 = 0; i83 < 4; ++i83) {
-      Turing::ldMatrix(reinterpret_cast<Array<__half,8,8>*>(&T9[(32 + (8LL * i83))]), (i93 + (1024 * i83)));
+      Ampere::cpAsyncCg<__half, 8>((i92 + (2048 * i83)), (ptr91 + (i11 * i83)), (b99 && (i56 < (-(32 * i83)))));
+    }
+    Ampere::cpAsyncCommit();
+    #pragma unroll
+    for(nvfuser_index_t i84 = 0; i84 < 4; ++i84) {
+      Turing::ldMatrix(reinterpret_cast<Array<__half,8,8>*>(&T8[(32 + (8LL * i84))]), (i94 + (1024 * i84)));
+    }
+    __half T2[32];
+    #pragma unroll
+    for(nvfuser_index_t i100 = 0; i100 < 4; ++i100) {
+      nvfuser_index_t i101;
+      i101 = 8LL * i100;
+      #pragma unroll
+      for(nvfuser_index_t i102 = 0; i102 < 8; ++i102) {
+        T2[(i101 + i102)] = 0.00000000000000000e+00;
+      }
+    }
+    #pragma unroll
+    for(nvfuser_index_t i100 = 0; i100 < 4; ++i100) {
+      nvfuser_index_t i103;
+      i103 = 8LL * i100;
+      #pragma unroll
+      for(nvfuser_index_t i102 = 0; i102 < 8; ++i102) {
+        nvfuser_index_t i104;
+        i104 = i103 + i102;
+        T2[i104]
+           = T8[i104];
+      }
+    }
+    #pragma unroll
+    for(nvfuser_index_t i85 = 0; i85 < 8; ++i85) {
+      Turing::ldMatrix(reinterpret_cast<Array<__half,4,4>*>(&T9[(32 + (4LL * i85))]), (i95 + (512 * i85)));
     }
     __half T3[32];
     #pragma unroll
-    for(nvfuser_index_t i103 = 0; i103 < 4; ++i103) {
-      nvfuser_index_t i104;
-      i104 = 8LL * i103;
-      #pragma unroll
-      for(nvfuser_index_t i105 = 0; i105 < 8; ++i105) {
-        T3[(i104 + i105)] = 0.00000000000000000e+00;
-      }
-    }
-    #pragma unroll
-    for(nvfuser_index_t i103 = 0; i103 < 4; ++i103) {
+    for(nvfuser_index_t i105 = 0; i105 < 8; ++i105) {
       nvfuser_index_t i106;
-      i106 = 8LL * i103;
+      i106 = 4LL * i105;
       #pragma unroll
-      for(nvfuser_index_t i105 = 0; i105 < 8; ++i105) {
-        nvfuser_index_t i107;
-        i107 = i106 + i105;
-        T3[i107]
-           = T9[i107];
+      for(nvfuser_index_t i107 = 0; i107 < 4; ++i107) {
+        T3[(i106 + i107)] = 0.00000000000000000e+00;
       }
     }
     #pragma unroll
-    for(nvfuser_index_t i59 = 0; i59 < 4; ++i59) {
+    for(nvfuser_index_t i105 = 0; i105 < 8; ++i105) {
       nvfuser_index_t i108;
-      i108 = 32 * i59;
+      i108 = 4LL * i105;
       #pragma unroll
-      for(nvfuser_index_t i61 = 0; i61 < 4; ++i61) {
-        Ampere::M16N16K16TN<16>(
-          reinterpret_cast<Array<float,8,8>*>(&T10[(i108 + (4 * i61))]),
-          &(reinterpret_cast<Array<__half,8,8>*>(&T2)[i59]),
-          &(reinterpret_cast<Array<__half,8,8>*>(&T3)[i61]));
+      for(nvfuser_index_t i107 = 0; i107 < 4; ++i107) {
+        nvfuser_index_t i109;
+        i109 = i108 + i107;
+        T3[i109]
+           = T9[i109];
       }
     }
     #pragma unroll
-    for(nvfuser_index_t i98 = 0; i98 < 4; ++i98) {
-      nvfuser_index_t i109;
-      i109 = 8LL * i98;
-      #pragma unroll
-      for(nvfuser_index_t i100 = 0; i100 < 8; ++i100) {
-        T2[(i109 + i100)] = 0.00000000000000000e+00;
-      }
-    }
-    #pragma unroll
-    for(nvfuser_index_t i98 = 0; i98 < 4; ++i98) {
+    for(nvfuser_index_t i61 = 0; i61 < 4; ++i61) {
       nvfuser_index_t i110;
-      i110 = 8LL * i98;
+      i110 = 32 * i61;
+      #pragma unroll
+      for(nvfuser_index_t i63 = 0; i63 < 8; ++i63) {
+        Ampere::M16N8K16TN<16>(
+          reinterpret_cast<Array<float,4,4>*>(&T10[(i110 + (2LL * i63))]),
+          &(reinterpret_cast<Array<__half,8,8>*>(&T2)[i61]),
+          &(reinterpret_cast<Array<__half,4,4>*>(&T3)[i63]));
+      }
+    }
+    #pragma unroll
+    for(nvfuser_index_t i100 = 0; i100 < 4; ++i100) {
       nvfuser_index_t i111;
-      i111 = 32 + i110;
+      i111 = 8LL * i100;
       #pragma unroll
-      for(nvfuser_index_t i100 = 0; i100 < 8; ++i100) {
-        T2[(i110 + i100)]
-           = T8[(i111 + i100)];
+      for(nvfuser_index_t i102 = 0; i102 < 8; ++i102) {
+        T2[(i111 + i102)] = 0.00000000000000000e+00;
       }
     }
     #pragma unroll
-    for(nvfuser_index_t i103 = 0; i103 < 4; ++i103) {
+    for(nvfuser_index_t i100 = 0; i100 < 4; ++i100) {
       nvfuser_index_t i112;
-      i112 = 8LL * i103;
-      #pragma unroll
-      for(nvfuser_index_t i105 = 0; i105 < 8; ++i105) {
-        T3[(i112 + i105)] = 0.00000000000000000e+00;
-      }
-    }
-    #pragma unroll
-    for(nvfuser_index_t i103 = 0; i103 < 4; ++i103) {
+      i112 = 8LL * i100;
       nvfuser_index_t i113;
-      i113 = 8LL * i103;
-      nvfuser_index_t i114;
-      i114 = 32 + i113;
+      i113 = 32 + i112;
       #pragma unroll
-      for(nvfuser_index_t i105 = 0; i105 < 8; ++i105) {
-        T3[(i113 + i105)]
-           = T9[(i114 + i105)];
+      for(nvfuser_index_t i102 = 0; i102 < 8; ++i102) {
+        T2[(i112 + i102)]
+           = T8[(i113 + i102)];
       }
     }
     #pragma unroll
-    for(nvfuser_index_t i59 = 0; i59 < 4; ++i59) {
-      nvfuser_index_t i115;
-      i115 = 32 * i59;
+    for(nvfuser_index_t i105 = 0; i105 < 8; ++i105) {
+      nvfuser_index_t i114;
+      i114 = 4LL * i105;
       #pragma unroll
-      for(nvfuser_index_t i61 = 0; i61 < 4; ++i61) {
-        Ampere::M16N16K16TN<16>(
-          reinterpret_cast<Array<float,8,8>*>(&T10[(i115 + (4 * i61))]),
-          &(reinterpret_cast<Array<__half,8,8>*>(&T2)[i59]),
-          &(reinterpret_cast<Array<__half,8,8>*>(&T3)[i61]));
+      for(nvfuser_index_t i107 = 0; i107 < 4; ++i107) {
+        T3[(i114 + i107)] = 0.00000000000000000e+00;
+      }
+    }
+    #pragma unroll
+    for(nvfuser_index_t i105 = 0; i105 < 8; ++i105) {
+      nvfuser_index_t i115;
+      i115 = 4LL * i105;
+      nvfuser_index_t i116;
+      i116 = 32 + i115;
+      #pragma unroll
+      for(nvfuser_index_t i107 = 0; i107 < 4; ++i107) {
+        T3[(i115 + i107)]
+           = T9[(i116 + i107)];
+      }
+    }
+    #pragma unroll
+    for(nvfuser_index_t i61 = 0; i61 < 4; ++i61) {
+      nvfuser_index_t i117;
+      i117 = 32 * i61;
+      #pragma unroll
+      for(nvfuser_index_t i63 = 0; i63 < 8; ++i63) {
+        Ampere::M16N8K16TN<16>(
+          reinterpret_cast<Array<float,4,4>*>(&T10[(i117 + (2LL * i63))]),
+          &(reinterpret_cast<Array<__half,8,8>*>(&T2)[i61]),
+          &(reinterpret_cast<Array<__half,4,4>*>(&T3)[i63]));
       }
     }
     Ampere::cpAsyncPartialBarrier<1>();
     __syncthreads();
     #pragma unroll
-    for(nvfuser_index_t i82 = 0; i82 < 4; ++i82) {
-      Turing::ldMatrix(reinterpret_cast<Array<__half,8,8>*>(&T8[(8LL * i82)]), (i95 + (1024 * i82)));
+    for(nvfuser_index_t i84 = 0; i84 < 4; ++i84) {
+      Turing::ldMatrix(reinterpret_cast<Array<__half,8,8>*>(&T8[(8LL * i84)]), (i97 + (1024 * i84)));
     }
     #pragma unroll
-    for(nvfuser_index_t i83 = 0; i83 < 4; ++i83) {
-      Turing::ldMatrix(reinterpret_cast<Array<__half,8,8>*>(&T9[(8LL * i83)]), (i96 + (1024 * i83)));
+    for(nvfuser_index_t i85 = 0; i85 < 8; ++i85) {
+      Turing::ldMatrix(reinterpret_cast<Array<__half,4,4>*>(&T9[(4LL * i85)]), (i98 + (512 * i85)));
     }
   }
   // INITIALIZE GRIDREDUCE
 
   // Set template parameters as constants here
   /*
-  reduction::gridReduce<false, false, true, false, false, false, false, true>(
-    T5[i135],
-    T10[(i132 + i135)],
-    [](float &a, float b) { a = a + b; },
-    &T11[0],
-    &T12[0],
-    static_cast<float*>(shared_mem),
-    b134,
-    b134,
-    float(0.00000000000000000e+00),
-    ((((((((i116 * (ceilDiv(64, 16))) + i120) * (ceilDiv(16, 8))) + i125) * (ceilDiv(16, 8))) + i131) * 2LL) + i135),
-    (((((ceilDiv(64, 16)) * (ceilDiv(64, 16))) * (ceilDiv(16, 8))) * (ceilDiv(16, 8))) * 2LL));
     */
   const bool X_BLOCK = false;
   const bool Y_BLOCK = false;
@@ -10429,90 +10421,102 @@ __global__ void kernel1(Tensor<__half, 2, 2> T0, Tensor<__half, 2, 2> T1, Tensor
 
   // Finish all global memory transactions before looping to update the output
   __threadfence();
-
   #pragma unroll
-  for(nvfuser_index_t i116 = 0; i116 < 4; ++i116) {
-    nvfuser_index_t i117;
-    i117 = 32 * i116;
-    nvfuser_index_t i118;
-    i118 = i44 + (i45 * i116);
+  for(nvfuser_index_t i118 = 0; i118 < 4; ++i118) {
     nvfuser_index_t i119;
-    i119 = -(16LL * i116);
+    i119 = 32 * i118;
+    nvfuser_index_t i120;
+    i120 = i46 + (i47 * i118);
+    nvfuser_index_t i121;
+    i121 = -(16LL * i118);
     #pragma unroll
-    for(nvfuser_index_t i120 = 0; i120 < 4; ++i120) {
-      nvfuser_index_t i121;
-      i121 = i117 + (4 * i120);
-      nvfuser_index_t i122;
-      i122 = 16LL * i120;
+    for(nvfuser_index_t i122 = 0; i122 < 8; ++i122) {
       nvfuser_index_t i123;
-      i123 = i118 + i122;
+      i123 = i119 + (2LL * i122);
       nvfuser_index_t i124;
-      i124 = -i122;
+      i124 = 8LL * i122;
+      nvfuser_index_t i125;
+      i125 = i120 + i124;
+      bool b126;
+      b126 = i58 < (-i124);
+      bool b127;
+      b127 = b60 && b126;
       #pragma unroll
-      for(nvfuser_index_t i125 = 0; i125 < 2; ++i125) {
-        nvfuser_index_t i126;
-        i126 = i121 + (2LL * i125);
-        nvfuser_index_t i127;
-        i127 = 8LL * i125;
-        nvfuser_index_t i128;
-        i128 = i123 + i127;
-        bool b129;
-        b129 = i56 < (i124 - i127);
+      for(nvfuser_index_t i128 = 0; i128 < 2; ++i128) {
+        nvfuser_index_t i129;
+        i129 = i123 + (16 * i128);
         bool b130;
-        b130 = b58 && b129;   // last_block && in range
+        b130 = i59 < (i121 - (8LL * i128));
+        bool b131;
+        b131 = b126 && b130;
+        Array<float, 2, 2> T5;
         #pragma unroll
-        for(nvfuser_index_t i131 = 0; i131 < 2; ++i131) {
-          nvfuser_index_t i132;
-          i132 = i126 + (16 * i131);
-          bool b133;
-          b133 = i57 < (i119 - (8LL * i131));
-          bool b134;
-          b134 = b129 && b133;
-          Array<float, 2, 2> T5;
-          #pragma unroll
-          for(nvfuser_index_t i135 = 0; i135 < 2; ++i135) {
-            T5[i135] = 0.00000000000000000e+00;
-          }
-          // SEQUENTIAL GRID REDUCTION
-          /*
-          #pragma unroll
-          for(nvfuser_index_t i135 = 0; i135 < 2; ++i135) {
-            reduction::gridReduce<false, false, true, false, false, false, false, true>(
-              T5[i135],
-              T10[(i132 + i135)],
-              [](float &a, float b) { a = a + b; },
-              &T11[0],
-              &T12[0],
-              static_cast<float*>(shared_mem),
-              b134,
-              b134,
-              float(0.00000000000000000e+00),
-              ((((((((i116 * (ceilDiv(64, 16))) + i120) * (ceilDiv(16, 8))) + i125) * (ceilDiv(16, 8))) + i131) * 2LL) + i135),
-              (((((ceilDiv(64, 16)) * (ceilDiv(64, 16))) * (ceilDiv(16, 8))) * (ceilDiv(16, 8))) * 2LL));
-            */
+        for(nvfuser_index_t i132 = 0; i132 < 2; ++i132) {
+          T5[i132] = 0.00000000000000000e+00;
+        }
+        /*
+        #pragma unroll
+        for(nvfuser_index_t i132 = 0; i132 < 2; ++i132) {
+          reduction::gridReduce<false, false, true, false, false, false, false, true>(
+            T5[i132],
+            T10[(i129 + i132)],
+            [](float &a, float b) { a = a + b; },
+            &T11[0],
+            &T12[0],
+            static_cast<float*>(shared_mem),
+            b131,
+            b131,
+            float(0.00000000000000000e+00),
+            ((((((i118 * (ceilDiv(64, 8))) + i122) * (ceilDiv(16, 8))) + i128) * 2LL) + i132),
+            ((((ceilDiv(64, 16)) * (ceilDiv(64, 8))) * (ceilDiv(16, 8))) * 2LL));
+        }
+        if ((b127 && b130)) {
+          //loadLocalToGlobal<float, \/*vec_size=*\/2, \/*is_volatile=*\/false>( &T4[(i125 + (i48 * i128))], &T5[0]);
+        }
+        */
 
-          if (b134) {
-            if (segment_block_idx > 0) {
-              loadGenericVolatile<T, 2, false, true>(&T5[0LL], &T4[(i128 + (i46 * i131))]);
-              for(nvfuser_index_t i135 = 0; i135 < 2; ++i135) {
-                reduction_op(T5[i135], T10[(i132 + i135)]);
-              }
-            } else { // first block only
-              // NOTE: This ignores init_val and just uses block 0's value with no
-              // first op. This assumption requires init_val to be the identity
-              // with respect to binary_op.
-              for(nvfuser_index_t i135 = 0; i135 < 2; ++i135) {
-                T5[i135] = T10[(i132 + i135)];
-              }
+        // SEQUENTIAL GRID REDUCTION
+
+        /*
+        #pragma unroll
+        for(nvfuser_index_t i135 = 0; i135 < 2; ++i135) {
+          reduction::gridReduce<false, false, true, false, false, false, false, true>(
+            T5[i135],
+            T10[(i132 + i135)],
+            [](float &a, float b) { a = a + b; },
+            &T11[0],
+            &T12[0],
+            static_cast<float*>(shared_mem),
+            b134,
+            b134,
+            float(0.00000000000000000e+00),
+            ((((((((i116 * (ceilDiv(64, 16))) + i120) * (ceilDiv(16, 8))) + i125) * (ceilDiv(16, 8))) + i131) * 2LL) + i135),
+            (((((ceilDiv(64, 16)) * (ceilDiv(64, 16))) * (ceilDiv(16, 8))) * (ceilDiv(16, 8))) * 2LL));
+          */
+
+        auto T4idx = (i125 + (i48 * i128));
+        if (b131) {
+          if (segment_block_idx > 0) {
+            loadGenericVolatile<T, 2, false, true>(&T5[0LL], &T4[T4idx]);
+            for(nvfuser_index_t i132 = 0; i132 < 2; ++i132) {
+              reduction_op(T5[i132], T10[(i129 + i132)]);
+            }
+          } else { // first block only
+            // NOTE: This ignores init_val and just uses block 0's value with no
+            // first op. This assumption requires init_val to be the identity
+            // with respect to binary_op.
+            for(nvfuser_index_t i132 = 0; i132 < 2; ++i132) {
+              T5[i132] = T10[(i129 + i132)];
             }
           }
-          loadLocalToGlobal<T, 2, true>(&T4[(i128 + (i46 * i131))], &T5[0LL]);
-
-          // END SEQUENTIAL GRID REDUCTION
-          //if ((b130 && b133)) {
-            //loadLocalToGlobal<float, /*vec_size=*/2, /*is_volatile=*/false>( &T4[(i128 + (i46 * i131))], &T5[0]);
-          //}
         }
+        // NOTE: with epilogue we would want to skip this write for last block
+        loadLocalToGlobal<T, 2, true>(&T4[T4idx], &T5[0LL]);
+
+        // END SEQUENTIAL GRID REDUCTION
+        //if ((b130 && b133)) {
+          //loadLocalToGlobal<float, /*vec_size=*/2, /*is_volatile=*/false>( &T4[(i128 + (i46 * i131))], &T5[0]);
+        //}
       }
     }
   }
