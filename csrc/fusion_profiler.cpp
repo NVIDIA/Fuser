@@ -6,8 +6,8 @@
  */
 // clang-format on
 #include <cxxabi.h>
-#include <iomanip>
 #include <fusion_profiler.h>
+#include <iomanip>
 
 namespace nvfuser {
 
@@ -18,10 +18,12 @@ namespace {
 #define BUF_SIZE (1 * 4 * 1024)
 // 8-byte alignment for the buffers
 #define ALIGN_SIZE (8)
-#define ALIGN_BUFFER(buffer, align)                                                 \
-  (((uintptr_t) (buffer) & ((align)-1)) ? ((buffer) + (align) - ((uintptr_t) (buffer) & ((align)-1))) : (buffer))
+#define ALIGN_BUFFER(buffer, align)                                 \
+  (((uintptr_t)(buffer) & ((align)-1))                              \
+       ? ((buffer) + (align) - ((uintptr_t)(buffer) & ((align)-1))) \
+       : (buffer))
 
-const char* get_demangled_name(const char *pName) {
+const char* get_demangled_name(const char* pName) {
   if (pName == nullptr) {
     return "<null>";
   }
@@ -29,13 +31,12 @@ const char* get_demangled_name(const char *pName) {
   return abi::__cxa_demangle(pName, nullptr, nullptr, &status);
 }
 
-void record_cupti_activity(CUpti_Activity *pRecord, FILE *pFileHandle) {
+void record_cupti_activity(CUpti_Activity* pRecord, FILE* pFileHandle) {
   CUpti_ActivityKind activityKind = pRecord->kind;
 
   switch (activityKind) {
-    case CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL:
-    {
-      CUpti_ActivityKernel8 *pKARecord = (CUpti_ActivityKernel8 *)pRecord;
+    case CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL: {
+      CUpti_ActivityKernel8* pKARecord = (CUpti_ActivityKernel8*)pRecord;
 
       KernelProfile prof;
       prof.name.assign(get_demangled_name(pKARecord->name));
@@ -46,10 +47,12 @@ void record_cupti_activity(CUpti_Activity *pRecord, FILE *pFileHandle) {
       prof.stream = pKARecord->streamId;
       prof.correlation_id = pKARecord->correlationId;
       constexpr double ms_convert = 1.0 / 1000000.0;
-      prof.time_ms = static_cast<double>(pKARecord->end - pKARecord->start) * ms_convert;
+      prof.time_ms =
+          static_cast<double>(pKARecord->end - pKARecord->start) * ms_convert;
       prof.grid = {pKARecord->gridX, pKARecord->gridY, pKARecord->gridZ};
       prof.block = {pKARecord->blockX, pKARecord->blockY, pKARecord->blockZ};
-      prof.cluster = {pKARecord->clusterX, pKARecord->clusterY, pKARecord->clusterZ};
+      prof.cluster = {
+          pKARecord->clusterX, pKARecord->clusterY, pKARecord->clusterZ};
       prof.dynamic_shared_mem = pKARecord->dynamicSharedMemory;
       prof.static_shared_mem = pKARecord->staticSharedMemory;
       prof.registers = pKARecord->registersPerThread;
@@ -58,10 +61,12 @@ void record_cupti_activity(CUpti_Activity *pRecord, FILE *pFileHandle) {
 
       break;
     }
-    case CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION:
-    {
-      CUpti_ActivityExternalCorrelation *pExternalCorrelationRecord = (CUpti_ActivityExternalCorrelation *)pRecord;
-      FusionProfiler::get()->recordAsyncCorrIdActivity(pExternalCorrelationRecord->externalId, pExternalCorrelationRecord->correlationId);
+    case CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION: {
+      CUpti_ActivityExternalCorrelation* pExternalCorrelationRecord =
+          (CUpti_ActivityExternalCorrelation*)pRecord;
+      FusionProfiler::get()->recordAsyncCorrIdActivity(
+          pExternalCorrelationRecord->externalId,
+          pExternalCorrelationRecord->correlationId);
       break;
     }
     case CUPTI_ACTIVITY_KIND_DRIVER:
@@ -73,53 +78,46 @@ void record_cupti_activity(CUpti_Activity *pRecord, FILE *pFileHandle) {
 }
 
 void record_cupti_activity_buffer(
-    uint8_t *pBuffer,
+    uint8_t* pBuffer,
     size_t validBytes,
-    FILE *pFileHandle,
-    void *pUserData) {
-  CUpti_Activity *pRecord = nullptr;
+    FILE* pFileHandle,
+    void* pUserData) {
+  CUpti_Activity* pRecord = nullptr;
   CUptiResult status = CUPTI_SUCCESS;
 
   do {
     status = cuptiActivityGetNextRecord(pBuffer, validBytes, &pRecord);
     if (status == CUPTI_SUCCESS) {
       record_cupti_activity(pRecord, stdout);
-    }
-    else if (status == CUPTI_ERROR_MAX_LIMIT_REACHED) {
-       break;
-    }
-    else {
+    } else if (status == CUPTI_ERROR_MAX_LIMIT_REACHED) {
+      break;
+    } else {
       NVFUSER_CUPTI_SAFE_CALL(status);
     }
   } while (true);
 }
 
 void cupti_buffer_requested(
-    uint8_t **ppBuffer,
-    size_t *pSize,
-    size_t *pMaxNumRecords)
-{
-    //uint8_t *pBuffer = (uint8_t *) malloc(BUF_SIZE + ALIGN_SIZE);
-    uint8_t *pBuffer = FusionProfiler::get()->cuptiBufferPtr();
-    NVF_ERROR(pBuffer, "CUPTI Malloced buffer Pointer is null!");
+    uint8_t** ppBuffer,
+    size_t* pSize,
+    size_t* pMaxNumRecords) {
+  uint8_t* pBuffer = FusionProfiler::get()->cuptiBufferPtr();
+  NVF_ERROR(pBuffer, "CUPTI Malloced buffer Pointer is null!");
 
-    *pSize = (size_t)BUF_SIZE;
-    *ppBuffer = ALIGN_BUFFER(pBuffer, ALIGN_SIZE);
-    *pMaxNumRecords = 0;
+  *pSize = (size_t)BUF_SIZE;
+  *ppBuffer = ALIGN_BUFFER(pBuffer, ALIGN_SIZE);
+  *pMaxNumRecords = 0;
 }
 
 void cupti_buffer_completed(
     CUcontext context,
     uint32_t streamId,
-    uint8_t *pBuffer,
+    uint8_t* pBuffer,
     size_t size,
-    size_t validSize)
-{
-    if (validSize > 0) {
-      record_cupti_activity_buffer(pBuffer, validSize, stdout, nullptr); 
-    }
-
-    //free(pBuffer);
+    size_t validSize) {
+  if (validSize > 0) {
+    record_cupti_activity_buffer(pBuffer, validSize, stdout, nullptr);
+  }
 }
 
 const char* profiler_state2string(const ProfilerState& pstate) {
@@ -136,19 +134,19 @@ const char* profiler_state2string(const ProfilerState& pstate) {
       NVF_ERROR(false, "Unexpected ProfilerState enum value!");
   }
 }
- 
-} // annonymous
+
+} // namespace
 
 std::ostream& operator<<(std::ostream& out, const ProfilerState& pstate) {
-  return out << profiler_state2string(pstate); 
+  return out << profiler_state2string(pstate);
 }
-  
-CudaEventTimer::CudaEventTimer(cudaStream_t s) : 
-  stream_(s),
-  start_event_(),
-  stop_event_(),
-  time_ms_(0.0), 
-  state_(ProfilerState::Ready) {
+
+CudaEventTimer::CudaEventTimer(cudaStream_t s)
+    : stream_(s),
+      start_event_(),
+      stop_event_(),
+      time_ms_(0.0),
+      state_(ProfilerState::Ready) {
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event_));
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&stop_event_));
 }
@@ -164,13 +162,17 @@ void CudaEventTimer::reset() {
 }
 
 void CudaEventTimer::start() {
-  NVF_CHECK(state_ == ProfilerState::Ready, "ProfilerState is not Ready! ", state_);
+  NVF_CHECK(
+      state_ == ProfilerState::Ready, "ProfilerState is not Ready! ", state_);
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start_event_, stream_));
   state_ = ProfilerState::Running;
 }
 
 void CudaEventTimer::stop() {
-  NVF_CHECK(state_ == ProfilerState::Running, "ProfilerState is not Running! ", state_);
+  NVF_CHECK(
+      state_ == ProfilerState::Running,
+      "ProfilerState is not Running! ",
+      state_);
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(stop_event_, stream_));
   state_ = ProfilerState::Finished;
 }
@@ -185,7 +187,11 @@ double CudaEventTimer::time() {
     time_ms_ = static_cast<double>(tmp);
     state_ = ProfilerState::Processed;
   } else {
-    NVF_CHECK((state_ == ProfilerState::Processed) || (state_ == ProfilerState::Ready), "ProfilerState is not Processed or Ready! ", state_);
+    NVF_CHECK(
+        (state_ == ProfilerState::Processed) ||
+            (state_ == ProfilerState::Ready),
+        "ProfilerState is not Processed or Ready! ",
+        state_);
   }
   return time_ms_;
 }
@@ -194,12 +200,11 @@ ProfilerState CudaEventTimer::state() const {
   return state_;
 }
 
-HostTimer::HostTimer() : 
-  start_event_(),
-  stop_event_(),
-  time_ms_(0.0), 
-  state_(ProfilerState::Ready) {
-}
+HostTimer::HostTimer()
+    : start_event_(),
+      stop_event_(),
+      time_ms_(0.0),
+      state_(ProfilerState::Ready) {}
 
 void HostTimer::reset() {
   time_ms_ = 0.0;
@@ -207,24 +212,35 @@ void HostTimer::reset() {
 }
 
 void HostTimer::start() {
-  NVF_CHECK(state_ == ProfilerState::Ready, "ProfilerState is not Ready! ", state_);
+  NVF_CHECK(
+      state_ == ProfilerState::Ready, "ProfilerState is not Ready! ", state_);
   start_event_ = Clock::now();
   state_ = ProfilerState::Running;
 }
 
 void HostTimer::stop() {
-  NVF_CHECK(state_ == ProfilerState::Running, "ProfilerState is not Running! ", state_);
+  NVF_CHECK(
+      state_ == ProfilerState::Running,
+      "ProfilerState is not Running! ",
+      state_);
   stop_event_ = Clock::now();
   state_ = ProfilerState::Finished;
 }
 
 double HostTimer::time() {
   if (state_ == ProfilerState::Finished) {
-    double elapsed_seconds = std::chrono::duration_cast< std::chrono::duration<double>>(stop_event_ - start_event_).count();
+    double elapsed_seconds =
+        std::chrono::duration_cast<std::chrono::duration<double>>(
+            stop_event_ - start_event_)
+            .count();
     time_ms_ = elapsed_seconds * 1000.0;
     state_ = ProfilerState::Processed;
   } else {
-    NVF_CHECK((state_ == ProfilerState::Processed) || (state_ == ProfilerState::Ready), "ProfilerState is not Processed or Ready! ", state_);
+    NVF_CHECK(
+        (state_ == ProfilerState::Processed) ||
+            (state_ == ProfilerState::Ready),
+        "ProfilerState is not Processed or Ready! ",
+        state_);
   }
   return time_ms_;
 }
@@ -236,32 +252,30 @@ ProfilerState HostTimer::state() const {
 void DeviceDescriptor::generate(int _device) {
   device = static_cast<int>(_device);
   name.reserve(100);
-  NVFUSER_CUDA_SAFE_CALL(
-      cuDeviceGetName(name.data(), 100, device));
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetName(name.data(), 100, device));
   NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
-      &bus_width,
-      CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH,
-      device));
+      &bus_width, CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH, device));
   NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
       &memory_clock, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, device));
 
-    // Peak bandwidth calculation:
-    // Bus width is given in bits, so dividing by 8 converts to bytes.
-    // Clock is given in kHz. 1 GB = 1e9 bytes (don't report GiB = 1024^3 bytes)
-    // A factor of 2 is multiplied to account for double data rate (DDR):
-    // (clock in kHz * width in bits) * (1000 Hz / kHz) * (1 GB / 8e9 bits) * 2
-    // factor = 2.5e-7
-  peak_bandwidth_gbs = 2.5e-7 * static_cast<double>(memory_clock) * static_cast<double>(bus_width);
+  // Peak bandwidth calculation:
+  // Bus width is given in bits, so dividing by 8 converts to bytes.
+  // Clock is given in kHz. 1 GB = 1e9 bytes (don't report GiB = 1024^3 bytes)
+  // A factor of 2 is multiplied to account for double data rate (DDR):
+  // (clock in kHz * width in bits) * (1000 Hz / kHz) * (1 GB / 8e9 bits) * 2
+  // factor = 2.5e-7
+  peak_bandwidth_gbs = 2.5e-7 * static_cast<double>(memory_clock) *
+      static_cast<double>(bus_width);
 }
 
-SegmentProfiler::SegmentProfiler(uint32_t id, bool cupti_disabled) :
-  cupti_disabled_(cupti_disabled),
-  device_(-1),
-  segment_id_(id),
-  compile_timer_(),
-  input_bytes_(0),
-  output_bytes_(0),
-  kernel_profile_state_(ProfilerState::Ready) {}
+SegmentProfiler::SegmentProfiler(uint32_t id, bool cupti_disabled)
+    : cupti_disabled_(cupti_disabled),
+      device_(-1),
+      segment_id_(id),
+      compile_timer_(),
+      input_bytes_(0),
+      output_bytes_(0),
+      kernel_profile_state_(ProfilerState::Ready) {}
 
 void SegmentProfiler::startCompile(int device) {
   device_ = device;
@@ -274,19 +288,33 @@ void SegmentProfiler::stopCompile() {
 
 void SegmentProfiler::startKernel(int device) {
   device_ = device;
-  NVF_CHECK(kernel_profile_state_ == ProfilerState::Ready, "ProfilerState is not Ready!", kernel_profile_state_);
+  NVF_CHECK(
+      kernel_profile_state_ == ProfilerState::Ready,
+      "ProfilerState is not Ready!",
+      kernel_profile_state_);
   if (!cupti_disabled_) {
-    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityPushExternalCorrelationId(CUPTI_EXTERNAL_CORRELATION_KIND_UNKNOWN, static_cast<uint64_t>(segment_id_)));
+    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityPushExternalCorrelationId(
+        CUPTI_EXTERNAL_CORRELATION_KIND_UNKNOWN,
+        static_cast<uint64_t>(segment_id_)));
   }
   kernel_profile_state_ = ProfilerState::Running;
 }
 
 void SegmentProfiler::stopKernel() {
-  NVF_CHECK(kernel_profile_state_ == ProfilerState::Running, "ProfilerState is not Running!", kernel_profile_state_);
+  NVF_CHECK(
+      kernel_profile_state_ == ProfilerState::Running,
+      "ProfilerState is not Running!",
+      kernel_profile_state_);
   uint64_t corr_id = 0;
   if (!cupti_disabled_) {
-    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityPopExternalCorrelationId(CUPTI_EXTERNAL_CORRELATION_KIND_UNKNOWN, &corr_id));
-    NVF_CHECK(corr_id == static_cast<uint64_t>(segment_id_), "Correlation Id does not match segment id! Corr Id: ", corr_id, " Segment Id: ", segment_id_);
+    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityPopExternalCorrelationId(
+        CUPTI_EXTERNAL_CORRELATION_KIND_UNKNOWN, &corr_id));
+    NVF_CHECK(
+        corr_id == static_cast<uint64_t>(segment_id_),
+        "Correlation Id does not match segment id! Corr Id: ",
+        corr_id,
+        " Segment Id: ",
+        segment_id_);
   }
   kernel_profile_state_ = ProfilerState::Finished;
 }
@@ -311,7 +339,7 @@ void FusionProfile::reset() {
   host_time_ms = 0.0;
   compile_time_ms = 0.0;
   kernel_time_ms = 0.0;
-  
+
   input_bytes = 0;
   output_bytes = 0;
 
@@ -321,48 +349,69 @@ void FusionProfile::reset() {
   kernel_profiles.clear();
 }
 
-std::array<const char*,  25> column_strs{"Fus#", "NSegs", "CuEvtTm(ms)",
-    "HstTm(ms)", "CmpTm(ms)", "KerTm(ms)", "EffBw(GB/s)", "%PeakBw", "Seg#",
-    "S-KerName", "S-KerTm(ms)", "S-CmpTm(ms)", "S-EffBw(GB/s)", "S-%PeakBw",
-    "S-In(MB)", "S-Out(MB)", "S-Smem[Dyn,Stat]", "S-Regs", "S-Grid", "S-Block",
-    "S-Cluster", "S-Dev", "S-Stm", "S-DeviceName", "S-PeakBw(GB/s)"};
+std::array<const char*, 25> column_strs{
+    "Fus#",
+    "NSegs",
+    "CuEvtTm(ms)",
+    "HstTm(ms)",
+    "CmpTm(ms)",
+    "KerTm(ms)",
+    "EffBw(GB/s)",
+    "%PeakBw",
+    "Seg#",
+    "S-KerName",
+    "S-KerTm(ms)",
+    "S-CmpTm(ms)",
+    "S-EffBw(GB/s)",
+    "S-%PeakBw",
+    "S-In(MB)",
+    "S-Out(MB)",
+    "S-Smem[Dyn,Stat]",
+    "S-Regs",
+    "S-Grid",
+    "S-Block",
+    "S-Cluster",
+    "S-Dev",
+    "S-Stm",
+    "S-DeviceName",
+    "S-PeakBw(GB/s)"};
 
 std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
   if (fp.fusion_id == 0) {
-    os << std::left <<std::setw(5) << std::get<0>(column_strs)
-       << " " << std::setw(5)  << std::get<1>(column_strs)
-       << " " << std::setw(11) << std::get<2>(column_strs)
-       << " " << std::setw(9)  << std::get<3>(column_strs)
-       << " " << std::setw(9)  << std::get<4>(column_strs);
+    os << std::left << std::setw(5) << std::get<0>(column_strs) << " "
+       << std::setw(5) << std::get<1>(column_strs) << " " << std::setw(11)
+       << std::get<2>(column_strs) << " " << std::setw(9)
+       << std::get<3>(column_strs) << " " << std::setw(9)
+       << std::get<4>(column_strs);
 
     if (!fp.kernel_profiles.empty()) {
-      os << " " << std::setw(9)  << std::get<5>(column_strs)
-         << " " << std::setw(11) << std::get<6>(column_strs)
-         << " " << std::setw(9) << std::get<7>(column_strs);
-     
-      os << " " << std::setw(4)  << std::get<8>(column_strs)
-         << " " << std::setw(10) << std::get<9>(column_strs)
-         << " " << std::setw(11) << std::get<10>(column_strs);
-     
+      os << " " << std::setw(9) << std::get<5>(column_strs) << " "
+         << std::setw(11) << std::get<6>(column_strs) << " " << std::setw(9)
+         << std::get<7>(column_strs);
+
+      os << " " << std::setw(4) << std::get<8>(column_strs) << " "
+         << std::setw(10) << std::get<9>(column_strs) << " " << std::setw(11)
+         << std::get<10>(column_strs);
+
       if (fp.verbose) {
         os << " " << std::setw(11) << std::get<11>(column_strs);
       }
-     
-      os << " " << std::setw(13) << std::get<12>(column_strs)
-         << " " << std::setw(9)  << std::get<13>(column_strs)
-         << " " << std::setw(9)  << std::get<14>(column_strs)
-         << " " << std::setw(9)  << std::get<15>(column_strs)
-         << " " << std::setw(16) << std::get<16>(column_strs)
-         << " " << std::setw(6)  << std::get<17>(column_strs)
-         << " " << std::setw(16) << std::get<18>(column_strs)
-         << " " << std::setw(16) << std::get<19>(column_strs);
-     
+
+      os << " " << std::setw(13) << std::get<12>(column_strs) << " "
+         << std::setw(9) << std::get<13>(column_strs) << " " << std::setw(9)
+         << std::get<14>(column_strs) << " " << std::setw(9)
+         << std::get<15>(column_strs) << " " << std::setw(16)
+         << std::get<16>(column_strs) << " " << std::setw(6)
+         << std::get<17>(column_strs) << " " << std::setw(16)
+         << std::get<18>(column_strs) << " " << std::setw(16)
+         << std::get<19>(column_strs);
+
       if (fp.verbose) {
-        os << " " << std::setw(16) << std::get<20>(column_strs)
-           << " " << std::setw(5)  << std::get<21>(column_strs)
-           << " " << std::setw(5)  << std::get<22>(column_strs)
-           << " " << std::setw(20) << std::get<23>(column_strs)
-           << " " << std::setw(14) << std::get<24>(column_strs);
+        os << " " << std::setw(16) << std::get<20>(column_strs) << " "
+           << std::setw(5) << std::get<21>(column_strs) << " " << std::setw(5)
+           << std::get<22>(column_strs) << " " << std::setw(20)
+           << std::get<23>(column_strs) << " " << std::setw(14)
+           << std::get<24>(column_strs);
       }
     }
 
@@ -370,70 +419,74 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
   }
 
   if (fp.kernel_profiles.empty()) {
-    os << std::setfill(' ') << std::right << std::fixed 
-              << std::setw(5) << fp.fusion_id
-       << " " << std::setw(5) << fp.segments
-       << " " << std::setw(11) << std::setprecision(3) << fp.cuda_evt_time_ms
-       << " " << std::setw(9) << std::setprecision(3) << fp.host_time_ms
-       << " " << std::setw(9)  << std::setprecision(3) << fp.compile_time_ms
+    os << std::setfill(' ') << std::right << std::fixed << std::setw(5)
+       << fp.fusion_id << " " << std::setw(5) << fp.segments << " "
+       << std::setw(11) << std::setprecision(3) << fp.cuda_evt_time_ms << " "
+       << std::setw(9) << std::setprecision(3) << fp.host_time_ms << " "
+       << std::setw(9) << std::setprecision(3) << fp.compile_time_ms
        << std::endl;
   } else {
     bool first_prof = true;
     int idx = 0;
     for (auto& kp : fp.kernel_profiles) {
       if (first_prof) {
-        os << std::setfill(' ') << std::right << std::fixed 
-                  << std::setw(5) << fp.fusion_id
-           << " " << std::setw(5) << fp.segments
-           << " " << std::setw(11) << std::setprecision(3) << fp.cuda_evt_time_ms
+        os << std::setfill(' ') << std::right << std::fixed << std::setw(5)
+           << fp.fusion_id << " " << std::setw(5) << fp.segments << " "
+           << std::setw(11) << std::setprecision(3) << fp.cuda_evt_time_ms
            << " " << std::setw(9) << std::setprecision(3) << fp.host_time_ms
-           << " " << std::setw(9)  << std::setprecision(3) << fp.compile_time_ms
-           << " " << std::setw(9)  << std::setprecision(3) << fp.kernel_time_ms
-           << " " << std::setw(11) << std::setprecision(2) << fp.effective_bandwidth_gbs 
-           << " " << std::setw(9)  << std::setprecision(2) << fp.percentage_peak_bandwidth;
+           << " " << std::setw(9) << std::setprecision(3) << fp.compile_time_ms
+           << " " << std::setw(9) << std::setprecision(3) << fp.kernel_time_ms
+           << " " << std::setw(11) << std::setprecision(2)
+           << fp.effective_bandwidth_gbs << " " << std::setw(9)
+           << std::setprecision(2) << fp.percentage_peak_bandwidth;
         first_prof = false;
       } else {
-        os << std::setfill(' ') << std::right << std::fixed 
-                  << std::setw(5) << "-"
+        os << std::setfill(' ') << std::right << std::fixed << std::setw(5)
+           << "-"
            << " " << std::setw(5) << "-"
            << " " << std::setw(11) << "-"
            << " " << std::setw(9) << "-"
            << " " << std::setw(9) << "-"
            << " " << std::setw(9) << "-"
-           << " " << std::setw(11) << "-" 
-           << " " << std::setw(9)  << "-";
+           << " " << std::setw(11) << "-"
+           << " " << std::setw(9) << "-";
       }
       std::stringstream grid;
-      grid << "[" <<std::get<0>(kp.grid) << ", " << std::get<1>(kp.grid) << ", " << std::get<2>(kp.grid) << "]";
+      grid << "[" << std::get<0>(kp.grid) << ", " << std::get<1>(kp.grid)
+           << ", " << std::get<2>(kp.grid) << "]";
       std::stringstream block;
-      block << "[" << std::get<0>(kp.block) << ", " << std::get<1>(kp.block) << ", " << std::get<2>(kp.block) << "]";
+      block << "[" << std::get<0>(kp.block) << ", " << std::get<1>(kp.block)
+            << ", " << std::get<2>(kp.block) << "]";
       std::stringstream cluster;
-      cluster << "[" << std::get<0>(kp.cluster) << ", " << std::get<1>(kp.cluster) << ", " << std::get<2>(kp.cluster) << "]";
+      cluster << "[" << std::get<0>(kp.cluster) << ", "
+              << std::get<1>(kp.cluster) << ", " << std::get<2>(kp.cluster)
+              << "]";
       std::stringstream smem;
-      smem << "[" << kp.dynamic_shared_mem << ", " << kp.static_shared_mem << "]";
-      os << std::setfill(' ') << std::right << std::fixed 
-         << " " << std::setw(4)  << idx
-         << " " << std::setw(10) << kp.name
-         << " " << std::setw(11) << std::setprecision(3) << kp.time_ms;
- 
+      smem << "[" << kp.dynamic_shared_mem << ", " << kp.static_shared_mem
+           << "]";
+      os << std::setfill(' ') << std::right << std::fixed << " " << std::setw(4)
+         << idx << " " << std::setw(10) << kp.name << " " << std::setw(11)
+         << std::setprecision(3) << kp.time_ms;
+
       if (fp.verbose) {
-        os << " " << std::setw(11) << std::setprecision(3) << kp.compile_time_ms;
+        os << " " << std::setw(11) << std::setprecision(3)
+           << kp.compile_time_ms;
       }
- 
-      os << " " << std::setw(13) << std::setprecision(2) << kp.effective_bandwidth_gbs
-         << " " << std::setw(9)  << std::setprecision(2) << kp.percentage_peak_bandwidth
-         << " " << std::setw(9)  << std::setprecision(3) << ((double)kp.input_bytes / 1000000.0)
-         << " " << std::setw(9)  << std::setprecision(3) << ((double)kp.output_bytes / 1000000.0)
-         << " " << std::setw(16) << smem.str()
-         << " " << std::setw(6)  << kp.registers
-         << " " << std::setw(16) << grid.str()
-         << " " << std::setw(16) << block.str();
+
+      os << " " << std::setw(13) << std::setprecision(2)
+         << kp.effective_bandwidth_gbs << " " << std::setw(9)
+         << std::setprecision(2) << kp.percentage_peak_bandwidth << " "
+         << std::setw(9) << std::setprecision(3)
+         << ((double)kp.input_bytes / 1000000.0) << " " << std::setw(9)
+         << std::setprecision(3) << ((double)kp.output_bytes / 1000000.0) << " "
+         << std::setw(16) << smem.str() << " " << std::setw(6) << kp.registers
+         << " " << std::setw(16) << grid.str() << " " << std::setw(16)
+         << block.str();
       if (fp.verbose) {
-         os << " " << std::setw(16) << cluster.str()
-            << " " << std::setw(5)  << kp.device
-            << " " << std::setw(5)  << kp.stream
-            << " " << std::setw(20) << kp.device_name
-            << " " << std::setw(14) << std::setprecision(2) << kp.peak_bandwidth_gbs;
+        os << " " << std::setw(16) << cluster.str() << " " << std::setw(5)
+           << kp.device << " " << std::setw(5) << kp.stream << " "
+           << std::setw(20) << kp.device_name << " " << std::setw(14)
+           << std::setprecision(2) << kp.peak_bandwidth_gbs;
       }
       os << std::endl;
       ++idx;
@@ -445,30 +498,29 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
 std::mutex FusionProfiler::singleton_lock_;
 FusionProfiler* FusionProfiler::singleton_ = nullptr;
 
-FusionProfiler::FusionProfiler(bool cupti_disabled) :
-  cupti_disabled_(cupti_disabled),
-  cupti_buffer_((size_t)4*1024),
-  state_(ProfilerState::Ready),
-  fusion_id_(-1),
-  parallel_compile_(false),
-  profile_(),
-  fusion_timer_(at::cuda::getCurrentCUDAStream()),
-  host_timer_(),
-  parallel_compile_timer_(),
-  segments_(),
-  device_descriptors_(),
-  kernel_profiles_(),
-  corrid_2_segid_() {
+FusionProfiler::FusionProfiler(bool cupti_disabled)
+    : cupti_disabled_(cupti_disabled),
+      cupti_buffer_((size_t)4 * 1024),
+      state_(ProfilerState::Ready),
+      fusion_id_(-1),
+      parallel_compile_(false),
+      profile_(),
+      fusion_timer_(at::cuda::getCurrentCUDAStream()),
+      host_timer_(),
+      parallel_compile_timer_(),
+      segments_(),
+      device_descriptors_(),
+      kernel_profiles_(),
+      corrid_2_segid_() {
   if (!cupti_disabled_) {
-    NVFUSER_CUPTI_SAFE_CALL(
-        cuptiActivityRegisterCallbacks(
-            cupti_buffer_requested, cupti_buffer_completed));
+    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityRegisterCallbacks(
+        cupti_buffer_requested, cupti_buffer_completed));
   }
 }
 
 void FusionProfiler::reset() {
   state_ = ProfilerState::Ready;
-  ++fusion_id_; 
+  ++fusion_id_;
 
   profile_.reset();
   fusion_timer_.reset();
@@ -484,7 +536,7 @@ FusionProfiler* FusionProfiler::get(bool cupti_disabled) {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ == nullptr) {
     singleton_ = new FusionProfiler(cupti_disabled);
-  } 
+  }
   return singleton_;
 }
 
@@ -493,14 +545,17 @@ ProfilerState FusionProfiler::state() const {
 }
 
 void FusionProfiler::createSegments(size_t num) {
-  NVF_CHECK(state_ == ProfilerState::Running, "FusionProfiler state is not Running!", state_);
+  NVF_CHECK(
+      state_ == ProfilerState::Running,
+      "FusionProfiler state is not Running!",
+      state_);
   segments_.reserve(num);
   for (uint32_t i = 0; i < num; ++i) {
     segments_.emplace_back(i, cupti_disabled_);
   }
 }
 SegmentProfiler& FusionProfiler::segment(size_t idx) {
- return segments_.at(idx);
+  return segments_.at(idx);
 }
 
 void FusionProfiler::start() {
@@ -508,8 +563,7 @@ void FusionProfiler::start() {
   if (!cupti_disabled_) {
     NVFUSER_CUPTI_SAFE_CALL(
         cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
-    NVFUSER_CUPTI_SAFE_CALL(
-        cuptiActivityEnable(CUPTI_ACTIVITY_KIND_DRIVER));
+    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_DRIVER));
     NVFUSER_CUPTI_SAFE_CALL(
         cuptiActivityEnable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
   }
@@ -520,7 +574,10 @@ void FusionProfiler::start() {
 }
 
 void FusionProfiler::stop() {
-  NVF_CHECK(state_ == ProfilerState::Running, "FusionProfiler state is not Running!", state_);
+  NVF_CHECK(
+      state_ == ProfilerState::Running,
+      "FusionProfiler state is not Running!",
+      state_);
   host_timer_.stop();
   fusion_timer_.stop();
   state_ = ProfilerState::Finished;
@@ -535,89 +592,134 @@ void FusionProfiler::stop() {
   if (!cupti_disabled_) {
     NVFUSER_CUPTI_SAFE_CALL(
         cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
-    NVFUSER_CUPTI_SAFE_CALL(
-        cuptiActivityDisable(CUPTI_ACTIVITY_KIND_DRIVER));
+    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_DRIVER));
     NVFUSER_CUPTI_SAFE_CALL(
         cuptiActivityDisable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
     kernel_profiles_.reserve(segments_.size());
     profile_.kernel_profiles.resize(segments_.size());
-  
+
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(0));
- 
-    NVF_CHECK(kernel_profiles_.size() >= segments_.size(), "All of the kernel profiles have not been recorded!");
-  
-    for(auto &kp : kernel_profiles_) {
+
+    NVF_CHECK(
+        kernel_profiles_.size() >= segments_.size(),
+        "All of the kernel profiles have not been recorded!");
+
+    for (auto& kp : kernel_profiles_) {
       auto corr_id = kp.correlation_id;
       if (corrid_2_segid_.count(corr_id) == 0) {
         continue;
       }
-      NVF_CHECK(kp.device >= 0, "Device Descriptor index is not valid! ", kp.device);
+      NVF_CHECK(
+          kp.device >= 0, "Device Descriptor index is not valid! ", kp.device);
       if ((size_t)kp.device >= device_descriptors_.size()) {
         device_descriptors_.resize(kp.device + 1);
       }
-      NVF_CHECK((size_t)kp.device < device_descriptors_.size(), "Device idx is beyond size of Device Descriptors! ", kp.device);
+      NVF_CHECK(
+          (size_t)kp.device < device_descriptors_.size(),
+          "Device idx is beyond size of Device Descriptors! ",
+          kp.device);
       if (device_descriptors_[kp.device].device != kp.device) {
         device_descriptors_[kp.device].generate(kp.device);
       }
       kp.device_name = device_descriptors_[kp.device].name;
       kp.peak_bandwidth_gbs = device_descriptors_[kp.device].peak_bandwidth_gbs;
-      NVF_CHECK(corrid_2_segid_.count(corr_id) > 0, "Correlation Id is not found in corrid -> segid hashmap! ", corr_id);
+      NVF_CHECK(
+          corrid_2_segid_.count(corr_id) > 0,
+          "Correlation Id is not found in corrid -> segid hashmap! ",
+          corr_id);
       auto kp_idx = corrid_2_segid_[corr_id];
-      NVF_CHECK(kp_idx < profile_.kernel_profiles.size(), "Index is out of range of Kernel Profiles size! ", kp_idx, " ", profile_.kernel_profiles.size());
-      NVF_CHECK(segments_[kp_idx].state() == ProfilerState::Finished, "SegmentProfiler ProfilerState is not Finished!", segments_[kp_idx].state());
+      NVF_CHECK(
+          kp_idx < profile_.kernel_profiles.size(),
+          "Index is out of range of Kernel Profiles size! ",
+          kp_idx,
+          " ",
+          profile_.kernel_profiles.size());
+      NVF_CHECK(
+          segments_[kp_idx].state() == ProfilerState::Finished,
+          "SegmentProfiler ProfilerState is not Finished!",
+          segments_[kp_idx].state());
       kp.input_bytes = segments_.at(kp_idx).inputBytes();
       kp.output_bytes = segments_.at(kp_idx).outputBytes();
-      kp.effective_bandwidth_gbs = (double)(kp.input_bytes + kp.output_bytes) / kp.time_ms * mb_divider;
-      kp.percentage_peak_bandwidth = kp.effective_bandwidth_gbs / kp.peak_bandwidth_gbs * 100.0;
+      kp.effective_bandwidth_gbs =
+          (double)(kp.input_bytes + kp.output_bytes) / kp.time_ms * mb_divider;
+      kp.percentage_peak_bandwidth =
+          kp.effective_bandwidth_gbs / kp.peak_bandwidth_gbs * 100.0;
       kp.compile_time_ms = segments_.at(kp_idx).compileTime();
- 
+
       compile_time_ms += kp.compile_time_ms;
       kernel_time_ms += kp.time_ms;
       profile_.kernel_profiles[kp_idx] = std::move(kp);
     }
- 
+
     int device = segments_[0].device();
-    for (auto &seg : segments_) {
-      NVF_CHECK(seg.device() == device, "All Segment profiles must be on the same device!");
+    for (auto& seg : segments_) {
+      NVF_CHECK(
+          seg.device() == device,
+          "All Segment profiles must be on the same device!");
     }
     profile_.kernel_time_ms = kernel_time_ms;
-    profile_.effective_bandwidth_gbs = (double)(profile_.input_bytes + profile_.output_bytes) / kernel_time_ms * mb_divider;
-    profile_.percentage_peak_bandwidth = profile_.effective_bandwidth_gbs / device_descriptors_[segments_[0].device()].peak_bandwidth_gbs * 100.0;
+    profile_.effective_bandwidth_gbs =
+        (double)(profile_.input_bytes + profile_.output_bytes) /
+        kernel_time_ms * mb_divider;
+    profile_.percentage_peak_bandwidth = profile_.effective_bandwidth_gbs /
+        device_descriptors_[segments_[0].device()].peak_bandwidth_gbs * 100.0;
   }
-  profile_.compile_time_ms = parallel_compile_ ? parallel_compile_timer_.time() : compile_time_ms;
+  profile_.compile_time_ms =
+      parallel_compile_ ? parallel_compile_timer_.time() : compile_time_ms;
 
   state_ = ProfilerState::Processed;
 }
 
 void FusionProfiler::startParallelCompile() {
-  NVF_CHECK(state_ == ProfilerState::Running, "FusionProfiler state is not Running!", state_);
+  NVF_CHECK(
+      state_ == ProfilerState::Running,
+      "FusionProfiler state is not Running!",
+      state_);
   parallel_compile_timer_.start();
   parallel_compile_ = true;
 }
 
 void FusionProfiler::stopParallelCompile() {
-  NVF_CHECK(state_ == ProfilerState::Running, "FusionProfiler state is not Running!", state_);
-  NVF_CHECK(parallel_compile_, "FusionProfiler parallel_compile is not enabled!");
+  NVF_CHECK(
+      state_ == ProfilerState::Running,
+      "FusionProfiler state is not Running!",
+      state_);
+  NVF_CHECK(
+      parallel_compile_, "FusionProfiler parallel_compile is not enabled!");
   parallel_compile_timer_.stop();
 }
-  
+
 void FusionProfiler::inputBytesAccessed(int64_t bytes) {
-  NVF_CHECK(state_ == ProfilerState::Running, "FusionProfiler state is not Running!", state_);
+  NVF_CHECK(
+      state_ == ProfilerState::Running,
+      "FusionProfiler state is not Running!",
+      state_);
   profile_.input_bytes = bytes;
 }
 
 void FusionProfiler::outputBytesAccessed(int64_t bytes) {
-  NVF_CHECK(state_ == ProfilerState::Running, "FusionProfiler state is not Running!", state_);
+  NVF_CHECK(
+      state_ == ProfilerState::Running,
+      "FusionProfiler state is not Running!",
+      state_);
   profile_.output_bytes = bytes;
 }
 
 const FusionProfile& FusionProfiler::profile() const {
-  NVF_CHECK(state_ == ProfilerState::Processed, "The FusionProfile struct data is not valid because it has not been processed! ", state_);
+  NVF_CHECK(
+      state_ == ProfilerState::Processed,
+      "The FusionProfile struct data is not valid because it has not been processed! ",
+      state_);
   return profile_;
 }
 
-void FusionProfiler::recordAsyncCorrIdActivity(uint32_t seg_id, uint32_t corr_id) {
-  NVF_CHECK(corrid_2_segid_.count(corr_id) == 0, "Segment Correlation Activity asociated with this correlation id already exists! ", corr_id);
+void FusionProfiler::recordAsyncCorrIdActivity(
+    uint32_t seg_id,
+    uint32_t corr_id) {
+  NVF_CHECK(
+      corrid_2_segid_.count(corr_id) == 0,
+      "Segment Correlation Activity asociated with this correlation id already exists! ",
+      corr_id);
   corrid_2_segid_[corr_id] = seg_id;
 }
 
