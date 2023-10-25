@@ -696,6 +696,10 @@ void scheduleFusionInputsForEpilogue(
 } // namespace
 
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
+  static const bool should_unroll = true;
+  auto cached_and_forked_outputs =
+      scheduler_utils::cacheAndForkOutputs(fusion, should_unroll);
+
   const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
 
   // NOTE: the contents of roles_map have been already validated during
@@ -712,7 +716,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Core roles: there can be only one... TV with assigned core role
   TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
   TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
-  TensorView* d = roles_map.at(MatmulRole::OUTPUT_D).front();
 
   // Collect mma swizzle info
   auto mma = mma_ops.front();
@@ -785,10 +788,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   auto bb = mma->inB()->as<TensorView>();
 
   // Setup accumulator register.
-  auto dc = d->cacheBefore();
-  // Mma object is valid only because cacheBefore has been done on
-  //  TV which is not output of MmaOp, as there is an epilogue
-  auto mma_result = has_epilogue ? mma->out()->as<TensorView>() : dc;
+  auto mma_result = mma->out()->as<TensorView>();
 
   // Unswizzle mma result in shared memory
   auto smem_epilogue =
@@ -1063,23 +1063,27 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
             .propagateToBoundary());
     smem_epilogue->axis(-1)->parallelize(ParallelType::Vectorize);
 
-    // Schedule output tensor differently for better global memory access
-    // pattern.
-    scheduleOutputTensor(mma_result, d, gemm_tile);
-    d->axis(-1)->parallelize(ParallelType::Vectorize);
+    for (auto [dc, d] : cached_and_forked_outputs) {
+      // Schedule output tensor differently for better global memory access
+      // pattern.
+      scheduleOutputTensor(mma_result, d, gemm_tile);
+      d->axis(-1)->parallelize(ParallelType::Vectorize);
 
-    // Propagate output tensor transformations back to smem_epilogue
-    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-        d, -1, {smem_epilogue});
+      // Propagate output tensor transformations back to smem_epilogue
+      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+          d, -1, {smem_epilogue});
+    }
   } else {
-    scheduler_utils::BoundedDirectionalTransformPropagator::forward(
-        mma_result,
-        -1,
-        {d},
-        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-            .propagateParallelType()
-            .propagateToBoundary());
-    d->axis(-1)->parallelize(ParallelType::Vectorize);
+    for (auto [dc, d] : cached_and_forked_outputs) {
+      scheduler_utils::BoundedDirectionalTransformPropagator::forward(
+          mma_result,
+          -1,
+          {d},
+          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+              .propagateParallelType()
+              .propagateToBoundary());
+      d->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
   }
   // propagate output transformations to all inputs that are part of epilogue
   //  operations, input tvs with non-core roles

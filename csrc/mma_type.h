@@ -30,9 +30,9 @@ enum class MatmulDomain { M = 0, N, K };
 //! Named descriptors of TensorView roles in fusion
 //!  INPUT_A - a producer of MMA input A
 //!  INPUT_B - a producer of MMA input B
-//!  OUTPUT_D - the main consumer of MMA op results
 //!  INPUT_C - a producer of a tensor used in fusion epilogue,
 //!            for example tensor used in beta scaling fusion
+//!  OUTPUT_D - the main consumer of MMA op results
 //!
 //! Naming convention is based on the following formula:
 //!    D = alpha * A x B + beta * C

@@ -182,7 +182,6 @@ std::string isMatmulFusionDefinitionSupported(
       ir_utils::filterByType<TensorView>(fusion_outputs).vector();
 
   constexpr size_t minimal_number_of_inputs = 2;
-  constexpr size_t expected_number_of_outputs = 1;
 
   // Quick checks - MmaOp
   {
@@ -206,11 +205,6 @@ std::string isMatmulFusionDefinitionSupported(
     // Fusion should contain at least two inputs (for now)
     if (minimal_number_of_inputs > fusion_inputs.size()) {
       return "Fusion inputs contain at least one non-TensorView object";
-    }
-
-    // Fusion has only TVs as outputs, and we expect only one object in the list
-    if ((expected_number_of_outputs != fusion_outputs_tvs.size())) {
-      return "Fusion has more than a single TensorView object in its outputs";
     }
   }
 
@@ -248,16 +242,12 @@ std::string isMatmulFusionDefinitionSupported(
 
     entry = roles_map.find(MatmulRole::OUTPUT_D);
     if (entry != roles_map.end()) {
-      if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
-        tvs_with_roles.insert(entry->second.begin(), entry->second.end());
-      } else {
-        return "There is more than a single fusion output that can be MMA output";
-      }
+      tvs_with_roles.insert(entry->second.begin(), entry->second.end());
     } else {
       return "No candidate in fusion outputs MMA output";
     }
 
-    // Non-core roles are optional, no requirements for their presence
+    // Non-core input roles are optional, no requirements for definitions
     entry = roles_map.find(MatmulRole::INPUT_C);
     if (entry != roles_map.end()) {
       tvs_with_roles.insert(entry->second.begin(), entry->second.end());
