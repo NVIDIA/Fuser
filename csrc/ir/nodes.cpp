@@ -2362,11 +2362,11 @@ LoadStoreOp::LoadStoreOp(
 }
 
 namespace {
-// Returns the permutation from `in` to `out`, i.e., `out[perm[i]]==in[i]`.  As
-// a precondition, `out` must be a permutation of `in` per the definition of
+// Returns the permutation from `in` to `out`, i.e., `out[i]==in[perm[i]]`. As a
+// precondition, `out` must be a permutation of `in` per the definition of
 // std::is_permutation.
 template <typename T>
-std::vector<int64_t> Permutation(
+std::vector<int64_t> computePermutation(
     const std::vector<T>& in,
     const std::vector<T>& out) {
   std::vector<int64_t> permutation;
@@ -2375,8 +2375,8 @@ std::vector<int64_t> Permutation(
   // root-to-rfactor permutation. If needed, this can be improved by requiring T
   // to be hashable and/or comparable.
   for (const T& out_element : out) {
-    permutation.push_back(
-        std::find(in.begin(), in.end(), out_element) - in.begin());
+    permutation.push_back(std::distance(
+        in.begin(), std::find(in.begin(), in.end(), out_element)));
   }
   return permutation;
 }
@@ -2396,8 +2396,8 @@ std::vector<PolymorphicValue> LoadStoreOp::evaluate(
           out_tv->toString());
       NVF_ERROR(inputs.size() == 1);
       at::Tensor in_tensor = inputs[0].as<at::Tensor>();
-      at::Tensor out_tensor = in_tensor.permute(
-          Permutation(out_tv->getRootDomain(), out_tv->getRFactorDomain()));
+      at::Tensor out_tensor = in_tensor.permute(computePermutation(
+          out_tv->getRootDomain(), out_tv->getRFactorDomain()));
       return {out_tensor};
     }
   }
