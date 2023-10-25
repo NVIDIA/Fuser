@@ -893,6 +893,9 @@ size_t DynamicTransformConcretizationInfo::hash() const {
   for (const auto& [tv, view_result] : getReshapeTransforms()) {
     hashCombine(hash, view_result.hash());
   }
+  for (const auto& extent_idx : getEmptyExtents()) {
+    hashCombine(hash, (size_t)extent_idx);
+  }
   for (const auto& [id, iter_type] : getResizeIterTypes()) {
     hashCombine(hash, (size_t)iter_type);
   }

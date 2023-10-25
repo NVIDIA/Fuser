@@ -23,3 +23,7 @@ Example:
 ```
 python cpp-repro-gen.py --symbolic_sizes 768 768 1024 768 < examples/repro.py > examples/repro.cpp
 ```
+
+# codegen diff tools
+
+See the `codediff` [subdirectory](codediff/README.md).

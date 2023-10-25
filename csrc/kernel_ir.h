@@ -40,9 +40,12 @@ class GridSync;
 class MBarrierInit;
 class MBarrierInvalidate;
 class MBarrierArrive;
+class MBarrierArriveExpectTx;
 class MBarrierWait;
 class CpAsyncWait;
 class CpAsyncCommit;
+class CpAsyncBulkS2GWait;
+class CpAsyncBulkS2GCommit;
 class InitMagicZero;
 class UpdateMagicZero;
 class ForLoop;
@@ -378,6 +381,41 @@ class MBarrierArrive final : public Expr {
   }
 };
 
+// IR node for: mbarrier.arrive.expect_tx
+// This is usually used to specify the number of bytes that will be
+// transferred for cp.async and cp.async.bulk, so that future mbarrier.wait
+// can wait for the completion of the transfer.
+class MBarrierArriveExpectTx final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierArriveExpectTx(
+      IrBuilderPasskey passkey,
+      Val* state,
+      Val* mbarrier,
+      Val* tx_count);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierArriveExpectTx";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* state() const {
+    return output(0);
+  }
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+
+  Val* txCount() const {
+    return input(1);
+  }
+};
+
 class MBarrierWait final : public Expr {
  public:
   using Expr::Expr;
@@ -437,6 +475,44 @@ class CpAsyncCommit final : public Expr {
 
   const char* getOpString() const override {
     return "CpAsyncCommit";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+};
+
+class CpAsyncBulkS2GWait final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit CpAsyncBulkS2GWait(
+      IrBuilderPasskey passkey,
+      int64_t keep_stages = 0);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "CpAsyncBulkS2GWait";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  int64_t keepStages() const {
+    return attribute<int64_t>(0);
+  }
+};
+
+class CpAsyncBulkS2GCommit final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit CpAsyncBulkS2GCommit(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "CpAsyncBulkS2GCommit";
   }
 
   std::string toString(int indent_size = 0) const override;
