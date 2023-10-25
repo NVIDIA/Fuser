@@ -543,19 +543,19 @@ TEST_F(ExprEvalTest, Permute) {
   FusionGuard fg(&fusion);
 
   TensorView* in =
-      TensorViewBuilder().shape({-1, 6}).dtype(DataType::Float).build();
+      TensorViewBuilder().shape({-1, -1, -1, 6}).dtype(DataType::Float).build();
   fusion.addInput(in);
-  TensorView* out = permute(in, {1, 0});
+  TensorView* out = permute(in, {0, 3, 1, 2});
   fusion.addOutput(out);
 
-  at::Tensor in_tensor = at::rand({72}).cuda().as_strided({9, 6}, {8, 1});
-  EXPECT_THAT(in_tensor.strides(), ElementsAre(8, 1));
+  at::Tensor in_tensor =
+      at::rand({256}).cuda().as_strided({2, 3, 4, 6}, {128, 32, 8, 1});
 
   ExpressionEvaluator evaluator;
   evaluator.bind(in, in_tensor);
   at::Tensor out_tensor = evaluator.evaluate(out).as<at::Tensor>();
-  EXPECT_THAT(out_tensor.sizes(), ElementsAre(6, 9));
-  EXPECT_THAT(out_tensor.strides(), ElementsAre(1, 8));
+  EXPECT_THAT(out_tensor.sizes(), ElementsAre(2, 6, 3, 4));
+  EXPECT_THAT(out_tensor.strides(), ElementsAre(128, 1, 32, 8));
 }
 
 } // namespace nvfuser
