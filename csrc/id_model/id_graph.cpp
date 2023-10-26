@@ -511,6 +511,11 @@ std::pair<ExprGroups, bool> IdGraph::getUses(const IdGroup& id_group) const {
   }
 }
 
+bool IdGraph::hasUses(const IdGroup& id_group) const {
+  NVF_ERROR(id_group);
+  return unique_uses_.find(id_group) != unique_uses_.end();
+}
+
 std::string IdGraph::toString() const {
   std::stringstream ss;
   ss << "IdGraph { \n";

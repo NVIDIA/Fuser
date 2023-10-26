@@ -126,6 +126,8 @@ class IdGraph {
   //! TODO-NM: Rename to getMaybeUses. See getUses
   std::pair<ExprGroups, bool> getUses(const IdGroup& id_group) const;
 
+  bool hasUses(const IdGroup& id_group) const;
+
   std::string toString() const;
 
   // Checks if the expression is a trivial operation where an input is simply an
