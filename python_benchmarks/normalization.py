@@ -263,6 +263,8 @@ def norm_fwd_benchmark(
             benchmark, fd.execute, [inputs, weight, bias, running_mean, running_var]
         )
 
+    torch.cuda.empty_cache()
+
 
 def norm_bwd_benchmark(
     benchmark,
@@ -363,3 +365,5 @@ def norm_bwd_benchmark(
             fd.execute,
             [inputs, grads, weight, running_mean, running_var, mean, invstd],
         )
+
+    torch.cuda.empty_cache()
