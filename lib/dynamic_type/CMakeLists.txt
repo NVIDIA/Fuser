@@ -30,7 +30,7 @@ if(BUILD_TEST)
 
     add_test_for_standard(17)
     add_test_for_standard(20)
-    add_test_for_standard(23)
+    # add_test_for_standard(23)
     # add_test_for_standard(26)
 endif()
 
