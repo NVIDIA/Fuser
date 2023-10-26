@@ -943,7 +943,29 @@ std::vector<at::Tensor> allocOutputs(
           "alias io only supports tensor");
       outputs.emplace_back(*inputs[aliased_input_index]);
     } else if (kernel->outputs().at(output_idx)->isFusionInput()) {
-      // This is a special aliasing that can be treated the same way.
+      // Note [ trivial forwarding ]
+      //
+      // Background:
+      // NvFuser codegen does not handle aliases. When we have a fusion that
+      // forwards an input to output without any operations on it, this is
+      // a no-op for codegen and the output tensor is never written to. However,
+      // the codegen cannot "forward" an input to output, since all outputs are
+      // allocated in integration. If we do not special case it, we'll ended up
+      // having a "fresh" tensor allocated for the forwarded-input.
+      //
+      // Approach:
+      // There are two aspects of the support:
+      // 1) Codegen handles forwarding implicitly. Forwarded inputs do not
+      // have any producer in the IR, so the output argument is not used in
+      // the code. However, it is required to be a kernel argument, which acts
+      // as a place-holder, so we can map the arguments correctly.
+      //
+      // 2) Integration handles the trivial forwarding of inputs. When we put
+      // together `fusion_outputs` for a given fusion and the outputs are
+      // fusion inputs, we directly return the input tensor.
+
+      // A trivial forwarding output can be "allocated" similarly to an output
+      // alias.
       auto alias_it = std::find(
           kernel->inputs().begin(),
           kernel->inputs().end(),
