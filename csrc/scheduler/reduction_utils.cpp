@@ -358,6 +358,7 @@ void multiReductionInliner(
     const bool unroll,
     const bool vectorize,
     const bool is_outer_grid_persistence,
+    const bool is_projected_inner_persistentce,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
@@ -386,11 +387,8 @@ void multiReductionInliner(
   }
 
   // Inline the schedule
-  if (!std::getenv("DISABLE_INLINE_MOST")) {
-    inlineMost();
-  } else {
+  if (std::getenv("DISABLE_INLINE_MOST") && is_projected_inner_persistentce) {
     auto all_tvs = ir_utils::allTvs(fusion);
-
     // Inline at the inner most position. The CA position of all tensors except
     // inputs, cached inputs and outputs will be updated.
     std::unordered_set<TensorView*> inner_most_tensors(
@@ -403,7 +401,9 @@ void multiReductionInliner(
       std::cout << "entry.first= " << entry.first->toString() << std::endl;
       inner_most_tensors.erase(entry.first);
     }
-    inlineMost(inner_most_tensors);
+    inlineMost(inner_most_tensors);    
+  } else {
+    inlineMost();
   }
 }
 
