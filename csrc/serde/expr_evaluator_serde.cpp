@@ -285,8 +285,8 @@ flatbuffers::Offset<Instruction> ExpressionSerializer::serializeSwizzle2D(
       builder,
       operation_stack_.at(swizzle->inX()),
       operation_stack_.at(swizzle->inY()),
-      serde::Swizzle2DType_ZShape,
-      serde::SwizzleMode_Data,
+      castEnumToUnderlyingType(swizzle->swizzleType()),
+      castEnumToUnderlyingType(swizzle->swizzleMode()),
       (int64_t)operation_stack_.size(),
       (int64_t)operation_stack_.size() + 1);
   return CreateInstruction(
@@ -771,12 +771,11 @@ void ExpressionBuilder::deserialize(const Instruction* buffer) {
         NVF_ERROR(in_x->isA<nvfuser::IterDomain>());
         NVF_ERROR(in_y->isA<nvfuser::IterDomain>());
 
-        // TODO support all enum types - Swizzle2DType and SwizzleMode
         auto swizzle_ids = nvfuser::IterDomain::swizzle(
-            nvfuser::Swizzle2DType::ZShape,
+            static_cast<nvfuser::Swizzle2DType>(data->swizzle_type()),
             in_x->as<nvfuser::IterDomain>(),
             in_y->as<nvfuser::IterDomain>(),
-            nvfuser::SwizzleMode::Data);
+            static_cast<nvfuser::SwizzleMode>(data->swizzle_mode()));
         operation_stack_.push_back(swizzle_ids.first);
         operation_stack_.push_back(swizzle_ids.second);
       }

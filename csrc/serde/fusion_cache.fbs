@@ -125,19 +125,6 @@ enum BinaryOpType: int {
   Sub,
 }
 
-enum Swizzle2DType: int {
-  None = 0,
-  ZShape,
-  Xor,
-  Shift,
-}
-
-enum SwizzleMode: int {
-  None = 0,
-  Data,
-  Loop,
-}
-
 enum IterType: int {
   Iteration = 0,
   Reduction,
@@ -279,8 +266,8 @@ table Split {
 table Swizzle2D {
   in_x: long;
   in_y: long;
-  swizzle_type: Swizzle2DType;
-  swizzle_mode: SwizzleMode;
+  swizzle_type: long;
+  swizzle_mode: long;
   out_x: long;
   out_y: long;
 }
