@@ -382,8 +382,13 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
   rparams->cross_grid_inner_reduction = gridim > 1;
   rparams->multiple_reds_per_blk = bdimy > 1;
+  auto device_warp_size =
+      (int64_t)at::cuda::getCurrentDeviceProperties()->warpSize;
+  auto padded_bdimx = bdimx % device_warp_size == 0
+      ? bdimx
+      : bdimx + device_warp_size - bdimx % device_warp_size;
   bool pad_bdimx = bdimx > 16 &&
-      bdimx * bdimy <
+      padded_bdimx * bdimy <
           (int64_t)at::cuda::getCurrentDeviceProperties()->maxThreadsPerBlock;
   // If barely just covering reduction dim, don't pad to the next warp
   pad_bdimx = pad_bdimx &&
@@ -392,11 +397,7 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
 
   if (rparams->pad_inner_reduction_to_warp) {
     // Adjust bdimx based on padding
-    auto min_warp_size =
-        (int64_t)at::cuda::getCurrentDeviceProperties()->warpSize;
-    bdimx = bdimx % min_warp_size == 0
-        ? bdimx
-        : bdimx + min_warp_size - bdimx % min_warp_size;
+    bdimx = padded_bdimx;
   }
 
   rparams->unroll_factor_inner_reduction = inner_reduction_unroll_factor;
