@@ -1865,13 +1865,15 @@ void FusionExecutor::compileRtc(
       index_type == PrimDataType::Int || index_type == PrimDataType::Int32 ||
           "Invalid index type: ",
       index_type);
+
+  fusion_id_ = ++fusion_id_counter_;
+
   std::string scode;
   if (!structured) {
     scode = getStructuredCode(code, index_type);
   } else {
     scode = code;
   }
-  fusion_id_ = 1;
 
   compiled_kernel_ =
       executor_utils::getCompiledKernel(std::nullopt, scode, name, fusion_id_);
