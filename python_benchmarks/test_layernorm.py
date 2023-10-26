@@ -164,6 +164,8 @@ def test_layernorm_fwd_benchmark(
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
 
+    torch.cuda.empty_cache()
+
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
@@ -199,3 +201,5 @@ def test_layernorm_bwd_benchmark(
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [inputs, grads, mean, invstd, weights])
+
+    torch.cuda.empty_cache()
