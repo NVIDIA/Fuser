@@ -23,14 +23,15 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
                 [(i, j, k) for i in dim_range for j in dim_range for k in dim_range]
             )
         elif dim == 4:
-            dim_range = [2**i for i in range(1, 10)]
+            batch_range = [2**i for i in range(1, 5)]
+            feature_range = [2**i for i in range(1, 10)]
             inputs.extend(
                 [
                     (i, j, k, l)
-                    for i in dim_range
-                    for j in dim_range
-                    for k in dim_range
-                    for l in dim_range
+                    for i in batch_range
+                    for j in feature_range
+                    for k in feature_range
+                    for l in feature_range
                 ]
             )
         else:
