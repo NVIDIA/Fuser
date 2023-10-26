@@ -18,7 +18,12 @@
     nvfuser_zero <<= 1;           \
   } while (0);
 
-#ifdef __NVCC__
+#if defined __NVCC__
+#include <assert.h>
+#elif defined __clang__
+#ifndef NDEBUG
+#define NDEBUG 1
+#endif
 #include <assert.h>
 #endif // __NVCC__
 
@@ -385,14 +390,14 @@ __device__ T gcd(T a, T b) {
 }
 
 template <typename T>
-bool isfinite(T x) {
+__device__ bool isfinite(T x) {
   return ::isfinite(x);
 }
 
 // ref:
 // https://github.com/NVIDIA/cutlass/blob/6fbc0d33800008d3180d3fefed4e1a653e5f72a0/include/cutlass/bfloat16.h#L213
 template <>
-bool isfinite<__bfloat>(__bfloat x) {
+__device__ bool isfinite<__bfloat>(__bfloat x) {
   const auto exponent_biased = int((x.raw() >> 7) & 0x0ff);
   return exponent_biased != 0x0ff;
 }
@@ -400,13 +405,13 @@ bool isfinite<__bfloat>(__bfloat x) {
 // ref:
 // https://github.com/NVIDIA/cutlass/blob/6fbc0d33800008d3180d3fefed4e1a653e5f72a0/include/cutlass/half.h#L511
 template <>
-bool isfinite<__half>(__half x) {
+__device__ bool isfinite<__half>(__half x) {
   const auto exponent_biased = int((x.raw() >> 10) & 0x1f);
   return exponent_biased != 0x1f;
 }
 
 template <typename T>
-bool isinf(T x) {
+__device__ bool isinf(T x) {
   return ::isinf(x);
 }
 
@@ -415,51 +420,51 @@ bool isinf(T x) {
 // 10.2 Please remove when CUDA 10.2 support is dropped   //
 ////////////////////////////////////////////////////////////
 
-bool isinf(int64_t x) {
+__device__ bool isinf(int64_t x) {
   return false;
 }
 
-bool isinf(int x) {
+__device__ bool isinf(int x) {
   return false;
 }
 
-bool isinf(short x) {
+__device__ bool isinf(short x) {
   return false;
 }
 
-bool isinf(char x) {
+__device__ bool isinf(char x) {
   return false;
 }
 
-bool isinf(unsigned char x) {
+__device__ bool isinf(unsigned char x) {
   return false;
 }
 
-bool isinf(bool x) {
+__device__ bool isinf(bool x) {
   return false;
 }
 
-bool isfinite(int64_t x) {
+__device__ bool isfinite(int64_t x) {
   return true;
 }
 
-bool isfinite(int x) {
+__device__ bool isfinite(int x) {
   return true;
 }
 
-bool isfinite(short x) {
+__device__ bool isfinite(short x) {
   return true;
 }
 
-bool isfinite(char x) {
+__device__ bool isfinite(char x) {
   return true;
 }
 
-bool isfinite(unsigned char x) {
+__device__ bool isfinite(unsigned char x) {
   return true;
 }
 
-bool isfinite(bool x) {
+__device__ bool isfinite(bool x) {
   return true;
 }
 
@@ -468,22 +473,22 @@ bool isfinite(bool x) {
 ////////////////////////////////////////////////////////////
 
 template <typename T>
-bool isnan(T x) {
+__device__ bool isnan(T x) {
   return x != x;
 }
 
 template <typename T>
-bool isneginf(T x) {
+__device__ bool isneginf(T x) {
   return x < 0 && isinf(x);
 }
 
 template <typename T>
-bool isposinf(T x) {
+__device__ bool isposinf(T x) {
   return x > 0 && isinf(x);
 }
 
 template <typename T>
-bool isreal(T x) {
+__device__ bool isreal(T x) {
   return true;
 }
 
