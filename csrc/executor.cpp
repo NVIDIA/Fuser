@@ -1251,7 +1251,6 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     getOutputBufferInfo(
         const KernelArgumentHolder& args,
         ExpressionEvaluator& expr_eval,
-        const std::vector<std::pair<int, int>>& output_to_input_aliases,
         DataType index_dtype) {
   FUSER_PERF_SCOPE("FusionExecutor::getOutbufferInfo");
   const auto kernel = lowered_->kernel();
@@ -1479,8 +1478,7 @@ void FusionExecutor::initializeExecutorEntry(
   std::vector<GlobalBufferInfo> output_info;
 
   if (outputs.empty()) {
-    output_info = getOutputBufferInfo(
-        args, expr_eval, output_to_input_aliases, index_type);
+    output_info = getOutputBufferInfo(args, expr_eval, index_type);
   } else {
     // Need to save the information necessary for allocations as
     // future uses of this ExecutorEntry may not be provided with
