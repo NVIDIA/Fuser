@@ -40,6 +40,8 @@ class ReductionParams : public HeuristicParams {
 
   // Reduce across the block?
   bool cross_block_inner_reduction = false;
+  // Reduce across the block clusters?
+  bool block_cluster_inner_reduction = false;
   // Reduce across the grid?
   bool cross_grid_inner_reduction = false;
   // Unrolling/Vectorization factor for inner reduction dimension

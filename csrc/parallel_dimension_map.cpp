@@ -53,6 +53,12 @@ void ParallelDimensionMap::build(Fusion* fusion) {
         continue;
       }
       all_concrete_ids.pushBack(std::make_pair(ptype, concrete_id));
+
+      // cluster dim is also a block dim
+      if (isParallelTypeClusterDim(ptype)) {
+        all_concrete_ids.pushBack(
+            std::make_pair(clusterDimToBlockDim(ptype), concrete_id));
+      }
     }
   }
 
