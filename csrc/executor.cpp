@@ -1292,7 +1292,6 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
   expr_eval.precomputedValues() = evaluator_precomputed_values.get();
 
   auto arg_index_type = args.getSmallestIndexTypeOfArguments();
-  const auto& output_to_input_aliases = fusion->getOutputToInputAliasIndices();
 
   KernelArgumentHolder ret;
   ret.setDeviceIndex(args.getDeviceIndex());
@@ -1315,34 +1314,12 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
           fusion->outputs()[out_i]->isA<TensorView>(),
           "Cannot allocate outputs that are not tensors.");
       auto output_tv = fusion->outputs()[out_i]->as<TensorView>();
-
-      auto alias_it = std::find_if(
-          output_to_input_aliases.begin(),
-          output_to_input_aliases.end(),
-          [&](const auto& output_to_input) {
-            return output_to_input.first == (int)out_i;
-          });
-
-      if (alias_it != output_to_input_aliases.end()) {
-        // When aliasing output to an input, we do not need to allocate a new
-        // output but still need to push an entry.
-        ret.push(PolymorphicValue(0L));
-      } else {
-        const auto& [sizes, strides] = inferShapeOfOutput(output_tv, expr_eval);
-        const auto dtype = (output_tv->dtype() == DataType::Index)
-            ? data_type_to_aten(arg_index_type)
-            : data_type_to_aten(output_tv->dtype());
-        ret.pushTensorProxy(sizes, strides, dtype);
-      }
+      const auto& [sizes, strides] = inferShapeOfOutput(output_tv, expr_eval);
+      const auto dtype = (output_tv->dtype() == DataType::Index)
+          ? data_type_to_aten(arg_index_type)
+          : data_type_to_aten(output_tv->dtype());
+      ret.pushTensorProxy(sizes, strides, dtype);
     }
-  }
-
-  for (const auto& [aliased_output_index, aliased_input_index] :
-       output_to_input_aliases) {
-    NVF_ERROR(
-        args[aliased_input_index]->is<at::Tensor>(),
-        "alias io only supports tensor");
-    *ret[aliased_output_index] = *args[aliased_input_index];
   }
   return ret;
 }

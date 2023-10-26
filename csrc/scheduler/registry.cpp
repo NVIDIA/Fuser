@@ -156,9 +156,14 @@ bool checkCanSchedule(
   //  fusion.
   if (!data_cache) {
     if (!registry_utils::isConnectedFusionGraph(fusion)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          SchedulerType::heuristicType(),
+          "Connected fusion graph check failed!");
       return false;
     }
     if (IterDomainGraph(fusion, /*allow_self_mapping=*/true).hasSelfMapping()) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          SchedulerType::heuristicType(), "Iter domain graph check failed!");
       return false;
     }
     if (!SchedulerType::canScheduleCompileTime(fusion)) {
