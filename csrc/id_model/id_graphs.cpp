@@ -1885,6 +1885,12 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
   // Sanity check of the loop promotion map
   for (const IdGroup& loop_group :
        idGraph(IdMappingMode::LOOP).disjointIdSets().disjointSets()) {
+    // Non-leaf loop groups are not guaranteed to have valid
+    // promotions. See for example FusionRepro1713, where root domains
+    // are all grouped together but there's no valid promotion.
+    if (idGraph(IdMappingMode::LOOP).hasUses(loop_group)) {
+      continue;
+    }
     auto promotion_it = loop_promotion_map_.find(loop_group);
     NVF_ERROR(
         promotion_it != loop_promotion_map_.end(),
