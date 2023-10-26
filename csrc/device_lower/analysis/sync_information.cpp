@@ -27,14 +27,6 @@ void validateParallelizationOfTensor(TensorView* tv) {
       continue;
     }
 
-    // It doesn't matter if this axis is a non-concretized broadcast
-    // TODO: merging broadcast and non-broadcast
-    if (axis->isBroadcast() &&
-        !GpuLower::current()->concretizedBroadcastDomains()->isConcretized(
-            axis)) {
-      continue;
-    }
-
     NVF_ERROR(
         !pt_map.get(ptype),
         "Multiple use of ",
