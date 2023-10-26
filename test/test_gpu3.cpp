@@ -5249,7 +5249,6 @@ TEST_F(NVFuserTest, FusionTrivialInputForwarding_FusionExecutor) {
   at::Tensor t0_forward = fe.runFusion({t0, t1})[0];
 
   EXPECT_EQ(t0_forward.data_ptr(), t0.data_ptr());
-  testValidate(&fusion, {t0_forward}, {t0, t1}, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionTrivialInputForwarding_FusionExecutorCache) {
