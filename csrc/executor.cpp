@@ -937,23 +937,25 @@ std::vector<at::Tensor> allocOutputs(
     // Note: aliased output is not returned as output. But we still need it
     // for kernel execution, so would need to push them to args
     if (alias_it != output_to_input_aliases.end()) {
-      auto aliased_input_index = alias_it->second;
+      const auto aliased_input_index = alias_it->second;
       NVF_ERROR(
           inputs[aliased_input_index]->is<at::Tensor>(),
           "alias io only supports tensor");
       outputs.emplace_back(*inputs[aliased_input_index]);
     } else if (kernel->outputs().at(output_idx)->isFusionInput()) {
-      // pushing empty tensor for trivial forwarding. Since we handle this in
-      // integration, see step 1 - note [trivial forwarding]
-      auto alloc_dom =
-          TensorDomain::noReductions(kernel->outputs()
-                                         .at(output_idx)
-                                         ->as<TensorView>()
-                                         ->getMaybeAllocationDomain());
-      const auto tensor_options =
-          at::TensorOptions().dtype(at::kFloat).device(device);
-      outputs.emplace_back(
-          at::empty(std::vector<int64_t>(alloc_dom.size(), 0), tensor_options));
+      // This is a special aliasing that can be treated the same way.
+      auto alias_it = std::find(
+          kernel->inputs().begin(),
+          kernel->inputs().end(),
+          kernel->outputs().at(output_idx));
+      NVF_ERROR(alias_it != kernel->inputs().end());
+
+      const auto aliased_input_index =
+          std::distance(kernel->inputs().begin(), alias_it);
+      NVF_ERROR(
+          inputs[aliased_input_index]->is<at::Tensor>(),
+          "alias io only supports tensor");
+      outputs.emplace_back(*inputs[aliased_input_index]);
     } else {
       auto alloc_tensor = at::native::empty_strided_cuda(
           buf_info.sizes,
@@ -1236,37 +1238,19 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
       args.size() == kernel->inputs().size(),
       "kernel arguments length does not match runtime arguments.");
   for (const auto out_i : c10::irange(kernel->outputs().size())) {
-    GlobalBufferInfo info;
     auto out_val = kernel->outputs()[out_i];
+    auto output = out_val->as<TensorView>();
+
+    GlobalBufferInfo info;
     info.tv = dynamic_cast<TensorView*>(out_val);
-    if (out_val->isFusionInput()) {
-      // pushing empty tensor for trivial forwarding. Since we handle this in
-      // integration, see step 1 - note [trivial forwarding]
-      info.type = at::kFloat;
-      info.sizes = {0};
-    } else {
-      NVF_ERROR(
-          info.tv != nullptr, "Cannot allocate outputs that are not tensors.");
-      auto output = out_val->as<TensorView>();
-      auto alias_it = std::find_if(
-          output_to_input_aliases.begin(),
-          output_to_input_aliases.end(),
-          [&](const auto output_to_input) {
-            return output_to_input.first == (int)out_i;
-          });
-      if (alias_it != output_to_input_aliases.end()) {
-        // Aliased to an input, no need to gather allocation
-        // info. Leave it as is
-      } else {
-        std::tie(info.sizes, info.strides) =
-            inferShapeOfOutput(output, expr_eval);
-        auto dtype =
-            (output->dtype() == DataType::Index ? index_dtype
-                                                : output->dtype());
-        info.type = data_type_to_aten(dtype);
-        info.zero_init = false;
-      }
-    }
+    NVF_ERROR(
+        info.tv != nullptr, "Cannot allocate outputs that are not tensors.");
+
+    std::tie(info.sizes, info.strides) = inferShapeOfOutput(output, expr_eval);
+    auto dtype =
+        (output->dtype() == DataType::Index ? index_dtype : output->dtype());
+    info.type = data_type_to_aten(dtype);
+
     outputs.emplace_back(info);
   }
   return outputs;
