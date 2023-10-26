@@ -287,7 +287,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>>
 inferAndValidateAllocationSizesAndStrides(
     const at::Tensor& tensor,
     TensorView* tv,
-    ExpressionEvaluator ee) {
+    const ExpressionEvaluator& ee) {
   if (tv == nullptr || !tv->hasAllocation()) {
     // When tv is nullptr, or tv does not have allocation, the given sizes and
     // strides should already be in the target format. So nothing to do here.
