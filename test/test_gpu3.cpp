@@ -5235,9 +5235,6 @@ TEST_F(NVFuserTest, FusionTrivialInputForwarding_FusionExecutor) {
   TensorView* tv1 = makeConcreteTensor({-1, -1});
   fusion.addInput(tv0);
   fusion.addInput(tv1);
-  // Note: output of add is not used. Kept it here since previously there was an
-  // assertion from sorting in codegen.
-  add(tv1, IrBuilder::create<Val>(3.141));
   fusion.addOutput(tv0);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
