@@ -253,6 +253,22 @@ class VectorOfUniqueEntries {
     return vector_.end();
   }
 
+  auto rbegin() const {
+    return vector().rbegin();
+  }
+
+  auto rend() const {
+    return vector().rend();
+  }
+
+  auto rbegin() {
+    return vector_.begin();
+  }
+
+  auto rend() {
+    return vector_.end();
+  }
+
   std::string toString() const {
     std::stringstream ss;
     ss << "{ ";
