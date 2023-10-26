@@ -707,7 +707,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       conc_info->setInitialInfo(&conc_initial_info);
 
       if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
-        debug() << "Fusion before concretization:" << std::endl;
+        debug() << "Fusion before concretization:\n";
         conc_fusion->printMath();
       }
 

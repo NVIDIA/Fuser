@@ -38,6 +38,8 @@ namespace nvfuser {
 class WelfordResult;
 class ViewTransform;
 
+class DynamicTransformConcretizer;
+
 class IrCloner;
 
 namespace ir_utils {
@@ -429,6 +431,7 @@ class TensorView : public Val {
   friend OptOutMutator;
   friend class InlineBatchingGuard;
   friend class ir_utils::TVDomainGuard;
+  friend class DynamicTransformConcretizer;
 
   // Inline the computation of this tensor into its consumer at the given
   // position. If this tensor is already inlined in a higher position, then this
