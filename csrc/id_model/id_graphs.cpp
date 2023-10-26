@@ -1804,59 +1804,54 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     }
   }
 
-  // TODO: cleanup
-  // Set loop_promotion_map_[loop_group] = promotion.
-  // Make sure the existing mapping, if exists, matches with the given
-  // promotion.
-  auto setLoopPromotion =
-      [this](const IdGroup& loop_group, IterDomain* promotion) -> void {
-    if (auto it = loop_promotion_map_.find(loop_group);
-        it != loop_promotion_map_.end()) {
-      auto existing_promotion = it->second;
-      NVF_ERROR(
-          idGraph(IdMappingMode::EXACT).toGroup(promotion) ==
-              idGraph(IdMappingMode::EXACT).toGroup(existing_promotion),
-          "Different promotions found for ",
-          nvfuser::toString(loop_group),
-          ". ",
-          promotion->toString(),
-          ", ",
-          existing_promotion->toString());
-    } else {
-      loop_promotion_map_.emplace(loop_group, promotion);
-    }
-  };
+  // Update the coverage map
+  exact_covered_ids =
+      computeCoveredGroups(idGraph(IdMappingMode::EXACT), view_rfactor_ids_);
 
-  // Set up the loop promotion map of loop groups to promotion IDs
+  // Set up the loop promotion map of loop groups to promotion
+  // IDs. Note that the IEL promotion map is still incomplete in the
+  // sense that:
+  //
+  // - Not all loop graphs have promotions set at this point.
+  // - Multiple domains that are loop-mapped may have different
+  //   promotions, one of which should cover the rest.
+  //
+  // Fill the gap, here we traverse the loop graph and for each loop
+  // group we examine each IEL group. If an IEL group has a promotion,
+  // we consider it as a candidate of the promotion of this loop
+  // group. If not, we include a domain of the IEL group as a
+  // candidate too. We also look at the inline promotion map since
+  // that may also contain the promotion the loop should be associated
+  // with. Once all candidates are obtained, we pick one that covers
+  // all the exact domains (cf. concrete domains in ComputeAtMap)
   for (const IdGroup& loop_group :
-       idGraph(IdMappingMode::LOOP).disjointIdSets().disjointSets()) {
-    bool promoted = false;
-    for (IterDomain* id : loop_group->vector()) {
-      // Additional domains are added to the LOOP graph after the IEL
-      // graph was built. Those auxiliary domains should be fine to
-      // ignore.
-      if (!intersection_exact_loop_graph.hasGroup(id)) {
-        continue;
-      }
-      const auto& iel_group = intersection_exact_loop_graph.toGroup(id);
+       loop_graph_copy.disjointIdSets().disjointSets()) {
+    IdGroups iel_groups = intersection_exact_loop_graph.toGroups(*loop_group);
+    // All exact groups covered by all iter domains in this loop group
+    IdGroups loop_group_covered_ids;
+    for (const IdGroup& iel_group : iel_groups) {
+      auto exact_group =
+          idGraph(IdMappingMode::EXACT).toGroup(iel_group->front());
+      auto covered_it = exact_covered_ids.find(exact_group);
+      NVF_ERROR(
+          covered_it != exact_covered_ids.end(),
+          "Exact covered id not found for ",
+          nvfuser::toString(exact_group));
+      loop_group_covered_ids.pushBack(covered_it->second);
+    }
+
+    VectorOfUniqueEntries<IterDomain*> representative_id_candidates;
+
+    for (const IdGroup& iel_group : iel_groups) {
       if (auto iel_promotion_map_it = iel_promotion_map.find(iel_group);
           iel_promotion_map_it != iel_promotion_map.end()) {
         IterDomain* iel_promotion_id = iel_promotion_map_it->second;
-        setLoopPromotion(loop_group, iel_promotion_id);
-        promoted = true;
+        representative_id_candidates.pushBack(iel_promotion_id);
+      } else {
+        representative_id_candidates.pushBack(iel_group->front());
       }
     }
 
-    if (promoted) {
-      continue;
-    }
-
-    VERBOSE() << "No mapping in the IEL promotion map: "
-              << nvfuser::toString(loop_group) << std::endl;
-
-    // No mapping in the IEL promotion map. If the loop group is still
-    // mapped in the loop group promotion map, that should be the
-    // correct promotion for this group
     if (auto loop_graph_copy_promotion_map_it =
             loop_graph_copy_promotion_map.find(
                 loop_graph_copy.toGroup(loop_group->vector().at(0)));
@@ -1864,14 +1859,45 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
         loop_graph_copy_promotion_map.end()) {
       VERBOSE() << "Found in loop promotion: " << nvfuser::toString(loop_group)
                 << std::endl;
-      setLoopPromotion(loop_group, loop_graph_copy_promotion_map_it->second);
-      promoted = true;
+      representative_id_candidates.pushBack(
+          loop_graph_copy_promotion_map_it->second);
     }
 
+    VERBOSE() << "Loop promotion candidates: " << std::endl;
+
+    // All candidates gathered
+    for (IterDomain* candidate_id : representative_id_candidates) {
+      auto covered_it = exact_covered_ids.find(
+          idGraph(IdMappingMode::EXACT).toGroup(candidate_id));
+      NVF_ERROR(covered_it != exact_covered_ids.end());
+      if (loop_group_covered_ids.subtract(covered_it->second).empty()) {
+        // Found
+        VERBOSE() << "Representative found: " << candidate_id->toString()
+                  << std::endl;
+        const IdGroup& current_loop_group =
+            idGraph(IdMappingMode::LOOP).toGroup(loop_group->front());
+        loop_promotion_map_.emplace(current_loop_group, candidate_id);
+        break;
+      }
+    }
+  }
+
+  // Sanity check of the loop promotion map
+  for (const IdGroup& loop_group :
+       idGraph(IdMappingMode::LOOP).disjointIdSets().disjointSets()) {
+    auto promotion_it = loop_promotion_map_.find(loop_group);
     NVF_ERROR(
-        promoted,
+        promotion_it != loop_promotion_map_.end(),
         "Loop promotion not found for ",
         nvfuser::toString(loop_group));
+    IterDomain* promotion = promotion_it->second;
+    // Make sure the promotion domain is also loop-mapped
+    NVF_ERROR(
+        loop_group->has(promotion),
+        "Loop promotion not loop-mapped. Loop group: ",
+        nvfuser::toString(loop_group),
+        ". Promotion domain: ",
+        promotion->name());
   }
 
   VERBOSE() << "Loop promotion map:" << std::endl;
