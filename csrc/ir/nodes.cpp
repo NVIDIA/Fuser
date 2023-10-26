@@ -2361,9 +2361,46 @@ LoadStoreOp::LoadStoreOp(
   addDataAttribute(cache_op);
 }
 
+namespace {
+// Returns the permutation from `in` to `out`, i.e., `out[i]==in[perm[i]]`. As a
+// precondition, `out` must be a permutation of `in` per the definition of
+// std::is_permutation.
+template <typename T>
+std::vector<int64_t> computePermutation(
+    const std::vector<T>& in,
+    const std::vector<T>& out) {
+  std::vector<int64_t> permutation;
+  permutation.reserve(out.size());
+  // O(n^2) is totally fine for the current use case of computing the
+  // root-to-rfactor permutation. If needed, this can be improved by requiring T
+  // to be hashable and/or comparable.
+  for (const T& out_element : out) {
+    permutation.push_back(std::distance(
+        in.begin(), std::find(in.begin(), in.end(), out_element)));
+  }
+  return permutation;
+}
+} // namespace
+
 std::vector<PolymorphicValue> LoadStoreOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  if (TensorView* out_tv = dynamic_cast<TensorView*>(out())) {
+    if (out_tv->hasRFactor()) {
+      NVF_ERROR(
+          std::is_permutation(
+              out_tv->getRootDomain().begin(),
+              out_tv->getRootDomain().end(),
+              out_tv->getRFactorDomain().begin()),
+          "The rfactor domain of a Set.Permute is supposed to be a permutation of the root domain: ",
+          out_tv->toString());
+      NVF_ERROR(inputs.size() == 1);
+      at::Tensor in_tensor = inputs[0].as<at::Tensor>();
+      at::Tensor out_tensor = in_tensor.permute(computePermutation(
+          out_tv->getRootDomain(), out_tv->getRFactorDomain()));
+      return {out_tensor};
+    }
+  }
   return inputs;
 }
 
