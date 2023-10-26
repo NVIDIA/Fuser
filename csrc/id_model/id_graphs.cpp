@@ -1978,7 +1978,6 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
 
     ExprGroups promoted_input_uses;
     for (auto inp_id : promoted_inputs) {
-      VERBOSE() << "Promoted input: " << inp_id->toString() << std::endl;
       // inp_id may have been just replayed, in which case it should
       // not exist in the IEL graph. It should be just ignored as it
       // should not have any use yet.
@@ -2090,11 +2089,26 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
               << std::endl;
   }
 
-  // Needs to recompute
+  // Update the coverage map
   exact_covered_ids =
       computeCoveredGroups(idGraph(IdMappingMode::EXACT), view_rfactor_ids_);
 
-  // Set up the loop promotion map of loop groups to promotion IDs
+  // Set up the loop promotion map of loop groups to promotion
+  // IDs. Note that the IEL promotion map is still incomplete in the
+  // sense that:
+  //
+  // - Not all loop graphs have promotions set at this point.
+  // - Multiple domains that are loop-mapped may have different
+  //   promotions, one of which should cover the rest.
+  //
+  // Fill the gap, here we traverse the loop graph and for each loop
+  // group we examine each IEL group. If an IEL group has a promotion,
+  // we consider it as a candidate of the promotion of this loop
+  // group. If not, we include a domain of the IEL group as a
+  // candidate too. We also look at the inline promotion map since
+  // that may also contain the promotion the loop should be associated
+  // with. Once all candidates are obtained, we pick one that covers
+  // all the exact domains (cf. concrete domains in ComputeAtMap)
   for (const IdGroup& loop_group :
        loop_graph_copy.disjointIdSets().disjointSets()) {
     IdGroups iel_groups = intersection_exact_loop_graph.toGroups(*loop_group);
@@ -2123,7 +2137,6 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
       }
     }
 
-    //
     if (auto loop_graph_copy_promotion_map_it =
             loop_graph_copy_promotion_map.find(
                 loop_graph_copy.toGroup(loop_group->vector().at(0)));
@@ -2165,15 +2178,9 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
     }
   }
 
-  VERBOSE() << "Loop promotion map:" << std::endl;
-  for (const auto& [iel_group, id] : iel_promotion_map) {
-    VERBOSE() << nvfuser::toString(iel_group) << " -> " << id->name()
-              << std::endl;
-  }
-
   // Sanity check of the loop promotion map
   for (const IdGroup& loop_group :
-           idGraph(IdMappingMode::LOOP).disjointIdSets().disjointSets()) {
+       idGraph(IdMappingMode::LOOP).disjointIdSets().disjointSets()) {
     // Non-leaf loop groups are not guaranteed to have valid
     // promotions. See for example FusionRepro1713, where root domains
     // are all grouped together but there's no valid promotion.
@@ -2193,6 +2200,12 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
         nvfuser::toString(loop_group),
         ". Promotion domain: ",
         promotion->name());
+  }
+
+  VERBOSE() << "Loop promotion map:" << std::endl;
+  for (const auto& [iel_group, id] : iel_promotion_map) {
+    VERBOSE() << nvfuser::toString(iel_group) << " -> " << id->name()
+              << std::endl;
   }
 
   return iel_promotion_map;

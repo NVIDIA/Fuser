@@ -5213,11 +5213,13 @@ TEST_F(NVFuserTest, FusionTrivialInputForwarding_CUDA) {
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs({t0, t1});
 
+  EXPECT_EQ(cg_outputs[0].data_ptr(), t0.data_ptr());
   testValidate(fusion, cg_outputs, {t0, t1}, {t0}, __LINE__, __FILE__);
 
   // Second run to ensure cache hit handles trivial forwarding properly
   NVF_CHECK(fec.isCompiled({t0, t1}));
   auto cg_outputs2 = fec.runFusionWithInputs({t0, t1});
+  EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
   testValidate(fusion, cg_outputs2, {t0, t1}, {t0}, __LINE__, __FILE__);
 }
 
@@ -5235,12 +5237,13 @@ TEST_F(NVFuserTest, FusionTrivialInputForwarding2_CUDA) {
 
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs({t0});
-
+  EXPECT_EQ(cg_outputs[0].data_ptr(), t0.data_ptr());
   testValidate(fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 
   // Second run to ensure cache hit handles trivial forwarding properly
   NVF_CHECK(fec.isCompiled({t0}));
   auto cg_outputs2 = fec.runFusionWithInputs({t0});
+  EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
   testValidate(fusion, cg_outputs2, {t0}, {t0}, __LINE__, __FILE__);
 }
 
