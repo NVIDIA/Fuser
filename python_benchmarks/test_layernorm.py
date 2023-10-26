@@ -199,8 +199,10 @@ def test_layernorm_bwd_benchmark(
             inputs, inputs.shape[1:], weight=weights, bias=bias
         )
         eager_output.backward(grads)
-        fd.validate([inputs, grads, mean, invstd, weights], [inputs.grad, weights.grad, bias.grad])
-
+        fd.validate(
+            [inputs, grads, mean, invstd, weights],
+            [inputs.grad, weights.grad, bias.grad],
+        )
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [inputs, grads, mean, invstd, weights])

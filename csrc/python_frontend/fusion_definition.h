@@ -137,9 +137,8 @@ class FusionDefinition : public FusionState {
   }
 
   std::vector<std::pair<double, double>> get_val_tolerances(
-    const at::ArrayRef<c10::IValue>& aten_inputs
-  );
-  
+      const at::ArrayRef<c10::IValue>& aten_inputs);
+
   //! Return the unscheduled Fusion IR
   std::string fusionIr();
   //! Return the Cuda code for the last executed set of inputs

@@ -56,7 +56,7 @@ def norm_fwd_fusion(
     invstd_bcast = fd.ops.broadcast(invstd, bcast_mask)
     mean_bcast = fd.ops.broadcast(mean, bcast_mask)
     x_sub_mean = fd.ops.sub(input, mean_bcast)
-    
+
     x_norm = fd.ops.mul(x_sub_mean, invstd_bcast)
 
     weight = fd.ops.broadcast(weight, channels_only_bcast_mask)
@@ -87,6 +87,7 @@ def norm_fwd_fusion(
     fd.add_output(output)
     fd.add_output(mean)
     fd.add_output(invstd)
+
 
 def norm_bwd_fusion(
     fd: FusionDefinition,
@@ -195,7 +196,7 @@ def norm_fwd_benchmark(
     channels_last: bool,
     disable_validation: bool,
     disable_benchmarking: bool,
-    eps: float= 1e-5,
+    eps: float = 1e-5,
 ):
     """
     Common benchmark setup for batchnorm/instance forward call in training mode.
@@ -260,8 +261,10 @@ def norm_fwd_benchmark(
         var = inputs.to(torch.float).var(dim=reduction_axes, unbiased=False)
         invstd = 1.0 / torch.sqrt(var + eps)
 
-        fd.validate([inputs, weight, bias, running_mean, running_var], 
-                    [eager_output, mean, invstd])
+        fd.validate(
+            [inputs, weight, bias, running_mean, running_var],
+            [eager_output, mean, invstd],
+        )
 
     if not disable_benchmarking:
         run_benchmark(
@@ -351,15 +354,16 @@ def norm_bwd_benchmark(
             )
 
         eager_output.backward(at_grads)
-        
+
         if channels_last:
             eager_grad = at_inputs.grad.permute((0, *range(2, num_dims), 1))
         else:
             eager_grad = at_inputs.grad
 
-        fd.validate([inputs, grads, weight, running_mean, running_var, mean, invstd],
-                    [eager_grad, weight.grad, bias.grad])
-
+        fd.validate(
+            [inputs, grads, weight, running_mean, running_var, mean, invstd],
+            [eager_grad, weight.grad, bias.grad],
+        )
 
     if not disable_benchmarking:
         run_benchmark(
