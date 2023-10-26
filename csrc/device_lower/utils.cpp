@@ -464,164 +464,32 @@ class ReplaceExprInput : private kir::ExprMutator {
   }
 
  private:
-  ReplaceExprInput(const std::unordered_map<Val*, Val*>& replacement_map)
-      : replacement_map_(replacement_map) {}
+  ReplaceExprInput(const std::unordered_map<Val*, Val*>& replacement_map) {
+    mutator_.mutations_ = replacement_map;
+  }
 
   using kir::ExprMutator::handle;
 
-  std::optional<std::unordered_map<Val*, Val*>> getMaybeInputReplacementMap(
-      Expr* expr) {
-    bool need_replacement = false;
-
-    std::unordered_map<Val*, Val*> replaced_val;
-    for (auto in : expr->inputs()) {
-      auto replace_it = replacement_map_.find(in);
-      if (replace_it != replacement_map_.end()) {
-        need_replacement = true;
-        replaced_val[in] = replace_it->second;
-      } else {
-        replaced_val[in] = in;
-      }
+  void dispatch(Expr* expr) final {
+    NVF_ERROR(
+        expr != nullptr, "expr must be non-null in ReplaceExprInput::dispatch");
+    // special cases only for IfThenElse and ForLoop
+    if (auto loop = dynamic_cast<kir::ForLoop*>(expr)) {
+      return kir::ExprMutator::dispatch(loop);
+    } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
+      return kir::ExprMutator::dispatch(ite);
     }
-    if (need_replacement) {
-      return std::optional<std::unordered_map<Val*, Val*>>(replaced_val);
-    } else {
-      return std::nullopt;
-    }
-  }
-
-  // Copy predicates and register expression replacement
-  void registerReplaceWithPredicate(Expr* old_expr, Expr* new_expr) {
-    new_expr = new_expr->withPredicate(old_expr->predicate())
-                   ->withWritePredicate(old_expr->writePredicate());
-    registerReplace(old_expr, new_expr);
-  }
-
-  void handle(UnaryOp* node) final {
-    auto replaced_inputs = getMaybeInputReplacementMap(node);
-    if (replaced_inputs.has_value()) {
-      auto replacement = IrBuilder::create<UnaryOp>(
-          node->getUnaryOpType(), node->out(), replaced_inputs->at(node->in()));
-      registerReplaceWithPredicate(node, replacement);
-    }
-  }
-
-  void handle(BinaryOp* node) final {
-    auto replaced_inputs = getMaybeInputReplacementMap(node);
-    if (replaced_inputs.has_value()) {
-      auto replacement = IrBuilder::create<BinaryOp>(
-          node->getBinaryOpType(),
-          node->out(),
-          replaced_inputs->at(node->lhs()),
-          replaced_inputs->at(node->rhs()));
-      registerReplaceWithPredicate(node, replacement);
-    }
-  }
-
-  void handle(TernaryOp* node) final {
-    auto replaced_inputs = getMaybeInputReplacementMap(node);
-    if (replaced_inputs.has_value()) {
-      auto replacement = IrBuilder::create<TernaryOp>(
-          node->getTernaryOpType(),
-          node->out(),
-          replaced_inputs->at(node->in1()),
-          replaced_inputs->at(node->in2()),
-          replaced_inputs->at(node->in3()));
-      registerReplaceWithPredicate(node, replacement);
-    }
-  }
-
-  void handle(RNGOp* node) final {
-    // RNGOp has no input
-    return;
-  }
-
-  void handle(ReductionOp* node) final {
-    auto replaced_inputs = getMaybeInputReplacementMap(node);
-    if (replaced_inputs.has_value()) {
-      auto replacement = IrBuilder::create<ReductionOp>(
-          node->getReductionOpType(),
-          node->init(),
-          node->out(),
-          replaced_inputs->at(node->in()),
-          node->isAllreduce());
-      registerReplaceWithPredicate(node, replacement);
-    }
-  }
-
-  void handle(GroupedReductionOp* node) final {
-    auto replaced_inputs = getMaybeInputReplacementMap(node);
-    if (replaced_inputs.has_value()) {
-      const auto& map = replaced_inputs.value();
-      auto inputs = node->inputs();
-      for (auto& input : inputs) {
-        auto it = map.find(input);
-        if (it != map.end()) {
-          input = it->second;
-        }
-      }
-      auto replacement = IrBuilder::create<GroupedReductionOp>(
-          node->getReductionOpTypes(),
-          node->initVals(),
-          node->outputs(),
-          inputs,
-          node->isAllreduce());
-      registerReplaceWithPredicate(node, replacement);
-    }
-  }
-  void handle(BroadcastOp* node) final {
-    auto replaced_inputs = getMaybeInputReplacementMap(node);
-    if (replaced_inputs.has_value()) {
-      auto replacement = IrBuilder::create<BroadcastOp>(
-          node->out(),
-          replaced_inputs->at(node->in()),
-          node->getBroadcastDimFlags());
-      registerReplaceWithPredicate(node, replacement);
-    }
-  }
-
-  void handle(WelfordOp* node) final {
-    auto replaced_inputs = getMaybeInputReplacementMap(node);
-    if (replaced_inputs.has_value()) {
-      auto replacement = IrBuilder::create<WelfordOp>(
-          node->outAvg(),
-          node->outVar(),
-          node->outN(),
-          node->initAvg(),
-          node->initVar(),
-          node->initN(),
-          replaced_inputs->at(node->inAvg()),
-          replaced_inputs->at(node->inVar()),
-          replaced_inputs->at(node->inN()));
-      registerReplaceWithPredicate(node, replacement);
-    }
-  }
-
-  void handle(MmaOp* node) final {
-    auto replaced_inputs = getMaybeInputReplacementMap(node);
-    if (replaced_inputs.has_value()) {
-      auto replacement = IrBuilder::create<MmaOp>(
-          node->out(),
-          replaced_inputs->at(node->inA()),
-          replaced_inputs->at(node->inB()),
-          node->init(),
-          node->options(),
-          node->layout());
-      registerReplaceWithPredicate(node, replacement);
-    }
-  }
-
-  void handle(LoadStoreOp* node) final {
-    auto replaced_inputs = getMaybeInputReplacementMap(node);
-    if (replaced_inputs.has_value()) {
-      auto replacement = IrBuilder::create<LoadStoreOp>(
-          node->opType(), node->out(), node->in(), node->cacheOp());
-      registerReplaceWithPredicate(node, replacement);
-    }
+    // For non-control flow expressions, use mutator_
+    auto pred = expr->predicate();
+    auto write_pred = expr->writePredicate();
+    auto new_expr =
+        mutator_.mutate(expr)->withPredicate(pred)->withWritePredicate(
+            write_pred);
+    registerReplace(expr, new_expr);
   }
 
  private:
-  const std::unordered_map<Val*, Val*>& replacement_map_;
+  OptOutMutator mutator_;
 };
 
 } // namespace

@@ -712,8 +712,9 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
       //
       // Each mutate step below removes the expression so we need to apply the
       // second step to the replacement Expr. The order of these calls is
-      // unimportant, except that mutate(Expr*) does not return the replacement
-      // Expr*, whereas mutateExprOutputsOnly does.
+      // unimportant, but we need to be sure to use the replacement expression
+      // in the second call, as the first call will replace it and invalidate
+      // the pointer.
 
       // Set expr as the definition for concretized outputs
       expr = mutateExprOutputsOnly(expr);

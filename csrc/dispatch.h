@@ -394,8 +394,8 @@ class OptOutMutator : public PolymorphicBase {
 
   //! This method replaces e if any inputs or attributes are registered for
   //! mutation.
-  virtual void mutate(Expr* e) {
-    mutateExpr(
+  virtual Expr* mutate(Expr* e) {
+    return mutateExpr(
         e,
         /*replace_outputs*/ false,
         /*replace_inputs*/ true,
