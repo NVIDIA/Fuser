@@ -311,7 +311,7 @@ void GpuLower::lower(Fusion* fusion) {
   replaceSymbolicSizes(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "replaceSymbolicSizes");
 
-  IterDomainGraphs test(fusion_);
+  IdModel test(fusion_);
 
   // Build what's refered to as the compute at map. This map contains the
   // mappings of all iteration domains across the fusion. There are three types

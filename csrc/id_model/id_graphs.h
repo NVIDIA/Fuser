@@ -82,21 +82,19 @@ struct StatefulLoweringInfo;
 //          PERMISSIVE)
 //   Forward through split one axes, i.e. id{ceilDiv(i0, 1)}, id{i0} are mapped
 //
-class IterDomainGraphs : public PolymorphicBase {
+class IdModel : public PolymorphicBase {
  public:
-  IterDomainGraphs(
+  IdModel(
       const std::vector<Expr*>& exprs,
       const std::vector<TensorView*>& additional_tvs,
       bool allow_self_mapping = false);
 
-  IterDomainGraphs(
-      const std::vector<Expr*>& exprs,
-      bool allow_self_mapping = false);
+  IdModel(const std::vector<Expr*>& exprs, bool allow_self_mapping = false);
 
   // Same as the above constructor with fusion->exprs() excpet fusion may have
   // some dangling inputs/outputs that are expected to have IterDomain entries
   // even though there's no possible connections from them.
-  IterDomainGraphs(Fusion* fusion, bool allow_self_mapping = false);
+  IdModel(Fusion* fusion, bool allow_self_mapping = false);
 
   // Returns iter domain graph of provided mode.
   const IdGraph& idGraph(IdMappingMode mode) const;
