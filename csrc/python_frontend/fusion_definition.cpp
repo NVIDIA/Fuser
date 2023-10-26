@@ -363,8 +363,8 @@ State FusionDefinition::recordingState(size_t index) const {
 }
 
 std::vector<std::pair<double, double>> FusionDefinition::get_val_tolerances(
-    const at::ArrayRef<c10::IValue>& aten_inputs) {
-  return get_val_constants(preschedFusion(), aten_inputs);
+    const at::ArrayRef<c10::IValue>& inputs) {
+  return get_val_constants(preschedFusion(), inputs);
 }
 
 } // namespace nvfuser::python_frontend
