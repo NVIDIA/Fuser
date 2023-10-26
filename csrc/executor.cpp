@@ -1654,6 +1654,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose);
 
+  // It's important to determine the input bytes processed prior
+  // to pushing the outputs into the arg struct.  Otherwise,
+  // the outputs will also be included with inputs when determining
+  // the input bytes accessed.
   if (measure_kernel_time) {
     inputBytesProcessed(args);
   }
@@ -1823,26 +1827,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     if (measure_kernel_time) {
       kernel_time_ms_ = timer.elapsed();
 
-      /*
-      bytes_processed_per_input_.resize(num_inputs, 0);
-      // Figure how many bytes are inputs, outputs, and temporary buffers
-      for (auto i : c10::irange(num_inputs)) {
-        if (args[i]->is<at::Tensor>()) {
-          auto t = args[i]->as<at::Tensor>();
-          auto num_bytes = t.numel() *
-              (int64_t)dataTypeSize(aten_to_data_type(t.scalar_type()));
-          bytes_processed_per_input_.at(i) = num_bytes;
-        }
-      }
-      bytes_processed_per_output_.resize(outputs.size(), 0);
-      for (auto i : c10::irange(outputs.size())) {
-        const auto& output = outputs.at(i);
-        // NOTE: this assumes that all output elements correspond to a single
-        // store
-        bytes_processed_per_output_.at(i) = output.numel() *
-            (int64_t)dataTypeSize(aten_to_data_type(output.scalar_type()));
-      }
-      */
       outputBytesProcessed(outputs);
 
       if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth)) {

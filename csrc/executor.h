@@ -179,6 +179,9 @@ class FusionExecutor : public NonCopyable {
     return measure_kernel_time_ ? kernel_time_ms_ : 0;
   }
 
+  //! Returns the input bytes accessed for a kernel
+  //! \note It is important to sample the args struct prior to adding the
+  // 1    output to the args struct
   int64_t inputBytesProcessed(KernelArgumentHolder& args) {
     int64_t total_bytes = 0;
     if (!bytes_processed_per_input_.has_value()) {
@@ -203,6 +206,7 @@ class FusionExecutor : public NonCopyable {
     return total_bytes;
   }
 
+  //! Returns the output bytes accessed for a kernel
   int64_t outputBytesProcessed(std::vector<at::Tensor>& outputs) {
     int64_t total_bytes = 0;
     if (!bytes_processed_per_output_.has_value()) {
