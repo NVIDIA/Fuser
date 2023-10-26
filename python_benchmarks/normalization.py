@@ -3,7 +3,7 @@ from .global_params import PROMOTE_DTYPES
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 import torch
 from .core import run_benchmark
-import gc
+
 
 def norm_fwd_fusion(
     fd: FusionDefinition,
@@ -257,14 +257,14 @@ def norm_fwd_benchmark(
         assert torch.allclose(
             nvf_output[0], eager_output, rtol=1e-3, atol=1e-3
         ), f"{torch.max(nvf_output[0] - eager_output)}"
-    
+
     if not disable_benchmarking:
         run_benchmark(
             benchmark, fd.execute, [inputs, weight, bias, running_mean, running_var]
         )
-    
+
     torch.cuda.empty_cache()
-    
+
 
 def norm_bwd_benchmark(
     benchmark,
