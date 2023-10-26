@@ -2364,7 +2364,8 @@ LoadStoreOp::LoadStoreOp(
 namespace {
 // Returns the permutation from `in` to `out`, i.e., `out[i]==in[perm[i]]`. As a
 // precondition, `out` must be a permutation of `in` per the definition of
-// std::is_permutation.
+// std::is_permutation. The return type is `vector<int64_t>` instead of
+// `vector<int>` so it can be converted to `at::IntArrayRef`.
 template <typename T>
 std::vector<int64_t> computePermutation(
     const std::vector<T>& in,
@@ -2380,6 +2381,56 @@ std::vector<int64_t> computePermutation(
   }
   return permutation;
 }
+
+std::vector<int64_t> strideOrder(const at::Tensor& tensor) {
+  std::vector<std::pair<int64_t, int64_t>> stride_dim;
+  stride_dim.reserve(tensor.dim());
+  for (int64_t i = 0; i < tensor.dim(); i++) {
+    stride_dim.emplace_back(tensor.stride(i), i);
+  }
+
+  std::sort(
+      stride_dim.begin(),
+      stride_dim.end(),
+      std::greater<std::pair<int64_t, int64_t>>());
+
+  std::vector<int64_t> stride_order;
+  stride_order.reserve(tensor.dim());
+  for (const auto& [stride, dim] : stride_dim) {
+    stride_order.push_back(dim);
+  }
+  return stride_order;
+}
+
+bool strideOrdersAreCompatible(const TensorView& tv, const at::Tensor& tensor) {
+  const std::vector<IterDomain*>& rfactor = tv.getMaybeRFactorDomain();
+  const std::vector<IterDomain*>& allocation = tv.getMaybeAllocationDomain();
+
+  std::unordered_set<int64_t> rfactor_indices_to_ignore;
+  for (size_t i = 0; i < rfactor.size(); i++) {
+    if (rfactor[i]->isReduction() || rfactor[i]->isBroadcast()) {
+      rfactor_indices_to_ignore.insert(i);
+    }
+  }
+
+  std::vector<int64_t> tv_stride_order =
+      computePermutation(rfactor, allocation);
+  std::vector<int64_t> tensor_stride_order = strideOrder(tensor);
+
+  auto filter = [](const std::unordered_set<int64_t>& to_filter_out,
+                   std::vector<int64_t>& v) -> void {
+    v.erase(
+        std::remove_if(
+            v.begin(),
+            v.end(),
+            [&](const int64_t e) { return to_filter_out.count(e); }),
+        v.end());
+  };
+  filter(rfactor_indices_to_ignore, tv_stride_order);
+  filter(rfactor_indices_to_ignore, tensor_stride_order);
+  return tv_stride_order == tensor_stride_order;
+}
+
 } // namespace
 
 std::vector<PolymorphicValue> LoadStoreOp::evaluate(
@@ -2398,6 +2449,19 @@ std::vector<PolymorphicValue> LoadStoreOp::evaluate(
       at::Tensor in_tensor = inputs[0].as<at::Tensor>();
       at::Tensor out_tensor = in_tensor.permute(computePermutation(
           out_tv->getRootDomain(), out_tv->getRFactorDomain()));
+
+      // Check that `out_tv`'s allocation domain and `out_tensor.stride()` infer
+      // the same major-to-minor order. Otherwise, we need to apply `flatten`
+      // and `as_strided` on `out_tensor`, which is left as a todo.
+      NVF_ERROR(
+          strideOrdersAreCompatible(*out_tv, out_tensor),
+          out_tv->toString(),
+          " and ",
+          out_tensor.toString(),
+          out_tensor.sizes(),
+          ",strides=",
+          out_tensor.strides(),
+          " have incompatible strider orders.");
       return {out_tensor};
     }
   }
