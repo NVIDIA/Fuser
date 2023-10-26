@@ -24,7 +24,7 @@
 
 namespace nvfuser {
 
-void IterDomainGraphs::assertNoSelfMapping() {
+void IdModel::assertNoSelfMapping() {
   if (hasSelfMapping()) {
     NVF_ERROR(
         !hasSelfMapping(),
@@ -40,7 +40,7 @@ void IterDomainGraphs::assertNoSelfMapping() {
   }
 }
 
-IterDomainGraphs::IterDomainGraphs(
+IdModel::IdModel(
     const std::vector<Expr*>& exprs,
     const std::vector<TensorView*>& additional_tvs,
     bool allow_self_mapping) {
@@ -51,12 +51,10 @@ IterDomainGraphs::IterDomainGraphs(
   }
 }
 
-IterDomainGraphs::IterDomainGraphs(
-    const std::vector<Expr*>& exprs,
-    bool allow_self_mapping)
-    : IterDomainGraphs(exprs, {}, allow_self_mapping) {}
+IdModel::IdModel(const std::vector<Expr*>& exprs, bool allow_self_mapping)
+    : IdModel(exprs, {}, allow_self_mapping) {}
 
-IterDomainGraphs::IterDomainGraphs(Fusion* fusion, bool allow_self_mapping) {
+IdModel::IdModel(Fusion* fusion, bool allow_self_mapping) {
   std::vector<TensorView*> inputs_and_outputs;
   {
     auto inp_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
@@ -76,19 +74,19 @@ IterDomainGraphs::IterDomainGraphs(Fusion* fusion, bool allow_self_mapping) {
   }
 }
 
-const IdGraph& IterDomainGraphs::idGraph(IdMappingMode mode) const {
+const IdGraph& IdModel::idGraph(IdMappingMode mode) const {
   auto graph_it = id_graphs_.find(mode);
   NVF_ERROR(graph_it != id_graphs_.end());
   return graph_it->second;
 }
 
-IdGraph& IterDomainGraphs::idGraph(IdMappingMode mode) {
+IdGraph& IdModel::idGraph(IdMappingMode mode) {
   auto graph_it = id_graphs_.find(mode);
   NVF_ERROR(graph_it != id_graphs_.end());
   return graph_it->second;
 }
 
-Expr* IterDomainGraphs::idUse(IterDomain* id) const {
+Expr* IdModel::idUse(IterDomain* id) const {
   auto use_it = id_uses_.find(id);
   if (use_it == id_uses_.end()) {
     return nullptr;
@@ -96,7 +94,7 @@ Expr* IterDomainGraphs::idUse(IterDomain* id) const {
   return use_it->second.front();
 }
 
-Expr* IterDomainGraphs::idDef(IterDomain* id) const {
+Expr* IdModel::idDef(IterDomain* id) const {
   auto def_it = id_definitions_.find(id);
   if (def_it == id_definitions_.end()) {
     return nullptr;
@@ -139,7 +137,7 @@ namespace {
 // we pull multiple values of tv0 to compute tv3.
 c10::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
     const std::vector<IterDomain*>& ids,
-    const IterDomainGraphs& id_graph,
+    const IdModel& id_graph,
     IdMappingMode mode) {
   for (auto id1 : ids) {
     for (auto id2 : ids) {
@@ -163,7 +161,7 @@ c10::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
 c10::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
 findFirstSelfMapping(
     const std::vector<TensorView*>& all_tvs,
-    const IterDomainGraphs& id_graph) {
+    const IdModel& id_graph) {
   for (auto tv : all_tvs) {
     // For each tensor, make sure root, rfactor and leaf domains
     // should not include domains that are mapped with another domain
@@ -213,7 +211,7 @@ findFirstSelfMapping(
 
 } // namespace
 
-void IterDomainGraphs::buildIterDomainDefinitionsAndUses(
+void IdModel::buildIterDomainDefinitionsAndUses(
     const std::vector<TensorView*>& all_tvs) {
   for (auto tv : all_tvs) {
     VectorOfUniqueEntries<IterDomain*> root_domain_ids{
@@ -267,7 +265,7 @@ void IterDomainGraphs::buildIterDomainDefinitionsAndUses(
   }
 }
 
-std::string IterDomainGraphs::toString() const {
+std::string IdModel::toString() const {
   // Figure out which graphs are already initialized to make sure we add the new
   // expression to them.
   std::vector<IdMappingMode> initialized_modes;
@@ -302,9 +300,7 @@ std::string IterDomainGraphs::toString() const {
 }
 
 // Replay Expr but with the inputs provided.
-Expr* IterDomainGraphs::addReplayAs(
-    std::vector<IterDomain*> new_inputs,
-    Expr* expr) {
+Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
   // Figure out which graphs are already initialized to make sure we add the new
   // expression to them.
   std::vector<IdMappingMode> initialized_modes;
@@ -429,7 +425,7 @@ Expr* IterDomainGraphs::addReplayAs(
 
 // Generate a new expr with the IterDomain inputs/outputs replaced based on map.
 // Replaced inputs/outputs should almost exact match with provided expr.
-Expr* IterDomainGraphs::addExprWithReplacement(
+Expr* IdModel::addExprWithReplacement(
     const std::unordered_map<IterDomain*, IterDomain*>& old_2_new_ids,
     Expr* old_expr) {
   // Figure out which graphs are already initialized to make sure we add the new
@@ -598,7 +594,7 @@ Expr* IterDomainGraphs::addExprWithReplacement(
 
 // Clone provided iter domain and return the new copy. Map that copy in relevant
 // maps.
-IterDomain* IterDomainGraphs::cloneIterDomain(IterDomain* id) {
+IterDomain* IdModel::cloneIterDomain(IterDomain* id) {
   // Figure out which graphs are already initialized to make sure we add the new
   // expression to them.
   std::vector<IdMappingMode> initialized_modes;
@@ -629,7 +625,7 @@ IterDomain* IterDomainGraphs::cloneIterDomain(IterDomain* id) {
   return id_copy;
 }
 
-IdGraph IterDomainGraphs::initializeIdGraph(bool propagate_through_exprs) {
+IdGraph IdModel::initializeIdGraph(bool propagate_through_exprs) {
   IdGraph id_graph(propagate_through_exprs);
 
   for (const auto& [id, defs] : id_definitions_) {
@@ -645,7 +641,7 @@ IdGraph IterDomainGraphs::initializeIdGraph(bool propagate_through_exprs) {
   return id_graph;
 }
 
-void IterDomainGraphs::buildExactMap(const std::vector<Expr*>& exprs) {
+void IdModel::buildExactMap(const std::vector<Expr*>& exprs) {
   for (auto expr : exprs) {
     TensorView* c_tv = ir_utils::getTvOutput(expr);
 
@@ -693,7 +689,7 @@ void IterDomainGraphs::buildExactMap(const std::vector<Expr*>& exprs) {
   }
 }
 
-void IterDomainGraphs::buildPermissiveMap(const std::vector<Expr*>& exprs) {
+void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
   // Use the exact map as the starting map rather than the
   // almost-exact map. Almost exact is useful for index hoisting but
   // not necessary for permissive and loop maps
@@ -748,7 +744,7 @@ void IterDomainGraphs::buildPermissiveMap(const std::vector<Expr*>& exprs) {
   idGraph(IdMappingMode::PERMISSIVE).mapThroughLoopSwizzles();
 }
 
-void IterDomainGraphs::buildAlmostExactMap() {
+void IdModel::buildAlmostExactMap() {
   // Build almost exact map by forwarding through broadcast axes
   idGraph(IdMappingMode::ALMOSTEXACT) = idGraph(IdMappingMode::EXACT);
   idGraph(IdMappingMode::ALMOSTEXACT).mapThroughTrivialExprs();
@@ -756,8 +752,7 @@ void IterDomainGraphs::buildAlmostExactMap() {
 
 // TODO: Reenable after reenabling parallel propagation.
 //        propagateLoopPTypes
-void IterDomainGraphs::validatePTypes(
-    const std::vector<TensorView*>& all_tvs) const {
+void IdModel::validatePTypes(const std::vector<TensorView*>& all_tvs) const {
   // VectorOfUniqueEntries<IterDomain*> leaf_ids;
   // for (auto tv : all_tvs) {
   //   leaf_ids.pushBack(tv->domain()->leaf());
@@ -776,7 +771,7 @@ void IterDomainGraphs::validatePTypes(
   // }
 }
 
-void IterDomainGraphs::propagateLoopPTypes() const {
+void IdModel::propagateLoopPTypes() const {
   for (const auto& loop_disjoint_set :
        idGraph(IdMappingMode::LOOP).disjointIdSets().disjointSets()) {
     ParallelType common_ptype = ParallelType::Serial;
@@ -937,7 +932,7 @@ StatefulLoweringInfo buildInfo(
 
 } // namespace
 
-void IterDomainGraphs::build(
+void IdModel::build(
     const std::vector<Expr*>& exprs,
     const std::vector<TensorView*>& additional_tvs) {
   // Initialize the required sets as if a permissive relationship is never
@@ -1034,7 +1029,7 @@ void IterDomainGraphs::build(
   self_mapping_info_ = findFirstSelfMapping(all_tvs, *this);
 }
 
-VectorOfUniqueEntries<IterDomain*> IterDomainGraphs::computeTerminalLoopIds(
+VectorOfUniqueEntries<IterDomain*> IdModel::computeTerminalLoopIds(
     const StatefulLoweringInfo info) {
   VectorOfUniqueEntries<IterDomain*> terminal_loop_ids;
   for (const IdGroup& group :
@@ -1076,7 +1071,7 @@ VectorOfUniqueEntries<IterDomain*> IterDomainGraphs::computeTerminalLoopIds(
   return terminal_loop_ids;
 }
 
-IdGraph IterDomainGraphs::buildIntersection(
+IdGraph IdModel::buildIntersection(
     const IdGraph& graph0,
     const IdGraph& graph1,
     bool propagate_exprs) {
@@ -1098,7 +1093,7 @@ IdGraph IterDomainGraphs::buildIntersection(
   return intersection;
 }
 
-void IterDomainGraphs::initializeLoopMap(StatefulLoweringInfo& info) {
+void IdModel::initializeLoopMap(StatefulLoweringInfo& info) {
   // See Indexing20 example for why we shouldn't propagate when generating loop
   // groups
   idGraph(IdMappingMode::LOOP) = initializeIdGraph(false);
@@ -1116,8 +1111,8 @@ void IterDomainGraphs::initializeLoopMap(StatefulLoweringInfo& info) {
   }
 }
 
-std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
-    buildInlinePromotions(StatefulLoweringInfo& info) {
+std::unordered_map<IdGroup, IterDomain*> IdModel::buildInlinePromotions(
+    StatefulLoweringInfo& info) {
   // Make an intersection of the exact and loop map. This will group together
   // entries in each loop group that are exact with each other. This provides a
   // better graph to do promotion and replays.
@@ -1470,11 +1465,10 @@ std::unordered_map<IdGroup, IdGroups> computeCoveredGroups(
 }
 }; // namespace
 
-std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
-    buildLoopPromotionMap(
-        const std::vector<Expr*>& exprs,
-        StatefulLoweringInfo& info,
-        const std::unordered_map<IdGroup, IterDomain*>& stale_promotion_map) {
+std::unordered_map<IdGroup, IterDomain*> IdModel::buildLoopPromotionMap(
+    const std::vector<Expr*>& exprs,
+    StatefulLoweringInfo& info,
+    const std::unordered_map<IdGroup, IterDomain*>& stale_promotion_map) {
   // Non-ca domains may also need to be promoted if parent domains are
   // promoted.
 
@@ -1915,7 +1909,7 @@ std::unordered_map<IdGroup, IterDomain*> IterDomainGraphs::
   return iel_promotion_map;
 }
 
-std::unordered_map<IterDomain*, IterDomain*> IterDomainGraphs::buildIndexGraph(
+std::unordered_map<IterDomain*, IterDomain*> IdModel::buildIndexGraph(
     const std::vector<Expr*>& exprs,
     const std::vector<TensorView*>& all_tvs,
     StatefulLoweringInfo& info,
