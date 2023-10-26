@@ -326,6 +326,7 @@ class FusionDefinition(_C._FusionDefinition):
             atol, rtol = tolerance_values[inx]
             reference_output = reference_outputs[inx]
 
+            assert reference_output.shape == fusion_output.shape, f"Mismatch in reference and fusion output dimensions"
             if torch.is_floating_point(fusion_output) or torch.is_complex(fusion_output):
                     assert torch.allclose(fusion_output, reference_output, atol=atol, rtol=rtol), \
                 f'Max error: {torch.abs(torch.max(fusion_output - reference_output))}, \
