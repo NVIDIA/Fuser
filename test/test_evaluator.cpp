@@ -559,6 +559,29 @@ TEST_F(ExprEvalTest, Permute_Alias) {
   EXPECT_THAT(out_tensor.strides(), ElementsAre(128, 1, 32, 8));
 }
 
+TEST_F(ExprEvalTest, Permute_AliasWithAllocationDomain) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in =
+      TensorViewBuilder().shape({-1, -1, -1, 6}).dtype(DataType::Float).build();
+  fusion.addInput(in);
+  TensorView* out = permute(in, {0, 3, 1, 2});
+  out->setAllocationDomain(
+      {out->axis(0), out->axis(2), out->axis(3), out->axis(1)}, false);
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor =
+      at::rand({256}).cuda().as_strided({2, 3, 4, 6}, {128, 32, 8, 1});
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(in, in_tensor);
+  at::Tensor out_tensor = evaluator.evaluate(out).as<at::Tensor>();
+  EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
+  EXPECT_THAT(out_tensor.sizes(), ElementsAre(2, 6, 3, 4));
+  EXPECT_THAT(out_tensor.strides(), ElementsAre(128, 1, 32, 8));
+}
+
 TEST_F(ExprEvalTest, Permute_NoAlias) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -568,7 +591,7 @@ TEST_F(ExprEvalTest, Permute_NoAlias) {
   fusion.addInput(in);
   TensorView* out = permute(in, {0, 3, 1, 2});
   out->setAllocationDomain(
-      {out->axis(0), out->axis(1), out->axis(3), out->axis(2)}, false);
+      {out->axis(0), out->axis(1), out->axis(2), out->axis(3)}, false);
   fusion.addOutput(out);
 
   at::Tensor in_tensor =

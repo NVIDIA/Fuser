@@ -2402,6 +2402,10 @@ std::vector<PolymorphicValue> LoadStoreOp::evaluate(
           out_tv->getRootDomain(), out_tv->getRFactorDomain()));
 
       inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
+      // TODO: When validation fails, relayout `out_tensor` to make it
+      // compatible with `out_tv`'s allocation domain and contiguity. I haven't
+      // quite figured out how to do that especially when the allocation domain
+      // is not a permutation of `out_tv`'s rfactor domain.
       return {out_tensor};
     }
   }
