@@ -208,12 +208,11 @@ class FusionProfiler {
   static FusionProfiler* get();
 
   void reset();
-  void disableCupti(bool value);
   ProfilerState state() const;
   SegmentProfiler& segment(size_t idx);
 
   //! Profiling Methods
-  void start();
+  void start(bool cupti_disable = false);
   void stop();
   void createSegments(size_t num);
   void startParallelCompile();
@@ -260,60 +259,42 @@ class FusionProfiler {
   std::unordered_map<uint32_t, uint32_t> corrid_2_segid_;
 };
 
-//! Macro to determine if the FusinProfiler is enabled
-#define _FP_ENABLE(code)                                            \
-  if (isDebugDumpEnabled(DebugDumpOption::FusionProfiler) ||        \
-      isDebugDumpEnabled(DebugDumpOption::FusionProfilerNocupti) || \
-      isDebugDumpEnabled(DebugDumpOption::FusionProfilerVerbose) || \
-      isOptionEnabled(EnableOption::FusionProfiler) ||              \
-      isOptionEnabled(EnableOption::FusionProfilerNocupti)) {       \
-    code;                                                           \
-  }
+//! A Fusion Profiler enabled check "decorator"
+template <class T>
+auto fusion_profiler_enabled(T&& func) {
+  // we create a closure below
+  auto new_function = [func = std::forward<T>(func)](auto&&... args) {
+    if (isDebugDumpEnabled(DebugDumpOption::FusionProfiler) ||
+        isDebugDumpEnabled(DebugDumpOption::FusionProfilerNocupti) ||
+        isDebugDumpEnabled(DebugDumpOption::FusionProfilerVerbose) ||
+        isOptionEnabled(EnableOption::FusionProfiler) ||
+        isOptionEnabled(EnableOption::FusionProfilerNocupti)) {
+      func(std::forward<decltype(args)>(args)...);
+    }
+  };
+  return new_function;
+}
 
-//! Fusion Profiling Macros
-#define FUSION_PROFILER_START                                         \
-  _FP_ENABLE({                                                        \
-    FusionProfiler::get()->disableCupti(                              \
-        isDebugDumpEnabled(DebugDumpOption::FusionProfilerNocupti) || \
-        isOptionEnabled(EnableOption::FusionProfilerNocupti));        \
-    FusionProfiler::get()->start();                                   \
-  })
-#define FUSION_PROFILER_STOP _FP_ENABLE(FusionProfiler::get()->stop())
-#define FUSION_PROFILER_CREATE_SEGMENTS(segments) \
-  _FP_ENABLE(FusionProfiler::get()->createSegments(segments))
-#define FUSION_PROFILER_START_PARALLEL_COMPILE(segments)              \
-  _FP_ENABLE(if (!isOptionDisabled(DisableOption::ParallelCompile)) { \
-    FusionProfiler::get()->startParallelCompile();                    \
-  })
-#define FUSION_PROFILER_STOP_PARALLEL_COMPILE(segments)               \
-  _FP_ENABLE(if (!isOptionDisabled(DisableOption::ParallelCompile)) { \
-    FusionProfiler::get()->stopParallelCompile();                     \
-  })
-#define FUSION_PROFILER_INPUT_BYTES_ACCESSED(input_fn) \
-  _FP_ENABLE(FusionProfiler::get()->inputBytesAccessed(input_fn()))
-#define FUSION_PROFILER_OUTPUT_BYTES_ACCESSED(output_fn) \
-  _FP_ENABLE(FusionProfiler::get()->outputBytesAccessed(output_fn()))
-#define FUSION_PROFILER_PRINT                                       \
-  if (isDebugDumpEnabled(DebugDumpOption::FusionProfiler) ||        \
-      isDebugDumpEnabled(DebugDumpOption::FusionProfilerNocupti) || \
-      isDebugDumpEnabled(DebugDumpOption::FusionProfilerVerbose)) { \
-    debug() << FusionProfiler::get()->profile();                    \
-  }
+//! Global functions for profiling a fusion
+void fusion_profiler_start();
+void fusion_profiler_stop();
+void fusion_profiler_create_segments(size_t num);
+void fusion_profiler_start_parallel_compile();
+void fusion_profiler_stop_parallel_compile();
+void fusion_profiler_input_bytes_accessed(std::function<int64_t()> fn);
+void fusion_profiler_output_bytes_accessed(std::function<int64_t()> fn);
+void fusion_profiler_print();
 
-//! Segment Profiling Macros
-#define SEGMENT_PROFILER_START_COMPILE(device, idx) \
-  _FP_ENABLE(FusionProfiler::get()->segment(idx).startCompile(device))
-#define SEGMENT_PROFILER_STOP_COMPILE(idx) \
-  _FP_ENABLE(FusionProfiler::get()->segment(idx).stopCompile())
-#define SEGMENT_PROFILER_START_KERNEL(device, idx) \
-  _FP_ENABLE(FusionProfiler::get()->segment(idx).startKernel(device))
-#define SEGMENT_PROFILER_STOP_KERNEL(idx) \
-  _FP_ENABLE(FusionProfiler::get()->segment(idx).stopKernel())
-#define SEGMENT_PROFILER_INPUT_BYTES_ACCESSED(idx, input_fn) \
-  _FP_ENABLE(                                                \
-      FusionProfiler::get()->segment(idx).inputBytesAccessed(input_fn()));
-#define SEGMENT_PROFILER_OUTPUT_BYTES_ACCESSED(idx, output_fn) \
-  _FP_ENABLE(                                                  \
-      FusionProfiler::get()->segment(idx).outputBytesAccessed(output_fn()));
+//! Global functions for profiling a segment of a fusion
+void segment_profiler_start_compile(size_t idx, int device);
+void segment_profiler_stop_compile(size_t idx);
+void segment_profiler_start_kernel(size_t idx, int device);
+void segment_profiler_stop_kernel(size_t idx);
+void segment_profiler_input_bytes_accessed(
+    size_t idx,
+    std::function<int64_t()> fn);
+void segment_profiler_output_bytes_accessed(
+    size_t idx,
+    std::function<int64_t()> fn);
 
 } // namespace nvfuser
