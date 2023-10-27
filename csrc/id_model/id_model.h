@@ -88,11 +88,6 @@ class IdModel : public PolymorphicBase {
 
   std::string toString() const;
 
-  // Make an exact copy of provided IterDomain (without rfactor set), and map
-  // the copy to the original in all registered IdModel. IterDomain copy will
-  // not have any registered uses or definitions.
-  IterDomain* cloneIterDomain(IterDomain* id);
-
   // TODO: Should this not be private?
  protected:
   // Sometimes fusion inputs or outputs are disconnected from expressions, in

@@ -163,39 +163,6 @@ std::string IdModel::toString() const {
   return ss.str();
 }
 
-// Clone provided iter domain and return the new copy. Map that copy in relevant
-// maps.
-IterDomain* IdModel::cloneIterDomain(IterDomain* id) {
-  // Figure out which graphs are already initialized to make sure we add the new
-  // expression to them.
-  std::vector<IdMappingMode> initialized_modes;
-  for (auto mode : kIdMappingModes) {
-    auto graph_it = id_graphs_.find(mode);
-    if (graph_it == id_graphs_.end()) {
-      continue;
-    }
-
-    auto& graph = graph_it->second;
-    if (graph.disjointIdSets().disjointSetMap().empty()) {
-      continue;
-    }
-
-    initialized_modes.push_back(mode);
-  }
-
-  auto id_copy = id->cloneWithoutRFactor();
-
-  id_uses_[id_copy] = {};
-  id_definitions_[id_copy] = {};
-
-  for (auto mode : initialized_modes) {
-    idGraph(mode).initializeId(id_copy, {}, {});
-    idGraph(mode).mapIds(id, id_copy);
-  }
-
-  return id_copy;
-}
-
 IdGraph IdModel::initializeIdGraph(bool propagate_through_exprs) {
   IdGraph id_graph(propagate_through_exprs);
 
