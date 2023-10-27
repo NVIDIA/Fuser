@@ -63,13 +63,13 @@ class IdGraph {
 
   // Convert iter domain to its IdGroup, assert that it exists.
   const IdGroup& toGroup(IterDomain* id) const;
-
+#if 0
   // Convert unique vector of expressions to unique vector of its groups
   ExprGroups toGroups(const VectorOfUniqueEntries<Expr*>& exprs) const;
 
   // Convert unique vector of IterDomain to unique vector of its groups
   IdGroups toGroups(const VectorOfUniqueEntries<IterDomain*>& ids) const;
-
+#endif
   // Return output/input iter domain groups of provided expr
   // Note that the same IdGroup can show up multiple times, so the
   // output type cannot be VectorOfUniqueEntries
@@ -83,26 +83,6 @@ class IdGraph {
   // Recursively traverses definitions of the IdGroups in 'of' and returns all
   // ExprGroups used in this history of defining the 'of' IdGroups.
   ExprGroups allDefinitionsOf(const IdGroups& of) const;
-
-  // Return sorted expressions to go from the provided IterDomains in from to
-  // the provided IterDomains in to with provided mode. Minimal expressions to
-  // get from 'from' to 'to' returned.
-  ExprGroups getExprsBetween(const IdGroups& from, const IdGroups& to) const;
-
-  // Supports one to many mappings, uses the disjoint sets of the provided mode
-  // to produce mappings between from and to. If multiple IterDomains in to map
-  // to a single iter domain in from, the order of the IterDomains in value of
-  // the map is preserved to be the order provided in to.
-  std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
-  buildMapBetween(
-      const std::vector<IterDomain*>& from,
-      const std::vector<IterDomain*>& to) const;
-
-  // Alias of the above on unique vector entries
-  std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
-  buildMapBetween(
-      const VectorOfUniqueEntries<IterDomain*>& from,
-      const VectorOfUniqueEntries<IterDomain*>& to) const;
 
   //! Returns
   //!   (1) The expressions associated with the definitions of the provided
@@ -183,23 +163,6 @@ class IdGraph {
   // Map through loop swizzles, as input/output IterDomains are exact, only the
   // order they're traversed differs.
   void mapThroughLoopSwizzles();
-
-  // Maps iter domain pairs returned by calling that return mappings from
-  // IdGraph::isTrivialExpr on every expression in the graph.
-  void mapThroughTrivialExprs();
-
-  // Removes expressions from unique_definitions_ and unique_uses_ that return
-  // mappings from IdGraph::isTrivialExpr
-  void removeTrivialExprs();
-
-  // Removes the provided expression group from unique_definitions_ and
-  // unique_uses_ breaking traversal through them.
-  void eraseExprGroup(const ExprGroup& expr_group);
-
-  // Returns if the expression group has an input id group that matches an
-  // output id group. This means traversing on this expression doesn't actually
-  // do anything.
-  bool isTrivialExprGroup(const ExprGroup& expr_group) const;
 
   void setPropagateThroughExprs(bool b) {
     propagate_through_exprs_ = b;
