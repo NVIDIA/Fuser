@@ -126,6 +126,10 @@ class TransposeScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
 
+  constexpr static ScheduleHeuristic heuristicType() {
+    return ScheduleHeuristic::Transpose;
+  }
+
   void schedule(Fusion* fusion) override;
 
  private:
