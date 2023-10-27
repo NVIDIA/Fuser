@@ -161,7 +161,7 @@ class IdModel : public PolymorphicBase {
       Expr* expr);
 
   // Make an exact copy of provided IterDomain (without rfactor set), and map
-  // the copy to the original in all registered IdGraphs. IterDomain copy will
+  // the copy to the original in all registered IdModel. IterDomain copy will
   // not have any registered uses or definitions.
   IterDomain* cloneIterDomain(IterDomain* id);
 
