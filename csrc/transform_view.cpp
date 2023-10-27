@@ -225,8 +225,8 @@ class MergeTransform final : public ViewTransform {
         "Didn't expect to apply view transformations on an iter domain",
         " starting at a non-zero position.");
 
-    auto merged_extent = SimplifyingIrBuilder::mulExpr(outer_id->extent(),
-        inner_id->extent());
+    auto merged_extent =
+        SimplifyingIrBuilder::mulExpr(outer_id->extent(), inner_id->extent());
     // Note: SimplifyingIrBuilder handles properly the cases where one or both
     // of the IDs has a null expanded extent: if both are null, the result is
     // null, and if either is null the result is the non-null argument.
