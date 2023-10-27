@@ -232,7 +232,8 @@ class MergeTransform final : public ViewTransform {
     // of the IDs has a null expanded extent: if both are null, the result is
     // null, and if either is null the result is the non-null argument.
     Val* merged_expanded_extent = SimplifyingIrBuilder::mulExpr(
-        outer_id->getMaybeExpandedExtent(), inner_id->getMaybeExpandedExtent());
+        outer_id->hasExpandedExtent() ? outer_id->expandedExtent() : nullptr,
+        inner_id->hasExpandedExtent() ? inner_id->expandedExtent() : nullptr);
 
     auto new_merged_id =
         IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), merged_extent)
