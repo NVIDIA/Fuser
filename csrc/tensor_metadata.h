@@ -7,7 +7,12 @@
 // clang-format on
 #pragma once
 
+#include <utility>
+#include <vector>
+
 #include <exceptions.h>
+#include <expr_evaluator.h>
+#include <ir/interface_nodes.h>
 #include <polymorphic_value.h>
 #include <type.h>
 
