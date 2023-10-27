@@ -126,7 +126,8 @@ class ViewTransform : public Transform {
   // expand expanded, and rfactor flag turned on.
   static IterDomain* replaceRootIdWithRFactor(
       std::vector<IterDomain*>& root_domain,
-      IterDomain* id) {
+      IterDomain* id,
+      bool realize_expand) {
     auto root_domain_it = std::find(root_domain.begin(), root_domain.end(), id);
 
     NVF_ERROR(
@@ -137,18 +138,22 @@ class ViewTransform : public Transform {
 
     auto root_domain_pos = std::distance(root_domain.begin(), root_domain_it);
 
-    bool is_expanded_dim = id->hasExpandedExtent();
+    auto iter_type = id->getIterType();
+    auto extent = id->extent();
+    Val* expanded_extent = id->getMaybeExpandedExtent();
 
-    auto extent = is_expanded_dim ? id->expandedExtent() : id->extent();
-
-    auto cloned_id =
-        IterDomainBuilder(id)
-            .iter_type(
-                is_expanded_dim ? IterType::Iteration : id->getIterType())
-            .extent(extent)
-            .expanded_extent(nullptr)
-            .is_rfactor_domain(true)
-            .build();
+    if (realize_expand && id->hasExpandedExtent()) {
+      // Convert an expanded broadcast to Iteration (resolve the broadcast)
+      iter_type = IterType::Iteration;
+      extent = id->getMaybeExpandedExtent();
+      expanded_extent = nullptr;
+    }
+    auto cloned_id = IterDomainBuilder(id)
+                         .iter_type(iter_type)
+                         .extent(extent)
+                         .expanded_extent(expanded_extent)
+                         .is_rfactor_domain(true)
+                         .build();
 
     root_domain.erase(root_domain.begin() + root_domain_pos);
     root_domain.insert(root_domain.begin() + root_domain_pos, cloned_id);
@@ -197,13 +202,22 @@ class MergeTransform final : public ViewTransform {
 
     // Assumed to never merge over non-contiguous dimensions.
     IterDomain* outer_id = current_transformed_domain.at(index_);
+    IterDomain* inner_id = current_transformed_domain.at(index_ + 1);
+
+    // When merging, we can only preserve expanded broadcasts if both domains
+    // are broadcasts. Otherwise, we resolve the broadcast and produce an
+    // Iteration output domain.
+    bool realize_expand = !(outer_id->isBroadcast() && inner_id->isBroadcast());
+    auto iter_type = realize_expand ? IterType::Iteration : IterType::Broadcast;
+
     if (!outer_id->isRFactorProduct()) {
-      outer_id = replaceRootIdWithRFactor(root_domain, outer_id);
+      outer_id =
+          replaceRootIdWithRFactor(root_domain, outer_id, realize_expand);
     }
 
-    IterDomain* inner_id = current_transformed_domain.at(index_ + 1);
     if (!inner_id->isRFactorProduct()) {
-      inner_id = replaceRootIdWithRFactor(root_domain, inner_id);
+      inner_id =
+          replaceRootIdWithRFactor(root_domain, inner_id, realize_expand);
     }
 
     NVF_ERROR(
@@ -212,9 +226,17 @@ class MergeTransform final : public ViewTransform {
         " starting at a non-zero position.");
 
     auto merged_extent = mul(outer_id->extent(), inner_id->extent());
+    // Note: SimplifyingIrBuilder handles properly the cases where one or both
+    // of the IDs has a null expanded extent: if both are null, the result is
+    // null, and if either is null the result is the non-null argument.
+    Val* merged_expanded_extent = SimplifyingIrBuilder::mulExpr(
+        outer_id->getMaybeExpandedExtent(), inner_id->getMaybeExpandedExtent());
 
     auto new_merged_id =
         IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), merged_extent)
+            .iter_type(iter_type)
+            .extent(merged_extent)
+            .extent(merged_expanded_extent)
             .is_rfactor_domain(true)
             .build();
 
@@ -269,7 +291,9 @@ class SplitTransform final : public ViewTransform {
 
     IterDomain* id = current_transformed_domain.at(index_);
     if (!id->isRFactorProduct()) {
-      id = replaceRootIdWithRFactor(root_domain, id);
+      // Never realize an expansion for a split, since we can always split and
+      // expanded domain into two new expanded domains
+      id = replaceRootIdWithRFactor(root_domain, id, false);
     }
 
     NVF_ERROR(
@@ -277,11 +301,23 @@ class SplitTransform final : public ViewTransform {
         "Didn't expect to apply view transformations on an iter domain",
         " starting at a non-zero position.");
 
-    Val* remainder = ceilDiv(id->extent(), factor);
+    Val* remainder = ceilDiv(id->getMaybeExpandedExtent(), factor);
+
+    auto outer_extent = factor;
+    Val* outer_expanded_extent = nullptr;
+    auto inner_extent = remainder;
+    Val* inner_expanded_extent = nullptr;
+    if (id->hasExpandedExtent()) {
+      outer_extent = FusionGuard::getCurFusion()->oneVal();
+      outer_expanded_extent = factor;
+      inner_extent = FusionGuard::getCurFusion()->oneVal();
+      inner_expanded_extent = remainder;
+    }
 
     // outer loop IterDomain
     IterDomain* factor_id =
-        IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), factor)
+        IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), outer_extent)
+            .expanded_extent(outer_expanded_extent)
             .parallel_type(id->getParallelType())
             .iter_type(id->getIterType())
             .is_rfactor_domain(true)
@@ -289,7 +325,9 @@ class SplitTransform final : public ViewTransform {
 
     // inner loop IterDomain
     IterDomain* remainder_id =
-        IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), remainder)
+        IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), inner_extent)
+            .expanded_extent(inner_expanded_extent)
+            .iter_type(id->getIterType())
             .is_rfactor_domain(true)
             .build();
 
