@@ -879,7 +879,7 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
     tensor->inlineAt(1);
   }
 
-  IterDomainGraphs id_model(&fusion);
+  IdModel id_model(&fusion);
 
   // All of the IDs that are generated with merge operations from the
   // root domains should be mapped to the single group.
