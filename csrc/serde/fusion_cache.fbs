@@ -206,6 +206,7 @@ table Scalar {
   double_value: double;
   real_value: double;
   imag_value: double;
+  out: long;
 }
 
 //
@@ -237,6 +238,18 @@ table GetMetaData {
   out: long;
 }
 
+// The extent maps to an instruction in the NaiveValueGenerator.
+table IterDomain {
+  start: long;
+  extent: long;
+  out: long;
+  parallel_type: int;
+  iter_type: int;
+  is_rfactor_domain: bool;
+  is_padded_dimension: bool;
+  is_mma_swizzled: bool;
+}
+
 table Merge {
   inner: long;
   outer: long;
@@ -245,6 +258,7 @@ table Merge {
 
 table NamedScalar {
   name: string;
+  out: long;
 }
 
 table Resize {
@@ -275,6 +289,7 @@ table Swizzle2D {
 table Symbolic {
   src0: long;
   name: string;
+  out: long;
 }
 
 table UnaryOp {
@@ -292,18 +307,6 @@ table Instruction {
 // NaiveValueGenerator creates Fusion IR values
 table NaiveValueGenerator {
   instructions: [Instruction];
-}
-
-// The extent maps to an instruction in the NaiveValueGenerator.
-table IterDomain {
-  start: long;
-  extent: long;
-  out: long;
-  parallel_type: int;
-  iter_type: int;
-  is_rfactor_domain: bool;
-  is_padded_dimension: bool;
-  is_mma_swizzled: bool;
 }
 
 // Table represents a single TensorView domain

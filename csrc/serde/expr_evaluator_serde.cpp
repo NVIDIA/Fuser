@@ -388,8 +388,8 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
   std::vector<fb_instruction> instructions_fb;
 
   for (auto& val : symbolic_values) {
-    auto sv_fb =
-        CreateSymbolicDirect(builder, val->name(), val->toString().c_str());
+    auto sv_fb = CreateSymbolicDirect(
+        builder, val->name(), val->toString().c_str(), operation_stack_.size());
     auto inst = CreateInstruction(
         builder, serde::InstructionData_Symbolic, sv_fb.Union());
     instructions_fb.push_back(inst);
@@ -397,7 +397,8 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
   }
 
   for (const auto& ns : named_scalar_values) {
-    auto ns_fb = CreateNamedScalarDirect(builder, ns->name().c_str());
+    auto ns_fb = CreateNamedScalarDirect(
+        builder, ns->name().c_str(), operation_stack_.size());
     auto inst = CreateInstruction(
         builder, serde::InstructionData_NamedScalar, ns_fb.Union());
     instructions_fb.push_back(inst);
@@ -406,7 +407,10 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
 
   for (const auto& int_val : const_int_values) {
     auto val_fb = serializeScalar(
-        builder, int_val->evaluateInt(), nvfuser::DataType::Int);
+        builder,
+        int_val->evaluateInt(),
+        nvfuser::DataType::Int,
+        operation_stack_.size());
     auto inst = CreateInstruction(
         builder, serde::InstructionData_Scalar, val_fb.Union());
     instructions_fb.push_back(inst);
@@ -603,8 +607,8 @@ ExpressionBuilder::ExpressionBuilder(kir::Kernel* kernel) : kernel_(kernel) {
     }
   };
 
-  // Add TensorView RootDomain IterDomain Extents for all kernel inputs
   // TODO Get deterministic order
+  // Add TensorView RootDomain IterDomain Extents for all kernel inputs
   std::vector<nvfuser::Val*> symbolic_values;
   for (auto input : kernel->inputs()) {
     if (TensorView* tv = dynamic_cast<TensorView*>(input)) {
@@ -634,21 +638,30 @@ void ExpressionBuilder::deserialize(const Instruction* buffer) {
 
   FusionGuard fg(kernel_);
   switch (buffer->data_type()) {
-    case serde::InstructionData_Symbolic:
-      // TODO Add check for symbolic extent
+    case serde::InstructionData_Symbolic: {
+      auto data = buffer->data_as_Symbolic();
+      NVF_ERROR(data != nullptr, "serde::Symbolic is nullptr.")
+      NVF_ERROR((size_t) data->out() < operation_stack_.size());
       break;
+    }
     case serde::InstructionData_NamedScalar: {
       auto data = buffer->data_as_NamedScalar();
-      auto ns = IrBuilder::create<nvfuser::NamedScalar>(
-          data->name()->str(), nvfuser::DataType::Index);
-      operation_stack_.push_back(ns);
+      NVF_ERROR(data != nullptr, "serde::Scalar is nullptr.")
+      if (!exists(data->out())) {
+        auto ns = IrBuilder::create<nvfuser::NamedScalar>(
+            data->name()->str(), nvfuser::DataType::Index);
+        operation_stack_.push_back(ns);
+      }
       break;
     }
     case serde::InstructionData_Scalar: {
       auto data = buffer->data_as_Scalar();
-      auto int_val = IrBuilder::create<nvfuser::Val>(
-          data->long_value(), nvfuser::DataType::Index);
-      operation_stack_.push_back(int_val);
+      NVF_ERROR(data != nullptr, "serde::Scalar is nullptr.")
+      if (!exists(data->out())) {
+        auto int_val = IrBuilder::create<nvfuser::Val>(
+            data->long_value(), nvfuser::DataType::Index);
+        operation_stack_.push_back(int_val);
+      }
       break;
     }
     case serde::InstructionData_UnaryOp: {

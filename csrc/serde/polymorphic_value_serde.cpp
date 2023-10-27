@@ -169,9 +169,11 @@ flatbuffers::Offset<serde::PolymorphicValue> serializePolymorphicValue(
 flatbuffers::Offset<serde::Scalar> serializeScalar(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::PolymorphicValue& v,
-    nvfuser::DataType t) {
+    nvfuser::DataType t,
+    int64_t out) {
   ScalarBuilder builder_(builder);
   builder_.add_dtype(mapToSerdeDtype(t));
+  builder_.add_out(out);
   if (v.is<std::monostate>()) {
     builder_.add_has_value(false);
     return builder_.Finish();
