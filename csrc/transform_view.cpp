@@ -306,15 +306,18 @@ class SplitTransform final : public ViewTransform {
 
     Val* remainder = ceilDiv(id->getMaybeExpandedExtent(), factor);
 
-    auto outer_extent = factor;
-    Val* outer_expanded_extent = nullptr;
-    auto inner_extent = remainder;
-    Val* inner_expanded_extent = nullptr;
+    Val* outer_extent, *outer_expanded_extent;
+    Val* inner_extent, *inner_expanded_extent;
     if (id->hasExpandedExtent()) {
       outer_extent = FusionGuard::getCurFusion()->oneVal();
       outer_expanded_extent = factor;
       inner_extent = FusionGuard::getCurFusion()->oneVal();
       inner_expanded_extent = remainder;
+    } else {
+      outer_extent = factor;
+      outer_expanded_extent = nullptr;
+      inner_extent = remainder;
+      inner_expanded_extent = nullptr;
     }
 
     // outer loop IterDomain
