@@ -452,7 +452,7 @@ class NVFuserTest : public ::testing::Test {
     }
 
     // Make sure capturing of stdout is stopped
-    stopCaptureStdout();
+    ensureStopCaptureStdout();
   }
 
   // Start capturing of stdout if not already started
@@ -464,14 +464,19 @@ class NVFuserTest : public ::testing::Test {
   }
 
   // Stop capturing of stdout if being captured
-  std::string stopCaptureStdout() {
+  void ensureStopCaptureStdout() {
     if (capturing_) {
-      auto str = testing::internal::GetCapturedStdout();
+      testing::internal::GetCapturedStdout();
       capturing_ = false;
-      return str;
-    } else {
-      return "";
     }
+  }
+
+  // Get capturing stdout
+  std::string getCapturedStdout() {
+    NVF_ERROR(capturing_, "Not captured");
+    auto str = testing::internal::GetCapturedStdout();
+    capturing_ = false;
+    return str;
   }
 
  private:

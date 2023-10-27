@@ -8412,7 +8412,7 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
         __FILE__,
         "");
   }
-  std::string output = stopCaptureStdout();
+  std::string output = getCapturedStdout();
   NVF_CHECK(
       output.find("Register spill detected") != std::string::npos,
       "Register spill is not captured!");
@@ -8808,7 +8808,7 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {aten_input}, lparams, compile_opts);
 
-  std::string output = stopCaptureStdout();
+  std::string output = getCapturedStdout();
   ASSERT_NE(output.find("Register spill detected"), std::string::npos)
       << "Register spill is not captured!";
 }
@@ -9691,19 +9691,6 @@ TEST_F(NVFuserTest, PredicateRNGOps) {
 
   at::manual_seed(0);
   auto cg_outputs = fe.runFusion({t0});
-}
-
-// Dummy tests to reproduce the issue. Will be deleted
-TEST_F(NVFuserTest, CaptureTest1) {
-  captureStdout();
-  NVF_ERROR(false);
-  stopCaptureStdout();
-}
-
-// Dummy tests to reproduce the issue. Will be deleted
-TEST_F(NVFuserTest, CaptureTest2) {
-  captureStdout();
-  stopCaptureStdout();
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
