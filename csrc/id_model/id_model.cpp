@@ -505,13 +505,13 @@ Expr* IdModel::addExprWithReplacement(
   // Create the new expression with provided outputs
   auto replay = ReplacementTransformCloner::clone(replacement_map, old_expr);
 
-  // Add new output iter domains to id_definitions_/id_uses_ of IdGraphs
+  // Add new output iter domains to id_definitions_/id_uses_ of IdModel
   for (auto out_id : ir_utils::filterByType<IterDomain>(replay->outputs())) {
     id_definitions_[out_id].pushBack(replay);
     id_uses_[out_id];
   }
 
-  // Add new input iter domains to id_definitions_/id_uses_ of IdGraphs
+  // Add new input iter domains to id_definitions_/id_uses_ of IdModel
   for (auto inp_id : ir_utils::filterByType<IterDomain>(replay->inputs())) {
     id_definitions_[inp_id];
     id_uses_[inp_id].pushBack(replay);
