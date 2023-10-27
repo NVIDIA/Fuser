@@ -256,32 +256,25 @@ void dumpExprsIfEnabled(
 
 GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
     : passes_(
-          {Pass{"LoopNestGenerator", LoopNestGenerator::loweredExprs},
-           Pass{"unarySetOpInserter", unarySetOpInserter},
-           Pass{"insertAllocations", insertAllocations},
-           Pass{
-               "insertRawThreadSynchronization",
-               insertRawThreadSynchronization},
-           Pass{"reuseMemoryAllocations", reuseMemoryAllocations},
-           Pass{
-               "insertWarThreadSynchronization",
-               insertWarThreadSynchronization},
-           Pass{"DoubleBufferPass", DoubleBufferPass::run},
-           Pass{"rotateLoops", rotateLoops},
-           Pass{"UnrollPass", UnrollPass::runPass},
-           Pass{
-               "processMisalignedVectorization",
-               processMisalignedVectorization},
-           Pass{"IndexLowering", IndexLowering::getIndexedExprs},
-           Pass{"fuseWarpReduce", fuseWarpReduce},
-           Pass{
-               "generateConditionalFromPredicate",
-               generateConditionalFromPredicate},
-           Pass{"vectorizeWelford", vectorizeWelford},
-           Pass{"allocateCommonScalars", allocateCommonScalars},
-           Pass{"insertMagicZero", insertMagicZero},
-           Pass{"KIRCleaner", KIRCleaner::cleanUp},
-           Pass{"instrumentKernel", instrumentKernel}}),
+          {{"LoopNestGenerator", LoopNestGenerator::loweredExprs},
+           {"unarySetOpInserter", unarySetOpInserter},
+           {"insertAllocations", insertAllocations},
+           {"insertRawThreadSynchronization", insertRawThreadSynchronization},
+           {"reuseMemoryAllocations", reuseMemoryAllocations},
+           {"insertWarThreadSynchronization", insertWarThreadSynchronization},
+           {"DoubleBufferPass", DoubleBufferPass::run},
+           {"rotateLoops", rotateLoops},
+           {"UnrollPass", UnrollPass::runPass},
+           {"processMisalignedVectorization", processMisalignedVectorization},
+           {"IndexLowering", IndexLowering::getIndexedExprs},
+           {"fuseWarpReduce", fuseWarpReduce},
+           {"generateConditionalFromPredicate",
+            generateConditionalFromPredicate},
+           {"vectorizeWelford", vectorizeWelford},
+           {"allocateCommonScalars", allocateCommonScalars},
+           {"insertMagicZero", insertMagicZero},
+           {"KIRCleaner", KIRCleaner::cleanUp},
+           {"instrumentKernel", instrumentKernel}}),
       cparams_(cparams) {
   analysis(fusion);
 }
