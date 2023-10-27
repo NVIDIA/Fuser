@@ -138,7 +138,7 @@ class ViewTransform : public Transform {
 
     auto root_domain_pos = std::distance(root_domain.begin(), root_domain_it);
 
-    auto iter_type = id->getIterType();
+    IterType iter_type = id->getIterType();
     Val* extent = id->extent();
     Val* expanded_extent =
         id->hasExpandedExtent() ? id->expandedExtent() : nullptr;
