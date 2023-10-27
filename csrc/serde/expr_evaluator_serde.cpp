@@ -357,6 +357,10 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
     NVF_CHECK(id != nullptr);
     all_values.push_back(id->start());
     all_values.push_back(id->extent());
+    if (id->hasExpandedExtent()) {
+      all_values.push_back(id->expandedExtent());
+    }
+    all_values.push_back(id->stopOffset());
   }
 
   // 2) Sort values by dependency order
@@ -389,7 +393,10 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
 
   for (auto& val : symbolic_values) {
     auto sv_fb = CreateSymbolicDirect(
-        builder, val->name(), val->toString().c_str(), operation_stack_.size());
+        builder,
+        val->name(),
+        val->toString().c_str(),
+        (int64_t)operation_stack_.size());
     auto inst = CreateInstruction(
         builder, serde::InstructionData_Symbolic, sv_fb.Union());
     instructions_fb.push_back(inst);
@@ -398,7 +405,7 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
 
   for (const auto& ns : named_scalar_values) {
     auto ns_fb = CreateNamedScalarDirect(
-        builder, ns->name().c_str(), operation_stack_.size());
+        builder, ns->name().c_str(), (int64_t)operation_stack_.size());
     auto inst = CreateInstruction(
         builder, serde::InstructionData_NamedScalar, ns_fb.Union());
     instructions_fb.push_back(inst);
@@ -410,7 +417,7 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
         builder,
         int_val->evaluateInt(),
         nvfuser::DataType::Int,
-        operation_stack_.size());
+        (int64_t)operation_stack_.size());
     auto inst = CreateInstruction(
         builder, serde::InstructionData_Scalar, val_fb.Union());
     instructions_fb.push_back(inst);
@@ -545,15 +552,28 @@ flatbuffers::Offset<IterDomain> ExpressionSerializer::serialize(
       "Missing iterDomain extent in NaiveValueGenerator stack.\t",
       id->extent()->toString());
 
+  NVF_ERROR(
+      !id->hasExpandedExtent() || operation_stack_.count(id->expandedExtent()),
+      "Missing iterDomain expandedExtent in NaiveValueGenerator stack.\t",
+      id->expandedExtent()->toString());
+
+  NVF_ERROR(
+      operation_stack_.count(id->stopOffset()),
+      "Missing iterDomain stopOffset in NaiveValueGenerator stack.\t",
+      id->stopOffset()->toString());
+
   return CreateIterDomain(
       builder,
       operation_stack_.at(id->start()),
       operation_stack_.at(id->extent()),
+      id->hasExpandedExtent() ? operation_stack_.at(id->expandedExtent()) : -1,
+      operation_stack_.at(id->stopOffset()),
       (int64_t)operation_stack_.size(),
       castEnumToUnderlyingType(id->getParallelType()),
       castEnumToUnderlyingType(id->getIterType()),
       id->isRFactorProduct(),
       id->hasPaddingToMultipleOfWarp(),
+      id->getMaybeSizeAfterPadding().value_or(0),
       id->isMmaSwizzled());
 }
 
@@ -641,7 +661,7 @@ void ExpressionBuilder::deserialize(const Instruction* buffer) {
     case serde::InstructionData_Symbolic: {
       auto data = buffer->data_as_Symbolic();
       NVF_ERROR(data != nullptr, "serde::Symbolic is nullptr.")
-      NVF_ERROR((size_t) data->out() < operation_stack_.size());
+      NVF_ERROR((size_t)data->out() < operation_stack_.size());
       break;
     }
     case serde::InstructionData_NamedScalar: {
@@ -850,16 +870,28 @@ Val* ExpressionBuilder::buildBinaryOp(const BinaryOp* buffer) {
 
 nvfuser::IterDomain* ExpressionBuilder::buildIterDomain(
     const IterDomain* buffer) {
-  return nvfuser::IterDomainBuilder(
-             operation_stack_.at(buffer->start()),
-             operation_stack_.at(buffer->extent()))
-      .parallel_type(
-          static_cast<nvfuser::ParallelType>(buffer->parallel_type()))
-      .iter_type(static_cast<nvfuser::IterType>(buffer->iter_type()))
-      .is_rfactor_domain(buffer->is_rfactor_domain())
-      .is_padded_dimension(buffer->is_padded_dimension())
-      .is_mma_swizzled(buffer->is_mma_swizzled())
-      .build();
+  nvfuser::IterDomainBuilder builder(
+      operation_stack_.at(buffer->start()),
+      operation_stack_.at(buffer->extent()));
+  builder.stop_offset(operation_stack_.at(buffer->stop_offset()));
+  builder.iter_type(static_cast<nvfuser::IterType>(buffer->iter_type()));
+
+  if (buffer->expanded_extent() > 0) {
+    builder.expanded_extent(operation_stack_.at(buffer->expanded_extent()));
+  }
+
+  // Scheduler parameters
+  builder.parallel_type(
+      static_cast<nvfuser::ParallelType>(buffer->parallel_type()));
+  builder.is_rfactor_domain(buffer->is_rfactor_domain());
+  builder.is_padded_dimension(buffer->is_padded_dimension());
+  builder.is_mma_swizzled(buffer->is_mma_swizzled());
+
+  if (buffer->padded_to_size() != 0) {
+    builder.padded_to_size(buffer->padded_to_size());
+  }
+
+  return builder.build();
 }
 
 std::vector<const kir::Allocate*> ExpressionBuilder::deserialize(

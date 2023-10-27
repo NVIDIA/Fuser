@@ -242,11 +242,14 @@ table GetMetaData {
 table IterDomain {
   start: long;
   extent: long;
+  expanded_extent: long;
+  stop_offset: long;
   out: long;
   parallel_type: int;
   iter_type: int;
   is_rfactor_domain: bool;
   is_padded_dimension: bool;
+  padded_to_size: long;
   is_mma_swizzled: bool;
 }
 
