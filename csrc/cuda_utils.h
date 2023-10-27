@@ -8,7 +8,6 @@
 #pragma once
 
 #include <cuda_runtime.h>
-#include <cupti.h>
 #include <driver_api.h>
 #include <exceptions.h>
 
@@ -47,21 +46,4 @@
         cudaGetErrorName(_result),    \
         " failed with error ",        \
         cudaGetErrorString(_result)); \
-  } while (0)
-
-#define NVFUSER_CUPTI_SAFE_CALL(x)                     \
-  do {                                                 \
-    CUptiResult _status = x;                           \
-    if (_status != CUPTI_SUCCESS) {                    \
-      const char* errorString;                         \
-      cuptiGetResultString(_status, &errorString);     \
-      fprintf(                                         \
-          stderr,                                      \
-          "%s:%d: Error: %s failed with error: %s.\n", \
-          __FILE__,                                    \
-          __LINE__,                                    \
-          #x,                                          \
-          errorString);                                \
-      exit(EXIT_FAILURE);                              \
-    }                                                  \
   } while (0)

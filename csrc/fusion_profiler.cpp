@@ -15,6 +15,24 @@ namespace {
 
 //! The following CUPTI code is adapted from the CUTPI samples/common and
 //! sample/activity_trace_async examples shipped with CUPTI.
+//! \note The CUPTI usage should be isolated to this file!
+
+#define NVFUSER_CUPTI_SAFE_CALL(x)                     \
+  do {                                                 \
+    CUptiResult _status = x;                           \
+    if (_status != CUPTI_SUCCESS) {                    \
+      const char* errorString;                         \
+      cuptiGetResultString(_status, &errorString);     \
+      fprintf(                                         \
+          stderr,                                      \
+          "%s:%d: Error: %s failed with error: %s.\n", \
+          __FILE__,                                    \
+          __LINE__,                                    \
+          #x,                                          \
+          errorString);                                \
+      exit(EXIT_FAILURE);                              \
+    }                                                  \
+  } while (0)
 
 void record_cupti_activity(CUpti_Activity* pRecord, FILE* pFileHandle) {
   CUpti_ActivityKind activityKind = pRecord->kind;
