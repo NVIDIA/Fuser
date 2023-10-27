@@ -8612,8 +8612,10 @@ TEST_F(NVFuserTest, AlignedSyncReduction1_CUDA) {
 
   scheduler_utils::parallelizeAllLike(tv2);
 
-  const std::string kernel_string =
-      codegen::generateCudaKernel(GpuLower(&fusion).kernel());
+  GpuLower gpulw(&fusion);
+  gpulw.run();
+
+  const std::string kernel_string = codegen::generateCudaKernel(gpulw.kernel());
 
   // The block reduction should use the aligned sync
   NVF_CHECK(
