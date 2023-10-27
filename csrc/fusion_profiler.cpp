@@ -16,18 +16,6 @@ namespace {
 //! The following CUPTI code is adapted from the CUTPI samples/common and
 //! sample/activity_trace_async examples shipped with CUPTI.
 
-// Copying some code from the CUPTI samples/common code
-// CUPTI buffer size 4.0 KB
-// The original example code used an 8MB buffer.  Such a larger buffer
-// impacted host time overhead significantly.
-#define BUF_SIZE (1 * 4 * 1024)
-// 8-byte alignment for the buffers
-#define ALIGN_SIZE (8)
-#define ALIGN_BUFFER(buffer, align)                                 \
-  (((uintptr_t)(buffer) & ((align)-1))                              \
-       ? ((buffer) + (align) - ((uintptr_t)(buffer) & ((align)-1))) \
-       : (buffer))
-
 void record_cupti_activity(CUpti_Activity* pRecord, FILE* pFileHandle) {
   CUpti_ActivityKind activityKind = pRecord->kind;
 
@@ -127,10 +115,14 @@ void cupti_buffer_requested(
     size_t* pSize,
     size_t* pMaxNumRecords) {
   uint8_t* pBuffer = FusionProfiler::get()->cuptiBufferPtr();
-  NVF_ERROR(pBuffer, "CUPTI buffer Pointer is null!");
+  NVF_ERROR(pBuffer, "CUPTI Activity Record buffer pointer is null!");
+  const size_t align_size = 8;
+  NVF_ERROR(
+      ((uintptr_t)pBuffer & (align_size - 1)) == 0,
+      "The CUPTI Activity Record buffer needs to be 8 byte aligned!");
 
-  *pSize = (size_t)BUF_SIZE;
-  *ppBuffer = ALIGN_BUFFER(pBuffer, ALIGN_SIZE);
+  *ppBuffer = pBuffer;
+  *pSize = FusionProfiler::cupti_activity_buffer_size;
   // NOTE: The Max Number of records limits the number of records that can be
   // recorded in the activity buffer.  When set to 0, it puts as many records
   // as it can which effectively disables a max limit.
@@ -278,14 +270,14 @@ ProfilerState HostTimer::state() const {
   return state_;
 }
 
-void DeviceDescriptor::generate(int _device) {
-  device = static_cast<int>(_device);
-  name.reserve(100);
-  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetName(name.data(), 100, device));
+void DeviceDescriptor::generate(DeviceDescriptor& desc, int device) {
+  desc.device = device;
+  desc.name.reserve(100);
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetName(desc.name.data(), 100, device));
   NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
-      &bus_width, CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH, device));
+      &desc.bus_width, CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH, device));
   NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
-      &memory_clock, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, device));
+      &desc.memory_clock, CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, device));
 
   // Peak bandwidth calculation:
   // Bus width is given in bits, so dividing by 8 converts to bytes.
@@ -293,8 +285,13 @@ void DeviceDescriptor::generate(int _device) {
   // A factor of 2 is multiplied to account for double data rate (DDR):
   // (clock in kHz * width in bits) * (1000 Hz / kHz) * (1 GB / 8e9 bits) * 2
   // factor = 2.5e-7
-  peak_bandwidth_gbs = 2.5e-7 * static_cast<double>(memory_clock) *
-      static_cast<double>(bus_width);
+  constexpr double static_comp = 2.0 * /*2x for DDR*/
+      1000.0 * /*kHz->Hz*/
+      (1.0 / 8.0) * /*bits->bytes*/
+      (1.0 / 1.0e9); /*Bytes->Gigabytes*/
+  desc.peak_bandwidth_gbs = static_comp *
+      static_cast<double>(desc.memory_clock) *
+      static_cast<double>(desc.bus_width);
 }
 
 SegmentProfiler::SegmentProfiler(uint32_t id, bool cupti_disabled)
@@ -524,12 +521,11 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
   return os;
 }
 
-std::mutex FusionProfiler::singleton_lock_;
 FusionProfiler* FusionProfiler::singleton_ = nullptr;
 
 FusionProfiler::FusionProfiler()
     : cupti_disabled_(false),
-      cupti_buffer_((size_t)4 * 1024),
+      cupti_buffer_(FusionProfiler::cupti_activity_buffer_size),
       state_(ProfilerState::Ready),
       fusion_id_(-1),
       parallel_compile_(false),
@@ -562,7 +558,8 @@ void FusionProfiler::reset() {
 }
 
 FusionProfiler* FusionProfiler::get() {
-  std::lock_guard<std::mutex> guard(singleton_lock_);
+  static std::mutex singleton_lock;
+  std::lock_guard<std::mutex> guard(singleton_lock);
   if (singleton_ == nullptr) {
     singleton_ = new FusionProfiler();
   }
@@ -649,7 +646,7 @@ void FusionProfiler::stop() {
           "Device idx is beyond size of Device Descriptors! ",
           kp.device);
       if (device_descriptors_[kp.device].device != kp.device) {
-        device_descriptors_[kp.device].generate(kp.device);
+        DeviceDescriptor::generate(device_descriptors_[kp.device], kp.device);
       }
       kp.device_name = device_descriptors_[kp.device].name;
       kp.peak_bandwidth_gbs = device_descriptors_[kp.device].peak_bandwidth_gbs;

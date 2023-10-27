@@ -190,6 +190,13 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/optimization/remove_empty.cpp
 )
 
+# We don't link CUPTI for MSVC
+if(NOT MSVC)
+  list(APPEND NVFUSER_SRCS
+    ${NVFUSER_SRCS_DIR}/fusion_profiler.cpp
+  )
+endif()
+
 if(BUILD_PYTHON)
   list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_cache.cpp
@@ -365,7 +372,6 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_evaluator.cpp
     ${NVFUSER_ROOT}/test/test_exceptions.cpp
     ${NVFUSER_ROOT}/test/test_expr_sort.cpp
-    ${NVFUSER_ROOT}/test/test_fusion_profiler.cpp
     ${NVFUSER_ROOT}/test/test_gather.cpp
     ${NVFUSER_ROOT}/test/test_gpu1.cpp
     ${NVFUSER_ROOT}/test/test_gpu2.cpp
@@ -401,6 +407,13 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_tutorial.cpp
     ${NVFUSER_ROOT}/test/test_alias_analysis.cpp
   )
+  
+  # We don't link CUPTI for MSVC
+  if(NOT MSVC)
+    list(APPEND JIT_TEST_SRCS
+      ${NVFUSER_ROOT}/test/test_fusion_profiler.cpp
+    )
+  endif()
 
   if(BUILD_PYTHON)
     list(APPEND JIT_TEST_SRCS

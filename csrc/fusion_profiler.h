@@ -78,7 +78,7 @@ class HostTimer {
 struct DeviceDescriptor {
   //! Queries the GPU to populate the struct's data members and calculates the
   //! peak bandwidth
-  void generate(int device);
+  static void generate(DeviceDescriptor& desc, int device);
 
   //! Queried data members
   int device{-1};
@@ -229,9 +229,14 @@ class FusionProfiler {
   //! Ptr to the CUPTI Activity Buffer
   uint8_t* cuptiBufferPtr();
 
+ public:
+  // CUPTI buffer size 4.0 KB
+  // The original example code used an 8MB buffer.  Such a larger buffer
+  // impacted host time overhead significantly.
+  static constexpr size_t cupti_activity_buffer_size{size_t(4 * 1024)};
+
  private:
   static FusionProfiler* singleton_;
-  static std::mutex singleton_lock_;
 
   //! Disables CUPTI usage in order to measure Host Time without CUPTI overhead
   bool cupti_disabled_;
