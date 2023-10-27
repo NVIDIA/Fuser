@@ -21,11 +21,9 @@
 
 namespace nvfuser {
 
-Val* set(Val*);
-TensorView* set(TensorView*);
+Val* set(Val*, CacheOp cache_op = CacheOp::Unspecified);
 
-Val* set(Val*, CacheOp);
-TensorView* set(TensorView*, CacheOp);
+TensorView* set(TensorView*, CacheOp cache_op = CacheOp::Unspecified);
 
 // segment_set hints segmenter to break kernel
 Val* segment_set(Val*);
