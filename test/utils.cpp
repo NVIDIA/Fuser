@@ -39,8 +39,10 @@ int64_t prime_number(int64_t i) {
 }
 
 void assertCUDAKernel(Fusion* fusion, const std::string& expected_kernel) {
+  GpuLower gpulw(fusion);
+  gpulw.run();
   const std::string actual_kernel =
-      "\n" + codegen::generateCudaKernel(GpuLower(fusion).kernel());
+      "\n" + codegen::generateCudaKernel(gpulw.kernel());
   if (expected_kernel.size() != actual_kernel.size() ||
       expected_kernel.compare(actual_kernel) != 0) {
     std::cerr
