@@ -140,7 +140,8 @@ class ViewTransform : public Transform {
 
     auto iter_type = id->getIterType();
     auto extent = id->extent();
-    Val* expanded_extent = id->getMaybeExpandedExtent();
+    Val* expanded_extent =
+        id->hasExpandedExtent() ? id->expandedExtent() : nullptr;
 
     if (realize_expand && id->hasExpandedExtent()) {
       // Convert an expanded broadcast to Iteration (resolve the broadcast)
