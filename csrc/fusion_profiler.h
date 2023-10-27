@@ -5,14 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-
+#pragma once
 #include <chrono>
 #include <unordered_map>
 
 #include <c10/cuda/CUDAStream.h>
 #include <cuda_runtime.h>
 #include <cuda_utils.h>
-#include <cupti.h>
 #include <debug.h>
 #include <options.h>
 #include <utils.h>
@@ -258,6 +257,10 @@ class FusionProfiler {
   std::vector<KernelProfile> kernel_profiles_;
   std::unordered_map<uint32_t, uint32_t> corrid_2_segid_;
 };
+
+//! The global functions below are distinct and could be separated out from the
+//! rest of the profiler code.  Their goal is to encapsulate boiler plate
+//! enablement code away from the code being profiled.
 
 //! A Fusion Profiler enabled check "decorator"
 template <class T>

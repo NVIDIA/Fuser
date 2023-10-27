@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <cxxabi.h>
+#include <cupti.h>
 #include <fusion_profiler.h>
 #include <iomanip>
 
@@ -13,8 +13,13 @@ namespace nvfuser {
 
 namespace {
 
+//! The following CUPTI code is adapted from the CUTPI samples/common and
+//! sample/activity_trace_async examples shipped with CUPTI.
+
 // Copying some code from the CUPTI samples/common code
 // CUPTI buffer size 4.0 KB
+// The original example code used an 8MB buffer.  Such a larger buffer
+// impacted host time overhead significantly.
 #define BUF_SIZE (1 * 4 * 1024)
 // 8-byte alignment for the buffers
 #define ALIGN_SIZE (8)
@@ -22,14 +27,6 @@ namespace {
   (((uintptr_t)(buffer) & ((align)-1))                              \
        ? ((buffer) + (align) - ((uintptr_t)(buffer) & ((align)-1))) \
        : (buffer))
-
-const char* get_demangled_name(const char* pName) {
-  if (pName == nullptr) {
-    return "<null>";
-  }
-  int status = 0;
-  return abi::__cxa_demangle(pName, nullptr, nullptr, &status);
-}
 
 void record_cupti_activity(CUpti_Activity* pRecord, FILE* pFileHandle) {
   CUpti_ActivityKind activityKind = pRecord->kind;
@@ -39,7 +36,7 @@ void record_cupti_activity(CUpti_Activity* pRecord, FILE* pFileHandle) {
       CUpti_ActivityKernel8* pKARecord = (CUpti_ActivityKernel8*)pRecord;
 
       KernelProfile prof;
-      prof.name.assign(get_demangled_name(pKARecord->name));
+      prof.name.assign(demangle(pKARecord->name));
       size_t start = prof.name.find("kernel");
       size_t end = prof.name.find('(');
       prof.name = prof.name.substr(start, end - start);
@@ -70,6 +67,9 @@ void record_cupti_activity(CUpti_Activity* pRecord, FILE* pFileHandle) {
       break;
     }
     case CUPTI_ACTIVITY_KIND_DRIVER:
+      // NOTE: Driver activity is enabled in order to capture ext correlation
+      // records but the driver activity records are not of interest to record.
+      // Therefore, we read and skip over them from the buffer.
       break;
     default:
       fprintf(pFileHandle, "  <unknown>\n");
@@ -77,6 +77,9 @@ void record_cupti_activity(CUpti_Activity* pRecord, FILE* pFileHandle) {
   }
 }
 
+// This is the function that reads and processes each CUPTI Activity Record
+// recorded in a buffer.  The specific types of records are uniquely processed
+// in a separate function called below: record_cupti_activity.
 void record_cupti_activity_buffer(
     uint8_t* pBuffer,
     size_t validBytes,
@@ -85,27 +88,52 @@ void record_cupti_activity_buffer(
   CUpti_Activity* pRecord = nullptr;
   CUptiResult status = CUPTI_SUCCESS;
 
-  do {
+  // This is an arbitrary record limit to make sure we do not get into an
+  // infinite loop;
+  const size_t max_records = 100;
+  bool found_max_limit = false;
+
+  for (size_t i = 0; i < max_records; ++i) {
     status = cuptiActivityGetNextRecord(pBuffer, validBytes, &pRecord);
     if (status == CUPTI_SUCCESS) {
+      // Processes a valid CUPTI Activty record and records it with the
+      // fusion profiling infrastructure if the record is of interest.
       record_cupti_activity(pRecord, stdout);
     } else if (status == CUPTI_ERROR_MAX_LIMIT_REACHED) {
+      // This case is hit every time an activity buffer is read and you reach
+      // the end of the buffer activity to consume. Therefore, it is the
+      // intended way to break out of the loop!  The name is miss leading as
+      // you aren't reaching a Max Limit, necessarily!
+      found_max_limit = true;
       break;
     } else {
       NVFUSER_CUPTI_SAFE_CALL(status);
     }
-  } while (true);
+  }
+  NVF_ERROR(
+      found_max_limit,
+      "The CUPTI buffer has more than ",
+      max_records,
+      " record! Is that expected?");
 }
+
+// The functions cupti_buffer_requested and cupti_buffer_completed are
+// registered with the CUPTI Activiy Record Callback API:
+// cuptiActivityRegisterCallbacks.  Each of the functions APIs is prescribed
+// by CUPTI and you can find their signatured definitions in the CUPT docs.
 
 void cupti_buffer_requested(
     uint8_t** ppBuffer,
     size_t* pSize,
     size_t* pMaxNumRecords) {
   uint8_t* pBuffer = FusionProfiler::get()->cuptiBufferPtr();
-  NVF_ERROR(pBuffer, "CUPTI Malloced buffer Pointer is null!");
+  NVF_ERROR(pBuffer, "CUPTI buffer Pointer is null!");
 
   *pSize = (size_t)BUF_SIZE;
   *ppBuffer = ALIGN_BUFFER(pBuffer, ALIGN_SIZE);
+  // NOTE: The Max Number of records limits the number of records that can be
+  // recorded in the activity buffer.  When set to 0, it puts as many records
+  // as it can which effectively disables a max limit.
   *pMaxNumRecords = 0;
 }
 
@@ -120,6 +148,7 @@ void cupti_buffer_completed(
   }
 }
 
+//! A local utility function to give ProfilerState enum state strings
 const char* profiler_state2string(const ProfilerState& pstate) {
   switch (pstate) {
     case ProfilerState::Ready:

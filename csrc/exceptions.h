@@ -17,6 +17,8 @@
 
 namespace nvfuser {
 
+std::string demangle(const char* name);
+
 std::string _get_backtrace(
     size_t frames_to_skip = 0,
     size_t maximum_number_of_frames = 64,
