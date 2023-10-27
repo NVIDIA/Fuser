@@ -123,7 +123,7 @@ class ViewTransform : public Transform {
       std::vector<IterDomain*>& current_transformed_domain) = 0;
 
   // Convenience function to replace id in root_domain with an id that has
-  // expand expanded, and rfactor flag turned on.
+  // an expanded extent, and rfactor flag turned on.
   static IterDomain* replaceRootIdWithRFactor(
       std::vector<IterDomain*>& root_domain,
       IterDomain* id,
@@ -139,7 +139,7 @@ class ViewTransform : public Transform {
     auto root_domain_pos = std::distance(root_domain.begin(), root_domain_it);
 
     auto iter_type = id->getIterType();
-    auto extent = id->extent();
+    Val* extent = id->extent();
     Val* expanded_extent =
         id->hasExpandedExtent() ? id->expandedExtent() : nullptr;
 
