@@ -1207,9 +1207,8 @@ int GroupedGridWelford::getSmemBufferSize(int bdimx, int bdimy, int bdimz)
   for (auto axis : out_tv->getLeafDomain()) {
     auto pt = axis->getParallelType();
     if (pt == ParallelType::Group) {
-      auto extent_int = axis->extent()->getInt();
-      NVF_ERROR(extent_int.has_value());
-      group_count *= (int)extent_int.value();
+      auto extent_int = axis->extent()->value();
+      group_count *= (int)extent_int;
     }
   }
 

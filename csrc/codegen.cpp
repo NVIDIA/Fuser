@@ -1310,7 +1310,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               id->extent()->isConstInt(),
               "Could not evaluate constant value bound to vectorized dim.");
 
-          vector_word_size = id->extent()->evaluateInt();
+          vector_word_size = id->extent()->evaluate().as<int64_t>();
 
           is_vector_op = true;
           break;
@@ -1587,8 +1587,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               MemoryType::Global;
         });
 
-    auto pred_bool = wop->hoistedPredicate()->getBool();
-    bool is_predicated = !(pred_bool.has_value() && pred_bool.value());
+    auto pred_bool = wop->hoistedPredicate()->value();
+    bool is_predicated = !(pred_bool.hasValue() && pred_bool.as<bool>());
 
     ArgumentBuilder func_args;
     func_args.arg(gen(out_avg));
@@ -1918,7 +1918,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // Incrementally build a combinatorial set
     for (const auto loop : grouped_loops_) {
-      const auto iter_count = loop->stop()->evaluateInt();
+      const auto iter_count = loop->stop()->evaluate();
       std::vector<std::vector<int64_t>> new_combinations;
       // Append integers from 0 to iter_count to all the vectors built
       // so far

@@ -359,6 +359,11 @@ class Val : public Statement {
   // make constant as expression evaluator takes non-constant Vals.
   bool evaluateBool();
 
+  // If this Val's history is comprised only of constant values, will return a
+  // PolymorphicValue. Cannot make constant as expression evaluator takes
+  // non-constant Vals.
+  PolymorphicValue evaluate();
+
   // Returns if no dependencies and is a constant scalar.
   virtual bool isConst() const {
     return value_.hasValue() && definition() == nullptr;

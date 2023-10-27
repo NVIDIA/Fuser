@@ -1189,7 +1189,7 @@ SqueezeOp::SqueezeOp(
         // Check concrete broadcast extent here. For Symbolic inputs, this check
         // will be deferred to concretization. See dynamic_transform.cpp
         NVF_ERROR(
-            id->extent()->isConstScalar() && id->extent()->evaluateInt() == 1,
+            id->extent()->isConstScalar() && id->extent()->evaluate() == 1,
             "Can not squeeze dimension(s) with size != 1.");
       }
     } else {
@@ -2361,9 +2361,46 @@ LoadStoreOp::LoadStoreOp(
   addDataAttribute(cache_op);
 }
 
+namespace {
+// Returns the permutation from `in` to `out`, i.e., `out[i]==in[perm[i]]`. As a
+// precondition, `out` must be a permutation of `in` per the definition of
+// std::is_permutation.
+template <typename T>
+std::vector<int64_t> computePermutation(
+    const std::vector<T>& in,
+    const std::vector<T>& out) {
+  std::vector<int64_t> permutation;
+  permutation.reserve(out.size());
+  // O(n^2) is totally fine for the current use case of computing the
+  // root-to-rfactor permutation. If needed, this can be improved by requiring T
+  // to be hashable and/or comparable.
+  for (const T& out_element : out) {
+    permutation.push_back(std::distance(
+        in.begin(), std::find(in.begin(), in.end(), out_element)));
+  }
+  return permutation;
+}
+} // namespace
+
 std::vector<PolymorphicValue> LoadStoreOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  if (TensorView* out_tv = dynamic_cast<TensorView*>(out())) {
+    if (out_tv->hasRFactor()) {
+      NVF_ERROR(
+          std::is_permutation(
+              out_tv->getRootDomain().begin(),
+              out_tv->getRootDomain().end(),
+              out_tv->getRFactorDomain().begin()),
+          "The rfactor domain of a Set.Permute is supposed to be a permutation of the root domain: ",
+          out_tv->toString());
+      NVF_ERROR(inputs.size() == 1);
+      at::Tensor in_tensor = inputs[0].as<at::Tensor>();
+      at::Tensor out_tensor = in_tensor.permute(computePermutation(
+          out_tv->getRootDomain(), out_tv->getRFactorDomain()));
+      return {out_tensor};
+    }
+  }
   return inputs;
 }
 
@@ -2893,8 +2930,8 @@ IterDomain* IterDomain::resize(
       right_expansion->toString());
 
   if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
-    auto left = left_expansion->evaluateInt();
-    auto right = right_expansion->evaluateInt();
+    auto left = left_expansion->evaluate();
+    auto right = right_expansion->evaluate();
     if (left == 0 && right == 0) {
       // This is a trivial resize. Check that we are not changing the IterType,
       // then return the input.
@@ -2946,11 +2983,11 @@ IterDomain* IterDomain::resize(
   if (iter_type_opt.has_value()) {
     iter_type = iter_type_opt.value();
   } else if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
-    auto left = left_expansion->evaluateInt();
-    auto right = right_expansion->evaluateInt();
+    auto left = left_expansion->evaluate();
+    auto right = right_expansion->evaluate();
     if (resized_id_size->isConstInt()) {
       // Means input extent is also known
-      auto out_extent = resized_id_size->evaluateInt();
+      auto out_extent = resized_id_size->evaluate();
       iter_type = out_extent == 1 ? IterType::Broadcast : IterType::Iteration;
     } else if (left + right > 1) {
       // Input extent is non-negative, so we know out_extent > 1

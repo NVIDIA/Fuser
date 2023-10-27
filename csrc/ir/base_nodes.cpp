@@ -291,30 +291,42 @@ std::optional<bool> Val::getBool() const {
   return std::nullopt;
 }
 
+PolymorphicValue Val::evaluate() {
+  if (this->value().hasValue()) {
+    return this->value();
+  }
+
+  ExpressionEvaluator ee;
+  auto evaluated_val = ee.evaluate(this);
+  NVF_ERROR(
+      evaluated_val.hasValue(),
+      "Detected a const value but failed to infer its value: ",
+      toInlineString());
+  return evaluated_val;
+}
+
 bool Val::isZero() const {
-  return getInt() == 0 || getDouble() == 0.0;
+  return value().hasValue() && value() == 0;
 }
 
 bool Val::isZeroInt() const {
-  auto int_val = getInt();
-  return int_val.has_value() && int_val.value() == 0;
+  return value().hasValue() && value().is<int64_t>() && value() == 0;
 }
 
 bool Val::isOne() const {
-  return getInt() == 1 || getDouble() == 1.0;
+  return value().hasValue() && value() == 1;
 }
 
 bool Val::isOneInt() const {
-  auto int_val = getInt();
-  return int_val.has_value() && int_val.value() == 1;
+  return value().hasValue() && value().is<int64_t>() && value() == 1;
 }
 
 bool Val::isTrue() const {
-  return getBool() == true;
+  return value().hasValue() && value().is<bool>() && value().as<bool>();
 }
 
 bool Val::isFalse() const {
-  return getBool() == false;
+  return value().hasValue() && value().is<bool>() && !value().as<bool>();
 }
 
 std::optional<DataType> Val::getDataType() const {
