@@ -524,13 +524,7 @@ class SegmentCandidateFinder {
       const KernelArgumentHolder& inputs,
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
     auto fusion_copy = std::make_unique<Fusion>(*fusion);
-    if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-      debug() << "Segment the fusion (Original Fusion Un-modified): "
-              << std::endl;
-      fusion_copy->printMath();
-    }
-    SegmentCandidateFinder scf(std::move(fusion_copy), inputs, options);
-    return std::move(scf.segmented_fusion_);
+    return segment(std::move(fusion_copy), inputs, options);
   }
 
   // Perform segmentation on and take ownership of the given fusion
