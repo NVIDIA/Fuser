@@ -2329,13 +2329,10 @@ std::string ViewOp::toInlineString(int indent_size) const {
 }
 
 std::vector<PolymorphicValue> ViewOp::evaluate(
-    const ExpressionEvaluator& original_ee,
+    const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   NVF_ERROR(inputs.size() == 1);
   const at::Tensor& in_tensor = inputs[0].as<at::Tensor>();
-
-  ExpressionEvaluator ee(original_ee);
-  ee.bind(in(), in_tensor);
 
   const std::vector<IterDomain*>& out_rfactor = out()->getMaybeRFactorDomain();
   std::vector<int64_t> out_shape;
