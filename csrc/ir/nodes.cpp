@@ -17,6 +17,7 @@
 #include <kernel_ir.h>
 #include <ops/arith.h>
 #include <root_domain_map.h>
+#include <tensor_metadata.h>
 #include <transform_iter.h>
 #include <transform_rfactor.h>
 #include <transform_view.h>
@@ -2364,7 +2365,8 @@ LoadStoreOp::LoadStoreOp(
 namespace {
 // Returns the permutation from `in` to `out`, i.e., `out[i]==in[perm[i]]`. As a
 // precondition, `out` must be a permutation of `in` per the definition of
-// std::is_permutation.
+// std::is_permutation. The return type is `vector<int64_t>` instead of
+// `vector<int>` so it can be converted to `at::IntArrayRef`.
 template <typename T>
 std::vector<int64_t> computePermutation(
     const std::vector<T>& in,
@@ -2398,6 +2400,12 @@ std::vector<PolymorphicValue> LoadStoreOp::evaluate(
       at::Tensor in_tensor = inputs[0].as<at::Tensor>();
       at::Tensor out_tensor = in_tensor.permute(computePermutation(
           out_tv->getRootDomain(), out_tv->getRFactorDomain()));
+
+      inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
+      // TODO: When validation fails, relayout `out_tensor` to make it
+      // compatible with `out_tv`'s allocation domain and contiguity. I haven't
+      // quite figured out how to do that especially when the allocation domain
+      // is not a permutation of `out_tv`'s rfactor domain.
       return {out_tensor};
     }
   }
