@@ -339,6 +339,7 @@ TEST_F(NVFuserTest, FusionMove_CUDA) {
 
   // Lower the fusion IR
   GpuLower lower(&another_fusion);
+  lower.run();
 
   std::stringstream lowered_ir;
   lowered_ir << another_fusion;
@@ -1656,6 +1657,7 @@ TEST_F(NVFuserTest, FusionComputeAtMultiConsumers_CUDA) {
   }
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
 
   NVF_CHECK(tv1->getComputeAtPosition() == 1);
   NVF_CHECK(
@@ -6891,6 +6893,7 @@ TEST_F(NVFuserTest, FusionSmemBlockGemm_CUDA) {
 
   // Make sure BIDx is makred as exact (see issue #1119)
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(gpulw.parallelDimensionMap().isExact(ParallelType::BIDx));
 
   constexpr int M = 154, K = 45, N = 1524;

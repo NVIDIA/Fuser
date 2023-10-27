@@ -45,6 +45,7 @@ TEST_F(SwizzleTest, SimpleSwizzle0) {
   tv1->swizzle(Swizzle2DType::ZShape, -2, -1);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   auto exprs = gpulw.kernel()->topLevelExprs();
   auto str = ir_utils::toString(exprs);
   NVF_CHECK(str.find("where") != std::string::npos);
@@ -125,15 +126,16 @@ TEST_F(SwizzleTest, SimpleSwizzle2) {
 
   // Validation should fail since TV1 is not in shared
   //  memory as required by sync info pass.
-  ASSERT_ANY_THROW(GpuLower gpulw_throw(&fusion));
+  ASSERT_ANY_THROW(GpuLower(&fusion).run());
 
   tv1->setMemoryType(MemoryType::Shared);
 
   // Make sure that a sync is inserted:
   bool sync_found = false;
-  GpuLower gpu_lw(&fusion);
+  GpuLower gpulw(&fusion);
+  gpulw.run();
   auto flattened_exps =
-      ir_utils::flattenScopedExprs(gpu_lw.kernel()->topLevelExprs());
+      ir_utils::flattenScopedExprs(gpulw.kernel()->topLevelExprs());
 
   for (auto expr : flattened_exps) {
     if (expr->isA<kir::BlockSync>()) {
@@ -401,7 +403,7 @@ TEST_F(SwizzleTest, SwizzleVectorize) {
   tv1->swizzle(Swizzle2DType::XOR, 0, 1);
   tv1->axis(1)->parallelize(ParallelType::Vectorize);
 
-  ASSERT_ANY_THROW(GpuLower lower(&fusion));
+  ASSERT_ANY_THROW(GpuLower(&fusion).run());
 }
 
 TEST_F(SwizzleTest, TransposeBankConflictSwizzle1) {

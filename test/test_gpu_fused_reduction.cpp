@@ -110,6 +110,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce1_CUDA) {
   tv1->axis(1)->parallelize(ParallelType::Unswitch);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -159,6 +160,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce2_CUDA) {
   tv1->axis(1)->parallelize(ParallelType::TIDy);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -207,6 +209,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce3_CUDA) {
   scheduler_utils::parallelizeAllLike(tv3);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -252,6 +255,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce4_CUDA) {
   scheduler_utils::parallelizeAllLike(tv4);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -313,6 +317,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce5_CUDA) {
   tv6->axis(1)->parallelize(ParallelType::BIDx);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -412,6 +417,7 @@ TEST_F(NVFuserTest, FusionGridAllreduceWelford1_CUDA) {
   scheduler_utils::parallelizeAllLike(tv5);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -462,6 +468,7 @@ TEST_F(NVFuserTest, FusionGridAllreduceWelford2_CUDA) {
 
   // There must be no parallel broadcast
   GpuLower gpulw(&fusion);
+  gpulw.run();
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -584,6 +591,7 @@ TEST_F(NVFuserTest, FusionFusedReductionBatchnorm_CUDA) {
   std::vector<c10::IValue> aten_inputs = {t0, t1, t2, t3, t4};
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   FusionExecutor fe;
@@ -1429,6 +1437,7 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
       {at_input, at_grad_output, at_weight, at_save_mean, at_save_invstd});
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   validateNoParallelBroadcastExist(gpulw.kernel());
 
   FusionExecutor fe;
@@ -1843,6 +1852,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
   // and the non-reduction domains of the output TV are either
   // grouped or parallelized
   GpuLower gpulw(&fusion);
+  gpulw.run();
   bool validated = false;
   for (auto expr : KernelExprVisitor::getAllExprs(gpulw.kernel())) {
     auto grouped_grid_reduction =
@@ -1923,6 +1933,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce2_CUDA) {
   // and the non-reduction domains of the output TV are either
   // grouped or parallelized
   GpuLower gpulw(&fusion);
+  gpulw.run();
   bool validated = false;
   for (auto expr : KernelExprVisitor::getAllExprs(gpulw.kernel())) {
     auto grouped_grid_reduction =
@@ -2005,6 +2016,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
   // and the non-reduction domains of the output TV are either
   // grouped or parallelized
   GpuLower gpulw(&fusion);
+  gpulw.run();
   bool validated = false;
   for (auto expr : KernelExprVisitor::getAllExprs(gpulw.kernel())) {
     auto grouped_grid_reduction =
@@ -2097,6 +2109,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
   // and the non-reduction domains of the output TV are either
   // grouped or parallelized
   GpuLower gpulw(&fusion);
+  gpulw.run();
   bool validated = false;
   for (auto expr : KernelExprVisitor::getAllExprs(gpulw.kernel())) {
     auto grouped_grid_reduction =
@@ -2171,6 +2184,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford1_CUDA) {
   // and the non-reduction domains of the output TV are either
   // grouped or parallelized
   GpuLower gpulw(&fusion);
+  gpulw.run();
   bool validated = false;
   for (auto expr : KernelExprVisitor::getAllExprs(gpulw.kernel())) {
     auto grouped_grid_reduction = dynamic_cast<kir::GroupedGridWelford*>(expr);
@@ -2238,6 +2252,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford2_CUDA) {
   // and the non-reduction domains of the output TV are either
   // grouped or parallelized
   GpuLower gpulw(&fusion);
+  gpulw.run();
   bool validated = false;
   for (auto expr : KernelExprVisitor::getAllExprs(gpulw.kernel())) {
     auto grouped_grid_reduction = dynamic_cast<kir::GroupedGridWelford*>(expr);
@@ -2375,6 +2390,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
     // and the non-reduction domains of the output TV are either
     // grouped or parallelized
     GpuLower gpulw(&fusion);
+    gpulw.run();
     bool validated = false;
     for (auto expr : KernelExprVisitor::getAllExprs(gpulw.kernel())) {
       (void)expr; // Suppress unused variable warning

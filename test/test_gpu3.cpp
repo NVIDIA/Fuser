@@ -85,6 +85,7 @@ TEST_F(NVFuserTest, FusionNonDivisibleSplit1_CUDA) {
   tv2->split(1, 2);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(
       gpulw.nonDivisibleSplitInfo().splitsToValidate().empty(),
       "There must be no split to validate");
@@ -138,6 +139,7 @@ TEST_F(NVFuserTest, FusionNonDivisibleSplit2_CUDA) {
   tv1->setMemoryType(MemoryType::Shared);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(
       gpulw.nonDivisibleSplitInfo().splitsToValidate().empty(),
       "There must be no split to validate");
@@ -188,6 +190,7 @@ TEST_F(NVFuserTest, FusionNonDivisibleSplit3_CUDA) {
   tv2->axis(0)->parallelize(ParallelType::Unswitch);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(
       gpulw.nonDivisibleSplitInfo().splitsToValidate().empty(),
       "There must be no split to validate");
@@ -237,6 +240,7 @@ TEST_F(NVFuserTest, FusionNonDivisibleSplit4_CUDA) {
   tv0->computeAt(tv2, -1);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(
       gpulw.nonDivisibleSplitInfo().splitsToValidate().empty(),
       "There must be no split to validate");
@@ -290,6 +294,7 @@ TEST_F(NVFuserTest, FusionNonDivisibleSplit5_CUDA) {
   tv0->computeAt(tv2, -1);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(
       gpulw.nonDivisibleSplitInfo().splitsToValidate().empty(),
       "There must be no split to validate");
@@ -337,6 +342,7 @@ TEST_F(NVFuserTest, FusionNonDivisibleSplitVectorize1_CUDA) {
   tv1->axis(-1)->parallelize(ParallelType::Vectorize);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(
       gpulw.nonDivisibleSplitInfo().splitsToValidate().size() == 1,
       "There should be one split to validate");
@@ -390,6 +396,7 @@ TEST_F(NVFuserTest, FusionNonDivisibleSplitVectorize2_CUDA) {
   tv1->axis(2)->parallelize(ParallelType::Vectorize);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(
       gpulw.nonDivisibleSplitInfo().splitsToValidate().size() == 1,
       "There should be one split to validate");
@@ -1057,6 +1064,7 @@ TEST_F(NVFuserTest, FusionBroadcastConcretization1_CUDA) {
   }
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(!gpulw.concretizedBroadcastDomains()->isConcretized(
       loweredTv(tv4, gpulw)->axis(1)));
   NVF_CHECK(gpulw.concretizedBroadcastDomains()->isConcretized(
@@ -1104,6 +1112,7 @@ TEST_F(NVFuserTest, FusionBroadcastConcretization2_CUDA) {
   // no actual parallel broadcast
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(
       !gpulw.kernel()->summary().has_block_broadcasts &&
           !gpulw.kernel()->summary().has_grid_broadcasts,
@@ -1148,6 +1157,7 @@ TEST_F(NVFuserTest, FusionBroadcastConcretization3_CUDA) {
   // be no parallel broadcast.
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(
       !gpulw.kernel()->summary().has_block_broadcasts &&
           !gpulw.kernel()->summary().has_grid_broadcasts,
@@ -1375,6 +1385,7 @@ TEST_F(NVFuserTest, FusionCodegenAllocatedScalars_CUDA) {
   fusion.addOutput(tv1);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   auto kernel = gpulw.kernel();
 
   // Set the kernel as the current fusion
@@ -2055,6 +2066,7 @@ TEST_F(NVFuserTest, FusionVectorizeContigIndexPointwiseSchedule_CUDA) {
   auto lparams = schedulePointwise(&fusion, {t0, t1});
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   auto kernel = gpulw.kernel();
 
   // The innermost two dimensions are merged and contiguous, so
@@ -2327,6 +2339,7 @@ TEST_F(NVFuserTest, FusionRAWSyncInsertionPlace4_CUDA) {
     int number_of_writes_ = 0;
   } sync_insertion_checker;
   GpuLower gpulw(&fusion);
+  gpulw.run();
   sync_insertion_checker.handle(gpulw.kernel()->topLevelExprs());
 }
 
@@ -2605,6 +2618,7 @@ TEST_F(NVFuserTest, FusionDoubleBufferNoSync_CUDA) {
   at::Tensor t1 = at::randn({m, n}, options);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   auto flattened_exprs =
       ir_utils::flattenScopedExprs(gpulw.kernel()->topLevelExprs());
   bool sync_inserted = std::any_of(
@@ -2722,6 +2736,7 @@ TEST_F(NVFuserTest, FusionPredRemovalCheck_CUDA) {
   } pred_checker;
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   pred_checker.handle(gpulw.kernel()->topLevelExprs());
 }
 
@@ -2745,6 +2760,7 @@ TEST_F(NVFuserTest, FusionPropagateParallelTypesToSiblings_CUDA) {
   // Make sure the parallelization of tv_avg is propagated to the var
   // and count tensors.
   GpuLower gpulw(&fusion);
+  gpulw.run();
   for (const auto expr : gpulw.kernel()->exprs()) {
     auto wop = dynamic_cast<WelfordOp*>(expr);
     if (wop == nullptr) {
@@ -2977,6 +2993,7 @@ TEST_F(NVFuserTest, FusionTestReEntrantGridWelford_CUDA) {
   } checker;
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   checker.handle(gpulw.kernel()->topLevelExprs());
 
   FusionExecutor fe;
@@ -3035,6 +3052,7 @@ TEST_F(NVFuserTest, FusionRedundantPredSync_CUDA) {
   tv3->axis(1)->parallelize(ParallelType::TIDx);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   auto flattened_exprs =
       ir_utils::flattenScopedExprs(gpulw.kernel()->topLevelExprs());
   bool sync_inserted = std::any_of(
@@ -3107,6 +3125,7 @@ TEST_F(NVFuserTest, FusionRedundantPredSync2_CUDA) {
   } checker;
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   checker.handle(gpulw.kernel()->topLevelExprs());
   NVF_ERROR(checker.result() < 2, "More syncs were inserted than expected");
 
@@ -3184,6 +3203,7 @@ TEST_F(NVFuserTest, FusionRedundantPredSync3_CUDA) {
   } checker;
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   checker.handle(gpulw.kernel()->topLevelExprs());
 
   // This is implicit checking. There are exactly 2 places
@@ -3241,6 +3261,7 @@ TEST_F(NVFuserTest, FusionRedundantUseCheck_CUDA) {
   //  thread pred map. So have to traverse the new expr list
   //  to find the pointers;
   GpuLower gpulw(&fusion);
+  gpulw.run();
 
   TensorView *lowered_tv2 = nullptr, *lowered_tv4 = nullptr;
   auto used_vals = gpulw.kernel()->usedMathVals();
@@ -3368,6 +3389,7 @@ TEST_F(NVFuserTest, FusionContigPredicate_CUDA) {
   tv0->computeAt(tv2, -1);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(PredicatedChecker::isPredicated(tv1, gpulw));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -4242,6 +4264,7 @@ TEST_F(NVFuserTest, FusionInsertMagicZero1_CUDA) {
 
   // The predicate of tv2 should be protected with magic zero
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(
       PredicateMagicZeroChecker::isProtected(tv2, gpulw),
       "Failed to protect the predicates of ",
@@ -5550,6 +5573,7 @@ TEST_F(NVFuserTest, FusionSimpleAmperePipeline_CUDA) {
 
   // Check that cp async is inlined:
   GpuLower gpulw(&fusion);
+  gpulw.run();
   pred_checker.handle(gpulw.kernel()->topLevelExprs());
 
   FusionExecutor fe;
@@ -6403,6 +6427,7 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
   };
 
   GpuLower gpulw_wo_vec(&fusion);
+  gpulw_wo_vec.run();
   PredChecker(false).handle(gpulw_wo_vec.kernel()->topLevelExprs());
 
   // Vectorize the second axis of tv1
@@ -6415,6 +6440,7 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
   // i.e., 3.
 
   GpuLower gpulw_w_vec(&fusion);
+  gpulw_w_vec.run();
   PredChecker(true).handle(gpulw_w_vec.kernel()->topLevelExprs());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -6731,6 +6757,7 @@ TEST_F(NVFuserTest, FusionVectorizeWelford1_CUDA) {
   tv1->computeWith(-1, true);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   auto all_exprs = KernelExprVisitor::getAllExprs(gpulw.kernel());
   auto num_welford_ops =
       std::count_if(all_exprs.begin(), all_exprs.end(), [](Expr* expr) {
@@ -6804,6 +6831,7 @@ TEST_F(NVFuserTest, FusionVectorizeWelford2_CUDA) {
   tv1->computeWith(-1, true);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   auto all_exprs = KernelExprVisitor::getAllExprs(gpulw.kernel());
   auto num_welford_ops =
       std::count_if(all_exprs.begin(), all_exprs.end(), [](Expr* expr) {
@@ -7251,6 +7279,7 @@ TEST_F(NVFuserTest, FusionPredicateReductionInitShared_CUDA) {
   // Make sure the initialization of tv1 is predicated with
   // threadIdx.x == 0
   GpuLower gpulw(&fusion);
+  gpulw.run();
   ParallelTypeBitmap predicated_types(ParallelType::TIDx);
   NVF_CHECK(
       ThreadPredChecker::isPredicatedBy(
@@ -7305,6 +7334,7 @@ TEST_F(NVFuserTest, FusionPredicateReductionInitGlobal_CUDA) {
   // Make sure the initialization of tv1 is predicated with
   // threadIdx.x == 0 and blockIdx.x == 0
   GpuLower gpulw(&fusion);
+  gpulw.run();
   ParallelTypeBitmap predicated_types({ParallelType::TIDx, ParallelType::BIDx});
   NVF_CHECK(
       ThreadPredChecker::isPredicatedBy(
@@ -7663,6 +7693,7 @@ TEST_F(NVFuserTest, FusionManagedData_CUDA) {
   fusion.manage("data2", data2, clone_fn);
 
   GpuLower lower(&fusion);
+  lower.run();
   auto kernel = lower.kernel();
 
   T1 expect1{kernel->inputs().at(0), kernel->outputs().at(0)};
@@ -7867,7 +7898,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {
       scheduleReduction(&fusion, *heuristics_params);
       // it should be segmented, if directly lowered, it should throw an error
       EXPECT_THAT(
-          [&]() { GpuLower gpulw(&fusion); },
+          [&]() { GpuLower(&fusion).run(); },
           testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
               "Producer is required to be in Global Memory based on parallelization strategy. RAW flags: (blockIdx.x)")));
     } else {
@@ -9703,6 +9734,7 @@ TEST_F(NVFuserTest, PredicateRNGOps) {
     }
   } pred_checker;
   GpuLower gpulw(fusion);
+  gpulw.run();
   pred_checker.handle(gpulw.kernel()->topLevelExprs());
   ASSERT_TRUE(pred_checker.predicate_rngop);
 
@@ -9715,6 +9747,29 @@ TEST_F(NVFuserTest, PredicateRNGOps) {
   at::manual_seed(0);
   auto cg_outputs = fe.runFusion({t0});
 }
+
+TEST_F(NVFuserTest, LoweringHook) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  GpuLower gpulw(&fusion);
+  bool executed = false;
+  gpulw.passes().push_back(
+      {"test",
+       [&executed](const std::vector<Expr*>& exprs) -> std::vector<Expr*> {
+         executed = true;
+         return exprs;
+       }});
+  EXPECT_FALSE(executed);
+  gpulw.run();
+  EXPECT_TRUE(executed);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

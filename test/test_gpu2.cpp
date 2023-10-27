@@ -4473,6 +4473,7 @@ TEST_F(NVFuserTest, FusionSizeOneLoop1_CUDA) {
 
   // Make sure the unswitched loop does not have an else clause.
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(!UnswitchInElseChecker::check(gpulw));
 
   const int x = 11;
@@ -4511,6 +4512,7 @@ TEST_F(NVFuserTest, FusionSizeOneLoop2_CUDA) {
 
   // Make sure the size-one unswitched loop does not omit the else clause.
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(UnswitchInElseChecker::check(gpulw));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -4703,6 +4705,7 @@ TEST_F(NVFuserTest, FusionValidateParallelize7_CUDA) {
   // required. It should be placed as a top-level expression.
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(
       std::any_of(
           gpulw.kernel()->topLevelExprs().begin(),
@@ -6695,6 +6698,7 @@ TEST_F(NVFuserTest, FusionPredicateElimination1_CUDA) {
 
   {
     GpuLower gpulw(&fusion);
+    gpulw.run();
     NVF_CHECK(!PredicatedChecker::isPredicated(tv2, gpulw));
   }
 
@@ -6703,6 +6707,7 @@ TEST_F(NVFuserTest, FusionPredicateElimination1_CUDA) {
 
   {
     GpuLower gpulw(&fusion);
+    gpulw.run();
     NVF_CHECK(PredicatedChecker::isPredicated(tv2, gpulw));
   }
 }
@@ -6766,6 +6771,7 @@ TEST_F(NVFuserTest, FusionPredicateElimination3_CUDA) {
   scheduler_utils::parallelizeAllLike(tv4);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
 
   // The fusion has three reductions: one within each thread, one
   // within each block, and another with the whole grid. All of them
@@ -6817,6 +6823,7 @@ TEST_F(NVFuserTest, FusionPredicateElimination4_CUDA) {
   scheduler_utils::parallelizeAllLike(tv1);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
 
   // tv2 uses the same op and init with tv1, so tv2 should be fine
   // without a predicate. However, tv4, while it uses the tv1 as its
@@ -6866,6 +6873,7 @@ TEST_F(NVFuserTest, FusionPredicateElimination5_CUDA) {
   scheduler_utils::parallelizeAllLike(avg_rf);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
 
   // The first per-thread welford needs to be predicated as the N
   // input is different from its init value. The second welford op
@@ -6910,6 +6918,7 @@ TEST_F(NVFuserTest, FusionPredicateElimination6_CUDA) {
   tv3->computeAt(tv4, 1);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
 
   // The expression for tv2 is a local-to-local expression. It
   // satisfies all the requirements of predicate elimination, except
@@ -6957,6 +6966,7 @@ TEST_F(NVFuserTest, FusionPredicateElimination7_CUDA) {
   // The last split of tv2 is a non-divisible split, and omitting it
   // is invalid.
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(PredicatedChecker::isPredicated(tv2, gpulw));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -7070,6 +7080,7 @@ TEST_F(NVFuserTest, FusionPredicateElimination9_CUDA) {
   auto t0 = at::randn({M}, options);
 
   GpuLower gpulw(fusion.get());
+  gpulw.run();
   // tv0c expectation: no predicate present as domain with TIDX parallel type
   //  has the same extend as max extend stored for TIDx type in parallel domain
   //  map
@@ -7659,6 +7670,7 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap1_CUDA) {
   // The extents of tv1 and tv2 axes are equal even though their
   // actual values are not statically known
   GpuLower gpulw(fusion.get());
+  gpulw.run();
   const auto& pdmap = gpulw.parallelDimensionMap();
 
   NVF_CHECK(pdmap.isExact(ParallelType::TIDx));
@@ -7695,6 +7707,7 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap2_CUDA) {
   tv2->axis(-1)->parallelize(ParallelType::TIDx);
 
   GpuLower gpulw(fusion.get());
+  gpulw.run();
   const auto& pdmap = gpulw.parallelDimensionMap();
   NVF_CHECK(pdmap.isExact(ParallelType::TIDx));
   NVF_CHECK(
@@ -7743,6 +7756,7 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap3_CUDA) {
   tv5->axis(-1)->parallelize(ParallelType::TIDy);
 
   GpuLower gpulw(fusion.get());
+  gpulw.run();
   const auto& pdmap = gpulw.parallelDimensionMap();
   ASSERT_FALSE(pdmap.isExact(ParallelType::TIDx));
   ASSERT_EQ(pdmap.get(ParallelType::TIDx)->value(), 20);
@@ -7787,6 +7801,7 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap4_CUDA) {
   tv3->setMemoryType(MemoryType::Shared);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   const auto& pdmap = gpulw.parallelDimensionMap();
   NVF_CHECK(!pdmap.isExact(ParallelType::TIDx));
   NVF_CHECK(
@@ -7826,6 +7841,7 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap5_CUDA) {
   tv3->axis(-2)->parallelize(ParallelType::TIDy);
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
   const auto& pdmap = gpulw.parallelDimensionMap();
   NVF_CHECK(pdmap.isExact(ParallelType::TIDx));
   NVF_CHECK(pdmap.isExact(ParallelType::TIDy));
@@ -8029,6 +8045,7 @@ TEST_F(NVFuserTest, FusionWARSyncAliasedSmem_CUDA) {
 
   // Make sure a WAR sync is inserted at the end of the outer loop
   GpuLower gpulw(&fusion);
+  gpulw.run();
   for (const auto& kir_node : gpulw.kernel()->topLevelExprs()) {
     if (auto loop = dynamic_cast<kir::ForLoop*>(kir_node)) {
       const auto& body = loop->body().exprs();
@@ -8830,6 +8847,7 @@ TEST_F(NVFuserTest, FusionIssue1133_CUDA) {
 
   // Both tv1 and tv2 should be allocated at the top-level scope
   GpuLower gpulw(&fusion);
+  gpulw.run();
   bool tv1_validated = false;
   bool tv2_validated = false;
   for (const auto& kir_node : gpulw.kernel()->topLevelExprs()) {

@@ -383,8 +383,9 @@ void Fusion::printKernel(const CompileParams& compile_params) {
       !this->isA<kir::Kernel>(),
       "Cannot \"print kernel\" of a kernel container. ",
       "This would require lowering during lowering.");
-  debug() << codegen::generateCudaKernel(
-      GpuLower(this, compile_params).kernel());
+  GpuLower lower(this, compile_params);
+  lower.run();
+  debug() << codegen::generateCudaKernel(lower.kernel());
 }
 
 std::unordered_map<TensorView*, std::pair<std::vector<int>, std::vector<int>>>
@@ -405,6 +406,7 @@ Fusion::bankConflictInfo(const CompileParams& compile_params) {
   manage("smem_tvs", smem_tvs);
 
   GpuLower lower(this, compile_params);
+  lower.run();
   auto kernel = lower.kernel();
   auto info = getBankConflictInfo(kernel);
 
