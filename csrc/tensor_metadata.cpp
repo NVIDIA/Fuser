@@ -23,7 +23,7 @@ namespace {
 // sizes and strides, validate that splits are divisible and merges are
 // contiguous, and update active_ids_ correspondingly.
 class ForwardTraverseFromRFactorToAlloc {
-  ExpressionEvaluator& ee_;
+  const ExpressionEvaluator& ee_;
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
 
   void handle(Split* split) {
@@ -97,7 +97,7 @@ class ForwardTraverseFromRFactorToAlloc {
 
  public:
   ForwardTraverseFromRFactorToAlloc(
-      ExpressionEvaluator& ee,
+      const ExpressionEvaluator& ee,
       std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids)
       : ee_(ee), active_ids_(active_ids) {}
 
@@ -118,7 +118,7 @@ class ForwardTraverseFromRFactorToAlloc {
 // Similar to ForwardTraverseFromRFactorToAlloc, but in the opposite direction.
 class BackwardTraverseFromRFactorToAlloc {
   at::Tensor tensor_;
-  ExpressionEvaluator& ee_;
+  const ExpressionEvaluator& ee_;
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids_;
 
   void handle(Split* split) {
@@ -192,7 +192,7 @@ class BackwardTraverseFromRFactorToAlloc {
 
  public:
   BackwardTraverseFromRFactorToAlloc(
-      ExpressionEvaluator& ee,
+      const ExpressionEvaluator& ee,
       std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>>& active_ids)
       : ee_(ee), active_ids_(active_ids) {}
 
