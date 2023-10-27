@@ -586,8 +586,11 @@ TEST_F(ExprEvalTest, Reshape_ForwardBroadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  TensorView* in =
-      TensorViewBuilder().shape({-1, 6}).dtype(DataType::Float).build();
+  TensorView* in = TensorViewBuilder()
+                       .shape({-1, 6})
+                       .dtype(DataType::Float)
+                       .expanded({true, false})
+                       .build();
   fusion.addInput(in);
   TensorView* out = reshape(
       in, {size(in, 0), IrBuilder::create<Val>(2), IrBuilder::create<Val>(3)});
@@ -608,8 +611,11 @@ TEST_F(ExprEvalTest, Reshape_SplitBroadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  TensorView* in =
-      TensorViewBuilder().shape({-1, 6}).dtype(DataType::Float).build();
+  TensorView* in = TensorViewBuilder()
+                       .shape({-1, 6})
+                       .dtype(DataType::Float)
+                       .expanded({false, true})
+                       .build();
   fusion.addInput(in);
   TensorView* out = reshape(
       in, {size(in, 0), IrBuilder::create<Val>(2), IrBuilder::create<Val>(3)});
@@ -624,6 +630,29 @@ TEST_F(ExprEvalTest, Reshape_SplitBroadcast) {
   EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
   EXPECT_THAT(out_tensor.sizes(), ElementsAre(9, 2, 3));
   EXPECT_THAT(out_tensor.strides(), ElementsAre(1, 0, 0));
+}
+
+TEST_F(ExprEvalTest, Reshape_MergeBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = TensorViewBuilder()
+                       .shape({-1, 6})
+                       .dtype(DataType::Float)
+                       .expanded({false, true})
+                       .build();
+  fusion.addInput(in);
+  TensorView* out = flatten(in);
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor = at::rand({9}).cuda().as_strided({9, 6}, {1, 0});
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(in, in_tensor);
+  at::Tensor out_tensor = evaluator.evaluate(out).as<at::Tensor>();
+
+  EXPECT_THAT(out_tensor.sizes(), ElementsAre(54));
+  EXPECT_THAT(out_tensor.strides(), ElementsAre(1));
 }
 
 } // namespace nvfuser

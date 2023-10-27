@@ -2341,13 +2341,17 @@ std::vector<PolymorphicValue> ViewOp::evaluate(
   std::vector<int64_t> out_shape;
   out_shape.reserve(out_rfactor.size());
   for (IterDomain* id : out_rfactor) {
-    // TODO: Implement ExpandOp::evaluate so we can test expanded broadcast.
     out_shape.push_back(
         ee.evaluate(id->getMaybeExpandedExtent()).as<int64_t>());
   }
 
   // TODO: check allocation domain and contiguity.
-  return {in_tensor.view(out_shape)};
+
+  // Use `at::Tensor::reshape` instead of `at::Tensor::view` because `ViewOp`
+  // doesn't always produce an alias. For example, when merging an expanded
+  // `IterType::Broadcast` and an `IterType::Iteration`, `ViewOp` has to realize
+  // the expand.
+  return {in_tensor.reshape(out_shape)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ViewOp)
