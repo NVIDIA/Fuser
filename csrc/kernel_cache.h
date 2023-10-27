@@ -94,9 +94,8 @@ class FusionKernelRuntime {
       const KernelArgumentHolder& inputs,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       int64_t fusion_id = 0,
-      int64_t device_id = 0,
       int64_t concrete_id = 0,
-      int64_t schedule_id = 0);
+      int64_t runtime_id = 0);
 
   //! Type notations within FusionKernelRuntime Context
   using HashType = size_t;
@@ -304,15 +303,11 @@ class FusionKernelRuntime {
   // ID of fusion in python frontend fusion cache
   int64_t fusion_id_ = -1;
 
-  // ID of device in fusion executor cache
-  int64_t device_id_ = -1;
-
   // ID of concretized fusion in fusion executor cache
   int64_t concrete_id_ = -1;
 
-  // ID of scheduled fusion given (device, concrete_info) key in fusion executor
-  // cache
-  int64_t schedule_id_ = -1;
+  // ID of FusionKernelRuntime given (device, concrete_info) key
+  int64_t runtime_id_ = -1;
 
   // The heuristics and executor for most recent kernel launch
   ExecutorLog most_recent_executor_log_;

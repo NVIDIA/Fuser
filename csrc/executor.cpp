@@ -190,9 +190,8 @@ void FusionExecutor::debugCompileFusionFromStr(
     const std::string& code,
     const std::string& name,
     int64_t fusion_id,
-    int64_t device_id,
     int64_t concrete_id,
-    int64_t schedule_id,
+    int64_t runtime_id,
     int64_t group_id,
     CompileOptions options) {
   options_ = options;
@@ -215,12 +214,7 @@ void FusionExecutor::debugCompileFusionFromStr(
   const auto kernel = lowered_->kernel();
   fusion_ = lowered_->kernel();
   createKernelId(
-      ScheduleHeuristic::None,
-      fusion_id,
-      device_id,
-      concrete_id,
-      schedule_id,
-      group_id);
+      ScheduleHeuristic::None, fusion_id, concrete_id, runtime_id, group_id);
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
@@ -252,9 +246,8 @@ void FusionExecutor::compileFusion(
     CompileParams compile_params,
     ScheduleHeuristic heuristic,
     int64_t fusion_id,
-    int64_t device_id,
     int64_t concrete_id,
-    int64_t schedule_id,
+    int64_t runtime_id,
     int64_t group_id) {
   FUSER_PERF_SCOPE("FusionExecutor::compileFusion");
 
@@ -343,8 +336,7 @@ void FusionExecutor::compileFusion(
     hook(kernel);
   }
   fusion_ = lowered_->kernel()->as<Fusion>();
-  createKernelId(
-      heuristic, fusion_id, device_id, concrete_id, schedule_id, group_id);
+  createKernelId(heuristic, fusion_id, concrete_id, runtime_id, group_id);
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
@@ -2000,9 +1992,8 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       warp_size_,
       castEnumToUnderlyingType(heuristic_),
       fusion_id_,
-      device_id_,
       concrete_id_,
-      schedule_id_,
+      runtime_id_,
       group_id_,
       kernel_code_.c_str(),
       &executor_entry_lookup_keys_fb,
@@ -2141,9 +2132,8 @@ void FusionExecutor::deserialize(
     CompileParams compile_params,
     ScheduleHeuristic heuristic,
     int64_t fusion_id,
-    int64_t device_id,
     int64_t concrete_id,
-    int64_t schedule_id,
+    int64_t runtime_id,
     int64_t group_id) {
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
 
@@ -2152,14 +2142,11 @@ void FusionExecutor::deserialize(
       fusion_id == buffer->fusion_id(),
       "Expected given fusion_id to match serde fusion_id.");
   NVF_ERROR(
-      device_id == buffer->device_id(),
-      "Expected given device_id to match serde device_id.");
-  NVF_ERROR(
       concrete_id == buffer->concrete_id(),
       "Expected given concrete_id to match serde concrete_id.");
   NVF_ERROR(
-      schedule_id == buffer->schedule_id(),
-      "Expected given schedule_id to match serde schedule_id.");
+      runtime_id == buffer->runtime_id(),
+      "Expected given runtime_id to match serde runtime_id.");
   NVF_ERROR(
       group_id == buffer->group_id(),
       "Expected given group_id to match serde group_id.");
@@ -2185,9 +2172,8 @@ void FusionExecutor::deserialize(
   createKernelId(
       heuristic,
       buffer->fusion_id(),
-      buffer->device_id(),
       buffer->concrete_id(),
-      buffer->schedule_id(),
+      buffer->runtime_id(),
       buffer->group_id());
   setUsedTVs();
 

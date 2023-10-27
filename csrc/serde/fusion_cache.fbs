@@ -376,9 +376,8 @@ table FusionExecutor {
   warp_size: long;
   heuristic: long;
   fusion_id: long;
-  device_id: long;
   concrete_id: long;
-  schedule_id: long;
+  runtime_id: long;
   group_id: long;
   kernel_code: string;
   executor_entry_lookup_keys: [ulong];
@@ -394,9 +393,8 @@ table FusionExecutor {
 // The unscheduled fusion is defined by traversing Trie in FusionCache.
 table FusionKernelRuntime {
   fusion_id: long;
-  device_id: long;
   concrete_id: long;
-  schedule_id: long;
+  runtime_id: long;
   args: KernelArgumentHolder;
   executors: [FusionExecutor];
 }
@@ -420,9 +418,9 @@ table InputsIdLookup {
 
 // This table represents a key-value pair in the kernel_runtimes map in FusionExecutorCache.
 table KernelRuntimeState {
-  device_id: ulong;
-  has_dynamic_transform_info: bool;
+  device_id: long;
   concrete_id: long;
+  has_dynamic_transform_info: bool;
   runtimes: [FusionKernelRuntime];
 }
 

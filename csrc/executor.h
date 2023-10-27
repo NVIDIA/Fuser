@@ -51,9 +51,8 @@ class FusionExecutor : public NonCopyable {
       const std::string& code,
       const std::string& name,
       int64_t fusion_id,
-      int64_t device_id,
       int64_t concrete_id,
-      int64_t schedule_id,
+      int64_t runtime_id,
       int64_t group_id,
       CompileOptions options = CompileOptions());
 
@@ -78,9 +77,8 @@ class FusionExecutor : public NonCopyable {
       CompileParams compile_params,
       ScheduleHeuristic heuristic = ScheduleHeuristic::None,
       int64_t fusion_id = 0,
-      int64_t device_id = 0,
       int64_t concrete_id = 0,
-      int64_t schedule_id = 0,
+      int64_t runtime_id = 0,
       int64_t group_id = 0);
 
   // TODO: merge it with the overload above.
@@ -101,7 +99,7 @@ class FusionExecutor : public NonCopyable {
       Fusion* fusion,
       const at::ArrayRef<c10::IValue>& inputs,
       int64_t fusion_id,
-      int64_t device_id) {
+      int64_t concrete_id) {
     KernelArgumentHolder args =
         KernelArgumentHolder::createKernelArgumentHolder(inputs);
     compileFusion(
@@ -111,7 +109,7 @@ class FusionExecutor : public NonCopyable {
         CompileParams(),
         ScheduleHeuristic::None,
         fusion_id,
-        device_id);
+        concrete_id);
   }
 
   std::vector<at::Tensor> runFusion(
@@ -272,29 +270,25 @@ class FusionExecutor : public NonCopyable {
   void createKernelId(
       ScheduleHeuristic heuristic = ScheduleHeuristic::None,
       int64_t fusion_id = 0,
-      int64_t device_id = 0,
       int64_t concrete_id = 0,
-      int64_t schedule_id = 0,
+      int64_t runtime_id = 0,
       int64_t group_id = 0) {
     NVF_ERROR(fusion_id > -1, "Invalid fusion_id.");
-    NVF_ERROR(device_id > -1, "Invalid device_id.");
     NVF_ERROR(concrete_id > -1, "Invalid concrete_id.");
-    NVF_ERROR(schedule_id > -1, "Invalid schedule_id.");
+    NVF_ERROR(runtime_id > -1, "Invalid runtime_id.");
     NVF_ERROR(group_id > -1, "Invalid group_id");
 
     heuristic_ = heuristic;
     fusion_id_ = fusion_id;
-    device_id_ = device_id;
     concrete_id_ = concrete_id;
-    schedule_id_ = schedule_id;
+    runtime_id_ = runtime_id;
     group_id_ = group_id;
 
     std::stringstream ss;
     ss << toString(heuristic_);
     ss << "_f" << fusion_id_;
-    ss << "_d" << device_id_;
     ss << "_c" << concrete_id_;
-    ss << "_s" << schedule_id_;
+    ss << "_r" << runtime_id_;
     ss << "_g" << group_id_;
     kernel_id_ = ss.str();
   }
@@ -340,9 +334,8 @@ class FusionExecutor : public NonCopyable {
       CompileParams compile_params,
       ScheduleHeuristic heuristic,
       int64_t fusion_id,
-      int64_t device_id,
       int64_t concrete_id,
-      int64_t schedule_id,
+      int64_t runtime_id,
       int64_t group_id);
 
  private:
@@ -479,23 +472,19 @@ class FusionExecutor : public NonCopyable {
   // ID of fusion in python frontend fusion cache
   int64_t fusion_id_ = -1;
 
-  // ID of device in fusion executor cache
-  int64_t device_id_ = -1;
-
-  // ID of concrete fusion in fusion executor cache
+  // ID of (device, concrete_info) key in fusion executor cache
   int64_t concrete_id_ = -1;
 
-  // ID of scheduled fusion given (device, concrete_info) key in fusion executor
-  // cache
-  int64_t schedule_id_ = -1;
+  // ID of FusionKernelRuntime given (device, concrete_info) key
+  int64_t runtime_id_ = -1;
 
-  // ID of segment in fusion
+  // ID of segment in FusionKernelRuntime
   int64_t group_id_ = -1;
 
+  // Scheduling Heuristic for this Fusion
   ScheduleHeuristic heuristic_ = ScheduleHeuristic::None;
 
   // Kernel name for fusion executor
-  // "f[fusion_id]_d[device_id]_c[concrete_id]_s[group_id]"
   std::string kernel_id_;
 
   std::unique_ptr<GpuLower> lowered_;

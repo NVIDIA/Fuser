@@ -729,7 +729,6 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         args,
         forced_index_type,
         fusion_id_,
-        args.getDeviceIndex(),
         conc_info_id_map_.at(config),
         kernel_runtimes.size()));
     kernel_runtime = kernel_runtimes.back().get();
@@ -778,8 +777,8 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
     fb_kernel_runtimes.push_back(CreateKernelRuntimeStateDirect(
         builder,
         device_id,
-        (conc_info != nullptr),
         conc_info_id_map_.at(config),
+        (conc_info != nullptr),
         &fb_device_runtimes));
   }
 
@@ -882,7 +881,6 @@ void FusionExecutorCache::deserialize(
           args,
           std::nullopt,
           fusion_id_,
-          args.getDeviceIndex(),
           fb_device_runtimes->concrete_id(),
           device_runtimes.size()));
 
@@ -907,13 +905,11 @@ FusionKernelRuntime::FusionKernelRuntime(
     const KernelArgumentHolder& args,
     std::optional<PrimDataType> forced_index_type,
     int64_t fusion_id,
-    int64_t device_id,
     int64_t concrete_id,
-    int64_t schedule_id)
+    int64_t runtime_id)
     : fusion_id_{fusion_id},
-      device_id_{device_id},
       concrete_id_{concrete_id},
-      schedule_id_{schedule_id} {
+      runtime_id_{runtime_id} {
   FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
 
   NVF_ERROR(
@@ -979,9 +975,8 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
   return serde::CreateFusionKernelRuntimeDirect(
       builder,
       fusion_id_,
-      device_id_,
       concrete_id_,
-      schedule_id_,
+      runtime_id_,
       args_metadata_.serialize(builder),
       &executors_fb);
 }
@@ -996,14 +991,11 @@ void FusionKernelRuntime::deserialize(
       fusion_id_ == buffer->fusion_id(),
       "Expected FusionKernelRuntime fusion_id to match serde fusion_id.");
   NVF_ERROR(
-      device_id_ == buffer->device_id(),
-      "Expected FusionKernelRuntime device_id to match serde device_id.");
-  NVF_ERROR(
       concrete_id_ == buffer->concrete_id(),
       "Expected FusionKernelRuntime concrete_id to match serde concrete_id.");
   NVF_ERROR(
-      schedule_id_ == buffer->schedule_id(),
-      "Expected FusionKernelRuntime schedule_id to match serde schedule_id.");
+      runtime_id_ == buffer->runtime_id(),
+      "Expected FusionKernelRuntime runtime_id to match serde runtime_id.");
 
   // 1. Deserialize FusionExecutor objects
   for (auto idx : c10::irange(buffer->executors()->size())) {
@@ -1025,9 +1017,8 @@ void FusionKernelRuntime::deserialize(
         scheduler_entry->params()->cparams,
         scheduler_entry->heuristic(),
         fusion_id_,
-        device_id_,
         concrete_id_,
-        schedule_id_,
+        runtime_id_,
         group_id);
   }
 }
@@ -1241,9 +1232,8 @@ void FusionKernelRuntime::compileKernel(
       scheduler_entry->params()->cparams,
       scheduler_entry->heuristic(),
       fusion_id_,
-      device_id_,
       concrete_id_,
-      schedule_id_,
+      runtime_id_,
       group_id);
 }
 
