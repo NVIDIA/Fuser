@@ -63,13 +63,7 @@ class IdGraph {
 
   // Convert iter domain to its IdGroup, assert that it exists.
   const IdGroup& toGroup(IterDomain* id) const;
-#if 0
-  // Convert unique vector of expressions to unique vector of its groups
-  ExprGroups toGroups(const VectorOfUniqueEntries<Expr*>& exprs) const;
 
-  // Convert unique vector of IterDomain to unique vector of its groups
-  IdGroups toGroups(const VectorOfUniqueEntries<IterDomain*>& ids) const;
-#endif
   // Return output/input iter domain groups of provided expr
   // Note that the same IdGroup can show up multiple times, so the
   // output type cannot be VectorOfUniqueEntries
