@@ -2348,7 +2348,7 @@ TEST_F(ResizeTest, SliceVectorization) {
   bool found_vectorize = false;
   for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLeafDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
-      EXPECT_EQ(id->extent()->evaluateInt(), 4);
+      EXPECT_EQ(id->extent()->evaluate(), 4);
       found_vectorize = true;
       break;
     }

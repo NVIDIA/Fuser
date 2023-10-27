@@ -160,8 +160,8 @@ class KernelIrScanner : private IrVisitor {
           tidy_val->isConstInt(),
           "TIDy is expected to be a const int: ",
           tidy_val->toInlineString());
-      auto tidx = static_cast<int>(tidx_val->evaluateInt());
-      auto tidy = static_cast<int>(tidy_val->evaluateInt());
+      auto tidx = static_cast<int>(tidx_val->evaluate());
+      auto tidy = static_cast<int>(tidy_val->evaluate());
       summary_.outer_grouped_grid_welford_largest_smem_size = std::max(
           summary_.outer_grouped_grid_welford_largest_smem_size,
           grid_welford->getSmemBufferSize(tidx, tidy, 1));

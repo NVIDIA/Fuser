@@ -25,7 +25,7 @@ PointWiseScheduler::PointWiseScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
-    : SchedulerEntry(ScheduleHeuristic::PointWise) {
+    : SchedulerEntry(heuristicType()) {
   computeHeuristics(fusion, runtime_info, data_cache);
 }
 
@@ -35,20 +35,20 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
   // schedule pointwise.
   if (!hasReferenceTensorView(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::PointWise, "cannot find reference tensor");
+        heuristicType(), "cannot find reference tensor");
     return false;
   }
 
   // Check that inputs of all select/gather-like ops are fusion inputs
   if (registry_utils::rejectScheduleForMemoryPromotion(
-          fusion, ScheduleHeuristic::PointWise)) {
+          fusion, heuristicType())) {
     return false;
   }
 
   // Fusions handled by pointwise scheduler cannot have MmaOp.
   if (ir_utils::hasOpsOfType<MmaOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::PointWise, "no support for mma ops.");
+        heuristicType(), "no support for mma ops.");
     return false;
   }
 
@@ -56,21 +56,20 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
     ComputeAtMap ca_map(fusion);
     if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
       scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::PointWise,
-          "Fusion requires view being reversible.");
+          heuristicType(), "Fusion requires view being reversible.");
       return false;
     }
   }
 
   if (ir_utils::hasAnyReductionOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::PointWise, "no support for reduction ops");
+        heuristicType(), "no support for reduction ops");
     return false;
   }
 
   if (registry_utils::hasNonUniqueBcast(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::PointWise,
+        heuristicType(),
         "Broadcasting dimension might be broadcasting to multiple sizes.");
     return false;
   }

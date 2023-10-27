@@ -16,6 +16,7 @@ Example usage:
 
 from dataclasses import asdict, dataclass, field, InitVar
 import difflib
+from enum import auto, Enum
 import os
 import re
 import subprocess
@@ -24,17 +25,20 @@ import sys
 
 @dataclass
 class GitRev:
-    abbrev: str
+    full_hash: str
+    diff: str | None = None
+    abbrev: str = field(init=False)
     title: str = field(init=False)
-    full_hash: str = field(init=False)
     author_name: str = field(init=False)
     author_email: str = field(init=False)
     author_time: str = field(init=False)
     commit_time: str = field(init=False)
 
     def __post_init__(self):
-        self.full_hash = (
-            subprocess.run(["git", "rev-parse", self.abbrev], capture_output=True)
+        self.abbrev = (
+            subprocess.run(
+                ["git", "rev-parse", "--short", self.full_hash], capture_output=True
+            )
             .stdout.strip()
             .decode("utf-8")
         )
@@ -44,6 +48,7 @@ class GitRev:
                 capture_output=True,
             )
             .stdout.strip()
+            .decode("utf-8")
             .splitlines()
         ):
             # Possible output:
@@ -81,10 +86,20 @@ class GitRev:
 
 
 @dataclass
+class LaunchParams:
+    blockDim: tuple[int]
+    gridDim: tuple[int]
+    dynamic_smem_bytes: int
+
+
+@dataclass
 class CompiledKernel:
     filename: str
     code: str | None = None
+    ptx: str | None = None
     ptxas_info: str | None = None
+    launch_params_str: str | None = None
+    launch_params: LaunchParams | None = None
     gmem_bytes: int = 0
     smem_bytes: int = 0
     cmem_bank_bytes: list[int] | None = None
@@ -98,6 +113,7 @@ class CompiledKernel:
 
     def __post_init__(self):
         self.parse_ptxas()
+        self.parse_launch_params()
 
     def parse_ptxas(self):
         # Example input:
@@ -120,6 +136,7 @@ class CompiledKernel:
             self.mangled_name, self.arch = m.groups()
 
         def find_unique_int(pattern) -> int | None:
+            assert self.ptxas_info is not None
             m = re.search(pattern, self.ptxas_info)
             return 0 if m is None else int(m.groups()[0])
 
@@ -140,20 +157,276 @@ class CompiledKernel:
             self.cmem_bank_bytes[bank] = int(nbytes_str)
             cmem_banks += 1
 
+    def parse_launch_params(self):
+        # If NVFUSER_DUMP=launch_param is given we will get a line like this for every launch:
+        #   Launch Parameters: BlockDim.x = 32, BlockDim.y = 2, BlockDim.z = 2, GridDim.x = 8, GridDim.y = 8, GridDim.z = -1, Smem Size = 49152
+        # This is not done by default since we might have hundreds of thousands of these lines.
+        # Still, if we recognize it, we will parse this info. If there are
+        # multiple lines, we just check that they are all equal and if not then
+        # we keep the first version and print a warning.
+        if self.launch_params_str is None:
+            return
+
+        for line in self.launch_params_str.splitlines():
+            m = re.search(
+                r"Launch Parameters: BlockDim.x = (.*), BlockDim.y = (.*), BlockDim.z = (.*), "
+                r"GridDim.x = (.*), GridDim.y = (.*), GridDim.z = (.*), Smem Size = (.*)$",
+                line,
+            )
+            bx, by, bz, gx, gy, gz, s = m.groups()
+            lp = LaunchParams((bx, by, bz), (gx, gy, gz), s)
+            if self.launch_params is None:
+                self.launch_params = lp
+            else:
+                if lp != self.launch_params:
+                    # Found multiple mismatched launch params for one kernel. Only using first
+                    return
+
+
+@dataclass
+class BenchmarkResult:
+    gpu_time: float
+    gpu_time_unit: str
+    cpu_time: float
+    cpu_time_unit: float
+    iterations: int | None = None
+
 
 @dataclass
 class CompiledTest:
+    """One grouping of kernels. A run holds multiple of these"""
+
     name: str
     kernels: list[CompiledKernel]
-    passed: bool
+    passed: bool = True
+    benchmark_result: BenchmarkResult | None = None
+
+
+class CommandType(Enum):
+    """Denotes what type of command was run"""
+
+    UNKNOWN = auto()
+    GOOGLETEST = auto()
+    GOOGLEBENCH = auto()
+    PYTEST = auto()
+
+    def __str__(self):
+        return self.name
+
+    @classmethod
+    def from_string(cls, type_str: str):
+        l = type_str.lower()
+        if l[:3] == "unk":
+            # Specified unknown. Don't print warning
+            return cls.UNKNOWN
+        elif l == "gtest" or l == "googletest":
+            return cls.GOOGLETEST
+        elif l == "gbench" or l == "googlebench":
+            return cls.GOOGLEBENCH
+        elif l == "pytest":
+            return cls.PYTEST
+        else:
+            print(
+                f"WARNING: Unrecognized command type '{type_str}'. Parsing as UNKNOWN.",
+                file=sys.stderr,
+            )
+            return cls.UNKNOWN
+
+
+class LogParser:
+    """General parser for STDOUT of NVFuser commands
+
+    This parser does not group into individual tests, but rather places all
+    kernels into a single CompiledTest whose name is "Ungrouped Kernels".
+    """
+
+    def __init__(self, log_file: str):
+        self.compile_regex()
+
+        self.kernel_map: dict[str, CompiledTest] = {}
+
+        self.reset_test_state()
+
+        self.parse(log_file)
+
+    def compile_regex(self):
+        # regex for stripping ANSI color codes
+        self.ansi_re = re.compile(r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]")
+
+    def reset_kernel_state(self):
+        self.current_file = None
+        self.ptxas_info = ""
+        self.launch_params_str = ""
+
+    def reset_test_state(self):
+        """Initialize temporary variables used during parsing pass"""
+        self.reset_kernel_state()
+        self.current_test = None
+        self.kernels = []
+
+    def parse(self, log_file: str):
+        for line in open(log_file, "r").readlines():
+            line = self.ansi_re.sub("", line.rstrip())
+            self.parse_line(line)
+        self.finalize()
+
+    def finalize_kernel(self):
+        if self.current_file is not None:
+            k = CompiledKernel(
+                self.current_file,
+                ptxas_info=self.ptxas_info,
+                launch_params_str=self.launch_params_str,
+            )
+            self.kernels.append(k)
+        self.reset_kernel_state()
+
+    def finalize_test(self, passed: bool):
+        assert self.current_test is not None
+        self.finalize_kernel()
+        new_test = CompiledTest(self.current_test, self.kernels, passed)
+        self.kernel_map[self.current_test] = new_test
+        self.reset_test_state()
+        return new_test
+
+    def finalize(self):
+        if len(self.kernels) > 0:
+            group_name = "Ungrouped Kernels"
+            self.kernel_map[group_name] = CompiledTest(group_name, self.kernels)
+
+    def parse_line(self, line):
+        """Parse a line of log. Return True if consumed"""
+        if line[:10] == "PRINTING: ":
+            if line[-3:] == ".cu":
+                self.finalize_kernel()
+                # This avoids comparing the .ptx files that are created then
+                # removed by the MemoryTest.LoadCache tests
+                self.current_file = line[10:]
+        elif line[:6] == "ptxas ":
+            # NVFUSER_DUMP=ptxas_verbose corresponds to nvcc --ptxas-options=-v
+            # or --resources-usage. This always prints after printing the cuda
+            # filename
+            if self.current_file is None:
+                print("WARNING: Cannot associate ptxas info with CUDA kernel")
+                return False
+            self.ptxas_info += line + "\n"
+        elif line[:19] == "Launch Parameters: ":
+            if self.current_file is None:
+                print("WARNING: Cannot associate launch params with CUDA kernel")
+                return False
+            self.launch_params_str += line + "\n"
+        else:
+            return False
+        return True
+
+
+class LogParserGTest(LogParser):
+    """Parse output of googletest binaries like nvfuser_tests"""
+
+    def parse_line(self, line):
+        if super().parse_line(line):
+            return True
+
+        if line[:13] == "[ RUN      ] ":
+            self.current_test = line[13:]
+        elif line[:13] == "[       OK ] ":
+            self.finalize_test(True)
+        elif line[:13] == "[  FAILED  ] ":
+            if self.current_test is not None and self.current_file is not None:
+                # Avoid the summary of failed tests, such as
+                #   [  FAILED  ] 1 test, listed below:
+                #   [  FAILED  ] NVFuserTest.FusionTuringMatmulSplitK_CUDA
+                self.finalize_test(False)
+        else:
+            return False
+        return True
+
+
+class LogParserGBench(LogParser):
+    """Parse output of google benchmark binaries like nvfuser_bench"""
+
+    def compile_regex(self):
+        super().compile_regex()
+
+        # Example line:
+        #   benchmark_name   34.0 us      1.53 ms   2007  /Launch_Parameters[block(2/2/32)/grid(32/2/2)/49664]
+        # This is the only kind of line we match for benchmarks. Note that this is printed at the end of each benchmark
+        self.result_re = re.compile(
+            r"^(\S+)\s+([-+\.\d]+)\s+(\S+)\s+([-+\.\d]+)\s+(\S+)\s+(\d+).*$"
+        )
+
+    def parse_line(self, line):
+        if super().parse_line(line):
+            return True
+
+        m = re.match(self.result_re, line)
+        if m is not None and self.current_file is not None:
+            self.current_test, time, time_unit, cpu, cpu_unit, iterations = m.groups()
+            # Skip metadata which for nvfuser_bench sometimes includes LaunchParams
+            # meta = m.groups()[6]
+            new_test = self.finalize_test(True)
+            new_test.benchmark_result = BenchmarkResult(
+                time, time_unit, cpu, cpu_unit, iterations
+            )
+            return True
+        return False
+
+
+class LogParserPyTest(LogParser):
+    """Parse output of pytest tests.
+
+    Note that the tests must be run with both the -v and -s options
+    """
+
+    def compile_regex(self):
+        super().compile_regex()
+
+        self.all_test_names: list[str] | None = None
+
+    def parse_line(self, line):
+        if self.all_test_names is None:
+            m = re.match(r"Running \d+ items in this shard: (.*)$", line)
+            if m is not None:
+                # grab the test list
+                self.all_test_names = m.groups()[0].split(", ")
+                return True
+
+        if self.all_test_names is not None:
+            # Try to match a line like this:
+            #
+            #   python_tests/test_python_frontend.py::TestNvFuserFrontend::test_pad_expanded_empty PRINTING: __tmp_kernel5.cu
+            #
+            # The first column is the test name, which should not have spaces.
+            # After that is an ordinary line of STDOUT. In these cases we should
+            # mark the beginning of a new test, and process the remainder of the
+            # line as a separate line.
+            testrest = line.split(maxsplit=1)
+            if len(testrest) > 0 and testrest[0] in self.all_test_names:
+                self.current_test = testrest[0]
+                if len(testrest) > 1:
+                    line = testrest[1]
+                else:
+                    return True
+
+        if line == "PASSED":
+            self.finalize_test(True)
+        elif line == "FAILED" and self.current_test is not None:
+            self.finalize_test(False)
+
+        if super().parse_line(line):
+            return True
+
+        return False
 
 
 @dataclass
 class TestRun:
+    """A single process that might contain many kernels, grouped into tests"""
+
     directory: str
     git: GitRev = field(init=False)
-    run_name: str = field(init=False)
+    name: str = field(init=False)
     command: str = field(init=False)
+    command_type: CommandType = field(init=False)
     exit_code: int = field(init=False)
     env: str = field(init=False)
     gpu_names: str = field(init=False)
@@ -169,21 +442,39 @@ class TestRun:
     preamble_size_lines: int = field(init=False)
 
     def __post_init__(self):
-        self.run_name = os.path.basename(self.directory)
+        if not os.path.isdir(self.directory):
+            print(f"ERROR: {self.directory} does not name a directory")
+            sys.exit(1)
+
+        try:
+            self.name = (
+                open(os.path.join(self.directory, "run_name"), "r").read().rstrip()
+            )
+        except FileNotFoundError:
+            self.name = os.path.basename(self.directory)
 
         # get description of this git rev
-        abbrev = os.path.basename(os.path.dirname(os.path.abspath(self.directory)))
-        self.git = GitRev(abbrev)
+        gitdiff = None
+        try:
+            gitdiff = open(os.path.join(self.directory, "git_diff"), "r").read()
+        except FileNotFoundError:
+            pass
+        git_hash = open(os.path.join(self.directory, "git_hash"), "r").read().rstrip()
+        self.git = GitRev(git_hash, diff=gitdiff)
 
         self.command = open(os.path.join(self.directory, "command"), "r").read()
 
-        # check that command includes "nvfuser_tests"
-        if self.command.find("nvfuser_tests") == -1:
+        try:
+            self.command_type = CommandType.from_string(
+                open(os.path.join(self.directory, "command_type"), "r").read().rstrip()
+            )
+        except FileNotFoundError:
             print(
-                "ERROR: Command does not appear to be nvfuser_tests. Aborting.",
+                f"WARNING: Could not find {os.path.join(self.directory, 'command_type')}. "
+                "Parsing as UNKNOWN command type means kernels will be ungrouped.",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            self.command_type = CommandType.UNKNOWN
 
         try:
             self.env = ""
@@ -219,67 +510,24 @@ class TestRun:
         """
         Compute a map from test name to list of cuda filenames
         """
-        # first find the stdout log file
-        logfile = None
-        for fname in os.listdir(self.directory):
-            if fname.find("stdout") != -1:
-                if logfile is not None:
-                    raise RuntimeError(
-                        f"Input directory {self.directory} contains multiple "
-                        'possible logs (filenames containing "stdout")'
-                    )
-                logfile = os.path.join(self.directory, fname)
-        if logfile is None:
+        logfile = os.path.join(self.directory, "stdout")
+        if not os.path.isfile(logfile):
             raise RuntimeError(
-                f"Input directory {self.directory} contains no log (filenames "
-                'containing "stdout")'
+                f"Input directory {self.directory} contains no file named 'stdout'"
             )
 
-        # regex for stripping ANSI color codes
-        ansi_re = re.compile(r"(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]")
-        current_test = None
-        current_file = None
-        ptxas_info = ""
-        kernels = []
+        if self.command_type == CommandType.GOOGLETEST:
+            parser = LogParserGTest(logfile)
+        elif self.command_type == CommandType.GOOGLEBENCH:
+            parser = LogParserGBench(logfile)
+        elif self.command_type == CommandType.PYTEST:
+            parser = LogParserPyTest(logfile)
+        else:
+            # The base class provides a parser that groups everything into a
+            # single "test" called "Ungrouped Kernels"
+            parser = LogParser(logfile)
 
-        def finalize_kernel():
-            nonlocal ptxas_info
-            nonlocal current_file
-            if current_file is not None:
-                kernels.append(CompiledKernel(current_file, ptxas_info=ptxas_info))
-            ptxas_info = ""
-            current_file = None
-
-        def finalize_test(passed: bool):
-            nonlocal current_test
-            nonlocal kernels
-            assert current_test is not None
-            finalize_kernel()
-            self.kernel_map[current_test] = CompiledTest(current_test, kernels, passed)
-            current_test = None
-            kernels = []
-
-        for line in open(logfile, "r").readlines():
-            line = ansi_re.sub("", line.strip())
-            if line[:13] == "[ RUN      ] ":
-                current_test = line[13:]
-            elif line[:13] == "[       OK ] ":
-                finalize_test(True)
-            elif line[:13] == "[  FAILED  ] ":
-                finalize_test(False)
-            elif line[:10] == "PRINTING: ":
-                if line[-3:] == ".cu":
-                    finalize_kernel()
-                    # This avoids comparing the .ptx files that are created then
-                    # removed by the MemoryTest.LoadCache tests
-                    current_file = line[10:]
-            elif line[:6] == "ptxas ":
-                # NVFUSER_DUMP=ptxas_verbose corresponds to nvcc --ptxas-options=-v or --resources-usage
-                # This always prints after printing the cuda filename
-                if current_file is None:
-                    print("WARNING: Cannot associate ptxas info with CUDA kernel")
-                    continue
-                ptxas_info += line + "\n"
+        self.kernel_map = parser.kernel_map
 
     def find_preamble(self):
         """Look for common preamble in collected kernels"""
@@ -294,6 +542,9 @@ class TestRun:
                     # we set nvfuser_index_t in the preamble. We ignore that change for the purposes of this diff
                     if line[:8] == "typedef " and line[-17:] == " nvfuser_index_t;":
                         line = "typedef int nvfuser_index_t; // NOTE: index type hard-coded as int for display only"
+                    if re.search(r"void kernel\d+\b", line) is not None:
+                        # we arrived at the kernel definition
+                        break
                     if first:
                         preamble_lines.append(line)
                     elif i >= len(preamble_lines) or preamble_lines[i] != line:
@@ -330,6 +581,13 @@ class TestRun:
         if strip_preamble and kern.code[-1] == "}":
             # trailing curly brace is close of namespace. This will clean it up so that we have just the kernel
             kern.code = kern.code[:-1].rstrip()
+        # find ptx file if it exists
+        ptx_basename = os.path.splitext(basename)[0] + ".ptx"
+        ptx_fullname = os.path.join(self.directory, "ptx", ptx_basename)
+        try:
+            kern.ptx = open(ptx_fullname, "r").read().rstrip()
+        except FileNotFoundError:
+            pass
         return kern
 
 
@@ -340,11 +598,15 @@ class KernelDiff:
     kernel1: CompiledKernel
     kernel2: CompiledKernel
     diff_lines: InitVar[list[str]]
+    ptx_diff_lines: InitVar[list[str] | None]
     diff: str = field(init=False)
     new_lines: int = 0
     removed_lines: int = 0
+    ptx_diff: str | None = None
+    new_ptx_lines: int = 0
+    removed_ptx_lines: int = 0
 
-    def __post_init__(self, diff_lines: list[str]):
+    def __post_init__(self, diff_lines: list[str], ptx_diff_lines: list[str] | None):
         self.diff = "\n".join(diff_lines)
 
         for line in diff_lines:
@@ -353,14 +615,22 @@ class KernelDiff:
             elif line[:2] == "- ":
                 self.removed_lines += 1
 
+        if ptx_diff_lines is not None:
+            self.ptx_diff = "\n".join(ptx_diff_lines)
+
+            for line in ptx_diff_lines:
+                if line[:2] == "+ ":
+                    self.new_ptx_lines += 1
+                elif line[:2] == "- ":
+                    self.removed_ptx_lines += 1
+
 
 @dataclass
 class TestDiff:
     testname: str
-    test1_passed: bool
-    test2_passed: bool
+    test1: CompiledTest
+    test2: CompiledTest
     kernel_diffs: list[KernelDiff] | None = None
-    kernel_number_mismatch: tuple[int, int] | None = None
 
 
 @dataclass
@@ -373,9 +643,10 @@ class TestDifferences:
     removed_tests: list[CompiledTest] = field(default_factory=list)
     total_num_diffs: int = 0
     show_diffs: InitVar[bool] = False
+    inclusion_criterion: InitVar[str] = "mismatched_cuda_or_ptx"
     preamble_diff: str = field(init=False)
 
-    def __post_init__(self, show_diffs: bool):
+    def __post_init__(self, show_diffs: bool, kernel_inclusion_criterion: str):
         if self.run1.command != self.run2.command:
             print("WARNING: commands differ between runs", file=sys.stderr)
             print(f"  {self.run1.directory}: {self.run1.command}", file=sys.stderr)
@@ -391,8 +662,8 @@ class TestDifferences:
             difflib.unified_diff(
                 self.run1.preamble.splitlines(),
                 self.run2.preamble.splitlines(),
-                fromfile=self.run1.git.abbrev,
-                tofile=self.run2.git.abbrev,
+                fromfile=self.run1.name,
+                tofile=self.run2.name,
                 n=5,
             )
         )
@@ -413,16 +684,16 @@ class TestDifferences:
             if len(compiled_test1.kernels) != len(compiled_test2.kernels):
                 print(
                     f"WARNING: Test {testname} has different number of kernels "
-                    f"in {dir1} than in {dir2}. Not showing diffs for this test.",
+                    f"in {self.run1.directory} than in {self.run2.directory}. "
+                    "Not showing diffs for this test.",
                     file=sys.stderr,
                 )
                 self.test_diffs.append(
                     TestDiff(
                         testname,
-                        compiled_test1.passed,
-                        compiled_test2.passed,
+                        compiled_test1,
+                        compiled_test2,
                         None,
-                        (len(compiled_test1.kernels), len(compiled_test2.kernels)),
                     )
                 )
 
@@ -430,18 +701,52 @@ class TestDifferences:
             for kernel_num in range(len(compiled_test1.kernels)):
                 kern1 = self.run1.get_kernel(testname, kernel_num, strip_preamble=True)
                 kern2 = self.run2.get_kernel(testname, kernel_num, strip_preamble=True)
+                assert kern1.code is not None
+                assert kern2.code is not None
+
+                ptx_diff_lines = None
+                if kern1.ptx is not None and kern2.ptx is not None:
+                    ptx_diff_lines = list(
+                        difflib.unified_diff(
+                            kern1.ptx.splitlines(),
+                            kern2.ptx.splitlines(),
+                            fromfile=self.run1.name,
+                            tofile=self.run2.name,
+                            n=5,
+                        )
+                    )
 
                 diff_lines = list(
                     difflib.unified_diff(
                         kern1.code.splitlines(),
                         kern2.code.splitlines(),
-                        fromfile=self.run1.git.abbrev,
-                        tofile=self.run2.git.abbrev,
+                        fromfile=self.run1.name,
+                        tofile=self.run2.name,
                         n=5,
                     )
                 )
-                if len(diff_lines) > 0:
-                    kd = KernelDiff(testname, kernel_num, kern1, kern2, diff_lines)
+                if (
+                    kernel_inclusion_criterion == "all"
+                    or (
+                        kernel_inclusion_criterion == "mismatched_cuda_or_ptx"
+                        and diff_lines is not None
+                        and len(diff_lines) > 0
+                    )
+                    or (
+                        kernel_inclusion_criterion
+                        in ["mismatched_cuda_or_ptx", "mismatched_ptx"]
+                        and ptx_diff_lines is not None
+                        and len(ptx_diff_lines) > 0
+                    )
+                ):
+                    kd = KernelDiff(
+                        testname,
+                        kernel_num + 1,
+                        kern1,
+                        kern2,
+                        diff_lines,
+                        ptx_diff_lines=ptx_diff_lines,
+                    )
                     if show_diffs:
                         print(testname, kernel_num, kd.diff)
                     self.total_num_diffs += 1
@@ -451,8 +756,8 @@ class TestDifferences:
                 self.test_diffs.append(
                     TestDiff(
                         testname,
-                        compiled_test1.passed,
-                        compiled_test2.passed,
+                        compiled_test1,
+                        compiled_test2,
                         kernel_diffs,
                     )
                 )
@@ -477,12 +782,29 @@ class TestDifferences:
         import jinja2
 
         tools_dir = os.path.dirname(__file__)
-        env = jinja2.Environment(loader=jinja2.FileSystemLoader(searchpath=tools_dir))
-        template = env.get_template("templates/codediff.html")
-        context = asdict(self)
+        template_dir = os.path.join(tools_dir, "templates")
+        env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(searchpath=template_dir)
+        )
+        template = env.get_template("codediff.html")
+        # dict_factory lets us provide custom serializations for classes like Enums
+        # https://stackoverflow.com/questions/61338539/how-to-use-enum-value-in-asdict-function-from-dataclasses-module
+        context = asdict(
+            self,
+            dict_factory=lambda data: {
+                # Serialize CommandType as string so that jinja can recognize it
+                field: value.name if isinstance(value, CommandType) else value
+                for field, value in data
+            },
+        )
         context["omit_preamble"] = omit_preamble
         context["max_diffs"] = max_diffs
-        context["tool_git"] = GitRev("HEAD")
+        head_hash = (
+            subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True)
+            .stdout.strip()
+            .decode("utf-8")
+        )
+        context["tool_git"] = GitRev(head_hash)
 
         return template.render(context)
 
@@ -494,8 +816,8 @@ if __name__ == "__main__":
         epilog="This command must be run from within a git checkout of the NVFuser repo.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("dir1", help="Directory containing stdout-*.log and cuda/")
-    parser.add_argument("dir2", help="Directory containing stdout-*.log and cuda/")
+    parser.add_argument("dir1", help="Directory containing 'stdout' and 'cuda/'")
+    parser.add_argument("dir2", help="Directory containing 'stdout' and 'cuda/'")
     parser.add_argument(
         "--hide-env",
         action="store_true",
@@ -504,6 +826,13 @@ if __name__ == "__main__":
     parser.add_argument("--html", action="store_true", help="Write HTML file?")
     parser.add_argument(
         "--hide-diffs", action="store_true", help="Print diffs to STDOUT?"
+    )
+    parser.add_argument(
+        "--kernel-inclusion-criterion",
+        "-i",
+        choices=("mismatched_cuda_or_ptx", "mismatched_ptx", "all"),
+        default="mismatched_cuda_or_ptx",
+        help="Which kernels should we include?",
     )
     parser.add_argument(
         "--html-max-diffs",
@@ -526,7 +855,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     td = TestDifferences(
-        TestRun(args.dir1), TestRun(args.dir2), show_diffs=not args.hide_diffs
+        TestRun(args.dir1),
+        TestRun(args.dir2),
+        show_diffs=not args.hide_diffs,
+        inclusion_criterion=args.kernel_inclusion_criterion,
     )
 
     if args.hide_env:
