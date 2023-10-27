@@ -2332,7 +2332,7 @@ std::vector<PolymorphicValue> ViewOp::evaluate(
     const ExpressionEvaluator& original_ee,
     const std::vector<PolymorphicValue>& inputs) const {
   NVF_ERROR(inputs.size() == 1);
-  at::Tensor in_tensor = inputs[0].as<at::Tensor>();
+  const at::Tensor& in_tensor = inputs[0].as<at::Tensor>();
 
   ExpressionEvaluator ee(original_ee);
   ee.bind(in(), in_tensor);
