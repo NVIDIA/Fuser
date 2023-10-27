@@ -1301,30 +1301,16 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
   KernelArgumentHolder ret;
   ret.setDeviceIndex(args.getDeviceIndex());
 
-  for (const auto out_i : c10::irange(fusion->outputs().size())) {
-    // If the output is just trivially the input, just "copy" it over.
-    // See note [trivial forwarding]
-    if (fusion->outputs()[out_i]->isFusionInput()) {
-      auto input_it = std::find(
-          fusion->inputs().begin(),
-          fusion->inputs().end(),
-          fusion->outputs()[out_i]);
-      NVF_ERROR(
-          input_it != fusion->inputs().end(),
-          "Issue with an input showing up as output but could not find input.");
-      auto inp_i = std::distance(fusion->inputs().begin(), input_it);
-      ret.push(*args[inp_i]);
-    } else {
-      NVF_ERROR(
-          fusion->outputs()[out_i]->isA<TensorView>(),
-          "Cannot allocate outputs that are not tensors.");
-      auto output_tv = fusion->outputs()[out_i]->as<TensorView>();
-      const auto& [sizes, strides] = inferShapeOfOutput(output_tv, expr_eval);
-      const auto dtype = (output_tv->dtype() == DataType::Index)
-          ? data_type_to_aten(arg_index_type)
-          : data_type_to_aten(output_tv->dtype());
-      ret.pushTensorProxy(sizes, strides, dtype);
-    }
+  for (Val* output : fusion->outputs()) {
+    NVF_ERROR(
+        output->isA<TensorView>(),
+        "Cannot allocate outputs that are not tensors.");
+    auto output_tv = output->as<TensorView>();
+    const auto& [sizes, strides] = inferShapeOfOutput(output_tv, expr_eval);
+    const auto dtype = (output_tv->dtype() == DataType::Index)
+        ? data_type_to_aten(arg_index_type)
+        : data_type_to_aten(output_tv->dtype());
+    ret.pushTensorProxy(sizes, strides, dtype);
   }
   return ret;
 }
