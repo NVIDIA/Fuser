@@ -931,14 +931,11 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     }
   }
 
-  // Split-K: We always split by the Split-K factor, but we don't parallelize
-  // it unless the factor is greater than one. Kf is the reduction needed for
-  // split-K.
   // [..., Mo, No, Koo, Mi, Ni, Ki]
-  // Split [Koo] -> [Kf, Ko]
   int num_splitk_dims = 0;
   TensorView* splitk_sum = nullptr;
   if (params.splitk_factor != 1) {
+    // Split Koo -> [Kf, Ko]
     mma_result->split(-4, params.splitk_factor, /*inner*/ false);
     // After split [..., Mo, No, Kf, Ko, Mi, Ni, Ki]
     // rFactor converts
