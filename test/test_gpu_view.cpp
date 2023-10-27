@@ -2527,4 +2527,30 @@ TEST_F(GpuViewTest, MergeExpandedBroadcast) {
   EXPECT_THAT(out_tensor.strides(), testing::ElementsAre(5, 1, 0));
 }
 
+// Merge an expanded Broadcast with an Iteration IterDomain
+TEST_F(GpuViewTest, MergeExpandedWithIteration) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({4, 5, 2});
+  fusion.addInput(in);
+  TensorView* out = broadcast(in, {false, false, false, true});
+  out = expand(
+      out,
+      {IrBuilder::create<Val>(4),
+       IrBuilder::create<Val>(5),
+       IrBuilder::create<Val>(2),
+       IrBuilder::create<Val>(3)});
+  out = reshape(out, {4, 5, 2, 3}, {4, 5, 6});
+  fusion.addOutput(out);
+
+  FusionExecutor fe;
+  at::Tensor in_tensor =
+      at::randn({4, 5, 2}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  fe.compileFusion(&fusion, {in_tensor});
+  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+  // The output should not be expanded
+  EXPECT_THAT(out_tensor.strides(), testing::ElementsAre(30, 6, 1));
+}
+
 } // namespace nvfuser
