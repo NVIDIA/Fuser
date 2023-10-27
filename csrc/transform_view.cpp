@@ -209,7 +209,6 @@ class MergeTransform final : public ViewTransform {
     // are broadcasts. Otherwise, we resolve the broadcast and produce an
     // Iteration output domain.
     bool realize_expand = !(outer_id->isBroadcast() && inner_id->isBroadcast());
-    auto iter_type = realize_expand ? IterType::Iteration : IterType::Broadcast;
 
     if (!outer_id->isRFactorProduct()) {
       outer_id =
@@ -237,7 +236,8 @@ class MergeTransform final : public ViewTransform {
 
     auto new_merged_id =
         IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), merged_extent)
-            .iter_type(iter_type)
+            .iter_type(
+                realize_expand ? IterType::Iteration : IterType::Broadcast)
             .extent(merged_extent)
             .expanded_extent(merged_expanded_extent)
             .is_rfactor_domain(true)
@@ -306,8 +306,8 @@ class SplitTransform final : public ViewTransform {
 
     Val* remainder = ceilDiv(id->getMaybeExpandedExtent(), factor);
 
-    Val* outer_extent, *outer_expanded_extent;
-    Val* inner_extent, *inner_expanded_extent;
+    Val *outer_extent, *outer_expanded_extent;
+    Val *inner_extent, *inner_expanded_extent;
     if (id->hasExpandedExtent()) {
       outer_extent = FusionGuard::getCurFusion()->oneVal();
       outer_expanded_extent = factor;
