@@ -407,7 +407,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_tutorial.cpp
     ${NVFUSER_ROOT}/test/test_alias_analysis.cpp
   )
-  
+
   # We don't link CUPTI for MSVC
   if(NOT MSVC)
     list(APPEND JIT_TEST_SRCS
