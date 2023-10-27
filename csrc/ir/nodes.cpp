@@ -2328,6 +2328,28 @@ std::string ViewOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+std::vector<PolymorphicValue> ViewOp::evaluate(
+    const ExpressionEvaluator& original_ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(inputs.size() == 1);
+  at::Tensor in_tensor = inputs[0].as<at::Tensor>();
+
+  ExpressionEvaluator ee(original_ee);
+  ee.bind(in(), in_tensor);
+
+  const std::vector<IterDomain*>& out_rfactor = out()->getMaybeRFactorDomain();
+  std::vector<int64_t> out_shape;
+  out_shape.reserve(out_rfactor.size());
+  for (IterDomain* id : out_rfactor) {
+    // TODO: Implement ExpandOp::evaluate so we can test expanded broadcast.
+    out_shape.push_back(
+        ee.evaluate(id->getMaybeExpandedExtent()).as<int64_t>());
+  }
+
+  // TODO: check allocation domain and contiguity.
+  return {in_tensor.view(out_shape)};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(ViewOp)
 
 LoadStoreOp::LoadStoreOp(
