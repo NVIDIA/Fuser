@@ -103,12 +103,12 @@ void NonDivisibleSplitInfo::propagateReachability(
 Val* NonDivisibleSplitInfo::getMaybeNonDivisibleExtent(Split* split) const {
   std::optional<int64_t> in_extent;
   if (split->in()->extent()->isConstInt()) {
-    in_extent = split->in()->extent()->evaluate().as<int64_t>();
+    in_extent = split->in()->extent()->evaluateInt();
   }
 
   std::optional<int64_t> factor;
   if (split->factor()->isConstInt()) {
-    factor = split->factor()->evaluate().as<int64_t>();
+    factor = split->factor()->evaluateInt();
   }
 
   if (in_extent.has_value() && factor.has_value() &&

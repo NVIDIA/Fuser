@@ -315,7 +315,7 @@ bool Fusion::isNoOp() {
     auto root_dom = TensorDomain::noReductions(out_tv->getMaybeRFactorDomain());
     bool size_zero = false;
     for (auto id : root_dom) {
-      if (id->extent()->isConstScalar() && id->extent()->evaluate() == 0) {
+      if (id->extent()->isConstScalar() && id->extent()->evaluateInt() == 0) {
         size_zero = true;
         break;
       }

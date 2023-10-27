@@ -154,11 +154,11 @@ bool IterDomainGraph::exprsMap(
 
     auto extent_0_match = extent_0o->sameAs(extent_1o) ||
         (extent_0o->isConstInt() && extent_1o->isConstInt() &&
-         extent_0o->evaluate() == extent_1o->evaluate());
+         extent_0o->evaluateInt() == extent_1o->evaluateInt());
 
     auto extent_1_match = extent_0i->sameAs(extent_1i) ||
         (extent_0i->isConstInt() && extent_1i->isConstInt() &&
-         extent_0i->evaluate() == extent_1i->evaluate());
+         extent_0i->evaluateInt() == extent_1i->evaluateInt());
 
     if (!(extent_0_match || extent_1_match)) {
       return false;
