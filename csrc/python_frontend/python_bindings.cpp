@@ -881,7 +881,6 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_UNARY_OP("reciprocal", reciprocal)
   NVFUSER_PYTHON_BINDING_UNARY_OP("round", round)
   NVFUSER_PYTHON_BINDING_UNARY_OP("rsqrt", rsqrt)
-  NVFUSER_PYTHON_BINDING_UNARY_OP("set", set)
   NVFUSER_PYTHON_BINDING_UNARY_OP("segment_set", segment_set)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sign", sign)
   NVFUSER_PYTHON_BINDING_UNARY_OP("sigmoid", sigmoid)
