@@ -218,13 +218,14 @@ void validateAllocationSizesAndStrides(
     c10::IntArrayRef strides) {
   NVF_ERROR(sizes.size() == strides.size());
 
-  // Validate contiguity
+  // Validate contiguity.
   int64_t contiguous_stride = 1;
   auto contiguity_rev = contiguity.crbegin();
   for (int64_t i = (int64_t)sizes.size() - 1; i >= 0; i--) {
     if (alloc_dom_no_reductions.at(i)->isBroadcast()) {
       continue;
     }
+
     while (!contiguity_rev->has_value()) {
       contiguity_rev++;
     }
@@ -259,6 +260,24 @@ void validateAllocationSizesAndStrides(
           [](auto c_flag) { return c_flag.has_value(); }),
       "The size of contiguity mismatch with the dimensionality of allocation domain");
 
+  // Validate that strides must be in decreasing order modulo reduction and
+  // broadcast.
+  int64_t last_stride = std::numeric_limits<int64_t>::max();
+  for (int64_t i : c10::irange((int64_t)strides.size())) {
+    if (alloc_dom_no_reductions.at(i)->isBroadcast()) {
+      continue;
+    }
+
+    NVF_ERROR(
+        strides[i] < last_stride,
+        "Strides must be in decreasing order modulo reduction and broadcast. Found ",
+        last_stride,
+        " before ",
+        strides[i]);
+
+    last_stride = strides[i];
+  }
+
   // Validate that for expanded broadcast, the stride must be zero.
   for (int64_t i : c10::irange((int64_t)strides.size())) {
     if (auto alloc_id = alloc_dom_no_reductions.at(i);
@@ -274,15 +293,8 @@ void validateAllocationSizesAndStrides(
   }
 }
 
-// Given an ATen tensor, whose sizes and strides are w.r.t to the rFactor domain
-// of its corresponding TensorView, compute the sizes and strides of the tensor
-// with respect to its allocation domain.
-// For example, if the rFactor domain is [I1, I2], and the allocation domain is
-// [I2*I1], and the tensor's size is [5, 3] and stride is [2, 10], then the
-// resulting size will be [15] and stride will be [2]
-// Another example, if the rFactor domain is [I1*I2] and the allocation domain
-// is [I1, I2], and the tensor's size is [15] and stride is [7], and the extent
-// of I2 is 5, then the resulting size will be [3, 5] and stride will be [35, 7]
+} // namespace
+
 std::pair<std::vector<int64_t>, std::vector<int64_t>>
 inferAndValidateAllocationSizesAndStrides(
     const at::Tensor& tensor,
@@ -329,8 +341,6 @@ inferAndValidateAllocationSizesAndStrides(
   validateAllocationSizesAndStrides(alloc, tv->getContiguity(), sizes, strides);
   return {std::move(sizes), std::move(strides)};
 }
-
-} // namespace
 
 std::vector<PolymorphicValue> GetMetaData::evaluate(
     const ExpressionEvaluator& ee,
