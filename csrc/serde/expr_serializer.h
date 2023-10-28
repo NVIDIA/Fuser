@@ -99,6 +99,9 @@ class ExpressionSerializer {
   // allocation, and leaf domains
   void bind(const nvfuser::TensorView* tv);
 
+  // Bind kir::Allocate nodes
+  void bind(const std::vector<const kir::Allocate*>& allocations);
+
   void printStack() const {
     std::vector<nvfuser::Val*> ordered_stack(operation_stack_.size());
     for (auto item : operation_stack_) {

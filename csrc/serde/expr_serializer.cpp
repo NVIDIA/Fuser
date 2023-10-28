@@ -96,9 +96,9 @@ std::vector<VALTYPE*> makeSortedEvaluationList(std::vector<VALTYPE*> input) {
 
 //! Kernel IR utility, collects all the symbolic values used in allocation
 //! nodes.
-std::vector<kir::Allocate*> collectBufferSizes(
+std::vector<const kir::Allocate*> collectBufferSizes(
     const std::vector<nvfuser::Expr*>& exprs) {
-  std::vector<kir::Allocate*> buffers;
+  std::vector<const kir::Allocate*> buffers;
   std::vector<nvfuser::Expr*> to_visit(exprs);
   while (!to_visit.empty()) {
     auto expr = to_visit.back();
@@ -260,7 +260,7 @@ flatbuffers::Offset<Instruction> ExpressionSerializer::serializeSwizzle2D(
 }
 
 void ExpressionSerializer::bind(nvfuser::Val* v) {
-  all_values_.push_back(v);
+  insertUniqueItem(all_values_, v);
 }
 
 void ExpressionSerializer::bindRootDomain(
@@ -286,22 +286,7 @@ void ExpressionSerializer::bind(const nvfuser::TensorView* tv) {
   bindDomain(tv->getLeafDomain());
 }
 
-flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
-    flatbuffers::FlatBufferBuilder& builder,
-    kir::Kernel* kernel,
-    const std::vector<const kir::Allocate*>& allocations) {
-  // 1) Collect allocation sizes
-  for (auto allocate : collectBufferSizes(kernel->topLevelExprs())) {
-    if (auto tv = dynamic_cast<nvfuser::TensorView*>(allocate->buffer())) {
-      bind(tv);
-      for (auto v : allocate->shape()) {
-        bind(v);
-      }
-    }
-  }
-
-  // A deserialized fusion may not contain all its allocations in its
-  // kir::Kernel. Add allocations directly to handle this case.
+void ExpressionSerializer::bind(const std::vector<const kir::Allocate*>& allocations) {
   for (auto allocate : allocations) {
     if (auto tv = dynamic_cast<nvfuser::TensorView*>(allocate->buffer())) {
       bind(tv);
@@ -310,6 +295,18 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
       }
     }
   }
+}
+
+flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
+    flatbuffers::FlatBufferBuilder& builder,
+    kir::Kernel* kernel,
+    const std::vector<const kir::Allocate*>& allocations) {
+  // 1) Collect allocation sizes for kir::Kernel
+  bind(collectBufferSizes(kernel->topLevelExprs()));
+
+  // 2) A deserialized fusion may not contain all its allocations in its
+  // kir::Kernel. Add allocations directly to handle this case.
+  bind(allocations);
 
   // TODO Enforce deterministic order
   // Add TensorView RootDomain IterDomain Extents for all kernel inputs
@@ -334,12 +331,12 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
   for (auto v : iterdomains) {
     auto id = dynamic_cast<nvfuser::IterDomain*>(v);
     NVF_CHECK(id != nullptr);
-    all_values_.push_back(id->start());
-    all_values_.push_back(id->extent());
+    insertUniqueItem(all_values_, id->start());
+    insertUniqueItem(all_values_, id->extent());
     if (id->hasExpandedExtent()) {
-      all_values_.push_back(id->expandedExtent());
+      insertUniqueItem(all_values_, id->expandedExtent());
     }
-    all_values_.push_back(id->stopOffset());
+    insertUniqueItem(all_values_, id->stopOffset());
   }
 
   // 2) Sort values by dependency order
