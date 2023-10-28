@@ -532,12 +532,12 @@ class SegmentCandidateFinder {
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
-    SegmentCandidateFinder scf(std::move(fusion), inputs, options);
     if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
       debug() << "Segment the fusion (Original Fusion Un-modified): "
               << std::endl;
-      scf.completeFusion()->printMath();
+      fusion->printMath();
     }
+    SegmentCandidateFinder scf(std::move(fusion), inputs, options);
     return std::move(scf.segmented_fusion_);
   }
 
