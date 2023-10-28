@@ -326,21 +326,15 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
   std::vector<nvfuser::Val*> symbolic_values;
   std::deque<nvfuser::Val*> derived_values;
 
-  auto insert_item = [](auto& container, auto v) {
-    if (std::find(container.begin(), container.end(), v) == container.end()) {
-      container.push_back(v);
-    }
-  };
-
+  // TODO Enforce deterministic order
   // Add TensorView RootDomain IterDomain Extents for all kernel inputs
-  // TODO Get deterministic order
   for (auto input : kernel->inputs()) {
     if (nvfuser::TensorView* tv = dynamic_cast<nvfuser::TensorView*>(input)) {
-      insert_item(symbolic_values, tv);
+      insertUniqueItem(symbolic_values, tv);
       for (auto id : tv->getRootDomain()) {
         auto extent = id->extent();
         if (!extent->isA<nvfuser::NamedScalar>() && !extent->isConstInt()) {
-          insert_item(symbolic_values, extent);
+          insertUniqueItem(symbolic_values, extent);
         }
       }
     }
@@ -368,16 +362,16 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
   for (auto v : makeSortedEvaluationList(all_values)) {
     if (v->definition() == nullptr) {
       if (auto ns = dynamic_cast<nvfuser::NamedScalar*>(v)) {
-        insert_item(named_scalar_values, ns);
+        insertUniqueItem(named_scalar_values, ns);
       } else if (v->isConstInt()) {
-        insert_item(const_int_values, v);
+        insertUniqueItem(const_int_values, v);
       } else if (auto id = dynamic_cast<nvfuser::IterDomain*>(v)) {
-        insert_item(derived_values, id);
+        insertUniqueItem(derived_values, id);
       } else {
-        insert_item(symbolic_values, v);
+        insertUniqueItem(symbolic_values, v);
       }
     } else {
-      insert_item(derived_values, v);
+      insertUniqueItem(derived_values, v);
     }
   }
 

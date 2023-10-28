@@ -12,6 +12,14 @@
 
 namespace nvfuser::serde {
 
+//! Expression Utility Function
+template <typename Container, typename T>
+void insertUniqueItem(Container& container, T v) {
+  if (std::find(container.begin(), container.end(), v) == container.end()) {
+    container.push_back(v);
+  }
+}
+
 //! A function to map the nvfuser UnaryOp type to the corresponding serde type
 serde::UnaryOpType mapToSerdeUnaryOp(nvfuser::UnaryOpType);
 
