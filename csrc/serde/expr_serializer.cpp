@@ -121,40 +121,6 @@ std::vector<kir::Allocate*> collectBufferSizes(
   return buffers;
 }
 
-void bind(std::vector<nvfuser::Val*>& all_values, nvfuser::Val* v) {
-  all_values.push_back(v);
-}
-
-// Bind the iterDomain's extent for the given root domain
-void bindRootDomain(
-    std::vector<nvfuser::Val*>& all_values,
-    std::vector<nvfuser::IterDomain*> domain) {
-  for (auto d : domain) {
-    NVF_ERROR(d->definition() == nullptr);
-    bind(all_values, d->start());
-    bind(all_values, d->extent());
-  }
-}
-
-// Bind the iterDomain's extent for the given domain
-void bindDomain(
-    std::vector<nvfuser::Val*>& all_values,
-    std::vector<nvfuser::IterDomain*> domain) {
-  for (auto d : domain) {
-    bind(all_values, d->as<Val>());
-  }
-}
-
-// 1. Generate extents for IterDomains that compose root domain
-// 2. Create new extents using split, merge, reorder operations for rfactor,
-// allocation, and leaf domains
-void bind(std::vector<nvfuser::Val*>& all_values, nvfuser::TensorView* tv) {
-  bindRootDomain(all_values, tv->getRootDomain());
-  bindDomain(all_values, tv->getRFactorDomain());
-  bindDomain(all_values, tv->getAllocationDomain());
-  bindDomain(all_values, tv->getLeafDomain());
-}
-
 } // namespace
 
 flatbuffers::Offset<Instruction> ExpressionSerializer::serializeAttribute(
@@ -293,18 +259,43 @@ flatbuffers::Offset<Instruction> ExpressionSerializer::serializeSwizzle2D(
       builder, serde::InstructionData_Swizzle2D, swizzle_fb.Union());
 }
 
+void ExpressionSerializer::bind(nvfuser::Val* v) {
+  all_values_.push_back(v);
+}
+
+void ExpressionSerializer::bindRootDomain(
+    const std::vector<nvfuser::IterDomain*>& domain) {
+  for (auto d : domain) {
+    NVF_ERROR(d->definition() == nullptr);
+    bind(d->start());
+    bind(d->extent());
+  }
+}
+
+void ExpressionSerializer::bindDomain(
+    const std::vector<nvfuser::IterDomain*>& domain) {
+  for (auto d : domain) {
+    bind(d->as<Val>());
+  }
+}
+
+void ExpressionSerializer::bind(const nvfuser::TensorView* tv) {
+  bindRootDomain(tv->getRootDomain());
+  bindDomain(tv->getRFactorDomain());
+  bindDomain(tv->getAllocationDomain());
+  bindDomain(tv->getLeafDomain());
+}
+
 flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     kir::Kernel* kernel,
     const std::vector<const kir::Allocate*>& allocations) {
   // 1) Collect allocation sizes
-  std::vector<nvfuser::Val*> all_values;
   for (auto allocate : collectBufferSizes(kernel->topLevelExprs())) {
-    if (nvfuser::TensorView* tv =
-            dynamic_cast<nvfuser::TensorView*>(allocate->buffer())) {
-      bind(all_values, tv);
+    if (auto tv = dynamic_cast<nvfuser::TensorView*>(allocate->buffer())) {
+      bind(tv);
       for (auto v : allocate->shape()) {
-        bind(all_values, v);
+        bind(v);
       }
     }
   }
@@ -312,29 +303,23 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
   // A deserialized fusion may not contain all its allocations in its
   // kir::Kernel. Add allocations directly to handle this case.
   for (auto allocate : allocations) {
-    if (nvfuser::TensorView* tv =
-            dynamic_cast<nvfuser::TensorView*>(allocate->buffer())) {
-      bind(all_values, tv);
+    if (auto tv = dynamic_cast<nvfuser::TensorView*>(allocate->buffer())) {
+      bind(tv);
       for (auto v : allocate->shape()) {
-        bind(all_values, v);
+        bind(v);
       }
     }
   }
 
-  std::vector<nvfuser::NamedScalar*> named_scalar_values;
-  std::vector<nvfuser::Val*> const_int_values;
-  std::vector<nvfuser::Val*> symbolic_values;
-  std::deque<nvfuser::Val*> derived_values;
-
   // TODO Enforce deterministic order
   // Add TensorView RootDomain IterDomain Extents for all kernel inputs
   for (auto input : kernel->inputs()) {
-    if (nvfuser::TensorView* tv = dynamic_cast<nvfuser::TensorView*>(input)) {
-      insertUniqueItem(symbolic_values, tv);
+    if (auto tv = dynamic_cast<nvfuser::TensorView*>(input)) {
+      insertUniqueItem(symbolic_values_, tv);
       for (auto id : tv->getRootDomain()) {
         auto extent = id->extent();
         if (!extent->isA<nvfuser::NamedScalar>() && !extent->isConstInt()) {
-          insertUniqueItem(symbolic_values, extent);
+          insertUniqueItem(symbolic_values_, extent);
         }
       }
     }
@@ -342,36 +327,36 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
 
   std::vector<nvfuser::Val*> iterdomains;
   std::copy_if(
-      all_values.begin(),
-      all_values.end(),
+      all_values_.begin(),
+      all_values_.end(),
       std::back_inserter(iterdomains),
       [](nvfuser::Val* v) { return v->isA<nvfuser::IterDomain>(); });
   for (auto v : iterdomains) {
     auto id = dynamic_cast<nvfuser::IterDomain*>(v);
     NVF_CHECK(id != nullptr);
-    all_values.push_back(id->start());
-    all_values.push_back(id->extent());
+    all_values_.push_back(id->start());
+    all_values_.push_back(id->extent());
     if (id->hasExpandedExtent()) {
-      all_values.push_back(id->expandedExtent());
+      all_values_.push_back(id->expandedExtent());
     }
-    all_values.push_back(id->stopOffset());
+    all_values_.push_back(id->stopOffset());
   }
 
   // 2) Sort values by dependency order
   // 3) Divide values into NamedScalar, Int, Symbolic, and Derived values
-  for (auto v : makeSortedEvaluationList(all_values)) {
+  for (auto v : makeSortedEvaluationList(all_values_)) {
     if (v->definition() == nullptr) {
       if (auto ns = dynamic_cast<nvfuser::NamedScalar*>(v)) {
-        insertUniqueItem(named_scalar_values, ns);
+        insertUniqueItem(named_scalar_values_, ns);
       } else if (v->isConstInt()) {
-        insertUniqueItem(const_int_values, v);
+        insertUniqueItem(const_int_values_, v);
       } else if (auto id = dynamic_cast<nvfuser::IterDomain*>(v)) {
-        insertUniqueItem(derived_values, id);
+        insertUniqueItem(derived_values_, id);
       } else {
-        insertUniqueItem(symbolic_values, v);
+        insertUniqueItem(symbolic_values_, v);
       }
     } else {
-      insertUniqueItem(derived_values, v);
+      insertUniqueItem(derived_values_, v);
     }
   }
 
@@ -385,7 +370,7 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
   using fb_instruction = flatbuffers::Offset<Instruction>;
   std::vector<fb_instruction> instructions_fb;
 
-  for (auto& val : symbolic_values) {
+  for (auto& val : symbolic_values_) {
     auto sv_fb = CreateSymbolicDirect(
         builder,
         val->name(),
@@ -397,7 +382,7 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
     operation_stack_.emplace(val, operation_stack_.size());
   }
 
-  for (const auto& ns : named_scalar_values) {
+  for (const auto& ns : named_scalar_values_) {
     auto ns_fb = CreateNamedScalarDirect(
         builder, ns->name().c_str(), (int64_t)operation_stack_.size());
     auto inst = CreateInstruction(
@@ -406,7 +391,7 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
     operation_stack_.emplace(ns, operation_stack_.size());
   }
 
-  for (const auto& int_val : const_int_values) {
+  for (const auto& int_val : const_int_values_) {
     auto val_fb = serializeScalar(
         builder,
         int_val->evaluateInt(),
@@ -418,10 +403,10 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
     operation_stack_.emplace(int_val, operation_stack_.size());
   }
 
-  while (!derived_values.empty()) {
-    auto& val = derived_values.front();
+  while (!derived_values_.empty()) {
+    auto& val = derived_values_.front();
     auto def = val->definition();
-    derived_values.pop_front();
+    derived_values_.pop_front();
 
     if (operation_stack_.count(val)) {
       continue;
@@ -457,19 +442,19 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
       }
       operation_stack_.emplace(val, operation_stack_.size());
 
-      auto next_val = derived_values.front();
+      auto next_val = derived_values_.front();
       NVF_ERROR(next_val->definition() == def);
       operation_stack_.emplace(next_val, operation_stack_.size());
-      derived_values.pop_front();
+      derived_values_.pop_front();
 
     } else if (auto swop = dynamic_cast<nvfuser::Swizzle2D*>(def)) {
       instructions_fb.push_back(serializeSwizzle2D(builder, swop));
       operation_stack_.emplace(val, operation_stack_.size());
 
-      auto next_val = derived_values.front();
+      auto next_val = derived_values_.front();
       NVF_ERROR(next_val->definition() == def);
       operation_stack_.emplace(next_val, operation_stack_.size());
-      derived_values.pop_front();
+      derived_values_.pop_front();
 
     } else if (auto rop = dynamic_cast<nvfuser::Resize*>(def)) {
       auto inst = serializeResize(builder, rop);
