@@ -243,10 +243,12 @@ void Fusion::addOutput(Val* output) {
   // NVF_CHECK(io_alias_.count(output) == 0,
   //     "can't register aliased output as real output");
   assertInContainer(output, "Cannot register output ");
-  if (output->getValType().value() == ValType::TensorView) {
-    auto tv = output->as<TensorView>();
-    tv->setMemoryType(MemoryType::Global);
-  }
+  NVF_CHECK(
+      output->getValType() == ValType::TensorView,
+      "Non-TensorView outputs are not supported at this point.");
+
+  auto tv = output->as<TensorView>();
+  tv->setMemoryType(MemoryType::Global);
   outputs_.push_back(output);
   output->setIsFusionOutput(true);
 

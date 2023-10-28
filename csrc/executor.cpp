@@ -249,10 +249,6 @@ void FusionExecutor::compileFusion(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
 
   for (auto out : fusion->outputs()) {
-    NVF_ERROR(
-        out->getValType() == ValType::TensorView,
-        "Output types from fusions that are not tensors are not supported at this point.");
-
     const auto maybe_rfactor_domain =
         out->as<TensorView>()->getMaybeRFactorDomain();
     // walking through outputs to see if output shapes are dependent on
