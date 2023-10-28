@@ -909,18 +909,6 @@ at::Tensor transformOutputFromAllocationToRFactor(
   return tensor.permute(dims);
 }
 
-// TODO: consolidate with isContiguous in alias_analysis.cpp.
-bool isContiguous(const TensorView& tv) {
-  for (const std::optional<bool>& contiguity : tv.getContiguity()) {
-    // We skip std::nullopt contiguity. It represents a broadcast or reduction
-    // dimension, which is of size 1 and always contiguous.
-    if (contiguity.has_value() && contiguity.value() == false) {
-      return false;
-    }
-  }
-  return true;
-}
-
 } // namespace
 
 // Allocate output tensors for a given kernel. Outputs may alias inputs, in
@@ -961,14 +949,9 @@ std::vector<at::Tensor> allocOutputs(
         auto* input_tv =
             kernel->inputs()[aliased_input_index]->as<TensorView>();
         auto* output_tv = kernel->outputs()[output_idx]->as<TensorView>();
-        NVF_ERROR(isContiguous(*input_tv));
-        NVF_ERROR(isContiguous(*output_tv));
-        std::vector<int64_t> output_shape;
-        for (IterDomain* output_id : output_tv->getMaybeRFactorDomain()) {
-          output_shape.push_back(
-              ee.evaluate(output_id->extent()).as<int64_t>());
-        }
-        outputs.emplace_back(input_tensor.view(output_shape));
+        ee.bind(input_tv, input_tensor);
+        at::Tensor output_tensor = ee.evaluate(output_tv).as<at::Tensor>();
+        outputs.emplace_back(output_tensor);
       }
     } else if (kernel->outputs().at(output_idx)->isFusionInput()) {
       // Note [ trivial forwarding ]
