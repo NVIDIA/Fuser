@@ -9,6 +9,7 @@
 
 #include <c10/util/ArrayRef.h>
 #include <c10/util/irange.h>
+#include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -315,6 +316,52 @@ void initNvFuserPythonBindings(PyObject* module) {
 
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
+
+  py::class_<FusionProfiler> fusion_profiler(nvfuser, "FusionProfiler");
+  fusion_profiler
+      .def_static(
+          "get",
+          &FusionProfiler::get,
+          py::return_value_policy::reference)
+      .def(
+          "profile",
+          &FusionProfiler::profile,
+          py::return_value_policy::reference);
+
+  py::class_<KernelProfile> kernel_profile(nvfuser, "KernelProfile");
+  kernel_profile
+      .def_readonly("name", &KernelProfile::name)
+      .def_readonly("device", &KernelProfile::device)
+      .def_readonly("stream", &KernelProfile::stream)
+      .def_readonly("compile_time_ms", &KernelProfile::compile_time_ms)
+      .def_readonly("time_ms", &KernelProfile::time_ms)
+      .def_readonly("effective_bandwidth_gbs", &KernelProfile::effective_bandwidth_gbs)
+      .def_readonly("percentage_peak_bandwidth", &KernelProfile::percentage_peak_bandwidth)
+      .def_readonly("grid", &KernelProfile::grid)
+      .def_readonly("block", &KernelProfile::block)
+      .def_readonly("cluster", &KernelProfile::cluster)
+      .def_readonly("dynamic_shared_mem", &KernelProfile::dynamic_shared_mem)
+      .def_readonly("static_shared_mem", &KernelProfile::static_shared_mem)
+      .def_readonly("registers", &KernelProfile::registers)
+      .def_readonly("input_bytes", &KernelProfile::input_bytes)
+      .def_readonly("output_bytes", &KernelProfile::output_bytes)
+      .def_readonly("device_name", &KernelProfile::device_name)
+      .def_readonly("peak_bandwidth_gbs", &KernelProfile::peak_bandwidth_gbs);
+
+  py::class_<FusionProfile> fusion_profile(nvfuser, "FusionProfile");
+  fusion_profile
+      .def_readonly_static("column_strs", &FusionProfile::column_strs)
+      .def_readonly("fusion_id", &FusionProfile::fusion_id) 
+      .def_readonly("segments", &FusionProfile::segments) 
+      .def_readonly("cuda_evt_time_ms", &FusionProfile::cuda_evt_time_ms) 
+      .def_readonly("host_time_ms", &FusionProfile::host_time_ms) 
+      .def_readonly("compile_time_ms", &FusionProfile::compile_time_ms) 
+      .def_readonly("kernel_time_ms", &FusionProfile::kernel_time_ms) 
+      .def_readonly("input_bytes", &FusionProfile::input_bytes) 
+      .def_readonly("output_bytes", &FusionProfile::output_bytes) 
+      .def_readonly("effective_bandwidth_gbs", &FusionProfile::effective_bandwidth_gbs) 
+      .def_readonly("percentage_peak_bandwidth", &FusionProfile::percentage_peak_bandwidth) 
+      .def_readonly("kernel_profiles", &FusionProfile::kernel_profiles);
 
   //! Binding the FusionCache that holds a cache of Fusions
   //! This is only bound to provide an interface to get the number of fusions
