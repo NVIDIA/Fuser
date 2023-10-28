@@ -79,6 +79,7 @@ enum class EnableOption {
   Complex, //! Enable complex support on python
   ConvDecomposition, //! Enable conv-bias decomposition
   GraphOp, //! Enable graphOps(index_select/gather/scatter)
+  IdModel, //! Enable IdModel
   KernelDb, //! Enable Kernel Database
   KernelProfile, //! Enable intra-kernel performance profiling
   LinearDecomposition, //! Enable linear-bias decomposition

@@ -32,6 +32,8 @@
 #include <device_lower/validation.h>
 #include <expr_simplifier.h>
 #include <fusion.h>
+#include <id_model/id_model.h>
+#include <id_model/validation_utils.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -310,6 +312,12 @@ void GpuLower::lower(Fusion* fusion) {
   // of mappings Permissive, Exact, and Loop, see compute_at_map.h/cpp for more
   // information.
   compute_at_map_ = std::make_shared<ComputeAtMap>(fusion_);
+
+  if (isOptionEnabled(EnableOption::IdModel)) {
+    IdModel id_model(fusion_);
+    IdModelValidator::checkExactMapEquivalence(
+        id_model.idGraph(IdMappingMode::EXACT));
+  }
 
   resolveComputeWith(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");

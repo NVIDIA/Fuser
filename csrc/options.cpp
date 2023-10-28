@@ -153,6 +153,7 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
       {"complex", EnableOption::Complex},
       {"conv_decomposition", EnableOption::ConvDecomposition},
       {"graph_op_fusion", EnableOption::GraphOp},
+      {"id_model", EnableOption::IdModel},
       {"kernel_db", EnableOption::KernelDb},
       {"kernel_profile", EnableOption::KernelProfile},
       {"linear_decomposition", EnableOption::LinearDecomposition},

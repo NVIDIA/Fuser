@@ -180,6 +180,11 @@ IdGraph IdModel::initializeIdGraph(bool propagate_through_exprs) {
 }
 
 void IdModel::buildExactMap(const std::vector<Expr*>& exprs) {
+  if (getenv("VERBOSE")) {
+    exprs.front()->fusion()->print();
+    std::cout << std::endl;
+  }
+
   for (auto expr : exprs) {
     TensorView* c_tv = ir_utils::getTvOutput(expr);
 
