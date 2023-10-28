@@ -1836,6 +1836,52 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   return outputs;
 }
 
+int64_t FusionExecutor::inputBytesProcessed(const KernelArgumentHolder& args) {
+  int64_t total_bytes = 0;
+  if (!bytes_processed_per_input_.has_value()) {
+    int64_t num_bytes = 0;
+    bytes_processed_per_input_ =
+        std::vector<int64_t>(std::vector<int64_t>(args.size(), 0));
+    // Figure how many bytes are inputs, outputs, and temporary buffers
+    for (auto i : c10::irange(args.size())) {
+      if (args[i]->is<at::Tensor>()) {
+        auto t = args[i]->as<at::Tensor>();
+        num_bytes = static_cast<int64_t>(t.storage().nbytes());
+        bytes_processed_per_input_.value().at(i) = num_bytes;
+        total_bytes += num_bytes;
+      }
+    }
+  } else {
+    for (auto bp : bytes_processed_per_input_.value()) {
+      total_bytes += bp;
+    }
+  }
+  return total_bytes;
+}
+
+int64_t FusionExecutor::outputBytesProcessed(
+    const std::vector<at::Tensor>& outputs) {
+  int64_t total_bytes = 0;
+  if (!bytes_processed_per_output_.has_value()) {
+    int64_t num_bytes = 0;
+    bytes_processed_per_output_ =
+        std::vector<int64_t>(std::vector<int64_t>(outputs.size(), 0));
+    for (auto i : c10::irange(outputs.size())) {
+      const auto& output = outputs.at(i);
+      // NOTE: this assumes that all output elements correspond to a single
+      // store
+      num_bytes = static_cast<int64_t>(output.storage().nbytes());
+      bytes_processed_per_output_.value().at(i) = num_bytes;
+      total_bytes += num_bytes;
+    }
+  } else {
+    for (auto bp : bytes_processed_per_output_.value()) {
+      total_bytes += bp;
+    }
+  }
+  return total_bytes;
+}
+
 void FusionExecutor::compileRtc(
     const std::string& code,
     const std::string& name,

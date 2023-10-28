@@ -182,53 +182,9 @@ class FusionExecutor : public NonCopyable {
   //! Returns the input bytes accessed for a kernel
   //! \note It is important to sample the args struct prior to adding the
   // 1    output to the args struct
-  int64_t inputBytesProcessed(KernelArgumentHolder& args) {
-    int64_t total_bytes = 0;
-    if (!bytes_processed_per_input_.has_value()) {
-      int64_t num_bytes = 0;
-      bytes_processed_per_input_ = std::optional<std::vector<int64_t>>(
-          std::vector<int64_t>(args.size(), 0));
-      // Figure how many bytes are inputs, outputs, and temporary buffers
-      for (auto i : c10::irange(args.size())) {
-        if (args[i]->is<at::Tensor>()) {
-          auto t = args[i]->as<at::Tensor>();
-          num_bytes = t.numel() *
-              (int64_t)dataTypeSize(aten_to_data_type(t.scalar_type()));
-          bytes_processed_per_input_.value().at(i) = num_bytes;
-          total_bytes += num_bytes;
-        }
-      }
-    } else {
-      for (auto bp : bytes_processed_per_input_.value()) {
-        total_bytes += bp;
-      }
-    }
-    return total_bytes;
-  }
-
+  int64_t inputBytesProcessed(const KernelArgumentHolder& args);
   //! Returns the output bytes accessed for a kernel
-  int64_t outputBytesProcessed(std::vector<at::Tensor>& outputs) {
-    int64_t total_bytes = 0;
-    if (!bytes_processed_per_output_.has_value()) {
-      int64_t num_bytes = 0;
-      bytes_processed_per_output_ = std::optional<std::vector<int64_t>>(
-          std::vector<int64_t>(outputs.size(), 0));
-      for (auto i : c10::irange(outputs.size())) {
-        const auto& output = outputs.at(i);
-        // NOTE: this assumes that all output elements correspond to a single
-        // store
-        num_bytes = output.numel() *
-            (int64_t)dataTypeSize(aten_to_data_type(output.scalar_type()));
-        bytes_processed_per_output_.value().at(i) = num_bytes;
-        total_bytes += num_bytes;
-      }
-    } else {
-      for (auto bp : bytes_processed_per_output_.value()) {
-        total_bytes += bp;
-      }
-    }
-    return total_bytes;
-  }
+  int64_t outputBytesProcessed(const std::vector<at::Tensor>& outputs);
 
   //! Returns the number of bytes processed last kernel execution
   int64_t bytesProcessed() const {
