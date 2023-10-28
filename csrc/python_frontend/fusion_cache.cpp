@@ -9,7 +9,7 @@
 #include <instrumentation.h>
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
-#include <serde/fusion_record_serde.h>
+#include <serde/fusion_record.h>
 #include <utils.h>
 
 #include <filesystem>

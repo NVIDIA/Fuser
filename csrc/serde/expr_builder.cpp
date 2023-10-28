@@ -6,8 +6,8 @@
  */
 // clang-format on
 #include <ops/arith.h>
-#include <serde/expr_builder_serde.h>
-#include <serde/polymorphic_value_serde.h>
+#include <serde/expr_builder.h>
+#include <serde/polymorphic_value.h>
 #include <serde/utils.h>
 #include <type.h>
 
