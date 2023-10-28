@@ -335,7 +335,8 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
       } else if (auto id = dynamic_cast<nvfuser::IterDomain*>(v)) {
         insertUniqueItem(derived_values_, id);
       } else {
-        insertUniqueItem(symbolic_values_, v);
+        NVF_ERROR(!insertUniqueItem(symbolic_values_, v),
+                  "Expect all symbolic values to come from kernel inputs.");
       }
     } else {
       insertUniqueItem(derived_values_, v);
