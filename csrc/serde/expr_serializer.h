@@ -84,23 +84,6 @@ class ExpressionSerializer {
       flatbuffers::FlatBufferBuilder& builder,
       const nvfuser::IterDomain* id);
 
-  // Bind the value to all_values_ container
-  void bind(nvfuser::Val* v);
-
-  // Bind iterDomain
-  void bind(nvfuser::IterDomain* id);
-
-  // Bind the iterDomain's extent for the given domain
-  void bindDomain(const std::vector<nvfuser::IterDomain*>& domain);
-
-  // 1. Generate extents for IterDomains that compose root domain
-  // 2. Create new extents using split, merge, reorder operations for rfactor,
-  // allocation, and leaf domains
-  void bind(const nvfuser::TensorView* tv);
-
-  // Bind kir::Allocate nodes
-  void bind(const std::vector<const kir::Allocate*>& allocations);
-
   void printStack() const {
     std::vector<nvfuser::Val*> ordered_stack(operation_stack_.size());
     for (auto item : operation_stack_) {
@@ -119,7 +102,6 @@ class ExpressionSerializer {
 
   std::unordered_map<Val*, long> operation_stack_;
   kir::Kernel* kernel_;
-  std::vector<nvfuser::Val*> all_values_;
   std::vector<nvfuser::NamedScalar*> named_scalar_values_;
   std::vector<nvfuser::Val*> const_int_values_;
   std::vector<nvfuser::Val*> symbolic_values_;

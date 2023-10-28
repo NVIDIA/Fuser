@@ -15,12 +15,64 @@ namespace nvfuser::serde {
 
 namespace {
 
-template <typename VALTYPE>
-std::vector<VALTYPE*> getAttributes(VALTYPE* val) {
-  if (!val->definition()) {
-    return std::vector<VALTYPE*>();
+// Bind the value to all_values_ container
+void bind(std::unordered_set<nvfuser::Val*>& container, nvfuser::Val* v) {
+  container.insert(v);
+}
+
+void bind(
+    std::unordered_set<nvfuser::Val*>& container,
+    nvfuser::IterDomain* id) {
+  bind(container, id->start());
+  bind(container, id->extent());
+  if (id->hasExpandedExtent()) {
+    bind(container, id->expandedExtent());
   }
-  std::vector<VALTYPE*> data_attributes;
+  bind(container, id->stopOffset());
+}
+
+// Bind the iterDomain's extent for the given domain
+void bindDomain(
+    std::unordered_set<nvfuser::Val*>& container,
+    const std::vector<nvfuser::IterDomain*>& domain) {
+  for (auto d : domain) {
+    bind(container, d->as<Val>());
+    bind(container, d);
+  }
+}
+
+// 1. Generate extents for IterDomains that compose root domain
+// 2. Create new extents using split, merge, reorder operations for rfactor,
+// allocation, and leaf domains
+void bind(
+    std::unordered_set<nvfuser::Val*>& container,
+    nvfuser::TensorView* tv) {
+  bindDomain(container, tv->getRootDomain());
+  bindDomain(container, tv->getRFactorDomain());
+  bindDomain(container, tv->getAllocationDomain());
+  bindDomain(container, tv->getLeafDomain());
+}
+
+// Gather all values contained in kir::Allocate nodes
+std::vector<nvfuser::Val*> gatherAllValues(
+    const std::vector<const kir::Allocate*>& allocations) {
+  std::unordered_set<nvfuser::Val*> all_values;
+  for (auto allocate : allocations) {
+    if (auto tv = dynamic_cast<nvfuser::TensorView*>(allocate->buffer())) {
+      bind(all_values, tv);
+      for (auto v : allocate->shape()) {
+        bind(all_values, v);
+      }
+    }
+  }
+  return std::vector(all_values.begin(), all_values.end());
+}
+
+std::vector<nvfuser::Val*> getAttributes(nvfuser::Val* val) {
+  if (!val->definition()) {
+    return std::vector<nvfuser::Val*>();
+  }
+  std::vector<nvfuser::Val*> data_attributes;
   for (auto a : val->definition()->attributes()) {
     if (a->isVal()) {
       data_attributes.push_back(a->asVal());
@@ -29,45 +81,38 @@ std::vector<VALTYPE*> getAttributes(VALTYPE* val) {
   return data_attributes;
 }
 
-template <typename VALTYPE>
-std::vector<VALTYPE*> getImmediateProducers(VALTYPE* val) {
+std::vector<nvfuser::Val*> getImmediateProducers(nvfuser::Val* val) {
   if (val->definition() != nullptr) {
     return val->definition()->inputs();
   } else if (auto id = dynamic_cast<nvfuser::IterDomain*>(val)) {
-    std::vector<VALTYPE*> inputs;
+    std::vector<nvfuser::Val*> inputs;
     inputs.push_back(id->start());
     inputs.push_back(id->extent());
+    if (id->hasExpandedExtent()) {
+      inputs.push_back(id->expandedExtent());
+    }
+    inputs.push_back(id->stopOffset());
     return inputs;
   } else {
-    return std::vector<VALTYPE*>();
+    return std::vector<nvfuser::Val*>();
   }
 }
 
-template <typename VALTYPE>
-std::vector<VALTYPE*> getConsumers(VALTYPE* val) {
+std::vector<nvfuser::Val*> getConsumers(nvfuser::Val* val) {
   return (val->definition()) ? val->definition()->outputs()
-                             : std::vector<VALTYPE*>({val});
+                             : std::vector<nvfuser::Val*>({val});
 }
 
 //! IR-Generic utility, collects all the producers required for the
 //!  given list of IR values and returns them along with the original
 //!  list in topological order.
-template <typename VALTYPE>
-std::vector<VALTYPE*> makeSortedEvaluationList(std::vector<VALTYPE*> input) {
-  // Deduplicate
-  std::vector<VALTYPE*> to_sort;
-  std::unordered_set<VALTYPE*> visited;
-  for (auto val : input) {
-    if (!visited.count(val)) {
-      to_sort.push_back(val);
-      visited.insert(val);
-    }
-  }
-
-  std::vector<VALTYPE*> sorted;
-  visited.clear();
+std::vector<nvfuser::Val*> makeSortedEvaluationList(
+    const std::vector<const kir::Allocate*>& allocations) {
+  std::unordered_set<nvfuser::Val*> visited;
+  std::vector<nvfuser::Val*> sorted;
 
   // Topological Sort
+  auto to_sort = gatherAllValues(allocations);
   while (!to_sort.empty()) {
     auto top_val = to_sort.back();
     if (visited.count(top_val)) {
@@ -232,46 +277,6 @@ flatbuffers::Offset<Instruction> ExpressionSerializer::serializeSwizzle2D(
       builder, serde::InstructionData_Swizzle2D, swizzle_fb.Union());
 }
 
-void ExpressionSerializer::bind(nvfuser::Val* v) {
-  insertUniqueItem(all_values_, v);
-}
-
-void ExpressionSerializer::bind(nvfuser::IterDomain* id) {
-  bind(id->start());
-  bind(id->extent());
-  if (id->hasExpandedExtent()) {
-    bind(id->expandedExtent());
-  }
-  bind(id->stopOffset());
-}
-
-void ExpressionSerializer::bindDomain(
-    const std::vector<nvfuser::IterDomain*>& domain) {
-  for (auto d : domain) {
-    bind(d->as<Val>());
-    bind(d);
-  }
-}
-
-void ExpressionSerializer::bind(const nvfuser::TensorView* tv) {
-  bindDomain(tv->getRootDomain());
-  bindDomain(tv->getRFactorDomain());
-  bindDomain(tv->getAllocationDomain());
-  bindDomain(tv->getLeafDomain());
-}
-
-void ExpressionSerializer::bind(
-    const std::vector<const kir::Allocate*>& allocations) {
-  for (auto allocate : allocations) {
-    if (auto tv = dynamic_cast<nvfuser::TensorView*>(allocate->buffer())) {
-      bind(tv);
-      for (auto v : allocate->shape()) {
-        bind(v);
-      }
-    }
-  }
-}
-
 flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::
     serializeNaiveValueGenerator(
         flatbuffers::FlatBufferBuilder& builder,
@@ -280,9 +285,6 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::
   if (allocations.empty()) {
     return 0;
   }
-
-  // All kir::Allocate nodes are contained in FusionExecutor::KernelSummary
-  bind(allocations);
 
   // TODO Make common util between ExpressionSerializer and ExpressionBuilder
   // TODO Enforce deterministic order
@@ -299,9 +301,10 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::
     }
   }
 
-  // 2) Sort values by dependency order
+  // 1) All kir::Allocate nodes are contained in FusionExecutor::KernelSummary
+  // 2) Sort all values by dependency order
   // 3) Divide values into NamedScalar, Int, Symbolic, and Derived values
-  for (auto v : makeSortedEvaluationList(all_values_)) {
+  for (auto v : makeSortedEvaluationList(allocations)) {
     if (v->definition() == nullptr) {
       if (auto ns = dynamic_cast<nvfuser::NamedScalar*>(v)) {
         insertUniqueItem(named_scalar_values_, ns);
