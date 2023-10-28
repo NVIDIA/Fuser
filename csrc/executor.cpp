@@ -20,7 +20,8 @@
 #include <iter_visitor.h>
 #include <kernel_ir.h>
 #include <options.h>
-#include <serde/expr_evaluator_serde.h>
+#include <serde/expr_builder_serde.h>
+#include <serde/expr_serializer_serde.h>
 #include <serde/utils.h>
 #include <tensor_metadata.h>
 #include <utils.h>
