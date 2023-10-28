@@ -21,14 +21,13 @@ namespace nvfuser::serde {
 //! the kir::Allocate nodes in a Kernel.
 class ExpressionSerializer {
  public:
-  ExpressionSerializer() = default;
+  ExpressionSerializer(kir::Kernel* kernel) : kernel_{kernel} {}
 
-  flatbuffers::Offset<NaiveValueGenerator> serialize(
+  flatbuffers::Offset<NaiveValueGenerator> serializeNaiveValueGenerator(
       flatbuffers::FlatBufferBuilder& builder,
-      kir::Kernel* kernel,
       const std::vector<const kir::Allocate*>& allocations);
 
-  std::vector<flatbuffers::Offset<AllocateBuffer>> serialize(
+  std::vector<flatbuffers::Offset<AllocateBuffer>> serializeAllocations(
       flatbuffers::FlatBufferBuilder& builder,
       const std::vector<const kir::Allocate*>& allocations);
 
@@ -119,6 +118,7 @@ class ExpressionSerializer {
   }
 
   std::unordered_map<Val*, long> operation_stack_;
+  kir::Kernel* kernel_;
   std::vector<nvfuser::Val*> all_values_;
   std::vector<nvfuser::NamedScalar*> named_scalar_values_;
   std::vector<nvfuser::Val*> const_int_values_;

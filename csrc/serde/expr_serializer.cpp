@@ -94,33 +94,6 @@ std::vector<VALTYPE*> makeSortedEvaluationList(std::vector<VALTYPE*> input) {
   return sorted;
 }
 
-//! Kernel IR utility, collects all the symbolic values used in allocation
-//! nodes.
-std::vector<const kir::Allocate*> collectBufferSizes(
-    const std::vector<nvfuser::Expr*>& exprs) {
-  std::vector<const kir::Allocate*> buffers;
-  std::vector<nvfuser::Expr*> to_visit(exprs);
-  while (!to_visit.empty()) {
-    auto expr = to_visit.back();
-    to_visit.pop_back();
-    if (auto allocate = dynamic_cast<kir::Allocate*>(expr)) {
-      buffers.push_back(allocate);
-    } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
-      auto for_loop_exprs = for_loop->body().exprs();
-      to_visit.insert(
-          to_visit.end(), for_loop_exprs.begin(), for_loop_exprs.end());
-    } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
-      auto ite_then_exprs = ite->thenBody().exprs();
-      auto ite_else_exprs = ite->elseBody().exprs();
-      to_visit.insert(
-          to_visit.end(), ite_then_exprs.begin(), ite_then_exprs.end());
-      to_visit.insert(
-          to_visit.end(), ite_else_exprs.begin(), ite_else_exprs.end());
-    }
-  }
-  return buffers;
-}
-
 } // namespace
 
 flatbuffers::Offset<Instruction> ExpressionSerializer::serializeAttribute(
@@ -299,20 +272,22 @@ void ExpressionSerializer::bind(
   }
 }
 
-flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
-    flatbuffers::FlatBufferBuilder& builder,
-    kir::Kernel* kernel,
-    const std::vector<const kir::Allocate*>& allocations) {
-  // 1a) Collect allocation sizes for kir::Kernel
-  bind(collectBufferSizes(kernel->topLevelExprs()));
+flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::
+    serializeNaiveValueGenerator(
+        flatbuffers::FlatBufferBuilder& builder,
+        const std::vector<const kir::Allocate*>& allocations) {
+  // Short Circuit: Return empty offset if there aren't any kir::Allocate nodes
+  if (allocations.empty()) {
+    return 0;
+  }
 
-  // 1b) A deserialized fusion may not contain all its allocations in its
-  // kir::Kernel. Add allocations directly to handle this case.
+  // All kir::Allocate nodes are contained in FusionExecutor::KernelSummary
   bind(allocations);
 
+  // TODO Make common util between ExpressionSerializer and ExpressionBuilder
   // TODO Enforce deterministic order
   // Add TensorView RootDomain IterDomain Extents for all kernel inputs
-  for (auto input : kernel->inputs()) {
+  for (auto input : kernel_->inputs()) {
     if (auto tv = dynamic_cast<nvfuser::TensorView*>(input)) {
       insertUniqueItem(symbolic_values_, tv);
       for (auto id : tv->getRootDomain()) {
@@ -335,8 +310,9 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
       } else if (auto id = dynamic_cast<nvfuser::IterDomain*>(v)) {
         insertUniqueItem(derived_values_, id);
       } else {
-        NVF_ERROR(!insertUniqueItem(symbolic_values_, v),
-                  "Expect all symbolic values to come from kernel inputs.");
+        NVF_ERROR(
+            !insertUniqueItem(symbolic_values_, v),
+            "Expect all symbolic values to come from kernel inputs.");
       }
     } else {
       insertUniqueItem(derived_values_, v);
@@ -345,10 +321,6 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
 
   // 4) Serialize NaiveValueGenerator by converting each NvFuser value of into
   // an instruction.
-  //
-  // table NaiveValueGenerator {
-  //   instructions : [Instruction];
-  // }
 
   using fb_instruction = flatbuffers::Offset<Instruction>;
   std::vector<fb_instruction> instructions_fb;
@@ -466,7 +438,7 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
 }
 
 std::vector<flatbuffers::Offset<AllocateBuffer>> ExpressionSerializer::
-    serialize(
+    serializeAllocations(
         flatbuffers::FlatBufferBuilder& builder,
         const std::vector<const kir::Allocate*>& allocations) {
   using fb_allocate = flatbuffers::Offset<AllocateBuffer>;

@@ -2161,19 +2161,15 @@ flatbuffers::Offset<serde::KernelSummary> FusionExecutor::serialize(
       kernel_summary_.static_smem_allocations.begin(),
       kernel_summary_.static_smem_allocations.end());
 
-  serde::ExpressionSerializer es;
-
-  flatbuffers::Offset<serde::NaiveValueGenerator> value_generator = 0;
-  if (!all_allocations.empty()) {
-    value_generator = es.serialize(builder, kernel(), all_allocations);
-  }
-
+  serde::ExpressionSerializer es(kernel());
+  auto fb_value_generator =
+      es.serializeNaiveValueGenerator(builder, all_allocations);
   auto fb_global_allocations =
-      es.serialize(builder, kernel_summary_.global_allocations);
-  auto fb_dynamic_smem_allocations =
-      es.serialize(builder, kernel_summary_.dynamic_smem_allocations);
+      es.serializeAllocations(builder, kernel_summary_.global_allocations);
+  auto fb_dynamic_smem_allocations = es.serializeAllocations(
+      builder, kernel_summary_.dynamic_smem_allocations);
   auto fb_static_smem_allocations =
-      es.serialize(builder, kernel_summary_.static_smem_allocations);
+      es.serializeAllocations(builder, kernel_summary_.static_smem_allocations);
 
   return serde::CreateKernelSummaryDirect(
       builder,
@@ -2188,7 +2184,7 @@ flatbuffers::Offset<serde::KernelSummary> FusionExecutor::serialize(
       summary.has_outer_grouped_grid_welford,
       serde::mapToSerdeDtype(summary.largest_smem_data_type),
       summary.outer_grouped_grid_welford_largest_smem_size,
-      value_generator,
+      fb_value_generator,
       (fb_global_allocations.empty()) ? nullptr : &fb_global_allocations,
       (fb_dynamic_smem_allocations.empty()) ? nullptr
                                             : &fb_dynamic_smem_allocations,
