@@ -263,30 +263,32 @@ void ExpressionSerializer::bind(nvfuser::Val* v) {
   insertUniqueItem(all_values_, v);
 }
 
-void ExpressionSerializer::bindRootDomain(
-    const std::vector<nvfuser::IterDomain*>& domain) {
-  for (auto d : domain) {
-    NVF_ERROR(d->definition() == nullptr);
-    bind(d->start());
-    bind(d->extent());
+void ExpressionSerializer::bind(nvfuser::IterDomain* id) {
+  bind(id->start());
+  bind(id->extent());
+  if (id->hasExpandedExtent()) {
+    bind(id->expandedExtent());
   }
+  bind(id->stopOffset());
 }
 
 void ExpressionSerializer::bindDomain(
     const std::vector<nvfuser::IterDomain*>& domain) {
   for (auto d : domain) {
     bind(d->as<Val>());
+    bind(d);
   }
 }
 
 void ExpressionSerializer::bind(const nvfuser::TensorView* tv) {
-  bindRootDomain(tv->getRootDomain());
+  bindDomain(tv->getRootDomain());
   bindDomain(tv->getRFactorDomain());
   bindDomain(tv->getAllocationDomain());
   bindDomain(tv->getLeafDomain());
 }
 
-void ExpressionSerializer::bind(const std::vector<const kir::Allocate*>& allocations) {
+void ExpressionSerializer::bind(
+    const std::vector<const kir::Allocate*>& allocations) {
   for (auto allocate : allocations) {
     if (auto tv = dynamic_cast<nvfuser::TensorView*>(allocate->buffer())) {
       bind(tv);
@@ -301,10 +303,10 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     kir::Kernel* kernel,
     const std::vector<const kir::Allocate*>& allocations) {
-  // 1) Collect allocation sizes for kir::Kernel
+  // 1a) Collect allocation sizes for kir::Kernel
   bind(collectBufferSizes(kernel->topLevelExprs()));
 
-  // 2) A deserialized fusion may not contain all its allocations in its
+  // 1b) A deserialized fusion may not contain all its allocations in its
   // kir::Kernel. Add allocations directly to handle this case.
   bind(allocations);
 
@@ -320,23 +322,6 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::serialize(
         }
       }
     }
-  }
-
-  std::vector<nvfuser::Val*> iterdomains;
-  std::copy_if(
-      all_values_.begin(),
-      all_values_.end(),
-      std::back_inserter(iterdomains),
-      [](nvfuser::Val* v) { return v->isA<nvfuser::IterDomain>(); });
-  for (auto v : iterdomains) {
-    auto id = dynamic_cast<nvfuser::IterDomain*>(v);
-    NVF_CHECK(id != nullptr);
-    insertUniqueItem(all_values_, id->start());
-    insertUniqueItem(all_values_, id->extent());
-    if (id->hasExpandedExtent()) {
-      insertUniqueItem(all_values_, id->expandedExtent());
-    }
-    insertUniqueItem(all_values_, id->stopOffset());
   }
 
   // 2) Sort values by dependency order

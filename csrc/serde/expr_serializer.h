@@ -88,8 +88,8 @@ class ExpressionSerializer {
   // Bind the value to all_values_ container
   void bind(nvfuser::Val* v);
 
-  // Bind the iterDomain's extent for the given root domain
-  void bindRootDomain(const std::vector<nvfuser::IterDomain*>& domain);
+  // Bind iterDomain
+  void bind(nvfuser::IterDomain* id);
 
   // Bind the iterDomain's extent for the given domain
   void bindDomain(const std::vector<nvfuser::IterDomain*>& domain);
