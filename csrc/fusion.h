@@ -233,9 +233,6 @@ class Fusion : public IrContainer {
   //! Return the aliased input of a given output or nullptr if not aliased
   Val* getOutputAlias(Val* output);
 
-  //! Get indices of aliased outputs
-  std::unordered_set<int> getIndicesOfAliasedOutputs() const;
-
   //! Get alias mappings from fusion outputs to inputs
   std::vector<std::pair<int, std::pair<int, bool>>>
   getOutputToInputAliasIndices() const;

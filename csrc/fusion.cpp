@@ -782,21 +782,6 @@ Val* Fusion::getOutputAlias(Val* output) {
   return nullptr;
 }
 
-std::unordered_set<int> Fusion::getIndicesOfAliasedOutputs() const {
-  if (io_alias_.empty()) {
-    return {};
-  }
-
-  std::unordered_set<int> alias_indices;
-
-  for (const auto i : c10::irange(outputs_.size())) {
-    if (io_alias_.count(outputs_[i]) != 0) {
-      alias_indices.insert((int)i);
-    }
-  }
-  return alias_indices;
-}
-
 std::vector<std::pair<int, std::pair<int, bool>>> Fusion::
     getOutputToInputAliasIndices() const {
   if (io_alias_.empty()) {

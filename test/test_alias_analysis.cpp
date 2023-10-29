@@ -227,9 +227,19 @@ TEST_F(AliasTest, ReinterpretCast) {
   fe.compileFusion(fusion.get(), {in_tensor});
   at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
   EXPECT_EQ(in_tensor.data_ptr<float>(), out_tensor.data_ptr<float>());
+  testValidate(
+      fusion.get(),
+      {out_tensor},
+      {in_tensor},
+      {in_tensor.view({2, 12})},
+      __LINE__,
+      __FILE__);
 
   FusionExecutorCache fec(std::move(fusion));
-  EXPECT_EQ(fec.runFusionWithInputs({in_tensor}).size(), 1);
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  ASSERT_EQ(out_tensors.size(), 1);
+  out_tensor = out_tensors[0];
+  EXPECT_EQ(in_tensor.data_ptr<float>(), out_tensor.data_ptr<float>());
 }
 
 } // namespace nvfuser
