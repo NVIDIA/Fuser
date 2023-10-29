@@ -139,13 +139,52 @@ std::vector<nvfuser::Val*> makeSortedEvaluationList(
   return sorted;
 }
 
+struct SortedValues {
+  std::vector<nvfuser::Val*> symbolic_values;
+  std::vector<nvfuser::NamedScalar*> named_scalar_values;
+  std::vector<nvfuser::Val*> const_int_values;
+  std::deque<nvfuser::Val*> derived_values;
+};
+
+SortedValues processAllocations(
+    kir::Kernel* kernel,
+    const std::vector<const kir::Allocate*>& allocations) {
+  SortedValues result;
+
+  // Built in deterministic order from kernel inputs
+  result.symbolic_values = gatherSymbolicValues(kernel);
+
+  // 1) All kir::Allocate nodes are contained in FusionExecutor::KernelSummary
+  // 2) Sort all values by dependency order
+  // 3) Divide values into Symbolic, NamedScalar, Constant Int, and Derived
+  // values
+  for (auto v : makeSortedEvaluationList(allocations)) {
+    if (v->definition() == nullptr) {
+      if (auto ns = dynamic_cast<nvfuser::NamedScalar*>(v)) {
+        insertUniqueItem(result.named_scalar_values, ns);
+      } else if (v->isConstInt()) {
+        insertUniqueItem(result.const_int_values, v);
+      } else if (auto id = dynamic_cast<nvfuser::IterDomain*>(v)) {
+        insertUniqueItem(result.derived_values, id);
+      } else {
+        NVF_ERROR(
+            !insertUniqueItem(result.symbolic_values, v),
+            "Expect all symbolic values to come from kernel inputs.");
+      }
+    } else {
+      insertUniqueItem(result.derived_values, v);
+    }
+  }
+  return result;
+}
+
 class DerivedExpressionSerializer final : private OptInConstDispatch {
   using fb_instruction = flatbuffers::Offset<Instruction>;
 
  public:
   static void serialize(
       flatbuffers::FlatBufferBuilder& builder,
-      std::deque<nvfuser::Val*>& derived_values,
+      std::deque<nvfuser::Val*> derived_values,
       std::unordered_map<const Val*, long>& operation_stack,
       std::vector<fb_instruction>& instructions_fb) {
     DerivedExpressionSerializer serializer(
@@ -432,33 +471,6 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
 
 } // namespace
 
-void ExpressionSerializer::processAllocations(
-    const std::vector<const kir::Allocate*>& allocations) {
-  // Built in deterministic order from kernel inputs
-  symbolic_values_ = gatherSymbolicValues(kernel_);
-
-  // 1) All kir::Allocate nodes are contained in FusionExecutor::KernelSummary
-  // 2) Sort all values by dependency order
-  // 3) Divide values into NamedScalar, Int, Symbolic, and Derived values
-  for (auto v : makeSortedEvaluationList(allocations)) {
-    if (v->definition() == nullptr) {
-      if (auto ns = dynamic_cast<nvfuser::NamedScalar*>(v)) {
-        insertUniqueItem(named_scalar_values_, ns);
-      } else if (v->isConstInt()) {
-        insertUniqueItem(const_int_values_, v);
-      } else if (auto id = dynamic_cast<nvfuser::IterDomain*>(v)) {
-        insertUniqueItem(derived_values_, id);
-      } else {
-        NVF_ERROR(
-            !insertUniqueItem(symbolic_values_, v),
-            "Expect all symbolic values to come from kernel inputs.");
-      }
-    } else {
-      insertUniqueItem(derived_values_, v);
-    }
-  }
-}
-
 flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::
     serializeNaiveValueGenerator(
         flatbuffers::FlatBufferBuilder& builder,
@@ -470,16 +482,15 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::
 
   // 1) All kir::Allocate nodes are contained in FusionExecutor::KernelSummary
   // 2) Sort all values in topological order
-  // 3) Divide values into NamedScalar, Int, Symbolic, and Derived values
-  processAllocations(allocations);
-
-  // 4) Serialize NaiveValueGenerator by converting each NvFuser value of into
-  // an instruction.
+  // 3) Divide values into Symbolic, NamedScalar, Constant Integer, and Derived
+  // values 4) Serialize NaiveValueGenerator by converting each NvFuser value of
+  // into an instruction.
+  auto sorted_values = processAllocations(kernel_, allocations);
 
   using fb_instruction = flatbuffers::Offset<Instruction>;
   std::vector<fb_instruction> instructions_fb;
 
-  for (auto& val : symbolic_values_) {
+  for (auto& val : sorted_values.symbolic_values) {
     auto sv_fb = CreateSymbolicDirect(
         builder,
         val->name(),
@@ -491,7 +502,7 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::
     operation_stack_.emplace(val, operation_stack_.size());
   }
 
-  for (const auto& ns : named_scalar_values_) {
+  for (const auto& ns : sorted_values.named_scalar_values) {
     auto ns_fb = CreateNamedScalarDirect(
         builder, ns->name().c_str(), (int64_t)operation_stack_.size());
     auto inst = CreateInstruction(
@@ -500,7 +511,7 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::
     operation_stack_.emplace(ns, operation_stack_.size());
   }
 
-  for (const auto& int_val : const_int_values_) {
+  for (const auto& int_val : sorted_values.const_int_values) {
     auto val_fb = serializeScalar(
         builder,
         int_val->evaluateInt(),
@@ -513,7 +524,7 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::
   }
 
   DerivedExpressionSerializer::serialize(
-      builder, derived_values_, operation_stack_, instructions_fb);
+      builder, sorted_values.derived_values, operation_stack_, instructions_fb);
 
   return CreateNaiveValueGeneratorDirect(builder, &instructions_fb);
 }

@@ -41,8 +41,6 @@ class ExpressionSerializer {
       flatbuffers::FlatBufferBuilder& builder,
       const std::vector<T*>& values);
 
-  void processAllocations(const std::vector<const kir::Allocate*>& allocations);
-
   void printStack() const {
     std::vector<const nvfuser::Val*> ordered_stack(operation_stack_.size());
     for (auto item : operation_stack_) {
@@ -59,12 +57,8 @@ class ExpressionSerializer {
               << std::endl;
   }
 
-  std::unordered_map<const Val*, long> operation_stack_;
   kir::Kernel* kernel_;
-  std::vector<nvfuser::NamedScalar*> named_scalar_values_;
-  std::vector<nvfuser::Val*> const_int_values_;
-  std::vector<nvfuser::Val*> symbolic_values_;
-  std::deque<nvfuser::Val*> derived_values_;
+  std::unordered_map<const Val*, long> operation_stack_;
 };
 
 } // namespace nvfuser::serde
