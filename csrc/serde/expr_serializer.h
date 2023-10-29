@@ -8,6 +8,8 @@
 #pragma once
 #include <ir/all_nodes.h>
 #include <kernel.h>
+#include <serde/expr_utils.h>
+#include <serde/utils.h>
 #include <vector>
 
 namespace nvfuser::serde {
@@ -58,7 +60,7 @@ class ExpressionSerializer {
   }
 
   kir::Kernel* kernel_;
-  std::unordered_map<const Val*, long> operation_stack_;
+  std::unordered_map<const Val*, int64_t> operation_stack_;
 };
 
 } // namespace nvfuser::serde

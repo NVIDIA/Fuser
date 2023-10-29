@@ -13,20 +13,6 @@
 
 namespace nvfuser::serde {
 
-//! Expression Utility Function
-template <typename Container, typename T>
-bool insertUniqueItem(Container& container, T v) {
-  if (std::find(container.begin(), container.end(), v) == container.end()) {
-    container.push_back(v);
-    return true;
-  }
-  return false;
-}
-
-// Add TensorView RootDomain IterDomain Extents for all kernel inputs
-// TODO Enforce deterministic order
-std::vector<nvfuser::Val*> gatherSymbolicValues(kir::Kernel* kernel);
-
 //! A function to map the nvfuser UnaryOp type to the corresponding serde type
 serde::UnaryOpType mapToSerdeUnaryOp(nvfuser::UnaryOpType);
 

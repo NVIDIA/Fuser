@@ -9,6 +9,7 @@
 #pragma once
 #include <ir/all_nodes.h>
 #include <kernel.h>
+#include <serde/expr_utils.h>
 #include <serde/factory.h>
 #include <serde/utils.h>
 #include <vector>
@@ -36,10 +37,17 @@ class ExpressionBuilder : public Factory<serde::Instruction, void> {
   nvfuser::Val* buildUnaryOp(const UnaryOp* buffer);
   nvfuser::Val* buildBinaryOp(const BinaryOp* buffer);
   nvfuser::IterDomain* buildIterDomain(const IterDomain* buffer);
-
   void registerAllParsers();
-  bool exists(size_t idx) const;
-  Val* retrieve(size_t idx);
+
+  bool exists(size_t idx) const {
+    return idx < operation_stack_.size();
+  };
+
+  nvfuser::Val* retrieve(size_t item) {
+    NVF_ERROR(
+        exists(item), "Missing value from ExpressionBuilder operation_stack_.");
+    return operation_stack_.at(item);
+  }
 
   void printStack() const {
     std::cout << "================ ExpressionBuilder Stack ================"

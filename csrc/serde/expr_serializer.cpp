@@ -15,6 +15,21 @@ namespace nvfuser::serde {
 
 namespace {
 
+bool exists(
+    const std::unordered_map<const Val*, int64_t>& container,
+    nvfuser::Val* item) {
+  return container.count(item) > 0;
+}
+
+int64_t retrieve(
+    const std::unordered_map<const Val*, int64_t>& container,
+    nvfuser::Val* item) {
+  NVF_ERROR(
+      exists(container, item),
+      "Missing value from ExpressionSerializer operation_stack_.");
+  return container.at(item);
+}
+
 // Bind the value to all_values_ container
 void bind(std::unordered_set<nvfuser::Val*>& container, nvfuser::Val* v) {
   container.insert(v);
@@ -315,8 +330,8 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
     auto bop_fb = CreateBinaryOpDirect(
         builder_,
         mapToSerdeBinaryOp(bop->getBinaryOpType()),
-        operation_stack_.at(bop->inputs().front()),
-        operation_stack_.at(bop->inputs().back()),
+        retrieve(operation_stack_, bop->inputs().front()),
+        retrieve(operation_stack_, bop->inputs().back()),
         (int64_t)operation_stack_.size(),
         bop->toString().c_str());
     return CreateInstruction(
@@ -327,7 +342,7 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
       const nvfuser::GetAttr* attr) {
     auto attr_fb = CreateGetAttr(
         builder_,
-        operation_stack_.at(attr->struct_()),
+        retrieve(operation_stack_, attr->struct_()),
         builder_.CreateString(attr->attr()),
         (int64_t)operation_stack_.size());
     return CreateInstruction(
@@ -338,8 +353,8 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
       const nvfuser::GetItem* item) {
     auto item_fb = CreateGetItem(
         builder_,
-        operation_stack_.at(item->array()),
-        operation_stack_.at(item->index()),
+        retrieve(operation_stack_, item->array()),
+        retrieve(operation_stack_, item->index()),
         (int64_t)operation_stack_.size());
     return CreateInstruction(
         builder_, serde::InstructionData_GetItem, item_fb.Union());
@@ -349,7 +364,7 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
       const nvfuser::GetMetaData* metadata) {
     auto metadata_fb = CreateGetMetaData(
         builder_,
-        operation_stack_.at(metadata->in()),
+        retrieve(operation_stack_, metadata->in()),
         (int64_t)operation_stack_.size());
     return CreateInstruction(
         builder_, serde::InstructionData_GetMetaData, metadata_fb.Union());
@@ -380,11 +395,12 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
 
     return CreateIterDomain(
         builder_,
-        operation_stack_.at(id->start()),
-        operation_stack_.at(id->extent()),
-        id->hasExpandedExtent() ? operation_stack_.at(id->expandedExtent())
-                                : -1,
-        operation_stack_.at(id->stopOffset()),
+        retrieve(operation_stack_, id->start()),
+        retrieve(operation_stack_, id->extent()),
+        id->hasExpandedExtent()
+            ? retrieve(operation_stack_, id->expandedExtent())
+            : -1,
+        retrieve(operation_stack_, id->stopOffset()),
         (int64_t)operation_stack_.size(),
         castEnumToUnderlyingType(id->getParallelType()),
         castEnumToUnderlyingType(id->getIterType()),
@@ -397,8 +413,8 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
   flatbuffers::Offset<Instruction> serializeMerge(const nvfuser::Merge* merge) {
     auto merge_fb = CreateMerge(
         builder_,
-        operation_stack_.at(merge->inner()),
-        operation_stack_.at(merge->outer()),
+        retrieve(operation_stack_, merge->inner()),
+        retrieve(operation_stack_, merge->outer()),
         (int64_t)operation_stack_.size());
     return CreateInstruction(
         builder_, serde::InstructionData_Merge, merge_fb.Union());
@@ -410,9 +426,9 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
     auto right_expand_inst = serializeAttribute(resize->leftExpand());
     auto resize_fb = CreateResize(
         builder_,
-        operation_stack_.at(resize->in()),
-        operation_stack_.at(resize->leftExpand()),
-        operation_stack_.at(resize->rightExpand()),
+        retrieve(operation_stack_, resize->in()),
+        retrieve(operation_stack_, resize->leftExpand()),
+        retrieve(operation_stack_, resize->rightExpand()),
         (int64_t)operation_stack_.size());
     auto resize_inst = CreateInstruction(
         builder_, serde::InstructionData_Resize, resize_fb.Union());
@@ -424,8 +440,8 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
     auto factor_inst = serializeAttribute(split->factor());
     auto split_fb = CreateSplit(
         builder_,
-        operation_stack_.at(split->in()),
-        operation_stack_.at(split->factor()),
+        retrieve(operation_stack_, split->in()),
+        retrieve(operation_stack_, split->factor()),
         (int64_t)operation_stack_.size(),
         (int64_t)operation_stack_.size() + 1);
     auto split_inst = CreateInstruction(
@@ -437,8 +453,8 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
       const nvfuser::Swizzle2D* swizzle) {
     auto swizzle_fb = CreateSwizzle2D(
         builder_,
-        operation_stack_.at(swizzle->inX()),
-        operation_stack_.at(swizzle->inY()),
+        retrieve(operation_stack_, swizzle->inX()),
+        retrieve(operation_stack_, swizzle->inY()),
         castEnumToUnderlyingType(swizzle->swizzleType()),
         castEnumToUnderlyingType(swizzle->swizzleMode()),
         (int64_t)operation_stack_.size(),
@@ -456,7 +472,7 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
         builder_,
         mapToSerdeUnaryOp(uop->getUnaryOpType()),
         dtype,
-        operation_stack_.at(uop->inputs().front()),
+        retrieve(operation_stack_, uop->inputs().front()),
         (int64_t)operation_stack_.size(),
         uop->toString().c_str());
     return CreateInstruction(
@@ -565,7 +581,7 @@ flatbuffers::Offset<flatbuffers::Vector<int64_t>> ExpressionSerializer::
         operation_stack_.count(v),
         "Missing value in NaiveValueGenerator stack.\t",
         v->toString());
-    fb_values.push_back(operation_stack_.at(v));
+    fb_values.push_back(retrieve(operation_stack_, v));
   }
   return builder.CreateVector(fb_values);
 }

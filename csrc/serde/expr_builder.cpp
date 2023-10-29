@@ -7,20 +7,11 @@
 // clang-format on
 #include <ops/arith.h>
 #include <serde/expr_builder.h>
+#include <serde/expr_utils.h>
 #include <serde/polymorphic_value.h>
 #include <type.h>
 
 namespace nvfuser::serde {
-
-bool ExpressionBuilder::exists(size_t idx) const {
-  return idx < operation_stack_.size();
-};
-
-Val* ExpressionBuilder::retrieve(size_t idx) {
-  NVF_ERROR(
-      exists(idx), "Missing value from ExpressionBuilder operation_stack_");
-  return operation_stack_.at(idx);
-}
 
 void ExpressionBuilder::registerAllParsers() {
   auto deserializeBinaryOp = [&](const serde::Instruction* buffer) {
