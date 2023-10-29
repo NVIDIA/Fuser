@@ -139,143 +139,298 @@ std::vector<nvfuser::Val*> makeSortedEvaluationList(
   return sorted;
 }
 
+class DerivedExpressionSerializer final : private OptInConstDispatch {
+  using fb_instruction = flatbuffers::Offset<Instruction>;
+
+ public:
+  static void serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      std::deque<nvfuser::Val*>& derived_values,
+      std::unordered_map<const Val*, long>& operation_stack,
+      std::vector<fb_instruction>& instructions_fb) {
+    DerivedExpressionSerializer serializer(
+        builder, derived_values, operation_stack, instructions_fb);
+
+    while (!derived_values.empty()) {
+      auto& val = derived_values.front();
+      auto def = val->definition();
+
+      if (operation_stack.count(val)) {
+        derived_values.pop_front();
+        continue;
+      }
+
+      if (def == nullptr && val->isA<nvfuser::IterDomain>()) {
+        serializer.OptInConstDispatch::dispatch(val);
+      } else {
+        NVF_ERROR(def != nullptr, "Expected definition with derived value.");
+        serializer.OptInConstDispatch::dispatch(def);
+      }
+    }
+  }
+
+ private:
+  explicit DerivedExpressionSerializer(
+      flatbuffers::FlatBufferBuilder& builder,
+      std::deque<nvfuser::Val*>& derived_values,
+      std::unordered_map<const Val*, long>& operation_stack,
+      std::vector<fb_instruction>& instructions_fb)
+      : builder_(builder),
+        derived_values_(derived_values),
+        operation_stack_(operation_stack),
+        instructions_fb_(instructions_fb) {}
+
+  ~DerivedExpressionSerializer() final = default;
+
+  void handle(const nvfuser::BinaryOp* bop) override {
+    instructions_fb_.push_back(serializeBinaryOp(bop));
+    operation_stack_.emplace(derived_values_.front(), operation_stack_.size());
+    derived_values_.pop_front();
+  }
+
+  void handle(const nvfuser::GetAttr* attr) override {
+    instructions_fb_.push_back(serializeGetAttr(attr));
+    operation_stack_.emplace(derived_values_.front(), operation_stack_.size());
+    derived_values_.pop_front();
+  }
+
+  void handle(const nvfuser::GetMetaData* metadata) override {
+    instructions_fb_.push_back(serializeGetMetaData(metadata));
+    operation_stack_.emplace(derived_values_.front(), operation_stack_.size());
+    derived_values_.pop_front();
+  }
+
+  void handle(const nvfuser::GetItem* item) override {
+    instructions_fb_.push_back(serializeGetItem(item));
+    operation_stack_.emplace(derived_values_.front(), operation_stack_.size());
+    derived_values_.pop_front();
+  }
+
+  void handle(const nvfuser::IterDomain* id) override {
+    NVF_ERROR(id->definition() == nullptr);
+    auto fb_id = serializeIterDomain(id);
+    auto fb_inst = CreateInstruction(
+        builder_, serde::InstructionData_IterDomain, fb_id.Union());
+    instructions_fb_.push_back(fb_inst);
+    operation_stack_.emplace(derived_values_.front(), operation_stack_.size());
+    derived_values_.pop_front();
+  }
+
+  void handle(const nvfuser::Merge* merge) override {
+    instructions_fb_.push_back(serializeMerge(merge));
+    operation_stack_.emplace(derived_values_.front(), operation_stack_.size());
+    derived_values_.pop_front();
+  }
+
+  void handle(const nvfuser::Resize* resize) override {
+    auto inst = serializeResize(resize);
+    for (auto i : inst) {
+      instructions_fb_.push_back(i);
+    }
+    operation_stack_.emplace(derived_values_.front(), operation_stack_.size());
+    derived_values_.pop_front();
+  }
+
+  void handle(const nvfuser::Split* split) override {
+    auto inst = serializeSplit(split);
+    for (auto i : inst) {
+      instructions_fb_.push_back(i);
+    }
+    operation_stack_.emplace(derived_values_.front(), operation_stack_.size());
+    derived_values_.pop_front();
+
+    auto next_val = derived_values_.front();
+    NVF_ERROR(next_val->definition() == split);
+    operation_stack_.emplace(next_val, operation_stack_.size());
+    derived_values_.pop_front();
+  }
+
+  void handle(const nvfuser::Swizzle2D* swizzle) override {
+    instructions_fb_.push_back(serializeSwizzle2D(swizzle));
+    operation_stack_.emplace(derived_values_.front(), operation_stack_.size());
+    derived_values_.pop_front();
+
+    auto next_val = derived_values_.front();
+    NVF_ERROR(next_val->definition() == swizzle);
+    operation_stack_.emplace(next_val, operation_stack_.size());
+    derived_values_.pop_front();
+  }
+
+  void handle(const nvfuser::UnaryOp* uop) override {
+    instructions_fb_.push_back(serializeUnaryOp(uop));
+    operation_stack_.emplace(derived_values_.front(), operation_stack_.size());
+    derived_values_.pop_front();
+  }
+
+  flatbuffers::Offset<Instruction> serializeAttribute(const nvfuser::Val* val) {
+    operation_stack_.emplace(val, operation_stack_.size());
+    auto sv_fb =
+        CreateSymbolicDirect(builder_, val->name(), val->toString().c_str());
+    return CreateInstruction(
+        builder_, serde::InstructionData_Symbolic, sv_fb.Union());
+  }
+
+  flatbuffers::Offset<Instruction> serializeBinaryOp(
+      const nvfuser::BinaryOp* bop) {
+    auto bop_fb = CreateBinaryOpDirect(
+        builder_,
+        mapToSerdeBinaryOp(bop->getBinaryOpType()),
+        operation_stack_.at(bop->inputs().front()),
+        operation_stack_.at(bop->inputs().back()),
+        (int64_t)operation_stack_.size(),
+        bop->toString().c_str());
+    return CreateInstruction(
+        builder_, serde::InstructionData_BinaryOp, bop_fb.Union());
+  }
+
+  flatbuffers::Offset<Instruction> serializeGetAttr(
+      const nvfuser::GetAttr* attr) {
+    auto attr_fb = CreateGetAttr(
+        builder_,
+        operation_stack_.at(attr->struct_()),
+        builder_.CreateString(attr->attr()),
+        (int64_t)operation_stack_.size());
+    return CreateInstruction(
+        builder_, serde::InstructionData_GetAttr, attr_fb.Union());
+  }
+
+  flatbuffers::Offset<Instruction> serializeGetItem(
+      const nvfuser::GetItem* item) {
+    auto item_fb = CreateGetItem(
+        builder_,
+        operation_stack_.at(item->array()),
+        operation_stack_.at(item->index()),
+        (int64_t)operation_stack_.size());
+    return CreateInstruction(
+        builder_, serde::InstructionData_GetItem, item_fb.Union());
+  }
+
+  flatbuffers::Offset<Instruction> serializeGetMetaData(
+      const nvfuser::GetMetaData* metadata) {
+    auto metadata_fb = CreateGetMetaData(
+        builder_,
+        operation_stack_.at(metadata->in()),
+        (int64_t)operation_stack_.size());
+    return CreateInstruction(
+        builder_, serde::InstructionData_GetMetaData, metadata_fb.Union());
+  }
+
+  flatbuffers::Offset<IterDomain> serializeIterDomain(
+      const nvfuser::IterDomain* id) {
+    NVF_ERROR(
+        operation_stack_.count(id->start()),
+        "Missing iterDomain extent in NaiveValueGenerator stack.\t",
+        id->start()->toString());
+
+    NVF_ERROR(
+        operation_stack_.count(id->extent()),
+        "Missing iterDomain extent in NaiveValueGenerator stack.\t",
+        id->extent()->toString());
+
+    NVF_ERROR(
+        !id->hasExpandedExtent() ||
+            operation_stack_.count(id->expandedExtent()),
+        "Missing iterDomain expandedExtent in NaiveValueGenerator stack.\t",
+        id->expandedExtent()->toString());
+
+    NVF_ERROR(
+        operation_stack_.count(id->stopOffset()),
+        "Missing iterDomain stopOffset in NaiveValueGenerator stack.\t",
+        id->stopOffset()->toString());
+
+    return CreateIterDomain(
+        builder_,
+        operation_stack_.at(id->start()),
+        operation_stack_.at(id->extent()),
+        id->hasExpandedExtent() ? operation_stack_.at(id->expandedExtent())
+                                : -1,
+        operation_stack_.at(id->stopOffset()),
+        (int64_t)operation_stack_.size(),
+        castEnumToUnderlyingType(id->getParallelType()),
+        castEnumToUnderlyingType(id->getIterType()),
+        id->isRFactorProduct(),
+        id->hasPaddingToMultipleOfWarp(),
+        id->getMaybeSizeAfterPadding().value_or(0),
+        id->isMmaSwizzled());
+  }
+
+  flatbuffers::Offset<Instruction> serializeMerge(const nvfuser::Merge* merge) {
+    auto merge_fb = CreateMerge(
+        builder_,
+        operation_stack_.at(merge->inner()),
+        operation_stack_.at(merge->outer()),
+        (int64_t)operation_stack_.size());
+    return CreateInstruction(
+        builder_, serde::InstructionData_Merge, merge_fb.Union());
+  }
+
+  std::array<flatbuffers::Offset<Instruction>, 3> serializeResize(
+      const nvfuser::Resize* resize) {
+    auto left_expand_inst = serializeAttribute(resize->leftExpand());
+    auto right_expand_inst = serializeAttribute(resize->leftExpand());
+    auto resize_fb = CreateResize(
+        builder_,
+        operation_stack_.at(resize->in()),
+        operation_stack_.at(resize->leftExpand()),
+        operation_stack_.at(resize->rightExpand()),
+        (int64_t)operation_stack_.size());
+    auto resize_inst = CreateInstruction(
+        builder_, serde::InstructionData_Resize, resize_fb.Union());
+    return {left_expand_inst, right_expand_inst, resize_inst};
+  }
+
+  std::array<flatbuffers::Offset<Instruction>, 2> serializeSplit(
+      const nvfuser::Split* split) {
+    auto factor_inst = serializeAttribute(split->factor());
+    auto split_fb = CreateSplit(
+        builder_,
+        operation_stack_.at(split->in()),
+        operation_stack_.at(split->factor()),
+        (int64_t)operation_stack_.size(),
+        (int64_t)operation_stack_.size() + 1);
+    auto split_inst = CreateInstruction(
+        builder_, serde::InstructionData_Split, split_fb.Union());
+    return {factor_inst, split_inst};
+  }
+
+  flatbuffers::Offset<Instruction> serializeSwizzle2D(
+      const nvfuser::Swizzle2D* swizzle) {
+    auto swizzle_fb = CreateSwizzle2D(
+        builder_,
+        operation_stack_.at(swizzle->inX()),
+        operation_stack_.at(swizzle->inY()),
+        castEnumToUnderlyingType(swizzle->swizzleType()),
+        castEnumToUnderlyingType(swizzle->swizzleMode()),
+        (int64_t)operation_stack_.size(),
+        (int64_t)operation_stack_.size() + 1);
+    return CreateInstruction(
+        builder_, serde::InstructionData_Swizzle2D, swizzle_fb.Union());
+  }
+
+  flatbuffers::Offset<Instruction> serializeUnaryOp(
+      const nvfuser::UnaryOp* uop) {
+    DataType dtype = (uop->getUnaryOpType() == nvfuser::UnaryOpType::Cast)
+        ? mapToSerdeDtype(uop->out()->getDataType().value())
+        : serde::DataType_None;
+    auto uop_fb = CreateUnaryOpDirect(
+        builder_,
+        mapToSerdeUnaryOp(uop->getUnaryOpType()),
+        dtype,
+        operation_stack_.at(uop->inputs().front()),
+        (int64_t)operation_stack_.size(),
+        uop->toString().c_str());
+    return CreateInstruction(
+        builder_, serde::InstructionData_UnaryOp, uop_fb.Union());
+  }
+
+ private:
+  flatbuffers::FlatBufferBuilder& builder_;
+  std::deque<nvfuser::Val*>& derived_values_;
+  std::unordered_map<const Val*, long>& operation_stack_;
+  std::vector<fb_instruction>& instructions_fb_;
+};
+
 } // namespace
-
-flatbuffers::Offset<Instruction> ExpressionSerializer::serializeAttribute(
-    flatbuffers::FlatBufferBuilder& builder,
-    nvfuser::Val* val) {
-  operation_stack_.emplace(val, operation_stack_.size());
-  auto sv_fb =
-      CreateSymbolicDirect(builder, val->name(), val->toString().c_str());
-  return CreateInstruction(
-      builder, serde::InstructionData_Symbolic, sv_fb.Union());
-}
-
-flatbuffers::Offset<Instruction> ExpressionSerializer::serializeUnaryOp(
-    flatbuffers::FlatBufferBuilder& builder,
-    nvfuser::UnaryOp* uop) {
-  DataType dtype = (uop->getUnaryOpType() == nvfuser::UnaryOpType::Cast)
-      ? mapToSerdeDtype(uop->out()->getDataType().value())
-      : serde::DataType_None;
-  auto uop_fb = CreateUnaryOpDirect(
-      builder,
-      mapToSerdeUnaryOp(uop->getUnaryOpType()),
-      dtype,
-      operation_stack_.at(uop->inputs().front()),
-      (int64_t)operation_stack_.size(),
-      uop->toString().c_str());
-  return CreateInstruction(
-      builder, serde::InstructionData_UnaryOp, uop_fb.Union());
-}
-
-flatbuffers::Offset<Instruction> ExpressionSerializer::serializeBinaryOp(
-    flatbuffers::FlatBufferBuilder& builder,
-    nvfuser::BinaryOp* bop) {
-  auto bop_fb = CreateBinaryOpDirect(
-      builder,
-      mapToSerdeBinaryOp(bop->getBinaryOpType()),
-      operation_stack_.at(bop->inputs().front()),
-      operation_stack_.at(bop->inputs().back()),
-      (int64_t)operation_stack_.size(),
-      bop->toString().c_str());
-  return CreateInstruction(
-      builder, serde::InstructionData_BinaryOp, bop_fb.Union());
-}
-
-flatbuffers::Offset<Instruction> ExpressionSerializer::serializeMerge(
-    flatbuffers::FlatBufferBuilder& builder,
-    nvfuser::Merge* merge) {
-  auto merge_fb = CreateMerge(
-      builder,
-      operation_stack_.at(merge->inner()),
-      operation_stack_.at(merge->outer()),
-      (int64_t)operation_stack_.size());
-  return CreateInstruction(
-      builder, serde::InstructionData_Merge, merge_fb.Union());
-}
-
-flatbuffers::Offset<Instruction> ExpressionSerializer::serializeGetAttr(
-    flatbuffers::FlatBufferBuilder& builder,
-    nvfuser::GetAttr* attr) {
-  auto attr_fb = CreateGetAttr(
-      builder,
-      operation_stack_.at(attr->struct_()),
-      builder.CreateString(attr->attr()),
-      (int64_t)operation_stack_.size());
-  return CreateInstruction(
-      builder, serde::InstructionData_GetAttr, attr_fb.Union());
-}
-
-flatbuffers::Offset<Instruction> ExpressionSerializer::serializeGetItem(
-    flatbuffers::FlatBufferBuilder& builder,
-    nvfuser::GetItem* item) {
-  auto item_fb = CreateGetItem(
-      builder,
-      operation_stack_.at(item->array()),
-      operation_stack_.at(item->index()),
-      (int64_t)operation_stack_.size());
-  return CreateInstruction(
-      builder, serde::InstructionData_GetItem, item_fb.Union());
-}
-
-flatbuffers::Offset<Instruction> ExpressionSerializer::serializeGetMetaData(
-    flatbuffers::FlatBufferBuilder& builder,
-    nvfuser::GetMetaData* metadata) {
-  auto metadata_fb = CreateGetMetaData(
-      builder,
-      operation_stack_.at(metadata->in()),
-      (int64_t)operation_stack_.size());
-  return CreateInstruction(
-      builder, serde::InstructionData_GetMetaData, metadata_fb.Union());
-}
-
-std::array<flatbuffers::Offset<Instruction>, 3> ExpressionSerializer::
-    serializeResize(
-        flatbuffers::FlatBufferBuilder& builder,
-        nvfuser::Resize* resize) {
-  auto left_expand_inst = serializeAttribute(builder, resize->leftExpand());
-  auto right_expand_inst = serializeAttribute(builder, resize->leftExpand());
-  auto resize_fb = CreateResize(
-      builder,
-      operation_stack_.at(resize->in()),
-      operation_stack_.at(resize->leftExpand()),
-      operation_stack_.at(resize->rightExpand()),
-      (int64_t)operation_stack_.size());
-  auto resize_inst = CreateInstruction(
-      builder, serde::InstructionData_Resize, resize_fb.Union());
-  return {left_expand_inst, right_expand_inst, resize_inst};
-}
-
-std::array<flatbuffers::Offset<Instruction>, 2> ExpressionSerializer::
-    serializeSplit(
-        flatbuffers::FlatBufferBuilder& builder,
-        nvfuser::Split* split) {
-  auto factor_inst = serializeAttribute(builder, split->factor());
-  auto split_fb = CreateSplit(
-      builder,
-      operation_stack_.at(split->in()),
-      operation_stack_.at(split->factor()),
-      (int64_t)operation_stack_.size(),
-      (int64_t)operation_stack_.size() + 1);
-  auto split_inst = CreateInstruction(
-      builder, serde::InstructionData_Split, split_fb.Union());
-  return {factor_inst, split_inst};
-}
-
-flatbuffers::Offset<Instruction> ExpressionSerializer::serializeSwizzle2D(
-    flatbuffers::FlatBufferBuilder& builder,
-    nvfuser::Swizzle2D* swizzle) {
-  auto swizzle_fb = CreateSwizzle2D(
-      builder,
-      operation_stack_.at(swizzle->inX()),
-      operation_stack_.at(swizzle->inY()),
-      castEnumToUnderlyingType(swizzle->swizzleType()),
-      castEnumToUnderlyingType(swizzle->swizzleMode()),
-      (int64_t)operation_stack_.size(),
-      (int64_t)operation_stack_.size() + 1);
-  return CreateInstruction(
-      builder, serde::InstructionData_Swizzle2D, swizzle_fb.Union());
-}
 
 void ExpressionSerializer::processAllocations(
     const std::vector<const kir::Allocate*>& allocations) {
@@ -357,82 +512,9 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::
     operation_stack_.emplace(int_val, operation_stack_.size());
   }
 
-  while (!derived_values_.empty()) {
-    auto& val = derived_values_.front();
-    auto def = val->definition();
-    derived_values_.pop_front();
+  DerivedExpressionSerializer::serialize(
+      builder, derived_values_, operation_stack_, instructions_fb);
 
-    if (operation_stack_.count(val)) {
-      continue;
-    }
-
-    if (def == nullptr && val->isA<nvfuser::IterDomain>()) {
-      auto id = dynamic_cast<nvfuser::IterDomain*>(val);
-      auto fb_id = serialize(builder, id);
-      auto fb_inst = CreateInstruction(
-          builder, serde::InstructionData_IterDomain, fb_id.Union());
-      instructions_fb.push_back(fb_inst);
-      operation_stack_.emplace(val, operation_stack_.size());
-      continue;
-    }
-
-    NVF_ERROR(def != nullptr, "Expected definition with derived value.");
-    if (auto uop = dynamic_cast<nvfuser::UnaryOp*>(def)) {
-      instructions_fb.push_back(serializeUnaryOp(builder, uop));
-      operation_stack_.emplace(val, operation_stack_.size());
-
-    } else if (auto bop = dynamic_cast<nvfuser::BinaryOp*>(def)) {
-      instructions_fb.push_back(serializeBinaryOp(builder, bop));
-      operation_stack_.emplace(val, operation_stack_.size());
-
-    } else if (auto mop = dynamic_cast<nvfuser::Merge*>(def)) {
-      instructions_fb.push_back(serializeMerge(builder, mop));
-      operation_stack_.emplace(val, operation_stack_.size());
-
-    } else if (auto sop = dynamic_cast<nvfuser::Split*>(def)) {
-      auto inst = serializeSplit(builder, sop);
-      for (auto i : inst) {
-        instructions_fb.push_back(i);
-      }
-      operation_stack_.emplace(val, operation_stack_.size());
-
-      auto next_val = derived_values_.front();
-      NVF_ERROR(next_val->definition() == def);
-      operation_stack_.emplace(next_val, operation_stack_.size());
-      derived_values_.pop_front();
-
-    } else if (auto swop = dynamic_cast<nvfuser::Swizzle2D*>(def)) {
-      instructions_fb.push_back(serializeSwizzle2D(builder, swop));
-      operation_stack_.emplace(val, operation_stack_.size());
-
-      auto next_val = derived_values_.front();
-      NVF_ERROR(next_val->definition() == def);
-      operation_stack_.emplace(next_val, operation_stack_.size());
-      derived_values_.pop_front();
-
-    } else if (auto rop = dynamic_cast<nvfuser::Resize*>(def)) {
-      auto inst = serializeResize(builder, rop);
-      for (auto i : inst) {
-        instructions_fb.push_back(i);
-      }
-      operation_stack_.emplace(val, operation_stack_.size());
-
-    } else if (auto mop = dynamic_cast<nvfuser::GetMetaData*>(def)) {
-      instructions_fb.push_back(serializeGetMetaData(builder, mop));
-      operation_stack_.emplace(val, operation_stack_.size());
-
-    } else if (auto iop = dynamic_cast<nvfuser::GetItem*>(def)) {
-      instructions_fb.push_back(serializeGetItem(builder, iop));
-      operation_stack_.emplace(val, operation_stack_.size());
-
-    } else if (auto aop = dynamic_cast<nvfuser::GetAttr*>(def)) {
-      instructions_fb.push_back(serializeGetAttr(builder, aop));
-      operation_stack_.emplace(val, operation_stack_.size());
-
-    } else {
-      NVF_ERROR(false, "Serialization unknown expression.\t", def->toString());
-    }
-  }
   return CreateNaiveValueGeneratorDirect(builder, &instructions_fb);
 }
 
@@ -454,44 +536,6 @@ std::vector<flatbuffers::Offset<AllocateBuffer>> ExpressionSerializer::
     fb_allocations.push_back(fb_alloc);
   }
   return fb_allocations;
-}
-
-flatbuffers::Offset<IterDomain> ExpressionSerializer::serialize(
-    flatbuffers::FlatBufferBuilder& builder,
-    const nvfuser::IterDomain* id) {
-  NVF_ERROR(
-      operation_stack_.count(id->start()),
-      "Missing iterDomain extent in NaiveValueGenerator stack.\t",
-      id->start()->toString());
-
-  NVF_ERROR(
-      operation_stack_.count(id->extent()),
-      "Missing iterDomain extent in NaiveValueGenerator stack.\t",
-      id->extent()->toString());
-
-  NVF_ERROR(
-      !id->hasExpandedExtent() || operation_stack_.count(id->expandedExtent()),
-      "Missing iterDomain expandedExtent in NaiveValueGenerator stack.\t",
-      id->expandedExtent()->toString());
-
-  NVF_ERROR(
-      operation_stack_.count(id->stopOffset()),
-      "Missing iterDomain stopOffset in NaiveValueGenerator stack.\t",
-      id->stopOffset()->toString());
-
-  return CreateIterDomain(
-      builder,
-      operation_stack_.at(id->start()),
-      operation_stack_.at(id->extent()),
-      id->hasExpandedExtent() ? operation_stack_.at(id->expandedExtent()) : -1,
-      operation_stack_.at(id->stopOffset()),
-      (int64_t)operation_stack_.size(),
-      castEnumToUnderlyingType(id->getParallelType()),
-      castEnumToUnderlyingType(id->getIterType()),
-      id->isRFactorProduct(),
-      id->hasPaddingToMultipleOfWarp(),
-      id->getMaybeSizeAfterPadding().value_or(0),
-      id->isMmaSwizzled());
 }
 
 template <typename T>

@@ -32,46 +32,6 @@ class ExpressionSerializer {
       const std::vector<const kir::Allocate*>& allocations);
 
  private:
-  flatbuffers::Offset<Instruction> serializeAttribute(
-      flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::Val* val);
-
-  flatbuffers::Offset<Instruction> serializeBinaryOp(
-      flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::BinaryOp* bop);
-
-  flatbuffers::Offset<Instruction> serializeGetAttr(
-      flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::GetAttr* attr);
-
-  flatbuffers::Offset<Instruction> serializeGetItem(
-      flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::GetItem* item);
-
-  flatbuffers::Offset<Instruction> serializeGetMetaData(
-      flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::GetMetaData* metadata);
-
-  flatbuffers::Offset<Instruction> serializeMerge(
-      flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::Merge* merge);
-
-  std::array<flatbuffers::Offset<Instruction>, 3> serializeResize(
-      flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::Resize* resize);
-
-  std::array<flatbuffers::Offset<Instruction>, 2> serializeSplit(
-      flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::Split* split);
-
-  flatbuffers::Offset<Instruction> serializeSwizzle2D(
-      flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::Swizzle2D* swizzle);
-
-  flatbuffers::Offset<Instruction> serializeUnaryOp(
-      flatbuffers::FlatBufferBuilder& builder,
-      nvfuser::UnaryOp* uop);
-
   flatbuffers::Offset<SymbolicTensor> serialize(
       flatbuffers::FlatBufferBuilder& builder,
       const nvfuser::TensorView* tv);
@@ -81,14 +41,10 @@ class ExpressionSerializer {
       flatbuffers::FlatBufferBuilder& builder,
       const std::vector<T*>& values);
 
-  flatbuffers::Offset<IterDomain> serialize(
-      flatbuffers::FlatBufferBuilder& builder,
-      const nvfuser::IterDomain* id);
-
   void processAllocations(const std::vector<const kir::Allocate*>& allocations);
 
   void printStack() const {
-    std::vector<nvfuser::Val*> ordered_stack(operation_stack_.size());
+    std::vector<const nvfuser::Val*> ordered_stack(operation_stack_.size());
     for (auto item : operation_stack_) {
       ordered_stack.at(item.second) = item.first;
     }
@@ -103,7 +59,7 @@ class ExpressionSerializer {
               << std::endl;
   }
 
-  std::unordered_map<Val*, long> operation_stack_;
+  std::unordered_map<const Val*, long> operation_stack_;
   kir::Kernel* kernel_;
   std::vector<nvfuser::NamedScalar*> named_scalar_values_;
   std::vector<nvfuser::Val*> const_int_values_;
