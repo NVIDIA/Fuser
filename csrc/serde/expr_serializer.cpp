@@ -277,29 +277,10 @@ flatbuffers::Offset<Instruction> ExpressionSerializer::serializeSwizzle2D(
       builder, serde::InstructionData_Swizzle2D, swizzle_fb.Union());
 }
 
-flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::
-    serializeNaiveValueGenerator(
-        flatbuffers::FlatBufferBuilder& builder,
-        const std::vector<const kir::Allocate*>& allocations) {
-  // Short Circuit: Return empty offset if there aren't any kir::Allocate nodes
-  if (allocations.empty()) {
-    return 0;
-  }
-
-  // TODO Make common util between ExpressionSerializer and ExpressionBuilder
-  // TODO Enforce deterministic order
-  // Add TensorView RootDomain IterDomain Extents for all kernel inputs
-  for (auto input : kernel_->inputs()) {
-    if (auto tv = dynamic_cast<nvfuser::TensorView*>(input)) {
-      insertUniqueItem(symbolic_values_, tv);
-      for (auto id : tv->getRootDomain()) {
-        auto extent = id->extent();
-        if (!extent->isA<nvfuser::NamedScalar>() && !extent->isConstInt()) {
-          insertUniqueItem(symbolic_values_, extent);
-        }
-      }
-    }
-  }
+void ExpressionSerializer::processAllocations(
+    const std::vector<const kir::Allocate*>& allocations) {
+  // Built in deterministic order from kernel inputs
+  symbolic_values_ = gatherSymbolicValues(kernel_);
 
   // 1) All kir::Allocate nodes are contained in FusionExecutor::KernelSummary
   // 2) Sort all values by dependency order
@@ -321,6 +302,18 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::
       insertUniqueItem(derived_values_, v);
     }
   }
+}
+
+flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::
+    serializeNaiveValueGenerator(
+        flatbuffers::FlatBufferBuilder& builder,
+        const std::vector<const kir::Allocate*>& allocations) {
+  // Short Circuit: Return empty offset if there aren't any kir::Allocate nodes
+  if (allocations.empty()) {
+    return 0;
+  }
+
+  processAllocations(allocations);
 
   // 4) Serialize NaiveValueGenerator by converting each NvFuser value of into
   // an instruction.

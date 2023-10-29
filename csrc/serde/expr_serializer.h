@@ -84,6 +84,8 @@ class ExpressionSerializer {
       flatbuffers::FlatBufferBuilder& builder,
       const nvfuser::IterDomain* id);
 
+  void processAllocations(const std::vector<const kir::Allocate*>& allocations);
+
   void printStack() const {
     std::vector<nvfuser::Val*> ordered_stack(operation_stack_.size());
     for (auto item : operation_stack_) {

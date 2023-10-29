@@ -14,22 +14,7 @@
 namespace nvfuser::serde {
 
 ExpressionBuilder::ExpressionBuilder(kir::Kernel* kernel) : kernel_(kernel) {
-  // TODO Enforce deterministic order
-  // Add TensorView RootDomain IterDomain Extents for all kernel inputs
-  std::vector<nvfuser::Val*> symbolic_values;
-  for (auto input : kernel->inputs()) {
-    if (TensorView* tv = dynamic_cast<TensorView*>(input)) {
-      insertUniqueItem(symbolic_values, tv);
-      for (auto id : tv->getRootDomain()) {
-        auto extent = id->extent();
-        if (!extent->isA<NamedScalar>() && !extent->isConstInt()) {
-          insertUniqueItem(symbolic_values, extent);
-        }
-      }
-    }
-  }
-  operation_stack_.insert(
-      operation_stack_.end(), symbolic_values.begin(), symbolic_values.end());
+  operation_stack_ = gatherSymbolicValues(kernel_);
 }
 
 void ExpressionBuilder::deserialize(const NaiveValueGenerator* buffer) {

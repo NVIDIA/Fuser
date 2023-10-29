@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <exceptions.h>
+#include <kernel.h>
 #include <serde/fusion_cache_generated.h>
 #include <type.h>
 
@@ -21,6 +22,10 @@ bool insertUniqueItem(Container& container, T v) {
   }
   return false;
 }
+
+// Add TensorView RootDomain IterDomain Extents for all kernel inputs
+// TODO Enforce deterministic order
+std::vector<nvfuser::Val*> gatherSymbolicValues(kir::Kernel* kernel);
 
 //! A function to map the nvfuser UnaryOp type to the corresponding serde type
 serde::UnaryOpType mapToSerdeUnaryOp(nvfuser::UnaryOpType);
