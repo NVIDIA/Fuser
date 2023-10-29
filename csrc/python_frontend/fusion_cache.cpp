@@ -304,7 +304,7 @@ TrieNode* FusionCache::rootTriePtr() {
 }
 
 void FusionCache::serialize(std::string filename) const {
-  FUSER_PERF_SCOPE("FusionCache::serialize");
+  FUSER_PERF_SCOPE("Serialize::FusionCache");
   flatbuffers::FlatBufferBuilder builder(1024);
   // TODO: Serialize Fusion IR containers
 
@@ -422,7 +422,7 @@ const serde::FusionCache* verifyFusionCache(const BinaryBuffer& buffer) {
 void FusionCache::deserialize(std::string filename) {
   // See table definition for FusionCache in serde/fusion_cache.fbs
   // 0. Load flatbuffer binary from file
-  FUSER_PERF_SCOPE("FusionCache::deserialize");
+  FUSER_PERF_SCOPE("Deserialize::FusionCache");
   NVF_CHECK(
       fusions_.empty(),
       "Deserialization is prohibited if FusionCache is already populated.");

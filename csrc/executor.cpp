@@ -1993,6 +1993,7 @@ float FusionExecutor::runRtc(
 flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
+  FUSER_PERF_SCOPE("Serialize::FusionExecutor");
   using fb_executor_entry = flatbuffers::Offset<serde::ExecutorEntry>;
 
   // Separate unordered_map for executor_entry_lookup into key and value
@@ -2023,6 +2024,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
 flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const executor_utils::CompiledKernel& compiled_kernel) const {
+  FUSER_PERF_SCOPE("Serialize::CompiledKernel");
   NVF_ERROR(
       !compiled_kernel.cubin.empty() || !compiled_kernel.ptx.empty(),
       "Expected compiled cuda kernel before serializing FusionExecutor.");
@@ -2066,6 +2068,7 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const ExecutorEntry& data) const {
   // See table definition for ExecutorEntry in serde/fusion_cache.fbs
+  FUSER_PERF_SCOPE("Serialize::ExecutorEntry");
 
   // In the flatbuffer schema, we store the vector of pairs as a pair of
   // vectors.
@@ -2131,6 +2134,7 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
     int64_t tv_position,
     bool is_fusion_output) const {
   // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
+  FUSER_PERF_SCOPE("Serialize::GlobalBufferInfo");
   return serde::CreateGlobalBufferInfoDirect(
       builder,
       tv_position,
@@ -2146,6 +2150,7 @@ flatbuffers::Offset<serde::KernelSummary> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const kir::KernelSummary& summary) const {
   // See table definition for KernelSummary in serde/fusion_cache.fbs
+  FUSER_PERF_SCOPE("Serialize::KernelSummary");
 
   std::vector<const kir::Allocate*> all_allocations;
   all_allocations.insert(
@@ -2197,6 +2202,7 @@ void FusionExecutor::deserialize(
     Fusion* fusion,
     CompileParams compile_params) {
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
+  FUSER_PERF_SCOPE("deserialize::FusionExecutor");
 
   NVF_ERROR(buffer != nullptr, "serde::FusionExecutor is nullptr.");
 
@@ -2242,6 +2248,7 @@ void FusionExecutor::deserialize(
 FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
     const serde::ExecutorEntry* buffer) {
   // See table definition for ExecutorEntry in serde/fusion_cache.fbs
+  FUSER_PERF_SCOPE("deserialize::ExecutorEntry");
 
   NVF_ERROR(buffer != nullptr, "serde::ExecutorEntry is nullptr.");
 
@@ -2270,6 +2277,7 @@ FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
 FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
     const serde::GlobalBufferInfo* buffer) {
   // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
+  FUSER_PERF_SCOPE("deserialize::GlobalBufferInfo");
 
   NVF_ERROR(buffer != nullptr, "serde::GlobalBufferInfo is nullptr.");
   NVF_ERROR(
@@ -2307,6 +2315,7 @@ FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
 
 void FusionExecutor::deserialize(const serde::KernelSummary* buffer) {
   // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
+  FUSER_PERF_SCOPE("deserialize::KernelSummary");
 
   NVF_ERROR(buffer != nullptr, "serde::KernelSummary is nullptr.");
   NVF_ERROR(lowered_ != nullptr);

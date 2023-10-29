@@ -214,6 +214,7 @@ flatbuffers::Offset<serde::InputsIdLookup> InputsIdLookup::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See definitions in serde/fusion_cache.fbs for table
   // InputsIdLookup and struct EncodingEntry
+  FUSER_PERF_SCOPE("Serialize::InputsIdLookup");
 
   using fb_string = flatbuffers::Offset<flatbuffers::String>;
 
@@ -248,6 +249,7 @@ flatbuffers::Offset<serde::InputsIdLookup> InputsIdLookup::serialize(
 void InputsIdLookup::deserialize(const serde::InputsIdLookup* buffer) {
   // See definitions in serde/fusion_cache.fbs for tables
   // InputsIdLookup and EncodingEntry
+  FUSER_PERF_SCOPE("Deserialize::InputsIdLookup");
   NVF_ERROR(buffer != nullptr, "serde::InputsIdLookup is nullptr.");
   using list_iter = std::list<std::string>::iterator;
   std::vector<list_iter> used_entry_iterators;
@@ -740,6 +742,7 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See definitions in serde/fusion_cache.fbs for tables
   // FusionExecutorCache and KernelRuntimes
+  FUSER_PERF_SCOPE("Serialize::FusionExecutorCache");
 
   // For serialization, we require a consistent ordering for the
   // kernel_runtimes_ map.
@@ -795,6 +798,7 @@ void FusionExecutorCache::deserialize(
     const serde::FusionExecutorCache* buffer) {
   // See definitions in serde/fusion_cache.fbs for tables
   // FusionExecutorCache and KernelRuntimes
+  FUSER_PERF_SCOPE("Deserialize::FusionExecutorCache");
 
   NVF_ERROR(buffer != nullptr, "serde::FusionExecutorCache is nullptr.");
 
@@ -933,6 +937,7 @@ FusionKernelRuntime::FusionKernelRuntime(
 flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See table definition for FusionKernelRuntime in serde/fusion_cache.fbs
+  FUSER_PERF_SCOPE("Serialize::FusionKernelRuntime");
 
   // 1. Serialize FusionExecutor objects
   std::vector<flatbuffers::Offset<serde::FusionExecutor>> executors_fb;
@@ -948,6 +953,7 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
 void FusionKernelRuntime::deserialize(
     const serde::FusionKernelRuntime* buffer) {
   // See table definition in FusionKernelRuntime in serde/fusion_cache.fbs
+  FUSER_PERF_SCOPE("Deserialize::FusionKernelRuntime");
 
   NVF_ERROR(buffer != nullptr, "serde::FusionKernelRuntime is nullptr.");
   NVF_ERROR(runtime_workspace_.group_run_order.size() == executors_.size());
