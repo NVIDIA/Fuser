@@ -268,7 +268,7 @@ int64_t Pipeline::requestedNumberOfDevices() const {
       device_indices.insert(d_id);
     }
   }
-  return device_indices.size();
+  return static_cast<int64_t>(device_indices.size());
 }
 
 // Printer for Pipeline

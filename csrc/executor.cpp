@@ -1263,8 +1263,8 @@ std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
 
   const auto& output_to_input_aliases = input_alias_indices_entry.get();
 
-  auto output_info = getOutputBufferInfo(
-      kernel_inputs, expr_eval, output_to_input_aliases, kernel()->indexType());
+  auto output_info =
+      getOutputBufferInfo(kernel_inputs, expr_eval, kernel()->indexType());
 
   return allocOutputs(
       kernel(),

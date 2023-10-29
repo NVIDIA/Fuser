@@ -198,7 +198,7 @@ c10::intrusive_ptr<c10d::Backend> Communicator::getBackendForTeam(
         backend_type_,
         c10::make_intrusive<c10d::PrefixStore>(team_key, store_),
         team_rank,
-        team.size());
+        static_cast<int64_t>(team.size()));
   }
   return backends_.at(team_key);
 }
