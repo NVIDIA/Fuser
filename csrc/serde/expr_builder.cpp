@@ -16,6 +16,12 @@ bool ExpressionBuilder::exists(size_t idx) const {
   return idx < operation_stack_.size();
 };
 
+Val* ExpressionBuilder::retrieve(size_t idx) {
+  NVF_ERROR(
+      exists(idx), "Missing value from ExpressionBuilder operation_stack_");
+  return operation_stack_.at(idx);
+}
+
 void ExpressionBuilder::registerAllParsers() {
   auto deserializeBinaryOp = [&](const serde::Instruction* buffer) {
     auto data = buffer->data_as_BinaryOp();
@@ -34,8 +40,8 @@ void ExpressionBuilder::registerAllParsers() {
     if (exists(data->out())) {
       return;
     }
-    auto expr = IrBuilder::getAttrExpr(
-        operation_stack_.at(data->struct_()), data->attr()->str());
+    auto expr =
+        IrBuilder::getAttrExpr(retrieve(data->struct_()), data->attr()->str());
     operation_stack_.push_back(expr);
   };
   registerParser(InstructionData_GetAttr, deserializeGetAttr);
@@ -47,7 +53,7 @@ void ExpressionBuilder::registerAllParsers() {
       return;
     }
     auto item = IrBuilder::getItemExpr(
-        operation_stack_.at(data->array()), operation_stack_.at(data->index()));
+        retrieve(data->array()), retrieve(data->index()));
     operation_stack_.push_back(item);
   };
   registerParser(InstructionData_GetItem, deserializeGetItem);
@@ -58,7 +64,7 @@ void ExpressionBuilder::registerAllParsers() {
     if (exists(data->out())) {
       return;
     }
-    auto metadata = kernel_->metadataOf(operation_stack_.at(data->in()));
+    auto metadata = kernel_->metadataOf(retrieve(data->in()));
     operation_stack_.push_back(metadata);
   };
   registerParser(InstructionData_GetMetaData, deserializeGetMetaData);
@@ -80,8 +86,8 @@ void ExpressionBuilder::registerAllParsers() {
     if (exists(data->out())) {
       return;
     }
-    auto inner = operation_stack_.at(data->inner());
-    auto outer = operation_stack_.at(data->outer());
+    auto inner = retrieve(data->inner());
+    auto outer = retrieve(data->outer());
     NVF_ERROR(inner->isA<nvfuser::IterDomain>());
     NVF_ERROR(outer->isA<nvfuser::IterDomain>());
 
@@ -109,11 +115,11 @@ void ExpressionBuilder::registerAllParsers() {
     if (exists(data->out())) {
       return;
     }
-    auto in = operation_stack_.at(data->in());
+    auto in = retrieve(data->in());
     NVF_ERROR(in->isA<nvfuser::IterDomain>());
 
-    auto left_expansion = operation_stack_.at(data->left_expansion());
-    auto right_expansion = operation_stack_.at(data->right_expansion());
+    auto left_expansion = retrieve(data->left_expansion());
+    auto right_expansion = retrieve(data->right_expansion());
 
     // TODO add mark_as_rfactor attribute
     // TODO add optional itertype attribute
@@ -144,12 +150,12 @@ void ExpressionBuilder::registerAllParsers() {
     if (exists(data->inner()) && exists(data->outer())) {
       return;
     }
-    auto in = operation_stack_.at(data->in());
+    auto in = retrieve(data->in());
     NVF_ERROR(in->isA<nvfuser::IterDomain>());
 
     auto split_ids = nvfuser::IterDomain::split(
         in->as<nvfuser::IterDomain>(),
-        operation_stack_.at(data->factor()),
+        retrieve(data->factor()),
         data->inner_split(),
         data->trim_out_of_bounds());
     operation_stack_.push_back(split_ids.first);
@@ -163,8 +169,8 @@ void ExpressionBuilder::registerAllParsers() {
     if (exists(data->out_x()) && exists(data->out_y())) {
       return;
     }
-    auto in_x = operation_stack_.at(data->in_x());
-    auto in_y = operation_stack_.at(data->in_y());
+    auto in_x = retrieve(data->in_x());
+    auto in_y = retrieve(data->in_y());
     NVF_ERROR(in_x->isA<nvfuser::IterDomain>());
     NVF_ERROR(in_y->isA<nvfuser::IterDomain>());
 
@@ -210,10 +216,9 @@ Val* ExpressionBuilder::buildUnaryOp(const UnaryOp* buffer) {
   switch (buffer->unary_type()) {
     case serde::UnaryOpType_Cast:
       return castOp(
-          mapToDtypeStruct(buffer->data_type()),
-          operation_stack_.at(buffer->src0()));
+          mapToDtypeStruct(buffer->data_type()), retrieve(buffer->src0()));
     case serde::UnaryOpType_Neg:
-      return neg(operation_stack_.at(buffer->src0()));
+      return neg(retrieve(buffer->src0()));
     default:
       NVF_ERROR(false, "Unsupported binary operation.\t");
       return nullptr;
@@ -224,29 +229,17 @@ Val* ExpressionBuilder::buildBinaryOp(const BinaryOp* buffer) {
   NVF_ERROR(buffer != nullptr, "serde::BinaryOp is nullptr.")
   switch (buffer->binary_type()) {
     case serde::BinaryOpType_Add:
-      return add(
-          operation_stack_.at(buffer->src0()),
-          operation_stack_.at(buffer->src1()));
+      return add(retrieve(buffer->src0()), retrieve(buffer->src1()));
     case serde::BinaryOpType_CeilDiv:
-      return ceilDiv(
-          operation_stack_.at(buffer->src0()),
-          operation_stack_.at(buffer->src1()));
+      return ceilDiv(retrieve(buffer->src0()), retrieve(buffer->src1()));
     case serde::BinaryOpType_Div:
-      return div(
-          operation_stack_.at(buffer->src0()),
-          operation_stack_.at(buffer->src1()));
+      return div(retrieve(buffer->src0()), retrieve(buffer->src1()));
     case serde::BinaryOpType_Mod:
-      return mod(
-          operation_stack_.at(buffer->src0()),
-          operation_stack_.at(buffer->src1()));
+      return mod(retrieve(buffer->src0()), retrieve(buffer->src1()));
     case serde::BinaryOpType_Mul:
-      return mul(
-          operation_stack_.at(buffer->src0()),
-          operation_stack_.at(buffer->src1()));
+      return mul(retrieve(buffer->src0()), retrieve(buffer->src1()));
     case serde::BinaryOpType_Sub:
-      return sub(
-          operation_stack_.at(buffer->src0()),
-          operation_stack_.at(buffer->src1()));
+      return sub(retrieve(buffer->src0()), retrieve(buffer->src1()));
     default:
       NVF_ERROR(false, "Unsupported binary operation.\t");
       return nullptr;
@@ -256,13 +249,12 @@ Val* ExpressionBuilder::buildBinaryOp(const BinaryOp* buffer) {
 nvfuser::IterDomain* ExpressionBuilder::buildIterDomain(
     const IterDomain* buffer) {
   nvfuser::IterDomainBuilder builder(
-      operation_stack_.at(buffer->start()),
-      operation_stack_.at(buffer->extent()));
-  builder.stop_offset(operation_stack_.at(buffer->stop_offset()));
+      retrieve(buffer->start()), retrieve(buffer->extent()));
+  builder.stop_offset(retrieve(buffer->stop_offset()));
   builder.iter_type(static_cast<nvfuser::IterType>(buffer->iter_type()));
 
   if (buffer->expanded_extent() > 0) {
-    builder.expanded_extent(operation_stack_.at(buffer->expanded_extent()));
+    builder.expanded_extent(retrieve(buffer->expanded_extent()));
   }
 
   // Scheduler parameters
@@ -288,7 +280,7 @@ std::vector<const kir::Allocate*> ExpressionBuilder::deserialize(
     std::vector<nvfuser::IterDomain*> new_root;
     if (buffer->tv()->root() != nullptr) {
       for (auto fb_id : *buffer->tv()->root()) {
-        auto val = operation_stack_.at(fb_id);
+        auto val = retrieve(fb_id);
         NVF_ERROR(val->isA<nvfuser::IterDomain>());
         new_root.push_back(val->as<nvfuser::IterDomain>());
       }
@@ -297,7 +289,7 @@ std::vector<const kir::Allocate*> ExpressionBuilder::deserialize(
     std::vector<nvfuser::IterDomain*> new_rfactor;
     if (buffer->tv()->rfactor() != nullptr) {
       for (auto fb_id : *buffer->tv()->rfactor()) {
-        auto val = operation_stack_.at(fb_id);
+        auto val = retrieve(fb_id);
         NVF_ERROR(val->isA<nvfuser::IterDomain>());
         new_rfactor.push_back(val->as<nvfuser::IterDomain>());
       }
@@ -306,7 +298,7 @@ std::vector<const kir::Allocate*> ExpressionBuilder::deserialize(
     std::vector<nvfuser::IterDomain*> new_allocation;
     if (buffer->tv()->allocate() != nullptr) {
       for (auto fb_id : *buffer->tv()->allocate()) {
-        auto val = operation_stack_.at(fb_id);
+        auto val = retrieve(fb_id);
         NVF_ERROR(val->isA<nvfuser::IterDomain>());
         new_allocation.push_back(val->as<nvfuser::IterDomain>());
       }
@@ -315,7 +307,7 @@ std::vector<const kir::Allocate*> ExpressionBuilder::deserialize(
     std::vector<nvfuser::IterDomain*> new_leaf;
     if (buffer->tv()->leaf() != nullptr) {
       for (auto fb_id : *buffer->tv()->leaf()) {
-        auto val = operation_stack_.at(fb_id);
+        auto val = retrieve(fb_id);
         NVF_ERROR(val->isA<nvfuser::IterDomain>());
         new_leaf.push_back(val->as<nvfuser::IterDomain>());
       }
@@ -331,7 +323,7 @@ std::vector<const kir::Allocate*> ExpressionBuilder::deserialize(
 
     std::vector<nvfuser::Val*> shape;
     for (auto fb_id : *buffer->shape()) {
-      shape.push_back(operation_stack_.at(fb_id));
+      shape.push_back(retrieve(fb_id));
     }
 
     auto node = IrBuilder::create<kir::Allocate>(

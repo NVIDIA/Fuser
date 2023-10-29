@@ -36,8 +36,10 @@ class ExpressionBuilder : public Factory<serde::Instruction, void> {
   nvfuser::Val* buildUnaryOp(const UnaryOp* buffer);
   nvfuser::Val* buildBinaryOp(const BinaryOp* buffer);
   nvfuser::IterDomain* buildIterDomain(const IterDomain* buffer);
+
   void registerAllParsers();
   bool exists(size_t idx) const;
+  Val* retrieve(size_t idx);
 
   void printStack() const {
     std::cout << "================ ExpressionBuilder Stack ================"
