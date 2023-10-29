@@ -13,16 +13,34 @@
 
 namespace nvfuser {
 
+// Compare the given exact graph with ComputeAtMap. Their maps should
+// be almost the same but there are some differences.
+// - In ComputeAtMap, swizzles are just skipped no matter what swizzle
+// type is used, so only swizzle outputs are mapped. In IdModel,
+// only swizzle inputs are mapped, except for Loop swizzles where
+// their inputs and outputs are mapped.
+// - In ComputeAtMap, mappings are local. For example, if domain x0 is
+// split to x1 and x2, and also domain y0 is split to y1 and
+// y2. Suppose x0 and y1 are exactly mapped and the two splits are
+// also considered exactly the same, IdModel maps x1 and y1, and x2
+// and y2, respectively, whereas that doesn't happen with ComputeAtMap
+//
+// Accounting for the first difference doesn't seem trivial, so when
+// swizzle is used we give up validating the exact graph. The second
+// difference is whether mappings are propagated, which can be
+// accounted for by updating the ComputeAtMap as is done in IdModel.
+
 void IdModelValidator::checkExactMapEquivalence(const IdGraph& exact_graph) {
+  // Empty graph
+  if (exact_graph.disjointIdSets().disjointSets().empty()) {
+    return;
+  }
+
   auto all_exprs = exact_graph.disjointExprSets().getAllElements();
   if (std::find_if(all_exprs.begin(), all_exprs.end(), [](Expr* expr) {
         return expr->isA<Swizzle2D>();
       }) != all_exprs.end()) {
-    std::cerr << "Ignoring a fusion with swizzle\n";
-    return;
-  }
-
-  if (exact_graph.disjointIdSets().disjointSets().empty()) {
+    // Ignoring a fusion with swizzle
     return;
   }
 
@@ -34,53 +52,28 @@ void IdModelValidator::checkExactMapEquivalence(const IdGraph& exact_graph) {
                        ->fusion();
   ComputeAtMap ca_map(fusion);
 
-  const DisjointSets<IterDomain*>& exact_sets = exact_graph.disjointIdSets();
   DisjointSets<IterDomain*>& ca_map_exact_sets = ca_map.id_graph_.exact_nodes_;
 
-  if (getenv("VERBOSE")) {
-    std::stringstream ss;
-    ss << "Initial computeatmap exact sets:\n";
-    for (const auto& id_set : ca_map_exact_sets.disjointSets()) {
-      ss << "\t" << nvfuser::toString(id_set->vector()) << "\n";
-    }
-    std::cerr << ss.str();
-  }
-
-  // Since we want to traverse and update ca_map_exact_sets, once
-  // updated, the traversal of the ID groups cannot continue and needs
-  // to be restarted.
+  // Propgate mappings through expressions in ComputeAtMap. Since we
+  // want to traverse and update ca_map_exact_sets, once  updated, the
+  // traversal of the ID groups cannot continue and needs to be
+  // restarted. The algorithm seems terriblly inefficient, but
+  // shuldn't matter as this is just for transitory validations
   bool updated = true;
   while (updated) {
-    if (getenv("VERBOSE")) {
-      std::cerr << "While loop\n";
-    }
     updated = false;
     for (const auto& set : ca_map_exact_sets.disjointSets()) {
-      if (getenv("VERBOSE")) {
-        std::cerr << "set: " << nvfuser::toString(set) << std::endl;
-      }
       auto uses = ca_map.uniqueExactUses(set->vector().front());
       auto use_count = uses.size();
       // Note that it should be fine to continue updating the map with
       // the loop below as it should only modify output domain groups
       for (size_t i = 0; i < use_count; ++i) {
         auto use_i = uses.at(i);
-        if (getenv("VERBOSE")) {
-          std::cerr << "use_i: " << use_i->toString();
-        }
         for (size_t j = i + 1; j < use_count; ++j) {
           auto use_j = uses.at(j);
-          if (getenv("VERBOSE")) {
-            std::cerr << "use_i: " << use_i->toString()
-                      << ", use_j: " << use_j->toString();
-          }
           if (!IterDomainGraph::exprsMap(
                   use_i, use_j, true, ca_map_exact_sets)) {
             continue;
-          }
-          if (getenv("VERBOSE")) {
-            std::cerr << "Mapped exprs: " << use_i->toString() << "\n"
-                      << use_j->toString();
           }
           auto num_outputs = use_i->outputs().size();
           NVF_ERROR(use_j->outputs().size() == num_outputs);
@@ -88,10 +81,6 @@ void IdModelValidator::checkExactMapEquivalence(const IdGraph& exact_graph) {
             auto out_i = use_i->output(output_i)->as<IterDomain>();
             auto out_j = use_j->output(output_i)->as<IterDomain>();
             if (!ca_map_exact_sets.strictAreMapped(out_i, out_j)) {
-              if (getenv("VERBOSE")) {
-                std::cerr << "Mapping " << out_i->toString() << " and "
-                          << out_j->toString() << std::endl;
-              }
               ca_map_exact_sets.mapEntries(out_i, out_j);
               updated = true;
             }
@@ -107,13 +96,15 @@ void IdModelValidator::checkExactMapEquivalence(const IdGraph& exact_graph) {
     }
   }
 
-  if (exact_sets.size() != ca_map_exact_sets.size()) {
+  const DisjointSets<IterDomain*>& id_model_exact_sets = exact_graph.disjointIdSets();
+
+  if (id_model_exact_sets.size() != ca_map_exact_sets.size()) {
     std::stringstream ss;
-    ss << "Mismatched number of groups: " << exact_sets.size() << ", "
+    ss << "Mismatched number of groups: " << id_model_exact_sets.size() << ", "
        << ca_map_exact_sets.size() << "\n";
 
     ss << "IdModel exact sets:\n";
-    for (const auto& id_set : exact_sets.disjointSets()) {
+    for (const auto& id_set : id_model_exact_sets.disjointSets()) {
       ss << "\t" << nvfuser::toString(id_set->vector()) << "\n";
     }
 
@@ -125,20 +116,20 @@ void IdModelValidator::checkExactMapEquivalence(const IdGraph& exact_graph) {
     NVF_ERROR(false, ss.str());
   }
 
-  for (const auto& id_set : exact_sets.disjointSets()) {
-    NVF_ERROR(!id_set->empty());
+  for (const auto& id_model_id_set : id_model_exact_sets.disjointSets()) {
+    NVF_ERROR(!id_model_id_set->empty());
     NVF_ERROR(
-        ca_map_exact_sets.mappingExists(id_set->front()),
+        ca_map_exact_sets.mappingExists(id_model_id_set->front()),
         "Not found in ComputeAtMap: ",
-        id_set->front()->toString());
+        id_model_id_set->front()->toString());
 
     const auto& ca_map_id_set =
-        ca_map_exact_sets.getDisjointSetOf(id_set->front());
+        ca_map_exact_sets.getDisjointSetOf(id_model_id_set->front());
 
     NVF_ERROR(
-        id_set->set() == ca_map_id_set.set(),
+        id_model_id_set->set() == ca_map_id_set.set(),
         "Mismatched ID set: ",
-        nvfuser::toString(id_set->vector()),
+        nvfuser::toString(id_model_id_set->vector()),
         ", ",
         nvfuser::toString(ca_map_id_set.vector()));
   }

@@ -480,12 +480,12 @@ void IdGraph::mapExprs(Expr* expr0, Expr* expr1) {
     return;
   }
 
-  ExprGroup expr0_orig_group = toGroup(expr0);
-  ExprGroup expr1_orig_group = toGroup(expr1);
+  const ExprGroup& expr0_orig_group = toGroup(expr0);
+  const ExprGroup& expr1_orig_group = toGroup(expr1);
 
   disjointExprSets().mapEntries(expr0, expr1);
 
-  auto expr_new_group = toGroup(expr0);
+  const ExprGroup& expr_new_group = toGroup(expr0);
 
   // Update unique uses of producers
   IdGroups producers;

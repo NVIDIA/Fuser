@@ -15,7 +15,8 @@ namespace nvfuser {
 
 class IdModelValidator {
  public:
-  static void checkExactMapEquivalence(const IdGraph& id_graph);
+  // Validate the exact graph of IdModel by comparing it with ComputeAtMap
+  static void checkExactMapEquivalence(const IdGraph& exact_graph);
 };
 
 } // namespace nvfuser
