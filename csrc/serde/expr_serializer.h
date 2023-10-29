@@ -76,9 +76,10 @@ class ExpressionSerializer {
       flatbuffers::FlatBufferBuilder& builder,
       const nvfuser::TensorView* tv);
 
+  template <typename T>
   flatbuffers::Offset<flatbuffers::Vector<int64_t>> serialize(
       flatbuffers::FlatBufferBuilder& builder,
-      std::vector<Val*> domain);
+      const std::vector<T*>& values);
 
   flatbuffers::Offset<IterDomain> serialize(
       flatbuffers::FlatBufferBuilder& builder,

@@ -312,18 +312,13 @@ table NaiveValueGenerator {
   instructions: [Instruction];
 }
 
-// Table represents a single TensorView domain
-table Domain {
-  dims: [long];
-}
-
 // Table represents nvfuser::TensorView
 table SymbolicTensor {
   dtype: DataType;
-  root: Domain;
-  rfactor: Domain;
-  allocate: Domain;
-  leaf: Domain;
+  root: [long];
+  rfactor: [long];
+  allocate: [long];
+  leaf: [long];
 }
 
 // Table represents kir::Allocate node

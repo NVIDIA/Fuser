@@ -313,6 +313,9 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::
     return 0;
   }
 
+  // 1) All kir::Allocate nodes are contained in FusionExecutor::KernelSummary
+  // 2) Sort all values in topological order
+  // 3) Divide values into NamedScalar, Int, Symbolic, and Derived values
   processAllocations(allocations);
 
   // 4) Serialize NaiveValueGenerator by converting each NvFuser value of into
@@ -453,22 +456,6 @@ std::vector<flatbuffers::Offset<AllocateBuffer>> ExpressionSerializer::
   return fb_allocations;
 }
 
-// TODO create separate functions for TensorDomain and IterDomain
-flatbuffers::Offset<flatbuffers::Vector<int64_t>> ExpressionSerializer::
-    serialize(
-        flatbuffers::FlatBufferBuilder& builder,
-        std::vector<nvfuser::Val*> domain) {
-  std::vector<long> fb_domain;
-  for (auto val : domain) {
-    NVF_ERROR(
-        operation_stack_.count(val),
-        "Missing value in NaiveValueGenerator stack.\t",
-        val->toString());
-    fb_domain.push_back(operation_stack_.at(val));
-  }
-  return builder.CreateVector(fb_domain);
-}
-
 flatbuffers::Offset<IterDomain> ExpressionSerializer::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::IterDomain* id) {
@@ -507,39 +494,33 @@ flatbuffers::Offset<IterDomain> ExpressionSerializer::serialize(
       id->isMmaSwizzled());
 }
 
-// TODO create separate functions for TensorDomain and IterDomain
+template <typename T>
+flatbuffers::Offset<flatbuffers::Vector<int64_t>> ExpressionSerializer::
+    serialize(
+        flatbuffers::FlatBufferBuilder& builder,
+        const std::vector<T*>& values) {
+  if (values.empty()) {
+    return 0;
+  }
+
+  std::vector<int64_t> fb_values;
+  for (auto v : values) {
+    NVF_ERROR(
+        operation_stack_.count(v),
+        "Missing value in NaiveValueGenerator stack.\t",
+        v->toString());
+    fb_values.push_back(operation_stack_.at(v));
+  }
+  return builder.CreateVector(fb_values);
+}
+
 flatbuffers::Offset<SymbolicTensor> ExpressionSerializer::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::TensorView* tv) {
-  std::vector<int64_t> fb_root_domain;
-  for (auto id : tv->getRootDomain()) {
-    fb_root_domain.push_back(operation_stack_.at(id));
-  }
-  auto root_domain_fb = CreateDomainDirect(builder, &fb_root_domain);
-
-  flatbuffers::Offset<Domain> rfactor_domain_fb = 0;
-  if (tv->hasRFactor()) {
-    std::vector<int64_t> fb_rfactor_domain;
-    for (auto id : tv->getRFactorDomain()) {
-      fb_rfactor_domain.push_back(operation_stack_.at(id));
-    }
-    rfactor_domain_fb = CreateDomainDirect(builder, &fb_rfactor_domain);
-  }
-
-  flatbuffers::Offset<Domain> allocation_domain_fb = 0;
-  if (tv->hasAllocation()) {
-    std::vector<int64_t> fb_allocation_domain;
-    for (auto id : tv->getAllocationDomain()) {
-      fb_allocation_domain.push_back(operation_stack_.at(id));
-    }
-    allocation_domain_fb = CreateDomainDirect(builder, &fb_allocation_domain);
-  }
-
-  std::vector<int64_t> fb_leaf_domain;
-  for (auto id : tv->getLeafDomain()) {
-    fb_leaf_domain.push_back(operation_stack_.at(id));
-  }
-  auto leaf_domain_fb = CreateDomainDirect(builder, &fb_leaf_domain);
+  auto root_domain_fb = serialize(builder, tv->getRootDomain());
+  auto rfactor_domain_fb = serialize(builder, tv->getRFactorDomain());
+  auto allocation_domain_fb = serialize(builder, tv->getAllocationDomain());
+  auto leaf_domain_fb = serialize(builder, tv->getLeafDomain());
 
   SymbolicTensorBuilder tensor_builder(builder);
   tensor_builder.add_dtype(mapToSerdeDtype(tv->getDataType().value()));

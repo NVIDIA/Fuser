@@ -274,7 +274,7 @@ std::vector<const kir::Allocate*> ExpressionBuilder::deserialize(
   for (auto buffer : *buffers) {
     std::vector<nvfuser::IterDomain*> new_root;
     if (buffer->tv()->root() != nullptr) {
-      for (auto fb_id : *buffer->tv()->root()->dims()) {
+      for (auto fb_id : *buffer->tv()->root()) {
         auto val = operation_stack_.at(fb_id);
         NVF_ERROR(val->isA<nvfuser::IterDomain>());
         new_root.push_back(val->as<nvfuser::IterDomain>());
@@ -283,7 +283,7 @@ std::vector<const kir::Allocate*> ExpressionBuilder::deserialize(
 
     std::vector<nvfuser::IterDomain*> new_rfactor;
     if (buffer->tv()->rfactor() != nullptr) {
-      for (auto fb_id : *buffer->tv()->rfactor()->dims()) {
+      for (auto fb_id : *buffer->tv()->rfactor()) {
         auto val = operation_stack_.at(fb_id);
         NVF_ERROR(val->isA<nvfuser::IterDomain>());
         new_rfactor.push_back(val->as<nvfuser::IterDomain>());
@@ -292,7 +292,7 @@ std::vector<const kir::Allocate*> ExpressionBuilder::deserialize(
 
     std::vector<nvfuser::IterDomain*> new_allocation;
     if (buffer->tv()->allocate() != nullptr) {
-      for (auto fb_id : *buffer->tv()->allocate()->dims()) {
+      for (auto fb_id : *buffer->tv()->allocate()) {
         auto val = operation_stack_.at(fb_id);
         NVF_ERROR(val->isA<nvfuser::IterDomain>());
         new_allocation.push_back(val->as<nvfuser::IterDomain>());
@@ -301,7 +301,7 @@ std::vector<const kir::Allocate*> ExpressionBuilder::deserialize(
 
     std::vector<nvfuser::IterDomain*> new_leaf;
     if (buffer->tv()->leaf() != nullptr) {
-      for (auto fb_id : *buffer->tv()->leaf()->dims()) {
+      for (auto fb_id : *buffer->tv()->leaf()) {
         auto val = operation_stack_.at(fb_id);
         NVF_ERROR(val->isA<nvfuser::IterDomain>());
         new_leaf.push_back(val->as<nvfuser::IterDomain>());
