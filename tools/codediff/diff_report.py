@@ -729,11 +729,13 @@ class TestDifferences:
                     kernel_inclusion_criterion == "all"
                     or (
                         kernel_inclusion_criterion == "mismatched_cuda_or_ptx"
+                        and diff_lines is not None
                         and len(diff_lines) > 0
                     )
                     or (
                         kernel_inclusion_criterion
                         in ["mismatched_cuda_or_ptx", "mismatched_ptx"]
+                        and ptx_diff_lines is not None
                         and len(ptx_diff_lines) > 0
                     )
                 ):

@@ -315,7 +315,6 @@ class FusionExecutor : public NonCopyable {
   std::vector<GlobalBufferInfo> getOutputBufferInfo(
       const KernelArgumentHolder& args,
       ExpressionEvaluator& expr_eval,
-      const std::vector<std::pair<int, int>>& input_to_output_aliases,
       DataType index_dtype);
 
   void setUsedTVs();

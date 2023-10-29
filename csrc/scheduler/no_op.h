@@ -38,6 +38,10 @@ class NoOpScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicSummary* data_cache = nullptr);
 
+  constexpr static ScheduleHeuristic heuristicType() {
+    return ScheduleHeuristic::NoOp;
+  }
+
   void schedule(Fusion* fusion) override;
 
  private:
