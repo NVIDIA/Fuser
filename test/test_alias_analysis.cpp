@@ -209,25 +209,27 @@ TEST_F(AliasAnalysisTest, View_MergeExpandedBroadcast) {
 using AliasTest = NVFuserTest;
 
 TEST_F(AliasTest, ReinterpretCast) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   const std::vector<int64_t> in_shape({2, 3, 4});
   const std::vector<int64_t> out_shape({2, 12});
 
   TensorView* in = makeContigConcreteTensor(in_shape);
-  fusion.addInput(in);
+  fusion->addInput(in);
   TensorView* out = reshape(in, in_shape, out_shape);
-  fusion.addOutput(out);
-
-  fusion.aliasOutputToInput(out, in, /*hide_output=*/false);
+  fusion->addOutput(out);
+  fusion->aliasOutputToInput(out, in, /*hide_output=*/false);
 
   FusionExecutor fe;
   at::Tensor in_tensor =
       at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
-  fe.compileFusion(&fusion, {in_tensor});
+  fe.compileFusion(fusion.get(), {in_tensor});
   at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
   EXPECT_EQ(in_tensor.data_ptr<float>(), out_tensor.data_ptr<float>());
+
+  FusionExecutorCache fec(std::move(fusion));
+  EXPECT_EQ(fec.runFusionWithInputs({in_tensor}).size(), 1);
 }
 
 } // namespace nvfuser
