@@ -21,7 +21,7 @@ TEST_F(CommunicationTest, Communication_Gather) {
   params.team = all_ranks;
   params.src_bufs = {at::empty(tensor_size, tensor_options)};
   if (communicator->deviceId() == root) {
-    for (uint64_t i = 0; i < communicator->size(); i++) {
+    for (int64_t i = 0; i < communicator->size(); i++) {
       params.dst_bufs.push_back(at::empty(tensor_size, tensor_options));
     }
   }
@@ -50,7 +50,7 @@ TEST_F(CommunicationTest, Communication_Allgather) {
   params.team = all_ranks;
   params.src_bufs = {
       at::empty(tensor_size, tensor_options) * communicator->deviceId()};
-  for (uint64_t i = 0; i < communicator->size(); i++) {
+  for (int64_t i = 0; i < communicator->size(); i++) {
     params.dst_bufs.push_back(at::empty(tensor_size, tensor_options));
   }
   auto communication = Allgather(params);
@@ -76,7 +76,7 @@ TEST_F(CommunicationTest, Communication_Scatter) {
   params.root = root;
   params.team = all_ranks;
   if (communicator->deviceId() == root) {
-    for (uint64_t i = 0; i < communicator->size(); i++) {
+    for (int64_t i = 0; i < communicator->size(); i++) {
       params.src_bufs.push_back(
           at::empty(tensor_size, tensor_options) * static_cast<int>(i));
     }

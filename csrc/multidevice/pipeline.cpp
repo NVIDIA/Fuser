@@ -261,7 +261,7 @@ std::unique_ptr<Fusion> Pipeline::stageToFusion(PipelineStage*& stage) const {
   return fusion_copy;
 }
 
-uint64_t Pipeline::requestedNumberOfDevices() const {
+int64_t Pipeline::requestedNumberOfDevices() const {
   std::set<DeviceIdxType> device_indices;
   for (auto& stage_desc : descriptor().stage_descriptors) {
     for (auto d_id : stage_desc.mesh.vector()) {

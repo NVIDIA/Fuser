@@ -70,9 +70,18 @@ void PipelineExecutor::handle(PipelineStage* stage) {
 void PipelineExecutor::handle(PipelineCommunication* c) {
   at::Tensor input_tensor =
       val_to_IValue_.at(c->in())
-          .toTensor(); // when stage has same input and ouput
+          .toTensor();
 
-  // Allocation of output buffer. TODO: revise
+  /* Allocation of output buffer.
+    TODO: revise to avoid garbage allocation. Indeed, for now we use the same buffer
+    for the input and output of the Communication. The input has always
+    been allocated previously since we systematically allocate the output of every
+    PipelineStage. This is valid but induces a lot of garbage allocation:
+    1) some PipelineStage's outputs could be ignore on certain devices
+    2) some buffers are overallocated, e.g., if the communication pattern is 
+       the one of a "Scatter", the destination buffer's size only need to be a fraction
+       of the source buffer.
+  */ 
   val_to_IValue_[c->out()] = val_to_IValue_.at(c->in());
   at::Tensor output_tensor =
       val_to_IValue_.at(c->out()).toTensor(); // shallow copy

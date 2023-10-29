@@ -27,9 +27,9 @@ namespace nvfuser {
 // Returns true if the distributed configuration is valid, false otherwise
 bool parseEnv(
     RankType& rank,
-    uint64_t& size,
+    int64_t& size,
     RankType& local_rank,
-    uint64_t& local_size,
+    int64_t& local_size,
     std::string& master_addr,
     int& master_port) {
   char* env = nullptr;
@@ -52,7 +52,7 @@ bool parseEnv(
       return false;
     }
   }
-  size = static_cast<uint64_t>(std::atoi(env));
+  size = std::atoi(env);
 
   // retrieves the size of the communicator
   env = std::getenv("OMPI_COMM_WORLD_LOCAL_RANK");
@@ -72,7 +72,7 @@ bool parseEnv(
       return false;
     }
   }
-  local_size = static_cast<uint64_t>(std::atoi(env));
+  local_size = std::atoi(env);
 
   // retrieves master address
   env = std::getenv("MASTER_ADDR");
@@ -116,7 +116,7 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
     CommunicatorBackend backend,
     ::c10::intrusive_ptr<c10d::Store> store,
     RankType rank,
-    uint64_t size) {
+    int64_t size) {
 #ifdef USE_C10D_NCCL
   if (backend == CommunicatorBackend::nccl) {
     auto pg_opts = c10::make_intrusive<::c10d::ProcessGroupNCCL::Options>();

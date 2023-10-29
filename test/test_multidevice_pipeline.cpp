@@ -140,7 +140,8 @@ DeviceMesh mesh0({0});
 DeviceMesh mesh1({1});
 DeviceMesh mesh2({0, 1, 2, 3});
 DeviceMesh mesh3({0, 2, 3});
-auto all_meshes = ::testing::Values(mesh0, mesh1, mesh2, mesh3);
+DeviceMesh mesh4({1, 0, 2});
+auto all_meshes = ::testing::Values(mesh0, mesh1, mesh2, mesh3, mesh4);
 
 TEST_P(PipelineTestTwoStages, Communication) {}
 
@@ -175,8 +176,8 @@ INSTANTIATE_TEST_SUITE_P(
     Bcast_sharded,
     PipelineTestTwoStages,
     ::testing::Combine(
-        ::testing::Values(mesh2),
-        ::testing::Values(mesh2),
+        ::testing::Values(mesh3),
+        ::testing::Values(mesh4),
         ::testing::Values(true),
         ::testing::Values(true)));
 

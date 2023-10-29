@@ -35,7 +35,7 @@ std::string MultiDeviceRuntime::validate() const {
         " ranks in the communicator";
   }
 
-  if (comm_.local_size() > static_cast<uint64_t>(at::cuda::getNumGPUs())) {
+  if (comm_.local_size() > at::cuda::getNumGPUs()) {
     return std::to_string(comm_.local_size()) +
         " processes are spawn on the node but only " +
         std::to_string(at::cuda::getNumGPUs()) + " GPUs are available";

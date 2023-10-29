@@ -136,7 +136,7 @@ class Pipeline : public Fusion {
 
   // returns the number of device indices present accross all
   // stage's device mesh in the pipeline
-  uint64_t requestedNumberOfDevices() const;
+  int64_t requestedNumberOfDevices() const;
 
  private:
   // utility class called at instantiation
