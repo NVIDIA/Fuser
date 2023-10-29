@@ -208,6 +208,9 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
     }
   }
 
+  // CLANGTIDY - Virtual Destructor is public
+  ~DerivedExpressionSerializer() final = default;
+
  private:
   explicit DerivedExpressionSerializer(
       flatbuffers::FlatBufferBuilder& builder,
@@ -218,8 +221,6 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
         derived_values_(derived_values),
         operation_stack_(operation_stack),
         instructions_fb_(instructions_fb) {}
-
-  ~DerivedExpressionSerializer() final = default;
 
   void handle(const nvfuser::BinaryOp* bop) override {
     instructions_fb_.push_back(serializeBinaryOp(bop));

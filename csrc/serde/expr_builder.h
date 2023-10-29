@@ -9,6 +9,8 @@
 #pragma once
 #include <ir/all_nodes.h>
 #include <kernel.h>
+#include <serde/factory.h>
+#include <serde/utils.h>
 #include <vector>
 
 namespace nvfuser::serde {
@@ -18,20 +20,24 @@ namespace nvfuser::serde {
 //! serialized NaiveValueGenerator.
 //!
 //! Supported: kir::Allocate
-//! TODO: Val* and TensorView*
-class ExpressionBuilder {
+class ExpressionBuilder : public Factory<serde::Instruction, void> {
   using Allocations = flatbuffers::Vector<flatbuffers::Offset<AllocateBuffer>>;
 
  public:
-  ExpressionBuilder(kir::Kernel* kernel);
+  ExpressionBuilder(kir::Kernel* kernel)
+      : Factory((serde::InstructionData_MAX + 1)), kernel_(kernel) {
+    registerAllParsers();
+    operation_stack_ = gatherSymbolicValues(kernel_);
+  }
   void deserialize(const NaiveValueGenerator* buffer);
   std::vector<const kir::Allocate*> deserialize(const Allocations* buffers);
 
  private:
-  void deserialize(const Instruction* buffer);
   nvfuser::Val* buildUnaryOp(const UnaryOp* buffer);
   nvfuser::Val* buildBinaryOp(const BinaryOp* buffer);
   nvfuser::IterDomain* buildIterDomain(const IterDomain* buffer);
+  void registerAllParsers();
+  bool exists(size_t idx) const;
 
   void printStack() const {
     std::cout << "================ ExpressionBuilder Stack ================"

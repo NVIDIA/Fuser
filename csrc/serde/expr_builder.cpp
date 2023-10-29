@@ -8,187 +8,200 @@
 #include <ops/arith.h>
 #include <serde/expr_builder.h>
 #include <serde/polymorphic_value.h>
-#include <serde/utils.h>
 #include <type.h>
 
 namespace nvfuser::serde {
 
-ExpressionBuilder::ExpressionBuilder(kir::Kernel* kernel) : kernel_(kernel) {
-  operation_stack_ = gatherSymbolicValues(kernel_);
+bool ExpressionBuilder::exists(size_t idx) const {
+  return idx < operation_stack_.size();
+};
+
+void ExpressionBuilder::registerAllParsers() {
+  auto deserializeBinaryOp = [&](const serde::Instruction* buffer) {
+    auto data = buffer->data_as_BinaryOp();
+    NVF_ERROR(data != nullptr, "serde::BinaryOp is nullptr.")
+    if (exists(data->out())) {
+      return;
+    }
+    auto bop = buildBinaryOp(data);
+    operation_stack_.push_back(bop);
+  };
+  registerParser(InstructionData_BinaryOp, deserializeBinaryOp);
+
+  auto deserializeGetAttr = [&](const serde::Instruction* buffer) {
+    auto data = buffer->data_as_GetAttr();
+    NVF_ERROR(data != nullptr, "serde::GetAttr is nullptr.")
+    if (exists(data->out())) {
+      return;
+    }
+    auto expr = IrBuilder::getAttrExpr(
+        operation_stack_.at(data->struct_()), data->attr()->str());
+    operation_stack_.push_back(expr);
+  };
+  registerParser(InstructionData_GetAttr, deserializeGetAttr);
+
+  auto deserializeGetItem = [&](const serde::Instruction* buffer) {
+    auto data = buffer->data_as_GetItem();
+    NVF_ERROR(data != nullptr, "serde::GetItem is nullptr.")
+    if (exists(data->out())) {
+      return;
+    }
+    auto item = IrBuilder::getItemExpr(
+        operation_stack_.at(data->array()), operation_stack_.at(data->index()));
+    operation_stack_.push_back(item);
+  };
+  registerParser(InstructionData_GetItem, deserializeGetItem);
+
+  auto deserializeGetMetaData = [&](const serde::Instruction* buffer) {
+    auto data = buffer->data_as_GetMetaData();
+    NVF_ERROR(data != nullptr, "serde::GetMetaData is nullptr.")
+    if (exists(data->out())) {
+      return;
+    }
+    auto metadata = kernel_->metadataOf(operation_stack_.at(data->in()));
+    operation_stack_.push_back(metadata);
+  };
+  registerParser(InstructionData_GetMetaData, deserializeGetMetaData);
+
+  auto deserializeIterDomain = [&](const serde::Instruction* buffer) {
+    auto data = buffer->data_as_IterDomain();
+    NVF_ERROR(data != nullptr, "serde::IterDomain is nullptr.")
+    if (exists(data->out())) {
+      return;
+    }
+    auto id = buildIterDomain(data);
+    operation_stack_.push_back(id);
+  };
+  registerParser(InstructionData_IterDomain, deserializeIterDomain);
+
+  auto deserializeMerge = [&](const serde::Instruction* buffer) {
+    auto data = buffer->data_as_Merge();
+    NVF_ERROR(data != nullptr, "serde::Merge is nullptr.")
+    if (exists(data->out())) {
+      return;
+    }
+    auto inner = operation_stack_.at(data->inner());
+    auto outer = operation_stack_.at(data->outer());
+    NVF_ERROR(inner->isA<nvfuser::IterDomain>());
+    NVF_ERROR(outer->isA<nvfuser::IterDomain>());
+
+    auto merged_id = nvfuser::IterDomain::merge(
+        inner->as<nvfuser::IterDomain>(), outer->as<nvfuser::IterDomain>());
+    operation_stack_.push_back(merged_id);
+  };
+  registerParser(InstructionData_Merge, deserializeMerge);
+
+  auto deserializeNamedScalar = [&](const serde::Instruction* buffer) {
+    auto data = buffer->data_as_NamedScalar();
+    NVF_ERROR(data != nullptr, "serde::Scalar is nullptr.")
+    if (exists(data->out())) {
+      return;
+    }
+    auto named_scalar = IrBuilder::create<nvfuser::NamedScalar>(
+        data->name()->str(), nvfuser::DataType::Index);
+    operation_stack_.push_back(named_scalar);
+  };
+  registerParser(InstructionData_NamedScalar, deserializeNamedScalar);
+
+  auto deserializeResize = [&](const serde::Instruction* buffer) {
+    auto data = buffer->data_as_Resize();
+    NVF_ERROR(data != nullptr, "serde::Resize is nullptr.")
+    if (exists(data->out())) {
+      return;
+    }
+    auto in = operation_stack_.at(data->in());
+    NVF_ERROR(in->isA<nvfuser::IterDomain>());
+
+    auto left_expansion = operation_stack_.at(data->left_expansion());
+    auto right_expansion = operation_stack_.at(data->right_expansion());
+
+    // TODO add mark_as_rfactor attribute
+    // TODO add optional itertype attribute
+    auto resize = nvfuser::IterDomain::resize(
+        in->as<nvfuser::IterDomain>(),
+        left_expansion,
+        right_expansion,
+        false /* mark_as_rfactor */);
+    operation_stack_.push_back(resize);
+  };
+  registerParser(InstructionData_Resize, deserializeResize);
+
+  auto deserializeScalar = [&](const serde::Instruction* buffer) {
+    auto data = buffer->data_as_Scalar();
+    NVF_ERROR(data != nullptr, "serde::Scalar is nullptr.")
+    if (exists(data->out())) {
+      return;
+    }
+    auto int_val = IrBuilder::create<nvfuser::Val>(
+        data->long_value(), nvfuser::DataType::Index);
+    operation_stack_.push_back(int_val);
+  };
+  registerParser(InstructionData_Scalar, deserializeScalar);
+
+  auto deserializeSplit = [&](const serde::Instruction* buffer) {
+    auto data = buffer->data_as_Split();
+    NVF_ERROR(data != nullptr, "serde::Split is nullptr.")
+    if (exists(data->inner()) && exists(data->outer())) {
+      return;
+    }
+    auto in = operation_stack_.at(data->in());
+    NVF_ERROR(in->isA<nvfuser::IterDomain>());
+
+    auto split_ids = nvfuser::IterDomain::split(
+        in->as<nvfuser::IterDomain>(),
+        operation_stack_.at(data->factor()),
+        data->inner_split(),
+        data->trim_out_of_bounds());
+    operation_stack_.push_back(split_ids.first);
+    operation_stack_.push_back(split_ids.second);
+  };
+  registerParser(InstructionData_Split, deserializeSplit);
+
+  auto deserializeSwizzle2D = [&](const serde::Instruction* buffer) {
+    auto data = buffer->data_as_Swizzle2D();
+    NVF_ERROR(data != nullptr, "serde::Swizzle2D is nullptr.")
+    if (exists(data->out_x()) && exists(data->out_y())) {
+      return;
+    }
+    auto in_x = operation_stack_.at(data->in_x());
+    auto in_y = operation_stack_.at(data->in_y());
+    NVF_ERROR(in_x->isA<nvfuser::IterDomain>());
+    NVF_ERROR(in_y->isA<nvfuser::IterDomain>());
+
+    auto swizzle_ids = nvfuser::IterDomain::swizzle(
+        static_cast<nvfuser::Swizzle2DType>(data->swizzle_type()),
+        in_x->as<nvfuser::IterDomain>(),
+        in_y->as<nvfuser::IterDomain>(),
+        static_cast<nvfuser::SwizzleMode>(data->swizzle_mode()));
+    operation_stack_.push_back(swizzle_ids.first);
+    operation_stack_.push_back(swizzle_ids.second);
+  };
+  registerParser(InstructionData_Swizzle2D, deserializeSwizzle2D);
+
+  auto deserializeSymbolic = [&](const serde::Instruction* buffer) {
+    auto data = buffer->data_as_Symbolic();
+    NVF_ERROR(data != nullptr, "serde::Symbolic is nullptr.")
+    NVF_ERROR(data->out() < (int64_t)operation_stack_.size());
+  };
+  registerParser(InstructionData_Symbolic, deserializeSymbolic);
+
+  auto deserializeUnaryOp = [&](const serde::Instruction* buffer) {
+    auto data = buffer->data_as_UnaryOp();
+    NVF_ERROR(data != nullptr, "serde::UnaryOp is nullptr.")
+    if (exists(data->out())) {
+      return;
+    }
+    auto uop = buildUnaryOp(data);
+    operation_stack_.push_back(uop);
+  };
+  registerParser(InstructionData_UnaryOp, deserializeUnaryOp);
 }
 
 void ExpressionBuilder::deserialize(const NaiveValueGenerator* buffer) {
   NVF_ERROR(buffer != nullptr, "serde::NaiveValueGenerator is nullptr.");
-  for (auto inst : *buffer->instructions()) {
-    deserialize(inst);
-  }
-}
-
-void ExpressionBuilder::deserialize(const Instruction* buffer) {
-  NVF_ERROR(buffer != nullptr, "serde::Instruction is nullptr.");
-  auto exists = [&](size_t idx) { return idx < operation_stack_.size(); };
-
   FusionGuard fg(kernel_);
-  switch (buffer->data_type()) {
-    case serde::InstructionData_Symbolic: {
-      auto data = buffer->data_as_Symbolic();
-      NVF_ERROR(data != nullptr, "serde::Symbolic is nullptr.")
-      NVF_ERROR((size_t)data->out() < operation_stack_.size());
-      break;
-    }
-    case serde::InstructionData_NamedScalar: {
-      auto data = buffer->data_as_NamedScalar();
-      NVF_ERROR(data != nullptr, "serde::Scalar is nullptr.")
-      if (!exists(data->out())) {
-        auto ns = IrBuilder::create<nvfuser::NamedScalar>(
-            data->name()->str(), nvfuser::DataType::Index);
-        operation_stack_.push_back(ns);
-      }
-      break;
-    }
-    case serde::InstructionData_Scalar: {
-      auto data = buffer->data_as_Scalar();
-      NVF_ERROR(data != nullptr, "serde::Scalar is nullptr.")
-      if (!exists(data->out())) {
-        auto int_val = IrBuilder::create<nvfuser::Val>(
-            data->long_value(), nvfuser::DataType::Index);
-        operation_stack_.push_back(int_val);
-      }
-      break;
-    }
-    case serde::InstructionData_UnaryOp: {
-      auto data = buffer->data_as_UnaryOp();
-      NVF_ERROR(data != nullptr, "serde::UnaryOp is nullptr.")
-      if (!exists(data->out())) {
-        auto uop = buildUnaryOp(data);
-        operation_stack_.push_back(uop);
-      }
-      break;
-    }
-    case serde::InstructionData_BinaryOp: {
-      auto data = buffer->data_as_BinaryOp();
-      NVF_ERROR(data != nullptr, "serde::BinaryOp is nullptr.")
-      if (!exists(data->out())) {
-        auto bop = buildBinaryOp(data);
-        operation_stack_.push_back(bop);
-      }
-      break;
-    }
-    case serde::InstructionData_IterDomain: {
-      auto data = buffer->data_as_IterDomain();
-      NVF_ERROR(data != nullptr, "serde::IterDomain is nullptr.")
-      if (!exists(data->out())) {
-        operation_stack_.push_back(buildIterDomain(data));
-      }
-      break;
-    }
-    case serde::InstructionData_GetAttr: {
-      auto data = buffer->data_as_GetAttr();
-      NVF_ERROR(data != nullptr, "serde::GetAttr is nullptr.")
-      if (!exists(data->out())) {
-        auto aop = IrBuilder::getAttrExpr(
-            operation_stack_.at(data->struct_()), data->attr()->str());
-        operation_stack_.push_back(aop);
-      }
-      break;
-    }
-    case serde::InstructionData_GetItem: {
-      auto data = buffer->data_as_GetItem();
-      NVF_ERROR(data != nullptr, "serde::GetItem is nullptr.")
-      if (!exists(data->out())) {
-        auto iop = IrBuilder::getItemExpr(
-            operation_stack_.at(data->array()),
-            operation_stack_.at(data->index()));
-        operation_stack_.push_back(iop);
-      }
-      break;
-    }
-    case serde::InstructionData_GetMetaData: {
-      auto data = buffer->data_as_GetMetaData();
-      NVF_ERROR(data != nullptr, "serde::GetMetaData is nullptr.")
-      if (!exists(data->out())) {
-        auto val = operation_stack_.at(data->in());
-        auto mop = kernel_->metadataOf(val);
-        operation_stack_.push_back(mop);
-      }
-      break;
-    }
-    case serde::InstructionData_Merge: {
-      auto data = buffer->data_as_Merge();
-      NVF_ERROR(data != nullptr, "serde::Merge is nullptr.")
-      if (!exists(data->out())) {
-        auto inner = operation_stack_.at(data->inner());
-        auto outer = operation_stack_.at(data->outer());
-        NVF_ERROR(inner->isA<nvfuser::IterDomain>());
-        NVF_ERROR(outer->isA<nvfuser::IterDomain>());
-
-        auto merged_id = nvfuser::IterDomain::merge(
-            inner->as<nvfuser::IterDomain>(), outer->as<nvfuser::IterDomain>());
-        operation_stack_.push_back(merged_id);
-      }
-      break;
-    }
-    case serde::InstructionData_Split: {
-      auto data = buffer->data_as_Split();
-      NVF_ERROR(data != nullptr, "serde::Split is nullptr.")
-      if (!exists(data->inner()) || !exists(data->outer())) {
-        auto in = operation_stack_.at(data->in());
-        NVF_ERROR(in->isA<nvfuser::IterDomain>());
-
-        auto factor = operation_stack_.at(data->factor());
-        auto split_ids = nvfuser::IterDomain::split(
-            in->as<nvfuser::IterDomain>(),
-            factor,
-            data->inner_split(),
-            data->trim_out_of_bounds());
-        operation_stack_.push_back(split_ids.first);
-        operation_stack_.push_back(split_ids.second);
-      }
-      break;
-    }
-    case serde::InstructionData_Resize: {
-      auto data = buffer->data_as_Resize();
-      NVF_ERROR(data != nullptr, "serde::Resize is nullptr.")
-      if (!exists(data->out())) {
-        auto in = operation_stack_.at(data->in());
-        NVF_ERROR(in->isA<nvfuser::IterDomain>());
-
-        auto left_expansion = operation_stack_.at(data->left_expansion());
-        auto right_expansion = operation_stack_.at(data->right_expansion());
-
-        // TODO add mark_as_rfactor attribute
-        // TODO add optional itertype attribute
-        auto resized_id = nvfuser::IterDomain::resize(
-            in->as<nvfuser::IterDomain>(),
-            left_expansion,
-            right_expansion,
-            false /* mark_as_rfactor */);
-        operation_stack_.push_back(resized_id);
-      }
-      break;
-    }
-    case serde::InstructionData_Swizzle2D: {
-      auto data = buffer->data_as_Swizzle2D();
-      NVF_ERROR(data != nullptr, "serde::Swizzle2D is nullptr.")
-      if (!exists(data->out_x()) || !exists(data->out_y())) {
-        auto in_x = operation_stack_.at(data->in_x());
-        auto in_y = operation_stack_.at(data->in_y());
-        NVF_ERROR(in_x->isA<nvfuser::IterDomain>());
-        NVF_ERROR(in_y->isA<nvfuser::IterDomain>());
-
-        auto swizzle_ids = nvfuser::IterDomain::swizzle(
-            static_cast<nvfuser::Swizzle2DType>(data->swizzle_type()),
-            in_x->as<nvfuser::IterDomain>(),
-            in_y->as<nvfuser::IterDomain>(),
-            static_cast<nvfuser::SwizzleMode>(data->swizzle_mode()));
-        operation_stack_.push_back(swizzle_ids.first);
-        operation_stack_.push_back(swizzle_ids.second);
-      }
-      break;
-    }
-    default: {
-      NVF_ERROR(false, "Unsupported instruction during deserialization.");
-    }
+  for (auto inst : *buffer->instructions()) {
+    parse(inst->data_type(), inst);
   }
 }
 
