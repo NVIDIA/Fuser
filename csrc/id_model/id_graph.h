@@ -78,19 +78,16 @@ class IdGraph {
   // ExprGroups used in this history of defining the 'of' IdGroups.
   ExprGroups allDefinitionsOf(const IdGroups& of) const;
 
-  //! Returns
-  //!   (1) The expressions associated with the definitions of the provided
-  //!     IterDomain group in the provided mapping mode (if it exists).
-  //!   (2) If there is a definitions entry of the provided IterDomain group in
-  //!     the provided mapping mode.
-  //! First entry in the returned pair is a vector of vector of expressions. The
+  //! Returns the pointer to expressions associated with the
+  //! definitions of the provided IterDomain group in the provided
+  //! mapping mode (if it exists). Nullptr is returned otherwise.
+  //!
+  //! The returned pointer is to a vector of vector of expressions. The
   //! inner vector is proven to be equivalent based on the provided mode. The
   //! outer vector are expression groups that are not equivalent based on the
   //! provided mode, but produce one of the IterDomains within the same disjoint
   //! Iter Domain set based on the provided mode.
-  //!
-  //! TODO-NM: ExprGroups is a real container. Consider returning a reference
-  std::pair<ExprGroups, bool> getDefinitions(const IdGroup& id_group) const;
+  const ExprGroups* getDefinitions(const IdGroup& group) const;
 
   //! Same as iterDomainGroupDefinitions but for uses instead of
   //! definitions
@@ -127,10 +124,6 @@ class IdGraph {
       bool forward
       // , std::vector<IterDomain*> second_input_or_output_override
   ) const;
-
-  // Returns entry in unique_definitions_ for provided group in provided mode,
-  // otherwise errors if no entry is found.
-  const ExprGroups& getUniqueDefinitions(const IdGroup& group) const;
 
   // Returns entry in unique_uses_ for provided group in provided mode,
   // otherwise errors if no entry is found.

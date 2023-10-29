@@ -96,7 +96,8 @@ void IdModelValidator::checkExactMapEquivalence(const IdGraph& exact_graph) {
     }
   }
 
-  const DisjointSets<IterDomain*>& id_model_exact_sets = exact_graph.disjointIdSets();
+  const DisjointSets<IterDomain*>& id_model_exact_sets =
+      exact_graph.disjointIdSets();
 
   if (id_model_exact_sets.size() != ca_map_exact_sets.size()) {
     std::stringstream ss;

@@ -133,8 +133,9 @@ ExprGroups IdGraph::allUsesOf(const IdGroups& of) const {
 ExprGroups IdGraph::allDefinitionsOf(const IdGroups& of) const {
   DequeOfExprGroup to_visit;
   for (const IdGroup& of_id_group : of) {
-    if (const auto& [group_defs, found] = getDefinitions(of_id_group); found) {
-      to_visit.insert(to_visit.end(), group_defs.begin(), group_defs.end());
+    if (const ExprGroups* group_defs = getDefinitions(of_id_group);
+        group_defs != nullptr) {
+      to_visit.insert(to_visit.end(), group_defs->begin(), group_defs->end());
     }
   }
 
@@ -144,8 +145,9 @@ ExprGroups IdGraph::allDefinitionsOf(const IdGroups& of) const {
     to_visit.pop_front();
     visited.emplace(current_expr);
     for (const IdGroup& input_id : inputGroups(current_expr)) {
-      if (const auto& [group_defs, found] = getDefinitions(input_id); found) {
-        for (const ExprGroup& group_def : group_defs) {
+      if (const ExprGroups* group_defs = getDefinitions(input_id);
+          group_defs != nullptr) {
+        for (const ExprGroup& group_def : *group_defs) {
           if (visited.count(group_def)) {
             continue;
           }
@@ -156,20 +158,6 @@ ExprGroups IdGraph::allDefinitionsOf(const IdGroups& of) const {
   }
 
   return visited;
-}
-
-std::pair<ExprGroups, bool> IdGraph::getDefinitions(
-    const IdGroup& id_group) const {
-  if (!id_group) {
-    return {{}, false};
-  }
-
-  if (auto definitions_it = unique_definitions_.find(id_group);
-      definitions_it != unique_definitions_.end()) {
-    return std::make_pair(definitions_it->second, true);
-  } else {
-    return {{}, false};
-  }
 }
 
 std::pair<ExprGroups, bool> IdGraph::getUses(const IdGroup& id_group) const {
@@ -375,13 +363,14 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
   return true;
 }
 
-const ExprGroups& IdGraph::getUniqueDefinitions(const IdGroup& group) const {
+const ExprGroups* IdGraph::getDefinitions(const IdGroup& group) const {
+  NVF_ERROR(group, "Nullptr not allowed");
   auto unique_defs_it = unique_definitions_.find(group);
-  NVF_ERROR(
-      unique_defs_it != unique_definitions_.end(),
-      "Definition not found for IdGroup: ",
-      group->toString());
-  return unique_defs_it->second;
+  if (unique_defs_it == unique_definitions_.end()) {
+    return nullptr;
+  }
+
+  return &(unique_defs_it->second);
 }
 
 const ExprGroups& IdGraph::getUniqueUses(const IdGroup& group) const {
@@ -406,8 +395,10 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   // processing.
   IdGroup orig_id_group0 = toGroup(id0);
   IdGroup orig_id_group1 = toGroup(id1);
-  const ExprGroups& orig_defs0 = getUniqueDefinitions(orig_id_group0);
-  const ExprGroups& orig_defs1 = getUniqueDefinitions(orig_id_group1);
+  const ExprGroups* orig_defs0 = getDefinitions(orig_id_group0);
+  NVF_ERROR(orig_defs0);
+  const ExprGroups* orig_defs1 = getDefinitions(orig_id_group1);
+  NVF_ERROR(orig_defs1);
   const ExprGroups& orig_uses0 = getUniqueUses(orig_id_group0);
   const ExprGroups& orig_uses1 = getUniqueUses(orig_id_group1);
 
@@ -417,7 +408,7 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   disjointIdSets().mapEntries(id0, id1);
   auto new_id_group = toGroup(id0);
 
-  unique_definitions_[new_id_group] = orig_defs0.computeUnion(orig_defs1);
+  unique_definitions_[new_id_group] = orig_defs0->computeUnion(*orig_defs1);
   unique_uses_[new_id_group] = orig_uses0.computeUnion(orig_uses1);
 
   // Propagate on uses
@@ -435,9 +426,9 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   }
 
   // Propagate on definitions
-  if (!orig_defs0.empty() && !orig_defs1.empty()) {
-    for (const ExprGroup& def_group_1 : orig_defs1) {
-      for (const ExprGroup& def_group_0 : orig_defs0) {
+  if (!orig_defs0->empty() && !orig_defs1->empty()) {
+    for (const ExprGroup& def_group_1 : *orig_defs1) {
+      for (const ExprGroup& def_group_0 : *orig_defs0) {
         if (def_group_0 == def_group_1) {
           continue;
         }

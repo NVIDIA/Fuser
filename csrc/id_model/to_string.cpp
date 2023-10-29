@@ -302,9 +302,9 @@ std::string definitionsString(
     bool with_ptr) {
   ExprGroups defs;
   for (const IdGroup& id_group : id_graph.disjointIdSets().disjointSets()) {
-    auto definition_pair = id_graph.getDefinitions(id_group);
-    if (definition_pair.second) {
-      for (const ExprGroup& expr_group : definition_pair.first) {
+    if (auto definition = id_graph.getDefinitions(id_group);
+        definition) {
+      for (const ExprGroup& expr_group : *definition) {
         defs.pushBack(expr_group);
       }
     }
