@@ -267,6 +267,7 @@ class Fusion : public IrContainer {
     return is_during_update_uses_;
   }
 
+  // FIXME: remove.
   const std::unordered_map<Val*, std::pair<Val*, bool>>& ioAlias() const {
     return io_alias_;
   }
