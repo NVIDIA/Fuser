@@ -750,6 +750,11 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     rparams->unroll_factor_outer_reduction = outer_reduction_unroll_factor;
   }
 
+  if(std::getenv("DISABLE_INLINE_MOST")){
+    rparams->is_inline_all_tvs = false;
+  }
+
+
   rparams->lparams = LaunchParams(
       gdimx,
       gdimy,
@@ -770,6 +775,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
             << "n_tensor_inputs: " << n_tensor_inputs << "\n"
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
             << "nvrtc_register_per_thread: " << nvrtc_register_per_thread << "\n"
+            << "is_inline_all_tvs: " << rparams->is_inline_all_tvs << "\n"
             << "max_persistent_buffer_size: " << max_persistent_buffer_size
             << "\n"
             << "max_multi_reduction_factor: " << max_multi_reduction_factor

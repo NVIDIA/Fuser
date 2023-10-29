@@ -34,7 +34,7 @@ void multiReductionInliner(
     const bool unroll,
     const bool vectorize,
     const bool is_outer_grid_persistence,
-    const bool is_projected_persistentce,
+    const bool is_inline_all_tvs,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,

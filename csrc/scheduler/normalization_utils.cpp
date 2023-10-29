@@ -1257,7 +1257,7 @@ void schedulePersistentKernel(
       unroll,
       vectorize,
       is_outer_grid_persistence,
-      rparams.persistent_kernel && rparams.fastest_dim,
+      rparams.is_inline_all_tvs,
       reduction_tvs,
       cached_inputs,
       cached_outputs,

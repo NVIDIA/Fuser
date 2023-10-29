@@ -14,10 +14,10 @@
 #include <ops/all_ops.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
+#include <scheduler/cache_policy_refiner.h>
 #include <test/utils.h>
 #include <test/validator.h>
 #include <type.h>
-#include <scheduler/cache_policy_refiner.h>
 
 namespace nvfuser {
 
@@ -631,235 +631,72 @@ TEST_F(Tutorial, Reshape) {
   }
 }
 
-TEST_F(NVFuserTest, TMP) {
-  int64_t batch = 32 * 1024;
-  int64_t size = 18 * 1024;
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
-  int kReductionAxis = -1;
-  auto dtype = DataType::Half;
-  // TensorView* x = makeContigConcreteTensor({batch, size}, dtype);
-  TensorView* x = makeContigTensor(2, dtype);
-  fusion->addInput(x);
-  auto x_cache = set(x);
-  auto x_cast = castOp(DataType::Float, x_cache);
-  auto max_val = max(x_cast, {kReductionAxis});
-  auto bcast_max = broadcast(max_val, {false, true});
-  auto x_max_sub = sub(x_cast, bcast_max);
-  auto exp_val = exp(x_max_sub);
-  auto sum_exp = sum(exp_val, {kReductionAxis});
-  auto bcast_sum = broadcast(sum_exp, {false, true});
-  auto y_cache = mul(exp_val, reciprocal(bcast_sum));
-  if (dtype == DataType::Half) {
-    y_cache = castOp(DataType::Half, y_cache);
-  }
-  auto y = set(y_cache);
-  fusion->addOutput(y);
-
-  max_val->split(-1, 8);
-  max_val->split(-2, 9, false);
-  //[I, 9, i/8/9, 8]
-  max_val->split(-2, 1);
-  //[I, 9, i/8/9/1, 1, 8]
-  auto ref1 = max_val->rFactor({1, 4});
-  ref1->axis(0)->parallelize(ParallelType::BIDx);
-  ref1->axis(2)->parallelize(ParallelType::TIDx);
-  ref1->axis(2)->padToMultipleOfWarp(512);
-  ref1->axis(3)->parallelize(ParallelType::Unswitch);
-
-  TransformPropagator propagator(ref1);
-  MaxRootDomainInfoSpanningTree(ref1).traverse(&propagator);
-
-  sum_exp->rFactor({1, 4});
-
-  scheduler_utils::parallelizeAllLike(ref1, ir_utils::allTvs(fusion));
-
-  x_cache->axis(-1)->parallelize(ParallelType::Vectorize);
-  y->axis(-1)->parallelize(ParallelType::Vectorize);
-
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({batch, size}, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(fusion, {t0});
-
-  at::manual_seed(0);
-  auto cg_outputs = fe.runFusion({t0});
-}
 // T13_l[ iblockIdx.x34{i0}, ithreadIdx.x41{( ceilDiv(( ceilDiv(( ceilDiv(i2, 8)
 // ), 9) ), 1) )}rf_p, rS38{9}rf, rUS40{1}rf, rS37{8}rf ]
 TEST_F(NVFuserTest, TMP2) {
-  int64_t batch = 32 * 1024;
-  int64_t size = 18 * 1024;
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
-  auto dtype = DataType::Half;
-  // TensorView* x = makeContigConcreteTensor({batch, size}, dtype);
-  TensorView* x = makeContigTensor(2, dtype);
-  fusion->addInput(x);
-  x = castOp(DataType::Float, x);
-  // auto y = softmax(x, {-1});
-  auto max_val = max(x, {-1});
-  auto bcast_max = broadcast(max_val, {false, true});
-  auto x_max_sub = sub(x, bcast_max);
-  auto exp_val = exp(x_max_sub);
-  auto sum_exp = sum(exp_val, {-1});
-  auto bcast_sum = broadcast(sum_exp, {false, true});
-  if(std::getenv("RECALC")){
-    auto x_max_sub_2 = sub(x, bcast_max);
-    exp_val = exp(x_max_sub_2);
-  }
-  auto y = mul(exp_val, reciprocal(bcast_sum));
+  auto test = [](int64_t batch,
+                 int64_t size,
+                 bool enforce_index_64,
+                 bool is_inline_all_tvs) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    auto fusion = fusion_ptr.get();
+    FusionGuard fg(fusion);
+    auto dtype = DataType::Half;
+    // TensorView* x = makeContigConcreteTensor({batch, size}, dtype);
+    TensorView* x = makeContigTensor(2, dtype);
+    fusion->addInput(x);
+    x = castOp(DataType::Float, x);
+    // auto y = softmax(x, {-1});
+    auto max_val = max(x, {-1});
+    auto bcast_max = broadcast(max_val, {false, true});
+    auto x_max_sub = sub(x, bcast_max);
+    auto exp_val = exp(x_max_sub);
+    auto sum_exp = sum(exp_val, {-1});
+    auto bcast_sum = broadcast(sum_exp, {false, true});
+    if (std::getenv("RECALC")) {
+      auto x_max_sub_2 = sub(x, bcast_max);
+      exp_val = exp(x_max_sub_2);
+    }
+    auto y = mul(exp_val, reciprocal(bcast_sum));
+
+    y = castOp(DataType::Half, y);
+    fusion->addOutput(y);
+
+    auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+    at::Tensor t0 = at::randn({batch, size}, options);
+    auto ref = at::_softmax(t0, -1, false);
+    auto persistent_params = getInnerPersistentHeuristics(fusion, {t0});
+    ASSERT_TRUE(persistent_params) << "Reduction schedule was not generated!";
+    auto lparams = persistent_params->lparams;
+    auto cparams = persistent_params->cparams;
+    if (enforce_index_64) {
+      cparams.index_type = DataType::Int;
+    }
+    if (is_inline_all_tvs) {
+      persistent_params->is_inline_all_tvs = true;
+    } else {
+      persistent_params->is_inline_all_tvs = false;
+    }
+    scheduleInnerPersistentKernel(fusion, *persistent_params);
+
+    FusionExecutor fe;
+    fe.compileFusion(fusion, {t0}, lparams, cparams);
+    auto cg_outputs = fe.runFusion({t0}, lparams, cparams);
+    testValidate(fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+  };
+
+  // bool enforce_index_64 = true;
+  // for (auto batch = 2048; batch <= 32768; batch *= 2) {
+  //   for (auto feature = 2048; feature <= 32768; feature *= 2) {
+  //     maybeClearAllocator(0);
+  //     test(batch, feature, enforce_index_64);
+  //   }
+  // }
+  bool enforce_index_64 = false;
 
 
-  y = castOp(DataType::Half, y);
-  fusion->addOutput(y);
-
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({batch, size}, options);
-
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs({t0});
+  test(8192, 10240, enforce_index_64, true);
+  test(8192, 10240, enforce_index_64, false);
 }
 
-TEST_F(NVFuserTest, TMP4) {
-  int64_t batch = 32 * 1024;
-  int64_t size = 18 * 1024;
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
-  auto dtype = DataType::Half;
-  // TensorView* x = makeContigConcreteTensor({batch, size}, dtype);
-  TensorView* x = makeContigTensor(2, dtype);
-  fusion->addInput(x);
-
-  auto x1 = set(x, CacheOp::AllLevels);
-  auto x1_cast = castOp(DataType::Float, x1);
-  auto max_val = max(x1_cast, {-1});
-  auto bcast_max = broadcast(max_val, {false, true});
-
-  auto x2 = set(x, CacheOp::AllLevels);
-  auto x2_cast = castOp(DataType::Float, x2);
-  auto x_max_sub = sub(x2_cast, bcast_max);
-  auto exp_val = exp(x_max_sub);
-  auto sum_exp = sum(exp_val, {-1});
-  auto bcast_sum = broadcast(sum_exp, {false, true});
-
-  auto x3 = set(x, CacheOp::AllLevels);
-  auto x3_cast = castOp(DataType::Float, x3);
-  auto x_max_sub_2 = sub(x3_cast, bcast_max);
-  exp_val = exp(x_max_sub_2);
-  auto y = mul(exp_val, reciprocal(bcast_sum));
-  auto y_cast = castOp(DataType::Half, y);
-  auto y_out = set(y_cast);
-  fusion->addOutput(y_out);
-
-
-  max_val->split(-1, 8);
-  max_val->split(-2, 256);
-  max_val->split(-2, 1);
-  //[I, i/8/256, 256, 1, 8]
-  auto ref1 = max_val->rFactor({1,4});
-  ref1->axis(0)->parallelize(ParallelType::BIDx);
-  ref1->axis(2)->parallelize(ParallelType::TIDx);
-  ref1->axis(2)->padToMultipleOfWarp(256);
-  ref1->axis(3)->parallelize(ParallelType::Unswitch);
-
-  TransformPropagator propagator(ref1);
-  MaxRootDomainInfoSpanningTree(ref1).traverse(&propagator);
-
-  sum_exp->rFactor({1,4});
-
-  scheduler_utils::parallelizeAllLike(ref1, ir_utils::allTvs(fusion));
-  x1->axis(-1)->parallelize(ParallelType::Vectorize);
-  x2->axis(-1)->parallelize(ParallelType::Vectorize);
-  x3->axis(-1)->parallelize(ParallelType::Vectorize);
-  y_out->axis(-1)->parallelize(ParallelType::Vectorize);
-
-  inlineMost();
-
-
-
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({batch, size}, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(fusion, {t0});
-
-  at::manual_seed(0);
-  auto cg_outputs = fe.runFusion({t0});
-
-  // auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  // at::Tensor t0 = at::randn({batch, size}, options);
-
-  // FusionExecutorCache fec(std::move(fusion_ptr));
-  // auto cg_outputs = fec.runFusionWithInputs({t0});
-}
-TEST_F(NVFuserTest, TMP3) {
-  int64_t batch = 32 * 1024;
-  int64_t size = 18 * 1024;
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
-  int kReductionAxis = -1;
-  auto dtype = DataType::Half;
-  // TensorView* x = makeContigConcreteTensor({batch, size}, dtype);
-  TensorView* x = makeContigTensor(2, dtype);
-  fusion->addInput(x);
-  auto x_cache = set(x);
-  auto x_cast = castOp(DataType::Float, x_cache);
-  auto max_val = max(x_cast, {kReductionAxis});
-  auto bcast_max = broadcast(max_val, {false, true});
-
-  auto x_cache_2 = set(x);
-  auto x_cast_2 = castOp(DataType::Float, x_cache_2);
-  auto x_max_sub = sub(x_cast_2, bcast_max);
-  auto exp_val = exp(x_max_sub);
-  auto sum_exp = sum(exp_val, {kReductionAxis});
-  auto bcast_sum = broadcast(sum_exp, {false, true});
-
-
-  auto x_cache_3 = set(x);
-  auto x_cast_3 = castOp(DataType::Float, x_cache_3);
-  auto x_max_sub3 = sub(x_cast_3, bcast_max);
-  auto exp_val3 = exp(x_max_sub3);
-  auto y_cache = mul(exp_val3, reciprocal(bcast_sum));
-  if (dtype == DataType::Half) {
-    y_cache = castOp(DataType::Half, y_cache);
-  }
-  auto y = set(y_cache);
-  fusion->addOutput(y);
-
-  max_val->split(-1, 8);
-  max_val->split(-2, 9, false);
-  //[I, 9, i/8/9, 8]
-  max_val->split(-2, 1);
-  //[I, 9, i/8/9/1, 1, 8]
-  auto ref1 = max_val->rFactor({1, 4});
-  ref1->axis(0)->parallelize(ParallelType::BIDx);
-  ref1->axis(2)->parallelize(ParallelType::TIDx);
-  ref1->axis(2)->padToMultipleOfWarp(512);
-  ref1->axis(3)->parallelize(ParallelType::Unswitch);
-
-  TransformPropagator propagator(ref1);
-  MaxRootDomainInfoSpanningTree(ref1).traverse(&propagator);
-
-  sum_exp->rFactor({1, 4});
-
-  scheduler_utils::parallelizeAllLike(ref1, ir_utils::allTvs(fusion));
-
-  x_cache->axis(-1)->parallelize(ParallelType::Vectorize);
-  y->axis(-1)->parallelize(ParallelType::Vectorize);
-
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({batch, size}, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(fusion, {t0});
-
-  at::manual_seed(0);
-  auto cg_outputs = fe.runFusion({t0});
-}
 } // namespace nvfuser

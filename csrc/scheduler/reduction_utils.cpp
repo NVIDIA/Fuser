@@ -358,7 +358,7 @@ void multiReductionInliner(
     const bool unroll,
     const bool vectorize,
     const bool is_outer_grid_persistence,
-    const bool is_projected_inner_persistentce,
+    const bool is_inline_all_tvs,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
@@ -385,25 +385,55 @@ void multiReductionInliner(
   for (auto output : dummy_outputs) {
     fusion->removeOutput(output);
   }
+  // inlineMost();
 
+  // for(auto tv : cached_inputs){
+  //   std::cout << tv->toString() << ", ca_pos= "  <<
+  //   tv->getComputeAtPosition() << ", max_ca_pos= " <<
+  //   tv->getMaxComputePosition() << std::endl;
+  // }
+
+  // if (!is_inline_all_tvs) {
+  //   for (auto tv : cached_inputs) {
+  //     auto vect_pos = tv->nDims() - 1;
+  //     if (tv->getComputeAtPosition() == vect_pos) {
+  //       // const auto& consumers = ir_utils::consumerTvsOf(tv);
+  //       // inlineSelectedAt(
+  //       //     {consumers.begin(), consumers.end()}, tv, vect_pos - 2);
+  //       MaxPosCalculator calc;
+  //       tv->in;
+  //        std::cout << "after adjust: " << tv->toString() << ", ca_pos= "  <<
+  //        tv->getComputeAtPosition() << ", max_ca_pos= " <<
+  //        tv->getMaxComputePosition() << std::endl;
+
+  //     }
+  //   }
+  // }
   // Inline the schedule
-  if (std::getenv("DISABLE_INLINE_MOST") && is_projected_inner_persistentce) {
-    auto all_tvs = ir_utils::allTvs(fusion);
-    // Inline at the inner most position. The CA position of all tensors except
-    // inputs, cached inputs and outputs will be updated.
-    std::unordered_set<TensorView*> inner_most_tensors(
-        all_tvs.begin(), all_tvs.end());
-    for (auto cached_input : cached_inputs) {
-      std::cout << "cached_input= " << cached_input->toString() << std::endl;
-      inner_most_tensors.erase(cached_input);
-    }
-    for (auto entry : cached_outputs) {
-      std::cout << "entry.first= " << entry.first->toString() << std::endl;
-      inner_most_tensors.erase(entry.first);
-    }
-    inlineMost(inner_most_tensors);    
-  } else {
+  if (is_inline_all_tvs) {
     inlineMost();
+  } else {
+    const auto& buffers =
+        scheduler_utils::persistentBuffers(fusion).persistent_buffers;
+    auto is_persistent = [&buffers](TensorView* tv) {
+      return std::find(buffers.begin(), buffers.end(), tv) != buffers.end();
+    };
+    std::unordered_set<nvfuser::TensorView*> excep_tvs;
+    for (auto tv : cached_inputs) {
+      if (is_persistent(tv)) {
+        excep_tvs.insert(tv);
+        continue;
+      }
+      const auto& consumers = ir_utils::consumerTvsOf(tv);
+      if (std::all_of(
+              consumers.begin(),
+              consumers.end(),
+              [&is_persistent](TensorView* tv) { return is_persistent(tv); })) {
+        excep_tvs.insert(tv);
+      }
+    }
+    inlineMost(ir_utils::allTvsExcept(fusion, excep_tvs));
+    // inlineSelectedAt({acr, bcr, ab, bb}, mma_result, num_batch_dims + 6);
   }
 }
 
