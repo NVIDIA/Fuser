@@ -235,56 +235,14 @@ MatmulParams getMatmulParams(
   return params;
 }
 
-static void NvFuserScheduler_Matmul_4warp3stage(
+static void NvFuserScheduler_Matmul(
     benchmark::State& benchmark_state,
-    MatmulLayout layout) {
-  auto cta_tile = GemmTile(128, 128, 32);
-  int number_of_stage = 3;
+    MatmulLayout layout,
+    bool partitionedk = false) {
+  int num_warps = benchmark_state.range(3);
+  int number_of_stage = benchmark_state.range(4);
 
-  auto params = getMatmulParams(cta_tile, number_of_stage, layout);
-
-  NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(
-      8, 0, getSmemSize(cta_tile, number_of_stage), benchmark_state);
-
-  // Run benchmark:
-  SingleMatmulBase(benchmark_state, layout, params);
-}
-
-static void NvFuserScheduler_Matmul_8warp3stage(
-    benchmark::State& benchmark_state,
-    MatmulLayout layout) {
-  auto cta_tile = GemmTile(256, 128, 32);
-  int number_of_stage = 3;
-
-  auto params = getMatmulParams(cta_tile, number_of_stage, layout);
-
-  NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(
-      8, 0, getSmemSize(cta_tile, number_of_stage), benchmark_state);
-
-  // Run benchmark:
-  SingleMatmulBase(benchmark_state, layout, params);
-}
-
-static void NvFuserScheduler_Matmul_4warp4stage(
-    benchmark::State& benchmark_state,
-    MatmulLayout layout) {
-  auto cta_tile = GemmTile(128, 128, 32);
-  int number_of_stage = 4;
-
-  auto params = getMatmulParams(cta_tile, number_of_stage, layout);
-
-  NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(
-      8, 0, getSmemSize(cta_tile, number_of_stage), benchmark_state);
-
-  // Run benchmark:
-  SingleMatmulBase(benchmark_state, layout, params);
-}
-
-static void NvFuserScheduler_Matmul_8warp4stage(
-    benchmark::State& benchmark_state,
-    MatmulLayout layout) {
-  auto cta_tile = GemmTile(256, 128, 32);
-  int number_of_stage = 4;
+  auto cta_tile = GemmTile(32 * num_warps, 128, 32);
 
   auto params = getMatmulParams(cta_tile, number_of_stage, layout);
 
@@ -297,83 +255,162 @@ static void NvFuserScheduler_Matmul_8warp4stage(
 
 // ----------------------------- Benchmark Instantiation-------
 
-// Common utils:
-#define LegacyMatmulShapes                                                    \
-  ArgsProduct(                                                                \
-      {{2048}, {3456}, benchmark::CreateDenseRange(512, 4096, /*step=*/512)}) \
+#define LegacyMs \
+  { 2048 }
+#define LegacyNs \
+  { 3456 }
+#define LegacyKs benchmark::CreateDenseRange(512, 4096, /*step=*/512)
+
+// clang-format off
+#define TIMMShapes       \
+  {                      \
+    {1024, 256, 1024},   \
+    {8, 128, 8},         \
+    {1152, 128, 784},    \
+    /* {1152, 48, 1} */  \
+    {128, 512, 4096},    \
+    /* {192, 1, 672}, */ \
+    /* {1, 64, 1}, */    \
+    /* {2048, 1, 1}, */  \
+    /* {1, 1152, 48}, */ \
+    {64, 1152, 384},     \
+    {72, 8, 784},        \
+    {784, 128, 1152},    \
+    {128, 512, 2048},    \
+    {64, 384, 1152},     \
+    {3136, 72, 8},       \
+    {512, 2048, 128},    \
+    /* {112, 1, 480}, */ \
+    {1024, 512, 1024},   \
+    /* {112, 1, 672}, */ \
+    {784, 72, 8},        \
+    {784, 8, 72},        \
+    /* {1, 1, 2048}, */  \
+    {1024, 1024, 1024}   \
+  }
+// clang-format on
+
+#define Layouts \
+  { MatmulLayout::TT, MatmulLayout::TN, MatmulLayout::NT, MatmulLayout::NN }
+#define NumWarps \
+  { 4, 8 }
+#define NumStages \
+  { 3, 4 }
+
+//! Simple cartesian product of three integers. Used to emulate ArgsProduct
+template <typename T>
+static std::vector<std::tuple<T, T>> sizeProduct(
+    std::vector<T> ms,
+    std::vector<T> ns) {
+  std::vector<std::tuple<T, T>> sizes;
+  for (T m : ms) {
+    for (T n : ns) {
+      sizes.push_back({m, n});
+    }
+  }
+  return sizes;
+}
+
+//! Simple cartesian product of three integers. Used to emulate ArgsProduct
+template <typename T>
+static std::vector<std::tuple<T, T, T>> sizeProduct(
+    std::vector<T> ms,
+    std::vector<T> ns,
+    std::vector<T> ks) {
+  std::vector<std::tuple<T, T, T>> sizes;
+  for (T m : ms) {
+    for (T n : ns) {
+      for (T k : ks) {
+        sizes.push_back({m, n, k});
+      }
+    }
+  }
+  return sizes;
+}
+
+// Use this to apply shape arguments to a benchmark without additional
+// NVFuser-specific args. Used for eager benchmarks to avoid redundant
+// benchmarks for combinations of num_warps and num_stages
+static void MatmulShape(
+    benchmark::internal::Benchmark* b,
+    std::vector<std::tuple<long int, long int, long int>> sizes) {
+  b->ArgNames({"M", "N", "K"});
+  for (auto [m, n, k] : sizes) {
+    b->Args({m, n, k});
+  }
+}
+
+// Use this to apply shapes and num_warps. Used for splitk reduction benchmarks
+// Note warps is number of warps per block in the associated partitionedk matmul
+static void MatmulShapeWarp(
+    benchmark::internal::Benchmark* b,
+    std::vector<std::tuple<long int, long int>> sizes) {
+  b->ArgNames({"M", "N", "warps"});
+  for (int num_warps : NumWarps) {
+    for (auto [m, n] : sizes) {
+      b->Args({m, n, num_warps});
+    }
+  }
+}
+
+// Use this to apply shapes, num_warps, and stages. Used for NVFuser-specific
+// benchmarks
+static void MatmulShapeWarpStage(
+    benchmark::internal::Benchmark* b,
+    std::vector<std::tuple<long int, long int, long int>> sizes) {
+  b->ArgNames({"M", "N", "K", "warps", "stages"});
+  for (int num_warps : NumWarps) {
+    for (int num_stages : NumStages) {
+      for (auto [m, n, k] : sizes) {
+        b->Args({m, n, k, num_warps, num_stages});
+      }
+    }
+  }
+}
+
+#define EagerModeBenchmark(layout)                                            \
+  BENCHMARK_CAPTURE(                                                          \
+      Baseline_Matmul, eagermode_legacyshapes_##layout, MatmulLayout::layout) \
       ->Unit(benchmark::kMicrosecond)                                         \
-      ->UseManualTime();
+      ->UseManualTime()                                                       \
+      ->Apply([](benchmark::internal::Benchmark* b) {                         \
+        return MatmulShape(                                                   \
+            b, sizeProduct<long int>(LegacyMs, LegacyNs, LegacyKs));          \
+      });                                                                     \
+  BENCHMARK_CAPTURE(                                                          \
+      Baseline_Matmul, eagermode_timmshapes_##layout, MatmulLayout::layout)   \
+      ->Unit(benchmark::kMicrosecond)                                         \
+      ->UseManualTime()                                                       \
+      ->Apply([](benchmark::internal::Benchmark* b) {                         \
+        return MatmulShape(b, TIMMShapes);                                    \
+      });
 
-// Those are the 25 most commonly used matmul shapes in TIMM and torchdynamo
-// benchmark suites. Nvfuser benchmark of some shapes with 1 in m, n, k sizes
-// crash and those shapes are temporarily disabled.
-#define TIMMMatmulShapes                                                     \
-  Args({1024, 256, 1024})                                                    \
-      ->Args({8, 128, 8}) /*->Args({1, 128, 1})*/ /*->Args({1, 48, 1152})*/  \
-      ->Args({1152, 128, 784}) /*->Args({1152, 48, 1})*/                     \
-      ->Args(                                                                \
-          {128, 512, 4096}) /*->Args({192, 1, 672})*/ /*->Args({1, 64, 1})*/ \
-      /*->Args({2048, 1, 1})*/ /*->Args({1, 1152, 48})*/                     \
-      ->Args({64, 1152, 384})                                                \
-      ->Args({72, 8, 784})                                                   \
-      ->Args({784, 128, 1152})                                               \
-      ->Args({128, 512, 2048})                                               \
-      ->Args({64, 384, 1152})                                                \
-      ->Args({3136, 72, 8})                                                  \
-      ->Args({512, 2048, 128}) /*->Args({112, 1, 480})*/                     \
-      ->Args({1024, 512, 1024}) /*->Args({112, 1, 672})*/                    \
-      ->Args({784, 72, 8})                                                   \
-      ->Args({784, 8, 72}) /*->Args({1, 1, 2048})*/                          \
-      ->Args({1024, 1024, 1024})                                             \
-      ->Unit(benchmark::kMicrosecond)                                        \
-      ->UseManualTime();
+#define NvfuserMatmulBenchmark(layout)                               \
+  BENCHMARK_CAPTURE(                                                 \
+      NvFuserScheduler_Matmul,                                       \
+      nvfuser_legacyshapes_##layout,                                 \
+      MatmulLayout::layout)                                          \
+      ->Unit(benchmark::kMicrosecond)                                \
+      ->UseManualTime()                                              \
+      ->Apply([](benchmark::internal::Benchmark* b) {                \
+        return MatmulShapeWarpStage(                                 \
+            b, sizeProduct<long int>(LegacyMs, LegacyNs, LegacyKs)); \
+      });                                                            \
+  BENCHMARK_CAPTURE(                                                 \
+      NvFuserScheduler_Matmul,                                       \
+      nvfuser_timmshapes_##layout,                                   \
+      MatmulLayout::layout)                                          \
+      ->Unit(benchmark::kMicrosecond)                                \
+      ->UseManualTime()                                              \
+      ->Apply([](benchmark::internal::Benchmark* b) {                \
+        return MatmulShapeWarpStage(b, TIMMShapes);                  \
+      });
 
-#define ForAllLayouts(run)                              \
-  run(TT_Legacy, MatmulLayout::TT, LegacyMatmulShapes); \
-  run(TN_Legacy, MatmulLayout::TN, LegacyMatmulShapes); \
-  run(NT_Legacy, MatmulLayout::NT, LegacyMatmulShapes); \
-  run(NN_Legacy, MatmulLayout::NN, LegacyMatmulShapes); \
-  run(TT_TIMM, MatmulLayout::TT, TIMMMatmulShapes);     \
-  run(TN_TIMM, MatmulLayout::TN, TIMMMatmulShapes);     \
-  run(NT_TIMM, MatmulLayout::NT, TIMMMatmulShapes);     \
-  run(NN_TIMM, MatmulLayout::NN, TIMMMatmulShapes)
+#define ForAllLayouts(run) \
+  run(TT);                 \
+  run(TN);                 \
+  run(NT);                 \
+  run(NN);
 
-// Instantiations:
-#define NvFuserScheduler_4warp3stage_test(layout_label, layout, shapes) \
-  BENCHMARK_CAPTURE(                                                    \
-      NvFuserScheduler_Matmul_4warp3stage,                              \
-      no_quant_nvfuser_4warp_##layout_label,                            \
-      layout)                                                           \
-      ->shapes
-
-#define NvFuserScheduler_8warp3stage_test(layout_label, layout, shapes) \
-  BENCHMARK_CAPTURE(                                                    \
-      NvFuserScheduler_Matmul_8warp3stage,                              \
-      no_quant_nvfuser_8warp_##layout_label,                            \
-      layout)                                                           \
-      ->shapes
-
-#define NvFuserScheduler_4warp4stage_test(layout_label, layout, shapes) \
-  BENCHMARK_CAPTURE(                                                    \
-      NvFuserScheduler_Matmul_4warp4stage,                              \
-      no_quant_nvfuser_4warp_##layout_label,                            \
-      layout)                                                           \
-      ->shapes
-
-#define NvFuserScheduler_8warp4stage_test(layout_label, layout, shapes) \
-  BENCHMARK_CAPTURE(                                                    \
-      NvFuserScheduler_Matmul_8warp4stage,                              \
-      no_quant_nvfuser_8warp_##layout_label,                            \
-      layout)                                                           \
-      ->shapes
-
-#define Baseline_test(layout_label, layout, shapes)               \
-  BENCHMARK_CAPTURE(                                              \
-      Baseline_Matmul, no_quant_eagermode_##layout_label, layout) \
-      ->shapes
-
-ForAllLayouts(NvFuserScheduler_4warp3stage_test);
-ForAllLayouts(NvFuserScheduler_4warp4stage_test);
-ForAllLayouts(NvFuserScheduler_8warp3stage_test);
-ForAllLayouts(NvFuserScheduler_8warp4stage_test);
-ForAllLayouts(Baseline_test);
+ForAllLayouts(EagerModeBenchmark);
+ForAllLayouts(NvfuserMatmulBenchmark);
