@@ -159,11 +159,6 @@ class PredicateAnalyzer : public OptOutDispatch {
       return;
     }
 
-    if (factor.value() == 1) {
-      // Trivial splits cannot cause out-of-bounds
-      return;
-    }
-
     auto in_extent = split->in()->extent();
 
     if (!in_extent->isConstInt() ||
@@ -442,17 +437,17 @@ class PredicateChcker : public IterVisitor {
           id->getParallelType() == ParallelType::Unswitch) {
         return true;
       }
-    }
 
-    // TODO: (Enable in a follow up)
-    //  This cannot yet be removed since smem initialization needs to be
-    //  handled specially, e.g. as in smem_reduce test. Will be able to
-    //  lift this one once the generic pred removal pass with fusion
-    //  traversal is ready.
-    auto consumer_def = consumer->definition();
-    if (ir_utils::isReductionOp(consumer_def)) {
-      if (producer->getMemoryType() == MemoryType::Shared) {
-        return true;
+      // TODO: （Enable in a follow up)
+      //  This cannot yet be removed since smem initialization needs to be
+      //  handled specially, e.g. as in smem_reduce test. Will be able to
+      //  lift this one once the generic pred removal pass with fusion
+      //  traversal is ready.
+      auto consumer_def = consumer->definition();
+      if (ir_utils::isReductionOp(consumer_def)) {
+        if (producer->getMemoryType() == MemoryType::Shared) {
+          return true;
+        }
       }
     }
 
