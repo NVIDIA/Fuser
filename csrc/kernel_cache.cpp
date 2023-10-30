@@ -1222,6 +1222,11 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
   std::vector<at::Tensor> fusion_outputs;
   fusion_outputs.reserve(segmented_fusion_->outputs().size());
   for (Val* output : segmented_fusion_->outputs()) {
+    NVF_ERROR(
+        tensor_map.count(output),
+        "Segmented fusion output ",
+        output->toString(),
+        " does not exist in `tensor_map`.");
     const PolymorphicValue* runtime_output = tensor_map.at(output);
     fusion_outputs.push_back(runtime_output->as<at::Tensor>());
   }
