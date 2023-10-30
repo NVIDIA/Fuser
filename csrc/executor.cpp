@@ -916,7 +916,7 @@ at::Tensor transformOutputFromAllocationToRFactor(
 std::vector<at::Tensor> allocOutputs(
     const kir::Kernel* kernel,
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
-    const std::vector<InputOutputAlias>& output_to_input_aliases,
+    const std::vector<InputOutputAlias>& input_output_aliases,
     const KernelArgumentHolder& inputs,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
@@ -928,15 +928,15 @@ std::vector<at::Tensor> allocOutputs(
     const auto& buf_info = output_info.at(output_idx);
 
     auto alias_it = std::find_if(
-        output_to_input_aliases.begin(),
-        output_to_input_aliases.end(),
+        input_output_aliases.begin(),
+        input_output_aliases.end(),
         [&](const InputOutputAlias& input_output_alias) {
           return input_output_alias.out == static_cast<int64_t>(output_idx);
         });
 
     // Note: aliased output is not returned as output. But we still need it
     // for kernel execution, so would need to push them to args
-    if (alias_it != output_to_input_aliases.end()) {
+    if (alias_it != input_output_aliases.end()) {
       const auto aliased_input_index = alias_it->in;
       NVF_ERROR(
           inputs[aliased_input_index]->is<at::Tensor>(),
@@ -1472,7 +1472,7 @@ void FusionExecutor::initializeExecutorEntry(
   executor_utils::validateVectorizedTensors(
       kernel(), args, outputs, compileTimeDataCache(), expr_eval);
 
-  auto input_alias_indices_entry =
+  auto input_output_aliases_entry =
       executor_utils::caching::ExecutorCompileTimeEntry<
           executor_utils::caching::InputOutputAliases>(
           compileTimeDataCache(), [&]() {
@@ -1480,7 +1480,7 @@ void FusionExecutor::initializeExecutorEntry(
                 fusion_->getOutputToInputAliasIndices());
           });
 
-  const auto& output_to_input_aliases = input_alias_indices_entry.get();
+  const auto& input_output_aliases = input_output_aliases_entry.get();
 
   std::vector<GlobalBufferInfo> output_info;
 
@@ -1499,7 +1499,7 @@ void FusionExecutor::initializeExecutorEntry(
 
   // All information is gathered. Save it to ExecutorEntry
   executor_entry.launch_params = launch_params;
-  executor_entry.output_to_input_aliases = output_to_input_aliases;
+  executor_entry.input_output_aliases = input_output_aliases;
   executor_entry.outputs = output_info;
   executor_entry.intermediates = intermediates;
   executor_entry.init = true;
@@ -1666,7 +1666,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     outputs = allocOutputs(
         kernel(),
         executor_entry->outputs,
-        executor_entry->output_to_input_aliases,
+        executor_entry->input_output_aliases,
         args,
         options_.device,
         expr_eval);
@@ -2042,9 +2042,8 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
 
   using fb_input_output_alias = flatbuffers::Offset<serde::InputOutputAlias>;
   std::vector<fb_input_output_alias> input_output_alias_fb;
-  input_output_alias_fb.reserve(data.output_to_input_aliases.size());
-  for (const InputOutputAlias& input_output_alias :
-       data.output_to_input_aliases) {
+  input_output_alias_fb.reserve(data.input_output_aliases.size());
+  for (const InputOutputAlias& input_output_alias : data.input_output_aliases) {
     input_output_alias_fb.push_back(serialize(builder, input_output_alias));
   }
 
@@ -2168,7 +2167,7 @@ FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
   entry.launch_params.deserialize(buffer->launch_params());
 
   for (auto output_buffer : *buffer->input_output_alias()) {
-    entry.output_to_input_aliases.push_back(deserialize(output_buffer));
+    entry.input_output_aliases.push_back(deserialize(output_buffer));
   }
 
   for (auto output_buffer : *buffer->outputs()) {

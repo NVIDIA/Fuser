@@ -142,7 +142,7 @@ class FusionExecutor : public NonCopyable {
     bool init = false;
     LaunchParams launch_params;
     // Aliased output and input mappings
-    std::vector<InputOutputAlias> output_to_input_aliases;
+    std::vector<InputOutputAlias> input_output_aliases;
     std::vector<GlobalBufferInfo> outputs;
     // Temporary work buffers and intemediate global-memory tensors
     std::vector<GlobalBufferInfo> intermediates;
