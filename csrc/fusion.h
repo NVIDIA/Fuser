@@ -87,14 +87,13 @@ class FusionGuard {
 // Set the enum base to `int` so it can be safely serialized as a part of
 // serde::InputOutputAlias.
 enum class AliasType : int {
-  // For example, the tensor storing BatchNorm's running mean. The output, the
-  // updated EMA, is written to the same tensor as the input. Therefore, they
-  // are alias of the same shape but different data.
-  SameShapeDifferentData,
-  // For example, the input and the output of the same ViewOp are likely alias
-  // of different shapes but the same underlying data. In this case, we use
-  // `ExpressionEvaluator` (instead of a kernel) to compute the output tensor.
-  DifferentShapeSameData,
+  // For example, the tensor storing BatchNorm's running mean. The output EMA is
+  // updated in place.
+  InplaceUpdate,
+  // For example, the output of a ViewOp is merely a pointer cast of the input.
+  // In this case, we use `ExpressionEvaluator` (instead of a kernel) to compute
+  // the output tensor.
+  PointerCast,
 };
 
 struct AliasInfo {

@@ -944,8 +944,8 @@ std::vector<at::Tensor> allocOutputs(
       at::Tensor input_tensor = inputs[aliased_input_index]->as<at::Tensor>();
 
       switch (alias_it->info.type) {
-        case AliasType::SameShapeDifferentData:
-          // Unlike for `AliasType::DifferentShapeSameData`, don't use
+        case AliasType::InplaceUpdate:
+          // Unlike for `AliasType::PointerCast`, don't use
           // ExpressionEvaluator to compute the output tensor. This is because
           // the output tensor may hold different data as the input, e.g., an
           // updated running mean.  `ExpressionEvaluator::evaluate(output_tv)`
@@ -953,7 +953,7 @@ std::vector<at::Tensor> allocOutputs(
           outputs.emplace_back(input_tensor);
           break;
 
-        case AliasType::DifferentShapeSameData:
+        case AliasType::PointerCast:
           auto* input_tv =
               kernel->inputs()[aliased_input_index]->as<TensorView>();
           auto* output_tv = kernel->outputs()[output_idx]->as<TensorView>();
