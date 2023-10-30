@@ -387,7 +387,7 @@ void multiReductionInliner(
   }
 
   // If is_inline_all_tvs is true, inline all tvs.
-  // If is_inline_all_tvs is false, skip cahced inputs that are either
+  // If is_inline_all_tvs is false, skip cached inputs that are either
   // persistent themselves or all of their consumers are persistent. This
   // seperates data loading and computation without inrcreasing requested
   // registers and showed performance increase, see SoftmaxNotInlineDataLoad.
@@ -403,7 +403,6 @@ void multiReductionInliner(
     for (auto tv : cached_inputs) {
       if (is_persistent_buffer(tv)) {
         excep_tvs.insert(tv);
-        std::cout << "skip cached tv= " << tv->toString() << std::endl;
         continue;
       }
       const auto& consumers = ir_utils::consumerTvsOf(tv);
@@ -413,13 +412,12 @@ void multiReductionInliner(
               [&is_persistent_buffer](TensorView* tv) {
                 return is_persistent_buffer(tv);
               })) {
-        std::cout << "skip consumer tv= " << tv->toString() << std::endl;
         excep_tvs.insert(tv);
       }
     }
     inlineMost(ir_utils::allTvsExcept(fusion, excep_tvs));
-    // Since the current inner persistent tvs are scheduled to [..., persistent batch, unswitch, vect/unroll], the 
-    // following check seems redundant.
+    // The inner persistent tvs are scheduled as [..., persistent batch,
+    // unswitch, vect/unroll], inline them before [persistent batch].
     for (auto tv : excep_tvs) {
       int tailing_static_dims = 0;
       for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
@@ -431,9 +429,6 @@ void multiReductionInliner(
       }
       auto producer = ir_utils::getSoleProducerTv(tv);
       inlineSelectedAt({tv}, producer, producer->nDims() - tailing_static_dims);
-      std::cout << "tv= " << tv->toString() << std::endl;
-      std::cout << "producer= " << producer->toString() << std::endl;
-      std::cout << "producer nDims= " << producer->nDims() << std::endl;
     }
   }
 }

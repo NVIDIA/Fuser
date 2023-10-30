@@ -750,12 +750,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     rparams->unroll_factor_outer_reduction = outer_reduction_unroll_factor;
   }
 
-  // For multiple_reds_per_blk, must inline cached inputs
-  // DISABLE_INLINE_MOST=1 /opt/pytorch/nvfuser/build/nvfuser_bench
-  // --benchmark_min_time=0
-  // --benchmark_filter=NvFuserScheduler_DivMaxSoftDropFwd_fp32___GRAPH/NvFuserScheduler_DivMaxSoftDropFwd_fp32/8/16/128/128/manual_time
-  if (std::getenv("DISABLE_INLINE_MOST") && !rparams->multiple_reds_per_blk &&
-      rparams->batches_per_block_inner_reduction > 1) {
+  // If there are more than 1 persistent batches, needs special inline to
+  // separate data loading and calculation, see multiReductionInliner.
+  if (rparams->batches_per_block_inner_reduction > 1) {
     rparams->is_inline_all_tvs = false;
   }
 
