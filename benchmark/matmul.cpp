@@ -510,22 +510,34 @@ static void SplitKReduction(
   { 3456 }
 #define LegacyKs benchmark::CreateDenseRange(512, 4096, /*step=*/512)
 
-#define TIMMShapes                                                            \
-  {                                                                           \
-    {1024, 256, 1024}, {8, 128, 8}, {1152, 128, 784}, /* {1152, 48, 1} */     \
-        {128, 512, 4096},                                                     \
-        /* {192, 1, 672} */ /* {1, 64, 1} */ /* {2048, 1, 1} */ /* {1,        \
-                                                                   1152,      \
-                                                                   48}        \
-                                                                 */           \
-        {64, 1152, 384}, {72, 8, 784}, {784, 128, 1152}, {128, 512, 2048},    \
-        {64, 384, 1152}, {3136, 72, 8}, {512, 2048, 128}, /* {112, 1, 480} */ \
-        {1024, 512, 1024}, /* {112, 1, 672} */                                \
-        {784, 72, 8}, {784, 8, 72}, /* {1, 1, 2048} */                        \
-    {                                                                         \
-      1024, 1024, 1024                                                        \
-    }                                                                         \
+// clang-format off
+#define TIMMShapes       \
+  {                      \
+    {1024, 256, 1024},   \
+    {8, 128, 8},         \
+    {1152, 128, 784},    \
+    /* {1152, 48, 1} */  \
+    {128, 512, 4096},    \
+    /* {192, 1, 672}, */ \
+    /* {1, 64, 1}, */    \
+    /* {2048, 1, 1}, */  \
+    /* {1, 1152, 48}, */ \
+    {64, 1152, 384},     \
+    {72, 8, 784},        \
+    {784, 128, 1152},    \
+    {128, 512, 2048},    \
+    {64, 384, 1152},     \
+    {3136, 72, 8},       \
+    {512, 2048, 128},    \
+    /* {112, 1, 480}, */ \
+    {1024, 512, 1024},   \
+    /* {112, 1, 672}, */ \
+    {784, 72, 8},        \
+    {784, 8, 72},        \
+    /* {1, 1, 2048}, */  \
+    {1024, 1024, 1024}   \
   }
+// clang-format on
 
 // For 4warp splitk experiments, we use a tile size of (128, 128). To avoid
 // wave quantization, we look at sizes that are integer multiples of the block
@@ -552,7 +564,6 @@ static std::vector<long int> splitKNs(long int tileN = 128) {
   }
   return Ns;
 }
-
 #define SplitKKs \
   { 65536 }
 
@@ -644,19 +655,19 @@ static void MatmulShapeWarpStage(
             b, sizeProduct<long int>(LegacyMs, LegacyNs, LegacyKs));          \
       });                                                                     \
   BENCHMARK_CAPTURE(                                                          \
+      Baseline_Matmul, eagermode_timmshapes_##layout, MatmulLayout::layout)   \
+      ->Unit(benchmark::kMicrosecond)                                         \
+      ->UseManualTime()                                                       \
+      ->Apply([](benchmark::internal::Benchmark* b) {                         \
+        return MatmulShape(b, TIMMShapes);                                    \
+      });                                                                     \
+  BENCHMARK_CAPTURE(                                                          \
       Baseline_Matmul, eagermode_splitkshapes_##layout, MatmulLayout::layout) \
       ->Unit(benchmark::kMicrosecond)                                         \
       ->UseManualTime()                                                       \
       ->Apply([](benchmark::internal::Benchmark* b) {                         \
         return MatmulShape(                                                   \
             b, sizeProduct<long int>(SplitKMs, splitKNs(), SplitKKs));        \
-      });                                                                     \
-  BENCHMARK_CAPTURE(                                                          \
-      Baseline_Matmul, eagermode_timmshapes_##layout, MatmulLayout::layout)   \
-      ->Unit(benchmark::kMicrosecond)                                         \
-      ->UseManualTime()                                                       \
-      ->Apply([](benchmark::internal::Benchmark* b) {                         \
-        return MatmulShape(b, TIMMShapes);                                    \
       });
 
 #define NvfuserMatmulBenchmark(layout)                                 \
