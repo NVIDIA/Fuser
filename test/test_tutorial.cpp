@@ -5,16 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <fusion.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
+
+#include <fusion.h>
 #include <inlining.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
-#include <ops/all_ops.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
-#include <scheduler/cache_policy_refiner.h>
 #include <test/utils.h>
 #include <test/validator.h>
 #include <type.h>
@@ -629,74 +628,6 @@ TEST_F(Tutorial, Reshape) {
     // transformations, thus it should not have a rfactor domain
     ASSERT_FALSE(squeeze_output->hasRFactor());
   }
-}
-
-// T13_l[ iblockIdx.x34{i0}, ithreadIdx.x41{( ceilDiv(( ceilDiv(( ceilDiv(i2, 8)
-// ), 9) ), 1) )}rf_p, rS38{9}rf, rUS40{1}rf, rS37{8}rf ]
-TEST_F(NVFuserTest, TMP2) {
-  auto test = [](int64_t batch,
-                 int64_t size,
-                 bool enforce_index_64,
-                 bool is_inline_all_tvs) {
-    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-    auto fusion = fusion_ptr.get();
-    FusionGuard fg(fusion);
-    auto dtype = DataType::Half;
-    // TensorView* x = makeContigConcreteTensor({batch, size}, dtype);
-    TensorView* x = makeContigTensor(2, dtype);
-    fusion->addInput(x);
-    x = castOp(DataType::Float, x);
-    // auto y = softmax(x, {-1});
-    auto max_val = max(x, {-1});
-    auto bcast_max = broadcast(max_val, {false, true});
-    auto x_max_sub = sub(x, bcast_max);
-    auto exp_val = exp(x_max_sub);
-    auto sum_exp = sum(exp_val, {-1});
-    auto bcast_sum = broadcast(sum_exp, {false, true});
-    if (std::getenv("RECALC")) {
-      auto x_max_sub_2 = sub(x, bcast_max);
-      exp_val = exp(x_max_sub_2);
-    }
-    auto y = mul(exp_val, reciprocal(bcast_sum));
-
-    y = castOp(DataType::Half, y);
-    fusion->addOutput(y);
-
-    auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-    at::Tensor t0 = at::randn({batch, size}, options);
-    auto ref = at::_softmax(t0, -1, false);
-    auto persistent_params = getInnerPersistentHeuristics(fusion, {t0});
-    ASSERT_TRUE(persistent_params) << "Reduction schedule was not generated!";
-    auto lparams = persistent_params->lparams;
-    auto cparams = persistent_params->cparams;
-    if (enforce_index_64) {
-      cparams.index_type = DataType::Int;
-    }
-    if (is_inline_all_tvs) {
-      persistent_params->is_inline_all_tvs = true;
-    } else {
-      persistent_params->is_inline_all_tvs = false;
-    }
-    scheduleInnerPersistentKernel(fusion, *persistent_params);
-
-    FusionExecutor fe;
-    fe.compileFusion(fusion, {t0}, lparams, cparams);
-    auto cg_outputs = fe.runFusion({t0}, lparams, cparams);
-    testValidate(fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
-  };
-
-  // bool enforce_index_64 = true;
-  // for (auto batch = 2048; batch <= 32768; batch *= 2) {
-  //   for (auto feature = 2048; feature <= 32768; feature *= 2) {
-  //     maybeClearAllocator(0);
-  //     test(batch, feature, enforce_index_64);
-  //   }
-  // }
-  bool enforce_index_64 = false;
-
-
-  test(8192, 10240, enforce_index_64, true);
-  test(8192, 10240, enforce_index_64, false);
 }
 
 } // namespace nvfuser

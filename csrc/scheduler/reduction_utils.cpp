@@ -385,42 +385,23 @@ void multiReductionInliner(
   for (auto output : dummy_outputs) {
     fusion->removeOutput(output);
   }
-  // inlineMost();
 
-  // for(auto tv : cached_inputs){
-  //   std::cout << tv->toString() << ", ca_pos= "  <<
-  //   tv->getComputeAtPosition() << ", max_ca_pos= " <<
-  //   tv->getMaxComputePosition() << std::endl;
-  // }
-
-  // if (!is_inline_all_tvs) {
-  //   for (auto tv : cached_inputs) {
-  //     auto vect_pos = tv->nDims() - 1;
-  //     if (tv->getComputeAtPosition() == vect_pos) {
-  //       // const auto& consumers = ir_utils::consumerTvsOf(tv);
-  //       // inlineSelectedAt(
-  //       //     {consumers.begin(), consumers.end()}, tv, vect_pos - 2);
-  //       MaxPosCalculator calc;
-  //       tv->in;
-  //        std::cout << "after adjust: " << tv->toString() << ", ca_pos= "  <<
-  //        tv->getComputeAtPosition() << ", max_ca_pos= " <<
-  //        tv->getMaxComputePosition() << std::endl;
-
-  //     }
-  //   }
-  // }
-  // Inline the schedule
+  // If is_inline_all_tvs is true, inline all tvs.
+  // If is_inline_all_tvs is false, skip cahced inputs that are either
+  // persistent themselves or all of their consumers are persistent. This
+  // seperates data loading and computation without inrcreasing requested
+  // registers and showed performance increase, see SoftmaxNotInlineDataLoad.
   if (is_inline_all_tvs) {
     inlineMost();
   } else {
     const auto& buffers =
         scheduler_utils::persistentBuffers(fusion).persistent_buffers;
-    auto is_persistent = [&buffers](TensorView* tv) {
+    auto is_persistent_buffer = [&buffers](TensorView* tv) {
       return std::find(buffers.begin(), buffers.end(), tv) != buffers.end();
     };
     std::unordered_set<nvfuser::TensorView*> excep_tvs;
     for (auto tv : cached_inputs) {
-      if (is_persistent(tv)) {
+      if (is_persistent_buffer(tv)) {
         excep_tvs.insert(tv);
         continue;
       }
@@ -428,12 +409,13 @@ void multiReductionInliner(
       if (std::all_of(
               consumers.begin(),
               consumers.end(),
-              [&is_persistent](TensorView* tv) { return is_persistent(tv); })) {
+              [&is_persistent_buffer](TensorView* tv) {
+                return is_persistent_buffer(tv);
+              })) {
         excep_tvs.insert(tv);
       }
     }
     inlineMost(ir_utils::allTvsExcept(fusion, excep_tvs));
-    // inlineSelectedAt({acr, bcr, ab, bb}, mma_result, num_batch_dims + 6);
   }
 }
 

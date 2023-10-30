@@ -9716,6 +9716,54 @@ TEST_F(NVFuserTest, PredicateRNGOps) {
   auto cg_outputs = fe.runFusion({t0});
 }
 
+TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
+  auto test = [](int64_t batch,
+                 int64_t size,
+                 bool is_inline_all_tvs) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    auto fusion = fusion_ptr.get();
+    FusionGuard fg(fusion);
+    auto dtype = DataType::Half;
+    TensorView* x = makeContigTensor(2, dtype);
+    fusion->addInput(x);
+    x = castOp(DataType::Float, x);
+    auto max_val = max(x, {-1});
+    auto bcast_max = broadcast(max_val, {false, true});
+    auto x_max_sub = sub(x, bcast_max);
+    auto exp_val = exp(x_max_sub);
+    auto sum_exp = sum(exp_val, {-1});
+    auto bcast_sum = broadcast(sum_exp, {false, true});
+    auto y = mul(exp_val, reciprocal(bcast_sum));
+
+    y = castOp(DataType::Half, y);
+    fusion->addOutput(y);
+
+    auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+    at::Tensor t0 = at::randn({batch, size}, options);
+    auto ref = at::_softmax(t0, -1, false);
+    auto persistent_params = getInnerPersistentHeuristics(fusion, {t0});
+    ASSERT_TRUE(persistent_params) << "Reduction schedule was not generated!";
+    auto lparams = persistent_params->lparams;
+    auto cparams = persistent_params->cparams;
+    if (is_inline_all_tvs) {
+      persistent_params->is_inline_all_tvs = true;
+    } else {
+      persistent_params->is_inline_all_tvs = false;
+    }
+    scheduleInnerPersistentKernel(fusion, *persistent_params);
+
+    FusionExecutor fe;
+    fe.compileFusion(fusion, {t0}, lparams, cparams);
+    clearL2Cache();
+    auto cg_outputs = fe.runFusion({t0}, lparams, cparams);
+    testValidate(fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+  };
+  // kernel latency is reducd from 1.0 ms to 0.93 ms on ipp2-0123 after changing `is_inline_all_tvs` from true to false.
+  test(32768, 18*1024, true);
+  test(32768, 18*1024, false);
+
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
