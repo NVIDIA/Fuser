@@ -1469,7 +1469,7 @@ void FusionExecutor::initializeExecutorEntry(
 
   auto input_alias_indices_entry =
       executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::InputAliasIndices>(
+          executor_utils::caching::InputOutputAliases>(
           compileTimeDataCache(), [&]() {
             return std::make_unique<std::vector<InputOutputAlias>>(
                 fusion_->getOutputToInputAliasIndices());

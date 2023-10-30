@@ -147,10 +147,9 @@ class VectorizedTensorValidation {
 };
 
 //! Compile-time info to be cached in each FusionExecutor:
-//!  InputAliasIndices
+//!  InputOutputAliases
 //!    Stores position info of aliased input tensors
-// FIXME: rename to InputOutputAliases.
-class InputAliasIndices {
+class InputOutputAliases {
  public:
   using DataType = std::vector<InputOutputAlias>;
   static const CompileTimeEntryType EntryType =
