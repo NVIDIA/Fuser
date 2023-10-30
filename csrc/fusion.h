@@ -84,12 +84,23 @@ class FusionGuard {
   static thread_local Fusion* active_fusion_;
 };
 
-#if 0
-enum class IoAliasType {
-  ReuseBuffer,
-  ReinterpretCast,
+// Set the enum base to `int` so it can be safely serialized as a part of
+// serde::InputOutputAlias.
+enum class AliasType : int {
+  SameShapeDifferentData,
+  DifferentShapeSameData,
 };
-#endif
+
+struct AliasInfo {
+  AliasType type;
+  bool hide_output;
+};
+
+struct InputOutputAlias {
+  int out;
+  int in;
+  AliasInfo info;
+};
 
 //! Fusion is mutable but unique. Nodes cannot be copied in any way from one
 //! Fusion to another. If anything like that is desired, it would require
@@ -228,14 +239,13 @@ class Fusion : public IrContainer {
   // normalization.
   // TODO: alias should be made aware to segmentation, so we'll always include
   // the input tensor to the section where output is produced.
-  void aliasOutputToInput(Val* output, Val* input, bool hide_output);
+  void aliasOutputToInput(Val* output, Val* input, AliasType type);
 
   //! Return the aliased input of a given output or nullptr if not aliased
   Val* getOutputAlias(Val* output);
 
   //! Get alias mappings from fusion outputs to inputs
-  std::vector<std::pair<int, std::pair<int, bool>>>
-  getOutputToInputAliasIndices() const;
+  std::vector<InputOutputAlias> getOutputToInputAliasIndices() const;
 
   // mark input at index to be permuted by permutation
   void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
@@ -268,7 +278,7 @@ class Fusion : public IrContainer {
   }
 
   // FIXME: remove.
-  const std::unordered_map<Val*, std::pair<Val*, bool>>& ioAlias() const {
+  const std::unordered_map<Val*, std::pair<Val*, AliasInfo>>& ioAlias() const {
     return io_alias_;
   }
 
@@ -461,7 +471,7 @@ class Fusion : public IrContainer {
   std::vector<Val*> outputs_;
 
   // io alias pointing from output to input
-  std::unordered_map<Val*, std::pair<Val*, bool>> io_alias_;
+  std::unordered_map<Val*, std::pair<Val*, AliasInfo>> io_alias_;
 
   // See Note [ Permutation support in nvfuser ]
   // map from indices of input tensor to permutation

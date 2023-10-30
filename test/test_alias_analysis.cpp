@@ -219,7 +219,7 @@ TEST_F(AliasTest, ReinterpretCast) {
   fusion->addInput(in);
   TensorView* out = reshape(in, in_shape, out_shape);
   fusion->addOutput(out);
-  fusion->aliasOutputToInput(out, in, /*hide_output=*/false);
+  fusion->aliasOutputToInput(out, in, AliasType::DifferentShapeSameData);
 
   FusionExecutor fe;
   at::Tensor in_tensor =

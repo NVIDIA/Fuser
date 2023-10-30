@@ -142,7 +142,7 @@ class FusionExecutor : public NonCopyable {
     bool init = false;
     LaunchParams launch_params;
     // Aliased output and input mappings
-    std::vector<std::pair<int, std::pair<int, bool>>> output_to_input_aliases;
+    std::vector<InputOutputAlias> output_to_input_aliases;
     std::vector<GlobalBufferInfo> outputs;
     // Temporary work buffers and intemediate global-memory tensors
     std::vector<GlobalBufferInfo> intermediates;
@@ -364,6 +364,12 @@ class FusionExecutor : public NonCopyable {
 
   //! Deserialize GlobalBufferInfo using flatbuffers
   GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);
+
+  flatbuffers::Offset<serde::InputOutputAlias> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const InputOutputAlias& input_output_alias) const;
+
+  InputOutputAlias deserialize(const serde::InputOutputAlias* buffer);
 
   //! Get the current dynamic shared memory size
   int64_t getAvailableDynamicSmemSize();

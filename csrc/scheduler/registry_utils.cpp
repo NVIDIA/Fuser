@@ -238,12 +238,10 @@ bool isConnectedFusionGraph(Fusion* fusion) {
   }
 
   // Map aliased outputs
-  std::for_each(
-      fusion->ioAlias().begin(),
-      fusion->ioAlias().end(),
-      [&](const std::pair<Val*, std::pair<Val*, bool>>& alias) {
-        component_sets.mapEntries(alias.first, alias.second.first);
-      });
+  for (const auto& [out, in_info] : fusion->ioAlias()) {
+    Val* in = in_info.first;
+    component_sets.mapEntries(out, in);
+  }
 
   // Check connected-ness:
   //  If there is no independent compute flow

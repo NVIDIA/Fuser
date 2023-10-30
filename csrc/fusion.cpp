@@ -741,10 +741,7 @@ bool Fusion::isAliasCompatible(Val* left, Val* right) {
   return true;
 }
 
-void Fusion::aliasOutputToInput(
-    Val* output,
-    Val* input,
-    const bool hide_output) {
+void Fusion::aliasOutputToInput(Val* output, Val* input, const AliasType type) {
   // `input` can be a cast of a fusion input.
   if (!input->isFusionInput()) {
     auto input_expr = input->definition();
@@ -767,7 +764,7 @@ void Fusion::aliasOutputToInput(
   NVF_ERROR(
       isAliasCompatible(input, output),
       "The input and output values are not alias-compatible.");
-  io_alias_[output] = {input, hide_output};
+  io_alias_[output] = {input, AliasInfo{type, !output->isFusionOutput()}};
 
   // TODO: output should be marked at the end of fusion definition #1488
   if (!output->isFusionOutput()) {
@@ -782,8 +779,7 @@ Val* Fusion::getOutputAlias(Val* output) {
   return nullptr;
 }
 
-std::vector<std::pair<int, std::pair<int, bool>>> Fusion::
-    getOutputToInputAliasIndices() const {
+std::vector<InputOutputAlias> Fusion::getOutputToInputAliasIndices() const {
   if (io_alias_.empty()) {
     return {};
   }
@@ -796,28 +792,25 @@ std::vector<std::pair<int, std::pair<int, bool>>> Fusion::
     out_val_index[outputs_[output_idx]] = output_idx;
   }
 
-  std::vector<std::pair<int, std::pair<int, bool>>> alias_indices;
-  std::for_each(
-      io_alias_.begin(),
-      io_alias_.end(),
-      [&](const std::pair<Val*, std::pair<Val*, bool>>& alias) {
-        const Val* out = alias.first;
-        if (!out_val_index.count(out)) {
-          // Can't assert false here. We may have segmented fusion where not all
-          // alias outputs are present.
-          return;
-        }
-        const Val* in = alias.second.first;
-        NVF_ERROR(
-            in_val_index.count(in),
-            in->toString(),
-            " is marked as an input alias but isn't a fusion input.");
-        alias_indices.emplace_back(
-            static_cast<int>(out_val_index.at(out)),
-            std::pair(
-                static_cast<int>(in_val_index.at(in)), alias.second.second));
-      });
-  return alias_indices;
+  std::vector<InputOutputAlias> input_output_aliases;
+  input_output_aliases.reserve(io_alias_.size());
+  for (const auto& [out, in_info] : io_alias_) {
+    if (!out_val_index.count(out)) {
+      // Can't assert false here. We may have segmented fusion where not all
+      // alias outputs are present.
+      continue;
+    }
+    const Val* in = in_info.first;
+    NVF_ERROR(
+        in_val_index.count(in),
+        in->toString(),
+        " is marked as an input alias but isn't a fusion input.");
+    input_output_aliases.push_back(InputOutputAlias{
+        static_cast<int>(out_val_index.at(out)),
+        static_cast<int>(in_val_index.at(in)),
+        in_info.second});
+  }
+  return input_output_aliases;
 }
 
 bool Fusion::hasDynamicTransform() {

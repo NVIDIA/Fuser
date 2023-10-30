@@ -161,7 +161,9 @@ void FusionState::addOutput(
 
 void FusionState::aliasOutputToInput(Val* output, Val* input) {
   NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
-  fusion_->aliasOutputToInput(output, input, /*hide_output=*/true);
+  // We haven't exposed AliasType to Python API. For now, use
+  // SameShapeDifferentData to preserve the old behavior.
+  fusion_->aliasOutputToInput(output, input, AliasType::SameShapeDifferentData);
 }
 
 } // namespace nvfuser::python_frontend

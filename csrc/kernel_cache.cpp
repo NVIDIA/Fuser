@@ -511,7 +511,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   const auto& io_alias = fusion->ioAlias();
   auto should_remove = [&io_alias](Val* out_val) -> bool {
     if (auto alias_it = io_alias.find(out_val); alias_it != io_alias.end()) {
-      return alias_it->second.second;
+      return alias_it->second.second.hide_output;
     }
     return false;
   };
