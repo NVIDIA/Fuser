@@ -4213,7 +4213,12 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
 }
 
 // Test the matmul scheduler's single-kernel split-K support
-TEST_F(NVFuserTest, FusionTuringMatmulSplitK_CUDA) {
+TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
+  // requires Ampere or higher GPU
+  if (!deviceMajorMinorCheck(8)) {
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+  }
+
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 8096;
 
@@ -4236,7 +4241,7 @@ TEST_F(NVFuserTest, FusionTuringMatmulSplitK_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
-    params.mma_macro = MmaOptions::MacroType::Turing_16_8_16;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.splitk_factor = 2;
     scheduleMatmul(&fusion, params);
