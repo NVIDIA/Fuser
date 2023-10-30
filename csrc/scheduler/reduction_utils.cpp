@@ -403,6 +403,7 @@ void multiReductionInliner(
     for (auto tv : cached_inputs) {
       if (is_persistent_buffer(tv)) {
         excep_tvs.insert(tv);
+        std::cout << "skip cached tv= " << tv->toString() << std::endl;
         continue;
       }
       const auto& consumers = ir_utils::consumerTvsOf(tv);
@@ -412,6 +413,7 @@ void multiReductionInliner(
               [&is_persistent_buffer](TensorView* tv) {
                 return is_persistent_buffer(tv);
               })) {
+        std::cout << "skip consumer tv= " << tv->toString() << std::endl;
         excep_tvs.insert(tv);
       }
     }

@@ -372,8 +372,8 @@ static void NvFuserScheduler_Matmul_8warp4stage(
       Baseline_Matmul, no_quant_eagermode_##layout_label, layout) \
       ->shapes
 
-ForAllLayouts(NvFuserScheduler_4warp3stage_test);
-ForAllLayouts(NvFuserScheduler_4warp4stage_test);
-ForAllLayouts(NvFuserScheduler_8warp3stage_test);
-ForAllLayouts(NvFuserScheduler_8warp4stage_test);
-ForAllLayouts(Baseline_test);
+// ForAllLayouts(NvFuserScheduler_4warp3stage_test);
+// ForAllLayouts(NvFuserScheduler_4warp4stage_test);
+// ForAllLayouts(NvFuserScheduler_8warp3stage_test);
+// ForAllLayouts(NvFuserScheduler_8warp4stage_test);
+// ForAllLayouts(Baseline_test);

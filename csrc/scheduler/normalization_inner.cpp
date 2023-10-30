@@ -750,10 +750,14 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     rparams->unroll_factor_outer_reduction = outer_reduction_unroll_factor;
   }
 
-  if(std::getenv("DISABLE_INLINE_MOST")){
+  // For multiple_reds_per_blk, must inline cached inputs
+  // DISABLE_INLINE_MOST=1 /opt/pytorch/nvfuser/build/nvfuser_bench
+  // --benchmark_min_time=0
+  // --benchmark_filter=NvFuserScheduler_DivMaxSoftDropFwd_fp32___GRAPH/NvFuserScheduler_DivMaxSoftDropFwd_fp32/8/16/128/128/manual_time
+  if (std::getenv("DISABLE_INLINE_MOST") && !rparams->multiple_reds_per_blk &&
+      rparams->batches_per_block_inner_reduction > 1) {
     rparams->is_inline_all_tvs = false;
   }
-
 
   rparams->lparams = LaunchParams(
       gdimx,
@@ -774,7 +778,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
             << "vectorize_factor: " << vectorize_factor << "\n"
             << "n_tensor_inputs: " << n_tensor_inputs << "\n"
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-            << "nvrtc_register_per_thread: " << nvrtc_register_per_thread << "\n"
+            << "nvrtc_register_per_thread: " << nvrtc_register_per_thread
+            << "\n"
             << "is_inline_all_tvs: " << rparams->is_inline_all_tvs << "\n"
             << "max_persistent_buffer_size: " << max_persistent_buffer_size
             << "\n"

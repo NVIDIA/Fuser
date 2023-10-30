@@ -362,7 +362,7 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_TIMM_BatchNorm_nhwc_BWD_fp16)
     ->UseManualTime();
 
 //------------------------------------------------------------------------------
-
+// NvFuserScheduler_TIMM_BatchNorm_nhwc_BWD_fp16___GRAPH/NvFuserScheduler_TIMM_BatchNorm_nhwc_BWD_fp16/2048/152/56/manual_time
 BENCHMARK(Baseline_ResNet_BatchNorm_nhwc_BWD_cuDNN_fp16)
     ->Args({256, 64, 112})
     ->Args({256, 64, 56})

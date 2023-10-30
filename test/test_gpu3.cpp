@@ -9717,9 +9717,7 @@ TEST_F(NVFuserTest, PredicateRNGOps) {
 }
 
 TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
-  auto test = [](int64_t batch,
-                 int64_t size,
-                 bool is_inline_all_tvs) {
+  auto test = [](int64_t batch, int64_t size, bool is_inline_all_tvs) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     auto fusion = fusion_ptr.get();
     FusionGuard fg(fusion);
@@ -9758,10 +9756,10 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
     auto cg_outputs = fe.runFusion({t0}, lparams, cparams);
     testValidate(fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
   };
-  // kernel latency is reducd from 1.0 ms to 0.93 ms on ipp2-0123 after changing `is_inline_all_tvs` from true to false.
-  test(32768, 18*1024, true);
-  test(32768, 18*1024, false);
-
+  // kernel latency is reducd from 1.0 ms to 0.93 ms on ipp2-0123 after changing
+  // `is_inline_all_tvs` from true to false.
+  test(32768, 18 * 1024, true);
+  test(32768, 18 * 1024, false);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
