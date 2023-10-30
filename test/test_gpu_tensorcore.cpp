@@ -4010,29 +4010,29 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
       // also be allocated at address 0 with A stacked above it at position
       // 8192.
       EXPECT_EQ(
-          smem_allocs.at(0)->address()->evaluateInt(),
+          smem_allocs.at(0)->address()->evaluate(),
           // Assuming B numel times size(dtype) is a multiple of 16 so that
           // this address is aligned
-          smem_allocs.at(1)->size()->evaluateInt() *
+          smem_allocs.at(1)->size()->evaluate() *
               dataTypeSize(smem_allocs.at(1)->buffer()->dtype()));
-      EXPECT_EQ(smem_allocs.at(1)->address()->evaluateInt(), 0L);
-      EXPECT_EQ(smem_allocs.at(2)->address()->evaluateInt(), 0L);
+      EXPECT_EQ(smem_allocs.at(1)->address()->evaluate(), 0L);
+      EXPECT_EQ(smem_allocs.at(2)->address()->evaluate(), 0L);
     } else {
       // Prologue shared memory is not re-used. In this case, memory should
       // stack in C, B, A order.
       EXPECT_EQ(
-          smem_allocs.at(0)->address()->evaluateInt(),
+          smem_allocs.at(0)->address()->evaluate(),
           // Assuming for B and C that numel times size(dtype) is a multiple
           // of 16 so that this address is aligned
-          smem_allocs.at(1)->size()->evaluateInt() *
+          smem_allocs.at(1)->size()->evaluate() *
                   dataTypeSize(smem_allocs.at(1)->buffer()->dtype()) +
-              smem_allocs.at(2)->size()->evaluateInt() *
+              smem_allocs.at(2)->size()->evaluate() *
                   dataTypeSize(smem_allocs.at(2)->buffer()->dtype()));
       EXPECT_EQ(
-          smem_allocs.at(1)->address()->evaluateInt(),
-          smem_allocs.at(2)->size()->evaluateInt() *
+          smem_allocs.at(1)->address()->evaluate(),
+          smem_allocs.at(2)->size()->evaluate() *
               dataTypeSize(smem_allocs.at(2)->buffer()->dtype()));
-      EXPECT_EQ(smem_allocs.at(2)->address()->evaluateInt(), 0L);
+      EXPECT_EQ(smem_allocs.at(2)->address()->evaluate(), 0L);
     }
   }
 }
