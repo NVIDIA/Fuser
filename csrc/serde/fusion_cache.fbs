@@ -231,8 +231,8 @@ table GlobalBufferInfo {
 }
 
 table InputOutputAlias {
-  out: int;
-  in: int;
+  out: long;
+  in: long;
   type: int;
   hide_output: bool;
 }

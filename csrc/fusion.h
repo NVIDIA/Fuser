@@ -104,8 +104,8 @@ struct AliasInfo {
 };
 
 struct InputOutputAlias {
-  int out;
-  int in;
+  int64_t out;
+  int64_t in;
   AliasInfo info;
 };
 

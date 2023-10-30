@@ -931,7 +931,7 @@ std::vector<at::Tensor> allocOutputs(
         output_to_input_aliases.begin(),
         output_to_input_aliases.end(),
         [&](const InputOutputAlias& input_output_alias) {
-          return input_output_alias.out == (int)output_idx;
+          return input_output_alias.out == static_cast<int64_t>(output_idx);
         });
 
     // Note: aliased output is not returned as output. But we still need it
@@ -2031,7 +2031,7 @@ flatbuffers::Offset<serde::InputOutputAlias> FusionExecutor::serialize(
       builder,
       alias.out,
       alias.in,
-      static_cast<int>(alias.info.type),
+      toUnderlying(alias.info.type),
       alias.info.hide_output);
 }
 
