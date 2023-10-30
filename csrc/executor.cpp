@@ -945,6 +945,11 @@ std::vector<at::Tensor> allocOutputs(
 
       switch (alias_it->info.type) {
         case AliasType::SameShapeDifferentData:
+          // Unlike for `AliasType::DifferentShapeSameData`, don't use
+          // ExpressionEvaluator to compute the output tensor. This is because
+          // the output tensor may hold different data as the input, e.g., an
+          // updated running mean.  `ExpressionEvaluator::evaluate(output_tv)`
+          // would trigger non-trivial host computation.
           outputs.emplace_back(input_tensor);
           break;
 

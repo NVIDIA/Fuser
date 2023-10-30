@@ -730,14 +730,6 @@ bool Fusion::isAliasCompatible(Val* left, Val* right) {
     return false;
   }
 
-#if 0
-  // Check same number of dimensions if both values are TensorViews
-  if (ir_utils::isTV(left) && ir_utils::isTV(right)) {
-    if (left->as<TensorView>()->nDims() != right->as<TensorView>()->nDims()) {
-      return false;
-    }
-  }
-#endif
   return true;
 }
 
@@ -764,6 +756,9 @@ void Fusion::aliasOutputToInput(Val* output, Val* input, const AliasType type) {
   NVF_ERROR(
       isAliasCompatible(input, output),
       "The input and output values are not alias-compatible.");
+  // Let integration hide any output that wasn't a fusion output when
+  // `aliasOutputToInput` was called. For example, running mean and var for
+  // batch norm.
   io_alias_[output] = {input, AliasInfo{type, !output->isFusionOutput()}};
 
   // TODO: output should be marked at the end of fusion definition #1488

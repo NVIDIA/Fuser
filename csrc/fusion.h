@@ -87,12 +87,19 @@ class FusionGuard {
 // Set the enum base to `int` so it can be safely serialized as a part of
 // serde::InputOutputAlias.
 enum class AliasType : int {
+  // For example, the tensor storing BatchNorm's running mean. The output, the
+  // updated EMA, is written to the same tensor as the input. Therefore, they
+  // are alias of the same shape but different data.
   SameShapeDifferentData,
+  // For example, the input and the output of the same ViewOp are likely alias
+  // of different shapes but the same underlying data. In this case, we use
+  // `ExpressionEvaluator` (instead of a kernel) to compute the output tensor.
   DifferentShapeSameData,
 };
 
 struct AliasInfo {
   AliasType type;
+  // Whether integration should hide the output from users.
   bool hide_output;
 };
 
@@ -245,6 +252,10 @@ class Fusion : public IrContainer {
   Val* getOutputAlias(Val* output);
 
   //! Get alias mappings from fusion outputs to inputs
+  //
+  // TODO: this method is only used for serialization. We should be able to get
+  // rid of it and serialize the alias map to
+  // `serde::ExecutorEntry::input_output_alias` directly.
   std::vector<InputOutputAlias> getOutputToInputAliasIndices() const;
 
   // mark input at index to be permuted by permutation
@@ -277,7 +288,7 @@ class Fusion : public IrContainer {
     return is_during_update_uses_;
   }
 
-  // FIXME: remove.
+  // TODO: Have getOutputAlias expose AliasInfo and then remove this method.
   const std::unordered_map<Val*, std::pair<Val*, AliasInfo>>& ioAlias() const {
     return io_alias_;
   }
