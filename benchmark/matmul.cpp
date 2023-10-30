@@ -374,7 +374,7 @@ static void MatmulShapeWarpStage(
       ->Unit(benchmark::kMicrosecond)                                         \
       ->UseManualTime()                                                       \
       ->Apply([](benchmark::internal::Benchmark* b) {                         \
-        return MatmulShape(                                                   \
+        MatmulShape(                                                   \
             b, sizeProduct<long int>(LegacyMs, LegacyNs, LegacyKs));          \
       });                                                                     \
   BENCHMARK_CAPTURE(                                                          \
