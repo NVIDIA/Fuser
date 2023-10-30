@@ -374,15 +374,14 @@ static void MatmulShapeWarpStage(
       ->Unit(benchmark::kMicrosecond)                                         \
       ->UseManualTime()                                                       \
       ->Apply([](benchmark::internal::Benchmark* b) {                         \
-        MatmulShape(                                                   \
-            b, sizeProduct<long int>(LegacyMs, LegacyNs, LegacyKs));          \
+        MatmulShape(b, sizeProduct<long int>(LegacyMs, LegacyNs, LegacyKs));  \
       });                                                                     \
   BENCHMARK_CAPTURE(                                                          \
       Baseline_Matmul, eagermode_timmshapes_##layout, MatmulLayout::layout)   \
       ->Unit(benchmark::kMicrosecond)                                         \
       ->UseManualTime()                                                       \
       ->Apply([](benchmark::internal::Benchmark* b) {                         \
-        MatmulShape(b, TIMMShapes);                                    \
+        MatmulShape(b, TIMMShapes);                                           \
       });
 
 #define NvfuserMatmulBenchmark(layout)                               \
@@ -393,7 +392,7 @@ static void MatmulShapeWarpStage(
       ->Unit(benchmark::kMicrosecond)                                \
       ->UseManualTime()                                              \
       ->Apply([](benchmark::internal::Benchmark* b) {                \
-        MatmulShapeWarpStage(                                 \
+        MatmulShapeWarpStage(                                        \
             b, sizeProduct<long int>(LegacyMs, LegacyNs, LegacyKs)); \
       });                                                            \
   BENCHMARK_CAPTURE(                                                 \
@@ -403,7 +402,7 @@ static void MatmulShapeWarpStage(
       ->Unit(benchmark::kMicrosecond)                                \
       ->UseManualTime()                                              \
       ->Apply([](benchmark::internal::Benchmark* b) {                \
-        MatmulShapeWarpStage(b, TIMMShapes);                  \
+        MatmulShapeWarpStage(b, TIMMShapes);                         \
       });
 
 #define ForAllLayouts(run) \
