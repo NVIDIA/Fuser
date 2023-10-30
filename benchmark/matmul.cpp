@@ -382,7 +382,7 @@ static void MatmulShapeWarpStage(
       ->Unit(benchmark::kMicrosecond)                                         \
       ->UseManualTime()                                                       \
       ->Apply([](benchmark::internal::Benchmark* b) {                         \
-        return MatmulShape(b, TIMMShapes);                                    \
+        MatmulShape(b, TIMMShapes);                                    \
       });
 
 #define NvfuserMatmulBenchmark(layout)                               \
@@ -393,7 +393,7 @@ static void MatmulShapeWarpStage(
       ->Unit(benchmark::kMicrosecond)                                \
       ->UseManualTime()                                              \
       ->Apply([](benchmark::internal::Benchmark* b) {                \
-        return MatmulShapeWarpStage(                                 \
+        MatmulShapeWarpStage(                                 \
             b, sizeProduct<long int>(LegacyMs, LegacyNs, LegacyKs)); \
       });                                                            \
   BENCHMARK_CAPTURE(                                                 \
@@ -403,7 +403,7 @@ static void MatmulShapeWarpStage(
       ->Unit(benchmark::kMicrosecond)                                \
       ->UseManualTime()                                              \
       ->Apply([](benchmark::internal::Benchmark* b) {                \
-        return MatmulShapeWarpStage(b, TIMMShapes);                  \
+        MatmulShapeWarpStage(b, TIMMShapes);                  \
       });
 
 #define ForAllLayouts(run) \
