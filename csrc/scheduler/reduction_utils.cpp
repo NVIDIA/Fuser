@@ -418,6 +418,23 @@ void multiReductionInliner(
       }
     }
     inlineMost(ir_utils::allTvsExcept(fusion, excep_tvs));
+    // Since the current inner persistent tvs are scheduled to [..., persistent batch, unswitch, vect/unroll], the 
+    // following check seems redundant.
+    for (auto tv : excep_tvs) {
+      int tailing_static_dims = 0;
+      for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
+        if (tv->axis(i)->extent()->isConstInt()) {
+          tailing_static_dims++;
+        } else {
+          break;
+        }
+      }
+      auto producer = ir_utils::getSoleProducerTv(tv);
+      inlineSelectedAt({tv}, producer, producer->nDims() - tailing_static_dims);
+      std::cout << "tv= " << tv->toString() << std::endl;
+      std::cout << "producer= " << producer->toString() << std::endl;
+      std::cout << "producer nDims= " << producer->nDims() << std::endl;
+    }
   }
 }
 
@@ -717,9 +734,9 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
       continue;
     }
 
-    // We always want an rfactor axis because our inlining logic expects it. If
-    // there's no parallelization to split out, just rfactor everything but the
-    // unswitch dim.
+    // We always want an rfactor axis because our inlining logic expects it.
+    // If there's no parallelization to split out, just rfactor everything but
+    // the unswitch dim.
     if (!(id->getParallelType() == ParallelType::Unswitch &&
           id->extent()->isOneInt())) {
       rfactor_axes_no_unswitch.emplace_back(axis_i);
@@ -754,8 +771,9 @@ class PersistentBufferProjector {
 
   const std::vector<TensorView*>& project() {
     if (project_to_inputs_) {
-      // Iterate through projected buffers, tracking which index it corresponds
-      // too since there's a resolution point entry for every buffer.
+      // Iterate through projected buffers, tracking which index it
+      // corresponds too since there's a resolution point entry for every
+      // buffer.
       for (auto buffer_i : c10::irange(persistent_buffers.size())) {
         auto buffer = persistent_buffers[buffer_i];
         if (std::find(
@@ -805,11 +823,11 @@ class PersistentBufferProjector {
   // get all uses of the persistent buffer
   std::vector<Val*> getPersistentUseOfBuffer(int buffer_i) {
     std::vector<Val*> persistent_use_of_buffer;
-    // Go through the resolution points one by one. Resolution points are points
-    // in which the reduction branch meets the residual branch. These are points
-    // where the persitent buffer may no longer be needed (one point could be
-    // after another, and the buffer would be needed until the last resolution
-    // points)
+    // Go through the resolution points one by one. Resolution points are
+    // points in which the reduction branch meets the residual branch. These
+    // are points where the persitent buffer may no longer be needed (one
+    // point could be after another, and the buffer would be needed until the
+    // last resolution points)
     auto buffer = persistent_buffers[buffer_i];
     auto resolution_points = persistent_buffer_resolution_points[buffer_i];
     for (auto resolution_point : resolution_points) {
