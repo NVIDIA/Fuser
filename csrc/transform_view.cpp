@@ -146,7 +146,7 @@ class ViewTransform : public Transform {
     if (realize_expand && id->hasExpandedExtent()) {
       // Convert an expanded broadcast to Iteration (resolve the broadcast)
       iter_type = IterType::Iteration;
-      extent = id->getMaybeExpandedExtent();
+      extent = expanded_extent;
       expanded_extent = nullptr;
     }
     auto cloned_id = IterDomainBuilder(id)
