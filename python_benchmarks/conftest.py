@@ -1,4 +1,5 @@
 import pytest
+from .core import DEVICE_PROPERTIES
 
 
 def pytest_addoption(parser):
@@ -28,3 +29,8 @@ def disable_benchmarking(request):
 
 def pytest_make_parametrize_id(val):
     return repr(val)
+
+
+def pytest_benchmark_update_machine_info(config, machine_info):
+    for property, value in DEVICE_PROPERTIES.items():
+        machine_info[property] = value
