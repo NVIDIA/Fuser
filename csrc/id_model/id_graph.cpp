@@ -162,6 +162,11 @@ ExprGroups IdGraph::allDefinitionsOf(const IdGroups& of) const {
   return visited;
 }
 
+bool IdGraph::hasDefinitions(const IdGroup& id_group) const {
+  NVF_ERROR(id_group);
+  return unique_definitions_.find(id_group) != unique_definitions_.end();
+}
+
 bool IdGraph::hasUses(const IdGroup& id_group) const {
   NVF_ERROR(id_group);
   return unique_uses_.find(id_group) != unique_uses_.end();
@@ -259,8 +264,10 @@ void IdGraph::initializeId(
     def_groups.pushBack(expr_set);
   }
   // TODO-NM: def_groups can be empty. Should it be still mapped?
-  // TODO-NM: Can this be overwritten?
-  NVF_ERROR(unique_definitions_.emplace(id_disjoint_set, def_groups).second);
+  NVF_ERROR(
+      unique_definitions_.emplace(id_disjoint_set, def_groups).second,
+      "Multiple defining groups for ",
+      nvfuser::toString(id_disjoint_set));
 
   ExprGroups use_groups;
   for (auto use : uses) {
@@ -269,8 +276,10 @@ void IdGraph::initializeId(
     use_groups.pushBack(expr_set);
   }
   // TODO-NM: use_groups can be empty. Should it be still mapped?
-  // TODO-NM: Can this be overwritten?
-  NVF_ERROR(unique_uses_.emplace(id_disjoint_set, use_groups).second);
+  NVF_ERROR(
+      unique_uses_.emplace(id_disjoint_set, use_groups).second,
+      "Multiple use groups for ",
+      nvfuser::toString(id_disjoint_set));
 }
 
 bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
@@ -294,14 +303,10 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
       first->toString(),
       second->toString());
 
-  // TODO-MN: Is this equivalent as
-  // inputGroups(toGroup(expr0)) == inputGroups(toGroup(expr1)) ?
-  {
-    for (const auto i : c10::irange(first_ids.size())) {
-      if (!disjointIdSets().permissiveAreMapped(
-              first_ids.at(i), second_ids.at(i))) {
-        return false;
-      }
+  for (const auto i : c10::irange(first_ids.size())) {
+    if (!disjointIdSets().permissiveAreMapped(
+            first_ids.at(i), second_ids.at(i))) {
+      return false;
     }
   }
 

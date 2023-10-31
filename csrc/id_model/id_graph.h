@@ -93,6 +93,8 @@ class IdGraph {
   //! definitions
   const ExprGroups* getUses(const IdGroup& id_group) const;
 
+  bool hasDefinitions(const IdGroup& id_group) const;
+
   bool hasUses(const IdGroup& id_group) const;
 
   std::string toString() const;

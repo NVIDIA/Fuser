@@ -29,8 +29,7 @@ namespace nvfuser {
 // swizzle is used we give up validating the exact graph. The second
 // difference is whether mappings are propagated, which can be
 // accounted for by updating the ComputeAtMap as is done in IdModel.
-
-void IdModelValidator::checkExactMapEquivalence(const IdGraph& exact_graph) {
+void IdModelValidator::checkExactGraphEquivalence(const IdGraph& exact_graph) {
   // Empty graph
   if (exact_graph.disjointIdSets().disjointSets().empty()) {
     return;
