@@ -1840,8 +1840,7 @@ int64_t FusionExecutor::inputBytesProcessed(const KernelArgumentHolder& args) {
   int64_t total_bytes = 0;
   if (!bytes_processed_per_input_.has_value()) {
     int64_t num_bytes = 0;
-    bytes_processed_per_input_ =
-        std::vector<int64_t>(std::vector<int64_t>(args.size(), 0));
+    bytes_processed_per_input_ = std::vector<int64_t>(args.size(), 0);
     // Figure how many bytes are inputs, outputs, and temporary buffers
     for (auto i : c10::irange(args.size())) {
       if (args[i]->is<at::Tensor>()) {
@@ -1864,8 +1863,7 @@ int64_t FusionExecutor::outputBytesProcessed(
   int64_t total_bytes = 0;
   if (!bytes_processed_per_output_.has_value()) {
     int64_t num_bytes = 0;
-    bytes_processed_per_output_ =
-        std::vector<int64_t>(std::vector<int64_t>(outputs.size(), 0));
+    bytes_processed_per_output_ = std::vector<int64_t>(outputs.size(), 0);
     for (auto i : c10::irange(outputs.size())) {
       const auto& output = outputs.at(i);
       // NOTE: this assumes that all output elements correspond to a single
