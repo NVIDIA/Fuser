@@ -393,73 +393,87 @@ void FusionProfile::reset() {
   kernel_profiles.clear();
 }
 
-std::array<const char*, 25> column_strs{
-    "Fus#",
-    "NSegs",
-    "CuEvtTm(ms)",
-    "HstTm(ms)",
-    "CmpTm(ms)",
-    "KerTm(ms)",
-    "EffBw(GB/s)",
-    "%PeakBw",
-    "Seg#",
-    "S-KerName",
-    "S-KerTm(ms)",
-    "S-CmpTm(ms)",
-    "S-EffBw(GB/s)",
-    "S-%PeakBw",
-    "S-In(MB)",
-    "S-Out(MB)",
-    "S-Smem[Dyn,Stat]",
-    "S-Regs",
-    "S-Grid",
-    "S-Block",
-    "S-Cluster",
-    "S-Dev",
-    "S-Stm",
-    "S-DeviceName",
-    "S-PeakBw(GB/s)"};
+size_t FusionProfile::first_cupti_idx = 5;
+std::vector<ProfileAttrDescriptors> FusionProfile::profile_attr_descs{
+    // column_header, var_name, verbose, segment, list, column_width, number, mantissa_width
+    {"Fus#", "fusion_id", false, false, false, 5, true, 0},
+    {"NSegs", "segments", false, false, false, 5, true, 0},
+    {"CuEvtTm(ms)", "cuda_evt_time_ms", false, false, false, 11, true, 3},
+    {"HstTm(ms)", "host_time_ms", false, false, false, 9, true, 3},
+    {"CmpTm(ms)", "compile_time_ms", false, false, false, 9, true, 3},
+    {"KerTm(ms)", "kernel_time_ms", false, false, false, 9, true, 3},
+    {"EffBw(GB/s)", "effective_bandwidth_gbs", false, false, false, 11, true, 3},
+    {"%PeakBw", "percentage_peak_bandwidth", false, false, false, 9, true, 2},
+    {"In(MB)", "input_bytes", true, false, false, 9, true, 3},
+    {"Out(MB)", "output_bytes", true, false, false, 9, true, 3},
+    {"Seg#", "segment_id", false, true, false, 4, true, 0},
+    {"S-KerName", "name", false, true, false, 10, false, 0},
+    {"S-KerTm(ms)", "time_ms", false, true, false, 11, true, 3},
+    {"S-CmpTm(ms)", "compile_time_ms", false, true, false, 11, true, 3},
+    {"S-EffBw(GB/s)", "effective_bandwidth_gbs", false, true, false, 13, true, 3},
+    {"S-%PeakBw", "percentage_peak_bandwidth", false, true, false, 9, true, 2},
+    {"S-In(MB)", "input_bytes", false, true, false, 9, true, 3},
+    {"S-Out(MB)", "output_bytes", false, true, false, 9, true, 3},
+    {"S-Smem[Dyn,State]", "shared_mem", false, true, true, 16, true, 0},
+    {"S-Regs", "registers", false, true, false, 6, true, 0},
+    {"S-Grid", "grid", false, true, true, 16, true, 0},
+    {"S-Block", "block", false, true, true, 16, true, 0},
+    {"S-Cluster", "cluster", true, true, true, 16, true, 0},
+    {"S-Dev", "device", true, true, false, 5, true, 0},
+    {"S-Stm", "stream", true, true, false, 5, true, 0},
+    {"S-DeviceName", "device_name", true, true, false, 20, false, 0},
+    {"S-PeakBw(GB/s)", "peak_bandwidth_gbs", true, true, false, 14, true, 3}};
 
 std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
-  if (fp.fusion_id == 0) {
-    os << std::left << std::setw(5) << std::get<0>(column_strs) << " "
-       << std::setw(5) << std::get<1>(column_strs) << " " << std::setw(11)
-       << std::get<2>(column_strs) << " " << std::setw(9)
-       << std::get<3>(column_strs) << " " << std::setw(9)
-       << std::get<4>(column_strs);
-
-    if (!fp.kernel_profiles.empty()) {
-      os << " " << std::setw(9) << std::get<5>(column_strs) << " "
-         << std::setw(11) << std::get<6>(column_strs) << " " << std::setw(9)
-         << std::get<7>(column_strs);
-
-      os << " " << std::setw(4) << std::get<8>(column_strs) << " "
-         << std::setw(10) << std::get<9>(column_strs) << " " << std::setw(11)
-         << std::get<10>(column_strs);
-
-      if (fp.verbose) {
-        os << " " << std::setw(11) << std::get<11>(column_strs);
-      }
-
-      os << " " << std::setw(13) << std::get<12>(column_strs) << " "
-         << std::setw(9) << std::get<13>(column_strs) << " " << std::setw(9)
-         << std::get<14>(column_strs) << " " << std::setw(9)
-         << std::get<15>(column_strs) << " " << std::setw(16)
-         << std::get<16>(column_strs) << " " << std::setw(6)
-         << std::get<17>(column_strs) << " " << std::setw(16)
-         << std::get<18>(column_strs) << " " << std::setw(16)
-         << std::get<19>(column_strs);
-
-      if (fp.verbose) {
-        os << " " << std::setw(16) << std::get<20>(column_strs) << " "
-           << std::setw(5) << std::get<21>(column_strs) << " " << std::setw(5)
-           << std::get<22>(column_strs) << " " << std::setw(20)
-           << std::get<23>(column_strs) << " " << std::setw(14)
-           << std::get<24>(column_strs);
-      }
+  auto skip_entry = [](const FusionProfile& fprof, const ProfileAttrDescriptors& pad, size_t idx) {
+    bool skip = false;
+    if ((!fprof.verbose && pad.verbose) || (fprof.kernel_profiles.empty() && (idx >= FusionProfile::first_cupti_idx))) {
+      skip = true;
     }
-
+    return skip;
+  };
+  // Print column headers
+  if (fp.fusion_id == 0) {
+    os << std::setfill(' ') << std::left;
+    size_t idx = 0;
+    bool first_col = true;
+    for(auto& entry : FusionProfile::profile_attr_descs) {
+      if (!skip_entry(fp, entry, idx)) {
+        if (first_col) {
+          first_col = false;
+        } else {
+          os << " ";
+        }
+        os << std::setw(entry.column_width) << entry.column_header;
+      }
+      ++idx;
+    }
     os << std::endl;
+  }
+
+  for (size_t seg = 0; seg < fp.segments; ++seg) {
+    os << std::setfill(' ') << std::right;
+    size_t idx = 0;
+    bool first_col = true;
+    for(auto& entry : FusionProfile::profile_attr_descs) {
+      if (!skip_entry(fp, entry, idx)) {
+        if (first_col) {
+          first_col = false;
+        } else {
+          os << " ";
+        }
+        if (!entry.segment && (seg == 0)) {
+
+        }
+          os << std::setw(entry.column_width) << std::entry.column_header;
+      }
+      ++idx;
+    }
+    os << std::endl;
+  }
+
+  for (auto& kprof : fp.kernel_profiles) {
+
   }
 
   if (fp.kernel_profiles.empty()) {
