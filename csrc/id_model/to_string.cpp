@@ -300,32 +300,30 @@ std::string definitionsString(
     const IdGraph& id_graph,
     int indent_size,
     bool with_ptr) {
-  ExprGroups defs;
+  ExprGroups all_defs;
   for (const IdGroup& id_group : id_graph.disjointIdSets().disjointSets()) {
-    if (auto definition = id_graph.getDefinitions(id_group);
-        definition) {
+    if (auto definition = id_graph.getDefinitions(id_group); definition) {
       for (const ExprGroup& expr_group : *definition) {
-        defs.pushBack(expr_group);
+        all_defs.pushBack(expr_group);
       }
     }
   }
-  return toString(id_graph, defs, indent_size, with_ptr);
+  return toString(id_graph, all_defs, indent_size, with_ptr);
 }
 
 std::string usesString(
     const IdGraph& id_graph,
     int indent_size,
     bool with_ptr) {
-  ExprGroups uses;
+  ExprGroups all_uses;
   for (const IdGroup& id_group : id_graph.disjointIdSets().disjointSets()) {
-    auto definition_pair = id_graph.getUses(id_group);
-    if (definition_pair.second) {
-      for (const ExprGroup& expr_group : definition_pair.first) {
-        uses.pushBack(expr_group);
+    if (const ExprGroups* uses = id_graph.getUses(id_group); uses) {
+      for (const ExprGroup& expr_group : *uses) {
+        all_uses.pushBack(expr_group);
       }
     }
   }
-  return toString(id_graph, uses, indent_size, with_ptr);
+  return toString(id_graph, all_uses, indent_size, with_ptr);
 }
 
 } // namespace nvfuser

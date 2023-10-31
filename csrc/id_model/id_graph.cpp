@@ -105,8 +105,9 @@ std::vector<IdGroup> IdGraph::inputGroups(const ExprGroup& expr) const {
 ExprGroups IdGraph::allUsesOf(const IdGroups& of) const {
   DequeOfExprGroup to_visit;
   for (const IdGroup& of_id_group : of) {
-    if (const auto& [group_uses, found] = getUses(of_id_group); found) {
-      to_visit.insert(to_visit.end(), group_uses.begin(), group_uses.end());
+    if (const ExprGroups* group_uses = getUses(of_id_group);
+        group_uses != nullptr) {
+      to_visit.insert(to_visit.end(), group_uses->begin(), group_uses->end());
     }
   }
 
@@ -116,8 +117,9 @@ ExprGroups IdGraph::allUsesOf(const IdGroups& of) const {
     to_visit.pop_front();
     visited.emplace(current_expr);
     for (const IdGroup& output_id : outputGroups(current_expr)) {
-      if (const auto& [group_uses, found] = getUses(output_id); found) {
-        for (const ExprGroup& group_use : group_uses) {
+      if (const ExprGroups* group_uses = getUses(output_id);
+          group_uses != nullptr) {
+        for (const ExprGroup& group_use : *group_uses) {
           if (visited.count(group_use)) {
             continue;
           }
@@ -158,19 +160,6 @@ ExprGroups IdGraph::allDefinitionsOf(const IdGroups& of) const {
   }
 
   return visited;
-}
-
-std::pair<ExprGroups, bool> IdGraph::getUses(const IdGroup& id_group) const {
-  if (!id_group) {
-    return {{}, false};
-  }
-
-  if (auto uses_it = unique_uses_.find(id_group);
-      uses_it != unique_uses_.end()) {
-    return std::make_pair(uses_it->second, true);
-  } else {
-    return {{}, false};
-  }
 }
 
 bool IdGraph::hasUses(const IdGroup& id_group) const {
@@ -363,23 +352,23 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
   return true;
 }
 
-const ExprGroups* IdGraph::getDefinitions(const IdGroup& group) const {
-  NVF_ERROR(group, "Nullptr not allowed");
-  auto unique_defs_it = unique_definitions_.find(group);
-  if (unique_defs_it == unique_definitions_.end()) {
+const ExprGroups* IdGraph::getDefinitions(const IdGroup& id_group) const {
+  NVF_ERROR(id_group, "Nullptr not allowed");
+  if (auto it = unique_definitions_.find(id_group);
+      it != unique_definitions_.end()) {
+    return &(it->second);
+  } else {
     return nullptr;
   }
-
-  return &(unique_defs_it->second);
 }
 
-const ExprGroups& IdGraph::getUniqueUses(const IdGroup& group) const {
-  auto unique_uses_it = unique_uses_.find(group);
-  NVF_ERROR(
-      unique_uses_it != unique_uses_.end(),
-      "Uses not found for IdGroup: ",
-      group->toString());
-  return unique_uses_it->second;
+const ExprGroups* IdGraph::getUses(const IdGroup& id_group) const {
+  NVF_ERROR(id_group, "Nullptr not allowed");
+  if (auto it = unique_uses_.find(id_group); it != unique_uses_.end()) {
+    return &(it->second);
+  } else {
+    return nullptr;
+  }
 }
 
 void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
@@ -399,8 +388,10 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   NVF_ERROR(orig_defs0);
   const ExprGroups* orig_defs1 = getDefinitions(orig_id_group1);
   NVF_ERROR(orig_defs1);
-  const ExprGroups& orig_uses0 = getUniqueUses(orig_id_group0);
-  const ExprGroups& orig_uses1 = getUniqueUses(orig_id_group1);
+  const ExprGroups* orig_uses0 = getUses(orig_id_group0);
+  NVF_ERROR(orig_uses0);
+  const ExprGroups* orig_uses1 = getUses(orig_id_group1);
+  NVF_ERROR(orig_uses1);
 
   // Map the iter domains together before we traverse across definitions and
   // uses. Traversing definitions and uses could use the new property of id0 and
@@ -409,12 +400,12 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   auto new_id_group = toGroup(id0);
 
   unique_definitions_[new_id_group] = orig_defs0->computeUnion(*orig_defs1);
-  unique_uses_[new_id_group] = orig_uses0.computeUnion(orig_uses1);
+  unique_uses_[new_id_group] = orig_uses0->computeUnion(*orig_uses1);
 
   // Propagate on uses
-  if (!orig_uses0.empty() && !orig_uses1.empty()) {
-    for (const ExprGroup& use_group_1 : orig_uses1) {
-      for (const ExprGroup& use_group_0 : orig_uses0) {
+  if (!orig_uses0->empty() && !orig_uses1->empty()) {
+    for (const ExprGroup& use_group_1 : *orig_uses1) {
+      for (const ExprGroup& use_group_0 : *orig_uses0) {
         if (use_group_0 == use_group_1) {
           continue;
         }

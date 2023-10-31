@@ -87,15 +87,11 @@ class IdGraph {
   //! outer vector are expression groups that are not equivalent based on the
   //! provided mode, but produce one of the IterDomains within the same disjoint
   //! Iter Domain set based on the provided mode.
-  const ExprGroups* getDefinitions(const IdGroup& group) const;
+  const ExprGroups* getDefinitions(const IdGroup& id_group) const;
 
   //! Same as iterDomainGroupDefinitions but for uses instead of
   //! definitions
-  //!
-  //! TODO-NM: ExprGroups is a real container. Consider returning a
-  //! reference
-  //! TODO-NM: Rename to getMaybeUses. See getUses
-  std::pair<ExprGroups, bool> getUses(const IdGroup& id_group) const;
+  const ExprGroups* getUses(const IdGroup& id_group) const;
 
   bool hasUses(const IdGroup& id_group) const;
 
@@ -118,16 +114,7 @@ class IdGraph {
   // id_map have matching inputs (if forward), or outputs (if not forward).
   // Returning true means the expressions are "the same", in terms they modify
   // matching original extents, by the same amount.
-  bool exprsMap(
-      Expr* first,
-      Expr* second,
-      bool forward
-      // , std::vector<IterDomain*> second_input_or_output_override
-  ) const;
-
-  // Returns entry in unique_uses_ for provided group in provided mode,
-  // otherwise errors if no entry is found.
-  const ExprGroups& getUniqueUses(const IdGroup& group) const;
+  bool exprsMap(Expr* first, Expr* second, bool forward) const;
 
  public:
   void addUniqueUses(const IdGroup& id_group, const ExprGroup& uses) {
@@ -194,11 +181,6 @@ class IdGraph {
 
   // Definitions of IdGroup. There can be multiple definitions due to
   // replays.
-  // TODO-NM: IdGroup by a new definition ExprGroup would not be used
-  // by existing uses. Does it make sense to represent uses and defs
-  // this way? In other words, there is a traversal path from a
-  // definition ExprGroup to an IdGroup and its use ExprGroup, but
-  // that does't guarantee the path actually exist
   std::unordered_map<IdGroup, ExprGroups> unique_definitions_;
 
   std::unordered_map<IdGroup, ExprGroups> unique_uses_;
