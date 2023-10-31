@@ -1189,7 +1189,7 @@ SqueezeOp::SqueezeOp(
         // Check concrete broadcast extent here. For Symbolic inputs, this check
         // will be deferred to concretization. See dynamic_transform.cpp
         NVF_ERROR(
-            id->extent()->isConstScalar() && id->extent()->evaluateInt() == 1,
+            id->extent()->isConstScalar() && id->extent()->evaluate() == 1,
             "Can not squeeze dimension(s) with size != 1.");
       }
     } else {
@@ -2328,6 +2328,29 @@ std::string ViewOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+std::vector<PolymorphicValue> ViewOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(inputs.size() == 1);
+  const at::Tensor& in_tensor = inputs[0].as<at::Tensor>();
+
+  const std::vector<IterDomain*>& out_rfactor = out()->getMaybeRFactorDomain();
+  std::vector<int64_t> out_shape;
+  out_shape.reserve(out_rfactor.size());
+  for (IterDomain* id : out_rfactor) {
+    out_shape.push_back(
+        ee.evaluate(id->getMaybeExpandedExtent()).as<int64_t>());
+  }
+
+  // TODO: check allocation domain and contiguity.
+
+  // Use `at::Tensor::reshape` instead of `at::Tensor::view` because `ViewOp`
+  // doesn't always produce an alias. For example, when merging an expanded
+  // `IterType::Broadcast` and an `IterType::Iteration`, `ViewOp` has to realize
+  // the expand.
+  return {in_tensor.reshape(out_shape)};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(ViewOp)
 
 LoadStoreOp::LoadStoreOp(
@@ -2930,8 +2953,8 @@ IterDomain* IterDomain::resize(
       right_expansion->toString());
 
   if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
-    auto left = left_expansion->evaluateInt();
-    auto right = right_expansion->evaluateInt();
+    auto left = left_expansion->evaluate();
+    auto right = right_expansion->evaluate();
     if (left == 0 && right == 0) {
       // This is a trivial resize. Check that we are not changing the IterType,
       // then return the input.
@@ -2983,11 +3006,11 @@ IterDomain* IterDomain::resize(
   if (iter_type_opt.has_value()) {
     iter_type = iter_type_opt.value();
   } else if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
-    auto left = left_expansion->evaluateInt();
-    auto right = right_expansion->evaluateInt();
+    auto left = left_expansion->evaluate();
+    auto right = right_expansion->evaluate();
     if (resized_id_size->isConstInt()) {
       // Means input extent is also known
-      auto out_extent = resized_id_size->evaluateInt();
+      auto out_extent = resized_id_size->evaluate();
       iter_type = out_extent == 1 ? IterType::Broadcast : IterType::Iteration;
     } else if (left + right > 1) {
       // Input extent is non-negative, so we know out_extent > 1

@@ -243,10 +243,16 @@ void Fusion::addOutput(Val* output) {
   // NVF_CHECK(io_alias_.count(output) == 0,
   //     "can't register aliased output as real output");
   assertInContainer(output, "Cannot register output ");
-  if (output->getValType().value() == ValType::TensorView) {
-    auto tv = output->as<TensorView>();
-    tv->setMemoryType(MemoryType::Global);
+  if (output->isA<TensorView>()) {
+    output->as<TensorView>()->setMemoryType(MemoryType::Global);
+  } else {
+    NVF_CHECK(
+        output->isA<PipelineVal>() &&
+            output->as<PipelineVal>()->getOriginalVal()->isA<TensorView>(),
+        "Non-TensorView outputs are not supported at this point: ",
+        output->toString());
   }
+
   outputs_.push_back(output);
   output->setIsFusionOutput(true);
 
@@ -315,7 +321,7 @@ bool Fusion::isNoOp() {
     auto root_dom = TensorDomain::noReductions(out_tv->getMaybeRFactorDomain());
     bool size_zero = false;
     for (auto id : root_dom) {
-      if (id->extent()->isConstScalar() && id->extent()->evaluateInt() == 0) {
+      if (id->extent()->isConstScalar() && id->extent()->evaluate() == 0) {
         size_zero = true;
         break;
       }

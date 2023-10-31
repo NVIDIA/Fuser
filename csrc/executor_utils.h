@@ -156,16 +156,6 @@ class InputAliasIndices {
       CompileTimeEntryType::INPUT_ALIAS_INDICES;
 };
 
-//! Compile-time info to be cached in each FusionExecutor:
-//!  OutputAliasIndices
-//!    Stores position info of aliased output tensors
-class OutputAliasIndices {
- public:
-  using DataType = std::unordered_set<int>;
-  static const CompileTimeEntryType EntryType =
-      CompileTimeEntryType::OUTPUT_ALIAS_INDICES;
-};
-
 //! Base abstract class for unified storage in `ExecutorCompileTimeInfoCache`,
 //!  each entry in `ExecutorCompileTimeInfoCache` will be a subclass.
 class CompileTimeInfoBase : public PolymorphicBase {
