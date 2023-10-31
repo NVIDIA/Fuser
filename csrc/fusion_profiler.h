@@ -130,7 +130,7 @@ struct FusionProfile {
 
   void reset();
 
-  bool verbose{isDebugDumpEnabled(DebugDumpOption::FusionProfilerVerbose)};
+  bool verbose{isProfilerPrintingVerbose()};
   int64_t fusion_id{-1};
   int64_t segments{0};
 
@@ -262,47 +262,5 @@ class FusionProfiler {
   std::vector<KernelProfile> kernel_profiles_;
   std::unordered_map<uint32_t, uint32_t> corrid_2_segid_;
 };
-
-//! The global functions below are distinct and could be separated out from the
-//! rest of the profiler code.  Their goal is to encapsulate boiler plate
-//! enablement code away from the code being profiled.
-
-//! A Fusion Profiler enabled check "decorator"
-template <class T>
-auto fusion_profiler_enabled(T&& func) {
-  // we create a closure below
-  auto new_function = [func = std::forward<T>(func)](auto&&... args) {
-    if (isDebugDumpEnabled(DebugDumpOption::FusionProfiler) ||
-        isDebugDumpEnabled(DebugDumpOption::FusionProfilerNocupti) ||
-        isDebugDumpEnabled(DebugDumpOption::FusionProfilerVerbose) ||
-        isOptionEnabled(EnableOption::FusionProfiler) ||
-        isOptionEnabled(EnableOption::FusionProfilerNocupti)) {
-      func(std::forward<decltype(args)>(args)...);
-    }
-  };
-  return new_function;
-}
-
-//! Global functions for profiling a fusion
-void fusion_profiler_start();
-void fusion_profiler_stop();
-void fusion_profiler_create_segments(size_t num);
-void fusion_profiler_start_parallel_compile();
-void fusion_profiler_stop_parallel_compile();
-void fusion_profiler_input_bytes_accessed(std::function<int64_t()> fn);
-void fusion_profiler_output_bytes_accessed(std::function<int64_t()> fn);
-void fusion_profiler_print();
-
-//! Global functions for profiling a segment of a fusion
-void segment_profiler_start_compile(size_t idx, int device);
-void segment_profiler_stop_compile(size_t idx);
-void segment_profiler_start_kernel(size_t idx, int device);
-void segment_profiler_stop_kernel(size_t idx);
-void segment_profiler_input_bytes_accessed(
-    size_t idx,
-    std::function<int64_t()> fn);
-void segment_profiler_output_bytes_accessed(
-    size_t idx,
-    std::function<int64_t()> fn);
 
 } // namespace nvfuser

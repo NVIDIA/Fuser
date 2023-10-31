@@ -121,9 +121,6 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"fusion_ir_preseg", DebugDumpOption::FusionIrPreseg},
       {"fusion_ir_math", DebugDumpOption::FusionIrMath},
       {"fusion_ir_presched", DebugDumpOption::FusionIrPresched},
-      {"fusion_profiler", DebugDumpOption::FusionProfiler},
-      {"fusion_profiler_nocupti", DebugDumpOption::FusionProfilerNocupti},
-      {"fusion_profiler_verbose", DebugDumpOption::FusionProfilerVerbose},
       {"halo", DebugDumpOption::Halo},
       {"index_type", DebugDumpOption::IndexType},
       {"kernel_args", DebugDumpOption::KernelArgs},
@@ -155,8 +152,6 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
   const std::unordered_map<std::string, EnableOption> available_options = {
       {"complex", EnableOption::Complex},
       {"conv_decomposition", EnableOption::ConvDecomposition},
-      {"fusion_profiler", EnableOption::FusionProfiler},
-      {"fusion_profiler_nocupti", EnableOption::FusionProfilerNocupti},
       {"graph_op_fusion", EnableOption::GraphOp},
       {"kernel_db", EnableOption::KernelDb},
       {"kernel_profile", EnableOption::KernelProfile},
@@ -199,6 +194,22 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
   return options;
 }
 
+template <>
+std::unordered_map<ProfilerOption, std::vector<std::string>> Options<
+    ProfilerOption>::getOptionsFromEnv() {
+  const std::unordered_map<std::string, ProfilerOption> available_options = {
+      {"enabled", ProfilerOption::Enabled},
+      {"enabled.nocupti", ProfilerOption::EnabledNocupti},
+      {"print", ProfilerOption::Print},
+      {"print.nocupti", ProfilerOption::PrintNocupti},
+      {"print.verbose", ProfilerOption::PrintVerbose},
+  };
+
+  auto options = parseEnvOptions("PROF", available_options);
+
+  return options;
+}
+
 namespace {
 
 // These may need to be thread local, or their modifications may need to
@@ -211,6 +222,8 @@ DebugDumpOptions active_dump_options;
 EnableOptions active_enable_options;
 
 DisableOptions active_disable_options;
+
+ProfilerOptions active_profiler_options;
 
 } // namespace
 
@@ -227,6 +240,11 @@ Options<EnableOption>& OptionsGuard<EnableOption>::getCurOptions() {
 template <>
 Options<DisableOption>& OptionsGuard<DisableOption>::getCurOptions() {
   return active_disable_options;
+}
+
+template <>
+Options<ProfilerOption>& OptionsGuard<ProfilerOption>::getCurOptions() {
+  return active_profiler_options;
 }
 
 bool isDebugDumpEnabled(DebugDumpOption option) {
@@ -252,6 +270,28 @@ bool isOptionDisabled(DisableOption option) {
 const std::vector<std::string>& getDisableOptionArguments(
     DisableOption option) {
   return DisableOptionsGuard::getCurOptions().getArgs(option);
+}
+
+bool isProfilerEnabled() {
+  return ProfilerOptionsGuard::getCurOptions().hasAny();
+
+}
+bool isProfilerEnabledWithoutCupti() {
+  return ProfilerOptionsGuard::getCurOptions().has(ProfilerOption::EnabledNocupti) ||
+         ProfilerOptionsGuard::getCurOptions().has(ProfilerOption::PrintNocupti);
+}
+bool isProfilerPrintingEnabled() {
+  return ProfilerOptionsGuard::getCurOptions().has(ProfilerOption::Print) ||
+         ProfilerOptionsGuard::getCurOptions().has(ProfilerOption::PrintNocupti) ||
+         ProfilerOptionsGuard::getCurOptions().has(ProfilerOption::PrintVerbose);
+}
+bool isProfilerPrintingVerbose() {
+  return ProfilerOptionsGuard::getCurOptions().has(ProfilerOption::PrintVerbose);
+}
+
+const std::vector<std::string>& getDisableOptionArguments(
+    ProfilerOption option) {
+  return ProfilerOptionsGuard::getCurOptions().getArgs(option);
 }
 
 } // namespace nvfuser

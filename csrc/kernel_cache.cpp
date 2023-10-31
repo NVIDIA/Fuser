@@ -444,7 +444,9 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
 
-  fusion_profiler_start();
+  if (isProfilerEnabled()) {
+    FusionProfiler::get()->start(isProfilerEnabledWithoutCupti());
+  }
 
   // Permute input tensor for kernel execution.
   // See Part_1 in Note [ Channels-Last support in nvfuser ]
@@ -466,7 +468,9 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   KernelArgumentHolder args = prepareInputs(perm_inputs, selected_device);
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
 
-  fusion_profiler_create_segments(kernel_runtime->executors().size());
+  if (isProfilerEnabled()) {
+    FusionProfiler::get()->createSegments(kernel_runtime->executors().size());
+  }
 
   if (!kernel_runtime->isCompiled()) {
     kernel_runtime->compileFusionParallel(args);
@@ -521,8 +525,12 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     offset++;
   }
 
-  fusion_profiler_stop();
-  fusion_profiler_print();
+  if (isProfilerEnabled()) {
+    FusionProfiler::get()->stop();
+  }
+  if (isProfilerPrintingEnabled()) {
+    debug() << FusionProfiler::get()->profile();
+  }
 
   return outputs;
 }
@@ -1012,16 +1020,17 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     executor.setMeasureKernelTimeFlag(true);
   }
 
-  segment_profiler_input_bytes_accessed(
-      group_id,
-      ([&args, &executor]() { return executor.inputBytesProcessed(args); }));
-  segment_profiler_start_kernel(group_id, args.getDeviceIndex());
+  if (isProfilerEnabled()) {
+    auto& sprof = FusionProfiler::get()->segment(group_id);
+    sprof.inputBytesAccessed(executor.inputBytesProcessed(args));
+    sprof.startKernel(args.getDeviceIndex());
+  }
   auto outputs = executor.runFusion(args, launch_params, compile_params);
-  segment_profiler_stop_kernel(group_id);
-  segment_profiler_output_bytes_accessed(
-      group_id, ([&outputs, &executor]() {
-        return executor.outputBytesProcessed(outputs);
-      }));
+  if (isProfilerEnabled()) {
+    auto& sprof = FusionProfiler::get()->segment(group_id);
+    sprof.stopKernel();
+    sprof.outputBytesAccessed(executor.outputBytesProcessed(outputs));
+  }
 
   // Accumulate the kernel time of each segment
   kernel_time_ms_ += executor.kernelTimeMs();
@@ -1131,7 +1140,9 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
   num_live_args_after_segment_runs_.reserve(num_groups);
-  fusion_profiler_start_parallel_compile();
+  if (isProfilerEnabled() && !isOptionDisabled(DisableOption::ParallelCompile)) {
+    FusionProfiler::get()->startParallelCompile();
+  }
   for (int64_t group_id = 0; group_id < num_groups; ++group_id) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
 
@@ -1148,11 +1159,15 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
     if (num_groups == 1 || isOptionDisabled(DisableOption::ParallelCompile)) {
       FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
-      segment_profiler_start_compile(group_id, args.getDeviceIndex());
+      if (isProfilerEnabled()) {
+        FusionProfiler::get()->segment(group_id).startCompile(args.getDeviceIndex());
+      }
       c10::cuda::CUDAGuard dg(args.getDeviceIndex());
       c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
       compileKernel(group_runtime_inputs, group_to_run);
-      segment_profiler_stop_compile(group_id);
+      if (isProfilerEnabled()) {
+        FusionProfiler::get()->segment(group_id).stopCompile();
+      }
     } else {
       // launch compileKernel thread here
       getThreadPool()->run([this, args, group_runtime_inputs, group_to_run]() {
@@ -1178,7 +1193,9 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     // wait until all segments finish compiling
     getThreadPool()->waitWorkComplete();
   }
-  fusion_profiler_stop_parallel_compile();
+  if (isProfilerEnabled() && !isOptionDisabled(DisableOption::ParallelCompile)) {
+    FusionProfiler::get()->stopParallelCompile();
+  }
 }
 
 void FusionKernelRuntime::compileKernel(
@@ -1310,28 +1327,24 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     }
   }
 
-  fusion_profiler_input_bytes_accessed(([&]() {
-    size_t input_bytes = 0;
+  if (isProfilerEnabled()) {
+    int64_t input_bytes = 0;
     for (auto inp : fusionSegments()->inputs()) {
-      if (auto tv = dynamic_cast<TensorView*>(inp)) {
+      if (dynamic_cast<TensorView*>(inp)) {
         auto aten_ten = args_manager.checkTensorMap(inp);
-        input_bytes +=
-            aten_ten->as<at::Tensor>().numel() * dataTypeSize(tv->dtype());
+        input_bytes += static_cast<int64_t>(aten_ten->as<at::Tensor>().storage().nbytes());
       }
     }
-    return input_bytes;
-  }));
-  fusion_profiler_output_bytes_accessed(([&]() {
-    size_t output_bytes = 0;
+    FusionProfiler::get()->inputBytesAccessed(input_bytes);
+    int64_t output_bytes = 0;
     for (auto outp : fusionSegments()->outputs()) {
-      if (auto tv = dynamic_cast<TensorView*>(outp)) {
+      if (dynamic_cast<TensorView*>(outp)) {
         auto aten_ten = args_manager.checkTensorMap(outp);
-        output_bytes +=
-            aten_ten->as<at::Tensor>().numel() * dataTypeSize(tv->dtype());
+        output_bytes += static_cast<int64_t>(aten_ten->as<at::Tensor>().storage().nbytes());
       }
     }
-    return output_bytes;
-  }));
+    FusionProfiler::get()->outputBytesAccessed(output_bytes);
+  }
 
   if (compute_overall_bw) {
     // Get peak bandwidth for device
