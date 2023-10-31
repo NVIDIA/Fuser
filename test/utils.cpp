@@ -300,33 +300,66 @@ TensorView* matmulVolta(TensorView* a, TensorView* b, MatmulLayout layout) {
   return tv2;
 }
 
+// matmulAtInput provides batched inputs in a splitk-like ordering. It provides
+// contiguous tensors with these shapes
+//   TT: [M, B, K] [B, K, N]
+//   TN: [M, B, K] [N, B, K]
+//   NT: [B, K, M] [B, K, N]
+//   NN: [B, K, M] [N, B, K]
+// fusedMultiplySum assumes [B, M, K] [B, N, K] so here we transpose into that
+// order
 TensorView* matmulTuringOrLater(
     TensorView* a,
     TensorView* b,
     MatmulLayout layout) {
   NVF_CHECK(a->nDims() == b->nDims());
+  NVF_CHECK(a->nDims() == 2 || a->nDims() == 3);
   TensorView *tv2 = nullptr, *tv0t = nullptr, *tv1t = nullptr, *tv0b = nullptr,
              *tv1b = nullptr;
-  switch (layout) {
-      // Canonicalize all inputs to [B, M, K] and [B, N, K]
-    case MatmulLayout::TT:
-      tv0t = a;
-      tv1t = transpose(b, -2, -1);
-      break;
-    case MatmulLayout::TN:
-      tv0t = a;
-      tv1t = b;
-      break;
-    case MatmulLayout::NT:
-      tv0t = transpose(a, -2, -1);
-      tv1t = transpose(b, -2, -1);
-      break;
-    case MatmulLayout::NN:
-      tv0t = transpose(a, -2, -1);
-      tv1t = b;
-      break;
-    default:
-      NVF_CHECK(false, "unsupported data layout.");
+  if (a->nDims() == 3) { // bmm
+    switch (layout) {
+        // Canonicalize all inputs to [B, M, K] and [B, N, K]
+      case MatmulLayout::TT:
+        tv0t = transpose(a, 0, 1);
+        tv1t = transpose(b, 1, 2);
+        break;
+      case MatmulLayout::TN:
+        tv0t = transpose(a, 0, 1);
+        tv1t = transpose(b, 0, 1);
+        break;
+      case MatmulLayout::NT:
+        tv0t = transpose(a, 1, 2);
+        tv1t = transpose(b, 1, 2);
+        break;
+      case MatmulLayout::NN:
+        tv0t = transpose(a, 1, 2);
+        tv1t = transpose(b, 0, 1);
+        break;
+      default:
+        NVF_CHECK(false, "unsupported data layout.");
+    }
+  } else {
+    switch (layout) {
+        // Canonicalize all inputs to [M, K] and [N, K]
+      case MatmulLayout::TT:
+        tv0t = a;
+        tv1t = transpose(b, 0, 1);
+        break;
+      case MatmulLayout::TN:
+        tv0t = a;
+        tv1t = b;
+        break;
+      case MatmulLayout::NT:
+        tv0t = transpose(a, 0, 1);
+        tv1t = transpose(b, 0, 1);
+        break;
+      case MatmulLayout::NN:
+        tv0t = transpose(a, 0, 1);
+        tv1t = b;
+        break;
+      default:
+        NVF_CHECK(false, "unsupported data layout.");
+    }
   }
   std::vector<bool> bcast_dims(a->nDims() + 1, false);
   bcast_dims.at(bcast_dims.size() - 2) = true;
@@ -395,18 +428,45 @@ TensorView* splitkLikeBatchedMatmul(
   return tv2;
 }
 
+// matmulAtInput provides batched inputs in a splitk-like ordering. It provides
+// contiguous tensors with these shapes
+//   TT: [M, B, K] [B, K, N]
+//   TN: [M, B, K] [N, B, K]
+//   NT: [B, K, M] [B, K, N]
+//   NN: [B, K, M] [N, B, K]
+// ATen matmul assumes [B, M, K] [B, K, N] so here we transpose into that order
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
-  switch (layout) {
-    case MatmulLayout::TT:
-      return a.matmul(b);
-    case MatmulLayout::TN:
-      return a.matmul(b.transpose(-1, -2));
-    case MatmulLayout::NT:
-      return a.transpose(-1, -2).matmul(b);
-    case MatmulLayout::NN:
-      return a.transpose(-1, -2).matmul(b.transpose(-1, -2));
-    default:
-      NVF_CHECK(false, "unsupported data layout.");
+  NVF_CHECK(
+      a.dim() == b.dim(), "Either both or none of A and B should be batch");
+  NVF_CHECK(
+      a.dim() == 2 || a.dim() == 3,
+      "Must have either zero or one batch dimensions");
+  if (a.dim() == 3) { // bmm
+    switch (layout) {
+      case MatmulLayout::TT:
+        return a.transpose(0, 1).matmul(b);
+      case MatmulLayout::TN:
+        return a.transpose(0, 1).matmul(b.transpose(0, 1).transpose(1, 2));
+      case MatmulLayout::NT:
+        return a.transpose(1, 2).matmul(b);
+      case MatmulLayout::NN:
+        return a.transpose(1, 2).matmul(b.transpose(0, 1).transpose(1, 2));
+      default:
+        NVF_CHECK(false, "unsupported data layout.");
+    }
+  } else {
+    switch (layout) {
+      case MatmulLayout::TT:
+        return a.matmul(b);
+      case MatmulLayout::TN:
+        return a.matmul(b.t());
+      case MatmulLayout::NT:
+        return a.t().matmul(b);
+      case MatmulLayout::NN:
+        return a.t().matmul(b.t());
+      default:
+        NVF_CHECK(false, "unsupported data layout.");
+    }
   }
   return at::Tensor();
 }
