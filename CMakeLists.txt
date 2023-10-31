@@ -34,7 +34,7 @@ include(cmake/FlatBuffers.cmake)
 include(cmake/Dependencies.cmake)
 
 # set CUDA_ARCH for cu tests.
-if(EXISTS ${TORCH_CUDA_ARCH_LIST})
+if(TORCH_CUDA_ARCH_LIST)
   set(ARCH_FLAGS)
   cuda_select_nvcc_arch_flags(ARCH_FLAGS ${TORCH_CUDA_ARCH_LIST})
   list(APPEND CUDA_NVCC_FLAGS ${ARCH_FLAGS})
