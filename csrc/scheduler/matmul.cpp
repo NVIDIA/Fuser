@@ -1019,6 +1019,17 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   bcr->axis(-1)->parallelize(ParallelType::Vectorize);
 
   // Parallelization strategy:
+  // Here the top two rows indicate how we can index each axis. The third row
+  // is what it represents: note that a suffix i means inner and o means outer
+  // here. The fourth row is the parallelization strategy:
+  //   - i means iterate (produce one value per element i.e. don't reduce)
+  //   - r means reduce this dimension
+  //   - B: block
+  //   - T: thread
+  //   - S: serial. This will become a for loop in the generated kernel
+  //   - iMMA: unconracted axis in an MMA tensor core operation.
+  //   - rMMA: contract in an MMA tensor core operation.
+  //
   //  with splitk:
   // nbatch +   1   2   3   4    5    6    7    8     9    10    11   12
   //      -13 -12 -11 -10  -9   -8   -7   -6   -5    -4    -3    -2   -1
