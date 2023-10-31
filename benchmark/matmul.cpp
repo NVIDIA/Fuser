@@ -436,9 +436,14 @@ static void NvFuserScheduler_Matmul(
 // The kernel sums the last dimension.
 static void NvFuserScheduler_MatmulSplitKReduction(
     benchmark::State& benchmark_state,
-    int64_t splitk_factor) {
+    int64_t splitk_factor = -1) {
   int64_t M = benchmark_state.range(0);
   int64_t N = benchmark_state.range(1);
+
+  if (splitk_factor == -1) {
+    // Assumes tile size is (M, 128)
+    splitk_factor = computeAutoSplitKFactor(M, N, M, 128);
+  }
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
 
@@ -731,21 +736,14 @@ ForAllLayouts(NvfuserMatmulBenchmark);
 ForAllLayouts(AutoSplitKBenchmark);
 ForAllLayouts(AutoPartitionedKBenchmark);
 
-// Note: SplitK Reduction benchmarks are parametrized only by M, N.
-#define SplitKReductionBenchmark(splitk_factor)                               \
-  BENCHMARK_CAPTURE(                                                          \
-      NvFuserScheduler_MatmulSplitKReduction,                                 \
-      nvfuser_splitkreduction,                                                \
-      splitk_factor)                                                          \
-      ->Unit(benchmark::kMicrosecond)                                         \
-      ->UseManualTime()                                                       \
-      ->Apply([](benchmark::internal::Benchmark* b) {                         \
-        return MatmulShapeMN(b, sizeProduct<long int>(SplitKMs, splitKNs())); \
-      });
-SplitKReductionBenchmark(2);
-SplitKReductionBenchmark(4);
-SplitKReductionBenchmark(8);
-SplitKReductionBenchmark(16);
-SplitKReductionBenchmark(32);
-SplitKReductionBenchmark(64);
-SplitKReductionBenchmark(128);
+// Note: SplitK Reduction benchmarks are parametrized only by M, N. The splitk
+// factor is deduced automatically from N
+BENCHMARK_CAPTURE(
+    NvFuserScheduler_MatmulSplitKReduction,
+    nvfuser_auto_splitkreduction,
+    -1)
+    ->Unit(benchmark::kMicrosecond)
+    ->UseManualTime()
+    ->Apply([](benchmark::internal::Benchmark* b) {
+      return MatmulShapeMN(b, sizeProduct<long int>(SplitKMs, splitKNs()));
+    });
