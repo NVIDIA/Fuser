@@ -434,16 +434,11 @@ static void NvFuserScheduler_Matmul(
 // This is the second kernel in a two-kernel split-K.
 // The input is a contiguous [M, N, splitk_factor] tensor.
 // The kernel sums the last dimension.
-static void SplitKReduction(
+static void NvFuserScheduler_MatmulSplitKReduction(
     benchmark::State& benchmark_state,
-    int64_t splitk_factor = -1) {
+    int64_t splitk_factor) {
   int64_t M = benchmark_state.range(0);
   int64_t N = benchmark_state.range(1);
-  int64_t num_warps = benchmark_state.range(1);
-
-  if (splitk_factor == -1) {
-    splitk_factor = computeAutoSplitKFactor(M, N, 32 * num_warps, 128);
-  }
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
 
@@ -617,16 +612,13 @@ static void MatmulShape(
   }
 }
 
-// Use this to apply shapes and num_warps. Used for splitk reduction benchmarks
-// Note warps is number of warps per block in the associated partitionedk matmul
-static void MatmulShapeWarp(
+// Use this to apply shapes without K. Used for splitk reduction benchmarks
+static void MatmulShapeMN(
     benchmark::internal::Benchmark* b,
     std::vector<std::tuple<long int, long int>> sizes) {
-  b->ArgNames({"M", "N", "warps"});
-  for (int num_warps : NumWarps) {
-    for (auto [m, n] : sizes) {
-      b->Args({m, n, num_warps});
-    }
+  b->ArgNames({"M", "N"});
+  for (auto [m, n] : sizes) {
+    b->Args({m, n});
   }
 }
 
@@ -739,11 +731,21 @@ ForAllLayouts(NvfuserMatmulBenchmark);
 ForAllLayouts(AutoSplitKBenchmark);
 ForAllLayouts(AutoPartitionedKBenchmark);
 
-/*
-BENCHMARK_CAPTURE(SplitKReduction, nvfuser_splitkreduction)
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime()
-    ->Apply([](benchmark::internal::Benchmark* b) {
-      return MatmulShapeWarp(b, sizeProduct<long int>(SplitKMs, splitKNs()));
-    });
-    */
+// Note: SplitK Reduction benchmarks are parametrized only by M, N.
+#define SplitKReductionBenchmark(splitk_factor)                               \
+  BENCHMARK_CAPTURE(                                                          \
+      NvFuserScheduler_MatmulSplitKReduction,                                 \
+      nvfuser_splitkreduction,                                                \
+      splitk_factor)                                                          \
+      ->Unit(benchmark::kMicrosecond)                                         \
+      ->UseManualTime()                                                       \
+      ->Apply([](benchmark::internal::Benchmark* b) {                         \
+        return MatmulShapeMN(b, sizeProduct<long int>(SplitKMs, splitKNs())); \
+      });
+SplitKReductionBenchmark(2);
+SplitKReductionBenchmark(4);
+SplitKReductionBenchmark(8);
+SplitKReductionBenchmark(16);
+SplitKReductionBenchmark(32);
+SplitKReductionBenchmark(64);
+SplitKReductionBenchmark(128);
