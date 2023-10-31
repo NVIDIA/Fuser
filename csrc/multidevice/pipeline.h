@@ -63,11 +63,11 @@ class PipelineStageDescriptor final {
   using ValSet = VectorOfUniqueEntries<Val*>;
 
  public:
-  PipelineStageDescriptor()
-      : auto_schedule(true), unique_id(running_unique_id_++) {}
+  PipelineStageDescriptor(bool auto_schedule_ = true)
+      : auto_schedule(auto_schedule_), unique_id(running_unique_id_++) {}
 
   // whether the stage should be auto-scheduled
-  bool auto_schedule;
+  const bool auto_schedule;
   // The mesh on which the stage will be executed at runtime.
   DeviceMesh mesh;
   /* Unique identifier for the stage.

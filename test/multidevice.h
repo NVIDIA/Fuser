@@ -21,11 +21,12 @@ class MultiDeviceEnvironment : public testing::Environment {
   void TearDown() override;
 
   Communicator* communicator() const {
-    return communicator_;
+    NVF_ERROR(communicator_ != nullptr);
+    return communicator_.get();
   }
 
  private:
-  Communicator* communicator_ = nullptr;
+  std::unique_ptr<Communicator> communicator_ = nullptr;
 };
 
 class MultiDeviceTest : public NVFuserTest {

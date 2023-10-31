@@ -20,12 +20,11 @@ auto multidevice_env = static_cast<MultiDeviceEnvironment*>(
     testing::AddGlobalTestEnvironment(new MultiDeviceEnvironment));
 
 void MultiDeviceEnvironment::SetUp() {
-  communicator_ = new Communicator();
+  communicator_ = std::make_unique<Communicator>();
 }
 
 void MultiDeviceEnvironment::TearDown() {
   communicator_->barrier();
-  delete communicator_;
 }
 
 void MultiDeviceTest::SetUp() {
@@ -58,7 +57,7 @@ void CommunicationTest::validate(at::Tensor obtained, at::Tensor expected) {
 
 void CommunicationTest::resetDstBuffers() {
   for (auto& buf : params.dst_bufs) {
-    buf.copy_(at::zeros(tensor_size, tensor_options));
+    buf.copy_(at::empty(tensor_size, tensor_options) * nan(""));
   }
 }
 
@@ -238,11 +237,9 @@ void PipelineTestTwoStages::SetUp() {
   fusion->addInput(tv0);
   fusion->addOutput(tv3);
 
-  PipelineStageDescriptor stage0, stage1;
+  PipelineStageDescriptor stage0(false), stage1(false);
   stage0.addVal({tv0, tv1});
   stage1.addVal({tv2, tv3});
-  stage0.auto_schedule = false;
-  stage1.auto_schedule = false;
   stage0.mesh = mesh0;
   stage1.mesh = mesh1;
   if (is_stage0_sharded) {
