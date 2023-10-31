@@ -119,8 +119,10 @@ NVFUSER_DEFINE_CLONE(PipelineVal)
 std::string PipelineVal::toString(int indent_size) const {
   std::stringstream ss;
   ss << "PipelineVal representing Val "
-     << getOriginalVal()->toString(indent_size) << " on stage "
-     << getStage()->descriptor()->unique_id;
+     << getOriginalVal()->toString(indent_size);
+  if (getStage() != nullptr) {
+    ss << " on stage " << getStage()->descriptor()->unique_id;
+  }
   return ss.str();
 }
 

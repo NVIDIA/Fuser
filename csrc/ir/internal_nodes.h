@@ -1606,6 +1606,10 @@ class ViewOp : public Expr {
   TensorView* in() const {
     return input(0)->as<TensorView>();
   }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 };
 
 //! This operator explicitly models data movement between
