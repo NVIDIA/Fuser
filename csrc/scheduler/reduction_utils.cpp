@@ -419,7 +419,7 @@ void multiReductionInliner(
     // The inner persistent tvs are scheduled as [..., persistent batch,
     // unswitch, vect/unroll], inline them before [persistent batch].
     for (auto tv : excep_tvs) {
-      int tailing_static_dims = 0;
+      int64_t tailing_static_dims = 0;
       for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
         if (tv->axis(i)->extent()->isConstInt()) {
           tailing_static_dims++;
@@ -428,7 +428,8 @@ void multiReductionInliner(
         }
       }
       auto producer = ir_utils::getSoleProducerTv(tv);
-      inlineSelectedAt({tv}, producer, producer->nDims() - tailing_static_dims);
+      inlineSelectedAt(
+          {tv}, producer, (int64_t)producer->nDims() - tailing_static_dims);
     }
   }
 }
