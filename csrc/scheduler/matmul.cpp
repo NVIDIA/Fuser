@@ -1045,7 +1045,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // When we have both batch dims and splitk, parallelize splitk only.
   // If we only have batch dim, parallelize the batch dim.
   if (num_splitk_dims != 0) {
-    mma_result->axis(2)->parallelize(ParallelType::BIDz);
+    mma_result->axis(num_batch_dims + 2)->parallelize(ParallelType::BIDz);
   } else if (num_batch_dims != 0) {
     mma_result->axis(0)->parallelize(ParallelType::BIDz);
   }
