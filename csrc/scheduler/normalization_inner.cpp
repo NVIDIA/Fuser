@@ -750,9 +750,10 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     rparams->unroll_factor_outer_reduction = outer_reduction_unroll_factor;
   }
 
-  // If there are more than 1 persistent batches, needs special inline to
-  // separate data loading and calculation, see multiReductionInliner.
-  if (rparams->batches_per_block_inner_reduction > 1) {
+  // If there are more than 1 vectorized persistent batches, needs special
+  // inline to separate data loading and calculation, see multiReductionInliner.
+  if (rparams->batches_per_block_inner_reduction > 1 &&
+      rparams->vectorize_inner_reduction) {
     rparams->is_inline_all_tvs = false;
   }
 

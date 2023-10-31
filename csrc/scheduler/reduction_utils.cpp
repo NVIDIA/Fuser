@@ -429,7 +429,10 @@ void multiReductionInliner(
       }
       auto producer = ir_utils::getSoleProducerTv(tv);
       inlineSelectedAt(
-          {tv}, producer, (int64_t)producer->nDims() - tailing_static_dims);
+          {tv},
+          producer,
+          (int64_t)producer->nDims() - tailing_static_dims,
+          true);
     }
   }
 }
