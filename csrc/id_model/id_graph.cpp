@@ -245,7 +245,17 @@ bool IdGraph::transformAtributesMatch(Expr* first, Expr* second) {
     }
   }
 
-  // TODO: Resize properties
+  if (first->isA<Resize>()) {
+    if (!first->as<Resize>()->leftExpand()->sameAs(
+            second->as<Resize>()->leftExpand())) {
+      return false;
+    }
+
+    if (!first->as<Resize>()->rightExpand()->sameAs(
+            second->as<Resize>()->rightExpand())) {
+      return false;
+    }
+  }
 
   return true;
 }
@@ -340,19 +350,6 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
   // TODO: For now we're using same as, however we could know what val's are
   // exactly the same given the exact map. We might want to pipe that
   // information through to here.
-
-  // TODO-NM: Should this be transformAtributesMatch?
-  if (first->isA<Resize>()) {
-    if (!first->as<Resize>()->leftExpand()->sameAs(
-            second->as<Resize>()->leftExpand())) {
-      return false;
-    }
-
-    if (!first->as<Resize>()->rightExpand()->sameAs(
-            second->as<Resize>()->rightExpand())) {
-      return false;
-    }
-  }
 
   return true;
 }
