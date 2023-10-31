@@ -295,20 +295,15 @@ static void SingleMatmulPartitionedK(
   int64_t N = benchmark_state.range(1);
   int64_t K = benchmark_state.range(2);
 
-  if (K % splitk_factor != 0) {
-    // We will just skip this benchmark until we have predicated partitionedk
-    // support
-    benchmark_state.SkipWithError(
-        "K must be an integer multiple of splitk_factor for this benchmark");
+  // Pad K to next multiple of both splitk_factor * 8 (for alignment of fp16
+  // values)
+  if (K % (splitk_factor * 8) != 0) {
+    int64_t pad_amount = splitk_factor * 8 - (K % (splitk_factor * 8));
+    K += pad_amount;
+    std::cerr << "Padding K to " << K
+              << " to satisfy 16-byte alignment requirement" << std::endl;
   }
-  int64_t Ki = ceilDiv(K, splitk_factor);
-  if (Ki % 8 != 0) {
-    // Required for alignment with fp16
-    benchmark_state.SkipWithError(
-        "K / splitk_factor must be an integer multiple of 8 for this benchmark");
-  }
-
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  int64_t Ki = K / splitk_factor;
 
   // Architecture
   auto properties = at::cuda::getDeviceProperties(0);
@@ -327,51 +322,20 @@ static void SingleMatmulPartitionedK(
   fusion->addInput(a);
   fusion->addInput(b);
 
-  at::Tensor aten_a, aten_b;
-  // Here we mimic splitting and transposing. For example, given an [M,K]
-  // tensor, we would split it into [M,B,Ki] then transpose the batch dim to
-  // the front to get [B, M, Ki]. Thus the tensor should be contiguous in [M,
-  // B, Ki] order but transposed.
-  // TODO: set strides or permute manually to accomplish the above
-  switch (layout) {
-    case MatmulLayout::TT:
-      aten_a = at::randn({splitk_factor, M, Ki}, options);
-      aten_b = at::randn({splitk_factor, Ki, N}, options);
-      b = transpose(b, 1, 2);
-      break;
-    case MatmulLayout::TN:
-      aten_a = at::randn({splitk_factor, M, Ki}, options);
-      aten_b = at::randn({splitk_factor, N, Ki}, options);
-      break;
-    case MatmulLayout::NT:
-      aten_a = at::randn({splitk_factor, Ki, M}, options);
-      aten_b = at::randn({splitk_factor, Ki, N}, options);
-      a = transpose(a, 1, 2);
-      b = transpose(b, 1, 2);
-      break;
-    case MatmulLayout::NN:
-      aten_a = at::randn({splitk_factor, Ki, M}, options);
-      aten_b = at::randn({splitk_factor, N, Ki}, options);
-      a = transpose(a, 1, 2);
-      break;
-    default:
-      NVF_CHECK(false, "unsupported data layout.");
-  }
-
   // batch matmul
-  // auto c = matmul(a, b, layout, turing_or_later);
-  // auto c = splitkLikeBatchedMatmul(a, b, layout);
-  a = broadcast(a, {false, false, true, false});
-  b = broadcast(b, {false, true, false, false});
-  auto c = fusedMultiplySum(a, b, {3});
+  auto c = splitkLikeBatchedMatmul(a, b, layout);
 
   fusion->addOutput(c);
 
   scheduleMatmul(fusion, params);
 
+  at::Tensor aten_a = matmulAtInput(
+      layout, TensorMatmulPos::A, at::kHalf, M, N, Ki, splitk_factor);
+  at::Tensor aten_b = matmulAtInput(
+      layout, TensorMatmulPos::B, at::kHalf, M, N, Ki, splitk_factor);
   std::vector<c10::IValue> aten_inputs = {aten_a, aten_b};
-  auto expected_output =
-      atMatmul(aten_a.to(at::kDouble), aten_b.to(at::kDouble), layout);
+  at::Tensor expected_output = splitkLikeAtMatmul(
+      aten_a.to(at::kDouble), aten_b.to(at::kDouble), layout);
 
   auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
 
@@ -546,13 +510,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
 // should be changed to 256.
 #define SplitKMs \
   { 128, 256 }
-/*
-#define SplitKNs                                                              \
-  {                                                                           \
-    1 * 128, 2 * 128, 3 * 128, 4 * 128, 6 * 128, 9 * 128, 12 * 128, 18 * 128, \
-        27 * 128, 36 * 128, 54 * 128, 108 * 128                               \
-  }
-  */
+
 // Dynamically find all valid values of N that divide number of SMs
 static std::vector<long int> splitKNs(long int tileN = 128) {
   const long int numSMs = getNumSMs();
