@@ -1104,7 +1104,13 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   if (num_splitk_dims) {
     // Inline the splitk sum with the output store
-    splitk_sum->computeAt(d, -2);
+    // splitk_sum->computeAt(d, -2);
+    // splitk_sum->inlineAt(-2, true);
+    auto epilogue_vals = DependencyCheck::getAllValsBetween({splitk_sum}, {d});
+    auto epilogue_tvs = ir_utils::filterByType<TensorView>(epilogue_vals);
+    std::unordered_set<TensorView*> epilogue_tvs_set(
+        epilogue_tvs.begin(), epilogue_tvs.end());
+    inlineSelectedAt(epilogue_tvs_set, d, -2, true);
   }
 
   // auto inline for all tensors except register tensors
