@@ -825,12 +825,13 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
     std::optional<IterType> id_type;
 
+    bool found = false;
     for (const auto& c2p : c2p_maps) {
       auto p_it = c2p.find(root_id);
-      NVF_ERROR(
-          p_it != c2p.end(),
-          "No input ID found to map with output ID: ",
-          root_id->toString());
+      if (p_it == c2p.end()) {
+        continue;
+      }
+      found = true;
       auto input_id = p_it->second;
       NVF_ERROR(
           input_id == maybeMutated(input_id),
@@ -851,6 +852,10 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
         id_type = input_id->getIterType();
       }
     }
+    NVF_ERROR(
+        found,
+        "No input ID found to map with output ID: ",
+        root_id->toString());
 
     NVF_ERROR(
         id_type.has_value(),
