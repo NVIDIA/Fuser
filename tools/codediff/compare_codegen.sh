@@ -183,7 +183,9 @@ collect_kernels() {
 
     mkdir -p "$outdir/$commit"
 
-    bashcmd=("bash" "$scriptdir/run_command.sh" "-f" "$nvfuserdir")
+    # Name each run with commit abbrev, tell it where nvfuser lives since the
+    # run_command script was copied to $scriptdir before git operations.
+    bashcmd=("bash" "$scriptdir/run_command.sh" "-f" "$nvfuserdir" "-n" "$commit")
 
     if [[ -n $quiet ]]
     then
