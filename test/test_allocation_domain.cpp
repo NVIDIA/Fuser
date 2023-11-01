@@ -1195,6 +1195,15 @@ TEST_F(NVFuserTest, AllocationDomainContiguityForExplicitBroadcast) {
   testValidate(fusion, outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
+// Test that allocation domain can be used to vectorize overlapping tensors,
+// by making the allocation domain deviate from the stride order. Note that
+// this test is only a demo "hey, we can do this", instead of checking for
+// a real use case. Supporting overlapping tensor is a gray area for framework,
+// and we are not actively using the trick in this test to generate a better
+// kernel for overlapping tensors. The only reason why this test exists is
+// because I think it is a good sign that we have a good design (a good design
+// automatically supports all kinds of use cases, even those that we don't have
+// an active plan to support on).
 TEST_F(AllocationDomainTest, VectorizeOverlappingTensor) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -1227,6 +1236,8 @@ TEST_F(AllocationDomainTest, VectorizeOverlappingTensor) {
   }
   tv1->axis(1)->parallelize(ParallelType::Vectorize);
 
+  // Note that the stride of the second dimension of the input tensor must be a
+  // multiple of 4, otherwise we will have misaligned address access.
   at::Tensor t0 =
       at::randn({4 * 5 * 7}).cuda().as_strided({4, 5, 7}, {7, 4, 1});
 
