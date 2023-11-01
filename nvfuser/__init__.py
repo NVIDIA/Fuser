@@ -321,7 +321,7 @@ class FusionDefinition(_C._FusionDefinition):
             reference_outputs
         ), f"Expected {len(fusion_outputs)} reference outputs for validation."
 
-        tolerance_values = self.get_val_tolerances(inputs)
+        tolerance_values = self.getValTolerances(inputs)
         assert len(tolerance_values) == len(
             fusion_outputs
         ), f"Missing tolerance values, expected {len(fusion_outputs)}, got {len(tolerance_values)}"
