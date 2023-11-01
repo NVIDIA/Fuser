@@ -110,7 +110,7 @@ class ReductionParams : public HeuristicParams {
   bool compute_persistent_buffer_with_first_consumer = false;
 
   // Inline all tvs
-  bool is_inline_all_tvs = true;
+  bool maybe_special_inline_cached_inputs = false;
 
   bool static_bdimx = false;
   bool static_bdimy = false;

@@ -389,7 +389,7 @@ void multiReductionInliner(
     const bool unroll,
     const bool vectorize,
     const bool is_outer_grid_persistence,
-    const bool is_inline_all_tvs,
+    const bool maybe_special_inline_cached_inputs,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
@@ -417,12 +417,13 @@ void multiReductionInliner(
     fusion->removeOutput(output);
   }
 
-  // This special inline for cached_inputs is used when `is_inline_all_tvs` is
-  // false and all the cached input tvs or their consumers are persistent. It
-  // seperates data loading and computation without inrcreasing requested
-  // registers and showed performance increase, see SoftmaxNotInlineDataLoad.
-  bool is_special_inline_cached_input =
-      !is_inline_all_tvs && checkCachedInputAndConsumer(fusion, cached_inputs);
+  // This special inline for cached_inputs is used when
+  // `maybe_special_inline_cached_inputs` is true and all the cached input tvs
+  // or their consumers are persistent. It seperates data loading and
+  // computation without inrcreasing requested registers and showed performance
+  // increase, see SoftmaxNotInlineDataLoad.
+  bool is_special_inline_cached_input = maybe_special_inline_cached_input &&
+      checkCachedInputAndConsumer(fusion, cached_inputs);
 
   if (is_special_inline_cached_input) {
     inlineMost(ir_utils::allTvsExcept(

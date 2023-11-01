@@ -753,7 +753,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   // If there are more than 1 persistent batches, needs special
   // inline to separate data loading and calculation, see multiReductionInliner.
   if (rparams->batches_per_block_inner_reduction > 1) {
-    rparams->is_inline_all_tvs = false;
+    rparams->maybe_special_inline_cached_inputs = true;
   }
 
   rparams->lparams = LaunchParams(
@@ -777,7 +777,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
             << "nvrtc_register_per_thread: " << nvrtc_register_per_thread
             << "\n"
-            << "is_inline_all_tvs: " << rparams->is_inline_all_tvs << "\n"
+            << "maybe_special_inline_cached_inputs: "
+            << rparams->maybe_special_inline_cached_inputs << "\n"
             << "max_persistent_buffer_size: " << max_persistent_buffer_size
             << "\n"
             << "max_multi_reduction_factor: " << max_multi_reduction_factor

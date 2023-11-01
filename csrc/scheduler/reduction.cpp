@@ -1220,7 +1220,7 @@ void scheduleReduction(Fusion* fusion, const ReductionParams& rparams) {
       unroll,
       vectorize,
       is_outer_grid_persistence,
-      rparams.is_inline_all_tvs,
+      rparams.maybe_special_inline_cached_inputs,
       reduction_tvs,
       cached_inputs,
       cached_outputs);
