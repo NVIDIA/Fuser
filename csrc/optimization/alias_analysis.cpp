@@ -104,25 +104,51 @@ void findAliasesFromExpr(Expr* expr, AliasAnalysisResult& alias_to_source) {
       // `in`. Both `in` and `out` are allocated contiguously per the
       // rfactor domain. Also, the ViewOp can't transform any expanded broadcast
       // IterDomain.
-      alias_to_source[out] = in;
+      alias_to_source.add(out, in);
     }
   }
 }
 
 } // namespace
 
+void AliasAnalysisResult::add(
+    const TensorView* alias,
+    const TensorView* source) {
+  const TensorView*& old_source = alias_to_source_[alias];
+  NVF_ERROR(
+      old_source == nullptr,
+      "The current implementation of alias analysis shouldn't find two sources for an alias. However, it's trying to make ",
+      alias->toString(),
+      " an alias of ",
+      source->toString(),
+      " while it's already an alias of ",
+      old_source->toString());
+  old_source = source;
+}
+
+const Val* AliasAnalysisResult::findRoot(const Val* alias) const {
+  const TensorView* root = dynamic_cast<const TensorView*>(alias);
+  if (root == nullptr) {
+    return nullptr;
+  }
+
+  for (; alias_to_source_.count(root); root = alias_to_source_.at(root))
+    ;
+  return root;
+}
+
 AliasAnalysisResult findAliases(Fusion* fusion) {
-  AliasAnalysisResult alias_to_source;
+  AliasAnalysisResult alias_analysis;
   // Fusion::exprs() returns topological order.
   for (Expr* expr : fusion->exprs()) {
     // A potential improvement suggested by @tfogal: Let findAliasesFromExpr
     // return the AliasAnalysisResult instead of taking a mutable
-    // `alias_to_source` arg. This might be somewhat easily parallelizable
+    // `alias_analysis` arg. This might be somewhat easily parallelizable
     // (albeit with a serialized merge step afterwards that inserts the
     // results).
-    findAliasesFromExpr(expr, alias_to_source);
+    findAliasesFromExpr(expr, alias_analysis);
   }
-  return alias_to_source;
+  return alias_analysis;
 }
 
 } // namespace nvfuser::optimization

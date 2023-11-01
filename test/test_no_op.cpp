@@ -201,33 +201,22 @@ TEST_F(NoOpTest, View) {
   fusion->addInput(in);
   TensorView* out = reshape(in, in_shape, out_shape);
   fusion->addOutput(out);
-  fusion->aliasOutputToInput(out, in, AliasType::PointerCast);
-
-  FusionExecutor fe;
-  at::Tensor in_tensor =
-      at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
-  fe.compileFusion(fusion.get(), {in_tensor});
-  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
-  EXPECT_EQ(in_tensor.data_ptr<float>(), out_tensor.data_ptr<float>());
-  testValidate(
-      fusion.get(),
-      {out_tensor},
-      {in_tensor},
-      {in_tensor.view({2, 12})},
-      __LINE__,
-      __FILE__);
 
   FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
   std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
-  out_tensor = out_tensors[0];
-  EXPECT_EQ(in_tensor.data_ptr<float>(), out_tensor.data_ptr<float>());
+  at::Tensor out_tensor = out_tensors[0];
 
+  // Verify aliasing.
+  EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
+
+  // Verify the NoOp scheduler was kicked in.
   const std::vector<SegmentedGroup*>& groups =
       fec.getMostRecentKernelRuntime()->fusionSegments()->groups();
   ASSERT_EQ(groups.size(), 1);
   SegmentedGroup* group = groups[0];
-
   EXPECT_EQ(group->heuristic(), ScheduleHeuristic::NoOp);
 }
 
