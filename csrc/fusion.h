@@ -247,8 +247,9 @@ class Fusion : public IrContainer {
   // the input tensor to the section where output is produced.
   void aliasOutputToInput(Val* output, Val* input, AliasType type);
 
-  //! Return the aliased input of a given output or nullptr if not aliased
-  Val* getOutputAlias(Val* output);
+  //! Returns the aliased input of a given output or nullptr if not aliased.
+  //! If aliased, `info` (if not nullptr) will contain how they are aliased.
+  Val* getOutputAlias(Val* output, AliasInfo* info = nullptr);
 
   //! Get alias mappings from fusion outputs to inputs
   //

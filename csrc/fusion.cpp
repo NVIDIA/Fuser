@@ -773,9 +773,13 @@ void Fusion::aliasOutputToInput(Val* output, Val* input, const AliasType type) {
   }
 }
 
-Val* Fusion::getOutputAlias(Val* output) {
+Val* Fusion::getOutputAlias(Val* output, AliasInfo* info) {
   if (auto search = io_alias_.find(output); search != io_alias_.end()) {
-    return search->second.first;
+    const auto& [in_val, alias_info] = search->second;
+    if (info != nullptr) {
+      *info = alias_info;
+    }
+    return in_val;
   }
   return nullptr;
 }
