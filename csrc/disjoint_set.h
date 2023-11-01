@@ -80,15 +80,6 @@ class VectorOfUniqueEntries {
     return false;
   }
 
-  // Returns if a node was actually added
-  bool pushFront(T entry) {
-    if (set_.emplace(entry).second) {
-      vector_.insert(vector_.begin(), entry);
-      return true;
-    }
-    return false;
-  }
-
   // Returns if any node was added
   bool pushBack(const VectorOfUniqueEntries<T, Hash>& other) {
     return pushBack(other.vector());
