@@ -5849,7 +5849,7 @@ TEST_F(NVFuserTest, FusionSegmentIoAlias_CUDA) {
   TensorView* tv6 = add(tv5, tv2); //  Group 1 (Broadcast after reduce)
 
   // Note: test alias;
-  fusion->aliasOutputToInput(tv6, tv0);
+  fusion->aliasOutputToInput(tv6, tv0, AliasType::InplaceUpdate);
   // TODO: support output on aliased fusion #1488
   // remove tv7 after #1488
   // fusion->addOutput(tv6);
@@ -7745,9 +7745,9 @@ TEST_F(NVFuserTest, FusionParallelDimensionMap3_CUDA) {
   GpuLower gpulw(fusion.get());
   const auto& pdmap = gpulw.parallelDimensionMap();
   ASSERT_FALSE(pdmap.isExact(ParallelType::TIDx));
-  ASSERT_EQ(pdmap.get(ParallelType::TIDx)->getInt(), 20);
+  ASSERT_EQ(pdmap.get(ParallelType::TIDx)->value(), 20);
   ASSERT_TRUE(pdmap.isExact(ParallelType::TIDy));
-  ASSERT_EQ(pdmap.get(ParallelType::TIDy)->getInt(), 10);
+  ASSERT_EQ(pdmap.get(ParallelType::TIDy)->value(), 10);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input1 = at::randn({13}, options);

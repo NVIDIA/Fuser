@@ -324,11 +324,7 @@ class SegmentedFusion {
   }
 
   Val* findAlias(Val* val) const {
-    auto alias_it = complete_fusion_->ioAlias().find(val);
-    if (alias_it != complete_fusion_->ioAlias().end()) {
-      return alias_it->second;
-    }
-    return nullptr;
+    return complete_fusion_->getOutputAlias(val);
   }
 
   //! Make a clone of the group and convert to fusion
@@ -524,13 +520,7 @@ class SegmentCandidateFinder {
       const KernelArgumentHolder& inputs,
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
     auto fusion_copy = std::make_unique<Fusion>(*fusion);
-    if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-      debug() << "Segment the fusion (Original Fusion Un-modified): "
-              << std::endl;
-      fusion_copy->printMath();
-    }
-    SegmentCandidateFinder scf(std::move(fusion_copy), inputs, options);
-    return std::move(scf.segmented_fusion_);
+    return segment(std::move(fusion_copy), inputs, options);
   }
 
   // Perform segmentation on and take ownership of the given fusion
@@ -538,12 +528,12 @@ class SegmentCandidateFinder {
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
-    SegmentCandidateFinder scf(std::move(fusion), inputs, options);
     if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
       debug() << "Segment the fusion (Original Fusion Un-modified): "
               << std::endl;
-      scf.completeFusion()->printMath();
+      fusion->printMath();
     }
+    SegmentCandidateFinder scf(std::move(fusion), inputs, options);
     return std::move(scf.segmented_fusion_);
   }
 

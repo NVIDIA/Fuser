@@ -5227,7 +5227,28 @@ TEST_F(NVFuserTest, FusionInlineAt_CUDA) {
   testValidate(fusion, {out}, {t0}, {t0.sin().cos()}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionTrivialInputForwarding_CUDA) {
+TEST_F(NVFuserTest, FusionTrivialInputForwarding_FusionExecutor) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeConcreteTensor({-1, -1});
+  TensorView* tv1 = makeConcreteTensor({-1, -1});
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv0);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({10, 4}, options);
+  at::Tensor t1 = at::randn({10, 4}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0, t1});
+  at::Tensor t0_forward = fe.runFusion({t0, t1})[0];
+
+  EXPECT_EQ(t0_forward.data_ptr(), t0.data_ptr());
+}
+
+TEST_F(NVFuserTest, FusionTrivialInputForwarding_FusionExecutorCache) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -5258,7 +5279,7 @@ TEST_F(NVFuserTest, FusionTrivialInputForwarding_CUDA) {
   testValidate(fusion, cg_outputs2, {t0, t1}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionTrivialInputForwarding2_CUDA) {
+TEST_F(NVFuserTest, FusionTrivialInputForwarding2_FusionExecutorCache) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -6342,10 +6363,9 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
             std::find(cond_inputs.begin(), cond_inputs.end(), loop_index);
         auto vec_factor_it =
             std::find_if(cond_inputs.begin(), cond_inputs.end(), [](Val* inp) {
-              auto int_val = inp->getInt();
-              return int_val.has_value() &&
-                  (int_val.value() == vec_factor - 1 ||
-                   int_val.value() == -(vec_factor - 1));
+              auto int_val = inp->value();
+              return int_val.hasValue() &&
+                  (int_val == vec_factor - 1 || int_val == -(vec_factor - 1));
             });
         // If vectorized, the predicate should use (vec_factor - 1) or
         // -(vec_factor - 1) rather than the loop index.
@@ -8386,7 +8406,7 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
       aten_input, norm_shape, aten_weight, aten_bias, kEps);
 
   // capture stdout and check stdout contains register spill warning
-  testing::internal::CaptureStdout();
+  captureStdout();
   {
     // generate persistent kernel
     auto persistent_params =
@@ -8415,7 +8435,7 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
         __FILE__,
         "");
   }
-  std::string output = testing::internal::GetCapturedStdout();
+  std::string output = getCapturedStdout();
   NVF_CHECK(
       output.find("Register spill detected") != std::string::npos,
       "Register spill is not captured!");
@@ -8667,7 +8687,7 @@ TEST_F(NVFuserTest, Repro413_CUDA) {
       auto getVectorizationFactor = [](TensorView* tv) -> int64_t {
         for (auto i : tv->getLeafDomain()) {
           if (i->getParallelType() == ParallelType::Vectorize) {
-            return i->extent()->evaluateInt();
+            return i->extent()->evaluate().as<int64_t>();
           }
         }
         return 1;
@@ -8798,7 +8818,7 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
   scheduleInnerPersistentKernel(&fusion, *persistent_params);
 
   // capture stdout and check stdout contains register spill warning
-  testing::internal::CaptureStdout();
+  captureStdout();
 
   // compile and run persistent kernel
   // intentionally set maxrregcount to 32 to trigger register spill
@@ -8811,7 +8831,7 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {aten_input}, lparams, compile_opts);
 
-  std::string output = testing::internal::GetCapturedStdout();
+  std::string output = getCapturedStdout();
   ASSERT_NE(output.find("Register spill detected"), std::string::npos)
       << "Register spill is not captured!";
 }
@@ -9695,6 +9715,7 @@ TEST_F(NVFuserTest, PredicateRNGOps) {
   at::manual_seed(0);
   auto cg_outputs = fe.runFusion({t0});
 }
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

@@ -273,19 +273,7 @@ Val* foldConstants(Val* value) {
     return value;
   }
   if (value->isConstScalar()) {
-    if (value->isIntegralScalar()) {
-      return IrBuilder::create<Val>(
-          value->evaluateInt(), *value->getDataType());
-    }
-    if (value->isFloatingPointScalar()) {
-      return IrBuilder::create<Val>(
-          value->evaluateDouble(), *value->getDataType());
-    }
-    if (value->isABool()) {
-      return IrBuilder::create<Val>(
-          value->evaluateBool(), *value->getDataType());
-    }
-    // TODO: support complex double
+    return IrBuilder::create<Val>(value->evaluate(), *value->getDataType());
   }
   return value;
 }
@@ -488,14 +476,14 @@ inline bool isNoOpTerm(Val* v, BinaryOpType type) {
     case BinaryOpType::Mul:
       return v->isOne();
     case BinaryOpType::LogicalAnd:
-      return v->getBool() == true;
+      return v->value() == true;
     case BinaryOpType::LogicalOr:
-      return v->getBool() == false;
+      return v->value() == false;
     case BinaryOpType::BitwiseAnd:
-      return v->getInt() == -1;
+      return v->value() == -1;
     case BinaryOpType::BitwiseOr:
     case BinaryOpType::BitwiseXor:
-      return v->getInt() == 0;
+      return v->value() == 0;
     case BinaryOpType::Gcd:
       return v->isZeroInt();
     default:
@@ -514,15 +502,15 @@ inline bool isBlackhole(Val* v, BinaryOpType type) {
   }
   switch (type) {
     case BinaryOpType::Mul:
-      return v->getInt() == 0;
+      return v->value() == 0;
     case BinaryOpType::LogicalAnd:
-      return v->getBool() == false;
+      return v->value() == false;
     case BinaryOpType::LogicalOr:
-      return v->getBool() == true;
+      return v->value() == true;
     case BinaryOpType::BitwiseAnd:
-      return v->getInt() == 0;
+      return v->value() == 0;
     case BinaryOpType::BitwiseOr:
-      return v->getInt() == -1;
+      return v->value() == -1;
     case BinaryOpType::Gcd:
       return v->isOneInt();
     default:
@@ -1011,9 +999,9 @@ inline DataType dataTypeOrNull(Val* x) {
   return x == nullptr ? DataType::Null : x->dtype();
 }
 
-// If x is nullptr, return 1. Otherwise, return x->getInt().
+// If x is nullptr, return 1. Otherwise, return x->value().as<int64_t>.
 inline int64_t getIntOrOne(Val* x) {
-  return x == nullptr ? 1 : *x->getInt();
+  return x == nullptr ? 1 : x->value().as<int64_t>();
 }
 
 // If the data type is unknown, return nullptr. Otherwise, return a constant
@@ -1103,9 +1091,9 @@ std::pair<Val*, std::list<Val*>> getConstAndSymbolicFactors(Val* x) {
   std::list<Val*> symbolic_factors;
   for (auto f : factors) {
     f = foldConstants(f);
-    if (f->getInt().has_value()) {
+    if (f->value().hasValue() && f->value().is<int64_t>()) {
       const_dtype = promoteTypeWithNull(const_dtype, f->dtype());
-      const_factor *= *f->getInt();
+      const_factor *= f->value().as<int64_t>();
     } else {
       symbolic_factors.emplace_back(f);
     }
@@ -1131,7 +1119,7 @@ Val* productOfFactors(
     return assoc_comm::maybeFlattenedOpOf(
         BinaryOpType::Mul, std::move(symbolic_factors));
   }
-  if (*const_factor->getInt() != 1 || symbolic_factors.empty()) {
+  if (const_factor->value() != 1 || symbolic_factors.empty()) {
     symbolic_factors.emplace_back(const_factor);
   }
   return maybeFlattenedOpOf(BinaryOpType::Mul, std::move(symbolic_factors));
@@ -1490,10 +1478,7 @@ bool isPositiveHelper(Val* value, const Context& context) {
 
 bool isNonZero(Val* value, const Context& context) {
   value = foldConstants(value);
-  if (value->getInt().has_value() && *value->getInt() != 0) {
-    return true;
-  }
-  if (value->getDouble().has_value() && *value->getDouble() != 0.0) {
+  if (value->value().hasValue() && value->value() != 0) {
     return true;
   }
   if (isPositive(value, context)) {
@@ -1525,11 +1510,8 @@ bool hasCompatibleSign(Val* x, Val* y, const Context& context) {
 bool lessThan(Val* x, Val* y, const Context& context) {
   x = foldConstants(x);
   y = foldConstants(y);
-  if (x->getInt().has_value() && y->getInt().has_value()) {
-    return *x->getInt() < *y->getInt();
-  }
-  if (x->getDouble().has_value() && y->getDouble().has_value()) {
-    return *x->getDouble() < *y->getDouble();
+  if (x->value().hasValue() && y->value().hasValue()) {
+    return x->value() < y->value();
   }
   x = maybeUnwrapMagicZero(x);
   y = maybeUnwrapMagicZero(y);
@@ -1557,11 +1539,8 @@ bool lessThan(Val* x, Val* y, const Context& context) {
 bool lessEqual(Val* x, Val* y, const Context& context) {
   x = foldConstants(x);
   y = foldConstants(y);
-  if (x->getInt().has_value() && y->getInt().has_value()) {
-    return *x->getInt() <= *y->getInt();
-  }
-  if (x->getDouble().has_value() && y->getDouble().has_value()) {
-    return *x->getDouble() <= *y->getDouble();
+  if (x->value().hasValue() && y->value().hasValue()) {
+    return x->value() <= y->value();
   }
   x = maybeUnwrapMagicZero(x);
   y = maybeUnwrapMagicZero(y);
@@ -1887,7 +1866,8 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       // a / 1 -> a
       // 0 / a -> 0
       if (rhs->isOne() ||
-          (isValidDenominator(rhs, context) && lhs->getInt() == 0)) {
+          (isValidDenominator(rhs, context) && lhs->value().hasValue() &&
+           lhs->value().is<int64_t>() && lhs->value() == 0)) {
         return lhs;
       }
     }
