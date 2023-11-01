@@ -1195,4 +1195,42 @@ TEST_F(NVFuserTest, AllocationDomainContiguityForExplicitBroadcast) {
   testValidate(fusion, outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
+TEST_F(AllocationDomainTest, VectorizeOverlappingTensor) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(3);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  // According to the stride order below, the allocation domain should be the
+  // same as the root domain. However, here we intentionally make the allocation
+  // domain [axis(1), axis(0), axis(2)] because doing so allows us to vectorize
+  // by 4.
+  tv0->setAllocationDomain(
+      {tv0->axis(1), tv0->axis(0), tv0->axis(2)}, {false, true, true});
+
+  for (auto tv : {tv2, tv1}) {
+    tv->reorder({{0, 1}});
+    tv->merge(0);
+    tv->merge(0);
+    tv->split(0, 4);
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+  }
+  tv1->axis(1)->parallelize(ParallelType::Vectorize);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 =
+      at::randn({4 * 5 * 7}, options).as_strided({4, 5, 7}, {7, 4, 1});
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), {t0});
+  auto cg_outputs = fe.runFusion({t0});
+
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
