@@ -179,12 +179,7 @@ IdGraph IdModel::initializeIdGraph(bool propagate_through_exprs) {
   return id_graph;
 }
 
-void IdModel::buildExactMap(const std::vector<Expr*>& exprs) {
-  if (getenv("VERBOSE")) {
-    exprs.front()->fusion()->print();
-    std::cout << std::endl;
-  }
-
+void IdModel::buildExactGraph(const std::vector<Expr*>& exprs) {
   for (auto expr : exprs) {
     TensorView* c_tv = ir_utils::getTvOutput(expr);
 
@@ -273,7 +268,7 @@ void IdModel::build(
   // expressions.
   idGraph(IdMappingMode::EXACT) = initializeIdGraph();
 
-  buildExactMap(tv_exprs);
+  buildExactGraph(tv_exprs);
 }
 
 } // namespace nvfuser

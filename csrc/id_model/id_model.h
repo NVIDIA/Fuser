@@ -110,7 +110,7 @@ class IdModel : public PolymorphicBase {
 
   // Fills disjoint_ids_[IdMappingMode::EXACT] for relationships between inputs
   // and first output of expr
-  void buildExactMap(const std::vector<Expr*>& exprs);
+  void buildExactGraph(const std::vector<Expr*>& exprs);
 
   // Keeps a disjoint set entry for all IterDomain for all mapping mode types.
   //
