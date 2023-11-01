@@ -24,7 +24,9 @@ void MultiDeviceEnvironment::SetUp() {
 }
 
 void MultiDeviceEnvironment::TearDown() {
-  communicator_->barrier();
+  if (communicator_->is_available()) {
+    communicator_->barrier();
+  }
 }
 
 void MultiDeviceTest::SetUp() {
