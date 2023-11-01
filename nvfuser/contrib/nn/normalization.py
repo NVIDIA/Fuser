@@ -92,8 +92,8 @@ def norm_fusion_forward(
         The normalized output, as well as mean and 1/std. Note that
         `fd.add_output` is _not_ called by this function.
     """
-    assert (
-        (running_var is None) == (running_mean is None)
+    assert (running_var is None) == (
+        running_mean is None
     ), "Iff running mean or var is given, the other should be"
 
     # dyn_shape holds Scalars describing the size of the input x
