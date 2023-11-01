@@ -22,11 +22,12 @@ def get_device_properties() -> Tuple[int, float]:
         raise OSError("could not load any of: " + " ".join(libnames))
 
     # Device attribute enums (taken from cuda.h)
-    # https://nvidia.github.io/cuda-python/module/cuda.html
+    # https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TYPES.html#group__CUDA__TYPES_1ge12b8a782bebe21b1ac0091bf9f4e2a3
 
     CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK = 1
     CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK = 8
     CU_DEVICE_ATTRIBUTE_MAX_REGISTERS_PER_BLOCK = 12
+    CU_DEVICE_ATTRIBUTE_CLOCK_RATE = 13
     CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE = 36
     CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH = 37
     CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE = 38
@@ -65,6 +66,14 @@ def get_device_properties() -> Tuple[int, float]:
         device,
     )
     device_properties["gpu_regs_per_block"] = max_reg_per_block.value
+
+    max_clock_khz = ctypes.c_int()
+    cuda.cuDeviceGetAttribute(
+        ctypes.byref(max_clock_khz),
+        CU_DEVICE_ATTRIBUTE_CLOCK_RATE,
+        device,
+    )
+    device_properties["gpu_clock_rate_khz"] = max_clock_khz.value
 
     l2_cache_size = ctypes.c_int()
     cuda.cuDeviceGetAttribute(

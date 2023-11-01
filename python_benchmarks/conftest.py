@@ -32,5 +32,4 @@ def pytest_make_parametrize_id(val):
 
 
 def pytest_benchmark_update_machine_info(config, machine_info):
-    for property, value in DEVICE_PROPERTIES.items():
-        machine_info[property] = value
+    machine_info.update(DEVICE_PROPERTIES)
