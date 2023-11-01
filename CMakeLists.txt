@@ -310,6 +310,7 @@ if(BUILD_PYTHON)
     COMMAND
     "${PYTHON_EXECUTABLE}" ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
     DEPENDS ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
+    DEPENDS ${NVFUSER_ROOT}/version.txt
     WORKING_DIRECTORY ${NVFUSER_ROOT}/tools/
   )
   add_custom_target(
@@ -398,6 +399,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
     ${NVFUSER_ROOT}/test/test_tutorial.cpp
     ${NVFUSER_ROOT}/test/test_alias_analysis.cpp
+    ${NVFUSER_ROOT}/test/test_scalar_hoisting.cpp
   )
 
   if(BUILD_PYTHON)
