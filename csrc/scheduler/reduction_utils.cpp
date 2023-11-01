@@ -352,8 +352,7 @@ bool isGridAllreduce(TensorView* reduction_tv) {
 }
 
 namespace {
-// Returns false if there is a non-persistent cached input tv which also has a
-// non-persistent consumer.
+// Returns true if all the cached input tvs or their consumers are persistent.
 bool checkCachedInputAndConsumer(
     Fusion* fusion,
     const std::vector<TensorView*>& cached_inputs) {
