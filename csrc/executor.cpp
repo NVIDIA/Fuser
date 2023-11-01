@@ -1270,15 +1270,15 @@ std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
   auto expr_eval =
       executor_utils::bindInputs(kernel_inputs, lowered_->kernel());
 
-  auto input_alias_indices_entry =
+  auto input_output_aliases_entry =
       executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::InputAliasIndices>(
+          executor_utils::caching::InputOutputAliases>(
           compileTimeDataCache(), [&]() {
-            return std::make_unique<std::vector<std::pair<int, int>>>(
+            return std::make_unique<std::vector<InputOutputAlias>>(
                 fusion_->getOutputToInputAliasIndices());
           });
 
-  const auto& output_to_input_aliases = input_alias_indices_entry.get();
+  const auto& output_to_input_aliases = input_output_aliases_entry.get();
 
   auto output_info =
       getOutputBufferInfo(kernel_inputs, expr_eval, kernel()->indexType());
