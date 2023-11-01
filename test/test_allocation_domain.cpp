@@ -1214,17 +1214,21 @@ TEST_F(AllocationDomainTest, VectorizeOverlappingTensor) {
       {tv0->axis(1), tv0->axis(0), tv0->axis(2)}, {false, true, true});
 
   for (auto tv : {tv2, tv1}) {
+    // [I0, I1, I2]
     tv->reorder({{0, 1}});
+    // [I1, I0, I2]
     tv->merge(0);
+    // [I1*I0, I2]
     tv->merge(0);
+    // [I1*I0*I2]
     tv->split(0, 4);
+    // [I1*I0*I2/4, 4]
     tv->axis(0)->parallelize(ParallelType::TIDx);
   }
   tv1->axis(1)->parallelize(ParallelType::Vectorize);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 =
-      at::randn({4 * 5 * 7}, options).as_strided({4, 5, 7}, {7, 4, 1});
+      at::randn({4 * 5 * 7}).cuda().as_strided({4, 5, 7}, {7, 4, 1});
 
   FusionExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
