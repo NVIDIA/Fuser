@@ -5,10 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <expr_evaluator.h>
 #include <fusion.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <kernel.h>
+#include <C++20/compare>
 
 #include <ir/all_nodes.h>
 #include <ir/container.h>
@@ -17,10 +19,6 @@
 #include <cstdint>
 
 namespace nvfuser {
-
-Val* IrBuilder::newScalar(DataType dtype) {
-  return IrBuilder::create<Val>(dtype);
-}
 
 Val* IrBuilder::newArithmeticExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
   NVF_CHECK(
@@ -46,7 +44,7 @@ Val* IrBuilder::newArithmeticExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
       NVF_ERROR(op_type == BinaryOpType::Add || op_type == BinaryOpType::Sub);
     }
   }
-  auto result = newScalar(dtype);
+  auto result = create<Val>(dtype);
   IrBuilder::create<BinaryOp>(op_type, result, lhs, rhs);
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
   return result;
@@ -56,7 +54,7 @@ Val* IrBuilder::newLogicExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
   NVF_CHECK(
       lhs != nullptr && rhs != nullptr,
       "Either lhs or rhs is a nullptr in newLogicExpr.");
-  auto result = newScalar(DataType::Bool);
+  auto result = create<Val>(DataType::Bool);
   IrBuilder::create<BinaryOp>(op_type, result, lhs, rhs);
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
   return result;
@@ -67,49 +65,49 @@ Val* IrBuilder::whereExpr(Val* pred, Val* lhs, Val* rhs) {
       pred != nullptr && lhs != nullptr && rhs != nullptr,
       "Either pred, lhs, or rhs is a nullptr in whereExpr.");
   NVF_CHECK(lhs->dtype() == rhs->dtype(), "Incompatible operand types");
-  auto result = newScalar(lhs->dtype());
+  auto result = create<Val>(lhs->dtype());
   IrBuilder::create<TernaryOp>(TernaryOpType::Where, result, pred, lhs, rhs);
   return result;
 }
 
 Val* IrBuilder::negExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in negExpr.");
-  auto result = newScalar(val->dtype());
+  auto result = create<Val>(val->dtype());
   IrBuilder::create<UnaryOp>(UnaryOpType::Neg, result, val);
   return result;
 }
 
 Val* IrBuilder::logicalNotExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in logicalNotExpr.");
-  auto result = newScalar(val->dtype());
+  auto result = create<Val>(val->dtype());
   IrBuilder::create<UnaryOp>(UnaryOpType::LogicalNot, result, val);
   return result;
 }
 
 Val* IrBuilder::bitwiseNotExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in bitwiseNotExpr.");
-  auto result = newScalar(val->dtype());
+  auto result = create<Val>(val->dtype());
   IrBuilder::create<UnaryOp>(UnaryOpType::BitwiseNot, result, val);
   return result;
 }
 
 Val* IrBuilder::derefExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in derefExpr.");
-  auto result = newScalar(*(std::get<PointerType>(val->dtype().type).type));
+  auto result = create<Val>(*(std::get<PointerType>(val->dtype().type).type));
   IrBuilder::create<UnaryOp>(UnaryOpType::Dereference, result, val);
   return result;
 }
 
 Val* IrBuilder::absExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in absExpr.");
-  auto result = newScalar(val->dtype());
+  auto result = create<Val>(val->dtype());
   IrBuilder::create<UnaryOp>(UnaryOpType::Abs, result, val);
   return result;
 }
 
 Val* IrBuilder::setExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in setExpr.");
-  auto result = newScalar(val->dtype());
+  auto result = create<Val>(val->dtype());
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, result, val);
   return result;
 }
@@ -119,14 +117,14 @@ Val* IrBuilder::maybeCastExpr(DataType dtype, Val* val) {
   if (val->dtype() == dtype) {
     return val;
   }
-  auto result = newScalar(dtype);
+  auto result = create<Val>(dtype);
   IrBuilder::create<UnaryOp>(UnaryOpType::Cast, result, val);
   return result;
 }
 
 Val* IrBuilder::addressExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in addressExpr.");
-  auto result = newScalar(
+  auto result = create<Val>(
       DataType(PointerType{std::make_shared<DataType>(val->dtype())}));
   IrBuilder::create<UnaryOp>(UnaryOpType::Address, result, val);
   return result;
@@ -226,29 +224,29 @@ Val* IrBuilder::gcdExpr(Val* lhs, Val* rhs) {
 
 Val* IrBuilder::getItemExpr(Val* array, Val* index) {
   auto item_dtype = std::get<ArrayType>(array->dtype().type).type;
-  auto out = newScalar(*item_dtype);
+  auto out = create<Val>(*item_dtype);
   create<GetItem>(array->container(), out, array, index);
   return out;
 }
 
 Val* IrBuilder::getItemExpr(Val* array, PolymorphicValue index) {
   auto item_dtype = std::get<ArrayType>(array->dtype().type).type;
-  auto out = newScalar(*item_dtype);
+  auto out = create<Val>(*item_dtype);
   create<GetItem>(
-      array->container(), out, array, newConstant(index, DataType::Int));
+      array->container(), out, array, create<Val>(index, DataType::Int));
   return out;
 }
 
 Val* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
   auto struct_type = std::get<StructType>(struct_->dtype().type);
   const auto& item_type = struct_type.fieldDataType(attr);
-  auto out = newScalar(item_type);
+  auto out = create<Val>(item_type);
   create<GetAttr>(struct_->container(), out, struct_, std::move(attr));
   return out;
 }
 
 Val* IrBuilder::reverseArrayExpr(Val* array) {
-  auto out = newScalar(array->dtype());
+  auto out = create<Val>(array->dtype());
   create<ReverseArray>(out, array);
   return out;
 }
@@ -330,6 +328,9 @@ Val* SimplifyingIrBuilder::addExpr(Val* lhs, Val* rhs) {
 }
 
 Val* SimplifyingIrBuilder::subExpr(Val* lhs, Val* rhs) {
+  if (lhs->isIntegralScalar() && lhs->sameAs(rhs)) {
+    return lhs->fusion()->zeroVal(lhs->dtype());
+  }
   return addExpr(lhs, negExpr(rhs));
 }
 
@@ -391,7 +392,9 @@ Val* SimplifyingIrBuilder::ceilDivExpr(Val* lhs, Val* rhs) {
 }
 
 Val* SimplifyingIrBuilder::modExpr(Val* lhs, Val* rhs) {
-  if (rhs->isOneInt()) {
+  NVF_ERROR(isIntegralType(lhs->dtype()));
+  NVF_ERROR(isIntegralType(rhs->dtype()));
+  if (rhs->isOneInt() || lhs->isZeroInt() || lhs->sameAs(rhs)) {
     return FusionGuard::getCurFusion()->zeroVal(
         promoteType(lhs->dtype(), rhs->dtype()));
   }
@@ -564,7 +567,7 @@ Val* minOrMaxExpr(
     Fimc func) {
   if (rhs == nullptr) {
     return lhs;
-  } else if (lhs == nullptr) {
+  } else if (lhs == nullptr || lhs->sameAs(rhs)) {
     return rhs;
   } else if (lhs->isConst() && rhs->isConst()) {
     return IrBuilder::create<Val>(func(lhs->value(), rhs->value()));
@@ -594,10 +597,15 @@ Val* SimplifyingIrBuilder::minExpr(Val* lhs, Val* rhs) {
 }
 
 Val* SimplifyingIrBuilder::gcdExpr(Val* lhs, Val* rhs) {
+  NVF_ERROR(isIntegralType(lhs->dtype()));
+  NVF_ERROR(isIntegralType(rhs->dtype()));
   if (lhs->isZeroInt()) {
     return rhs;
   }
   if (rhs->isZeroInt()) {
+    return lhs;
+  }
+  if (lhs->sameAs(rhs)) {
     return lhs;
   }
   if (lhs->isOneInt() || rhs->isOneInt()) {
@@ -606,19 +614,109 @@ Val* SimplifyingIrBuilder::gcdExpr(Val* lhs, Val* rhs) {
   return IrBuilder::gcdExpr(lhs, rhs);
 }
 
+namespace {
+
+//! Compares a to b if they are both const scalars convertible to double
+std::partial_ordering compareScalars(Val* a, Val* b) {
+  ExpressionEvaluator ee;
+  auto a_val = ee.evaluate(a);
+  if (!a_val.hasValue()) {
+    return std::partial_ordering::unordered;
+  }
+  auto b_val = ee.evaluate(b);
+  if (!b_val.hasValue()) {
+    return std::partial_ordering::unordered;
+  }
+  if (a_val < b_val) {
+    return std::partial_ordering::less;
+  } else if (a_val == b_val) {
+    return std::partial_ordering::equivalent;
+  } else {
+    return std::partial_ordering::greater;
+  }
+}
+} // namespace
+
+Val* SimplifyingIrBuilder::ltExpr(Val* lhs, Val* rhs) {
+  auto c = compareScalars(lhs, rhs);
+  if (c == std::partial_ordering::unordered) {
+    return IrBuilder::ltExpr(lhs, rhs);
+  } else if (c == std::partial_ordering::less) {
+    return lhs->fusion()->trueVal();
+  } else {
+    return lhs->fusion()->falseVal();
+  }
+}
+
+Val* SimplifyingIrBuilder::leExpr(Val* lhs, Val* rhs) {
+  auto c = compareScalars(lhs, rhs);
+  if (c == std::partial_ordering::unordered) {
+    return IrBuilder::leExpr(lhs, rhs);
+  } else if (c == std::partial_ordering::greater) {
+    return lhs->fusion()->falseVal();
+  } else {
+    return lhs->fusion()->trueVal();
+  }
+}
+
+Val* SimplifyingIrBuilder::eqExpr(Val* lhs, Val* rhs) {
+  auto c = compareScalars(lhs, rhs);
+  if (c == std::partial_ordering::unordered) {
+    return IrBuilder::eqExpr(lhs, rhs);
+  } else if (c == std::partial_ordering::equivalent) {
+    return lhs->fusion()->trueVal();
+  } else {
+    return lhs->fusion()->falseVal();
+  }
+}
+
+Val* SimplifyingIrBuilder::neExpr(Val* lhs, Val* rhs) {
+  auto c = compareScalars(lhs, rhs);
+  if (c == std::partial_ordering::unordered) {
+    return IrBuilder::neExpr(lhs, rhs);
+  } else if (c == std::partial_ordering::equivalent) {
+    return lhs->fusion()->falseVal();
+  } else {
+    return lhs->fusion()->trueVal();
+  }
+}
+
+Val* SimplifyingIrBuilder::geExpr(Val* lhs, Val* rhs) {
+  auto c = compareScalars(lhs, rhs);
+  if (c == std::partial_ordering::unordered) {
+    return IrBuilder::geExpr(lhs, rhs);
+  } else if (c == std::partial_ordering::less) {
+    return lhs->fusion()->falseVal();
+  } else {
+    return lhs->fusion()->trueVal();
+  }
+}
+
+Val* SimplifyingIrBuilder::gtExpr(Val* lhs, Val* rhs) {
+  auto c = compareScalars(lhs, rhs);
+  if (c == std::partial_ordering::unordered) {
+    return IrBuilder::gtExpr(lhs, rhs);
+  } else if (c == std::partial_ordering::greater) {
+    return lhs->fusion()->trueVal();
+  } else {
+    return lhs->fusion()->falseVal();
+  }
+}
+
 Val* SimplifyingIrBuilder::whereExpr(Val* pred, Val* lhs, Val* rhs) {
   NVF_ERROR(
       pred->dtype() == DataType::Bool,
       "Where requires a predicate as an input, but received");
-
+  if (lhs->sameAs(rhs)) {
+    return lhs; // return value is independent of predicate
+  }
   if (pred->isConstScalar() && pred->isABool()) {
-    if (pred->evaluateBool()) {
+    if (pred->evaluate()) {
       return lhs;
     } else {
       return rhs;
     }
   }
-
   return IrBuilder::whereExpr(pred, lhs, rhs);
 }
 

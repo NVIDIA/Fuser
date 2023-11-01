@@ -5,33 +5,19 @@ on:
   push:
     branches:
       - main
+# the most recent commit in the PR would cancel older commit's in-progress workflows
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id}}
+  cancel-in-progress: true
 
 env:
   working_directory: .
 
 jobs:
-  standalone-build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: true
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      - name: Run standalone build
-        working-directory: ${{ env.working_directory }}
-        run: |
-          tools/apt-install-things.sh &
-          tools/pip-install-things.sh &
-          source tools/setup-env.sh
-          wait
-          python setup.py build
-
   clang-tidy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
       - uses: actions/setup-python@v4
@@ -55,6 +41,10 @@ jobs:
           # Run cmake build
           python setup.py --cmake-only
 
+          # Generate csrc/serde/fusion_cache_generated.h
+          # NOTE: this might cause a compile of flatbuffers if it is missing
+          ninja -C build build_flatbuffer_config
+
           # Run lintrunner on all csrc files exclude benchmark and test folders
           this_commit=$(git rev-parse HEAD)
           git fetch origin main
@@ -68,7 +58,7 @@ jobs:
   lintrunner:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
       - uses: actions/setup-python@v4
@@ -87,4 +77,4 @@ jobs:
           sudo apt install -y libtinfo5
 
           # Run lintrunner except clang-tidy
-          lintrunner --force-color --take FLAKE8,MYPY,CLANGFORMAT,NOQA,TYPEIGNORE,NEWLINE,MYPYSTRICT,TABS,SPACES,EXEC,BLACK --all-files
+          lintrunner --force-color --take FLAKE8,MYPY,CLANGFORMAT,NOQA,TYPEIGNORE,NEWLINE,MYPYSTRICT,TABS,SPACES,EXEC,BLACK,TORCH_INTERNAL_ASSERT,TORCH_CHECK,C10_ERROR,TORCH_CUDA_CU_API --all-files

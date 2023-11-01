@@ -181,10 +181,48 @@ bool isLdMatrixOp(const Expr* expr) {
 
 bool isCpAsyncOp(const Expr* expr) {
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
-    return ldst->opType() == LoadStoreOpType::CpAsyncCa ||
-        ldst->opType() == LoadStoreOpType::CpAsyncCg;
+    return ldst->opType() == LoadStoreOpType::CpAsync;
   }
   return false;
+}
+
+namespace {
+
+enum class CpAsyncBulkTileType { G2S, S2G, NotACpAsyncBulkTile };
+
+inline CpAsyncBulkTileType getCpAsyncBulkTileType(const Expr* expr) {
+  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
+    if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
+      if (ldst->in()->as<TensorView>()->getMemoryType() == MemoryType::Global &&
+          ldst->out()->as<TensorView>()->getMemoryType() ==
+              MemoryType::Shared) {
+        return CpAsyncBulkTileType::G2S;
+      } else if (
+          ldst->in()->as<TensorView>()->getMemoryType() == MemoryType::Shared &&
+          ldst->out()->as<TensorView>()->getMemoryType() ==
+              MemoryType::Global) {
+        return CpAsyncBulkTileType::S2G;
+      } else {
+        NVF_ERROR(false, "Invalid CpAsyncBulkTileType");
+      }
+    }
+  }
+  return CpAsyncBulkTileType::NotACpAsyncBulkTile;
+}
+
+} // namespace
+
+bool isCpAsyncBulk(const Expr* expr) {
+  return getCpAsyncBulkTileType(expr) !=
+      CpAsyncBulkTileType::NotACpAsyncBulkTile;
+}
+
+bool isCpAsyncBulkLoad(const Expr* expr) {
+  return getCpAsyncBulkTileType(expr) == CpAsyncBulkTileType::G2S;
+}
+
+bool isCpAsyncBulkStore(const Expr* expr) {
+  return getCpAsyncBulkTileType(expr) == CpAsyncBulkTileType::S2G;
 }
 
 bool isTensorScalarFillOp(const Expr* expr) {
@@ -250,9 +288,11 @@ TensorView* getTvInput(const Expr* expr) {
 }
 
 bool isScalarOp(const Expr* expr) {
-  for (auto out : expr->outputs())
-    if (!out->isScalar())
+  for (auto out : expr->outputs()) {
+    if (!out->isScalar()) {
       return false;
+    }
+  }
   return true;
 }
 
@@ -770,6 +810,15 @@ bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id) {
   }
   auto* is_exact_val = IrBuilder::eqExpr(id->extent(), pdm_max_extent);
   return simplifyExpr(is_exact_val)->isTrue();
+}
+
+Val* u32IndexScalarSmemTv(TensorView* smem_tv) {
+  auto u32addr = IrBuilder::create<Val>(DataType::SMemAddress);
+  IrBuilder::create<UnaryOp>(
+      UnaryOpType::ToUnsignedSmemAddr,
+      u32addr,
+      IrBuilder::metadataExpr(smem_tv));
+  return u32addr;
 }
 
 } // namespace lower_utils

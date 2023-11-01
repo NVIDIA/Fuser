@@ -20,6 +20,10 @@ namespace nvfuser {
 
 class ExprEvalTest : public NVFuserTest {};
 
+using ::testing::ElementsAre;
+using ::testing::HasSubstr;
+using ::testing::ThrowsMessage;
+
 namespace {
 
 inline void checkIntValue(
@@ -30,6 +34,14 @@ inline void checkIntValue(
   const auto actual_value = evaluator.evaluate(val);
   EXPECT_TRUE(actual_value.hasValue());
   EXPECT_EQ(actual_value, expected_value);
+}
+
+inline void checkConstEvaluate(
+    const ExpressionEvaluator& evaluator,
+    Val* val,
+    at::Tensor expected_value) {
+  auto actual_value = evaluator.evaluate(val);
+  EXPECT_TRUE(expected_value.equal(actual_value.as<at::Tensor>()));
 }
 
 } // namespace
@@ -60,7 +72,7 @@ TEST_F(ExprEvalTest, Double) {
   auto three = IrBuilder::create<Val>(3.0);
   auto val = castOp(DataType::Int, ceilDiv(sub(ten, two), three));
   auto reference = static_cast<int64_t>(std::ceil((10.0 - 2.0) / 3.0));
-  EXPECT_EQ(reference, val->evaluateInt());
+  EXPECT_EQ(reference, val->evaluate());
 }
 
 // Evaluate basic scalar operations with bound values
@@ -103,6 +115,28 @@ TEST_F(ExprEvalTest, Bindings) {
   checkIntValue(evaluator, mod(a, b), 2);
   checkIntValue(evaluator, ceilDiv(a, b), 1);
   checkIntValue(evaluator, d, -2);
+}
+
+// Evaluate known values with const expression evaluator reference
+TEST_F(ExprEvalTest, ConstReference) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  ExpressionEvaluator evaluator;
+  auto tv0 = makeContigTensor(1);
+  auto tv1 = makeContigTensor(1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({3}, options);
+  auto t1 = at::randn({3}, options);
+
+  evaluator.bind(tv0, t0);
+  evaluator.bind(tv1, t1);
+
+  checkConstEvaluate(evaluator, tv0, t0);
+  checkConstEvaluate(evaluator, neg(tv0), -t0);
+  checkConstEvaluate(evaluator, add(tv0, tv1), t0 + t1);
+  checkConstEvaluate(evaluator, add(tv0, neg(tv1)), t0 - t1);
 }
 
 // Evaluate expressions in a simple IR
@@ -305,8 +339,7 @@ TEST_F(ExprEvalTest, EmptyArray) {
             std::vector<int64_t>{},
             ArrayType{std::make_shared<DataType>(DataType::Int), 2});
       },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("not compatible")));
+      ThrowsMessage<nvfuser::nvfError>(HasSubstr("not compatible")));
 
   auto* a = IrBuilder::create<Val>(
       std::vector<int64_t>{},
@@ -440,8 +473,8 @@ TEST_F(ExprEvalTest, Validation) {
 
   EXPECT_THAT(
       [&]() { evaluator.bind(c, 4L, true); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Tried to bind to a value: ")));
+      ThrowsMessage<nvfuser::nvfError>(
+          HasSubstr("Tried to bind to a value: ")));
   EXPECT_EQ(evaluator.evaluate(c), 299792459L);
   evaluator.bind(d, 299792460L, true);
 }
@@ -459,6 +492,167 @@ TEST_F(ExprEvalTest, ReverseArray) {
 
   auto expect = std::vector<int64_t>{5, 4, 3, 2, 1};
   EXPECT_EQ((std::vector<int64_t>)evaluator.evaluate(output), expect);
+}
+
+//! Test evaluating ternary ops
+TEST_F(ExprEvalTest, TernaryOps) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  ExpressionEvaluator evaluator;
+
+  auto* a = IrBuilder::create<Val>(7.0);
+  auto* b = IrBuilder::create<Val>(3.8);
+  auto* c = IrBuilder::create<Val>(0.8);
+  auto* d = IrBuilder::create<Val>(0.2);
+  auto* t = IrBuilder::create<Val>(true);
+  auto* f = IrBuilder::create<Val>(false);
+
+  // Run once without PrecomputedValues, then once with
+  for ([[maybe_unused]] auto i : c10::irange(2)) {
+    EXPECT_EQ(evaluator.evaluate(clamp(b, c, a)), b->value());
+    EXPECT_EQ(evaluator.evaluate(clamp(a, c, b)), b->value());
+    EXPECT_EQ(evaluator.evaluate(clamp(d, c, b)), c->value());
+
+    EXPECT_EQ(
+        evaluator.evaluate(lerp(a, b, d)),
+        a->value() + d->value() * (b->value() - a->value()));
+
+    EXPECT_EQ(
+        evaluator.evaluate(lerp(a, b, c)),
+        a->value() + c->value() * (b->value() - a->value()));
+    EXPECT_EQ(
+        evaluator.evaluate(lerp(a, b, d)),
+        a->value() + d->value() * (b->value() - a->value()));
+
+    EXPECT_EQ(evaluator.evaluate(threshold(a, c, b)), a->value());
+    EXPECT_EQ(evaluator.evaluate(threshold(d, c, b)), b->value());
+    EXPECT_EQ(evaluator.evaluate(threshold(d, d, b)), b->value());
+
+    EXPECT_EQ(evaluator.evaluate(where(t, a, b)), a->value());
+    EXPECT_EQ(evaluator.evaluate(where(f, a, b)), b->value());
+
+    // Now bind a PrecomputedValues
+    PrecomputedValues pv(&fusion);
+    evaluator.bindPrecomputedValues(&pv);
+  }
+}
+
+TEST_F(ExprEvalTest, Permute) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in =
+      TensorViewBuilder().shape({-1, -1, -1, 6}).dtype(DataType::Float).build();
+  fusion.addInput(in);
+  TensorView* out = permute(in, {0, 3, 1, 2});
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor =
+      at::rand({256}).cuda().as_strided({2, 3, 4, 6}, {128, 32, 8, 1});
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(in, in_tensor);
+  at::Tensor out_tensor = evaluator.evaluate(out).as<at::Tensor>();
+  EXPECT_THAT(out_tensor.sizes(), ElementsAre(2, 6, 3, 4));
+  EXPECT_THAT(out_tensor.strides(), ElementsAre(128, 1, 32, 8));
+}
+
+TEST_F(ExprEvalTest, ReshapePermuteReshape) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in =
+      TensorViewBuilder().shape({-1, 6}).dtype(DataType::Float).build();
+  fusion.addInput(in);
+  TensorView* out = reshape(
+      in, {size(in, 0), IrBuilder::create<Val>(2), IrBuilder::create<Val>(3)});
+  out = permute(out, {1, 2, 0});
+  out = reshape(out, {IrBuilder::create<Val>(6), size(out, 2)});
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor = at::rand({72}).cuda().as_strided({9, 6}, {8, 1});
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(in, in_tensor);
+  at::Tensor out_tensor = evaluator.evaluate(out).as<at::Tensor>();
+
+  EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
+  EXPECT_THAT(out_tensor.sizes(), ElementsAre(6, 9));
+  EXPECT_THAT(out_tensor.strides(), ElementsAre(1, 8));
+}
+
+TEST_F(ExprEvalTest, Reshape_ForwardBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = TensorViewBuilder()
+                       .shape({-1, 6})
+                       .dtype(DataType::Float)
+                       .expanded({true, false})
+                       .build();
+  fusion.addInput(in);
+  TensorView* out = reshape(
+      in, {size(in, 0), IrBuilder::create<Val>(2), IrBuilder::create<Val>(3)});
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor = at::rand({6}).cuda().as_strided({9, 6}, {0, 1});
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(in, in_tensor);
+  at::Tensor out_tensor = evaluator.evaluate(out).as<at::Tensor>();
+
+  EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
+  EXPECT_THAT(out_tensor.sizes(), ElementsAre(9, 2, 3));
+  EXPECT_THAT(out_tensor.strides(), ElementsAre(0, 3, 1));
+}
+
+TEST_F(ExprEvalTest, Reshape_SplitBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = TensorViewBuilder()
+                       .shape({-1, 6})
+                       .dtype(DataType::Float)
+                       .expanded({false, true})
+                       .build();
+  fusion.addInput(in);
+  TensorView* out = reshape(
+      in, {size(in, 0), IrBuilder::create<Val>(2), IrBuilder::create<Val>(3)});
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor = at::rand({9}).cuda().as_strided({9, 6}, {1, 0});
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(in, in_tensor);
+  at::Tensor out_tensor = evaluator.evaluate(out).as<at::Tensor>();
+
+  EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
+  EXPECT_THAT(out_tensor.sizes(), ElementsAre(9, 2, 3));
+  EXPECT_THAT(out_tensor.strides(), ElementsAre(1, 0, 0));
+}
+
+TEST_F(ExprEvalTest, Reshape_MergeBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = TensorViewBuilder()
+                       .shape({-1, 6})
+                       .dtype(DataType::Float)
+                       .expanded({false, true})
+                       .build();
+  fusion.addInput(in);
+  TensorView* out = flatten(in);
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor = at::rand({9}).cuda().as_strided({9, 6}, {1, 0});
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(in, in_tensor);
+  at::Tensor out_tensor = evaluator.evaluate(out).as<at::Tensor>();
+
+  EXPECT_THAT(out_tensor.sizes(), ElementsAre(54));
+  EXPECT_THAT(out_tensor.strides(), ElementsAre(1));
 }
 
 } // namespace nvfuser

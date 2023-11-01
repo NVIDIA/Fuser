@@ -75,6 +75,8 @@ enum class PrimDataType {
   // Integral types
   Int,
   Int32,
+  UInt,
+  UInt32,
   Index,
   // Boolean types
   Bool,
@@ -178,6 +180,8 @@ struct DataType {
   static constexpr PrimDataType Int = PrimDataType::Int;
   static constexpr PrimDataType Index = PrimDataType::Index;
   static constexpr PrimDataType Int32 = PrimDataType::Int32;
+  static constexpr PrimDataType UInt = PrimDataType::UInt;
+  static constexpr PrimDataType UInt32 = PrimDataType::UInt32;
   static constexpr PrimDataType Bool = PrimDataType::Bool;
   static constexpr PrimDataType BFloat16 = PrimDataType::BFloat16;
   static constexpr PrimDataType ComplexFloat = PrimDataType::ComplexFloat;
@@ -243,13 +247,13 @@ KernelIndexMode indexTypeToMode(DataType index_type);
 bool isInclusiveType(const DataType& base_type, const DataType& type);
 
 // Returns if the datatype is a floating point type
-TORCH_CUDA_CU_API inline bool isFloatingPointType(DataType dtype) {
+inline bool isFloatingPointType(DataType dtype) {
   return dtype == DataType::Double || dtype == DataType::Float ||
       dtype == DataType::Half || dtype == DataType::BFloat16;
 }
 
 // Returns if the datatype is an integer type
-TORCH_CUDA_CU_API inline bool isIntegralType(DataType dtype) {
+inline bool isIntegralType(DataType dtype) {
   return std::visit(
       [](auto&& dtype) {
         using T = std::decay_t<decltype(dtype)>;
@@ -258,6 +262,8 @@ TORCH_CUDA_CU_API inline bool isIntegralType(DataType dtype) {
             case DataType::Index:
             case DataType::Int:
             case DataType::Int32:
+            case DataType::UInt:
+            case DataType::UInt32:
               return true;
             default:
               return false;
@@ -269,24 +275,29 @@ TORCH_CUDA_CU_API inline bool isIntegralType(DataType dtype) {
 }
 
 // Returns if the datatype is a pointer type
-TORCH_CUDA_CU_API inline bool isPointerType(DataType dtype) {
+inline bool isPointerType(DataType dtype) {
   return std::holds_alternative<PointerType>(dtype.type) ||
       dtype == DataType::SMemAddress;
 }
 
 // Returns if the datatype is an integer or pointer type
-TORCH_CUDA_CU_API inline bool isIntegralOrPointerType(DataType dtype) {
+inline bool isIntegralOrPointerType(DataType dtype) {
   return isIntegralType(dtype) || isPointerType(dtype);
 }
 
 // Returns if the datatype is a boolean type
-TORCH_CUDA_CU_API inline bool isBooleanType(DataType dtype) {
+inline bool isBooleanType(DataType dtype) {
   return dtype == DataType::Bool;
 }
 
 // Returns if the datatype is a complex type
-TORCH_CUDA_CU_API inline bool isComplexType(DataType dtype) {
+inline bool isComplexType(DataType dtype) {
   return dtype == DataType::ComplexFloat || dtype == DataType::ComplexDouble;
+}
+
+// Returns if the datatype is a complex type
+inline bool isStructType(DataType dtype) {
+  return std::holds_alternative<StructType>(dtype.type);
 }
 
 // Return the corresponding scalar of a complex type
@@ -294,12 +305,12 @@ DataType getTypeFromComplexType(DataType dtype);
 // Return the corresponding complex type of a scalar
 DataType getComplexTypeFromType(DataType dtype);
 // Return if the datatype is supported on the current device
-TORCH_CUDA_CU_API bool isSupportedTypeByDevice(DataType dtype);
+bool isSupportedTypeByDevice(DataType dtype);
 
-TORCH_CUDA_CU_API int64_t dataTypeSize(DataType type);
+int64_t dataTypeSize(DataType type);
 
 // If the index type is known it will be automatically used here
-TORCH_CUDA_CU_API int64_t dataTypeSize(DataType type, DataType index_type);
+int64_t dataTypeSize(DataType type, DataType index_type);
 
 template <PrimDataType DT>
 struct DataTypeToNativeType;
@@ -331,29 +342,16 @@ struct IsPrimitiveNativeType : std::false_type {};
   template <>                                                  \
   struct IsPrimitiveNativeType<native_type> : std::true_type {}
 
-#define DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(                 \
-    data_type, at_type, native_type)                             \
-  template <>                                                    \
-  struct DataTypeToNativeType<data_type> {                       \
-    using type = native_type;                                    \
-  };                                                             \
-  template <>                                                    \
-  struct DataTypeToAtenType<data_type> {                         \
-    static constexpr at::ScalarType type = at_type;              \
-  };                                                             \
-  template <>                                                    \
-  struct NativeTypeToDataType<native_type> {                     \
-    static constexpr PrimDataType type = data_type;              \
-  };                                                             \
-  template <>                                                    \
-  struct IsPrimitiveNativeType<native_type> : std::true_type {}; \
-  template <>                                                    \
-  struct AtenTypeToDataType<at_type> {                           \
-    static constexpr PrimDataType type = data_type;              \
-  };                                                             \
-  template <>                                                    \
-  struct AtenTypeToNativeType<at_type> {                         \
-    using type = native_type;                                    \
+#define DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(          \
+    data_type, at_type, native_type)                      \
+  DEFINE_DATATYPE_TO_NATIVE_TYPE(data_type, native_type); \
+  template <>                                             \
+  struct AtenTypeToDataType<at_type> {                    \
+    static constexpr PrimDataType type = data_type;       \
+  };                                                      \
+  template <>                                             \
+  struct AtenTypeToNativeType<at_type> {                  \
+    using type = native_type;                             \
   }
 
 DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
@@ -380,6 +378,8 @@ DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::Int32,
     at::ScalarType::Int,
     int);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::UInt, uint64_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::UInt32, uint32_t);
 DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::Bool,
     at::ScalarType::Bool,
@@ -645,6 +645,7 @@ bool isLogicalOp(const BinaryOpType bopt);
 enum class TernaryOpType { Clamp, Lerp, Threshold, Where };
 
 enum class ParallelType {
+  DIDx,
   BIDz,
   BIDy,
   BIDx,
@@ -657,10 +658,11 @@ enum class ParallelType {
   Unswitch,
   Mma,
   Group,
+  Bulk,
   Serial
 };
 
-TORCH_CUDA_CU_API std::unordered_set<ParallelType> allParallelTypesExcept(
+std::unordered_set<ParallelType> allParallelTypesExcept(
     const std::unordered_set<ParallelType>& except);
 
 static constexpr std::array<ParallelType, 6> kParallelTypeThreads = {
@@ -718,8 +720,11 @@ static constexpr std::array<IdMappingMode, 6> kIdMappingModes = {
 // for what each option means. Will also consider .L1::no_allocate because .cs
 // still pollutes cache to some extent.
 enum class CacheOp {
+  Unspecified, // Opt in for the default cache operator or when the LoadStoreOp
+               // doesn't take a cache operator.
   AllLevels,
   Streaming,
+  Global,
 };
 
 //! Used to annotate the special memory intrinsics that a loadstore op will be
@@ -732,8 +737,8 @@ enum class LoadStoreOpType {
   SegmenterSet,
   LdMatrix,
   LdMatrixTranspose,
-  CpAsyncCa,
-  CpAsyncCg
+  CpAsync,
+  CpAsyncBulkTensorTile
 };
 
 // Used to label what part of the double buffered iterdomain
@@ -863,58 +868,53 @@ inline DataType promoteType(const std::vector<DataType>& types) {
 
 // If type cannot be found (i.e. codegen does not support provided type) returns
 // DataType::Null
-TORCH_CUDA_CU_API DataType aten_to_data_type(const at::ScalarType& scalar_type);
-TORCH_CUDA_CU_API at::ScalarType data_type_to_aten(const DataType& data_type);
+DataType aten_to_data_type(const at::ScalarType& scalar_type);
+at::ScalarType data_type_to_aten(const DataType& data_type);
 
-TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const ValType);
-TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const PredicateType);
-TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const DataType);
-TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const UnaryOpType);
-TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const BinaryOpType);
-TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const TernaryOpType);
-TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const ScatterOpType);
-TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const RNGOpType);
-TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const ParallelType);
-TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const MemoryType);
-TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const IterType);
-TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const IdMappingMode);
-TORCH_CUDA_CU_API std::ostream& operator<<(
-    std::ostream&,
-    const LoadStoreOpType);
-TORCH_CUDA_CU_API std::ostream& operator<<(
-    std::ostream&,
-    const DoubleBufferLoopStage);
-TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const Swizzle2DType&);
-TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const SwizzleMode&);
-TORCH_CUDA_CU_API std::ostream& operator<<(
-    std::ostream&,
-    const KernelIndexMode&);
-TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream&, const CacheOp&);
+std::ostream& operator<<(std::ostream&, const ValType);
+std::ostream& operator<<(std::ostream&, const PredicateType);
+std::ostream& operator<<(std::ostream&, const DataType);
+std::ostream& operator<<(std::ostream&, const UnaryOpType);
+std::ostream& operator<<(std::ostream&, const BinaryOpType);
+std::ostream& operator<<(std::ostream&, const TernaryOpType);
+std::ostream& operator<<(std::ostream&, const ScatterOpType);
+std::ostream& operator<<(std::ostream&, const RNGOpType);
+std::ostream& operator<<(std::ostream&, const ParallelType);
+std::ostream& operator<<(std::ostream&, const MemoryType);
+std::ostream& operator<<(std::ostream&, const IterType);
+std::ostream& operator<<(std::ostream&, const IdMappingMode);
+std::ostream& operator<<(std::ostream&, const LoadStoreOpType);
+std::ostream& operator<<(std::ostream&, const DoubleBufferLoopStage);
+std::ostream& operator<<(std::ostream&, const Swizzle2DType&);
+std::ostream& operator<<(std::ostream&, const SwizzleMode&);
+std::ostream& operator<<(std::ostream&, const KernelIndexMode&);
+std::ostream& operator<<(std::ostream&, const CacheOp&);
 
 std::string stringifyThreadSize(const ParallelType);
 std::string stringifyThread(const ParallelType);
-TORCH_CUDA_CU_API std::string typePrefix(const DataType);
+std::string typePrefix(const DataType);
 
 // TODO: ThreadDim should be BlockDim and BlockDim should be GridDim
 // Returns if parallel type is TID[x, y, z]
-TORCH_CUDA_CU_API bool isParallelTypeThreadDim(ParallelType);
+bool isParallelTypeThreadDim(ParallelType);
 // Returns if parallel type is BID[x, y, z]
-TORCH_CUDA_CU_API bool isParallelTypeBlockDim(ParallelType);
+bool isParallelTypeBlockDim(ParallelType);
 // Returns if parallel type is a grid or block parallelization dimension
-TORCH_CUDA_CU_API bool isParallelTypeThread(ParallelType);
+bool isParallelTypeThread(ParallelType);
+// Returns if parallel type is DIDx
+bool isParallelTypeDeviceDim(ParallelType);
 
-TORCH_CUDA_CU_API bool isParallelTypeVectorize(ParallelType);
+bool isParallelTypeVectorize(ParallelType);
 
-TORCH_CUDA_CU_API std::optional<std::string> inline_op_str(const UnaryOpType);
-TORCH_CUDA_CU_API std::optional<std::string> inline_op_str(const BinaryOpType);
-TORCH_CUDA_CU_API std::optional<std::string> inline_op_str(const RNGOpType);
-TORCH_CUDA_CU_API std::optional<std::string> integer_op_str(const BinaryOpType);
-TORCH_CUDA_CU_API std::optional<std::string> bool_op_str(const BinaryOpType);
-TORCH_CUDA_CU_API const char* predicate_type2string(PredicateType t);
-TORCH_CUDA_CU_API const char* load_store_type2string(LoadStoreOpType t);
+std::optional<std::string> inline_op_str(const UnaryOpType);
+std::optional<std::string> inline_op_str(const BinaryOpType);
+std::optional<std::string> inline_op_str(const RNGOpType);
+std::optional<std::string> integer_op_str(const BinaryOpType);
+std::optional<std::string> bool_op_str(const BinaryOpType);
+const char* predicate_type2string(PredicateType t);
+const char* load_store_type2string(LoadStoreOpType t);
 
-TORCH_CUDA_CU_API std::optional<std::string> cast_func_str(
-    const std::pair<DataType, DataType>&);
+std::optional<std::string> cast_func_str(const std::pair<DataType, DataType>&);
 
 constexpr inline size_t primDataTypeSize(PrimDataType type) {
   switch (type) {
@@ -936,8 +936,12 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
       NVF_ERROR(
           false, "The actual type of Index is only known at compile time.");
     case DataType::Int:
-      return sizeof(uint64_t);
+      return sizeof(int64_t);
     case DataType::Int32:
+      return sizeof(int32_t);
+    case DataType::UInt:
+      return sizeof(uint64_t);
+    case DataType::UInt32:
       return sizeof(uint32_t);
     case DataType::SMemAddress:
       return sizeof(unsigned);
@@ -987,6 +991,12 @@ inline PolymorphicValue castToDtype(
     });
   }
   return value;
+}
+
+// Convert an enum to its underlying type.
+template <typename E>
+constexpr auto toUnderlying(E e) noexcept {
+  return static_cast<std::underlying_type_t<E>>(e);
 }
 
 } // namespace nvfuser

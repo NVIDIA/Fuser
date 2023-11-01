@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <cuda.h>
 #include <cuda_runtime.h>
+#include <driver_api.h>
 #include <exceptions.h>
 
 #define NVFUSER_NVRTC_SAFE_CALL(x)               \

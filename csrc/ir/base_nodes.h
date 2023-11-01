@@ -94,7 +94,7 @@ class ExprPasskey {
 //! is also important for the design to have a dispatch system for a Statment.
 //! Basically beinng able to succienctly traverse down the inhereitance stack of
 //! a Statment at runtime. This is currently implemented in dispatch.h
-class TORCH_CUDA_CU_API Statement : public NonCopyable, public PolymorphicBase {
+class Statement : public NonCopyable, public PolymorphicBase {
   friend void swap(Fusion&, Fusion&) noexcept;
   friend void swap(IrContainer& a, IrContainer& b) noexcept;
 
@@ -193,9 +193,11 @@ class TORCH_CUDA_CU_API Statement : public NonCopyable, public PolymorphicBase {
 //!
 //! Vals are constant and unique and should always be passed
 //! around as a pointer. Val can generally be thought of as representing any
-//! type of data. Some examples: a constant size like convolution filter width a
-//! runtime constant like batch normalizations momentum a "symbolic" tensor like
-//! one passed down from the JIT a memory buffer used in device code
+//! type of data. Some examples:
+//!   * a constant size like convolution filter width
+//!   * a runtime constant like batch normalizations momentum
+//!   * a "symbolic" tensor like one passed down from the JIT
+//!   * a memory buffer used in device code
 //!
 //! Adding a Val:
 //! Right now adding a Val is quite involved. Val's can be defined in ir.h or in
@@ -216,7 +218,7 @@ class TORCH_CUDA_CU_API Statement : public NonCopyable, public PolymorphicBase {
 //! 5) An enum value must be added to ValType in type.h
 //! 6) A string entry must be added in val_type_string_map
 //!
-class TORCH_CUDA_CU_API Val : public Statement {
+class Val : public Statement {
  public:
   // When we create a Val we immediately register them with the active fusion.
   explicit Val(
@@ -356,6 +358,11 @@ class TORCH_CUDA_CU_API Val : public Statement {
   // constant values, will return the value of that constant bool. Cannot
   // make constant as expression evaluator takes non-constant Vals.
   bool evaluateBool();
+
+  // If this Val's history is comprised only of constant values, will return a
+  // PolymorphicValue. Cannot make constant as expression evaluator takes
+  // non-constant Vals.
+  PolymorphicValue evaluate();
 
   // Returns if no dependencies and is a constant scalar.
   virtual bool isConst() const {
@@ -523,7 +530,7 @@ using newObjectFuncType = Expr*(
 //!  7) A string entry must be added in expr_type_string_map
 //!  8) Entry added to ir_graphviz .cpp/.h
 //!
-class TORCH_CUDA_CU_API Expr : public Statement {
+class Expr : public Statement {
  public:
   explicit Expr(IrBuilderPasskey);
 

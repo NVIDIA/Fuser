@@ -88,6 +88,7 @@ enum RecordType : int {
     OutputVal,
     PadOp,
     PermuteOp,
+    StrideOrderOp,
     RandomOp,
     ReductionMax,
     ReductionMin,
@@ -121,11 +122,10 @@ union RecordData {
   Norm,
   Output,
   Pad,
-  Permute,
+  Dims,
   Slice,
   Squeeze,
   Reduction,
-  Reshape,
   Scalar,
   Size,
   Tensor,
@@ -230,15 +230,20 @@ table GlobalBufferInfo {
   is_fusion_output : bool;
 }
 
+table InputOutputAlias {
+  out: long;
+  in: long;
+  type: int;
+  hide_output: bool;
+}
+
 // This table describes the cached ExecutorEntry for a kernel.
 table ExecutorEntry {
-    init : bool;
-    launch_params : LaunchParams;
-    // Aliased output and input mappings
-    output_aliases : [int];
-    input_aliases : [int];
-    outputs : [GlobalBufferInfo];
-    intermediates : [GlobalBufferInfo];
+  init : bool;
+  launch_params : LaunchParams;
+  input_output_alias: [InputOutputAlias];
+  outputs : [GlobalBufferInfo];
+  intermediates : [GlobalBufferInfo];
 }
 
 // =====================================================================================
@@ -293,8 +298,8 @@ table Pad {
   pad_widths: [long];
 }
 
-// Data for PermuteOpRecord
-table Permute {
+// Data for DimsOpRecord
+table Dims {
   dims: [long];
 }
 
@@ -303,12 +308,6 @@ table Reduction {
   axes: [int];
   keep_dim: bool;
   dtype: DataType;
-}
-
-// Data for ReshapeOpRecord
-table Reshape {
-  original_shape: [long];
-  new_shape: [long];
 }
 
 // Data for SizeOpRecord
@@ -333,6 +332,7 @@ table Squeeze {
 table Tensor {
   sizes: [long];
   contiguity: [Contiguity];
+  stride_order: [long];
   dtype: DataType;
   is_cpu: bool;
 }
@@ -359,6 +359,20 @@ table Vector {
 // =====================================================================================
 //
 
+// Each CudaKernel represents a single, compiled kernel.
+table CudaKernel {
+  kernel_name: string;
+  compile_args: string;
+  cubin: [ubyte];
+  cubin_filename: string;
+  ptx: [ubyte];
+  ptx_filename: string;
+  // The block size field is used to generate compile arguments.
+  // We compare the generated compile args against those stored in this table
+  // when deserializing this cuda kernel.
+  block_size: long = -1;
+}
+
 // Each Fusion Executor maps to a lowered and compiled kernel.
 table FusionExecutor {
   device_smem_limit: long;
@@ -370,9 +384,9 @@ table FusionExecutor {
   kernel_code : string;
   executor_entry_lookup_keys : [ulong];
   executor_entry_lookup_values : [ExecutorEntry];
-  // Is this kernel being compiled with int32 or int64 indexing. This
-  // information is required to resolve DataType::Index
+  // Is this kernel being compiled with int32 or int64 indexing?
   index_type : DataType;
+  compiled_kernel: CudaKernel;
 }
 
 // Each FusionKernelRuntime represents a concretized, segmented Fusion.

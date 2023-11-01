@@ -172,13 +172,13 @@ IterDomain* getDoubleBufferAxis(const TensorView* tv);
 
 void validateDoubleBufferedTensor(const TensorView* tv);
 
-class TORCH_CUDA_CU_API DoubleBufferPass {
+class DoubleBufferPass {
  public:
   //! Apply double buffering transformations
   static std::vector<Expr*> run(const std::vector<Expr*>& exprs);
 };
 
-class TORCH_CUDA_CU_API DoubleBufferInfo {
+class DoubleBufferInfo {
   // Lowering information of double buffered tensors.
   struct TvInfo {
     IterDomain* double_buffer_axis = nullptr;

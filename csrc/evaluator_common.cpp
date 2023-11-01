@@ -13,6 +13,7 @@
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <tensor_metadata.h>
 
 #include <optional>
 
@@ -189,15 +190,7 @@ void PrecomputedValues::initializeValueList(
     // Use an expression evaluator to test if value is const
     if (sorted_value_list[i]->isConstScalar()) {
       is_constant_[i] = true;
-      if (sorted_value_list[i]->isIntegralScalar()) {
-        values_[i] = PolymorphicValue(sorted_value_list[i]->evaluateInt());
-      }
-      if (sorted_value_list[i]->isFloatingPointScalar()) {
-        values_[i] = PolymorphicValue(sorted_value_list[i]->evaluateDouble());
-      }
-      if (sorted_value_list[i]->isABool()) {
-        values_[i] = PolymorphicValue(sorted_value_list[i]->evaluateBool());
-      }
+      values_[i] = sorted_value_list[i]->evaluate();
     }
     sorted_value_list[i]->setEvaluatorIndex(i);
   }
@@ -342,6 +335,32 @@ void PrecomputedValues::bindTensorMetaData(
       bindValue(extent->evaluatorIndex(), value);
     }
   }
+
+  // Here we bind TensorMetaData so that GetMetaData expressions can be
+  // evaluated. Note that we do not bind the at::Tensor itself here since that
+  // would mean PrecomputedValues will own the tensor. Unlike
+  // ExpressionEvaluator, PrecomputedValues objects are typically long-lived, so
+  // we do not want them to own large objects.
+  // To do this we create a temporary ExpressionEvaluator so that we can compute
+  // the metadata once, then save it
+  ExpressionEvaluator ee;
+  ee.bindPrecomputedValues(this);
+  ee.bind(tv, tensor);
+  auto metadata_val = IrBuilder::metadataExpr(tv);
+  auto metadata = ee.evaluate(metadata_val);
+  // NOTE: In some cases we may not be able to evaluate metadata. For example,
+  // if there exists a split expression between the root and rfactor domains
+  // of tv whose split factor is not able to be evaluated. For that reason,
+  // calling code should ensure that all inputs required to propagate strides
+  // from root to allocation domains are already bound to "this" before binding
+  // a TensorView's metadata.
+  NVF_ERROR(
+      metadata.hasValue(),
+      "Could not evaluate metadata expression for ",
+      tv->toString(),
+      " with input tensor ",
+      tensor);
+  bindValue(metadata_val->evaluatorIndex(), metadata);
 }
 
 NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)
@@ -353,6 +372,8 @@ NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)
         makeUnaryOp(uop);
       } else if (auto bop = dynamic_cast<BinaryOp*>(def)) {
         makeBinaryOp(bop);
+      } else if (auto top = dynamic_cast<TernaryOp*>(def)) {
+        makeTernaryOp(top);
       } else {
         // There could be some ops not supported yet. For these ops, we will
         // bind their outputs. So ignoring them here.
@@ -435,14 +456,36 @@ void NaiveValueMachine::makeBinaryOp(BinaryOp* bop) {
   dest_[index] = out;
 }
 
+void NaiveValueMachine::makeTernaryOp(TernaryOp* top) {
+  int in0 = top->inputs()[0]->evaluatorIndex();
+  int in1 = top->inputs()[1]->evaluatorIndex();
+  int in2 = top->inputs()[2]->evaluatorIndex();
+  int out = top->outputs()[0]->evaluatorIndex();
+
+  NVF_ERROR(in0 >= 0, "Integer Machine: unknown first input: ", top);
+  NVF_ERROR(in1 >= 0, "Integer Machine: unknown second input: ", top);
+  NVF_ERROR(in2 >= 0, "Integer Machine: unknown third input: ", top);
+  NVF_ERROR(out >= 0, "Integer Machine: unknown out: ", top);
+
+  int index = makeInstructionEntry();
+  inst_type_[index] = InstructionType::TERNARY_OP;
+  top_type_[index] = top->getTernaryOpType();
+  src0_[index] = in0;
+  src1_[index] = in1;
+  src2_[index] = in2;
+  dest_[index] = out;
+}
+
 int NaiveValueMachine::makeInstructionEntry() {
   int index = num_of_instructions_++;
   inst_type_.emplace_back(InstructionType::UNARY_OP);
   uop_type_.emplace_back(UnaryOpType::Abs);
   bop_type_.emplace_back(BinaryOpType::Add);
+  top_type_.emplace_back(TernaryOpType::Where);
   data_type_.emplace_back(DataType::Null);
   src0_.emplace_back(-1);
   src1_.emplace_back(-1);
+  src2_.emplace_back(-1);
   dest_.emplace_back(-1);
   return index;
 }
@@ -458,6 +501,9 @@ void NaiveValueMachine::runInstruction(int index) {
       break;
     case InstructionType::BINARY_OP:
       runBinaryOp(index);
+      break;
+    case InstructionType::TERNARY_OP:
+      runTernaryOp(index);
       break;
   }
 }
@@ -573,6 +619,70 @@ void NaiveValueMachine::runBinaryOp(int index) {
       break;
     case BinaryOpType::Gcd:
       dest = gcd(lhs, rhs);
+      break;
+    case BinaryOpType::LT:
+      dest = lhs < rhs;
+      break;
+    case BinaryOpType::LE:
+      dest = lhs <= rhs;
+      break;
+    case BinaryOpType::Eq:
+      dest = lhs == rhs;
+      break;
+    case BinaryOpType::NE:
+      dest = lhs != rhs;
+      break;
+    case BinaryOpType::GE:
+      dest = lhs >= rhs;
+      break;
+    case BinaryOpType::GT:
+      dest = lhs > rhs;
+      break;
+    default:
+      NVF_CHECK(false, "Unexpected operator type ", bop_type_[index]);
+  }
+
+  precomputed_values_.defined_[dest_index] = true;
+}
+
+void NaiveValueMachine::runTernaryOp(int index) {
+  using namespace PolymorphicValue_functions;
+  int src0_index = src0_[index];
+  int src1_index = src1_[index];
+  int src2_index = src2_[index];
+  bool src0_is_const = precomputed_values_.is_constant_[src0_index];
+  bool src1_is_const = precomputed_values_.is_constant_[src1_index];
+  bool src2_is_const = precomputed_values_.is_constant_[src2_index];
+
+  bool src_defined =
+      (precomputed_values_.defined_[src0_index] || src0_is_const) &&
+      (precomputed_values_.defined_[src1_index] || src1_is_const) &&
+      (precomputed_values_.defined_[src2_index] || src2_is_const);
+
+  if (!src_defined) {
+    return;
+  }
+  int dest_index = dest_[index];
+
+  auto& a = precomputed_values_.values_[src0_index];
+  auto& b = precomputed_values_.values_[src1_index];
+  auto& c = precomputed_values_.values_[src2_index];
+  auto& dest = precomputed_values_.values_[dest_index];
+
+  switch (top_type_[index]) {
+    case TernaryOpType::Clamp:
+      dest = std::min(std::max(a, b), c);
+      break;
+    case TernaryOpType::Lerp:
+      // This is the same lerp computed in helpers.cu
+      // https://math.stackexchange.com/a/1798323
+      dest = (c < 0.5) ? a + c * (b - a) : b - (b - a) * (1.0 - c);
+      break;
+    case TernaryOpType::Threshold:
+      dest = a <= b ? c : a;
+      break;
+    case TernaryOpType::Where:
+      dest = a ? b : c;
       break;
     default:
       NVF_CHECK(!"Unexpected operator type");

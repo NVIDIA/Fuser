@@ -121,9 +121,10 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   //! Detect possibly empty TensorViews and dynamic IterDomain transforms
   void handle(TensorView* tv) override {
     const auto& rfd = tv->getMaybeRFactorDomain();
+    ExpressionEvaluator ee;
     for (auto id : rfd) {
       if (!id->getMaybeExpandedExtent()->isConstScalar() ||
-          id->getMaybeExpandedExtent()->evaluateInt() == 0) {
+          id->getMaybeExpandedExtent()->evaluate() == 0) {
         info_.maybe_zero_extents_set_.insert(id->getMaybeExpandedExtent());
         leaf_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
       }
@@ -306,7 +307,7 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
         "Found non-dynamic Resize in initial concretization info: ",
         op->toString());
 
-    auto extent_val = expr_eval->evaluate(out_id->extent());
+    auto extent_val = expr_eval->evaluate(out_id->getMaybeExpandedExtent());
     NVF_ERROR(
         extent_val.hasValue(),
         "Cannot evaluate the extent of a resized domain: ",
@@ -317,7 +318,7 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
         out_id->toString());
     auto extent_int = extent_val.as<int64_t>();
     NVF_ERROR(
-        extent_int > 0,
+        extent_int >= 0,
         "Invalid resized domain extent ",
         extent_int,
         " for domain ",
@@ -763,7 +764,10 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
       }
       // Update the IterType of each output
       for (auto out_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
-        if (!out_id->isSymbolic()) {
+        auto mut_id = maybeMutated(out_id)->as<IterDomain>();
+        if (!mut_id->isSymbolic()) {
+          // We are only concretizing IterType here, so if we have already
+          // concretized the iter_type for this ID, we can skip this.
           continue;
         }
 
@@ -775,9 +779,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
             expr->toString());
 
         auto concretized_out_id =
-            IterDomainBuilder(maybeMutated(out_id)->as<IterDomain>())
-                .iter_type(iter_type)
-                .build();
+            IterDomainBuilder(mut_id).iter_type(iter_type).build();
         registerConcretization(out_id, concretized_out_id);
       }
 
@@ -879,6 +881,22 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
   auto def = consumer->definition();
 
+  // We will loop over IterDomains in the consumer root. For each, we need to
+  // inspect the consumer to producer map to all producers. Instead of
+  // recomputing these for each root IterDomain, we precompute them for each
+  // producer here then re-use them in the following loop.
+  std::vector<std::unordered_map<IterDomain*, IterDomain*>> c2p_maps;
+  for (auto producer : ir_utils::filterByType<TensorView>(def->inputs())) {
+    PairwiseRootDomainMap root_map(producer, consumer);
+    // We map symbolic domains here regardless of whether their extents match.
+    // This is safe because we are propagating from a producer which should have
+    // already been concretized. The consumer might have a different extent
+    // which will be equivalent to (but not necessarily sameAs) the producer's,
+    // and we just want to use its IterType to concretize the consumer ID.
+    root_map.mapSymbolic(true);
+    c2p_maps.push_back(root_map.mapConsumerToProducer());
+  }
+
   bool is_concretized = false;
 
   for (const auto i : c10::irange(root_domain.size())) {
@@ -892,17 +910,22 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
     std::optional<IterType> id_type;
 
-    for (auto producer : ir_utils::filterByType<TensorView>(def->inputs())) {
-      PairwiseRootDomainMap root_map(producer, consumer);
-      auto c2p = root_map.mapConsumerToProducer(
-          consumer->domain(), producer->domain());
-
-      NVF_ERROR(
-          c2p.find(root_id) != c2p.end(),
-          "No input ID found to map with output ID: ",
-          root_id->toString());
-
-      auto input_id = c2p.at(root_id);
+    bool found = false;
+    for (const auto& c2p : c2p_maps) {
+      auto p_it = c2p.find(root_id);
+      // In some cases, we can exact map to one producer, but not to another.
+      // This is the case for index_select, for example, whose first input is
+      // the tensor to look up values in and whose second input gives the
+      // indices to use for the lookup. In the selected dimension, the first
+      // input will not exact map to the output, but the second input will.
+      // Here we just require at least one input to map to root_id so that we
+      // can propagate an IterType.
+      // See https://github.com/NVIDIA/Fuser/issues/1192 for an example
+      if (p_it == c2p.end()) {
+        continue;
+      }
+      found = true;
+      auto input_id = p_it->second;
       NVF_ERROR(
           input_id == maybeMutated(input_id),
           "Consumer IterDomain ",
@@ -922,6 +945,10 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
         id_type = input_id->getIterType();
       }
     }
+    NVF_ERROR(
+        found,
+        "No input ID found to map with output ID: ",
+        root_id->toString());
 
     NVF_ERROR(
         id_type.has_value(),
@@ -964,6 +991,9 @@ size_t DynamicTransformConcretizationInfo::hash() const {
   size_t hash = 0;
   for (const auto& [tv, view_result] : getReshapeTransforms()) {
     hashCombine(hash, view_result.hash());
+  }
+  for (const auto& extent_idx : getEmptyExtents()) {
+    hashCombine(hash, (size_t)extent_idx);
   }
   for (const auto& [id, iter_type] : getResizeIterTypes()) {
     hashCombine(hash, (size_t)iter_type);

@@ -26,21 +26,23 @@
 
 namespace nvfuser {
 
-static thread_local Fusion* ACTIVE_FUSION = nullptr; // NOLINT
+/*static*/ thread_local Fusion* FusionGuard::active_fusion_ = nullptr;
 
-FusionGuard::FusionGuard(Fusion* fusion) : prev_fusion{ACTIVE_FUSION} {
-  ACTIVE_FUSION = fusion;
+FusionGuard::FusionGuard(Fusion* fusion) : prev_fusion_(active_fusion_) {
+  active_fusion_ = fusion;
 }
 
 FusionGuard::~FusionGuard() {
-  ACTIVE_FUSION = prev_fusion;
+  active_fusion_ = prev_fusion_;
 }
 
-Fusion* FusionGuard::getCurFusion() {
-  return ACTIVE_FUSION;
+// Cast to non-cast because many users need it.
+/*static*/ Fusion* FusionGuard::getCurFusion() {
+  return active_fusion_;
 }
-void FusionGuard::setCurFusion(Fusion* fusion) {
-  ACTIVE_FUSION = fusion;
+
+/*static*/ void FusionGuard::setCurFusion(Fusion* fusion) {
+  active_fusion_ = fusion;
 }
 
 void swap(Fusion& a, Fusion& b) noexcept {
@@ -85,8 +87,8 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   // TODO: put this into ir_cloner instead
   for (const auto& entry : from->io_alias_) {
     Val* copied_output = ir_cloner.clone(entry.first);
-    Val* copied_input = ir_cloner.clone(entry.second);
-    to->io_alias_[copied_output] = copied_input;
+    Val* copied_input = ir_cloner.clone(entry.second.first);
+    to->io_alias_[copied_output] = {copied_input, entry.second.second};
   }
 
   to->permuted_input_map_ = from->permuted_input_map_;
@@ -199,9 +201,9 @@ void Fusion::removeVal(Val* val) {
       !val->isFusionOutput(),
       "Cannot remove val as it is an output of the fusion.");
 
-  Expr* orig = val->definition();
-  if (orig != nullptr)
-    removeExpr(val->definition());
+  if (Expr* orig = val->definition()) {
+    removeExpr(orig);
+  }
 
   for (Expr* use : unordered_uses(val)) {
     removeExpr(use);
@@ -241,10 +243,16 @@ void Fusion::addOutput(Val* output) {
   // NVF_CHECK(io_alias_.count(output) == 0,
   //     "can't register aliased output as real output");
   assertInContainer(output, "Cannot register output ");
-  if (output->getValType().value() == ValType::TensorView) {
-    auto tv = output->as<TensorView>();
-    tv->setMemoryType(MemoryType::Global);
+  if (output->isA<TensorView>()) {
+    output->as<TensorView>()->setMemoryType(MemoryType::Global);
+  } else {
+    NVF_CHECK(
+        output->isA<PipelineVal>() &&
+            output->as<PipelineVal>()->getOriginalVal()->isA<TensorView>(),
+        "Non-TensorView outputs are not supported at this point: ",
+        output->toString());
   }
+
   outputs_.push_back(output);
   output->setIsFusionOutput(true);
 
@@ -313,7 +321,7 @@ bool Fusion::isNoOp() {
     auto root_dom = TensorDomain::noReductions(out_tv->getMaybeRFactorDomain());
     bool size_zero = false;
     for (auto id : root_dom) {
-      if (id->extent()->isConstScalar() && id->extent()->evaluateInt() == 0) {
+      if (id->extent()->isConstScalar() && id->extent()->evaluate() == 0) {
         size_zero = true;
         break;
       }
@@ -359,9 +367,9 @@ void Fusion::validateInputs() {
   }
 }
 
-std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms) {
+std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
+    const {
   FUSER_PERF_SCOPE("Fusion::print");
-  FusionGuard fg(this);
   os << "\n%kernel {\n";
   IrMathPrinter op_exprs(os);
   op_exprs.handle(this);
@@ -728,23 +736,13 @@ bool Fusion::isAliasCompatible(Val* left, Val* right) {
     return false;
   }
 
-  // Check same number of dimensions if both values are TensorViews
-  if (ir_utils::isTV(left) && ir_utils::isTV(right)) {
-    return left->as<TensorView>()->nDims() == right->as<TensorView>()->nDims();
-  }
-  return false;
+  return true;
 }
 
-void Fusion::aliasOutputToInput(Val* output, Val* input) {
-  // Because we could cast output when input is cast.
-  NVF_ERROR(
-      !output->isFusionOutput(),
-      "Do NOT add aliased output to fusion output outside of `aliasOutputToInput");
-
+void Fusion::aliasOutputToInput(Val* output, Val* input, const AliasType type) {
+  // `input` can be a cast of a fusion input.
   if (!input->isFusionInput()) {
     auto input_expr = input->definition();
-    // NVF_ERROR(input_def->isA<UnaryOp>(),
-    //     "expected unary op for aliased input");
     NVF_ERROR(
         input_expr->isA<UnaryOp>(), "expected unary op for aliased input");
     auto input_uop = input_expr->as<UnaryOp>();
@@ -764,60 +762,56 @@ void Fusion::aliasOutputToInput(Val* output, Val* input) {
   NVF_ERROR(
       isAliasCompatible(input, output),
       "The input and output values are not alias-compatible.");
-  io_alias_[output] = input;
+  // Let integration hide any output that wasn't a fusion output when
+  // `aliasOutputToInput` was called. For example, running mean and var for
+  // batch norm.
+  io_alias_[output] = {input, AliasInfo{type, !output->isFusionOutput()}};
 
   // TODO: output should be marked at the end of fusion definition #1488
-  addOutput(output);
+  if (!output->isFusionOutput()) {
+    addOutput(output);
+  }
 }
 
 Val* Fusion::getOutputAlias(Val* output) {
-  auto search = io_alias_.find(output);
-  if (search != io_alias_.end()) {
-    return search->second;
+  if (auto search = io_alias_.find(output); search != io_alias_.end()) {
+    return search->second.first;
   }
   return nullptr;
 }
 
-std::unordered_set<int> Fusion::getIndicesOfAliasedOutputs() const {
+std::vector<InputOutputAlias> Fusion::getOutputToInputAliasIndices() const {
   if (io_alias_.empty()) {
     return {};
   }
 
-  std::unordered_set<int> alias_indices;
-
-  for (const auto i : c10::irange(outputs_.size())) {
-    if (io_alias_.count(outputs_[i]) != 0) {
-      alias_indices.insert((int)i);
-    }
+  std::unordered_map<const Val*, size_t> in_val_index, out_val_index;
+  for (const auto input_idx : c10::irange(inputs_.size())) {
+    in_val_index[inputs_[input_idx]] = input_idx;
   }
-  return alias_indices;
-}
-
-std::vector<std::pair<int, int>> Fusion::getOutputToInputAliasIndices() const {
-  if (io_alias_.empty()) {
-    return {};
-  }
-
-  std::vector<std::pair<int, int>> alias_indices;
   for (const auto output_idx : c10::irange(outputs_.size())) {
-    if (io_alias_.count(outputs_[output_idx]) != 0) {
-      bool found = false;
-      for (const auto input_idx : c10::irange(inputs_.size())) {
-        if (io_alias_.at(outputs_[output_idx]) == inputs_[input_idx]) {
-          alias_indices.emplace_back(output_idx, input_idx);
-          found = true;
-          break;
-        }
-      }
-      NVF_ERROR(
-          found,
-          "io_alias_ mapping failure, alias output is not present in inputs");
-    }
+    out_val_index[outputs_[output_idx]] = output_idx;
   }
-  // can't assert here, we could have segmented fusion where not all alias
-  // outputs are present
 
-  return alias_indices;
+  std::vector<InputOutputAlias> input_output_aliases;
+  input_output_aliases.reserve(io_alias_.size());
+  for (const auto& [out, in_info] : io_alias_) {
+    if (!out_val_index.count(out)) {
+      // Can't assert false here. We may have segmented fusion where not all
+      // alias outputs are present.
+      continue;
+    }
+    const Val* in = in_info.first;
+    NVF_ERROR(
+        in_val_index.count(in),
+        in->toString(),
+        " is marked as an input alias but isn't a fusion input.");
+    input_output_aliases.push_back(InputOutputAlias{
+        static_cast<int>(out_val_index.at(out)),
+        static_cast<int>(in_val_index.at(in)),
+        in_info.second});
+  }
+  return input_output_aliases;
 }
 
 bool Fusion::hasDynamicTransform() {

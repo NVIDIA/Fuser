@@ -119,7 +119,7 @@ Val* FusionState::getFusionState(size_t index) const {
   return ret[0];
 }
 
-std::vector<Val*> FusionState::getFusionStateVector(size_t index) const {
+const std::vector<Val*>& FusionState::getFusionStateVector(size_t index) const {
   return fusion_state_.at(index);
 }
 
@@ -161,7 +161,9 @@ void FusionState::addOutput(
 
 void FusionState::aliasOutputToInput(Val* output, Val* input) {
   NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
-  fusion_->aliasOutputToInput(output, input);
+  // We haven't exposed AliasType to Python API. For now, use
+  // InplaceUpdate to preserve the old behavior.
+  fusion_->aliasOutputToInput(output, input, AliasType::InplaceUpdate);
 }
 
 } // namespace nvfuser::python_frontend

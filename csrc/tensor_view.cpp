@@ -268,8 +268,9 @@ void TensorView::setCpuScalar(bool is_cpu_scalar) {
 
 IterDomain* TensorView::axis(int pos) const {
   NVF_ERROR(nDims() > 0, "Tried to access an axis in a 0-dim TensorView");
-  if (pos < 0)
+  if (pos < 0) {
     pos += (int)domain()->nDims();
+  }
   NVF_CHECK(
       pos >= 0 && (unsigned int)pos < domain()->nDims(),
       "Tried to access position ",
@@ -631,8 +632,9 @@ TensorView* TensorView::split(
       "Tensor: ",
       toString());
 
-  if (axis_ < 0)
+  if (axis_ < 0) {
     axis_ += (int)domain()->nDims();
+  }
 
   NVF_ERROR(
       axis_ >= 0,
@@ -692,11 +694,13 @@ TensorView* TensorView::split(
 TensorView* TensorView::merge(int axis_o, int axis_i) {
   NVF_ERROR(nDims() > 0, "Tried to do merge on a 0-dim TensorView");
 
-  if (axis_o < 0)
+  if (axis_o < 0) {
     axis_o += (int)domain()->nDims();
+  }
 
-  if (axis_i < 0)
+  if (axis_i < 0) {
     axis_i += (int)domain()->nDims();
+  }
 
   NVF_CHECK(
       axis_o >= (int)getMaxComputePosition() &&
@@ -837,8 +841,8 @@ TensorView* TensorView::swizzle(
         x_id->extent()->isConstInt() && y_id->extent()->isConstInt(),
         "Only constant iterdomains supported on given swizzle type");
 
-    int in_x_size = (int)x_id->extent()->evaluateInt();
-    int in_y_size = (int)y_id->extent()->evaluateInt();
+    int in_x_size = (int)x_id->extent()->evaluate();
+    int in_y_size = (int)y_id->extent()->evaluate();
 
     // Check size constraints based on swizzle type
     if (swizzle_type == Swizzle2DType::XOR ||
@@ -1094,7 +1098,7 @@ std::vector<TensorView*> TensorView::rFactor(
   return rf_tvs;
 }
 
-TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
+TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
@@ -1165,7 +1169,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
   }
   ir_utils::transferDefinitionToNewOutputs(definition(), replaced_siblings);
 
-  IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
+  IrBuilder::create<LoadStoreOp>(container(), op_type, consumer, producer);
 
   // definition_ is no longer valid
   // setDefinition(nullptr);
@@ -1228,7 +1232,7 @@ TensorView* TensorView::cacheFork() {
   return new_output;
 }
 
-TensorView* TensorView::cacheAfter(LoadStoreOpType cache_op) {
+TensorView* TensorView::cacheAfter(LoadStoreOpType op_type, CacheOp cache_op) {
   NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
@@ -1298,7 +1302,8 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType cache_op) {
   }
 
   // Expr* consumer_definition =
-  IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
+  IrBuilder::create<LoadStoreOp>(
+      container(), op_type, consumer, producer, cache_op);
 
   auto replayed_consumer_pair = TransformReplay::replayCasP(
       consumer, producer, -1, TransformReplayOptions().replayAllocation());
@@ -1468,6 +1473,17 @@ TensorViewBuilder& TensorViewBuilder::shape(std::vector<Val*> shape) {
   return *this;
 }
 
+TensorViewBuilder& TensorViewBuilder::strideOrder(
+    std::vector<int64_t> stride_order) {
+  NVF_CHECK(stride_order_.empty(), "Attempting to reset stride_order");
+  if (!stride_order.empty()) {
+    NVF_CHECK(ndims_ == 0 || ndims_ == stride_order.size());
+    ndims_ = stride_order.size();
+  }
+  stride_order_ = std::move(stride_order);
+  return *this;
+}
+
 TensorViewBuilder& TensorViewBuilder::expanded(std::vector<bool> expanded) {
   NVF_CHECK(expanded_.empty(), "Attempting to reset expanded shape");
   if (!expanded.empty()) {
@@ -1508,7 +1524,7 @@ TensorView* TensorViewBuilder::build() const {
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, shape_.at(i));
     }
     IterDomainBuilder builder(FusionGuard::getCurFusion()->zeroVal(), extent);
-    if (extent->isConstScalar() && extent->evaluateInt() == 1) {
+    if (extent->isConstScalar() && extent->evaluate() == 1) {
       builder.iter_type(IterType::Broadcast);
     }
     if (expanded_extent != nullptr) {
@@ -1521,13 +1537,6 @@ TensorView* TensorViewBuilder::build() const {
       contiguity_.empty() || contiguity_.size() == domain.size(),
       "The size of contiguity must equal to the number of non-broadcasting IterDomains");
 
-  for (auto i : c10::irange(contiguity_.size())) {
-    NVF_CHECK(
-        domain.at(i)->isBroadcast() != contiguity_.at(i).has_value(),
-        "The contiguity of a broadcast dimension must be None. "
-        "The contiguity of a non-broadcast dimension must be true/false");
-  }
-
   if (uniform_contiguity_.has_value()) {
     NVF_ERROR(
         contiguity_.empty(),
@@ -1536,13 +1545,15 @@ TensorView* TensorViewBuilder::build() const {
     return IrBuilder::create<TensorView>(
         IrBuilder::create<TensorDomain>(
             domain,
+            stride_order_,
             TensorDomain::getContiguityFilledWith(
                 domain, *uniform_contiguity_)),
         dtype_);
   } else {
     // Create the final TensorView
     return IrBuilder::create<TensorView>(
-        IrBuilder::create<TensorDomain>(domain, contiguity_), dtype_);
+        IrBuilder::create<TensorDomain>(domain, stride_order_, contiguity_),
+        dtype_);
   }
 }
 

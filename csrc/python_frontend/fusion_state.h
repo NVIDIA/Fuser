@@ -14,7 +14,7 @@ namespace nvfuser::python_frontend {
 
 struct RecordFunctor;
 
-struct TORCH_CUDA_CU_API State {
+struct State {
   State(size_t _index, serde::StateType _stype)
       : index(_index), stype(_stype) {}
 
@@ -27,13 +27,11 @@ struct TORCH_CUDA_CU_API State {
   serde::StateType stype;
 };
 
-TORCH_CUDA_CU_API std::ostream& operator<<(
-    std::ostream& os,
-    const State& state);
+std::ostream& operator<<(std::ostream& os, const State& state);
 
 //! FusionState contains the information used to build a new cpp Fusion object.
 //! Unlike FusionDefinition, it does not modify the FusionCache Trie structure.
-class TORCH_CUDA_CU_API FusionState {
+class FusionState {
  public:
   FusionState();
 
@@ -56,7 +54,7 @@ class TORCH_CUDA_CU_API FusionState {
   //! Gets a Fusion IR Tensor/Scalar object
   Val* getFusionState(size_t index) const;
   //! Gets a Fusion IR Vector of Scalars
-  std::vector<Val*> getFusionStateVector(size_t index) const;
+  const std::vector<Val*>& getFusionStateVector(size_t index) const;
   //! Number of fusion states
   size_t numFusionStates() const;
   //! Sets a Fusion IR Tensor/Scalar object

@@ -9,8 +9,8 @@
 
 #include <ATen/core/ivalue.h>
 #include <exceptions.h>
-
 #include <fusion.h>
+#include <scheduler/registry.h>
 #include <scheduler/transpose_heuristic.h>
 
 #define SUPPORT_SPLITTING_INNERMOST_DIM 0
@@ -85,33 +85,58 @@ namespace nvfuser {
 class SchedulerRuntimeInfo;
 class HeuristicSummary;
 
-TORCH_CUDA_CU_API std::shared_ptr<TransposeParams> getTransposeHeuristics(
+std::shared_ptr<TransposeParams> getTransposeHeuristics(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs,
     HeuristicSummary* data_cache = nullptr);
 
-TORCH_CUDA_CU_API std::shared_ptr<TransposeParams> getTransposeHeuristics(
+std::shared_ptr<TransposeParams> getTransposeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache = nullptr);
 
-TORCH_CUDA_CU_API void scheduleTranspose(
-    Fusion* fusion,
-    TransposeParams params);
+void scheduleTranspose(Fusion* fusion, TransposeParams params);
 
-TORCH_CUDA_CU_API LaunchParams scheduleTranspose(
+LaunchParams scheduleTranspose(
     Fusion* fusion,
     const at::ArrayRef<c10::IValue>& runtime_inputs);
 
 //! Utility for canSchedule interface to check if this fusion has at least two
 //! groups, each with a fully broadcasted reference tensor.
-TORCH_CUDA_CU_API bool hasAtLeastTwoValidGroups(Fusion* fusion);
+bool hasAtLeastTwoValidGroups(Fusion* fusion);
 
 // If can schedule at runtime, returns empty string, otherwise returns the
 // reason why we should not schedule at runtime.
-TORCH_CUDA_CU_API std::string getTransposeRuntimeRejectReason(
+std::string getTransposeRuntimeRejectReason(
     Fusion* fusion,
     HeuristicSummary* data_cache,
     SchedulerRuntimeInfo& runtime_info);
+
+class TransposeScheduler : public SchedulerEntry {
+ public:
+  explicit TransposeScheduler(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr);
+
+  static bool canScheduleCompileTime(Fusion* fusion);
+
+  static bool canScheduleRunTime(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr);
+
+  constexpr static ScheduleHeuristic heuristicType() {
+    return ScheduleHeuristic::Transpose;
+  }
+
+  void schedule(Fusion* fusion) override;
+
+ private:
+  void computeHeuristics(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicSummary* data_cache = nullptr);
+};
 
 } // namespace nvfuser

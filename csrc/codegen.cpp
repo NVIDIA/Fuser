@@ -175,12 +175,18 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   std::string getLiteralSuffix(DataType dtype) {
-    // The type of an integer literal is automatically picked from
-    // int, long int, and long long int, so no suffix should be
-    // required. https://en.cppreference.com/w/cpp/language/integer_literal
     switch (std::get<PrimDataType>(dtype.type)) {
       case DataType::Float:
         return "f";
+      case DataType::Int:
+        // We use the LL suffix for int64_t literals
+        // See https://en.cppreference.com/w/cpp/language/integer_literal
+        // and https://en.cppreference.com/w/cpp/language/types
+        // For 64-bit Unix systems, int is 32-bit, long and long long are 64-bit
+        // For 64-bit Windows, int and long are 32-bit, long long are 64-bit
+        return "LL";
+      case DataType::Index:
+        return getLiteralSuffix(kernel_->indexType());
       default:
         return "";
     }
@@ -438,6 +444,58 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     code_ << gen(pred->value());
   }
 
+  void stringify(const PolymorphicValue& value, const DataType dtype) {
+    if (value.is<bool>()) {
+      code_ << (value ? "true" : "false");
+    } else if (value.is<int64_t>()) {
+      code_ << value << getLiteralSuffix(dtype);
+    } else if (value.is<double>()) {
+      auto val = value.as<double>();
+      // note: default inf/nan doesn't work and should be replaced with macros
+      // `NAN`, `POS_INFINITY` and `NEG_INFINITY` instead.
+      if (std::isinf(val)) {
+        if (val > 0) {
+          code_ << "POS_INFINITY";
+        } else {
+          code_ << "NEG_INFINITY";
+        }
+      } else if (std::isnan(val)) {
+        code_ << "NAN";
+      } else {
+        setPrecision(code_, dtype);
+        code_ << val << getLiteralSuffix(dtype);
+      }
+    } else if (value.is<std::complex<double>>()) {
+      if (dtype == DataType::ComplexFloat) {
+        code_ << "std::complex<float>" << value;
+      } else {
+        NVF_ERROR(dtype == DataType::ComplexDouble);
+        code_ << "std::complex<double>" << value;
+      }
+    } else if (std::holds_alternative<ArrayType>(dtype.type)) {
+      // print out the vector.
+      code_ << to_str(dtype);
+      NVF_ERROR(
+          value.is<std::vector>(),
+          "Value expected to be a vector",
+          dtype,
+          " ",
+          value);
+      auto atype = std::get<ArrayType>(dtype.type);
+      auto dims = static_cast<int>(value.as<std::vector>().size());
+      code_ << "{ ";
+      for (auto i = 0; i < dims; i++) {
+        if (i > 0) {
+          code_ << ", ";
+        }
+        stringify(value[i], *atype.type);
+      }
+      code_ << "}";
+    } else {
+      NVF_ERROR(false, "Unhandled constant type: ", dtype, " ", value);
+    }
+  }
+
   void handle(const Val* s) final {
     // Check the replacement map first. If there's an entry for s, use
     // the corresponding replacement.
@@ -458,38 +516,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         code_ << "(" << genInline(def) << ")";
       }
     } else if (s->isConst()) {
-      auto value = s->value();
-      auto dtype = s->dtype();
-      if (value.is<bool>()) {
-        code_ << (value ? "true" : "false");
-      } else if (value.is<int64_t>()) {
-        code_ << value << getLiteralSuffix(dtype);
-      } else if (value.is<double>()) {
-        auto val = value.as<double>();
-        // note: default inf/nan doesn't work and should be replaced with macros
-        // `NAN`, `POS_INFINITY` and `NEG_INFINITY` instead.
-        if (std::isinf(val)) {
-          if (val > 0) {
-            code_ << "POS_INFINITY";
-          } else {
-            code_ << "NEG_INFINITY";
-          }
-        } else if (std::isnan(val)) {
-          code_ << "NAN";
-        } else {
-          setPrecision(code_, dtype);
-          code_ << val << getLiteralSuffix(dtype);
-        }
-      } else if (value.is<std::complex<double>>()) {
-        if (dtype == DataType::ComplexFloat) {
-          code_ << "std::complex<float>" << value;
-        } else {
-          NVF_ERROR(dtype == DataType::ComplexDouble);
-          code_ << "std::complex<double>" << value;
-        }
-      } else {
-        NVF_ERROR(false, "Unhandled constant type: ", s->dtype(), " ", value);
-      }
+      stringify(s->value(), s->dtype());
     } else {
       code_ << genVariableName(s);
     }
@@ -545,7 +572,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void genCpAsync(const LoadStoreOp* ldst, size_t vec_size) {
     auto dtype = ldst->in()->getDataType().value();
 
-    bool is_cg = ldst->opType() == LoadStoreOpType::CpAsyncCg;
+    bool is_cg = ldst->opType() == LoadStoreOpType::CpAsync &&
+        ldst->cacheOp() == CacheOp::Global;
     std::string name = (is_cg ? "Ampere::cpAsyncCg" : "Ampere::cpAsyncCa");
 
     ArgumentBuilder template_args;
@@ -560,6 +588,43 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     indent() << genCall(name, template_args, func_args) << ";\n";
+  }
+
+  void genCpAsyncBulkTensorTile(const LoadStoreOp* ldst) {
+    auto in = ldst->in()->as<kir::TensorIndex>();
+    auto out = ldst->out()->as<kir::TensorIndex>();
+
+    auto in_tv = in->view();
+    auto out_tv = out->view();
+
+    kir::TensorIndex* gmem_ti = nullptr;
+    kir::TensorIndex* smem_ti = nullptr;
+    std::string func_name;
+
+    if (out->view()->getMemoryType() == MemoryType::Shared) {
+      func_name = "Hopper::cpAsyncBulkTensorTileG2S";
+      NVF_ERROR(
+          in_tv->getMemoryType() == MemoryType::Global,
+          "Expected input in global for G2S operation");
+      smem_ti = out;
+      gmem_ti = in;
+    } else {
+      NVF_ERROR(
+          in_tv->getMemoryType() == MemoryType::Shared,
+          "Expected input in shared for S2G operation");
+      NVF_ERROR(
+          out_tv->getMemoryType() == MemoryType::Global,
+          "Expected input in shared for S2G operation");
+      func_name = "Hopper::cpAsyncBulkTensorTileS2G";
+      smem_ti = in;
+      gmem_ti = out;
+    }
+
+    ArgumentBuilder func_args;
+    func_args.arg(genInline(gmem_ti->index()));
+    func_args.arg(genInline(smem_ti->index()));
+
+    indent() << genCall(func_name, func_args) << ";\n";
   }
 
   void genLdMatrix(const LoadStoreOp* ldst, size_t vector_word_size) {
@@ -1266,7 +1331,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               id->extent()->isConstInt(),
               "Could not evaluate constant value bound to vectorized dim.");
 
-          vector_word_size = id->extent()->evaluateInt();
+          vector_word_size = id->extent()->evaluate().as<int64_t>();
 
           is_vector_op = true;
           break;
@@ -1288,14 +1353,19 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
 
       // dispatch cp.async
-      if (optype == LoadStoreOpType::CpAsyncCa ||
-          optype == LoadStoreOpType::CpAsyncCg) {
-        if (optype == LoadStoreOpType::CpAsyncCg) {
+      if (optype == LoadStoreOpType::CpAsync) {
+        if (ldst->cacheOp() == CacheOp::Global) {
           NVF_ERROR(
               is_vector_op && vector_word_size == 8,
               "cp.async.cg only support vectorize 8");
         }
         genCpAsync(ldst, vector_word_size);
+        return;
+      }
+
+      // dispatch cp.async.bulk.tensor.tile
+      if (optype == LoadStoreOpType::CpAsyncBulkTensorTile) {
+        genCpAsyncBulkTensorTile(ldst);
         return;
       }
 
@@ -1345,22 +1415,26 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               kernel_->summary().sync_map->needsRawSync(in_tv).hasBID();
 
           if (localToGlobal) {
-            indent() << "loadLocalToGlobal<" << ldst->out()->dtype() << ", "
-                     << vector_word_size << ", "
+            indent() << "loadLocalToGlobal<" << ldst->out()->dtype()
+                     << ", /*vec_size=*/" << vector_word_size
+                     << ", /*is_volatile=*/"
                      << (is_volatile_to ? "true" : "false") << ">(";
             code_ << " &" << gen(ldst->out()) << ", &" << gen(ldst->in())
                   << ");\n";
           } else if (globalToLocal) {
-            indent() << "loadGlobalToLocal<" << ldst->out()->dtype() << ", "
-                     << vector_word_size << ", "
+            indent() << "loadGlobalToLocal<" << ldst->out()->dtype()
+                     << ", /*vec_size=*/" << vector_word_size
+                     << ", /*is_volatile=*/"
                      << (is_volatile_from ? "true" : "false") << ", "
                      << "CacheOp::" << ldst->cacheOp() << ">(&"
                      << gen(ldst->out()) << ", ";
             code_ << " &" << gen(ldst->in()) << ");\n";
           } else if (globalToGlobal) {
-            indent() << "loadGlobalToGlobal<" << ldst->out()->dtype() << ", "
-                     << vector_word_size << ", "
-                     << (is_volatile_to ? "true" : "false") << ", "
+            indent() << "loadGlobalToGlobal<" << ldst->out()->dtype()
+                     << ", /*vec_size=*/" << vector_word_size
+                     << ", /*is_volatile_to=*/"
+                     << (is_volatile_to ? "true" : "false")
+                     << ", /*is_volatile_from=*/"
                      << (is_volatile_from ? "true" : "false") << ">(";
             code_ << " &" << gen(ldst->out()) << ", ";
             code_ << " &" << gen(ldst->in()) << ");\n";
@@ -1534,8 +1608,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               MemoryType::Global;
         });
 
-    auto pred_bool = wop->hoistedPredicate()->getBool();
-    bool is_predicated = !(pred_bool.has_value() && pred_bool.value());
+    auto pred_bool = wop->hoistedPredicate()->value();
+    bool is_predicated = !(pred_bool.hasValue() && pred_bool.as<bool>());
 
     ArgumentBuilder func_args;
     func_args.arg(gen(out_avg));
@@ -1865,7 +1939,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // Incrementally build a combinatorial set
     for (const auto loop : grouped_loops_) {
-      const auto iter_count = loop->stop()->evaluateInt();
+      const auto iter_count = loop->stop()->evaluate();
       std::vector<std::vector<int64_t>> new_combinations;
       // Append integers from 0 to iter_count to all the vectors built
       // so far
@@ -2826,6 +2900,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "Ampere::cpAsyncCommit();\n";
   }
 
+  void handle(const kir::CpAsyncBulkS2GWait* cpasync_wait) final {
+    indent() << "Hopper::cpAsyncBulkS2GPartialReadBarrier<"
+             << cpasync_wait->keepStages() << ">();\n";
+  }
+
+  void handle(const kir::CpAsyncBulkS2GCommit* cpasync_wait) final {
+    indent() << "Hopper::cpAsyncBulkS2GCommit();\n";
+  }
+
   void handle(const kir::GridSync* sync) final {
     // Use a custom synchronization method if enabled
     bool bidx = sync->syncDims().get(ParallelType::BIDx);
@@ -2857,6 +2940,58 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         genCall("grid_sync::sync", sync_call_template_parms, sync_call_args);
 
     indent() << sync_call << ";\n";
+  }
+
+  void handle(const kir::MBarrierInit* init) final {
+    auto call = genCall(
+        "mbarrier::init",
+        ArgumentBuilder()
+            .arg(genInline(init->mbarrier()))
+            .arg(genInline(init->threadCount())));
+    indent() << call << ";\n";
+  }
+
+  void handle(const kir::MBarrierInvalidate* inval) final {
+    auto call = genCall(
+        "mbarrier::inval", ArgumentBuilder().arg(genInline(inval->mbarrier())));
+    indent() << call << ";\n";
+  }
+
+  void handle(const kir::MBarrierArrive* arrive) final {
+    if (!print_inline_) {
+      indent() << gen(arrive->state()) << " = ";
+    }
+    auto call = genCall(
+        "mbarrier::arrive",
+        ArgumentBuilder().arg(genInline(arrive->mbarrier())));
+    code_ << call;
+    if (!print_inline_) {
+      code_ << ";\n";
+    }
+  }
+
+  void handle(const kir::MBarrierArriveExpectTx* arrive) final {
+    if (!print_inline_) {
+      indent() << gen(arrive->state()) << " = ";
+    }
+    auto call = genCall(
+        "mbarrier::arriveExpectTX",
+        ArgumentBuilder()
+            .arg(genInline(arrive->mbarrier()))
+            .arg(genInline(arrive->txCount())));
+    code_ << call;
+    if (!print_inline_) {
+      code_ << ";\n";
+    }
+  }
+
+  void handle(const kir::MBarrierWait* wait) final {
+    auto call = genCall(
+        "mbarrier::wait",
+        ArgumentBuilder()
+            .arg(genInline(wait->mbarrier()))
+            .arg(genInline(wait->state())));
+    indent() << call << ";\n";
   }
 
   void handle(const kir::InitMagicZero*) final {

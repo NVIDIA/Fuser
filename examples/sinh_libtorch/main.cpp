@@ -1,4 +1,4 @@
-#include <csrc/exceptions.h>
+#include <exceptions.h>
 #include <executor.h>
 #include <ops/arith.h>
 #include <scheduler/all_schedulers.h>
@@ -33,6 +33,7 @@ at::Tensor sinh_nvfuser(const at::Tensor& input) {
 }
 
 int main() {
+  at::manual_seed(0);
   auto t = at::randn({5, 5}, at::kCUDA);
   auto expected = at::sinh(t);
   auto output = sinh_nvfuser(t);

@@ -321,10 +321,10 @@ Val* ones_like(Val* v) {
 
 TensorView* iota(Val* length, Val* start, Val* step, DataType dtype) {
   if (start == nullptr) {
-    start = IrBuilder::newConstant(0L, dtype);
+    start = IrBuilder::create<Val>(0L, dtype);
   }
   if (step == nullptr) {
-    step = IrBuilder::newConstant(1L, dtype);
+    step = IrBuilder::create<Val>(1L, dtype);
   }
   NVF_CHECK(
       isIntegralType(*length->getDataType()),
@@ -988,7 +988,7 @@ NVFUSER_DEFINE_INT_ONLY_OP(gcd, Gcd)
 // the right shift, and then cast back to the original value. In C++, unsigned
 // integers are shifted with logical right shift.
 template <typename LHS, typename RHS>
-TORCH_CUDA_CU_API typename std::conditional<
+typename std::conditional<
     std::is_same<LHS, TensorView*>::value ||
         std::is_same<RHS, TensorView*>::value,
     TensorView*,
@@ -1618,7 +1618,7 @@ Val* size(TensorView* inp, int64_t dim) {
   return iter_domains.at(idx)->getMaybeExpandedExtent();
 }
 
-Val* at(std::vector<Val*>& inp, int64_t index) {
+Val* at(const std::vector<Val*>& inp, int64_t index) {
   auto idx = index;
   if (idx < 0) {
     idx = static_cast<int64_t>(inp.size()) + idx;

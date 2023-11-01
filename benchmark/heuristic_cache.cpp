@@ -76,12 +76,10 @@ static auto getLayerBackwardNormRuntime(
   at::Tensor aten_input = at::randn(shape, options);
   at::Tensor aten_weight = at::randn(norm_shape, options);
   at::Tensor aten_bias = at::randn(norm_shape, options);
-  auto at_weight = std::optional<at::Tensor>(aten_weight);
-  auto at_bias = std::optional<at::Tensor>(aten_bias);
 
   const float kEps = 1e-5;
-  auto aten_results =
-      at::native_layer_norm(aten_input, norm_shape, at_weight, at_bias, kEps);
+  auto aten_results = at::native_layer_norm(
+      aten_input, norm_shape, aten_weight, aten_bias, kEps);
   auto aten_output = std::get<0>(aten_results);
   auto aten_mean = std::get<1>(aten_results);
   auto aten_rstd = std::get<2>(aten_results);
@@ -94,7 +92,7 @@ static auto getLayerBackwardNormRuntime(
   return fec->getMostRecentKernelRuntime();
 }
 
-static void LayerNormBackward_HeuristicLookup(
+static void NvFuserScheduler_LayerNormBackward_HeuristicCache(
     benchmark::State& benchmark_state) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
@@ -108,11 +106,15 @@ static void LayerNormBackward_HeuristicLookup(
 
   auto runtime = getLayerBackwardNormRuntime(
       std::move(fusion_ptr), fec, aten_inputs, shape, norm_shape);
-  NVF_ERROR(runtime->getMaybeHeuristicsFor(aten_inputs).has_value());
+
+  KernelArgumentHolder args =
+      KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+
+  NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)
-    runtime->getMaybeHeuristicsFor(aten_inputs);
+    runtime->getMaybeHeuristicsFor(args);
   }
 }
 
@@ -146,7 +148,7 @@ static auto getLayerForwardNormRuntime(
   return fec->getMostRecentKernelRuntime();
 }
 
-static void LayerNormForward_HeuristicLookup(
+static void NvFuserScheduler_LayerNormForward_HeuristicCache(
     benchmark::State& benchmark_state) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
@@ -160,13 +162,19 @@ static void LayerNormForward_HeuristicLookup(
 
   auto runtime = getLayerForwardNormRuntime(
       std::move(fusion_ptr), fec, aten_inputs, shape, norm_shape);
-  NVF_ERROR(runtime->getMaybeHeuristicsFor(aten_inputs).has_value());
+
+  KernelArgumentHolder args =
+      KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+
+  NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)
-    runtime->getMaybeHeuristicsFor(aten_inputs);
+    runtime->getMaybeHeuristicsFor(args);
   }
 }
 
-BENCHMARK(LayerNormBackward_HeuristicLookup)->Unit(benchmark::kMicrosecond);
-BENCHMARK(LayerNormForward_HeuristicLookup)->Unit(benchmark::kMicrosecond);
+BENCHMARK(NvFuserScheduler_LayerNormBackward_HeuristicCache)
+    ->Unit(benchmark::kMicrosecond);
+BENCHMARK(NvFuserScheduler_LayerNormForward_HeuristicCache)
+    ->Unit(benchmark::kMicrosecond);

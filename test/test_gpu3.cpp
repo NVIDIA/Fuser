@@ -42,7 +42,6 @@
 
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
-#include <torch/csrc/jit/ir/irparser.h>
 #include <torch/torch.h>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -1415,8 +1414,9 @@ TEST_F(NVFuserTest, FusionCodegenAllocatedScalars_CUDA) {
   // t0[(0 + 1)] = t0[((0 + 1) + 1)]
   std::stringstream no_alloc_ref;
   no_alloc_ref << "\n"
-               << indent << tk0_name << "[(0 + 1)]\n"
-               << indent << indent << " = " << tk0_name << "[((0 + 1) + 1)];\n";
+               << indent << tk0_name << "[(0LL + 1LL)]\n"
+               << indent << indent << " = " << tk0_name
+               << "[((0LL + 1LL) + 1LL)];\n";
 
   NVF_CHECK(
       no_alloc_code.find(no_alloc_ref.str()) != std::string::npos,
@@ -2430,7 +2430,7 @@ TEST_F(NVFuserTest, FusionSimpleCpAsync_CUDA) {
 
   fusion.addOutput(tv2);
 
-  auto tv0_shared = tv0->cacheAfter(LoadStoreOpType::CpAsyncCa);
+  auto tv0_shared = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   tv0_shared->setMemoryType(MemoryType::Shared);
 
   tv0->computeAt(tv2, 1);
@@ -2476,7 +2476,7 @@ TEST_F(NVFuserTest, FusionDoubleBufferCpAsync1_CUDA) {
 
   fusion.addOutput(tv2);
 
-  auto tv0_shared = tv0->cacheAfter(LoadStoreOpType::CpAsyncCa);
+  auto tv0_shared = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   tv0_shared->setMemoryType(MemoryType::Shared);
   tv0->computeAt(tv2, 1);
 
@@ -2530,7 +2530,7 @@ TEST_F(NVFuserTest, FusionDoubleBufferCpAsync2_CUDA) {
 
   fusion.addOutput(tv2);
 
-  auto tv0_shared = tv0->cacheAfter(LoadStoreOpType::CpAsyncCa);
+  auto tv0_shared = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   tv0_shared->setMemoryType(MemoryType::Shared);
   tv0->computeAt(tv2, 1);
 
@@ -2638,7 +2638,7 @@ TEST_F(NVFuserTest, FusionCpAsyncPredicate_CUDA) {
   auto tv1 = sum(tv0, {1});
   fusion.addOutput(tv1);
 
-  auto tv0_shared = tv0->cacheAfter(LoadStoreOpType::CpAsyncCa);
+  auto tv0_shared = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   tv0_shared->cacheAfter();
   tv0_shared->setMemoryType(MemoryType::Shared);
   tv0->computeAt(tv1, 1);
@@ -2830,112 +2830,6 @@ TEST_F(NVFuserTest, FusionExactRootDomainMap_CUDA) {
           "Invalid exact root domain map: ",
           exact_map.toString());
     }
-  }
-}
-
-class NVFuserMultithreadedTest : public ::testing::Test {
- protected:
-  bool was_enabled = false;
-
-  void SetUp() override {
-    was_enabled = torch::jit::fuser::cuda::setEnabled(true);
-  }
-
-  void TearDown() override {
-    torch::jit::fuser::cuda::setEnabled(was_enabled);
-  }
-};
-
-TEST_F(NVFuserMultithreadedTest, SingleFunction_CUDA) {
-  std::string ir = R"IR(
-graph(%x.1 : Tensor,
-      %y.1 : Tensor):
-  %12 : NoneType = prim::Constant()
-  %11 : bool = prim::Constant[value=0]()
-  %9 : int = prim::Constant[value=1]()
-  %3 : Tensor = aten::exp(%x.1)
-  %5 : Tensor = aten::relu(%y.1)
-  %6 : Tensor = aten::sin(%5)
-  %8 : Tensor = aten::add(%3, %6, %9)
-  %10 : int[] = prim::ListConstruct(%9)
-  %13 : Tensor = aten::sum(%8, %10, %11, %12)
-  return (%13)
-)IR";
-  auto g = std::make_shared<torch::jit::Graph>();
-  torch::jit::parseIR(ir, g.get());
-  torch::jit::GraphFunction fn("nvfuser_test", g, nullptr);
-
-  auto run_kernel = [&fn]() {
-    auto x = torch::rand({32, 32}, at::TensorOptions(at::kCUDA));
-    auto y = torch::rand({32, 32}, at::TensorOptions(at::kCUDA));
-    std::vector<c10::IValue> results;
-    for (const auto& i : c10::irange(10)) {
-      (void)i; // Suppress unused variable warning
-      auto stack = createStack({x.clone(), y.clone()});
-      fn.run(stack);
-      results.push_back(stack.back());
-    }
-    for (const auto& i : c10::irange(1, 10)) {
-      auto t0 = results[0].toTensor();
-      auto ti = results[i].toTensor();
-      ASSERT_TRUE(at::allclose(t0, ti));
-    }
-  };
-
-  constexpr size_t kNumThreads = 4;
-  std::vector<std::thread> threads;
-  for (size_t id = 0; id < kNumThreads; ++id) {
-    threads.emplace_back(run_kernel);
-  }
-  for (auto& t : threads) {
-    t.join();
-  }
-}
-
-TEST_F(NVFuserMultithreadedTest, MultipleFunctions_CUDA) {
-  auto run_kernel = []() {
-    const std::string ir = R"IR(
-  graph(%x.1 : Tensor,
-        %y.1 : Tensor):
-    %12 : NoneType = prim::Constant()
-    %11 : bool = prim::Constant[value=0]()
-    %9 : int = prim::Constant[value=1]()
-    %3 : Tensor = aten::exp(%x.1)
-    %5 : Tensor = aten::relu(%y.1)
-    %6 : Tensor = aten::sin(%5)
-    %8 : Tensor = aten::add(%3, %6, %9)
-    %10 : int[] = prim::ListConstruct(%9)
-    %13 : Tensor = aten::sum(%8, %10, %11, %12)
-    return (%13)
-  )IR";
-    auto g = std::make_shared<torch::jit::Graph>();
-    torch::jit::parseIR(ir, g.get());
-    torch::jit::GraphFunction fn("nvfuser_test", g, nullptr);
-
-    auto x = torch::rand({32, 32}, at::TensorOptions(at::kCUDA));
-    auto y = torch::rand({32, 32}, at::TensorOptions(at::kCUDA));
-    std::vector<c10::IValue> results;
-    constexpr size_t numRuns = 10;
-    for (const auto& i : c10::irange(numRuns)) {
-      (void)i; // Suppress unused variable warning
-      auto stack = createStack({x.clone(), y.clone()});
-      fn.run(stack);
-      results.push_back(stack.back());
-    }
-    for (const auto& i : c10::irange(1, numRuns)) {
-      auto t0 = results[0].toTensor();
-      auto ti = results[i].toTensor();
-      ASSERT_TRUE(at::allclose(t0, ti));
-    }
-  };
-
-  constexpr size_t kNumThreads = 4;
-  std::vector<std::thread> threads;
-  for (size_t id = 0; id < kNumThreads; ++id) {
-    threads.emplace_back(run_kernel);
-  }
-  for (auto& t : threads) {
-    t.join();
   }
 }
 
@@ -5283,7 +5177,7 @@ TEST_F(NVFuserTest, FusionMappingRelation_CUDA) {
   fusion->addOutput(tv4);
 
   tv4->merge(-2);
-  tv4->merge(-1);
+  tv4->merge(-2);
 
   tv0->computeAt(tv4, -1);
   tv1->computeAt(tv4, -1);
@@ -5333,7 +5227,28 @@ TEST_F(NVFuserTest, FusionInlineAt_CUDA) {
   testValidate(fusion, {out}, {t0}, {t0.sin().cos()}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionTrivialInputForwarding_CUDA) {
+TEST_F(NVFuserTest, FusionTrivialInputForwarding_FusionExecutor) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeConcreteTensor({-1, -1});
+  TensorView* tv1 = makeConcreteTensor({-1, -1});
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv0);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({10, 4}, options);
+  at::Tensor t1 = at::randn({10, 4}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0, t1});
+  at::Tensor t0_forward = fe.runFusion({t0, t1})[0];
+
+  EXPECT_EQ(t0_forward.data_ptr(), t0.data_ptr());
+}
+
+TEST_F(NVFuserTest, FusionTrivialInputForwarding_FusionExecutorCache) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -5354,15 +5269,17 @@ TEST_F(NVFuserTest, FusionTrivialInputForwarding_CUDA) {
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs({t0, t1});
 
+  EXPECT_EQ(cg_outputs[0].data_ptr(), t0.data_ptr());
   testValidate(fusion, cg_outputs, {t0, t1}, {t0}, __LINE__, __FILE__);
 
   // Second run to ensure cache hit handles trivial forwarding properly
   NVF_CHECK(fec.isCompiled({t0, t1}));
   auto cg_outputs2 = fec.runFusionWithInputs({t0, t1});
+  EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
   testValidate(fusion, cg_outputs2, {t0, t1}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionTrivialInputForwarding2_CUDA) {
+TEST_F(NVFuserTest, FusionTrivialInputForwarding2_FusionExecutorCache) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -5376,12 +5293,13 @@ TEST_F(NVFuserTest, FusionTrivialInputForwarding2_CUDA) {
 
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs({t0});
-
+  EXPECT_EQ(cg_outputs[0].data_ptr(), t0.data_ptr());
   testValidate(fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 
   // Second run to ensure cache hit handles trivial forwarding properly
   NVF_CHECK(fec.isCompiled({t0}));
   auto cg_outputs2 = fec.runFusionWithInputs({t0});
+  EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
   testValidate(fusion, cg_outputs2, {t0}, {t0}, __LINE__, __FILE__);
 }
 
@@ -5591,7 +5509,7 @@ TEST_F(NVFuserTest, FusionSimpleAmperePipeline_CUDA) {
 
   fusion.addOutput(tv1);
 
-  auto tv_cache = tv0->cacheAfter(LoadStoreOpType::CpAsyncCa);
+  auto tv_cache = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   tv_cache->setMemoryType(MemoryType::Shared);
 
   tv1->split(0, 16);
@@ -5616,7 +5534,8 @@ TEST_F(NVFuserTest, FusionSimpleAmperePipeline_CUDA) {
     }
 
     void handle(LoadStoreOp* ldst) final {
-      if (ldst->opType() == LoadStoreOpType::CpAsyncCa) {
+      if (ldst->opType() == LoadStoreOpType::CpAsync &&
+          ldst->cacheOp() == CacheOp::AllLevels) {
         NVF_ERROR(!within_ite_, "CPASYNC predicate not inlined");
         NVF_ERROR(
             ldst->predicate()->hasValue() &&
@@ -6150,6 +6069,8 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
       DataType::Half,
       DataType::Int,
       DataType::Int32,
+      DataType::UInt,
+      DataType::UInt32,
       DataType::Bool,
       DataType::ComplexFloat,
       DataType::ComplexDouble};
@@ -6160,11 +6081,32 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
   }
 #endif
 
+  // ATen does not support uint32_t and uint64_t as dtype, so we need to
+  // use int32_t and int64_t as a proxy for these two types.
+  auto convert_aten_unsupported_dtype = [](DataType dt) -> DataType {
+    if (dt == DataType::UInt) {
+      return DataType::Int;
+    } else if (dt == DataType::UInt32) {
+      return DataType::Int32;
+    }
+    return dt;
+  };
+
   for (const auto& input_type : data_types) {
-    auto tv_in = makeContigTensor(2, input_type);
+    DataType proxy_input_type = convert_aten_unsupported_dtype(input_type);
+    auto tv_in = makeContigTensor(2, proxy_input_type);
     fusion.addInput(tv_in);
+
+    if (proxy_input_type != input_type) {
+      tv_in = bitCastOp(input_type, tv_in);
+    }
+
     for (const auto& output_type : data_types) {
+      DataType proxy_output_type = convert_aten_unsupported_dtype(output_type);
       auto tv_out = castOp(output_type, tv_in);
+      if (proxy_output_type != output_type) {
+        tv_out = bitCastOp(proxy_output_type, tv_out);
+      }
       fusion.addOutput(tv_out);
     }
   }
@@ -6174,10 +6116,16 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
   std::vector<c10::IValue> inputs;
   std::vector<at::Tensor> outputs;
   for (const auto& input_type : data_types) {
-    at::Tensor t = at::randn({x, y}, options).to(data_type_to_aten(input_type));
+    DataType proxy_input_type = convert_aten_unsupported_dtype(input_type);
+    at::Tensor t = at::randn({x, y}, options)
+                       .relu() // Discard negative numbers so that signed and
+                               // unsigned types are equivalent. There is no way
+                               // to represent unsigned numbers in PyTorch.
+                       .to(data_type_to_aten(proxy_input_type));
     inputs.emplace_back(t);
     for (const auto& output_type : data_types) {
-      outputs.emplace_back(t.to(data_type_to_aten(output_type)));
+      DataType proxy_output_type = convert_aten_unsupported_dtype(output_type);
+      outputs.emplace_back(t.to(data_type_to_aten(proxy_output_type)));
     }
   }
 
@@ -6265,7 +6213,7 @@ TEST_F(NVFuserTest, FusionIssue2372_CUDA) {
   fusion.addInput(tmean);
   auto tvar = makeContigTensor(1, DataType::Float);
   fusion.addInput(tvar);
-  auto seps = IrBuilder::newScalar(DataType::Double);
+  auto seps = IrBuilder::create<Val>(DataType::Double);
   fusion.addInput(seps);
 
   auto tmean_bcast = broadcast(tmean, {true, true, true, true, false});
@@ -6415,10 +6363,9 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
             std::find(cond_inputs.begin(), cond_inputs.end(), loop_index);
         auto vec_factor_it =
             std::find_if(cond_inputs.begin(), cond_inputs.end(), [](Val* inp) {
-              auto int_val = inp->getInt();
-              return int_val.has_value() &&
-                  (int_val.value() == vec_factor - 1 ||
-                   int_val.value() == -(vec_factor - 1));
+              auto int_val = inp->value();
+              return int_val.hasValue() &&
+                  (int_val == vec_factor - 1 || int_val == -(vec_factor - 1));
             });
         // If vectorized, the predicate should use (vec_factor - 1) or
         // -(vec_factor - 1) rather than the loop index.
@@ -6998,8 +6945,8 @@ TEST_F(
 
   // Check reduction axis is same for all reductions
   // Generate Launch Parameters
-  auto reduction_params =
-      getPersistentHeuristics(&fusion, {aten_input, aten_weight, aten_bias});
+  auto reduction_params = getInnerPersistentHeuristics(
+      &fusion, {aten_input, aten_weight, aten_bias});
   NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
 
   FusionExecutorCache fec(std::move(fusion_ptr));
@@ -7114,7 +7061,7 @@ TEST_F(NVFuserTest, FusionCpAsyncCommitWait_CUDA) {
   tv1->axis(1)->parallelize(ParallelType::TIDy);
   tv1->axis(2)->parallelize(ParallelType::TIDx);
 
-  auto tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncCa);
+  auto tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   tv2->axis(-1)->parallelize(ParallelType::Vectorize);
   tv2->axis(1)->parallelize(ParallelType::TIDx);
   tv2->axis(2)->parallelize(ParallelType::TIDy);
@@ -8459,12 +8406,13 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
       aten_input, norm_shape, aten_weight, aten_bias, kEps);
 
   // capture stdout and check stdout contains register spill warning
-  testing::internal::CaptureStdout();
+  captureStdout();
   {
     // generate persistent kernel
-    auto persistent_params = getPersistentHeuristics(&fusion, {aten_input});
+    auto persistent_params =
+        getInnerPersistentHeuristics(&fusion, {aten_input});
     NVF_CHECK(persistent_params, "Persistent schedule was not generated!");
-    schedulePersistentKernel(&fusion, *persistent_params);
+    scheduleInnerPersistentKernel(&fusion, *persistent_params);
 
     // compile and run persistent kernel
     // intentionally set maxrregcount to 32 to trigger register spill
@@ -8487,7 +8435,7 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
         __FILE__,
         "");
   }
-  std::string output = testing::internal::GetCapturedStdout();
+  std::string output = getCapturedStdout();
   NVF_CHECK(
       output.find("Register spill detected") != std::string::npos,
       "Register spill is not captured!");
@@ -8739,7 +8687,7 @@ TEST_F(NVFuserTest, Repro413_CUDA) {
       auto getVectorizationFactor = [](TensorView* tv) -> int64_t {
         for (auto i : tv->getLeafDomain()) {
           if (i->getParallelType() == ParallelType::Vectorize) {
-            return i->extent()->evaluateInt();
+            return i->extent()->evaluate().as<int64_t>();
           }
         }
         return 1;
@@ -8865,12 +8813,12 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
       aten_input, norm_shape, aten_weight, aten_bias, kEps);
 
   // generate persistent kernel
-  auto persistent_params = getPersistentHeuristics(&fusion, {aten_input});
+  auto persistent_params = getInnerPersistentHeuristics(&fusion, {aten_input});
   ASSERT_TRUE(persistent_params) << "Persistent schedule was not generated!";
-  schedulePersistentKernel(&fusion, *persistent_params);
+  scheduleInnerPersistentKernel(&fusion, *persistent_params);
 
   // capture stdout and check stdout contains register spill warning
-  testing::internal::CaptureStdout();
+  captureStdout();
 
   // compile and run persistent kernel
   // intentionally set maxrregcount to 32 to trigger register spill
@@ -8883,7 +8831,7 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {aten_input}, lparams, compile_opts);
 
-  std::string output = testing::internal::GetCapturedStdout();
+  std::string output = getCapturedStdout();
   ASSERT_NE(output.find("Register spill detected"), std::string::npos)
       << "Register spill is not captured!";
 }
@@ -9071,8 +9019,8 @@ TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
         at::randn({input_shape[1]}, options);
     c10::optional<at::Tensor> aten_bias = at::randn({input_shape[1]}, options);
 
-    auto persistent_params =
-        getPersistentHeuristics(&fusion, {aten_input, aten_weight, aten_bias});
+    auto persistent_params = getInnerPersistentHeuristics(
+        &fusion, {aten_input, aten_weight, aten_bias});
     NVF_CHECK(persistent_params, "Persistent schedule was not generated!");
     if (hidden_size * dataTypeSize(dtype) >
         scheduler_utils::register_file_size) {
@@ -9583,7 +9531,7 @@ TEST_F(NVFuserTest, OpaqueTupleAsComplex) {
   auto complex = bitCastOp(DataType::ComplexFloat, tuple);
 
   auto tv = full(
-      {IrBuilder::newConstant(1L, DataType::Index)},
+      {IrBuilder::create<Val>(1L, DataType::Index)},
       complex,
       DataType::ComplexFloat);
 
@@ -9613,7 +9561,7 @@ TEST_F(NVFuserTest, StructConstruct) {
   auto complex = bitCastOp(DataType::ComplexFloat, struct_);
 
   auto tv = full(
-      {IrBuilder::newConstant(1L, DataType::Index)},
+      {IrBuilder::create<Val>(1L, DataType::Index)},
       complex,
       DataType::ComplexFloat);
 
@@ -9665,6 +9613,107 @@ TEST_F(NVFuserTest, VectorizationStrideValidation) {
   auto cg_outputs = fe.runFusion(aten_inputs);
 
   ASSERT_TRUE(cg_outputs[0].equal(t0));
+}
+
+// Test that Int constants used in expressions that would overflow for 32-bit
+// ints do not overflow in the generated kernel.
+TEST_F(NVFuserTest, ConstLongExpressions) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto s0 = IrBuilder::create<Val>(65536L, DataType::Int);
+  auto s1 = mul(s0, s0);
+  // If s1 is printed in the kernel as "65536 * 65536" then it might be
+  // evaluated at compiled time or not, and either way it will _likely_ be
+  // evaluated using 32-bit ints instead of 64-bit as intended. The compiler
+  // does this because promoting literals to long would change the value of the
+  // expression.
+  // See https://github.com/NVIDIA/Fuser/pull/998
+
+  auto tv0 = full({}, s1, DataType::Int);
+  fusion->addOutput(tv0);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion);
+
+  auto outputs = fe.runFusion({});
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::Tensor t0 = at::full({}, 65536L * 65536L, options);
+
+  testValidate(fusion, outputs, {}, {t0}, __LINE__, __FILE__);
+}
+
+// Related to https://github.com/NVIDIA/Fuser/issues/1084.
+// On H100, the generated kernel is vectorized by 8, has a serial batch
+// of 5. It uses 106 threads without padding, nsys shows kernel
+// duration is 0.271 ms. If eliminate predicate for RNG ops by comment out
+// predicateRNGOp(), the kernel duration is increased to 0.376 ms.
+TEST_F(NVFuserTest, PredicateRNGOps) {
+  int64_t size = 4224;
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(2, DataType::Half);
+  fusion->addInput(tv0);
+  auto tv1 = rand_like(tv0);
+  auto tv2 = rand_like(tv0);
+  auto tv3 = rand_like(tv0);
+  auto tv4 = rand_like(tv0);
+  auto tv5 = add(tv1, tv2);
+  auto tv6 = add(tv3, tv4);
+  auto tv7 = add(tv5, tv6);
+  auto tv8 = castOp(DataType::Half, tv7);
+  auto tv9 = set(tv8);
+  fusion->addOutput(tv9);
+
+  tv1->split(-1, 8);
+  tv1->split(-2, 5);
+  tv1->split(-2, 1);
+  tv1->axis(-2)->parallelize(ParallelType::Unswitch);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+
+  TransformPropagator propagator(tv1);
+  MaxRootDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv9->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  // check RNGOp is predicated without else branch.
+  class PredicateChecker : public kir::IrVisitor {
+   public:
+    using kir::IrVisitor::handle;
+    bool predicate_rngop = false;
+
+   private:
+    void handle(RNGOp* uop) final {
+      for (auto expr : scope_exprs_) {
+        if (!expr->isA<kir::IfThenElse>() ||
+            expr->as<kir::IfThenElse>()->hasElse()) {
+          continue;
+        }
+        if (!expr->as<kir::IfThenElse>()->predicate()->isTrivial()) {
+          predicate_rngop = true;
+        }
+      }
+    }
+  } pred_checker;
+  GpuLower gpulw(fusion);
+  pred_checker.handle(gpulw.kernel()->topLevelExprs());
+  ASSERT_TRUE(pred_checker.predicate_rngop);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  at::Tensor t0 = at::zeros({2048, size}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion, {t0});
+
+  at::manual_seed(0);
+  auto cg_outputs = fe.runFusion({t0});
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

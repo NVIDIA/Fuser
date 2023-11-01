@@ -154,11 +154,11 @@ bool IterDomainGraph::exprsMap(
 
     auto extent_0_match = extent_0o->sameAs(extent_1o) ||
         (extent_0o->isConstInt() && extent_1o->isConstInt() &&
-         extent_0o->evaluateInt() == extent_1o->evaluateInt());
+         extent_0o->evaluate() == extent_1o->evaluate());
 
     auto extent_1_match = extent_0i->sameAs(extent_1i) ||
         (extent_0i->isConstInt() && extent_1i->isConstInt() &&
-         extent_0i->evaluateInt() == extent_1i->evaluateInt());
+         extent_0i->evaluate() == extent_1i->evaluate());
 
     if (!(extent_0_match || extent_1_match)) {
       return false;
@@ -468,10 +468,9 @@ void IterDomainGraph::build(Fusion* fusion) {
         // For exact mapings do not map any broadcast dimensions to
         // non-broadcast dimensions. Prevent any broadcasted axes being mapped
         // to non-broadcasted axes.
-        auto exact_c2p_root_map =
-            PairwiseRootDomainMap(p_tv, c_tv)
-                .mapBroadcast(false)
-                .mapConsumerToProducer(c_tv->domain(), p_tv->domain());
+        auto exact_c2p_root_map = PairwiseRootDomainMap(p_tv, c_tv)
+                                      .mapBroadcast(false)
+                                      .mapConsumerToProducer();
 
         // Same as permissive above but for exact
         auto exact_replay_PasC = BestEffortReplay(

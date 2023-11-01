@@ -18,7 +18,7 @@
 namespace nvfuser {
 
 //! Generic interface for mapping root domains of a producer-consumer pair.
-class TORCH_CUDA_CU_API RootDomainMap : public PolymorphicBase {
+class RootDomainMap : public PolymorphicBase {
  public:
   //! Return a map from a producer TensorDomain to a consumer
   //! TensorDomain
@@ -81,7 +81,7 @@ class TORCH_CUDA_CU_API RootDomainMap : public PolymorphicBase {
 //! i.e., unable to compute the same tensors multiple times. This
 //! should not be used for transformations implementing computeAt, but
 //! should be valid otherwise.
-class TORCH_CUDA_CU_API PairwiseRootDomainMap : public RootDomainMap {
+class PairwiseRootDomainMap : public RootDomainMap {
  public:
   //! When require_same_extent is false, domains that may have
   //! different extents are also mapped. For example, IDs of lookup
@@ -98,6 +98,14 @@ class TORCH_CUDA_CU_API PairwiseRootDomainMap : public RootDomainMap {
 
   PairwiseRootDomainMap& mapBroadcast(bool b) {
     map_broadcast_ = b;
+    return *this;
+  }
+
+  //! If b is true: map symbolic domains with other IterDomains even if their
+  //! extents don't match. If b is false (default): map symbolic domains with
+  //! other IterDomains only if their extents match.
+  PairwiseRootDomainMap& mapSymbolic(bool b) {
+    map_symbolic_ = b;
     return *this;
   }
 
@@ -121,6 +129,15 @@ class TORCH_CUDA_CU_API PairwiseRootDomainMap : public RootDomainMap {
 
   std::string toString() const;
 
+  // Helper methods on top of RootDomainMap::mapProducerToConsumer and
+  // RootDomainMap::mapConsumerToProducer. This way, the caller doesn't have to
+  // specify the producer domain and the consumer domain, which is redundant and
+  // error-prone.
+  std::unordered_map<IterDomain*, IterDomain*> mapProducerToConsumer(
+      const std::unordered_set<IterDomain*>* root_dims_to_map = nullptr) const;
+  std::unordered_map<IterDomain*, IterDomain*> mapConsumerToProducer(
+      const std::unordered_set<IterDomain*>* root_dims_to_map = nullptr) const;
+
  protected:
   std::unordered_map<IterDomain*, IterDomain*> map(
       const TensorDomain* producer,
@@ -137,6 +154,10 @@ class TORCH_CUDA_CU_API PairwiseRootDomainMap : public RootDomainMap {
   //! Map broadcast and non-broadcast domains. Note that this is on by
   //! default
   bool map_broadcast_ = true;
+  //! Map symbolic domains with other IterDomains, even if their extents don't
+  //! match. Note that this is off by default, in which case they are mapped
+  //! only if their extents match.
+  bool map_symbolic_ = false;
   //! Map domains that may have different extents, e.g., torch_gather
   bool map_different_extents_ = false;
   //! Map domains that are indirectly accessed, e.g., index_select
@@ -203,7 +224,7 @@ class ComputeAtRootDomainMap;
 //! reduction outputs. Such consumer IterDomains may not be mapped to
 //! the producer reduction domain since the corresponding reduction
 //! loop must be closed before any of the consumers can appear.
-class TORCH_CUDA_CU_API UnmappableReductionDomains : private IterVisitor {
+class UnmappableReductionDomains : private IterVisitor {
  public:
   UnmappableReductionDomains();
   ~UnmappableReductionDomains() override = default;
@@ -248,7 +269,7 @@ class TORCH_CUDA_CU_API UnmappableReductionDomains : private IterVisitor {
 //! fail. Currently, the only use of this class is getMappableDims,
 //! which just grabs any domain that is mappable, which works no
 //! matter view is used or not.
-class TORCH_CUDA_CU_API ComputeAtRootDomainMap : public RootDomainMap {
+class ComputeAtRootDomainMap : public RootDomainMap {
   friend class ComputeAtRootDomainMapBuilder;
 
  public:
@@ -384,8 +405,7 @@ class TORCH_CUDA_CU_API ComputeAtRootDomainMap : public RootDomainMap {
 //! current fusion entirely. IterDomains that can be mapped each
 //! other with computeAt are grouped into the same subset in the
 //! DisjointSets.
-class TORCH_CUDA_CU_API ComputeAtRootDomainMapBuilder
-    : private BackwardVisitor {
+class ComputeAtRootDomainMapBuilder : private BackwardVisitor {
  public:
   explicit ComputeAtRootDomainMapBuilder(
       ComputeAtRootDomainMap& root_map,
@@ -418,58 +438,64 @@ class TORCH_CUDA_CU_API ComputeAtRootDomainMapBuilder
 
   //! Map pointwise IterDomains from inputs of expressions to outputs.
   //! Do not map reduction IterDomains in inputs.
-  void mapPointwiseOrReductionOp(Expr* e);
+  void mapPointwiseLikeOp(Expr* e);
 
   using BackwardVisitor::handle;
 
   void dispatch(Expr* e) override;
 
   void handle(UnaryOp* uop) override {
-    mapPointwiseOrReductionOp(uop);
+    mapPointwiseLikeOp(uop);
   }
 
   void handle(BinaryOp* bop) override {
-    mapPointwiseOrReductionOp(bop);
+    mapPointwiseLikeOp(bop);
   }
 
   void handle(TernaryOp* top) override {
-    mapPointwiseOrReductionOp(top);
+    mapPointwiseLikeOp(top);
   }
 
   void handle(RNGOp* top) override;
 
-  void handle(IndexSelectOp* top) override {
-    mapPointwiseOrReductionOp(top);
+  void handle(SelectOp* op) override {
+    mapPointwiseLikeOp(op);
   }
 
-  void handle(TorchGatherOp* top) override;
+  void handle(IndexSelectOp* op) override {
+    mapPointwiseLikeOp(op);
+  }
+
+  void handle(TorchGatherOp* op) override {
+    mapPointwiseLikeOp(op);
+  }
 
   void handle(ReductionOp* op) override {
-    mapPointwiseOrReductionOp(op);
+    mapPointwiseLikeOp(op);
   }
 
   void handle(GroupedReductionOp* op) override {
-    mapPointwiseOrReductionOp(op);
+    mapPointwiseLikeOp(op);
   }
 
   void handle(WelfordOp* wop) override {
-    mapPointwiseOrReductionOp(wop);
+    mapPointwiseLikeOp(wop);
   }
 
   void handle(LoadStoreOp* ldst) override {
-    mapPointwiseOrReductionOp(ldst);
+    mapPointwiseLikeOp(ldst);
   }
 
   void handle(MmaOp* wop) override {
-    mapPointwiseOrReductionOp(wop);
+    mapPointwiseLikeOp(wop);
   }
 
   void handle(ShiftOp* op) override {
-    mapPointwiseOrReductionOp(op);
+    mapPointwiseLikeOp(op);
   }
 
   void handle(ViewOp* op) override {
-    mapPointwiseOrReductionOp(op);
+    mapPointwiseLikeOp(op);
   }
 
   void handle(ViewAsScalar* op) override;
@@ -479,23 +505,23 @@ class TORCH_CUDA_CU_API ComputeAtRootDomainMapBuilder
   void handle(SqueezeOp* op) override;
 
   void handle(ExpandOp* op) override {
-    mapPointwiseOrReductionOp(op);
+    mapPointwiseLikeOp(op);
   }
 
   void handle(GatherOp* op) override;
 
   void handle(PadOp* op) override {
     // For compute-at, padded id should be mapped
-    mapPointwiseOrReductionOp(op);
+    mapPointwiseLikeOp(op);
   }
 
   void handle(SliceOp* op) override {
-    mapPointwiseOrReductionOp(op);
+    mapPointwiseLikeOp(op);
   }
 
   void handle(CatOp* op) override {
     // For compute-at, concat id should be mapped
-    mapPointwiseOrReductionOp(op);
+    mapPointwiseLikeOp(op);
   }
 
   void handle(TensorView* tv) override;
@@ -529,7 +555,7 @@ class TORCH_CUDA_CU_API ComputeAtRootDomainMapBuilder
 
 //! Maps root domains of an entire fusion. Does not map broadcast
 //! domains with non-broadcast domains.
-class TORCH_CUDA_CU_API ExactRootDomainMap : public RootDomainMap {
+class ExactRootDomainMap : public RootDomainMap {
  public:
   ExactRootDomainMap(Fusion* fusion);
 

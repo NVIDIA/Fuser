@@ -20,17 +20,19 @@
 
 #include <c10/core/DeviceType.h>
 
+#include <functional>
+
 namespace nvfuser {
 
-TORCH_CUDA_CU_API bool shouldFillAllocationWithNan();
-TORCH_CUDA_CU_API void setFillAllocationWithNan(bool value);
+bool shouldFillAllocationWithNan();
+void setFillAllocationWithNan(bool value);
 
 // TODO: Should this actually be in launch params?
-struct TORCH_CUDA_CU_API CompileOptions {
+struct CompileOptions {
   c10::Device device = c10::Device(c10::DeviceType::CUDA, 0);
 };
 
-class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
+class FusionExecutor : public NonCopyable {
  public:
   struct GlobalBufferInfo {
     TensorView* tv = nullptr;
@@ -111,10 +113,19 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     return runFusion(inputs, {}, launch_constraints, compile_params, opt_code);
   }
 
+  // Register a post-lowering hooks that are called to modify the kernel after
+  // lowering. The main use case is for unit tests to modify the kernel.
+  void registerPostLoweringHook(std::function<void(kir::Kernel*)> hook) {
+    post_lowering_hooks_.push_back(std::move(hook));
+  }
+
   // function to query whether a `FusionExecutor` has a compiled kernel to
   // execute
   bool isCompiled() const {
-    return fusion_id_ != -1 && lowered_ && compiled_kernel_.function != nullptr;
+    if (compiled_kernel_ != nullptr) {
+      NVF_ERROR(compiled_kernel_->function != nullptr);
+    }
+    return fusion_id_ != -1 && lowered_ && compiled_kernel_ != nullptr;
   };
 
   void evictCache(size_t cache_id) {
@@ -131,7 +142,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     bool init = false;
     LaunchParams launch_params;
     // Aliased output and input mappings
-    std::vector<std::pair<int, int>> output_to_input_aliases;
+    std::vector<InputOutputAlias> input_output_aliases;
     std::vector<GlobalBufferInfo> outputs;
     // Temporary work buffers and intemediate global-memory tensors
     std::vector<GlobalBufferInfo> intermediates;
@@ -159,11 +170,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
     measure_kernel_time_ = measure_kernel_time;
   }
 
-  //! Internal knob used for debugging/profiling only
-  void setSaveCompiledBinaryFlag(bool save_compiled_binary) {
-    save_compiled_binary_ = save_compiled_binary;
-  }
-
   //! Returns the last kernel execution time, in milliseconds
   //!
   //! \note The kernel time is only tracked if enabled by calling
@@ -175,7 +181,24 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   //! Returns the number of bytes processed last kernel execution
   int64_t bytesProcessed() const {
-    return bytes_processed_;
+    int64_t bytes_processed = 0;
+    for (auto bp : bytes_processed_per_input_) {
+      bytes_processed += bp;
+    }
+    for (auto bp : bytes_processed_per_output_) {
+      bytes_processed += bp;
+    }
+    return bytes_processed;
+  }
+
+  //! Get a vector of bytes processed across all kernel inputs
+  const std::vector<int64_t>& bytesInputsProcessed() const {
+    return bytes_processed_per_input_;
+  }
+
+  //! Get a vector of bytes processed across all kernel outputs
+  const std::vector<int64_t>& bytesOutputsProcessed() const {
+    return bytes_processed_per_output_;
   }
 
   //! Returns the launch parameters from the last kernel execution
@@ -198,19 +221,19 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   //! Returns a const reference to the latest compiled kernel.
   const executor_utils::CompiledKernel& compiledKernel() const {
-    return compiled_kernel_;
+    return *compiled_kernel_;
   }
 
   //! Returns the disassembled latest compiled binary
   std::string disassembledBinary(const std::string& nvdisasm_args = "") const {
     return executor_utils::disassembleBinary(
-        compiled_kernel_.cubin, nvdisasm_args);
+        compiled_kernel_->cubin, nvdisasm_args);
   }
 
   //! Returns the disassembled latest compiled binary
   std::string disassembledKernelSASS() const {
     return executor_utils::disassembleBinary(
-        compiled_kernel_.cubin, "-fun 1 -c");
+        compiled_kernel_->cubin, "-fun 1 -c");
   }
 
   std::string getCanonicalKernelName() const {
@@ -286,7 +309,6 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   std::vector<GlobalBufferInfo> getOutputBufferInfo(
       const KernelArgumentHolder& args,
       ExpressionEvaluator& expr_eval,
-      const std::vector<std::pair<int, int>>& input_to_output_aliases,
       DataType index_dtype);
 
   void setUsedTVs();
@@ -316,6 +338,11 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
       const LaunchParams& new_launch_params,
       const CompileParams& new_compile_params);
 
+  //! Serialize CompiledKernel using flatbuffers
+  flatbuffers::Offset<serde::CudaKernel> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const executor_utils::CompiledKernel& kernel) const;
+
   // ExecutorEntry is an internal POD struct for the FusionExecutor class.
   // We define ExecutorEntry's serialize and deserialize as private methods in
   // FusionExecutor.
@@ -337,6 +364,12 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
 
   //! Deserialize GlobalBufferInfo using flatbuffers
   GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);
+
+  flatbuffers::Offset<serde::InputOutputAlias> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const InputOutputAlias& input_output_alias) const;
+
+  InputOutputAlias deserialize(const serde::InputOutputAlias* buffer);
 
   //! Get the current dynamic shared memory size
   int64_t getAvailableDynamicSmemSize();
@@ -377,7 +410,7 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   const int64_t max_static_smem_ = 48 << 10;
 
   int64_t warp_size_ = 0;
-  executor_utils::CompiledKernel compiled_kernel_;
+  std::unique_ptr<executor_utils::CompiledKernel> compiled_kernel_;
 
   // TensorViews actually used in the kernel.
   std::vector<TensorView*> used_tvs_;
@@ -419,8 +452,11 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   // is true
   float kernel_time_ms_ = 0;
 
-  // Profiling support: the last kernel Bytes processed
-  int64_t bytes_processed_ = 0;
+  // Profiling support: last kernel bytes processed in each input
+  std::vector<int64_t> bytes_processed_per_input_;
+
+  // Profiling support: last kernel bytes processed in each output
+  std::vector<int64_t> bytes_processed_per_output_;
 
   // Profiling support: the last launch param used
   LaunchParams launch_params_;
@@ -434,8 +470,9 @@ class TORCH_CUDA_CU_API FusionExecutor : public NonCopyable {
   // Profiling support: kept copy of the cuda kernel
   std::string kernel_code_;
 
-  // save compiled binary
-  bool save_compiled_binary_ = false;
+  // Post-lowering hooks that are called to modify the kernel after lowering.
+  // The main use case is for unit tests to modify the kernel.
+  std::vector<std::function<void(kir::Kernel*)>> post_lowering_hooks_;
 };
 
 } // namespace nvfuser
