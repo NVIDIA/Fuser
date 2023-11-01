@@ -50,16 +50,10 @@ class VectorOfUniqueEntries {
     }
   }
 
-  VectorOfUniqueEntries(const VectorOfUniqueEntries<T>& other)
-      : vector_(other.vector()), set_(other.set()) {}
+  VectorOfUniqueEntries(const VectorOfUniqueEntries& other) = default;
 
-  VectorOfUniqueEntries& operator=(const VectorOfUniqueEntries<T>& other) {
-    if (this != &other) {
-      vector_ = other.vector();
-      set_ = other.set();
-    }
-    return *this;
-  }
+  VectorOfUniqueEntries& operator=(const VectorOfUniqueEntries& other) =
+      default;
 
   template <class InputIt>
   VectorOfUniqueEntries(InputIt first, InputIt last) {
