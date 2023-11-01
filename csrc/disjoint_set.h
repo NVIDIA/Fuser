@@ -281,6 +281,9 @@ class VectorOfUniqueEntries {
 template <typename T, typename Hash = std::hash<T>>
 class DisjointSets {
  public:
+  using DisjointSetMap = std::
+      unordered_map<T, std::shared_ptr<VectorOfUniqueEntries<T, Hash>>, Hash>;
+
   DisjointSets() = default;
 
   DisjointSets(const DisjointSets<T, Hash>& other);
@@ -299,9 +302,7 @@ class DisjointSets {
 
   // Warning: returned values should never be modified. This accessor isn't
   // strictly safe as VectorOfUniqueEntries is not returned as a const.
-  const std::
-      unordered_map<T, std::shared_ptr<VectorOfUniqueEntries<T, Hash>>, Hash>&
-      disjointSetMap() const {
+  const DisjointSetMap& disjointSetMap() const {
     return disjoint_set_maps_;
   }
 
@@ -323,13 +324,7 @@ class DisjointSets {
   }
 
   // Initializes a new set for provided entry
-  std::pair<
-      typename std::unordered_map<
-          T,
-          std::shared_ptr<VectorOfUniqueEntries<T, Hash>>,
-          Hash>::iterator,
-      bool>
-  initializeSet(T entry) {
+  std::pair<typename DisjointSetMap::iterator, bool> initializeSet(T entry) {
     auto disjoint_set_maps_it = disjoint_set_maps_.find(entry);
     if (disjoint_set_maps_it != disjoint_set_maps_.end()) {
       return std::make_pair(disjoint_set_maps_it, false);
@@ -486,8 +481,7 @@ class DisjointSets {
 
  private:
   // Disjoint sets
-  std::unordered_map<T, std::shared_ptr<VectorOfUniqueEntries<T, Hash>>, Hash>
-      disjoint_set_maps_;
+  DisjointSetMap disjoint_set_maps_;
 
   // Keep a list of disjoint_sets that's deterministic to iterate over
   //
