@@ -352,26 +352,18 @@ bool isGridAllreduce(TensorView* reduction_tv) {
 }
 
 namespace {
-// Examine each cached tv. If it's a persistent tv or all its linked consumers
-// are persistent tvs, it meets the criteria. If every cached tv meets the
-// criteria, return the set; if not, return an empty set. It's an all-or-nothing
-// approach
-std::unordered_set<nvfuser::TensorView*> getNonInlinedTvs(
+// Returns false if there is a non-persistent cached input tv which also has a
+// non-persistent consumer.
+bool checkCachedInputAndConsumer(
     Fusion* fusion,
-    const std::vector<TensorView*>& cached_inputs,
-    const bool is_inline_all_tvs) {
-  if (is_inline_all_tvs) {
-    return std::unordered_set<nvfuser::TensorView*>{};
-  }
+    const std::vector<TensorView*>& cached_inputs) {
   const auto& buffers =
       scheduler_utils::persistentBuffers(fusion).persistent_buffers;
   auto is_persistent_buffer = [&buffers](TensorView* tv) {
     return std::find(buffers.begin(), buffers.end(), tv) != buffers.end();
   };
-  std::unordered_set<nvfuser::TensorView*> excep_tvs;
   for (auto tv : cached_inputs) {
     if (is_persistent_buffer(tv)) {
-      excep_tvs.insert(tv);
       continue;
     }
     const auto& consumers = ir_utils::consumerTvsOf(tv);
@@ -381,12 +373,11 @@ std::unordered_set<nvfuser::TensorView*> getNonInlinedTvs(
             [&is_persistent_buffer](TensorView* tv) {
               return is_persistent_buffer(tv);
             })) {
-      excep_tvs.insert(tv);
       continue;
     }
-    return std::unordered_set<nvfuser::TensorView*>{};
+    return false;
   }
-  return excep_tvs;
+  return true;
 }
 
 } // namespace
@@ -426,19 +417,19 @@ void multiReductionInliner(
     fusion->removeOutput(output);
   }
 
-  // Skip cached inputs that are either persistent themselves or all of their
-  // consumers are persistent. This seperates data loading and computation
-  // without inrcreasing requested registers and showed performance increase,
-  // see SoftmaxNotInlineDataLoad.
-  const auto& excep_tvs =
-      getNonInlinedTvs(fusion, cached_inputs, is_inline_all_tvs);
-  if (excep_tvs.empty()) {
-    inlineMost();
-  } else {
-    inlineMost(ir_utils::allTvsExcept(fusion, excep_tvs));
+  // This special inline for cached_inputs is used when `is_inline_all_tvs` is
+  // false and all the cached input tvs or their consumers are persistent. It
+  // seperates data loading and computation without inrcreasing requested
+  // registers and showed performance increase, see SoftmaxNotInlineDataLoad.
+  bool is_special_inline_cached_input =
+      !is_inline_all_tvs && checkCachedInputAndConsumer(fusion, cached_inputs);
+
+  if (is_special_inline_cached_input) {
+    inlineMost(ir_utils::allTvsExcept(
+        fusion, {cached_inputs.begin(), cached_inputs.end()}));
     // The inner persistent tvs are scheduled as [..., persistent batch,
     // unswitch, vect/unroll], inline them before [persistent batch].
-    for (auto tv : excep_tvs) {
+    for (auto tv : cached_inputs) {
       int64_t tailing_static_dims = 0;
       for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
         if (tv->axis(i)->extent()->isConstInt()) {
@@ -449,11 +440,10 @@ void multiReductionInliner(
       }
       auto producer = ir_utils::getSoleProducerTv(tv);
       inlineSelectedAt(
-          {tv},
-          producer,
-          (int64_t)producer->nDims() - tailing_static_dims,
-          true);
+          {tv}, producer, (int64_t)producer->nDims() - tailing_static_dims);
     }
+  } else {
+    inlineMost();
   }
 }
 
