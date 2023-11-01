@@ -223,8 +223,8 @@ do
     # Note we use nvfuserdir here instead of scriptdir since we should be back on
     # original commit by now
     if ! python "$nvfuserdir/tools/codediff/diff_report.py" \
-        "$outdir/$origcommit/$b" "$outdir/$comparecommit/$b" \
-        -o "$outdir/codediff_${origcommit}_${comparecommit}_${b}.html" \
+        "$outdir/$comparecommit/$b" "$outdir/$origcommit/$b" \
+        -o "$outdir/codediff_${comparecommit}_${origcommit}_${b}.html" \
         --html --hide-diffs;
     then
         found_diffs=1
