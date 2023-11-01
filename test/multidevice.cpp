@@ -59,7 +59,7 @@ void CommunicationTest::validate(at::Tensor obtained, at::Tensor expected) {
 
 void CommunicationTest::resetDstBuffers() {
   for (auto& buf : params.dst_bufs) {
-    buf.copy_(at::empty(tensor_size, tensor_options) * nan(""));
+    buf.copy_(at::full(tensor_size, nan(""), tensor_options));
   }
 }
 
