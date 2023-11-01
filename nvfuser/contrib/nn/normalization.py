@@ -92,8 +92,8 @@ def norm_fusion_forward(
         The normalized output, as well as mean and 1/std. Note that
         `fd.add_output` is _not_ called by this function.
     """
-    assert not (
-        (running_var is None) ^ (running_mean is None)
+    assert (
+        (running_var is None) == (running_mean is None)
     ), "Iff running mean or var is given, the other should be"
 
     # dyn_shape holds Scalars describing the size of the input x
@@ -113,14 +113,11 @@ def norm_fusion_forward(
     is_spatial_dim = [True] * num_dims
     is_spatial_or_batch_dim = [True] * num_dims
 
-    num_stats = fd.define_scalar(1)
     if NamedAxis.BATCH in stat_axes:
         is_spatial_dim[batch_dim] = False
-        num_stats = fd.ops.mul(num_stats, batch_size)
     if NamedAxis.CHANNEL in stat_axes:
         is_spatial_dim[channel_dim] = False
         is_spatial_or_batch_dim[channel_dim] = False
-        num_stats = fd.ops.mul(num_stats, num_channels)
     x_reduction_axes = [ax for ax, flag in enumerate(is_spatial_dim) if flag]
     num_features = fd.define_scalar(1)
     for ax in x_reduction_axes:
@@ -284,14 +281,11 @@ def norm_fusion_backward(
     is_spatial_dim = [True] * num_dims
     is_spatial_or_batch_dim = [True] * num_dims
 
-    num_stats = fd.define_scalar(1)
     if NamedAxis.BATCH in stat_axes:
         is_spatial_dim[batch_dim] = False
-        num_stats = fd.ops.mul(num_stats, batch_size)
     if NamedAxis.CHANNEL in stat_axes:
         is_spatial_dim[channel_dim] = False
         is_spatial_or_batch_dim[channel_dim] = False
-        num_stats = fd.ops.mul(num_stats, num_channels)
     x_reduction_axes = [ax for ax, flag in enumerate(is_spatial_dim) if flag]
     num_features = fd.define_scalar(1)
     for ax in x_reduction_axes:
