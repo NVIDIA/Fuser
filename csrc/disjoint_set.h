@@ -357,40 +357,32 @@ class DisjointSets {
         std::make_shared<VectorOfUniqueEntries<T, Hash>>());
     auto new_set = disjoint_sets_.back();
 
-    if (set_0_found) {
-      auto set_0 = set_it_0->second;
-      for (auto set_0_entry : *set_0) {
-        NVF_ERROR(set_0_entry != entry1);
-        new_set->pushBack(set_0_entry);
-        disjoint_set_maps_[set_0_entry] = new_set;
+    // Add an entry to new_set along with the other entries previously
+    // grouped together with the entry. The existing set is erased.
+    auto mergeSets = [this](const T& entry, auto& new_set) {
+      if (auto it = disjoint_set_maps_.find(entry);
+          it != disjoint_set_maps_.end()) {
+        const auto& existing_set = it->second;
+        for (const auto& existing_entry : *existing_set) {
+          new_set->pushBack(existing_entry);
+          disjoint_set_maps_[existing_entry] = new_set;
+        }
+        disjoint_sets_.erase(
+            std::find(disjoint_sets_.begin(), disjoint_sets_.end(), existing_set));
+      } else {
+        new_set->pushBack(entry);
+        disjoint_set_maps_[entry] = new_set;
       }
-      disjoint_sets_.erase(
-          std::find(disjoint_sets_.begin(), disjoint_sets_.end(), set_0));
-      // Erase invalidates iterators, regrab.
-      set_it_1 = disjoint_set_maps_.find(entry1);
-      set_1_found = set_it_1 != disjoint_set_maps_.end();
-    } else {
-      new_set->pushBack(entry0);
-      disjoint_set_maps_[entry0] = new_set;
-    }
+    };
+
+    mergeSets(entry0, new_set);
 
     // This should be after we enter a new set in case it doesn't exist.
     if (entry0 == entry1) {
       return;
     }
 
-    if (set_1_found) {
-      auto set_1 = set_it_1->second;
-      for (auto set_1_entry : *set_1) {
-        new_set->pushBack(set_1_entry);
-        disjoint_set_maps_[set_1_entry] = new_set;
-      }
-      disjoint_sets_.erase(
-          std::find(disjoint_sets_.begin(), disjoint_sets_.end(), set_1));
-    } else {
-      new_set->pushBack(entry1);
-      disjoint_set_maps_[entry1] = new_set;
-    }
+    mergeSets(entry1, new_set);
   }
 
   // Will assert if provided entry0 is not in any disjoint set, otherwise

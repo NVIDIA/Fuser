@@ -223,6 +223,7 @@ void IdModel::buildExactGraph(const std::vector<Expr*>& exprs) {
       }
     }
 
+    // TODO: Revisit if we really should map domains in the exact map
     idGraph(IdMappingMode::EXACT).mapThroughLoopSwizzles();
   }
 }

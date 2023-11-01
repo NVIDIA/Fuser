@@ -418,8 +418,7 @@ std::vector<TensorView*> allTvsOfExprs(const std::vector<Expr*>& exprs) {
   for (auto expr : exprs) {
     auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
     auto output_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
-    for (bool input : {true, false}) {
-      auto& tvs = input ? input_tvs : output_tvs;
+    for (const auto& tvs : {input_tvs, output_tvs}) {
       for (auto tv : tvs) {
         if (added.emplace(tv).second) {
           all_tvs.push_back(tv);
