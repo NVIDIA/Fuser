@@ -85,7 +85,7 @@ std::pair<double, double> getTolerance(
         // Reduction case
         size_t entry = 0;
         while (entry < sum_tolerance_entry.size() &&
-               sum_tolerance_entry[entry][0] < reduction_size) {
+               (int64_t)sum_tolerance_entry[entry][0] < reduction_size) {
           entry++;
         }
         double abs_tol = 0.0;
@@ -118,7 +118,7 @@ std::pair<double, double> getTolerance(
       } else {
         // Reduction case
         size_t entry = 0;
-        while (sum_tolerance_entry[entry][0] < reduction_size &&
+        while ((int64_t)sum_tolerance_entry[entry][0] < reduction_size &&
                entry < sum_tolerance_entry.size()) {
           entry++;
         }
@@ -152,7 +152,7 @@ std::pair<double, double> getTolerance(
       } else {
         // Reduction case
         size_t entry = 0;
-        while (sum_tolerance_entry[entry][0] < reduction_size &&
+        while ((int64_t)sum_tolerance_entry[entry][0] < reduction_size &&
                entry < sum_tolerance_entry.size()) {
           entry++;
         }

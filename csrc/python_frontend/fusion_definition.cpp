@@ -362,7 +362,7 @@ State FusionDefinition::recordingState(size_t index) const {
   return recording_state_.at(index);
 }
 
-std::vector<std::pair<double, double>> FusionDefinition::get_val_tolerances(
+std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
     const at::ArrayRef<c10::IValue>& inputs) {
   return get_val_constants(preschedFusion(), inputs);
 }

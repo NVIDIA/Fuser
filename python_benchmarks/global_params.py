@@ -1,6 +1,7 @@
 import torch
 from typing import Union, List, Tuple
 from nvfuser import DataType
+from .core import DEVICE_PROPERTIES
 
 
 # Utility function to generate input sizes for benchmarks
@@ -60,7 +61,9 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
 
 
 # Datatypes to benchmark
-FLOAT_DTYPES = [torch.bfloat16, torch.float16, torch.float32]
+FLOAT_DTYPES = [torch.float16, torch.float32]
+if DEVICE_PROPERTIES["gpu_compute_capability_major"] >= 8:
+    FLOAT_DTYPES.append(torch.bfloat16)
 
 # Datatypes that will be promoted to Datatype.Float in Fusion Definitions
 PROMOTE_DTYPES = [DataType.BFloat16, DataType.Half]
