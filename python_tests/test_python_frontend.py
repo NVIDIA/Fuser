@@ -2641,8 +2641,9 @@ class TestNvFuserFrontend(TestCase):
         )
         self.assertEqual(nvf_out[0], torch_ref)
 
-    # This test exercises serialization/deserialization of Fusion::io_alias_.
-    def test_alias(self):
+    # This test verifies aliases added by MarkAliasPass are still in effect
+    # after serialization and deserialization.
+    def test_mark_alias_pass(self):
         def reshape(fd: FusionDefinition) -> None:
             x = fd.define_tensor([2, 3, 4], contiguity=[True, True, True],
                                  dtype=DataType.Float)
