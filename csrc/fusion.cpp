@@ -773,11 +773,12 @@ void Fusion::aliasOutputToInput(Val* output, Val* input, const AliasType type) {
   }
 }
 
-Val* Fusion::getOutputAlias(Val* output) {
+std::pair<Val*, const AliasInfo*> Fusion::getOutputAlias(Val* output) {
   if (auto search = io_alias_.find(output); search != io_alias_.end()) {
-    return search->second.first;
+    const std::pair<Val*, AliasInfo>& in_val_and_info = search->second;
+    return {in_val_and_info.first, &in_val_and_info.second};
   }
-  return nullptr;
+  return {nullptr, nullptr};
 }
 
 std::vector<InputOutputAlias> Fusion::getOutputToInputAliasIndices() const {
