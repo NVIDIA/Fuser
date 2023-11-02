@@ -1114,14 +1114,42 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   }
 
   if (num_splitk_dims) {
-    // Inline the splitk sum with the output store
-    // splitk_sum->computeAt(d, -2);
-    // splitk_sum->inlineAt(-2, true);
-    auto epilogue_vals = DependencyCheck::getAllValsBetween({splitk_sum}, {d});
-    auto epilogue_tvs = ir_utils::filterByType<TensorView>(epilogue_vals);
-    std::unordered_set<TensorView*> epilogue_tvs_set(
-        epilogue_tvs.begin(), epilogue_tvs.end());
-    inlineSelectedAt(epilogue_tvs_set, d, -2, true);
+    // Here we reorder splitk_sum so that the grid reduction in the z dimension
+    // is placed last, ensuring that we can inline it with downstream tensors.
+    //
+    // Epilogue tensors:
+    // nbatch +   1    2   3     4    5     6     7     8
+    // [...  Mo  No  Mwo  Nwo  Mwi  Nwi  MNi1  MNi2  MNi3]
+    //  (iS) iBx iBy iTz  iTy   iS   iS    iS   iTx    iV
+    //
+    // Before reordering, splitk_sum is similar to mma_result but with the
+    // reduction axes removed. The Kf dimension causes inlining between nbatch
+    // + 1 and nbatch + 2.
+    // nbatch +   1    2    3    4    5    6     7     8     9
+    // [...  Mo  No   Kf  Mwo  Nwo  Mwi  Nwi  MNi1  MNi2  MNi3]
+    //  (iS) iBx iBy rBz  iTz  iTy   iS   iS    iS   iTx    iS
+    //
+    // splitk_sum (after the reordering below)
+    // nbatch +   1    2    3    4    5     6     7     8    9
+    // [...  Mo  No  Mwo  Nwo  Mwi  Nwi  MNi1  MNi2  MNi3   Kf]
+    //  (iS) iBx iBy iTz  iTy   iS   iS    iS   iTx    iS  rBz
+    //
+    // This reordering step lets us inline all but the last dim MNi3 (position
+    // nbatch + 7) which might be vectorized for the epilogue but which we
+    // can't vectorize for the gridReduce.
+    //
+    // NOTE: we need to do this reorder after the propagation above so that it
+    // doesn't get reset.
+    splitk_sum->reorder({
+        {num_batch_dims + 2, num_batch_dims + 9},
+        {num_batch_dims + 3, num_batch_dims + 2},
+        {num_batch_dims + 4, num_batch_dims + 3},
+        {num_batch_dims + 5, num_batch_dims + 4},
+        {num_batch_dims + 6, num_batch_dims + 5},
+        {num_batch_dims + 7, num_batch_dims + 6},
+        {num_batch_dims + 8, num_batch_dims + 7},
+        {num_batch_dims + 9, num_batch_dims + 8},
+    });
   }
 
   // auto inline for all tensors except register tensors
