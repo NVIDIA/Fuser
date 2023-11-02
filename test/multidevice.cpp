@@ -27,6 +27,7 @@ void MultiDeviceEnvironment::TearDown() {
   if (communicator_->is_available()) {
     communicator_->barrier();
   }
+  communicator_.reset();
 }
 
 void MultiDeviceTest::SetUp() {
