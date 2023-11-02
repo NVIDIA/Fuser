@@ -2917,13 +2917,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         };
 
     // outputs
-    if (asm_->outputs().size() > 0 || asm_->inputs().size() > 0 ||
-        asm_->memory()) {
+    if (!asm_->outputs().empty() || !asm_->inputs().empty() || asm_->memory()) {
       next_section();
     }
     print_constraints_and_registers(asm_->constraintsAndOutputs());
 
-    if (asm_->inputs().size() > 0 || asm_->memory()) {
+    if (!asm_->inputs().empty() || asm_->memory()) {
       next_section();
     }
     print_constraints_and_registers(asm_->constraintsAndInputs());
