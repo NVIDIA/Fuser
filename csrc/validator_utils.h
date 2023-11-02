@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
 #include <device_lower/utils.h>
+#include <exceptions.h>
 #include <executor_utils.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
@@ -322,14 +322,13 @@ std::vector<std::pair<double, double>> get_val_constants(
     const at::ArrayRef<c10::IValue>& aten_inputs,
     const LaunchParams& lparams = LaunchParams(),
     const ValidationConstants& tolerances = ValidationConstants()) {
-  
   FusionGuard fg(fusion);
   auto expr_eval = bindInputsAndLaunchParams(fusion, aten_inputs, lparams);
   auto reduction_sizes =
       ReductionSizeMapper::computeReductionSizes(fusion, expr_eval);
 
   std::vector<std::pair<double, double>> tolerance_values;
-  for (size_t i = 0 ; i < fusion->outputs().size(); i++) {
+  for (size_t i = 0; i < fusion->outputs().size(); i++) {
     auto fusion_output_tv = fusion->outputs()[i]->as<TensorView>();
     NVF_ERROR(
         reduction_sizes.count(fusion_output_tv),
