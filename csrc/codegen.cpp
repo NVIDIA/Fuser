@@ -1094,10 +1094,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           "via ldmatrix.trans for fp16 or explicitly for other types.");
     }
     ss << toString(mma_layout_opt.value());
-    // TODO: additional parameter could be removed by swizzling iterdomain
-    auto acc_stride = mma->accStride();
-    NVF_ERROR(acc_stride > 0);
-    ss << "<" << acc_stride << ">";
     return ss.str();
   }
 

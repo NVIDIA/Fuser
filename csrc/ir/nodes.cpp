@@ -2043,8 +2043,8 @@ MmaOp::MmaOp(
   addInput(in_b);
   // ATTR_POS_INIT
   addAttribute(init);
-  // ATTR_POS_OPTS
-  addDataAttribute(OptionsInMma{});
+  // ATTR_POS_MACRO
+  addDataAttribute(MmaOptions::MacroType::NoMMA);
   // ATTR_POS_M_AXES
   addDataAttribute(AxesData{});
   // ATTR_POS_N_AXES
@@ -2078,10 +2078,10 @@ MmaOp::MmaOp(
     Val* in_a,
     Val* in_b,
     Val* init,
-    const OptionsInMma& options,
+    const MmaOptions::MacroType& options,
     const MmaLayoutOpt& input_layout)
     : MmaOp(passkey, out, in_a, in_b, init) {
-  attribute<OptionsInMma>(ATTR_POS_OPTS) = options;
+  attribute<MmaOptions::MacroType>(ATTR_POS_MACRO) = options;
 
   const auto input_layout_ = attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
   if (input_layout_.has_value()) {
@@ -2111,14 +2111,11 @@ std::string MmaOp::toInlineString(int indent_size) const {
 }
 
 void MmaOp::configureOptions(MmaOptions options) {
-  OptionsInMma& opt = attribute<OptionsInMma>(ATTR_POS_OPTS);
+  MmaOptions::MacroType& macro = attribute<MmaOptions::MacroType>(ATTR_POS_MACRO);
   NVF_ERROR(
-      options.macro != MmaOptions::MacroType::NoMMA,
+      macro != MmaOptions::MacroType::NoMMA,
       "Un-configured mma type from options.");
-  NVF_ERROR(
-      options.accumulator_stride > 0, "Un-configured accumulator stride.");
-  opt.accumulator_stride = options.accumulator_stride;
-  opt.macro = options.macro;
+  macro = options.macro;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
