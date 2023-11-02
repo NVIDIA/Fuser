@@ -362,7 +362,7 @@ class DisjointSets {
     auto mergeSets = [this](const T& entry, auto& new_set) {
       if (auto it = disjoint_set_maps_.find(entry);
           it != disjoint_set_maps_.end()) {
-        const auto& existing_set = it->second;
+        auto existing_set = it->second;
         for (const auto& existing_entry : *existing_set) {
           new_set->pushBack(existing_entry);
           disjoint_set_maps_[existing_entry] = new_set;
