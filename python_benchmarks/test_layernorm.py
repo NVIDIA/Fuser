@@ -160,8 +160,8 @@ def test_layernorm_fwd_benchmark(
             inputs[0], inputs[0].shape[1:], weight=inputs[1], bias=inputs[2]
         )
 
-        mean = inputs.to(torch.float).mean(dim=-1)
-        variance = inputs.to(torch.float).var(dim=-1, unbiased=False)
+        mean = inputs[0].to(torch.float).mean(dim=-1)
+        variance = inputs[0].to(torch.float).var(dim=-1, unbiased=False)
         invstd = (1.0 / torch.sqrt(variance + eps)).unsqueeze(1)
 
         fd.validate(inputs, [eager_output, mean, invstd])
