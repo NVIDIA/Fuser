@@ -263,10 +263,6 @@ class FusionExecutor : public NonCopyable {
         compiled_kernel_->cubin, "-fun 1 -c");
   }
 
-  std::string getCanonicalKernelName() const {
-    return kernelNamespace() + "::" + kernelName();
-  }
-
   void createKernelId(
       ScheduleHeuristic heuristic = ScheduleHeuristic::None,
       int64_t fusion_id = 0,
@@ -339,10 +335,6 @@ class FusionExecutor : public NonCopyable {
       int64_t group_id);
 
  private:
-  static std::string kernelNamespace() {
-    return "CudaCodeGen";
-  }
-
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
       ExpressionEvaluator& expr_eval,

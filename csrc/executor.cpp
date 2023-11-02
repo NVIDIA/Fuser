@@ -154,9 +154,9 @@ std::string FusionExecutor::getStructuredCode(
   // generating cuda code;
   std::string code = "";
   code += includeStdComplex();
-  code += std::string("namespace ") + FusionExecutor::kernelNamespace() +
-      " {\n" + defineTypes() + defineIndexType(index_type) +
-      executor_utils::kernelPreamble() + kernel_str + "}\n";
+  code += std::string("namespace {\n") + defineTypes() +
+      defineIndexType(index_type) + executor_utils::kernelPreamble() +
+      kernel_str + "}\n";
 
   if (isDebugDumpEnabled(DebugDumpOption::CudaKernel)) {
     debug() << "\n======= Codegen output for kernel: " << kernelName()
@@ -422,7 +422,7 @@ void FusionExecutor::compileFusion(
   compiled_kernel_ = executor_utils::getCompiledKernel(
       kernel_code_,
       structured_code,
-      getCanonicalKernelName(),
+      kernelName(),
       kernel_id_,
       compile_params,
       block_size);
@@ -1522,7 +1522,7 @@ void FusionExecutor::recompileKernel(
   compiled_kernel_ = executor_utils::getCompiledKernel(
       kernel_code_,
       structured_code,
-      getCanonicalKernelName(),
+      kernelName(),
       kernel_id_,
       new_compile_params,
       block_size_high_water_mark_);
@@ -1878,13 +1878,15 @@ void FusionExecutor::compileRtc(
       index_type == PrimDataType::Int || index_type == PrimDataType::Int32 ||
           "Invalid index type: ",
       index_type);
+
+  createKernelId();
+
   std::string scode;
   if (!structured) {
     scode = getStructuredCode(code, index_type);
   } else {
     scode = code;
   }
-  createKernelId();
   compiled_kernel_ =
       executor_utils::getCompiledKernel(std::nullopt, scode, name, kernel_id_);
 }
