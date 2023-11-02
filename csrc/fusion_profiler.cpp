@@ -60,14 +60,14 @@ void record_cupti_activity(CUpti_Activity* pRecord, FILE* pFileHandle) {
       prof.static_shared_mem = pKARecord->staticSharedMemory;
       prof.registers = pKARecord->registersPerThread;
 
-      FusionProfiler::get()->recordAsyncKernelActivity(std::move(prof));
+      FusionProfiler::recordAsyncKernelActivity(std::move(prof));
 
       break;
     }
     case CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION: {
       CUpti_ActivityExternalCorrelation* pExternalCorrelationRecord =
           (CUpti_ActivityExternalCorrelation*)pRecord;
-      FusionProfiler::get()->recordAsyncCorrIdActivity(
+      FusionProfiler::recordAsyncCorrIdActivity(
           pExternalCorrelationRecord->externalId,
           pExternalCorrelationRecord->correlationId);
       break;
@@ -132,7 +132,7 @@ void cupti_buffer_requested(
     uint8_t** ppBuffer,
     size_t* pSize,
     size_t* pMaxNumRecords) {
-  uint8_t* pBuffer = FusionProfiler::get()->cuptiBufferPtr();
+  uint8_t* pBuffer = FusionProfiler::cuptiBufferPtr();
   NVF_ERROR(pBuffer, "CUPTI Activity Record buffer pointer is null!");
   const size_t align_size = 8;
   NVF_ERROR(
@@ -402,7 +402,7 @@ std::array<const char*, 25> column_strs{
     "KerTm(ms)",
     "EffBw(GB/s)",
     "%PeakBw",
-    "Seg#",
+    "S-Seg#",
     "S-KerName",
     "S-KerTm(ms)",
     "S-CmpTm(ms)",
@@ -417,8 +417,8 @@ std::array<const char*, 25> column_strs{
     "S-Cluster",
     "S-Dev",
     "S-Stm",
-    "S-DeviceName",
-    "S-PeakBw(GB/s)"};
+    "S-PeakBw(GB/s)",
+    "S-DeviceName"};
 
 std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
   if (fp.fusion_id == 0) {
@@ -433,7 +433,7 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
          << std::setw(11) << std::get<6>(column_strs) << " " << std::setw(9)
          << std::get<7>(column_strs);
 
-      os << " " << std::setw(4) << std::get<8>(column_strs) << " "
+      os << " " << std::setw(6) << std::get<8>(column_strs) << " "
          << std::setw(10) << std::get<9>(column_strs) << " " << std::setw(11)
          << std::get<10>(column_strs);
 
@@ -453,8 +453,8 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
       if (fp.verbose) {
         os << " " << std::setw(16) << std::get<20>(column_strs) << " "
            << std::setw(5) << std::get<21>(column_strs) << " " << std::setw(5)
-           << std::get<22>(column_strs) << " " << std::setw(20)
-           << std::get<23>(column_strs) << " " << std::setw(14)
+           << std::get<22>(column_strs) << " " << std::setw(14)
+           << std::get<23>(column_strs) << " " << std::setw(20)
            << std::get<24>(column_strs);
       }
     }
@@ -508,7 +508,7 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
       std::stringstream smem;
       smem << "[" << kp.dynamic_shared_mem << ", " << kp.static_shared_mem
            << "]";
-      os << std::setfill(' ') << std::right << std::fixed << " " << std::setw(4)
+      os << std::setfill(' ') << std::right << std::fixed << " " << std::setw(6)
          << idx << " " << std::setw(10) << kp.name << " " << std::setw(11)
          << std::setprecision(3) << kp.time_ms;
 
@@ -529,8 +529,8 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
       if (fp.verbose) {
         os << " " << std::setw(16) << cluster.str() << " " << std::setw(5)
            << kp.device << " " << std::setw(5) << kp.stream << " "
-           << std::setw(20) << kp.device_name << " " << std::setw(14)
-           << std::setprecision(2) << kp.peak_bandwidth_gbs;
+           << std::setw(14) << std::setprecision(2) << kp.peak_bandwidth_gbs
+           << " " << std::setw(20) << kp.device_name;
       }
       os << std::endl;
       ++idx;
@@ -560,19 +560,6 @@ FusionProfiler::FusionProfiler()
   }
 }
 
-void FusionProfiler::reset() {
-  state_ = ProfilerState::Ready;
-  ++fusion_id_;
-
-  profile_.reset();
-  fusion_timer_.reset();
-  host_timer_.reset();
-  compile_timer_.reset();
-  segments_.clear();
-  kernel_profiles_.clear();
-  corrid_2_segid_.clear();
-}
-
 FusionProfiler* FusionProfiler::get() {
   static std::mutex singleton_lock;
   std::lock_guard<std::mutex> guard(singleton_lock);
@@ -582,28 +569,44 @@ FusionProfiler* FusionProfiler::get() {
   return singleton_;
 }
 
-ProfilerState FusionProfiler::state() const {
-  return state_;
+void FusionProfiler::reset() {
+  FusionProfiler* fp = get();
+  fp->state_ = ProfilerState::Ready;
+  ++(fp->fusion_id_);
+
+  fp->profile_.reset();
+  fp->fusion_timer_.reset();
+  fp->host_timer_.reset();
+  fp->compile_timer_.reset();
+  fp->segments_.clear();
+  fp->kernel_profiles_.clear();
+  fp->corrid_2_segid_.clear();
+}
+
+ProfilerState FusionProfiler::state() {
+  return get()->state_;
 }
 
 void FusionProfiler::createSegments(size_t num) {
+  FusionProfiler* fp = get();
   NVF_CHECK(
-      state_ == ProfilerState::Running,
+      state() == ProfilerState::Running,
       "FusionProfiler state is not Running!",
-      state_);
-  segments_.reserve(num);
+      state());
+  fp->segments_.reserve(num);
   for (uint32_t i = 0; i < num; ++i) {
-    segments_.emplace_back(i, cupti_disabled_);
+    fp->segments_.emplace_back(i, fp->cupti_disabled_);
   }
 }
 SegmentProfiler& FusionProfiler::segment(size_t idx) {
-  return segments_.at(idx);
+  return get()->segments_.at(idx);
 }
 
 void FusionProfiler::start(bool cupti_disable) {
-  cupti_disabled_ = cupti_disable;
+  FusionProfiler* fp = get();
+  fp->cupti_disabled_ = cupti_disable;
   reset();
-  if (!cupti_disabled_) {
+  if (!fp->cupti_disabled_) {
     NVFUSER_CUPTI_SAFE_CALL(
         cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_DRIVER));
@@ -611,160 +614,174 @@ void FusionProfiler::start(bool cupti_disable) {
         cuptiActivityEnable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
   }
   cudaDeviceSynchronize();
-  fusion_timer_.start();
-  host_timer_.start();
-  state_ = ProfilerState::Running;
+  fp->fusion_timer_.start();
+  fp->host_timer_.start();
+  fp->state_ = ProfilerState::Running;
 }
 
 void FusionProfiler::stop() {
+  FusionProfiler* fp = get();
   NVF_CHECK(
-      state_ == ProfilerState::Running,
+      state() == ProfilerState::Running,
       "FusionProfiler state is not Running!",
-      state_);
-  host_timer_.stop();
-  fusion_timer_.stop();
-  state_ = ProfilerState::Finished;
-  profile_.cuda_evt_time_ms = fusion_timer_.time();
-  profile_.host_time_ms = host_timer_.time();
-  profile_.fusion_id = fusion_id_;
-  profile_.segments = (int64_t)segments_.size();
+      state());
+  fp->host_timer_.stop();
+  fp->fusion_timer_.stop();
+  fp->state_ = ProfilerState::Finished;
+  auto& fprof = fp->profile_;
+  fprof.cuda_evt_time_ms = fp->fusion_timer_.time();
+  fprof.host_time_ms = fp->host_timer_.time();
+  fprof.fusion_id = fp->fusion_id_;
+  fprof.segments = (int64_t)fp->segments_.size();
 
   double kernel_time_ms = 0.0;
   constexpr double mb_divider = 1.0 / 1.0e6;
-  if (!cupti_disabled_) {
+  if (!fp->cupti_disabled_) {
     NVFUSER_CUPTI_SAFE_CALL(
         cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_DRIVER));
     NVFUSER_CUPTI_SAFE_CALL(
         cuptiActivityDisable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
-    kernel_profiles_.reserve(segments_.size());
-    profile_.kernel_profiles.resize(segments_.size());
+    fp->kernel_profiles_.reserve(fp->segments_.size());
+    fprof.kernel_profiles.resize(fp->segments_.size());
 
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(0));
 
     NVF_CHECK(
-        kernel_profiles_.size() >= segments_.size(),
+        fp->kernel_profiles_.size() >= fp->segments_.size(),
         "All of the kernel profiles have not been recorded!");
 
-    for (auto& kp : kernel_profiles_) {
-      auto corr_id = kp.correlation_id;
-      if (corrid_2_segid_.count(corr_id) == 0) {
+    for (auto& kprof : fp->kernel_profiles_) {
+      auto corr_id = kprof.correlation_id;
+      if (fp->corrid_2_segid_.count(corr_id) == 0) {
         continue;
       }
       NVF_CHECK(
-          kp.device >= 0, "Device Descriptor index is not valid! ", kp.device);
-      if ((size_t)kp.device >= device_descriptors_.size()) {
-        device_descriptors_.resize(kp.device + 1);
+          kprof.device >= 0,
+          "Device Descriptor index is not valid! ",
+          kprof.device);
+      if ((size_t)kprof.device >= fp->device_descriptors_.size()) {
+        fp->device_descriptors_.resize(kprof.device + 1);
       }
       NVF_CHECK(
-          (size_t)kp.device < device_descriptors_.size(),
+          (size_t)kprof.device < fp->device_descriptors_.size(),
           "Device idx is beyond size of Device Descriptors! ",
-          kp.device);
-      if (device_descriptors_[kp.device].device != kp.device) {
-        DeviceDescriptor::generate(device_descriptors_[kp.device], kp.device);
+          kprof.device);
+      if (fp->device_descriptors_[kprof.device].device != kprof.device) {
+        DeviceDescriptor::generate(
+            fp->device_descriptors_[kprof.device], kprof.device);
       }
-      kp.device_name = device_descriptors_[kp.device].name;
-      kp.peak_bandwidth_gbs = device_descriptors_[kp.device].peak_bandwidth_gbs;
+      kprof.device_name = fp->device_descriptors_[kprof.device].name;
+      kprof.peak_bandwidth_gbs =
+          fp->device_descriptors_[kprof.device].peak_bandwidth_gbs;
       NVF_CHECK(
-          corrid_2_segid_.count(corr_id) > 0,
+          fp->corrid_2_segid_.count(corr_id) > 0,
           "Correlation Id is not found in corrid -> segid hashmap! ",
           corr_id);
-      auto kp_idx = corrid_2_segid_[corr_id];
+      auto kp_idx = fp->corrid_2_segid_[corr_id];
       NVF_CHECK(
-          kp_idx < profile_.kernel_profiles.size(),
+          kp_idx < fprof.kernel_profiles.size(),
           "Index is out of range of Kernel Profiles size! ",
           kp_idx,
           " ",
-          profile_.kernel_profiles.size());
+          fprof.kernel_profiles.size());
       NVF_CHECK(
-          segments_[kp_idx].state() == ProfilerState::Finished,
+          fp->segments_[kp_idx].state() == ProfilerState::Finished,
           "SegmentProfiler ProfilerState is not Finished!",
-          segments_[kp_idx].state());
-      kp.input_bytes = segments_.at(kp_idx).inputBytes();
-      kp.output_bytes = segments_.at(kp_idx).outputBytes();
-      kp.effective_bandwidth_gbs =
-          (double)(kp.input_bytes + kp.output_bytes) / kp.time_ms * mb_divider;
-      kp.percentage_peak_bandwidth =
-          kp.effective_bandwidth_gbs / kp.peak_bandwidth_gbs * 100.0;
-      kp.compile_time_ms = segments_.at(kp_idx).compileTime();
+          fp->segments_[kp_idx].state());
+      kprof.input_bytes = fp->segment(kp_idx).inputBytes();
+      kprof.output_bytes = fp->segment(kp_idx).outputBytes();
+      kprof.effective_bandwidth_gbs =
+          (double)(kprof.input_bytes + kprof.output_bytes) / kprof.time_ms *
+          mb_divider;
+      kprof.percentage_peak_bandwidth =
+          kprof.effective_bandwidth_gbs / kprof.peak_bandwidth_gbs * 100.0;
+      kprof.compile_time_ms = fp->segment(kp_idx).compileTime();
 
-      kernel_time_ms += kp.time_ms;
-      profile_.kernel_profiles[kp_idx] = std::move(kp);
+      kernel_time_ms += kprof.time_ms;
+      fprof.kernel_profiles[kp_idx] = std::move(kprof);
     }
 
-    for (auto& seg : segments_) {
+    for (auto& seg : fp->segments_) {
       NVF_CHECK(
-          seg.device() == segments_[0].device(),
+          seg.device() == fp->segment(0).device(),
           "All Segment profiles must be on the same device!");
     }
-    profile_.kernel_time_ms = kernel_time_ms;
-    profile_.effective_bandwidth_gbs =
-        (double)(profile_.input_bytes + profile_.output_bytes) /
-        kernel_time_ms * mb_divider;
-    profile_.percentage_peak_bandwidth = profile_.effective_bandwidth_gbs /
-        device_descriptors_[segments_[0].device()].peak_bandwidth_gbs * 100.0;
+    fprof.kernel_time_ms = kernel_time_ms;
+    fprof.effective_bandwidth_gbs =
+        (double)(fprof.input_bytes + fprof.output_bytes) / kernel_time_ms *
+        mb_divider;
+    fprof.percentage_peak_bandwidth = fprof.effective_bandwidth_gbs /
+        fp->device_descriptors_[fp->segment(0).device()].peak_bandwidth_gbs *
+        100.0;
   }
-  profile_.compile_time_ms = compile_timer_.time();
+  fprof.compile_time_ms = fp->compile_timer_.time();
 
-  state_ = ProfilerState::Processed;
+  fp->state_ = ProfilerState::Processed;
 }
 
 void FusionProfiler::startCompile() {
+  FusionProfiler* fp = get();
   NVF_CHECK(
-      state_ == ProfilerState::Running,
+      state() == ProfilerState::Running,
       "FusionProfiler state is not Running!",
-      state_);
-  compile_timer_.start();
+      state());
+  fp->compile_timer_.start();
 }
 
 void FusionProfiler::stopCompile() {
+  FusionProfiler* fp = get();
   NVF_CHECK(
-      state_ == ProfilerState::Running,
+      state() == ProfilerState::Running,
       "FusionProfiler state is not Running!",
-      state_);
-  compile_timer_.stop();
+      state());
+  fp->compile_timer_.stop();
 }
 
 void FusionProfiler::inputBytesAccessed(int64_t bytes) {
+  FusionProfiler* fp = get();
   NVF_CHECK(
-      state_ == ProfilerState::Running,
+      state() == ProfilerState::Running,
       "FusionProfiler state is not Running!",
-      state_);
-  profile_.input_bytes = bytes;
+      state());
+  fp->profile_.input_bytes = bytes;
 }
 
 void FusionProfiler::outputBytesAccessed(int64_t bytes) {
+  FusionProfiler* fp = get();
   NVF_CHECK(
-      state_ == ProfilerState::Running,
+      state() == ProfilerState::Running,
       "FusionProfiler state is not Running!",
-      state_);
-  profile_.output_bytes = bytes;
+      state());
+  fp->profile_.output_bytes = bytes;
 }
 
-const FusionProfile& FusionProfiler::profile() const {
+const FusionProfile& FusionProfiler::profile() {
+  FusionProfiler* fp = get();
   NVF_CHECK(
-      state_ == ProfilerState::Processed,
+      state() == ProfilerState::Processed,
       "The FusionProfile struct data is not valid because it has not been processed! ",
-      state_);
-  return profile_;
+      state());
+  return fp->profile_;
 }
 
 void FusionProfiler::recordAsyncCorrIdActivity(
     uint32_t seg_id,
     uint32_t corr_id) {
+  FusionProfiler* fp = get();
   NVF_CHECK(
-      corrid_2_segid_.count(corr_id) == 0,
+      fp->corrid_2_segid_.count(corr_id) == 0,
       "Segment Correlation Activity asociated with this correlation id already exists! ",
       corr_id);
-  corrid_2_segid_[corr_id] = seg_id;
+  fp->corrid_2_segid_[corr_id] = seg_id;
 }
 
 void FusionProfiler::recordAsyncKernelActivity(KernelProfile prof) {
-  kernel_profiles_.emplace_back(std::move(prof));
+  get()->kernel_profiles_.emplace_back(std::move(prof));
 }
 
 uint8_t* FusionProfiler::cuptiBufferPtr() {
-  return cupti_buffer_.data();
+  return get()->cupti_buffer_.data();
 }
 
 } // namespace nvfuser

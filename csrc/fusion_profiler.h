@@ -202,32 +202,32 @@ class SegmentProfiler {
 class FusionProfiler {
   FusionProfiler();
 
- public:
   //! Method to access FusionProfiler singleton
   static FusionProfiler* get();
 
-  void reset();
-  ProfilerState state() const;
-  SegmentProfiler& segment(size_t idx);
+ public:
+  static void reset();
+  static ProfilerState state();
 
   //! Profiling Methods
-  void start(bool cupti_disable = false);
-  void stop();
-  void createSegments(size_t num);
-  void startCompile();
-  void stopCompile();
-  void inputBytesAccessed(int64_t bytes);
-  void outputBytesAccessed(int64_t bytes);
-  const FusionProfile& profile() const;
+  static void start(bool cupti_disable = false);
+  static void stop();
+  static void createSegments(size_t num);
+  static void startCompile();
+  static void stopCompile();
+  static void inputBytesAccessed(int64_t bytes);
+  static void outputBytesAccessed(int64_t bytes);
+  static const FusionProfile& profile();
+  static SegmentProfiler& segment(size_t idx);
 
   //! Methods to capture Asynchronous CUPTI activity that get called from
   //! functions registered with CUPTI.
   //! Correlation ID -> Segment ID
-  void recordAsyncCorrIdActivity(uint32_t seg_id, uint32_t corr_id);
+  static void recordAsyncCorrIdActivity(uint32_t seg_id, uint32_t corr_id);
   //! Collects CUPTI Kernel Activity
-  void recordAsyncKernelActivity(KernelProfile prof);
+  static void recordAsyncKernelActivity(KernelProfile prof);
   //! Ptr to the CUPTI Activity Buffer
-  uint8_t* cuptiBufferPtr();
+  static uint8_t* cuptiBufferPtr();
 
  public:
   // CUPTI buffer size 4.0 KB

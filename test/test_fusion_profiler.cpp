@@ -25,16 +25,6 @@ class FusionProfilerTest : public NVFuserTest {};
 
 // RUN CMD: bin/nvfuser_tests --gtest_filter="*Profile1Segment*"
 TEST_F(FusionProfilerTest, Profile1Segment) {
-  FusionProfiler* fp = nullptr;
-  try {
-    fp = FusionProfiler::get();
-    SUCCEED();
-  } catch (const std::exception& e) {
-    FAIL() << "Getting the FusionProfiler singleton failed!" << e.what();
-  }
-
-  ASSERT_FALSE(fp == nullptr);
-
   try {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
@@ -61,43 +51,33 @@ TEST_F(FusionProfilerTest, Profile1Segment) {
     FAIL() << "Defining and profiling the fusion failed!" << e.what();
   }
 
-  auto fprof = fp->profile();
-  ASSERT_TRUE(fprof.fusion_id >= 0);
-  ASSERT_TRUE(fprof.segments == 1);
-  ASSERT_TRUE(fprof.cuda_evt_time_ms > 0.0);
-  ASSERT_TRUE(fprof.host_time_ms > 0.0);
-  ASSERT_TRUE(fprof.compile_time_ms > 0.0);
-  ASSERT_TRUE(fprof.kernel_time_ms > 0.0);
-  ASSERT_TRUE(fprof.kernel_time_ms == fprof.kernel_profiles.at(0).time_ms);
-  ASSERT_TRUE(fprof.input_bytes == int64_t(2 * 16 * 4));
-  ASSERT_TRUE(fprof.output_bytes == int64_t(16 * 4));
-  ASSERT_TRUE(fprof.effective_bandwidth_gbs > 0.0);
-  ASSERT_TRUE(fprof.percentage_peak_bandwidth > 0.0);
-  ASSERT_TRUE(fprof.kernel_profiles.size() == 1);
+  auto fprof = FusionProfiler::profile();
+  EXPECT_GE(fprof.fusion_id, 0);
+  EXPECT_EQ(fprof.segments, 1);
+  EXPECT_GT(fprof.cuda_evt_time_ms, 0.0);
+  EXPECT_GT(fprof.host_time_ms, 0.0);
+  EXPECT_GT(fprof.compile_time_ms, 0.0);
+  EXPECT_GT(fprof.kernel_time_ms, 0.0);
+  EXPECT_EQ(fprof.kernel_time_ms, fprof.kernel_profiles.at(0).time_ms);
+  EXPECT_EQ(fprof.input_bytes, int64_t(2 * 16 * 4));
+  EXPECT_EQ(fprof.output_bytes, int64_t(16 * 4));
+  EXPECT_GT(fprof.effective_bandwidth_gbs, 0.0);
+  EXPECT_GT(fprof.percentage_peak_bandwidth, 0.0);
+  EXPECT_EQ(fprof.kernel_profiles.size(), 1);
 
-  auto& sprof = fp->profile().kernel_profiles.at(0);
-  ASSERT_FALSE(sprof.name.empty());
-  ASSERT_TRUE(sprof.device >= 0);
-  ASSERT_TRUE(sprof.compile_time_ms > 0.0);
-  ASSERT_TRUE(sprof.effective_bandwidth_gbs > 0.0);
-  ASSERT_TRUE(sprof.percentage_peak_bandwidth > 0.0);
-  ASSERT_TRUE(sprof.registers > 0);
-  ASSERT_TRUE(sprof.input_bytes == int64_t(2 * 16 * 4));
-  ASSERT_TRUE(sprof.output_bytes == int64_t(16 * 4));
-  ASSERT_FALSE(sprof.device_name.empty());
+  auto& sprof = FusionProfiler::profile().kernel_profiles.at(0);
+  EXPECT_FALSE(sprof.name.empty());
+  EXPECT_GE(sprof.device, 0);
+  EXPECT_GT(sprof.compile_time_ms, 0.0);
+  EXPECT_GT(sprof.effective_bandwidth_gbs, 0.0);
+  EXPECT_GT(sprof.percentage_peak_bandwidth, 0.0);
+  EXPECT_GT(sprof.registers, 0);
+  EXPECT_EQ(sprof.input_bytes, int64_t(2 * 16 * 4));
+  EXPECT_EQ(sprof.output_bytes, int64_t(16 * 4));
+  EXPECT_FALSE(sprof.device_name.empty());
 }
 
 TEST_F(FusionProfilerTest, ProfileNocupti1Segment) {
-  FusionProfiler* fp = nullptr;
-  try {
-    fp = FusionProfiler::get();
-    SUCCEED();
-  } catch (const std::exception& e) {
-    FAIL() << "Getting the FusionProfiler singleton failed!" << e.what();
-  }
-
-  ASSERT_FALSE(fp == nullptr);
-
   try {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
@@ -123,31 +103,21 @@ TEST_F(FusionProfilerTest, ProfileNocupti1Segment) {
     FAIL() << "Defining and profiling the fusion failed!" << e.what();
   }
 
-  auto fprof = fp->profile();
-  ASSERT_TRUE(fprof.fusion_id >= 0);
-  ASSERT_TRUE(fprof.segments == 1);
-  ASSERT_TRUE(fprof.cuda_evt_time_ms > 0.0);
-  ASSERT_TRUE(fprof.host_time_ms > 0.0);
-  ASSERT_TRUE(fprof.compile_time_ms > 0.0);
-  ASSERT_TRUE(fprof.kernel_time_ms == 0.0);
-  ASSERT_TRUE(fprof.input_bytes == int64_t(2 * 16 * 4));
-  ASSERT_TRUE(fprof.output_bytes == int64_t(16 * 4));
-  ASSERT_TRUE(fprof.effective_bandwidth_gbs == 0.0);
-  ASSERT_TRUE(fprof.percentage_peak_bandwidth == 0.0);
-  ASSERT_TRUE(fprof.kernel_profiles.empty());
+  auto fprof = FusionProfiler::profile();
+  EXPECT_GE(fprof.fusion_id, 0);
+  EXPECT_EQ(fprof.segments, 1);
+  EXPECT_GT(fprof.cuda_evt_time_ms, 0.0);
+  EXPECT_GT(fprof.host_time_ms, 0.0);
+  EXPECT_GT(fprof.compile_time_ms, 0.0);
+  EXPECT_EQ(fprof.kernel_time_ms, 0.0);
+  EXPECT_EQ(fprof.input_bytes, int64_t(2 * 16 * 4));
+  EXPECT_EQ(fprof.output_bytes, int64_t(16 * 4));
+  EXPECT_EQ(fprof.effective_bandwidth_gbs, 0.0);
+  EXPECT_EQ(fprof.percentage_peak_bandwidth, 0.0);
+  EXPECT_TRUE(fprof.kernel_profiles.empty());
 }
 
 TEST_F(FusionProfilerTest, Profile3Segments) {
-  FusionProfiler* fp = nullptr;
-  try {
-    fp = FusionProfiler::get();
-    SUCCEED();
-  } catch (const std::exception& e) {
-    FAIL() << "Getting the FusionProfiler singleton failed!" << e.what();
-  }
-
-  ASSERT_FALSE(fp == nullptr);
-
   try {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
@@ -184,65 +154,55 @@ TEST_F(FusionProfilerTest, Profile3Segments) {
     FAIL() << "Defining and profiling the fusion failed!" << e.what();
   }
 
-  auto fprof = fp->profile();
-  ASSERT_TRUE(fprof.fusion_id >= 0);
-  ASSERT_TRUE(fprof.segments == 3);
-  ASSERT_TRUE(fprof.kernel_profiles.size() == 3);
-  ASSERT_TRUE(fprof.cuda_evt_time_ms > 0.0);
-  ASSERT_TRUE(fprof.host_time_ms > 0.0);
-  ASSERT_TRUE(fprof.compile_time_ms > 0.0);
-  ASSERT_TRUE(fprof.kernel_time_ms > 0.0);
-  ASSERT_TRUE(fprof.kernel_time_ms != fprof.kernel_profiles.at(0).time_ms);
-  ASSERT_TRUE(fprof.input_bytes == int64_t((11 + 13 + 17) * 4));
-  ASSERT_TRUE(fprof.output_bytes == int64_t((11 + 13 + 17) * 4));
-  ASSERT_TRUE(fprof.effective_bandwidth_gbs > 0.0);
-  ASSERT_TRUE(fprof.percentage_peak_bandwidth > 0.0);
+  auto fprof = FusionProfiler::profile();
+  EXPECT_GE(fprof.fusion_id, 0);
+  EXPECT_EQ(fprof.segments, 3);
+  EXPECT_EQ(fprof.kernel_profiles.size(), 3);
+  EXPECT_GT(fprof.cuda_evt_time_ms, 0.0);
+  EXPECT_GT(fprof.host_time_ms, 0.0);
+  EXPECT_GT(fprof.compile_time_ms, 0.0);
+  EXPECT_GT(fprof.kernel_time_ms, 0.0);
+  EXPECT_NE(fprof.kernel_time_ms, fprof.kernel_profiles.at(0).time_ms);
+  EXPECT_EQ(fprof.input_bytes, int64_t((11 + 13 + 17) * 4));
+  EXPECT_EQ(fprof.output_bytes, int64_t((11 + 13 + 17) * 4));
+  EXPECT_GT(fprof.effective_bandwidth_gbs, 0.0);
+  EXPECT_GT(fprof.percentage_peak_bandwidth, 0.0);
 }
 
 TEST_F(FusionProfilerTest, FusionProfilerErrorChecks) {
-  FusionProfiler* fp = nullptr;
-  try {
-    fp = FusionProfiler::get();
-    SUCCEED();
-  } catch (const std::exception& e) {
-    FAIL() << "Getting the FusionProfiler singleton failed!" << e.what();
-  }
-
-  ASSERT_FALSE(fp == nullptr);
-
-  fp->reset();
+  FusionProfiler::reset();
 
   // Make error checks for state when it is Ready and methods expect
   // something else.
 
   try {
-    fp->stop();
+    FusionProfiler::stop();
     FAIL()
         << "Expected FusionProfiler::stop to assert because state is not Running! "
-        << fp->state();
+        << FusionProfiler::state();
   } catch (const std::exception& e) {
     SUCCEED();
   }
 
   try {
-    fp->profile();
+    FusionProfiler::profile();
     FAIL()
         << "Expected FusionProfiler::profile to assert because state is not Processed! "
-        << fp->state();
+        << FusionProfiler::state();
   } catch (const std::exception& e) {
     SUCCEED();
   }
 
-  fp->start();
+  FusionProfiler::start();
 
   // Make error checks for state when it is Running and methods expect
   // something else.
 
   try {
-    fp->profile();
+    FusionProfiler::profile();
     FAIL()
         << "Expected FusionProfiler::profile to assert because state is not Processed! "
-        << fp->state();
+        << FusionProfiler::state();
   } catch (const std::exception& e) {
     SUCCEED();
   }

@@ -445,7 +445,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
   // NOTE: This should be the first code in the method to capture all host time
   if (isProfilerEnabled()) {
-    FusionProfiler::get()->start(isProfilerEnabledWithoutCupti());
+    FusionProfiler::start(isProfilerEnabledWithoutCupti());
   }
 
   // Permute input tensor for kernel execution.
@@ -469,7 +469,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
 
   if (isProfilerEnabled()) {
-    FusionProfiler::get()->createSegments(kernel_runtime->executors().size());
+    FusionProfiler::createSegments(kernel_runtime->executors().size());
   }
 
   if (!kernel_runtime->isCompiled()) {
@@ -537,10 +537,10 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
 
   // NOTE: This should be the last code in the method to capture all host time
   if (isProfilerEnabled()) {
-    FusionProfiler::get()->stop();
+    FusionProfiler::stop();
   }
   if (isProfilerPrintingEnabled()) {
-    debug() << FusionProfiler::get()->profile();
+    debug() << FusionProfiler::profile();
   }
 
   return outputs;
@@ -1032,13 +1032,13 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   }
 
   if (isProfilerEnabled()) {
-    auto& sprof = FusionProfiler::get()->segment(group_id);
+    auto& sprof = FusionProfiler::segment(group_id);
     sprof.inputBytesAccessed(executor.inputBytesProcessed(args));
     sprof.startKernel(args.getDeviceIndex());
   }
   auto outputs = executor.runFusion(args, launch_params, compile_params);
   if (isProfilerEnabled()) {
-    auto& sprof = FusionProfiler::get()->segment(group_id);
+    auto& sprof = FusionProfiler::segment(group_id);
     sprof.stopKernel();
     sprof.outputBytesAccessed(executor.outputBytesProcessed(outputs));
   }
@@ -1152,7 +1152,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
   num_live_args_after_segment_runs_.reserve(num_groups);
   if (isProfilerEnabled()) {
-    FusionProfiler::get()->startCompile();
+    FusionProfiler::startCompile();
   }
   for (int64_t group_id = 0; group_id < num_groups; ++group_id) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
@@ -1199,7 +1199,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     getThreadPool()->waitWorkComplete();
   }
   if (isProfilerEnabled()) {
-    FusionProfiler::get()->stopCompile();
+    FusionProfiler::stopCompile();
   }
 }
 
@@ -1209,8 +1209,7 @@ void FusionKernelRuntime::compileKernel(
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
   auto group_id = sg->groupId();
   if (isProfilerEnabled()) {
-    FusionProfiler::get()->segment(group_id).startCompile(
-        args.getDeviceIndex());
+    FusionProfiler::segment(group_id).startCompile(args.getDeviceIndex());
   }
   auto scheduler_entry = schedulers().at(group_id).get();
 
@@ -1232,7 +1231,7 @@ void FusionKernelRuntime::compileKernel(
       scheduler_entry->params()->lparams,
       scheduler_entry->params()->cparams);
   if (isProfilerEnabled()) {
-    FusionProfiler::get()->segment(group_id).stopCompile();
+    FusionProfiler::segment(group_id).stopCompile();
   }
 }
 
@@ -1348,7 +1347,7 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
             static_cast<int64_t>(aten_ten->as<at::Tensor>().storage().nbytes());
       }
     }
-    FusionProfiler::get()->inputBytesAccessed(input_bytes);
+    FusionProfiler::inputBytesAccessed(input_bytes);
     int64_t output_bytes = 0;
     for (auto outp : fusionSegments()->outputs()) {
       if (dynamic_cast<TensorView*>(outp)) {
@@ -1357,7 +1356,7 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
             static_cast<int64_t>(aten_ten->as<at::Tensor>().storage().nbytes());
       }
     }
-    FusionProfiler::get()->outputBytesAccessed(output_bytes);
+    FusionProfiler::outputBytesAccessed(output_bytes);
   }
 
   if (compute_overall_bw) {

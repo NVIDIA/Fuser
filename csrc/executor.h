@@ -188,17 +188,11 @@ class FusionExecutor : public NonCopyable {
 
   //! Returns the number of bytes processed last kernel execution
   int64_t bytesProcessed() const {
-    NVF_CHECK(
-        bytes_processed_per_input_.has_value(),
-        "bytes_processed_per_input_ is not defined!");
-    NVF_CHECK(
-        bytes_processed_per_output_.has_value(),
-        "bytes_processed_per_output_ is not defined!");
     int64_t bytes_processed = 0;
-    for (auto bp : bytes_processed_per_input_.value()) {
+    for (auto bp : bytesInputsProcessed()) {
       bytes_processed += bp;
     }
-    for (auto bp : bytes_processed_per_output_.value()) {
+    for (auto bp : bytesOutputsProcessed()) {
       bytes_processed += bp;
     }
     return bytes_processed;
