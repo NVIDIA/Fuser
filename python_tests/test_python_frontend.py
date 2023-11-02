@@ -2552,21 +2552,17 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(nvf_out[0], torch_ref)
 
     def test_dynamic_reshape(self):
-        def dynamic_reshape() -> FusionDefinition:
-            with FusionDefinition() as fd:
-                x = fd.define_tensor([-1, -1], [True, True])
-                d0 = fd.ops.size(x, 0)
-                d1 = fd.define_scalar(dtype=DataType.Int32)
-                d2 = fd.define_scalar(dtype=DataType.Int32)
-                new_shape = fd.define_vector([d0, d1, d2])
-                y = fd.ops.reshape(x, new_shape)
-                fd.add_output(y)
-            return fd
-
-        fd = dynamic_reshape()
+        def dynamic_reshape(fd: FusionDefinition) -> None:
+            x = fd.define_tensor([-1, -1], [True, True])
+            d0 = fd.ops.size(x, 0)
+            d1 = fd.define_scalar(dtype=DataType.Int32)
+            d2 = fd.define_scalar(dtype=DataType.Int32)
+            new_shape = fd.define_vector([d0, d1, d2])
+            y = fd.ops.reshape(x, new_shape)
+            fd.add_output(y)
 
         x = torch.rand(3, 4, device="cuda")
-        ys = fd.execute([x, 2, 2])
+        ys, _ = self.exec_nvfuser(dynamic_reshape, [x, 2, 2])
         self.assertEqual(len(ys), 1)
         y = ys[0]
 
