@@ -2969,7 +2969,8 @@ IterDomain* IterDomain::resize(
       in->getIterType() == IterType::Iteration ||
           in->getIterType() == IterType::Broadcast ||
           in->getIterType() == IterType::Symbolic,
-      "Not a valid IterType: ", in->getIterType());
+      "Not a valid IterType: ",
+      in->getIterType());
 
   NVF_CHECK(
       in->start()->isZeroInt(),
