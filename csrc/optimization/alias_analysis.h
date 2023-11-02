@@ -14,7 +14,7 @@ namespace nvfuser::optimization {
 
 class AliasAnalysisResult {
  public:
-  AliasAnalysisResult() {}
+  AliasAnalysisResult() = default;
 
   // Returns itself if `alias` doesn't alias anything.
   const Val* findRoot(const Val* alias) const;

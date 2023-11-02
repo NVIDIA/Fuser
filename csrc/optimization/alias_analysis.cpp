@@ -132,8 +132,9 @@ const Val* AliasAnalysisResult::findRoot(const Val* alias) const {
     return nullptr;
   }
 
-  for (; alias_to_source_.count(root); root = alias_to_source_.at(root))
-    ;
+  while (alias_to_source_.count(root)) {
+    root = alias_to_source_.at(root);
+  }
   return root;
 }
 

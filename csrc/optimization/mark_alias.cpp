@@ -16,9 +16,12 @@ void MarkAliasPass::runPass(Fusion* fusion) {
 
   const AliasAnalysisResult alias_analysis = findAliases(fusion);
   for (Val* out : fusion->outputs()) {
-    if (Val* in = const_cast<Val*>(alias_analysis.findRoot(out));
-        in->isFusionInput()) {
-      fusion->aliasOutputToInput(out, in, AliasType::PointerCast);
+    if (const Val* in = alias_analysis.findRoot(out); in->isFusionInput()) {
+      fusion->aliasOutputToInput(
+          out,
+          // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+          const_cast<Val*>(in),
+          AliasType::PointerCast);
     }
   }
 }
