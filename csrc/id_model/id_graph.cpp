@@ -16,56 +16,56 @@ using UnorderedSetOfExprGroup = std::unordered_set<ExprGroup>;
 using DequeOfExprGroup = std::deque<ExprGroup>;
 } // namespace
 
-IdGraph::IdGraph(const IdGraph& other)
-    : disjoint_ids_(other.disjoint_ids_),
+ValGraph::ValGraph(const ValGraph& other)
+    : disjoint_vals_(other.disjoint_vals_),
       disjoint_exprs_(other.disjoint_exprs_),
       unique_definitions_(),
       unique_uses_() {
-  for (const auto& [orig_id_group, orig_expr_groups] :
+  for (const auto& [orig_val_group, orig_expr_groups] :
        other.unique_definitions_) {
-    auto new_id_group = toGroup(orig_id_group->front());
+    auto new_val_group = toGroup(orig_val_group->front());
 
     ExprGroups new_expr_groups;
     for (const ExprGroup& orig_expr_group : orig_expr_groups) {
       new_expr_groups.pushBack(toGroup(orig_expr_group->front()));
     }
 
-    unique_definitions_[new_id_group] = new_expr_groups;
+    unique_definitions_[new_val_group] = new_expr_groups;
   }
 
-  for (const auto& [orig_id_group, orig_expr_groups] : other.unique_uses_) {
-    auto new_id_group = toGroup(orig_id_group->front());
+  for (const auto& [orig_val_group, orig_expr_groups] : other.unique_uses_) {
+    auto new_val_group = toGroup(orig_val_group->front());
 
     ExprGroups new_expr_groups;
     for (const ExprGroup& orig_expr_group : orig_expr_groups) {
       new_expr_groups.pushBack(toGroup(orig_expr_group->front()));
     }
 
-    unique_uses_[new_id_group] = new_expr_groups;
+    unique_uses_[new_val_group] = new_expr_groups;
   }
 }
 
-IdGraph& IdGraph::operator=(const IdGraph& other) {
-  disjoint_ids_.clear();
+ValGraph& ValGraph::operator=(const ValGraph& other) {
+  disjoint_vals_.clear();
   disjoint_exprs_.clear();
   unique_definitions_.clear();
   unique_uses_.clear();
-  IdGraph copy(other);
+  ValGraph copy(other);
   std::swap(*this, copy);
   return *this;
 }
 
 // Return if there's a group entry in the graph for this expr
-bool IdGraph::hasGroup(Expr* expr) const {
+bool ValGraph::hasGroup(Expr* expr) const {
   return disjoint_exprs_.mappingExists(expr);
 }
 
-// Return if there's a group entry in the graph for this id
-bool IdGraph::hasGroup(IterDomain* id) const {
-  return disjoint_ids_.mappingExists(id);
+// Return if there's a group entry in the graph for this val
+bool ValGraph::hasGroup(Val* val) const {
+  return disjoint_vals_.mappingExists(val);
 }
 
-const ExprGroup& IdGraph::toGroup(Expr* expr) const {
+const ExprGroup& ValGraph::toGroup(Expr* expr) const {
   auto disjoint_set_it = disjoint_exprs_.disjointSetMap().find(expr);
   NVF_ERROR(
       disjoint_set_it != disjoint_exprs_.disjointSetMap().end(),
@@ -74,38 +74,36 @@ const ExprGroup& IdGraph::toGroup(Expr* expr) const {
   return disjoint_set_it->second;
 }
 
-const IdGroup& IdGraph::toGroup(IterDomain* id) const {
-  auto disjoint_set_it = disjoint_ids_.disjointSetMap().find(id);
+const ValGroup& ValGraph::toGroup(Val* val) const {
+  auto disjoint_set_it = disjoint_vals_.disjointSetMap().find(val);
   NVF_ERROR(
-      disjoint_set_it != disjoint_ids_.disjointSetMap().end(),
+      disjoint_set_it != disjoint_vals_.disjointSetMap().end(),
       "\nId group could not be found in graph associated with: ",
-      id->toString(),
+      val->toString(),
       "\n");
   return disjoint_set_it->second;
 }
 
-std::vector<IdGroup> IdGraph::outputGroups(const ExprGroup& expr) const {
-  std::vector<IdGroup> output_groups;
-  for (auto id_output :
-       ir_utils::filterByType<IterDomain>(expr->front()->outputs())) {
+std::vector<ValGroup> ValGraph::outputGroups(const ExprGroup& expr) const {
+  std::vector<ValGroup> output_groups;
+  for (auto id_output : expr->front()->outputs()) {
     output_groups.push_back(toGroup(id_output));
   }
   return output_groups;
 }
 
-std::vector<IdGroup> IdGraph::inputGroups(const ExprGroup& expr) const {
-  std::vector<IdGroup> input_groups;
-  for (auto id_input :
-       ir_utils::filterByType<IterDomain>(expr->front()->inputs())) {
+std::vector<ValGroup> ValGraph::inputGroups(const ExprGroup& expr) const {
+  std::vector<ValGroup> input_groups;
+  for (auto id_input : expr->front()->inputs()) {
     input_groups.push_back(toGroup(id_input));
   }
   return input_groups;
 }
 
-ExprGroups IdGraph::allUsesOf(const IdGroups& of) const {
+ExprGroups ValGraph::allUsesOf(const ValGroups& of) const {
   DequeOfExprGroup to_visit;
-  for (const IdGroup& of_id_group : of) {
-    if (const ExprGroups* group_uses = getUses(of_id_group);
+  for (const ValGroup& of_val_group : of) {
+    if (const ExprGroups* group_uses = getUses(of_val_group);
         group_uses != nullptr) {
       to_visit.insert(to_visit.end(), group_uses->begin(), group_uses->end());
     }
@@ -116,7 +114,7 @@ ExprGroups IdGraph::allUsesOf(const IdGroups& of) const {
     ExprGroup current_expr = to_visit.front();
     to_visit.pop_front();
     visited.emplace(current_expr);
-    for (const IdGroup& output_id : outputGroups(current_expr)) {
+    for (const ValGroup& output_id : outputGroups(current_expr)) {
       if (const ExprGroups* group_uses = getUses(output_id);
           group_uses != nullptr) {
         for (const ExprGroup& group_use : *group_uses) {
@@ -132,10 +130,10 @@ ExprGroups IdGraph::allUsesOf(const IdGroups& of) const {
   return visited;
 }
 
-ExprGroups IdGraph::allDefinitionsOf(const IdGroups& of) const {
+ExprGroups ValGraph::allDefinitionsOf(const ValGroups& of) const {
   DequeOfExprGroup to_visit;
-  for (const IdGroup& of_id_group : of) {
-    if (const ExprGroups* group_defs = getDefinitions(of_id_group);
+  for (const ValGroup& of_val_group : of) {
+    if (const ExprGroups* group_defs = getDefinitions(of_val_group);
         group_defs != nullptr) {
       to_visit.insert(to_visit.end(), group_defs->begin(), group_defs->end());
     }
@@ -146,7 +144,7 @@ ExprGroups IdGraph::allDefinitionsOf(const IdGroups& of) const {
     ExprGroup current_expr = to_visit.front();
     to_visit.pop_front();
     visited.emplace(current_expr);
-    for (const IdGroup& input_id : inputGroups(current_expr)) {
+    for (const ValGroup& input_id : inputGroups(current_expr)) {
       if (const ExprGroups* group_defs = getDefinitions(input_id);
           group_defs != nullptr) {
         for (const ExprGroup& group_def : *group_defs) {
@@ -162,17 +160,17 @@ ExprGroups IdGraph::allDefinitionsOf(const IdGroups& of) const {
   return visited;
 }
 
-bool IdGraph::hasDefinitions(const IdGroup& id_group) const {
-  NVF_ERROR(id_group);
-  return unique_definitions_.find(id_group) != unique_definitions_.end();
+bool ValGraph::hasDefinitions(const ValGroup& val_group) const {
+  NVF_ERROR(val_group);
+  return unique_definitions_.find(val_group) != unique_definitions_.end();
 }
 
-bool IdGraph::hasUses(const IdGroup& id_group) const {
-  NVF_ERROR(id_group);
-  return unique_uses_.find(id_group) != unique_uses_.end();
+bool ValGraph::hasUses(const ValGroup& val_group) const {
+  NVF_ERROR(val_group);
+  return unique_uses_.find(val_group) != unique_uses_.end();
 }
 
-std::string IdGraph::toString() const {
+std::string ValGraph::toString() const {
   std::stringstream ss;
   ss << "IdGraph { \n";
   ss << "Disjoint Ids:\n"
@@ -182,8 +180,8 @@ std::string IdGraph::toString() const {
   return ss.str();
 }
 
-std::vector<std::vector<IterDomain*>> IdGraph::isTrivialExpr(Expr* expr) {
-  std::vector<std::vector<IterDomain*>> mapped_ids;
+std::vector<std::vector<Val*>> ValGraph::isTrivialExpr(Expr* expr) {
+  std::vector<std::vector<Val*>> mapped_ids;
   if (auto merge = dynamic_cast<Merge*>(expr)) {
     if (merge->inner()->extent()->isOneInt()) {
       mapped_ids.push_back({merge->outer(), merge->out()});
@@ -210,16 +208,10 @@ std::vector<std::vector<IterDomain*>> IdGraph::isTrivialExpr(Expr* expr) {
   return mapped_ids;
 }
 
-bool IdGraph::transformAtributesMatch(Expr* first, Expr* second) {
+bool ValGraph::exprAttributesMatch(Expr* first, Expr* second) {
   if (first == nullptr || second == nullptr) {
     return false;
   }
-
-  NVF_ERROR(
-      first->isA<Merge>() || first->isA<Split>() || first->isA<Swizzle2D>() ||
-          first->isA<Resize>(),
-      "Unsupported rfactor expressions in compute at map:\n",
-      first->toString());
 
   if (typeid(*first) != typeid(*second)) {
     return false;
@@ -260,12 +252,12 @@ bool IdGraph::transformAtributesMatch(Expr* first, Expr* second) {
   return true;
 }
 
-void IdGraph::initializeId(
-    IterDomain* id,
+void ValGraph::initializeVal(
+    Val* val,
     const VectorOfUniqueEntries<Expr*>& definitions,
     const VectorOfUniqueEntries<Expr*>& uses) {
-  const IdGroup& id_disjoint_set =
-      disjointIdSets().initializeSet(id).first->second;
+  const ValGroup& val_disjoint_set =
+      disjointValSets().initializeSet(val).first->second;
 
   ExprGroups def_groups;
   for (auto def : definitions) {
@@ -275,9 +267,9 @@ void IdGraph::initializeId(
   }
   // TODO-NM: def_groups can be empty. Should it be still mapped?
   NVF_ERROR(
-      unique_definitions_.emplace(id_disjoint_set, def_groups).second,
+      unique_definitions_.emplace(val_disjoint_set, def_groups).second,
       "Multiple defining groups for ",
-      nvfuser::toString(id_disjoint_set));
+      nvfuser::toString(val_disjoint_set));
 
   ExprGroups use_groups;
   for (auto use : uses) {
@@ -287,35 +279,31 @@ void IdGraph::initializeId(
   }
   // TODO-NM: use_groups can be empty. Should it be still mapped?
   NVF_ERROR(
-      unique_uses_.emplace(id_disjoint_set, use_groups).second,
+      unique_uses_.emplace(val_disjoint_set, use_groups).second,
       "Multiple use groups for ",
-      nvfuser::toString(id_disjoint_set));
+      nvfuser::toString(val_disjoint_set));
 }
 
-bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
-  if (!transformAtributesMatch(first, second)) {
+bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
+  if (!exprAttributesMatch(first, second)) {
     return false;
   }
 
-  auto first_ids = ir_utils::filterByType<IterDomain>(
-                       forward ? first->inputs() : first->outputs())
-                       .vector();
-
-  auto second_ids = ir_utils::filterByType<IterDomain>(
-                        forward ? second->inputs() : second->outputs())
-                        .vector();
+  std::vector<Val*> first_vals = forward ? first->inputs() : first->outputs();
+  std::vector<Val*> second_vals =
+      forward ? second->inputs() : second->outputs();
 
   NVF_ERROR(
-      first_ids.size() == second_ids.size(),
+      first_vals.size() == second_vals.size(),
       "Expected number of ",
       (forward ? "inputs" : "outputs"),
       " to match for\n",
       first->toString(),
       second->toString());
 
-  for (const auto i : c10::irange(first_ids.size())) {
-    if (!disjointIdSets().permissiveAreMapped(
-            first_ids.at(i), second_ids.at(i))) {
+  for (const auto i : c10::irange(first_vals.size())) {
+    if (!disjointValSets().permissiveAreMapped(
+            first_vals.at(i), second_vals.at(i))) {
       return false;
     }
   }
@@ -335,12 +323,12 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
     auto extent_o_match = extent_0o->sameAs(extent_1o) ||
         (extent_0o->isConstInt() && extent_1o->isConstInt() &&
          extent_0o->evaluateInt() == extent_1o->evaluateInt()) ||
-        disjointIdSets().permissiveAreMapped(merge0->outer(), merge1->outer());
+        disjointValSets().permissiveAreMapped(merge0->outer(), merge1->outer());
 
     auto extent_i_match = extent_0i->sameAs(extent_1i) ||
         (extent_0i->isConstInt() && extent_1i->isConstInt() &&
          extent_0i->evaluateInt() == extent_1i->evaluateInt()) ||
-        disjointIdSets().permissiveAreMapped(merge0->inner(), merge1->inner());
+        disjointValSets().permissiveAreMapped(merge0->inner(), merge1->inner());
 
     if (!(extent_o_match || extent_i_match)) {
       return false;
@@ -354,9 +342,9 @@ bool IdGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
   return true;
 }
 
-const ExprGroups* IdGraph::getDefinitions(const IdGroup& id_group) const {
-  NVF_ERROR(id_group, "Nullptr not allowed");
-  if (auto it = unique_definitions_.find(id_group);
+const ExprGroups* ValGraph::getDefinitions(const ValGroup& val_group) const {
+  NVF_ERROR(val_group, "Nullptr not allowed");
+  if (auto it = unique_definitions_.find(val_group);
       it != unique_definitions_.end()) {
     return &(it->second);
   } else {
@@ -364,45 +352,45 @@ const ExprGroups* IdGraph::getDefinitions(const IdGroup& id_group) const {
   }
 }
 
-const ExprGroups* IdGraph::getUses(const IdGroup& id_group) const {
-  NVF_ERROR(id_group, "Nullptr not allowed");
-  if (auto it = unique_uses_.find(id_group); it != unique_uses_.end()) {
+const ExprGroups* ValGraph::getUses(const ValGroup& val_group) const {
+  NVF_ERROR(val_group, "Nullptr not allowed");
+  if (auto it = unique_uses_.find(val_group); it != unique_uses_.end()) {
     return &(it->second);
   } else {
     return nullptr;
   }
 }
 
-void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
-  if (id0 == id1) {
+void ValGraph::mapVals(Val* val0, Val* val1) {
+  if (val0 == val1) {
     return;
   }
 
-  if (disjointIdSets().strictAreMapped(id0, id1)) {
+  if (disjointValSets().strictAreMapped(val0, val1)) {
     return;
   }
   // Definitions and uses are based on the groups of id0 and id1, don't merge
   // them into a single group until we grab all definitions and uses for later
   // processing.
-  IdGroup orig_id_group0 = toGroup(id0);
-  IdGroup orig_id_group1 = toGroup(id1);
-  const ExprGroups* orig_defs0 = getDefinitions(orig_id_group0);
+  ValGroup orig_val_group0 = toGroup(val0);
+  ValGroup orig_val_group1 = toGroup(val1);
+  const ExprGroups* orig_defs0 = getDefinitions(orig_val_group0);
   NVF_ERROR(orig_defs0);
-  const ExprGroups* orig_defs1 = getDefinitions(orig_id_group1);
+  const ExprGroups* orig_defs1 = getDefinitions(orig_val_group1);
   NVF_ERROR(orig_defs1);
-  const ExprGroups* orig_uses0 = getUses(orig_id_group0);
+  const ExprGroups* orig_uses0 = getUses(orig_val_group0);
   NVF_ERROR(orig_uses0);
-  const ExprGroups* orig_uses1 = getUses(orig_id_group1);
+  const ExprGroups* orig_uses1 = getUses(orig_val_group1);
   NVF_ERROR(orig_uses1);
 
   // Map the iter domains together before we traverse across definitions and
   // uses. Traversing definitions and uses could use the new property of id0 and
   // id1 being mapped.
-  disjointIdSets().mapEntries(id0, id1);
-  auto new_id_group = toGroup(id0);
+  disjointValSets().mapEntries(val0, val1);
+  auto new_val_group = toGroup(val0);
 
-  unique_definitions_[new_id_group] = orig_defs0->computeUnion(*orig_defs1);
-  unique_uses_[new_id_group] = orig_uses0->computeUnion(*orig_uses1);
+  unique_definitions_[new_val_group] = orig_defs0->computeUnion(*orig_defs1);
+  unique_uses_[new_val_group] = orig_uses0->computeUnion(*orig_uses1);
 
   // Propagate on uses
   if (!orig_uses0->empty() && !orig_uses1->empty()) {
@@ -432,13 +420,13 @@ void IdGraph::mapIds(IterDomain* id0, IterDomain* id1) {
     }
   }
 
-  unique_definitions_.erase(orig_id_group0);
-  unique_definitions_.erase(orig_id_group1);
-  unique_uses_.erase(orig_id_group0);
-  unique_uses_.erase(orig_id_group1);
+  unique_definitions_.erase(orig_val_group0);
+  unique_definitions_.erase(orig_val_group1);
+  unique_uses_.erase(orig_val_group0);
+  unique_uses_.erase(orig_val_group1);
 }
 
-void IdGraph::maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward) {
+void ValGraph::maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward) {
   if (!exprsMap(expr0, expr1, forward)) {
     return;
   }
@@ -455,7 +443,7 @@ void IdGraph::maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward) {
   }
 }
 
-void IdGraph::mapExprs(Expr* expr0, Expr* expr1) {
+void ValGraph::mapExprs(Expr* expr0, Expr* expr1) {
   if (expr0 == expr1) {
     return;
   }
@@ -472,35 +460,35 @@ void IdGraph::mapExprs(Expr* expr0, Expr* expr1) {
   const ExprGroup& expr_new_group = toGroup(expr0);
 
   // Update unique uses of producers
-  IdGroups producers;
+  ValGroups producers;
   for (auto expr : std::vector<Expr*>{expr0, expr1}) {
-    for (auto input_id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
-      producers.pushBack(toGroup(input_id));
+    for (auto input : expr->inputs()) {
+      producers.pushBack(toGroup(input));
     }
   }
 
-  for (const IdGroup& producer_group : producers) {
+  for (const ValGroup& producer_group : producers) {
     unique_uses_.at(producer_group).erase(expr0_orig_group);
     unique_uses_.at(producer_group).erase(expr1_orig_group);
     unique_uses_.at(producer_group).pushBack(expr_new_group);
   }
 
   // Update unique definitinos of consumers
-  IdGroups consumers;
+  ValGroups consumers;
   for (auto expr : std::vector<Expr*>{expr0, expr1}) {
-    for (auto output_id : ir_utils::filterByType<IterDomain>(expr->outputs())) {
-      consumers.pushBack(toGroup(output_id));
+    for (auto output : expr->outputs()) {
+      consumers.pushBack(toGroup(output));
     }
   }
 
-  for (const IdGroup& consumer_group : consumers) {
+  for (const ValGroup& consumer_group : consumers) {
     unique_definitions_.at(consumer_group).erase(expr0_orig_group);
     unique_definitions_.at(consumer_group).erase(expr1_orig_group);
     unique_definitions_.at(consumer_group).pushBack(expr_new_group);
   }
 }
 
-bool IdGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
+bool ValGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
   if (first == nullptr || second == nullptr) {
     return false;
   }
@@ -513,12 +501,9 @@ bool IdGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
       propagate_through_exprs_,
       "Asked to propagate expression mappings on a graph that has propagate_exprs_ disabled.");
 
-  auto first_ids = ir_utils::filterByType<IterDomain>(
-                       forward ? first->outputs() : first->inputs())
-                       .vector();
-  auto second_ids = ir_utils::filterByType<IterDomain>(
-                        forward ? second->outputs() : second->inputs())
-                        .vector();
+  const auto& first_ids = forward ? first->outputs() : first->inputs();
+  const auto& second_ids = forward ? second->outputs() : second->inputs();
+
   NVF_ERROR(
       first_ids.size() == second_ids.size(),
       "This should be unreachable, if transformation expressions match, their number of inputs and outputs should as well.\n However found:\n",
@@ -526,13 +511,13 @@ bool IdGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
       "\nand\n",
       second->toString());
   for (auto out_i : c10::irange(first_ids.size())) {
-    mapIds(first_ids[out_i], second_ids[out_i]);
+    mapVals(first_ids[out_i], second_ids[out_i]);
   }
 
   return true;
 }
 
-void IdGraph::mapThroughLoopSwizzles() {
+void ValGraph::mapThroughLoopSwizzles() {
   std::vector<Swizzle2D*> all_swizzles;
 
   for (const auto& expr_set : disjointExprSets().disjointSets()) {
@@ -546,8 +531,8 @@ void IdGraph::mapThroughLoopSwizzles() {
 
   for (auto swizzle : all_swizzles) {
     if (swizzle->swizzleMode() == SwizzleMode::Loop) {
-      mapIds(swizzle->inX(), swizzle->outX());
-      mapIds(swizzle->inY(), swizzle->outY());
+      mapVals(swizzle->inX(), swizzle->outX());
+      mapVals(swizzle->inY(), swizzle->outY());
     }
   }
 }

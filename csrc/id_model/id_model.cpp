@@ -47,13 +47,13 @@ IdModel::IdModel(Fusion* fusion, bool allow_self_mapping) {
   build(fusion->exprs(), inputs_and_outputs);
 }
 
-const IdGraph& IdModel::idGraph(IdMappingMode mode) const {
+const ValGraph& IdModel::idGraph(IdMappingMode mode) const {
   auto graph_it = id_graphs_.find(mode);
   NVF_ERROR(graph_it != id_graphs_.end());
   return graph_it->second;
 }
 
-IdGraph& IdModel::idGraph(IdMappingMode mode) {
+ValGraph& IdModel::idGraph(IdMappingMode mode) {
   auto graph_it = id_graphs_.find(mode);
   NVF_ERROR(graph_it != id_graphs_.end());
   return graph_it->second;
@@ -140,7 +140,7 @@ std::string IdModel::toString() const {
     }
 
     auto& graph = graph_it->second;
-    if (graph.disjointIdSets().disjointSetMap().empty()) {
+    if (graph.disjointValSets().disjointSetMap().empty()) {
       continue;
     }
 
@@ -163,8 +163,8 @@ std::string IdModel::toString() const {
   return ss.str();
 }
 
-IdGraph IdModel::initializeIdGraph(bool propagate_through_exprs) {
-  IdGraph id_graph(propagate_through_exprs);
+ValGraph IdModel::initializeIdGraph(bool propagate_through_exprs) {
+  ValGraph id_graph(propagate_through_exprs);
 
   for (const auto& [id, defs] : id_definitions_) {
     auto uses_it = id_uses_.find(id);
@@ -173,7 +173,7 @@ IdGraph IdModel::initializeIdGraph(bool propagate_through_exprs) {
         "Failed to initialize id: ",
         id->toString(),
         " as it's missing a definition entry.");
-    id_graph.initializeId(id, defs, uses_it->second);
+    id_graph.initializeVal(id, defs, uses_it->second);
   }
 
   return id_graph;
@@ -203,7 +203,7 @@ void IdModel::buildExactGraph(const std::vector<Expr*>& exprs) {
       for (auto domain_i : c10::irange(c_tv->getRootDomain().size())) {
         auto c_id = c_tv->getRootDomain()[domain_i];
         auto o_id = other_tv_output->getRootDomain()[domain_i];
-        idGraph(IdMappingMode::EXACT).mapIds(o_id, c_id);
+        idGraph(IdMappingMode::EXACT).mapVals(o_id, c_id);
       }
     }
 
@@ -219,7 +219,7 @@ void IdModel::buildExactGraph(const std::vector<Expr*>& exprs) {
 
       for (auto c_id : getSortedKeys(exact_c2p_root_map, Statement::lessThan)) {
         auto p_id = exact_c2p_root_map.at(c_id);
-        idGraph(IdMappingMode::EXACT).mapIds(c_id, p_id);
+        idGraph(IdMappingMode::EXACT).mapVals(c_id, p_id);
       }
     }
 
@@ -235,7 +235,7 @@ void IdModel::build(
   // found, then querying an empty permissive map will fail later.
   // Initialize disjoint sets
   for (auto mode : kIdMappingModes) {
-    id_graphs_[mode] = IdGraph();
+    id_graphs_[mode] = ValGraph();
   }
 
   std::vector<Expr*> tv_exprs;

@@ -19,7 +19,7 @@
 
 namespace nvfuser {
 
-class IdGraph;
+class ValGraph;
 
 // A collection of IterDomainGraphs that are built from a fusion or series of
 // expressions. These graphs are related, but have some distinct features based
@@ -62,8 +62,8 @@ class IdModel : public PolymorphicBase {
   IdModel(Fusion* fusion, bool allow_self_mapping = false);
 
   // Returns iter domain graph of provided mode.
-  const IdGraph& idGraph(IdMappingMode mode) const;
-  IdGraph& idGraph(IdMappingMode mode);
+  const ValGraph& idGraph(IdMappingMode mode) const;
+  ValGraph& idGraph(IdMappingMode mode);
 
   // IterDomains from the original fusion are only allowed to be used once in
   // the IterDomain graph, id->uses() are not directly used as there's no bounds
@@ -106,7 +106,7 @@ class IdModel : public PolymorphicBase {
 
   // Iterates over all IterDomains in id_definitions_ and calls initializeID on
   // a new IdGraph and returns it.
-  IdGraph initializeIdGraph(bool propagate_through_exprs = true);
+  ValGraph initializeIdGraph(bool propagate_through_exprs = true);
 
   // Fills disjoint_ids_[IdMappingMode::EXACT] for relationships between inputs
   // and first output of expr
@@ -117,7 +117,7 @@ class IdModel : public PolymorphicBase {
   // Using an array here might be nice, but it seems hard to use an enum as an
   // array key
   // https://stackoverflow.com/questions/2102582/how-can-i-count-the-items-in-an-enum
-  std::unordered_map<IdMappingMode, IdGraph> id_graphs_;
+  std::unordered_map<IdMappingMode, ValGraph> id_graphs_;
 
   // If multiple transformations occur IterDomains could have multiple uses,
   // however only one should be active in the given Fusion. When we resolve loop

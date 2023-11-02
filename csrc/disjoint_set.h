@@ -367,8 +367,8 @@ class DisjointSets {
           new_set->pushBack(existing_entry);
           disjoint_set_maps_[existing_entry] = new_set;
         }
-        disjoint_sets_.erase(
-            std::find(disjoint_sets_.begin(), disjoint_sets_.end(), existing_set));
+        disjoint_sets_.erase(std::find(
+            disjoint_sets_.begin(), disjoint_sets_.end(), existing_set));
       } else {
         new_set->pushBack(entry);
         disjoint_set_maps_[entry] = new_set;

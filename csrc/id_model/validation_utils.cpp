@@ -29,9 +29,9 @@ namespace nvfuser {
 // swizzle is used we give up validating the exact graph. The second
 // difference is whether mappings are propagated, which can be
 // accounted for by updating the ComputeAtMap as is done in IdModel.
-void IdModelValidator::checkExactGraphEquivalence(const IdGraph& exact_graph) {
+void IdModelValidator::checkExactGraphEquivalence(const ValGraph& exact_graph) {
   // Empty graph
-  if (exact_graph.disjointIdSets().disjointSets().empty()) {
+  if (exact_graph.disjointValSets().disjointSets().empty()) {
     return;
   }
 
@@ -43,7 +43,7 @@ void IdModelValidator::checkExactGraphEquivalence(const IdGraph& exact_graph) {
     return;
   }
 
-  Fusion* fusion = exact_graph.disjointIdSets()
+  Fusion* fusion = exact_graph.disjointValSets()
                        .disjointSets()
                        .at(0)
                        ->vector()
@@ -95,8 +95,7 @@ void IdModelValidator::checkExactGraphEquivalence(const IdGraph& exact_graph) {
     }
   }
 
-  const DisjointSets<IterDomain*>& id_model_exact_sets =
-      exact_graph.disjointIdSets();
+  const DisjointSets<Val*>& id_model_exact_sets = exact_graph.disjointValSets();
 
   if (id_model_exact_sets.size() != ca_map_exact_sets.size()) {
     std::stringstream ss;
@@ -119,15 +118,22 @@ void IdModelValidator::checkExactGraphEquivalence(const IdGraph& exact_graph) {
   for (const auto& id_model_id_set : id_model_exact_sets.disjointSets()) {
     NVF_ERROR(!id_model_id_set->empty());
     NVF_ERROR(
-        ca_map_exact_sets.mappingExists(id_model_id_set->front()),
+        ca_map_exact_sets.mappingExists(
+            id_model_id_set->front()->as<IterDomain>()),
         "Not found in ComputeAtMap: ",
         id_model_id_set->front()->toString());
 
-    const auto& ca_map_id_set =
-        ca_map_exact_sets.getDisjointSetOf(id_model_id_set->front());
+    const auto& ca_map_id_set = ca_map_exact_sets.getDisjointSetOf(
+        id_model_id_set->front()->as<IterDomain>());
+
+    std::unordered_set<Val*> ca_map_id_set_cast;
+    std::copy(
+        ca_map_id_set.begin(),
+        ca_map_id_set.end(),
+        std::inserter(ca_map_id_set_cast, ca_map_id_set_cast.end()));
 
     NVF_ERROR(
-        id_model_id_set->set() == ca_map_id_set.set(),
+        id_model_id_set->set() == ca_map_id_set_cast,
         "Mismatched ID set: ",
         nvfuser::toString(id_model_id_set->vector()),
         ", ",

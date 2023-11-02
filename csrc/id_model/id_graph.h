@@ -16,31 +16,31 @@
 
 namespace nvfuser {
 
-using IdGroup = std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>;
-using IdGroups = VectorOfUniqueEntries<IdGroup>;
+using ValGroup = std::shared_ptr<VectorOfUniqueEntries<Val*>>;
+using ValGroups = VectorOfUniqueEntries<ValGroup>;
 using ExprGroup = std::shared_ptr<VectorOfUniqueEntries<Expr*>>;
 using ExprGroups = VectorOfUniqueEntries<ExprGroup>;
 
-class IdGraph {
+class ValGraph {
  public:
-  IdGraph() = default;
+  ValGraph() = default;
 
-  IdGraph(const IdGraph& other);
-  IdGraph(IdGraph&& other) = default;
+  ValGraph(const ValGraph& other);
+  ValGraph(ValGraph&& other) = default;
 
-  IdGraph& operator=(const IdGraph& other);
-  IdGraph& operator=(IdGraph&& other) = default;
+  ValGraph& operator=(const ValGraph& other);
+  ValGraph& operator=(ValGraph&& other) = default;
 
-  IdGraph(bool propagate_through_exprs)
+  ValGraph(bool propagate_through_exprs)
       : propagate_through_exprs_(propagate_through_exprs) {}
 
-  // Returns the disjoint IterDomain set.
-  const DisjointSets<IterDomain*>& disjointIdSets() const {
-    return disjoint_ids_;
+  // Returns the disjoint val set.
+  const DisjointSets<Val*>& disjointValSets() const {
+    return disjoint_vals_;
   }
 
-  DisjointSets<IterDomain*>& disjointIdSets() {
-    return disjoint_ids_;
+  DisjointSets<Val*>& disjointValSets() {
+    return disjoint_vals_;
   }
 
   // Returns the disjoint Expr set.
@@ -55,28 +55,28 @@ class IdGraph {
   // Return if there's a group entry in the graph for this expr
   bool hasGroup(Expr* expr) const;
 
-  // Return if there's a group entry in the graph for this id
-  bool hasGroup(IterDomain* id) const;
+  // Return if there's a group entry in the graph for this val
+  bool hasGroup(Val* val) const;
 
   // Convert expr to its exprGroup, assert that it exists.
   const ExprGroup& toGroup(Expr* expr) const;
 
   // Convert iter domain to its IdGroup, assert that it exists.
-  const IdGroup& toGroup(IterDomain* id) const;
+  const ValGroup& toGroup(Val* val) const;
 
   // Return output/input iter domain groups of provided expr
   // Note that the same IdGroup can show up multiple times, so the
   // output type cannot be VectorOfUniqueEntries
-  std::vector<IdGroup> outputGroups(const ExprGroup& expr) const;
-  std::vector<IdGroup> inputGroups(const ExprGroup& expr) const;
+  std::vector<ValGroup> outputGroups(const ExprGroup& expr) const;
+  std::vector<ValGroup> inputGroups(const ExprGroup& expr) const;
 
   // Recursively traverses uses of the IdGroups in 'of' and returns all
   // ExprGroups that have a use in their definition of provided of IdGroups.
-  ExprGroups allUsesOf(const IdGroups& of) const;
+  ExprGroups allUsesOf(const ValGroups& of) const;
 
   // Recursively traverses definitions of the IdGroups in 'of' and returns all
   // ExprGroups used in this history of defining the 'of' IdGroups.
-  ExprGroups allDefinitionsOf(const IdGroups& of) const;
+  ExprGroups allDefinitionsOf(const ValGroups& of) const;
 
   //! Returns the pointer to expressions associated with the
   //! definitions of the provided IterDomain group in the provided
@@ -87,28 +87,28 @@ class IdGraph {
   //! outer vector are expression groups that are not equivalent based on the
   //! provided mode, but produce one of the IterDomains within the same disjoint
   //! Iter Domain set based on the provided mode.
-  const ExprGroups* getDefinitions(const IdGroup& id_group) const;
+  const ExprGroups* getDefinitions(const ValGroup& id_group) const;
 
   //! Same as iterDomainGroupDefinitions but for uses instead of
   //! definitions
-  const ExprGroups* getUses(const IdGroup& id_group) const;
+  const ExprGroups* getUses(const ValGroup& id_group) const;
 
-  bool hasDefinitions(const IdGroup& id_group) const;
+  bool hasDefinitions(const ValGroup& id_group) const;
 
-  bool hasUses(const IdGroup& id_group) const;
+  bool hasUses(const ValGroup& id_group) const;
 
   std::string toString() const;
 
   // Checks if the expression is a trivial operation where an input is simply an
   // output of the transformation. Returns the mapped iter domains if found.
-  static std::vector<std::vector<IterDomain*>> isTrivialExpr(Expr* expr);
+  static std::vector<std::vector<Val*>> isTrivialExpr(Expr* expr);
 
-  // Returns if all atributes of the ID transforms first and second are the same
-  static bool transformAtributesMatch(Expr* first, Expr* second);
+  // Returns if all atributes of the exprs first and second are the same
+  static bool exprAttributesMatch(Expr* first, Expr* second);
 
   // Initializes entries for the provided IterDomain in the IterDomainGraphs
-  void initializeId(
-      IterDomain* id,
+  void initializeVal(
+      Val* id,
       const VectorOfUniqueEntries<Expr*>& definitions,
       const VectorOfUniqueEntries<Expr*>& uses);
 
@@ -119,17 +119,17 @@ class IdGraph {
   bool exprsMap(Expr* first, Expr* second, bool forward) const;
 
  public:
-  void addUniqueUses(const IdGroup& id_group, const ExprGroup& uses) {
+  void addUniqueUses(const ValGroup& id_group, const ExprGroup& uses) {
     unique_uses_.at(id_group).pushBack(uses);
   }
 
-  void addUniqueDefinitions(const IdGroup& id_group, const ExprGroup& defs) {
+  void addUniqueDefinitions(const ValGroup& id_group, const ExprGroup& defs) {
     unique_definitions_.at(id_group).pushBack(defs);
   }
 
-  // Set id0 and id1 to mapped in disjointIdsSet[mode], attempt to propagate
-  // new mapping through id0/id1 definitions/uses.
-  void mapIds(IterDomain* id0, IterDomain* id1);
+  // Set val0 and val1 to mapped in disjointValsSet[mode], attempt to propagate
+  // new mapping through val0/val1 definitions/uses.
+  void mapVals(Val* val0, Val* val1);
 
   // Checks if expr0 and expr1 should map together, maps them together, and if
   // expression propagation is on, propagates mapping through them. This should
@@ -176,16 +176,16 @@ class IdGraph {
   // Using an array here might be nice, but it seems hard to use an enum as an
   // array key
   // https://stackoverflow.com/questions/2102582/how-can-i-count-the-items-in-an-enum
-  DisjointSets<IterDomain*> disjoint_ids_;
+  DisjointSets<Val*> disjoint_vals_;
 
   // Keeps a disjoint set entry for all Expressions for all mapping mode types.
   DisjointSets<Expr*> disjoint_exprs_;
 
   // Definitions of IdGroup. There can be multiple definitions due to
   // replays.
-  std::unordered_map<IdGroup, ExprGroups> unique_definitions_;
+  std::unordered_map<ValGroup, ExprGroups> unique_definitions_;
 
-  std::unordered_map<IdGroup, ExprGroups> unique_uses_;
+  std::unordered_map<ValGroup, ExprGroups> unique_uses_;
 };
 
 } // namespace nvfuser
