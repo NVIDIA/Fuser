@@ -633,6 +633,23 @@ class TestDiff:
     kernel_diffs: list[KernelDiff] | None = None
 
 
+def sanitize_ptx_lines(lines: list[str]) -> list[str]:
+    """Remove comments and translate kernel38 to kernelN"""
+    sanitary_lines = []
+    for l in lines:
+        # Replace mangled kernel names like
+        #   _ZN11CudaCodeGen10kernel1271ENS_6TensorIfLi2ELi2EEENS0_IfLi3ELi3EEES2_
+        # with
+        #   _ZN11CudaCodeGen7kernelNENS_6TensorIfLi2ELi2EEENS0_IfLi3ELi3EEES2_
+        l = re.sub(r"CudaCodeGen\d+kernel\d+ENS", "CudaCodeGen7kernelNENS", l)
+
+        # Remove comments. This is important for
+        l = re.sub(r"//.*$", "", l)
+        sanitary_lines.append(l)
+        print("Sanitized:", l.rstrip())
+    return sanitary_lines
+
+
 @dataclass
 class TestDifferences:
     run1: TestRun
@@ -645,6 +662,7 @@ class TestDifferences:
     show_diffs: InitVar[bool] = False
     inclusion_criterion: InitVar[str] = "mismatched_cuda_or_ptx"
     preamble_diff: str = field(init=False)
+    env_diff: str = field(init=False)
 
     def __post_init__(self, show_diffs: bool, kernel_inclusion_criterion: str):
         if self.run1.command != self.run2.command:
@@ -669,6 +687,16 @@ class TestDifferences:
         )
         if len(self.preamble_diff) > 0:
             print("Preambles differ between runs indicating changes to runtime files")
+
+        self.env_diff = "\n".join(
+            difflib.unified_diff(
+                self.run1.env.splitlines(),
+                self.run2.env.splitlines(),
+                fromfile=self.run1.name,
+                tofile=self.run2.name,
+                n=5,
+            )
+        )
 
         for testname, compiled_test1 in self.run1.kernel_map.items():
             if testname not in self.run2.kernel_map:
@@ -706,14 +734,10 @@ class TestDifferences:
 
                 ptx_diff_lines = None
                 if kern1.ptx is not None and kern2.ptx is not None:
-
-                    def strip_comments(l: str) -> str:
-                        return re.sub(r"//.*$", "", l)
-
                     ptx_diff_lines = list(
                         difflib.unified_diff(
-                            [strip_comments(l) for l in kern1.ptx.splitlines()],
-                            [strip_comments(l) for l in kern2.ptx.splitlines()],
+                            sanitize_ptx_lines(kern1.ptx.splitlines()),
+                            sanitize_ptx_lines(kern2.ptx.splitlines()),
                             fromfile=self.run1.name,
                             tofile=self.run2.name,
                             n=5,
