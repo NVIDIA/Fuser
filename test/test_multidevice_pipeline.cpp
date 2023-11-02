@@ -52,12 +52,14 @@ using namespace at::indexing;
 */
 
 TEST_F(PipelineTest, Pipeline) {
+  const std::vector<int64_t> input_shape1 = {3096, 1123};
+  const std::vector<int64_t> input_shape2 = {2048, 73, 81};
   // ===========================================================
   //        FUSION
   // ===========================================================
   FusionGuard fg(fusion.get());
 
-  TensorView* tv0_ = makeContigTensor(2);
+  TensorView* tv0_ = makeConcreteTensor(input_shape1);
   fusion->addInput(tv0_);
   TensorView* tv1_ = sum(tv0_, {0});
 
@@ -65,7 +67,7 @@ TEST_F(PipelineTest, Pipeline) {
   TensorView* tv3_ = sum(tv2_, {0});
   fusion->addOutput(tv3_);
 
-  TensorView* tv0 = makeContigTensor(3);
+  TensorView* tv0 = makeConcreteTensor(input_shape2);
   fusion->addInput(tv0);
   TensorView* tv1 = sum(tv0, {0});
 
@@ -130,8 +132,8 @@ TEST_F(PipelineTest, Pipeline) {
   // Note: each process is binded to a different GPU
   // Note: the concrete values are only used at the relevant ranks
   inputs = {
-      at::randn({3096, 1123}, tensor_options),
-      at::randn({2048, 73, 81}, tensor_options)};
+      at::randn(input_shape1, tensor_options),
+      at::randn(input_shape2, tensor_options)};
 
   validate();
 }
@@ -183,9 +185,11 @@ INSTANTIATE_TEST_SUITE_P(
 
 
 TEST_F(PipelineTest, Pipeline_Reduce) {
+  const std::vector<int64_t> input_shape = {4, 3, 1, 2};
+
   FusionGuard fg(fusion.get());
 
-  TensorView* tv0 = makeContigTensor(4);
+  TensorView* tv0 = makeConcreteTensor(input_shape);
   fusion->addInput(tv0);
   TensorView* tv1 = sum(tv0, {1});
   TensorView* tv2 = sum(tv1, {0});
@@ -207,15 +211,17 @@ TEST_F(PipelineTest, Pipeline_Reduce) {
 
   pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
 
-  inputs = {at::ones({4, 3, 1, 2}, tensor_options) * (communicator->deviceId() + 1)};
+  inputs = {at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
 
   validate();
 }
 
 TEST_F(PipelineTest, Pipeline_ReduceToExternalRoot) {
+  const std::vector<int64_t> input_shape = {2, 3, 1, 2};
+
   FusionGuard fg(fusion.get());
 
-  TensorView* tv0 = makeContigTensor(4);
+  TensorView* tv0 = makeConcreteTensor(input_shape);
   fusion->addInput(tv0);
   TensorView* tv1 = sum(tv0, {1});
   TensorView* tv2 = sum(tv1, {0});
@@ -237,15 +243,16 @@ TEST_F(PipelineTest, Pipeline_ReduceToExternalRoot) {
 
   pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
 
-  inputs = {at::ones({2, 3, 1, 2}, tensor_options) * (communicator->deviceId() + 1)};
+  inputs = {at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
 
   validate();
 }
 
 TEST_F(PipelineTest, Pipeline_Allreduce) {
+  const std::vector<int64_t> input_shape = {4, 3, 1, 2};
   FusionGuard fg(fusion.get());
 
-  TensorView* tv0 = makeContigTensor(4);
+  TensorView* tv0 = makeConcreteTensor(input_shape);
   fusion->addInput(tv0);
   TensorView* tv1 = sum(tv0, {1});
   TensorView* tv2 = sum(tv1, {0});
@@ -267,15 +274,17 @@ TEST_F(PipelineTest, Pipeline_Allreduce) {
 
   pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
 
-  inputs = {at::ones({4, 3, 1, 2}, tensor_options) * (communicator->deviceId() + 1)};
+  inputs = {at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
 
   validate();
 }
 
 TEST_F(PipelineTest, Pipeline_ReduceScatter) {
+  const std::vector<int64_t> input_shape = {4, 4, 1, 2};
+
   FusionGuard fg(fusion.get());
 
-  TensorView* tv0 = makeContigTensor(4);
+  TensorView* tv0 = makeConcreteTensor(input_shape);
   fusion->addInput(tv0);
   TensorView* tv1 = sum(tv0, {3});
   TensorView* tv2 = sum(tv1, {0});
@@ -299,7 +308,7 @@ TEST_F(PipelineTest, Pipeline_ReduceScatter) {
 
   pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
 
-  inputs = {at::ones({4, 4, 1, 2}, tensor_options) * (communicator->deviceId() + 1)};
+  inputs = {at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
 
   validate();
 }

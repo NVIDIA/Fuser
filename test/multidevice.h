@@ -53,7 +53,7 @@ class PipelineTest : public MultiDeviceTest {
  protected:
   void SetUp() override;
   void validate();
-  bool print = false;
+  static constexpr bool print = false;
   std::unique_ptr<Pipeline> pipeline;
   std::unique_ptr<Fusion> fusion;
   std::vector<c10::IValue> inputs;

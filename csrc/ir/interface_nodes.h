@@ -527,8 +527,8 @@ class TensorView : public Val {
     return promote_reuse_;
   }
 
-  // Returns whether a TensorView has its first axis parallelized on Didx
-  // Checks that the other axis are not parallelized on Didx
+  // Returns whether a TensorView has its first non-reduction axis parallelized on Didx
+  // Checks that the other non-reduction axis are not parallelized on Didx
   bool isSharded() const {
     std::vector<bool> is_parallel_d;
     for (IterDomain* id : TensorDomain::noReductions(getLeafDomain())) {

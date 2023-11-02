@@ -66,6 +66,14 @@ void CommunicationTest::resetDstBuffers() {
 
 namespace {
 
+void unshardTv(TensorView* tv) {
+  for (IterDomain* id : tv->getLeafDomain()) {
+    if (id->isDevice()) {
+      id->parallelize(ParallelType::Serial);
+    }
+  }
+}
+
 // Send a possibly sharded tensor represented by a PipelineVal
 // to one "tester" device
 void SendToTester(
@@ -75,11 +83,7 @@ void SendToTester(
     Communicator* communicator) {
   std::vector<at::Tensor> buffer;
   auto& mesh = pVal->getStage()->descriptor()->mesh;
-  if (isParallelTypeDeviceDim(pVal->getOriginalVal()
-                                  ->as<TensorView>()
-                                  ->getRootDomain()
-                                  .at(0)
-                                  ->getParallelType())) {
+  if (pVal->getOriginalVal()->as<TensorView>()->isSharded()) {
     for (DeviceIdxType j : c10::irange(mesh.vector().size())) {
       buffer = {tensor.index({j, "..."})};
       auto sender = mesh.vector().at(j);
@@ -112,7 +116,6 @@ void testValidateMultidevice(
     bool print,
     DeviceIdxType tester = 0,
     bool validate = true,
-    bool set_mem_type_to_global = true,
     bool auto_schedule = false) {
   // gathering all the inputs at tester
   for (auto i : c10::irange(inputs.size())) {
@@ -140,15 +143,17 @@ void testValidateMultidevice(
       for (auto& t : outputs) {
         ss << indent << t;
       }
+      ss << "\n}\n";
+      ss << "Reference (unsharded) input:{\n";
+      for (auto& t : inputs) {
+        ss << indent << t;
+      }
       ss << "\n}";
       std::cout << ss.str() << std::endl;
     }
 
-    // sets all the memory type to global to avoid an execution error
-    if (set_mem_type_to_global) {
-      for (auto tv : ir_utils::filterByType<TensorView>(fusion_ptr->vals())) {
-        tv->setMemoryType(MemoryType::Global);
-      }
+    for (auto tv : ir_utils::filterByType<TensorView>(fusion_ptr->vals())) {
+      unshardTv(tv);
     }
 
     // execute the fusion on one device without pipeline scheduling
