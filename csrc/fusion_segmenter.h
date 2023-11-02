@@ -324,11 +324,7 @@ class SegmentedFusion {
   }
 
   Val* findAlias(Val* val) const {
-    auto alias_it = complete_fusion_->ioAlias().find(val);
-    if (alias_it != complete_fusion_->ioAlias().end()) {
-      return alias_it->second;
-    }
-    return nullptr;
+    return complete_fusion_->getOutputAlias(val).first;
   }
 
   //! Make a clone of the group and convert to fusion

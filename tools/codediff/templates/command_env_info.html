@@ -11,7 +11,6 @@
                 {% if run1.gpu_names != run2.gpu_names %}{{ run1.name }}{% endif %}
                 GPUs:
                 <pre><code>{{run1.gpu_names | e}}</code></pre>
-                %}
             {%- else -%}
                 {% if run1.gpu_names != run2.gpu_names %}{{ run1.name }}{% endif %}
                 GPU: {{ run1.gpu_names[0] | e }}

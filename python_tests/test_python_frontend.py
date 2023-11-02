@@ -2599,6 +2599,47 @@ class TestNvFuserFrontend(TestCase):
         torch_ref = torch.index_select(inputs[0], 1, inputs[1])
         self.assertEqual(nvf_out[0], torch_ref)
 
+    # This tests that concretization will work properly with index_select
+    def test_issue1129(self):
+        inputs = [
+            torch.randint(0, 10, (25,), dtype=torch.int64, device="cuda:0").as_strided(
+                (5, 5), (5, 1)
+            ),
+            torch.randn((129024,), dtype=torch.float32, device="cuda:0").as_strided(
+                (2016, 64), (64, 1)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Int,
+                is_cpu=False,
+            )
+            T1 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            S2 = fd.define_scalar(25, dtype=DataType.Int)
+            V3 = fd.define_vector([S2], dtype=DataType.Int)
+            T4 = fd.ops.reshape(T0, new_shape=V3)
+            T5 = fd.ops.index_select(T1, T4, dim=0)
+            S6 = fd.define_scalar(5, dtype=DataType.Int)
+            S7 = fd.define_scalar(5, dtype=DataType.Int)
+            S8 = fd.define_scalar(64, dtype=DataType.Int)
+            V9 = fd.define_vector([S6, S7, S8], dtype=DataType.Int)
+            T10 = fd.ops.reshape(T5, new_shape=V9)
+            fd.add_output(T10)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        torch_ref = torch.reshape(
+            torch.index_select(inputs[1], 0, torch.reshape(inputs[0], [25])), [5, 5, 64]
+        )
+        self.assertEqual(nvf_out[0], torch_ref)
+
 
 if __name__ == "__main__":
     run_tests()
