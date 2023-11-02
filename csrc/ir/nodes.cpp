@@ -2078,10 +2078,10 @@ MmaOp::MmaOp(
     Val* in_a,
     Val* in_b,
     Val* init,
-    const MmaOptions::MacroType& options,
+    const MmaOptions::MacroType& macro,
     const MmaLayoutOpt& input_layout)
     : MmaOp(passkey, out, in_a, in_b, init) {
-  attribute<MmaOptions::MacroType>(ATTR_POS_MACRO) = options;
+  attribute<MmaOptions::MacroType>(ATTR_POS_MACRO) = macro;
 
   const auto input_layout_ = attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
   if (input_layout_.has_value()) {

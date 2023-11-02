@@ -1093,7 +1093,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           "MMAs in Turing and Ampere are TN only, transpose is handled either "
           "via ldmatrix.trans for fp16 or explicitly for other types.");
     }
-    ss << toString(mma_layout_opt.value());
+    if (!init) {
+      ss << toString(mma_layout_opt.value());
+    }
     return ss.str();
   }
 
