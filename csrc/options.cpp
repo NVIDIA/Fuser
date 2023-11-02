@@ -198,8 +198,8 @@ template <>
 std::unordered_map<ProfilerOption, std::vector<std::string>> Options<
     ProfilerOption>::getOptionsFromEnv() {
   const std::unordered_map<std::string, ProfilerOption> available_options = {
-      {"enabled", ProfilerOption::Enable},
-      {"enabled.nocupti", ProfilerOption::EnableNocupti},
+      {"enable", ProfilerOption::Enable},
+      {"enable.nocupti", ProfilerOption::EnableNocupti},
       {"print", ProfilerOption::Print},
       {"print.nocupti", ProfilerOption::PrintNocupti},
       {"print.verbose", ProfilerOption::PrintVerbose},
