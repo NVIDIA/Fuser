@@ -121,10 +121,10 @@ enum class DisableOption {
 //! These can be set through the `NVFUSER_PROF` environment variable
 //!
 enum class ProfilerOption {
-  Enabled, //! Enables the profiler.
-  EnabledNocupti, //! Enables the profiler, but disables CUPTI specific
-                  //! profiling inorder to measure true host time without
-                  //! overhead.
+  Enable, //! Enables the profiler.
+  EnableNocupti, //! Enables the profiler, but disables CUPTI specific
+                 //! profiling inorder to measure true host time without
+                 //! overhead.
   Print, //! Enables the profiler and prints the output to the console.
   PrintNocupti, //! Enables the profiler, disables CUPTI specific
                 //! profiling inorder to measure true host time without
@@ -144,7 +144,7 @@ class Options {
   bool has(OptionEnum option) const {
     return options_.count(option);
   }
-  
+
   bool hasAny() const {
     return !options_.empty();
   }
@@ -237,8 +237,8 @@ using DisableOptionsGuard = OptionsGuard<DisableOption>;
 // Profiler Options
 
 template <>
-std::unordered_map<ProfilerOption, std::vector<std::string>>
-    Options<ProfilerOption>::getOptionsFromEnv();
+std::unordered_map<ProfilerOption, std::vector<std::string>> Options<
+    ProfilerOption>::getOptionsFromEnv();
 
 using ProfilerOptions = Options<ProfilerOption>;
 
@@ -248,7 +248,8 @@ bool isProfilerEnabledWithoutCupti();
 bool isProfilerPrintingEnabled();
 bool isProfilerPrintingVerbose();
 
-const std::vector<std::string>& getProfilerOptionArguments(ProfilerOption option);
+const std::vector<std::string>& getProfilerOptionArguments(
+    ProfilerOption option);
 
 template <>
 Options<ProfilerOption>& OptionsGuard<ProfilerOption>::getCurOptions();

@@ -38,8 +38,8 @@ TEST_F(FusionProfilerTest, Profile1Segment) {
   try {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
-    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::EnabledNocupti);
-    ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enabled);
+    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::EnableNocupti);
+    ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
 
     auto shape = std::vector<int64_t>({4, 4});
     auto tv0 = makeConcreteTensor(shape);
@@ -101,7 +101,7 @@ TEST_F(FusionProfilerTest, ProfileNocupti1Segment) {
   try {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
-    ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::EnabledNocupti);
+    ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::EnableNocupti);
 
     auto shape = std::vector<int64_t>({4, 4});
     auto tv0 = makeConcreteTensor(shape);
@@ -151,8 +151,8 @@ TEST_F(FusionProfilerTest, Profile3Segments) {
   try {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
-    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::EnabledNocupti);
-    ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enabled);
+    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::EnableNocupti);
+    ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
 
     auto shape1 = std::vector<int64_t>({11});
     auto shape2 = std::vector<int64_t>({13});

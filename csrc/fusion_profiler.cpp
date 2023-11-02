@@ -546,11 +546,10 @@ FusionProfiler::FusionProfiler()
       cupti_buffer_(FusionProfiler::cupti_activity_buffer_size),
       state_(ProfilerState::Ready),
       fusion_id_(-1),
-      parallel_compile_(false),
       profile_(),
       fusion_timer_(at::cuda::getCurrentCUDAStream()),
       host_timer_(),
-      parallel_compile_timer_(),
+      compile_timer_(),
       segments_(),
       device_descriptors_(),
       kernel_profiles_(),
@@ -568,8 +567,7 @@ void FusionProfiler::reset() {
   profile_.reset();
   fusion_timer_.reset();
   host_timer_.reset();
-  parallel_compile_ = false;
-  parallel_compile_timer_.reset();
+  compile_timer_.reset();
   segments_.clear();
   kernel_profiles_.clear();
   corrid_2_segid_.clear();
@@ -631,7 +629,6 @@ void FusionProfiler::stop() {
   profile_.fusion_id = fusion_id_;
   profile_.segments = (int64_t)segments_.size();
 
-  double compile_time_ms = 0.0;
   double kernel_time_ms = 0.0;
   constexpr double mb_divider = 1.0 / 1.0e6;
   if (!cupti_disabled_) {
@@ -691,7 +688,6 @@ void FusionProfiler::stop() {
           kp.effective_bandwidth_gbs / kp.peak_bandwidth_gbs * 100.0;
       kp.compile_time_ms = segments_.at(kp_idx).compileTime();
 
-      compile_time_ms += kp.compile_time_ms;
       kernel_time_ms += kp.time_ms;
       profile_.kernel_profiles[kp_idx] = std::move(kp);
     }
@@ -708,29 +704,25 @@ void FusionProfiler::stop() {
     profile_.percentage_peak_bandwidth = profile_.effective_bandwidth_gbs /
         device_descriptors_[segments_[0].device()].peak_bandwidth_gbs * 100.0;
   }
-  profile_.compile_time_ms =
-      parallel_compile_ ? parallel_compile_timer_.time() : compile_time_ms;
+  profile_.compile_time_ms = compile_timer_.time();
 
   state_ = ProfilerState::Processed;
 }
 
-void FusionProfiler::startParallelCompile() {
+void FusionProfiler::startCompile() {
   NVF_CHECK(
       state_ == ProfilerState::Running,
       "FusionProfiler state is not Running!",
       state_);
-  parallel_compile_timer_.start();
-  parallel_compile_ = true;
+  compile_timer_.start();
 }
 
-void FusionProfiler::stopParallelCompile() {
+void FusionProfiler::stopCompile() {
   NVF_CHECK(
       state_ == ProfilerState::Running,
       "FusionProfiler state is not Running!",
       state_);
-  NVF_CHECK(
-      parallel_compile_, "FusionProfiler parallel_compile is not enabled!");
-  parallel_compile_timer_.stop();
+  compile_timer_.stop();
 }
 
 void FusionProfiler::inputBytesAccessed(int64_t bytes) {

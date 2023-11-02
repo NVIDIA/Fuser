@@ -214,8 +214,8 @@ class FusionProfiler {
   void start(bool cupti_disable = false);
   void stop();
   void createSegments(size_t num);
-  void startParallelCompile();
-  void stopParallelCompile();
+  void startCompile();
+  void stopCompile();
   void inputBytesAccessed(int64_t bytes);
   void outputBytesAccessed(int64_t bytes);
   const FusionProfile& profile() const;
@@ -247,11 +247,11 @@ class FusionProfiler {
 
   //! Data members with information that is aggregated into a FusionProfile
   int64_t fusion_id_;
-  bool parallel_compile_;
   FusionProfile profile_;
   CudaEventTimer fusion_timer_;
   HostTimer host_timer_;
-  HostTimer parallel_compile_timer_;
+  //! Total compilation time if there is more than one segment
+  HostTimer compile_timer_;
   std::vector<SegmentProfiler> segments_;
   //! The FusionProfiler collects a cache of device descriptors so each segment
   //! does not need to spend time re-generating the information.

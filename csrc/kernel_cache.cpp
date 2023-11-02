@@ -443,7 +443,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     std::optional<PrimDataType> forced_index_type,
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
-  // NOTE: This should be the first code in the method to capture all host time 
+  // NOTE: This should be the first code in the method to capture all host time
   if (isProfilerEnabled()) {
     FusionProfiler::get()->start(isProfilerEnabledWithoutCupti());
   }
@@ -534,8 +534,8 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     }
   }
   outputs.resize(new_size);
-  
-  // NOTE: This should be the last code in the method to capture all host time 
+
+  // NOTE: This should be the last code in the method to capture all host time
   if (isProfilerEnabled()) {
     FusionProfiler::get()->stop();
   }
@@ -1151,8 +1151,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
   num_live_args_after_segment_runs_.reserve(num_groups);
-  if (isProfilerEnabled() && !isOptionDisabled(DisableOption::ParallelCompile)) {
-    FusionProfiler::get()->startParallelCompile();
+  if (isProfilerEnabled()) {
+    FusionProfiler::get()->startCompile();
   }
   for (int64_t group_id = 0; group_id < num_groups; ++group_id) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
@@ -1170,15 +1170,9 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
     if (num_groups == 1 || isOptionDisabled(DisableOption::ParallelCompile)) {
       FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
-      if (isProfilerEnabled()) {
-        FusionProfiler::get()->segment(group_id).startCompile(args.getDeviceIndex());
-      }
       c10::cuda::CUDAGuard dg(args.getDeviceIndex());
       c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
       compileKernel(group_runtime_inputs, group_to_run);
-      if (isProfilerEnabled()) {
-        FusionProfiler::get()->segment(group_id).stopCompile();
-      }
     } else {
       // launch compileKernel thread here
       getThreadPool()->run([this, args, group_runtime_inputs, group_to_run]() {
@@ -1204,8 +1198,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     // wait until all segments finish compiling
     getThreadPool()->waitWorkComplete();
   }
-  if (isProfilerEnabled() && !isOptionDisabled(DisableOption::ParallelCompile)) {
-    FusionProfiler::get()->stopParallelCompile();
+  if (isProfilerEnabled()) {
+    FusionProfiler::get()->stopCompile();
   }
 }
 
@@ -1214,6 +1208,10 @@ void FusionKernelRuntime::compileKernel(
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
   auto group_id = sg->groupId();
+  if (isProfilerEnabled()) {
+    FusionProfiler::get()->segment(group_id).startCompile(
+        args.getDeviceIndex());
+  }
   auto scheduler_entry = schedulers().at(group_id).get();
 
   // Check that the heuristics are matched, in the case of segmented fusion
@@ -1233,6 +1231,9 @@ void FusionKernelRuntime::compileKernel(
       args,
       scheduler_entry->params()->lparams,
       scheduler_entry->params()->cparams);
+  if (isProfilerEnabled()) {
+    FusionProfiler::get()->segment(group_id).stopCompile();
+  }
 }
 
 std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
@@ -1343,7 +1344,8 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     for (auto inp : fusionSegments()->inputs()) {
       if (dynamic_cast<TensorView*>(inp)) {
         auto aten_ten = args_manager.checkTensorMap(inp);
-        input_bytes += static_cast<int64_t>(aten_ten->as<at::Tensor>().storage().nbytes());
+        input_bytes +=
+            static_cast<int64_t>(aten_ten->as<at::Tensor>().storage().nbytes());
       }
     }
     FusionProfiler::get()->inputBytesAccessed(input_bytes);
@@ -1351,7 +1353,8 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     for (auto outp : fusionSegments()->outputs()) {
       if (dynamic_cast<TensorView*>(outp)) {
         auto aten_ten = args_manager.checkTensorMap(outp);
-        output_bytes += static_cast<int64_t>(aten_ten->as<at::Tensor>().storage().nbytes());
+        output_bytes +=
+            static_cast<int64_t>(aten_ten->as<at::Tensor>().storage().nbytes());
       }
     }
     FusionProfiler::get()->outputBytesAccessed(output_bytes);
