@@ -575,26 +575,32 @@ static void MatmulShape(
   }
 }
 
-// Use this to apply shapes without K. Used for splitk reduction benchmarks
-static void MatmulShapeMN(
-    benchmark::internal::Benchmark* b,
-    std::vector<std::tuple<long int, long int>> sizes) {
-  b->ArgNames({"M", "N"});
-  for (auto [m, n] : sizes) {
-    b->Args({m, n});
-  }
-}
-
 // Use this to apply shapes, num_warps, and stages. Used for NVFuser-specific
 // benchmarks
 static void MatmulShapeWarpStage(
     benchmark::internal::Benchmark* b,
     std::vector<std::tuple<long int, long int, long int>> sizes) {
   b->ArgNames({"M", "N", "K", "warps", "stages"});
-  for (int num_warps : NumWarps) {
-    for (int num_stages : NumStages) {
+  for (long int num_warps : NumWarps) {
+    for (long int num_stages : NumStages) {
       for (auto [m, n, k] : sizes) {
         b->Args({m, n, k, num_warps, num_stages});
+      }
+    }
+  }
+}
+
+// Use this to for auto splitk. This is like MatmulShapeWarpStage, but sets M
+// to match tile size which is determined by num warps
+static void MatmulShapeWarpStageAutoSplitK(benchmark::internal::Benchmark* b) {
+  b->ArgNames({"M", "N", "K", "warps", "stages"});
+  for (long int num_warps : NumWarps) {
+    long int m = num_warps * 32;
+    for (long int num_stages : NumStages) {
+      for (long int n : splitKNs()) {
+        for (long int k : SplitKKs) {
+          b->Args({m, n, k, num_warps, num_stages});
+        }
       }
     }
   }
@@ -632,10 +638,7 @@ static void MatmulShapeWarpStage(
       MatmulLayout::layout)                                            \
       ->Unit(benchmark::kMicrosecond)                                  \
       ->UseManualTime()                                                \
-      ->Apply([](benchmark::internal::Benchmark* b) {                  \
-        return MatmulShapeWarpStage(                                   \
-            b, sizeProduct<long int>(LegacyMs, LegacyNs, LegacyKs));   \
-      });                                                              \
+      ->Apply(MatmulShapeWarpStageAutoSplitK);                         \
   BENCHMARK_CAPTURE(                                                   \
       NvFuserScheduler_Matmul,                                         \
       nvfuser_nosplitk_timmshapes_##layout,                            \
@@ -662,32 +665,26 @@ static void MatmulShapeWarpStage(
   run(NT);                 \
   run(NN);
 
-#define AutoSplitKBenchmark(layout)                                    \
-  BENCHMARK_CAPTURE(                                                   \
-      NvFuserScheduler_Matmul,                                         \
-      nvfuser_auto_splitk_##layout,                                    \
-      MatmulLayout::layout,                                            \
-      -1)                                                              \
-      ->Unit(benchmark::kMicrosecond)                                  \
-      ->UseManualTime()                                                \
-      ->Apply([](benchmark::internal::Benchmark* b) {                  \
-        return MatmulShapeWarpStage(                                   \
-            b, sizeProduct<long int>(SplitKMs, splitKNs(), SplitKKs)); \
-      });
+#define AutoSplitKBenchmark(layout)   \
+  BENCHMARK_CAPTURE(                  \
+      NvFuserScheduler_Matmul,        \
+      nvfuser_auto_splitk_##layout,   \
+      MatmulLayout::layout,           \
+      -1)                             \
+      ->Unit(benchmark::kMicrosecond) \
+      ->UseManualTime()               \
+      ->Apply(MatmulShapeWarpStageAutoSplitK);
 
-#define AutoPartitionedKBenchmark(layout)                              \
-  BENCHMARK_CAPTURE(                                                   \
-      NvFuserScheduler_Matmul,                                         \
-      nvfuser_auto_partitionedk_##layout,                              \
-      MatmulLayout::layout,                                            \
-      -1,                                                              \
-      true)                                                            \
-      ->Unit(benchmark::kMicrosecond)                                  \
-      ->UseManualTime()                                                \
-      ->Apply([](benchmark::internal::Benchmark* b) {                  \
-        return MatmulShapeWarpStage(                                   \
-            b, sizeProduct<long int>(SplitKMs, splitKNs(), SplitKKs)); \
-      });
+#define AutoPartitionedKBenchmark(layout) \
+  BENCHMARK_CAPTURE(                      \
+      NvFuserScheduler_Matmul,            \
+      nvfuser_auto_partitionedk_##layout, \
+      MatmulLayout::layout,               \
+      -1,                                 \
+      true)                               \
+      ->Unit(benchmark::kMicrosecond)     \
+      ->UseManualTime()                   \
+      ->Apply(MatmulShapeWarpStageAutoSplitK);
 
 ForAllLayouts(EagerModeBenchmark);
 ForAllLayouts(NvfuserMatmulBenchmark);
@@ -703,5 +700,11 @@ BENCHMARK_CAPTURE(
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime()
     ->Apply([](benchmark::internal::Benchmark* b) {
-      return MatmulShapeMN(b, sizeProduct<long int>(SplitKMs, splitKNs()));
+      b->ArgNames({"M", "N"});
+      for (long int num_warps : NumWarps) {
+        long int m = num_warps * 32;
+        for (long int n : splitKNs()) {
+          b->Args({m, n});
+        }
+      }
     });
