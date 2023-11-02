@@ -208,7 +208,7 @@ __device__ inline void M16N8K16TN(
 
 namespace Ampere {
 
-__device__ inline void initM16N8K16TN(Array<float, 4, 4>* accumulator) {
+__device__ inline void initM16N8K16(Array<float, 4, 4>* accumulator) {
   accumulator->set(0);
 }
 
