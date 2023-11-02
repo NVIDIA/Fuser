@@ -301,7 +301,7 @@ TEST_F(ScalarHoistTest, IndexHoist3) {
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T2) {
   nvfuser_index_t i0;
-  i0 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
+  i0 = ((nvfuser_index_t)threadIdx.x) + (256LL * ((nvfuser_index_t)blockIdx.x));
   Tensor<float, 2, 2> s1;
   s1.data = T0.data;
   s1.logical_size = T0.logical_size;
@@ -309,25 +309,25 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   Array<nvfuser_index_t, 2, 1> a2;
   a2 = s1.logical_size;
   nvfuser_index_t i3;
-  i3 = a2[0];
+  i3 = a2[0LL];
   Array<nvfuser_index_t, 2, 1> a4;
   a4 = s1.logical_size;
   nvfuser_index_t i5;
-  i5 = a4[1];
+  i5 = a4[1LL];
   nvfuser_index_t i6;
   i6 = i3 * i5;
   bool b7;
   b7 = i0 < i6;
   float f8;
   f8 = (float)(i6);
-  float T1[1];
+  float T1[1LL];
   if (b7) {
-    T1[0]
+    T1[0LL]
        = sinf(T0[i0]);
   }
   if (b7) {
     T2[i0]
-      = T1[0]
+      = T1[0LL]
       + f8;
   }
 }

@@ -483,13 +483,13 @@ TEST_F(NVFuserTest, FusionTopoSort_CUDA) {
   // e1: v4     =   add(v3, v2)
   // e2: v5     =   add(v2, v4)
   // e3: v6     =   add(v5, v5)
-  Val* v0 = IrBuilder::create<Val>(DataType::Double);
-  Val* v1 = IrBuilder::create<Val>(DataType::Double);
-  Val* v2 = IrBuilder::create<Val>(DataType::Double);
-  Val* v3 = IrBuilder::create<Val>(DataType::Double);
-  Val* v4 = IrBuilder::create<Val>(DataType::Double);
-  Val* v5 = IrBuilder::create<Val>(DataType::Double);
-  Val* v6 = IrBuilder::create<Val>(DataType::Double);
+  Val* v0 = makeContigTensor(0, DataType::Double);
+  Val* v1 = makeContigTensor(0, DataType::Double);
+  Val* v2 = makeContigTensor(0, DataType::Double);
+  Val* v3 = makeContigTensor(0, DataType::Double);
+  Val* v4 = makeContigTensor(0, DataType::Double);
+  Val* v5 = makeContigTensor(0, DataType::Double);
+  Val* v6 = makeContigTensor(0, DataType::Double);
 
   std::vector<Val*> inputs = {v0, v1};
   for (auto val : inputs) {
