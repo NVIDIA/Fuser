@@ -132,6 +132,8 @@ const Val* AliasAnalysisResult::findRoot(const Val* alias) const {
     return nullptr;
   }
 
+  // This can be made faster by path compression at the cost of losing
+  // the potentially useful immediate sources. Go simple for now.
   while (alias_to_source_.count(root)) {
     root = alias_to_source_.at(root);
   }

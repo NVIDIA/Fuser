@@ -19,6 +19,7 @@ class AliasAnalysisResult {
   // Returns itself if `alias` doesn't alias anything.
   const Val* findRoot(const Val* alias) const;
 
+  // Marks `source` as the immediate aliasing source of `alias`.
   void add(const TensorView* alias, const TensorView* source);
 
   AliasAnalysisResult(const AliasAnalysisResult&) = delete;

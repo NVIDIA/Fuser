@@ -9,6 +9,7 @@
 
 namespace nvfuser::optimization {
 
+// Marks aliases between fusion inputs and outputs.
 class MarkAliasPass : public OptimizationPass<MarkAliasPass> {
   friend class OptimizationPass<MarkAliasPass>;
 
