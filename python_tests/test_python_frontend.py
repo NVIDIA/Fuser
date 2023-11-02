@@ -53,9 +53,6 @@ def serde_check(test_fn: Callable):
 
     def inner_fn(*args, **kwargs):
         self, fusion_func, inputs = args
-        # Deep copy inputs because when a fusion output aliases an input, it will change the input value for the
-        # subsequent function calls.
-        inputs_copy = deepcopy(inputs)
 
         # NOTE: For debug purposes, clear FusionCache before running first test
         # if ("new_fusion_expected" not in kwargs) or kwargs["new_fusion_expected"]:
@@ -63,12 +60,16 @@ def serde_check(test_fn: Callable):
 
         # skip_serde_check is only used by the decorator so remove it before running test_fn
         skip_serde_check = kwargs.pop("skip_serde_check", False)
-
-        # Run test to populate FusionCache
-        result = test_fn(*args, **kwargs)
-
         if skip_serde_check:
-            return result
+            return test_fn(self, fusion_func, inputs, **kwargs)
+
+        # Run test to populate FusionCache. Deep copy inputs for this run but
+        # not the final run. When a fusion output aliases an input, it will
+        # change the input value for subsequent function calls. Therefore, only
+        # the final run should take the original tensors and potentially update
+        # their values.
+        inputs_copy = deepcopy(inputs)
+        test_fn(self, fusion_func, inputs_copy, **kwargs)
 
         with tempfile.NamedTemporaryFile() as tmp:
             # Serialize FusionCache
@@ -83,7 +84,7 @@ def serde_check(test_fn: Callable):
 
         # Run test with repopulated FusionCache
         kwargs["new_fusion_expected"] = False
-        return test_fn(self, fusion_func, inputs_copy, **kwargs)
+        return test_fn(self, fusion_func, inputs, **kwargs)
 
     return inner_fn
 
@@ -713,22 +714,22 @@ class TestNvFuserFrontend(TestCase):
         ]
 
         def fusion_func(fd: FusionDefinition):
-            t0 = fd.from_pytorch(inputs[0])
+            t0 = fd.from_pytorch(inputs[0])  # 1.0
             s0 = fd.define_scalar(1.0)
             s1 = fd.define_scalar(2.0)
             s2 = fd.define_scalar(3.0)
-            t1 = fd.ops.add(t0, s0)
-            t2 = fd.ops.add(t0, s1)
-            t3 = fd.ops.add(t2, s2)
+            t1 = fd.ops.add(t0, s0)  # 2.0
+            t2 = fd.ops.add(t0, s1)  # 3.0
+            t3 = fd.ops.add(t2, s2)  # 6.0
             fd.add_output(t1)
             fd.add_output(t2, alias_input=t0)
             fd.add_output(t3)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
-        eager_out1 = torch.add(torch.ones(4, 4, device="cuda"), 1.0)
-        eager_out2 = torch.add(torch.ones(4, 4, device="cuda"), 2.0)
-        eager_out3 = torch.add(eager_out2, 3.0)
+        eager_out1 = torch.full((4, 4), 2.0, device="cuda")
+        eager_out2 = torch.full((4, 4), 3.0, device="cuda")
+        eager_out3 = torch.full((4, 4), 6.0, device="cuda")
         self.assertEqual(eager_out1, nvf_out[0])
         self.assertEqual(eager_out2, inputs[0])
         self.assertEqual(eager_out3, nvf_out[1])
@@ -2639,6 +2640,21 @@ class TestNvFuserFrontend(TestCase):
             torch.index_select(inputs[1], 0, torch.reshape(inputs[0], [25])), [5, 5, 64]
         )
         self.assertEqual(nvf_out[0], torch_ref)
+
+    # This test exercises serialization/deserialization of Fusion::io_alias_.
+    def test_alias(self):
+        def reshape(fd: FusionDefinition) -> None:
+            x = fd.define_tensor([2, 3, 4], contiguity=[True, True, True],
+                                 dtype=DataType.Float)
+            y = fd.ops.reshape(x, [2, 12])
+            fd.add_output(y)
+
+        x = torch.rand(2, 3, 4, device="cuda")
+        ys, _ = self.exec_nvfuser(reshape, [x])
+        self.assertEqual(len(ys), 1)
+        y = ys[0]
+
+        self.assertEqual(y.data_ptr(), x.data_ptr())
 
 
 if __name__ == "__main__":
