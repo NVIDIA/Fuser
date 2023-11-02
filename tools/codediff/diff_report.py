@@ -645,6 +645,7 @@ class TestDifferences:
     show_diffs: InitVar[bool] = False
     inclusion_criterion: InitVar[str] = "mismatched_cuda_or_ptx"
     preamble_diff: str = field(init=False)
+    env_diff: str = field(init=False)
 
     def __post_init__(self, show_diffs: bool, kernel_inclusion_criterion: str):
         if self.run1.command != self.run2.command:
@@ -669,6 +670,16 @@ class TestDifferences:
         )
         if len(self.preamble_diff) > 0:
             print("Preambles differ between runs indicating changes to runtime files")
+
+        self.env_diff = "\n".join(
+            difflib.unified_diff(
+                self.run1.env.splitlines(),
+                self.run2.env.splitlines(),
+                fromfile=self.run1.name,
+                tofile=self.run2.name,
+                n=5,
+            )
+        )
 
         for testname, compiled_test1 in self.run1.kernel_map.items():
             if testname not in self.run2.kernel_map:
