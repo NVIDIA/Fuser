@@ -1379,6 +1379,7 @@ void TensorView::applyMmaSwizzle(MmaOptions options) {
   switch (options.operand) {
     case MmaOptions::Operand::Accumulator:
       mma_utils::WarpMmaSwizzler::scheduleMmaWarpOutput(this, options);
+      setAllocationDomain(getLeafDomain(), true);
       break;
     case MmaOptions::Operand::A:
     case MmaOptions::Operand::B:
