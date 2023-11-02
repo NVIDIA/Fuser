@@ -14,7 +14,7 @@ namespace nvfuser {
 
 class LowerToInlinePtx : public kir::ExprMutator {
  protected:
-  using LowerToInlinePtx::handle;
+  using ExprMutator::handle;
 
   void handle(kir::CpAsyncCommit* commit) override {
     registerReplace(
