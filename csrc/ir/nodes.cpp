@@ -2111,9 +2111,10 @@ std::string MmaOp::toInlineString(int indent_size) const {
 }
 
 void MmaOp::configureOptions(MmaOptions options) {
-  MmaOptions::MacroType& macro = attribute<MmaOptions::MacroType>(ATTR_POS_MACRO);
+  MmaOptions::MacroType& macro =
+      attribute<MmaOptions::MacroType>(ATTR_POS_MACRO);
   NVF_ERROR(
-      macro != MmaOptions::MacroType::NoMMA,
+      options.macro != MmaOptions::MacroType::NoMMA,
       "Un-configured mma type from options.");
   macro = options.macro;
 }
