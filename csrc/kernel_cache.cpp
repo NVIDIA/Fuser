@@ -510,14 +510,23 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   // Removing aliased outputs, since those are updated by the Fusion. It is not
   // semantically correct to actually return them as outputs from
   // fusion.
-  int offset = 0;
-  const auto& indices = fusion->getIndicesOfAliasedOutputs();
-  std::set<int> aliased_output_indices(indices.begin(), indices.end());
-  for (const auto& v : aliased_output_indices) {
-    outputs.erase(outputs.begin() + v - offset);
-    offset++;
-  }
+  const auto& io_alias = fusion->ioAlias();
+  auto should_remove = [&io_alias](Val* out_val) -> bool {
+    if (auto alias_it = io_alias.find(out_val); alias_it != io_alias.end()) {
+      return alias_it->second.second.hide_output;
+    }
+    return false;
+  };
 
+  NVF_ERROR(fusion->outputs().size() == outputs.size());
+  size_t new_size = 0;
+  for (size_t out_index = 0; out_index < outputs.size(); out_index++) {
+    if (!should_remove(fusion->outputs()[out_index])) {
+      outputs[new_size] = outputs[out_index];
+      new_size++;
+    }
+  }
+  outputs.resize(new_size);
   return outputs;
 }
 
@@ -1277,6 +1286,11 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
   std::vector<at::Tensor> fusion_outputs;
   fusion_outputs.reserve(segmented_fusion_->outputs().size());
   for (Val* output : segmented_fusion_->outputs()) {
+    NVF_ERROR(
+        tensor_map.count(output),
+        "Segmented fusion output ",
+        output->toString(),
+        " does not exist in `tensor_map`.");
     const PolymorphicValue* runtime_output = tensor_map.at(output);
     fusion_outputs.push_back(runtime_output->as<at::Tensor>());
   }

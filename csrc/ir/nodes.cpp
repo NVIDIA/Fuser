@@ -2328,6 +2328,29 @@ std::string ViewOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+std::vector<PolymorphicValue> ViewOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(inputs.size() == 1);
+  const at::Tensor& in_tensor = inputs[0].as<at::Tensor>();
+
+  const std::vector<IterDomain*>& out_rfactor = out()->getMaybeRFactorDomain();
+  std::vector<int64_t> out_shape;
+  out_shape.reserve(out_rfactor.size());
+  for (IterDomain* id : out_rfactor) {
+    out_shape.push_back(
+        ee.evaluate(id->getMaybeExpandedExtent()).as<int64_t>());
+  }
+
+  // TODO: check allocation domain and contiguity.
+
+  // Use `at::Tensor::reshape` instead of `at::Tensor::view` because `ViewOp`
+  // doesn't always produce an alias. For example, when merging an expanded
+  // `IterType::Broadcast` and an `IterType::Iteration`, `ViewOp` has to realize
+  // the expand.
+  return {in_tensor.reshape(out_shape)};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(ViewOp)
 
 LoadStoreOp::LoadStoreOp(
@@ -2945,7 +2968,8 @@ IterDomain* IterDomain::resize(
   NVF_CHECK(
       in->getIterType() == IterType::Iteration ||
           in->getIterType() == IterType::Broadcast ||
-          in->getIterType() == IterType::Symbolic || "Not a valid IterType: ",
+          in->getIterType() == IterType::Symbolic,
+      "Not a valid IterType: ",
       in->getIterType());
 
   NVF_CHECK(

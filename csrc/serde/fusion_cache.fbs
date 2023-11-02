@@ -230,15 +230,20 @@ table GlobalBufferInfo {
   is_fusion_output: bool;
 }
 
+table InputOutputAlias {
+  out: long;
+  in: long;
+  type: int;
+  hide_output: bool;
+}
+
 // This table describes the cached ExecutorEntry for a kernel.
 table ExecutorEntry {
-    init: bool;
-    launch_params: LaunchParams;
-    // Aliased output and input mappings
-    output_aliases: [int];
-    input_aliases: [int];
-    outputs: [GlobalBufferInfo];
-    intermediates: [GlobalBufferInfo];
+  init : bool;
+  launch_params : LaunchParams;
+  input_output_alias: [InputOutputAlias];
+  outputs : [GlobalBufferInfo];
+  intermediates : [GlobalBufferInfo];
 }
 
 // =====================================================================================

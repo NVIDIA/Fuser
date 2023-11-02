@@ -11,12 +11,16 @@ SPDX-License-Identifier: BSD-3-Clause
         <h1>
             <i>{{ run1.name }}</i> vs <i>{{ run2.name }}</i> - NVFuser codegen diff
         </h1>
-        <h2>Run information</h2>
         {% from 'gitinfo.j2' import gitinfo %}
-        {{ gitinfo(1, run1.name, run1.git) }}
-        {{ gitinfo(2, run2.name, run2.git) }}
-        <br>
-        <br>
+        {%- if run1.git != run2.git -%}
+            {{ gitinfo(1, run1.name, run1.git) }}
+            <br>
+            {{ gitinfo(2, run2.name, run2.git) }}
+            <br>
+        {%- else -%}
+            {{ gitinfo(1, none, run1.git) }}
+            <br>
+        {%- endif -%}
         {% include 'command_env_info.html' %}
         {% include 'preamble.html' %}
         {% if new_tests|length > 0 %}
