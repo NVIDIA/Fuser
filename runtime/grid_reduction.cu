@@ -372,7 +372,7 @@ template <
     bool Aligned,
     typename T,
     typename Func>
-__device__ void gridReduce2PartialReduction(
+__device__ T gridReduce2PartialReduction(
     const T& inp_val,
     T init_val,
     Func reduction_op,
@@ -398,8 +398,11 @@ __device__ void gridReduce2PartialReduction(
     block_reduction_val = inp_val;
   }
 
-  if ((!X_THREAD || threadIdx.x == 0) && (!Y_THREAD || threadIdx.y == 0) &&
-      (!Z_THREAD || threadIdx.z == 0)) {
+  bool last_block =
+      index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
+
+  if (!last_block && (!X_THREAD || threadIdx.x == 0) &&
+      (!Y_THREAD || threadIdx.y == 0) && (!Z_THREAD || threadIdx.z == 0)) {
     auto block_offset =
         index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
     auto thread_offset =
@@ -409,6 +412,8 @@ __device__ void gridReduce2PartialReduction(
         block_offset * block_reduction_segment_size + thread_offset;
     work_buf[work_buf_offset] = block_reduction_val;
   }
+
+  return block_reduction_val;
 }
 
 // 2-way horizontally fused grid reduction
@@ -470,7 +475,7 @@ __device__ void gridReduceGroup(
   work_buf2 += (entrance_ind * grid_segment_size + idx_in_grid_segment) *
       grid_reduction_segment_size * block_reduction_segment_size;
 
-  gridReduce2PartialReduction<
+  T1 block_reduction_val1 = gridReduce2PartialReduction<
       X_BLOCK,
       Y_BLOCK,
       Z_BLOCK,
@@ -488,7 +493,7 @@ __device__ void gridReduceGroup(
       idx_in_grid_segment,
       block_reduction_segment_size);
 
-  gridReduce2PartialReduction<
+  T2 block_reduction_val2 = gridReduce2PartialReduction<
       X_BLOCK,
       Y_BLOCK,
       Z_BLOCK,
@@ -528,7 +533,8 @@ __device__ void gridReduceGroup(
         reduction_op1,
         (T1*)shared_buf,
         write_pred,
-        init_val1);
+        init_val1,
+        block_reduction_val1);
     gridReduceLastBlock<!X_THREAD, !Y_THREAD, !Z_THREAD, Aligned>(
         out2,
         work_buf2,
@@ -537,7 +543,8 @@ __device__ void gridReduceGroup(
         reduction_op2,
         (T2*)shared_buf,
         write_pred,
-        init_val2);
+        init_val2,
+        block_reduction_val2);
   }
 
   if (PERSISTENT_REDUCTION) {
