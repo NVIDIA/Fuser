@@ -16,7 +16,6 @@
 #include <ir/utils.h>
 #include <optimization/pre_segmenter.h>
 #include <options.h>
-#include <parser.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
 #include <torch/csrc/jit/jit_log.h>
@@ -192,19 +191,23 @@ class ArgumentManager {
         group_outputs.size() == group_runtime_outputs.size(),
         "Output size does not match.");
 
-    // Trivial forwarding outputs an empty tensor to save bandwidth. We skip
-    // updating the tensor_map because we want all future use of inputs on
-    // the original tensor input. See note [Trivial Forwarding]
     for (const size_t group_out_i : c10::irange(group_outputs.size())) {
-      if (!group_outputs[group_out_i]->isFusionInput()) {
-        if constexpr (std::is_pointer_v<
-                          decltype(group_runtime_outputs[group_out_i])>) {
-          fusion_args_.push(*group_runtime_outputs[group_out_i]);
-        } else {
-          fusion_args_.push(group_runtime_outputs[group_out_i]);
-        }
-        tensor_map_.emplace(group_outputs[group_out_i], fusion_args_.back());
+      Val* output = group_outputs[group_out_i];
+      const PolymorphicValue*& runtime_output = tensor_map_[output];
+      if (runtime_output != nullptr) {
+        // A trivial forwarding output shares the same `Val*` as an input, so we
+        // simply map it to the same runtime output. See note [Trivial
+        // Forwarding].
+        continue;
       }
+
+      if constexpr (std::is_pointer_v<
+                        decltype(group_runtime_outputs[group_out_i])>) {
+        fusion_args_.push(*group_runtime_outputs[group_out_i]);
+      } else {
+        fusion_args_.push(group_runtime_outputs[group_out_i]);
+      }
+      runtime_output = fusion_args_.back();
     }
   }
 };
@@ -505,14 +508,23 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   // Removing aliased outputs, since those are updated by the Fusion. It is not
   // semantically correct to actually return them as outputs from
   // fusion.
-  int offset = 0;
-  const auto& indices = fusion->getIndicesOfAliasedOutputs();
-  std::set<int> aliased_output_indices(indices.begin(), indices.end());
-  for (const auto& v : aliased_output_indices) {
-    outputs.erase(outputs.begin() + v - offset);
-    offset++;
-  }
+  const auto& io_alias = fusion->ioAlias();
+  auto should_remove = [&io_alias](Val* out_val) -> bool {
+    if (auto alias_it = io_alias.find(out_val); alias_it != io_alias.end()) {
+      return alias_it->second.second.hide_output;
+    }
+    return false;
+  };
 
+  NVF_ERROR(fusion->outputs().size() == outputs.size());
+  size_t new_size = 0;
+  for (size_t out_index = 0; out_index < outputs.size(); out_index++) {
+    if (!should_remove(fusion->outputs()[out_index])) {
+      outputs[new_size] = outputs[out_index];
+      new_size++;
+    }
+  }
+  outputs.resize(new_size);
   return outputs;
 }
 
@@ -1132,7 +1144,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       compileKernel(group_runtime_inputs, group_to_run);
     } else {
       // launch compileKernel thread here
-      getThreadPool()->run([=]() {
+      getThreadPool()->run([this, args, group_runtime_inputs, group_to_run]() {
         FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
         c10::cuda::CUDAGuard dg(args.getDeviceIndex());
         c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
@@ -1217,61 +1229,15 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
 
   // Produce final global output
   std::vector<at::Tensor> fusion_outputs;
-  for (auto output : segmented_fusion_->outputs()) {
-    const auto iter = tensor_map.find(output);
-    if (iter != tensor_map.end()) {
-      // Note [ trivial forwarding ]
-      //
-      // Background:
-      // NvFuser codegen does not handle aliases. When we have a fusion that
-      // forwards an input to output without any operations on it, this is
-      // a no-op for codegen and the output tensor is never written to. However,
-      // the codegen cannot "forward" an input to output, since all outputs are
-      // allocated in integration. If we do not special case it, we'll ended up
-      // having a "fresh" tensor allocated for the forwarded-input.
-      //
-      // Approach:
-      // There are two aspects of the support:
-      // 1) Codegen handles forwarding implicitly. Forwarded inputs do not
-      // have any producer in the IR, so the output argument is not used in
-      // the code. However, it is required to be a kernel argument, which acts
-      // as a place-holder, so we can map the arguments correctly.
-      //
-      // 2) Integration handles the trivial forwarding of inputs. When we put
-      // together `fusion_outputs` for a given fusion and the outputs are
-      // fusion inputs, we directly return the input tensor.
-      NVF_ERROR(iter->second->is<at::Tensor>());
-      fusion_outputs.push_back(iter->second->as<at::Tensor>());
-    } else {
-      bool empty_type_check = output->getDataType().has_value() &&
-          output->getDataType().value() == DataType::Float;
-
-      // Only support two cases of empty tensor here, since this is hot path.
-      auto out_tv = output->as<TensorView>();
-
-      // TODO: should be only one of the two once the "empty"
-      //  definition has been unified throughout the ops.
-      bool empty_tensor_check = out_tv->isZeroDim() || out_tv->isEmptyTensor();
-
-      // This is the check for an empty tensor;
-      NVF_ERROR(
-          empty_tensor_check && empty_type_check,
-          "Is empty tensor? ",
-          !empty_tensor_check,
-          " Is empty type check? ",
-          !empty_type_check,
-          " Output empty tensor check failed for tensor: ",
-          out_tv->toString(),
-          " In function: ",
-          __FUNCTION__);
-
-      // TODO: would need to clean up this part when
-      //   we have a unified and consistent way to generate
-      //   size-0 tensors.
-      const auto tensor_options =
-          at::TensorOptions().dtype(at::kFloat).device(device);
-      fusion_outputs.emplace_back(at::empty({0}, tensor_options));
-    }
+  fusion_outputs.reserve(segmented_fusion_->outputs().size());
+  for (Val* output : segmented_fusion_->outputs()) {
+    NVF_ERROR(
+        tensor_map.count(output),
+        "Segmented fusion output ",
+        output->toString(),
+        " does not exist in `tensor_map`.");
+    const PolymorphicValue* runtime_output = tensor_map.at(output);
+    fusion_outputs.push_back(runtime_output->as<at::Tensor>());
   }
   return fusion_outputs;
 }
@@ -1469,43 +1435,6 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
   }
 
   return ret;
-}
-
-void GraphCache::createFusion(const std::shared_ptr<torch::jit::Graph>& graph) {
-  FUSER_PERF_SCOPE("GraphCache::createFusion");
-
-  fusion_executor_cache_ =
-      std::make_unique<FusionExecutorCache>(parseJitIR(graph));
-
-  num_of_outputs_ = graph->outputs().size();
-}
-
-// NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-GraphCache::GraphCache(const std::shared_ptr<torch::jit::Graph>& graph) {
-  FUSER_PERF_SCOPE("GraphCache::GraphCache");
-  NVF_ERROR(
-      torch::jit::IsNewExecutorEnabled(),
-      "legacy executor is not supported by nvfuser");
-
-  GRAPH_DEBUG("GraphCache constructor: ", this);
-  GRAPH_DUMP("GraphCache created for graph", graph);
-  createFusion(graph);
-}
-
-std::vector<at::Tensor> GraphCache::runGraphWithInputs(
-    const at::ArrayRef<c10::IValue>& inputs) {
-  FUSER_PERF_SCOPE("GraphCache::runGraphWithInputs");
-
-  GRAPH_DEBUG("running GraphCache: ", this);
-  auto outputs = fusion_executor_cache_->runFusionWithInputs(inputs);
-  NVF_ERROR(
-      outputs.size() == num_of_outputs_,
-      "FusionExecutorCache returned ",
-      outputs.size(),
-      " outputs, doesn't match computational graph, which requires ",
-      num_of_outputs_);
-
-  return outputs;
 }
 
 } // namespace nvfuser

@@ -46,6 +46,7 @@
 #include <nvfuser_resources/grid_sync.h>
 #include <nvfuser_resources/helpers.h>
 #include <nvfuser_resources/index_utils.h>
+#include <nvfuser_resources/mbarrier.h>
 #include <nvfuser_resources/memory.h>
 #include <nvfuser_resources/random_numbers.h>
 #include <nvfuser_resources/tensor.h>
@@ -89,6 +90,7 @@ std::string kernelPreamble() {
     ss << nvfuser_resources::block_sync_default_cu;
   }
   ss << nvfuser_resources::grid_sync_cu;
+  ss << nvfuser_resources::mbarrier_cu;
 
   // Communication classes
   ss << nvfuser_resources::block_reduction_cu;
@@ -1431,8 +1433,7 @@ ExecutorCompileTimeEntry<EntryClass>::ExecutorCompileTimeEntry(
 template class ExecutorCompileTimeEntry<ParallelBindingIterDomains>;
 template class ExecutorCompileTimeEntry<ParallelIterExtentMap>;
 template class ExecutorCompileTimeEntry<VectorizedTensorValidation>;
-template class ExecutorCompileTimeEntry<InputAliasIndices>;
-template class ExecutorCompileTimeEntry<OutputAliasIndices>;
+template class ExecutorCompileTimeEntry<InputOutputAliases>;
 
 } // namespace caching
 

@@ -20,6 +20,8 @@
 
 #include <c10/core/DeviceType.h>
 
+#include <functional>
+
 namespace nvfuser {
 
 bool shouldFillAllocationWithNan();
@@ -111,6 +113,12 @@ class FusionExecutor : public NonCopyable {
     return runFusion(inputs, {}, launch_constraints, compile_params, opt_code);
   }
 
+  // Register a post-lowering hooks that are called to modify the kernel after
+  // lowering. The main use case is for unit tests to modify the kernel.
+  void registerPostLoweringHook(std::function<void(kir::Kernel*)> hook) {
+    post_lowering_hooks_.push_back(std::move(hook));
+  }
+
   // function to query whether a `FusionExecutor` has a compiled kernel to
   // execute
   bool isCompiled() const {
@@ -134,7 +142,7 @@ class FusionExecutor : public NonCopyable {
     bool init = false;
     LaunchParams launch_params;
     // Aliased output and input mappings
-    std::vector<std::pair<int, int>> output_to_input_aliases;
+    std::vector<InputOutputAlias> input_output_aliases;
     std::vector<GlobalBufferInfo> outputs;
     // Temporary work buffers and intemediate global-memory tensors
     std::vector<GlobalBufferInfo> intermediates;
@@ -301,7 +309,6 @@ class FusionExecutor : public NonCopyable {
   std::vector<GlobalBufferInfo> getOutputBufferInfo(
       const KernelArgumentHolder& args,
       ExpressionEvaluator& expr_eval,
-      const std::vector<std::pair<int, int>>& input_to_output_aliases,
       DataType index_dtype);
 
   void setUsedTVs();
@@ -357,6 +364,12 @@ class FusionExecutor : public NonCopyable {
 
   //! Deserialize GlobalBufferInfo using flatbuffers
   GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);
+
+  flatbuffers::Offset<serde::InputOutputAlias> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const InputOutputAlias& input_output_alias) const;
+
+  InputOutputAlias deserialize(const serde::InputOutputAlias* buffer);
 
   //! Get the current dynamic shared memory size
   int64_t getAvailableDynamicSmemSize();
@@ -456,6 +469,10 @@ class FusionExecutor : public NonCopyable {
 
   // Profiling support: kept copy of the cuda kernel
   std::string kernel_code_;
+
+  // Post-lowering hooks that are called to modify the kernel after lowering.
+  // The main use case is for unit tests to modify the kernel.
+  std::vector<std::function<void(kir::Kernel*)>> post_lowering_hooks_;
 };
 
 } // namespace nvfuser

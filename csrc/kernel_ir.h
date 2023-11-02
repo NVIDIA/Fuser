@@ -37,8 +37,15 @@ class TensorIndex;
 class Allocate;
 class BlockSync;
 class GridSync;
+class MBarrierInit;
+class MBarrierInvalidate;
+class MBarrierArrive;
+class MBarrierArriveExpectTx;
+class MBarrierWait;
 class CpAsyncWait;
 class CpAsyncCommit;
+class CpAsyncBulkS2GWait;
+class CpAsyncBulkS2GCommit;
 class InitMagicZero;
 class UpdateMagicZero;
 class ForLoop;
@@ -115,7 +122,8 @@ class Predicate final : public Val {
   }
 
   bool isTrivial() const {
-    return isConst() && value_->getBool() == true;
+    return isConst() && value_->value().is<bool>() &&
+        value_->value().as<bool>();
   }
 
  private:
@@ -306,6 +314,132 @@ class GridSync final : public Expr {
   }
 };
 
+class MBarrierInit final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierInit(
+      IrBuilderPasskey passkey,
+      Val* mbarrier,
+      Val* thread_count);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierInit";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+
+  Val* threadCount() const {
+    return input(1);
+  }
+};
+
+class MBarrierInvalidate final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierInvalidate(IrBuilderPasskey passkey, Val* mbarrier);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierInvalidate";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+};
+
+class MBarrierArrive final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierArrive(IrBuilderPasskey passkey, Val* state, Val* mbarrier);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierArrive";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* state() const {
+    return output(0);
+  }
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+};
+
+// IR node for: mbarrier.arrive.expect_tx
+// This is usually used to specify the number of bytes that will be
+// transferred for cp.async and cp.async.bulk, so that future mbarrier.wait
+// can wait for the completion of the transfer.
+class MBarrierArriveExpectTx final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierArriveExpectTx(
+      IrBuilderPasskey passkey,
+      Val* state,
+      Val* mbarrier,
+      Val* tx_count);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierArriveExpectTx";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* state() const {
+    return output(0);
+  }
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+
+  Val* txCount() const {
+    return input(1);
+  }
+};
+
+class MBarrierWait final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierWait(IrBuilderPasskey passkey, Val* mbarrier, Val* state);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierWait";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+
+  Val* state() const {
+    return input(1);
+  }
+};
+
 // CpAsyncWait represents wait intrinsics for cp.async
 class CpAsyncWait final : public Expr {
  public:
@@ -342,6 +476,44 @@ class CpAsyncCommit final : public Expr {
 
   const char* getOpString() const override {
     return "CpAsyncCommit";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+};
+
+class CpAsyncBulkS2GWait final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit CpAsyncBulkS2GWait(
+      IrBuilderPasskey passkey,
+      int64_t keep_stages = 0);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "CpAsyncBulkS2GWait";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  int64_t keepStages() const {
+    return attribute<int64_t>(0);
+  }
+};
+
+class CpAsyncBulkS2GCommit final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit CpAsyncBulkS2GCommit(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "CpAsyncBulkS2GCommit";
   }
 
   std::string toString(int indent_size = 0) const override;

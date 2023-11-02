@@ -537,12 +537,8 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(serde::RecordType_RandomOp, deserializeRandomRecord);
 
   auto deserializeReshapeRecord = [](const serde::RecordFunctor* buffer) {
-    auto data = buffer->data_as_Reshape();
     return new python_frontend::ReshapeOpRecord(
-        parseStateArgs(buffer->args()),
-        parseStateArgs(buffer->outputs()),
-        parseVector(data->original_shape()),
-        parseVector(data->new_shape()));
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
   };
   registerParser(serde::RecordType_ReshapeOp, deserializeReshapeRecord);
 
@@ -582,7 +578,8 @@ void RecordFunctorFactory::registerAllParsers() {
         parseVector(data->sizes()),
         contiguity,
         mapToNvfuserDtype(data->dtype()),
-        data->is_cpu());
+        data->is_cpu(),
+        parseVector(data->stride_order()));
   };
   registerParser(serde::RecordType_Tensor, deserializeTensorRecord);
 

@@ -1,0 +1,67 @@
+{#-
+SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+All rights reserved.
+SPDX-License-Identifier: BSD-3-Clause
+-#}
+<title>{{ run1.name }} vs {{ run2.name }} - NVFuser codegen diff</title>
+<link rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/cpp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/diff.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/ini.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/languages/shell.min.js"></script>
+<script>hljs.highlightAll();</script>
+<style>
+.run_heading {
+  font-size: large;
+  font-weight: bold;
+}
+.git_title, a.git_title, a.git_title:visited {
+  color: black;
+  font-weight: bold;
+  text-decoration: none;
+}
+.git_meta {
+  font-size: small;
+}
+.git_abbrev {
+  color: gray;
+}
+.test_passed {
+  color: green;
+  font-weight: bold;
+}
+.test_failed {
+  color: red;
+  font-weight: bold;
+}
+.benchmark_improved {
+  color: green;
+  font-weight: bold;
+}
+.benchmark_regressed {
+  color: red;
+  font-weight: bold;
+}
+.kernelstat_decreased {
+{#- blue is a little more visible for improvements than red -#}
+  color: blue;
+  font-weight: bold;
+}
+.kernelstat_increased {
+  color: chocolate;
+  font-weight: bold;
+}
+
+button.selected,
+*:focus {
+    outline-style: solid;
+    outline-width: 2px;
+    outline-color: #0000ff;
+}
+button.differing {
+    background-color: #fff2c1;
+}
+</style>
+<script language="javascript">{% include 'inline_javascript.js' %}</script>

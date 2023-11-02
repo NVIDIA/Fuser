@@ -26,7 +26,11 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     : complete_fusion_(complete_fusion) {
   NVF_ERROR(
       complete_fusion_->inputs().size() == args.size(),
-      "Invalid number of arguments passed in for provided fusion group.");
+      "The provided fusion group expects ",
+      complete_fusion_->inputs().size(),
+      " arguments, but ",
+      args.size(),
+      " arguments were passed in.");
 
   expression_evaluator_ = getExpressionEvaluator(args, precomputed_values);
 
@@ -152,9 +156,14 @@ bool checkCanSchedule(
   //  fusion.
   if (!data_cache) {
     if (!registry_utils::isConnectedFusionGraph(fusion)) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          SchedulerType::heuristicType(),
+          "Connected fusion graph check failed!");
       return false;
     }
     if (IterDomainGraph(fusion, /*allow_self_mapping=*/true).hasSelfMapping()) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          SchedulerType::heuristicType(), "Iter domain graph check failed!");
       return false;
     }
     if (!SchedulerType::canScheduleCompileTime(fusion)) {

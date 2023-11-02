@@ -1116,4 +1116,136 @@ TEST_F(AllocationDomainTest, TransposeMatrix) {
       << "alias.";
 }
 
+TEST_F(NVFuserTest, AllocationDomainContiguityIssue1021) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = TensorViewBuilder()
+                 .ndims(2)
+                 .shape({-1, -1})
+                 .contiguity({false, true})
+                 .strideOrder({0, 1})
+                 .build();
+  fusion->addInput(tv0);
+
+  auto s0 = IrBuilder::create<Val>(5, DataType::Float);
+  auto tv1 = add(tv0, s0);
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({8, 8}, options).as_strided({4, 8}, {1, 8});
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs({t0});
+
+  auto t1 = t0.add(5.0);
+  testValidate(fusion, outputs, {t0}, {t1}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, AllocationDomainContiguityForBroadcast) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = TensorViewBuilder()
+                 .ndims(2)
+                 .shape({1, 1})
+                 .contiguity({std::nullopt, std::nullopt})
+                 .strideOrder({0, 1})
+                 .build();
+  fusion->addInput(tv0);
+
+  auto s0 = IrBuilder::create<Val>(5, DataType::Float);
+  auto tv1 = add(tv0, s0);
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({1, 1}, options).as_strided({1, 1}, {0, 3});
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs({t0});
+
+  auto t1 = t0.add(5.0);
+  testValidate(fusion, outputs, {t0}, {t1}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, AllocationDomainContiguityForExplicitBroadcast) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = TensorViewBuilder()
+                 .ndims(3)
+                 .shape({-1, -1, -1})
+                 .contiguity({true, true, std::nullopt})
+                 .expanded({true, false, false})
+                 .strideOrder({0, 1, 2})
+                 .build();
+  fusion->addInput(tv0);
+
+  auto s0 = IrBuilder::create<Val>(5, DataType::Float);
+  auto tv1 = add(tv0, s0);
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({4, 8}, options).as_strided({3, 8, 4}, {0, 1, 8});
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto outputs = fec.runFusionWithInputs({t0});
+
+  auto t1 = t0.add(5.0);
+  testValidate(fusion, outputs, {t0}, {t1}, __LINE__, __FILE__);
+}
+
+// Test that allocation domain can be used to vectorize overlapping tensors,
+// by making the allocation domain deviate from the stride order. Note that
+// this test is only a demo "hey, we can do this", instead of checking for
+// a real use case. Supporting overlapping tensor is a gray area for framework,
+// and we are not actively using the trick in this test to generate a better
+// kernel for overlapping tensors. The only reason why this test exists is
+// because I think it is a good sign that we have a good design (a good design
+// automatically supports all kinds of use cases, even those that we don't have
+// an active plan to support on).
+TEST_F(AllocationDomainTest, VectorizeOverlappingTensor) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(3);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  // According to the stride order below, the allocation domain should be the
+  // same as the root domain. However, here we intentionally make the allocation
+  // domain [axis(1), axis(0), axis(2)] because doing so allows us to vectorize
+  // by 4.
+  tv0->setAllocationDomain(
+      {tv0->axis(1), tv0->axis(0), tv0->axis(2)}, {false, true, true});
+
+  for (auto tv : {tv2, tv1}) {
+    // [I0, I1, I2]
+    tv->reorder({{0, 1}});
+    // [I1, I0, I2]
+    tv->merge(0);
+    // [I1*I0, I2]
+    tv->merge(0);
+    // [I1*I0*I2]
+    tv->split(0, 4);
+    // [I1*I0*I2/4, 4]
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+  }
+  tv1->axis(1)->parallelize(ParallelType::Vectorize);
+
+  // Note that the stride of the second dimension of the input tensor must be a
+  // multiple of 4, otherwise we will have misaligned address access.
+  at::Tensor t0 =
+      at::randn({4 * 5 * 7}).cuda().as_strided({4, 5, 7}, {7, 4, 1});
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion_ptr.get(), {t0});
+  auto cg_outputs = fe.runFusion({t0});
+
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

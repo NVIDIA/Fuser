@@ -126,7 +126,6 @@ union RecordData {
   Slice,
   Squeeze,
   Reduction,
-  Reshape,
   Scalar,
   Size,
   Tensor,
@@ -231,15 +230,20 @@ table GlobalBufferInfo {
   is_fusion_output : bool;
 }
 
+table InputOutputAlias {
+  out: long;
+  in: long;
+  type: int;
+  hide_output: bool;
+}
+
 // This table describes the cached ExecutorEntry for a kernel.
 table ExecutorEntry {
-    init : bool;
-    launch_params : LaunchParams;
-    // Aliased output and input mappings
-    output_aliases : [int];
-    input_aliases : [int];
-    outputs : [GlobalBufferInfo];
-    intermediates : [GlobalBufferInfo];
+  init : bool;
+  launch_params : LaunchParams;
+  input_output_alias: [InputOutputAlias];
+  outputs : [GlobalBufferInfo];
+  intermediates : [GlobalBufferInfo];
 }
 
 // =====================================================================================
@@ -306,12 +310,6 @@ table Reduction {
   dtype: DataType;
 }
 
-// Data for ReshapeOpRecord
-table Reshape {
-  original_shape: [long];
-  new_shape: [long];
-}
-
 // Data for SizeOpRecord
 table Size {
   dim: long;
@@ -334,6 +332,7 @@ table Squeeze {
 table Tensor {
   sizes: [long];
   contiguity: [Contiguity];
+  stride_order: [long];
   dtype: DataType;
   is_cpu: bool;
 }
