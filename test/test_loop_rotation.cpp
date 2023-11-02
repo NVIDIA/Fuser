@@ -582,10 +582,10 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     for(nvfuser_index_t i5 = 0; i5 < 3LL; ++i5) {
       Ampere::cpAsyncCa<float, 1>((i3 + (4LL * i5)), (ptr2 + (T0.alloc_stride[1LL] * (i5 + nvfuser_zero))), b4);
     }
-    Ampere::cpAsyncCommit();
+    asm volatile("cp.async.commit_group;\n");
   }
   NVFUSER_UPDATE_MAGIC_ZERO;
-  Ampere::cpAsyncPartialBarrier<3>();
+  asm volatile("cp.async.wait_group %0;\n"::"n"(3LL));
   float T1[2LL];
   T1[0LL]
      = T4[0LL];
@@ -608,7 +608,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
       Ampere::cpAsyncCa<float, 1>((i9 + (4LL * i5)), (ptr7 + (T0.alloc_stride[1LL] * (i5 + nvfuser_zero))), b12);
     }
     NVFUSER_UPDATE_MAGIC_ZERO;
-    Ampere::cpAsyncCommit();
+    asm volatile("cp.async.commit_group;\n");
     #pragma unroll
     for(nvfuser_index_t i13 = 0; i13 < 2LL; ++i13) {
       T1[((1LL + i13) % 2LL)]
@@ -626,7 +626,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     T3[(2LL + i11)]
        = T2[0LL];
     NVFUSER_UPDATE_MAGIC_ZERO;
-    Ampere::cpAsyncPartialBarrier<3>();
+    asm volatile("cp.async.wait_group %0;\n"::"n"(3LL));
     T1[0LL]
        = T4[(3LL * ((1LL + i6) % 5LL))];
   }
