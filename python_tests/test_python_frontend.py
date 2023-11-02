@@ -2645,8 +2645,9 @@ class TestNvFuserFrontend(TestCase):
     # after serialization and deserialization.
     def test_mark_alias_pass(self):
         def reshape(fd: FusionDefinition) -> None:
-            x = fd.define_tensor([2, 3, 4], contiguity=[True, True, True],
-                                 dtype=DataType.Float)
+            x = fd.define_tensor(
+                [2, 3, 4], contiguity=[True, True, True], dtype=DataType.Float
+            )
             y = fd.ops.reshape(x, [2, 12])
             fd.add_output(y)
 
