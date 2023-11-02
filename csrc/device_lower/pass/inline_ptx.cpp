@@ -28,11 +28,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
     auto stages = wait->keepStages();
     Expr* replace = nullptr;
     if (stages > 0) {
-          replace = IrBuilder::create<kir::Asm>(
-              "cp.async.wait_group %0;",
-              std::vector<Val*>{},
-              std::vector<Val*>{IrBuilder::create<Val>(stages)},
-              kir::Asm::Options{true});
+      replace = IrBuilder::create<kir::Asm>(
+          "cp.async.wait_group %0;",
+          std::vector<Val*>{},
+          std::vector<Val*>{IrBuilder::create<Val>(stages)},
+          kir::Asm::Options{true});
     } else {
       replace = IrBuilder::create<kir::Asm>(
           "cp.async.wait_all;",
