@@ -21,15 +21,18 @@ SPDX-License-Identifier: BSD-3-Clause
         <span class="test_name">{{ loop.index }}: <b>{{ test_diff.testname }}</b></span>
         {% if is_benchmark %}
             {% if test_diff.test1.benchmark_result is not none and test_diff.test2.benchmark_result is not none -%}
-                {{ test_diff.test1.benchmark_result.gpu_time }} {{ test_diff.test1.benchmark_result.gpu_time_unit }} &#8594;
-                <span style="color: {{ 'green' if test_diff.test2.benchmark_result.gpu_time < test_diff.test1.benchmark_result.gpu_time else 'red' }};
-                             font-weight: bold">{{ test_diff.test2.benchmark_result.gpu_time }} {{ test_diff.test2.benchmark_result.gpu_time_unit }}</span>
+                {%- set t1 = test_diff.test1.benchmark_result.gpu_time | float -%}
+                {%- set t2 = test_diff.test2.benchmark_result.gpu_time | float -%}
+                {{ t1 }} {{ test_diff.test1.benchmark_result.gpu_time_unit }} &#8594;
+                <span class="benchmark_{{ 'improved' if t2 < t1 else 'regressed' }}">{{ t2 }}
+                    {{ test_diff.test2.benchmark_result.gpu_time_unit }}
+                    ({%- if t2 > t1 -%}+{%- endif -%}
+                {{ '%.1f' | format(((t2 / t1) - 1) * 100) }}%)</span>
             {%- endif -%}
         {% else %}
             {% if not test_diff.test1.passed or not test_diff.test2.passed -%}
                 {{"SUCCESS" if test_diff.test1.passed else "FAILED"}} &#8594;
-                <span style="color: {{ 'green' if test_diff.test2.passed else 'red' }};
-                             font-weight: bold">{{"SUCCESS" if test_diff.test2.passed else "FAILED"}}</span>
+                <span class="test_{{ 'passed' if test_diff.test2.passed else 'failed' }}">{{"SUCCESS" if test_diff.test2.passed else "FAILED"}}</span>
             {%- endif -%}
         {% endif %}
         <br>
@@ -80,10 +83,9 @@ SPDX-License-Identifier: BSD-3-Clause
     {%- macro meta_diff(name, old, new) -%}
         {{ name }}: {{ old }}
         {%- if new < old -%}
-            {#- blue is a little more visible for improvements than red -#}
-            &#8594; <span style="font-weight:bold; color: blue">{{ new }}</span>
+            &#8594; <span class="kernelstat_decreased">{{ new }}</span>
         {%- elif new != old -%}
-            &#8594; <span style="font-weight:bold; color: red">{{ new }}</span>
+            &#8594; <span class="kernelstat_increased">{{ new }}</span>
         {%- endif %}
     {%- endmacro -%}
     {{ meta_diff('index type', kernel_diff.kernel1.index_type, kernel_diff.kernel2.index_type) }}
