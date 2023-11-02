@@ -512,6 +512,9 @@ std::vector<int64_t> getContiguousStrides(
 
 // Infer the size and stride of each dimension
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
+  //interesting. I think it can be used as-is.
+// What to do with the strides ? Maybe we should assert (or Warn) that the strides are 0
+// From the implementation of how to get the strides, I think it's not a problem
     const TensorView* tv,
     std::vector<Val*> symbolic_sizes,
     std::vector<bool> expand_flags,
@@ -548,7 +551,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
 }
 
 // Infer the shape of an intemediate tensor using kir::Allocate
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate( //can we use this directly?
     const TensorView* tv,
     const kir::Allocate* alloc,
     ExpressionEvaluator& expr_eval) {
@@ -566,7 +569,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
 }
 
 // Infer the sizes and strides of an output tensor
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput( //see here
     const TensorView* tv,
     ExpressionEvaluator& expr_eval) {
   // Fusion outputs do not come with Allocate and
@@ -578,7 +581,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
 
   // Allocate the allocation domain
   for (const auto id : tv->getMaybeAllocationDomain()) {
-    if (id->isReduction() || id->isStride()) {
+    if (id->isReduction() || id->isStride()) { //add isDevice?
       continue;
     }
     symbolic_sizes.push_back(id->getMaybeExpandedExtent());
@@ -869,11 +872,11 @@ class BackwardTraverseFromAllocToRFactor {
 // into a format whose dimensions are consistent with the rFactor domain of tv.
 // For example, if the rFactor domain is [I1, I2], and the allocation domain is
 // [I2*I1], then we will allocate as [I2*I1], then do a tensor.view(I2, I1).t()
-// to get a tensor whose semantics is [I1, I2] but its memory is [I2*I1].
+// to get a tensor whose semantics is [I1, I2] but its memory is [I2*I1]. interesting
 // Another example, if the rFactor domain is [I1*I2] and the allocation domain
 // is [I1, I2], then we will allocate as [I1, I2] and do a tensor.view(I1*I2) to
 // get a tensor whose semantics is [I1*I2] but memory is [I1,I2]
-at::Tensor transformOutputFromAllocationToRFactor(
+at::Tensor transformOutputFromAllocationToRFactor( //maybe it is brutal to completely discard a Did axis. In case of a reduction?
     at::Tensor tensor,
     TensorView* tv,
     ExpressionEvaluator& ee) {
@@ -1479,7 +1482,7 @@ void FusionExecutor::initializeExecutorEntry(
   // All information is gathered. Save it to ExecutorEntry
   executor_entry.launch_params = launch_params;
   executor_entry.outputs = output_info;
-  executor_entry.intermediates = intermediates;
+  executor_entry.intermediates = intermediates; // this where is initialized what we want
   executor_entry.init = true;
 }
 
@@ -1579,7 +1582,9 @@ void FusionExecutor::resetCompiledKernelProperties() {
   static_smem_size_.reset();
 }
 
-std::vector<at::Tensor> FusionExecutor::runFusion(
+std::vector<at::Tensor> FusionExecutor::
+
+runFusion(
     KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params,

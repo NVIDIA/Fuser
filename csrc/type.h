@@ -673,6 +673,9 @@ static constexpr std::array<ParallelType, 6> kParallelTypeThreads = {
     ParallelType::TIDy,
     ParallelType::TIDz};
 
+static constexpr std::array<ParallelType, 1> kParallelTypeDIDs = {
+    ParallelType::DIDx};
+
 static constexpr std::array<ParallelType, 3> kParallelTypeBIDs = {
     ParallelType::BIDx,
     ParallelType::BIDy,
@@ -901,6 +904,8 @@ bool isParallelTypeThreadDim(ParallelType);
 bool isParallelTypeBlockDim(ParallelType);
 // Returns if parallel type is a grid or block parallelization dimension
 bool isParallelTypeThread(ParallelType);
+// Returns if parallel type is DIDx
+bool isParallelTypeDeviceDim(ParallelType);
 // Returns if parallel type is DIDx
 bool isParallelTypeDeviceDim(ParallelType);
 

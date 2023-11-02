@@ -6,6 +6,7 @@
  */
 // clang-format on
 #ifdef USE_DISTRIBUTED
+#include <limits>
 #include <ir/interface_nodes.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/lower_communication.h>
@@ -15,21 +16,50 @@ namespace nvfuser {
 
 namespace {
 
-// Returns whether a TensorView has its first axis parallelized on Didx
-// Checks that the other axis are not parallelized on Didx
-bool isParallelD(TensorView* tv) {
-  std::vector<bool> is_parallel_d;
-  for (IterDomain* id : tv->getLeafDomain()) {
-    is_parallel_d.push_back(isParallelTypeDeviceDim(id->getParallelType()));
+template<typename T>
+inline T getInitialValue(BinaryOpType op) {
+  switch (op) {
+  case BinaryOpType::Add:
+    return 0;
+  case BinaryOpType::Mul:
+    return 1;
+  case BinaryOpType::Min:
+    return std::numeric_limits<T>::min();
+  case BinaryOpType::Max:
+    return std::numeric_limits<T>::max();
+  case BinaryOpType::BitwiseAnd:
+    return std::numeric_limits<T>::max();
+  case BinaryOpType::BitwiseOr:
+    return 0;
+  case BinaryOpType::BitwiseXor:
+    return 0;
+  default:
+    NVF_ERROR(false, "invalid binary op type");
+    return 0;
   }
-  // Currently, only the most external dim is allowed to be parallelized
-  NVF_ERROR(tv->getMaybeRFactorDomain() == tv->getLeafDomain());
-  for (auto i : c10::irange(1, is_parallel_d.size())) {
-    NVF_ERROR(
-        !is_parallel_d.at(i),
-        "only the outmost dimension can be device-parallelized");
+}
+
+// TODO: handle `c10d::RedOpType::reduceOp::AVG` and `c10d::RedOpType::reduceOp::PREMUL_SUM`
+inline c10d::ReduceOp::RedOpType getC10dReduceOpType(BinaryOpType op) {
+  switch (op) {
+  case BinaryOpType::Add:
+    return c10d::ReduceOp::RedOpType::SUM;
+  case BinaryOpType::Mul:
+    return c10d::ReduceOp::RedOpType::PRODUCT;
+  case BinaryOpType::Min:
+    return c10d::ReduceOp::RedOpType::MIN;
+  case BinaryOpType::Max:
+    return c10d::ReduceOp::RedOpType::MAX;
+  case BinaryOpType::BitwiseAnd:
+    return c10d::ReduceOp::RedOpType::BAND;
+  case BinaryOpType::BitwiseOr:
+    return c10d::ReduceOp::RedOpType::BOR;
+  case BinaryOpType::BitwiseXor:
+    return c10d::ReduceOp::RedOpType::BXOR;
+  default:
+    NVF_ERROR(false, "unsupported reduction operation");
+    return c10d::ReduceOp::RedOpType::UNUSED;
   }
-  return is_parallel_d.empty() ? false : is_parallel_d.at(0);
 }
 
 inline bool isDeviceInvolved(
@@ -52,6 +82,10 @@ inline at::Tensor createDummyTensor(at::Tensor reference) {
   return at::empty_like(reference, reference.options());
 }
 
+inline at::Tensor createDummyTensor(at::Tensor reference, BinaryOpType op_type) {
+  return createDummyTensor(reference).fill_(getInitialValue<float>(op_type));
+}
+
 // Utility function used for setting up a scatter or gather communication
 // params. Since most  of the steps are somewhat similar/opposite in those
 // cases, we gathered the two implementations into one function. The argument
@@ -68,19 +102,17 @@ CommParams createParamsForGatherScatter(
   params.team = mesh.vector();
   bool is_root_in_mesh = mesh.has(root);
   if (!is_root_in_mesh) {
-    params.team.push_back(root);
+     params.team.push_back(root);
   }
 
   if (mesh.has(my_device_index)) {
-    auto sliced_buf =
-        buf.index({static_cast<int>(mesh.findIndex(my_device_index)), "..."});
-    ((is_scatter) ? params.dst_bufs : params.src_bufs) = {sliced_buf};
+    auto sliced_buf = buf.index({0, "..."});
+    ((is_scatter)? params.dst_bufs : params.src_bufs) = {sliced_buf};
   }
 
   if (my_device_index == root) {
     for (auto i : c10::irange(mesh.vector().size())) {
-      ((is_scatter) ? params.src_bufs : params.dst_bufs)
-          .push_back(root_buf.index({static_cast<int>(i), "..."}));
+      ((is_scatter)? params.src_bufs : params.dst_bufs).push_back(root_buf.index({static_cast<int>(i), "..."}));
     }
     // The scatter/gather semantics imposes the root to be both
     // sender and receiver. If the root is not in the mesh, we thus
@@ -155,7 +187,7 @@ void lowerToAllgather(
         output_tensor.index({static_cast<int>(i), "..."}));
   }
   params.src_bufs = {
-      input_tensor.index({mesh.findIndex(my_device_index), "..."})};
+      input_tensor.index({0, "..."})};
 
   comms.push_back(std::make_shared<Allgather>(std::move(params)));
 }
@@ -229,8 +261,8 @@ void lowerToBroadcastOrP2P(
           my_device_index,
           sender_mesh.vector().at(i),
           DeviceMesh({receiver_mesh.vector().at(i)}),
-          input_tensor.index({static_cast<int>(i), "..."}),
-          output_tensor.index({static_cast<int>(i), "..."}),
+          input_tensor.index({0, "..."}),
+          output_tensor.index({0, "..."}),
           comms);
     }
   } else {
@@ -245,7 +277,109 @@ void lowerToBroadcastOrP2P(
   }
 }
 
+CommParams createParamsForReduce(
+    DeviceIdxType my_device_index,
+    DeviceIdxType root,
+    const DeviceMesh& mesh,
+    at::Tensor input_tensor,
+    at::Tensor output_tensor,
+    BinaryOpType op_type) {
+
+  CommParams params;
+  params.root = root;
+  params.redOp = getC10dReduceOpType(op_type);
+  params.team = mesh.vector();
+  bool is_root_in_mesh = mesh.has(root);
+  if (!is_root_in_mesh) {
+     params.team.push_back(root);
+  }
+
+  if (mesh.has(my_device_index)) {
+    auto sliced_buf = input_tensor.index({0, "..."});
+    params.src_bufs = {sliced_buf};
+  }
+
+  if (my_device_index == root) {
+      params.dst_bufs = {output_tensor};
+    // The reduce semantics imposes the root to be both
+    // sender and receiver. If the root is not in the mesh, we thus
+    // have to artificially make it send and receive a dummy buffer
+    if (!is_root_in_mesh) {
+      at::Tensor dummy = createDummyTensor(output_tensor, op_type);
+      params.src_bufs.push_back(dummy);
+    }
+  }
+  return params;
+}
+
+void lowerToReduce(
+    DeviceIdxType my_device_index,
+    const DeviceMesh& sender_mesh,
+    const DeviceMesh& receiver_mesh,
+    at::Tensor input_tensor,
+    at::Tensor output_tensor,
+    BinaryOpType op_type,
+    std::vector<std::shared_ptr<Communication>>& comms) {
+  // we create as many Reduces as there are devices in the receiver mesh
+  for (auto root : receiver_mesh.vector()) {
+    if (!isDeviceInvolved(my_device_index, root, sender_mesh)) {
+      continue;
+    }
+    auto params = createParamsForReduce(
+                    my_device_index,
+                    root,
+                    sender_mesh,
+                    input_tensor,
+                    output_tensor,
+                    op_type);
+    comms.push_back(std::make_shared<Reduce>(std::move(params)));
+  }
+}
+
+void lowerToAllreduce(
+    DeviceIdxType my_device_index,
+    const DeviceMesh& mesh,
+    at::Tensor input_tensor,
+    at::Tensor output_tensor,
+    BinaryOpType op_type,
+    std::vector<std::shared_ptr<Communication>>& comms) {
+  if (!mesh.has(my_device_index)) {
+    return;
+  }
+  CommParams params;
+  params.redOp = getC10dReduceOpType(op_type);
+  params.team = mesh.vector();
+  params.dst_bufs = {output_tensor};
+  auto sliced_buf = input_tensor.index({0, "..."});
+  params.src_bufs = {sliced_buf};
+
+  comms.push_back(std::make_shared<Allreduce>(params));
+}
+
+void lowerToReduceScatter(
+    DeviceIdxType my_device_index,
+    const DeviceMesh& mesh,
+    at::Tensor input_tensor,
+    at::Tensor output_tensor,
+    BinaryOpType op_type,
+    std::vector<std::shared_ptr<Communication>>& comms) {
+  if (!mesh.has(my_device_index)) {
+    return;
+  }
+  CommParams params;
+  params.redOp = getC10dReduceOpType(op_type);
+  params.team = mesh.vector();
+  params.dst_bufs = {output_tensor.index({0, "..."})};
+  for (int i: params.team) {
+    auto sliced_buf = input_tensor.index({0, i, "..."});
+    params.src_bufs.push_back(sliced_buf);
+  }
+
+  comms.push_back(std::make_shared<ReduceScatter>(params));
+}
+
 } // namespace
+
 
 /*
 TODO:
@@ -274,64 +408,95 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
       c->out()->as<PipelineVal>()->getStage()->descriptor()->mesh;
 
   // Stores whether the I/O has its first axis parallelized on Didx
-  bool is_input_parallel_d =
-      isParallelD(input_tv) && sender_mesh.vector().size() > 1;
-  bool is_output_parallel_d =
-      isParallelD(output_tv) && receiver_mesh.vector().size() > 1;
+  const bool is_input_sharded =
+      input_tv->isSharded() && sender_mesh.vector().size() > 1;
+  const bool is_output_sharded =
+      output_tv->isSharded() && receiver_mesh.vector().size() > 1;
+
+  bool is_reduction = output_tv->definition()->isA<ReductionOp>();
 
   NVF_ERROR(
-      !is_input_parallel_d ||
+      !is_input_sharded ||
+      !input_tensor.numel() ||
           sender_mesh.vector().size() ==
               static_cast<size_t>(input_tensor.size(0)),
-      "the size of the mesh",
+      "the size of the mesh ",
       sender_mesh.vector().size(),
       " doesn't match the size of the tensor ",
       input_tensor.size(0));
   NVF_ERROR(
-      !is_output_parallel_d ||
+      !is_output_sharded ||
+      !output_tensor.numel() ||
+      is_reduction ||
           receiver_mesh.vector().size() ==
               static_cast<size_t>(output_tensor.size(0)),
       "the size of the mesh",
       receiver_mesh.vector().size(),
       " doesn't match the size of the tensor ",
       output_tensor.size(0));
-  NVF_ERROR(!sender_mesh.vector().empty(), "sender mesh is empty");
-  NVF_ERROR(!receiver_mesh.vector().empty(), "receiver mesh is empty");
-
-  if (!isDeviceInvolved(my_device_index, sender_mesh, receiver_mesh)) {
-    return {};
-  }
-
-  if (!is_input_parallel_d && is_output_parallel_d) {
-    lowerToScatter(
-        my_device_index,
-        sender_mesh,
-        receiver_mesh,
-        input_tensor,
-        output_tensor,
-        comms);
-  } else if (is_input_parallel_d && !is_output_parallel_d) {
-    if (receiver_mesh.vector() == sender_mesh.vector()) {
-      lowerToAllgather(
-          my_device_index, sender_mesh, input_tensor, output_tensor, comms);
+  if (is_reduction) {
+    BinaryOpType op_type = output_tv->definition()->as<ReductionOp>()->getReductionOpType();
+    NVF_ERROR(is_input_sharded, "the comm input must be sharded in case of reduce.",
+                                "Insert a `set` before the reduction to reshard")
+    if (is_output_sharded) {
+      if (receiver_mesh == sender_mesh) {
+        lowerToReduceScatter(my_device_index,
+                      sender_mesh,
+                      input_tensor,
+                      output_tensor,
+                      op_type,
+                      comms);
+      }
     } else {
-      lowerToGather(
+      if (receiver_mesh == sender_mesh) {
+        lowerToAllreduce(my_device_index,
+                      sender_mesh,
+                      input_tensor,
+                      output_tensor,
+                      op_type,
+                      comms);
+      } else {
+        lowerToReduce(my_device_index,
+                      sender_mesh,
+                      receiver_mesh,
+                      input_tensor,
+                      output_tensor,
+                      op_type,
+                      comms);
+      }
+    }
+  } else {
+    if (!is_input_sharded && is_output_sharded) {
+      lowerToScatter(
           my_device_index,
           sender_mesh,
           receiver_mesh,
           input_tensor,
           output_tensor,
           comms);
+    } else if (is_input_sharded && !is_output_sharded) {
+      if (receiver_mesh == sender_mesh) {
+        lowerToAllgather(
+            my_device_index, sender_mesh, input_tensor, output_tensor, comms);
+      } else {
+        lowerToGather(
+            my_device_index,
+            sender_mesh,
+            receiver_mesh,
+            input_tensor,
+            output_tensor,
+            comms);
+      }
+    } else {
+      lowerToBroadcastOrP2P(
+          my_device_index,
+          sender_mesh,
+          receiver_mesh,
+          input_tensor,
+          output_tensor,
+          is_input_sharded,
+          comms);
     }
-  } else {
-    lowerToBroadcastOrP2P(
-        my_device_index,
-        sender_mesh,
-        receiver_mesh,
-        input_tensor,
-        output_tensor,
-        is_input_parallel_d,
-        comms);
   }
   return comms;
 }

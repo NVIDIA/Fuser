@@ -8,19 +8,14 @@
 #ifdef USE_DISTRIBUTED
 #pragma once
 
-#include <multidevice/communication.h>
 #include <multidevice/multidevice.h>
 #include <multidevice/pipeline_ir.h>
+#include <multidevice/pipeline.h>
 
 namespace nvfuser {
 
-// Lower a PipelineCommunication into a series of Communication, given a
-// device_index.
-std::vector<std::shared_ptr<Communication>> lowerCommunication(
-    DeviceIdxType device_index,
-    PipelineCommunication* c,
-    at::Tensor input_tensor,
-    at::Tensor output_tensor);
+std::unordered_map<Val*, c10::IValue> allocatePipelineIntermediateBuffers(Pipeline* pipeline, DeviceIdxType dId, std::vector<c10::IValue> global_inputs_IValues);
+
 } // namespace nvfuser
 
 #endif

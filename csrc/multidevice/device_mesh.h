@@ -40,13 +40,8 @@ class DeviceMesh final {
     return std::find(vector_.begin(), vector_.end(), device) != vector_.end();
   }
 
-  // returns the relative index of a device in the mesh
-  // Throws if the device is not found
-  DeviceIdxType findIndex(const DeviceIdxType device) const {
-    auto it = std::find(vector_.begin(), vector_.end(), device);
-    NVF_ERROR(
-        it != vector_.end(), "device index ", device, " is not in the mesh");
-    return std::distance(vector_.begin(), it);
+  bool operator== (const DeviceMesh& other) const { 
+    return vector() == other.vector(); 
   }
 
  private:

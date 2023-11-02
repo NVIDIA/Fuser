@@ -17,6 +17,41 @@ namespace nvfuser {
 
 int PipelineStageDescriptor::running_unique_id_ = 0;
 
+namespace {
+
+class ValRangeAdder : public IterVisitor {
+public:
+  void handle(TensorView* tv) override {
+    vals.push_back(tv);
+  }
+  std::vector<Val*> vals;
+};
+
+}
+
+void PipelineStageDescriptor::addRange(Fusion* fusion,
+  const std::unordered_set<Val*>& from,
+  const std::vector<Val*>& to) {
+    ValRangeAdder val_adder;
+    val_adder.traverseBetween(fusion, from, to);
+    addVal(val_adder.vals);
+}
+
+std::string PipelineStageDescriptor::toString() const {
+  std::stringstream ss;
+  std::string indent1 = "  ";
+  std::string indent2 = "    ";
+  ss << "stage " << unique_id << ": {\n";
+  ss << indent1 + "auto_schedule: " << auto_schedule << ",\n";
+  ss << indent1 + "vals:{\n";
+    for (const auto& val: vals()){
+      ss << indent2 << val << ",\n";
+    }
+    ss << indent1  + "}";
+    ss << "}";
+  return ss.str();
+}
+
 /* Utility class used for Pipeline instantiation called by the Pipeline's
   constructor. This class is responsible for:
   - checking that the parameters are valid
@@ -119,7 +154,7 @@ class PipelineBuilder final {
         // Add Vals which are produced in-between stages
         if (val->definition()) {
           for (auto& val_producer : val->definition()->inputs()) {
-            if (!stage_desc.vals().has(val_producer)) {
+            if (val_producer->isA<TensorView>() && !stage_desc.vals().has(val_producer)) {
               stage_input_desc_[&stage_desc].pushBack(val);
               val_consumer_stage_desc_[val_producer].push_back(&stage_desc);
             }
@@ -152,15 +187,17 @@ class PipelineBuilder final {
         // then add the newly created PipelineVal as an input of the pipeline
         if (isGlobalInput(val)) {
           pipeline_->addInput(p_val);
-        } else {
-          // if the Val is a stage input but not a global input, it must be
+        } else if (val->isA<TensorView>()) {
+          // if the TensorView is a stage input but not a global input, it must be
           // defined by a "Set" operation
           NVF_ERROR(
-              (val->definition()->isA<LoadStoreOp>()) &&
+              ((val->definition()->isA<LoadStoreOp>()) &&
                   (val->definition()->as<LoadStoreOp>()->opType() ==
-                   LoadStoreOpType::Set),
+                   LoadStoreOpType::Set))
+                   ||
+                val->definition()->isA<ReductionOp>(),
               "A Val that is the input of a stage must be defined by a LoadStoreOp expression of type Set"
-              "but here the definition is " +
+              " or a Reduction but here the definition is " +
                   val->definition()->toString());
         }
       }
@@ -257,6 +294,14 @@ std::unique_ptr<Fusion> Pipeline::stageToFusion(PipelineStage*& stage) const {
         fusion_copy->addOutput(original_to_copy_map.clone(
             output->as<PipelineVal>()->getOriginalVal()));
       });
+
+  // set the I/O memory type to global
+  for (auto val: fusion_copy->inputs()) {
+      val->as<TensorView>()->setMemoryType(MemoryType::Global);
+  }
+  for (auto val: fusion_copy->outputs()) {
+      val->as<TensorView>()->setMemoryType(MemoryType::Global);
+  }
 
   return fusion_copy;
 }

@@ -232,8 +232,16 @@ void PipelineTestTwoStages::SetUp() {
   PipelineTest::SetUp();
   auto [mesh0, mesh1, is_stage0_sharded, is_stage1_sharded] = GetParam();
 
+  int64_t first_axis_extent = 16;
+  if (is_stage0_sharded) {
+    first_axis_extent = mesh0.vector().size();
+  } else if (is_stage1_sharded) {
+    first_axis_extent = mesh1.vector().size();
+  }
+  const std::vector<int64_t> input_sizes = {first_axis_extent, 4, 3, 5};
+
   FusionGuard fg(fusion.get());
-  TensorView* tv0 = makeContigTensor(4);
+  TensorView* tv0 = makeConcreteTensor(input_sizes);
   TensorView* tv1 = sum(tv0, {3});
   TensorView* tv2 = set(tv1);
   TensorView* tv3 = sum(tv2, {2});
@@ -258,14 +266,8 @@ void PipelineTestTwoStages::SetUp() {
       .stage_descriptors{std::move(stage0), std::move(stage1)}};
   pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
 
-  int first_axis_extent = 16;
-  if (is_stage0_sharded) {
-    first_axis_extent = mesh0.vector().size();
-  } else if (is_stage1_sharded) {
-    first_axis_extent = mesh1.vector().size();
-  }
   inputs = {
-      at::ones({first_axis_extent, 4, 3, 5}, tensor_options) *
+      at::ones(input_sizes, tensor_options) *
       communicator->deviceId()};
 
   validate();

@@ -806,12 +806,26 @@ void ComputeAtMap::allocateIndexVariables() {
   //  and we only need one index variable for each set.
   for (const auto& loop_disjoint_set : id_graph_.loopNodes().disjointSets()) {
     ParallelType ptype = ParallelType::Serial;
+
+  // We don't allocate any index variable for domains which
+  // are parallelized accross devices
+  auto result = std::find_if(
+    loop_disjoint_set->vector().begin(),
+    loop_disjoint_set->vector().end(),
+    [](IterDomain* id) {
+      return id->isDevice();
+    });
+  if (result != loop_disjoint_set->vector().end()) {
+    loop_index_variable_map_[loop_disjoint_set.get()] = fusion_->zeroVal();
+    continue;
+  }
+
     // first allocate thread and grid parallel indices:
     //  The validation pass will check that the parallel bindings within the
     //  loop nodes are consistent so all the loops within this disjoint set
     //  will be realized implicitly using parallel index variables.
 
-    auto result = std::find_if(
+    result = std::find_if(
         loop_disjoint_set->vector().begin(),
         loop_disjoint_set->vector().end(),
         [](IterDomain* id) {

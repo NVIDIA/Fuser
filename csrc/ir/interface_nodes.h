@@ -527,6 +527,22 @@ class TensorView : public Val {
     return promote_reuse_;
   }
 
+  // Returns whether a TensorView has its first axis parallelized on Didx
+  // Checks that the other axis are not parallelized on Didx
+  bool isSharded() const {
+    std::vector<bool> is_parallel_d;
+    for (IterDomain* id : TensorDomain::noReductions(getLeafDomain())) {
+      is_parallel_d.push_back(isParallelTypeDeviceDim(id->getParallelType()));
+    }
+    // Currently, only the most external dim is alloed to be parallelized
+    for (auto i : c10::irange(1, is_parallel_d.size())) {
+      NVF_ERROR(
+          !is_parallel_d.at(i),
+          "only the outmost dimension can be device-parallelized");
+    }
+    return is_parallel_d.empty() ? false : is_parallel_d.at(0);
+  }
+
  protected:
   void setDomain(TensorDomain* td) {
     domain_ = td;
