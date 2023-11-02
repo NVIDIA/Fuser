@@ -825,12 +825,21 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
     std::optional<IterType> id_type;
 
+    bool found = false;
     for (const auto& c2p : c2p_maps) {
       auto p_it = c2p.find(root_id);
-      NVF_ERROR(
-          p_it != c2p.end(),
-          "No input ID found to map with output ID: ",
-          root_id->toString());
+      // In some cases, we can exact map to one producer, but not to another.
+      // This is the case for index_select, for example, whose first input is
+      // the tensor to look up values in and whose second input gives the
+      // indices to use for the lookup. In the selected dimension, the first
+      // input will not exact map to the output, but the second input will.
+      // Here we just require at least one input to map to root_id so that we
+      // can propagate an IterType.
+      // See https://github.com/NVIDIA/Fuser/issues/1192 for an example
+      if (p_it == c2p.end()) {
+        continue;
+      }
+      found = true;
       auto input_id = p_it->second;
       NVF_ERROR(
           input_id == maybeMutated(input_id),
@@ -851,6 +860,10 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
         id_type = input_id->getIterType();
       }
     }
+    NVF_ERROR(
+        found,
+        "No input ID found to map with output ID: ",
+        root_id->toString());
 
     NVF_ERROR(
         id_type.has_value(),

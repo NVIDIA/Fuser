@@ -443,7 +443,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     std::optional<PrimDataType> forced_index_type,
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
-
+  // NOTE: This should be the first code in the method to capture all host time 
   if (isProfilerEnabled()) {
     FusionProfiler::get()->start(isProfilerEnabledWithoutCupti());
   }
@@ -517,14 +517,25 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   // Removing aliased outputs, since those are updated by the Fusion. It is not
   // semantically correct to actually return them as outputs from
   // fusion.
-  int offset = 0;
-  const auto& indices = fusion->getIndicesOfAliasedOutputs();
-  std::set<int> aliased_output_indices(indices.begin(), indices.end());
-  for (const auto& v : aliased_output_indices) {
-    outputs.erase(outputs.begin() + v - offset);
-    offset++;
-  }
+  const auto& io_alias = fusion->ioAlias();
+  auto should_remove = [&io_alias](Val* out_val) -> bool {
+    if (auto alias_it = io_alias.find(out_val); alias_it != io_alias.end()) {
+      return alias_it->second.second.hide_output;
+    }
+    return false;
+  };
 
+  NVF_ERROR(fusion->outputs().size() == outputs.size());
+  size_t new_size = 0;
+  for (size_t out_index = 0; out_index < outputs.size(); out_index++) {
+    if (!should_remove(fusion->outputs()[out_index])) {
+      outputs[new_size] = outputs[out_index];
+      new_size++;
+    }
+  }
+  outputs.resize(new_size);
+  
+  // NOTE: This should be the last code in the method to capture all host time 
   if (isProfilerEnabled()) {
     FusionProfiler::get()->stop();
   }

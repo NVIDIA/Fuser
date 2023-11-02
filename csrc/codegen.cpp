@@ -444,6 +444,58 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     code_ << gen(pred->value());
   }
 
+  void stringify(const PolymorphicValue& value, const DataType dtype) {
+    if (value.is<bool>()) {
+      code_ << (value ? "true" : "false");
+    } else if (value.is<int64_t>()) {
+      code_ << value << getLiteralSuffix(dtype);
+    } else if (value.is<double>()) {
+      auto val = value.as<double>();
+      // note: default inf/nan doesn't work and should be replaced with macros
+      // `NAN`, `POS_INFINITY` and `NEG_INFINITY` instead.
+      if (std::isinf(val)) {
+        if (val > 0) {
+          code_ << "POS_INFINITY";
+        } else {
+          code_ << "NEG_INFINITY";
+        }
+      } else if (std::isnan(val)) {
+        code_ << "NAN";
+      } else {
+        setPrecision(code_, dtype);
+        code_ << val << getLiteralSuffix(dtype);
+      }
+    } else if (value.is<std::complex<double>>()) {
+      if (dtype == DataType::ComplexFloat) {
+        code_ << "std::complex<float>" << value;
+      } else {
+        NVF_ERROR(dtype == DataType::ComplexDouble);
+        code_ << "std::complex<double>" << value;
+      }
+    } else if (std::holds_alternative<ArrayType>(dtype.type)) {
+      // print out the vector.
+      code_ << to_str(dtype);
+      NVF_ERROR(
+          value.is<std::vector>(),
+          "Value expected to be a vector",
+          dtype,
+          " ",
+          value);
+      auto atype = std::get<ArrayType>(dtype.type);
+      auto dims = static_cast<int>(value.as<std::vector>().size());
+      code_ << "{ ";
+      for (auto i = 0; i < dims; i++) {
+        if (i > 0) {
+          code_ << ", ";
+        }
+        stringify(value[i], *atype.type);
+      }
+      code_ << "}";
+    } else {
+      NVF_ERROR(false, "Unhandled constant type: ", dtype, " ", value);
+    }
+  }
+
   void handle(const Val* s) final {
     // Check the replacement map first. If there's an entry for s, use
     // the corresponding replacement.
@@ -464,38 +516,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         code_ << "(" << genInline(def) << ")";
       }
     } else if (s->isConst()) {
-      auto value = s->value();
-      auto dtype = s->dtype();
-      if (value.is<bool>()) {
-        code_ << (value ? "true" : "false");
-      } else if (value.is<int64_t>()) {
-        code_ << value << getLiteralSuffix(dtype);
-      } else if (value.is<double>()) {
-        auto val = value.as<double>();
-        // note: default inf/nan doesn't work and should be replaced with macros
-        // `NAN`, `POS_INFINITY` and `NEG_INFINITY` instead.
-        if (std::isinf(val)) {
-          if (val > 0) {
-            code_ << "POS_INFINITY";
-          } else {
-            code_ << "NEG_INFINITY";
-          }
-        } else if (std::isnan(val)) {
-          code_ << "NAN";
-        } else {
-          setPrecision(code_, dtype);
-          code_ << val << getLiteralSuffix(dtype);
-        }
-      } else if (value.is<std::complex<double>>()) {
-        if (dtype == DataType::ComplexFloat) {
-          code_ << "std::complex<float>" << value;
-        } else {
-          NVF_ERROR(dtype == DataType::ComplexDouble);
-          code_ << "std::complex<double>" << value;
-        }
-      } else {
-        NVF_ERROR(false, "Unhandled constant type: ", s->dtype(), " ", value);
-      }
+      stringify(s->value(), s->dtype());
     } else {
       code_ << genVariableName(s);
     }

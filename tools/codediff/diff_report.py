@@ -706,10 +706,14 @@ class TestDifferences:
 
                 ptx_diff_lines = None
                 if kern1.ptx is not None and kern2.ptx is not None:
+
+                    def strip_comments(l: str) -> str:
+                        return re.sub(r"//.*$", "", l)
+
                     ptx_diff_lines = list(
                         difflib.unified_diff(
-                            kern1.ptx.splitlines(),
-                            kern2.ptx.splitlines(),
+                            [strip_comments(l) for l in kern1.ptx.splitlines()],
+                            [strip_comments(l) for l in kern2.ptx.splitlines()],
                             fromfile=self.run1.name,
                             tofile=self.run2.name,
                             n=5,

@@ -318,6 +318,7 @@ if(BUILD_PYTHON)
     COMMAND
     "${PYTHON_EXECUTABLE}" ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
     DEPENDS ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
+    DEPENDS ${NVFUSER_ROOT}/version.txt
     WORKING_DIRECTORY ${NVFUSER_ROOT}/tools/
   )
   add_custom_target(

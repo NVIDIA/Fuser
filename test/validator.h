@@ -342,8 +342,6 @@ void testValidate(
   auto reduction_sizes =
       ReductionSizeMapper::computeReductionSizes(fusion, expr_eval);
 
-  auto output_alias_indices = fusion->getIndicesOfAliasedOutputs();
-
   if (aten_outputs.empty()) {
     for (auto v : fusion->outputs()) {
       aten_outputs.emplace_back(expr_eval.evaluate(v).as<at::Tensor>());
@@ -351,9 +349,7 @@ void testValidate(
   }
 
   NVF_ERROR(
-      fusion_outputs.size() == aten_outputs.size() &&
-          aten_outputs.size() ==
-              fusion->outputs().size() - output_alias_indices.size(),
+      fusion_outputs.size() == aten_outputs.size(),
       "Number of outputs don't match.");
 
   NVF_ERROR(
@@ -376,11 +372,19 @@ void testValidate(
     }
   }
 
+  const auto& io_alias = fusion->ioAlias();
+  auto should_remove = [&io_alias](Val* out_val) -> bool {
+    if (auto alias_it = io_alias.find(out_val); alias_it != io_alias.end()) {
+      return alias_it->second.second.hide_output;
+    }
+    return false;
+  };
+
   for (size_t i = 0, j = 0; i < fusion->outputs().size(); i++) {
-    NVF_ERROR(
-        fusion->outputs()[i]->isA<TensorView>(), "Mismatch of tensor outputs.");
-    if (output_alias_indices.count(i) != 0) {
-      // this is an aliased output, let's not check this;
+    NVF_ERROR(fusion->outputs()[i]->isA<TensorView>());
+    if (should_remove(fusion->outputs()[i])) {
+      // This is an aliased output that's hidden from integration.
+      // Let's not check this.
       continue;
     }
 
