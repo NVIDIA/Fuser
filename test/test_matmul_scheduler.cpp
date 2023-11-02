@@ -979,7 +979,7 @@ INSTANTIATE_TEST_CASE_P(
 
 // Matmul test that uses segmenter for 'C = A x B' fusion,
 //   for Ampere with strict ref check, hence single layout check
-TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT_CUDA) {
+TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
   const int M = 128, N = 256, K = 512;
   const auto layout = MatmulLayout::TT;
@@ -1040,7 +1040,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT_CUDA) {
 }
 
 // Matmul test that reslies on segmenter for 'C = A x B' fusion, for Ampere
-TEST_F(MatmulSchedulerTest, BasicMatmulRelaxedCheck_CUDA) {
+TEST_F(MatmulSchedulerTest, BasicMatmulRelaxedCheck) {
   // skip until we have Hopper support
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const int M = 504, N = 136, K = 2048;
@@ -1110,7 +1110,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulRelaxedCheck_CUDA) {
 // Matmul test that reslies on segmenter for 'C = A x B' fusion, for Ampere
 //  MMA first input is passed as second fusion parameter.
 //  MMA second input is passed as first fusion parameter.
-TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT_CUDA) {
+TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
   // skip until we have Hopper support
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const int M = 504, N = 136, K = 2048;
@@ -1172,7 +1172,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT_CUDA) {
 
 // Matmul test that uses segmenter for 'C = float2half(A x B)' fusion, for
 //  Ampere
-TEST_F(MatmulSchedulerTest, EpilogueOutputCast_CUDA) {
+TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -1233,7 +1233,7 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast_CUDA) {
 
 // Matmul test that uses segmenter for 'C = alpha * (A x B)' fusion, for
 //  Ampere
-TEST_F(MatmulSchedulerTest, EpilogueAlpha_CUDA) {
+TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -1297,7 +1297,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha_CUDA) {
 
 // Matmul test that uses segmenter for 'C = float2half(alpha * (A x B))'
 //  fusion, for Ampere
-TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast_CUDA) {
+TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -1363,7 +1363,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast_CUDA) {
 
 // Matmul test that uses segmenter for fusion for Ampere:
 //  D = (A x B) + beta * C
-TEST_F(MatmulSchedulerTest, EpilogueBeta_CUDA) {
+TEST_F(MatmulSchedulerTest, EpilogueBeta) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -1442,7 +1442,7 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta_CUDA) {
 
 // Matmul test that uses segmenter for fusion for Ampere:
 //  D = alpha * (A x B) + beta * C
-TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta_CUDA) {
+TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -1526,7 +1526,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta_CUDA) {
 
 // Matmul test that uses segmenter for fusion for Ampere:
 //  D = gelu(alpha * (A x B) + beta * C)
-TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast_CUDA) {
+TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const auto layout = MatmulLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -1617,7 +1617,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast_CUDA) {
 
 // Matmul test that uses segmenter for fusion for Ampere:
 //  D = alpha * ((A x B) + bias) + beta * C
-TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias_CUDA) {
+TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
   // NOTE: test skips Turing arch, the relative error was too big
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
@@ -1712,7 +1712,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias_CUDA) {
 
 // Strided batch gemm test taht uses matmul scheduler, for Ampere:
 //   D = (A x B)
-TEST_F(MatmulSchedulerTest, StridedBatch_CUDA) {
+TEST_F(MatmulSchedulerTest, StridedBatch) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const int M = 504, N = 136, K = 248, B = 2;
   for (auto layout : kAllSupportedMatmulLayout) {
@@ -1782,7 +1782,7 @@ TEST_F(MatmulSchedulerTest, StridedBatch_CUDA) {
 // Strided batch gemm test with alpha and beta that uses matmul scheduler,
 //  for Ampere architecture:
 //   D = alpha * (A x B) + beta * C
-TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaBeta_CUDA) {
+TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaBeta) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const int M = 504, N = 136, K = 248, B = 2;
 
@@ -1875,7 +1875,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaBeta_CUDA) {
 // scheduler,
 //  there is only single C tensor for whole batch; test for Ampere architecture:
 //   D = alpha * (A x B) + beta * C
-TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaSingleBeta_CUDA) {
+TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaSingleBeta) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const int M = 504, N = 136, K = 248, B = 2;
 
@@ -1972,7 +1972,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaSingleBeta_CUDA) {
 
 // Strided batch gemm test with bias that uses matmul scheduler, for Ampere:
 //   D = (A x B) + bias
-TEST_F(MatmulSchedulerTest, StridedBatchEpilogueBias_CUDA) {
+TEST_F(MatmulSchedulerTest, StridedBatchEpilogueBias) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const int M = 504, N = 136, K = 248, B = 2;
 
@@ -2050,7 +2050,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueBias_CUDA) {
 // Strided batch gemm test with single bias vector that uses matmul
 // scheduler, for Ampere:
 //   D = (A x B) + bias
-TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias_CUDA) {
+TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const int M = 504, N = 136, K = 248, B = 2;
 
