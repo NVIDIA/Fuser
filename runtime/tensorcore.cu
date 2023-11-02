@@ -258,6 +258,23 @@ __device__ inline void M16N8K16TN(
         "r"(_D[3]));
 }
 
+__device__ inline void initM16N16K16(Array<float, 8, 8>* accumulator) {
+  auto* _C = reinterpret_cast<Array<float, 4, 4>*>(accumulator);
+  initM16N8K16(&_C[0]);
+  initM16N8K16(&_C[1]);
+}
+
+template <typename T>
+__device__ inline void M16N16K16TN(
+    Array<float, 8, 8>* C,
+    Array<T, 8, 8>* A,
+    Array<T, 8, 8>* B) {
+  auto* _C = reinterpret_cast<Array<float, 4, 4>*>(C);
+  auto* _B = reinterpret_cast<Array<T, 4, 4>*>(B);
+  M16N8K16TN(&_C[0], A, &_B[0]);
+  M16N8K16TN(&_C[1], A, &_B[1]);
+}
+
 } // namespace Ampere
 
 #endif // Arch 80
