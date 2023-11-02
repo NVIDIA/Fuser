@@ -1364,7 +1364,7 @@ class MmaOp : public Expr {
     return attributeVal(0);
   }
 
-  const auto& options() const {
+  const auto& macro() const {
     return attribute<MmaOptions::MacroType>(ATTR_POS_MACRO);
   }
 

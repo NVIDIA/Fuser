@@ -1066,7 +1066,7 @@ void validateMma(Fusion* fusion) {
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
       validateMmaTensors(mma);
 
-      switch (mma->options().macro) {
+      switch (mma->macro()) {
         case MmaOptions::MacroType::Volta_16_16_4:
           break;
         case MmaOptions::MacroType::Turing_16_8_16:

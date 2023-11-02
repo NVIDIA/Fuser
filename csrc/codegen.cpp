@@ -1076,18 +1076,18 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   std::string genMmaOp(const MmaOp* mma, bool init = false) {
     std::stringstream ss;
-    auto options = mma->options();
-    ss << genArchString(options.macro) << "::";
+    auto macro = mma->macro();
+    ss << genArchString(macro) << "::";
     if (init) {
       ss << "init";
     }
-    ss << toString(options.macro);
+    ss << toString(macro);
 
     // clang-tidy: bugprone-unchecked-optional-access
     // clang-tidy assumes that function result is unstable, so we need a copy.
     auto mma_layout_opt = mma->layout();
     NVF_ERROR(mma_layout_opt.has_value(), "mma unknown input layout");
-    if (isTuring(options.macro) || isAmpere(options.macro)) {
+    if (isTuring(macro) || isAmpere(macro)) {
       NVF_ERROR(
           mma_layout_opt == MmaOptions::MmaLayout::TN,
           "MMAs in Turing and Ampere are TN only, transpose is handled either "
@@ -1099,43 +1099,43 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void genMmaOperands(const MmaOp* mma) {
     std::stringstream ss;
-    auto options = mma->options();
+    auto macro = mma->macro();
     auto in_a = mma->inA()->as<kir::TensorIndex>()->view();
     auto dtype = in_a->getDataType().value();
     indent() << kTab << "&(reinterpret_cast<Array<" << dtype << ","
-             << getInputARegisterSize(options.macro) << ","
-             << getInputARegisterSize(options.macro) << ">*>(&"
+             << getInputARegisterSize(macro) << ","
+             << getInputARegisterSize(macro) << ">*>(&"
              << genVariableName(mma->inA()->as<kir::TensorIndex>()->view())
              << ")[" << genInline(mma->inA()->as<kir::TensorIndex>()->index())
              << "])"
              << ",\n";
     indent() << kTab << "&(reinterpret_cast<Array<" << dtype << ","
-             << getInputBRegisterSize(options.macro) << ","
-             << getInputBRegisterSize(options.macro) << ">*>(&"
+             << getInputBRegisterSize(macro) << ","
+             << getInputBRegisterSize(macro) << ">*>(&"
              << genVariableName(mma->inB()->as<kir::TensorIndex>()->view())
              << ")[" << genInline(mma->inB()->as<kir::TensorIndex>()->index())
              << "])";
   }
 
   void genMmaInitialization(const MmaOp* mma, const LoadStoreOp* ldst) {
-    auto options = mma->options();
+    auto macro = mma->macro();
 
     indent() << genMmaOp(mma, true) << "(reinterpret_cast<Array<"
              << mma->out()->getDataType().value() << ","
-             << getOutputRegisterSize(options.macro) << ","
-             << getOutputRegisterSize(options.macro) << ">*>"
+             << getOutputRegisterSize(macro) << ","
+             << getOutputRegisterSize(macro) << ">*>"
              << "(&" << gen(ldst->out()) << "));\n";
   }
 
   void handle(const MmaOp* mma) final {
-    auto options = mma->options();
+    auto macro = mma->macro();
     auto out = mma->out()->as<kir::TensorIndex>();
     indent() << genMmaOp(mma) << "(\n";
     indent() << kTab << "reinterpret_cast<Array<"
              << out->view()->getDataType().value() << ","
-             << getOutputRegisterSize(options.macro) << ","
-             << getOutputRegisterSize(options.macro) << ">*>(&"
-             << gen(mma->out()) << "),\n";
+             << getOutputRegisterSize(macro) << ","
+             << getOutputRegisterSize(macro) << ">*>(&" << gen(mma->out())
+             << "),\n";
     genMmaOperands(mma);
     code_ << ");\n";
   }
