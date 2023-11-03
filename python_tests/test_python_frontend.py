@@ -709,30 +709,25 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(eager_out2, nvf_out[0])
 
     def test_alias_output_to_input(self):
-        inputs = [
+        in_tensors = [
             torch.ones(4, 4, device="cuda"),
         ]
 
         def fusion_func(fd: FusionDefinition):
-            t0 = fd.from_pytorch(inputs[0])  # 1.0
-            s0 = fd.define_scalar(1.0)
-            s1 = fd.define_scalar(2.0)
-            s2 = fd.define_scalar(3.0)
-            t1 = fd.ops.add(t0, s0)  # 2.0
-            t2 = fd.ops.add(t0, s1)  # 3.0
-            t3 = fd.ops.add(t2, s2)  # 6.0
-            fd.add_output(t1)
-            fd.add_output(t2, alias_input=t0)
-            fd.add_output(t3)
+            t0 = fd.from_pytorch(in_tensors[0])  # = 1.0
+            one = fd.define_scalar(1.0)
+            two = fd.define_scalar(2.0)
+            t1 = fd.ops.add(t0, one)  # = t0 + 1.0 = 2.0
+            t2 = fd.ops.add(t1, two)  # = t1 + 2.0 = 4.0
+            fd.add_output(t1, alias_input=t0)
+            fd.add_output(t2)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        out_tensors, _ = self.exec_nvfuser(fusion_func, in_tensors)
 
-        eager_out1 = torch.full((4, 4), 2.0, device="cuda")
-        eager_out2 = torch.full((4, 4), 3.0, device="cuda")
-        eager_out3 = torch.full((4, 4), 6.0, device="cuda")
-        self.assertEqual(eager_out1, nvf_out[0])
-        self.assertEqual(eager_out2, inputs[0])
-        self.assertEqual(eager_out3, nvf_out[1])
+        # t1 is an alias and therefore is hidden.
+        self.assertEqual(len(out_tensors), 1)
+        self.assertEqual(out_tensors[0], torch.full((4, 4), 4.0, device="cuda"))
+        self.assertEqual(in_tensors[0], torch.full((4, 4), 2.0, device="cuda"))
 
     def test_gather(self):
         inputs = [
