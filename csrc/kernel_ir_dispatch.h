@@ -92,11 +92,12 @@ class ConstIrVisitor : public OptOutConstDispatch {
 // an empty scope, and then use that inserted scope as a reference for
 // subsequent mutations.
 class ExprMutator : public IrVisitor {
- protected:
+ public:
   std::vector<Expr*> traverseAndInsert(
       const std::vector<Expr*>& exprs,
       bool reverse_order = false);
 
+ protected:
   std::vector<Expr*> mutate(bool reverse_order = false);
 
   using IrVisitor::handle;

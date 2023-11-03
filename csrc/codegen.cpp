@@ -2873,6 +2873,72 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  void handle(const kir::Asm* asm_) final {
+    // Reference:
+    // https://docs.nvidia.com/cuda/inline-ptx-assembly/
+    indent() << "asm";
+    if (asm_->volatile_()) {
+      code_ << " volatile";
+    }
+    bool multiline =
+        (asm_->code().size() +
+             (asm_->inputs().size() + asm_->outputs().size()) * 5 >
+         80);
+    code_ << "(";
+    if (multiline) {
+      code_ << "\n";
+      block_nest_level_++;
+      indent();
+    }
+    code_ << "\"" << asm_->code() << "\\n\"";
+
+    auto next_section = [&]() {
+      if (multiline) {
+        code_ << "\n";
+        indent();
+      }
+      code_ << ":";
+    };
+
+    auto print_constraints_and_registers =
+        [&](const auto& constraints_and_registers) {
+          bool first = true;
+          for (auto [constraint, register_] : constraints_and_registers) {
+            if (!first) {
+              code_ << ", ";
+              if (multiline) {
+                code_ << "\n";
+                indent();
+              }
+            }
+            first = false;
+            code_ << "\"" << constraint << "\"(" << gen(register_) << ")";
+          }
+        };
+
+    // outputs
+    if (!asm_->outputs().empty() || !asm_->inputs().empty() || asm_->memory()) {
+      next_section();
+    }
+    print_constraints_and_registers(asm_->constraintsAndOutputs());
+
+    if (!asm_->inputs().empty() || asm_->memory()) {
+      next_section();
+    }
+    print_constraints_and_registers(asm_->constraintsAndInputs());
+
+    if (asm_->memory()) {
+      next_section();
+      code_ << "\"memory\"";
+    }
+    if (multiline) {
+      code_ << "\n";
+      block_nest_level_--;
+      indent();
+    }
+    code_ << ");\n";
+  }
+
   void handle(const kir::BlockSync* sync) final {
     // Use a custom synchronization method if enabled
     if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
@@ -2882,22 +2948,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else {
       indent() << "__barrier_sync(0);\n";
     }
-  }
-
-  void handle(const kir::CpAsyncWait* cpasync_wait) final {
-    if (cpasync_wait->keepStages() > 0) {
-      // Perform partial sync, see comment on kir::CpAsyncWait.
-      indent() << "Ampere::cpAsyncPartialBarrier<" << cpasync_wait->keepStages()
-               << ">();\n";
-    } else {
-      // Perform sync all, see comment on kir::CpAsyncWait.
-      indent() << "Ampere::cpAsyncBarrier();\n";
-    }
-  }
-
-  void handle(const kir::CpAsyncCommit* cpasync_wait) final {
-    // Commit inflight cp.async transfers. See comment on kir::CpAsyncCommit.
-    indent() << "Ampere::cpAsyncCommit();\n";
   }
 
   void handle(const kir::CpAsyncBulkS2GWait* cpasync_wait) final {
