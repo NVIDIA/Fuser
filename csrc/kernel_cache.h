@@ -711,6 +711,7 @@ class FusionExecutorCache {
       cached_initial_info_;
   std::vector<std::unique_ptr<DynamicTransformConcretizationInfo>>
       cached_conc_info_;
+  //! Map each pair of device_id and concretization info to an integer id
   std::unordered_map<
       std::pair<int8_t, const DynamicTransformConcretizationInfo*>,
       int64_t,
