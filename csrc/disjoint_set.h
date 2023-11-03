@@ -80,12 +80,12 @@ class VectorOfUniqueEntries {
     return false;
   }
 
-  // Returns if any node was added
+  // Returns true if any node was added
   bool pushBack(const VectorOfUniqueEntries<T, Hash>& other) {
     return pushBack(other.vector());
   }
 
-  // Returns if any node was added
+  // Returns true if any node was added
   bool pushBack(const std::vector<T>& other) {
     bool any_added = false;
     for (const auto& entry : other) {
@@ -125,8 +125,7 @@ class VectorOfUniqueEntries {
   // other.
   VectorOfUniqueEntries<T, Hash> computeUnion(
       const VectorOfUniqueEntries<T, Hash>& other) const {
-    const VectorOfUniqueEntries<T, Hash>& this_ref = *this;
-    VectorOfUniqueEntries<T, Hash> union_(this_ref);
+    VectorOfUniqueEntries<T, Hash> union_(*this);
     for (const auto& entry : other.vector()) {
       union_.pushBack(entry);
     }
@@ -166,14 +165,6 @@ class VectorOfUniqueEntries {
     T v = vector_.back();
     set_.erase(v);
     vector_.pop_back();
-    return v;
-  }
-
-  // Remove and returns the last element in vector
-  T popFront() {
-    T v = vector_.front();
-    set_.erase(v);
-    vector_.erase(vector_.begin());
     return v;
   }
 
@@ -412,7 +403,8 @@ class DisjointSets {
     return disjoint_set_maps_.find(entry) != disjoint_set_maps_.end();
   }
 
-  // Erases element if it exists in the disjoint set, returns if element found.
+  // Erases element if it exists in the disjoint set. Returns true if element
+  // found.
   bool erase(T entry) {
     auto entry_it = disjoint_set_maps_.find(entry);
     if (entry_it == disjoint_set_maps_.end()) {
