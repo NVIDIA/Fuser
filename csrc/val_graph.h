@@ -39,16 +39,8 @@ class ValGraph {
     return disjoint_vals_;
   }
 
-  DisjointSets<Val*>& disjointValSets() {
-    return disjoint_vals_;
-  }
-
   // Returns the disjoint Expr set.
   const DisjointSets<Expr*>& disjointExprSets() const {
-    return disjoint_exprs_;
-  }
-
-  DisjointSets<Expr*>& disjointExprSets() {
     return disjoint_exprs_;
   }
 
@@ -160,6 +152,14 @@ class ValGraph {
   // Returns if expressions were mapped through.
   //
   bool mapThroughExpr(Expr* first, Expr* second, bool forward);
+
+  DisjointSets<Val*>& disjointValSets() {
+    return disjoint_vals_;
+  }
+
+  DisjointSets<Expr*>& disjointExprSets() {
+    return disjoint_exprs_;
+  }
 
  private:
   // If propagate_through_exprs_ = false, then mapThroughExpr will not be called
