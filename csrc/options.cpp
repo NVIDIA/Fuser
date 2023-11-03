@@ -101,7 +101,6 @@ template <>
 std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
     DebugDumpOption>::getOptionsFromEnv() {
   const std::unordered_map<std::string, DebugDumpOption> available_options = {
-      {"assert_memory_violation", DebugDumpOption::AssertMemoryViolation},
       {"bank_conflict", DebugDumpOption::BankConflictInfo},
       {"buffer_reuse_verbose", DebugDumpOption::BufferReuseInfo},
       {"ca_map", DebugDumpOption::ComputeAtMap},
@@ -150,12 +149,8 @@ template <>
 std::unordered_map<EnableOption, std::vector<std::string>> Options<
     EnableOption>::getOptionsFromEnv() {
   const std::unordered_map<std::string, EnableOption> available_options = {
-      {"complex", EnableOption::Complex},
-      {"conv_decomposition", EnableOption::ConvDecomposition},
-      {"graph_op_fusion", EnableOption::GraphOp},
       {"kernel_db", EnableOption::KernelDb},
       {"kernel_profile", EnableOption::KernelProfile},
-      {"linear_decomposition", EnableOption::LinearDecomposition},
       {"memory_promotion", EnableOption::MemoryPromotion},
       {"warn_register_spill", EnableOption::WarnRegisterSpill}};
 
