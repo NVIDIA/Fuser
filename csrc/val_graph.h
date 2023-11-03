@@ -92,19 +92,20 @@ class ValGraph {
   std::string toString() const;
 
   // Checks if the expression is a trivial operation where an input is simply an
-  // output of the transformation. Returns the mapped iter domains if found.
+  // output of the expression. For example, a merge with size 1 domain
+  // is considered trivial. Returns the mapped Vals if found.
   static std::vector<std::vector<Val*>> isTrivialExpr(Expr* expr);
 
   // Returns if all atributes of the exprs first and second are the same
   static bool exprAttributesMatch(Expr* first, Expr* second);
 
-  // Initializes entries for the provided IterDomain in the IterDomainGraphs
+  // Initializes entries for the provided Val
   void initializeVal(
-      Val* id,
+      Val* val,
       const VectorOfUniqueEntries<Expr*>& definitions,
       const VectorOfUniqueEntries<Expr*>& uses);
 
-  // Returns if first and second are expressions through which the provided
+  // Returns true if first and second are expressions through which the provided
   // id_map have matching inputs (if forward), or outputs (if not forward).
   // Returning true means the expressions are "the same", in terms they modify
   // matching original extents, by the same amount.
