@@ -247,14 +247,9 @@ void IdModel::build(
       });
 
   auto all_tvs = ir_utils::allTvsOfExprs(tv_exprs);
-  if (!additional_tvs.empty()) {
-    std::unordered_set<TensorView*> all_added_tvs(
-        all_tvs.begin(), all_tvs.end());
-    for (auto additional_tv : additional_tvs) {
-      if (all_added_tvs.find(additional_tv) == all_added_tvs.end()) {
-        all_tvs.push_back(additional_tv);
-      }
-    }
+
+  for (auto additional_tv : additional_tvs) {
+    all_tvs.pushBack(additional_tv);
   }
 
   if (all_tvs.empty()) {
@@ -263,7 +258,7 @@ void IdModel::build(
 
   FusionGuard fg(all_tvs.front()->fusion());
   // Add uses and definitions to all iter domains.
-  buildIterDomainDefinitionsAndUses(all_tvs);
+  buildIterDomainDefinitionsAndUses(all_tvs.vector());
 
   // Initialize the maps with all the IterDomains used in the provded
   // expressions.

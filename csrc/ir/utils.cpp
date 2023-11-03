@@ -412,17 +412,14 @@ std::vector<TensorView*> allTvs(Fusion* fusion) {
   return uniqueEntries<TensorView>(all_tvs);
 }
 
-std::vector<TensorView*> allTvsOfExprs(const std::vector<Expr*>& exprs) {
-  std::vector<TensorView*> all_tvs;
-  std::unordered_set<TensorView*> added;
+VectorOfUniqueEntries<TensorView*> allTvsOfExprs(const std::vector<Expr*>& exprs) {
+  VectorOfUniqueEntries<TensorView*> all_tvs;
   for (auto expr : exprs) {
     auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
     auto output_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
     for (const auto& tvs : {input_tvs, output_tvs}) {
       for (auto tv : tvs) {
-        if (added.emplace(tv).second) {
-          all_tvs.push_back(tv);
-        }
+        all_tvs.pushBack(tv);
       }
     }
   }
