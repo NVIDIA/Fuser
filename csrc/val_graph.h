@@ -162,10 +162,6 @@ class ValGraph {
   // be the only call in IdGraph to mapThroughExpr
   void maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward);
 
-  // Map through loop swizzles, as input/output IterDomains are exact, only the
-  // order they're traversed differs.
-  void mapThroughLoopSwizzles();
-
  private:
   // Map expr0 and expr1 with eachother, update unique_definitions_ unique_uses_
   // TODO: Make this variant hidden?

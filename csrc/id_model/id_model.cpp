@@ -18,8 +18,36 @@
 
 #include <tuple>
 #include <typeinfo>
+#include <utility>
 
 namespace nvfuser {
+
+namespace {
+
+// Map through loop swizzles, as input/output IterDomains are exact, only the
+// order they're traversed differs.
+void mapThroughLoopSwizzles(ValGraph& graph) {
+  std::vector<Swizzle2D*> all_swizzles;
+
+  for (const auto& expr_set :
+       std::as_const(graph).disjointExprSets().disjointSets()) {
+    auto swizzles_in_expr_set = ir_utils::filterByType<Swizzle2D>(
+        expr_set->vector().begin(), expr_set->vector().end());
+    all_swizzles.insert(
+        all_swizzles.end(),
+        swizzles_in_expr_set.begin(),
+        swizzles_in_expr_set.end());
+  }
+
+  for (auto swizzle : all_swizzles) {
+    if (swizzle->swizzleMode() == SwizzleMode::Loop) {
+      graph.mapVals(swizzle->inX(), swizzle->outX());
+      graph.mapVals(swizzle->inY(), swizzle->outY());
+    }
+  }
+}
+
+} // namespace
 
 IdModel::IdModel(
     const std::vector<Expr*>& exprs,
@@ -224,7 +252,7 @@ void IdModel::buildExactGraph(const std::vector<Expr*>& exprs) {
     }
 
     // TODO: Revisit if we really should map domains in the exact map
-    idGraph(IdMappingMode::EXACT).mapThroughLoopSwizzles();
+    mapThroughLoopSwizzles(idGraph(IdMappingMode::EXACT));
   }
 }
 
