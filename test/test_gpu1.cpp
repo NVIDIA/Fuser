@@ -8504,4 +8504,28 @@ TEST_F(NVFuserTest, FusionSmemDynamicTiledGemm_CUDA) {
   NVF_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 1);
 }
 
+TEST_F(NVFuserTest, BroadcastAdd) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeContigTensor(1);
+  fusion.addInput(x);
+  TensorView* x2 = mul(x, IrBuilder::create<Val>(2.0));
+  TensorView* b = broadcast(x2, {false, true});
+  TensorView* y = makeContigTensor(2);
+  fusion.addInput(y);
+  TensorView* z = add(b, y);
+  fusion.addOutput(z);
+
+  z->merge(0);
+
+  inlineMost();
+
+  FusionExecutor fe;
+  std::vector<c10::IValue> in_tensors(
+      {at::randn({1024}).cuda(), at::rand({1024, 8}).cuda()});
+  fe.compileFusion(&fusion, in_tensors);
+  fe.runFusion(in_tensors);
+}
+
 } // namespace nvfuser
