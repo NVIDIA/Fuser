@@ -121,6 +121,7 @@ class Predicate;
 class TensorIndex;
 
 class Allocate;
+class Asm;
 class BlockSync;
 class GridSync;
 class MBarrierInit;
@@ -214,6 +215,7 @@ class OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const ViewOp* stmt);
 
   virtual void handle(const kir::Allocate*);
+  virtual void handle(const kir::Asm*);
   virtual void handle(const kir::BlockSync*);
   virtual void handle(const kir::GridSync*);
   virtual void handle(const kir::MBarrierInit*);
@@ -307,6 +309,7 @@ class OptOutDispatch : public PolymorphicBase {
   virtual void handle(ViewOp* stmt);
 
   virtual void handle(kir::Allocate* stmt);
+  virtual void handle(kir::Asm* stmt);
   virtual void handle(kir::BlockSync* stmt);
   virtual void handle(kir::GridSync* stmt);
   virtual void handle(kir::MBarrierInit* stmt);

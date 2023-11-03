@@ -64,7 +64,7 @@ Val* simplifiedInt(Val* val) {
   if (val->value().hasValue()) {
     return val;
   }
-  return IrBuilder::create<Val>(val->evaluateInt(), val->dtype());
+  return IrBuilder::create<Val>(val->evaluate().as<int64_t>(), val->dtype());
 }
 
 // If one size is nullptr, return the other. If both symbolic just return v1. If
@@ -88,15 +88,15 @@ Val* promoteSize(Val* v1, Val* v2) {
     return v1;
   } else if (v1->isConstInt() && v2->isConstInt()) {
     NVF_ERROR(
-        v1->evaluateInt() == v2->evaluateInt(),
+        v1->evaluate() == v2->evaluate(),
         "Expected sizes of, ",
         v1->toString(),
         " and ",
         v2->toString(),
         " to match but found ",
-        v1->evaluateInt(),
+        v1->evaluate(),
         " and ",
-        v2->evaluateInt(),
+        v2->evaluate(),
         ".");
     return simplifiedInt(v1);
   } else if (v1->isConstInt()) {
@@ -176,6 +176,12 @@ IterType promoteIterType(IterType type1, IterType type2) {
   }
 }
 
+// Adding these pragmas since gcc-12.2.1
+// incorrectly reports a warning with the use of evaluate
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wfree-nonheap-object"
+#endif
 std::vector<IterDomain*> newOutputDomain(
     const std::vector<Val*>& vals,
     DataType dtype) {
@@ -241,8 +247,9 @@ std::vector<IterDomain*> newOutputDomain(
           "Invalid IterDomain stop offset: ",
           stop_offset);
       start_offsets[i] =
-          std::max(start_offsets[i], start_offset->evaluateInt());
-      stop_offsets[i] = std::max(stop_offsets[i], stop_offset->evaluateInt());
+          std::max(start_offsets[i], start_offset->evaluate().as<int64_t>());
+      stop_offsets[i] =
+          std::max(stop_offsets[i], stop_offset->evaluate().as<int64_t>());
     }
   }
   for (const auto dim_i : c10::irange(out_domain.size())) {
@@ -270,6 +277,9 @@ std::vector<IterDomain*> newOutputDomain(
 
   return out_domain;
 }
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype) {
   auto out_domain = newOutputDomain(vals, dtype);
