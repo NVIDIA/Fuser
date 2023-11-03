@@ -51,11 +51,11 @@
         {% endif %}
         {%- if run1.env is not none and run2.env is not none -%}
             {%- if run1.env != run2.env -%}
-                <button onclick="toggleDiv('old_env')">
+                <button onclick="toggleOneOfThree('old_env', 'diff_env', 'new_env', 0)">
                     <i>{{ run1.name|e }}</i> Env
                 </button>
-                <button onclick="toggleDiv('diff_env')">Env Diff</button>
-                <button onclick="toggleDiv('new_env')">
+                <button onclick="toggleOneOfThree('old_env', 'diff_env', 'new_env', 1)">Env Diff</button>
+                <button onclick="toggleOneOfThree('old_env', 'diff_env', 'new_env', 2)">
                     <i>{{ run2.name|e }}</i> Env
                 </button>
                 <div id="old_env" style="display:none">

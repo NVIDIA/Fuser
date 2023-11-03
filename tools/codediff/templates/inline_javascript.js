@@ -11,41 +11,18 @@ x.style.display = 'block'
 x.style.display = 'none'
 }
 }
-function toggleOldPreamble () {
-const old_div = document.getElementById('old_preamble')
-const new_div = document.getElementById('new_preamble')
-const diff_div = document.getElementById('preamble_diff')
-new_div.style.display = 'none'
-diff_div.style.display = 'none'
-if (old_div.style.display === 'none') {
-old_div.style.display = 'block'
-} else {
-old_div.style.display = 'none'
-}
-}
-function toggleNewPreamble () {
-const old_div = document.getElementById('old_preamble')
-const new_div = document.getElementById('new_preamble')
-const diff_div = document.getElementById('preamble_diff')
-old_div.style.display = 'none'
-diff_div.style.display = 'none'
-if (new_div.style.display === 'none') {
-new_div.style.display = 'block'
-} else {
-new_div.style.display = 'none'
-}
-}
-function togglePreambleDiff () {
-const old_div = document.getElementById('old_preamble')
-const new_div = document.getElementById('new_preamble')
-const diff_div = document.getElementById('preamble_diff')
-old_div.style.display = 'none'
-new_div.style.display = 'none'
-if (diff_div.style.display === 'none') {
-diff_div.style.display = 'block'
-} else {
-diff_div.style.display = 'none'
-}
+function toggleOneOfThree(id0, id1, id2, pos) {
+const div0 = document.getElementById(id0);
+const div1 = document.getElementById(id1);
+const div2 = document.getElementById(id2);
+// pos=0, 1, 2 determines which of the three divs we are toggling
+// if one of them is active, we either toggle it off or switch to it
+const showing0 = div0.style.display == 'block';
+const showing1 = div1.style.display == 'block';
+const showing2 = div2.style.display == 'block';
+div0.style.display = pos == 0 && !showing0 ? 'block' : 'none';
+div1.style.display = pos == 1 && !showing1 ? 'block' : 'none';
+div2.style.display = pos == 2 && !showing2 ? 'block' : 'none';
 }
 function toggleOldCode (testnum, kernelnum) {
 const cuda_button = document.getElementById(`cudabutton_${testnum}_${kernelnum}`)

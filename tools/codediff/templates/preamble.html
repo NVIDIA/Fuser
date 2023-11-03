@@ -5,11 +5,12 @@ SPDX-License-Identifier: BSD-3-Clause
 -#}
 {% if run1.preamble != run2.preamble %}
     NVFuser preamble differs between runs
-    <button onclick="toggleOldPreamble()">
+    <button onclick="toggleOneOfThree('old_preamble', 'new_preamble', 'preamble_diff', 0)">
         <i>{{ run1.name }}</i>
     </button>
-    <button style="width: 60pt" onclick="togglePreambleDiff()">Diff</button>
-    <button onclick="toggleNewPreamble()">
+    <button style="width: 60pt"
+            onclick="toggleOneOfThree('old_preamble', 'new_preamble', 'preamble_diff', 2)">Diff</button>
+    <button onclick="toggleOneOfThree('old_preamble', 'new_preamble', 'preamble_diff', 1)">
         <i>{{ run2.name }}</i>
     </button>
     <br>
