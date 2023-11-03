@@ -99,16 +99,17 @@ class ValGraph {
   // Returns if all atributes of the exprs first and second are the same
   static bool exprAttributesMatch(Expr* first, Expr* second);
 
-  // Initializes entries for the provided Val
+  // Initializes entries for the provided Val with its definitions and
+  // uses.
   void initializeVal(
       Val* val,
       const VectorOfUniqueEntries<Expr*>& definitions,
       const VectorOfUniqueEntries<Expr*>& uses);
 
-  // Returns true if first and second are expressions through which the provided
-  // id_map have matching inputs (if forward), or outputs (if not forward).
-  // Returning true means the expressions are "the same", in terms they modify
-  // matching original extents, by the same amount.
+  // Returns true if first and second are expressions through which
+  // this ValGraph has matching inputs (if forward), or outputs (if not
+  // forward). Returning true means the expressions are "the same", in terms
+  // they modify matching original inputs by the same amount.
   bool exprsMap(Expr* first, Expr* second, bool forward) const;
 
  public:
