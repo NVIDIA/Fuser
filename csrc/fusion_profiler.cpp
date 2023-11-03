@@ -539,8 +539,6 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
   return os;
 }
 
-FusionProfiler* FusionProfiler::singleton_ = nullptr;
-
 FusionProfiler::FusionProfiler()
     : cupti_disabled_(false),
       cupti_buffer_(FusionProfiler::cupti_activity_buffer_size),
@@ -562,11 +560,13 @@ FusionProfiler::FusionProfiler()
 
 FusionProfiler* FusionProfiler::get() {
   static std::mutex singleton_lock;
+  static FusionProfiler* singleton = nullptr;
+
   std::lock_guard<std::mutex> guard(singleton_lock);
-  if (singleton_ == nullptr) {
-    singleton_ = new FusionProfiler();
+  if (singleton == nullptr) {
+    singleton = new FusionProfiler();
   }
-  return singleton_;
+  return singleton;
 }
 
 void FusionProfiler::reset() {
@@ -689,14 +689,14 @@ void FusionProfiler::stop() {
           fp->segments_[kp_idx].state() == ProfilerState::Finished,
           "SegmentProfiler ProfilerState is not Finished!",
           fp->segments_[kp_idx].state());
-      kprof.input_bytes = fp->segment(kp_idx).inputBytes();
-      kprof.output_bytes = fp->segment(kp_idx).outputBytes();
+      kprof.input_bytes = segment(kp_idx).inputBytes();
+      kprof.output_bytes = segment(kp_idx).outputBytes();
       kprof.effective_bandwidth_gbs =
           (double)(kprof.input_bytes + kprof.output_bytes) / kprof.time_ms *
           mb_divider;
       kprof.percentage_peak_bandwidth =
           kprof.effective_bandwidth_gbs / kprof.peak_bandwidth_gbs * 100.0;
-      kprof.compile_time_ms = fp->segment(kp_idx).compileTime();
+      kprof.compile_time_ms = segment(kp_idx).compileTime();
 
       kernel_time_ms += kprof.time_ms;
       fprof.kernel_profiles[kp_idx] = std::move(kprof);
@@ -704,7 +704,7 @@ void FusionProfiler::stop() {
 
     for (auto& seg : fp->segments_) {
       NVF_CHECK(
-          seg.device() == fp->segment(0).device(),
+          seg.device() == segment(0).device(),
           "All Segment profiles must be on the same device!");
     }
     fprof.kernel_time_ms = kernel_time_ms;
@@ -712,8 +712,7 @@ void FusionProfiler::stop() {
         (double)(fprof.input_bytes + fprof.output_bytes) / kernel_time_ms *
         mb_divider;
     fprof.percentage_peak_bandwidth = fprof.effective_bandwidth_gbs /
-        fp->device_descriptors_[fp->segment(0).device()].peak_bandwidth_gbs *
-        100.0;
+        fp->device_descriptors_[segment(0).device()].peak_bandwidth_gbs * 100.0;
   }
   fprof.compile_time_ms = fp->compile_timer_.time();
 
@@ -721,48 +720,43 @@ void FusionProfiler::stop() {
 }
 
 void FusionProfiler::startCompile() {
-  FusionProfiler* fp = get();
   NVF_CHECK(
       state() == ProfilerState::Running,
       "FusionProfiler state is not Running!",
       state());
-  fp->compile_timer_.start();
+  get()->compile_timer_.start();
 }
 
 void FusionProfiler::stopCompile() {
-  FusionProfiler* fp = get();
   NVF_CHECK(
       state() == ProfilerState::Running,
       "FusionProfiler state is not Running!",
       state());
-  fp->compile_timer_.stop();
+  get()->compile_timer_.stop();
 }
 
 void FusionProfiler::inputBytesAccessed(int64_t bytes) {
-  FusionProfiler* fp = get();
   NVF_CHECK(
       state() == ProfilerState::Running,
       "FusionProfiler state is not Running!",
       state());
-  fp->profile_.input_bytes = bytes;
+  get()->profile_.input_bytes = bytes;
 }
 
 void FusionProfiler::outputBytesAccessed(int64_t bytes) {
-  FusionProfiler* fp = get();
   NVF_CHECK(
       state() == ProfilerState::Running,
       "FusionProfiler state is not Running!",
       state());
-  fp->profile_.output_bytes = bytes;
+  get()->profile_.output_bytes = bytes;
 }
 
 const FusionProfile& FusionProfiler::profile() {
-  FusionProfiler* fp = get();
   NVF_CHECK(
       state() == ProfilerState::Processed,
       "The FusionProfile struct data is not valid because it has not been processed! ",
       state());
-  return fp->profile_;
+  return get()->profile_;
 }
 
 void FusionProfiler::recordAsyncCorrIdActivity(

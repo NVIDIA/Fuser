@@ -236,8 +236,6 @@ class FusionProfiler {
   static constexpr size_t cupti_activity_buffer_size{size_t(4 * 1024)};
 
  private:
-  static FusionProfiler* singleton_;
-
   //! Disables CUPTI usage in order to measure Host Time without CUPTI overhead
   bool cupti_disabled_;
   //! Buffer for Cupti to store Activity Buffers during async activity
