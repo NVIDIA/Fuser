@@ -416,6 +416,7 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
   // computing the buffer size based on the tensor shape isn't
   // sufficient since there could be extra threads/blocks.
   Val* size_of_single_buffer = GpuLower::current()->kernel()->oneVal();
+  Val* prod_grid_reduction_dims = GpuLower::current()->kernel()->oneVal();
   for (auto pt : kParallelTypeThreads) {
     auto pt_dim = GpuLower::current()->parallelDimensionMap().get(pt);
     if (pt_dim == nullptr || pt_dim->isOneInt()) {
@@ -428,15 +429,41 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
         })) {
       continue;
     }
-    size_of_single_buffer =
-        SimplifyingIrBuilder::mulExpr(size_of_single_buffer, pt_dim);
+    if (isParallelTypeBlockDim(pt) &&
+        std::any_of(td->leaf().begin(), td->leaf().end(), [&](auto out_id) {
+          return out_id->getParallelType() == pt && (out_id->isReduction());
+        })) {
+      prod_grid_reduction_dims =
+          SimplifyingIrBuilder::mulExpr(prod_grid_reduction_dims, pt_dim);
+    } else {
+      size_of_single_buffer =
+          SimplifyingIrBuilder::mulExpr(size_of_single_buffer, pt_dim);
+    }
+  }
+  // For a non-persistent grid reduction the last block does not need to write
+  // its value out since it is only responsible for reducing all of the other
+  // values and no other blocks depend on that last block's contributed value.
+  //
+  //   L = prod(i for each block dimension i that is not broadcast or reduction)
+  //   M = prod(j for each grid dimension j that is not a reduction)
+  //   N = prod(k for each grid dimension k that is a reduction)
+  //
+  // The size of the work buffer is L*M*(N-1). For allreduce, the size
+  // must be L*M*N.
+  if (is_persistent) {
+    size_of_single_buffer = SimplifyingIrBuilder::mulExpr(
+        size_of_single_buffer, prod_grid_reduction_dims);
+  } else {
+    size_of_single_buffer = SimplifyingIrBuilder::mulExpr(
+        size_of_single_buffer,
+        SimplifyingIrBuilder::subExpr(
+            prod_grid_reduction_dims, GpuLower::current()->kernel()->oneVal()));
   }
 
   // Expand the buffer for privatization. The buffer is expanded so
   // that each non-reduction IterDomain uses a different part of the
   // buffer. For persistent mode, this expansion is only done for
   // grouped IterDomains.
-
   Val* size_of_privatized_buffer = size_of_single_buffer;
 
   // In persistent mode, if non-grouped no-reduction domain is used,
