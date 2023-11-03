@@ -47,6 +47,7 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 
 # TODO: fix MSVC
 if(NOT MSVC)
+  find_library(LIBCUPTI libcupti.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
   find_library(LIBNVTOOLSEXT libnvToolsExt.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
 endif()
 
@@ -185,9 +186,17 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/optimization/add_axioms.cpp
   ${NVFUSER_SRCS_DIR}/optimization/alias_analysis.cpp
   ${NVFUSER_SRCS_DIR}/optimization/consecutive_cast.cpp
+  ${NVFUSER_SRCS_DIR}/optimization/mark_alias.cpp
   ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/optimization/remove_empty.cpp
 )
+
+# We don't link CUPTI for MSVC
+if(NOT MSVC)
+  list(APPEND NVFUSER_SRCS
+    ${NVFUSER_SRCS_DIR}/fusion_profiler.cpp
+  )
+endif()
 
 if(BUILD_PYTHON)
   list(APPEND NVFUSER_SRCS
@@ -217,7 +226,7 @@ target_link_libraries(${NVFUSER_CODEGEN} PRIVATE flatbuffers)
 # For kernel_db, linking STL Filesystem Library for backward compatability with C++14
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE dynamic_type)
-target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT})
+target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT} ${LIBCUPTI})
 target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
 
 # TODO: we should guard the include of gloo
@@ -400,7 +409,15 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_tutorial.cpp
     ${NVFUSER_ROOT}/test/test_alias_analysis.cpp
     ${NVFUSER_ROOT}/test/test_scalar_hoisting.cpp
+    ${NVFUSER_ROOT}/test/test_no_op.cpp
   )
+
+  # We don't link CUPTI for MSVC
+  if(NOT MSVC)
+    list(APPEND JIT_TEST_SRCS
+      ${NVFUSER_ROOT}/test/test_fusion_profiler.cpp
+    )
+  endif()
 
   if(BUILD_PYTHON)
     list(APPEND JIT_TEST_SRCS

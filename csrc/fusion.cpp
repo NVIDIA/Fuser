@@ -313,23 +313,45 @@ std::vector<Expr*> Fusion::exprs() {
   return StmtSort::getExprs(this);
 }
 
+namespace {
+
+bool allOutputsArePointerCasts(Fusion* fusion) {
+  for (Val* out : fusion->outputs()) {
+    const auto& [in, info] = fusion->getOutputAlias(out);
+    if (in == nullptr) {
+      return false;
+    }
+    NVF_ERROR(info != nullptr);
+    if (info->type != AliasType::PointerCast) {
+      return false;
+    }
+  }
+  return true;
+}
+
+} // namespace
+
 bool Fusion::isNoOp() {
   if (exprs().empty()) {
     return true;
   }
+
+  if (allOutputsArePointerCasts(this)) {
+    return true;
+  }
+
   for (auto out_tv : ir_utils::filterByType<TensorView>(outputs())) {
-    auto root_dom = TensorDomain::noReductions(out_tv->getMaybeRFactorDomain());
-    bool size_zero = false;
-    for (auto id : root_dom) {
-      if (id->extent()->isConstScalar() && id->extent()->evaluate() == 0) {
-        size_zero = true;
-        break;
-      }
-    }
+    const std::vector<IterDomain*>& root_dom =
+        TensorDomain::noReductions(out_tv->getMaybeRFactorDomain());
+    const bool size_zero =
+        std::any_of(root_dom.begin(), root_dom.end(), [](IterDomain* id) {
+          return id->extent()->isConstScalar() && id->extent()->evaluate() == 0;
+        });
     if (!size_zero) {
       return false;
     }
   }
+
   return true;
 }
 
