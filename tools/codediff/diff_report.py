@@ -646,7 +646,6 @@ def sanitize_ptx_lines(lines: list[str]) -> list[str]:
         # Remove comments. This is important for
         l = re.sub(r"//.*$", "", l)
         sanitary_lines.append(l)
-        print("Sanitized:", l.rstrip())
     return sanitary_lines
 
 
