@@ -441,14 +441,15 @@ GridCommWorkBufferSizeInfo getGridCommWorkBufferSize(
     }
   }
   // For a non-persistent grid reduction the last block does not need to write
-  // its value out since it is only responsible for reducing all of the other
-  // values and no other blocks depend on that last block's contributed value.
+  // its value to the work buffer since it is only responsible for reducing all
+  // of the other values and no other blocks depend on that last block's
+  // contributed value. Let:
   //
   //   L = prod(i for each block dimension i that is not broadcast or reduction)
   //   M = prod(j for each grid dimension j that is not a reduction)
   //   N = prod(k for each grid dimension k that is a reduction)
   //
-  // The size of the work buffer is L*M*(N-1). For allreduce, the size
+  // Then the size of the work buffer is L*M*(N-1). For allreduce, the size
   // must be L*M*N.
   if (is_persistent) {
     size_of_single_buffer = SimplifyingIrBuilder::mulExpr(
