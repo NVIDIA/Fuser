@@ -365,13 +365,13 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
       // not have
       //  a size of 1, since it would have required re-indexing.
       if (!reduction_allocate_it->second->size()->isConstInt() ||
-          reduction_allocate_it->second->size()->evaluateInt() != 1) {
+          reduction_allocate_it->second->size()->evaluate() != 1) {
         return;
       }
 
       auto broadcast_allocate = getActiveAllocateFor(out_tv);
       if (!broadcast_allocate->size()->isConstInt() ||
-          broadcast_allocate->size()->evaluateInt() != 1) {
+          broadcast_allocate->size()->evaluate() != 1) {
         return;
       }
 
@@ -401,7 +401,7 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
     }
 
     if (id->extent()->isConstScalar()) {
-      return id->extent()->evaluateInt() == warp_size;
+      return id->extent()->evaluate() == warp_size;
     }
 
     return false;

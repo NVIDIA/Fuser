@@ -207,13 +207,20 @@ class FusionExecutor : public NonCopyable {
     return measure_kernel_time_ ? kernel_time_ms_ : 0;
   }
 
+  //! Returns the input bytes accessed for a kernel
+  //! \note It is important to sample the args struct prior to adding the
+  // 1    output to the args struct
+  int64_t inputBytesProcessed(const KernelArgumentHolder& args);
+  //! Returns the output bytes accessed for a kernel
+  int64_t outputBytesProcessed(const std::vector<at::Tensor>& outputs);
+
   //! Returns the number of bytes processed last kernel execution
   int64_t bytesProcessed() const {
     int64_t bytes_processed = 0;
-    for (auto bp : bytes_processed_per_input_) {
+    for (auto bp : bytesInputsProcessed()) {
       bytes_processed += bp;
     }
-    for (auto bp : bytes_processed_per_output_) {
+    for (auto bp : bytesOutputsProcessed()) {
       bytes_processed += bp;
     }
     return bytes_processed;
@@ -221,12 +228,18 @@ class FusionExecutor : public NonCopyable {
 
   //! Get a vector of bytes processed across all kernel inputs
   const std::vector<int64_t>& bytesInputsProcessed() const {
-    return bytes_processed_per_input_;
+    NVF_CHECK(
+        bytes_processed_per_input_.has_value(),
+        "bytes_processed_per_input_ is not defined!");
+    return bytes_processed_per_input_.value();
   }
 
   //! Get a vector of bytes processed across all kernel outputs
   const std::vector<int64_t>& bytesOutputsProcessed() const {
-    return bytes_processed_per_output_;
+    NVF_CHECK(
+        bytes_processed_per_output_.has_value(),
+        "bytes_processed_per_output_ is not defined!");
+    return bytes_processed_per_output_.value();
   }
 
   //! Returns the launch parameters from the last kernel execution
@@ -534,10 +547,11 @@ class FusionExecutor : public NonCopyable {
   float kernel_time_ms_ = 0;
 
   // Profiling support: last kernel bytes processed in each input
-  std::vector<int64_t> bytes_processed_per_input_;
+  std::optional<std::vector<int64_t>> bytes_processed_per_input_ = std::nullopt;
 
   // Profiling support: last kernel bytes processed in each output
-  std::vector<int64_t> bytes_processed_per_output_;
+  std::optional<std::vector<int64_t>> bytes_processed_per_output_ =
+      std::nullopt;
 
   // Profiling support: the last launch param used
   LaunchParams launch_params_;
