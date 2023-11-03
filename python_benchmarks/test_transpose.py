@@ -69,3 +69,5 @@ def test_transpose_benchmark(
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [input1, input2])
+    
+    torch.cuda.empty_cache()
