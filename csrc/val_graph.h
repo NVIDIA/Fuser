@@ -16,12 +16,14 @@
 
 namespace nvfuser {
 
-using ValGroup = std::shared_ptr<VectorOfUniqueEntries<Val*>>;
-using ValGroups = VectorOfUniqueEntries<ValGroup>;
-using ExprGroup = std::shared_ptr<VectorOfUniqueEntries<Expr*>>;
-using ExprGroups = VectorOfUniqueEntries<ExprGroup>;
-
-// Given a fusion as shown below:
+// ValGraph is a DAG of Vals and Exprs connected by their input and
+// output dependencies. Each graph node is a collection of
+// either Vals or Exprs that are grouped together through mapVals and
+// mapExprs, respectively.
+//
+// The primary use case of ValGraph is for representing groupings and
+// dependencies of iteration domains. For example, given a fusion as
+// shown below:
 //
 // T1 = set(T0);
 // T2 = set(T1);
@@ -30,7 +32,7 @@ using ExprGroups = VectorOfUniqueEntries<ExprGroup>;
 // T1: root [I2, I3], leaf [I2*I3/4, 4]
 // T2: root [I4, I5], leaf [I4*I5/4, 4]
 //
-// The Exact graph consists of ValGroups of:
+// The Exact ValGraph consists of ValGroups of:
 //
 // - {I0, I2, I4}
 // - {I1, I3, I5}
@@ -38,10 +40,19 @@ using ExprGroups = VectorOfUniqueEntries<ExprGroup>;
 // - {I2*I3/4, I4*I5/4}
 // - {4, 4}
 //
-// And ExprGroups of:
+// and ExprGroups of:
 //
 // - {merge of I2 and I3, merge of I4 and I5}
 // - {split of I2*I3, split of I4*I5}
+//
+// ValGraph can be used with any Val types, however, it's currenty
+// only tested with IterDomain. Some of the routines would need to be
+// extended for other Val types, e.g., exprAttributesMatch.
+
+using ValGroup = std::shared_ptr<VectorOfUniqueEntries<Val*>>;
+using ValGroups = VectorOfUniqueEntries<ValGroup>;
+using ExprGroup = std::shared_ptr<VectorOfUniqueEntries<Expr*>>;
+using ExprGroups = VectorOfUniqueEntries<ExprGroup>;
 
 class ValGraph {
  public:
@@ -75,11 +86,11 @@ class ValGraph {
   // Convert expr to its exprGroup, assert that it exists.
   const ExprGroup& toGroup(Expr* expr) const;
 
-  // Convert iter domain to its IdGroup, assert that it exists.
+  // Convert Val to its ValGroup, assert that it exists.
   const ValGroup& toGroup(Val* val) const;
 
-  // Return output/input iter domain groups of provided expr
-  // Note that the same IdGroup can show up multiple times, so the
+  // Return output/input Val groups of provided expr
+  // Note that the same ValGropu can show up multiple times, so the
   // output type cannot be VectorOfUniqueEntries
   std::vector<ValGroup> outputGroups(const ExprGroup& expr) const;
   std::vector<ValGroup> inputGroups(const ExprGroup& expr) const;
@@ -93,17 +104,17 @@ class ValGraph {
   ExprGroups allDefinitionsOf(const ValGroups& of) const;
 
   //! Returns the pointer to expressions associated with the
-  //! definitions of the provided IterDomain group in the provided
+  //! definitions of the provided ValGroup in the provided
   //! mapping mode (if it exists). Nullptr is returned otherwise.
   //!
   //! The returned pointer is to a vector of vector of expressions. The
   //! inner vector is proven to be equivalent based on the provided mode. The
   //! outer vector are expression groups that are not equivalent based on the
-  //! provided mode, but produce one of the IterDomains within the same disjoint
-  //! Iter Domain set based on the provided mode.
+  //! provided mode, but produce one of the ValGroups within the same disjoint
+  //! Val set based on the provided mode.
   const ExprGroups* getDefinitions(const ValGroup& id_group) const;
 
-  //! Same as iterDomainGroupDefinitions but for uses instead of
+  //! Same as getDefinitions but for uses instead of
   //! definitions
   const ExprGroups* getUses(const ValGroup& id_group) const;
 
@@ -134,7 +145,6 @@ class ValGraph {
   // they modify matching original inputs by the same amount.
   bool exprsMap(Expr* first, Expr* second, bool forward) const;
 
- public:
   void addUniqueUses(const ValGroup& id_group, const ExprGroup& uses) {
     unique_uses_.at(id_group).pushBack(uses);
   }
@@ -155,10 +165,6 @@ class ValGraph {
   // Map through loop swizzles, as input/output IterDomains are exact, only the
   // order they're traversed differs.
   void mapThroughLoopSwizzles();
-
-  void setPropagateThroughExprs(bool b) {
-    propagate_through_exprs_ = b;
-  }
 
  private:
   // Map expr0 and expr1 with eachother, update unique_definitions_ unique_uses_
@@ -195,17 +201,17 @@ class ValGraph {
   // mentioned above prevents that from happening.
   bool propagate_through_exprs_ = true;
 
-  // Keeps a disjoint set entry for all IterDomain for all mapping mode types.
+  // Keeps a disjoint set entry for all Vals.
   //
   // Using an array here might be nice, but it seems hard to use an enum as an
   // array key
   // https://stackoverflow.com/questions/2102582/how-can-i-count-the-items-in-an-enum
   DisjointSets<Val*> disjoint_vals_;
 
-  // Keeps a disjoint set entry for all Expressions for all mapping mode types.
+  // Keeps a disjoint set entry for all Expressions.
   DisjointSets<Expr*> disjoint_exprs_;
 
-  // Definitions of IdGroup. There can be multiple definitions due to
+  // Definitions of ValGroup. There can be multiple definitions due to
   // replays.
   std::unordered_map<ValGroup, ExprGroups> unique_definitions_;
 
