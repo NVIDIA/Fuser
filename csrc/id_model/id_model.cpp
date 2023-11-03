@@ -128,11 +128,11 @@ void IdModel::buildIterDomainDefinitionsAndUses(
       }
 
       if (id_definitions_.find(id) == id_definitions_.end()) {
-        id_definitions_[id] = {};
+        id_definitions_.emplace(id, VectorOfUniqueEntries<Expr*>{});
       }
 
       if (id_uses_.find(id) == id_uses_.end()) {
-        id_uses_[id] = {};
+        id_uses_.emplace(id, VectorOfUniqueEntries<Expr*>{});
       }
 
       auto def = id->definition();
@@ -141,17 +141,11 @@ void IdModel::buildIterDomainDefinitionsAndUses(
         continue;
       }
 
-      if (id_definitions_.find(id) == id_definitions_.end()) {
-        id_definitions_[id] = {};
-      }
-      id_definitions_.at(id).pushBack(def);
+      id_definitions_[id].pushBack(def);
 
       auto inp_ids = ir_utils::filterByType<IterDomain>(def->inputs());
       for (auto inp_id : inp_ids) {
-        if (id_uses_.find(inp_id) == id_uses_.end()) {
-          id_uses_[inp_id] = {};
-        }
-        id_uses_.at(inp_id).pushBack(def);
+        id_uses_[inp_id].pushBack(def);
       }
     }
   }
