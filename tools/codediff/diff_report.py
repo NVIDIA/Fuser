@@ -644,7 +644,9 @@ def sanitize_ptx_lines(lines: list[str]) -> list[str]:
         #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_
         # with
         #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_cu_8995cef2_3255329nvfuser_pointwiseENS_6TensorIfLi2ELi2EEES1_S1_
-        l = re.sub(r"_tmp_kernel_[a-z0-9_]+nvfuser_[a-z]+_f\d+_c\d*_r\d+_g\d+", "kernel", l)
+        l = re.sub(
+            r"_tmp_kernel_[a-z0-9_]+nvfuser_[a-z]+_f\d+_c\d*_r\d+_g\d+", "kernel", l
+        )
 
         # Remove comments. This is important for
         l = re.sub(r"//.*$", "", l)
