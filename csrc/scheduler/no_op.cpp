@@ -25,6 +25,7 @@ bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
   if (fusion->isNoOp()) {
     return true;
   }
+
   // Check there're no non-trivial reduction ops.
   for (auto reduction : ir_utils::getAllTypesOfReductionOps(fusion)) {
     for (auto output :

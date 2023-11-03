@@ -185,6 +185,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/optimization/add_axioms.cpp
   ${NVFUSER_SRCS_DIR}/optimization/alias_analysis.cpp
   ${NVFUSER_SRCS_DIR}/optimization/consecutive_cast.cpp
+  ${NVFUSER_SRCS_DIR}/optimization/mark_alias.cpp
   ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/optimization/remove_empty.cpp
 )
@@ -400,6 +401,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_tutorial.cpp
     ${NVFUSER_ROOT}/test/test_alias_analysis.cpp
     ${NVFUSER_ROOT}/test/test_scalar_hoisting.cpp
+    ${NVFUSER_ROOT}/test/test_no_op.cpp
   )
 
   if(BUILD_PYTHON)
