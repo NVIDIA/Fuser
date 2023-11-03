@@ -517,24 +517,4 @@ bool ValGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
   return true;
 }
 
-void ValGraph::mapThroughLoopSwizzles() {
-  std::vector<Swizzle2D*> all_swizzles;
-
-  for (const auto& expr_set : disjointExprSets().disjointSets()) {
-    auto swizzles_in_expr_set = ir_utils::filterByType<Swizzle2D>(
-        expr_set->vector().begin(), expr_set->vector().end());
-    all_swizzles.insert(
-        all_swizzles.end(),
-        swizzles_in_expr_set.begin(),
-        swizzles_in_expr_set.end());
-  }
-
-  for (auto swizzle : all_swizzles) {
-    if (swizzle->swizzleMode() == SwizzleMode::Loop) {
-      mapVals(swizzle->inX(), swizzle->outX());
-      mapVals(swizzle->inY(), swizzle->outY());
-    }
-  }
-}
-
 } // namespace nvfuser

@@ -412,7 +412,8 @@ std::vector<TensorView*> allTvs(Fusion* fusion) {
   return uniqueEntries<TensorView>(all_tvs);
 }
 
-VectorOfUniqueEntries<TensorView*> allTvsOfExprs(const std::vector<Expr*>& exprs) {
+VectorOfUniqueEntries<TensorView*> allTvsOfExprs(
+    const std::vector<Expr*>& exprs) {
   VectorOfUniqueEntries<TensorView*> all_tvs;
   for (auto expr : exprs) {
     auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
