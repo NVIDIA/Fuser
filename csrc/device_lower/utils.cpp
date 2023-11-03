@@ -341,7 +341,7 @@ std::optional<IterDomain*> getMaybeWarpReductionDim(
   }
 
   if (reduction_on_xdim->extent()->isConstInt()) {
-    auto extent_value = reduction_on_xdim->extent()->evaluateInt();
+    auto extent_value = reduction_on_xdim->extent()->evaluate();
     if (extent_value % at::cuda::warp_size() == 0) {
       return std::optional<IterDomain*>(reduction_on_xdim);
     }

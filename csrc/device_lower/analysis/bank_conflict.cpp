@@ -36,7 +36,7 @@ int64_t getVectorizeSize(kir::TensorIndex* ti) {
         id->extent()->isConstInt(),
         "Could not evaluate constant value bound to vectorized dim.");
 
-    return id->extent()->evaluateInt();
+    return id->extent()->evaluate().as<int64_t>();
   }
   return 1;
 }

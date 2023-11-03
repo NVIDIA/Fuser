@@ -1122,8 +1122,8 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
   if (!tidx_val->isConstInt() || !tidy_val->isConstInt()) {
     return false;
   }
-  auto tidx = static_cast<int>(tidx_val->evaluateInt());
-  auto tidy = static_cast<int>(tidy_val->evaluateInt());
+  auto tidx = static_cast<int>(tidx_val->evaluate());
+  auto tidy = static_cast<int>(tidy_val->evaluate());
 
   // TIDz and BIDz must be unused or just 1. This contraint can be
   // lifted if necessary.
@@ -1153,7 +1153,7 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
           axis->extent()->isConstInt(),
           "Grouped IterDomain must have a static integer extent: ",
           axis->extent()->toInlineString());
-      num_grouped_iterations *= (int)axis->extent()->evaluateInt();
+      num_grouped_iterations *= (int)axis->extent()->evaluate();
     }
   }
 
