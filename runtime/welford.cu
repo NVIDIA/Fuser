@@ -277,7 +277,10 @@ __device__ void gridWelfordLastBlock(
     T* shared_buf_M2,
     TN* shared_buf_N,
     bool write_pred,
-    T init_val) {
+    T init_val,
+    T last_block_avg,
+    T last_block_M2,
+    TN last_block_N) {
   // We have to do num_reductions across reduction_size. The reductions are
   // contiguous, but offset by reduction_size. There is an entry in "in" for
   // every block, and every thread marked as true. Threads in dimensions marked
@@ -299,13 +302,13 @@ __device__ void gridWelfordLastBlock(
   const auto input_stride_for_thread_in_segment =
       index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(blockDim);
 
-  T inp_avg = init_val;
-  T inp_M2 = init_val;
-  TN inp_N = 0;
+  T inp_avg = last_block_avg;
+  T inp_M2 = last_block_M2;
+  TN inp_N = last_block_N;
 
   // Block stride across the reduction until we only have one value per thread
-  for (nvfuser_index_t reduction_i = id_in_block_segment;
-       reduction_i < grid_reduction_segment_size;
+  for (nvfuser_index_t reduction_i = id_in_block_segment; reduction_i <
+       grid_reduction_segment_size - input_stride_for_thread_in_segment;
        reduction_i += input_stride_for_thread_in_segment) {
     auto work_buf_offset = reduction_i * block_reduction_segment_size +
         block_reduction_segment_idx;
@@ -405,8 +408,11 @@ __device__ void gridWelford(
   work_buf_N += (entrance_ind_ * grid_segment_size + idx_in_grid_segment) *
       grid_reduction_segment_size * block_reduction_segment_size;
 
-  if ((X_THREAD || threadIdx.x == 0) && (Y_THREAD || threadIdx.y == 0) &&
-      (Z_THREAD || threadIdx.z == 0)) {
+  bool last_block =
+      index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
+
+  if (!last_block && (X_THREAD || threadIdx.x == 0) &&
+      (Y_THREAD || threadIdx.y == 0) && (Z_THREAD || threadIdx.z == 0)) {
     auto block_offset =
         index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
     auto thread_offset =
@@ -435,9 +441,6 @@ __device__ void gridWelford(
         grid_reduction_segment_size);
   }
 
-  bool last_block =
-      index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
-
   if (last_block) {
     // final reduction
     gridWelfordLastBlock<X_THREAD, Y_THREAD, Z_THREAD, Aligned>(
@@ -453,7 +456,10 @@ __device__ void gridWelford(
         shared_buf_M2,
         shared_buf_N,
         write_pred,
-        init_val);
+        init_val,
+        inp_avg,
+        inp_M2,
+        inp_N);
   }
 
   if (PERSISTENT_REDUCTION) {
