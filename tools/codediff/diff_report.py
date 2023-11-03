@@ -119,8 +119,11 @@ class CompiledKernel:
         # Example input:
         #
         #   ptxas info    : 307 bytes gmem
-        #   ptxas info    : Compiling entry function '_ZN11CudaCodeGen7kernel1ENS_6TensorIfLi2ELi2EEES1_S1_' for 'sm_86'
-        #   ptxas info    : Function properties for _ZN11CudaCodeGen7kernel1ENS_6TensorIfLi2ELi2EEES1_S1_
+        #   ptxas info    : Compiling entry function
+        #   '_ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_'
+        #   for 'sm_86'
+        #   ptxas info    : Function properties for
+        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_
         #   ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
         #   ptxas info    : Used 203 registers, 16 bytes smem, 472 bytes cmem[0], 8 bytes cmem[2]
         #
@@ -634,14 +637,14 @@ class TestDiff:
 
 
 def sanitize_ptx_lines(lines: list[str]) -> list[str]:
-    """Remove comments and translate kernel38 to kernelN"""
+    """Remove comments and remove kernel id"""
     sanitary_lines = []
     for l in lines:
         # Replace mangled kernel names like
-        #   _ZN11CudaCodeGen10kernel1271ENS_6TensorIfLi2ELi2EEENS0_IfLi3ELi3EEES2_
+        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_
         # with
-        #   _ZN11CudaCodeGen7kernelNENS_6TensorIfLi2ELi2EEENS0_IfLi3ELi3EEES2_
-        l = re.sub(r"CudaCodeGen\d+kernel\d+ENS", "CudaCodeGen7kernelNENS", l)
+        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_cu_8995cef2_3255329nvfuser_pointwiseENS_6TensorIfLi2ELi2EEES1_S1_
+        l = re.sub(r"_f\d+_c\d+_r\d+_g\d+", "", l)
 
         # Remove comments. This is important for
         l = re.sub(r"//.*$", "", l)
