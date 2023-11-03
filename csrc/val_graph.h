@@ -21,6 +21,28 @@ using ValGroups = VectorOfUniqueEntries<ValGroup>;
 using ExprGroup = std::shared_ptr<VectorOfUniqueEntries<Expr*>>;
 using ExprGroups = VectorOfUniqueEntries<ExprGroup>;
 
+// Given a fusion as shown below:
+//
+// T1 = set(T0);
+// T2 = set(T1);
+//
+// T0: root [I0, I1], leaf [I0, I1]
+// T1: root [I2, I3], leaf [I2*I3/4, 4]
+// T2: root [I4, I5], leaf [I4*I5/4, 4]
+//
+// The Exact graph consists of ValGroups of:
+//
+// - {I0, I2, I4}
+// - {I1, I3, I5}
+// - {I2*I3, I4*I5}
+// - {I2*I3/4, I4*I5/4}
+// - {4, 4}
+//
+// And ExprGroups of:
+//
+// - {merge of I2 and I3, merge of I4 and I5}
+// - {split of I2*I3, split of I4*I5}
+
 class ValGraph {
  public:
   ValGraph() = default;
