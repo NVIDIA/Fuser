@@ -90,7 +90,7 @@ class ValGraph {
   const ValGroup& toGroup(Val* val) const;
 
   // Return output/input Val groups of provided expr
-  // Note that the same ValGropu can show up multiple times, so the
+  // Note that the same ValGroup can show up multiple times, so the
   // output type cannot be VectorOfUniqueEntries
   std::vector<ValGroup> outputGroups(const ExprGroup& expr) const;
   std::vector<ValGroup> inputGroups(const ExprGroup& expr) const;
