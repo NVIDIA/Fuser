@@ -18,6 +18,7 @@
 #include <scheduler/heuristic_types.h>
 #include <serde/fusion_cache_generated.h>
 #include <utils.h>
+#include <atomic>
 
 #include <c10/core/DeviceType.h>
 
@@ -263,6 +264,14 @@ class FusionExecutor : public NonCopyable {
         compiled_kernel_->cubin, "-fun 1 -c");
   }
 
+  static void setGlobalFusionCount(int64_t new_fusion_count) {
+    global_fusion_count_.store(new_fusion_count);
+  }
+
+  static int64_t getGlobalFusionCount() {
+    return global_fusion_count_.load();
+  }
+
   void createKernelId(
       ScheduleHeuristic heuristic = ScheduleHeuristic::None,
       int64_t fusion_id = 0,
@@ -279,13 +288,18 @@ class FusionExecutor : public NonCopyable {
     concrete_id_ = concrete_id;
     runtime_id_ = runtime_id;
     group_id_ = group_id;
+    ++global_fusion_count_;
 
     std::stringstream ss;
-    ss << toString(heuristic_);
-    ss << "_f" << fusion_id_;
-    ss << "_c" << concrete_id_;
-    ss << "_r" << runtime_id_;
-    ss << "_g" << group_id_;
+    if (isOptionEnabled(EnableOption::StaticFusionCount)) {
+      ss << global_fusion_count_.load();
+    } else {
+      ss << toString(heuristic_);
+      ss << "_f" << fusion_id_;
+      ss << "_c" << concrete_id_;
+      ss << "_r" << runtime_id_;
+      ss << "_g" << group_id_;
+    }
     kernel_id_ = ss.str();
   }
 
@@ -477,6 +491,8 @@ class FusionExecutor : public NonCopyable {
 
   // ID of segment in FusionKernelRuntime
   int64_t group_id_ = -1;
+
+  inline static std::atomic<int64_t> global_fusion_count_;
 
   // Scheduling Heuristic for this Fusion
   ScheduleHeuristic heuristic_ = ScheduleHeuristic::None;

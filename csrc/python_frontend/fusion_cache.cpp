@@ -373,7 +373,8 @@ void FusionCache::serialize(std::string filename) const {
       max_fusions_,
       &fb_nodes,
       &terminal_node_idx,
-      &fb_auto_gen_schedules);
+      &fb_auto_gen_schedules,
+      FusionExecutor::getGlobalFusionCount());
   builder.Finish(fusion_cache, "NV00" /* file_identifier */);
 
   // 6. Write flatbuffer binary to file
@@ -431,6 +432,10 @@ void FusionCache::deserialize(std::string filename) {
       "Deserialization is prohibited if FusionCache is already populated.");
   auto buffer = openFusionCache(filename);
   auto fusion_cache_buffer = verifyFusionCache(buffer);
+
+  // 0. Set static fusion count in Fusion Executor
+  FusionExecutor::setGlobalFusionCount(
+      fusion_cache_buffer->global_fusion_count());
 
   // 1. Deserialize max_fusions field
   max_fusions_ = fusion_cache_buffer->max_fusions();

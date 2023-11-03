@@ -477,6 +477,8 @@ table FusionCache {
   structure: [TrieNode];
   terminal_nodes: [ulong];
   auto_gen_schedules: [FusionExecutorCache];
+  // static fusion executor counter
+  global_fusion_count: long;
 }
 
 root_type FusionCache;
