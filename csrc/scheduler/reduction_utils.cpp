@@ -421,9 +421,8 @@ void multiReductionInliner(
   // or their consumers are persistent. It seperates data loading and
   // computation without inrcreasing requested registers and showed performance
   // increase, see SoftmaxNotInlineDataLoad.
-  bool is_special_inline_cached_input = maybe_special_inline_cached_inputs &&
-      checkCachedInputAndConsumer(fusion, cached_inputs);
-
+  bool is_special_inline_cached_input = maybe_special_inline_cached_inputs;
+      // checkCachedInputAndConsumer(fusion, cached_inputs)
   if (is_special_inline_cached_input) {
     inlineMost(ir_utils::allTvsExcept(
         fusion, {cached_inputs.begin(), cached_inputs.end()}));

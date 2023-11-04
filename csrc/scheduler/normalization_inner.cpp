@@ -752,7 +752,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
 
   // If there are more than 1 persistent batches, needs special
   // inline to separate data loading and calculation, see multiReductionInliner.
-  if (rparams->batches_per_block_inner_reduction > 1) {
+  if (std::getenv("TEST_INLINE") && rparams->batches_per_block_inner_reduction > 1) {
+    std::cout << "maybe_special_inline_cached_inputs = true" << std::endl;
     rparams->maybe_special_inline_cached_inputs = true;
   }
 

@@ -9559,6 +9559,7 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
     TensorView* x = makeContigTensor(2, dtype);
     fusion->addInput(x);
     x = castOp(DataType::Float, x);
+    x = tan(x);
     auto max_val = max(x, {-1});
     auto bcast_max = broadcast(max_val, {false, true});
     auto x_max_sub = sub(x, bcast_max);
@@ -9592,8 +9593,15 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
   };
   // kernel latency is reducd from 1.0 ms to 0.93 ms on ipp2-0123 after changing
   // `maybe_special_inline_cached_inputs` from false to true.
-  test(32768, 18 * 1024, false);
-  test(32768, 18 * 1024, true);
+  test(2048, 18 * 1024, false);
+  test(2048, 18 * 1024, true);
+
+//   root@nvdl-a112-d001:/opt/pytorch/nvfuser/build# grep achi 1.log
+// kernel1 run in 0.110592 ms, achieved: 1365.33 GB/s
+// kernel2 run in 0.099328 ms, achieved: 1520.17 GB/s
+
+// 0.109 ms
+// 0.0957 ms
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
