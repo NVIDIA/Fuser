@@ -111,6 +111,9 @@ for i, arg in enumerate(sys.argv):
     if arg.startswith("-install_requires="):
         INSTALL_REQUIRES = arg.split("=")[1].split(",")
         continue
+    if arg.startswith("-extra_requires="):
+        EXTRA_REQUIRES = eval(arg.split("=")[1])
+        continue
     if arg.startswith("-version-tag="):
         OVERWRITE_VERSION = True
         VERSION_TAG = arg.split("=")[1]
@@ -402,6 +405,7 @@ def main():
             install_requires=INSTALL_REQUIRES,
             extra_requires={
                 "test": ["numpy", "expecttest", "pytest"],
+                **EXTRA_REQUIRES,
             },
             entry_points={
                 "console_scripts": [
