@@ -12,8 +12,6 @@
 namespace nvfuser::optimization {
 
 void MarkAliasPass::runPass(Fusion* fusion) {
-  fusion->print();
-
   const AliasAnalysisResult alias_analysis = findAliases(fusion);
   for (Val* out : fusion->outputs()) {
     if (const Val* in = alias_analysis.findRoot(out); in->isFusionInput()) {
