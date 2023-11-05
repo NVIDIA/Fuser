@@ -404,7 +404,7 @@ def main():
                 "nvfuser": nvfuser_package_data,
             },
             install_requires=INSTALL_REQUIRES,
-            extra_requires={
+            extras_require={
                 "test": ["numpy", "expecttest", "pytest"],
                 **EXTRA_REQUIRES,
             },
