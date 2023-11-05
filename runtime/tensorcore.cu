@@ -6,7 +6,6 @@
  */
 // clang-format on
 // Utility macro for this file
-#define DEVICE_INLINE __device__ inline
 
 // MMA instruction wrappers:
 //  The wrappers are subroutines that implement matrix of size
@@ -22,7 +21,6 @@
 //   notation.
 namespace Volta {
 
-namespace util {
 // MMA instruction wrappers (sm_70+):
 // The instruction wrappers below are quarter-warp macros, which currently
 //  nvfuser doesn't explicitly model.
@@ -32,7 +30,8 @@ namespace util {
 //  8x8x4 mma instruction, per quarter warp (8 threads), fp32 accumulate
 //  per thread register:
 //   A[4] x B[4] -> C[8]
-DEVICE_INLINE void mmaM8n8k4tt(
+
+__device__ inline void M16N16K4TT(
     Array<float, 8, 8>* C,
     Array<__half, 4, 4>* A,
     Array<__half, 4, 4>* B) {
@@ -63,7 +62,7 @@ DEVICE_INLINE void mmaM8n8k4tt(
         "r"(_C[7]));
 }
 
-DEVICE_INLINE void mmaM8n8k4tn(
+__device__ inline void M16N16K4TN(
     Array<float, 8, 8>* C,
     Array<__half, 4, 4>* A,
     Array<__half, 4, 4>* B) {
@@ -94,7 +93,7 @@ DEVICE_INLINE void mmaM8n8k4tn(
         "r"(_C[7]));
 }
 
-DEVICE_INLINE void mmaM8n8k4nt(
+__device__ inline void M16N16K4NT(
     Array<float, 8, 8>* C,
     Array<__half, 4, 4>* A,
     Array<__half, 4, 4>* B) {
@@ -125,7 +124,7 @@ DEVICE_INLINE void mmaM8n8k4nt(
         "r"(_C[7]));
 }
 
-DEVICE_INLINE void mmaM8n8k4nn(
+__device__ inline void M16N16K4NN(
     Array<float, 8, 8>* C,
     Array<__half, 4, 4>* A,
     Array<__half, 4, 4>* B) {
@@ -156,112 +155,10 @@ DEVICE_INLINE void mmaM8n8k4nn(
         "r"(_C[7]));
 }
 
-// TODO: in a follow up,
-//    lift this part onto iterdomain ops, once the
-//    swizzle ops are ready.
-template <int acc_stride>
-DEVICE_INLINE Array<float, 8, 8> accToMma(float* _C) {
-  float C_data[8] = {
-      _C[0],
-      _C[1],
-      _C[acc_stride],
-      _C[acc_stride + 1],
-      _C[2],
-      _C[3],
-      _C[acc_stride + 2],
-      _C[acc_stride + 3],
-  };
-
-  return *reinterpret_cast<Array<float, 8, 8>*>(&C_data[0]);
-}
-
-template <int acc_stride>
-DEVICE_INLINE void mmaToAcc(float* _C, Array<float, 8, 8>& C) {
-  float* C_data = reinterpret_cast<float*>(&C);
-  _C[0] = C_data[0];
-  _C[1] = C_data[1];
-  _C[acc_stride] = C_data[2];
-  _C[acc_stride + 1] = C_data[3];
-  _C[2] = C_data[4];
-  _C[3] = C_data[5];
-  _C[acc_stride + 2] = C_data[6];
-  _C[acc_stride + 3] = C_data[7];
-}
-
-// Should be able to lift this with transpose op as well.
-template <int acc_stride>
-DEVICE_INLINE void initM16N16K4(Array<float, 8, 8>& accumulator) {
-  float* _C = reinterpret_cast<float*>(&accumulator);
-  float zeros[8] = {0, 0, 0, 0, 0, 0, 0, 0};
-  mmaToAcc<acc_stride>(_C, *reinterpret_cast<Array<float, 8, 8>*>(&zeros[0]));
-}
-
-} // namespace util
-
-template <int acc_stride>
-DEVICE_INLINE void M16N16K4TT(
-    Array<float, 8, 8>* C,
-    Array<__half, 4, 4>* A,
-    Array<__half, 4, 4>* B) {
-  float* _C = reinterpret_cast<float*>(C);
-  Array<float, 8, 8> C_data = util::accToMma<acc_stride>(_C);
-  util::mmaM8n8k4tt(&C_data, A, B);
-  util::mmaToAcc<acc_stride>(_C, C_data);
-}
-
-template <int acc_stride>
-DEVICE_INLINE void M16N16K4TN(
-    Array<float, 8, 8>* C,
-    Array<__half, 4, 4>* A,
-    Array<__half, 4, 4>* B) {
-  float* _C = reinterpret_cast<float*>(C);
-  Array<float, 8, 8> C_data = util::accToMma<acc_stride>(_C);
-  util::mmaM8n8k4tn(&C_data, A, B);
-  util::mmaToAcc<acc_stride>(_C, C_data);
-}
-
-template <int acc_stride>
-DEVICE_INLINE void M16N16K4NT(
-    Array<float, 8, 8>* C,
-    Array<__half, 4, 4>* A,
-    Array<__half, 4, 4>* B) {
-  float* _C = reinterpret_cast<float*>(C);
-  Array<float, 8, 8> C_data = util::accToMma<acc_stride>(_C);
-  util::mmaM8n8k4nt(&C_data, A, B);
-  util::mmaToAcc<acc_stride>(_C, C_data);
-}
-
-template <int acc_stride>
-DEVICE_INLINE void M16N16K4NN(
-    Array<float, 8, 8>* C,
-    Array<__half, 4, 4>* A,
-    Array<__half, 4, 4>* B) {
-  float* _C = reinterpret_cast<float*>(C);
-  Array<float, 8, 8> C_data = util::accToMma<acc_stride>(_C);
-  util::mmaM8n8k4nn(&C_data, A, B);
-  util::mmaToAcc<acc_stride>(_C, C_data);
-}
-
 // Same initialization for now, will be different in interleaved
 //   macros
-template <int acc_stride>
-DEVICE_INLINE void initM16N16K4TT(Array<float, 8, 8>* accumulator) {
-  util::initM16N16K4<acc_stride>(*accumulator);
-}
-
-template <int acc_stride>
-DEVICE_INLINE void initM16N16K4TN(Array<float, 8, 8>* accumulator) {
-  util::initM16N16K4<acc_stride>(*accumulator);
-}
-
-template <int acc_stride>
-DEVICE_INLINE void initM16N16K4NT(Array<float, 8, 8>* accumulator) {
-  util::initM16N16K4<acc_stride>(*accumulator);
-}
-
-template <int acc_stride>
-DEVICE_INLINE void initM16N16K4NN(Array<float, 8, 8>* accumulator) {
-  util::initM16N16K4<acc_stride>(*accumulator);
+__device__ inline void initM16N16K4(Array<float, 8, 8>* accumulator) {
+  accumulator->set(0);
 }
 
 } // namespace Volta
@@ -270,9 +167,11 @@ DEVICE_INLINE void initM16N16K4NN(Array<float, 8, 8>* accumulator) {
 
 namespace Turing {
 
-namespace util {
-// MMA instruction wrappers (sm_75+):
-DEVICE_INLINE void m16n8k16TN(
+__device__ inline void initM16N8K16(Array<float, 4, 4>* accumulator) {
+  accumulator->set(0);
+}
+
+__device__ inline void M16N8K16TN(
     Array<float, 4, 4>* C,
     Array<__half, 8, 8>* A,
     Array<__half, 4, 4>* B) {
@@ -301,57 +200,20 @@ DEVICE_INLINE void m16n8k16TN(
         "r"(_D[3]));
 }
 
-} // namespace util
-
-template <int acc_stride>
-DEVICE_INLINE void initM16N8K16TN(Array<float, 4, 4>* accumulator) {
-  float* _C = reinterpret_cast<float*>(accumulator);
-  _C[0] = 0;
-  _C[1] = 0;
-  _C[acc_stride] = 0;
-  _C[acc_stride + 1] = 0;
+__device__ inline void initM16N16K16(Array<float, 8, 8>* accumulator) {
+  auto* _C = reinterpret_cast<Array<float, 4, 4>*>(accumulator);
+  initM16N8K16(&_C[0]);
+  initM16N8K16(&_C[1]);
 }
 
-template <int acc_stride = 2>
-DEVICE_INLINE void M16N8K16TN(
-    Array<float, 4, 4>* C,
-    Array<__half, 8, 8>* A,
-    Array<__half, 4, 4>* B) {
-  // TODO: in a follow up,
-  //    lift this fused swizzle onto iterdomain
-  float* _C = reinterpret_cast<float*>(C);
-  float C_data[4] = {_C[0], _C[1], _C[acc_stride], _C[acc_stride + 1]};
-
-  util::m16n8k16TN(reinterpret_cast<Array<float, 4, 4>*>(&C_data[0]), A, B);
-
-  _C[0] = C_data[0];
-  _C[1] = C_data[1];
-  _C[acc_stride] = C_data[2];
-  _C[acc_stride + 1] = C_data[3];
-}
-
-template <int acc_stride>
-DEVICE_INLINE void initM16N16K16TN(Array<float, 8, 8>* accumulator) {
-  float* _C = reinterpret_cast<float*>(accumulator);
-  initM16N8K16TN<acc_stride>(reinterpret_cast<Array<float, 4, 4>*>(&_C[0]));
-  initM16N8K16TN<acc_stride>(reinterpret_cast<Array<float, 4, 4>*>(&_C[2]));
-}
-
-template <int acc_stride = 2>
-DEVICE_INLINE void M16N16K16TN(
+__device__ inline void M16N16K16TN(
     Array<float, 8, 8>* C,
     Array<__half, 8, 8>* A,
     Array<__half, 8, 8>* B) {
-  float* _C = reinterpret_cast<float*>(C);
-  __half* _B = reinterpret_cast<__half*>(B);
-  M16N8K16TN<acc_stride>(
-      reinterpret_cast<Array<float, 4, 4>*>(&_C[0]),
-      A,
-      reinterpret_cast<Array<__half, 4, 4>*>(&_B[0]));
-  M16N8K16TN<acc_stride>(
-      reinterpret_cast<Array<float, 4, 4>*>(&_C[2]),
-      A,
-      reinterpret_cast<Array<__half, 4, 4>*>(&_B[4]));
+  auto* _C = reinterpret_cast<Array<float, 4, 4>*>(C);
+  auto* _B = reinterpret_cast<Array<__half, 4, 4>*>(B);
+  M16N8K16TN(&_C[0], A, &_B[0]);
+  M16N8K16TN(&_C[1], A, &_B[1]);
 }
 
 } // namespace Turing
@@ -362,9 +224,11 @@ DEVICE_INLINE void M16N16K16TN(
 
 namespace Ampere {
 
-namespace util {
-// MMA instruction wrappers (sm_75+):
-DEVICE_INLINE void m16n8k16TN(
+__device__ inline void initM16N8K16(Array<float, 4, 4>* accumulator) {
+  accumulator->set(0);
+}
+
+__device__ inline void M16N8K16TN(
     Array<float, 4, 4>* C,
     Array<__half, 8, 8>* A,
     Array<__half, 4, 4>* B) {
@@ -387,7 +251,7 @@ DEVICE_INLINE void m16n8k16TN(
         "r"(_D[3]));
 }
 
-DEVICE_INLINE void m16n8k16TN(
+__device__ inline void M16N8K16TN(
     Array<float, 4, 4>* C,
     Array<__bfloat, 8, 8>* A,
     Array<__bfloat, 4, 4>* B) {
@@ -410,61 +274,23 @@ DEVICE_INLINE void m16n8k16TN(
         "r"(_D[3]));
 }
 
-} // namespace util
-
-template <int acc_stride>
-DEVICE_INLINE void initM16N8K16TN(Array<float, 4, 4>* accumulator) {
-  float* _C = reinterpret_cast<float*>(accumulator);
-  _C[0] = 0;
-  _C[1] = 0;
-  _C[acc_stride] = 0;
-  _C[acc_stride + 1] = 0;
+__device__ inline void initM16N16K16(Array<float, 8, 8>* accumulator) {
+  auto* _C = reinterpret_cast<Array<float, 4, 4>*>(accumulator);
+  initM16N8K16(&_C[0]);
+  initM16N8K16(&_C[1]);
 }
 
-template <int acc_stride = 2, typename T = __half>
-DEVICE_INLINE void M16N8K16TN(
-    Array<float, 4, 4>* C,
-    Array<T, 8, 8>* A,
-    Array<T, 4, 4>* B) {
-  // TODO: in a follow up,
-  //    lift this fused swizzle onto iterdomain
-  float* _C = reinterpret_cast<float*>(C);
-  float C_data[4] = {_C[0], _C[1], _C[acc_stride], _C[acc_stride + 1]};
-
-  util::m16n8k16TN(reinterpret_cast<Array<float, 4, 4>*>(&C_data[0]), A, B);
-
-  _C[0] = C_data[0];
-  _C[1] = C_data[1];
-  _C[acc_stride] = C_data[2];
-  _C[acc_stride + 1] = C_data[3];
-}
-
-template <int acc_stride>
-DEVICE_INLINE void initM16N16K16TN(Array<float, 8, 8>* accumulator) {
-  float* _C = reinterpret_cast<float*>(accumulator);
-  initM16N8K16TN<acc_stride>(reinterpret_cast<Array<float, 4, 4>*>(&_C[0]));
-  initM16N8K16TN<acc_stride>(reinterpret_cast<Array<float, 4, 4>*>(&_C[2]));
-}
-
-template <int acc_stride = 2, typename T = __half>
-DEVICE_INLINE void M16N16K16TN(
+template <typename T>
+__device__ inline void M16N16K16TN(
     Array<float, 8, 8>* C,
     Array<T, 8, 8>* A,
     Array<T, 8, 8>* B) {
-  float* _C = reinterpret_cast<float*>(C);
-  T* _B = reinterpret_cast<T*>(B);
-  M16N8K16TN<acc_stride>(
-      reinterpret_cast<Array<float, 4, 4>*>(&_C[0]),
-      A,
-      reinterpret_cast<Array<T, 4, 4>*>(&_B[0]));
-  M16N8K16TN<acc_stride>(
-      reinterpret_cast<Array<float, 4, 4>*>(&_C[2]),
-      A,
-      reinterpret_cast<Array<T, 4, 4>*>(&_B[4]));
+  auto* _C = reinterpret_cast<Array<float, 4, 4>*>(C);
+  auto* _B = reinterpret_cast<Array<T, 4, 4>*>(B);
+  M16N8K16TN(&_C[0], A, &_B[0]);
+  M16N8K16TN(&_C[1], A, &_B[1]);
 }
 
 } // namespace Ampere
 
 #endif // Arch 80
-
-#undef DEVICE_INLINE
