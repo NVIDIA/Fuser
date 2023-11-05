@@ -75,7 +75,7 @@ BUILD_TYPE = "Release"
 WHEEL_NAME = "nvfuser"
 BUILD_DIR = ""
 INSTALL_REQUIRES = []
-EXTRA_REQUIRES = {}
+EXTRAS_REQUIRE = {}
 CPP_STANDARD = 17
 forward_args = []
 for i, arg in enumerate(sys.argv):
@@ -112,8 +112,8 @@ for i, arg in enumerate(sys.argv):
     if arg.startswith("-install_requires="):
         INSTALL_REQUIRES = arg.split("=")[1].split(",")
         continue
-    if arg.startswith("--extra_requires="):
-        EXTRA_REQUIRES = eval('='.join(arg.split('=')[1:]))
+    if arg.startswith("--extras_require="):
+        EXTRAS_REQUIRE = eval('='.join(arg.split('=')[1:]))
         continue
     if arg.startswith("-version-tag="):
         OVERWRITE_VERSION = True
@@ -406,7 +406,7 @@ def main():
             install_requires=INSTALL_REQUIRES,
             extras_require={
                 "test": ["numpy", "expecttest", "pytest"],
-                **EXTRA_REQUIRES,
+                **EXTRAS_REQUIRE,
             },
             entry_points={
                 "console_scripts": [
