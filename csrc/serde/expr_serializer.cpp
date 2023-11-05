@@ -531,7 +531,7 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::
   for (const auto& int_val : sorted_values.const_int_values) {
     auto val_fb = serializeScalar(
         builder,
-        int_val->evaluateInt(),
+        int_val->evaluate(),
         nvfuser::DataType::Int,
         (int64_t)operation_stack_.size());
     auto inst = CreateInstruction(
