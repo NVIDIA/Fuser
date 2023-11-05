@@ -84,6 +84,24 @@ class FusionGuard {
   static thread_local Fusion* active_fusion_;
 };
 
+// Set the enum base to `int` so it can be safely serialized as a part of
+// serde::InputOutputAlias.
+enum class AliasType : int {
+  // For example, the tensor storing BatchNorm's running mean. The output EMA is
+  // updated in place.
+  InplaceUpdate,
+  // For example, the output of a ViewOp is merely a pointer cast of the input.
+  // In this case, we use `ExpressionEvaluator` (instead of a kernel) to compute
+  // the output tensor.
+  PointerCast,
+};
+
+struct AliasInfo {
+  AliasType type;
+  // Whether integration should hide the output from users.
+  bool hide_output;
+};
+
 //! Fusion is mutable but unique. Nodes cannot be copied in any way from one
 //! Fusion to another. If anything like that is desired, it would require
 //! duplicating all associated values and exprs. Fusion is considered to be SSA,
@@ -221,16 +239,12 @@ class Fusion : public IrContainer {
   // normalization.
   // TODO: alias should be made aware to segmentation, so we'll always include
   // the input tensor to the section where output is produced.
-  void aliasOutputToInput(Val* output, Val* input);
+  void aliasOutputToInput(Val* output, Val* input, AliasType type);
 
-  //! Return the aliased input of a given output or nullptr if not aliased
-  Val* getOutputAlias(Val* output);
-
-  //! Get indices of aliased outputs
-  std::unordered_set<int> getIndicesOfAliasedOutputs() const;
-
-  //! Get alias mappings from fusion outputs to inputs
-  std::vector<std::pair<int, int>> getOutputToInputAliasIndices() const;
+  //! Returns the aliased input of a given output along with an `AliasInfo`
+  //! describing how they alias. Returns <nullptr,nullptr> when `output` is not
+  //! aliased.
+  std::pair<Val*, const AliasInfo*> getOutputAlias(Val* output);
 
   // mark input at index to be permuted by permutation
   void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
@@ -262,7 +276,8 @@ class Fusion : public IrContainer {
     return is_during_update_uses_;
   }
 
-  const auto& ioAlias() const {
+  // TODO: Have getOutputAlias expose AliasInfo and then remove this method.
+  const std::unordered_map<Val*, std::pair<Val*, AliasInfo>>& ioAlias() const {
     return io_alias_;
   }
 
@@ -455,7 +470,7 @@ class Fusion : public IrContainer {
   std::vector<Val*> outputs_;
 
   // io alias pointing from output to input
-  std::unordered_map<Val*, Val*> io_alias_;
+  std::unordered_map<Val*, std::pair<Val*, AliasInfo>> io_alias_;
 
   // See Note [ Permutation support in nvfuser ]
   // map from indices of input tensor to permutation

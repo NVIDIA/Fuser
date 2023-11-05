@@ -12,6 +12,7 @@
 #include <dynamic_transform.h>
 #include <executor_params.h>
 #include <executor_utils.h>
+#include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <optimization/pre_segmenter.h>
@@ -191,19 +192,23 @@ class ArgumentManager {
         group_outputs.size() == group_runtime_outputs.size(),
         "Output size does not match.");
 
-    // Trivial forwarding outputs an empty tensor to save bandwidth. We skip
-    // updating the tensor_map because we want all future use of inputs on
-    // the original tensor input. See note [Trivial Forwarding]
     for (const size_t group_out_i : c10::irange(group_outputs.size())) {
-      if (!group_outputs[group_out_i]->isFusionInput()) {
-        if constexpr (std::is_pointer_v<
-                          decltype(group_runtime_outputs[group_out_i])>) {
-          fusion_args_.push(*group_runtime_outputs[group_out_i]);
-        } else {
-          fusion_args_.push(group_runtime_outputs[group_out_i]);
-        }
-        tensor_map_.emplace(group_outputs[group_out_i], fusion_args_.back());
+      Val* output = group_outputs[group_out_i];
+      const PolymorphicValue*& runtime_output = tensor_map_[output];
+      if (runtime_output != nullptr) {
+        // A trivial forwarding output shares the same `Val*` as an input, so we
+        // simply map it to the same runtime output. See note [Trivial
+        // Forwarding].
+        continue;
       }
+
+      if constexpr (std::is_pointer_v<
+                        decltype(group_runtime_outputs[group_out_i])>) {
+        fusion_args_.push(*group_runtime_outputs[group_out_i]);
+      } else {
+        fusion_args_.push(group_runtime_outputs[group_out_i]);
+      }
+      runtime_output = fusion_args_.back();
     }
   }
 };
@@ -440,6 +445,10 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     std::optional<PrimDataType> forced_index_type,
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
+  // NOTE: This should be the first code in the method to capture all host time
+  if (isProfilerEnabled()) {
+    FusionProfiler::start(isProfilerEnabledWithoutCupti());
+  }
 
   // Permute input tensor for kernel execution.
   // See Part_1 in Note [ Channels-Last support in nvfuser ]
@@ -460,6 +469,10 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
 
   KernelArgumentHolder args = prepareInputs(perm_inputs, selected_device);
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
+
+  if (isProfilerEnabled()) {
+    FusionProfiler::createSegments(kernel_runtime->executors().size());
+  }
 
   if (!kernel_runtime->isCompiled()) {
     kernel_runtime->compileFusionParallel(args);
@@ -506,12 +519,30 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   // Removing aliased outputs, since those are updated by the Fusion. It is not
   // semantically correct to actually return them as outputs from
   // fusion.
-  int offset = 0;
-  const auto& indices = fusion->getIndicesOfAliasedOutputs();
-  std::set<int> aliased_output_indices(indices.begin(), indices.end());
-  for (const auto& v : aliased_output_indices) {
-    outputs.erase(outputs.begin() + v - offset);
-    offset++;
+  const auto& io_alias = fusion->ioAlias();
+  auto should_remove = [&io_alias](Val* out_val) -> bool {
+    if (auto alias_it = io_alias.find(out_val); alias_it != io_alias.end()) {
+      return alias_it->second.second.hide_output;
+    }
+    return false;
+  };
+
+  NVF_ERROR(fusion->outputs().size() == outputs.size());
+  size_t new_size = 0;
+  for (size_t out_index = 0; out_index < outputs.size(); out_index++) {
+    if (!should_remove(fusion->outputs()[out_index])) {
+      outputs[new_size] = outputs[out_index];
+      new_size++;
+    }
+  }
+  outputs.resize(new_size);
+
+  // NOTE: This should be the last code in the method to capture all host time
+  if (isProfilerEnabled()) {
+    FusionProfiler::stop();
+  }
+  if (isProfilerPrintingEnabled()) {
+    debug() << FusionProfiler::profile();
   }
 
   return outputs;
@@ -1006,7 +1037,17 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     executor.setMeasureKernelTimeFlag(true);
   }
 
+  if (isProfilerEnabled()) {
+    auto& sprof = FusionProfiler::segment(group_id);
+    sprof.inputBytesAccessed(executor.inputBytesProcessed(args));
+    sprof.startKernel(args.getDeviceIndex());
+  }
   auto outputs = executor.runFusion(args, launch_params, compile_params);
+  if (isProfilerEnabled()) {
+    auto& sprof = FusionProfiler::segment(group_id);
+    sprof.stopKernel();
+    sprof.outputBytesAccessed(executor.outputBytesProcessed(outputs));
+  }
 
   // Accumulate the kernel time of each segment
   kernel_time_ms_ += executor.kernelTimeMs();
@@ -1116,6 +1157,9 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
   num_live_args_after_segment_runs_.reserve(num_groups);
+  if (isProfilerEnabled()) {
+    FusionProfiler::startCompile();
+  }
   for (int64_t group_id = 0; group_id < num_groups; ++group_id) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
 
@@ -1160,6 +1204,9 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     // wait until all segments finish compiling
     getThreadPool()->waitWorkComplete();
   }
+  if (isProfilerEnabled()) {
+    FusionProfiler::stopCompile();
+  }
 }
 
 void FusionKernelRuntime::compileKernel(
@@ -1167,6 +1214,9 @@ void FusionKernelRuntime::compileKernel(
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
   auto group_id = sg->groupId();
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id).startCompile(args.getDeviceIndex());
+  }
   auto scheduler_entry = schedulers().at(group_id).get();
 
   // Check that the heuristics are matched, in the case of segmented fusion
@@ -1186,6 +1236,9 @@ void FusionKernelRuntime::compileKernel(
       args,
       scheduler_entry->params()->lparams,
       scheduler_entry->params()->cparams);
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id).stopCompile();
+  }
 }
 
 std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
@@ -1222,61 +1275,15 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
 
   // Produce final global output
   std::vector<at::Tensor> fusion_outputs;
-  for (auto output : segmented_fusion_->outputs()) {
-    const auto iter = tensor_map.find(output);
-    if (iter != tensor_map.end()) {
-      // Note [ trivial forwarding ]
-      //
-      // Background:
-      // NvFuser codegen does not handle aliases. When we have a fusion that
-      // forwards an input to output without any operations on it, this is
-      // a no-op for codegen and the output tensor is never written to. However,
-      // the codegen cannot "forward" an input to output, since all outputs are
-      // allocated in integration. If we do not special case it, we'll ended up
-      // having a "fresh" tensor allocated for the forwarded-input.
-      //
-      // Approach:
-      // There are two aspects of the support:
-      // 1) Codegen handles forwarding implicitly. Forwarded inputs do not
-      // have any producer in the IR, so the output argument is not used in
-      // the code. However, it is required to be a kernel argument, which acts
-      // as a place-holder, so we can map the arguments correctly.
-      //
-      // 2) Integration handles the trivial forwarding of inputs. When we put
-      // together `fusion_outputs` for a given fusion and the outputs are
-      // fusion inputs, we directly return the input tensor.
-      NVF_ERROR(iter->second->is<at::Tensor>());
-      fusion_outputs.push_back(iter->second->as<at::Tensor>());
-    } else {
-      bool empty_type_check = output->getDataType().has_value() &&
-          output->getDataType().value() == DataType::Float;
-
-      // Only support two cases of empty tensor here, since this is hot path.
-      auto out_tv = output->as<TensorView>();
-
-      // TODO: should be only one of the two once the "empty"
-      //  definition has been unified throughout the ops.
-      bool empty_tensor_check = out_tv->isZeroDim() || out_tv->isEmptyTensor();
-
-      // This is the check for an empty tensor;
-      NVF_ERROR(
-          empty_tensor_check && empty_type_check,
-          "Is empty tensor? ",
-          !empty_tensor_check,
-          " Is empty type check? ",
-          !empty_type_check,
-          " Output empty tensor check failed for tensor: ",
-          out_tv->toString(),
-          " In function: ",
-          __FUNCTION__);
-
-      // TODO: would need to clean up this part when
-      //   we have a unified and consistent way to generate
-      //   size-0 tensors.
-      const auto tensor_options =
-          at::TensorOptions().dtype(at::kFloat).device(device);
-      fusion_outputs.emplace_back(at::empty({0}, tensor_options));
-    }
+  fusion_outputs.reserve(segmented_fusion_->outputs().size());
+  for (Val* output : segmented_fusion_->outputs()) {
+    NVF_ERROR(
+        tensor_map.count(output),
+        "Segmented fusion output ",
+        output->toString(),
+        " does not exist in `tensor_map`.");
+    const PolymorphicValue* runtime_output = tensor_map.at(output);
+    fusion_outputs.push_back(runtime_output->as<at::Tensor>());
   }
   return fusion_outputs;
 }
@@ -1335,6 +1342,27 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
         total_bytes_processed += bytes;
       }
     }
+  }
+
+  if (isProfilerEnabled()) {
+    int64_t input_bytes = 0;
+    for (auto inp : fusionSegments()->inputs()) {
+      if (dynamic_cast<TensorView*>(inp)) {
+        auto aten_ten = args_manager.checkTensorMap(inp);
+        input_bytes +=
+            static_cast<int64_t>(aten_ten->as<at::Tensor>().storage().nbytes());
+      }
+    }
+    FusionProfiler::inputBytesAccessed(input_bytes);
+    int64_t output_bytes = 0;
+    for (auto outp : fusionSegments()->outputs()) {
+      if (dynamic_cast<TensorView*>(outp)) {
+        auto aten_ten = args_manager.checkTensorMap(outp);
+        output_bytes +=
+            static_cast<int64_t>(aten_ten->as<at::Tensor>().storage().nbytes());
+      }
+    }
+    FusionProfiler::outputBytesAccessed(output_bytes);
   }
 
   if (compute_overall_bw) {

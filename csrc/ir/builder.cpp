@@ -711,7 +711,7 @@ Val* SimplifyingIrBuilder::whereExpr(Val* pred, Val* lhs, Val* rhs) {
     return lhs; // return value is independent of predicate
   }
   if (pred->isConstScalar() && pred->isABool()) {
-    if (pred->evaluateBool()) {
+    if (pred->evaluate()) {
       return lhs;
     } else {
       return rhs;

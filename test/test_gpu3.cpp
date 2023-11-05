@@ -4991,174 +4991,6 @@ TEST_F(NVFuserTest, FusionMergeBroadcastingTrivialReduction1_CUDA) {
       fusion, {out}, {t0, t1}, {t1 + t0.flatten()}, __LINE__, __FILE__);
 }
 
-// Simple test case exercising the null scheduler path.
-TEST_F(NVFuserTest, FusionNullScheduler_CUDA) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  auto tv0 = makeConcreteTensor({1, 1, 1});
-  fusion->addInput(tv0);
-
-  auto tv1 = sum(tv0, {0, 1, 2});
-
-  fusion->addOutput(tv1);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({1, 1, 1}, options);
-
-  std::vector<c10::IValue> aten_inputs({t0});
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-
-  auto t1 = t0.sum({0, 1, 2});
-
-  testValidate(
-      executor_cache.fusion(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
-
-  auto groups =
-      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
-
-  // Check that all groups on the resulting runtime are null.
-  for (auto group : groups) {
-    NVF_ERROR(group->heuristic() == ScheduleHeuristic::NoOp);
-  }
-}
-
-// Simple test case exercising the null scheduler path.
-TEST_F(NVFuserTest, FusionNullScheduler2_CUDA) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  auto tv0 = makeConcreteTensor({0, 1, 9223372036854775807L});
-  fusion->addInput(tv0);
-
-  auto tv1 = sum(tv0, {1, 2});
-
-  fusion->addOutput(tv1);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({0, 1, 9223372036854775807L}, options);
-
-  std::vector<c10::IValue> aten_inputs({t0});
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-
-  auto t1 = t0.sum({1, 2});
-
-  testValidate(
-      executor_cache.fusion(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
-
-  auto groups =
-      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
-
-  // Check that all groups on the resulting runtime are null.
-  for (auto group : groups) {
-    NVF_ERROR(group->heuristic() == ScheduleHeuristic::NoOp);
-  }
-}
-
-// Simple test case exercising the null scheduler path.
-TEST_F(NVFuserTest, FusionNullScheduler3_CUDA) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  auto tv0 = TensorViewBuilder().ndims(0).build();
-  auto tv1 = TensorViewBuilder().ndims(0).build();
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  auto tv2 = add(tv0, tv1);
-  fusion->addOutput(tv2);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({}, options);
-  at::Tensor t1 = at::randn({}, options);
-
-  std::vector<c10::IValue> aten_inputs({t0, t1});
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-
-  testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      {t0, t1},
-      {t0 + t1},
-      __LINE__,
-      __FILE__);
-
-  auto groups =
-      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
-
-  // Check that all groups on the resulting runtime are null.
-  for (auto group : groups) {
-    NVF_ERROR(group->heuristic() == ScheduleHeuristic::NoOp);
-  }
-}
-
-TEST_F(NVFuserTest, FusionReducingZeroElements_CUDA) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  auto tv0 = makeConcreteTensor({0, 1, 9223372036854775807L});
-  fusion->addInput(tv0);
-
-  auto tv1 = sum(tv0, {0, 1, 2});
-
-  fusion->addOutput(tv1);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({0, 1, 9223372036854775807L}, options);
-
-  std::vector<c10::IValue> aten_inputs({t0});
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-
-  auto t1 = t0.sum({0, 1, 2});
-
-  testValidate(
-      executor_cache.fusion(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
-}
-
-TEST_F(NVFuserTest, FusionEmpty_CUDA) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  auto tv0 = makeConcreteTensor({10, 10, 10});
-  auto tv1 = makeConcreteTensor({10, 10, 10});
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  fusion->addOutput(tv0);
-  fusion->addOutput(tv1);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({10, 10, 10}, options);
-  at::Tensor t1 = at::randn({10, 10, 10}, options);
-
-  std::vector<c10::IValue> aten_inputs({t0, t1});
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-
-  testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      {t0, t1},
-      {t0, t1},
-      __LINE__,
-      __FILE__);
-
-  auto groups =
-      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
-
-  // Check that all groups on the resulting runtime are null.
-  for (auto group : groups) {
-    NVF_ERROR(group->heuristic() == ScheduleHeuristic::NoOp);
-  }
-}
-
 TEST_F(NVFuserTest, FusionMappingRelation_CUDA) {
   // See https://github.com/csarofeen/pytorch/pull/1960
   // and https://github.com/csarofeen/pytorch/pull/2113
@@ -5227,7 +5059,28 @@ TEST_F(NVFuserTest, FusionInlineAt_CUDA) {
   testValidate(fusion, {out}, {t0}, {t0.sin().cos()}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionTrivialInputForwarding_CUDA) {
+TEST_F(NVFuserTest, FusionTrivialInputForwarding_FusionExecutor) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeConcreteTensor({-1, -1});
+  TensorView* tv1 = makeConcreteTensor({-1, -1});
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addOutput(tv0);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({10, 4}, options);
+  at::Tensor t1 = at::randn({10, 4}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0, t1});
+  at::Tensor t0_forward = fe.runFusion({t0, t1})[0];
+
+  EXPECT_EQ(t0_forward.data_ptr(), t0.data_ptr());
+}
+
+TEST_F(NVFuserTest, FusionTrivialInputForwarding_FusionExecutorCache) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -5248,15 +5101,17 @@ TEST_F(NVFuserTest, FusionTrivialInputForwarding_CUDA) {
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs({t0, t1});
 
+  EXPECT_EQ(cg_outputs[0].data_ptr(), t0.data_ptr());
   testValidate(fusion, cg_outputs, {t0, t1}, {t0}, __LINE__, __FILE__);
 
   // Second run to ensure cache hit handles trivial forwarding properly
   NVF_CHECK(fec.isCompiled({t0, t1}));
   auto cg_outputs2 = fec.runFusionWithInputs({t0, t1});
+  EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
   testValidate(fusion, cg_outputs2, {t0, t1}, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionTrivialInputForwarding2_CUDA) {
+TEST_F(NVFuserTest, FusionTrivialInputForwarding2_FusionExecutorCache) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -5270,12 +5125,13 @@ TEST_F(NVFuserTest, FusionTrivialInputForwarding2_CUDA) {
 
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs({t0});
-
+  EXPECT_EQ(cg_outputs[0].data_ptr(), t0.data_ptr());
   testValidate(fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 
   // Second run to ensure cache hit handles trivial forwarding properly
   NVF_CHECK(fec.isCompiled({t0}));
   auto cg_outputs2 = fec.runFusionWithInputs({t0});
+  EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
   testValidate(fusion, cg_outputs2, {t0}, {t0}, __LINE__, __FILE__);
 }
 
@@ -6339,10 +6195,9 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
             std::find(cond_inputs.begin(), cond_inputs.end(), loop_index);
         auto vec_factor_it =
             std::find_if(cond_inputs.begin(), cond_inputs.end(), [](Val* inp) {
-              auto int_val = inp->getInt();
-              return int_val.has_value() &&
-                  (int_val.value() == vec_factor - 1 ||
-                   int_val.value() == -(vec_factor - 1));
+              auto int_val = inp->value();
+              return int_val.hasValue() &&
+                  (int_val == vec_factor - 1 || int_val == -(vec_factor - 1));
             });
         // If vectorized, the predicate should use (vec_factor - 1) or
         // -(vec_factor - 1) rather than the loop index.
@@ -8383,7 +8238,7 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
       aten_input, norm_shape, aten_weight, aten_bias, kEps);
 
   // capture stdout and check stdout contains register spill warning
-  testing::internal::CaptureStdout();
+  captureStdout();
   {
     // generate persistent kernel
     auto persistent_params =
@@ -8412,7 +8267,7 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
         __FILE__,
         "");
   }
-  std::string output = testing::internal::GetCapturedStdout();
+  std::string output = getCapturedStdout();
   NVF_CHECK(
       output.find("Register spill detected") != std::string::npos,
       "Register spill is not captured!");
@@ -8664,7 +8519,7 @@ TEST_F(NVFuserTest, Repro413_CUDA) {
       auto getVectorizationFactor = [](TensorView* tv) -> int64_t {
         for (auto i : tv->getLeafDomain()) {
           if (i->getParallelType() == ParallelType::Vectorize) {
-            return i->extent()->evaluateInt();
+            return i->extent()->evaluate().as<int64_t>();
           }
         }
         return 1;
@@ -8795,7 +8650,7 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
   scheduleInnerPersistentKernel(&fusion, *persistent_params);
 
   // capture stdout and check stdout contains register spill warning
-  testing::internal::CaptureStdout();
+  captureStdout();
 
   // compile and run persistent kernel
   // intentionally set maxrregcount to 32 to trigger register spill
@@ -8808,7 +8663,7 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
   FusionExecutor fe;
   fe.compileFusion(&fusion, {aten_input}, lparams, compile_opts);
 
-  std::string output = testing::internal::GetCapturedStdout();
+  std::string output = getCapturedStdout();
   ASSERT_NE(output.find("Register spill detected"), std::string::npos)
       << "Register spill is not captured!";
 }
@@ -9692,6 +9547,7 @@ TEST_F(NVFuserTest, PredicateRNGOps) {
   at::manual_seed(0);
   auto cg_outputs = fe.runFusion({t0});
 }
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

@@ -17,6 +17,7 @@
 #include <device_lower/pass/expr_sort.h>
 #include <device_lower/pass/fusion_simplifier.h>
 #include <device_lower/pass/index.h>
+#include <device_lower/pass/inline_ptx.h>
 #include <device_lower/pass/insert_syncs.h>
 #include <device_lower/pass/instrument.h>
 #include <device_lower/pass/loop_rotation.h>
@@ -176,8 +177,7 @@ void GpuLower::collectPaddedParallelDims() {
             size_after_padding.value() == warp_size;
 
         if (id->extent()->isConstInt() &&
-            id->extent()->evaluateInt() > warp_size &&
-            !padding_to_single_warp) {
+            id->extent()->evaluate() > warp_size && !padding_to_single_warp) {
           // If we see any other TIDx binding that's larger than
           //  a warp or unknown, we shouldn't lower warp reduce
           //  to a single warp type.
@@ -186,7 +186,7 @@ void GpuLower::collectPaddedParallelDims() {
         } else if (can_be_single_warp) {
           if (padding_to_single_warp ||
               (id->extent()->isConstInt() &&
-               id->extent()->evaluateInt() == warp_size)) {
+               id->extent()->evaluate() == warp_size)) {
             warp_pad_info_.is_tidx_single_warp = true;
           }
         }
@@ -606,10 +606,13 @@ void GpuLower::lower(Fusion* fusion) {
   const auto exprs_instrumented = instrumentKernel(exprs_cleaned_up_loops);
   dumpExprsIfEnabled(exprs_instrumented, "instrumentKernel");
 
+  const auto exprs_inlined_ptx = lowerToInlinePtx(exprs_instrumented);
+  dumpExprsIfEnabled(exprs_inlined_ptx, "lowerToInlinePtx");
+
   // We now have the lowered expressions, finalize the kernel IR. This function
   // will also copy over some relevant information for code generation from
   // GpuLower.
-  kernel_->finalize(exprs_instrumented);
+  kernel_->finalize(exprs_inlined_ptx);
 }
 
 kir::Kernel* GpuLower::kernel() const {

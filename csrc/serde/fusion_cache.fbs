@@ -397,13 +397,10 @@ table GlobalBufferInfo {
 
 // This table describes the cached ExecutorEntry for a kernel.
 table ExecutorEntry {
-    init: bool;
-    launch_params: LaunchParams;
-    // Aliased output and input mappings
-    output_aliases: [int];
-    input_aliases: [int];
-    outputs: [GlobalBufferInfo];
-    intermediates: [GlobalBufferInfo];
+  init : bool;
+  launch_params : LaunchParams;
+  outputs : [GlobalBufferInfo];
+  intermediates : [GlobalBufferInfo];
 }
 
 // =====================================================================================

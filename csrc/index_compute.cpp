@@ -57,9 +57,6 @@ int getProducerHaloOffset(
   // producer tensors, where reduction axes are skipped, producer_id
   // should never be a reduction axis.
   if (it == p2c.end()) {
-    TORCH_WARN(
-        "getProducerHaloOffset p2c mapping has failed. See "
-        "https://github.com/NVIDIA/Fuser/issues/1122");
     return 0;
   }
   IterDomain* consumer_id = it->second;
@@ -320,13 +317,13 @@ Val* getProducerIndexWithPartialSplit(
       diff->isConstScalar(),
       "Invalid partial split, must be a constant value.");
 
-  if (diff->evaluateInt() == 0) {
+  if (diff->evaluate() == 0) {
     return producer_index;
   }
 
   return SimplifyingIrBuilder::addExpr(
       producer_index,
-      SimplifyingIrBuilder::create<Val>(diff->evaluateInt(), DataType::Index));
+      SimplifyingIrBuilder::create<Val>(diff->evaluate(), DataType::Index));
 }
 
 Val* getTensorBaseAddress(TensorView* tv) {
@@ -2925,7 +2922,8 @@ bool canOmitStopPredicate(
     auto in_extent = IrBuilder::ltExpr(
         IrBuilder::create<Val>(lhs, *stop_index->getDataType()),
         contig_id->getMaybeExpandedExtent());
-    if (simplifyExpr(in_extent)->getBool() == true) {
+    auto expr_val = simplifyExpr(in_extent)->value();
+    if (expr_val.hasValue() && expr_val.is<bool>() && expr_val.as<bool>()) {
       return true;
     } else {
       return false;
