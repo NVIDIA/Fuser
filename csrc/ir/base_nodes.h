@@ -326,39 +326,6 @@ class Val : public Statement {
     return isScalar() && dtype_ == DataType::Bool;
   }
 
-  // If this Val is an integer with a direct constant value associated with it,
-  // will return the value of that constant integer. If this integer has
-  // defining expressions it will return a std::nullopt. Those values should be
-  // infered using evaluateInt.
-  std::optional<int64_t> getInt() const;
-
-  // If this Val is a double with a direct constant value associated with it,
-  // will return the value of that constant double. If this double has
-  // defining expressions it will return a std::nullopt. Those values should be
-  // infered using evaluateDouble.
-  std::optional<double> getDouble() const;
-
-  // If this Val is a bool with a direct constant value associated with it,
-  // will return the value of that constant bool. If this bool has defining
-  // expressions it will return a std::nullopt. Those values should be infered
-  // using evaluateBool.
-  std::optional<bool> getBool() const;
-
-  // If this Val is a constant integer, and its history is comprised only of
-  // constant values, will return the value of that constant integer. Cannot
-  // make constant as expression evaluator takes non-constant Vals.
-  int64_t evaluateInt();
-
-  // If this Val is a constant double, and its history is comprised only of
-  // constant values, will return the value of that constant double. Cannot
-  // make constant as expression evaluator takes non-constant Vals.
-  double evaluateDouble();
-
-  // If this Val is a constant bool, and its history is comprised only of
-  // constant values, will return the value of that constant bool. Cannot
-  // make constant as expression evaluator takes non-constant Vals.
-  bool evaluateBool();
-
   // If this Val's history is comprised only of constant values, will return a
   // PolymorphicValue. Cannot make constant as expression evaluator takes
   // non-constant Vals.

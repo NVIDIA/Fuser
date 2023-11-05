@@ -928,7 +928,7 @@ TensorView* TensorView::rFactor(const std::vector<int>& axes) {
         this_mma->inA(),
         this_mma->inB(),
         this_mma->init(),
-        this_mma->options(),
+        this_mma->macro(),
         this_mma->layout());
 
     // Remaining reduction that can be scheduled cross
@@ -1379,6 +1379,9 @@ void TensorView::applyMmaSwizzle(MmaOptions options) {
   switch (options.operand) {
     case MmaOptions::Operand::Accumulator:
       mma_utils::WarpMmaSwizzler::scheduleMmaWarpOutput(this, options);
+      if (definition()->isA<MmaOp>()) {
+        setAllocationDomain(getLeafDomain(), true);
+      }
       break;
     case MmaOptions::Operand::A:
     case MmaOptions::Operand::B:
