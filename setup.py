@@ -75,6 +75,7 @@ BUILD_TYPE = "Release"
 WHEEL_NAME = "nvfuser"
 BUILD_DIR = ""
 INSTALL_REQUIRES = []
+EXTRA_REQUIRES = {}
 CPP_STANDARD = 17
 forward_args = []
 for i, arg in enumerate(sys.argv):
