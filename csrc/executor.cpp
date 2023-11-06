@@ -955,6 +955,12 @@ std::vector<at::Tensor> allocOutputs(
           auto* output_tv = kernel->outputs()[output_idx]->as<TensorView>();
           ee.bind(input_tv, input_tensor);
           at::Tensor output_tensor = ee.evaluate(output_tv).as<at::Tensor>();
+          NVF_ERROR(
+              input_tensor.data_ptr() == output_tensor.data_ptr(),
+              "ExpressionEvaluator failed to evaluate ",
+              output_tv->toString(),
+              " as an alias of ",
+              input_tv->toString());
           outputs.emplace_back(output_tensor);
           break;
       }
