@@ -113,7 +113,7 @@ for i, arg in enumerate(sys.argv):
         INSTALL_REQUIRES = arg.split("=")[1].split(",")
         continue
     if arg.startswith("--extras_require="):
-        EXTRAS_REQUIRE = eval('='.join(arg.split('=')[1:]))
+        EXTRAS_REQUIRE = eval("=".join(arg.split("=")[1:]))
         continue
     if arg.startswith("-version-tag="):
         OVERWRITE_VERSION = True
