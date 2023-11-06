@@ -21,6 +21,12 @@ auto multidevice_env = static_cast<MultiDeviceEnvironment*>(
 
 void MultiDeviceEnvironment::SetUp() {
   communicator_ = std::make_unique<Communicator>();
+  if (getenv("NVFUSER_MULTIDEVICE_DEBUG_PRINT")) {
+    debug_print_ = true;
+  }
+  if (getenv("NVFUSER_MULTIDEVICE_DO_BARRIER")) {
+    do_barrier_at_test_ = true;
+  }
 }
 
 void MultiDeviceEnvironment::TearDown() {
@@ -39,6 +45,15 @@ void MultiDeviceTest::SetUp() {
   }
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator->device());
+  debug_print = multidevice_env->debug_print();
+  do_barrier_at_test = multidevice_env->doBarrierAtTest();
+}
+
+void MultiDeviceTest::TearDown() {
+  if (do_barrier_at_test && communicator->is_available()) {
+    communicator->barrier();
+  }
+  NVFuserTest::TearDown();
 }
 
 void CommunicationTest::SetUp() {
@@ -74,32 +89,88 @@ void unshardTv(TensorView* tv) {
   }
 }
 
+void doSendRecv(DeviceIdxType sender,
+                DeviceIdxType receiver,
+                at::Tensor send_buf,
+                at::Tensor recv_buf,
+                Communicator* communicator)
+{
+  CommParams params;
+  params.root = sender;
+  if (sender == receiver) {
+    params.team = {sender};
+  } else {
+    params.team = {sender, receiver};
+  }
+  if (send_buf.numel()) {
+    params.src_bufs = {send_buf};
+  }
+  if (recv_buf.numel()) {
+    params.dst_bufs = {recv_buf};
+  }
+  auto work = SendRecv(params).post(*communicator);
+  if (work) {
+    work->wait();
+  }
+}
+
 // Send a possibly sharded tensor represented by a PipelineVal
 // to one "tester" device
 void SendToTester(
     PipelineVal* pVal,
     at::Tensor tensor,
+    at::Tensor tester_tensor,
     DeviceIdxType tester,
-    Communicator* communicator) {
-  std::vector<at::Tensor> buffer;
+    Communicator* communicator,
+    bool debug_print) {
   auto& mesh = pVal->getStage()->descriptor()->mesh;
   if (pVal->getOriginalVal()->as<TensorView>()->isSharded()) {
     for (DeviceIdxType j : c10::irange(mesh.vector().size())) {
-      buffer = {tensor.index({j, "..."})};
+      at::Tensor send_buf, recv_buf;
       auto sender = mesh.vector().at(j);
-      if (tester != sender &&
-          (communicator->deviceId() == sender ||
-           communicator->deviceId() == tester)) {
-        communicator->sendRecv(tester, sender, buffer)->wait();
+      if (communicator->deviceId() == sender ||
+           communicator->deviceId() == tester) {
+        if (communicator->deviceId() == sender) {
+          send_buf = tensor.index({0, "..."});
+        }
+        if (communicator->deviceId() == tester) {
+          recv_buf = tester_tensor.index({j, "..."});
+        }
+        if (debug_print) {
+          std::cout
+          << "Device " << communicator->deviceId()
+          << " posts send/recv of (sharded) tv " << pVal->getOriginalVal()
+          << " from sender device " << sender
+          << " to tester device " << tester
+          << " at index " << j
+          << ". Buffer values:\n" << tensor
+          << std::endl;
+        }
+        doSendRecv(sender, tester, send_buf, recv_buf, communicator);
       }
     }
   } else {
-    buffer = {tensor};
+    at::Tensor send_buf, recv_buf;
     auto sender = mesh.vector().at(0);
     if (tester != sender &&
         (communicator->deviceId() == sender ||
          communicator->deviceId() == tester)) {
-      communicator->sendRecv(tester, sender, buffer)->wait();
+      if (debug_print) {
+        std::cout
+        << "Device " << communicator->deviceId()
+        << " posts send/recv of (unsharded) tv " << pVal->getOriginalVal()
+        << " from sender device " << sender
+        << " to tester device " << tester
+        << ". Buffer values:\n" << tensor
+        << std::endl;
+      }
+      if (communicator->deviceId() == sender) {
+        send_buf = tensor;
+      }
+      if (communicator->deviceId() == tester) {
+        recv_buf = tester_tensor;
+      }
+      doSendRecv(sender, tester, send_buf, recv_buf, communicator);
     }
   }
 }
@@ -113,39 +184,48 @@ void testValidateMultidevice(
     const at::ArrayRef<c10::IValue>& inputs,
     const std::vector<at::Tensor>& outputs,
     Communicator* communicator,
-    bool print,
+    bool debug_print,
     DeviceIdxType tester = 0,
     bool validate = true,
     bool auto_schedule = false) {
+  std::vector<c10::IValue> unsharded_inputs;
+  std::vector<at::Tensor> unsharded_outputs;
+
   // gathering all the inputs at tester
   for (auto i : c10::irange(inputs.size())) {
+    c10::IValue unsharded_input = inputs.at(i).deepcopy();
+    unsharded_inputs.push_back(unsharded_input);
     SendToTester(
         runtime.pipeline()->inputs().at(i)->as<PipelineVal>(),
         inputs.at(i).toTensor(),
+        unsharded_inputs.at(i).toTensor(),
         tester,
-        communicator);
+        communicator, debug_print);
   }
 
   // gathering all the outputs at tester
   for (auto i : c10::irange(outputs.size())) {
+    at::Tensor unsharded_output = at::clone(outputs.at(i));
+    unsharded_outputs.push_back(unsharded_output);
     SendToTester(
         runtime.pipeline()->outputs().at(i)->as<PipelineVal>(),
         outputs.at(i),
+        unsharded_outputs.at(i),
         tester,
-        communicator);
+        communicator, debug_print);
   }
 
   if (communicator->deviceId() == tester) {
-    if (print) {
+    if (debug_print) {
       std::stringstream ss;
       std::string indent = "  ";
       ss << "Obtained final outputs:{\n";
-      for (auto& t : outputs) {
+      for (auto& t : unsharded_outputs) {
         ss << indent << t;
       }
       ss << "\n}\n";
       ss << "Reference (unsharded) input:{\n";
-      for (auto& t : inputs) {
+      for (auto& t : unsharded_inputs) {
         ss << indent << t;
       }
       ss << "\n}";
@@ -161,14 +241,14 @@ void testValidateMultidevice(
     Fusion& fusion = *fusion_ptr.get();
     if (auto_schedule) {
       FusionExecutorCache fec(std::move(fusion_ptr));
-      ref_outputs = fec.runFusionWithInputs(inputs);
+      ref_outputs = fec.runFusionWithInputs(unsharded_inputs);
     } else {
       FusionExecutor fe;
-      fe.compileFusion(&fusion, inputs);
-      ref_outputs = fe.runFusion(inputs);
+      fe.compileFusion(&fusion, unsharded_inputs);
+      ref_outputs = fe.runFusion(unsharded_inputs);
     }
 
-    if (print) {
+    if (debug_print) {
       std::stringstream ss;
       std::string indent = "  ";
       ss << "Expected outputs:{\n";
@@ -180,7 +260,7 @@ void testValidateMultidevice(
     }
 
     if (validate) {
-      testValidate(&fusion, outputs, inputs, ref_outputs, __LINE__, __FILE__);
+      testValidate(&fusion, unsharded_outputs, unsharded_inputs, ref_outputs, __LINE__, __FILE__);
     }
   }
 }
@@ -192,8 +272,8 @@ void executeAndValidatePipeline(
     Pipeline& pipeline,
     std::vector<c10::IValue>& inputs,
     Communicator* communicator,
-    bool print) {
-  if (print && !communicator->deviceId()) {
+    bool debug_print) {
+  if (debug_print && !communicator->deviceId()) {
     fusion_ptr->printKernel();
     std::cout << pipeline.toString() << std::endl;
   }
@@ -206,7 +286,7 @@ void executeAndValidatePipeline(
 
   auto outputs = runtime.runWithInput(inputs);
 
-  if (print) {
+  if (debug_print) {
     std::stringstream ss;
     std::string indent = "  ";
     ss << "Device " << communicator->deviceId() << "'s outputs:{\n";
@@ -218,7 +298,7 @@ void executeAndValidatePipeline(
   }
 
   testValidateMultidevice(
-      std::move(fusion_ptr), runtime, inputs, outputs, communicator, print);
+      std::move(fusion_ptr), runtime, inputs, outputs, communicator, debug_print);
 }
 
 } // namespace
@@ -230,7 +310,7 @@ void PipelineTest::SetUp() {
 
 void PipelineTest::validate() {
   executeAndValidatePipeline(
-      std::move(fusion), *pipeline, inputs, communicator, print);
+      std::move(fusion), *pipeline, inputs, communicator, debug_print);
 }
 
 void PipelineTestTwoStages::SetUp() {

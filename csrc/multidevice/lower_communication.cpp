@@ -257,12 +257,19 @@ void lowerToBroadcastOrP2P(
       NVF_ERROR(
           sender_mesh.vector().size() == receiver_mesh.vector().size(),
           "the receiver and sender meshes have different sizes");
+      at::Tensor input, output;
+      if (input_tensor.numel()) {
+        input = input_tensor.index({0, "..."});
+      }
+      if (output_tensor.numel()) {
+        output = output_tensor.index({0, "..."});
+      }
       lowerToBroadcastOrP2P(
           my_device_index,
           sender_mesh.vector().at(i),
           DeviceMesh({receiver_mesh.vector().at(i)}),
-          input_tensor.index({0, "..."}),
-          output_tensor.index({0, "..."}),
+          input,
+          output,
           comms);
     }
   } else {
