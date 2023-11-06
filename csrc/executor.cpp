@@ -593,8 +593,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
 }
 
-namespace {
-
 class ForwardTraverseFromAllocToRFactor {
   at::Tensor tensor_;
   TensorView* tv_;
@@ -910,8 +908,6 @@ int64_t IndexOfFusionInput(const Val* in, const Fusion* fusion) {
   NVF_ERROR(i != fusion->inputs().end());
   return std::distance(fusion->inputs().begin(), i);
 }
-
-} // namespace
 
 // Allocate output tensors for a given kernel. Outputs may alias inputs, in
 // that case output tensors are shallow copies of the aliased inputs
