@@ -114,8 +114,7 @@ __device__ void gridReduceLastBlock(
 
   // Block stride across the reduction until we only have one value per thread
   for (nvfuser_index_t reduction_i = id_in_block_segment;
-       reduction_i + input_stride_for_thread_in_segment <
-       grid_reduction_segment_size;
+       reduction_i < grid_reduction_segment_size - 1;
        reduction_i += input_stride_for_thread_in_segment) {
     auto work_buf_offset = reduction_i * block_reduction_segment_size +
         block_reduction_segment_idx;
