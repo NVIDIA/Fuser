@@ -129,7 +129,9 @@ class FusionCache {
   //! The next 4 public methods are the python interface methods
 
   //! Gets a pointer to the singleton and creates a new one if necessary
-  static FusionCache* get(size_t max_fusions = 8192);
+  static FusionCache* get(
+      size_t max_fusions = 8192,
+      bool load_from_default_workspace = true);
   //! Number of fusions cached
   size_t numFusions() const;
   //! print cache contents
@@ -137,7 +139,7 @@ class FusionCache {
   //! print cache stats
   void stats(std::ostream& os) const;
   //! Reset Cache to an empty state
-  static void reset();
+  static void reset(bool load_from_default_workspace = false);
 
   //! Serialize Fusion Cache using flatbuffers
   void serialize(std::string filename) const;
@@ -187,8 +189,6 @@ class FusionCache {
   static FusionCache* singleton_;
   //! Lock for accessing the singleton by multiple threads
   static std::mutex singleton_lock_;
-
-  const std::string serde_file_path_ = "nvf_serde";
 
   //! The max allowed number of fusions in the cache
   size_t max_fusions_;

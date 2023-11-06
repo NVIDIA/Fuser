@@ -5,6 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/native/cuda/jit_utils.h>
+#include <nvrtc.h>
+
 #include <debug.h>
 #include <instrumentation.h>
 #include <options.h>
@@ -32,7 +36,22 @@ std::string getSerdeTmpFile() {
 #else
   const unsigned int pid = getpid();
 #endif // _WIN32
-  return "nvf_serde_tmp_" + pid;
+  std::stringstream ss;
+  ss << "nvf_serde_tmp_" << pid;
+  return ss.str();
+}
+
+std::string getSerdeFile() {
+  auto cuda_prop = at::cuda::getCurrentDeviceProperties();
+  int nvrtc_major = 0;
+  int nvrtc_minor = 0;
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&nvrtc_major, &nvrtc_minor));
+
+  std::stringstream ss;
+  ss << "nvf_serde";
+  ss << "_arch" << cuda_prop->major << "." << cuda_prop->minor;
+  ss << "_nvrtc" << nvrtc_major << "." << nvrtc_minor;
+  return ss.str();
 }
 
 // Get std::filesystem::path to specified file in nvfuser kernel database
@@ -207,8 +226,8 @@ FusionCache::FusionCache(size_t max_fusions, bool load_from_default_workspace)
   RecordFunctor* start = new StartRecord();
   root_ = std::make_unique<TrieNode>(start);
 
-  // Deserialize cache hierarchy automatically
-  auto file_path = getSerdeFilePath(serde_file_path_).native();
+  // Deserialize cache hierarchy from common workspace automatically
+  auto file_path = getSerdeFilePath(getSerdeFile()).native();
   if (load_from_default_workspace && fs::exists(file_path)) {
     deserialize(file_path);
   }
@@ -363,7 +382,7 @@ void FusionCache::serialize() const {
   // unverified.
   //
   // TODO Add cuda_major, cuda_minor, nvrtc_major, nvrtc_minor to file path
-  auto file_path = getSerdeFilePath(serde_file_path_).native();
+  auto file_path = getSerdeFilePath(getSerdeFile()).native();
   if (std::rename(tmp_file_path.c_str(), file_path.c_str()) != 0) {
     // Removes tmp file if the rename failed
     std::remove(tmp_file_path.c_str());
