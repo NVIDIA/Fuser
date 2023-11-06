@@ -337,6 +337,12 @@ void initNvFuserPythonBindings(PyObject* module) {
           },
           py::arg("filename"))
       .def(
+          "serialize",
+          [](FusionCache& self) {
+            FUSER_PERF_SCOPE("FusionCache.serialize");
+            self.serialize();
+          })
+      .def(
           "deserialize",
           [](FusionCache& self, std::string filename) {
             FUSER_PERF_SCOPE("FusionCache.serialize (string)");

@@ -15,7 +15,43 @@
 #include <filesystem>
 namespace fs = std::filesystem;
 
+#ifdef _WIN32
+#include <c10/util/win32-headers.h>
+#else
+#include <pthread.h>
+#include <unistd.h>
+#endif
+
 namespace nvfuser::python_frontend {
+
+namespace {
+// Generate temporary file for this FusionCacheBuffer
+std::string getSerdeTmpFile() {
+#ifdef _WIN32
+  const unsigned int pid = GetCurrentProcessId();
+#else
+  const unsigned int pid = getpid();
+#endif // _WIN32
+  return "nvf_serde_tmp_" + pid;
+}
+
+// Get std::filesystem::path to specified file in nvfuser kernel database
+// directory.
+fs::path getSerdeFilePath(const std::string& file_name) {
+  fs::path kernel_db_path = fs::temp_directory_path() / "nvfuser_kernel_db";
+  if (!fs::is_directory(kernel_db_path)) {
+    try {
+      fs::create_directory(kernel_db_path);
+    } catch (const std::exception& e) {
+      NVF_ERROR(
+          "Unable to create nvFuser Kernel DB directory! ",
+          kernel_db_path.string(),
+          e.what());
+    }
+  }
+  return kernel_db_path / file_name;
+}
+} // namespace
 
 // FusionCache static data member definitions for singleton usage
 std::mutex FusionCache::singleton_lock_;
@@ -80,7 +116,7 @@ FusionCache* FusionCache::get(size_t max_fusions) {
   FUSER_PERF_SCOPE("FusionCache::get");
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ == nullptr) {
-    singleton_ = new FusionCache(max_fusions);
+    singleton_ = new FusionCache(max_fusions, true /* automatic_serde */);
   }
   NVF_CHECK(
       max_fusions >= singleton_->fusions_.size(),
@@ -156,11 +192,11 @@ void FusionCache::reset() {
   if (singleton_ != nullptr) {
     auto max_fusions = singleton_->max_fusions_;
     delete singleton_;
-    singleton_ = new FusionCache(max_fusions);
+    singleton_ = new FusionCache(max_fusions, false /* automatic_serde */);
   }
 }
 
-FusionCache::FusionCache(size_t max_fusions)
+FusionCache::FusionCache(size_t max_fusions, bool automatic_serde)
     : max_fusions_(max_fusions),
       root_(nullptr),
       fusions_(),
@@ -168,6 +204,12 @@ FusionCache::FusionCache(size_t max_fusions)
       user_def_input_encodings_() {
   RecordFunctor* start = new StartRecord();
   root_ = std::make_unique<TrieNode>(start);
+
+  // Deserialize cache hierarchy automatically
+  auto file_path = getSerdeFilePath(serde_file_path_).native();
+  if (automatic_serde && fs::exists(file_path)) {
+    deserialize(file_path);
+  }
 }
 
 // In order to keep queries fast, this method does not lock.
@@ -188,6 +230,7 @@ std::optional<TrieNode*> FusionCache::queryChildren(
     return std::optional<TrieNode*>(trie_node->second.get());
   }
 }
+
 FusionSchedules* FusionCache::queryFusionSchedules(size_t fusion_id) const {
   NVF_CHECK(
       fusion_id < fusions_.size(),
@@ -304,6 +347,25 @@ UserSchedule* FusionCache::createUserSchedule(
 TrieNode* FusionCache::rootTriePtr() {
   ++(root_.get()->visits);
   return root_.get();
+}
+
+void FusionCache::serialize() const {
+  auto tmp_file_path = getSerdeFilePath(getSerdeTmpFile()).native();
+  serialize(tmp_file_path);
+
+  // Save to a per-process temporary file to avoid multi-process contention.
+  // Then, rename the temporary file to the actual file. If the actual file
+  // already exists, then the rename may fail or replace the actual file.
+  // Files replaced through this process should remain extant if they are being
+  // read because of UNIX filesystem properties, but this behavior is
+  // unverified.
+  //
+  // TODO Add cuda_major, cuda_minor, nvrtc_major, nvrtc_minor to file path
+  auto file_path = getSerdeFilePath(serde_file_path_).native();
+  if (std::rename(tmp_file_path.c_str(), file_path.c_str()) != 0) {
+    // Removes tmp file if the rename failed
+    std::remove(tmp_file_path.c_str());
+  }
 }
 
 void FusionCache::serialize(std::string filename) const {

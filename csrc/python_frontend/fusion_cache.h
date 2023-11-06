@@ -118,7 +118,7 @@ struct TrieNode {
 class FusionCache {
   //! The constructor is private given the FusionCache is only constructed
   //! as a singleton.
-  FusionCache(size_t max_fusions);
+  FusionCache(size_t max_fusions, bool automatic_serde);
 
  public:
   //! Copy and Assignment of the FusionCache is not supported
@@ -140,6 +140,14 @@ class FusionCache {
   static void reset();
   //! Serialize Fusion Cache using flatbuffers
   void serialize(std::string filename) const;
+  //! Serialize Fusion Cache to temporary file
+  //! '''python
+  //! # Use atexit to automatically call serialize on program exit
+  //! import atexit
+  //! fc = FusionCache.get()
+  //! atexit.register(fc.serialize)
+  //! '''
+  void serialize() const;
   //! Deserialize Fusion Cache using flatbuffers
   void deserialize(std::string filename);
 
@@ -178,6 +186,8 @@ class FusionCache {
   static FusionCache* singleton_;
   //! Lock for accessing the singleton by multiple threads
   static std::mutex singleton_lock_;
+
+  const std::string serde_file_path_ = "nvf_serde";
 
   //! The max allowed number of fusions in the cache
   size_t max_fusions_;
