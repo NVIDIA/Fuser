@@ -25,7 +25,9 @@ namespace nvfuser {
 class MultiDeviceRuntime {
  public:
   explicit MultiDeviceRuntime(Pipeline* pipeline, Communicator& comm)
-      : pipeline_(pipeline), comm_(comm) {}
+      : pipeline_(pipeline), comm_(comm) {
+    validate();
+  }
 
   // Run the multidevice fusion with the given global inputs
   std::vector<at::Tensor> runWithInput(std::vector<c10::IValue> inputs);
@@ -40,14 +42,11 @@ class MultiDeviceRuntime {
     return pipeline_;
   }
 
-  // check if the runtime is valid returns an error msg.
-  // An empty message means that the runtime is valid
-  std::string validate() const;
-
  private:
   friend class PipelineExecutor; // could remove friendship by passing pipeline_
                                  // and comm_ to PipelineExecutor
   // test if the runtime is valid and satisfies our assumptions
+  void validate() const;
 
   Pipeline* pipeline_;
   Communicator& comm_;

@@ -1258,34 +1258,6 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
   return global_buffers;
 }
 
-std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
-    const at::ArrayRef<c10::IValue>& inputs) {
-  auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
-  auto expr_eval =
-      executor_utils::bindInputs(kernel_inputs, lowered_->kernel());
-
-  auto input_output_aliases_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::InputOutputAliases>(
-          compileTimeDataCache(), [&]() {
-            return std::make_unique<std::vector<InputOutputAlias>>(
-                fusion_->getOutputToInputAliasIndices());
-          });
-
-  const auto& output_to_input_aliases = input_output_aliases_entry.get();
-
-  auto output_info =
-      getOutputBufferInfo(kernel_inputs, expr_eval, kernel()->indexType());
-
-  return allocOutputs(
-      kernel(),
-      output_info,
-      output_to_input_aliases,
-      kernel_inputs,
-      options_.device,
-      expr_eval);
-}
-
 std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     getOutputBufferInfo(
         const KernelArgumentHolder& args,

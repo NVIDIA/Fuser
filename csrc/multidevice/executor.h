@@ -11,7 +11,6 @@
 #include <exceptions.h>
 #include <iter_visitor.h>
 #include <kernel_cache.h>
-#include <multidevice/communication.h>
 #include <multidevice/pipeline_ir.h>
 #include <multidevice/runtime.h>
 
@@ -43,15 +42,8 @@ class PipelineExecutor : public IterVisitor {
   // Stores concrete computed values,
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
 
-  // Stores FusionExecutor(Cache) for each PipelineStage
-  std::unordered_map<PipelineStage*, std::unique_ptr<FusionExecutor>> fe_;
+  // Stores FusionExecutorCache for each PipelineStage
   std::unordered_map<PipelineStage*, std::unique_ptr<FusionExecutorCache>> fec_;
-  // Stores the resulting Communications after lowering each
-  // PipelineCommunication
-  std::unordered_map<
-      PipelineCommunication*,
-      std::vector<std::shared_ptr<Communication>>>
-      communications_;
 
   // Cache results of shouldRun method
   std::unordered_map<PipelineStage*, bool> should_run_;

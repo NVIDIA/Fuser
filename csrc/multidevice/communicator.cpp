@@ -116,7 +116,7 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
     CommunicatorBackend backend,
     ::c10::intrusive_ptr<c10d::Store> store,
     RankType rank,
-    int64_t size) {
+    uint64_t size) {
 #ifdef USE_C10D_NCCL
   if (backend == CommunicatorBackend::nccl) {
     auto pg_opts = c10::make_intrusive<::c10d::ProcessGroupNCCL::Options>();
@@ -198,7 +198,7 @@ c10::intrusive_ptr<c10d::Backend> Communicator::getBackendForTeam(
         backend_type_,
         c10::make_intrusive<c10d::PrefixStore>(team_key, store_),
         team_rank,
-        static_cast<int64_t>(team.size()));
+        team.size());
   }
   return backends_.at(team_key);
 }

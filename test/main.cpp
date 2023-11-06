@@ -24,5 +24,11 @@ int main(int argc, char* argv[]) {
       torch::cuda::is_available(),
       "nvfuser_tests requires CUDA device being available");
 
+  if (torch::cuda::device_count() < 2) {
+    std::cout << "Only one CUDA device detected. Disabling MultiCUDA tests"
+              << std::endl;
+    ::testing::GTEST_FLAG(filter) = add_negative_flag("*_MultiCUDA");
+  }
+
   return RUN_ALL_TESTS();
 }
