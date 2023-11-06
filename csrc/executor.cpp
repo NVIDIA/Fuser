@@ -913,7 +913,7 @@ int64_t IndexOfFusionInput(const Val* in, const Fusion* fusion) {
 // Returns the at::Tensor allocated for `out_info`.
 //
 // TODO: clean up the API so we explicitly pass in the input alias. This way, we
-// can remove `ins` and `kernel`, which unnecessary expose information of
+// can remove `args` and `kernel`, which unnecessary expose information of
 // unrelated arguments.
 at::Tensor allocateOutput(
     const FusionExecutor::GlobalBufferInfo& out_info,
@@ -940,7 +940,7 @@ at::Tensor allocateOutput(
       case AliasType::InplaceUpdate:
         // Unlike for `AliasType::PointerCast`, don't use
         // ExpressionEvaluator to compute the output tensor. This is because
-        // the output tensor may hold different data as the input, e.g., an
+        // the output tensor may hold different data from the input, e.g., an
         // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
         // would trigger non-trivial host computation.
         return in_tensor;
