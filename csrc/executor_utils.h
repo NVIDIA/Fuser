@@ -146,16 +146,6 @@ class VectorizedTensorValidation {
       CompileTimeEntryType::VECTORIZED_TENSOR_VALIDATION;
 };
 
-//! Compile-time info to be cached in each FusionExecutor:
-//!  InputOutputAliases
-//!    Stores position info of aliased input tensors
-class InputOutputAliases {
- public:
-  using DataType = std::vector<InputOutputAlias>;
-  static const CompileTimeEntryType EntryType =
-      CompileTimeEntryType::INPUT_ALIAS_INDICES;
-};
-
 //! Base abstract class for unified storage in `ExecutorCompileTimeInfoCache`,
 //!  each entry in `ExecutorCompileTimeInfoCache` will be a subclass.
 class CompileTimeInfoBase : public PolymorphicBase {

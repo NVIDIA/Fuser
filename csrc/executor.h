@@ -141,8 +141,6 @@ class FusionExecutor : public NonCopyable {
   struct ExecutorEntry {
     bool init = false;
     LaunchParams launch_params;
-    // Aliased output and input mappings
-    std::vector<InputOutputAlias> input_output_aliases;
     std::vector<GlobalBufferInfo> outputs;
     // Temporary work buffers and intemediate global-memory tensors
     std::vector<GlobalBufferInfo> intermediates;
@@ -292,6 +290,12 @@ class FusionExecutor : public NonCopyable {
       Fusion* fusion,
       CompileParams compile_params);
 
+  //! Used in distributed setting where we only want to
+  //!  allocate output space and receive output data from
+  //!  a different rank instead of computing them.
+  std::vector<at::Tensor> allocOutputSpace(
+      const at::ArrayRef<c10::IValue>& inputs);
+
  private:
   static std::string kernelNamespace() {
     return "CudaCodeGen";
@@ -377,12 +381,6 @@ class FusionExecutor : public NonCopyable {
 
   //! Deserialize GlobalBufferInfo using flatbuffers
   GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);
-
-  flatbuffers::Offset<serde::InputOutputAlias> serialize(
-      flatbuffers::FlatBufferBuilder& builder,
-      const InputOutputAlias& input_output_alias) const;
-
-  InputOutputAlias deserialize(const serde::InputOutputAlias* buffer);
 
   //! Get the current dynamic shared memory size
   int64_t getAvailableDynamicSmemSize();

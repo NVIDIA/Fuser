@@ -368,6 +368,7 @@ if(BUILD_TEST)
     ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_query.cpp
     ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_write.cpp
     ${NVFUSER_ROOT}/test/main.cpp
+    ${NVFUSER_ROOT}/test/multidevice.cpp
     ${NVFUSER_ROOT}/test/utils.cpp
     ${NVFUSER_ROOT}/test/test_allocation_domain.cpp
     ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
@@ -399,7 +400,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
     ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
     ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
-    ${NVFUSER_ROOT}/test/test_multidevice.cpp
+    ${NVFUSER_ROOT}/test/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/test/test_multidevice_communications.cpp
     ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
     ${NVFUSER_ROOT}/test/test_optimization_pass.cpp

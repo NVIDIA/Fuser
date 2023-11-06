@@ -34,8 +34,6 @@ enum class DebugDumpOption {
   CudaToFile, //!< Dump CUDA Strings to File
   DebugInfo, //!< Embed line info and debug info to compiled kernel, and dump
              //!< the full CUDA C++ code
-  AssertMemoryViolation, //!< Assert in the kernel when accessing global tensor
-                         //!< out of bound. This might hurt performance.
   LaunchParam, //!< Dump the Launch parameters of kernel
   FusionSegments, //!< Dump Segmented Fusion Graph
   FusionSegmenterLog, //!< Dump Detailed Segmenter Logging
@@ -76,12 +74,8 @@ enum class DebugDumpOption {
 //! These can be set through the `NVFUSER_ENABLE` environment variable
 //!
 enum class EnableOption {
-  Complex, //! Enable complex support on python
-  ConvDecomposition, //! Enable conv-bias decomposition
-  GraphOp, //! Enable graphOps(index_select/gather/scatter)
   KernelDb, //! Enable Kernel Database
   KernelProfile, //! Enable intra-kernel performance profiling
-  LinearDecomposition, //! Enable linear-bias decomposition
   MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
   WarnRegisterSpill, //! Enable warnings of register spill
   EndOfOption //! Placeholder for counting the number of elements

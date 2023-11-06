@@ -905,6 +905,12 @@ at::Tensor transformOutputFromAllocationToRFactor(
   return tensor.permute(dims);
 }
 
+int64_t IndexOfFusionInput(const Val* in, const Fusion* fusion) {
+  auto i = std::find(fusion->inputs().begin(), fusion->inputs().end(), in);
+  NVF_ERROR(i != fusion->inputs().end());
+  return std::distance(fusion->inputs().begin(), i);
+}
+
 } // namespace
 
 // Allocate output tensors for a given kernel. Outputs may alias inputs, in
@@ -912,7 +918,6 @@ at::Tensor transformOutputFromAllocationToRFactor(
 std::vector<at::Tensor> allocOutputs(
     const kir::Kernel* kernel,
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
-    const std::vector<InputOutputAlias>& input_output_aliases,
     const KernelArgumentHolder& inputs,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
@@ -923,23 +928,18 @@ std::vector<at::Tensor> allocOutputs(
   for (const auto output_idx : c10::irange(output_info.size())) {
     const auto& buf_info = output_info.at(output_idx);
 
-    auto alias_it = std::find_if(
-        input_output_aliases.begin(),
-        input_output_aliases.end(),
-        [&](const InputOutputAlias& input_output_alias) {
-          return input_output_alias.out == static_cast<int64_t>(output_idx);
-        });
-
+    auto alias_it = kernel->ioAlias().find(kernel->outputs()[output_idx]);
     // Note: aliased output is not returned as output. But we still need it
     // for kernel execution, so would need to push them to args
-    if (alias_it != input_output_aliases.end()) {
-      const auto aliased_input_index = alias_it->in;
+    if (alias_it != kernel->ioAlias().end()) {
+      const auto aliased_input_index =
+          IndexOfFusionInput(alias_it->second.first, kernel);
       NVF_ERROR(
           inputs[aliased_input_index]->is<at::Tensor>(),
           "alias io only supports tensor");
       at::Tensor input_tensor = inputs[aliased_input_index]->as<at::Tensor>();
 
-      switch (alias_it->info.type) {
+      switch (alias_it->second.second.type) {
         case AliasType::InplaceUpdate:
           // Unlike for `AliasType::PointerCast`, don't use
           // ExpressionEvaluator to compute the output tensor. This is because
@@ -983,14 +983,8 @@ std::vector<at::Tensor> allocOutputs(
       // A trivial forwarding output can be "allocated" similarly to an output
       // alias. TODO: we can teach alias analysis to mark trivial forwarding so
       // we can consolidate this case with the case above.
-      auto alias_it = std::find(
-          kernel->inputs().begin(),
-          kernel->inputs().end(),
-          kernel->outputs().at(output_idx));
-      NVF_ERROR(alias_it != kernel->inputs().end());
-
       const auto aliased_input_index =
-          std::distance(kernel->inputs().begin(), alias_it);
+          IndexOfFusionInput(kernel->outputs().at(output_idx), kernel);
       NVF_ERROR(
           inputs[aliased_input_index]->is<at::Tensor>(),
           "alias io only supports tensor");
@@ -1264,6 +1258,19 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
   return global_buffers;
 }
 
+std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
+    const at::ArrayRef<c10::IValue>& inputs) {
+  auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
+  auto expr_eval =
+      executor_utils::bindInputs(kernel_inputs, lowered_->kernel());
+
+  auto output_info =
+      getOutputBufferInfo(kernel_inputs, expr_eval, kernel()->indexType());
+
+  return allocOutputs(
+      kernel(), output_info, kernel_inputs, options_.device, expr_eval);
+}
+
 std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     getOutputBufferInfo(
         const KernelArgumentHolder& args,
@@ -1468,16 +1475,6 @@ void FusionExecutor::initializeExecutorEntry(
   executor_utils::validateVectorizedTensors(
       kernel(), args, outputs, compileTimeDataCache(), expr_eval);
 
-  auto input_output_aliases_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::InputOutputAliases>(
-          compileTimeDataCache(), [&]() {
-            return std::make_unique<std::vector<InputOutputAlias>>(
-                fusion_->getOutputToInputAliasIndices());
-          });
-
-  const auto& input_output_aliases = input_output_aliases_entry.get();
-
   std::vector<GlobalBufferInfo> output_info;
 
   if (outputs.empty()) {
@@ -1495,7 +1492,6 @@ void FusionExecutor::initializeExecutorEntry(
 
   // All information is gathered. Save it to ExecutorEntry
   executor_entry.launch_params = launch_params;
-  executor_entry.input_output_aliases = input_output_aliases;
   executor_entry.outputs = output_info;
   executor_entry.intermediates = intermediates;
   executor_entry.init = true;
@@ -1672,12 +1668,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // only allocate outputs when not given
   if (outputs.empty()) {
     outputs = allocOutputs(
-        kernel(),
-        executor_entry->outputs,
-        executor_entry->input_output_aliases,
-        args,
-        options_.device,
-        expr_eval);
+        kernel(), executor_entry->outputs, args, options_.device, expr_eval);
   } else {
     // TODO: Use validateKernelOutputs
     NVF_ERROR(
@@ -2055,28 +2046,10 @@ flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
   return ckb.Finish();
 }
 
-flatbuffers::Offset<serde::InputOutputAlias> FusionExecutor::serialize(
-    flatbuffers::FlatBufferBuilder& builder,
-    const InputOutputAlias& alias) const {
-  return serde::CreateInputOutputAlias(
-      builder,
-      alias.out,
-      alias.in,
-      toUnderlying(alias.info.type),
-      alias.info.hide_output);
-}
-
 flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const ExecutorEntry& data) const {
   // See table definition for ExecutorEntry in serde/fusion_cache.fbs
-
-  using fb_input_output_alias = flatbuffers::Offset<serde::InputOutputAlias>;
-  std::vector<fb_input_output_alias> input_output_alias_fb;
-  input_output_alias_fb.reserve(data.input_output_aliases.size());
-  for (const InputOutputAlias& input_output_alias : data.input_output_aliases) {
-    input_output_alias_fb.push_back(serialize(builder, input_output_alias));
-  }
 
   // Serialize GlobalBufferInfo for outputs.
   // We map the output TensorView pointer to its corresponding position in
@@ -2121,7 +2094,6 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
       builder,
       data.init,
       data.launch_params.serialize(builder),
-      &input_output_alias_fb,
       &outputs_fb,
       &intermediates_fb);
 }
@@ -2197,10 +2169,6 @@ FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
 
   entry.launch_params.deserialize(buffer->launch_params());
 
-  for (auto output_buffer : *buffer->input_output_alias()) {
-    entry.input_output_aliases.push_back(deserialize(output_buffer));
-  }
-
   for (auto output_buffer : *buffer->outputs()) {
     entry.outputs.push_back(deserialize(output_buffer));
   }
@@ -2210,15 +2178,6 @@ FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
   }
 
   return entry;
-}
-
-// FIXME: Can InputOutputAlias take Val* instead? Even better, just be a map.
-InputOutputAlias FusionExecutor::deserialize(
-    const serde::InputOutputAlias* buffer) {
-  return InputOutputAlias{
-      buffer->out(),
-      buffer->in(),
-      AliasInfo{static_cast<AliasType>(buffer->type()), buffer->hide_output()}};
 }
 
 FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
