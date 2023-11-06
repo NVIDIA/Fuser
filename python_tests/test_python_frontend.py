@@ -89,6 +89,13 @@ def serde_check(test_fn: Callable):
     return inner_fn
 
 
+def tearDownModule():
+    # Test automatic serialization to common workplace
+    import atexit
+    fc = FusionCache.get()
+    atexit.register(fc.serialize)
+
+
 @unittest.skipIf(not RUN_NVFUSER, "requires CUDA")
 @unittest.skipIf(is_pre_volta(), "Only supported on Volta and newer devices.")
 class TestNvFuserFrontend(TestCase):

@@ -6,7 +6,6 @@
  */
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
-#include <ATen/native/cuda/jit_utils.h>
 #include <nvrtc.h>
 
 #include <debug.h>
