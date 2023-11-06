@@ -799,6 +799,19 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dtype") = DataType::Int,
       py::return_value_policy::reference);
 
+  fusion_def.def(
+    "get_val_tolerances",
+    [](FusionDefinition& self,
+        const py::iterable& aten_iter
+        ) { 
+        std::vector<c10::IValue> aten_inputs;
+        for (py::handle obj : aten_iter) {
+            aten_inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+        }
+        return self.get_val_tolerances(aten_inputs);
+        },
+        py::return_value_policy::reference);
+
   //! The Operators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of operators.
   //!

@@ -135,6 +135,11 @@ class FusionDefinition : public FusionState {
   std::optional<std::string> getDebugOutput() const {
     return debug_output_;
   }
+
+  std::vector<std::pair<double, double>> get_val_tolerances(
+    const at::ArrayRef<c10::IValue>& aten_inputs
+  );
+  
   //! Return the unscheduled Fusion IR
   std::string fusionIr();
   //! Return the Cuda code for the last executed set of inputs
