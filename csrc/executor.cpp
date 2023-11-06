@@ -955,6 +955,12 @@ std::vector<at::Tensor> allocOutputs(
           auto* output_tv = kernel->outputs()[output_idx]->as<TensorView>();
           ee.bind(input_tv, input_tensor);
           at::Tensor output_tensor = ee.evaluate(output_tv).as<at::Tensor>();
+          NVF_ERROR(
+              input_tensor.data_ptr() == output_tensor.data_ptr(),
+              "ExpressionEvaluator failed to evaluate ",
+              output_tv->toString(),
+              " as an alias of ",
+              input_tv->toString());
           outputs.emplace_back(output_tensor);
           break;
       }
@@ -1256,6 +1262,19 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
   }
 
   return global_buffers;
+}
+
+std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
+    const at::ArrayRef<c10::IValue>& inputs) {
+  auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
+  auto expr_eval =
+      executor_utils::bindInputs(kernel_inputs, lowered_->kernel());
+
+  auto output_info =
+      getOutputBufferInfo(kernel_inputs, expr_eval, kernel()->indexType());
+
+  return allocOutputs(
+      kernel(), output_info, kernel_inputs, options_.device, expr_eval);
 }
 
 std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
