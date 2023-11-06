@@ -1076,70 +1076,68 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   std::string genMmaOp(const MmaOp* mma, bool init = false) {
     std::stringstream ss;
-    auto options = mma->options();
-    ss << genArchString(options.macro) << "::";
+    auto macro = mma->macro();
+    ss << genArchString(macro) << "::";
     if (init) {
       ss << "init";
     }
-    ss << toString(options.macro);
+    ss << toString(macro);
 
     // clang-tidy: bugprone-unchecked-optional-access
     // clang-tidy assumes that function result is unstable, so we need a copy.
     auto mma_layout_opt = mma->layout();
     NVF_ERROR(mma_layout_opt.has_value(), "mma unknown input layout");
-    if (isTuring(options.macro) || isAmpere(options.macro)) {
+    if (isTuring(macro) || isAmpere(macro)) {
       NVF_ERROR(
           mma_layout_opt == MmaOptions::MmaLayout::TN,
           "MMAs in Turing and Ampere are TN only, transpose is handled either "
           "via ldmatrix.trans for fp16 or explicitly for other types.");
     }
-    ss << toString(mma_layout_opt.value());
-    // TODO: additional parameter could be removed by swizzling iterdomain
-    auto acc_stride = mma->accStride();
-    NVF_ERROR(acc_stride > 0);
-    ss << "<" << acc_stride << ">";
+    if (!init) {
+      ss << toString(mma_layout_opt.value());
+    }
     return ss.str();
   }
 
   void genMmaOperands(const MmaOp* mma) {
     std::stringstream ss;
-    auto options = mma->options();
+    auto macro = mma->macro();
     auto in_a = mma->inA()->as<kir::TensorIndex>()->view();
     auto dtype = in_a->getDataType().value();
     indent() << kTab << "&(reinterpret_cast<Array<" << dtype << ","
-             << getInputARegisterSize(options.macro) << ","
-             << getInputARegisterSize(options.macro) << ">*>(&"
+             << getInputARegisterSize(macro) << ","
+             << getInputARegisterSize(macro) << ">*>(&"
              << genVariableName(mma->inA()->as<kir::TensorIndex>()->view())
              << ")[" << genInline(mma->inA()->as<kir::TensorIndex>()->index())
              << "])"
              << ",\n";
     indent() << kTab << "&(reinterpret_cast<Array<" << dtype << ","
-             << getInputBRegisterSize(options.macro) << ","
-             << getInputBRegisterSize(options.macro) << ">*>(&"
+             << getInputBRegisterSize(macro) << ","
+             << getInputBRegisterSize(macro) << ">*>(&"
              << genVariableName(mma->inB()->as<kir::TensorIndex>()->view())
              << ")[" << genInline(mma->inB()->as<kir::TensorIndex>()->index())
              << "])";
   }
 
   void genMmaInitialization(const MmaOp* mma, const LoadStoreOp* ldst) {
-    auto options = mma->options();
+    auto macro = mma->macro();
 
     indent() << genMmaOp(mma, true) << "(reinterpret_cast<Array<"
              << mma->out()->getDataType().value() << ","
-             << getOutputRegisterSize(options.macro) << ","
-             << getOutputRegisterSize(options.macro) << ">*>"
+             << getOutputRegisterSize(macro) << ","
+             << getOutputRegisterSize(macro) << ">*>"
              << "(&" << gen(ldst->out()) << "));\n";
   }
 
   void handle(const MmaOp* mma) final {
-    auto options = mma->options();
+    auto macro = mma->macro();
     auto out = mma->out()->as<kir::TensorIndex>();
     indent() << genMmaOp(mma) << "(\n";
     indent() << kTab << "reinterpret_cast<Array<"
              << out->view()->getDataType().value() << ","
-             << getOutputRegisterSize(options.macro) << ","
-             << getOutputRegisterSize(options.macro) << ">*>(&"
-             << gen(mma->out()) << "),\n";
+             << getOutputRegisterSize(macro) << ","
+             << getOutputRegisterSize(macro) << ">*>(&" << gen(mma->out())
+             << "),\n";
     genMmaOperands(mma);
     code_ << ");\n";
   }
@@ -2873,6 +2871,72 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  void handle(const kir::Asm* asm_) final {
+    // Reference:
+    // https://docs.nvidia.com/cuda/inline-ptx-assembly/
+    indent() << "asm";
+    if (asm_->volatile_()) {
+      code_ << " volatile";
+    }
+    bool multiline =
+        (asm_->code().size() +
+             (asm_->inputs().size() + asm_->outputs().size()) * 5 >
+         80);
+    code_ << "(";
+    if (multiline) {
+      code_ << "\n";
+      block_nest_level_++;
+      indent();
+    }
+    code_ << "\"" << asm_->code() << "\\n\"";
+
+    auto next_section = [&]() {
+      if (multiline) {
+        code_ << "\n";
+        indent();
+      }
+      code_ << ":";
+    };
+
+    auto print_constraints_and_registers =
+        [&](const auto& constraints_and_registers) {
+          bool first = true;
+          for (auto [constraint, register_] : constraints_and_registers) {
+            if (!first) {
+              code_ << ", ";
+              if (multiline) {
+                code_ << "\n";
+                indent();
+              }
+            }
+            first = false;
+            code_ << "\"" << constraint << "\"(" << gen(register_) << ")";
+          }
+        };
+
+    // outputs
+    if (!asm_->outputs().empty() || !asm_->inputs().empty() || asm_->memory()) {
+      next_section();
+    }
+    print_constraints_and_registers(asm_->constraintsAndOutputs());
+
+    if (!asm_->inputs().empty() || asm_->memory()) {
+      next_section();
+    }
+    print_constraints_and_registers(asm_->constraintsAndInputs());
+
+    if (asm_->memory()) {
+      next_section();
+      code_ << "\"memory\"";
+    }
+    if (multiline) {
+      code_ << "\n";
+      block_nest_level_--;
+      indent();
+    }
+    code_ << ");\n";
+  }
+
   void handle(const kir::BlockSync* sync) final {
     // Use a custom synchronization method if enabled
     if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
@@ -2882,22 +2946,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else {
       indent() << "__barrier_sync(0);\n";
     }
-  }
-
-  void handle(const kir::CpAsyncWait* cpasync_wait) final {
-    if (cpasync_wait->keepStages() > 0) {
-      // Perform partial sync, see comment on kir::CpAsyncWait.
-      indent() << "Ampere::cpAsyncPartialBarrier<" << cpasync_wait->keepStages()
-               << ">();\n";
-    } else {
-      // Perform sync all, see comment on kir::CpAsyncWait.
-      indent() << "Ampere::cpAsyncBarrier();\n";
-    }
-  }
-
-  void handle(const kir::CpAsyncCommit* cpasync_wait) final {
-    // Commit inflight cp.async transfers. See comment on kir::CpAsyncCommit.
-    indent() << "Ampere::cpAsyncCommit();\n";
   }
 
   void handle(const kir::CpAsyncBulkS2GWait* cpasync_wait) final {

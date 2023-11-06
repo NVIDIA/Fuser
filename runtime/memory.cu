@@ -180,20 +180,6 @@ __device__ inline void cpAsyncCg(
       "r"((int)predicate));
 }
 
-// TODO: Might have a different category of sync if we want to build out this:
-__device__ inline void cpAsyncBarrier() {
-  asm volatile("cp.async.wait_all;");
-}
-
-__device__ inline void cpAsyncCommit() {
-  asm volatile("cp.async.commit_group;");
-}
-
-template <int keep_stages>
-__device__ inline void cpAsyncPartialBarrier() {
-  asm volatile("cp.async.wait_group %0;\n" ::"n"(keep_stages));
-}
-
 } // namespace Ampere
 
 #endif // Arch 80
