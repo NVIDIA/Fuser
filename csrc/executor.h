@@ -359,6 +359,12 @@ class FusionExecutor : public NonCopyable {
       int64_t runtime_id,
       int64_t group_id);
 
+  //! Used in distributed setting where we only want to
+  //!  allocate output space and receive output data from
+  //!  a different rank instead of computing them.
+  std::vector<at::Tensor> allocOutputSpace(
+      const at::ArrayRef<c10::IValue>& inputs);
+
  private:
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
