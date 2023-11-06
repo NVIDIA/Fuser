@@ -408,7 +408,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_rng.cpp
     ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
     ${NVFUSER_ROOT}/test/test_tutorial.cpp
-    ${NVFUSER_ROOT}/test/test_alias_analysis.cpp
+    ${NVFUSER_ROOT}/test/test_alias.cpp
     ${NVFUSER_ROOT}/test/test_scalar_hoisting.cpp
     ${NVFUSER_ROOT}/test/test_no_op.cpp
   )
