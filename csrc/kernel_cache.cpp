@@ -197,8 +197,7 @@ class ArgumentManager {
       const PolymorphicValue*& runtime_output = tensor_map_[output];
       if (runtime_output != nullptr) {
         // A trivial forwarding output shares the same `Val*` as an input, so we
-        // simply map it to the same runtime output. See note [Trivial
-        // Forwarding].
+        // simply map it to the same runtime output.
         continue;
       }
 

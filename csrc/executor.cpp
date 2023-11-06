@@ -959,38 +959,6 @@ at::Tensor allocateOutput(
     }
   }
 
-  if (out_tv->isFusionInput()) {
-    // Note [ trivial forwarding ]
-    //
-    // Background:
-    // NvFuser codegen does not handle aliases. When we have a fusion that
-    // forwards an input to output without any operations on it, this is
-    // a no-op for codegen and the output tensor is never written to. However,
-    // the codegen cannot "forward" an input to output, since all outputs are
-    // allocated in integration. If we do not special case it, we'll ended up
-    // having a "fresh" tensor allocated for the forwarded-input.
-    //
-    // Approach:
-    // There are two aspects of the support:
-    // 1) Codegen handles forwarding implicitly. Forwarded inputs do not
-    // have any producer in the IR, so the output argument is not used in
-    // the code. However, it is required to be a kernel argument, which acts
-    // as a place-holder, so we can map the arguments correctly.
-    //
-    // 2) Integration handles the trivial forwarding of inputs. When we put
-    // together `fusion_outputs` for a given fusion and the outputs are
-    // fusion inputs, we directly return the input tensor.
-
-    // A trivial forwarding output can be "allocated" similarly to an output
-    // alias. TODO: we can teach alias analysis to mark trivial forwarding so
-    // we can consolidate this case with the case above.
-    const auto aliased_in_index = IndexOfFusionInput(out_tv, kernel);
-    NVF_ERROR(
-        args[aliased_in_index]->is<at::Tensor>(),
-        "alias io only supports tensor");
-    return args[aliased_in_index]->as<at::Tensor>();
-  }
-
   auto alloc_tensor = at::native::empty_strided_cuda(
       out_info.sizes,
       out_info.strides,
