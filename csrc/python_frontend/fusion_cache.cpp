@@ -112,11 +112,13 @@ flatbuffers::Offset<serde::TrieNode> TrieNode::serialize(
       isTerminal());
 }
 
-FusionCache* FusionCache::get(size_t max_fusions) {
+FusionCache* FusionCache::get(
+    size_t max_fusions,
+    bool load_from_default_workspace) {
   FUSER_PERF_SCOPE("FusionCache::get");
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ == nullptr) {
-    singleton_ = new FusionCache(max_fusions, true /* automatic_serde */);
+    singleton_ = new FusionCache(max_fusions, load_from_default_workspace);
   }
   NVF_CHECK(
       max_fusions >= singleton_->fusions_.size(),
@@ -187,16 +189,16 @@ void FusionCache::stats(std::ostream& os) const {
   }
 }
 
-void FusionCache::reset() {
+void FusionCache::reset(bool load_from_default_workspace) {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ != nullptr) {
     auto max_fusions = singleton_->max_fusions_;
     delete singleton_;
-    singleton_ = new FusionCache(max_fusions, false /* automatic_serde */);
+    singleton_ = new FusionCache(max_fusions, load_from_default_workspace);
   }
 }
 
-FusionCache::FusionCache(size_t max_fusions, bool automatic_serde)
+FusionCache::FusionCache(size_t max_fusions, bool load_from_default_workspace)
     : max_fusions_(max_fusions),
       root_(nullptr),
       fusions_(),
@@ -207,7 +209,7 @@ FusionCache::FusionCache(size_t max_fusions, bool automatic_serde)
 
   // Deserialize cache hierarchy automatically
   auto file_path = getSerdeFilePath(serde_file_path_).native();
-  if (automatic_serde && fs::exists(file_path)) {
+  if (load_from_default_workspace && fs::exists(file_path)) {
     deserialize(file_path);
   }
 }

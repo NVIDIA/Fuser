@@ -325,10 +325,14 @@ void initNvFuserPythonBindings(PyObject* module) {
           "get",
           &FusionCache::get,
           py::arg("max_fusions") = int(8192),
+          py::arg("load_from_default_workspace") = true,
           py::return_value_policy::reference)
       .def("num_fusions", &FusionCache::numFusions)
       .def_static(
-          "reset", &FusionCache::reset, py::return_value_policy::reference)
+          "reset",
+          &FusionCache::reset,
+          py::arg("load_from_default_workspace") = false,
+          py::return_value_policy::reference)
       .def(
           "serialize",
           [](FusionCache& self, std::string filename) {
@@ -339,13 +343,13 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def(
           "serialize",
           [](FusionCache& self) {
-            FUSER_PERF_SCOPE("FusionCache.serialize");
+            FUSER_PERF_SCOPE("FusionCache.serialize (default_workspace)");
             self.serialize();
           })
       .def(
           "deserialize",
           [](FusionCache& self, std::string filename) {
-            FUSER_PERF_SCOPE("FusionCache.serialize (string)");
+            FUSER_PERF_SCOPE("FusionCache.deserialize (string)");
             self.deserialize(filename);
           },
           py::arg("filename"))
