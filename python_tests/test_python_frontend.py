@@ -92,6 +92,7 @@ def serde_check(test_fn: Callable):
 def tearDownModule():
     # Test automatic serialization to common workplace
     import atexit
+
     fc = FusionCache.get()
     atexit.register(fc.serialize)
 
