@@ -323,7 +323,7 @@ kir::Kernel* GpuLower::run() {
   // GpuLower.
   kernel_->finalize(exprs_lowered);
 
-  return kernel_;
+  return kernel_.get();
 }
 
 void GpuLower::analysis(Fusion* fusion) {
