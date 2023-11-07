@@ -32,20 +32,6 @@ bool hasRequiredSmemSize(size_t required_size) {
       required_size;
 }
 
-int getNumSMs() {
-  static int num_SMs = -1;
-  if (num_SMs == -1) {
-    int dev_idx = 0;
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&dev_idx));
-
-    cudaDeviceProp prop;
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, dev_idx));
-
-    num_SMs = prop.multiProcessorCount;
-  }
-  return num_SMs;
-}
-
 #define NVFUSER_BENCHMARK_ARCH_SMEM_GUARD(                       \
     REQUIRED_MAJOR, REQUIRED_MINOR, SMEM_SIZE, STATE)            \
   if (cudaArchGuardShouldSkip(REQUIRED_MAJOR, REQUIRED_MINOR) || \

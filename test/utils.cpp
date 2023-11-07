@@ -802,4 +802,24 @@ size_t getATenRandomSeed() {
   return seed;
 }
 
+int getNumSMs() {
+  // Since cudaGetDeviceProperties can be slow, we memoize the value in num_SMs
+  static std::vector<int> num_SMs;
+
+  int dev_idx = 0;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&dev_idx));
+
+  if (num_SMs.size() <= (size_t)dev_idx) {
+    num_SMs.resize(dev_idx + 1, -1);
+  }
+
+  if (num_SMs[dev_idx] == -1) {
+    cudaDeviceProp prop{};
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, dev_idx));
+
+    num_SMs[dev_idx] = prop.multiProcessorCount;
+  }
+  return num_SMs[dev_idx];
+}
+
 } // namespace nvfuser
