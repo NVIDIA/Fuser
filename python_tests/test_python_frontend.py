@@ -1410,9 +1410,7 @@ class TestNvFuserFrontend(TestCase):
             torch.randn(5 * 960, device="cuda").as_strided(
                 (5, 4, 1, 5, 16), (960, 48, 16, 192, 1)
             ),
-            torch.randn(6, device="cuda").as_strided(
-                (2, 16, 3), (3, 0, 1)
-            ),
+            torch.randn(6, device="cuda").as_strided((2, 16, 3), (3, 0, 1)),
         ]
 
         def fusion_func(fd: FusionDefinition):
@@ -1424,7 +1422,8 @@ class TestNvFuserFrontend(TestCase):
                 contiguity=[None, True, True],
                 dtype=DataType.Float,
                 stride_order=[1, 2, 0],
-                is_cpu=False)
+                is_cpu=False,
+            )
 
             t0_b = fd.ops.broadcast(t0, [True, False, False])
             t4 = fd.ops.add(t0_b, t1)
@@ -1443,7 +1442,6 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(nvf_out[1], eager_out)
         eager_out = inputs[3] * 3.0
         self.assertEqual(nvf_out[2], eager_out)
-
 
     def test_prod(self):
         inputs = [
