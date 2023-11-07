@@ -889,7 +889,8 @@ PersistentKernelProperties getPersistentKernelProperties(
   auto max_persistent_buffer_size = project_persistent_buffers
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;
-
+  std::cout << "persistent_buffer_size= " << persistent_buffer_size_info.persistent_buffer_size << std::endl;
+  std::cout << "projected_persistent_buffer_size= " << persistent_buffer_size_info.projected_persistent_buffer_size << std::endl;
   // (7) info about input and output tensors
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).

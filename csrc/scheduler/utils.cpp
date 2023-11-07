@@ -537,6 +537,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
 
   // Find projectable persistent buffers
   auto reduction_tvs = getReductionTvs(fusion);
+  fusion->printMath();
   for (auto persistent_buffer : persistent_buffer_info.persistent_buffers) {
     // Inputs marked as persistent buffers can't be projected any further back
     if (persistent_buffer->isFusionInput()) {
@@ -544,13 +545,18 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     }
     auto dep_vals = DependencyCheck::getAllValsBetween(
         {reduction_tvs.begin(), reduction_tvs.end()}, {persistent_buffer});
+    
+    std::cout << "================dep_vals of persistent_buffer " << persistent_buffer->toString() << std::endl;
+    for(auto tv : dep_vals){
+      std::cout << tv << std::endl;
+    }
 
     // If there's a reduction between a persistent buffer and the inputs, it
     // can't be projected backwards.
-    if (dep_vals.empty()) {
+    // if (dep_vals.empty()) {
       persistent_buffer_info.projectable_persistent_buffers.push_back(
           persistent_buffer);
-    }
+    // }
   }
 
   // Get a list of inputs of the projectable buffers

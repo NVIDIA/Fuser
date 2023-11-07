@@ -9032,7 +9032,8 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation2_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionPersistentBufferCalculation3_CUDA) {
-  Fusion fusion;
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
   auto tv0 = makeSymbolicTensor(2, DataType::Half);
@@ -9080,12 +9081,12 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation3_CUDA) {
   NVF_ERROR(
       resolution.size() == 2 && resolution[0].size() == 1 &&
       resolution[1].size() == 1);
-  NVF_ERROR(projectable.size() == 1);
-  NVF_ERROR(projectable_inputs.size() == 1);
+  NVF_ERROR(projectable.size() == 2);
+  NVF_ERROR(projectable_inputs.size() == 2);
 
   NVF_ERROR(isTvWithinVec(buffers, tv1) && isTvWithinVec(buffers, tv7));
   NVF_ERROR(
-      isTvWithinVec(projectable, tv1) && !isTvWithinVec(projectable, tv7));
+      isTvWithinVec(projectable, tv1) && isTvWithinVec(projectable, tv7));
 
   NVF_ERROR(isTvWithinVec(projectable_inputs, tv0));
 
@@ -9113,8 +9114,11 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation3_CUDA) {
   NVF_ERROR(
       persistent_buffer_size.projected_persistent_buffer_size ==
       static_cast<int64_t>(
-          aten_t0.size(1) *
-          (dataTypeSize(DataType::Half) + dataTypeSize(DataType::Float))));
+          aten_t0.size(1) * dataTypeSize(DataType::Half) * 2));
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs({aten_t0, aten_t5});
+  testValidate(&fusion, cg_outputs, {aten_t0, aten_t5}, __LINE__, __FILE__);          
 }
 
 TEST_F(NVFuserTest, FusionPersistentBufferCalculation4_CUDA) {
