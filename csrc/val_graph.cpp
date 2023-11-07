@@ -180,34 +180,6 @@ std::string ValGraph::toString() const {
   return ss.str();
 }
 
-std::vector<std::vector<Val*>> ValGraph::isTrivialExpr(Expr* expr) {
-  std::vector<std::vector<Val*>> mapped_ids;
-  if (auto merge = dynamic_cast<Merge*>(expr)) {
-    if (merge->inner()->extent()->isOneInt()) {
-      mapped_ids.push_back({merge->outer(), merge->out()});
-    }
-    if (merge->outer()->extent()->isOneInt()) {
-      mapped_ids.push_back({merge->inner(), merge->out()});
-    }
-  } else if (auto split = dynamic_cast<Split*>(expr)) {
-    if (split->factor()->isOneInt() && split->startOffset()->isZeroInt() &&
-        split->stopOffset()->isZeroInt()) {
-      if (split->innerSplit()) {
-        mapped_ids.push_back({split->in(), split->outer()});
-      } else {
-        mapped_ids.push_back({split->in(), split->inner()});
-      }
-    }
-  } else if (auto swizzle = dynamic_cast<Swizzle2D*>(expr)) {
-    if (swizzle->swizzleType() == Swizzle2DType::NoSwizzle ||
-        swizzle->swizzleMode() == SwizzleMode::NoSwizzle) {
-      mapped_ids.push_back({swizzle->inX(), swizzle->outX()});
-      mapped_ids.push_back({swizzle->inY(), swizzle->outY()});
-    }
-  }
-  return mapped_ids;
-}
-
 bool ValGraph::exprAttributesMatch(Expr* first, Expr* second) {
   if (first == nullptr || second == nullptr) {
     return false;
