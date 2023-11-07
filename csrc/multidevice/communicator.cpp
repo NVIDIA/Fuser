@@ -136,9 +136,7 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
 
 #if defined(USE_C10D_UCC) && defined(NVFUSER_BUILD_WITH_UCC)
   if (backend == CommunicatorBackend::ucc) {
-    std::cout << "Creating PGUCC rank:" << rank << std::endl;
-    std::chrono::duration<float> timeout = std::chrono::milliseconds(30 * 60 * 1000);
-    return c10::make_intrusive<::c10d::ProcessGroupUCC>(store, rank, size, timeout);
+    return c10::make_intrusive<::c10d::ProcessGroupUCC>(store, rank, size);
   }
 #endif
   NVF_CHECK(false, "no distributed backend available");
@@ -180,7 +178,6 @@ Communicator::Communicator(
 }
 
 void Communicator::addBackend(CommunicatorBackend backend) {
-  std::cout << "Creating a backend" << is_available_ << std::endl;
   std::vector<RankType> all_ranks(size_);
   std::iota(all_ranks.begin(), all_ranks.end(), 0);
   // create backend's world.
@@ -204,7 +201,6 @@ c10::intrusive_ptr<c10d::Backend> Communicator::getBackendForTeam(
     RankType team_rank = std::distance(team.begin(), rank_it);
     // generate a string key which is unique to the team
     // create the team and cache it
-    std::cout << "Team rank " << team_rank << " Rank " << deviceId() << std::endl;
     backends_[team_key] = createBackend(
         backend,
         c10::make_intrusive<c10d::PrefixStore>(team_key, store_),
@@ -228,9 +224,7 @@ c10::intrusive_ptr<c10d::Work> Communicator::sendRecv(
     backend = default_backend_;
   }
 
-  std::vector<RankType> all_ranks(size_);
-  std::iota(all_ranks.begin(), all_ranks.end(), 0);
-  auto world = getBackendForTeam(all_ranks, backend);
+  auto world = world_[backend];
 
   if (deviceId() == sender) {
     return world->send(tensors, static_cast<int>(dIdToRank(receiver)), tag);
