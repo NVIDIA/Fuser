@@ -140,6 +140,21 @@ const Val* AliasAnalysisResult::findRoot(const Val* alias) const {
   return root;
 }
 
+std::vector<IterDomain*> AliasAnalysisResult::preferredAllocationDomain(
+    const Val* v) const {
+  const TensorView* tv = dynamic_cast<const TensorView*>(v);
+  NVF_CHECK(
+      tv != nullptr,
+      "`v` is expected to be a TensorView. Found: ",
+      v->toString());
+
+  if (auto i = preferred_allocation_domain_.find(tv);
+      i != preferred_allocation_domain_.end()) {
+    return i->second;
+  }
+  return tv->getMaybeAllocationDomain();
+}
+
 AliasAnalysisResult findAliases(Fusion* fusion) {
   AliasAnalysisResult analysis;
   // Fusion::exprs() returns topological order.

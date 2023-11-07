@@ -19,6 +19,8 @@ class AliasAnalysisResult {
   // Returns itself if `alias` doesn't alias anything.
   const Val* findRoot(const Val* alias) const;
 
+  std::vector<IterDomain*> preferredAllocationDomain(const Val* alias) const;
+
   // Marks `source` as the immediate aliasing source of `alias`.
   void add(const TensorView* alias, const TensorView* source);
 
@@ -33,6 +35,9 @@ class AliasAnalysisResult {
   // used in disjoint-set data structure, so it's easy to figure out the root of
   // an alias.
   std::unordered_map<const TensorView*, const TensorView*> alias_to_source_;
+
+  std::unordered_map<const TensorView*, std::vector<IterDomain*>>
+      preferred_allocation_domain_;
 };
 
 // Finds aliases of the fusion inputs.
