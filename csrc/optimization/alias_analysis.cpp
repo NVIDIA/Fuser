@@ -18,19 +18,20 @@ namespace nvfuser::optimization {
 
 namespace {
 
-// Returns whether the input TensorView is allocated contiguously.
-bool isContiguous(const TensorView& tv) {
-  const std::vector<IterDomain*>& allocation_domain =
-      tv.getMaybeAllocationDomain();
-  for (size_t i = 0; i < allocation_domain.size(); i++) {
+bool isContiguous(const std::vector<std::optional<bool>>& contiguity) {
+  for (const auto& id_contiguity : contiguity) {
     // We skip std::nullopt contiguity. It represents a broadcast or reduction
     // dimension, which is of size 1 and always contiguous.
-    std::optional<bool> contiguity = tv.getContiguity()[i];
-    if (contiguity.has_value() && contiguity.value() == false) {
+    if (id_contiguity.has_value() && id_contiguity.value() == false) {
       return false;
     }
   }
   return true;
+}
+
+// Returns whether the input TensorView is allocated contiguously.
+bool isContiguous(const TensorView& tv) {
+  return isContiguous(tv.getContiguity());
 }
 
 // Whether a ViewOp transforms any expanded broadcast IterDomain in the input.
@@ -96,8 +97,9 @@ void findAliasesFromExpr(Expr* expr, AliasAnalysisResult& analysis) {
     TensorView* in = view->in();
     TensorView* out = view->out();
 
-    if (in->getMaybeAllocationDomain() == in->getMaybeRFactorDomain() &&
-        isContiguous(*in) &&
+    Layout in_layout = analysis.preferredLayout(in);
+    if (in_layout.allocation_domain == in->getMaybeRFactorDomain() &&
+        isContiguous(in_layout.contiguity) &&
         out->getMaybeAllocationDomain() == out->getMaybeRFactorDomain() &&
         isContiguous(*out) && !transformsExpandedBroadcastIterDomain(in, out)) {
       // This is a sufficient but not necessary condition for `out` to alias
@@ -140,19 +142,17 @@ const Val* AliasAnalysisResult::findRoot(const Val* alias) const {
   return root;
 }
 
-std::vector<IterDomain*> AliasAnalysisResult::preferredAllocationDomain(
-    const Val* v) const {
+Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
   const TensorView* tv = dynamic_cast<const TensorView*>(v);
   NVF_CHECK(
       tv != nullptr,
       "`v` is expected to be a TensorView. Found: ",
       v->toString());
 
-  if (auto i = preferred_allocation_domain_.find(tv);
-      i != preferred_allocation_domain_.end()) {
+  if (auto i = preferred_layout_.find(tv); i != preferred_layout_.end()) {
     return i->second;
   }
-  return tv->getMaybeAllocationDomain();
+  return {tv->getMaybeAllocationDomain(), tv->getContiguity()};
 }
 
 AliasAnalysisResult findAliases(Fusion* fusion) {

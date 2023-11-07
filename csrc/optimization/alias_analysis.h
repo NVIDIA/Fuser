@@ -12,6 +12,11 @@
 
 namespace nvfuser::optimization {
 
+struct Layout {
+  std::vector<IterDomain*> allocation_domain;
+  std::vector<std::optional<bool>> contiguity;
+};
+
 class AliasAnalysisResult {
  public:
   AliasAnalysisResult() = default;
@@ -19,7 +24,7 @@ class AliasAnalysisResult {
   // Returns itself if `alias` doesn't alias anything.
   const Val* findRoot(const Val* alias) const;
 
-  std::vector<IterDomain*> preferredAllocationDomain(const Val* alias) const;
+  Layout preferredLayout(const Val* alias) const;
 
   // Marks `source` as the immediate aliasing source of `alias`.
   void add(const TensorView* alias, const TensorView* source);
@@ -36,8 +41,7 @@ class AliasAnalysisResult {
   // an alias.
   std::unordered_map<const TensorView*, const TensorView*> alias_to_source_;
 
-  std::unordered_map<const TensorView*, std::vector<IterDomain*>>
-      preferred_allocation_domain_;
+  std::unordered_map<const TensorView*, Layout> preferred_layout_;
 };
 
 // Finds aliases of the fusion inputs.
