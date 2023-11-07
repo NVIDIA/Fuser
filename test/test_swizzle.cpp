@@ -45,8 +45,7 @@ TEST_F(SwizzleTest, SimpleSwizzle0) {
   tv1->swizzle(Swizzle2DType::ZShape, -2, -1);
 
   GpuLower gpulw(&fusion);
-  gpulw.run();
-  auto exprs = gpulw.kernel()->topLevelExprs();
+  auto exprs = gpulw.run()->topLevelExprs();
   auto str = ir_utils::toString(exprs);
   NVF_CHECK(str.find("where") != std::string::npos);
 
@@ -133,9 +132,8 @@ TEST_F(SwizzleTest, SimpleSwizzle2) {
   // Make sure that a sync is inserted:
   bool sync_found = false;
   GpuLower gpulw(&fusion);
-  gpulw.run();
   auto flattened_exps =
-      ir_utils::flattenScopedExprs(gpulw.kernel()->topLevelExprs());
+      ir_utils::flattenScopedExprs(gpulw.run()->topLevelExprs());
 
   for (auto expr : flattened_exps) {
     if (expr->isA<kir::BlockSync>()) {

@@ -8045,8 +8045,7 @@ TEST_F(NVFuserTest, FusionWARSyncAliasedSmem_CUDA) {
 
   // Make sure a WAR sync is inserted at the end of the outer loop
   GpuLower gpulw(&fusion);
-  gpulw.run();
-  for (const auto& kir_node : gpulw.kernel()->topLevelExprs()) {
+  for (const auto& kir_node : gpulw.run()->topLevelExprs()) {
     if (auto loop = dynamic_cast<kir::ForLoop*>(kir_node)) {
       const auto& body = loop->body().exprs();
       NVF_CHECK(!body.empty());
@@ -8847,10 +8846,9 @@ TEST_F(NVFuserTest, FusionIssue1133_CUDA) {
 
   // Both tv1 and tv2 should be allocated at the top-level scope
   GpuLower gpulw(&fusion);
-  gpulw.run();
   bool tv1_validated = false;
   bool tv2_validated = false;
-  for (const auto& kir_node : gpulw.kernel()->topLevelExprs()) {
+  for (const auto& kir_node : gpulw.run()->topLevelExprs()) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(kir_node)) {
       auto size = alloc->size();
       if (!(alloc->buffer()->name() == 1 || alloc->buffer()->name() == 2)) {

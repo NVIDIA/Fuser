@@ -170,8 +170,7 @@ TEST_F(ResizeTest, FusionResizePad5) {
       tv1->getMemoryType());
 
   GpuLower gpulw(&fusion);
-  gpulw.run();
-  auto all_lowered_exprs = KernelExprVisitor::getAllExprs(gpulw.kernel());
+  auto all_lowered_exprs = KernelExprVisitor::getAllExprs(gpulw.run());
   NVF_CHECK(
       std::find_if(
           all_lowered_exprs.begin(),
