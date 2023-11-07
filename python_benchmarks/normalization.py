@@ -47,7 +47,7 @@ def norm_fwd_fusion(
         weight = fd.ops.cast(weight, dtype=DataType.Float)
         bias = fd.ops.cast(bias, dtype=DataType.Float)
 
-    var, mean = fd.ops.var_mean(input, axes=reduction_axes, correction=1, keepdim=False)
+    var, mean = fd.ops.var_mean(input, axes=reduction_axes, correction=0, keepdim=False)
 
     eps = fd.define_scalar(eps, dtype=DataType.Double)
     var_eps = fd.ops.add(var, eps)
