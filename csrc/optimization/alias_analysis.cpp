@@ -81,8 +81,8 @@ bool transformsExpandedBroadcastIterDomain(TensorView* in, TensorView* out) {
 }
 
 // Finds aliases between `expr`'s inputs and outputs and stores the findings in
-// `alias_to_source`.
-void findAliasesFromExpr(Expr* expr, AliasAnalysisResult& alias_to_source) {
+// `analysis`.
+void findAliasesFromExpr(Expr* expr, AliasAnalysisResult& analysis) {
   // The current implementation does the bare minimum to detect some aliasing
   // that the codegen can use to generate a kernel skipping unnecessary
   // computation.
@@ -104,7 +104,7 @@ void findAliasesFromExpr(Expr* expr, AliasAnalysisResult& alias_to_source) {
       // `in`. Both `in` and `out` are allocated contiguously per the
       // rfactor domain. Also, the ViewOp can't transform any expanded broadcast
       // IterDomain.
-      alias_to_source.add(out, in);
+      analysis.add(out, in);
     }
   }
 }
@@ -141,17 +141,17 @@ const Val* AliasAnalysisResult::findRoot(const Val* alias) const {
 }
 
 AliasAnalysisResult findAliases(Fusion* fusion) {
-  AliasAnalysisResult alias_analysis;
+  AliasAnalysisResult analysis;
   // Fusion::exprs() returns topological order.
   for (Expr* expr : fusion->exprs()) {
     // A potential improvement suggested by @tfogal: Let findAliasesFromExpr
     // return the AliasAnalysisResult instead of taking a mutable
-    // `alias_analysis` arg. This might be somewhat easily parallelizable
+    // `analysis` arg. This might be somewhat easily parallelizable
     // (albeit with a serialized merge step afterwards that inserts the
     // results).
-    findAliasesFromExpr(expr, alias_analysis);
+    findAliasesFromExpr(expr, analysis);
   }
-  return alias_analysis;
+  return analysis;
 }
 
 } // namespace nvfuser::optimization
