@@ -110,7 +110,7 @@ std::string Communication::toString(int indent) const {
 
 Broadcast::Broadcast(CommParams params) : Communication(params, "broadcast") {}
 
-c10::intrusive_ptr<c10d::Work> Broadcast::post(Communicator& comm) {
+c10::intrusive_ptr<c10d::Work> Broadcast::post(Communicator& comm, CommunicatorBackend backend_type) {
   post_common(*this, comm);
 
   if (comm.deviceId() == params_.root) {
@@ -129,7 +129,7 @@ c10::intrusive_ptr<c10d::Work> Broadcast::post(Communicator& comm) {
     return nullptr;
   }
 
-  return comm.getBackendForTeam(params_.team)
+  return comm.getBackendForTeam(params_.team, backend_type)
       ->broadcast(
           comm.deviceId() == params_.root ? params_.src_bufs : params_.dst_bufs,
           {.rootRank = root_relative_index_});
@@ -140,7 +140,7 @@ Gather::Gather(CommParams params) : Communication(params, "gather") {
   NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
 }
 
-c10::intrusive_ptr<c10d::Work> Gather::post(Communicator& comm) {
+c10::intrusive_ptr<c10d::Work> Gather::post(Communicator& comm, CommunicatorBackend backend_type) {
   post_common(*this, comm);
   // This is used to change the representation of the buffers to match c10d
   // ProcessGroup API
@@ -152,7 +152,7 @@ c10::intrusive_ptr<c10d::Work> Gather::post(Communicator& comm) {
     assertBufferCount(params_.dst_bufs, 0);
   }
   auto work =
-      comm.getBackendForTeam(params_.team)
+      comm.getBackendForTeam(params_.team, backend_type)
           ->gather(
               buf_list, params_.src_bufs, {.rootRank = root_relative_index_});
   if (comm.deviceId() == params_.root) {
@@ -168,13 +168,13 @@ Allgather::Allgather(CommParams params)
   NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
 }
 
-c10::intrusive_ptr<c10d::Work> Allgather::post(Communicator& comm) {
+c10::intrusive_ptr<c10d::Work> Allgather::post(Communicator& comm, CommunicatorBackend backend_type) {
   post_common(*this, comm);
   // This is used to change the representation of the buffers to match c10d
   // ProcessGroup API
   std::vector<std::vector<at::Tensor>> buf_list;
   buf_list = {std::move(params_.dst_bufs)};
-  auto work = comm.getBackendForTeam(params_.team)
+  auto work = comm.getBackendForTeam(params_.team, backend_type)
                   ->allgather(buf_list, params_.src_bufs, {});
   params_.dst_bufs = std::move(buf_list.back());
   return work;
@@ -185,7 +185,7 @@ Scatter::Scatter(CommParams params) : Communication(params, "scatter") {
   NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
 }
 
-c10::intrusive_ptr<c10d::Work> Scatter::post(Communicator& comm) {
+c10::intrusive_ptr<c10d::Work> Scatter::post(Communicator& comm, CommunicatorBackend backend_type) {
   post_common(*this, comm);
   // This is used to change the representation of the buffers to match c10d
   // ProcessGroup API
@@ -197,7 +197,7 @@ c10::intrusive_ptr<c10d::Work> Scatter::post(Communicator& comm) {
     assertBufferCount(params_.src_bufs, 0);
   }
   auto work =
-      comm.getBackendForTeam(params_.team)
+      comm.getBackendForTeam(params_.team, backend_type)
           ->scatter(
               params_.dst_bufs, buf_list, {.rootRank = root_relative_index_});
   if (comm.deviceId() == params_.root) {
@@ -282,7 +282,7 @@ SendRecv::SendRecv(CommParams params) : Communication(params, "send/recv") {
       "the team size should be 1 or 2");
 }
 
-c10::intrusive_ptr<c10d::Work> SendRecv::post(Communicator& comm) {
+c10::intrusive_ptr<c10d::Work> SendRecv::post(Communicator& comm, CommunicatorBackend backend_type) {
   post_common(*this, comm);
 
   if (comm.deviceId() == params_.root) {
@@ -303,7 +303,8 @@ c10::intrusive_ptr<c10d::Work> SendRecv::post(Communicator& comm) {
       (params_.team.at(0) == params_.root) ? params_.team.at(1)
                                            : params_.team.at(0),
       params_.root,
-      params_.dst_bufs.empty() ? params_.src_bufs : params_.dst_bufs);
+      params_.dst_bufs.empty() ? params_.src_bufs : params_.dst_bufs, 
+      backend_type);
 }
 
 } // namespace nvfuser

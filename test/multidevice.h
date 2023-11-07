@@ -49,7 +49,8 @@ class MultiDeviceTest : public NVFuserTest {
   bool do_barrier_at_test;
 };
 
-class CommunicationTest : public MultiDeviceTest {
+class CommunicationTest : public MultiDeviceTest,
+                          public ::testing::WithParamInterface<CommunicatorBackend>  {
  protected:
   void SetUp() override;
   void validate(at::Tensor obtained, at::Tensor expected);

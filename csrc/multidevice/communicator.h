@@ -32,7 +32,8 @@ namespace nvfuser {
 using RankType = DeviceIdxType;
 
 // Supported backends. TODO: only tested with nccl for now
-enum class CommunicatorBackend { nccl, ucc, gloo };
+// TODO: none is a hack for calling a default. 
+enum class CommunicatorBackend { nccl, ucc, gloo, none };
 
 constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::nccl;
 constexpr int comm_server_local_rank_default = 0;
@@ -63,20 +64,30 @@ class Communicator {
     return local_size_;
   }
 
+  // adds another backend to the communicator
+  void addBackend(CommunicatorBackend backend);
+  
+  // sets the communicator's default backend
+  void setDefaultBackend(CommunicatorBackend backend) {default_backend_ = backend;}
+
   // performs a send/receive p2p data transfer
   c10::intrusive_ptr<c10d::Work> sendRecv(
       DeviceIdxType receiver,
       DeviceIdxType sender,
       std::vector<at::Tensor>& tensor,
+      CommunicatorBackend backend = CommunicatorBackend::none,
       int tag = 0);
 
   // performs a blocking barrier in the communicator
-  void barrier() const {
-    world_->barrier()->wait();
+  void barrier(CommunicatorBackend backend = CommunicatorBackend::none) const {
+    if (backend == CommunicatorBackend::none)
+      backend = default_backend_;
+    world_.at(backend)->barrier()->wait();
   }
 
   // returns the backend associated with a team
-  c10::intrusive_ptr<c10d::Backend> getBackendForTeam(const Team& team);
+  c10::intrusive_ptr<c10d::Backend> getBackendForTeam(const Team& team, 
+        CommunicatorBackend backend = CommunicatorBackend::none);
 
   // returns the device associated with the current process
   auto device() const {
@@ -100,7 +111,7 @@ class Communicator {
   }
 
   bool is_available_;
-  CommunicatorBackend backend_type_;
+  CommunicatorBackend default_backend_;
   RankType rank_;
   int64_t size_;
   RankType local_rank_;
@@ -109,8 +120,8 @@ class Communicator {
   int master_port_;
   // stores the world's store used for the backend init
   c10::intrusive_ptr<c10d::TCPStore> store_;
-  // stores the world's backend
-  c10::intrusive_ptr<c10d::Backend> world_;
+  // stores the world's backend. 
+  std::unordered_map<CommunicatorBackend, c10::intrusive_ptr<c10d::Backend>> world_;
   // cache for the created backends. The keys are strings generated from Teams
   std::unordered_map<std::string, c10::intrusive_ptr<c10d::Backend>> backends_;
 };
