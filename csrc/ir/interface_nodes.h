@@ -527,6 +527,11 @@ class TensorView : public Val {
     return promote_reuse_;
   }
 
+  // Returns whether a TensorView has its first non-reduction axis parallelized
+  // on Didx
+  // Checks that the other non-reduction axis are not parallelized on Didx
+  bool isSharded() const;
+
  protected:
   void setDomain(TensorDomain* td) {
     domain_ = td;

@@ -15,23 +15,6 @@ namespace nvfuser {
 
 namespace {
 
-// Returns whether a TensorView has its first axis parallelized on Didx
-// Checks that the other axis are not parallelized on Didx
-bool isParallelD(TensorView* tv) {
-  std::vector<bool> is_parallel_d;
-  for (IterDomain* id : tv->getLeafDomain()) {
-    is_parallel_d.push_back(isParallelTypeDeviceDim(id->getParallelType()));
-  }
-  // Currently, only the most external dim is allowed to be parallelized
-  NVF_ERROR(tv->getMaybeRFactorDomain() == tv->getLeafDomain());
-  for (auto i : c10::irange(1, is_parallel_d.size())) {
-    NVF_ERROR(
-        !is_parallel_d.at(i),
-        "only the outmost dimension can be device-parallelized");
-  }
-  return is_parallel_d.empty() ? false : is_parallel_d.at(0);
-}
-
 inline bool isDeviceInvolved(
     DeviceIdxType my_device_index,
     DeviceIdxType root,
@@ -208,17 +191,17 @@ void lowerToBroadcastOrP2P(
 
 // Adds several Broadcast or Send/Recv communications to the vector 'comms'
 // For now, we assume that this function is called only if
-// the input and output have the same parallelization (given by
-// the argument "is_parallelized"). Later we could support more general cases.
+// the input and output have the same sharding. Later we could support more
+// general cases.
 void lowerToBroadcastOrP2P(
     DeviceIdxType my_device_index,
     const DeviceMesh& sender_mesh,
     const DeviceMesh& receiver_mesh,
     at::Tensor input_tensor,
     at::Tensor output_tensor,
-    bool is_parallelized,
+    bool is_sharded,
     std::vector<std::shared_ptr<Communication>>& comms) {
-  if (is_parallelized) {
+  if (is_sharded) {
     // if the inputs and ouputs are parallelized,
     // we create as many Broadcast as that will be handled in parallel
     for (auto i : c10::irange(sender_mesh.vector().size())) {
@@ -274,21 +257,21 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
       c->out()->as<PipelineVal>()->getStage()->descriptor()->mesh;
 
   // Stores whether the I/O has its first axis parallelized on Didx
-  bool is_input_parallel_d =
-      isParallelD(input_tv) && sender_mesh.vector().size() > 1;
-  bool is_output_parallel_d =
-      isParallelD(output_tv) && receiver_mesh.vector().size() > 1;
+  const bool is_input_sharded =
+      input_tv->isSharded() && sender_mesh.vector().size() > 1;
+  const bool is_output_sharded =
+      output_tv->isSharded() && receiver_mesh.vector().size() > 1;
 
   NVF_ERROR(
-      !is_input_parallel_d ||
+      !is_input_sharded ||
           sender_mesh.vector().size() ==
               static_cast<size_t>(input_tensor.size(0)),
-      "the size of the mesh",
+      "the size of the mesh ",
       sender_mesh.vector().size(),
       " doesn't match the size of the tensor ",
       input_tensor.size(0));
   NVF_ERROR(
-      !is_output_parallel_d ||
+      !is_output_sharded ||
           receiver_mesh.vector().size() ==
               static_cast<size_t>(output_tensor.size(0)),
       "the size of the mesh",
@@ -302,7 +285,7 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
     return {};
   }
 
-  if (!is_input_parallel_d && is_output_parallel_d) {
+  if (!is_input_sharded && is_output_sharded) {
     lowerToScatter(
         my_device_index,
         sender_mesh,
@@ -310,7 +293,7 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
         input_tensor,
         output_tensor,
         comms);
-  } else if (is_input_parallel_d && !is_output_parallel_d) {
+  } else if (is_input_sharded && !is_output_sharded) {
     if (receiver_mesh.vector() == sender_mesh.vector()) {
       lowerToAllgather(
           my_device_index, sender_mesh, input_tensor, output_tensor, comms);
@@ -330,7 +313,7 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
         receiver_mesh,
         input_tensor,
         output_tensor,
-        is_input_parallel_d,
+        is_input_sharded,
         comms);
   }
   return comms;

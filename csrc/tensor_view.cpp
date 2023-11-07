@@ -1411,6 +1411,21 @@ void TensorView::commitLeafToRFactor() {
           true)));
 }
 
+bool TensorView::isSharded() const {
+  std::vector<bool> is_sharded;
+  for (IterDomain* id : TensorDomain::noReductions(getLeafDomain())) {
+    is_sharded.push_back(id->isDevice());
+  }
+  // Currently, only the most external dim is allowed to be sharded
+  NVF_ERROR(getMaybeRFactorDomain() == getLeafDomain());
+  for (auto i : c10::irange(1, is_sharded.size())) {
+    NVF_ERROR(
+        !is_sharded.at(i),
+        "only the outmost dimension can be device-parallelized");
+  }
+  return is_sharded.empty() ? false : is_sharded.at(0);
+}
+
 TensorViewBuilder& TensorViewBuilder::ndims(size_t ndims) {
   NVF_CHECK(shape_.empty() || shape_.size() == ndims);
   NVF_CHECK(contiguity_.empty() || contiguity_.size() == ndims);

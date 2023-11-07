@@ -75,11 +75,7 @@ void SendToTester(
     Communicator* communicator) {
   std::vector<at::Tensor> buffer;
   auto& mesh = pVal->getStage()->descriptor()->mesh;
-  if (isParallelTypeDeviceDim(pVal->getOriginalVal()
-                                  ->as<TensorView>()
-                                  ->getRootDomain()
-                                  .at(0)
-                                  ->getParallelType())) {
+  if (pVal->getOriginalVal()->as<TensorView>()->isSharded()) {
     for (DeviceIdxType j : c10::irange(mesh.vector().size())) {
       buffer = {tensor.index({j, "..."})};
       auto sender = mesh.vector().at(j);
