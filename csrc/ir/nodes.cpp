@@ -3693,9 +3693,10 @@ std::vector<IterDomain*> TensorDomain::noBroadcasts(
   return noBroadcastDomain;
 }
 
-std::vector<std::optional<bool>> TensorDomain::getContiguityFilledWith(
-    const std::vector<IterDomain*>& rfactor_domain,
-    bool fill_value) {
+/*static*/ std::vector<std::optional<bool>> TensorDomain::
+    getContiguityFilledWith(
+        const std::vector<IterDomain*>& rfactor_domain,
+        bool fill_value) {
   std::vector<std::optional<bool>> contiguity;
   contiguity.reserve(rfactor_domain.size());
   for (auto id : rfactor_domain) {
