@@ -113,20 +113,18 @@ std::optional<std::vector<int64_t>> computePermutation(
 // Many improvements are to be made. For example,
 // 1. It should handle more op types such as `Slice`.
 // 2. It should detect alias between non-packed tensors.
-//
-// FIXME: can we inherit from OptOutConstDispatch?
-class AliasFinder : public OptOutDispatch {
+class AliasFinder : public OptOutConstDispatch {
  public:
   AliasFinder(AliasAnalysisResult& analysis) : analysis_(analysis) {}
 
-  void handle(ViewOp* view) override;
-  void handle(LoadStoreOp* ldst) override;
+  void handle(const ViewOp* view) override;
+  void handle(const LoadStoreOp* ldst) override;
 
  private:
   AliasAnalysisResult& analysis_;
 };
 
-void AliasFinder::handle(ViewOp* view) {
+void AliasFinder::handle(const ViewOp* view) {
   TensorView* in = view->in();
   TensorView* out = view->out();
 
@@ -143,7 +141,7 @@ void AliasFinder::handle(ViewOp* view) {
   }
 }
 
-void AliasFinder::handle(LoadStoreOp* permute) {
+void AliasFinder::handle(const LoadStoreOp* permute) {
   TensorView* out = dynamic_cast<TensorView*>(permute->out());
   if (!out->hasRFactor()) {
     // Not a permute. It's actually an easier case to propagate aliases. I'm
