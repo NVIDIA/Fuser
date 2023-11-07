@@ -41,7 +41,6 @@ static void setupSoftmaxFused(
   if (dtype == DataType::Half) {
     input = castOp(DataType::Float, input);
   }
-  // skip this special op to fall back to original softmax
   for (auto uop : unary_op_types) {
     input = unaryOp(uop, input);
   }
@@ -54,10 +53,17 @@ static void setupSoftmaxFused(
   auto exp_val = exp(x_max_sub);
   auto sum_exp = sum(exp_val, {-1});
   auto bcast_sum = broadcast(sum_exp, {false, true});
-  auto y = mul(exp_val, reciprocal(bcast_sum));
-  y = castOp(DataType::Half, y);
 
-  fusion->addOutput(y);
+  if (std::getenv("RECALC")) {
+    auto re_exp_val = exp(sub(input, bcast_max));
+    auto y = mul(re_exp_val, reciprocal(bcast_sum));
+    y = castOp(DataType::Half, y);
+    fusion->addOutput(y);
+  } else {
+    auto y = mul(exp_val, reciprocal(bcast_sum));
+    y = castOp(DataType::Half, y);
+    fusion->addOutput(y);
+  }
 }
 
 static void NvFuserScheduler_SoftmaxFused(
@@ -105,6 +111,7 @@ NVFUSER_BENCHMARK_DEFINE(
     DataType::Half,
     std::vector<UnaryOpType>{},
     std::vector<BinaryOpType>{});
+
 NVFUSER_BENCHMARK_RUN(NvFuserScheduler_SoftmaxFused_null_fp16)
     ->Apply(addCases)
     ->Unit(benchmark::kMicrosecond)
@@ -181,7 +188,6 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_SoftmaxFused_mul_fp16)
     ->Apply(addCases)
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
-
 
 NVFUSER_BENCHMARK_DEFINE(
     NvFuserScheduler_SoftmaxFused_sin_log10_mul_add_fp16,
