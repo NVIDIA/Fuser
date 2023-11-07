@@ -426,13 +426,13 @@ class Fusion : public IrContainer {
   //! True if any of tensors has a symblic axis
   bool hasDynamicTransform();
 
+  static IrCloner copy(const Fusion* from, Fusion* to);
+
  protected:
   friend SegmentCandidateFinder;
   friend SegmentedFusion;
   friend class TranslateApplicableWelford;
   friend Val;
-
-  static IrCloner copy(const Fusion* from, Fusion* to);
 
   using IrContainer::registerExpr;
   using IrContainer::registerVal;
