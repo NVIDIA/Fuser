@@ -409,27 +409,23 @@ static void NvFuserScheduler_MatmulSplitKReduction(
     splitk_factor = computeAutoSplitKFactor(M, N, M, 128);
   }
 
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-
-  // Architecture
-  auto properties = at::cuda::getDeviceProperties(0);
-  bool turing_or_later = properties->major >= 8 ||
-      (properties->major == 7 && properties->minor >= 5);
-
   at::manual_seed(0);
 
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  auto aten_c = at::randn({M, N, splitk_factor}, options);
-
-  auto c = makeContigTensor(3, DataType::Half);
+  // Note: although the matmul inputs may be Half, PartitionedK output is in
+  // the accumulator type (Float), so we reduce Floats.
+  auto c = makeContigTensor(3, DataType::Float);
   fusion->addInput(c);
   auto d = castOp(DataType::Float, c);
   auto e = sum(d, {-1});
   fusion->addOutput(e);
 
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto aten_c = at::randn({M, N, splitk_factor}, options);
   std::vector<c10::IValue> aten_inputs = {aten_c};
 
   auto reduction_params = getReductionHeuristics(fusion, aten_inputs);
@@ -451,6 +447,10 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   // Compile kernel
   FusionExecutor fe;
   fe.compileFusion(fusion, args, lparams, cparams);
+
+  auto properties = at::cuda::getDeviceProperties(0);
+  bool turing_or_later = properties->major >= 8 ||
+      (properties->major == 7 && properties->minor >= 5);
   if (turing_or_later) {
     NVF_CHECK(
         getBankConflictInfo(fe.kernel(), lparams).empty(),
