@@ -154,34 +154,23 @@ void IdModel::buildIterDomainDefinitionsAndUses(
 }
 
 std::string IdModel::toString() const {
-  // Figure out which graphs are already initialized to make sure we add the new
-  // expression to them.
-  std::vector<IdMappingMode> initialized_modes;
+  std::stringstream ss;
+  ss << "IterDomainGraphs { \n";
+  // Only print initialized graphs
   for (auto mode : kIdMappingModes) {
     auto graph_it = id_graphs_.find(mode);
     if (graph_it == id_graphs_.end()) {
       continue;
     }
 
-    auto& graph = graph_it->second;
-    if (graph.disjointValSets().disjointSetMap().empty()) {
-      continue;
-    }
-
-    initialized_modes.push_back(mode);
-  }
-
-  std::stringstream ss;
-  ss << "IterDomainGraphs { \n";
-  for (auto mode : initialized_modes) {
-    std::stringstream ss;
+    // graph may be empty, but then just print it as an empty graph,
+    // which might be useful for debugging
     ss << "  IdGraph " << mode << "{ \n";
     ss << "  Disjoint Ids:\n"
        << idGroupsString(idGraph(mode), 2)
        << "\n  Disjoint Expression groups:\n"
        << exprGroupsString(idGraph(mode), 2) << std::endl;
     ss << "   } IdGraph\n" << std::endl;
-    return ss.str();
   }
   ss << " } IterDomainGraphs\n" << std::endl;
   return ss.str();
