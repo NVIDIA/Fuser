@@ -81,6 +81,27 @@ bool transformsExpandedBroadcastIterDomain(TensorView* in, TensorView* out) {
   return false;
 }
 
+// FIXME: merge.
+template <typename T>
+std::optional<std::vector<int64_t>> computePermutation(
+    const std::vector<T>& in,
+    const std::vector<T>& out) {
+  if (!std::is_permutation(in.begin(), in.end(), out.begin())) {
+    return std::nullopt;
+  }
+
+  std::vector<int64_t> permutation;
+  permutation.reserve(out.size());
+  // O(n^2) is totally fine for the current use case of computing the
+  // root-to-rfactor permutation. If needed, this can be improved by requiring T
+  // to be hashable and/or comparable.
+  for (const T& out_element : out) {
+    permutation.push_back(std::distance(
+        in.begin(), std::find(in.begin(), in.end(), out_element)));
+  }
+  return permutation;
+}
+
 // Finds aliases between `expr`'s inputs and outputs and stores the findings in
 // `analysis`.
 void findAliasesFromExpr(Expr* expr, AliasAnalysisResult& analysis) {
@@ -93,6 +114,7 @@ void findAliasesFromExpr(Expr* expr, AliasAnalysisResult& analysis) {
   // to proactively make output aliases.
   // 2. It should handle more op types such as `Set.Permute`.
   // 3. It should detect alias between non-packed tensors.
+  // 4. Use OptOutDispatch.
   if (ViewOp* view = dynamic_cast<ViewOp*>(expr)) {
     TensorView* in = view->in();
     TensorView* out = view->out();
@@ -108,6 +130,46 @@ void findAliasesFromExpr(Expr* expr, AliasAnalysisResult& analysis) {
       // IterDomain.
       analysis.add(out, in);
     }
+  }
+
+  if (LoadStoreOp* permute = dynamic_cast<LoadStoreOp*>(expr)) {
+    TensorView* out = dynamic_cast<TensorView*>(permute->out());
+    if (!out->hasRFactor()) {
+      return;
+    }
+    TensorView* in = permute->in()->as<TensorView>();
+
+    if (out->hasAllocation()) {
+      return;
+    }
+
+    Layout in_layout = analysis.preferredLayout(in);
+    if (!computePermutation(
+             in->getMaybeRFactorDomain(), in_layout.allocation_domain)
+             .has_value()) {
+      return;
+    }
+
+    // in: rfactor -> allocation
+    //        ||
+    // out:  root
+    //        |
+    //        v
+    //     rfactor -> allocation
+    std::unordered_map<IterDomain*, IterDomain*> in_rfactor_to_out_root;
+    for (auto i : c10::irange(out->getRootDomain().size())) {
+      in_rfactor_to_out_root[in->getMaybeRFactorDomain()[i]] =
+          out->getRootDomain()[i];
+    }
+
+    Layout out_layout;
+    for (IterDomain* allocation_id : in_layout.allocation_domain) {
+      out_layout.allocation_domain.push_back(
+          in_rfactor_to_out_root.at(allocation_id));
+    }
+    out_layout.contiguity = TensorDomain::getContiguityFilledWith(
+        out->getMaybeRFactorDomain(), false);
+    analysis.add(out, in, out_layout);
   }
 }
 
@@ -126,6 +188,14 @@ void AliasAnalysisResult::add(
       " while it's already an alias of ",
       old_source->toString());
   old_source = source;
+}
+
+void AliasAnalysisResult::add(
+    const TensorView* alias,
+    const TensorView* source,
+    const Layout& layout) {
+  add(alias, source);
+  preferred_layout_[alias] = layout;
 }
 
 const Val* AliasAnalysisResult::findRoot(const Val* alias) const {

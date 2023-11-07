@@ -28,6 +28,10 @@ class AliasAnalysisResult {
 
   // Marks `source` as the immediate aliasing source of `alias`.
   void add(const TensorView* alias, const TensorView* source);
+  void add(
+      const TensorView* alias,
+      const TensorView* source,
+      const Layout& layout);
 
   AliasAnalysisResult(const AliasAnalysisResult&) = delete;
   AliasAnalysisResult& operator=(const AliasAnalysisResult&) = delete;

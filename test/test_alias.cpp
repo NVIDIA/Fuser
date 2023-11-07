@@ -128,10 +128,14 @@ TEST_F(AliasAnalysisTest, Permute) {
   TensorView* out = permute(in, {1, 2, 0});
   fusion.addOutput(out);
 
-  // We haven't handled `Set.Permute` yet.
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.findRoot(out), out);
+  EXPECT_EQ(alias_analysis.findRoot(out), in);
+
+  const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
+  EXPECT_THAT(
+      alias_analysis.preferredLayout(out).allocation_domain,
+      ElementsAre(out_rfactor[2], out_rfactor[0], out_rfactor[1]));
 }
 
 TEST_F(AliasAnalysisTest, View_SplitExpandedBroadcast) {
