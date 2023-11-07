@@ -1244,11 +1244,11 @@ struct TensorRecord : RecordFunctor {
           ? index
           : rank - 1 - static_cast<size_t>(stride_order_[index]);
       const bool is_broadcast = !contiguity_[contig_index].has_value();
-      const bool has_symbolic_size = (shape_[index] == -1);
+      const bool has_non_broadcast_size = (shape_[index] != 1);
       // A root dimension is expand dimension if:
       //   The dimension is marked a broadcast; and
       //   The dimension has a symbolic size (expand extend)
-      is_expand[index] = is_broadcast && has_symbolic_size;
+      is_expand[index] = is_broadcast && has_non_broadcast_size;
     }
 
     auto tv = TensorViewBuilder()

@@ -1410,26 +1410,40 @@ class TestNvFuserFrontend(TestCase):
             torch.randn(5 * 960, device="cuda").as_strided(
                 (5, 4, 1, 5, 16), (960, 48, 16, 192, 1)
             ),
+            torch.randn(6, device="cuda").as_strided(
+                (2, 16, 3), (3, 0, 1)
+            ),
         ]
 
         def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
             t1 = fd.from_pytorch(inputs[1])
             t2 = fd.from_pytorch(inputs[2])
+            t3 = fd.define_tensor(
+                shape=[-1, 16, 3],
+                contiguity=[None, True, True],
+                dtype=DataType.Float,
+                stride_order=[1, 2, 0],
+                is_cpu=False)
 
             t0_b = fd.ops.broadcast(t0, [True, False, False])
-            t3 = fd.ops.add(t0_b, t1)
+            t4 = fd.ops.add(t0_b, t1)
             c0 = fd.define_scalar(3.0)
-            t4 = fd.ops.add(t2, c0)
+            t5 = fd.ops.add(t2, c0)
+            t6 = fd.ops.mul(t3, c0)
 
-            fd.add_output(t3)
             fd.add_output(t4)
+            fd.add_output(t5)
+            fd.add_output(t6)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         eager_out = inputs[0] + inputs[1]
-        self.assertEqual(eager_out, nvf_out[0])
+        self.assertEqual(nvf_out[0], eager_out)
         eager_out = inputs[2] + 3.0
-        self.assertEqual(eager_out, nvf_out[1])
+        self.assertEqual(nvf_out[1], eager_out)
+        eager_out = inputs[3] * 3.0
+        self.assertEqual(nvf_out[2], eager_out)
+
 
     def test_prod(self):
         inputs = [
