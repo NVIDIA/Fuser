@@ -341,7 +341,7 @@ std::optional<IterDomain*> getMaybeWarpReductionDim(
   }
 
   if (reduction_on_xdim->extent()->isConstInt()) {
-    auto extent_value = reduction_on_xdim->extent()->evaluateInt();
+    auto extent_value = reduction_on_xdim->extent()->evaluate();
     if (extent_value % at::cuda::warp_size() == 0) {
       return std::optional<IterDomain*>(reduction_on_xdim);
     }
@@ -605,7 +605,7 @@ class ReplaceExprInput : private kir::ExprMutator {
           replaced_inputs->at(node->inA()),
           replaced_inputs->at(node->inB()),
           node->init(),
-          node->options(),
+          node->macro(),
           node->layout());
       registerReplaceWithPredicate(node, replacement);
     }

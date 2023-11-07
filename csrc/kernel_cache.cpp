@@ -12,6 +12,7 @@
 #include <dynamic_transform.h>
 #include <executor_params.h>
 #include <executor_utils.h>
+#include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <optimization/pre_segmenter.h>
@@ -196,8 +197,7 @@ class ArgumentManager {
       const PolymorphicValue*& runtime_output = tensor_map_[output];
       if (runtime_output != nullptr) {
         // A trivial forwarding output shares the same `Val*` as an input, so we
-        // simply map it to the same runtime output. See note [Trivial
-        // Forwarding].
+        // simply map it to the same runtime output.
         continue;
       }
 
@@ -442,6 +442,10 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     std::optional<PrimDataType> forced_index_type,
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
+  // NOTE: This should be the first code in the method to capture all host time
+  if (isProfilerEnabled()) {
+    FusionProfiler::start(isProfilerEnabledWithoutCupti());
+  }
 
   // Permute input tensor for kernel execution.
   // See Part_1 in Note [ Channels-Last support in nvfuser ]
@@ -462,6 +466,10 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
 
   KernelArgumentHolder args = prepareInputs(perm_inputs, selected_device);
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
+
+  if (isProfilerEnabled()) {
+    FusionProfiler::createSegments(kernel_runtime->executors().size());
+  }
 
   if (!kernel_runtime->isCompiled()) {
     kernel_runtime->compileFusionParallel(args);
@@ -525,6 +533,15 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     }
   }
   outputs.resize(new_size);
+
+  // NOTE: This should be the last code in the method to capture all host time
+  if (isProfilerEnabled()) {
+    FusionProfiler::stop();
+  }
+  if (isProfilerPrintingEnabled()) {
+    debug() << FusionProfiler::profile();
+  }
+
   return outputs;
 }
 
@@ -1013,7 +1030,17 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     executor.setMeasureKernelTimeFlag(true);
   }
 
+  if (isProfilerEnabled()) {
+    auto& sprof = FusionProfiler::segment(group_id);
+    sprof.inputBytesAccessed(executor.inputBytesProcessed(args));
+    sprof.startKernel(args.getDeviceIndex());
+  }
   auto outputs = executor.runFusion(args, launch_params, compile_params);
+  if (isProfilerEnabled()) {
+    auto& sprof = FusionProfiler::segment(group_id);
+    sprof.stopKernel();
+    sprof.outputBytesAccessed(executor.outputBytesProcessed(outputs));
+  }
 
   // Accumulate the kernel time of each segment
   kernel_time_ms_ += executor.kernelTimeMs();
@@ -1123,6 +1150,9 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
   num_live_args_after_segment_runs_.reserve(num_groups);
+  if (isProfilerEnabled()) {
+    FusionProfiler::startCompile();
+  }
   for (int64_t group_id = 0; group_id < num_groups; ++group_id) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
 
@@ -1167,6 +1197,9 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     // wait until all segments finish compiling
     getThreadPool()->waitWorkComplete();
   }
+  if (isProfilerEnabled()) {
+    FusionProfiler::stopCompile();
+  }
 }
 
 void FusionKernelRuntime::compileKernel(
@@ -1174,6 +1207,9 @@ void FusionKernelRuntime::compileKernel(
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
   auto group_id = sg->groupId();
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id).startCompile(args.getDeviceIndex());
+  }
   auto scheduler_entry = schedulers().at(group_id).get();
 
   // Check that the heuristics are matched, in the case of segmented fusion
@@ -1193,6 +1229,9 @@ void FusionKernelRuntime::compileKernel(
       args,
       scheduler_entry->params()->lparams,
       scheduler_entry->params()->cparams);
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id).stopCompile();
+  }
 }
 
 std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
@@ -1296,6 +1335,27 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
         total_bytes_processed += bytes;
       }
     }
+  }
+
+  if (isProfilerEnabled()) {
+    int64_t input_bytes = 0;
+    for (auto inp : fusionSegments()->inputs()) {
+      if (dynamic_cast<TensorView*>(inp)) {
+        auto aten_ten = args_manager.checkTensorMap(inp);
+        input_bytes +=
+            static_cast<int64_t>(aten_ten->as<at::Tensor>().storage().nbytes());
+      }
+    }
+    FusionProfiler::inputBytesAccessed(input_bytes);
+    int64_t output_bytes = 0;
+    for (auto outp : fusionSegments()->outputs()) {
+      if (dynamic_cast<TensorView*>(outp)) {
+        auto aten_ten = args_manager.checkTensorMap(outp);
+        output_bytes +=
+            static_cast<int64_t>(aten_ten->as<at::Tensor>().storage().nbytes());
+      }
+    }
+    FusionProfiler::outputBytesAccessed(output_bytes);
   }
 
   if (compute_overall_bw) {

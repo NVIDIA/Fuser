@@ -662,4 +662,8 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias);
 // Utility to generate tensor with bias applied on the input tensor,
 // to be used to caldulate reference data
 at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias);
+
+// Get the number of SMs on the current device
+int getNumSMs();
+
 } // namespace nvfuser

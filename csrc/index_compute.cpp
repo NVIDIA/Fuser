@@ -57,9 +57,6 @@ int getProducerHaloOffset(
   // producer tensors, where reduction axes are skipped, producer_id
   // should never be a reduction axis.
   if (it == p2c.end()) {
-    TORCH_WARN(
-        "getProducerHaloOffset p2c mapping has failed. See "
-        "https://github.com/NVIDIA/Fuser/issues/1122");
     return 0;
   }
   IterDomain* consumer_id = it->second;

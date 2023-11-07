@@ -34,8 +34,6 @@ enum class DebugDumpOption {
   CudaToFile, //!< Dump CUDA Strings to File
   DebugInfo, //!< Embed line info and debug info to compiled kernel, and dump
              //!< the full CUDA C++ code
-  AssertMemoryViolation, //!< Assert in the kernel when accessing global tensor
-                         //!< out of bound. This might hurt performance.
   LaunchParam, //!< Dump the Launch parameters of kernel
   FusionSegments, //!< Dump Segmented Fusion Graph
   FusionSegmenterLog, //!< Dump Detailed Segmenter Logging
@@ -76,12 +74,8 @@ enum class DebugDumpOption {
 //! These can be set through the `NVFUSER_ENABLE` environment variable
 //!
 enum class EnableOption {
-  Complex, //! Enable complex support on python
-  ConvDecomposition, //! Enable conv-bias decomposition
-  GraphOp, //! Enable graphOps(index_select/gather/scatter)
   KernelDb, //! Enable Kernel Database
   KernelProfile, //! Enable intra-kernel performance profiling
-  LinearDecomposition, //! Enable linear-bias decomposition
   MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
   WarnRegisterSpill, //! Enable warnings of register spill
   EndOfOption //! Placeholder for counting the number of elements
@@ -114,6 +108,27 @@ enum class DisableOption {
   EndOfOption //! Placeholder for counting the number of elements
 };
 
+//! Options to set for Fusion Profiling.  Whenever the profiler
+//! is enabled, its output can be queried from the FusionProfile object.
+//! All options enable the profiler.
+//!
+//! These can be set through the `NVFUSER_PROF` environment variable
+//!
+enum class ProfilerOption {
+  Enable, //! Enables the profiler.
+  EnableNocupti, //! Enables the profiler, but disables CUPTI specific
+                 //! profiling inorder to measure true host time without
+                 //! overhead.
+  Print, //! Enables the profiler and prints the output to the console.
+  PrintNocupti, //! Enables the profiler, disables CUPTI specific
+                //! profiling inorder to measure true host time without
+                //! overhead, and prints the output to the console.
+  PrintVerbose, //! Enables the profiler and prints a complete set of columns
+                //! to the console.  WARNING: The output is will wrap on small
+                //! screens!
+  EndOfOption //! Placeholder for counting the number of elements
+};
+
 //! The base template class for the options such as EnableOption
 template <typename OptionEnum>
 class Options {
@@ -122,6 +137,10 @@ class Options {
 
   bool has(OptionEnum option) const {
     return options_.count(option);
+  }
+
+  bool hasAny() const {
+    return !options_.empty();
   }
 
   const std::vector<std::string>& getArgs(OptionEnum option) const {
@@ -208,5 +227,27 @@ template <>
 Options<DisableOption>& OptionsGuard<DisableOption>::getCurOptions();
 
 using DisableOptionsGuard = OptionsGuard<DisableOption>;
+
+// Profiler Options
+
+template <>
+std::unordered_map<ProfilerOption, std::vector<std::string>> Options<
+    ProfilerOption>::getOptionsFromEnv();
+
+using ProfilerOptions = Options<ProfilerOption>;
+
+// Specific queries for the Profiler Options
+bool isProfilerEnabled();
+bool isProfilerEnabledWithoutCupti();
+bool isProfilerPrintingEnabled();
+bool isProfilerPrintingVerbose();
+
+const std::vector<std::string>& getProfilerOptionArguments(
+    ProfilerOption option);
+
+template <>
+Options<ProfilerOption>& OptionsGuard<ProfilerOption>::getCurOptions();
+
+using ProfilerOptionsGuard = OptionsGuard<ProfilerOption>;
 
 } // namespace nvfuser

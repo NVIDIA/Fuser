@@ -313,23 +313,45 @@ std::vector<Expr*> Fusion::exprs() {
   return StmtSort::getExprs(this);
 }
 
+namespace {
+
+bool allOutputsArePointerCasts(Fusion* fusion) {
+  for (Val* out : fusion->outputs()) {
+    const auto& [in, info] = fusion->getOutputAlias(out);
+    if (in == nullptr) {
+      return false;
+    }
+    NVF_ERROR(info != nullptr);
+    if (info->type != AliasType::PointerCast) {
+      return false;
+    }
+  }
+  return true;
+}
+
+} // namespace
+
 bool Fusion::isNoOp() {
   if (exprs().empty()) {
     return true;
   }
+
+  if (allOutputsArePointerCasts(this)) {
+    return true;
+  }
+
   for (auto out_tv : ir_utils::filterByType<TensorView>(outputs())) {
-    auto root_dom = TensorDomain::noReductions(out_tv->getMaybeRFactorDomain());
-    bool size_zero = false;
-    for (auto id : root_dom) {
-      if (id->extent()->isConstScalar() && id->extent()->evaluate() == 0) {
-        size_zero = true;
-        break;
-      }
-    }
+    const std::vector<IterDomain*>& root_dom =
+        TensorDomain::noReductions(out_tv->getMaybeRFactorDomain());
+    const bool size_zero =
+        std::any_of(root_dom.begin(), root_dom.end(), [](IterDomain* id) {
+          return id->extent()->isConstScalar() && id->extent()->evaluate() == 0;
+        });
     if (!size_zero) {
       return false;
     }
   }
+
   return true;
 }
 
@@ -781,40 +803,6 @@ std::pair<Val*, const AliasInfo*> Fusion::getOutputAlias(Val* output) {
     return {in_val_and_info.first, &in_val_and_info.second};
   }
   return {nullptr, nullptr};
-}
-
-std::vector<InputOutputAlias> Fusion::getOutputToInputAliasIndices() const {
-  if (io_alias_.empty()) {
-    return {};
-  }
-
-  std::unordered_map<const Val*, size_t> in_val_index, out_val_index;
-  for (const auto input_idx : c10::irange(inputs_.size())) {
-    in_val_index[inputs_[input_idx]] = input_idx;
-  }
-  for (const auto output_idx : c10::irange(outputs_.size())) {
-    out_val_index[outputs_[output_idx]] = output_idx;
-  }
-
-  std::vector<InputOutputAlias> input_output_aliases;
-  input_output_aliases.reserve(io_alias_.size());
-  for (const auto& [out, in_info] : io_alias_) {
-    if (!out_val_index.count(out)) {
-      // Can't assert false here. We may have segmented fusion where not all
-      // alias outputs are present.
-      continue;
-    }
-    const Val* in = in_info.first;
-    NVF_ERROR(
-        in_val_index.count(in),
-        in->toString(),
-        " is marked as an input alias but isn't a fusion input.");
-    input_output_aliases.push_back(InputOutputAlias{
-        static_cast<int>(out_val_index.at(out)),
-        static_cast<int>(in_val_index.at(in)),
-        in_info.second});
-  }
-  return input_output_aliases;
 }
 
 bool Fusion::hasDynamicTransform() {

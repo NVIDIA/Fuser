@@ -17,6 +17,7 @@
 #include <device_lower/pass/expr_sort.h>
 #include <device_lower/pass/fusion_simplifier.h>
 #include <device_lower/pass/index.h>
+#include <device_lower/pass/inline_ptx.h>
 #include <device_lower/pass/insert_syncs.h>
 #include <device_lower/pass/instrument.h>
 #include <device_lower/pass/loop_rotation.h>
@@ -176,8 +177,7 @@ void GpuLower::collectPaddedParallelDims() {
             size_after_padding.value() == warp_size;
 
         if (id->extent()->isConstInt() &&
-            id->extent()->evaluateInt() > warp_size &&
-            !padding_to_single_warp) {
+            id->extent()->evaluate() > warp_size && !padding_to_single_warp) {
           // If we see any other TIDx binding that's larger than
           //  a warp or unknown, we shouldn't lower warp reduce
           //  to a single warp type.
@@ -186,7 +186,7 @@ void GpuLower::collectPaddedParallelDims() {
         } else if (can_be_single_warp) {
           if (padding_to_single_warp ||
               (id->extent()->isConstInt() &&
-               id->extent()->evaluateInt() == warp_size)) {
+               id->extent()->evaluate() == warp_size)) {
             warp_pad_info_.is_tidx_single_warp = true;
           }
         }
@@ -256,6 +256,10 @@ void dumpExprsIfEnabled(
 
 GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
     : passes_(
+          // Passes will be executed in the order they are added here
+          // Each pass is a pair of (name, function), where the name will be
+          // printed in verbose mode of lowering. The function must take a
+          // const std::vector<Expr*>& and return a std::vector<Expr*>.
           {{"LoopNestGenerator", LoopNestGenerator::loweredExprs},
            {"unarySetOpInserter", unarySetOpInserter},
            {"insertAllocations", insertAllocations},
@@ -274,7 +278,8 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"allocateCommonScalars", allocateCommonScalars},
            {"insertMagicZero", insertMagicZero},
            {"KIRCleaner", KIRCleaner::cleanUp},
-           {"instrumentKernel", instrumentKernel}}),
+           {"instrumentKernel", instrumentKernel},
+           {"lowerToInlinePtx", lowerToInlinePtx}}),
       cparams_(cparams) {
   analysis(fusion);
 }
@@ -291,7 +296,7 @@ struct LowerGuard {
 
 } // namespace
 
-void GpuLower::run() {
+kir::Kernel* GpuLower::run() {
   FusionGuard fg(fusion_);
   LowerGuard lower_guard(this);
   // Reorder expressions for loop-nest generation respecting computeAt
@@ -317,6 +322,8 @@ void GpuLower::run() {
   // will also copy over some relevant information for code generation from
   // GpuLower.
   kernel_->finalize(exprs_lowered);
+
+  return kernel_;
 }
 
 void GpuLower::analysis(Fusion* fusion) {
