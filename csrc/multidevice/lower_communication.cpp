@@ -55,8 +55,7 @@ CommParams createParamsForGatherScatter(
   }
 
   if (mesh.has(my_device_index)) {
-    auto sliced_buf =
-        buf.index({static_cast<int>(mesh.findIndex(my_device_index)), "..."});
+    auto sliced_buf = buf.index({0, "..."});
     ((is_scatter) ? params.dst_bufs : params.src_bufs) = {sliced_buf};
   }
 
@@ -137,8 +136,7 @@ void lowerToAllgather(
     params.dst_bufs.push_back(
         output_tensor.index({static_cast<int>(i), "..."}));
   }
-  params.src_bufs = {
-      input_tensor.index({mesh.findIndex(my_device_index), "..."})};
+  params.src_bufs = {input_tensor.index({0, "..."})};
 
   comms.push_back(std::make_shared<Allgather>(std::move(params)));
 }
@@ -212,8 +210,8 @@ void lowerToBroadcastOrP2P(
           my_device_index,
           sender_mesh.vector().at(i),
           DeviceMesh({receiver_mesh.vector().at(i)}),
-          input_tensor.index({static_cast<int>(i), "..."}),
-          output_tensor.index({static_cast<int>(i), "..."}),
+          input_tensor.index({0, "..."}),
+          output_tensor.index({0, "..."}),
           comms);
     }
   } else {
