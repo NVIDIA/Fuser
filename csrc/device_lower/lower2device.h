@@ -53,7 +53,7 @@ class GpuLower : public NonCopyable {
   GpuLower() = delete;
 
   using Pass = std::pair<
-      std::string,
+      std::string, // name of the pass
       std::function<std::vector<Expr*>(const std::vector<Expr*>&)>>;
 
   // GpuLower lowers the provided fusion into a kernel which can be translated
@@ -74,7 +74,7 @@ class GpuLower : public NonCopyable {
   static bool hasCurrent();
 
   //! Actually run the lowering
-  void run();
+  kir::Kernel* run();
 
   const PrimDataType& indexType() const {
     return cparams_.index_type.value();
