@@ -51,15 +51,14 @@ void mapThroughLoopSwizzles(ValGraph& graph) {
 
 IdModel::IdModel(
     const std::vector<Expr*>& exprs,
-    const std::vector<TensorView*>& additional_tvs,
-    bool allow_self_mapping) {
+    const std::vector<TensorView*>& additional_tvs) {
   build(exprs, additional_tvs);
 }
 
-IdModel::IdModel(const std::vector<Expr*>& exprs, bool allow_self_mapping)
-    : IdModel(exprs, {}, allow_self_mapping) {}
+IdModel::IdModel(const std::vector<Expr*>& exprs)
+    : IdModel(exprs, {}) {}
 
-IdModel::IdModel(Fusion* fusion, bool allow_self_mapping) {
+IdModel::IdModel(Fusion* fusion) {
   std::vector<TensorView*> inputs_and_outputs;
   {
     auto inp_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
@@ -105,13 +104,13 @@ Expr* IdModel::idDef(IterDomain* id) const {
 
 void IdModel::buildIterDomainDefinitionsAndUses(
     const std::vector<TensorView*>& all_tvs) {
-  for (auto tv : all_tvs) {
+  for (const auto tv : all_tvs) {
     VectorOfUniqueEntries<IterDomain*> root_domain_ids{
         tv->getRootDomain().begin(), tv->getRootDomain().end()};
 
-    auto all_ids = ir_utils::allIDsOf(tv);
+    std::vector<IterDomain*> all_ids = ir_utils::allIDsOf(tv);
 
-    // Check is this domain is a consumer of a view-like operation
+    // Check if this domain is a consumer of a view-like operation
     bool view_like_domain = tv->domain()->hasViewLikeRFactor();
 
     for (auto id : all_ids) {
