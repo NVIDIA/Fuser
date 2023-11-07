@@ -22,6 +22,7 @@ import torch._prims as prims
 
 # Will only create the nvfuser module if CUDA is available
 try:
+    import nvfuser
     from nvfuser import (
         FusionCache,
         FusionDefinition,
@@ -34,6 +35,11 @@ try:
     from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 except ImportError:
     pass
+
+# Test automatic serialization to common workplace
+import atexit
+
+atexit.register(nvfuser.serialize)
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
@@ -87,14 +93,6 @@ def serde_check(test_fn: Callable):
         return test_fn(self, fusion_func, inputs, **kwargs)
 
     return inner_fn
-
-
-def tearDownModule():
-    # Test automatic serialization to common workplace
-    import atexit
-
-    fc = FusionCache.get()
-    atexit.register(fc.serialize)
 
 
 @unittest.skipIf(not RUN_NVFUSER, "requires CUDA")

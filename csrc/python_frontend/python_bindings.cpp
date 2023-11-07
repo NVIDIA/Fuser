@@ -315,6 +315,7 @@ void initNvFuserPythonBindings(PyObject* module) {
 
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
+  nvfuser.def("serialize", serialize);
 
   //! Binding the FusionCache that holds a cache of Fusions
   //! This is only bound to provide an interface to get the number of fusions
@@ -340,12 +341,6 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.serialize(filename);
           },
           py::arg("filename"))
-      .def(
-          "serialize",
-          [](FusionCache& self) {
-            FUSER_PERF_SCOPE("FusionCache.serialize (default_workspace)");
-            self.serialize();
-          })
       .def(
           "deserialize",
           [](FusionCache& self, std::string filename) {

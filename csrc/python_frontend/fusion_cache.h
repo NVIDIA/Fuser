@@ -143,14 +143,6 @@ class FusionCache {
 
   //! Serialize Fusion Cache using flatbuffers
   void serialize(std::string filename) const;
-  //! Serialize Fusion Cache to temporary file
-  //! '''python
-  //! # Use atexit to automatically call serialize on program exit
-  //! import atexit
-  //! fc = FusionCache.get()
-  //! atexit.register(fc.serialize)
-  //! '''
-  void serialize() const;
   //! Deserialize Fusion Cache using flatbuffers
   void deserialize(std::string filename);
 
@@ -209,5 +201,15 @@ class FusionCache {
   // is not allowed to be copied or moved.
   InputsIdLookup user_def_input_encodings_;
 };
+
+//! Serialize Fusion Cache to common workspace
+//! /tmp/nvfuser_kernel_db/nvf_serde_[cuda_major]_[cuda_minor]_[nvrtc_major]_[nvrtc_minor]
+//!
+//! '''python
+//! # Use atexit to automatically call serialize on program exit
+//! import atexit
+//! atexit.register(nvfuser.serialize)
+//! '''
+void serialize();
 
 } // namespace nvfuser::python_frontend

@@ -48,8 +48,8 @@ std::string getSerdeFile() {
 
   std::stringstream ss;
   ss << "nvf_serde";
-  ss << "_arch" << cuda_prop->major << "." << cuda_prop->minor;
-  ss << "_nvrtc" << nvrtc_major << "." << nvrtc_minor;
+  ss << "_arch" << cuda_prop->major << "_" << cuda_prop->minor;
+  ss << "_nvrtc" << nvrtc_major << "_" << nvrtc_minor;
   return ss.str();
 }
 
@@ -70,6 +70,23 @@ fs::path getSerdeFilePath(const std::string& file_name) {
   return kernel_db_path / file_name;
 }
 } // namespace
+
+void serialize() {
+  auto tmp_file_path = getSerdeFilePath(getSerdeTmpFile()).native();
+  FusionCache::get()->serialize(tmp_file_path);
+
+  // Save to a per-process temporary file to avoid multi-process contention.
+  // Then, rename the temporary file to the actual file. If the actual file
+  // already exists, then the rename may fail or replace the actual file.
+  // Files replaced through this process should remain extant if they are being
+  // read because of UNIX filesystem properties, but this behavior is
+  // unverified.
+  auto file_path = getSerdeFilePath(getSerdeFile()).native();
+  if (std::rename(tmp_file_path.c_str(), file_path.c_str()) != 0) {
+    // Removes tmp file if the rename failed
+    std::remove(tmp_file_path.c_str());
+  }
+}
 
 // FusionCache static data member definitions for singleton usage
 std::mutex FusionCache::singleton_lock_;
@@ -367,25 +384,6 @@ UserSchedule* FusionCache::createUserSchedule(
 TrieNode* FusionCache::rootTriePtr() {
   ++(root_.get()->visits);
   return root_.get();
-}
-
-void FusionCache::serialize() const {
-  auto tmp_file_path = getSerdeFilePath(getSerdeTmpFile()).native();
-  serialize(tmp_file_path);
-
-  // Save to a per-process temporary file to avoid multi-process contention.
-  // Then, rename the temporary file to the actual file. If the actual file
-  // already exists, then the rename may fail or replace the actual file.
-  // Files replaced through this process should remain extant if they are being
-  // read because of UNIX filesystem properties, but this behavior is
-  // unverified.
-  //
-  // TODO Add cuda_major, cuda_minor, nvrtc_major, nvrtc_minor to file path
-  auto file_path = getSerdeFilePath(getSerdeFile()).native();
-  if (std::rename(tmp_file_path.c_str(), file_path.c_str()) != 0) {
-    // Removes tmp file if the rename failed
-    std::remove(tmp_file_path.c_str());
-  }
 }
 
 void FusionCache::serialize(std::string filename) const {
