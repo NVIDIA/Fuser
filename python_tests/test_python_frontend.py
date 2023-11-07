@@ -1407,8 +1407,9 @@ class TestNvFuserFrontend(TestCase):
             .unsqueeze(-1)
             .expand(2, 3, 4)
             .transpose(2, 0),
-            torch.randn(5*960, device="cuda")
-            .as_strided((5, 4, 1, 5, 16), (960, 48, 16, 192, 1)),
+            torch.randn(5 * 960, device="cuda").as_strided(
+                (5, 4, 1, 5, 16), (960, 48, 16, 192, 1)
+            ),
         ]
 
         def fusion_func(fd: FusionDefinition):
