@@ -165,12 +165,21 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
     return;
   }
 
-  // in: rfactor -> allocation
-  //        ||
-  // out:  root
-  //        |
-  //        v
-  //     rfactor -> allocation
+  // Compute `out`'s preferred allocation domain for aliasing.
+  //
+  // For example,
+  //
+  // in: rfactor=[i0,i1,i2], allocation=[i2,i0,i1]
+  // out = permute(in, {2, 0, 1})
+  // out: root=[i3,i4,i5], rfactor=[i4,i3,i5]
+  //
+  // `out`'s preferred allocation domain is [i5,i3,i4]. In fact, `out`'s rfactor
+  // domain doesn't matter here.
+  //
+  // This is done in two steps:
+  // 1. We construct the map from `in`'s rfactor to `out`'s root:
+  // {i0->i3,i1->i4,i2->i5}.
+  // 2. We apply the map to `in`'s allocation and get [i5,i3,i4].
   std::unordered_map<IterDomain*, IterDomain*> in_rfactor_to_out_root;
   for (auto i : c10::irange(out->getRootDomain().size())) {
     in_rfactor_to_out_root[in->getMaybeRFactorDomain()[i]] =
@@ -178,10 +187,13 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
   }
 
   Layout out_layout;
+  out_layout.allocation_domain.reserve(in_layout.allocation_domain.size());
   for (IterDomain* allocation_id : in_layout.allocation_domain) {
     out_layout.allocation_domain.push_back(
         in_rfactor_to_out_root.at(allocation_id));
   }
+  // Another lazy move: we should try to preserve as many contiguous flags as
+  // possible.
   out_layout.contiguity = TensorDomain::getContiguityFilledWith(
       out->getMaybeRFactorDomain(), false);
   analysis_.add(out, in, out_layout);
