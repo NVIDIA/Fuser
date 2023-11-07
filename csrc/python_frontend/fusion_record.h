@@ -1229,14 +1229,14 @@ struct TensorRecord : RecordFunctor {
     auto rank = shape_.size();
     std::vector<bool> is_expand(rank);
 
-    for (const auto contig_index : c10::irange(rank)) {
-      bool is_broadcast = !contiguity_[contig_index].has_value();
+    for (const auto index : c10::irange(rank)) {
+      const auto contig_index = stride_order_.empty()
+          ? index
+          : rank - 1 - static_cast<size_t>(stride_order_[index]);
       // since contiguity_ vector is given to the corresponding order in alloc
       // domain, while is_expand is given to root domain, we need to map it
       // correctly with `contig_index` and `index`.
-      const auto index = stride_order_.empty()
-          ? contig_index
-          : rank - 1 - static_cast<size_t>(stride_order_[contig_index]);
+      bool is_broadcast = !contiguity_[contig_index].has_value();
       bool has_symbolic_size = (shape_[index] == -1);
       is_expand[index] = is_broadcast && has_symbolic_size;
     }

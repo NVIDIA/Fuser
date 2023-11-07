@@ -1407,20 +1407,28 @@ class TestNvFuserFrontend(TestCase):
             .unsqueeze(-1)
             .expand(2, 3, 4)
             .transpose(2, 0),
+            torch.randn(5*960, device="cuda")
+            .as_strided((5, 4, 1, 5, 16), (960, 48, 16, 192, 1)),
         ]
 
         def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
             t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.from_pytorch(inputs[2])
 
             t0_b = fd.ops.broadcast(t0, [True, False, False])
-            t2 = fd.ops.add(t0_b, t1)
+            t3 = fd.ops.add(t0_b, t1)
+            c0 = fd.define_scalar(3.0)
+            t4 = fd.ops.add(t2, c0)
 
-            fd.add_output(t2)
+            fd.add_output(t3)
+            fd.add_output(t4)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         eager_out = inputs[0] + inputs[1]
         self.assertEqual(eager_out, nvf_out[0])
+        eager_out = inputs[2] + 3.0
+        self.assertEqual(eager_out, nvf_out[1])
 
     def test_prod(self):
         inputs = [
