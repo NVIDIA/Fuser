@@ -13,8 +13,8 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
     # TODO: Add more input sizes.
     for dim in dims:
         if dim == 2:
-            range_outer = [2**i for i in range(1, 5)]
-            range_inner = [32 * 1024 * 2**i for i in range(11)]
+            range_outer = [2**i for i in range(4, 9)] # {16, 256}
+            range_inner = [32 * 1024 * 2**i for i in range(6)] # {32768, 1048576}
             inputs.extend([(i, j) for i in range_outer for j in range_inner])
             inputs.extend([(j, i) for i in range_outer for j in range_inner])
         elif dim == 3:
