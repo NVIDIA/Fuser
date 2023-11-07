@@ -190,4 +190,34 @@ TEST_F(NoOpTest, FusionEmpty) {
   }
 }
 
+TEST_F(NoOpTest, View) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const std::vector<int64_t> in_shape({2, 3, 4});
+  const std::vector<int64_t> out_shape({2, 12});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  fusion->addInput(in);
+  TensorView* out = reshape(in, in_shape, out_shape);
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  ASSERT_EQ(out_tensors.size(), 1);
+  at::Tensor out_tensor = out_tensors[0];
+
+  // Verify aliasing.
+  EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
+
+  // Verify the NoOp scheduler was kicked in.
+  const std::vector<SegmentedGroup*>& groups =
+      fec.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  ASSERT_EQ(groups.size(), 1);
+  SegmentedGroup* group = groups[0];
+  EXPECT_EQ(group->heuristic(), ScheduleHeuristic::NoOp);
+}
+
 } // namespace nvfuser

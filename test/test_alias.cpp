@@ -41,7 +41,7 @@ TEST_F(AliasAnalysisTest, View_ContiguousAndSameAllocationOrder) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_THAT(alias_analysis, UnorderedElementsAre(Pair(out, in)));
+  EXPECT_EQ(alias_analysis.findRoot(out), in);
 }
 
 TEST_F(AliasAnalysisTest, View_SymbolicTensor) {
@@ -57,7 +57,7 @@ TEST_F(AliasAnalysisTest, View_SymbolicTensor) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_THAT(alias_analysis, UnorderedElementsAre(Pair(out, in)));
+  EXPECT_EQ(alias_analysis.findRoot(out), in);
 }
 
 TEST_F(AliasAnalysisTest, ChainOfViews) {
@@ -76,9 +76,7 @@ TEST_F(AliasAnalysisTest, ChainOfViews) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_THAT(
-      alias_analysis,
-      UnorderedElementsAre(Pair(out, intermediate), Pair(intermediate, in)));
+  EXPECT_EQ(alias_analysis.findRoot(out), in);
 }
 
 TEST_F(AliasAnalysisTest, View_DifferentAllocationOrder) {
@@ -97,7 +95,7 @@ TEST_F(AliasAnalysisTest, View_DifferentAllocationOrder) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_THAT(alias_analysis, IsEmpty());
+  EXPECT_EQ(alias_analysis.findRoot(out), out);
 }
 
 TEST_F(AliasAnalysisTest, View_NonContiguous) {
@@ -116,7 +114,7 @@ TEST_F(AliasAnalysisTest, View_NonContiguous) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_THAT(alias_analysis, IsEmpty());
+  EXPECT_EQ(alias_analysis.findRoot(out), out);
 }
 
 TEST_F(AliasAnalysisTest, Permute) {
@@ -133,7 +131,7 @@ TEST_F(AliasAnalysisTest, Permute) {
   // We haven't handled `Set.Permute` yet.
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_THAT(alias_analysis, IsEmpty());
+  EXPECT_EQ(alias_analysis.findRoot(out), out);
 }
 
 TEST_F(AliasAnalysisTest, View_SplitExpandedBroadcast) {
@@ -154,7 +152,7 @@ TEST_F(AliasAnalysisTest, View_SplitExpandedBroadcast) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_THAT(alias_analysis, IsEmpty());
+  EXPECT_EQ(alias_analysis.findRoot(out), out);
 }
 
 TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
@@ -174,7 +172,7 @@ TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_THAT(alias_analysis, UnorderedElementsAre(Pair(out, expand_out)));
+  EXPECT_EQ(alias_analysis.findRoot(out), expand_out);
 
   // Verify the last dimension isn't expanded physically.
   FusionExecutor fe;
@@ -203,7 +201,7 @@ TEST_F(AliasAnalysisTest, View_MergeExpandedBroadcast) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_THAT(alias_analysis, IsEmpty());
+  EXPECT_EQ(alias_analysis.findRoot(out), out);
 }
 
 using AliasTest = NVFuserTest;
@@ -219,27 +217,25 @@ TEST_F(AliasTest, ReinterpretCast) {
   fusion->addInput(in);
   TensorView* out = reshape(in, in_shape, out_shape);
   fusion->addOutput(out);
-  fusion->aliasOutputToInput(out, in, AliasType::PointerCast);
 
-  FusionExecutor fe;
+  FusionExecutorCache fec(std::move(fusion));
   at::Tensor in_tensor =
       at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
-  fe.compileFusion(fusion.get(), {in_tensor});
-  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
-  EXPECT_EQ(in_tensor.data_ptr<float>(), out_tensor.data_ptr<float>());
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  ASSERT_EQ(out_tensors.size(), 1);
+  at::Tensor out_tensor = out_tensors[0];
+
+  // Verify aliasing.
+  EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
+
+  // Verify output values.
   testValidate(
-      fusion.get(),
+      fec.fusion(),
       {out_tensor},
       {in_tensor},
       {in_tensor.view({2, 12})},
       __LINE__,
       __FILE__);
-
-  FusionExecutorCache fec(std::move(fusion));
-  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
-  ASSERT_EQ(out_tensors.size(), 1);
-  out_tensor = out_tensors[0];
-  EXPECT_EQ(in_tensor.data_ptr<float>(), out_tensor.data_ptr<float>());
 }
 
 } // namespace nvfuser

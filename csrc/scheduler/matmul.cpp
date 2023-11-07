@@ -150,9 +150,9 @@ void swizzleSharedMemory(
 
   // Extract the constant sizes of the swizzled tile
   const int64_t tile_size_x =
-      shared_mem_tv->axis(-2 - skip)->extent()->evaluateInt();
+      shared_mem_tv->axis(-2 - skip)->extent()->evaluate().as<int64_t>();
   const int64_t tile_size_y =
-      shared_mem_tv->axis(-1 - skip)->extent()->evaluateInt();
+      shared_mem_tv->axis(-1 - skip)->extent()->evaluate().as<int64_t>();
 
   if (isTuring(params.mma_macro) || isAmpere(params.mma_macro)) {
     // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
@@ -594,8 +594,8 @@ void scheduleOutputTensor(
   // input tensor is in the form of [Mo,No,cta_tile_m,cta_tile_n]
   checkConcreteStaticDim(c->axis(-2));
   checkConcreteStaticDim(c->axis(-1));
-  const int64_t tile_size_m = c->axis(-2)->extent()->evaluateInt();
-  const int64_t tile_size_n = c->axis(-1)->extent()->evaluateInt();
+  const int64_t tile_size_m = c->axis(-2)->extent()->evaluate().as<int64_t>();
+  const int64_t tile_size_n = c->axis(-1)->extent()->evaluate().as<int64_t>();
   NVF_ERROR(
       tile_size_m == gemm_tile.cta_tile.m,
       "Actual tile size at axis(-2) in output tensor is different from CTA tile size! Expected: ",

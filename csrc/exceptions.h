@@ -17,6 +17,14 @@
 
 namespace nvfuser {
 
+// This function will demangle the mangled function name into a more human
+// readable format, e.g. _Z1gv -> g().
+// More information:
+// https://github.com/gcc-mirror/gcc/blob/master/libstdc%2B%2B-v3/libsupc%2B%2B/cxxabi.h
+// NOTE: `__cxa_demangle` returns a malloc'd string that we have to free
+// ourselves.
+std::string demangle(const char* name);
+
 std::string _get_backtrace(
     size_t frames_to_skip = 0,
     size_t maximum_number_of_frames = 64,

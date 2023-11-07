@@ -5,64 +5,74 @@
         <br>
         <i>{{ run2.name|e }} command: <code>{{ run2.command|e }}</code>
         {%- endif -%}
-        {% if run1.gpu_names is not none %}
+        {%- if run1.gpu_names is not none %}
             <br>
             {%- if run1.gpu_names | length > 1 %}
-                {% if run1.gpu_names != run2.gpu_names %}{{ run1.name }}{% endif %}
+                {% if run1.gpu_names != run2.gpu_names %}{{ run1.name|e }}{% endif %}
                 GPUs:
                 <pre><code>{{run1.gpu_names | e}}</code></pre>
             {%- else -%}
-                {% if run1.gpu_names != run2.gpu_names %}{{ run1.name }}{% endif %}
+                {% if run1.gpu_names != run2.gpu_names %}{{ run1.name|e }}{% endif %}
                 GPU: {{ run1.gpu_names[0] | e }}
                 <br>
             {%- endif %}
-        {% endif %}
-        {% if run1.nvcc_version is not none %}
-            <button onclick="toggleDiv('old_nvcc_version')">nvcc --version</button>
-            <div id="old_nvcc_version" style="display:none">
-                <pre><code class="language-console">&gt; nvcc --version {%- if run1.nvcc_version != run2.nvcc_version %}  # {{run1.name|e}}{% endif %}
-{{run1.nvcc_version | e}}</code></pre>
-            </div>
-            <br>
-        {% endif %}
-        {%- if run1.env is not none %}
-            {%- if run1.env != run2.env %}
-                <button onclick="toggleDiv('old_env')">{{ run1.name|e }} Env</button>
-            {% else %}
-                <button onclick="toggleDiv('old_env')">Env</button>
-                matches between runs
-            {% endif -%}
-            <div id="old_env" style="display:none">
-                {# INI highlighting gives best look out of a number of bad options for env dump #}
-                <pre><code class="language-ini">{{ run1.env|e }}</code></pre>
-            </div>
         {% endif %}
         {% if run2.gpu_names is not none %}
             {% if run2.gpu_names != run1.gpu_names %}
                 {%- if run2.gpu_names | length > 1 %}
                     <br>
-                    {{ run2.name }} GPUs:
+                    {{ run2.name|e }} GPUs:
                     <br>
                     <pre><code>{{run2.gpu_names | e}}</code></pre>
                 {%- else -%}
-                    {{ run2.name }} GPU: {{ run2.gpu_names[0] | e }}
+                    {{ run2.name|e }} GPU: {{ run2.gpu_names[0] | e }}
                 {%- endif %}
             {% endif %}
-        {% endif %}
-        {% if run2.nvcc_version is not none %}
+        {% endif -%}
+        {%- if run1.nvcc_version is not none and run2.nvcc_version is not none %}
             {% if run2.nvcc_version != run1.nvcc_version %}
-                <pre><code class="language-console">&gt; nvcc --version  # {{run2.name}}
+                <button onclick="toggleDiv('nvcc_versions')">nvcc --version</button>
+                <div id="nvcc_versions" style="display:block">
+                    <pre><code class="language-console">&gt; nvcc --version  # {{run1.name|e}}
+{{run1.nvcc_version | e}}
+
+&gt; nvcc --version  # {{run2.name|e}}
 {{run2.nvcc_version | e}}</code></pre>
-            {% endif %}
-        {% endif %}
-        {% if run2.env is not none %}
-            {% if run2.env != run1.env %}
+                </div>
+            {% else %}
+                <button onclick="toggleDiv('nvcc_version')">nvcc --version</button>
+                matches  between runs
                 <br>
-                <button onclick="toggleDiv('new_env')">
-                    <i>{{ run2.name }}</i> Env
-                </button>
-                <div id="new_env" style="display:none">
-                    <pre><code class="language-ini">{{ run2.env|e }}</code></pre>
+                <div id="nvcc_version" style="display:none">
+                    <pre><code class="language-console">&gt; nvcc --version
+{{run1.nvcc_version | e}}</code></pre>
                 </div>
             {% endif %}
         {% endif %}
+        {%- if run1.env is not none and run2.env is not none -%}
+            {%- if run1.env != run2.env -%}
+                <button onclick="toggleDiv('old_env')">
+                    <i>{{ run1.name|e }}</i> Env
+                </button>
+                <button onclick="toggleDiv('diff_env')">Env Diff</button>
+                <button onclick="toggleDiv('new_env')">
+                    <i>{{ run2.name|e }}</i> Env
+                </button>
+                <div id="old_env" style="display:none">
+                    <pre><code class="language-ini">{{ run1.env|e }}</code></pre>
+                </div>
+                <div id="new_env" style="display:none">
+                    <pre><code class="language-ini">{{ run2.env|e }}</code></pre>
+                </div>
+                <div id="diff_env" style="display:block">
+                    <pre><code class="language-diff">{{ env_diff|e }}</code></pre>
+                </div>
+            {%- else -%}
+                <button onclick="toggleDiv('old_env')">Env</button>
+                matches between runs
+                <div id="old_env" style="display:none">
+                    {# INI highlighting gives best look out of a number of bad options for env dump #}
+                    <pre><code class="language-ini">{{ run1.env|e }}</code></pre>
+                </div>
+            {%- endif -%}
+        {%- endif -%}
