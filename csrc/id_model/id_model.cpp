@@ -137,7 +137,7 @@ void IdModel::buildIterDomainDefinitionsAndUses(
         id_uses_.emplace(id, VectorOfUniqueEntries<Expr*>{});
       }
 
-      auto def = id->definition();
+      Expr* def = id->definition();
 
       if (def == nullptr || root_domain_ids.has(id)) {
         continue;
