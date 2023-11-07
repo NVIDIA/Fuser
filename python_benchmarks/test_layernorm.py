@@ -196,7 +196,10 @@ def test_layernorm_bwd_benchmark(
 
     if not disable_validation:
         eager_output = torch.nn.functional.layer_norm(
-            inputs.to(torch.double), inputs.shape[1:], weight=weights.to(torch.double), bias=bias.to(torch.double)
+            inputs.to(torch.double),
+            inputs.shape[1:],
+            weight=weights.to(torch.double),
+            bias=bias.to(torch.double),
         )
         eager_output.backward(grads.to(torch.double))
         fd.validate(
