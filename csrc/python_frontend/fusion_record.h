@@ -1230,14 +1230,23 @@ struct TensorRecord : RecordFunctor {
     std::vector<bool> is_expand(rank);
 
     for (const auto index : c10::irange(rank)) {
-      const auto contig_index = stride_order_.empty()
-          ? index
-          : rank - 1 - static_cast<size_t>(stride_order_[index]);
       // since contiguity_ vector is given to the corresponding order in alloc
       // domain, while is_expand is given to root domain, we need to map it
       // correctly with `contig_index` and `index`.
+      //
+      // stride_order[i] indicates that:
+      //   `root_domain[i]` maps to `alloc_domain[rank - 1 - stride_order_[i]]`
+      //
+      // Hence `index` on root domain would be corresponding to the contiguity
+      // index `contig_index = rank - 1 - stride_order[index]`
+      const auto contig_index = stride_order_.empty()
+          ? index
+          : rank - 1 - static_cast<size_t>(stride_order_[index]);
       bool is_broadcast = !contiguity_[contig_index].has_value();
       bool has_symbolic_size = (shape_[index] == -1);
+      // A root dimension is expand dimension if:
+      //   The dimension is marked a broadcast; and
+      //   The dimension has a symbolic size (expand extend)
       is_expand[index] = is_broadcast && has_symbolic_size;
     }
 
