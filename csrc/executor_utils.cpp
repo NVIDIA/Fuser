@@ -1433,8 +1433,6 @@ ExecutorCompileTimeEntry<EntryClass>::ExecutorCompileTimeEntry(
 template class ExecutorCompileTimeEntry<ParallelBindingIterDomains>;
 template class ExecutorCompileTimeEntry<ParallelIterExtentMap>;
 template class ExecutorCompileTimeEntry<VectorizedTensorValidation>;
-template class ExecutorCompileTimeEntry<InputAliasIndices>;
-template class ExecutorCompileTimeEntry<OutputAliasIndices>;
 
 } // namespace caching
 

@@ -294,12 +294,12 @@ bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
 
     auto extent_o_match = extent_0o->sameAs(extent_1o) ||
         (extent_0o->isConstInt() && extent_1o->isConstInt() &&
-         extent_0o->evaluateInt() == extent_1o->evaluateInt()) ||
+         extent_0o->evaluate() == extent_1o->evaluate()) ||
         disjointValSets().permissiveAreMapped(merge0->outer(), merge1->outer());
 
     auto extent_i_match = extent_0i->sameAs(extent_1i) ||
         (extent_0i->isConstInt() && extent_1i->isConstInt() &&
-         extent_0i->evaluateInt() == extent_1i->evaluateInt()) ||
+         extent_0i->evaluate() == extent_1i->evaluate()) ||
         disjointValSets().permissiveAreMapped(merge0->inner(), merge1->inner());
 
     if (!(extent_o_match || extent_i_match)) {
