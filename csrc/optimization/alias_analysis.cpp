@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <dispatch.h>
 #include <fusion.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
@@ -104,73 +105,88 @@ std::optional<std::vector<int64_t>> computePermutation(
 
 // Finds aliases between `expr`'s inputs and outputs and stores the findings in
 // `analysis`.
-void findAliasesFromExpr(Expr* expr, AliasAnalysisResult& analysis) {
-  // The current implementation does the bare minimum to detect some aliasing
-  // that the codegen can use to generate a kernel skipping unnecessary
-  // computation.
-  //
-  // Many improvements are to be made. For example,
-  // 1. Alias analysis should recommend non-default allocation domain
-  // to proactively make output aliases.
-  // 2. It should handle more op types such as `Set.Permute`.
-  // 3. It should detect alias between non-packed tensors.
-  // 4. Use OptOutDispatch.
-  if (ViewOp* view = dynamic_cast<ViewOp*>(expr)) {
-    TensorView* in = view->in();
-    TensorView* out = view->out();
+//
+// The current implementation does the bare minimum to detect some aliasing
+// that the codegen can use to generate a kernel skipping unnecessary
+// computation.
+//
+// Many improvements are to be made. For example,
+// 1. It should handle more op types such as `Slice`.
+// 2. It should detect alias between non-packed tensors.
+//
+// FIXME: can we inherit from OptOutConstDispatch?
+class AliasFinder : public OptOutDispatch {
+ public:
+  AliasFinder(AliasAnalysisResult& analysis) : analysis_(analysis) {}
 
-    Layout in_layout = analysis.preferredLayout(in);
-    if (in_layout.allocation_domain == in->getMaybeRFactorDomain() &&
-        isContiguous(in_layout.contiguity) &&
-        out->getMaybeAllocationDomain() == out->getMaybeRFactorDomain() &&
-        isContiguous(*out) && !transformsExpandedBroadcastIterDomain(in, out)) {
-      // This is a sufficient but not necessary condition for `out` to alias
-      // `in`. Both `in` and `out` are allocated contiguously per the
-      // rfactor domain. Also, the ViewOp can't transform any expanded broadcast
-      // IterDomain.
-      analysis.add(out, in);
-    }
+  void handle(ViewOp* view) override;
+  void handle(LoadStoreOp* ldst) override;
+
+ private:
+  AliasAnalysisResult& analysis_;
+};
+
+void AliasFinder::handle(ViewOp* view) {
+  TensorView* in = view->in();
+  TensorView* out = view->out();
+
+  Layout in_layout = analysis_.preferredLayout(in);
+  if (in_layout.allocation_domain == in->getMaybeRFactorDomain() &&
+      isContiguous(in_layout.contiguity) &&
+      out->getMaybeAllocationDomain() == out->getMaybeRFactorDomain() &&
+      isContiguous(*out) && !transformsExpandedBroadcastIterDomain(in, out)) {
+    // This is a sufficient but not necessary condition for `out` to alias
+    // `in`. Both `in` and `out` are allocated contiguously per the
+    // rfactor domain. Also, the ViewOp can't transform any expanded broadcast
+    // IterDomain.
+    analysis_.add(out, in);
+  }
+}
+
+void AliasFinder::handle(LoadStoreOp* permute) {
+  TensorView* out = dynamic_cast<TensorView*>(permute->out());
+  if (!out->hasRFactor()) {
+    // Not a permute. It's actually an easier case to propagate aliases. I'm
+    // too lazy.
+    return;
   }
 
-  if (LoadStoreOp* permute = dynamic_cast<LoadStoreOp*>(expr)) {
-    TensorView* out = dynamic_cast<TensorView*>(permute->out());
-    if (!out->hasRFactor()) {
-      return;
-    }
-    TensorView* in = permute->in()->as<TensorView>();
-
-    if (out->hasAllocation()) {
-      return;
-    }
-
-    Layout in_layout = analysis.preferredLayout(in);
-    if (!computePermutation(
-             in->getMaybeRFactorDomain(), in_layout.allocation_domain)
-             .has_value()) {
-      return;
-    }
-
-    // in: rfactor -> allocation
-    //        ||
-    // out:  root
-    //        |
-    //        v
-    //     rfactor -> allocation
-    std::unordered_map<IterDomain*, IterDomain*> in_rfactor_to_out_root;
-    for (auto i : c10::irange(out->getRootDomain().size())) {
-      in_rfactor_to_out_root[in->getMaybeRFactorDomain()[i]] =
-          out->getRootDomain()[i];
-    }
-
-    Layout out_layout;
-    for (IterDomain* allocation_id : in_layout.allocation_domain) {
-      out_layout.allocation_domain.push_back(
-          in_rfactor_to_out_root.at(allocation_id));
-    }
-    out_layout.contiguity = TensorDomain::getContiguityFilledWith(
-        out->getMaybeRFactorDomain(), false);
-    analysis.add(out, in, out_layout);
+  // Another lazy move: we could check compatibility and only give up when
+  // the allocation domain is incompatible with what we prefer for aliasing.
+  if (out->hasAllocation()) {
+    return;
   }
+
+  TensorView* in = permute->in()->as<TensorView>();
+  // Look at the preferred layout not `in`'s current layout.
+  Layout in_layout = analysis_.preferredLayout(in);
+  if (!computePermutation(
+           in->getMaybeRFactorDomain(), in_layout.allocation_domain)
+           .has_value()) {
+    // Give up when `in`'s allocation domain is not an rfactor permutation.
+    return;
+  }
+
+  // in: rfactor -> allocation
+  //        ||
+  // out:  root
+  //        |
+  //        v
+  //     rfactor -> allocation
+  std::unordered_map<IterDomain*, IterDomain*> in_rfactor_to_out_root;
+  for (auto i : c10::irange(out->getRootDomain().size())) {
+    in_rfactor_to_out_root[in->getMaybeRFactorDomain()[i]] =
+        out->getRootDomain()[i];
+  }
+
+  Layout out_layout;
+  for (IterDomain* allocation_id : in_layout.allocation_domain) {
+    out_layout.allocation_domain.push_back(
+        in_rfactor_to_out_root.at(allocation_id));
+  }
+  out_layout.contiguity = TensorDomain::getContiguityFilledWith(
+      out->getMaybeRFactorDomain(), false);
+  analysis_.add(out, in, out_layout);
 }
 
 } // namespace
@@ -227,14 +243,15 @@ Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
 
 AliasAnalysisResult findAliases(Fusion* fusion) {
   AliasAnalysisResult analysis;
-  // Fusion::exprs() returns topological order.
+  AliasFinder finder(analysis);
+  // Fusion::exprs() computes and returns topological order.
   for (Expr* expr : fusion->exprs()) {
-    // A potential improvement suggested by @tfogal: Let findAliasesFromExpr
+    // A potential improvement suggested by @tfogal: Let AliasFinder
     // return the AliasAnalysisResult instead of taking a mutable
     // `analysis` arg. This might be somewhat easily parallelizable
     // (albeit with a serialized merge step afterwards that inserts the
     // results).
-    findAliasesFromExpr(expr, analysis);
+    finder.dispatch(expr);
   }
   return analysis;
 }

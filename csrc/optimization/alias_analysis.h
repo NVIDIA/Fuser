@@ -48,7 +48,10 @@ class AliasAnalysisResult {
   std::unordered_map<const TensorView*, Layout> preferred_layout_;
 };
 
-// Finds aliases of the fusion inputs.
+// Finds aliases of the fusion inputs. The analysis should be conservative --
+// when the analysis says B is an alias of input A,
+// `ExpressionEvaluator::evaluate(B)` should produce an `at::Tensor` that's an
+// alias of the `at::Tensor` bound to A.
 AliasAnalysisResult findAliases(Fusion* fusion);
 
 } // namespace nvfuser::optimization
