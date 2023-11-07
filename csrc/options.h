@@ -77,6 +77,7 @@ enum class EnableOption {
   KernelDb, //! Enable Kernel Database
   KernelProfile, //! Enable intra-kernel performance profiling
   MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
+  StaticShapes, //! Disable dynamic shapes
   WarnRegisterSpill, //! Enable warnings of register spill
   EndOfOption //! Placeholder for counting the number of elements
 };

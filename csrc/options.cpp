@@ -152,6 +152,7 @@ std::unordered_map<EnableOption, std::vector<std::string>> Options<
       {"kernel_db", EnableOption::KernelDb},
       {"kernel_profile", EnableOption::KernelProfile},
       {"memory_promotion", EnableOption::MemoryPromotion},
+      {"static_shapes", EnableOption::StaticShapes},
       {"warn_register_spill", EnableOption::WarnRegisterSpill}};
 
   return parseEnvOptions("ENABLE", available_options);
