@@ -955,6 +955,7 @@ at::Tensor allocateOutput(
             out_tv->toString(),
             " as an alias of ",
             in_tv->toString());
+        inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
         return out_tensor;
     }
   }
