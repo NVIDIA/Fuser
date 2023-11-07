@@ -55,8 +55,7 @@ IdModel::IdModel(
   build(exprs, additional_tvs);
 }
 
-IdModel::IdModel(const std::vector<Expr*>& exprs)
-    : IdModel(exprs, {}) {}
+IdModel::IdModel(const std::vector<Expr*>& exprs) : IdModel(exprs, {}) {}
 
 IdModel::IdModel(Fusion* fusion) {
   std::vector<TensorView*> inputs_and_outputs;
@@ -76,7 +75,11 @@ IdModel::IdModel(Fusion* fusion) {
 
 const ValGraph& IdModel::idGraph(IdMappingMode mode) const {
   auto graph_it = id_graphs_.find(mode);
-  NVF_ERROR(graph_it != id_graphs_.end());
+  NVF_ERROR(
+      graph_it != id_graphs_.end(),
+      "Failed to find an IdGraph with the ",
+      mode,
+      " mode");
   return graph_it->second;
 }
 
@@ -111,7 +114,7 @@ void IdModel::buildIterDomainDefinitionsAndUses(
     std::vector<IterDomain*> all_ids = ir_utils::allIDsOf(tv);
 
     // Check if this domain is a consumer of a view-like operation
-    bool view_like_domain = tv->domain()->hasViewLikeRFactor();
+    const bool view_like_domain = tv->domain()->hasViewLikeRFactor();
 
     for (auto id : all_ids) {
       // Check if this id is a view like rfactor id
