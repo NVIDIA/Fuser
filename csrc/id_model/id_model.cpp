@@ -67,7 +67,7 @@ IdModel::IdModel(Fusion* fusion) {
   {
     auto out_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
     inputs_and_outputs.insert(
-        inputs_and_outputs.begin(), out_tvs.begin(), out_tvs.end());
+        inputs_and_outputs.end(), out_tvs.begin(), out_tvs.end());
   }
 
   build(fusion->exprs(), inputs_and_outputs);
