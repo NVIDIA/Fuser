@@ -1437,11 +1437,9 @@ class TestNvFuserFrontend(TestCase):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         eager_out = inputs[0] + inputs[1]
-        self.assertEqual(nvf_out[0], eager_out)
-        eager_out = inputs[2] + 3.0
-        self.assertEqual(nvf_out[1], eager_out)
-        eager_out = inputs[3] * 3.0
-        self.assertEqual(nvf_out[2], eager_out)
+        self.assertEqual(nvf_out[0], inputs[0] + inputs[1])
+        self.assertEqual(nvf_out[1], inputs[2] + 3.0)
+        self.assertEqual(nvf_out[2], inputs[3] * 3.0)
 
     def test_prod(self):
         inputs = [

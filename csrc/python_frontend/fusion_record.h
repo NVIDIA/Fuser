@@ -1247,7 +1247,7 @@ struct TensorRecord : RecordFunctor {
       const bool has_non_broadcast_size = (shape_[index] != 1);
       // A root dimension is expand dimension if:
       //   The dimension is marked a broadcast; and
-      //   The dimension has a symbolic size (expand extend)
+      //   The dimension has an expanded extent.
       is_expand[index] = is_broadcast && has_non_broadcast_size;
     }
 
