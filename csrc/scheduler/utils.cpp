@@ -542,15 +542,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     if (persistent_buffer->isFusionInput()) {
       continue;
     }
-    auto dep_vals = DependencyCheck::getAllValsBetween(
-        {reduction_tvs.begin(), reduction_tvs.end()}, {persistent_buffer});
-
-    // If there's a reduction between a persistent buffer and the inputs, it
-    // can't be projected backwards.
-    if (dep_vals.empty()) {
-      persistent_buffer_info.projectable_persistent_buffers.push_back(
-          persistent_buffer);
-    }
+    persistent_buffer_info.projectable_persistent_buffers.push_back(
+        persistent_buffer);
   }
 
   // Get a list of inputs of the projectable buffers
