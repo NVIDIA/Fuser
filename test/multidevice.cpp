@@ -10,6 +10,7 @@
 #include <multidevice/pipeline_ir.h>
 #include <multidevice/runtime.h>
 #include <ops/all_ops.h>
+#include <options.h>
 #include <test/multidevice.h>
 #include <test/validator.h>
 #include <torch/cuda.h>
@@ -21,10 +22,10 @@ auto multidevice_env = static_cast<MultiDeviceEnvironment*>(
 
 void MultiDeviceEnvironment::SetUp() {
   communicator_ = std::make_unique<Communicator>();
-  if (getenv("NVFUSER_MULTIDEVICE_DEBUG_PRINT")) {
+  if (getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT")) {
     debug_print_ = true;
   }
-  if (getenv("NVFUSER_MULTIDEVICE_DEBUG_BARRIER")) {
+  if (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER")) {
     do_barrier_at_test_ = true;
   }
 }
