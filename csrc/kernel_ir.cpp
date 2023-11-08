@@ -287,6 +287,38 @@ std::vector<std::pair<std::string, Val*>> Asm::constraintsAndInputs() const {
   return result;
 }
 
+std::string Asm::parameters() const {
+  int64_t counter = 0;
+  std::stringstream ss;
+  auto gen = [&counter, &ss](Val* v) {
+    if (counter > 0) {
+      ss << ", ";
+    }
+    if (isPointerType(v->dtype())) {
+      ss << "[%" << counter++ << "]";
+    } else if (std::holds_alternative<PrimDataType>(v->dtype().type)) {
+      ss << "%" << counter++;
+    } else if (std::holds_alternative<ArrayType>(v->dtype().type)) {
+      auto type = std::get<ArrayType>(v->dtype().type);
+      ss << "{";
+      for (auto i : c10::irange(type.size)) {
+        if (i > 0) {
+          ss << ", ";
+        }
+        ss << "%" << counter++;
+      }
+      ss << "}";
+    }
+  };
+  for (auto out : outputs()) {
+    gen(out);
+  }
+  for (auto in : inputs()) {
+    gen(in);
+  }
+  return ss.str();
+}
+
 std::string Asm::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "asm";

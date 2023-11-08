@@ -20,7 +20,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
     registerReplace(
         commit,
         IrBuilder::create<kir::Asm>(
-            "cp.async.commit_group;",
+            "cp.async.commit_group",
             std::vector<Val*>{},
             std::vector<Val*>{},
             kir::Asm::Options{true}));
@@ -31,19 +31,26 @@ class LowerToInlinePtx : public kir::ExprMutator {
     Expr* replace = nullptr;
     if (stages > 0) {
       replace = IrBuilder::create<kir::Asm>(
-          "cp.async.wait_group %0;",
+          "cp.async.wait_group",
           std::vector<Val*>{},
           std::vector<Val*>{IrBuilder::create<Val>(stages)},
           kir::Asm::Options{true});
     } else {
       replace = IrBuilder::create<kir::Asm>(
-          "cp.async.wait_all;",
+          "cp.async.wait_all",
           std::vector<Val*>{},
           std::vector<Val*>{},
           kir::Asm::Options{true});
     }
 
     registerReplace(wait, replace);
+  }
+
+  void handle(LoadStoreOp* ldst) {
+    if (ir_utils::isLdMatrixOp(ldst)) {
+      auto op = ldst->opType();
+      std::string op_str = "";
+    }
   }
 };
 
