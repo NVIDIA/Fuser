@@ -32,7 +32,6 @@ def transpose_fusion(
     T7 = fd.ops.gt(T5, S6)
     T9 = fd.ops.where(T7, T5, S6)
 
-    fd.add_output(T7)
     fd.add_output(T9)
 
 
