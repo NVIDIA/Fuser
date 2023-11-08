@@ -13,6 +13,7 @@
 #include <ir/all_nodes.h>
 #include <polymorphic_value.h>
 #include <utils.h>
+#include <val_graph.h>
 
 #include <c10/core/DeviceType.h>
 
@@ -284,6 +285,8 @@ class PrecomputedValues {
 
   //! Integer runtime for realizing the values computations.
   std::unique_ptr<NaiveValueMachine> value_machine_;
+
+  ValGraph val_graph_;
 };
 
 } // namespace nvfuser

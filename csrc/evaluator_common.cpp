@@ -14,6 +14,7 @@
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <tensor_metadata.h>
+#include <val_graph.h>
 
 #include <optional>
 
@@ -92,30 +93,36 @@ void collectBufferSizes(
   }
 }
 
-std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
-  std::vector<Val*> ret;
+ValGraph collectRuntimeUsedValues(Fusion* fusion) {
+  ValGraph graph;
+
+  std::vector<Val*> vals;
   auto all_tvs = ir_utils::allTvs(fusion);
   // Collect extent and inputs
   for (auto tv : all_tvs) {
     for (auto id : tv->getLeafDomain()) {
-      ret.push_back(id->extent());
+      vals.push_back(id->extent());
     }
     for (auto id : tv->getMaybeRFactorDomain()) {
       if (id->hasExpandedExtent()) {
-        ret.push_back(id->expandedExtent());
+        vals.push_back(id->expandedExtent());
       }
     }
   }
   for (auto inp : fusion->inputs()) {
     if (!inp->isA<TensorView>()) {
-      ret.push_back(inp);
+      vals.push_back(inp);
     }
   }
   // Collect allocation sizes:
   if (fusion->isA<kir::Kernel>()) {
-    collectBufferSizes(ret, fusion->as<kir::Kernel>()->topLevelExprs());
+    collectBufferSizes(vals, fusion->as<kir::Kernel>()->topLevelExprs());
   }
-  return makeSortedEvaluationList(ret);
+  auto sorted_vals = makeSortedEvaluationList(vals);
+
+  for (auto val : sorted_vals) {
+    graph.insert(val);
+  }
 }
 
 } // namespace
