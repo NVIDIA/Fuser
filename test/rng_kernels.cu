@@ -97,14 +97,14 @@ void lanuch_generate_random_numbers_kernel(
   cudaDeviceSynchronize();
 }
 
-template void lanuch_generate_random_numbers_kernel<float>(
+template void launch_generate_random_numbers_kernel<float>(
     cudaStream_t stream,
     float* output,
     int64_t size,
     at::PhiloxCudaState philox_args,
     RNGTest_t rng_test);
 
-template void lanuch_generate_random_numbers_kernel<double>(
+template void launch_generate_random_numbers_kernel<double>(
     cudaStream_t stream,
     double* output,
     int64_t size,
