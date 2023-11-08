@@ -134,7 +134,7 @@ std::vector<int> normalizeOld2New(
 
   // All available new positions
   std::set<int> all_positions;
-  for (decltype(ndims) i{0}; i < ndims; i++) {
+  for (auto i : c10::irange(ndims)) {
     all_positions.insert((int)i);
   }
 

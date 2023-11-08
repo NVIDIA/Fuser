@@ -154,8 +154,11 @@ class ValGraph {
   void mapVals(Val* val0, Val* val1);
 
   // Checks if expr0 and expr1 should map together, maps them together, and if
-  // expression propagation is on, propagates mapping through them. This should
-  // be the only call in IdGraph to mapThroughExpr
+  // expression propagation is on, propagates mapping through
+  // them. The forward parameter determines the direction of the
+  // propagation. The expressions are mapped if the inputs are mapped
+  // when the forward parameter is true. This should
+  // be the only call in IdGraph to mapThroughExpr.
   void maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward);
 
  private:
