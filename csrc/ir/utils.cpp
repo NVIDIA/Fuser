@@ -134,8 +134,9 @@ std::vector<int> normalizeOld2New(
 
   // All available new positions
   std::set<int> all_positions;
-  for (decltype(ndims) i{0}; i < ndims; i++)
+  for (decltype(ndims) i{0}; i < ndims; i++) {
     all_positions.insert((int)i);
+  }
 
   // Check what positions haven't been specified.
   std::set<int> positions_left;
