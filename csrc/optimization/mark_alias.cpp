@@ -5,9 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <debug.h>
 #include <ir/utils.h>
 #include <optimization/alias_analysis.h>
 #include <optimization/mark_alias.h>
+#include <options.h>
 
 namespace nvfuser::optimization {
 
@@ -21,13 +23,29 @@ void MarkAliasPass::runPass(Fusion* fusion) {
           // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
           const_cast<Val*>(in),
           AliasType::PointerCast);
+      if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+        debug() << "MarkAliasPass marked " << out->toString()
+                << " as an alias of " << in->toString() << std::endl;
+      }
 
       // A scalar `out` triggers a corner case that crashes
       // `validateDomainEquivalence`.
       if (!out->isZeroDim()) {
         const Layout out_layout = alias_analysis.preferredLayout(out);
+        if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+          debug() << "MarkAliasPass changed the layout of " << out->toString()
+                  << std::endl;
+          debug() << "  Old TensorDomain:" << std::endl;
+          debug() << out->domain()->toString(4, /*leaf_only=*/false)
+                  << std::endl;
+        }
         out->setAllocationDomain(
             out_layout.allocation_domain, out_layout.contiguity);
+        if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+          debug() << "  New TensorDomain:" << std::endl;
+          debug() << out->domain()->toString(4, /*leaf_only=*/false)
+                  << std::endl;
+        }
       }
     }
   }
