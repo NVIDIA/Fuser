@@ -31,8 +31,7 @@ namespace nvfuser {
 
 using RankType = DeviceIdxType;
 
-// Supported backends. TODO: only tested with nccl for now
-// TODO: none is a hack for calling a default. 
+// Supported backends. TODO: gloo untested
 enum class CommunicatorBackend { nccl, ucc, gloo, none };
 
 constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::nccl;
@@ -84,7 +83,7 @@ class Communicator {
   }
 
   // returns the backend associated with a team
-  c10d::Backend* getBackendForTeam(const Team& team, 
+  c10::intrusive_ptr<c10d::Backend> getBackendForTeam(const Team& team, 
         CommunicatorBackend backend = CommunicatorBackend::none);
 
   // returns the device associated with the current process
@@ -97,8 +96,7 @@ class Communicator {
     return rankToDiD(rank_);
   }
   
-  c10d::Backend* getWorld(
-      CommunicatorBackend backend = CommunicatorBackend::none);
+  c10::intrusive_ptr<c10d::Backend> getWorld(CommunicatorBackend backend = CommunicatorBackend::none);
 
  private:
   // returns the rank corresponding to a device index
@@ -121,8 +119,6 @@ class Communicator {
   int master_port_;
   // stores the world's store used for the backend init
   c10::intrusive_ptr<c10d::TCPStore> store_;
-  // stores the world's backend. 
-  // std::unordered_map<CommunicatorBackend, c10::intrusive_ptr<c10d::Backend>> world_;
   // cache for the created backends. The keys are strings generated from Teams
   std::unordered_map<std::string, c10::intrusive_ptr<c10d::Backend>> backends_;
 };
