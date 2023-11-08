@@ -180,50 +180,6 @@ std::string ValGraph::toString() const {
   return ss.str();
 }
 
-bool ValGraph::exprAttributesMatch(Expr* first, Expr* second) {
-  if (first == nullptr || second == nullptr) {
-    return false;
-  }
-
-  if (typeid(*first) != typeid(*second)) {
-    return false;
-  }
-
-  if (first->isA<Split>()) {
-    auto first_split = first->as<Split>();
-    auto second_split = second->as<Split>();
-    if (!first_split->factor()->sameAs(second_split->factor()) ||
-        first_split->innerSplit() != second_split->innerSplit() ||
-        !first_split->startOffset()->sameAs(second_split->startOffset()) ||
-        !first_split->stopOffset()->sameAs(second_split->stopOffset())) {
-      return false;
-    }
-  }
-
-  if (first->isA<Swizzle2D>()) {
-    auto first_swizzle = first->as<Swizzle2D>();
-    auto second_swizzle = second->as<Swizzle2D>();
-    if (first_swizzle->swizzleMode() != second_swizzle->swizzleMode() ||
-        first_swizzle->swizzleType() != second_swizzle->swizzleType()) {
-      return false;
-    }
-  }
-
-  if (first->isA<Resize>()) {
-    if (!first->as<Resize>()->leftExpand()->sameAs(
-            second->as<Resize>()->leftExpand())) {
-      return false;
-    }
-
-    if (!first->as<Resize>()->rightExpand()->sameAs(
-            second->as<Resize>()->rightExpand())) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
 void ValGraph::initializeVal(
     Val* val,
     const VectorOfUniqueEntries<Expr*>& definitions,
@@ -269,7 +225,10 @@ void ValGraph::initializeVal(Val* val) {
 }
 
 bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
-  if (!exprAttributesMatch(first, second)) {
+  NVF_ERROR(first);
+  NVF_ERROR(second);
+
+  if (!first->sameOp(second)) {
     return false;
   }
 

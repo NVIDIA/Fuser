@@ -46,8 +46,8 @@ namespace nvfuser {
 // - {split of I2*I3, split of I4*I5}
 //
 // ValGraph can be used with any Val types, however, it's currenty
-// only tested with IterDomain. Some of the routines would need to be
-// extended for other Val types, e.g., exprAttributesMatch.
+// only tested with IterDomain. Some of the routines might need to be
+// extended for other Val types.
 
 using ValGroup = std::shared_ptr<VectorOfUniqueEntries<Val*>>;
 using ValGroups = VectorOfUniqueEntries<ValGroup>;
@@ -123,9 +123,6 @@ class ValGraph {
   bool hasUses(const ValGroup& id_group) const;
 
   std::string toString() const;
-
-  // Returns if all atributes of the exprs first and second are the same
-  static bool exprAttributesMatch(Expr* first, Expr* second);
 
   // Initializes entries for the provided Val with its definitions and
   // uses.
