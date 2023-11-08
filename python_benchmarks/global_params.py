@@ -1,6 +1,7 @@
 import torch
 from typing import Union, List, Tuple
 from nvfuser import DataType
+from .core import DEVICE_PROPERTIES
 
 
 # Utility function to generate input sizes for benchmarks
@@ -9,11 +10,11 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
     if isinstance(dims, int):
         dims = [dims]
 
-    # TODO: Add more input sizes.
     for dim in dims:
+        # TODO: Add sizes < 16 and > 1048576.
         if dim == 2:
-            range_outer = [2**i for i in range(1, 5)]
-            range_inner = [32 * 1024 * 2**i for i in range(11)]
+            range_outer = [2**i for i in range(4, 9)]  # {16, 256}
+            range_inner = [32 * 1024 * 2**i for i in range(6)]  # {32768, 1048576}
             inputs.extend([(i, j) for i in range_outer for j in range_inner])
             inputs.extend([(j, i) for i in range_outer for j in range_inner])
         elif dim == 3:
@@ -22,9 +23,10 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
                 [(i, j, k) for i in dim_range for j in dim_range for k in dim_range]
             )
         elif dim == 4:
+            # TODO: Add spatial_dim = 2.
             batch_range = [2**i for i in range(6, 10)]  # {64, 512}
             channel_range = [2**i for i in range(5, 8)]  # {32, 128}
-            spatial_range = [2**i for i in range(1, 7)]  # {2, 64}
+            spatial_range = [2**i for i in range(2, 7)]  # {4, 64}
 
             inputs.extend(
                 [
@@ -38,7 +40,7 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
 
             batch_range = [2**i for i in range(1, 7)]  # {2, 64}
             channel_range = [2**i for i in range(1, 6)]  # {2, 32}
-            spatial_range = [2**i for i in range(1, 9)]  # {2, 256}
+            spatial_range = [2**i for i in range(2, 9)]  # {4, 256}
 
             inputs.extend(
                 [
@@ -60,8 +62,9 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
 
 
 # Datatypes to benchmark
-# TODO: Add torch.bfloat16 after adding support for variable thresholds
 FLOAT_DTYPES = [torch.float16, torch.float32]
+if DEVICE_PROPERTIES["gpu_compute_capability_major"] >= 8:
+    FLOAT_DTYPES.append(torch.bfloat16)
 
 # Datatypes that will be promoted to Datatype.Float in Fusion Definitions
 PROMOTE_DTYPES = [DataType.BFloat16, DataType.Half]

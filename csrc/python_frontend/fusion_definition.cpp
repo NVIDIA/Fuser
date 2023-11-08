@@ -11,6 +11,7 @@
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
 #include <utils.h>
+#include <validator_utils.h>
 
 // Require namespace for perf scope instrumentation
 using namespace nvfuser::inst;
@@ -359,6 +360,11 @@ void FusionDefinition::printMathIr() {
 
 State FusionDefinition::recordingState(size_t index) const {
   return recording_state_.at(index);
+}
+
+std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
+    const at::ArrayRef<c10::IValue>& inputs) {
+  return get_val_constants(preschedFusion(), inputs);
 }
 
 } // namespace nvfuser::python_frontend
