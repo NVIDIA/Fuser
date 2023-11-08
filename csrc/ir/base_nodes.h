@@ -515,6 +515,8 @@ class Expr : public Statement {
   // Note that unlike IrCloner, this function only do a shallow copy
   Expr* shallowCopy() const;
 
+  // Check that if this and other are the same operator. This main difference
+  // from sameAs is that sameOp does not check the inputs.
   virtual bool sameOp(const Expr* other) const;
 
   bool sameAs(const Statement* other) const override;
