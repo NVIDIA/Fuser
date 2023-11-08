@@ -10,6 +10,8 @@
 // (except raw headers). Compiling dynamic_type.h with nvcc is not supported.
 // Compiling pytorch with nvcc is not supported either.
 
+#include <test/rng_helper.h>
+
 #include <cassert>
 #include <cstdint>
 #include <type_traits>
@@ -22,11 +24,6 @@
 #include <curand_philox4x32_x.h>
 
 namespace nvfuser {
-
-enum RNGTest_t {
-  Uniform,
-  Normal,
-};
 
 template <typename T>
 __global__ void generate_random_numbers_kernel(

@@ -435,6 +435,7 @@ if(BUILD_TEST)
   # CUDA 11 does not support C++20, so hard code C++17 here
   set_property(TARGET ${NVFUSER_TESTS_KERNELS} PROPERTY CXX_STANDARD 17)
   target_link_libraries(${NVFUSER_TESTS_KERNELS} PRIVATE torch ${TORCH_LIBRARIES} ${NVFUSER_CODEGEN})
+  target_include_directories(${NVFUSER_TESTS_KERNELS} PRIVATE "${NVFUSER_ROOT}")
 
   add_executable(${NVFUSER_TESTS} ${JIT_TEST_SRCS})
   set_property(TARGET ${NVFUSER_TESTS} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
