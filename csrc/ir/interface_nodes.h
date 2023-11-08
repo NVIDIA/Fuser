@@ -15,6 +15,7 @@
 #include <ir/internal_base_nodes.h>
 #include <ir/internal_nodes.h>
 #include <mma_type.h>
+#include <multidevice/device_mesh.h>
 #include <type.h>
 
 #include <torch/csrc/jit/ir/ir.h>
@@ -543,6 +544,14 @@ class TensorView : public Val {
     return is_parallel_d.empty() ? false : is_parallel_d.at(0);
   }
 
+  void setDeviceMesh(const DeviceMesh& mesh) {
+    mesh_ = mesh;
+  }
+
+  const DeviceMesh& getDeviceMesh() const {
+    return mesh_;
+  }
+
  protected:
   void setDomain(TensorDomain* td) {
     domain_ = td;
@@ -614,6 +623,8 @@ class TensorView : public Val {
   //! current tensor. This will then allow us to safely reuse the memory
   //! allocated to this tensor.
   bool promote_reuse_ = false;
+
+  DeviceMesh mesh_{};
 };
 
 //! A simple TensorView builder
