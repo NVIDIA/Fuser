@@ -14,6 +14,7 @@
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
+#include <test/rng_helper.h>
 #include <test/utils.h>
 #include <test/validator.h>
 
@@ -22,9 +23,48 @@
 
 namespace nvfuser {
 
-at::Tensor generate_uniform(int64_t size, at::ScalarType dtype);
+at::Tensor generate_random_numbers(
+    int64_t size,
+    at::ScalarType dtype,
+    RNGTest_t rng_test) {
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  auto result = at::empty({size}, options);
 
-at::Tensor generate_normal(int64_t size, at::ScalarType dtype);
+  auto gen = at::get_generator_or_default<at::CUDAGeneratorImpl>(
+      c10::nullopt, at::cuda::detail::getDefaultCUDAGenerator());
+  at::PhiloxCudaState rng_engine_inputs;
+  {
+    // See Note [Acquire lock when using random generators]
+    std::lock_guard<std::mutex> lock(gen->mutex_);
+    rng_engine_inputs = gen->philox_cuda_state(4);
+  }
+
+  if (dtype == at::kFloat) {
+    launch_generate_random_numbers_kernel(
+        at::cuda::getCurrentCUDAStream(),
+        result.data_ptr<float>(),
+        size,
+        rng_engine_inputs,
+        rng_test);
+  } else {
+    NVF_CHECK(dtype == at::kDouble);
+    launch_generate_random_numbers_kernel(
+        at::cuda::getCurrentCUDAStream(),
+        result.data_ptr<double>(),
+        size,
+        rng_engine_inputs,
+        rng_test);
+  }
+  return result;
+}
+
+at::Tensor generate_uniform(int64_t size, at::ScalarType dtype) {
+  return generate_random_numbers(size, dtype, RNGTest_t::Uniform);
+}
+
+at::Tensor generate_normal(int64_t size, at::ScalarType dtype) {
+  return generate_random_numbers(size, dtype, RNGTest_t::Normal);
+}
 
 class RNGTest : public NVFuserTest {};
 

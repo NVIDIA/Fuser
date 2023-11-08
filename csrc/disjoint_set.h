@@ -37,13 +37,39 @@ std::string abstractToString(T ref) {
 
 // Vector like class that will prevent adding duplicate entries by also
 // maintaing a set
+//
+// TODO: Can we support std::back_inserter with this class?
 template <typename T, typename Hash = std::hash<T>>
 class VectorOfUniqueEntries {
  public:
   VectorOfUniqueEntries() = default;
 
-  VectorOfUniqueEntries(const std::initializer_list<T>& x)
-      : vector_(x), set_(x) {}
+  VectorOfUniqueEntries(const std::initializer_list<T>& initializer) {
+    for (auto entry : initializer) {
+      pushBack(entry);
+    }
+  }
+
+  VectorOfUniqueEntries(const VectorOfUniqueEntries& other) = default;
+
+  VectorOfUniqueEntries& operator=(const VectorOfUniqueEntries& other) =
+      default;
+
+  template <class InputIt>
+  VectorOfUniqueEntries(InputIt first, InputIt last) {
+    pushBack(first, last);
+  }
+
+  template <class Container>
+  VectorOfUniqueEntries(const Container& container)
+      : VectorOfUniqueEntries(container.begin(), container.end()) {}
+
+  template <class InputIt>
+  void pushBack(InputIt first, InputIt last) {
+    while (first != last) {
+      pushBack(*first++);
+    }
+  }
 
   // Returns if a node was actually added
   bool pushBack(T entry) {
@@ -54,19 +80,65 @@ class VectorOfUniqueEntries {
     return false;
   }
 
-  // Returns if any node was added
+  // Returns true if any node was added
   bool pushBack(const VectorOfUniqueEntries<T, Hash>& other) {
+    return pushBack(other.vector());
+  }
+
+  // Returns true if any node was added
+  bool pushBack(const std::vector<T>& other) {
     bool any_added = false;
-    for (auto entry : other) {
+    for (const auto& entry : other) {
       auto added = pushBack(entry);
       any_added = any_added || added;
     }
     return any_added;
   }
 
+  // Returns a new VectorOfUniqueEntries with entries that are in both this and
+  // other, order is preserved as this.
+  VectorOfUniqueEntries<T, Hash> intersect(
+      const VectorOfUniqueEntries<T, Hash>& other) const {
+    VectorOfUniqueEntries<T, Hash> intersection;
+    for (const auto& entry : vector()) {
+      if (other.has(entry)) {
+        intersection.pushBack(entry);
+      }
+    }
+    return intersection;
+  }
+
+  // Returns a new VectorOfUniqueEntries with entries that are in this but not
+  // in other.
+  VectorOfUniqueEntries<T, Hash> subtract(
+      const VectorOfUniqueEntries<T, Hash>& other) const {
+    VectorOfUniqueEntries<T, Hash> subtraction;
+    for (const auto& entry : vector()) {
+      if (!other.has(entry)) {
+        subtraction.pushBack(entry);
+      }
+    }
+    return subtraction;
+  }
+
+  // Returns a new VectorOfUniqueEntries with entries that are either in this or
+  // other.
+  VectorOfUniqueEntries<T, Hash> computeUnion(
+      const VectorOfUniqueEntries<T, Hash>& other) const {
+    VectorOfUniqueEntries<T, Hash> union_(*this);
+    for (const auto& entry : other.vector()) {
+      union_.pushBack(entry);
+    }
+    return union_;
+  }
+
   // Returns a const vector useful for iterating on
   const std::vector<T>& vector() const {
     return vector_;
+  }
+
+  const std::unordered_set<T>& set() const {
+    return set_;
   }
 
   // Returns first element in vector
@@ -157,10 +229,26 @@ class VectorOfUniqueEntries {
     return vector_.end();
   }
 
+  auto rbegin() const {
+    return vector().rbegin();
+  }
+
+  auto rend() const {
+    return vector().rend();
+  }
+
+  auto rbegin() {
+    return vector_.begin();
+  }
+
+  auto rend() {
+    return vector_.end();
+  }
+
   std::string toString() const {
     std::stringstream ss;
     ss << "{ ";
-    for (auto entry : vector()) {
+    for (const auto& entry : vector()) {
       ss << abstractToString(entry);
       if (entry != vector().back()) {
         ss << "; ";
@@ -184,6 +272,9 @@ class VectorOfUniqueEntries {
 template <typename T, typename Hash = std::hash<T>>
 class DisjointSets {
  public:
+  using DisjointSetMap = std::
+      unordered_map<T, std::shared_ptr<VectorOfUniqueEntries<T, Hash>>, Hash>;
+
   DisjointSets() = default;
 
   DisjointSets(const DisjointSets<T, Hash>& other);
@@ -202,9 +293,7 @@ class DisjointSets {
 
   // Warning: returned values should never be modified. This accessor isn't
   // strictly safe as VectorOfUniqueEntries is not returned as a const.
-  const std::
-      unordered_map<T, std::shared_ptr<VectorOfUniqueEntries<T, Hash>>, Hash>&
-      disjointSetMap() const {
+  const DisjointSetMap& disjointSetMap() const {
     return disjoint_set_maps_;
   }
 
@@ -226,17 +315,17 @@ class DisjointSets {
   }
 
   // Initializes a new set for provided entry
-  //
-  // TODO: Return iterator
-  void initializeSet(T entry) {
-    if (disjoint_set_maps_.find(entry) != disjoint_set_maps_.end()) {
-      return;
+  std::pair<typename DisjointSetMap::iterator, bool> initializeSet(T entry) {
+    auto disjoint_set_maps_it = disjoint_set_maps_.find(entry);
+    if (disjoint_set_maps_it != disjoint_set_maps_.end()) {
+      return std::make_pair(disjoint_set_maps_it, false);
     }
 
     disjoint_sets_.push_back(
         std::make_shared<VectorOfUniqueEntries<T, Hash>>());
     disjoint_sets_.back()->pushBack(entry);
-    disjoint_set_maps_.emplace(std::make_pair(entry, disjoint_sets_.back()));
+    return disjoint_set_maps_.emplace(
+        std::make_pair(entry, disjoint_sets_.back()));
   }
 
   // Adds all of the disjoint set belonging to entry1 to the disjoint set
@@ -246,44 +335,45 @@ class DisjointSets {
     auto set_it_0 = disjoint_set_maps_.find(entry0);
     auto set_it_1 = disjoint_set_maps_.find(entry1);
 
-    // Track if we need to reset iterators, optimize for case where both entries
-    // exist
-    bool invalid_iterators = false;
-    if (set_it_0 == disjoint_set_maps_.end()) {
-      initializeSet(entry0);
-      invalid_iterators = true;
-    }
+    auto set_0_found = set_it_0 != disjoint_set_maps_.end();
+    auto set_1_found = set_it_1 != disjoint_set_maps_.end();
 
-    if (set_it_1 == disjoint_set_maps_.end()) {
-      initializeSet(entry1);
-      invalid_iterators = true;
-    }
-
-    // TODO: We can avoid refinding one iterator if initialize set returns an
-    // iterator, though if we insert entry1 we'd have to refind entry0 as it
-    // could invalidate all iterators
-    if (invalid_iterators) {
-      set_it_0 = disjoint_set_maps_.find(entry0);
-      set_it_1 = disjoint_set_maps_.find(entry1);
-    }
-
-    auto set0_shared_ptr = set_it_0->second;
-    auto set1_shared_ptr = set_it_1->second;
-
-    // If the sets are already the same, do nothing
-    if (set0_shared_ptr == set1_shared_ptr) {
+    // Sets already joined
+    if (set_0_found && set_1_found && set_it_0->second == set_it_1->second) {
       return;
     }
 
-    // Place everything in set1 into set0 and remap all entries in set1 to set0
-    for (auto entry : set1_shared_ptr->vector()) {
-      set0_shared_ptr->pushBack(entry);
-      disjoint_set_maps_[entry] = set0_shared_ptr;
+    // Make and map new set
+    disjoint_sets_.push_back(
+        std::make_shared<VectorOfUniqueEntries<T, Hash>>());
+    auto new_set = disjoint_sets_.back();
+
+    // Add an entry to new_set along with the other entries previously
+    // grouped together with the entry. The existing set is erased.
+    auto mergeSets = [this](const T& entry, auto& new_set) {
+      if (auto it = disjoint_set_maps_.find(entry);
+          it != disjoint_set_maps_.end()) {
+        auto existing_set = it->second;
+        for (const auto& existing_entry : *existing_set) {
+          new_set->pushBack(existing_entry);
+          disjoint_set_maps_[existing_entry] = new_set;
+        }
+        disjoint_sets_.erase(std::find(
+            disjoint_sets_.begin(), disjoint_sets_.end(), existing_set));
+      } else {
+        new_set->pushBack(entry);
+        disjoint_set_maps_[entry] = new_set;
+      }
+    };
+
+    mergeSets(entry0, new_set);
+
+    // This should be after we enter a new set in case it doesn't exist.
+    if (entry0 == entry1) {
+      return;
     }
 
-    // set1 no longer needed as its entries are copied into set0
-    disjoint_sets_.erase(std::find(
-        disjoint_sets_.begin(), disjoint_sets_.end(), set1_shared_ptr));
+    mergeSets(entry1, new_set);
   }
 
   // Will assert if provided entry0 is not in any disjoint set, otherwise
@@ -313,6 +403,30 @@ class DisjointSets {
     return disjoint_set_maps_.find(entry) != disjoint_set_maps_.end();
   }
 
+  // Erases element if it exists in the disjoint set. Returns true if element
+  // found.
+  bool erase(T entry) {
+    auto entry_it = disjoint_set_maps_.find(entry);
+    if (entry_it == disjoint_set_maps_.end()) {
+      return false;
+    }
+
+    auto set = entry_it->second;
+    if (set->size() == 1) {
+      NVF_ERROR(
+          set->front() == entry,
+          "Disjoint set container found to be in inconsistent state.");
+      disjoint_set_maps_.erase(entry);
+      disjoint_sets_.erase(
+          std::find(disjoint_sets_.begin(), disjoint_sets_.end(), set));
+    } else {
+      disjoint_set_maps_.erase(entry);
+      set->erase(entry);
+    }
+
+    return true;
+  }
+
   // Returns a deterministic list of all entries that have been added to any
   // disjoint set.
   //
@@ -339,22 +453,24 @@ class DisjointSets {
     const std::string sep("  ");
     for (auto s_ptr : disjoint_sets_) {
       auto& set = *s_ptr;
-      ss << sep << "{\n";
-      for (auto entry : set.vector()) {
-        ss << sep << sep << abstractToString(entry) << "\n";
-      }
-      ss << sep << "}\n";
+      ss << sep << abstractToString(set) << "\n";
     }
     ss << "}";
     return ss.str();
   }
 
+  auto size() const {
+    return disjoint_sets_.size();
+  }
+
  private:
   // Disjoint sets
-  std::unordered_map<T, std::shared_ptr<VectorOfUniqueEntries<T, Hash>>, Hash>
-      disjoint_set_maps_;
+  DisjointSetMap disjoint_set_maps_;
 
   // Keep a list of disjoint_sets that's deterministic to iterate over
+  //
+  // TODO: Should this just be a
+  // VectorOfUniqueEntries<std::shared_ptr<VectorOfUniqueEntries ?
   std::vector<std::shared_ptr<VectorOfUniqueEntries<T, Hash>>> disjoint_sets_;
 };
 
