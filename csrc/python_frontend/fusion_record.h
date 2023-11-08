@@ -981,7 +981,7 @@ struct CastOpRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Dtype,
-        serde::CreateDtype(builder, serde::mapToSerdeDtype(dtype_)).Union()};
+        serde::CreateDtype(builder, castEnumToUnderlyingType(dtype_)).Union()};
   }
 
  private:
@@ -1346,7 +1346,7 @@ struct TensorRecord : RecordFunctor {
     tensor_builder.add_sizes(fb_sizes);
     tensor_builder.add_contiguity(fb_contiguity_enum);
     tensor_builder.add_stride_order(fb_stride_order);
-    tensor_builder.add_dtype(serde::mapToSerdeDtype(dtype_));
+    tensor_builder.add_dtype(castEnumToUnderlyingType(dtype_));
     tensor_builder.add_is_cpu(is_cpu_);
     auto expr_data = tensor_builder.Finish();
     return {serde::RecordData_Tensor, expr_data.Union()};
@@ -1625,7 +1625,7 @@ struct ReductionOpRecord : RecordFunctor {
     return {
         serde::RecordData_Reduction,
         serde::CreateReductionDirect(
-            builder, &axes_, keep_dim_, serde::mapToSerdeDtype(dtype_))
+            builder, &axes_, keep_dim_, castEnumToUnderlyingType(dtype_))
             .Union()};
   }
 
@@ -2581,7 +2581,7 @@ struct FullOpRecord : RecordFunctor {
     return {
         serde::RecordData_TensorCreation,
         serde::CreateTensorCreationDirect(
-            builder, &shape_, serde::mapToSerdeDtype(dtype_))
+            builder, &shape_, castEnumToUnderlyingType(dtype_))
             .Union()};
   }
 
@@ -2647,7 +2647,7 @@ struct IotaOpRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Dtype,
-        serde::CreateDtype(builder, serde::mapToSerdeDtype(dtype_)).Union()};
+        serde::CreateDtype(builder, castEnumToUnderlyingType(dtype_)).Union()};
   }
 
  private:
@@ -2773,7 +2773,7 @@ struct RandomOpRecord : RecordFunctor {
     return {
         serde::RecordData_TensorCreationSymbolic,
         serde::CreateTensorCreationSymbolicDirect(
-            builder, &fb_shape, serde::mapToSerdeDtype(dtype_))
+            builder, &fb_shape, castEnumToUnderlyingType(dtype_))
             .Union()};
   }
 
@@ -2864,7 +2864,7 @@ struct VectorRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData_Vector,
-        serde::CreateVector(builder, serde::mapToSerdeDtype(dtype_)).Union()};
+        serde::CreateVector(builder, castEnumToUnderlyingType(dtype_)).Union()};
   };
 
  private:

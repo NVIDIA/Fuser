@@ -1986,7 +1986,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       kernel_code_.c_str(),
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
-      serde::mapToSerdeDtype(kernel()->indexType()),
+      castEnumToUnderlyingType(kernel()->indexType()),
       serialize(builder, *compiled_kernel_));
 }
 
@@ -2095,7 +2095,7 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
       tv_position,
       &data.sizes,
       &data.strides,
-      serde::mapToSerdeDtype(data.type),
+      castEnumToUnderlyingType(data.type),
       data.zero_init,
       data.is_profile_buffer,
       is_fusion_output);
@@ -2197,7 +2197,7 @@ FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
     info.strides.emplace_back(dim_stride);
   }
 
-  info.type = mapToAtenDtype(buffer->dtype());
+  info.type = serde::mapToAtenDtype(buffer->dtype());
   info.zero_init = buffer->zero_init();
   info.is_profile_buffer = buffer->is_profile_buffer();
   return info;

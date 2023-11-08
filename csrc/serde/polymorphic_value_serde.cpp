@@ -47,17 +47,25 @@ nvfuser::PolymorphicValue getMetaTensorArg(const serde::TensorArg* tensor) {
 nvfuser::PolymorphicValue deserializePolymorphicValue(const serde::Scalar* c) {
   if (!c->has_value()) {
     return {};
-  } else if (c->value_type() == serde::DataType_Double) {
-    return nvfuser::PolymorphicValue(c->double_value());
-  } else if (c->value_type() == serde::DataType_Int) {
-    return nvfuser::PolymorphicValue(c->long_value());
-  } else if (c->value_type() == serde::DataType_Bool) {
-    return nvfuser::PolymorphicValue(c->bool_value());
-  } else if (c->value_type() == serde::DataType_ComplexDouble) {
-    return nvfuser::PolymorphicValue(
-        std::complex<double>(c->real_value(), c->imag_value()));
   }
-  NVF_ERROR(false, "Unable to deserialize serde::Scalar as PolymorphicValue.");
+  switch (mapToNvfuserDtype(c->value_type())) {
+    case PrimDataType::Double: {
+      return nvfuser::PolymorphicValue(c->double_value());
+    }
+    case PrimDataType::Int: {
+      return nvfuser::PolymorphicValue(c->long_value());
+    }
+    case PrimDataType::Bool: {
+      return nvfuser::PolymorphicValue(c->bool_value());
+    }
+    case PrimDataType::ComplexDouble: {
+      return nvfuser::PolymorphicValue(
+          std::complex<double>(c->real_value(), c->imag_value()));
+    }
+    default:
+      NVF_ERROR(
+          false, "Unable to deserialize serde::Scalar as PolymorphicValue.");
+  }
 }
 
 void PolymorphicValueFactory::registerAllParsers() {
@@ -155,7 +163,7 @@ flatbuffers::Offset<serde::PolymorphicValue> serializePolymorphicValue(
           (size_t)tensor.data_ptr(),
           builder.CreateVector(sizes_fb),
           builder.CreateVector(strides_fb),
-          mapToSerdeDtype(tensor.scalar_type()));
+          castEnumToUnderlyingType(tensor.scalar_type()));
       return CreatePolymorphicValue(
           builder, PolymorphicValueData_TensorArg, data.Union());
     }
@@ -171,29 +179,30 @@ flatbuffers::Offset<serde::Scalar> serializeScalar(
     const nvfuser::PolymorphicValue& v,
     nvfuser::DataType t) {
   ScalarBuilder builder_(builder);
-  builder_.add_dtype(mapToSerdeDtype(t));
+  builder_.add_dtype(castEnumToUnderlyingType(std::get<PrimDataType>(t.type)));
   if (v.is<std::monostate>()) {
     builder_.add_has_value(false);
     return builder_.Finish();
   } else if (v.is<double>()) {
     builder_.add_has_value(true);
-    builder_.add_value_type(serde::DataType_Double);
+    builder_.add_value_type(castEnumToUnderlyingType(PrimDataType::Double));
     builder_.add_double_value(v.as<double>());
     return builder_.Finish();
   } else if (v.is<int64_t>()) {
     builder_.add_has_value(true);
-    builder_.add_value_type(serde::DataType_Int);
+    builder_.add_value_type(castEnumToUnderlyingType(PrimDataType::Int));
     builder_.add_long_value(v.as<int64_t>());
     return builder_.Finish();
   } else if (v.is<bool>()) {
     builder_.add_has_value(true);
-    builder_.add_value_type(serde::DataType_Bool);
+    builder_.add_value_type(castEnumToUnderlyingType(PrimDataType::Bool));
     builder_.add_bool_value(v.as<bool>());
     return builder_.Finish();
   } else if (v.is<std::complex<double>>()) {
     builder_.add_has_value(true);
     auto c = v.as<std::complex<double>>();
-    builder_.add_value_type(serde::DataType_ComplexDouble);
+    builder_.add_value_type(
+        castEnumToUnderlyingType(PrimDataType::ComplexDouble));
     builder_.add_real_value(std::real(c));
     builder_.add_imag_value(std::imag(c));
     return builder_.Finish();

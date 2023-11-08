@@ -995,7 +995,7 @@ inline PolymorphicValue castToDtype(
 
 // Convert an enum to its underlying type.
 template <typename E>
-constexpr auto toUnderlying(E e) noexcept {
+constexpr auto castEnumToUnderlyingType(E e) noexcept {
   return static_cast<std::underlying_type_t<E>>(e);
 }
 
