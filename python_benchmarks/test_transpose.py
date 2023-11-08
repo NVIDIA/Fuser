@@ -59,15 +59,12 @@ def test_transpose_benchmark(
         transpose_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), permute_axes)
 
     if not disable_validation:
-        nvf_output = fd.execute([input1, input2])
         eager_output = torch.nn.functional.relu(
             torch.transpose(input1 + input2, axes[0], axes[1])
         )
-        assert torch.allclose(
-            nvf_output[1], eager_output, rtol=1e-3, atol=1e-3
-        ), f"{torch.max(nvf_output[1] - eager_output)}"
+        fd.validate([input1, input2], [eager_output])
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [input1, input2])
-    
+
     torch.cuda.empty_cache()
