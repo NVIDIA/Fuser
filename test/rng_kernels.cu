@@ -6,8 +6,9 @@
  */
 // clang-format on
 
-// Warning: this file should not include any header from nvFuser. Compiling
-// dynamic_type.h with nvcc is not supported.
+// Warning: this file should not include any header from nvFuser or pytorch
+// (except raw headers). Compiling dynamic_type.h with nvcc is not supported.
+// Compiling pytorch with nvcc is not supported either.
 
 #include <cassert>
 #include <cstdint>
