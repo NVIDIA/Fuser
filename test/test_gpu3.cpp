@@ -9549,9 +9549,10 @@ TEST_F(NVFuserTest, PredicateRNGOps) {
 }
 
 TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
-  auto test = [](int64_t batch,
-                 int64_t size,
-                 bool maybe_special_inline_cached_inputs) {
+  auto test = [](int persistent_batch_size, int warps_per_sm) {
+    bool project_to_input = false;
+    int64_t batch = 2048;
+    int64_t feature = 18 * 1024;
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     auto fusion = fusion_ptr.get();
     FusionGuard fg(fusion);
@@ -9565,49 +9566,57 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
     auto exp_val = exp(x_max_sub);
     auto sum_exp = sum(exp_val, {-1});
     auto bcast_sum = broadcast(sum_exp, {false, true});
-    if(std::getenv("RECALC")){
+    if (std::getenv("RECALC")) {
+      project_to_input = true;
       auto re_exp_val = exp(sub(x, bcast_max));
       auto y = mul(re_exp_val, reciprocal(bcast_sum));
       y = castOp(DataType::Half, y);
-      fusion->addOutput(y);      
-    }else{
+      fusion->addOutput(y);
+    } else {
       auto y = mul(exp_val, reciprocal(bcast_sum));
       y = castOp(DataType::Half, y);
       fusion->addOutput(y);
     }
-
-
     auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-    at::Tensor t0 = at::randn({batch, size}, options);
+    at::Tensor t0 = at::randn({batch, feature}, options);
     auto ref = at::_softmax(t0, -1, false);
     auto persistent_params = getInnerPersistentHeuristics(fusion, {t0});
-    ASSERT_TRUE(persistent_params) << "Reduction schedule was not generated!";
+    persistent_params->batches_per_block_inner_reduction =
+        persistent_batch_size;
+
+    scheduleInnerPersistentKernel(fusion, *persistent_params);
     auto lparams = persistent_params->lparams;
     auto cparams = persistent_params->cparams;
-    if (maybe_special_inline_cached_inputs) {
-      persistent_params->maybe_special_inline_cached_inputs = true;
-    } else {
-      persistent_params->maybe_special_inline_cached_inputs = false;
+    // adjust register
+    {
+      //   auto persistent_buffer_size = project_to_input ? feature * 2 :
+      //   feature * 4;
+      auto warps_per_block =
+          ceilDiv(ceilDiv(feature / 8, persistent_batch_size), 32);
+      auto blocks_per_sm = ceilDiv(warps_per_sm, warps_per_block);
+      cparams.maxrregcount = getRegPerThreadGivenThreadsPerSM(
+          blocks_per_sm * warps_per_block * 32);
+      ;
+      std::cout << "project_to_input= " << project_to_input
+                << " persistent_batch_size= " << persistent_batch_size
+                << " warps_per_block= " << warps_per_block
+                << " maxrregcount= " << cparams.maxrregcount << std::endl;
     }
-    scheduleInnerPersistentKernel(fusion, *persistent_params);
-
     FusionExecutor fe;
     fe.compileFusion(fusion, {t0}, lparams, cparams);
     clearL2Cache();
     auto cg_outputs = fe.runFusion({t0}, lparams, cparams);
     testValidate(fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
   };
-  // kernel latency is reducd from 1.0 ms to 0.93 ms on ipp2-0123 after changing
-  // `maybe_special_inline_cached_inputs` from false to true.
-  test(32768, 18 * 1024, false);
-  test(32768, 18 * 1024, true);
 
-//   root@nvdl-a112-d001:/opt/pytorch/nvfuser/build# grep achi 1.log
-// kernel1 run in 0.110592 ms, achieved: 1365.33 GB/s
-// kernel2 run in 0.099328 ms, achieved: 1520.17 GB/s
-
-// 0.109 ms
-// 0.0957 ms
+  // persistent batch size: 3,4,5,6,7,8,[9],18,27
+  // corresponding threads per blocks are: ceilDiv(2304,pbs) padd to warp size.
+  // [96 to 768]
+  for (auto warp_per_sm : {64, 56, 48, 40, 32, 24, 16}) {
+    for (auto persistent_batch_size : {3, 4, 5, 6, 7, 8, 9, 18, 27}) {
+      test(persistent_batch_size, warp_per_sm);
+    }
+  }
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
