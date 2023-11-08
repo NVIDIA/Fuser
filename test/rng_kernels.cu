@@ -83,7 +83,7 @@ __global__ void generate_random_numbers_kernel(
 }
 
 template <typename T>
-void lanuch_generate_random_numbers_kernel(
+void launch_generate_random_numbers_kernel(
     cudaStream_t stream,
     T* output,
     int64_t size,
