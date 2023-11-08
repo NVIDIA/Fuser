@@ -118,13 +118,10 @@ def test_rmsnorm_fwd_benchmark(
         rmsnorm_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
 
     if not disable_validation:
-        nvf_output = fd.execute([inputs, weights])
-        ms = (inputs**2).mean(1, keepdim=True)
-        eager_output = weights * (inputs / torch.sqrt(ms + eps))
-
-        assert torch.allclose(
-            nvf_output[0], eager_output, rtol=1e-3, atol=1e-3
-        ), f"Max error: {torch.max(torch.abs(nvf_output[0] - eager_output))}"
+        squared_mean = (inputs.to(torch.float) ** 2).mean(1, keepdim=True)
+        rms_eps = torch.sqrt(squared_mean + eps)
+        eager_output = weights * (inputs / rms_eps)
+        fd.validate([inputs, weights], [eager_output.to(dtype), rms_eps])
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [inputs, weights])
@@ -152,17 +149,12 @@ def test_rmsnorm_bwd_benchmark(
     with FusionDefinition() as fd:
         rmsnorm_bwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
 
-    with FusionDefinition() as fd0:
-        rmsnorm_fwd_fusion(fd0, torch_dtype_to_nvfuser_dtype(dtype))
-
     if not disable_validation:
-        nvf_output = fd.execute([inputs, rms_eps, grads, weights])
-        eager_output = weights * (inputs / rms_eps)
-        eager_output.backward(grads)
-
-        assert torch.allclose(
-            nvf_output[0], inputs.grad, rtol=1e-3, atol=1e-3
-        ), f"Max error: {torch.max(torch.abs(nvf_output[0] - inputs.grad))}"
+        eager_output = weights.to(torch.double) * (
+            inputs.to(torch.double) / rms_eps.to(torch.double)
+        )
+        eager_output.backward(grads.to(torch.double))
+        fd.validate([inputs, rms_eps, grads, weights], [inputs.grad, weights.grad])
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [inputs, rms_eps, grads, weights])
