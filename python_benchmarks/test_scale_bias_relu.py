@@ -59,7 +59,7 @@ def sbr_bwd_fusion(
         T15 = fd.ops.cast(T15, dtype=dtype)
     fd.add_output(T15)
 
-@pytest.mark.parametrize("size", [(128, 64, 32, 16)])
+@pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_sbr_fwd_benchmark(
     benchmark,
@@ -75,18 +75,16 @@ def test_sbr_fwd_benchmark(
     with FusionDefinition() as fd:
         sbr_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
     if not disable_validation:
-        nvf_output = fd.execute([bias, scale, inputs])
         eager_output = torch.nn.functional.relu(inputs * scale + bias)
-
-        assert torch.allclose(nvf_output[1], eager_output, rtol=1e-3, atol=1e-3),\
-                              f"{torch.max(nvf_output[0] - eager_output)}"
+        bool_mask = torch.gt(inputs * scale + bias, 0.0)
+        fd.validate([bias, scale, inputs], [bool_mask, eager_output])
         
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [inputs, bias])
     
     torch.cuda.empty_cache()
 
-@pytest.mark.parametrize("size", [(128, 64, 32, 16)])
+@pytest.mark.parametrize("size", generate_input_sizes(dims=4))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_sbr_bwd_benchmark(
     benchmark,
@@ -100,7 +98,6 @@ def test_sbr_bwd_benchmark(
     scale = torch.ones(size[-1], device="cuda", dtype=dtype)
     bias = torch.ones(size[-1], device="cuda", dtype=dtype)
     bool_mask = torch.gt(inputs * scale + bias, 0.0)
-    
 
     with FusionDefinition() as fd:
         sbr_bwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
@@ -108,10 +105,8 @@ def test_sbr_bwd_benchmark(
     if not disable_validation:
         eager_output = torch.nn.functional.relu(inputs * scale + bias)
         eager_output.backward(grads)
-        nvf_output = fd.execute([scale, bool_mask, grads])
-        assert torch.allclose(nvf_output[0], inputs.grad, rtol=1e-3, atol=1e-3),\
-                              f"{torch.max(nvf_output[0] - eager_output)}"
-        
+        fd.validate([scale, bool_mask, grads], [inputs.grad])
+
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [scale, bool_mask, grads])
     
