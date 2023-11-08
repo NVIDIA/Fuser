@@ -528,4 +528,6 @@ std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion);
 //! Returns true if fusion has any reduction ops.
 bool hasAnyReductionOps(Fusion* fusion);
 
+int64_t getVectorizeSize(TensorView* tv);
+
 } // namespace nvfuser::ir_utils

@@ -534,11 +534,18 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void handle(const kir::TensorIndex* ti) final {
     bool is_volatile = ti->view()->getMemoryType() == MemoryType::Global &&
         kernel_->summary().sync_map->needsRawSync(ti->view()).hasBID();
+    bool different_dtype = ti->view()->dtype() != ti->dtype();
     if (is_volatile) {
       code_ << "*(volatile " << ti->getDataType().value() << "*)&";
     }
+    if (different_dtype) {
+      code_ << "*reinterpret_cast<" << ti->getDataType().value() << "*>(&";
+    }
     code_ << genVariableName(ti->view()) << "[" << genInline(ti->index())
           << "]";
+    if (different_dtype) {
+      code_ << ")";
+    }
   }
 
   void handle(const IterDomain*) final {
@@ -551,21 +558,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const TensorView* tv) final {
     code_ << genVariableName(tv);
-  }
-
-  //! Utility for generating vectorized pointer access in ldsm and
-  //!  cpasync.
-  //! TODO: this access pattern as is could be merged with exisiting
-  //!  vectorization handling logic but this path will be updated in
-  //!  follow ups to optimize the generated assembly so keeping them
-  //!  separate path for now.
-  std::string genVectorPointer(Val* val, DataType dtype, size_t vec_size) {
-    std::stringstream ss;
-
-    ss << "reinterpret_cast<Array<" << dtype << "," << vec_size << ","
-       << vec_size << ">*>(&" << gen(val) << ")";
-
-    return ss.str();
   }
 
   // Utility function to emit a cp.async intrinsic
@@ -627,7 +619,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << genCall(func_name, func_args) << ";\n";
   }
 
-  void genLdMatrix(const LoadStoreOp* ldst, size_t vector_word_size) {
+  void genLdMatrix(const LoadStoreOp* ldst) {
     auto dtype = ldst->in()->getDataType().value();
 
     bool is_transpose = (ldst->opType() == LoadStoreOpType::LdMatrixTranspose);
@@ -635,7 +627,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         (is_transpose ? "Turing::ldMatrixT" : "Turing::ldMatrix");
 
     ArgumentBuilder func_args;
-    func_args.arg(genVectorPointer(ldst->out(), dtype, vector_word_size));
+    func_args.arg(gen(ldst->out()));
     func_args.arg(genInline(ldst->in()->as<kir::TensorIndex>()->index()));
 
     indent() << genCall(name, func_args) << ";\n";
@@ -1316,27 +1308,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
 
       // Get vectorization information
-      bool is_vector_op = false;
-      size_t vector_word_size = 1;
+      int64_t vector_word_size = ir_utils::getVectorizeSize(out_tv);
+      bool is_vector_op = (vector_word_size != 1);
 
-      if (vectorize_scope_ && ldst->out()->isA<kir::TensorIndex>()) {
-        for (auto id : out_tv->getLeafDomain()) {
-          if (!isParallelTypeVectorize(id->getParallelType())) {
-            continue;
-          }
-
-          NVF_ERROR(
-              id->extent()->isConstInt(),
-              "Could not evaluate constant value bound to vectorized dim.");
-
-          vector_word_size = id->extent()->evaluate().as<int64_t>();
-
-          is_vector_op = true;
-          break;
-        }
-      }
-
-      if (is_vector_op && !ldst->in()->isScalar()) {
+      if (is_vector_op && !ldst->in()->isScalar() && !ir_utils::isLdMatrixOp(ldst)) {
         NVF_ERROR(
             ldst->out()->dtype() == ldst->in()->dtype(),
             "Vectorized store/load requires input and output datatypes match.");
@@ -1346,7 +1321,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       if (optype == LoadStoreOpType::LdMatrix ||
           optype == LoadStoreOpType::LdMatrixTranspose) {
         NVF_ERROR(is_vector_op, "LdMatrix: Vectorization required: ", ldst);
-        genLdMatrix(ldst, vector_word_size);
+        genLdMatrix(ldst);
         return;
       }
 
