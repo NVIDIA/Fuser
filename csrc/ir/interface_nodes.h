@@ -544,11 +544,16 @@ class TensorView : public Val {
     return is_parallel_d.empty() ? false : is_parallel_d.at(0);
   }
 
-  void setDeviceMesh(const DeviceMesh& mesh) {
+  void setDeviceMesh(DeviceMesh* mesh) {
     mesh_ = mesh;
   }
 
-  const DeviceMesh& getDeviceMesh() const {
+  DeviceMesh* getDeviceMesh() const {
+    NVF_ERROR(mesh_, "DeviceMesh is not initialized");
+    return mesh_;
+  }
+
+  bool hasDeviceMesh() const {
     return mesh_;
   }
 
@@ -624,7 +629,7 @@ class TensorView : public Val {
   //! allocated to this tensor.
   bool promote_reuse_ = false;
 
-  DeviceMesh mesh_{};
+  DeviceMesh* mesh_ = nullptr;
 };
 
 //! A simple TensorView builder
