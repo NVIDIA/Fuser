@@ -1104,14 +1104,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto macro = mma->macro();
     auto in_a = mma->inA()->as<kir::TensorIndex>()->view();
     auto dtype = in_a->getDataType().value();
-    indent() << kTab << "&(reinterpret_cast<Array<" << dtype << ","
+    indent() << kTab << "(reinterpret_cast<Array<" << dtype << ","
              << getInputARegisterSize(macro) << ","
              << getInputARegisterSize(macro) << ">*>(&"
              << genVariableName(mma->inA()->as<kir::TensorIndex>()->view())
              << ")[" << genInline(mma->inA()->as<kir::TensorIndex>()->index())
              << "])"
              << ",\n";
-    indent() << kTab << "&(reinterpret_cast<Array<" << dtype << ","
+    indent() << kTab << "(reinterpret_cast<Array<" << dtype << ","
              << getInputBRegisterSize(macro) << ","
              << getInputBRegisterSize(macro) << ">*>(&"
              << genVariableName(mma->inB()->as<kir::TensorIndex>()->view())
@@ -1122,7 +1122,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void genMmaInitialization(const MmaOp* mma, const LoadStoreOp* ldst) {
     auto macro = mma->macro();
 
-    indent() << genMmaOp(mma, true) << "(reinterpret_cast<Array<"
+    indent() << genMmaOp(mma, true) << "(*reinterpret_cast<Array<"
              << mma->out()->getDataType().value() << ","
              << getOutputRegisterSize(macro) << ","
              << getOutputRegisterSize(macro) << ">*>"
@@ -1133,7 +1133,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto macro = mma->macro();
     auto out = mma->out()->as<kir::TensorIndex>();
     indent() << genMmaOp(mma) << "(\n";
-    indent() << kTab << "reinterpret_cast<Array<"
+    indent() << kTab << "*reinterpret_cast<Array<"
              << out->view()->getDataType().value() << ","
              << getOutputRegisterSize(macro) << ","
              << getOutputRegisterSize(macro) << ">*>(&" << gen(mma->out())

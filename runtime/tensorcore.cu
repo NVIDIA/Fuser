@@ -32,12 +32,12 @@ namespace Volta {
 //   A[4] x B[4] -> C[8]
 
 __device__ inline void M16N16K4TT(
-    Array<float, 8, 8>* C,
-    Array<__half, 4, 4>* A,
-    Array<__half, 4, 4>* B) {
-  unsigned const* _A = reinterpret_cast<unsigned const*>(A);
-  unsigned const* _B = reinterpret_cast<unsigned const*>(B);
-  unsigned* _C = reinterpret_cast<unsigned*>(C);
+    Array<float, 8, 8>& C,
+    Array<__half, 4, 4>& A,
+    Array<__half, 4, 4>& B) {
+  unsigned const* _A = reinterpret_cast<unsigned const*>(&A);
+  unsigned const* _B = reinterpret_cast<unsigned const*>(&B);
+  unsigned* _C = reinterpret_cast<unsigned*>(&C);
 
   asm("mma.sync.aligned.m8n8k4.row.row.f32.f16.f16.f32 {%0,%1,%2,%3,%4,%5,%6,%7}, {%8,%9}, {%10,%11}, {%12,%13,%14,%15,%16,%17,%18,%19};\n"
       : "=r"(_C[0]),
@@ -63,12 +63,12 @@ __device__ inline void M16N16K4TT(
 }
 
 __device__ inline void M16N16K4TN(
-    Array<float, 8, 8>* C,
-    Array<__half, 4, 4>* A,
-    Array<__half, 4, 4>* B) {
-  unsigned const* _A = reinterpret_cast<unsigned const*>(A);
-  unsigned const* _B = reinterpret_cast<unsigned const*>(B);
-  unsigned* _C = reinterpret_cast<unsigned*>(C);
+    Array<float, 8, 8>& C,
+    Array<__half, 4, 4>& A,
+    Array<__half, 4, 4>& B) {
+  unsigned const* _A = reinterpret_cast<unsigned const*>(&A);
+  unsigned const* _B = reinterpret_cast<unsigned const*>(&B);
+  unsigned* _C = reinterpret_cast<unsigned*>(&C);
 
   asm("mma.sync.aligned.m8n8k4.row.col.f32.f16.f16.f32 {%0,%1,%2,%3,%4,%5,%6,%7}, {%8,%9}, {%10,%11}, {%12,%13,%14,%15,%16,%17,%18,%19};\n"
       : "=r"(_C[0]),
@@ -94,12 +94,12 @@ __device__ inline void M16N16K4TN(
 }
 
 __device__ inline void M16N16K4NT(
-    Array<float, 8, 8>* C,
-    Array<__half, 4, 4>* A,
-    Array<__half, 4, 4>* B) {
-  unsigned const* _A = reinterpret_cast<unsigned const*>(A);
-  unsigned const* _B = reinterpret_cast<unsigned const*>(B);
-  unsigned* _C = reinterpret_cast<unsigned*>(C);
+    Array<float, 8, 8>& C,
+    Array<__half, 4, 4>& A,
+    Array<__half, 4, 4>& B) {
+  unsigned const* _A = reinterpret_cast<unsigned const*>(&A);
+  unsigned const* _B = reinterpret_cast<unsigned const*>(&B);
+  unsigned* _C = reinterpret_cast<unsigned*>(&C);
 
   asm("mma.sync.aligned.m8n8k4.col.row.f32.f16.f16.f32 {%0,%1,%2,%3,%4,%5,%6,%7}, {%8,%9}, {%10,%11}, {%12,%13,%14,%15,%16,%17,%18,%19};\n"
       : "=r"(_C[0]),
@@ -125,12 +125,12 @@ __device__ inline void M16N16K4NT(
 }
 
 __device__ inline void M16N16K4NN(
-    Array<float, 8, 8>* C,
-    Array<__half, 4, 4>* A,
-    Array<__half, 4, 4>* B) {
-  unsigned const* _A = reinterpret_cast<unsigned const*>(A);
-  unsigned const* _B = reinterpret_cast<unsigned const*>(B);
-  unsigned* _C = reinterpret_cast<unsigned*>(C);
+    Array<float, 8, 8>& C,
+    Array<__half, 4, 4>& A,
+    Array<__half, 4, 4>& B) {
+  unsigned const* _A = reinterpret_cast<unsigned const*>(&A);
+  unsigned const* _B = reinterpret_cast<unsigned const*>(&B);
+  unsigned* _C = reinterpret_cast<unsigned*>(&C);
 
   asm("mma.sync.aligned.m8n8k4.col.col.f32.f16.f16.f32 {%0,%1,%2,%3,%4,%5,%6,%7}, {%8,%9}, {%10,%11}, {%12,%13,%14,%15,%16,%17,%18,%19};\n"
       : "=r"(_C[0]),
@@ -157,8 +157,8 @@ __device__ inline void M16N16K4NN(
 
 // Same initialization for now, will be different in interleaved
 //   macros
-__device__ inline void initM16N16K4(Array<float, 8, 8>* accumulator) {
-  accumulator->set(0);
+__device__ inline void initM16N16K4(Array<float, 8, 8>& accumulator) {
+  accumulator.set(0);
 }
 
 } // namespace Volta
@@ -167,18 +167,18 @@ __device__ inline void initM16N16K4(Array<float, 8, 8>* accumulator) {
 
 namespace Turing {
 
-__device__ inline void initM16N8K16(Array<float, 4, 4>* accumulator) {
-  accumulator->set(0);
+__device__ inline void initM16N8K16(Array<float, 4, 4>& accumulator) {
+  accumulator.set(0);
 }
 
 __device__ inline void M16N8K16TN(
-    Array<float, 4, 4>* C,
-    Array<__half, 8, 8>* A,
-    Array<__half, 4, 4>* B) {
-  unsigned const* _A = reinterpret_cast<unsigned const*>(A);
-  unsigned const* _B = reinterpret_cast<unsigned const*>(B);
-  unsigned* _C = reinterpret_cast<unsigned*>(C);
-  const unsigned* _D = reinterpret_cast<const unsigned*>(C);
+    Array<float, 4, 4>& C,
+    Array<__half, 8, 8>& A,
+    Array<__half, 4, 4>& B) {
+  unsigned const* _A = reinterpret_cast<unsigned const*>(&A);
+  unsigned const* _B = reinterpret_cast<unsigned const*>(&B);
+  unsigned* _C = reinterpret_cast<unsigned*>(&C);
+  const unsigned* _D = reinterpret_cast<const unsigned*>(&C);
 
   asm("mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 {%0,%1,%2,%3}, {%4,%5}, {%6}, {%7,%8,%9,%10};\n"
       : "=r"(_C[0]), "=r"(_C[1]), "=r"(_C[2]), "=r"(_C[3])
@@ -200,20 +200,18 @@ __device__ inline void M16N8K16TN(
         "r"(_D[3]));
 }
 
-__device__ inline void initM16N16K16(Array<float, 8, 8>* accumulator) {
-  auto* _C = reinterpret_cast<Array<float, 4, 4>*>(accumulator);
-  initM16N8K16(&_C[0]);
-  initM16N8K16(&_C[1]);
+__device__ inline void initM16N16K16(Array<float, 8, 8>& accumulator) {
+  accumulator.set(0);
 }
 
 __device__ inline void M16N16K16TN(
-    Array<float, 8, 8>* C,
-    Array<__half, 8, 8>* A,
-    Array<__half, 8, 8>* B) {
-  auto* _C = reinterpret_cast<Array<float, 4, 4>*>(C);
-  auto* _B = reinterpret_cast<Array<__half, 4, 4>*>(B);
-  M16N8K16TN(&_C[0], A, &_B[0]);
-  M16N8K16TN(&_C[1], A, &_B[1]);
+    Array<float, 8, 8>& C,
+    Array<__half, 8, 8>& A,
+    Array<__half, 8, 8>& B) {
+  auto* _C = reinterpret_cast<Array<float, 4, 4>*>(&C);
+  auto* _B = reinterpret_cast<Array<__half, 4, 4>*>(&B);
+  M16N8K16TN(_C[0], A, _B[0]);
+  M16N8K16TN(_C[1], A, _B[1]);
 }
 
 } // namespace Turing
@@ -224,18 +222,18 @@ __device__ inline void M16N16K16TN(
 
 namespace Ampere {
 
-__device__ inline void initM16N8K16(Array<float, 4, 4>* accumulator) {
-  accumulator->set(0);
+__device__ inline void initM16N8K16(Array<float, 4, 4>& accumulator) {
+  accumulator.set(0);
 }
 
 __device__ inline void M16N8K16TN(
-    Array<float, 4, 4>* C,
-    Array<__half, 8, 8>* A,
-    Array<__half, 4, 4>* B) {
-  unsigned const* _A = reinterpret_cast<unsigned const*>(A);
-  unsigned const* _B = reinterpret_cast<unsigned const*>(B);
-  unsigned* _C = reinterpret_cast<unsigned*>(C);
-  const unsigned* _D = reinterpret_cast<const unsigned*>(C);
+    Array<float, 4, 4>& C,
+    Array<__half, 8, 8>& A,
+    Array<__half, 4, 4>& B) {
+  unsigned const* _A = reinterpret_cast<unsigned const*>(&A);
+  unsigned const* _B = reinterpret_cast<unsigned const*>(&B);
+  unsigned* _C = reinterpret_cast<unsigned*>(&C);
+  const unsigned* _D = reinterpret_cast<const unsigned*>(&C);
 
   asm("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 {%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%10,%11,%12,%13};\n"
       : "=r"(_C[0]), "=r"(_C[1]), "=r"(_C[2]), "=r"(_C[3])
@@ -252,13 +250,13 @@ __device__ inline void M16N8K16TN(
 }
 
 __device__ inline void M16N8K16TN(
-    Array<float, 4, 4>* C,
-    Array<__bfloat, 8, 8>* A,
-    Array<__bfloat, 4, 4>* B) {
-  unsigned const* _A = reinterpret_cast<unsigned const*>(A);
-  unsigned const* _B = reinterpret_cast<unsigned const*>(B);
-  unsigned* _C = reinterpret_cast<unsigned*>(C);
-  const unsigned* _D = reinterpret_cast<const unsigned*>(C);
+    Array<float, 4, 4>& C,
+    Array<__bfloat, 8, 8>& A,
+    Array<__bfloat, 4, 4>& B) {
+  unsigned const* _A = reinterpret_cast<unsigned const*>(&A);
+  unsigned const* _B = reinterpret_cast<unsigned const*>(&B);
+  unsigned* _C = reinterpret_cast<unsigned*>(&C);
+  const unsigned* _D = reinterpret_cast<const unsigned*>(&C);
 
   asm("mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 {%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%10,%11,%12,%13};\n"
       : "=r"(_C[0]), "=r"(_C[1]), "=r"(_C[2]), "=r"(_C[3])
@@ -274,21 +272,19 @@ __device__ inline void M16N8K16TN(
         "r"(_D[3]));
 }
 
-__device__ inline void initM16N16K16(Array<float, 8, 8>* accumulator) {
-  auto* _C = reinterpret_cast<Array<float, 4, 4>*>(accumulator);
-  initM16N8K16(&_C[0]);
-  initM16N8K16(&_C[1]);
+__device__ inline void initM16N16K16(Array<float, 8, 8>& accumulator) {
+  accumulator.set(0);
 }
 
 template <typename T>
 __device__ inline void M16N16K16TN(
-    Array<float, 8, 8>* C,
-    Array<T, 8, 8>* A,
-    Array<T, 8, 8>* B) {
-  auto* _C = reinterpret_cast<Array<float, 4, 4>*>(C);
-  auto* _B = reinterpret_cast<Array<T, 4, 4>*>(B);
-  M16N8K16TN(&_C[0], A, &_B[0]);
-  M16N8K16TN(&_C[1], A, &_B[1]);
+    Array<float, 8, 8>& C,
+    Array<T, 8, 8>& A,
+    Array<T, 8, 8>& B) {
+  auto* _C = reinterpret_cast<Array<float, 4, 4>&>(&C);
+  auto* _B = reinterpret_cast<Array<T, 4, 4>&>(&B);
+  M16N8K16TN(_C[0], A, _B[0]);
+  M16N8K16TN(_C[1], A, _B[1]);
 }
 
 } // namespace Ampere
