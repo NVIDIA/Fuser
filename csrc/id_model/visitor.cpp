@@ -9,6 +9,7 @@
 
 namespace nvfuser {
 
+// TODO-NM: Cleanup
 void IdGraphVisitor::traverse() {
   IdGroups all_ids;
   ExprGroups all_exprs;
