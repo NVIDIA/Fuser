@@ -79,14 +79,12 @@ class Communicator {
       int tag = 0);
 
   // performs a blocking barrier in the communicator
-  void barrier(CommunicatorBackend backend = CommunicatorBackend::none) const {
-    if (backend == CommunicatorBackend::none)
-      backend = default_backend_;
-    world_.at(backend)->barrier()->wait();
+  void barrier(CommunicatorBackend backend = CommunicatorBackend::none) {
+    getWorld(backend)->barrier()->wait();
   }
 
   // returns the backend associated with a team
-  c10::intrusive_ptr<c10d::Backend> getBackendForTeam(const Team& team, 
+  c10d::Backend* getBackendForTeam(const Team& team, 
         CommunicatorBackend backend = CommunicatorBackend::none);
 
   // returns the device associated with the current process
@@ -98,6 +96,9 @@ class Communicator {
   DeviceIdxType deviceId() const {
     return rankToDiD(rank_);
   }
+  
+  c10d::Backend* getWorld(
+      CommunicatorBackend backend = CommunicatorBackend::none);
 
  private:
   // returns the rank corresponding to a device index
@@ -121,7 +122,7 @@ class Communicator {
   // stores the world's store used for the backend init
   c10::intrusive_ptr<c10d::TCPStore> store_;
   // stores the world's backend. 
-  std::unordered_map<CommunicatorBackend, c10::intrusive_ptr<c10d::Backend>> world_;
+  // std::unordered_map<CommunicatorBackend, c10::intrusive_ptr<c10d::Backend>> world_;
   // cache for the created backends. The keys are strings generated from Teams
   std::unordered_map<std::string, c10::intrusive_ptr<c10d::Backend>> backends_;
 };

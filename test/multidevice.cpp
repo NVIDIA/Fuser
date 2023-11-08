@@ -30,10 +30,8 @@ void MultiDeviceEnvironment::SetUp() {
     do_barrier_at_test_ = true;
   }
   std::cout << "Create communicator" << std::endl;
+  // Sets default backend to NCCL.
   communicator_ = std::make_unique<Communicator>(CommunicatorBackend::nccl);
-  communicator_->barrier(CommunicatorBackend::nccl);
-  // communicator_->addBackend(CommunicatorBackend::ucc);
-  // communicator_->barrier(CommunicatorBackend::ucc);
 }
 
 void MultiDeviceEnvironment::TearDown() {

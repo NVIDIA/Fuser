@@ -72,34 +72,37 @@ TEST_P(CommunicationTest, Communication_Allgather) {
   }
 }
 
-// TEST_P(CommunicationTest, Communication_Scatter) {
-//   params.root = root;
-//   params.team = all_ranks;
-//   if (communicator->deviceId() == root) {
-//     for (int64_t i = 0; i < communicator->size(); i++) {
-//       params.src_bufs.push_back(
-//           at::empty(tensor_size, tensor_options) * static_cast<int>(i));
-//     }
-//   }
-//   params.dst_bufs = {at::empty(tensor_size, tensor_options)};
-//   auto communication = Scatter(params);
+TEST_P(CommunicationTest, Communication_Scatter) {
+  // TODO: Remove when UCC-scatter fix is merged
+  if (GetParam() == CommunicatorBackend::ucc) 
+    return;
+  params.root = root;
+  params.team = all_ranks;
+  if (communicator->deviceId() == root) {
+    for (int64_t i = 0; i < communicator->size(); i++) {
+      params.src_bufs.push_back(
+          at::empty(tensor_size, tensor_options) * static_cast<int>(i));
+    }
+  }
+  params.dst_bufs = {at::empty(tensor_size, tensor_options)};
+  auto communication = Scatter(params);
 
-//   for (int j : c10::irange(number_of_repetitions)) {
-//     resetDstBuffers();
-//     for (int i : c10::irange(params.src_bufs.size())) {
-//       params.src_bufs.at(i).copy_(
-//           at::arange(tensor_size, tensor_options) + (i + 1) * j);
-//     }
+  for (int j : c10::irange(number_of_repetitions)) {
+    resetDstBuffers();
+    for (int i : c10::irange(params.src_bufs.size())) {
+      params.src_bufs.at(i).copy_(
+          at::arange(tensor_size, tensor_options) + (i + 1) * j);
+    }
 
-//     auto work = communication.post(*communicator, GetParam());
-//     work->wait();
+    auto work = communication.post(*communicator, GetParam());
+    work->wait();
 
-//     auto obtained = params.dst_bufs.at(0);
-//     auto ref = at::arange(tensor_size, tensor_options) +
-//         (communicator->deviceId() + 1) * j;
-//     validate(obtained, ref);
-//   }
-// }
+    auto obtained = params.dst_bufs.at(0);
+    auto ref = at::arange(tensor_size, tensor_options) +
+        (communicator->deviceId() + 1) * j;
+    validate(obtained, ref);
+  }
+}
 
 TEST_P(CommunicationTest, Communication_Broadcast) {
   params.root = root;
