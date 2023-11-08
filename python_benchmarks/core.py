@@ -22,36 +22,97 @@ def get_device_properties() -> Tuple[int, float]:
         raise OSError("could not load any of: " + " ".join(libnames))
 
     # Device attribute enums (taken from cuda.h)
-    # https://nvidia.github.io/cuda-python/module/cuda.html
+    # https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TYPES.html#group__CUDA__TYPES_1ge12b8a782bebe21b1ac0091bf9f4e2a3
 
+    CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK = 1
+    CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK = 8
+    CU_DEVICE_ATTRIBUTE_MAX_REGISTERS_PER_BLOCK = 12
+    CU_DEVICE_ATTRIBUTE_CLOCK_RATE = 13
     CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE = 36
     CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH = 37
     CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE = 38
+    CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR = 39
+
+    device_properties = {}
+    device = torch.cuda.current_device()
+    cuda_properties = torch.cuda.get_device_properties(device)
+
+    device_properties["gpu_name"] = cuda_properties.name
+    device_properties["gpu_compute_capability_major"] = cuda_properties.major
+    device_properties["gpu_compute_capability_minor"] = cuda_properties.minor
+    device_properties["gpu_gmem_bytes"] = cuda_properties.total_memory
+    device_properties["gpu_sm_count"] = cuda_properties.multi_processor_count
+
+    max_threads_per_block = ctypes.c_int()
+    cuda.cuDeviceGetAttribute(
+        ctypes.byref(max_threads_per_block),
+        CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK,
+        device,
+    )
+    device_properties["gpu_max_threads_per_block"] = max_threads_per_block.value
+
+    smem_per_block = ctypes.c_int()
+    cuda.cuDeviceGetAttribute(
+        ctypes.byref(smem_per_block),
+        CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK,
+        device,
+    )
+    device_properties["gpu_smem_bytes_per_block"] = smem_per_block.value
+
+    max_reg_per_block = ctypes.c_int()
+    cuda.cuDeviceGetAttribute(
+        ctypes.byref(max_reg_per_block),
+        CU_DEVICE_ATTRIBUTE_MAX_REGISTERS_PER_BLOCK,
+        device,
+    )
+    device_properties["gpu_regs_per_block"] = max_reg_per_block.value
+
+    max_clock_khz = ctypes.c_int()
+    cuda.cuDeviceGetAttribute(
+        ctypes.byref(max_clock_khz),
+        CU_DEVICE_ATTRIBUTE_CLOCK_RATE,
+        device,
+    )
+    device_properties["gpu_clock_rate_khz"] = max_clock_khz.value
 
     l2_cache_size = ctypes.c_int()
-    device = torch.cuda.current_device()
-    memory_clock_rate = ctypes.c_int()
-    memory_bus_width = ctypes.c_int()
-
     cuda.cuDeviceGetAttribute(
         ctypes.byref(l2_cache_size), CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE, device
     )
+    device_properties["gpu_l2_bytes"] = l2_cache_size.value
+
+    memory_clock_rate = ctypes.c_int()
     cuda.cuDeviceGetAttribute(
         ctypes.byref(memory_clock_rate), CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, device
     )
+    device_properties["gpu_mem_clock_khz"] = memory_clock_rate.value
+
+    memory_bus_width = ctypes.c_int()
     cuda.cuDeviceGetAttribute(
         ctypes.byref(memory_bus_width),
         CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH,
         device,
     )
+    device_properties["gpu_mem_bus_width"] = memory_bus_width.value
+
+    max_threads_per_sm = ctypes.c_int()
+    cuda.cuDeviceGetAttribute(
+        ctypes.byref(max_threads_per_sm),
+        CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR,
+        device,
+    )
+    device_properties["gpu_max_threads_per_sm"] = max_threads_per_sm.value
 
     # Compute peak bandwidth in GBps
     peak_bandwidth = (2 * memory_bus_width.value * memory_clock_rate.value) / (1e6 * 8)
+    device_properties["gpu_peak_bandwidth_gbps"] = peak_bandwidth
 
-    return l2_cache_size.value, peak_bandwidth
+    return device_properties
 
 
-L2_CACHE_SIZE, PEAK_BANDWIDTH_GBPS = get_device_properties()
+DEVICE_PROPERTIES = get_device_properties()
+L2_CACHE_SIZE = DEVICE_PROPERTIES["gpu_l2_bytes"]
+PEAK_BANDWIDTH_GBPS = DEVICE_PROPERTIES["gpu_peak_bandwidth_gbps"]
 
 
 def clear_l2_cache() -> None:

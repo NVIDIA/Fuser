@@ -510,7 +510,7 @@ bool canValidateIsInnerDim(
   if (!leaf->extent()->isConstInt()) {
     return false;
   }
-  if (leaf->extent()->evaluateInt() != inner_dim_size) {
+  if (leaf->extent()->evaluate() != inner_dim_size) {
     return false;
   }
 
@@ -569,11 +569,11 @@ void checkDimSize(
         id->extent()->isConstInt(),
         "Mma warp mapping: instruction tile has to be constant");
     NVF_CHECK(
-        id->extent()->evaluateInt() == expect[axis_index],
+        id->extent()->evaluate() == expect[axis_index],
         "Mma warp mapping: unexpected tile size at",
         axis_index,
         ":",
-        id->extent()->evaluateInt(),
+        id->extent()->evaluate(),
         "vs",
         expect[axis_index],
         "\n for tv: ",
@@ -1173,6 +1173,9 @@ void WarpMmaSwizzler::scheduleVoltaM16N16K4Fp32Output(
 
   //  m-2   m-1   m     m+1   m+2
   //[Warp, Mio2, Nio2, Niii2, (R)]
+  tv->reorder({{m_pos - 1, m_pos}});
+  //  m-2   m-1   m     m+1   m+2
+  //[Warp, Nio2, Mio2, Niii2, (R)]
   tv->axis(m_pos - 2)->parallelize(ParallelType::TIDx);
 
   if (is_reduction && tv->definition()->isA<MmaOp>()) {

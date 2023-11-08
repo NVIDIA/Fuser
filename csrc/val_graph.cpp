@@ -180,34 +180,6 @@ std::string ValGraph::toString() const {
   return ss.str();
 }
 
-std::vector<std::vector<Val*>> ValGraph::isTrivialExpr(Expr* expr) {
-  std::vector<std::vector<Val*>> mapped_ids;
-  if (auto merge = dynamic_cast<Merge*>(expr)) {
-    if (merge->inner()->extent()->isOneInt()) {
-      mapped_ids.push_back({merge->outer(), merge->out()});
-    }
-    if (merge->outer()->extent()->isOneInt()) {
-      mapped_ids.push_back({merge->inner(), merge->out()});
-    }
-  } else if (auto split = dynamic_cast<Split*>(expr)) {
-    if (split->factor()->isOneInt() && split->startOffset()->isZeroInt() &&
-        split->stopOffset()->isZeroInt()) {
-      if (split->innerSplit()) {
-        mapped_ids.push_back({split->in(), split->outer()});
-      } else {
-        mapped_ids.push_back({split->in(), split->inner()});
-      }
-    }
-  } else if (auto swizzle = dynamic_cast<Swizzle2D*>(expr)) {
-    if (swizzle->swizzleType() == Swizzle2DType::NoSwizzle ||
-        swizzle->swizzleMode() == SwizzleMode::NoSwizzle) {
-      mapped_ids.push_back({swizzle->inX(), swizzle->outX()});
-      mapped_ids.push_back({swizzle->inY(), swizzle->outY()});
-    }
-  }
-  return mapped_ids;
-}
-
 bool ValGraph::exprAttributesMatch(Expr* first, Expr* second) {
   if (first == nullptr || second == nullptr) {
     return false;
@@ -284,6 +256,18 @@ void ValGraph::initializeVal(
       nvfuser::toString(val_disjoint_set));
 }
 
+void ValGraph::initializeVal(Val* val) {
+  VectorOfUniqueEntries<Expr*> defs;
+  if (val->definition()) {
+    defs.pushBack(val->definition());
+  }
+  VectorOfUniqueEntries<Expr*> uses;
+  for (Expr* use : val->uses()) {
+    uses.pushBack(use);
+  }
+  initializeVal(val, defs, uses);
+}
+
 bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
   if (!exprAttributesMatch(first, second)) {
     return false;
@@ -322,12 +306,12 @@ bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
 
     auto extent_o_match = extent_0o->sameAs(extent_1o) ||
         (extent_0o->isConstInt() && extent_1o->isConstInt() &&
-         extent_0o->evaluateInt() == extent_1o->evaluateInt()) ||
+         extent_0o->evaluate() == extent_1o->evaluate()) ||
         disjointValSets().permissiveAreMapped(merge0->outer(), merge1->outer());
 
     auto extent_i_match = extent_0i->sameAs(extent_1i) ||
         (extent_0i->isConstInt() && extent_1i->isConstInt() &&
-         extent_0i->evaluateInt() == extent_1i->evaluateInt()) ||
+         extent_0i->evaluate() == extent_1i->evaluate()) ||
         disjointValSets().permissiveAreMapped(merge0->inner(), merge1->inner());
 
     if (!(extent_o_match || extent_i_match)) {

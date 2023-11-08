@@ -22,8 +22,7 @@ namespace nvfuser {
 
 namespace {
 
-template <typename VALTYPE>
-std::vector<VALTYPE*> getImmediateProducers(VALTYPE* val) {
+std::vector<Val*> getImmediateProducers(Val* val) {
   if (val->definition()) {
     auto expr = val->definition();
     return expr->inputs();
@@ -35,11 +34,10 @@ std::vector<VALTYPE*> getImmediateProducers(VALTYPE* val) {
 //! IR-Generic utility, collects all the producers required for the
 //!  given list of IR values and returns them along with the original
 //!  list in topological order.
-template <typename VALTYPE>
-std::vector<VALTYPE*> makeSortedEvaluationList(std::vector<VALTYPE*> input) {
+std::vector<Val*> makeSortedEvaluationList(std::vector<Val*> input) {
   // Deduplicate
-  std::vector<VALTYPE*> to_sort;
-  std::unordered_set<VALTYPE*> visited;
+  std::vector<Val*> to_sort;
+  std::unordered_set<Val*> visited;
   for (auto val : input) {
     if (!visited.count(val)) {
       to_sort.push_back(val);
@@ -47,7 +45,7 @@ std::vector<VALTYPE*> makeSortedEvaluationList(std::vector<VALTYPE*> input) {
     }
   }
 
-  std::vector<VALTYPE*> sorted;
+  std::vector<Val*> sorted;
   visited.clear();
 
   // Topological Sort
@@ -197,15 +195,7 @@ void PrecomputedValues::initializeValueList(
     // Use an expression evaluator to test if value is const
     if (sorted_value_list[i]->isConstScalar()) {
       is_constant_[i] = true;
-      if (sorted_value_list[i]->isIntegralScalar()) {
-        values_[i] = PolymorphicValue(sorted_value_list[i]->evaluateInt());
-      }
-      if (sorted_value_list[i]->isFloatingPointScalar()) {
-        values_[i] = PolymorphicValue(sorted_value_list[i]->evaluateDouble());
-      }
-      if (sorted_value_list[i]->isABool()) {
-        values_[i] = PolymorphicValue(sorted_value_list[i]->evaluateBool());
-      }
+      values_[i] = sorted_value_list[i]->evaluate();
     }
     sorted_value_list[i]->setEvaluatorIndex(i);
   }

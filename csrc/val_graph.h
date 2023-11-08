@@ -124,11 +124,6 @@ class ValGraph {
 
   std::string toString() const;
 
-  // Checks if the expression is a trivial operation where an input is simply an
-  // output of the expression. For example, a merge with size 1 domain
-  // is considered trivial. Returns the mapped Vals if found.
-  static std::vector<std::vector<Val*>> isTrivialExpr(Expr* expr);
-
   // Returns if all atributes of the exprs first and second are the same
   static bool exprAttributesMatch(Expr* first, Expr* second);
 
@@ -138,6 +133,10 @@ class ValGraph {
       Val* val,
       const VectorOfUniqueEntries<Expr*>& definitions,
       const VectorOfUniqueEntries<Expr*>& uses);
+
+  // Same as the above exept val->definition() and val->uses() are
+  // used
+  void initializeVal(Val* val);
 
   // Returns true if first and second are expressions through which
   // this ValGraph has matching inputs (if forward), or outputs (if not

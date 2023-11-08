@@ -299,7 +299,7 @@ bool UnrollPass::canOmitElseClause(kir::ForLoop* fl) {
       visit_once = true;
     }
     if (!visit_once) {
-      if (loop->stop()->isConstInt() && loop->stop()->evaluateInt() == 1) {
+      if (loop->stop()->isConstInt() && loop->stop()->evaluate() == 1) {
         visit_once = true;
       }
     }
@@ -354,9 +354,7 @@ UnrollPass::UnrollPass(const std::vector<Expr*>& exprs) {
   kir::ExprMutator::traverseAndInsert(exprs);
 }
 
-std::vector<Expr*> UnrollPass::runPass(
-    Fusion* fusion,
-    const std::vector<Expr*>& exprs) {
+std::vector<Expr*> UnrollPass::runPass(const std::vector<Expr*>& exprs) {
   FUSER_PERF_SCOPE("GpuLower::Lower::UnrollPass::runPass");
 
   UnrollPass unroll_pass(exprs);

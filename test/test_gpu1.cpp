@@ -339,6 +339,7 @@ TEST_F(NVFuserTest, FusionMove_CUDA) {
 
   // Lower the fusion IR
   GpuLower lower(&another_fusion);
+  lower.run();
 
   std::stringstream lowered_ir;
   lowered_ir << another_fusion;
@@ -482,13 +483,13 @@ TEST_F(NVFuserTest, FusionTopoSort_CUDA) {
   // e1: v4     =   add(v3, v2)
   // e2: v5     =   add(v2, v4)
   // e3: v6     =   add(v5, v5)
-  Val* v0 = IrBuilder::create<Val>(DataType::Double);
-  Val* v1 = IrBuilder::create<Val>(DataType::Double);
-  Val* v2 = IrBuilder::create<Val>(DataType::Double);
-  Val* v3 = IrBuilder::create<Val>(DataType::Double);
-  Val* v4 = IrBuilder::create<Val>(DataType::Double);
-  Val* v5 = IrBuilder::create<Val>(DataType::Double);
-  Val* v6 = IrBuilder::create<Val>(DataType::Double);
+  Val* v0 = makeContigTensor(0, DataType::Double);
+  Val* v1 = makeContigTensor(0, DataType::Double);
+  Val* v2 = makeContigTensor(0, DataType::Double);
+  Val* v3 = makeContigTensor(0, DataType::Double);
+  Val* v4 = makeContigTensor(0, DataType::Double);
+  Val* v5 = makeContigTensor(0, DataType::Double);
+  Val* v6 = makeContigTensor(0, DataType::Double);
 
   std::vector<Val*> inputs = {v0, v1};
   for (auto val : inputs) {
@@ -1656,6 +1657,7 @@ TEST_F(NVFuserTest, FusionComputeAtMultiConsumers_CUDA) {
   }
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
 
   NVF_CHECK(tv1->getComputeAtPosition() == 1);
   NVF_CHECK(
@@ -6891,6 +6893,7 @@ TEST_F(NVFuserTest, FusionSmemBlockGemm_CUDA) {
 
   // Make sure BIDx is makred as exact (see issue #1119)
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(gpulw.parallelDimensionMap().isExact(ParallelType::BIDx));
 
   constexpr int M = 154, K = 45, N = 1524;
