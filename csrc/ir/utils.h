@@ -530,9 +530,8 @@ std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion);
 //! Returns true if fusion has any reduction ops.
 bool hasAnyReductionOps(Fusion* fusion);
 
-// Returns the permutation from `in` to `out`, i.e., `out[i]==in[perm[i]]`. As a
-// precondition, `out` must be a permutation of `in` per the definition of
-// std::is_permutation.
+// Returns the permutation from `in` to `out`, i.e., `out[i]==in[perm[i]]`. If
+// `out` is not a permutation of `in`, returns nullopt.
 template <typename T>
 std::optional<std::vector<int64_t>> computePermutation(
     const std::vector<T>& in,

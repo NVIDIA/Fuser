@@ -24,6 +24,8 @@ class AliasAnalysisResult {
   // Returns itself if `alias` doesn't alias anything.
   const Val* findRoot(const Val* alias) const;
 
+  // Returns the preferred layout. If `alias` is not in `preferred_layout_`,
+  // returns the `TensorView`'s initial layout.
   Layout preferredLayout(const Val* alias) const;
 
   // Marks `source` as the immediate aliasing source of `alias`.
@@ -45,6 +47,7 @@ class AliasAnalysisResult {
   // an alias.
   std::unordered_map<const TensorView*, const TensorView*> alias_to_source_;
 
+  // Stores the preferred layout for aliasing.
   std::unordered_map<const TensorView*, Layout> preferred_layout_;
 };
 
