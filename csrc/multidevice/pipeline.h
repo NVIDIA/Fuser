@@ -63,8 +63,11 @@ class PipelineStageDescriptor final {
   using ValSet = VectorOfUniqueEntries<Val*>;
 
  public:
-  PipelineStageDescriptor() : unique_id(running_unique_id_++) {}
+  PipelineStageDescriptor(bool auto_schedule_ = true)
+      : auto_schedule(auto_schedule_), unique_id(running_unique_id_++) {}
 
+  // whether the stage should be auto-scheduled
+  const bool auto_schedule;
   // The mesh on which the stage will be executed at runtime.
   DeviceMesh mesh;
   /* Unique identifier for the stage.
@@ -130,6 +133,10 @@ class Pipeline : public Fusion {
      TODO: for now, we copy entirely the original fusion and then only change
      the inputs and outputs. Should be optimized */
   std::unique_ptr<Fusion> stageToFusion(PipelineStage*& stage) const;
+
+  // returns the number of device indices present accross all
+  // stage's device mesh in the pipeline
+  int64_t requestedNumberOfDevices() const;
 
  private:
   // utility class called at instantiation

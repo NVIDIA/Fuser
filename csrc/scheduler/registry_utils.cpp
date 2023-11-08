@@ -238,8 +238,9 @@ bool isConnectedFusionGraph(Fusion* fusion) {
   }
 
   // Map aliased outputs
-  for (auto alias_it : fusion->ioAlias()) {
-    component_sets.mapEntries(alias_it.first, alias_it.second);
+  for (const auto& [out, in_info] : fusion->ioAlias()) {
+    Val* in = in_info.first;
+    component_sets.mapEntries(out, in);
   }
 
   // Check connected-ness:

@@ -841,8 +841,8 @@ TensorView* TensorView::swizzle(
         x_id->extent()->isConstInt() && y_id->extent()->isConstInt(),
         "Only constant iterdomains supported on given swizzle type");
 
-    int in_x_size = (int)x_id->extent()->evaluateInt();
-    int in_y_size = (int)y_id->extent()->evaluateInt();
+    int in_x_size = (int)x_id->extent()->evaluate();
+    int in_y_size = (int)y_id->extent()->evaluate();
 
     // Check size constraints based on swizzle type
     if (swizzle_type == Swizzle2DType::XOR ||
@@ -928,7 +928,7 @@ TensorView* TensorView::rFactor(const std::vector<int>& axes) {
         this_mma->inA(),
         this_mma->inB(),
         this_mma->init(),
-        this_mma->options(),
+        this_mma->macro(),
         this_mma->layout());
 
     // Remaining reduction that can be scheduled cross
@@ -1379,6 +1379,9 @@ void TensorView::applyMmaSwizzle(MmaOptions options) {
   switch (options.operand) {
     case MmaOptions::Operand::Accumulator:
       mma_utils::WarpMmaSwizzler::scheduleMmaWarpOutput(this, options);
+      if (definition()->isA<MmaOp>()) {
+        setAllocationDomain(getLeafDomain(), true);
+      }
       break;
     case MmaOptions::Operand::A:
     case MmaOptions::Operand::B:
@@ -1524,7 +1527,7 @@ TensorView* TensorViewBuilder::build() const {
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, shape_.at(i));
     }
     IterDomainBuilder builder(FusionGuard::getCurFusion()->zeroVal(), extent);
-    if (extent->isConstScalar() && extent->evaluateInt() == 1) {
+    if (extent->isConstScalar() && extent->evaluate() == 1) {
       builder.iter_type(IterType::Broadcast);
     }
     if (expanded_extent != nullptr) {

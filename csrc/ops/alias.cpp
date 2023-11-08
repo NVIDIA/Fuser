@@ -82,7 +82,7 @@ TensorView* tryStaticReshape(
     if (!id_size->isConstInt()) {
       return nullptr;
     }
-    inp_sizes[i] = id_size->evaluateInt();
+    inp_sizes[i] = id_size->evaluate().as<int64_t>();
   }
 
   std::vector<int64_t> out_sizes(new_sizes.size());
@@ -91,7 +91,7 @@ TensorView* tryStaticReshape(
     if (!id_size->isConstInt()) {
       return nullptr;
     }
-    out_sizes[i] = id_size->evaluateInt();
+    out_sizes[i] = id_size->evaluate().as<int64_t>();
   }
 
   // Both inputs are outputs are static. Just use the static version
@@ -125,7 +125,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
   bool found_neg_one = false;
   for (const auto i : c10::irange(new_sizes.size())) {
     auto new_size = new_sizes.at(i);
-    if (new_size->isConstScalar() && new_size->evaluateInt() == -1) {
+    if (new_size->isConstScalar() && new_size->evaluate() == -1) {
       // It is usually safe to use the provided scalars as the output shapes.
       // However, if -1 is provided for some position, it will not correspond to
       // the actual extent in that position.
@@ -228,7 +228,7 @@ TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
         NVF_CHECK(
             !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
         NVF_CHECK(
-            id->extent()->isConstScalar() && id->extent()->evaluateInt() == 1,
+            id->extent()->isConstScalar() && id->extent()->evaluate() == 1,
             "Can not squeeze dimension(s) with size != 1.");
       }
     } else {

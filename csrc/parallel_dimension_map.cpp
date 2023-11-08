@@ -74,9 +74,10 @@ void ParallelDimensionMap::build(Fusion* fusion) {
 
   // Compute exact_types_
   for (auto [ptype, concrete_id] : all_concrete_ids) {
-    if (simplifyExpr(SimplifyingIrBuilder::eqExpr(
-                         dim_map_.at(ptype), concrete_id->extent()))
-            ->getBool() != true) {
+    auto expr_val = simplifyExpr(SimplifyingIrBuilder::eqExpr(
+                                     dim_map_.at(ptype), concrete_id->extent()))
+                        ->value();
+    if (!expr_val.hasValue() || !expr_val.as<bool>()) {
       exact_types_.erase(ptype);
     }
   }
@@ -109,11 +110,14 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
     return;
   }
 
-  // If already multiple of warp, nothing to do
-  if (simplifyExpr(SimplifyingIrBuilder::eqExpr(
+  auto expr_val =
+      simplifyExpr(SimplifyingIrBuilder::eqExpr(
                        SimplifyingIrBuilder::modExpr(tidx_dim, warp_size_val),
                        tidx_dim->container()->zeroVal()))
-          ->getBool() == true) {
+          ->value();
+
+  // If already multiple of warp, nothing to do
+  if (expr_val.is<bool>() && expr_val.as<bool>()) {
     return;
   }
 
