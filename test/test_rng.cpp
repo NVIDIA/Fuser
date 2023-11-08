@@ -28,7 +28,7 @@ enum RNGTest_t {
 };
 
 template <typename T>
-void lanuch_generate_random_numbers_kernel(
+void launch_generate_random_numbers_kernel(
     cudaStream_t stream,
     T* output,
     int64_t size,
@@ -52,7 +52,7 @@ at::Tensor generate_random_numbers(
   }
 
   if (dtype == at::kFloat) {
-    lanuch_generate_random_numbers_kernel(
+    launch_generate_random_numbers_kernel(
         at::cuda::getCurrentCUDAStream(),
         result.data_ptr<float>(),
         size,
@@ -60,7 +60,7 @@ at::Tensor generate_random_numbers(
         rng_test);
   } else {
     NVF_CHECK(dtype == at::kDouble);
-    lanuch_generate_random_numbers_kernel(
+    launch_generate_random_numbers_kernel(
         at::cuda::getCurrentCUDAStream(),
         result.data_ptr<double>(),
         size,
