@@ -14,6 +14,7 @@
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
+#include <test/rng_helper.h>
 #include <test/utils.h>
 #include <test/validator.h>
 
@@ -21,19 +22,6 @@
 #include <ATen/cuda/CUDAGraphsUtils.cuh>
 
 namespace nvfuser {
-
-enum RNGTest_t {
-  Uniform,
-  Normal,
-};
-
-template <typename T>
-void launch_generate_random_numbers_kernel(
-    cudaStream_t stream,
-    T* output,
-    int64_t size,
-    at::PhiloxCudaState philox_args,
-    RNGTest_t rng_test);
 
 at::Tensor generate_random_numbers(
     int64_t size,
