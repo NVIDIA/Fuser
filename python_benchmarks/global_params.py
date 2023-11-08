@@ -10,8 +10,8 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
     if isinstance(dims, int):
         dims = [dims]
 
-    # TODO: Add more input sizes.
     for dim in dims:
+        # TODO: Add sizes < 16 and > 1048576.
         if dim == 2:
             range_outer = [2**i for i in range(4, 9)]  # {16, 256}
             range_inner = [32 * 1024 * 2**i for i in range(6)]  # {32768, 1048576}
@@ -23,9 +23,10 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
                 [(i, j, k) for i in dim_range for j in dim_range for k in dim_range]
             )
         elif dim == 4:
+            # TODO: Add spatial_dim = 2.
             batch_range = [2**i for i in range(6, 10)]  # {64, 512}
             channel_range = [2**i for i in range(5, 8)]  # {32, 128}
-            spatial_range = [2**i for i in range(2, 7)]  # {2, 64}
+            spatial_range = [2**i for i in range(2, 7)]  # {4, 64}
 
             inputs.extend(
                 [
@@ -39,7 +40,7 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
 
             batch_range = [2**i for i in range(1, 7)]  # {2, 64}
             channel_range = [2**i for i in range(1, 6)]  # {2, 32}
-            spatial_range = [2**i for i in range(2, 9)]  # {2, 256}
+            spatial_range = [2**i for i in range(2, 9)]  # {4, 256}
 
             inputs.extend(
                 [
