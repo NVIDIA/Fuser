@@ -60,7 +60,7 @@ if torch.cuda.get_device_capability() >= (8, 0):
 @pytest.mark.parametrize("track_running_stats", [False, True])
 @pytest.mark.parametrize("training", [False, True])
 @pytest.mark.parametrize("dtype", dtypes.keys())
-def test_match(
+def test_instance_norm(
     dtype,
     training,
     track_running_stats,
@@ -148,7 +148,7 @@ def test_match(
 
 
 @unittest.skipIf(torch.cuda.device_count() < 2, "more than 1 GPU required")
-def test_multigpu():
+def test_instance_norm_multigpu():
     class Model(nn.Module):
         def __init__(self):
             super(Model, self).__init__()

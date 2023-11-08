@@ -20,6 +20,7 @@
 #include <iter_visitor.h>
 #include <kernel_ir.h>
 #include <options.h>
+#include <polymorphic_value.h>
 #include <serde/utils.h>
 #include <tensor_metadata.h>
 #include <utils.h>
@@ -210,6 +211,7 @@ void FusionExecutor::debugCompileFusionFromStr(
   }
 
   lowered_ = std::make_unique<GpuLower>(fusion);
+  lowered_->run();
   const auto kernel = lowered_->kernel();
   fusion_ = lowered_->kernel();
 
@@ -249,10 +251,6 @@ void FusionExecutor::compileFusion(
       !fusion->outputs().empty(), "No output found for this kernel, aborting.");
 
   for (auto out : fusion->outputs()) {
-    NVF_ERROR(
-        out->getValType() == ValType::TensorView,
-        "Output types from fusions that are not tensors are not supported at this point.");
-
     const auto maybe_rfactor_domain =
         out->as<TensorView>()->getMaybeRFactorDomain();
     // walking through outputs to see if output shapes are dependent on
@@ -324,6 +322,7 @@ void FusionExecutor::compileFusion(
   warp_size_ = properties->warpSize;
 
   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
+  lowered_->run();
 
   const auto kernel = lowered_->kernel();
   for (const auto& hook : post_lowering_hooks_) {
@@ -596,8 +595,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
 
   return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
 }
-
-namespace {
 
 class ForwardTraverseFromAllocToRFactor {
   at::Tensor tensor_;
@@ -909,71 +906,95 @@ at::Tensor transformOutputFromAllocationToRFactor(
   return tensor.permute(dims);
 }
 
-} // namespace
+int64_t IndexOfFusionInput(const Val* in, const Fusion* fusion) {
+  auto i = std::find(fusion->inputs().begin(), fusion->inputs().end(), in);
+  NVF_ERROR(i != fusion->inputs().end());
+  return std::distance(fusion->inputs().begin(), i);
+}
 
-// Allocate output tensors for a given kernel. Outputs may alias inputs, in
-// that case output tensors are shallow copies of the aliased inputs
-std::vector<at::Tensor> allocOutputs(
-    const kir::Kernel* kernel,
-    const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
-    const std::vector<std::pair<int, int>>& output_to_input_aliases,
-    const KernelArgumentHolder& inputs,
+// Returns the at::Tensor allocated for `out_info`.
+//
+// TODO: clean up the API so we explicitly pass in the input alias. This way, we
+// can remove `args` and `kernel`, which unnecessary expose information of
+// unrelated arguments.
+at::Tensor allocateOutput(
+    const FusionExecutor::GlobalBufferInfo& out_info,
+    const KernelArgumentHolder& args,
     const c10::Device& device,
+    const kir::Kernel* kernel,
     ExpressionEvaluator& ee) {
-  FUSER_PERF_SCOPE("allocOutput");
+  TensorView* out_tv = out_info.tv;
 
-  std::vector<at::Tensor> outputs;
+  auto alias_it = kernel->ioAlias().find(out_tv);
+  // Note: aliased output is not returned as output. But we still need it
+  // for kernel execution, so would need to push them to args
+  if (alias_it != kernel->ioAlias().end()) {
+    const auto aliased_in_index =
+        IndexOfFusionInput(alias_it->second.first, kernel);
+    const PolymorphicValue& in_val = *args[aliased_in_index];
+    NVF_ERROR(
+        in_val.is<at::Tensor>(),
+        "Alias io only supports tensor. Found ",
+        PolymorphicValue_functions::toString(in_val));
+    at::Tensor in_tensor = in_val.as<at::Tensor>();
 
-  for (const auto output_idx : c10::irange(output_info.size())) {
-    const auto& buf_info = output_info.at(output_idx);
+    switch (alias_it->second.second.type) {
+      case AliasType::InplaceUpdate:
+        // Unlike for `AliasType::PointerCast`, don't use
+        // ExpressionEvaluator to compute the output tensor. This is because
+        // the output tensor may hold different data from the input, e.g., an
+        // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
+        // would trigger non-trivial host computation.
+        return in_tensor;
 
-    auto alias_it = std::find_if(
-        output_to_input_aliases.begin(),
-        output_to_input_aliases.end(),
-        [&](const auto output_to_input) {
-          return output_to_input.first == (int)output_idx;
-        });
-
-    // Note: aliased output is not returned as output. But we still need it
-    // for kernel execution, so would need to push them to args
-    if (alias_it != output_to_input_aliases.end()) {
-      auto aliased_input_index = alias_it->second;
-      NVF_ERROR(
-          inputs[aliased_input_index]->is<at::Tensor>(),
-          "alias io only supports tensor");
-      outputs.emplace_back(*inputs[aliased_input_index]);
-    } else if (kernel->outputs().at(output_idx)->isFusionInput()) {
-      // pushing empty tensor for trivial forwarding. Since we handle this in
-      // integration, see step 1 - note [trivial forwarding]
-      auto alloc_dom =
-          TensorDomain::noReductions(kernel->outputs()
-                                         .at(output_idx)
-                                         ->as<TensorView>()
-                                         ->getMaybeAllocationDomain());
-      const auto tensor_options =
-          at::TensorOptions().dtype(at::kFloat).device(device);
-      outputs.emplace_back(
-          at::empty(std::vector<int64_t>(alloc_dom.size(), 0), tensor_options));
-    } else {
-      auto alloc_tensor = at::native::empty_strided_cuda(
-          buf_info.sizes,
-          buf_info.strides,
-          buf_info.type,
-          c10::nullopt,
-          device,
-          c10::nullopt);
-      if (shouldFillAllocationWithNan()) {
-        fillTensorWithNan(alloc_tensor);
-      }
-      if (buf_info.tv->hasAllocation()) {
-        outputs.emplace_back(transformOutputFromAllocationToRFactor(
-            alloc_tensor, buf_info.tv, ee));
-      } else {
-        outputs.emplace_back(std::move(alloc_tensor));
-      }
+      case AliasType::PointerCast:
+        auto* in_tv = kernel->inputs()[aliased_in_index]->as<TensorView>();
+        ee.bind(in_tv, in_tensor);
+        at::Tensor out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
+        NVF_ERROR(
+            in_tensor.data_ptr() == out_tensor.data_ptr(),
+            "ExpressionEvaluator failed to evaluate ",
+            out_tv->toString(),
+            " as an alias of ",
+            in_tv->toString());
+        inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
+        return out_tensor;
     }
   }
 
+  auto alloc_tensor = at::native::empty_strided_cuda(
+      out_info.sizes,
+      out_info.strides,
+      out_info.type,
+      c10::nullopt,
+      device,
+      c10::nullopt);
+  if (shouldFillAllocationWithNan()) {
+    fillTensorWithNan(alloc_tensor);
+  }
+
+  if (!out_tv->hasAllocation()) {
+    return alloc_tensor;
+  }
+  return transformOutputFromAllocationToRFactor(alloc_tensor, out_tv, ee);
+}
+
+// Allocate output tensors for a given kernel. Outputs may alias inputs, in
+// that case output tensors are shallow copies of the aliased inputs
+std::vector<at::Tensor> allocateOutputs(
+    const kir::Kernel* kernel,
+    const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
+    const KernelArgumentHolder& inputs,
+    const c10::Device& device,
+    ExpressionEvaluator& ee) {
+  FUSER_PERF_SCOPE("allocateOutputs");
+
+  std::vector<at::Tensor> outputs;
+  outputs.reserve(output_info.size());
+  for (const auto output_idx : c10::irange(output_info.size())) {
+    outputs.push_back(
+        allocateOutput(output_info[output_idx], inputs, device, kernel, ee));
+  }
   return outputs;
 }
 
@@ -1223,11 +1244,23 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
   return global_buffers;
 }
 
+std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
+    const at::ArrayRef<c10::IValue>& inputs) {
+  auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
+  auto expr_eval =
+      executor_utils::bindInputs(kernel_inputs, lowered_->kernel());
+
+  auto output_info =
+      getOutputBufferInfo(kernel_inputs, expr_eval, kernel()->indexType());
+
+  return allocateOutputs(
+      kernel(), output_info, kernel_inputs, options_.device, expr_eval);
+}
+
 std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     getOutputBufferInfo(
         const KernelArgumentHolder& args,
         ExpressionEvaluator& expr_eval,
-        const std::vector<std::pair<int, int>>& output_to_input_aliases,
         DataType index_dtype) {
   FUSER_PERF_SCOPE("FusionExecutor::getOutbufferInfo");
   const auto kernel = lowered_->kernel();
@@ -1236,37 +1269,19 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
       args.size() == kernel->inputs().size(),
       "kernel arguments length does not match runtime arguments.");
   for (const auto out_i : c10::irange(kernel->outputs().size())) {
-    GlobalBufferInfo info;
     auto out_val = kernel->outputs()[out_i];
+    auto output = out_val->as<TensorView>();
+
+    GlobalBufferInfo info;
     info.tv = dynamic_cast<TensorView*>(out_val);
-    if (out_val->isFusionInput()) {
-      // pushing empty tensor for trivial forwarding. Since we handle this in
-      // integration, see step 1 - note [trivial forwarding]
-      info.type = at::kFloat;
-      info.sizes = {0};
-    } else {
-      NVF_ERROR(
-          info.tv != nullptr, "Cannot allocate outputs that are not tensors.");
-      auto output = out_val->as<TensorView>();
-      auto alias_it = std::find_if(
-          output_to_input_aliases.begin(),
-          output_to_input_aliases.end(),
-          [&](const auto output_to_input) {
-            return output_to_input.first == (int)out_i;
-          });
-      if (alias_it != output_to_input_aliases.end()) {
-        // Aliased to an input, no need to gather allocation
-        // info. Leave it as is
-      } else {
-        std::tie(info.sizes, info.strides) =
-            inferShapeOfOutput(output, expr_eval);
-        auto dtype =
-            (output->dtype() == DataType::Index ? index_dtype
-                                                : output->dtype());
-        info.type = data_type_to_aten(dtype);
-        info.zero_init = false;
-      }
-    }
+    NVF_ERROR(
+        info.tv != nullptr, "Cannot allocate outputs that are not tensors.");
+
+    std::tie(info.sizes, info.strides) = inferShapeOfOutput(output, expr_eval);
+    auto dtype =
+        (output->dtype() == DataType::Index ? index_dtype : output->dtype());
+    info.type = data_type_to_aten(dtype);
+
     outputs.emplace_back(info);
   }
   return outputs;
@@ -1296,30 +1311,16 @@ KernelArgumentHolder FusionExecutor::inferOutputSizes(
   KernelArgumentHolder ret;
   ret.setDeviceIndex(args.getDeviceIndex());
 
-  for (const auto out_i : c10::irange(fusion->outputs().size())) {
-    // If the output is just trivially the input, just "copy" it over.
-    // See note [trivial forwarding]
-    if (fusion->outputs()[out_i]->isFusionInput()) {
-      auto input_it = std::find(
-          fusion->inputs().begin(),
-          fusion->inputs().end(),
-          fusion->outputs()[out_i]);
-      NVF_ERROR(
-          input_it != fusion->inputs().end(),
-          "Issue with an input showing up as output but could not find input.");
-      auto inp_i = std::distance(fusion->inputs().begin(), input_it);
-      ret.push(*args[inp_i]);
-    } else {
-      NVF_ERROR(
-          fusion->outputs()[out_i]->isA<TensorView>(),
-          "Cannot allocate outputs that are not tensors.");
-      auto output_tv = fusion->outputs()[out_i]->as<TensorView>();
-      const auto& [sizes, strides] = inferShapeOfOutput(output_tv, expr_eval);
-      const auto dtype = (output_tv->dtype() == DataType::Index)
-          ? data_type_to_aten(arg_index_type)
-          : data_type_to_aten(output_tv->dtype());
-      ret.pushTensorProxy(sizes, strides, dtype);
-    }
+  for (Val* output : fusion->outputs()) {
+    NVF_ERROR(
+        output->isA<TensorView>(),
+        "Cannot allocate outputs that are not tensors.");
+    auto output_tv = output->as<TensorView>();
+    const auto& [sizes, strides] = inferShapeOfOutput(output_tv, expr_eval);
+    const auto dtype = (output_tv->dtype() == DataType::Index)
+        ? data_type_to_aten(arg_index_type)
+        : data_type_to_aten(output_tv->dtype());
+    ret.pushTensorProxy(sizes, strides, dtype);
   }
   return ret;
 }
@@ -1460,21 +1461,10 @@ void FusionExecutor::initializeExecutorEntry(
   executor_utils::validateVectorizedTensors(
       kernel(), args, outputs, compileTimeDataCache(), expr_eval);
 
-  auto input_alias_indices_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::InputAliasIndices>(
-          compileTimeDataCache(), [&]() {
-            return std::make_unique<std::vector<std::pair<int, int>>>(
-                fusion_->getOutputToInputAliasIndices());
-          });
-
-  const auto& output_to_input_aliases = input_alias_indices_entry.get();
-
   std::vector<GlobalBufferInfo> output_info;
 
   if (outputs.empty()) {
-    output_info = getOutputBufferInfo(
-        args, expr_eval, output_to_input_aliases, index_type);
+    output_info = getOutputBufferInfo(args, expr_eval, index_type);
   } else {
     // Need to save the information necessary for allocations as
     // future uses of this ExecutorEntry may not be provided with
@@ -1488,7 +1478,6 @@ void FusionExecutor::initializeExecutorEntry(
 
   // All information is gathered. Save it to ExecutorEntry
   executor_entry.launch_params = launch_params;
-  executor_entry.output_to_input_aliases = output_to_input_aliases;
   executor_entry.outputs = output_info;
   executor_entry.intermediates = intermediates;
   executor_entry.init = true;
@@ -1650,15 +1639,22 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     expr_eval.bind(inputs[i], *args[i]);
   }
 
+  const bool measure_kernel_time = measure_kernel_time_ ||
+      isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
+      isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose);
+
+  // It's important to determine the input bytes processed prior
+  // to pushing the outputs into the arg struct.  Otherwise,
+  // the outputs will also be included with inputs when determining
+  // the input bytes accessed.
+  if (measure_kernel_time) {
+    inputBytesProcessed(args);
+  }
+
   // only allocate outputs when not given
   if (outputs.empty()) {
-    outputs = allocOutputs(
-        kernel(),
-        executor_entry->outputs,
-        executor_entry->output_to_input_aliases,
-        args,
-        options_.device,
-        expr_eval);
+    outputs = allocateOutputs(
+        kernel(), executor_entry->outputs, args, options_.device, expr_eval);
   } else {
     // TODO: Use validateKernelOutputs
     NVF_ERROR(
@@ -1741,10 +1737,6 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     debug() << "Index type: " << kernel()->indexType() << std::endl;
   }
 
-  const bool measure_kernel_time = measure_kernel_time_ ||
-      isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth) ||
-      isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose);
-
   executor_utils::CudaKernelTimer timer(stream);
 
   if (measure_kernel_time) {
@@ -1819,24 +1811,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     if (measure_kernel_time) {
       kernel_time_ms_ = timer.elapsed();
 
-      bytes_processed_per_input_.resize(num_inputs, 0);
-      // Figure how many bytes are inputs, outputs, and temporary buffers
-      for (auto i : c10::irange(num_inputs)) {
-        if (args[i]->is<at::Tensor>()) {
-          auto t = args[i]->as<at::Tensor>();
-          auto num_bytes = t.numel() *
-              (int64_t)dataTypeSize(aten_to_data_type(t.scalar_type()));
-          bytes_processed_per_input_.at(i) = num_bytes;
-        }
-      }
-      bytes_processed_per_output_.resize(outputs.size(), 0);
-      for (auto i : c10::irange(outputs.size())) {
-        const auto& output = outputs.at(i);
-        // NOTE: this assumes that all output elements correspond to a single
-        // store
-        bytes_processed_per_output_.at(i) = output.numel() *
-            (int64_t)dataTypeSize(aten_to_data_type(output.scalar_type()));
-      }
+      outputBytesProcessed(outputs);
 
       if (isDebugDumpEnabled(DebugDumpOption::EffectiveBandwidth)) {
         double gb_per_s =
@@ -1853,6 +1828,50 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   }
 
   return outputs;
+}
+
+int64_t FusionExecutor::inputBytesProcessed(const KernelArgumentHolder& args) {
+  int64_t total_bytes = 0;
+  if (!bytes_processed_per_input_.has_value()) {
+    int64_t num_bytes = 0;
+    bytes_processed_per_input_ = std::vector<int64_t>(args.size(), 0);
+    // Figure how many bytes are inputs, outputs, and temporary buffers
+    for (auto i : c10::irange(args.size())) {
+      if (args[i]->is<at::Tensor>()) {
+        auto t = args[i]->as<at::Tensor>();
+        num_bytes = static_cast<int64_t>(t.storage().nbytes());
+        bytes_processed_per_input_.value().at(i) = num_bytes;
+        total_bytes += num_bytes;
+      }
+    }
+  } else {
+    for (auto bp : bytes_processed_per_input_.value()) {
+      total_bytes += bp;
+    }
+  }
+  return total_bytes;
+}
+
+int64_t FusionExecutor::outputBytesProcessed(
+    const std::vector<at::Tensor>& outputs) {
+  int64_t total_bytes = 0;
+  if (!bytes_processed_per_output_.has_value()) {
+    int64_t num_bytes = 0;
+    bytes_processed_per_output_ = std::vector<int64_t>(outputs.size(), 0);
+    for (auto i : c10::irange(outputs.size())) {
+      const auto& output = outputs.at(i);
+      // NOTE: this assumes that all output elements correspond to a single
+      // store
+      num_bytes = static_cast<int64_t>(output.storage().nbytes());
+      bytes_processed_per_output_.value().at(i) = num_bytes;
+      total_bytes += num_bytes;
+    }
+  } else {
+    for (auto bp : bytes_processed_per_output_.value()) {
+      total_bytes += bp;
+    }
+  }
+  return total_bytes;
 }
 
 void FusionExecutor::compileRtc(
@@ -2018,17 +2037,6 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
     const ExecutorEntry& data) const {
   // See table definition for ExecutorEntry in serde/fusion_cache.fbs
 
-  // In the flatbuffer schema, we store the vector of pairs as a pair of
-  // vectors.
-  std::vector<int> output_aliases_fb;
-  std::vector<int> input_aliases_fb;
-  output_aliases_fb.reserve(data.output_to_input_aliases.size());
-  input_aliases_fb.reserve(data.output_to_input_aliases.size());
-  for (auto [out, in] : data.output_to_input_aliases) {
-    output_aliases_fb.push_back(out);
-    input_aliases_fb.push_back(in);
-  }
-
   // Serialize GlobalBufferInfo for outputs.
   // We map the output TensorView pointer to its corresponding position in
   // fusion outputs assuming that the output ordering is consistent.
@@ -2072,8 +2080,6 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
       builder,
       data.init,
       data.launch_params.serialize(builder),
-      &output_aliases_fb,
-      &input_aliases_fb,
       &outputs_fb,
       &intermediates_fb);
 }
@@ -2119,6 +2125,7 @@ void FusionExecutor::deserialize(
 
   // Get lowered fusion
   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
+  lowered_->run();
 
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
   fusion_ = lowered_->kernel()->as<Fusion>();
@@ -2148,11 +2155,6 @@ FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
   entry.init = buffer->init();
 
   entry.launch_params.deserialize(buffer->launch_params());
-
-  for (auto idx : c10::irange(buffer->output_aliases()->size())) {
-    entry.output_to_input_aliases.emplace_back(
-        buffer->output_aliases()->Get(idx), buffer->input_aliases()->Get(idx));
-  }
 
   for (auto output_buffer : *buffer->outputs()) {
     entry.outputs.push_back(deserialize(output_buffer));

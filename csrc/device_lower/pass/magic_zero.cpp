@@ -61,6 +61,9 @@ class MagicZeroInserter : public kir::ExprMutator {
 
 std::vector<Expr*> insertMagicZero(const std::vector<Expr*>& exprs) {
   FUSER_PERF_SCOPE("GpuLower::Lower::insertMagicZero");
+  if (!GpuLower::current()->isNvFuserZeroEnabled()) {
+    return exprs;
+  }
   // Check if magic zero was even used, if not we don't have to define it or
   // update it.
   const auto gpu_lower = GpuLower::current();

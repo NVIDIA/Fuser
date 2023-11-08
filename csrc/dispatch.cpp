@@ -240,6 +240,10 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::Allocate>());
     return;
   }
+  if (expr->isStrictlyA<kir::Asm>()) {
+    ptr(handler)->handle(expr->as<kir::Asm>());
+    return;
+  }
   if (expr->isStrictlyA<kir::BlockSync>()) {
     ptr(handler)->handle(expr->as<kir::BlockSync>());
     return;
@@ -550,6 +554,10 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<kir::Allocate>()) {
     ptr(handler)->handle(expr->as<kir::Allocate>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::Asm>()) {
+    ptr(handler)->handle(expr->as<kir::Asm>());
     return;
   }
   if (expr->isStrictlyA<kir::BlockSync>()) {
@@ -964,6 +972,9 @@ void OptOutConstDispatch::handle(const ViewOp* stmt) {
 void OptOutConstDispatch::handle(const kir::Allocate* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const kir::Asm* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const kir::BlockSync* stmt) {
   unhandled(stmt);
 }
@@ -1192,6 +1203,9 @@ void OptOutDispatch::handle(ViewOp* stmt) {
 }
 
 void OptOutDispatch::handle(kir::Allocate* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::Asm* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::BlockSync* stmt) {
