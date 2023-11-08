@@ -62,9 +62,6 @@ class Communicator {
   auto local_size() const {
     return local_size_;
   }
-
-  // adds another backend to the communicator
-  void addBackend(CommunicatorBackend backend);
   
   // sets the communicator's default backend
   void setDefaultBackend(CommunicatorBackend backend) {default_backend_ = backend;}
