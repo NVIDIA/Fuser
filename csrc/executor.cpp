@@ -211,6 +211,7 @@ void FusionExecutor::debugCompileFusionFromStr(
   }
 
   lowered_ = std::make_unique<GpuLower>(fusion);
+  lowered_->run();
   const auto kernel = lowered_->kernel();
   fusion_ = lowered_->kernel();
 
@@ -321,6 +322,7 @@ void FusionExecutor::compileFusion(
   warp_size_ = properties->warpSize;
 
   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
+  lowered_->run();
 
   const auto kernel = lowered_->kernel();
   for (const auto& hook : post_lowering_hooks_) {
@@ -2123,6 +2125,7 @@ void FusionExecutor::deserialize(
 
   // Get lowered fusion
   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
+  lowered_->run();
 
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
   fusion_ = lowered_->kernel()->as<Fusion>();

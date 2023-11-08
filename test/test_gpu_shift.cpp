@@ -260,7 +260,7 @@ TEST_F(NVFuserTest, FusionShift2_CUDA) {
   // t4 allocation: (t3.size[0] + 2) * (t3.size[1] + 1)
   GpuLower gpulw(&fusion);
 
-  for (const auto expr : gpulw.kernel()->unordered_exprs()) {
+  for (const auto expr : gpulw.run()->unordered_exprs()) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1 || tensor_name == 3 || tensor_name == 4) {
@@ -393,7 +393,7 @@ TEST_F(NVFuserTest, FusionShiftSplit1_CUDA) {
 
   // t1 allocation: 7
   GpuLower gpulw(&fusion);
-  for (const auto expr : gpulw.kernel()->unordered_exprs()) {
+  for (const auto expr : gpulw.run()->unordered_exprs()) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1) {
@@ -452,7 +452,7 @@ TEST_F(NVFuserTest, FusionShiftSplit2_CUDA) {
   // t1 and t2 allocation: 6
   // t4 allocation: 4
   GpuLower gpulw(&fusion);
-  for (const auto expr : gpulw.kernel()->unordered_exprs()) {
+  for (const auto expr : gpulw.run()->unordered_exprs()) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1 || tensor_name == 2) {
@@ -518,7 +518,7 @@ TEST_F(NVFuserTest, FusionShiftDoubleSplit_CUDA) {
 
   // t1 and t2 allocation: (split_factor1 + 1) = 9
   GpuLower gpulw(&fusion);
-  for (const auto expr : gpulw.kernel()->unordered_exprs()) {
+  for (const auto expr : gpulw.run()->unordered_exprs()) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1 || tensor_name == 2) {
@@ -589,7 +589,7 @@ TEST_F(NVFuserTest, FusionShift3ptStencil_CUDA) {
 
   // cache allocation: (split_factor + 2)
   GpuLower gpulw(&fusion);
-  for (const auto expr : gpulw.kernel()->unordered_exprs()) {
+  for (const auto expr : gpulw.run()->unordered_exprs()) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == cache->name()) {
@@ -660,7 +660,7 @@ TEST_F(NVFuserTest, FusionShift5ptStencil_CUDA) {
 
   // cache allocation: (split_factor + 2) * (split_factor + 2)
   GpuLower gpulw(&fusion);
-  for (const auto expr : gpulw.kernel()->unordered_exprs()) {
+  for (const auto expr : gpulw.run()->unordered_exprs()) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == cache->name()) {
@@ -748,7 +748,7 @@ TEST_F(NVFuserTest, FusionShift9ptStencil_CUDA) {
 
   // cache allocation: (split_factor + 2) * (split_factor + 2)
   GpuLower gpulw(&fusion);
-  for (const auto expr : gpulw.kernel()->unordered_exprs()) {
+  for (const auto expr : gpulw.run()->unordered_exprs()) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == cache->name()) {
@@ -808,7 +808,7 @@ TEST_F(NVFuserTest, FusionShiftSmemBlocking_CUDA) {
 
   // tv1 allocation: (split_factor + 1)
   GpuLower gpulw(&fusion);
-  for (const auto expr : gpulw.kernel()->unordered_exprs()) {
+  for (const auto expr : gpulw.run()->unordered_exprs()) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == tv1->name()) {
@@ -988,7 +988,7 @@ TEST_F(NVFuserTest, FusionShiftMerge1_CUDA) {
 
   // t1 allocation: (split_factor + 1) * (split_factor + 1)
   GpuLower gpulw(&fusion);
-  for (const auto expr : gpulw.kernel()->unordered_exprs()) {
+  for (const auto expr : gpulw.run()->unordered_exprs()) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1) {
@@ -1047,7 +1047,7 @@ TEST_F(NVFuserTest, FusionShiftMerge2_CUDA) {
 
   // t1 allocation: (split_factor + 2) * (split_factor + 2)
   GpuLower gpulw(&fusion);
-  for (const auto expr : gpulw.kernel()->unordered_exprs()) {
+  for (const auto expr : gpulw.run()->unordered_exprs()) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1) {
@@ -1107,7 +1107,7 @@ TEST_F(NVFuserTest, FusionShiftGlobal_CUDA) {
 
   // t1 allocation: (t1.size[0] + 1) * (t1.size[1] + 1)
   GpuLower gpulw(&fusion);
-  for (const auto expr : gpulw.kernel()->unordered_exprs()) {
+  for (const auto expr : gpulw.run()->unordered_exprs()) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1) {
@@ -1170,7 +1170,7 @@ TEST_F(NVFuserTest, FusionShiftDoubleSplitMerge1_CUDA) {
 
   // t1 and t2 allocation: (split_factor1 + 1)
   GpuLower gpulw(&fusion);
-  for (const auto expr : gpulw.kernel()->unordered_exprs()) {
+  for (const auto expr : gpulw.run()->unordered_exprs()) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1 || tensor_name == 2) {
@@ -1242,7 +1242,7 @@ TEST_F(NVFuserTest, FusionShiftDoubleSplitMerge2_CUDA) {
 
   // t1 and t2 allocation: (split_factor1 + 1) * (split_factor1 + 1)
   GpuLower gpulw(&fusion);
-  for (const auto expr : gpulw.kernel()->unordered_exprs()) {
+  for (const auto expr : gpulw.run()->unordered_exprs()) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1 || tensor_name == 2) {
@@ -1327,7 +1327,7 @@ TEST_F(NVFuserTest, FusionShift5ptStencilParallel1DThreadBlock_CUDA) {
 
   // cache allocation: (split_factor1 + 2) * (split_factor2 + 2)
   GpuLower gpulw(&fusion);
-  for (const auto expr : gpulw.kernel()->unordered_exprs()) {
+  for (const auto expr : gpulw.run()->unordered_exprs()) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == tv0_cache->name()) {
@@ -1445,7 +1445,7 @@ TEST_F(NVFuserTest, FusionShiftChain3_CUDA) {
   // tv1: (split_factor + 2)
   // tv2: (split_factor + 1)
   GpuLower gpulw(&fusion);
-  for (const auto expr : gpulw.kernel()->unordered_exprs()) {
+  for (const auto expr : gpulw.run()->unordered_exprs()) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1 || tensor_name == 2) {
@@ -1512,7 +1512,7 @@ TEST_F(NVFuserTest, FusionShiftChain4_CUDA) {
   // tv2: (split_factor + 7) * (split_factor + 7)
   // tv3: (split_factor + 4) * (split_factor + 4)
   GpuLower gpulw(&fusion);
-  for (const auto expr : gpulw.kernel()->unordered_exprs()) {
+  for (const auto expr : gpulw.run()->unordered_exprs()) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == 1 || tensor_name == 2) {
@@ -1632,7 +1632,7 @@ TEST_F(NVFuserTest, FusionShift5ptStencilChain_CUDA) {
   // tv0_cache: (split_factor + 4) * (split_factor + 4)
   // tv_stencil1: (split_factor + 2) * (split_factor + 2)
   GpuLower gpulw(&fusion);
-  for (const auto expr : gpulw.kernel()->unordered_exprs()) {
+  for (const auto expr : gpulw.run()->unordered_exprs()) {
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       auto tensor_name = alloc->buffer()->name();
       if (tensor_name == tv0_cache->name() ||
@@ -4973,7 +4973,7 @@ TEST_F(NVFuserTest, FusionGatherStridedChain_CUDA) {
 
   // This should throw an error at HaloInfo::build.
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)
-  ASSERT_ANY_THROW(GpuLower gpulw(&fusion));
+  ASSERT_ANY_THROW(GpuLower(&fusion).run());
 }
 
 TEST_F(NVFuserTest, FusionMaxPoolingStrided_CUDA) {
