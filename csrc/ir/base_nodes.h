@@ -515,6 +515,8 @@ class Expr : public Statement {
   // Note that unlike IrCloner, this function only do a shallow copy
   Expr* shallowCopy() const;
 
+  virtual bool sameOp(const Expr* other) const;
+
   bool sameAs(const Statement* other) const override;
 
   virtual std::vector<PolymorphicValue> evaluate(
