@@ -281,8 +281,8 @@ __device__ inline void M16N16K16TN(
     Array<float, 8, 8>& C,
     Array<T, 8, 8>& A,
     Array<T, 8, 8>& B) {
-  auto* _C = reinterpret_cast<Array<float, 4, 4>&>(&C);
-  auto* _B = reinterpret_cast<Array<T, 4, 4>&>(&B);
+  auto* _C = reinterpret_cast<Array<float, 4, 4>*>(&C);
+  auto* _B = reinterpret_cast<Array<T, 4, 4>*>(&B);
   M16N8K16TN(_C[0], A, _B[0]);
   M16N8K16TN(_C[1], A, _B[1]);
 }
