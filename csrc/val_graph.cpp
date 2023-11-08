@@ -256,6 +256,18 @@ void ValGraph::initializeVal(
       nvfuser::toString(val_disjoint_set));
 }
 
+void ValGraph::initializeVal(Val* val) {
+  VectorOfUniqueEntries<Expr*> defs;
+  if (val->definition()) {
+    defs.pushBack(val->definition());
+  }
+  VectorOfUniqueEntries<Expr*> uses;
+  for (Expr* use : val->uses()) {
+    uses.pushBack(use);
+  }
+  initializeVal(val, defs, uses);
+}
+
 bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
   if (!exprAttributesMatch(first, second)) {
     return false;

@@ -134,6 +134,10 @@ class ValGraph {
       const VectorOfUniqueEntries<Expr*>& definitions,
       const VectorOfUniqueEntries<Expr*>& uses);
 
+  // Same as the above exept val->definition() and val->uses() are
+  // used
+  void initializeVal(Val* val);
+
   // Returns true if first and second are expressions through which
   // this ValGraph has matching inputs (if forward), or outputs (if not
   // forward). Returning true means the expressions are "the same", in terms
