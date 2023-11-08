@@ -222,6 +222,10 @@ class PrecomputedValues {
     return symbols_;
   }
 
+  std::vector<Val*>& graph() {
+    return graph_;
+  }
+
   //! Initialize the value runtime that will
   //!  infer instructions from the workspace.
   void initializeIntegerMachine() {

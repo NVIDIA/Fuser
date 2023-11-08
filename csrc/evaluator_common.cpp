@@ -119,8 +119,29 @@ ValGraph collectRuntimeUsedValues(Fusion* fusion) {
   auto sorted_vals = makeSortedEvaluationList(vals);
 
   for (auto val : sorted_vals) {
-    graph.insert(val);
+    graph.initializeVal(val);
   }
+
+  int64_t num_vals = (int64_t)sorted_vals.size();
+
+  for (auto i : c10::irange(num_vals)) {
+    auto def1 = sorted_vals[i]->definition();
+    if (def1 == nullptr) {
+      continue;
+    }
+    for (auto j : c10::irange(i + 1, num_vals)) {
+      auto def2 = sorted_vals[j]->definition();
+      if (def2 == nullptr) {
+        continue;
+      }
+      if (def->inputs().size() != def2->inputs().size()) {
+        continue;
+      }
+      graph.maybeMapThroughExprs(def1, def2, true);
+    }
+  }
+
+  return graph;
 }
 
 } // namespace
@@ -289,19 +310,19 @@ std::optional<ParallelType> getMaybeThreadSizeParallelType(
 } // namespace
 
 void PrecomputedValues::initializeNamedScalars() {
-  for (auto val : symbols()) {
-    if (auto named_scalar = dynamic_cast<NamedScalar*>(val)) {
-      auto maybe_parallel_type = getMaybeThreadSizeParallelType(named_scalar);
-      if (maybe_parallel_type.has_value()) {
-        auto& index_list =
-            thread_dim_value_indices_[maybe_parallel_type.value()];
-        if (!index_list) {
-          index_list = std::make_unique<std::vector<int>>();
-        }
-        index_list->push_back(val->evaluatorIndex());
-      }
-    }
-  }
+  // for (auto val : graph()) {
+  //   if (auto named_scalar = dynamic_cast<NamedScalar*>(val)) {
+  //     auto maybe_parallel_type = getMaybeThreadSizeParallelType(named_scalar);
+  //     if (maybe_parallel_type.has_value()) {
+  //       auto& index_list =
+  //           thread_dim_value_indices_[maybe_parallel_type.value()];
+  //       if (!index_list) {
+  //         index_list = std::make_unique<std::vector<int>>();
+  //       }
+  //       index_list->push_back(val->evaluatorIndex());
+  //     }
+  //   }
+  // }
 }
 
 void PrecomputedValues::validate() {
