@@ -82,27 +82,6 @@ bool transformsExpandedBroadcastIterDomain(TensorView* in, TensorView* out) {
   return false;
 }
 
-// FIXME: merge.
-template <typename T>
-std::optional<std::vector<int64_t>> computePermutation(
-    const std::vector<T>& in,
-    const std::vector<T>& out) {
-  if (!std::is_permutation(in.begin(), in.end(), out.begin())) {
-    return std::nullopt;
-  }
-
-  std::vector<int64_t> permutation;
-  permutation.reserve(out.size());
-  // O(n^2) is totally fine for the current use case of computing the
-  // root-to-rfactor permutation. If needed, this can be improved by requiring T
-  // to be hashable and/or comparable.
-  for (const T& out_element : out) {
-    permutation.push_back(std::distance(
-        in.begin(), std::find(in.begin(), in.end(), out_element)));
-  }
-  return permutation;
-}
-
 // Finds aliases between `expr`'s inputs and outputs and stores the findings in
 // `analysis`.
 //
@@ -158,7 +137,7 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
   TensorView* in = permute->in()->as<TensorView>();
   // Look at the preferred layout not `in`'s current layout.
   Layout in_layout = analysis_.preferredLayout(in);
-  if (!computePermutation(
+  if (!ir_utils::computePermutation(
            in->getMaybeRFactorDomain(), in_layout.allocation_domain)
            .has_value()) {
     // Give up when `in`'s allocation domain is not an rfactor permutation.
