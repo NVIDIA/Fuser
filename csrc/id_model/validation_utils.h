@@ -26,7 +26,7 @@ class IdModelValidator {
   // their inputs and outputs are mapped.
   // - In ComputeAtMap, mappings are local. For example, if domain x0 is
   // split to x1 and x2, and also domain y0 is split to y1 and
-  // y2. Suppose x0 and y1 are exactly mapped and the two splits are
+  // y2. Suppose x0 and y0 are exactly mapped and the two splits are
   // also considered exactly the same, IdModel maps x1 and y1, and x2
   // and y2, respectively, whereas that doesn't happen with ComputeAtMap
   //
