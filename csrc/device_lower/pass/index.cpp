@@ -1368,7 +1368,8 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     if (ir_utils::isLdMatrixOp(ldst)) {
       as_type = ArrayType{
           std::make_shared<DataType>(DataType::UInt32),
-          (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>()) / 2};
+          (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>()) /
+              2};
     }
     in = lowerSrcIndex(
         ldst->in(),

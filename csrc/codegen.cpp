@@ -1311,7 +1311,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       int64_t vector_word_size = ir_utils::getVectorizeSize(out_tv);
       bool is_vector_op = (vector_word_size != 1);
 
-      if (is_vector_op && !ldst->in()->isScalar() && !ir_utils::isLdMatrixOp(ldst)) {
+      if (is_vector_op && !ldst->in()->isScalar() &&
+          !ir_utils::isLdMatrixOp(ldst)) {
         NVF_ERROR(
             ldst->out()->dtype() == ldst->in()->dtype(),
             "Vectorized store/load requires input and output datatypes match.");

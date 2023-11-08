@@ -2425,7 +2425,8 @@ kir::TensorIndex* Index::getConsumerIndex(
   auto index = getConsumerStridedIndices(
       consumer, loops, rotated_loops, override_index, generate_pointer);
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
-  return SimplifyingIrBuilder::create<kir::TensorIndex>(consumer, index, as_type);
+  return SimplifyingIrBuilder::create<kir::TensorIndex>(
+      consumer, index, as_type);
 }
 
 namespace {
