@@ -108,15 +108,21 @@ void AliasFinder::handle(const ViewOp* view) {
   TensorView* out = view->out();
 
   Layout in_layout = analysis_.preferredLayout(in);
+  const std::vector<IterDomain*>& out_allocation =
+      out->getMaybeAllocationDomain();
   if (in_layout.allocation_domain == in->getMaybeRFactorDomain() &&
       isContiguous(in_layout.contiguity) &&
-      out->getMaybeAllocationDomain() == out->getMaybeRFactorDomain() &&
-      isContiguous(*out) && !transformsExpandedBroadcastIterDomain(in, out)) {
+      out_allocation == out->getMaybeRFactorDomain() && isContiguous(*out) &&
+      !transformsExpandedBroadcastIterDomain(in, out)) {
     // This is a sufficient but not necessary condition for `out` to alias
     // `in`. Both `in` and `out` are allocated contiguously per the
     // rfactor domain. Also, the ViewOp can't transform any expanded broadcast
     // IterDomain.
-    analysis_.add(out, in);
+    analysis_.add(
+        out,
+        in,
+        {out_allocation,
+         TensorDomain::getContiguityFilledWith(out_allocation, true)});
   }
 }
 
@@ -181,25 +187,18 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
 
 void AliasAnalysisResult::add(
     const TensorView* alias,
-    const TensorView* source) {
-  const TensorView*& old_source = alias_to_source_[alias];
+    const TensorView* source,
+    const Layout& layout) {
+  std::pair<const TensorView*, Layout>& old_source = alias_to_source_[alias];
   NVF_ERROR(
-      old_source == nullptr,
+      old_source.first == nullptr,
       "The current implementation of alias analysis shouldn't find two sources for an alias. However, it's trying to make ",
       alias->toString(),
       " an alias of ",
       source->toString(),
       " while it's already an alias of ",
-      old_source->toString());
-  old_source = source;
-}
-
-void AliasAnalysisResult::add(
-    const TensorView* alias,
-    const TensorView* source,
-    const Layout& layout) {
-  add(alias, source);
-  preferred_layout_[alias] = layout;
+      old_source.first->toString());
+  old_source = {source, layout};
 }
 
 const Val* AliasAnalysisResult::findRoot(const Val* alias) const {
@@ -211,7 +210,7 @@ const Val* AliasAnalysisResult::findRoot(const Val* alias) const {
   // This can be made faster by path compression at the cost of losing
   // the potentially useful immediate sources. Go simple for now.
   while (alias_to_source_.count(root)) {
-    root = alias_to_source_.at(root);
+    root = alias_to_source_.at(root).first;
   }
   return root;
 }
@@ -223,8 +222,8 @@ Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
       "`v` is expected to be a TensorView. Found: ",
       v->toString());
 
-  if (auto i = preferred_layout_.find(tv); i != preferred_layout_.end()) {
-    return i->second;
+  if (auto i = alias_to_source_.find(tv); i != alias_to_source_.end()) {
+    return i->second.second;
   }
   return {tv->getMaybeAllocationDomain(), tv->getContiguity()};
 }
