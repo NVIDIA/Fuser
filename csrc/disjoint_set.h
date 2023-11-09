@@ -44,11 +44,8 @@ class VectorOfUniqueEntries {
  public:
   VectorOfUniqueEntries() = default;
 
-  VectorOfUniqueEntries(const std::initializer_list<T>& initializer) {
-    for (auto entry : initializer) {
-      pushBack(entry);
-    }
-  }
+  VectorOfUniqueEntries(const std::initializer_list<T>& initializer)
+      : VectorOfUniqueEntries(initializer.begin(), initializer.end()) {}
 
   VectorOfUniqueEntries(const VectorOfUniqueEntries& other) = default;
 
