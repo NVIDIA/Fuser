@@ -64,19 +64,6 @@ class IdModel : public PolymorphicBase {
   const ValGraph& idGraph(IdMappingMode mode) const;
   ValGraph& idGraph(IdMappingMode mode);
 
-  // IterDomains from the original fusion are only allowed to be used once in
-  // the IterDomain graph, id->uses() are not directly used as there's no bounds
-  // check that would prevent a use from being defined that's not part of the
-  // actual fusion definition.
-  //
-  // Note, any iter domains used during something like loop or concrete id
-  // resolution could actually have multiple Expr* uses, and uses on disjoint id
-  // sets should be used, not this.
-  //
-  // TODO: Refactor or remove?
-  Expr* idUse(IterDomain* id) const;
-  Expr* idDef(IterDomain* id) const;
-
   // TODO: Seems a bit unfortunate that this isn't IterDomain local information.
   const std::unordered_set<IterDomain*>& viewRfactorIds() const {
     return view_rfactor_ids_;

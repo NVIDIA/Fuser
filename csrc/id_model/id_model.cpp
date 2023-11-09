@@ -89,22 +89,6 @@ ValGraph& IdModel::idGraph(IdMappingMode mode) {
   return graph_it->second;
 }
 
-Expr* IdModel::idUse(IterDomain* id) const {
-  auto use_it = id_uses_.find(id);
-  if (use_it == id_uses_.end()) {
-    return nullptr;
-  }
-  return use_it->second.front();
-}
-
-Expr* IdModel::idDef(IterDomain* id) const {
-  auto def_it = id_definitions_.find(id);
-  if (def_it == id_definitions_.end()) {
-    return nullptr;
-  }
-  return def_it->second.front();
-}
-
 void IdModel::buildIterDomainDefinitionsAndUses(
     const std::vector<TensorView*>& all_tvs) {
   for (const auto tv : all_tvs) {
