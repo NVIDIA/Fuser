@@ -355,7 +355,6 @@ std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
   std::copy_if(tv->getLeafDomain().begin(), 
               tv->getLeafDomain().end(), 
               std::back_inserter(sharded_ids), [](auto id){return id->isDevice();});
-  std::sort(sharded_ids.begin(), sharded_ids.end());
   return sharded_ids;
 }
 
@@ -368,8 +367,6 @@ bool haveSameSharding(TensorView* tv1, TensorView* tv2) {
   if (sharding_domain1.size() != sharding_domain2.size()) {
     return false;
   }
-  std::sort(sharding_domain1.begin(), sharding_domain1.end());
-  std::sort(sharding_domain2.begin(), sharding_domain2.end());
   for (auto i : c10::irange(sharding_domain1.size())) {
     if (!sharding_domain1[i]->sameAs(sharding_domain2[i])) {
       return false;

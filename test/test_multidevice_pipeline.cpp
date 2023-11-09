@@ -25,6 +25,7 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <mma_type.h>
+#include <multidevice/lower_resharding_expr.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
@@ -530,6 +531,48 @@ TEST_F(NVFuserTest, ReshardingDetection) {
   GTEST_EXPECT_TRUE(!tv24->definition()->isResharding());
   GTEST_EXPECT_TRUE(!tv25->definition()->isResharding());
   GTEST_EXPECT_TRUE(tv26->definition()->isResharding());
+}
+
+class automaticSetInsertionTest : public NVFuserTest {
+protected:
+  void SetUp() override {
+    fusion = std::make_unique<Fusion>();
+    fg = std::make_unique<FusionGuard>(fusion.get());
+  }
+  void validate() {
+    for (auto expr: fusion->exprs()) {
+      bool is_valid = !expr->isResharding()
+              || (expr->isA<LoadStoreOp>()
+                  && (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set))
+              || expr->isA<ReductionOp>();
+      GTEST_EXPECT_TRUE(is_valid);
+    }
+  }
+
+  std::unique_ptr<Fusion> fusion;
+  std::unique_ptr<FusionGuard> fg;
+  // TensorView* (&unary_op)(TensorView*);
+};
+
+TEST_F(automaticSetInsertionTest, unary_ops) {
+  DeviceMesh mesh0,mesh1;
+  mesh0 = {0};
+  mesh1 = {1};
+
+  TensorView* tv0 = makeContigTensor(3);
+  tv0->setDeviceMesh(&mesh0);
+  TensorView* tv1 = exp(tv0);
+  tv1->setDeviceMesh(&mesh1);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  std::cout << "before transformation";
+  fusion->print();
+
+  std::cout << "after transformation";
+  insertSetBeforeReshardingExpr(fusion.get());
+  fusion->print();
+
 }
 
 } // namespace nvfuser
