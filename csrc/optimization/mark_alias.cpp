@@ -38,14 +38,10 @@ void MarkAliasPass::runPass(Fusion* fusion) {
           debug() << "  Old TensorDomain:" << std::endl;
           debug() << out->domain()->toString(4, /*leaf_only=*/false)
                   << std::endl;
+          debug() << "  New layout:" << out_layout.toString() << std::endl;
         }
         out->setAllocationDomain(
             out_layout.allocation_domain, out_layout.contiguity);
-        if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-          debug() << "  New TensorDomain:" << std::endl;
-          debug() << out->domain()->toString(4, /*leaf_only=*/false)
-                  << std::endl;
-        }
       }
     }
   }
