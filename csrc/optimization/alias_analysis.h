@@ -15,6 +15,8 @@ namespace nvfuser::optimization {
 struct Layout {
   std::vector<IterDomain*> allocation_domain;
   std::vector<std::optional<bool>> contiguity;
+
+  std::string toString(int indent_size = 0) const;
 };
 
 class AliasAnalysisResult {
