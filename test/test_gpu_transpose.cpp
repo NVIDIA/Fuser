@@ -39,7 +39,17 @@ TensorView* transposeMaybeInplace(
 
 } // namespace
 
-using TransposeTest = NVFuserTest;
+class TransposeTest : public NVFuserTest {
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    OptimizationPass<MarkAliasPass>::setEnabled(false);
+  }
+
+  void TearDown() override {
+    NVFuserTest::TearDown();
+    OptimizationPass<MarkAliasPass>::setEnabled(true);
+  }
+};
 
 // x->sin->transpose->cos->y
 TEST_F(TransposeTest, FusionScheduleTransposeSimple) {
