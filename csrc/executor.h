@@ -178,12 +178,14 @@ class FusionExecutor : public NonCopyable {
   }
 
   //! get occupancy of the last kernel execution
-  float getKernelOccupancy() const{
+  float getKernelOccupancy() const {
     return kernel_occupancy_;
   }
-  
   void setKernelOccupancy(float occupancy) {
     kernel_occupancy_ = occupancy;
+  }
+  float getKernelRegisterSpills() const {
+    return compiled_kernel_->register_spills;
   }
   //! Returns the input bytes accessed for a kernel
   //! \note It is important to sample the args struct prior to adding the
@@ -308,7 +310,7 @@ class FusionExecutor : public NonCopyable {
   static std::string kernelNamespace() {
     return "CudaCodeGen";
   }
-  
+
   float kernel_occupancy_ = -1.0f;
 
   LaunchParams computeLaunchParams(

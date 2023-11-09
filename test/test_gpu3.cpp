@@ -9545,19 +9545,23 @@ TEST_F(NVFuserTest, PredicateRNGOps) {
 TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
   struct kernelInfo {
     float bandwidth;
+    float occupancy;
+    float speedup;
     int threads_per_block;
     int persistent_batch_size;
     int max_register;
-    int occupancy;
+    int register_spills;
     bool project_to_input;
     bool decouple_dataload;
     void print(std::ostream& os = std::cout) {
       os << "persistent_batch_size= " << persistent_batch_size
          << " threads_per_block= " << threads_per_block
          << " occupancy= " << occupancy << " max_register= " << max_register
+         << " register_spills= " << register_spills
          << " project_to_input= " << project_to_input
          << " decouple_dataload= " << decouple_dataload
-         << " bandwidth_GB/s= " << bandwidth << std::endl;
+         << " bandwidth_GBps= " << bandwidth << " speedup= " << speedup
+         << std::endl;
     }
   };
   auto test = [](int64_t feature,
@@ -9595,19 +9599,23 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
     at::Tensor t0 = at::randn({batch, feature}, options);
     auto ref = at::_softmax(t0, -1, false);
     auto persistent_params = getInnerPersistentHeuristics(fusion, {t0});
-    persistent_params->batches_per_block_inner_reduction =
-        persistent_batch_size;
-    persistent_params->maybe_special_inline_cached_inputs = decouple_dataload;
-    scheduleInnerPersistentKernel(fusion, *persistent_params);
     auto lparams = persistent_params->lparams;
     auto cparams = persistent_params->cparams;
-    // adjust register
-    //   auto persistent_buffer_size = project_to_input ? feature * 2 :
-    //   feature * 4;
-    auto warps_per_block =
-        ceilDiv(ceilDiv(feature / 8, persistent_batch_size), 32);
-    cparams.maxrregcount =
-        getRegPerThreadGivenThreadsPerSM(blocks_per_sm * warps_per_block * 32);
+    auto warps_per_block = ceilDiv(
+        ceilDiv(
+            feature / 8, persistent_params->batches_per_block_inner_reduction),
+        32);
+    if (persistent_batch_size > 0 && blocks_per_sm > 0) {
+      persistent_params->batches_per_block_inner_reduction =
+          persistent_batch_size;
+      persistent_params->maybe_special_inline_cached_inputs = decouple_dataload;
+      warps_per_block =
+          ceilDiv(ceilDiv(feature / 8, persistent_batch_size), 32);
+      cparams.maxrregcount = getRegPerThreadGivenThreadsPerSM(
+          blocks_per_sm * warps_per_block * 32);
+    }
+
+    scheduleInnerPersistentKernel(fusion, *persistent_params);
 
     FusionExecutor fe;
     fe.compileFusion(fusion, {t0}, lparams, cparams);
@@ -9639,8 +9647,12 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
         }
       }
       kinfo.occupancy = fe.getKernelOccupancy();
+      kinfo.register_spills = fe.getKernelRegisterSpills();
       kinfo.bandwidth = std::accumulate(bw.begin(), bw.end(), 0.0f) / bw.size();
-      ;
+      if (persistent_batch_size == 0 && blocks_per_sm == 0) {
+        kinfo.bandwidth += 1e4;
+        kinfo.speedup = 1.0f;
+      }
     }
     return kinfo;
   };
@@ -9657,23 +9669,31 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
   constexpr int vect_factor = 8;
   constexpr int min_threads_per_block = 32;
   constexpr int max_threads_per_block = 1024;
-  for (auto feature : {  512,
-        768,
-        1024,
-        1280,
-        1536,
-        1600,
-        2048,
-        2560,
-        4096,
-        5120,
-        6656,
-        8192}) {
+  std::set<int> features{
+      512,
+      768,
+      1024,
+      1280,
+      1536,
+      1600,
+      2048,
+      2560,
+      4096,
+      5120,
+      6656,
+      8192,
+      12288,
+      18432};
+  for (int i = 1024; i <= 20480; i += 1024) {
+    features.insert(i);
+  }
+  for (auto feature : features) {
     ASSERT_TRUE(feature % vect_factor == 0);
     auto min_batch_size = ceilDiv(feature / vect_factor, max_threads_per_block);
     auto max_batch_size = std::min(
         (int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
     std::vector<kernelInfo> results;
+    results.emplace_back(test(feature, 0, 0, false, false));
     for (auto decouple_data_load : {true, false}) {
       for (auto project_to_input : {true, false}) {
         for (auto persistent_batch_size = min_batch_size;
@@ -9692,12 +9712,14 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
                       << " persistent_batch_size= " << persistent_batch_size
                       << " blocks_per_sm= " << blocks_per_sm
                       << " warps_per_block= " << warps_per_block << std::endl;
-            results.emplace_back(test(
+            auto res = test(
                 feature,
                 persistent_batch_size,
                 blocks_per_sm,
                 project_to_input,
-                decouple_data_load));
+                decouple_data_load);
+            res.speedup = res.bandwidth / (results[0].bandwidth - 1e4);
+            results.emplace_back(res);
           }
         }
       }
@@ -9709,9 +9731,9 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
         [](const kernelInfo& a, const kernelInfo& b) {
           return a.bandwidth > b.bandwidth;
         });
-    std::cout << "\n--- total tested cases: " << results.size() << std::endl;
-    std::cout << "--- Top 10 cases: " << std::endl;
-    for (int i = 0; i < 10; ++i) {
+    std::cout << "\n--- Default and top 10 cases out of tested cases: "
+              << results.size() << std::endl;
+    for (int i = 0; i < 11; ++i) {
       results[i].print();
     }
 

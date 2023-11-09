@@ -1056,7 +1056,7 @@ void fillCompileOptions(
 }
 
 // Dump ptxas output if register spill is detected
-void warnRegisterSpill(const std::string& compile_log) {
+int warnRegisterSpill(const std::string& compile_log) {
   auto getRegisterSpillInfo = [](const std::string& log, const char* subStr) {
     auto it_end =
         std::search(log.begin(), log.end(), subStr, subStr + strlen(subStr)) -
@@ -1091,6 +1091,7 @@ void warnRegisterSpill(const std::string& compile_log) {
       load_count > allowed_spill) {
     debug() << "WARNING: Register spill detected\n" << compile_log << std::endl;
   }
+  return store_count + load_count;
 }
 
 void createNvrtcProgram(
@@ -1264,7 +1265,8 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
 
   if (isOptionEnabled(EnableOption::WarnRegisterSpill) ||
       compile_params.enable_ptxas_verbose) {
-    warnRegisterSpill(compiled_kernel->compile_log);
+    compiled_kernel->register_spills =
+        warnRegisterSpill(compiled_kernel->compile_log);
   }
 
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
