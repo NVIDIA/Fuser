@@ -495,7 +495,8 @@ class FusionExecutor : public NonCopyable {
   // TensorViews actually used in the kernel.
   std::vector<TensorView*> used_tvs_;
 
-  // ID of fusion in python frontend fusion cache, which maps to a single FusionExecutorCache.
+  // ID of fusion in python frontend fusion cache, which maps to a single
+  // FusionExecutorCache.
   int64_t fusion_id_ = -1;
 
   // ID of (device, concrete_info) key in FusionExecutorCache
