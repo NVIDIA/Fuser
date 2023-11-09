@@ -1096,7 +1096,62 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (!init) {
       ss << toString(mma_layout_opt.value());
     }
+    if (!init && isAmpere(macro)) {
+      if (mma->inA()->getDataType().value() == DataType::Half) {
+        ss << "F16";
+      } else {
+        ss << "BF16";
+      }
+    }
     return ss.str();
+  }
+
+  static int getOutputRegisterSize(MmaOptions::MacroType macro) {
+    switch (macro) {
+      case MmaOptions::MacroType::Volta_16_16_4:
+      case MmaOptions::MacroType::Ampere_16_16_16:
+      case MmaOptions::MacroType::Turing_16_16_16:
+        return 8;
+      case MmaOptions::MacroType::Turing_16_8_16:
+      case MmaOptions::MacroType::Ampere_16_8_16:
+        return 4;
+      default:
+        NVF_ERROR(false, "unknown macro");
+        break;
+    }
+    return -1;
+  }
+
+  static int getInputARegisterSize(MmaOptions::MacroType macro) {
+    switch (macro) {
+      case MmaOptions::MacroType::Volta_16_16_4:
+        return 2;
+      case MmaOptions::MacroType::Turing_16_8_16:
+      case MmaOptions::MacroType::Turing_16_16_16:
+      case MmaOptions::MacroType::Ampere_16_8_16:
+      case MmaOptions::MacroType::Ampere_16_16_16:
+        return 4;
+      default:
+        NVF_ERROR(false, "unknown macro");
+        break;
+    }
+    return -1;
+  }
+
+  static int getInputBRegisterSize(MmaOptions::MacroType macro) {
+    switch (macro) {
+      case MmaOptions::MacroType::Volta_16_16_4:
+      case MmaOptions::MacroType::Turing_16_8_16:
+      case MmaOptions::MacroType::Ampere_16_8_16:
+        return 2;
+      case MmaOptions::MacroType::Turing_16_16_16:
+      case MmaOptions::MacroType::Ampere_16_16_16:
+        return 4;
+      default:
+        NVF_ERROR(false, "unknown macro");
+        break;
+    }
+    return -1;
   }
 
   void genMmaOperands(const MmaOp* mma) {
@@ -1104,15 +1159,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto macro = mma->macro();
     auto in_a = mma->inA()->as<kir::TensorIndex>()->view();
     auto dtype = in_a->getDataType().value();
-    indent() << kTab << "&(reinterpret_cast<Array<" << dtype << ","
-             << getInputARegisterSize(macro) << ","
+    indent() << kTab << "(reinterpret_cast<Array<unsigned"
+             << "," << getInputARegisterSize(macro) << ","
              << getInputARegisterSize(macro) << ">*>(&"
              << genVariableName(mma->inA()->as<kir::TensorIndex>()->view())
              << ")[" << genInline(mma->inA()->as<kir::TensorIndex>()->index())
              << "])"
              << ",\n";
-    indent() << kTab << "&(reinterpret_cast<Array<" << dtype << ","
-             << getInputBRegisterSize(macro) << ","
+    indent() << kTab << "(reinterpret_cast<Array<unsigned"
+             << "," << getInputBRegisterSize(macro) << ","
              << getInputBRegisterSize(macro) << ">*>(&"
              << genVariableName(mma->inB()->as<kir::TensorIndex>()->view())
              << ")[" << genInline(mma->inB()->as<kir::TensorIndex>()->index())
@@ -1122,7 +1177,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void genMmaInitialization(const MmaOp* mma, const LoadStoreOp* ldst) {
     auto macro = mma->macro();
 
-    indent() << genMmaOp(mma, true) << "(reinterpret_cast<Array<"
+    indent() << genMmaOp(mma, true) << "(*reinterpret_cast<Array<"
              << mma->out()->getDataType().value() << ","
              << getOutputRegisterSize(macro) << ","
              << getOutputRegisterSize(macro) << ">*>"
@@ -1133,7 +1188,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto macro = mma->macro();
     auto out = mma->out()->as<kir::TensorIndex>();
     indent() << genMmaOp(mma) << "(\n";
-    indent() << kTab << "reinterpret_cast<Array<"
+    indent() << kTab << "*reinterpret_cast<Array<"
              << out->view()->getDataType().value() << ","
              << getOutputRegisterSize(macro) << ","
              << getOutputRegisterSize(macro) << ">*>(&" << gen(mma->out())
