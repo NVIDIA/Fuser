@@ -13,6 +13,7 @@
 #include <inlining.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <optimization/mark_alias.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
@@ -42,12 +43,15 @@ TensorView* transposeMaybeInplace(
 class TransposeTest : public NVFuserTest {
   void SetUp() override {
     NVFuserTest::SetUp();
-    OptimizationPass<MarkAliasPass>::setEnabled(false);
+    // For convenience, disable MarkAliasPass. Many tests in this file run a
+    // fusion that consists of `transpose` only. MarkAliasPass would turn those
+    // fusions into a no-op, skipping the transpose scheduler.
+    optimization::MarkAliasPass::setEnabled(false);
   }
 
   void TearDown() override {
+    optimization::MarkAliasPass::setEnabled(true);
     NVFuserTest::TearDown();
-    OptimizationPass<MarkAliasPass>::setEnabled(true);
   }
 };
 
