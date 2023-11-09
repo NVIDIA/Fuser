@@ -9601,6 +9601,7 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
     auto persistent_params = getInnerPersistentHeuristics(fusion, {t0});
     auto lparams = persistent_params->lparams;
     auto cparams = persistent_params->cparams;
+    cparams.enable_ptxas_verbose = true;
     auto warps_per_block = ceilDiv(
         ceilDiv(
             feature / 8, persistent_params->batches_per_block_inner_reduction),
@@ -9623,7 +9624,8 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
     testValidate(fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
     kernelInfo kinfo;
     kinfo.threads_per_block = warps_per_block * 32;
-    kinfo.persistent_batch_size = persistent_batch_size;
+    kinfo.persistent_batch_size =
+        persistent_params->batches_per_block_inner_reduction;
     kinfo.project_to_input = project_to_input;
     kinfo.max_register = cparams.maxrregcount;
     kinfo.decouple_dataload = decouple_dataload;
@@ -9707,11 +9709,6 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
           auto max_blocks_per_sm = 64 / warps_per_block;
           for (auto blocks_per_sm = 1; blocks_per_sm <= max_blocks_per_sm;
                blocks_per_sm++) {
-            std::cout << "decouple_data_load= " << decouple_data_load
-                      << " project_to_input= " << project_to_input
-                      << " persistent_batch_size= " << persistent_batch_size
-                      << " blocks_per_sm= " << blocks_per_sm
-                      << " warps_per_block= " << warps_per_block << std::endl;
             auto res = test(
                 feature,
                 persistent_batch_size,
@@ -9720,6 +9717,7 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
                 decouple_data_load);
             res.speedup = res.bandwidth / (results[0].bandwidth - 1e4);
             results.emplace_back(res);
+            res.print();
           }
         }
       }
