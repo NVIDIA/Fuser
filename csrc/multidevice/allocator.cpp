@@ -70,13 +70,18 @@ std::unordered_map<Val*, c10::IValue> allocatePipelineIntermediateBuffers(
       }
     }
   }
-  // Add all the global outputs
-  for (auto global_output : pipeline->originalFusion()->outputs()) {
-    vals_to_allocate.insert(global_output);
-  }
   // Remove any global inputs that have been added
   for (auto global_input : pipeline->originalFusion()->inputs()) {
     vals_to_allocate.erase(global_input);
+  }
+  // Remove any intermediate stage's output already produced
+  for (auto stage : ir_utils::filterByType<PipelineStage>(exprs)) {
+    if (stage->descriptor()->mesh.has(my_device_index)) {
+      for (auto output : stage->outputs()) {
+        auto output_val = output->as<PipelineVal>()->getOriginalVal();
+        vals_to_allocate.erase(output_val);
+      }
+    }
   }
 
   // We copy the original fusion and set the outputs to be the tensors to be
