@@ -46,10 +46,6 @@ ValGraph::ValGraph(const ValGraph& other)
 }
 
 ValGraph& ValGraph::operator=(const ValGraph& other) {
-  disjoint_vals_.clear();
-  disjoint_exprs_.clear();
-  unique_definitions_.clear();
-  unique_uses_.clear();
   ValGraph copy(other);
   std::swap(*this, copy);
   return *this;
@@ -186,6 +182,10 @@ void ValGraph::initializeVal(
     const VectorOfUniqueEntries<Expr*>& uses) {
   const ValGroup& val_disjoint_set =
       disjointValSets().initializeSet(val).first->second;
+
+  // For now, the definition of a val should be unique. Remove this
+  // assertion as necessary
+  NVF_ERROR(definitions.size() <= 1);
 
   ExprGroups def_groups;
   for (auto def : definitions) {

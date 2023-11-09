@@ -55,8 +55,6 @@ IdModel::IdModel(
   build(exprs, additional_tvs);
 }
 
-IdModel::IdModel(const std::vector<Expr*>& exprs) : IdModel(exprs, {}) {}
-
 IdModel::IdModel(Fusion* fusion) {
   std::vector<TensorView*> inputs_and_outputs;
   {

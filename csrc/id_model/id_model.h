@@ -51,9 +51,7 @@ class IdModel : public PolymorphicBase {
  public:
   IdModel(
       const std::vector<Expr*>& exprs,
-      const std::vector<TensorView*>& additional_tvs);
-
-  IdModel(const std::vector<Expr*>& exprs);
+      const std::vector<TensorView*>& additional_tvs = {});
 
   // Same as the above constructor with fusion->exprs() excpet fusion may have
   // some dangling inputs/outputs that are expected to have IterDomain entries
@@ -68,9 +66,6 @@ class IdModel : public PolymorphicBase {
   const std::unordered_set<IterDomain*>& viewRfactorIds() const {
     return view_rfactor_ids_;
   }
-
-  // Update the LOOP ID disjoint sets with resolved computeWith
-  void updateComputeWith(TensorView* compute_with_tv);
 
   std::string toString() const;
 
