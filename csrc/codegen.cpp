@@ -1364,7 +1364,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
       // Get vectorization information
       int64_t vector_word_size = ir_utils::getVectorizeSize(out_tv);
-      bool is_vector_op = (vector_word_size != 1);
+      bool is_vector_op = vectorize_scope_ && vector_word_size != 1;
 
       if (is_vector_op && !ldst->in()->isScalar() &&
           !ir_utils::isLdMatrixOp(ldst)) {
