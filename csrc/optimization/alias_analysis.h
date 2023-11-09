@@ -24,6 +24,10 @@ struct Layout {
 class AliasAnalysisResult {
  public:
   AliasAnalysisResult() = default;
+  AliasAnalysisResult(const AliasAnalysisResult&) = delete;
+  AliasAnalysisResult& operator=(const AliasAnalysisResult&) = delete;
+  AliasAnalysisResult(AliasAnalysisResult&&) = default;
+  AliasAnalysisResult& operator=(AliasAnalysisResult&&) = default;
 
   // Returns itself if `alias` doesn't alias anything.
   const Val* findRoot(const Val* alias) const;
@@ -35,11 +39,6 @@ class AliasAnalysisResult {
   // Marks `source` as the immediate aliasing source of `alias` and sets the
   // preferred layout.
   void add(const TensorView* alias, const TensorView* source, Layout&& layout);
-
-  AliasAnalysisResult(const AliasAnalysisResult&) = delete;
-  AliasAnalysisResult& operator=(const AliasAnalysisResult&) = delete;
-  AliasAnalysisResult(AliasAnalysisResult&&) = default;
-  AliasAnalysisResult& operator=(AliasAnalysisResult&&) = default;
 
  private:
   // Maps aliases (e.g. the output of a View) to their direct sources (e.g. the

@@ -20,10 +20,12 @@
 
 namespace nvfuser {
 
+using testing::Each;
 using testing::ElementsAre;
 using testing::IsEmpty;
+using testing::IsTrue;
+using testing::Optional;
 using testing::Pair;
-using testing::UnorderedElementsAre;
 
 using AliasAnalysisTest = NVFuserTest;
 
@@ -95,22 +97,29 @@ TEST_F(AliasAnalysisTest, View_DifferentAllocationOrder) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.findRoot(out), out);
+  EXPECT_EQ(alias_analysis.findRoot(out), in);
+  optimization::Layout preferred_layout = alias_analysis.preferredLayout(out);
+  EXPECT_THAT(
+      preferred_layout.allocation_domain,
+      ElementsAre(out->axis(0), out->axis(1)));
+  EXPECT_THAT(preferred_layout.contiguity, Each(Optional(IsTrue())));
 }
 
-TEST_F(AliasAnalysisTest, View_NonContiguous) {
+TEST_F(AliasAnalysisTest, View_MergeNonContiguous) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   const std::vector<int64_t> in_shape({2, 3, 4});
   const std::vector<int64_t> out_shape({2, 12});
 
-  TensorView* in = makeContigConcreteTensor(in_shape);
+  TensorView* in = TensorViewBuilder()
+                       .shape(in_shape)
+                       .dtype(DataType::Float)
+                       .contiguity({true, false, true})
+                       .build();
   fusion.addInput(in);
   TensorView* out = reshape(in, in_shape, out_shape);
   fusion.addOutput(out);
-  out->setAllocationDomain(
-      {out->axis(0), out->axis(1)}, /*new_contiguity=*/{true, false});
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
@@ -144,19 +153,20 @@ TEST_F(AliasAnalysisTest, View_SplitExpandedBroadcast) {
 
   TensorView* in = makeContigConcreteTensor({4, 5});
   fusion.addInput(in);
-  TensorView* out = broadcast(in, {false, false, true});
-  out = expand(
-      out,
+  TensorView* broadcast_out = broadcast(in, {false, false, true});
+  TensorView* expand_out = expand(
+      broadcast_out,
       {IrBuilder::create<Val>(4),
        IrBuilder::create<Val>(5),
        IrBuilder::create<Val>(6)});
   // tryStaticReshape used to fail to get the expanded extent, which is 6.
-  out = reshape(out, {IrBuilder::create<Val>(40), IrBuilder::create<Val>(3)});
+  TensorView* out = reshape(
+      expand_out, {IrBuilder::create<Val>(40), IrBuilder::create<Val>(3)});
   fusion.addOutput(out);
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.findRoot(out), out);
+  EXPECT_EQ(alias_analysis.findRoot(out), expand_out);
 }
 
 TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
@@ -194,18 +204,18 @@ TEST_F(AliasAnalysisTest, View_MergeExpandedBroadcast) {
 
   TensorView* in = makeContigConcreteTensor({4, 5});
   fusion.addInput(in);
-  TensorView* out = broadcast(in, {false, false, true});
-  out = expand(
-      out,
+  TensorView* broadcast_out = broadcast(in, {false, false, true});
+  TensorView* expand_out = expand(
+      broadcast_out,
       {IrBuilder::create<Val>(4),
        IrBuilder::create<Val>(5),
        IrBuilder::create<Val>(6)});
-  out = reshape(out, {4, 5, 6}, {4, -1});
+  TensorView* out = reshape(expand_out, {4, 5, 6}, {4, -1});
   fusion.addOutput(out);
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.findRoot(out), out);
+  EXPECT_EQ(alias_analysis.findRoot(out), expand_out);
 }
 
 using AliasTest = NVFuserTest;
