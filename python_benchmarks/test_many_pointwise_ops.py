@@ -40,17 +40,16 @@ def test_pointwise_ops_benchmark(
         pointwise_ops_fusion(fd, torch_dtype_to_nvfuser_dtype(torch.float16), num_iters)
     
     if not disable_validation:
-        nvf_output = fd.execute([inputs])
         eager_output = inputs[0] + inputs[1]
         for _ in range(num_iters):
             x = torch.cos(eager_output)
             y = torch.sin(eager_output)
             eager_output = x + y
 
-        assert torch.allclose(nvf_output[0], eager_output, rtol=1e-3, atol=1e-3)
+        fd.validate(inputs, [eager_output])
 
     if not disable_benchmarking:
-        run_benchmark(benchmark, fd.execute, [inputs])
+        run_benchmark(benchmark, fd.execute, inputs)
 
     torch.cuda.empty_cache()
 
