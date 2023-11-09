@@ -1111,9 +1111,9 @@ void DeadCodeRemover::markLiveRecursive(Statement* stmt) {
     return;
   }
   markLive(stmt);
-  if (stmt->isVal() && stmt->asVal()->definition()) {
+  if (stmt->isVal() && stmt->asVal()->definition() != nullptr) {
     markLiveRecursive(stmt->asVal()->definition());
-  } else {
+  } else if (stmt->isExpr()) {
     auto expr = stmt->asExpr();
     for (const auto inp : expr->outputs()) {
       markLive(inp);
