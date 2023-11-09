@@ -14,6 +14,7 @@
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <tensor_metadata.h>
+#include <val_graph.h>
 
 #include <optional>
 
@@ -183,14 +184,48 @@ void PrecomputedValues::initializeValueList(
   is_constant_ = std::vector<bool>(num_of_values_, false);
   values_ = std::vector<PolymorphicValue>(num_of_values_, PolymorphicValue());
 
-  // Fill in constants and assign evaluator indices
-  for (const auto i : c10::irange(num_of_values_)) {
-    // Use an expression evaluator to test if value is const
-    if (sorted_value_list[i]->isConstScalar()) {
-      is_constant_[i] = true;
-      values_[i] = sorted_value_list[i]->evaluate();
+  ValGraph graph;
+  for (auto val : sorted_value_list) {
+    graph.initializeVal(val);
+  }
+
+  int64_t num_vals = (int64_t)sorted_value_list.size();
+
+  for (auto i : c10::irange(num_vals)) {
+    auto def1 = sorted_value_list[i]->definition();
+    if (def1 == nullptr) {
+      continue;
     }
-    sorted_value_list[i]->setEvaluatorIndex(i);
+    for (auto j : c10::irange(i + 1, num_vals)) {
+      auto def2 = sorted_value_list[j]->definition();
+      if (def2 == nullptr) {
+        continue;
+      }
+      if (def1->inputs().size() != def2->inputs().size()) {
+        continue;
+      }
+      graph.maybeMapThroughExprs(def1, def2, true);
+    }
+  }
+
+  // Fill in constants and assign evaluator indices
+  std::unordered_set<Val*> has_index;
+  for (const auto i : c10::irange(num_of_values_)) {
+    Val* val = sorted_value_list[i];
+    // Use an expression evaluator to test if value is const
+    if (val->isConstScalar()) {
+      is_constant_[i] = true;
+      values_[i] = val->evaluate();
+    }
+    Val* concrete_val = graph.disjointValSets().getDisjointSetOf(val).front();
+    if (!has_index.count(concrete_val)) {
+      concrete_val->setEvaluatorIndex(i);
+      has_index.insert(concrete_val);
+    }
+    if (!has_index.count(val)) {
+      val->setEvaluatorIndex(concrete_val->evaluatorIndex());
+      has_index.insert(val);
+    }
   }
 }
 
@@ -363,7 +398,11 @@ void PrecomputedValues::bindTensorMetaData(
 
 NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)
     : precomputed_values_(precomputed_values), num_of_instructions_{0} {
+  std::unordered_set<int> evaluated_indices;
   for (auto val : precomputed_values_.symbols_) {
+    if (evaluated_indices.count(val->evaluatorIndex())) {
+      continue;
+    }
     auto def = val->definition();
     if (def) {
       if (auto uop = dynamic_cast<UnaryOp*>(def)) {
@@ -377,6 +416,7 @@ NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)
         // bind their outputs. So ignoring them here.
       }
     }
+    evaluated_indices.insert(val->evaluatorIndex());
   }
 }
 

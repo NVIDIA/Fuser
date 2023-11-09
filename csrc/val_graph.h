@@ -158,7 +158,6 @@ class ValGraph {
   // be the only call in IdGraph to mapThroughExpr
   void maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward);
 
- private:
   // Map expr0 and expr1 with eachother, update unique_definitions_ unique_uses_
   // TODO: Make this variant hidden?
   void mapExprs(Expr* expr0, Expr* expr1);
