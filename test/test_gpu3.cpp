@@ -9750,6 +9750,237 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
   }
 }
 
+TEST_F(NVFuserTest, SoftmaxDropout) {
+  struct kernelInfo {
+    float bandwidth;
+    float occupancy;
+    float speedup;
+    int threads_per_block;
+    int persistent_batch_size;
+    int max_register;
+    int register_spills;
+    bool project_to_input;
+    bool decouple_dataload;
+    void print(std::ostream& os = std::cout) {
+      os << "persistent_batch_size= " << persistent_batch_size
+         << " threads_per_block= " << threads_per_block
+         << " occupancy= " << occupancy << " max_register= " << max_register
+         << " register_spills= " << register_spills
+         << " project_to_input= " << project_to_input
+         << " decouple_dataload= " << decouple_dataload
+         << " bandwidth_GBps= " << bandwidth << " speedup= " << speedup
+         << std::endl;
+    }
+  };
+  auto test = [](int64_t feature,
+                 int persistent_batch_size,
+                 int blocks_per_sm,
+                 bool project_to_input,
+                 bool decouple_dataload,
+                 bool isBenchmark = true) {
+    int64_t batch = 2048;
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    auto fusion = fusion_ptr.get();
+    FusionGuard fg(fusion);
+    auto dtype = DataType::Half;
+
+    constexpr float kDropoutProbability = 0.9;
+    constexpr float kScale = 1.0f / kDropoutProbability;
+    constexpr int kHiddenSize = 768;
+    constexpr int kNumAttentionHeads = 12;
+    constexpr int kAttentionHeadSize = kHiddenSize / kNumAttentionHeads;
+    // setup fusion
+    auto attention_scores = makeContigTensor(2, dtype);
+    auto attention_mask = makeContigTensor(2, dtype);
+    auto divisor = IrBuilder::create<Val>(kAttentionHeadSize);
+    fusion->addInput(attention_scores);
+    fusion->addInput(attention_mask);
+    if (dtype == DataType::Half) {
+      attention_scores = castOp(DataType::Float, attention_scores);
+      attention_mask = castOp(DataType::Float, attention_mask);
+    }
+    attention_scores = div(attention_scores, divisor);
+    attention_scores = add(attention_scores, attention_mask);
+
+    auto max_val = max(attention_scores, {-1});
+    auto bcast_max = broadcast(max_val, {false, true});
+    auto x_max_sub = sub(attention_scores, bcast_max);
+    auto exp_val = exp(x_max_sub);
+    auto sum_exp = sum(exp_val, {-1});
+    auto bcast_sum = broadcast(sum_exp, {false, true});
+    auto attention_probs = project_to_input
+        ? mul(exp(sub(attention_scores, bcast_max)), reciprocal(bcast_sum))
+        : mul(exp_val, reciprocal(bcast_sum));
+
+    // drop out
+    auto prob = IrBuilder::create<Val>(kDropoutProbability);
+    auto scale = IrBuilder::create<Val>(kScale);
+    auto dropout_results = dropout(attention_probs, prob, scale);
+    auto output = dropout_results.output;
+    if (dtype == DataType::Half) {
+      attention_scores = castOp(DataType::Half, attention_scores);
+      attention_probs = castOp(DataType::Half, attention_probs);
+      output = castOp(DataType::Half, output);
+    }
+    fusion->addOutput(attention_scores);
+    fusion->addOutput(attention_probs);
+    fusion->addOutput(output);
+    fusion->addOutput(dropout_results.mask);
+
+    // inputs
+
+    at::manual_seed(0);
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
+    at::Tensor at_scores = at::randn({batch, feature}, options);
+    at::Tensor at_mask = at::randn({batch, feature}, options);
+  std::vector<c10::IValue> aten_inputs(
+      {at_scores, at_mask});
+
+    auto persistent_params = getInnerPersistentHeuristics(fusion, aten_inputs);
+    auto lparams = persistent_params->lparams;
+    auto cparams = persistent_params->cparams;
+    cparams.enable_ptxas_verbose = true;
+    auto warps_per_block = ceilDiv(
+        ceilDiv(
+            feature / 8, persistent_params->batches_per_block_inner_reduction),
+        32);
+    if (persistent_batch_size > 0 && blocks_per_sm > 0) {
+      persistent_params->batches_per_block_inner_reduction =
+          persistent_batch_size;
+      persistent_params->maybe_special_inline_cached_inputs = decouple_dataload;
+      warps_per_block =
+          ceilDiv(ceilDiv(feature / 8, persistent_batch_size), 32);
+      cparams.maxrregcount = getRegPerThreadGivenThreadsPerSM(
+          blocks_per_sm * warps_per_block * 32);
+    }
+
+    scheduleInnerPersistentKernel(fusion, *persistent_params);
+
+    FusionExecutor fe;
+    fe.compileFusion(fusion, aten_inputs, lparams, cparams);
+    auto cg_outputs = fe.runFusion(aten_inputs, lparams, cparams);
+    kernelInfo kinfo;
+    kinfo.threads_per_block = warps_per_block * 32;
+    kinfo.persistent_batch_size =
+        persistent_params->batches_per_block_inner_reduction;
+    kinfo.project_to_input = project_to_input;
+    kinfo.max_register = cparams.maxrregcount;
+    kinfo.decouple_dataload = decouple_dataload;
+    if (isBenchmark) {
+      fe.setMeasureKernelTimeFlag(true);
+      auto read_write_bytes = fe.bytesProcessed();
+      constexpr int nwarm = 5;
+      constexpr int niter = 10;
+      std::vector<float> bw(niter, 0.f);
+      for (int i = 0; i < nwarm + niter; i++) {
+        clearL2Cache();
+        auto cg_outputs = fe.runFusion(aten_inputs, lparams, cparams);
+        if (i >= nwarm) {
+          float runTimeus = fe.kernelTimeMs() * 1e3;
+          float bandwidth = read_write_bytes / 1e9 / (runTimeus * 1e-6);
+          bw[i - nwarm] = bandwidth;
+          if (false) {
+            std::cout << "iter= " << i << ", bandwidth= " << bandwidth << "GB/s"
+                      << ", time= " << runTimeus << " us" << std::endl;
+          }
+        }
+      }
+      kinfo.occupancy = fe.getKernelOccupancy();
+      kinfo.register_spills = fe.getKernelRegisterSpills();
+      kinfo.bandwidth = std::accumulate(bw.begin(), bw.end(), 0.0f) / bw.size();
+      if (persistent_batch_size == 0 && blocks_per_sm == 0) {
+        kinfo.bandwidth += 1e4;
+        kinfo.speedup = 1.0f;
+      }
+    }
+    return kinfo;
+  };
+  test(18*1024, 0, 0, false, false);
+  return;
+  constexpr int vect_factor = 8;
+  constexpr int min_threads_per_block = 32;
+  constexpr int max_threads_per_block = 1024;
+  std::set<int> features{
+      512,
+      768,
+      1024,
+      1280,
+      1536,
+      1600,
+      2048,
+      2560,
+      4096,
+      5120,
+      6656,
+      8192,
+      12288,
+      18432};
+  for (int i = 1024; i <= 20480; i += 1024) {
+    features.insert(i);
+  }
+  for (auto feature : features) {
+    ASSERT_TRUE(feature % vect_factor == 0);
+    auto min_batch_size = ceilDiv(feature / vect_factor, max_threads_per_block);
+    auto max_batch_size = std::min(
+        (int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
+    std::vector<kernelInfo> results;
+    results.emplace_back(test(feature, 0, 0, false, false));
+    for (auto decouple_data_load : {true, false}) {
+      for (auto project_to_input : {true, false}) {
+        for (auto persistent_batch_size = min_batch_size;
+             persistent_batch_size <= max_batch_size;
+             persistent_batch_size++) {
+          // given a persistent_batch_size, warps_per_block is derived from
+          // feature size and vector factor of 8.
+          auto warps_per_block = ceilDiv(
+              ceilDiv(feature / vect_factor, persistent_batch_size), 32);
+          // target different blocks_per_sm by adjusting register per thread
+          auto max_blocks_per_sm = 64 / warps_per_block;
+          for (auto blocks_per_sm = 1; blocks_per_sm <= max_blocks_per_sm;
+               blocks_per_sm++) {
+            auto res = test(
+                feature,
+                persistent_batch_size,
+                blocks_per_sm,
+                project_to_input,
+                decouple_data_load);
+            res.speedup = res.bandwidth / (results[0].bandwidth - 1e4);
+            results.emplace_back(res);
+            res.print();
+          }
+        }
+      }
+    }
+
+    std::sort(
+        results.begin(),
+        results.end(),
+        [](const kernelInfo& a, const kernelInfo& b) {
+          return a.bandwidth > b.bandwidth;
+        });
+    std::cout << "\n--- Default and top 10 cases out of tested cases: "
+              << results.size() << std::endl;
+    for (int i = 0; i < 11; ++i) {
+      results[i].print();
+    }
+
+    // Open a file in write mode
+    std::ostringstream fname;
+    fname << "a100_softmax_" << feature << ".txt";
+    std::ofstream file(fname.str());
+    if (file.is_open()) {
+      for (auto& info : results) {
+        info.print(file);
+      }
+      file.close(); // Close the file when done
+    } else {
+      std::cerr << "Unable to open file." << std::endl;
+    }
+  }
+}
+
 TEST_F(NVFuserTest, LoweringHook) {
   Fusion fusion;
   FusionGuard fg(&fusion);
