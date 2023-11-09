@@ -37,6 +37,7 @@ class AliasFinder : public OptOutConstDispatch {
 
   void handle(const ViewOp* view) override;
   void handle(const LoadStoreOp* ldst) override;
+  void handle(const SliceOp* slice) override;
 
  private:
   AliasAnalysisResult& analysis_;
@@ -238,6 +239,81 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
         in_rfactor_to_out_root.at(in_allocation_id));
     out_layout.contiguity.push_back(in_layout.contiguity[i]);
   }
+  analysis_.add(out, in, std::move(out_layout));
+}
+
+void AliasFinder::handle(const SliceOp* slice) {
+  TensorView* in = slice->in();
+  TensorView* out = slice->out();
+
+  const std::vector<IterDomain*>& in_rfactor = in->getMaybeRFactorDomain();
+  const std::vector<IterDomain*>& out_root = out->getRootDomain();
+  const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
+
+  std::unordered_map<IterDomain*, IterDomain*> in_rfactor_to_out_root =
+      PairwiseRootDomainMap(in, out).mapBroadcast(true).mapProducerToConsumer();
+
+  const auto out_rank = out_rfactor.size();
+  std::unordered_map<IterDomain*, IterDomain*> out_root_to_rfactor;
+  out_root_to_rfactor.reserve(out_rank);
+  for (auto i : c10::irange(out_rank)) {
+    out_root_to_rfactor[out_root[i]] = out_rfactor[i];
+  }
+
+  Layout in_layout = analysis_.preferredLayout(in);
+  if (!ir_utils::computePermutation(in_rfactor, in_layout.allocation_domain)
+           .has_value()) {
+    // Give up when `in`'s allocation domain is not an rfactor permutation.
+    return;
+  }
+
+  // Inherit the allocation order from the input.  However, refine the
+  // contiguity flags.
+  Layout out_layout;
+  out_layout.allocation_domain.reserve(out_rank);
+  for (IterDomain* in_allocation_id : in_layout.allocation_domain) {
+    if (!in_rfactor_to_out_root.count(in_allocation_id)) {
+      // `in_allocation_id` is a reduction product.
+      continue;
+    }
+    IterDomain* out_root_id = in_rfactor_to_out_root.at(in_allocation_id);
+    out_layout.allocation_domain.push_back(out_root_to_rfactor.at(out_root_id));
+  }
+
+  // Scan through the allocation domain in minor-to-major order. If an
+  // IterDomain is sliced, the next non-broadcast IterDomain has to be marked
+  // non-contiguous. For example,
+  //
+  // in = makeContigConcreteTensor({16, 128, 3072});
+  // out = slice(in, {0, 0, 0}, {16, 128, 1024});
+  //
+  // For `out` to alias `in`, its contiguity has to be updated to [t, f, t].
+  out_layout.contiguity.resize(out_rank);
+  bool next_non_broadcast_is_non_contiguous = false;
+  for (auto i = static_cast<int64_t>(out_rank) - 1; i >= 0; i--) {
+    if (out_layout.allocation_domain[i]->isBroadcast()) {
+      out_layout.contiguity[i] = std::nullopt;
+      continue;
+    }
+
+    if (next_non_broadcast_is_non_contiguous) {
+      out_layout.contiguity[i] = false;
+      next_non_broadcast_is_non_contiguous = false;
+    } else {
+      out_layout.contiguity[i] = in_layout.contiguity[i];
+    }
+
+    std::vector<Expr*> dependencies = DependencyCheck::getAllExprsBetween(
+        {out_root.begin(), out_root.end()}, {out_layout.allocation_domain[i]});
+    if (std::find_if(
+            dependencies.begin(), dependencies.end(), [](const Expr* expr) {
+              return expr->isA<Resize>();
+            }) != dependencies.end()) {
+      // out_layout.allocation_domain[i] is sliced.
+      next_non_broadcast_is_non_contiguous = true;
+    }
+  }
+
   analysis_.add(out, in, std::move(out_layout));
 }
 

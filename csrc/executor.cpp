@@ -961,7 +961,7 @@ at::Tensor allocateOutput(
         ee.bind(in_tv, in_tensor);
         at::Tensor out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
         NVF_ERROR(
-            in_tensor.data_ptr() == out_tensor.data_ptr(),
+            out_tensor.is_alias_of(in_tensor),
             "ExpressionEvaluator failed to evaluate ",
             out_tv->toString(),
             " as an alias of ",
