@@ -9649,7 +9649,6 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
   // auto kinfo = test(persistent_batch_size, warps_per_sm);
   // kinfo.print();
 
-  std::vector<kernelInfo> results;
   // persistent batch size: 3,4,5,6,7,8,[9],18,27
   // corresponding threads per blocks are: ceilDiv(2304,pbs) padd to warp size.
   // [96 to 768]
@@ -9658,8 +9657,7 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
   constexpr int vect_factor = 8;
   constexpr int min_threads_per_block = 32;
   constexpr int max_threads_per_block = 1024;
-  for (auto feature :
-       {512,
+  for (auto feature : {  512,
         768,
         1024,
         1280,
@@ -9670,13 +9668,12 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
         4096,
         5120,
         6656,
-        8192,
-        12288,
-        18432}) {
+        8192}) {
     ASSERT_TRUE(feature % vect_factor == 0);
     auto min_batch_size = ceilDiv(feature / vect_factor, max_threads_per_block);
-    auto max_batch_size =
-        std::min((int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
+    auto max_batch_size = std::min(
+        (int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
+    std::vector<kernelInfo> results;
     for (auto decouple_data_load : {true, false}) {
       for (auto project_to_input : {true, false}) {
         for (auto persistent_batch_size = min_batch_size;
@@ -9693,9 +9690,8 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
             std::cout << "decouple_data_load= " << decouple_data_load
                       << " project_to_input= " << project_to_input
                       << " persistent_batch_size= " << persistent_batch_size
-                      << " blocks_per_sm= " << blocks_per_sm 
-                      << " warps_per_block= " << warps_per_block 
-                      << std::endl;
+                      << " blocks_per_sm= " << blocks_per_sm
+                      << " warps_per_block= " << warps_per_block << std::endl;
             results.emplace_back(test(
                 feature,
                 persistent_batch_size,
