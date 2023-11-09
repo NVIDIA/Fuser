@@ -54,7 +54,9 @@
 #include <sstream>
 #include <thread>
 #include <typeinfo>
-
+#include <unistd.h>
+#include <limits.h>
+#include <string>
 namespace nvfuser {
 
 using namespace at::indexing;
@@ -9564,13 +9566,13 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
          << std::endl;
     }
   };
-  auto test = [](int64_t feature,
+  auto test = [](int64_t batch,
+                 int64_t feature,
                  int persistent_batch_size,
                  int blocks_per_sm,
                  bool project_to_input,
                  bool decouple_dataload,
                  bool isBenchmark = true) {
-    int64_t batch = 2048;
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     auto fusion = fusion_ptr.get();
     FusionGuard fg(fusion);
@@ -9668,6 +9670,8 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
   // [96 to 768]
   // feature <= vect_factor * persistent_batch_size * threads_per_block
   //  max_batch_size in current heuristic is 10.
+
+  int64_t batch_size = 32 * 1024;
   constexpr int vect_factor = 8;
   constexpr int min_threads_per_block = 32;
   constexpr int max_threads_per_block = 1024;
@@ -9695,7 +9699,7 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
     auto max_batch_size = std::min(
         (int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
     std::vector<kernelInfo> results;
-    results.emplace_back(test(feature, 0, 0, false, false));
+    results.emplace_back(test(batch_size, feature, 0, 0, false, false));
     for (auto decouple_data_load : {true, false}) {
       for (auto project_to_input : {true, false}) {
         for (auto persistent_batch_size = min_batch_size;
@@ -9710,6 +9714,7 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
           for (auto blocks_per_sm = 1; blocks_per_sm <= max_blocks_per_sm;
                blocks_per_sm++) {
             auto res = test(
+                batch_size,
                 feature,
                 persistent_batch_size,
                 blocks_per_sm,
@@ -9737,7 +9742,7 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
 
     // Open a file in write mode
     std::ostringstream fname;
-    fname << "a100_softmax_" << feature << ".txt";
+    fname << "h100_softmax_" << batch_size << "_" << feature << ".txt";
     std::ofstream file(fname.str());
     if (file.is_open()) {
       for (auto& info : results) {
@@ -9772,18 +9777,17 @@ TEST_F(NVFuserTest, SoftmaxDropout) {
          << std::endl;
     }
   };
-  auto test = [](int64_t feature,
+  auto test = [](int64_t batch,
+                 int64_t feature,
                  int persistent_batch_size,
                  int blocks_per_sm,
                  bool project_to_input,
                  bool decouple_dataload,
                  bool isBenchmark = true) {
-    int64_t batch = 2048;
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     auto fusion = fusion_ptr.get();
     FusionGuard fg(fusion);
     auto dtype = DataType::Half;
-
     constexpr float kDropoutProbability = 0.9;
     constexpr float kScale = 1.0f / kDropoutProbability;
     constexpr int kHiddenSize = 768;
@@ -9835,8 +9839,7 @@ TEST_F(NVFuserTest, SoftmaxDropout) {
                        .device(at::kCUDA, 0);
     at::Tensor at_scores = at::randn({batch, feature}, options);
     at::Tensor at_mask = at::randn({batch, feature}, options);
-  std::vector<c10::IValue> aten_inputs(
-      {at_scores, at_mask});
+    std::vector<c10::IValue> aten_inputs({at_scores, at_mask});
 
     auto persistent_params = getInnerPersistentHeuristics(fusion, aten_inputs);
     auto lparams = persistent_params->lparams;
@@ -9897,8 +9900,17 @@ TEST_F(NVFuserTest, SoftmaxDropout) {
     }
     return kinfo;
   };
-  test(18*1024, 0, 0, false, false);
-  return;
+  // auto res = test(
+  //   feature,
+  //   persistent_batch_size,
+  //   blocks_per_sm,
+  //   project_to_input,
+  //   decouple_data_load);
+  int64_t batch_size = 2048;
+  // int64_t feature = 18432;
+  // test(batch_size, feature, 9, 2, false, false);
+  // test(batch_size, feature, 9, 2, false, true);
+  // return;
   constexpr int vect_factor = 8;
   constexpr int min_threads_per_block = 32;
   constexpr int max_threads_per_block = 1024;
@@ -9926,9 +9938,10 @@ TEST_F(NVFuserTest, SoftmaxDropout) {
     auto max_batch_size = std::min(
         (int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
     std::vector<kernelInfo> results;
-    results.emplace_back(test(feature, 0, 0, false, false));
+    results.emplace_back(test(batch_size, feature, 0, 0, false, false));
     for (auto decouple_data_load : {true, false}) {
-      for (auto project_to_input : {true, false}) {
+      for (auto project_to_input :
+           {false}) { // can't save buffer size, no need to test project.
         for (auto persistent_batch_size = min_batch_size;
              persistent_batch_size <= max_batch_size;
              persistent_batch_size++) {
@@ -9941,6 +9954,7 @@ TEST_F(NVFuserTest, SoftmaxDropout) {
           for (auto blocks_per_sm = 1; blocks_per_sm <= max_blocks_per_sm;
                blocks_per_sm++) {
             auto res = test(
+                batch_size,
                 feature,
                 persistent_batch_size,
                 blocks_per_sm,
@@ -9967,8 +9981,13 @@ TEST_F(NVFuserTest, SoftmaxDropout) {
     }
 
     // Open a file in write mode
+    char hostname[HOST_NAME_MAX];
+    if (gethostname(hostname, HOST_NAME_MAX) != 0) {
+        std::cerr << "Failed to get the hostname." << std::endl;
+        return;
+    }
     std::ostringstream fname;
-    fname << "a100_softmax_" << feature << ".txt";
+    fname << hostname << "_softmax_dropout_" << feature << ".txt";
     std::ofstream file(fname.str());
     if (file.is_open()) {
       for (auto& info : results) {
