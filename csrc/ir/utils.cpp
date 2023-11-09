@@ -419,9 +419,7 @@ VectorOfUniqueEntries<TensorView*> allTvsOfExprs(
     auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
     auto output_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
     for (const auto& tvs : {input_tvs, output_tvs}) {
-      for (auto tv : tvs) {
-        all_tvs.pushBack(tv);
-      }
+      all_tvs.pushBack(tvs.begin(), tvs.end());
     }
   }
   return all_tvs;
