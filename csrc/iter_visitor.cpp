@@ -469,8 +469,9 @@ void BackwardVisitor::traverseTo(
 
   {
     size_t pos = 0;
-    for (auto expr : exprs)
+    for (auto expr : exprs) {
       traversal_exprs_[expr] = pos++;
+    }
   }
 
   // All stmts we've called handle on
@@ -679,8 +680,9 @@ class DependentVals : public IterVisitor {
   std::unordered_set<Val*> boundary_;
 
   std::vector<Statement*> next(Val* v) override {
-    if (boundary_.find(v) != boundary_.end())
+    if (boundary_.find(v) != boundary_.end()) {
       return std::vector<Statement*>();
+    }
     return IterVisitor::next(v);
   }
 
