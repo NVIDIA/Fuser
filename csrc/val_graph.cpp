@@ -370,18 +370,31 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
 }
 
 void ValGraph::maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward) {
+  // By default, expressions are mapped only when everything is
+  // matched, i.e., inputs, outputs and attributes are all mapped or
+  // equal. When the propagation is allowed, as long as the inputs are
+  // mapped and the attributes are equal, we propagate the mappings to
+  // the outputs and the expressions.
+  // In either case, it should be always true that when two
+  // expressions are mapped, their inputs and outputs are also mapped,
+  // respectively, and vice versa.
+
   if (!exprsMap(expr0, expr1, forward)) {
     return;
   }
 
   // Expr inputs are mapped. If propagate_exprs_ is true, map the
-  // exprs and outputs
+  // exprs and outputs. If not, map the exprs only when both inputs
+  // and outputs are mapped. Since exprsMap makes sure inputs or
+  // outputs are mapped, only outputs or inputs need to be checked
   if (propagate_through_exprs_) {
     mapExprs(expr0, expr1);
     mapThroughExpr(expr0, expr1, forward);
   } else if (
-      inputGroups(toGroup(expr0)) == inputGroups(toGroup(expr1)) &&
-      outputGroups(toGroup(expr0)) == outputGroups(toGroup(expr1))) {
+      (forward &&
+       outputGroups(toGroup(expr0)) == outputGroups(toGroup(expr1))) ||
+      (!forward &&
+       inputGroups(toGroup(expr0)) == inputGroups(toGroup(expr1)))) {
     mapExprs(expr0, expr1);
   }
 }
