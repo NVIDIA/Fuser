@@ -20,6 +20,7 @@
 #include <iter_visitor.h>
 #include <kernel_ir.h>
 #include <options.h>
+#include <polymorphic_value.h>
 #include <serde/utils.h>
 #include <tensor_metadata.h>
 #include <utils.h>
@@ -210,6 +211,7 @@ void FusionExecutor::debugCompileFusionFromStr(
   }
 
   lowered_ = std::make_unique<GpuLower>(fusion);
+  lowered_->run();
   const auto kernel = lowered_->kernel();
   fusion_ = lowered_->kernel();
 
@@ -320,6 +322,7 @@ void FusionExecutor::compileFusion(
   warp_size_ = properties->warpSize;
 
   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
+  lowered_->run();
 
   const auto kernel = lowered_->kernel();
   for (const auto& hook : post_lowering_hooks_) {
@@ -592,8 +595,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
 
   return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
 }
-
-namespace {
 
 class ForwardTraverseFromAllocToRFactor {
   at::Tensor tensor_;
@@ -911,104 +912,89 @@ int64_t IndexOfFusionInput(const Val* in, const Fusion* fusion) {
   return std::distance(fusion->inputs().begin(), i);
 }
 
-} // namespace
+// Returns the at::Tensor allocated for `out_info`.
+//
+// TODO: clean up the API so we explicitly pass in the input alias. This way, we
+// can remove `args` and `kernel`, which unnecessary expose information of
+// unrelated arguments.
+at::Tensor allocateOutput(
+    const FusionExecutor::GlobalBufferInfo& out_info,
+    const KernelArgumentHolder& args,
+    const c10::Device& device,
+    const kir::Kernel* kernel,
+    ExpressionEvaluator& ee) {
+  TensorView* out_tv = out_info.tv;
+
+  auto alias_it = kernel->ioAlias().find(out_tv);
+  // Note: aliased output is not returned as output. But we still need it
+  // for kernel execution, so would need to push them to args
+  if (alias_it != kernel->ioAlias().end()) {
+    const auto aliased_in_index =
+        IndexOfFusionInput(alias_it->second.first, kernel);
+    const PolymorphicValue& in_val = *args[aliased_in_index];
+    NVF_ERROR(
+        in_val.is<at::Tensor>(),
+        "Alias io only supports tensor. Found ",
+        PolymorphicValue_functions::toString(in_val));
+    at::Tensor in_tensor = in_val.as<at::Tensor>();
+
+    switch (alias_it->second.second.type) {
+      case AliasType::InplaceUpdate:
+        // Unlike for `AliasType::PointerCast`, don't use
+        // ExpressionEvaluator to compute the output tensor. This is because
+        // the output tensor may hold different data from the input, e.g., an
+        // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
+        // would trigger non-trivial host computation.
+        return in_tensor;
+
+      case AliasType::PointerCast:
+        auto* in_tv = kernel->inputs()[aliased_in_index]->as<TensorView>();
+        ee.bind(in_tv, in_tensor);
+        at::Tensor out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
+        NVF_ERROR(
+            in_tensor.data_ptr() == out_tensor.data_ptr(),
+            "ExpressionEvaluator failed to evaluate ",
+            out_tv->toString(),
+            " as an alias of ",
+            in_tv->toString());
+        inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
+        return out_tensor;
+    }
+  }
+
+  auto alloc_tensor = at::native::empty_strided_cuda(
+      out_info.sizes,
+      out_info.strides,
+      out_info.type,
+      c10::nullopt,
+      device,
+      c10::nullopt);
+  if (shouldFillAllocationWithNan()) {
+    fillTensorWithNan(alloc_tensor);
+  }
+
+  if (!out_tv->hasAllocation()) {
+    return alloc_tensor;
+  }
+  return transformOutputFromAllocationToRFactor(alloc_tensor, out_tv, ee);
+}
 
 // Allocate output tensors for a given kernel. Outputs may alias inputs, in
 // that case output tensors are shallow copies of the aliased inputs
-std::vector<at::Tensor> allocOutputs(
+std::vector<at::Tensor> allocateOutputs(
     const kir::Kernel* kernel,
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
     const KernelArgumentHolder& inputs,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
-  FUSER_PERF_SCOPE("allocOutput");
+  FUSER_PERF_SCOPE("allocateOutputs");
 
   std::vector<at::Tensor> outputs;
-
+  outputs.reserve(output_info.size());
   for (const auto output_idx : c10::irange(output_info.size())) {
-    const auto& buf_info = output_info.at(output_idx);
-
-    auto alias_it = kernel->ioAlias().find(kernel->outputs()[output_idx]);
-    // Note: aliased output is not returned as output. But we still need it
-    // for kernel execution, so would need to push them to args
-    if (alias_it != kernel->ioAlias().end()) {
-      const auto aliased_input_index =
-          IndexOfFusionInput(alias_it->second.first, kernel);
-      NVF_ERROR(
-          inputs[aliased_input_index]->is<at::Tensor>(),
-          "alias io only supports tensor");
-      at::Tensor input_tensor = inputs[aliased_input_index]->as<at::Tensor>();
-
-      switch (alias_it->second.second.type) {
-        case AliasType::InplaceUpdate:
-          // Unlike for `AliasType::PointerCast`, don't use
-          // ExpressionEvaluator to compute the output tensor. This is because
-          // the output tensor may hold different data as the input, e.g., an
-          // updated running mean.  `ExpressionEvaluator::evaluate(output_tv)`
-          // would trigger non-trivial host computation.
-          outputs.emplace_back(input_tensor);
-          break;
-
-        case AliasType::PointerCast:
-          auto* input_tv =
-              kernel->inputs()[aliased_input_index]->as<TensorView>();
-          auto* output_tv = kernel->outputs()[output_idx]->as<TensorView>();
-          ee.bind(input_tv, input_tensor);
-          at::Tensor output_tensor = ee.evaluate(output_tv).as<at::Tensor>();
-          outputs.emplace_back(output_tensor);
-          break;
-      }
-    } else if (kernel->outputs().at(output_idx)->isFusionInput()) {
-      // Note [ trivial forwarding ]
-      //
-      // Background:
-      // NvFuser codegen does not handle aliases. When we have a fusion that
-      // forwards an input to output without any operations on it, this is
-      // a no-op for codegen and the output tensor is never written to. However,
-      // the codegen cannot "forward" an input to output, since all outputs are
-      // allocated in integration. If we do not special case it, we'll ended up
-      // having a "fresh" tensor allocated for the forwarded-input.
-      //
-      // Approach:
-      // There are two aspects of the support:
-      // 1) Codegen handles forwarding implicitly. Forwarded inputs do not
-      // have any producer in the IR, so the output argument is not used in
-      // the code. However, it is required to be a kernel argument, which acts
-      // as a place-holder, so we can map the arguments correctly.
-      //
-      // 2) Integration handles the trivial forwarding of inputs. When we put
-      // together `fusion_outputs` for a given fusion and the outputs are
-      // fusion inputs, we directly return the input tensor.
-
-      // A trivial forwarding output can be "allocated" similarly to an output
-      // alias. TODO: we can teach alias analysis to mark trivial forwarding so
-      // we can consolidate this case with the case above.
-      const auto aliased_input_index =
-          IndexOfFusionInput(kernel->outputs().at(output_idx), kernel);
-      NVF_ERROR(
-          inputs[aliased_input_index]->is<at::Tensor>(),
-          "alias io only supports tensor");
-      outputs.emplace_back(*inputs[aliased_input_index]);
-    } else {
-      auto alloc_tensor = at::native::empty_strided_cuda(
-          buf_info.sizes,
-          buf_info.strides,
-          buf_info.type,
-          c10::nullopt,
-          device,
-          c10::nullopt);
-      if (shouldFillAllocationWithNan()) {
-        fillTensorWithNan(alloc_tensor);
-      }
-      if (buf_info.tv->hasAllocation()) {
-        outputs.emplace_back(transformOutputFromAllocationToRFactor(
-            alloc_tensor, buf_info.tv, ee));
-      } else {
-        outputs.emplace_back(std::move(alloc_tensor));
-      }
-    }
+    outputs.push_back(
+        allocateOutput(output_info[output_idx], inputs, device, kernel, ee));
   }
-
   return outputs;
 }
 
@@ -1256,6 +1242,19 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
   }
 
   return global_buffers;
+}
+
+std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
+    const at::ArrayRef<c10::IValue>& inputs) {
+  auto kernel_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
+  auto expr_eval =
+      executor_utils::bindInputs(kernel_inputs, lowered_->kernel());
+
+  auto output_info =
+      getOutputBufferInfo(kernel_inputs, expr_eval, kernel()->indexType());
+
+  return allocateOutputs(
+      kernel(), output_info, kernel_inputs, options_.device, expr_eval);
 }
 
 std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
@@ -1654,7 +1653,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
 
   // only allocate outputs when not given
   if (outputs.empty()) {
-    outputs = allocOutputs(
+    outputs = allocateOutputs(
         kernel(), executor_entry->outputs, args, options_.device, expr_eval);
   } else {
     // TODO: Use validateKernelOutputs
@@ -2126,6 +2125,7 @@ void FusionExecutor::deserialize(
 
   // Get lowered fusion
   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
+  lowered_->run();
 
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
   fusion_ = lowered_->kernel()->as<Fusion>();

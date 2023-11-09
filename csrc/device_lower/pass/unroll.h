@@ -60,9 +60,7 @@ namespace nvfuser {
 class UnrollPass : kir::ExprMutator {
  public:
   // Take the incoming exprs and run loop unrolling, returning the new IR
-  static std::vector<Expr*> runPass(
-      Fusion* fusion,
-      const std::vector<Expr*>& exprs);
+  static std::vector<Expr*> runPass(const std::vector<Expr*>& exprs);
 
   static bool canOmitElseClause(kir::ForLoop* fl);
 
