@@ -9551,23 +9551,22 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
     int occupancy;
     bool project_to_input;
     bool decouple_dataload;
-    void print() {
-      std::cout << "persistent_batch_size= " << persistent_batch_size
-                << " threads_per_block= " << threads_per_block
-                << " occupancy= " << occupancy
-                << " max_register= " << max_register
-                << " project_to_input= " << project_to_input
-                << " decouple_dataload= " << decouple_dataload
-                << " bandwidth_GB/s= " << bandwidth << std::endl;
+    void print(std::ostream& os = std::cout) {
+      os << "persistent_batch_size= " << persistent_batch_size
+         << " threads_per_block= " << threads_per_block
+         << " occupancy= " << occupancy << " max_register= " << max_register
+         << " project_to_input= " << project_to_input
+         << " decouple_dataload= " << decouple_dataload
+         << " bandwidth_GB/s= " << bandwidth << std::endl;
     }
   };
-  auto test = [](int persistent_batch_size,
-                 int warps_per_sm,
+  auto test = [](int64_t feature,
+                 int persistent_batch_size,
+                 int blocks_per_sm,
                  bool project_to_input,
                  bool decouple_dataload,
                  bool isBenchmark = true) {
     int64_t batch = 2048;
-    int64_t feature = 18 * 1024;
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     auto fusion = fusion_ptr.get();
     FusionGuard fg(fusion);
@@ -9607,13 +9606,9 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
     //   feature * 4;
     auto warps_per_block =
         ceilDiv(ceilDiv(feature / 8, persistent_batch_size), 32);
-    auto blocks_per_sm = ceilDiv(warps_per_sm, warps_per_block);
     cparams.maxrregcount =
         getRegPerThreadGivenThreadsPerSM(blocks_per_sm * warps_per_block * 32);
-    std::cout << "project_to_input= " << project_to_input
-              << " persistent_batch_size= " << persistent_batch_size
-              << " warps_per_block= " << warps_per_block
-              << " maxrregcount= " << cparams.maxrregcount << std::endl;
+
     FusionExecutor fe;
     fe.compileFusion(fusion, {t0}, lparams, cparams);
     auto cg_outputs = fe.runFusion({t0}, lparams, cparams);
@@ -9623,6 +9618,7 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
     kinfo.persistent_batch_size = persistent_batch_size;
     kinfo.project_to_input = project_to_input;
     kinfo.max_register = cparams.maxrregcount;
+    kinfo.decouple_dataload = decouple_dataload;
     if (isBenchmark) {
       fe.setMeasureKernelTimeFlag(true);
       auto read_write_bytes = fe.bytesProcessed();
@@ -9649,36 +9645,92 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
     return kinfo;
   };
   // auto persistent_batch_size = 4;
-  // auto warp_per_sm = 48;
-  // auto kinfo = test(persistent_batch_size, warp_per_sm);
+  // auto warps_per_sm = 48;
+  // auto kinfo = test(persistent_batch_size, warps_per_sm);
   // kinfo.print();
 
   std::vector<kernelInfo> results;
   // persistent batch size: 3,4,5,6,7,8,[9],18,27
   // corresponding threads per blocks are: ceilDiv(2304,pbs) padd to warp size.
   // [96 to 768]
-  for (auto decouple_data_load : {true, false}) {
-    for (auto project_to_input : {true, false}) {
-      for (auto warp_per_sm : {64, 56, 48, 40, 32, 24, 16}) {
-        for (auto persistent_batch_size : {3, 4, 5, 6, 7, 8, 9, 18, 27}) {
-          results.emplace_back(test(
-              persistent_batch_size,
-              warp_per_sm,
-              project_to_input,
-              decouple_data_load));
+  // feature <= vect_factor * persistent_batch_size * threads_per_block
+  //  max_batch_size in current heuristic is 10.
+  constexpr int vect_factor = 8;
+  constexpr int min_threads_per_block = 32;
+  constexpr int max_threads_per_block = 1024;
+  for (auto feature :
+       {512,
+        768,
+        1024,
+        1280,
+        1536,
+        1600,
+        2048,
+        2560,
+        4096,
+        5120,
+        6656,
+        8192,
+        12288,
+        18432}) {
+    ASSERT_TRUE(feature % vect_factor == 0);
+    auto min_batch_size = ceilDiv(feature / vect_factor, max_threads_per_block);
+    auto max_batch_size =
+        std::min((int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
+    for (auto decouple_data_load : {true, false}) {
+      for (auto project_to_input : {true, false}) {
+        for (auto persistent_batch_size = min_batch_size;
+             persistent_batch_size <= max_batch_size;
+             persistent_batch_size++) {
+          // given a persistent_batch_size, warps_per_block is derived from
+          // feature size and vector factor of 8.
+          auto warps_per_block = ceilDiv(
+              ceilDiv(feature / vect_factor, persistent_batch_size), 32);
+          // target different blocks_per_sm by adjusting register per thread
+          auto max_blocks_per_sm = 64 / warps_per_block;
+          for (auto blocks_per_sm = 1; blocks_per_sm <= max_blocks_per_sm;
+               blocks_per_sm++) {
+            std::cout << "decouple_data_load= " << decouple_data_load
+                      << " project_to_input= " << project_to_input
+                      << " persistent_batch_size= " << persistent_batch_size
+                      << " blocks_per_sm= " << blocks_per_sm 
+                      << " warps_per_block= " << warps_per_block 
+                      << std::endl;
+            results.emplace_back(test(
+                feature,
+                persistent_batch_size,
+                blocks_per_sm,
+                project_to_input,
+                decouple_data_load));
+          }
         }
       }
     }
-  }
 
-  std::sort(
-      results.begin(),
-      results.end(),
-      [](const kernelInfo& a, const kernelInfo& b) {
-        return a.bandwidth > b.bandwidth;
-      });
-  for (int i = 0; i < 5; ++i) {
-    results[i].print();
+    std::sort(
+        results.begin(),
+        results.end(),
+        [](const kernelInfo& a, const kernelInfo& b) {
+          return a.bandwidth > b.bandwidth;
+        });
+    std::cout << "\n--- total tested cases: " << results.size() << std::endl;
+    std::cout << "--- Top 10 cases: " << std::endl;
+    for (int i = 0; i < 10; ++i) {
+      results[i].print();
+    }
+
+    // Open a file in write mode
+    std::ostringstream fname;
+    fname << "a100_softmax_" << feature << ".txt";
+    std::ofstream file(fname.str());
+    if (file.is_open()) {
+      for (auto& info : results) {
+        info.print(file);
+      }
+      file.close(); // Close the file when done
+    } else {
+      std::cerr << "Unable to open file." << std::endl;
+    }
   }
 }
 
