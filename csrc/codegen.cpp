@@ -1098,22 +1098,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     return ss.str();
   }
 
-  static int getOutputRegisterSize(MmaOptions::MacroType macro) {
-    switch (macro) {
-      case MmaOptions::MacroType::Volta_16_16_4:
-      case MmaOptions::MacroType::Ampere_16_16_16:
-      case MmaOptions::MacroType::Turing_16_16_16:
-        return 8;
-      case MmaOptions::MacroType::Turing_16_8_16:
-      case MmaOptions::MacroType::Ampere_16_8_16:
-        return 4;
-      default:
-        NVF_ERROR(false, "unknown macro");
-        break;
-    }
-    return -1;
-  }
-
   static int getInputARegisterSize(MmaOptions::MacroType macro) {
     switch (macro) {
       case MmaOptions::MacroType::Volta_16_16_4:
@@ -1152,39 +1136,21 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto in_a = mma->inA()->as<kir::TensorIndex>()->view();
     auto dtype = in_a->getDataType().value();
     indent() << kTab << "(reinterpret_cast<Array<unsigned"
-             << "," << getInputARegisterSize(macro) << ","
-             << getInputARegisterSize(macro) << ">*>(&"
+             << "," << getInputARegisterSize(macro) << ", 1>*>(&"
              << genVariableName(mma->inA()->as<kir::TensorIndex>()->view())
              << ")[" << genInline(mma->inA()->as<kir::TensorIndex>()->index())
              << "])"
              << ",\n";
     indent() << kTab << "(reinterpret_cast<Array<unsigned"
-             << "," << getInputBRegisterSize(macro) << ","
-             << getInputBRegisterSize(macro) << ">*>(&"
+             << "," << getInputBRegisterSize(macro) << ", 1>*>(&"
              << genVariableName(mma->inB()->as<kir::TensorIndex>()->view())
              << ")[" << genInline(mma->inB()->as<kir::TensorIndex>()->index())
              << "])";
   }
 
-  void genMmaInitialization(const MmaOp* mma, const LoadStoreOp* ldst) {
-    auto macro = mma->macro();
-
-    indent() << genMmaOp(mma, true) << "(*reinterpret_cast<Array<"
-             << mma->out()->getDataType().value() << ","
-             << getOutputRegisterSize(macro) << ","
-             << getOutputRegisterSize(macro) << ">*>"
-             << "(&" << gen(ldst->out()) << "));\n";
-  }
-
   void handle(const MmaOp* mma) final {
-    auto macro = mma->macro();
-    auto out = mma->out()->as<kir::TensorIndex>();
     indent() << genMmaOp(mma) << "(\n";
-    indent() << kTab << "*reinterpret_cast<Array<"
-             << out->view()->getDataType().value() << ","
-             << getOutputRegisterSize(macro) << ","
-             << getOutputRegisterSize(macro) << ">*>(&" << gen(mma->out())
-             << "),\n";
+    indent() << kTab << gen(mma->out()) << ",\n";
     genMmaOperands(mma);
     code_ << ");\n";
   }
@@ -1358,7 +1324,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         auto mma = dynamic_cast<MmaOp*>(out_tv->definition());
         NVF_ERROR(mma != nullptr, "CodeGen: mma op not in mma loop");
         NVF_ERROR(optype == LoadStoreOpType::Set);
-        genMmaInitialization(mma, ldst);
+        indent() << genMmaOp(mma, true) << "(" << gen(ldst->out()) << ");\n";
         return;
       }
 

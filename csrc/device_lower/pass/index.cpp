@@ -1352,6 +1352,16 @@ void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
   pushBack(IrBuilder::create<kir::CpAsyncBulkS2GWait>(0));
 }
 
+static inline DataType getMmaOutType(TensorView* mma_out) {
+  int64_t size = 1;
+  for (auto id : mma_out->getLeafDomain()) {
+    if (id->isMma() && !id->isReduction()) {
+      size *= id->extent()->evaluate().as<int64_t>();
+    }
+  }
+  return ArrayType{std::make_shared<DataType>(DataType::Float), (size_t)size};
+}
+
 void IndexLowering::handle(const LoadStoreOp* ldst) {
   Val* in = nullptr;
   Val* out = nullptr;
@@ -1370,6 +1380,8 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
           std::make_shared<DataType>(DataType::UInt32),
           (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>()) /
               2};
+    } else if (ldst->out()->definition()->isA<MmaOp>()) {
+      as_type = getMmaOutType(ldst->out()->as<TensorView>());
     }
     in = lowerSrcIndex(
         ldst->in(),
@@ -1388,7 +1400,8 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
 void IndexLowering::handle(const MmaOp* mma) {
   const auto a = lowerSrcIndex(mma->inA(), mma->out());
   const auto b = lowerSrcIndex(mma->inB(), mma->out());
-  const auto out = lowerDstIndex(mma->out());
+  const auto out = lowerDstIndex(
+      mma->out(), {}, false, getMmaOutType(mma->out()->as<TensorView>()));
   auto mma_indexed = IrBuilder::create<MmaOp>(
       out, a, b, mma->init(), mma->macro(), mma->layout());
   pushBack(mma_indexed);
