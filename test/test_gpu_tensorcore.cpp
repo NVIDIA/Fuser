@@ -1049,7 +1049,7 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     } pred_checker;
 
     GpuLower gpulw(&fusion);
-    pred_checker.handle(gpulw.kernel()->topLevelExprs());
+    pred_checker.handle(gpulw.run()->topLevelExprs());
     ASSERT_TRUE(pred_checker.found_mma);
   };
 
@@ -4211,6 +4211,225 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
     }
   }
 }
+
+// Test the matmul scheduler's single-kernel split-K support
+TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
+  // requires Ampere or higher GPU
+  if (!deviceMajorMinorCheck(8)) {
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+  }
+
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 504, N = 136, K = 8096;
+
+  for (auto layout : kAllSupportedMatmulLayout) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    auto tv1 = makeContigTensor(2, DataType::Half);
+
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+
+    auto tv2 = matmul(tv0, tv1, layout, true);
+
+    fusion.addOutput(tv2);
+
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.tile_sizes = gemm_tile;
+    params.splitk_factor = 2;
+    scheduleMatmul(&fusion, params);
+
+    auto inputs = matmulAtInput(M, N, K, layout);
+
+    FusionExecutor fe;
+    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+        7, 5, fe.compileFusion(&fusion, {inputs.first, inputs.second}));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+    auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+    auto tref = atMatmul(
+        inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+
+    // Relax tolerance for larger sum due to large K
+    NVF_CHECK(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
+  }
+}
+
+// Test splitk with bias epilogue
+TEST_F(NVFuserTest, FusionAmpereMatmulSplitKBias_CUDA) {
+  // requires Ampere or higher GPU
+  if (!deviceMajorMinorCheck(8)) {
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+  }
+
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 504, N = 136, K = 8096;
+
+  for (auto layout : kAllSupportedMatmulLayout) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+    auto tv0 = makeContigTensor(2, DataType::Half);
+    auto tv1 = makeContigTensor(2, DataType::Half);
+    auto tv2 = makeContigTensor(1, DataType::Half);
+
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+    fusion.addInput(tv2);
+
+    auto tv3 = matmul(tv0, tv1, layout, true);
+    auto tv4 = broadcast(tv2, {false, true});
+    auto tv5 = add(tv3, tv4); // bias
+
+    fusion.addOutput(tv5);
+
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.tile_sizes = gemm_tile;
+    params.splitk_factor = 2;
+    scheduleMatmul(&fusion, params);
+
+    auto [aten_a, aten_b] = matmulAtInput(M, N, K, layout);
+    at::Tensor aten_bias = at::randn({M}, aten_a.options());
+    std::vector<c10::IValue> inputs = {aten_a, aten_b, aten_bias};
+
+    FusionExecutor fe;
+    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+        7, 5, fe.compileFusion(&fusion, inputs));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+    auto cg_outputs = fe.runFusion(inputs);
+    auto tref = atBiasEpilogue(
+        atMatmul(aten_a.to(at::kFloat), aten_b.to(at::kFloat), layout),
+        aten_bias);
+
+    // Relax tolerance for larger sum due to large K
+    NVF_CHECK(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
+  }
+}
+
+// Same as above but has a batch dimension and splitk
+TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitK_CUDA) {
+  // requires Ampere or higher GPU
+  if (!deviceMajorMinorCheck(8)) {
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+  }
+
+  // Keep multiples of 8 to keep vectorizable.
+  int B = 2, M = 504, N = 136, K = 2048;
+
+  for (auto layout : kAllSupportedMatmulLayout) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+    auto tv0 = makeContigTensor(3, DataType::Half);
+    auto tv1 = makeContigTensor(3, DataType::Half);
+
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+
+    auto tv2 = matmul(tv0, tv1, layout, true);
+
+    fusion.addOutput(tv2);
+
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.tile_sizes = gemm_tile;
+    params.splitk_factor = 2;
+    scheduleMatmul(&fusion, params);
+
+    at::Tensor aten_a =
+        matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
+    at::Tensor aten_b =
+        matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
+
+    std::vector<c10::IValue> inputs = {aten_a, aten_b};
+
+    FusionExecutor fe;
+    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+        7, 5, fe.compileFusion(&fusion, inputs));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+    auto cg_outputs = fe.runFusion(inputs);
+    auto tref = atMatmul(aten_a.to(at::kFloat), aten_b.to(at::kFloat), layout);
+
+    // Relax tolerance for larger sum due to large K
+    EXPECT_TRUE(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
+  }
+}
+
+// Test batch splitk with bias epilogue
+TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitKBias_CUDA) {
+  // requires Ampere or higher GPU
+  if (!deviceMajorMinorCheck(8)) {
+    GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
+  }
+
+  // Keep multiples of 8 to keep vectorizable.
+  int B = 2, M = 504, N = 136, K = 2048;
+
+  for (auto layout : kAllSupportedMatmulLayout) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+    auto tv0 = makeContigTensor(3, DataType::Half);
+    auto tv1 = makeContigTensor(3, DataType::Half);
+    auto tv2 = makeContigTensor(1, DataType::Half);
+
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+    fusion.addInput(tv2);
+
+    auto tv3 = matmul(tv0, tv1, layout, true);
+    auto tv4 = broadcast(tv2, {true, false, true});
+    auto tv5 = add(tv3, tv4);
+
+    fusion.addOutput(tv5);
+
+    MatMulTileOptions gemm_tile;
+    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.warp_tile = GemmTile(64, 64, 32);
+    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+
+    MatmulParams params;
+    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.tile_sizes = gemm_tile;
+    params.splitk_factor = 2;
+    scheduleMatmul(&fusion, params);
+
+    at::Tensor aten_a =
+        matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
+    at::Tensor aten_b =
+        matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
+    at::Tensor aten_bias = at::randn({M}, aten_a.options());
+
+    std::vector<c10::IValue> inputs = {aten_a, aten_b, aten_bias};
+
+    FusionExecutor fe;
+    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+        7, 5, fe.compileFusion(&fusion, inputs));
+    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+    auto cg_outputs = fe.runFusion(inputs);
+    auto tref = atBiasEpilogue(
+        atMatmul(aten_a.to(at::kFloat), aten_b.to(at::kFloat), layout),
+        aten_bias);
+
+    // Relax tolerance for larger sum due to large K
+    EXPECT_TRUE(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
+  }
+}
+
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
 
 } // namespace nvfuser

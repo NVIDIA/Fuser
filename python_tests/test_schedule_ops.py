@@ -10,13 +10,7 @@ import torch
 from torch.testing._internal.common_utils import run_tests, TEST_WITH_ROCM, TestCase
 from torch.testing._internal.jit_utils import RUN_CUDA
 
-# Will only create the nvfuser module if CUDA is available
-try:
-    from nvfuser import (
-        FusionDefinition,
-    )
-except ImportError:
-    pass
+from nvfuser import FusionDefinition
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 

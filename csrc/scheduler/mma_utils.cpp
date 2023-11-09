@@ -1173,6 +1173,9 @@ void WarpMmaSwizzler::scheduleVoltaM16N16K4Fp32Output(
 
   //  m-2   m-1   m     m+1   m+2
   //[Warp, Mio2, Nio2, Niii2, (R)]
+  tv->reorder({{m_pos - 1, m_pos}});
+  //  m-2   m-1   m     m+1   m+2
+  //[Warp, Nio2, Mio2, Niii2, (R)]
   tv->axis(m_pos - 2)->parallelize(ParallelType::TIDx);
 
   if (is_reduction && tv->definition()->isA<MmaOp>()) {

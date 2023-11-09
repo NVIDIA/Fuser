@@ -1229,16 +1229,26 @@ struct TensorRecord : RecordFunctor {
     auto rank = shape_.size();
     std::vector<bool> is_expand(rank);
 
-    for (const auto contig_index : c10::irange(rank)) {
-      bool is_broadcast = !contiguity_[contig_index].has_value();
+    for (const auto index : c10::irange(rank)) {
       // since contiguity_ vector is given to the corresponding order in alloc
       // domain, while is_expand is given to root domain, we need to map it
       // correctly with `contig_index` and `index`.
-      const auto index = stride_order_.empty()
-          ? contig_index
-          : rank - 1 - static_cast<size_t>(stride_order_[contig_index]);
-      bool has_symbolic_size = (shape_[index] == -1);
-      is_expand[index] = is_broadcast && has_symbolic_size;
+      //
+      // stride_order[i] indicates that:
+      //   `rfactor_domain[i]` (and therefore `root_domain[i]` for input) maps
+      //   to `alloc_domain[rank - 1 - stride_order_[i]]`
+      //
+      // Hence `index` on root domain would be corresponding to the contiguity
+      // index `contig_index = rank - 1 - stride_order[index]`
+      const auto contig_index = stride_order_.empty()
+          ? index
+          : rank - 1 - static_cast<size_t>(stride_order_[index]);
+      const bool is_broadcast = !contiguity_[contig_index].has_value();
+      const bool has_non_broadcast_size = (shape_[index] != 1);
+      // A root dimension is expand dimension if:
+      //   The dimension is marked a broadcast; and
+      //   The dimension has an expanded extent.
+      is_expand[index] = is_broadcast && has_non_broadcast_size;
     }
 
     auto tv = TensorViewBuilder()

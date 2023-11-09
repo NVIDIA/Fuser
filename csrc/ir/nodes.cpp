@@ -2043,8 +2043,8 @@ MmaOp::MmaOp(
   addInput(in_b);
   // ATTR_POS_INIT
   addAttribute(init);
-  // ATTR_POS_OPTS
-  addDataAttribute(OptionsInMma{});
+  // ATTR_POS_MACRO
+  addDataAttribute(MmaOptions::MacroType::NoMMA);
   // ATTR_POS_M_AXES
   addDataAttribute(AxesData{});
   // ATTR_POS_N_AXES
@@ -2078,10 +2078,10 @@ MmaOp::MmaOp(
     Val* in_a,
     Val* in_b,
     Val* init,
-    const OptionsInMma& options,
+    const MmaOptions::MacroType& macro,
     const MmaLayoutOpt& input_layout)
     : MmaOp(passkey, out, in_a, in_b, init) {
-  attribute<OptionsInMma>(ATTR_POS_OPTS) = options;
+  attribute<MmaOptions::MacroType>(ATTR_POS_MACRO) = macro;
 
   const auto input_layout_ = attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
   if (input_layout_.has_value()) {
@@ -2111,14 +2111,12 @@ std::string MmaOp::toInlineString(int indent_size) const {
 }
 
 void MmaOp::configureOptions(MmaOptions options) {
-  OptionsInMma& opt = attribute<OptionsInMma>(ATTR_POS_OPTS);
+  MmaOptions::MacroType& macro =
+      attribute<MmaOptions::MacroType>(ATTR_POS_MACRO);
   NVF_ERROR(
       options.macro != MmaOptions::MacroType::NoMMA,
       "Un-configured mma type from options.");
-  NVF_ERROR(
-      options.accumulator_stride > 0, "Un-configured accumulator stride.");
-  opt.accumulator_stride = options.accumulator_stride;
-  opt.macro = options.macro;
+  macro = options.macro;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
@@ -2384,43 +2382,21 @@ LoadStoreOp::LoadStoreOp(
   addDataAttribute(cache_op);
 }
 
-namespace {
-// Returns the permutation from `in` to `out`, i.e., `out[i]==in[perm[i]]`. As a
-// precondition, `out` must be a permutation of `in` per the definition of
-// std::is_permutation.
-template <typename T>
-std::vector<int64_t> computePermutation(
-    const std::vector<T>& in,
-    const std::vector<T>& out) {
-  std::vector<int64_t> permutation;
-  permutation.reserve(out.size());
-  // O(n^2) is totally fine for the current use case of computing the
-  // root-to-rfactor permutation. If needed, this can be improved by requiring T
-  // to be hashable and/or comparable.
-  for (const T& out_element : out) {
-    permutation.push_back(std::distance(
-        in.begin(), std::find(in.begin(), in.end(), out_element)));
-  }
-  return permutation;
-}
-} // namespace
-
 std::vector<PolymorphicValue> LoadStoreOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   if (TensorView* out_tv = dynamic_cast<TensorView*>(out())) {
     if (out_tv->hasRFactor()) {
+      std::optional<std::vector<int64_t>> permutation =
+          ir_utils::computePermutation(
+              out_tv->getRootDomain(), out_tv->getRFactorDomain());
       NVF_ERROR(
-          std::is_permutation(
-              out_tv->getRootDomain().begin(),
-              out_tv->getRootDomain().end(),
-              out_tv->getRFactorDomain().begin()),
+          permutation.has_value(),
           "The rfactor domain of a Set.Permute is supposed to be a permutation of the root domain: ",
           out_tv->toString());
       NVF_ERROR(inputs.size() == 1);
       at::Tensor in_tensor = inputs[0].as<at::Tensor>();
-      at::Tensor out_tensor = in_tensor.permute(computePermutation(
-          out_tv->getRootDomain(), out_tv->getRFactorDomain()));
+      at::Tensor out_tensor = in_tensor.permute(*permutation);
       return {out_tensor};
     }
   }
@@ -3695,9 +3671,10 @@ std::vector<IterDomain*> TensorDomain::noBroadcasts(
   return noBroadcastDomain;
 }
 
-std::vector<std::optional<bool>> TensorDomain::getContiguityFilledWith(
-    const std::vector<IterDomain*>& rfactor_domain,
-    bool fill_value) {
+/*static*/ std::vector<std::optional<bool>> TensorDomain::
+    getContiguityFilledWith(
+        const std::vector<IterDomain*>& rfactor_domain,
+        bool fill_value) {
   std::vector<std::optional<bool>> contiguity;
   contiguity.reserve(rfactor_domain.size());
   for (auto id : rfactor_domain) {
