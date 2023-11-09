@@ -238,7 +238,7 @@ void FusionExecutor::debugCompileFusionFromStr(
 
   compiled_kernel_ =
       executor_utils::getCompiledKernel(std::nullopt, code, name, kernel_id_);
-  NVF_ERROR(fusion_id_ >= 0, "assign a fusion_id_ < 0 is not accepted.");
+  NVF_ERROR(validKernelId(), "Invalid kernel id for FusionExecutor.");
 }
 
 void FusionExecutor::compileFusion(
@@ -429,8 +429,7 @@ void FusionExecutor::compileFusion(
       kernel_id_,
       compile_params,
       block_size);
-  NVF_ERROR(
-      fusion_id_ > -1, "failed to assign a fusion_id_ after compilation.");
+  NVF_ERROR(validKernelId(), "Invalid kernel id for FusionExecutor.");
 
   // These should be nullopt at this point, but reset just in case
   resetCompiledKernelProperties();
@@ -1592,7 +1591,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
   NVF_ERROR(isCompiled());
-  NVF_ERROR(fusion_id_ >= 0, "Cannot run fusion, it was not compiled.");
+  NVF_ERROR(validKernelId(), "Invalid kernel id for FusionExecutor.");
   NVF_ERROR(
       !args.getCacheId().has_value() || outputs.empty(),
       "short cut input cache is not compatible with pre-allocated output");

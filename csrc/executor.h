@@ -153,7 +153,7 @@ class FusionExecutor : public NonCopyable {
     if (compiled_kernel_ != nullptr) {
       NVF_ERROR(compiled_kernel_->function != nullptr);
     }
-    return !kernel_id_.empty() && lowered_ && compiled_kernel_ != nullptr;
+    return validKernelId() && lowered_ && compiled_kernel_ != nullptr;
   };
 
   void evictCache(size_t cache_id) {
@@ -281,6 +281,10 @@ class FusionExecutor : public NonCopyable {
 
   static int64_t getGlobalFusionCount() {
     return global_fusion_count_.load();
+  }
+
+  bool validKernelId() const {
+    return !kernel_id_.empty();
   }
 
   void createKernelId(
