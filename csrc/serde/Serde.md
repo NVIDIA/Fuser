@@ -236,7 +236,7 @@ table TensorCreation {
   virtual std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     auto tensor_creation_data =
-      serde::CreateTensorCreationDirect(builder, &shape_, nvfuser::toUnderlying(dtype_);
+      serde::CreateTensorCreationDirect(builder, &shape_, toUnderlying(dtype_);
     return {serde::RecordData_TensorCreation, tensor_creation_data.Union()};
   }
 ```

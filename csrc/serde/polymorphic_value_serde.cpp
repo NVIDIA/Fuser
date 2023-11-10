@@ -179,29 +179,29 @@ flatbuffers::Offset<serde::Scalar> serializeScalar(
     const nvfuser::PolymorphicValue& v,
     nvfuser::DataType t) {
   ScalarBuilder builder_(builder);
-  builder_.add_dtype(nvfuser::toUnderlying(std::get<PrimDataType>(t.type)));
+  builder_.add_dtype(toUnderlying(std::get<PrimDataType>(t.type)));
   if (v.is<std::monostate>()) {
     builder_.add_has_value(false);
     return builder_.Finish();
   } else if (v.is<double>()) {
     builder_.add_has_value(true);
-    builder_.add_value_type(nvfuser::toUnderlying(PrimDataType::Double));
+    builder_.add_value_type(toUnderlying(PrimDataType::Double));
     builder_.add_double_value(v.as<double>());
     return builder_.Finish();
   } else if (v.is<int64_t>()) {
     builder_.add_has_value(true);
-    builder_.add_value_type(nvfuser::toUnderlying(PrimDataType::Int));
+    builder_.add_value_type(toUnderlying(PrimDataType::Int));
     builder_.add_long_value(v.as<int64_t>());
     return builder_.Finish();
   } else if (v.is<bool>()) {
     builder_.add_has_value(true);
-    builder_.add_value_type(nvfuser::toUnderlying(PrimDataType::Bool));
+    builder_.add_value_type(toUnderlying(PrimDataType::Bool));
     builder_.add_bool_value(v.as<bool>());
     return builder_.Finish();
   } else if (v.is<std::complex<double>>()) {
     builder_.add_has_value(true);
     auto c = v.as<std::complex<double>>();
-    builder_.add_value_type(nvfuser::toUnderlying(PrimDataType::ComplexDouble));
+    builder_.add_value_type(toUnderlying(PrimDataType::ComplexDouble));
     builder_.add_real_value(std::real(c));
     builder_.add_imag_value(std::imag(c));
     return builder_.Finish();
