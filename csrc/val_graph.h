@@ -112,15 +112,15 @@ class ValGraph {
   //! outer vector are expression groups that are not equivalent based on the
   //! provided mode, but produce one of the ValGroups within the same disjoint
   //! Val set based on the provided mode.
-  const ExprGroups* getDefinitions(const ValGroup& id_group) const;
+  const ExprGroups* getDefinitions(const ValGroup& val_group) const;
 
   //! Same as getDefinitions but for uses instead of
   //! definitions
-  const ExprGroups* getUses(const ValGroup& id_group) const;
+  const ExprGroups* getUses(const ValGroup& val_group) const;
 
-  bool hasDefinitions(const ValGroup& id_group) const;
+  bool hasDefinitions(const ValGroup& val_group) const;
 
-  bool hasUses(const ValGroup& id_group) const;
+  bool hasUses(const ValGroup& val_group) const;
 
   std::string toString() const;
 
