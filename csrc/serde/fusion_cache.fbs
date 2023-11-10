@@ -14,7 +14,7 @@ file_identifier "NV00";
 // Enum definitions
 
 // The StateType enum indicates whether the state object is a Scalar or Tensor.
-enum StateType : int {
+enum StateType: int {
     Tensor = 0,
     Scalar,
     Vector,
@@ -23,7 +23,7 @@ enum StateType : int {
 
 // The Contiguity enum shows whether a tensor dimension is contiguous
 // with the dimension to its right.
-enum Contiguity : int {
+enum Contiguity: int {
     Strided = 0,
     Contiguous,
     None,
@@ -33,7 +33,7 @@ enum Contiguity : int {
 // Otherwise, the record type is determined via the success of dynamic casting.
 // We enumerate the template arguments of a RecordFunctor, so we can specify
 // them during deserialization.
-enum RecordType : int {
+enum RecordType: int {
     Base = 0,
     AtOp,
     BatchNormOp,
@@ -154,7 +154,7 @@ table Scalar {
 
 // The ScalarCpu is represented by a fixed size array of raw bytes.
 table ScalarCpu {
-  scalar_value : Scalar;
+  scalar_value: Scalar;
 }
 
 // Data of TensorArg.
@@ -170,14 +170,14 @@ table TensorArg {
 
 // This table corresponds with a given PolymorphicValue object.
 table PolymorphicValue {
-  data : PolymorphicValueData;
+  data: PolymorphicValueData;
 }
 
 // This table holds multiple PolymorphicValue objects.
 table KernelArgumentHolder {
-  arguments : [PolymorphicValue];
-  device_index : byte;
-  cache_id : ulong;
+  arguments: [PolymorphicValue];
+  device_index: byte;
+  cache_id: ulong;
 }
 
 //
@@ -186,19 +186,19 @@ table KernelArgumentHolder {
 
 // Data representing a tensor shape used in LaunchParam
 table TensorShape {
-  shape : [long];
+  shape: [long];
 }
 
 // This table holds the cached launch parameters for a kernel.
 table LaunchParams {
-  gdimx : long;
-  gdimy : long;
-  gdimz : long;
-  bdimx : long;
-  bdimy : long;
-  bdimz : long;
-  smem : long;
-  output_sizes : [TensorShape];
+  gdimx: long;
+  gdimy: long;
+  gdimz: long;
+  bdimx: long;
+  bdimy: long;
+  bdimz: long;
+  smem: long;
+  output_sizes: [TensorShape];
 }
 
 // This table describes the cached global buffers for a kernel.
@@ -357,11 +357,14 @@ table FusionExecutor {
   block_size_high_water_mark: long;
   maxrregcount_high_water_mark: long;
   warp_size: long;
+  heuristic: long;
   fusion_id: long;
-  fusion_id_counter : long;
-  kernel_code : string;
-  executor_entry_lookup_keys : [ulong];
-  executor_entry_lookup_values : [ExecutorEntry];
+  concrete_id: long;
+  runtime_id: long;
+  group_id: long;
+  kernel_code: string;
+  executor_entry_lookup_keys: [ulong];
+  executor_entry_lookup_values: [ExecutorEntry];
   // Is this kernel being compiled with int32 or int64 indexing?
   index_type : long;
   compiled_kernel: CudaKernel;
@@ -372,8 +375,11 @@ table FusionExecutor {
 // Each fusion segment is given a FusionExecutor.
 // The unscheduled fusion is defined by traversing Trie in FusionCache.
 table FusionKernelRuntime {
-  args : KernelArgumentHolder;
-  executors : [FusionExecutor];
+  fusion_id: long;
+  concrete_id: long;
+  runtime_id: long;
+  args: KernelArgumentHolder;
+  executors: [FusionExecutor];
 }
 
 // EncodingEntry for InputsIdLookup LRU cache.
@@ -384,35 +390,37 @@ struct EncodingEntry {
 
 // This table is a LRU cache containing input arguments known by the FusionExecutorCache.
 table InputsIdLookup {
-  max_cache_size : ulong;
-  current_id : ulong;
-  lru_cache : [string];
+  max_cache_size: ulong;
+  current_id: ulong;
+  lru_cache: [string];
 
   // This field defines map<std::string, EncodingEntry> encoding_lookup
-  encoding_lookup_keys : [string];
-  encoding_lookup_values : [EncodingEntry];
+  encoding_lookup_keys: [string];
+  encoding_lookup_values: [EncodingEntry];
 }
 
 // This table represents a key-value pair in the kernel_runtimes map in FusionExecutorCache.
 table KernelRuntimeState {
-  device_id : ulong;
-  has_dynamic_transform_info : bool;
-  runtimes : [FusionKernelRuntime];
+  device_id: long;
+  concrete_id: long;
+  has_dynamic_transform_info: bool;
+  runtimes: [FusionKernelRuntime];
 }
 
 // This table describes the FusionExecutorCache.
 // The unscheduled fusion is defined by traversing Trie in FusionCache.
 table FusionExecutorCache {
-  inputs_cache : InputsIdLookup;
+  fusion_id: long;
+  inputs_cache: InputsIdLookup;
 
   // This field represents a map<<size_t, DynamicTransformConcretizationInfo>, vector<FusionKernelRuntime>>.
   // DynamicTransformConcretizationInfo is regenerated during deserialization.
-  kernel_runtimes_map : [KernelRuntimeState];
+  kernel_runtimes_map: [KernelRuntimeState];
 
   // This field defines a map<size_t, FusionKernelRuntime> id_to_kernel_runtime.
-  kernel_cache_keys : [ulong];
+  kernel_cache_keys: [ulong];
   // indices into kernel_runtime_values
-  kernel_cache_values : [ulong];
+  kernel_cache_values: [ulong];
 }
 
 // RecordFunctor represents operations in the Fusion. It is a node in the graph with input and output edges.
@@ -446,7 +454,9 @@ table FusionCache {
   max_fusions: ulong;
   structure: [TrieNode];
   terminal_nodes: [ulong];
-  auto_gen_schedules : [FusionExecutorCache];
+  auto_gen_schedules: [FusionExecutorCache];
+  // static fusion executor counter
+  global_fusion_count: long;
 }
 
 root_type FusionCache;
