@@ -22,9 +22,10 @@ namespace nvfuser::serde {
 //! KernelArgumentHolder, which is used to schedule the fusion in
 //! FusionKernelRuntime and to run a kernel in FusionExecutor.
 class PolymorphicValueFactory
-    : public Factory<serde::PolymorphicValue, nvfuser::PolymorphicValue> {
+    : public Factory<PolymorphicValue, nvfuser::PolymorphicValue> {
  public:
-  PolymorphicValueFactory() : Factory((serde::PolymorphicValueData_MAX + 1)) {
+  PolymorphicValueFactory()
+      : Factory((castEnumToUnderlyingType(PolymorphicValueData::MAX) + 1)) {
     registerAllParsers();
   }
 
@@ -32,17 +33,17 @@ class PolymorphicValueFactory
   void registerAllParsers();
 };
 
-nvfuser::PolymorphicValue deserializePolymorphicValue(const serde::Scalar* c);
+nvfuser::PolymorphicValue deserializePolymorphicValue(const Scalar* c);
 
-flatbuffers::Offset<serde::PolymorphicValue> serializePolymorphicValue(
+flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
     flatbuffers::FlatBufferBuilder& builder,
     std::shared_ptr<nvfuser::PolymorphicValue> v);
 
-flatbuffers::Offset<serde::Scalar> serializeScalarCpu(
+flatbuffers::Offset<Scalar> serializeScalarCpu(
     flatbuffers::FlatBufferBuilder& builder,
     const at::Tensor& tensor);
 
-flatbuffers::Offset<serde::Scalar> serializeScalar(
+flatbuffers::Offset<Scalar> serializeScalar(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::PolymorphicValue& v,
     nvfuser::DataType t);

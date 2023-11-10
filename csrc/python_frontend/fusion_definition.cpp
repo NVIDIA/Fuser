@@ -296,21 +296,21 @@ std::optional<size_t> FusionDefinition::id() const {
 Scalar FusionDefinition::defineScalar() {
   FUSER_PERF_SCOPE("FusionDefinition::defineScalar");
   Scalar out(recording_state_.size(), this);
-  recording_state_.emplace_back(out(), serde::StateType_Scalar);
+  recording_state_.emplace_back(out(), serde::StateType::Scalar);
   return out;
 }
 
 Tensor FusionDefinition::defineTensor(size_t dims) {
   FUSER_PERF_SCOPE("FusionDefinition::defineTensor");
   Tensor out(recording_state_.size(), dims, this);
-  recording_state_.emplace_back(out(), serde::StateType_Tensor);
+  recording_state_.emplace_back(out(), serde::StateType::Tensor);
   return out;
 }
 
 Vector FusionDefinition::defineVector(size_t size) {
   FUSER_PERF_SCOPE("FusionDefinition::defineVector");
   Vector out(recording_state_.size(), size, this);
-  recording_state_.emplace_back(out(), serde::StateType_Vector);
+  recording_state_.emplace_back(out(), serde::StateType::Vector);
   return out;
 }
 

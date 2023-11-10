@@ -70,9 +70,10 @@ typedef std::function<TensorView*(Val*, TensorView*, Val*, Val*)>
 //! RecordFunctor table. We create an enum type for each RecordFunctor class.
 //! Each template specialization has a unique RecordType and parser function.
 class RecordFunctorFactory
-    : public Factory<serde::RecordFunctor, python_frontend::RecordFunctor*> {
+    : public Factory<RecordFunctor, python_frontend::RecordFunctor*> {
  public:
-  RecordFunctorFactory() : Factory((serde::RecordType_MAX + 1)) {
+  RecordFunctorFactory()
+      : Factory((castEnumToUnderlyingType(RecordType::MAX) + 1)) {
     setupFunctionMaps();
     registerAllParsers();
   }
