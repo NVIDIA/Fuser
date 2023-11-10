@@ -1973,19 +1973,8 @@ struct SliceOpRecord : RecordFunctor {
   }
 
   void operator()(FusionState& fd) final {
-    auto ndims = start_indices_.size();
-    std::vector<Slice> ranges;
-    ranges.reserve(ndims);
-    for (const auto i : c10::irange(ndims)) {
-      Slice tmp;
-      tmp.start = IrBuilder::create<nvfuser::Val>(start_indices_[i]);
-      tmp.stop = IrBuilder::create<nvfuser::Val>(end_indices_[i]);
-      tmp.step = IrBuilder::create<nvfuser::Val>(strides_[i]);
-      ranges.emplace_back(tmp);
-    }
-
     auto arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
-    auto output = slice(arg, ranges);
+    TensorView* output = slice(arg, start_indices_, end_indices_, strides_);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 

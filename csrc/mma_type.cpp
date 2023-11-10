@@ -105,54 +105,6 @@ bool isAmpere(MmaOptions::MacroType macro) {
       macro == MmaOptions::MacroType::Ampere_16_16_16;
 }
 
-int getOutputRegisterSize(MmaOptions::MacroType macro) {
-  switch (macro) {
-    case MmaOptions::MacroType::Volta_16_16_4:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-    case MmaOptions::MacroType::Turing_16_16_16:
-      return 8;
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-      return 4;
-    default:
-      NVF_ERROR(false, "unknown macro");
-      break;
-  }
-  return -1;
-}
-
-int getInputARegisterSize(MmaOptions::MacroType macro) {
-  switch (macro) {
-    case MmaOptions::MacroType::Volta_16_16_4:
-      return 4;
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      return 8;
-    default:
-      NVF_ERROR(false, "unknown macro");
-      break;
-  }
-  return -1;
-}
-
-int getInputBRegisterSize(MmaOptions::MacroType macro) {
-  switch (macro) {
-    case MmaOptions::MacroType::Volta_16_16_4:
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-      return 4;
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      return 8;
-    default:
-      NVF_ERROR(false, "unknown macro");
-      break;
-  }
-  return -1;
-}
-
 bool isOperandTransposed(MmaOptions options) {
   switch (options.operand) {
     case MmaOptions::Operand::A:
