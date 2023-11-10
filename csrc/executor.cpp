@@ -1987,7 +1987,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       block_size_high_water_mark_,
       maxrregcount_high_water_mark_,
       warp_size_,
-      toUnderlying(heuristic_),
+      nvfuser::toUnderlying(heuristic_),
       fusion_id_,
       concrete_id_,
       runtime_id_,
@@ -1995,7 +1995,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       kernel_code_.c_str(),
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
-      castEnumToUnderlyingType(kernel()->indexType()),
+      nvfuser::toUnderlying(kernel()->indexType()),
       serialize(builder, *compiled_kernel_));
 }
 
@@ -2104,7 +2104,7 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
       tv_position,
       &data.sizes,
       &data.strides,
-      castEnumToUnderlyingType(data.type),
+      nvfuser::toUnderlying(data.type),
       data.zero_init,
       data.is_profile_buffer,
       is_fusion_output);
@@ -2134,7 +2134,7 @@ void FusionExecutor::deserialize(
   NVF_ERROR(
       group_id == buffer->group_id(),
       "Expected given group_id to match serde group_id.");
-  NVF_ERROR(toUnderlying(heuristic) == buffer->heuristic());
+  NVF_ERROR(nvfuser::toUnderlying(heuristic) == buffer->heuristic());
 
   // Initialize internal fields
   device_smem_limit_ = buffer->device_smem_limit();

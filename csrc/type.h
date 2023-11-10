@@ -998,7 +998,7 @@ inline PolymorphicValue castToDtype(
 // It corresponds with std::to_underlying introduced in c++23
 // https://en.cppreference.com/w/cpp/utility/to_underlying
 template <typename E>
-constexpr auto castEnumToUnderlyingType(E e) noexcept {
+constexpr auto toUnderlying(E e) noexcept {
   return static_cast<std::underlying_type_t<E>>(e);
 }
 
