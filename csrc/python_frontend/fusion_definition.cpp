@@ -10,6 +10,7 @@
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
+#include <scheduler/heuristic_types.h>
 #include <utils.h>
 #include <validator_utils.h>
 
@@ -128,7 +129,11 @@ void FusionDefinition::finalizeSchedule(
   FusionGuard::setCurFusion(prev_fusion_);
   prev_fusion_ = nullptr;
 
-  user_sched_->executor->compileFusion(user_sched_->schedule.get(), inputs);
+  user_sched_->executor->compileFusion(
+      user_sched_->schedule.get(),
+      inputs,
+      user_sched_->fusion_id_,
+      user_sched_->device_id_);
   user_sched_ = nullptr;
 }
 
