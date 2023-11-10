@@ -153,7 +153,7 @@ class FusionExecutor : public NonCopyable {
     if (compiled_kernel_ != nullptr) {
       NVF_ERROR(compiled_kernel_->function != nullptr);
     }
-    return !kernel_id_.empty() && lowered_ && compiled_kernel_ != nullptr;
+    return validKernelId() && lowered_ && compiled_kernel_ != nullptr;
   };
 
   void evictCache(size_t cache_id) {
@@ -283,6 +283,10 @@ class FusionExecutor : public NonCopyable {
     return global_fusion_count_.load();
   }
 
+  bool validKernelId() const {
+    return !kernel_id_.empty();
+  }
+
   void createKernelId(
       ScheduleHeuristic heuristic = ScheduleHeuristic::None,
       int64_t fusion_id = 0,
@@ -358,6 +362,12 @@ class FusionExecutor : public NonCopyable {
       int64_t concrete_id,
       int64_t runtime_id,
       int64_t group_id);
+
+  //! Used in distributed setting where we only want to
+  //!  allocate output space and receive output data from
+  //!  a different rank instead of computing them.
+  std::vector<at::Tensor> allocOutputSpace(
+      const at::ArrayRef<c10::IValue>& inputs);
 
  private:
   LaunchParams computeLaunchParams(
@@ -485,10 +495,11 @@ class FusionExecutor : public NonCopyable {
   // TensorViews actually used in the kernel.
   std::vector<TensorView*> used_tvs_;
 
-  // ID of fusion in python frontend fusion cache
+  // ID of fusion in python frontend fusion cache, which maps to a single
+  // FusionExecutorCache.
   int64_t fusion_id_ = -1;
 
-  // ID of (device, concrete_info) key in fusion executor cache
+  // ID of (device, concrete_info) key in FusionExecutorCache
   int64_t concrete_id_ = -1;
 
   // ID of FusionKernelRuntime given (device, concrete_info) key

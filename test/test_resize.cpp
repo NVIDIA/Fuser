@@ -170,7 +170,7 @@ TEST_F(ResizeTest, FusionResizePad5) {
       tv1->getMemoryType());
 
   GpuLower gpulw(&fusion);
-  auto all_lowered_exprs = KernelExprVisitor::getAllExprs(gpulw.kernel());
+  auto all_lowered_exprs = KernelExprVisitor::getAllExprs(gpulw.run());
   NVF_CHECK(
       std::find_if(
           all_lowered_exprs.begin(),
@@ -944,11 +944,8 @@ TEST_F(ResizeTest, FusionResizeSlice2) {
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
 
-  auto tv1 = slice(
-      tv0,
-      {Slice(),
-       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(shape[1] / 2)}});
-  auto tv2 = slice(tv0, {Slice(), {IrBuilder::create<Val>(shape[1] / 2)}});
+  auto tv1 = slice(tv0, {0, 0}, {shape[0], shape[1] / 2});
+  auto tv2 = slice(tv0, {0, shape[1] / 2}, {shape[0], shape[1]});
   auto tv3 = add(tv1, tv2);
   fusion.addOutput(tv3);
 

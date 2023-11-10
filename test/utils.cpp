@@ -40,8 +40,9 @@ int64_t prime_number(int64_t i) {
 }
 
 void assertCUDAKernel(Fusion* fusion, const std::string& expected_kernel) {
+  GpuLower gpulw(fusion);
   const std::string actual_kernel =
-      "\n" + codegen::generateCudaKernel(GpuLower(fusion).kernel());
+      "\n" + codegen::generateCudaKernel(gpulw.run());
   if (expected_kernel.size() != actual_kernel.size() ||
       expected_kernel.compare(actual_kernel) != 0) {
     std::cerr
@@ -299,38 +300,74 @@ TensorView* matmulVolta(TensorView* a, TensorView* b, MatmulLayout layout) {
   return tv2;
 }
 
+// matmulAtInput provides batched inputs in a splitk-like ordering. It provides
+// contiguous tensors with these shapes
+//   TT: [M, B, K] [B, K, N]
+//   TN: [M, B, K] [N, B, K]
+//   NT: [B, K, M] [B, K, N]
+//   NN: [B, K, M] [N, B, K]
+// fusedMultiplySum assumes [B, M, K] [B, N, K] so here we transpose into that
+// order
 TensorView* matmulTuringOrLater(
     TensorView* a,
     TensorView* b,
     MatmulLayout layout) {
-  NVF_CHECK(
-      a->nDims() == 2 && b->nDims() == 2, "only pure matmuls for these tests");
+  NVF_CHECK(a->nDims() == b->nDims());
+  NVF_CHECK(a->nDims() == 2 || a->nDims() == 3);
   TensorView *tv2 = nullptr, *tv0t = nullptr, *tv1t = nullptr, *tv0b = nullptr,
              *tv1b = nullptr;
-  switch (layout) {
-      // Canonicalize all inputs to [M, K] and [N, K]
-    case MatmulLayout::TT:
-      tv0t = a;
-      tv1t = transpose(b, 0, 1);
-      break;
-    case MatmulLayout::TN:
-      tv0t = a;
-      tv1t = b;
-      break;
-    case MatmulLayout::NT:
-      tv0t = transpose(a, 0, 1);
-      tv1t = transpose(b, 0, 1);
-      break;
-    case MatmulLayout::NN:
-      tv0t = transpose(a, 0, 1);
-      tv1t = b;
-      break;
-    default:
-      NVF_CHECK(false, "unsupported data layout.");
+  if (a->nDims() == 3) { // bmm
+    switch (layout) {
+        // Canonicalize all inputs to [B, M, K] and [B, N, K]
+      case MatmulLayout::TT:
+        tv0t = transpose(a, 0, 1);
+        tv1t = transpose(b, 1, 2);
+        break;
+      case MatmulLayout::TN:
+        tv0t = transpose(a, 0, 1);
+        tv1t = transpose(b, 0, 1);
+        break;
+      case MatmulLayout::NT:
+        tv0t = transpose(a, 1, 2);
+        tv1t = transpose(b, 1, 2);
+        break;
+      case MatmulLayout::NN:
+        tv0t = transpose(a, 1, 2);
+        tv1t = transpose(b, 0, 1);
+        break;
+      default:
+        NVF_CHECK(false, "unsupported data layout.");
+    }
+  } else {
+    switch (layout) {
+        // Canonicalize all inputs to [M, K] and [N, K]
+      case MatmulLayout::TT:
+        tv0t = a;
+        tv1t = transpose(b, 0, 1);
+        break;
+      case MatmulLayout::TN:
+        tv0t = a;
+        tv1t = b;
+        break;
+      case MatmulLayout::NT:
+        tv0t = transpose(a, 0, 1);
+        tv1t = transpose(b, 0, 1);
+        break;
+      case MatmulLayout::NN:
+        tv0t = transpose(a, 0, 1);
+        tv1t = b;
+        break;
+      default:
+        NVF_CHECK(false, "unsupported data layout.");
+    }
   }
-  tv0b = broadcast(tv0t, {false, true, false});
-  tv1b = broadcast(tv1t, {true, false, false});
-  tv2 = fusedMultiplySum(tv0b, tv1b, {2});
+  std::vector<bool> bcast_dims(a->nDims() + 1, false);
+  bcast_dims.at(bcast_dims.size() - 2) = true;
+  tv0b = broadcast(tv0t, bcast_dims);
+  bcast_dims.at(bcast_dims.size() - 2) = false;
+  bcast_dims.at(bcast_dims.size() - 3) = true;
+  tv1b = broadcast(tv1t, bcast_dims);
+  tv2 = fusedMultiplySum(tv0b, tv1b, {-1});
   return tv2;
 }
 
@@ -391,18 +428,45 @@ TensorView* splitkLikeBatchedMatmul(
   return tv2;
 }
 
+// matmulAtInput provides batched inputs in a splitk-like ordering. It provides
+// contiguous tensors with these shapes
+//   TT: [M, B, K] [B, K, N]
+//   TN: [M, B, K] [N, B, K]
+//   NT: [B, K, M] [B, K, N]
+//   NN: [B, K, M] [N, B, K]
+// ATen matmul assumes [B, M, K] [B, K, N] so here we transpose into that order
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
-  switch (layout) {
-    case MatmulLayout::TT:
-      return a.matmul(b);
-    case MatmulLayout::TN:
-      return a.matmul(b.t());
-    case MatmulLayout::NT:
-      return a.t().matmul(b);
-    case MatmulLayout::NN:
-      return a.t().matmul(b.t());
-    default:
-      NVF_CHECK(false, "unsupported data layout.");
+  NVF_CHECK(
+      a.dim() == b.dim(), "Either both or none of A and B should be batch");
+  NVF_CHECK(
+      a.dim() == 2 || a.dim() == 3,
+      "Must have either zero or one batch dimensions");
+  if (a.dim() == 3) { // bmm
+    switch (layout) {
+      case MatmulLayout::TT:
+        return a.transpose(0, 1).matmul(b);
+      case MatmulLayout::TN:
+        return a.transpose(0, 1).matmul(b.transpose(0, 1).transpose(1, 2));
+      case MatmulLayout::NT:
+        return a.transpose(1, 2).matmul(b);
+      case MatmulLayout::NN:
+        return a.transpose(1, 2).matmul(b.transpose(0, 1).transpose(1, 2));
+      default:
+        NVF_CHECK(false, "unsupported data layout.");
+    }
+  } else {
+    switch (layout) {
+      case MatmulLayout::TT:
+        return a.matmul(b);
+      case MatmulLayout::TN:
+        return a.matmul(b.t());
+      case MatmulLayout::NT:
+        return a.t().matmul(b);
+      case MatmulLayout::NN:
+        return a.t().matmul(b.t());
+      default:
+        NVF_CHECK(false, "unsupported data layout.");
+    }
   }
   return at::Tensor();
 }
@@ -736,6 +800,26 @@ size_t getATenRandomSeed() {
   }
 
   return seed;
+}
+
+int getNumSMs() {
+  // Since cudaGetDeviceProperties can be slow, we memoize the value in num_SMs
+  static std::vector<int> num_SMs;
+
+  int dev_idx = 0;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&dev_idx));
+
+  if (num_SMs.size() <= (size_t)dev_idx) {
+    num_SMs.resize(dev_idx + 1, -1);
+  }
+
+  if (num_SMs[dev_idx] == -1) {
+    cudaDeviceProp prop{};
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, dev_idx));
+
+    num_SMs[dev_idx] = prop.multiProcessorCount;
+  }
+  return num_SMs[dev_idx];
 }
 
 } // namespace nvfuser

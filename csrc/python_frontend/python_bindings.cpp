@@ -804,6 +804,17 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dtype") = DataType::Int,
       py::return_value_policy::reference);
 
+  fusion_def.def(
+      "getValTolerances",
+      [](FusionDefinition& self, const py::iterable& input_iter) {
+        std::vector<c10::IValue> inputs;
+        for (py::handle obj : input_iter) {
+          inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+        }
+        return self.getValTolerances(inputs);
+      },
+      py::return_value_policy::reference);
+
   //! The Operators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of operators.
   //!
@@ -2349,8 +2360,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       "slice",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         std::vector<int64_t>& start_indices,
-         std::vector<int64_t>& end_indices,
+         const std::vector<int64_t>& start_indices,
+         const std::vector<int64_t>& end_indices,
          // NOTE: Tried to use std::reference_wrapper to a vector and during
          // testing, I was not getting the proper value back.  It was like
          // like the code was referencing the strides vector that holds the
@@ -2361,7 +2372,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
 
-        std::vector<int64_t> strides(start_indices.size(), int64_t(1));
+        std::vector<int64_t> strides;
         if (opt_strides.has_value()) {
           NVF_CHECK(
               start_indices.size() == opt_strides.value().size(),
@@ -2371,7 +2382,10 @@ void initNvFuserPythonBindings(PyObject* module) {
               opt_strides.value().size());
           strides.assign(
               opt_strides.value().begin(), opt_strides.value().end());
+        } else {
+          strides.resize(start_indices.size(), 1);
         }
+
         NVF_CHECK(
             arg.dims == start_indices.size(),
             "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",

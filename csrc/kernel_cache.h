@@ -300,10 +300,11 @@ class FusionKernelRuntime {
 
   std::mutex mutex_;
 
-  // ID of fusion in python frontend fusion cache
+  // ID of fusion in python frontend fusion cache, which maps to a single
+  // FusionExecutorCache.
   int64_t fusion_id_ = -1;
 
-  // ID of concretized fusion in fusion executor cache
+  // ID of concretized fusion in FusionExecutorCache
   int64_t concrete_id_ = -1;
 
   // ID of FusionKernelRuntime given (device, concrete_info) key
@@ -739,7 +740,8 @@ class FusionExecutorCache {
   //! Initial concretization info
   std::optional<DynamicTransformInitialInfo> initial_info_ = std::nullopt;
 
-  // ID of fusion in python frontend fusion cache
+  // ID of fusion in python frontend fusion cache, which maps to a single
+  // FusionExecutorCache.
   int64_t fusion_id_ = -1;
 };
 

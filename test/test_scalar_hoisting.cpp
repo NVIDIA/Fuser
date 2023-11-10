@@ -51,7 +51,7 @@ TEST_F(ScalarHoistTest, IndexHoist1) {
   // Use Int32 as the index type to verify Int32 is used as the type
   // of hoisted indices
   GpuLower gpulw(&fusion, {DataType::Int32});
-  auto kernel = gpulw.kernel();
+  auto kernel = gpulw.run();
 
   auto is_index_times_ns = [](Val* val, Val* index, std::string name) -> bool {
     auto def = dynamic_cast<BinaryOp*>(val->definition());
