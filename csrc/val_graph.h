@@ -158,23 +158,25 @@ class ValGraph {
   // them. The forward parameter determines the direction of the
   // propagation. The expressions are mapped if the inputs are mapped
   // when the forward parameter is true. This should
-  // be the only call in IdGraph to mapThroughExpr.
+  // be the only call in ValGraph to mapThroughExpr.
   void maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward);
 
  private:
-  // Map expr0 and expr1 with each other, update unique_definitions_ unique_uses_
+  // Map expr0 and expr1 with each other, update unique_definitions_
+  // unique_uses_
   // TODO: Make this variant hidden?
   void mapExprs(Expr* expr0, Expr* expr1);
 
-  // Checks if expr's are considered "the same" where sameness inputs and
-  // outputs in the same position across expressions map with  provided
-  // MappingMode. If the expressions are determined the same then
+  // Checks if expr's are considered "the same" where sameness is
+  // defined as inputs and outputs in the same position across
+  // expressions are mapped. If the expressions are determined the
+  // same then
   // if forward
   //   will map outputs
   // else
   //   will map inputs
   // in the provided mode.
-  // Returns if expressions were mapped through.
+  // Returns true if expressions were mapped through.
   //
   bool mapThroughExpr(Expr* first, Expr* second, bool forward);
 
