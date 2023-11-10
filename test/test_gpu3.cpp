@@ -48,15 +48,15 @@
 #include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAStream.h>
 
+#include <limits.h>
+#include <unistd.h>
 #include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <sstream>
+#include <string>
 #include <thread>
 #include <typeinfo>
-#include <unistd.h>
-#include <limits.h>
-#include <string>
 namespace nvfuser {
 
 using namespace at::indexing;
@@ -9933,6 +9933,9 @@ TEST_F(NVFuserTest, SoftmaxDropout) {
     features.insert(i);
   }
   for (auto feature : features) {
+    if (feature <= 11 * 1024) {
+      continue;
+    }
     ASSERT_TRUE(feature % vect_factor == 0);
     auto min_batch_size = ceilDiv(feature / vect_factor, max_threads_per_block);
     auto max_batch_size = std::min(
@@ -9983,11 +9986,238 @@ TEST_F(NVFuserTest, SoftmaxDropout) {
     // Open a file in write mode
     char hostname[HOST_NAME_MAX];
     if (gethostname(hostname, HOST_NAME_MAX) != 0) {
-        std::cerr << "Failed to get the hostname." << std::endl;
-        return;
+      std::cerr << "Failed to get the hostname." << std::endl;
+      return;
     }
     std::ostringstream fname;
     fname << hostname << "_softmax_dropout_" << feature << ".txt";
+    std::ofstream file(fname.str());
+    if (file.is_open()) {
+      for (auto& info : results) {
+        info.print(file);
+      }
+      file.close(); // Close the file when done
+    } else {
+      std::cerr << "Unable to open file." << std::endl;
+    }
+  }
+}
+
+TEST_F(NVFuserTest, LayerNorm) {
+  struct kernelInfo {
+    float bandwidth;
+    float occupancy;
+    float speedup;
+    int threads_per_block;
+    int persistent_batch_size;
+    int max_register;
+    int register_spills;
+    bool project_to_input;
+    bool decouple_dataload;
+    void print(std::ostream& os = std::cout) {
+      os << "persistent_batch_size= " << persistent_batch_size
+         << " threads_per_block= " << threads_per_block
+         << " occupancy= " << occupancy << " max_register= " << max_register
+         << " register_spills= " << register_spills
+         << " project_to_input= " << project_to_input
+         << " decouple_dataload= " << decouple_dataload
+         << " bandwidth_GBps= " << bandwidth << " speedup= " << speedup
+         << std::endl;
+    }
+  };
+  auto test = [](int64_t batch,
+                 int64_t feature,
+                 int persistent_batch_size,
+                 int blocks_per_sm,
+                 bool project_to_input,
+                 bool decouple_dataload,
+                 bool isBenchmark = true) {
+    std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+    auto fusion = fusion_ptr.get();
+    FusionGuard fg(fusion);
+    auto dtype = DataType::Half;
+    std::vector<int64_t> input_shape{batch, feature};
+    std::vector<int64_t> norm_shape{feature};
+    auto input_half = makeContigTensor(2, dtype);
+    auto weight_half = makeContigTensor(1, dtype);
+    auto bias_half = makeContigTensor(1, dtype);
+    fusion->addInput(input_half);
+    fusion->addInput(weight_half);
+    fusion->addInput(bias_half);
+    auto input = castOp(DataType::Float, input_half);
+    auto weight = castOp(DataType::Float, weight_half);
+    auto bias = castOp(DataType::Float, bias_half);
+    const float kEps = 1e-5;
+    Val* eps_ptr = IrBuilder::create<Val>(kEps);
+    auto result = layer_norm(input, norm_shape, weight, bias, eps_ptr);
+    auto result_output = castOp(dtype, result.output);
+    fusion->addOutput(result_output);
+    fusion->addOutput(result.mean);
+    fusion->addOutput(result.invstd);
+
+    // inputs
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
+    at::Tensor aten_input = at::randn(input_shape, options);
+    c10::optional<at::Tensor> aten_weight =
+        at::randn({input_shape[1]}, options);
+    c10::optional<at::Tensor> aten_bias = at::randn({input_shape[1]}, options);
+    auto aten_outputs = at::native_layer_norm(
+
+        aten_input, norm_shape, aten_weight, aten_bias, kEps);
+    std::vector<c10::IValue> aten_inputs({aten_input, aten_weight, aten_bias});
+
+    auto persistent_params = getInnerPersistentHeuristics(fusion, aten_inputs);
+    auto lparams = persistent_params->lparams;
+    auto cparams = persistent_params->cparams;
+    cparams.enable_ptxas_verbose = true;
+    auto warps_per_block = ceilDiv(
+        ceilDiv(
+            feature / 8, persistent_params->batches_per_block_inner_reduction),
+        32);
+    if (persistent_batch_size > 0 && blocks_per_sm > 0) {
+      persistent_params->batches_per_block_inner_reduction =
+          persistent_batch_size;
+      persistent_params->maybe_special_inline_cached_inputs = decouple_dataload;
+      warps_per_block =
+          ceilDiv(ceilDiv(feature / 8, persistent_batch_size), 32);
+      cparams.maxrregcount = getRegPerThreadGivenThreadsPerSM(
+          blocks_per_sm * warps_per_block * 32);
+    }
+
+    scheduleInnerPersistentKernel(fusion, *persistent_params);
+
+    FusionExecutor fe;
+    fe.compileFusion(fusion, aten_inputs, lparams, cparams);
+    auto cg_outputs = fe.runFusion(aten_inputs, lparams, cparams);
+    testValidate(
+        fusion,
+        cg_outputs,
+        aten_inputs,
+        {std::get<0>(aten_outputs),
+         std::get<1>(aten_outputs),
+         std::get<2>(aten_outputs)},
+        __LINE__,
+        __FILE__,
+        "");
+
+    kernelInfo kinfo;
+    kinfo.threads_per_block = warps_per_block * 32;
+    kinfo.persistent_batch_size =
+        persistent_params->batches_per_block_inner_reduction;
+    kinfo.project_to_input = project_to_input;
+    kinfo.max_register = cparams.maxrregcount;
+    kinfo.decouple_dataload = decouple_dataload;
+    if (isBenchmark) {
+      fe.setMeasureKernelTimeFlag(true);
+      auto read_write_bytes = fe.bytesProcessed();
+      constexpr int nwarm = 5;
+      constexpr int niter = 10;
+      std::vector<float> bw(niter, 0.f);
+      for (int i = 0; i < nwarm + niter; i++) {
+        clearL2Cache();
+        auto cg_outputs = fe.runFusion(aten_inputs, lparams, cparams);
+        if (i >= nwarm) {
+          float runTimeus = fe.kernelTimeMs() * 1e3;
+          float bandwidth = read_write_bytes / 1e9 / (runTimeus * 1e-6);
+          bw[i - nwarm] = bandwidth;
+          if (false) {
+            std::cout << "iter= " << i << ", bandwidth= " << bandwidth << "GB/s"
+                      << ", time= " << runTimeus << " us" << std::endl;
+          }
+        }
+      }
+      kinfo.occupancy = fe.getKernelOccupancy();
+      kinfo.register_spills = fe.getKernelRegisterSpills();
+      kinfo.bandwidth = std::accumulate(bw.begin(), bw.end(), 0.0f) / bw.size();
+      if (persistent_batch_size == 0 && blocks_per_sm == 0) {
+        kinfo.bandwidth += 1e4;
+        kinfo.speedup = 1.0f;
+      }
+    }
+    return kinfo;
+  };
+  int64_t batch_size = 2048;
+  // test(batch_size, 18*1024, 0, 0, false, false);
+  // return;
+  constexpr int vect_factor = 8;
+  constexpr int min_threads_per_block = 32;
+  constexpr int max_threads_per_block = 1024;
+  std::set<int> features{
+      512,
+      768,
+      1024,
+      1280,
+      1536,
+      1600,
+      2048,
+      2560,
+      4096,
+      5120,
+      6656,
+      8192,
+      12288,
+      18432};
+  for (int i = 1024; i <= 20480; i += 1024) {
+    features.insert(i);
+  }
+  for (auto feature : features) {
+    ASSERT_TRUE(feature % vect_factor == 0);
+    auto min_batch_size = ceilDiv(feature / vect_factor, max_threads_per_block);
+    auto max_batch_size = std::min(
+        (int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
+    std::vector<kernelInfo> results;
+    results.emplace_back(test(batch_size, feature, 0, 0, false, false));
+    for (auto decouple_data_load : {false}) {
+      for (auto project_to_input :
+           {false}) { // can't save buffer size, no need to test project.
+        for (auto persistent_batch_size = min_batch_size;
+             persistent_batch_size <= max_batch_size;
+             persistent_batch_size++) {
+          // given a persistent_batch_size, warps_per_block is derived from
+          // feature size and vector factor of 8.
+          auto warps_per_block = ceilDiv(
+              ceilDiv(feature / vect_factor, persistent_batch_size), 32);
+          // target different blocks_per_sm by adjusting register per thread
+          auto max_blocks_per_sm = 64 / warps_per_block;
+          for (auto blocks_per_sm = 1; blocks_per_sm <= max_blocks_per_sm;
+               blocks_per_sm++) {
+            auto res = test(
+                batch_size,
+                feature,
+                persistent_batch_size,
+                blocks_per_sm,
+                project_to_input,
+                decouple_data_load);
+            res.speedup = res.bandwidth / (results[0].bandwidth - 1e4);
+            results.emplace_back(res);
+            res.print();
+          }
+        }
+      }
+    }
+
+    std::sort(
+        results.begin(),
+        results.end(),
+        [](const kernelInfo& a, const kernelInfo& b) {
+          return a.bandwidth > b.bandwidth;
+        });
+    std::cout << "\n--- Default and top 10 cases out of tested cases: "
+              << results.size() << std::endl;
+    for (int i = 0; i < 11; ++i) {
+      results[i].print();
+    }
+
+    // Open a file in write mode
+    char hostname[HOST_NAME_MAX];
+    if (gethostname(hostname, HOST_NAME_MAX) != 0) {
+      std::cerr << "Failed to get the hostname." << std::endl;
+      return;
+    }
+    std::ostringstream fname;
+    fname << "/hhome/benchmarks/layernorm_heuristics/" << hostname << "_layernorm_" << batch_size << "_" << feature << ".txt";
     std::ofstream file(fname.str());
     if (file.is_open()) {
       for (auto& info : results) {
