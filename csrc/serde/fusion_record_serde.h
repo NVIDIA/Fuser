@@ -73,7 +73,7 @@ class RecordFunctorFactory
     : public Factory<RecordFunctor, python_frontend::RecordFunctor*> {
  public:
   RecordFunctorFactory()
-      : Factory((castEnumToUnderlyingType(RecordType::MAX) + 1)) {
+      : Factory((nvfuser::toUnderlying(RecordType::MAX) + 1)) {
     setupFunctionMaps();
     registerAllParsers();
   }

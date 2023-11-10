@@ -30,7 +30,7 @@ class Factory {
 
   template <typename SerdeEnum>
   void registerParser(SerdeEnum serde_type, SerdeParser parser) {
-    auto serde_integer = castEnumToUnderlyingType(serde_type);
+    auto serde_integer = nvfuser::toUnderlying(serde_type);
     NVF_ERROR(
         serde_integer >= 0 && serde_integer < (int)parsers_.size(),
         "RegisterParser: Invalid serde type: ",
@@ -40,7 +40,7 @@ class Factory {
 
   template <typename SerdeEnum>
   BaseTypePtr parse(SerdeEnum serde_type, const SerdeBuffer* buffer) {
-    auto serde_integer = castEnumToUnderlyingType(serde_type);
+    auto serde_integer = nvfuser::toUnderlying(serde_type);
     NVF_ERROR(
         serde_integer >= 0 && serde_integer < (int)parsers_.size(),
         "Deserialize: Invalid serde type: ",

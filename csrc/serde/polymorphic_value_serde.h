@@ -25,7 +25,7 @@ class PolymorphicValueFactory
     : public Factory<PolymorphicValue, nvfuser::PolymorphicValue> {
  public:
   PolymorphicValueFactory()
-      : Factory((castEnumToUnderlyingType(PolymorphicValueData::MAX) + 1)) {
+      : Factory((nvfuser::toUnderlying(PolymorphicValueData::MAX) + 1)) {
     registerAllParsers();
   }
 
