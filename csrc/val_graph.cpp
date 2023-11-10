@@ -383,7 +383,7 @@ void ValGraph::maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward) {
     return;
   }
 
-  // Expr inputs are mapped. If propagate_exprs_ is true, map the
+  // Expr inputs are mapped. If propagate_through_exprs_ is true, map the
   // exprs and outputs. If not, map the exprs only when both inputs
   // and outputs are mapped. Since exprsMap makes sure inputs or
   // outputs are mapped, only outputs or inputs need to be checked

@@ -190,12 +190,12 @@ class ValGraph {
 
  private:
   // If propagate_through_exprs_ = false, then mapThroughExpr will not be called
-  // as a consequence of calling mapIds. As well as mapThroughExpr will not be
+  // as a consequence of calling mapVals. As well as mapThroughExpr will not be
   // called (again) as a result of calling mapThroughExpr.
   //
-  // Note: For the second sentence of above... mapThroughExpr can call mapIds
-  // which could in return call mapThoughExpr again, but propagate_exprs_ as
-  // mentioned above prevents that from happening.
+  // Note: For the second sentence of above... mapThroughExpr can call mapVals
+  // which could in return call mapThoughExpr again, but
+  // propagate_through_exprs_ as mentioned above prevents that from happening.
   bool propagate_through_exprs_ = true;
 
   // Keeps a disjoint set entry for all Vals.
@@ -205,7 +205,7 @@ class ValGraph {
   // https://stackoverflow.com/questions/2102582/how-can-i-count-the-items-in-an-enum
   DisjointSets<Val*> disjoint_vals_;
 
-  // Keeps a disjoint set entry for all Expressions.
+  // Keeps a disjoint set entry for all Exprs.
   DisjointSets<Expr*> disjoint_exprs_;
 
   // Definitions of ValGroup. There can be multiple definitions due to
