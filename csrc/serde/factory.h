@@ -9,6 +9,7 @@
 
 #include <c10/util/Exception.h>
 #include <exceptions.h>
+#include <type.h>
 #include <functional>
 
 namespace nvfuser::serde {
