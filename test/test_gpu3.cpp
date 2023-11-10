@@ -9741,8 +9741,15 @@ TEST_F(NVFuserTest, SoftmaxNotInlineDataLoad) {
     }
 
     // Open a file in write mode
+    // Open a file in write mode
+    char hostname[HOST_NAME_MAX];
+    if (gethostname(hostname, HOST_NAME_MAX) != 0) {
+      std::cerr << "Failed to get the hostname." << std::endl;
+      return;
+    }
     std::ostringstream fname;
-    fname << "h100_softmax_" << batch_size << "_" << feature << ".txt";
+    fname << "/hhome/benchmarks/softmax_heuristics/" << hostname << "_softmax_"
+          << batch_size << "_" << feature << ".txt";
     std::ofstream file(fname.str());
     if (file.is_open()) {
       for (auto& info : results) {
@@ -9906,7 +9913,7 @@ TEST_F(NVFuserTest, SoftmaxDropout) {
   //   blocks_per_sm,
   //   project_to_input,
   //   decouple_data_load);
-  int64_t batch_size = 2048;
+  int64_t batch_size = 1024 * 32;
   // int64_t feature = 18432;
   // test(batch_size, feature, 9, 2, false, false);
   // test(batch_size, feature, 9, 2, false, true);
@@ -9990,7 +9997,8 @@ TEST_F(NVFuserTest, SoftmaxDropout) {
       return;
     }
     std::ostringstream fname;
-    fname << hostname << "_softmax_dropout_" << feature << ".txt";
+    fname << "/hhome/benchmarks/softmax_heuristics/" << hostname
+          << "_softmax_dropout_" << batch_size << "_" << feature << ".txt";
     std::ofstream file(fname.str());
     if (file.is_open()) {
       for (auto& info : results) {
@@ -10138,7 +10146,7 @@ TEST_F(NVFuserTest, LayerNorm) {
     }
     return kinfo;
   };
-  int64_t batch_size = 2048;
+  int64_t batch_size = 1024 * 32;
   // test(batch_size, 18*1024, 0, 0, false, false);
   // return;
   constexpr int vect_factor = 8;
@@ -10369,7 +10377,7 @@ TEST_F(NVFuserTest, LayerNormDropout) {
     }
     return kinfo;
   };
-  int64_t batch_size = 2048;
+  int64_t batch_size = 1024 * 32;
   // test(batch_size, 18*1024, 0, 0, false, false);
   // return;
   constexpr int vect_factor = 8;
