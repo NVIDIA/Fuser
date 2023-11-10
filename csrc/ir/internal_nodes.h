@@ -2067,12 +2067,12 @@ class SliceOp : public Expr {
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
-  Val* out() const {
-    return output(0);
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
   }
 
-  Val* in() const {
-    return input(0);
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
   }
 
   std::vector<Slice> getRanges() const;

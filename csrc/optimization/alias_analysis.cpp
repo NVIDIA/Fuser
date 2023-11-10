@@ -243,4 +243,14 @@ AliasAnalysisResult findAliases(Fusion* fusion) {
   return analysis;
 }
 
+std::string Layout::toString(const int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "<allocation=["
+                          << toDelimitedString(allocation_domain)
+                          << "], contiguity=["
+                          << toDelimitedString(contiguity, /*delim=*/" ")
+                          << "]>";
+  return ss.str();
+}
+
 } // namespace nvfuser::optimization
