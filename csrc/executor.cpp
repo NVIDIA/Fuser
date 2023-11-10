@@ -1987,7 +1987,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       block_size_high_water_mark_,
       maxrregcount_high_water_mark_,
       warp_size_,
-      castEnumToUnderlyingType(heuristic_),
+      toUnderlying(heuristic_),
       fusion_id_,
       concrete_id_,
       runtime_id_,
@@ -2134,7 +2134,7 @@ void FusionExecutor::deserialize(
   NVF_ERROR(
       group_id == buffer->group_id(),
       "Expected given group_id to match serde group_id.");
-  NVF_ERROR(castEnumToUnderlyingType(heuristic) == buffer->heuristic());
+  NVF_ERROR(toUnderlying(heuristic) == buffer->heuristic());
 
   // Initialize internal fields
   device_smem_limit_ = buffer->device_smem_limit();

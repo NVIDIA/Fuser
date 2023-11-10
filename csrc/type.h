@@ -29,11 +29,6 @@
 
 namespace nvfuser {
 
-template <typename E>
-constexpr auto castEnumToUnderlyingType(E e) noexcept {
-  return static_cast<std::underlying_type_t<E>>(e);
-}
-
 // Order of strength
 enum class ValType {
   TensorDomain,
@@ -999,7 +994,9 @@ inline PolymorphicValue castToDtype(
   return value;
 }
 
-// Convert an enum to its underlying type.
+// Converts an enum to its underlying type.
+// It corresponds with std::to_underlying introduced in c++23
+// https://en.cppreference.com/w/cpp/utility/to_underlying
 template <typename E>
 constexpr auto toUnderlying(E e) noexcept {
   return static_cast<std::underlying_type_t<E>>(e);
