@@ -21,7 +21,7 @@ namespace nvfuser {
 
 class ValGraph;
 
-// A collection of IterDomainGraphs that are built from a fusion or series of
+// A collection of ValGraphs that are built from a fusion or series of
 // expressions. These graphs are related, but have some distinct features based
 // on the IdMappingMode.
 //

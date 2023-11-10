@@ -94,7 +94,7 @@ class VectorOfUniqueEntries {
 
   // Returns a new VectorOfUniqueEntries with entries that are in both this and
   // other, order is preserved as this.
-  VectorOfUniqueEntries<T, Hash> intersect(
+  VectorOfUniqueEntries<T, Hash> computeIntersect(
       const VectorOfUniqueEntries<T, Hash>& other) const {
     VectorOfUniqueEntries<T, Hash> intersection;
     for (const auto& entry : vector()) {
@@ -107,7 +107,7 @@ class VectorOfUniqueEntries {
 
   // Returns a new VectorOfUniqueEntries with entries that are in this but not
   // in other.
-  VectorOfUniqueEntries<T, Hash> subtract(
+  VectorOfUniqueEntries<T, Hash> computeSubtract(
       const VectorOfUniqueEntries<T, Hash>& other) const {
     VectorOfUniqueEntries<T, Hash> subtraction;
     for (const auto& entry : vector()) {
