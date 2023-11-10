@@ -149,7 +149,7 @@ class ValGraph {
     unique_definitions_.at(id_group).pushBack(defs);
   }
 
-  // Set val0 and val1 to mapped in disjointValsSet[mode], attempt to propagate
+  // Set val0 and val1 to mapped in this graph, attempt to propagate
   // new mapping through val0/val1 definitions/uses.
   void mapVals(Val* val0, Val* val1);
 
@@ -162,7 +162,7 @@ class ValGraph {
   void maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward);
 
  private:
-  // Map expr0 and expr1 with eachother, update unique_definitions_ unique_uses_
+  // Map expr0 and expr1 with each other, update unique_definitions_ unique_uses_
   // TODO: Make this variant hidden?
   void mapExprs(Expr* expr0, Expr* expr1);
 
