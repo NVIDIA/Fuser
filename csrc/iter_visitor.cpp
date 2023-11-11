@@ -1046,13 +1046,6 @@ void DeadCodeRemover::handle(TensorView* tv) {
 }
 
 bool DeadCodeRemover::registerReplacement(Val* old_val, Val* new_val) {
-  // Mark new val live
-  markLiveRecursive(new_val);
-
-  if (old_val->isFusionOutput()) {
-    fusion_->replaceOutput(old_val, new_val);
-  }
-
   vals_to_replace_.emplace_back(old_val, new_val);
 
   if (old_val->isFusionInput()) {
