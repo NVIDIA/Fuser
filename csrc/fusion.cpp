@@ -205,8 +205,20 @@ void Fusion::removeVal(Val* val) {
     removeExpr(orig);
   }
 
-  for (Expr* use : unordered_uses(val)) {
-    removeExpr(use);
+  const std::unordered_set<Expr*> exprs = exprs_;
+  std::vector<Expr*> exprs_to_remove;
+  for (Expr* e : exprs_) {
+    if (!inContainer(e)) {
+      continue;
+    }
+    if (std::find(e->inputs().begin(), e->inputs().end(), val) !=
+        e->inputs().end()) {
+      // Avoid removing until after we've looped through exprs_
+      exprs_to_remove.push_back(e);
+    }
+  }
+  for (auto e : exprs_to_remove) {
+    removeExpr(e);
   }
   IrContainer::removeVal(val);
 }
