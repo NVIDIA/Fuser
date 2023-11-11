@@ -2649,20 +2649,19 @@ struct RandomOpRecord : RecordFunctor {
   RandomOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      std::vector<State> output_shape,
-      std::string _name,
+      std::string name,
+      serde::RecordType record_type,
       PrimDataType dtype)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
-            _name,
-            serde::RecordType_RandomOp),
-        output_shape_(std::move(output_shape)),
+            name,
+            record_type),
         dtype_(dtype) {
-    if (args_.size() == 4) {
-      // seed and offset were provided in addition to the usual 2 arguments
-      setArgName(2, "rng_seed");
-      setArgName(3, "rng_offset");
+    setArgName(2, "shape");
+    if (args_.size() == 5) {
+      setArgName(3, "rng_seed");
+      setArgName(4, "rng_offset");
     }
   }
   ~RandomOpRecord() override = default;
@@ -2671,29 +2670,18 @@ struct RandomOpRecord : RecordFunctor {
   }
 
   //! Child specific hash function in lower 32 bits.
-  //! | 31 -------------- 16 | 15 --------------  0 |
-  //! |   distribution hash  | output_shape hash    |
+  //! | 31 ---------------------------------------  0 |
+  //! | Dtype                                         |
   size_t hash() const final {
     auto result = RecordFunctor::hash();
-    return result | (output_shape_.size() & 0xffff) |
-        (std::hash<std::string>{}(name_.c_str()) & 0xffff << 16);
+    return result | (static_cast<size_t>(dtype_) & 0xffffffff);
   }
 
   bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const RandomOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
-      if (result) {
-        result = (output_shape_.size() == child_ptr->output_shape_.size());
-        if (result) {
-          for (size_t i = 0; i < output_shape_.size(); ++i) {
-            if (output_shape_[i] != child_ptr->output_shape_[i]) {
-              result = false;
-              break;
-            }
-          }
-        }
-      }
+      result = result && (dtype_ == child_ptr->dtype_);
     }
     return result;
   }
@@ -2767,8 +2755,6 @@ struct RandomOpRecord : RecordFunctor {
   }
 
  private:
-  //! Represents the tensor dimensions of the output tensor.
-  std::vector<State> output_shape_;
   //! DataType of output
   PrimDataType dtype_;
 };
