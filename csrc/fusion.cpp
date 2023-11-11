@@ -205,7 +205,6 @@ void Fusion::removeVal(Val* val) {
     removeExpr(orig);
   }
 
-  const std::unordered_set<Expr*> exprs = exprs_;
   std::vector<Expr*> exprs_to_remove;
   for (Expr* e : exprs_) {
     if (!inContainer(e)) {
