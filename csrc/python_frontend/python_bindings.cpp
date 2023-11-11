@@ -153,15 +153,15 @@ template <class ShapeType, serde::RecordType RType>
 Tensor random_dist_op_fn(FusionDefinition::Operators& self,
    Scalar minval,
    Scalar maxval,
-   ShapeType shape,
-   PrimDataType dtype,
+   ShapeType generic_new_shape,
    std::optional<Scalar> rng_seed,
-   std::optional<Scalar> rng_offset) {
+   std::optional<Scalar> rng_offset,
+   PrimDataType dtype) {
   static_assert((RType == serde::RecordType_NormalDistOp) || (RType == serde::RecordType_UniformDistOp));
   NVF_CHECK(
       self.validUse(), "Attempting to add to a completed definition!");
   FusionDefinition* fd = self.fusion_definition;
-  Vector new_shape = ShapeAsVector(shape, *fd);
+  Vector new_shape = ShapeAsVector(generic_new_shape, *fd);
 
   Tensor output = fd->defineTensor(new_shape.size);
   std::vector<State> arg_states = {
@@ -1997,10 +1997,10 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("minval"), \
       py::arg("maxval"), \
       py::arg("shape"), \
-      py::arg("dtype") = DataType::Float, \
       py::kw_only(), \
       py::arg("rng_seed") = py::none(), \
       py::arg("rng_offset") = py::none(), \
+      py::arg("dtype") = DataType::Float, \
       py::return_value_policy::reference); \
   nvf_ops.def( \
       op_str, \
@@ -2008,10 +2008,10 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("minval"), \
       py::arg("maxval"), \
       py::arg("shape"), \
-      py::arg("dtype") = DataType::Float, \
       py::kw_only(), \
       py::arg("rng_seed") = py::none(), \
       py::arg("rng_offset") = py::none(), \
+      py::arg("dtype") = DataType::Float, \
       py::return_value_policy::reference); \
   nvf_ops.def( \
       op_str, \
@@ -2019,10 +2019,10 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("minval"), \
       py::arg("maxval"), \
       py::arg("shape"), \
-      py::arg("dtype") = DataType::Float, \
       py::kw_only(), \
       py::arg("rng_seed") = py::none(), \
       py::arg("rng_offset") = py::none(), \
+      py::arg("dtype") = DataType::Float, \
       py::return_value_policy::reference);
 
   NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP("normal", serde::RecordType_NormalDistOp)

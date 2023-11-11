@@ -954,8 +954,7 @@ class TestNvFuserFrontend(TestCase):
             t0 = fd.from_pytorch(inputs[0])
             s_mean = fd.define_scalar(mean)
             s_std = fd.define_scalar(std)
-            size = fd.ops.tensor_sizes(t0)
-            t1 = fd.ops.normal(s_mean, s_std, size, DataType.Double)
+            t1 = fd.ops.normal(s_mean, s_std, t0.shape(), dtype=DataType.Double)
             fd.add_output(t1)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
@@ -992,8 +991,7 @@ class TestNvFuserFrontend(TestCase):
             t0 = fd.from_pytorch(inputs[0])
             s_lo = fd.define_scalar(lo)
             s_hi = fd.define_scalar(hi)
-            size = fd.ops.tensor_sizes(t0)
-            t1 = fd.ops.uniform(s_lo, s_hi, size, DataType.Double)
+            t1 = fd.ops.uniform(s_lo, s_hi, t0.shape(), dtype=DataType.Double)
             fd.add_output(t1)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
@@ -2476,9 +2474,9 @@ class TestNvFuserFrontend(TestCase):
                 if deterministic:
                     rng_seed = fd.define_scalar(DataType.Int)
                     rng_offset = fd.define_scalar(DataType.Int)
-                    u = randop(a, b, input_size, rng_seed=rng_seed, rng_offset=rng_offset)
+                    u = eval("fd.ops." + randopname)(a, b, shape=[5, 9], rng_seed=rng_seed, rng_offset=rng_offset)
                 else:
-                    u = randop(a, b, input_size)
+                    u = eval("fd.ops." + randopname)(a, b, shape=[5,9])
                 t2 = t1 * u
                 fd.add_output(t2)
 
