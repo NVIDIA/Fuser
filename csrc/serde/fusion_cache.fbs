@@ -84,12 +84,12 @@ enum RecordType: int {
     Ternary_Alpha_VAL_VAL_TV,
     Ternary_Alpha_TV_VAL_VAL,
     Ternary_Alpha_VAL_TV_VAL,
+    NormalDistOp,
     OutputTv,
     OutputVal,
     PadOp,
     PermuteOp,
     StrideOrderOp,
-    RandomOp,
     ReductionMax,
     ReductionMin,
     ReductionProd,
@@ -103,6 +103,7 @@ enum RecordType: int {
     Start,
     Tensor,
     TensorSizes,
+    UniformDistOp,
     VarianceOp,
     VarianceMeanOp,
     Vector,
@@ -336,10 +337,9 @@ table TensorCreation {
   dtype: DataType;
 }
 
-// Data for RandomOpRecord
+// Data for RandomDistOpRecord
 // The shape is symbolic.
 table TensorCreationSymbolic {
-  shape: [State];
   dtype: DataType;
 }
 

@@ -525,16 +525,23 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(serde::RecordType_StrideOrderOp, deserializeStrideOrderRecord);
 
-  auto deserializeRandomRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeNormalDistRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_TensorCreationSymbolic();
-    return new python_frontend::RandomOpRecord(
+    return new python_frontend::RandomDistOpRecord<serde::RecordType_NormalDistOp>(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        parseStateArgs(data->shape()),
-        buffer->name()->str(),
         mapToNvfuserDtype(data->dtype()));
   };
-  registerParser(serde::RecordType_RandomOp, deserializeRandomRecord);
+  registerParser(serde::RecordType_NormalDistOp, deserializeNormalDistRecord);
+  
+  auto deserializeUniformDistRecord = [](const serde::RecordFunctor* buffer) {
+    auto data = buffer->data_as_TensorCreationSymbolic();
+    return new python_frontend::RandomDistOpRecord<serde::RecordType_UniformDistOp>(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        mapToNvfuserDtype(data->dtype()));
+  };
+  registerParser(serde::RecordType_UniformDistOp, deserializeUniformDistRecord);
 
   auto deserializeReshapeRecord = [](const serde::RecordFunctor* buffer) {
     return new python_frontend::ReshapeOpRecord(

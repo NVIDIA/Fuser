@@ -2645,28 +2645,35 @@ struct IotaOpRecord : RecordFunctor {
 };
 
 //! Specialized Record Functors for random ops.
-struct RandomOpRecord : RecordFunctor {
-  RandomOpRecord(
+template <serde::RecordType RType>
+struct RandomDistOpRecord : RecordFunctor {
+  RandomDistOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      std::string name,
-      serde::RecordType record_type,
       PrimDataType dtype)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
-            name,
-            record_type),
+            "",
+            RType),
         dtype_(dtype) {
+    static_assert(
+      (RType == serde::RecordType_NormalDistOp) ||
+      (RType == serde::RecordType_UniformDistOp));
+    if constexpr (RType == serde::RecordType_UniformDistOp) {
+      name_ = "ops.uniform";
+    } else if constexpr (RType == serde::RecordType_NormalDistOp) {
+      name_ = "ops.normal";
+    }
     setArgName(2, "shape");
     if (args_.size() == 5) {
       setArgName(3, "rng_seed");
       setArgName(4, "rng_offset");
     }
   }
-  ~RandomOpRecord() override = default;
+  ~RandomDistOpRecord() override = default;
   RecordFunctor* clone() final {
-    return new RandomOpRecord(*this);
+    return new RandomDistOpRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
@@ -2679,7 +2686,7 @@ struct RandomOpRecord : RecordFunctor {
 
   bool operator==(const RecordFunctor& other) const final {
     auto result = false;
-    if (auto child_ptr = dynamic_cast<const RandomOpRecord*>(&other)) {
+    if (auto child_ptr = dynamic_cast<const RandomDistOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
       result = result && (dtype_ == child_ptr->dtype_);
     }
@@ -2689,51 +2696,33 @@ struct RandomOpRecord : RecordFunctor {
   void operator()(FusionState& fd) final {
     auto arg1 = fd.getFusionState(args_.at(0).index);
     auto arg2 = fd.getFusionState(args_.at(1).index);
+    const std::vector<Val*>& output_shape =
+        fd.getFusionStateVector(args_.at(2).index);
 
-    std::vector<Val*> output_shape(output_shape_.size(), nullptr);
-    std::transform(
-        output_shape_.begin(),
-        output_shape_.end(),
-        output_shape.begin(),
-        [&fd](const State& state) {
-          return fd.getFusionState(state.index)->template as<Val>();
-        });
     Val* output = nullptr;
-    if (name_.compare("ops.uniform") == 0) {
-      if (args_.size() == 2) { // stochastic uniform
+    if constexpr (RType ==  serde::RecordType_UniformDistOp) {
+      if (args_.size() == 3) { // stochastic uniform
         output = uniform(output_shape, arg1, arg2, dtype_);
-      } else if (args_.size() == 4) { // provided seed and offset
-        auto seed = fd.getFusionState(args_.at(2).index);
-        auto offset = fd.getFusionState(args_.at(3).index);
+      } else if (args_.size() == 5) { // provided seed and offset
+        auto seed = fd.getFusionState(args_.at(3).index);
+        auto offset = fd.getFusionState(args_.at(4).index);
         output = uniform(output_shape, arg1, arg2, dtype_, seed, offset);
       }
-    } else if (name_.compare("ops.normal") == 0) {
-      if (args_.size() == 2) { // stochastic normal
+    } else if constexpr (RType == serde::RecordType_NormalDistOp) {
+      if (args_.size() == 3) { // stochastic normal
         output = normal(output_shape, arg1, arg2, dtype_);
-      } else if (args_.size() == 4) { // provided seed and offset
-        auto seed = fd.getFusionState(args_.at(2).index);
-        auto offset = fd.getFusionState(args_.at(3).index);
+      } else if (args_.size() == 5) { // provided seed and offset
+        auto seed = fd.getFusionState(args_.at(3).index);
+        auto offset = fd.getFusionState(args_.at(4).index);
         output = normal(output_shape, arg1, arg2, dtype_, seed, offset);
       }
-    } else {
-      NVF_ERROR(false, "random distribution not recognized:", name_);
     }
+
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
-    os << ", shape=[";
-    bool first_arg = true;
-    for (auto shape : output_shape_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      os << shape;
-    }
-    os << "]";
     os << ", dtype=" << dtypeToPyString(dtype_);
     if (close_function) {
       os << ")";
@@ -2742,15 +2731,10 @@ struct RandomOpRecord : RecordFunctor {
 
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
-    std::vector<serde::State> fb_shape;
-    fb_shape.reserve(output_shape_.size());
-    for (auto& it : output_shape_) {
-      fb_shape.emplace_back(it.index, it.stype);
-    }
     return {
         serde::RecordData_TensorCreationSymbolic,
-        serde::CreateTensorCreationSymbolicDirect(
-            builder, &fb_shape, serde::mapToSerdeDtype(dtype_))
+        serde::CreateTensorCreationSymbolic(
+            builder, serde::mapToSerdeDtype(dtype_))
             .Union()};
   }
 

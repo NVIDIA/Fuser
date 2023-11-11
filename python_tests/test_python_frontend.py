@@ -2472,14 +2472,13 @@ class TestNvFuserFrontend(TestCase):
                 t1 = fd.from_pytorch(inputs[0])
                 a = fd.define_scalar(0.3, DataType.Float)
                 b = fd.define_scalar(1.7, DataType.Float)
-                shape = [fd.define_scalar(5), fd.define_scalar(9)]
                 randop = getattr(fd.ops, randopname)
                 if deterministic:
                     rng_seed = fd.define_scalar(DataType.Int)
                     rng_offset = fd.define_scalar(DataType.Int)
-                    u = randop(a, b, shape, rng_seed=rng_seed, rng_offset=rng_offset)
+                    u = randop(a, b, input_size, rng_seed=rng_seed, rng_offset=rng_offset)
                 else:
-                    u = randop(a, b, shape)
+                    u = randop(a, b, input_size)
                 t2 = t1 * u
                 fd.add_output(t2)
 
@@ -2516,7 +2515,6 @@ class TestNvFuserFrontend(TestCase):
                     except AssertionError as e:
                         print(f"Assertion failed for iteration {i} with seed {seed}")
                         print(e)
-                        break
 
     # Test expand to zero is replaced with expanded extent and not 1
     # see https://github.com/NVIDIA/Fuser/issues/603
