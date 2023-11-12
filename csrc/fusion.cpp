@@ -205,7 +205,14 @@ void Fusion::removeVal(Val* val) {
     removeExpr(orig);
   }
 
-  // We previously first looped over val->uses() and removed them all from the Fusion. This seems correct at first glance, but it is incomplete since `val->uses()` actually only gives all live uses. When there is dead code in the Fusion that includes some uses of a val that is to be removed, we can wind up with an expression that holds an invalid pointer to the removed value in its inputs(). In https://github.com/NVIDIA/Fuser/issues/1270 this caused a segfault when the fusion was cloned since that will clone not only live objects but also these dangerous dangling dead ones.
+  // We previously first looped over val->uses() and removed them all from the
+  // Fusion. This seems correct at first glance, but it is incomplete since
+  // `val->uses()` actually only gives all live uses. When there is dead code in
+  // the Fusion that includes some uses of a val that is to be removed, we can
+  // wind up with an expression that holds an invalid pointer to the removed
+  // value in its inputs(). In https://github.com/NVIDIA/Fuser/issues/1270 this
+  // caused a segfault when the fusion was cloned since that will clone not only
+  // live objects but also these dangerous dangling dead ones.
   std::vector<Expr*> exprs_to_remove;
   for (Expr* e : exprs_) {
     if (!inContainer(e)) {
