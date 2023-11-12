@@ -11,6 +11,7 @@
 #include <multidevice/device_mesh.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/pipeline.h>
+#include <ops/all_ops.h>
 
 namespace nvfuser {
 
@@ -506,6 +507,12 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
     }
   }
   return comms;
+}
+
+bool isLowerableToCommunication(Expr* expr) {
+    return (expr->isA<LoadStoreOp>()
+                  && (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set))
+            || expr->isA<ReductionOp>();
 }
 
 } // namespace nvfuser
