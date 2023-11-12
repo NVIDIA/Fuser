@@ -533,7 +533,14 @@ TEST_F(NVFuserTest, ReshardingDetection) {
   GTEST_EXPECT_TRUE(tv26->definition()->isResharding());
 }
 
-class automaticSetInsertionTest : public NVFuserTest {
+
+using automaticSetInsertionTestParams =
+    std::tuple<DeviceMesh, DeviceMesh, bool, bool>;
+
+
+class automaticSetInsertionTest :
+  public NVFuserTest,
+  public ::testing::WithParamInterface<automaticSetInsertionTestParams> {
 protected:
   void SetUp() override {
     fusion = std::make_unique<Fusion>();
