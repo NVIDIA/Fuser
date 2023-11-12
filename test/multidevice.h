@@ -25,7 +25,7 @@ class MultiDeviceEnvironment : public testing::Environment {
     return communicator_.get();
   }
 
-  bool debug_print() const {
+  bool debugPrint() const {
     return debug_print_;
   }
 

@@ -46,7 +46,7 @@ void MultiDeviceTest::SetUp() {
   }
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator->device());
-  debug_print = multidevice_env->debug_print();
+  debug_print = multidevice_env->debugPrint();
   do_barrier_at_test = multidevice_env->doBarrierAtTest();
 }
 
