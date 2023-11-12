@@ -160,6 +160,7 @@ Tensor random_dist_op_fn(FusionDefinition::Operators& self,
   static_assert((RType == serde::RecordType_NormalDistOp) || (RType == serde::RecordType_UniformDistOp));
   NVF_CHECK(
       self.validUse(), "Attempting to add to a completed definition!");
+  NVF_CHECK(isFloatingPointType(dtype), "Random distributions only create floating point types! ", dtype);
   FusionDefinition* fd = self.fusion_definition;
   Vector new_shape = ShapeAsVector(generic_new_shape, *fd);
 
