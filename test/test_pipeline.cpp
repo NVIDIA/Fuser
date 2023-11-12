@@ -336,10 +336,8 @@ TEST_F(NVFuserTest, ReshardingDetection) {
 }
 
 
-
 using automaticSetInsertionTestParams =
-    std::tuple<DeviceMesh, DeviceMesh, bool, bool>;
-
+    std::tuple<DeviceMesh, DeviceMesh, bool, bool, UnaryOpType>;
 
 class automaticSetInsertionTest :
   public NVFuserTest,
@@ -357,28 +355,42 @@ protected:
 
   std::unique_ptr<Fusion> fusion;
   std::unique_ptr<FusionGuard> fg;
-  // TensorView* (&unary_op)(TensorView*);
 };
 
-TEST_F(automaticSetInsertionTest, unary_ops) {
-  DeviceMesh mesh0,mesh1;
-  mesh0 = {0};
-  mesh1 = {1};
+TEST_P(automaticSetInsertionTest, unary_ops) {
+  auto [mesh0, mesh1, is_tv0_sharded, is_tv1_sharded, unary_op_type] = GetParam();
 
   TensorView* tv0 = makeContigTensor(3);
   tv0->setDeviceMesh(&mesh0);
-  TensorView* tv1 = exp(tv0);
+  TensorView* tv1 = unaryOp(unary_op_type, tv0);
   tv1->setDeviceMesh(&mesh1);
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
 
-  std::cout << "before transformation";
-  fusion->print();
+  if (is_tv0_sharded) {
+    tv0->axis(0)->parallelize(ParallelType::DIDx);
+  }
+  if (is_tv1_sharded) {
+    tv1->axis(0)->parallelize(ParallelType::DIDx);
+  }
 
-  std::cout << "after transformation";
   insertSetBeforeReshardingExpr(fusion.get());
-  fusion->print();
   validate();
 }
+
+DeviceMesh Mesh0({0});
+DeviceMesh Mesh1({1});
+DeviceMesh Mesh2({0, 1, 2, 3});
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    automaticSetInsertionTest,
+    ::testing::Combine(
+        ::testing::Values(Mesh0, Mesh1, Mesh2),
+        ::testing::Values(Mesh0, Mesh1, Mesh2),
+        ::testing::Bool(),
+        ::testing::Bool(),
+        ::testing::Values(UnaryOpType::Exp, UnaryOpType::Abs)));
+        // ));
 
 } // namespace nvfuser
