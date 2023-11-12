@@ -180,7 +180,7 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
         in_rfactor_to_out_root.at(allocation_id));
     out_layout.contiguity.push_back(in_layout.contiguity[i]);
   }
-  analysis_.add(out, in, out_layout);
+  analysis_.add(out, in, std::move(out_layout));
 }
 
 } // namespace
@@ -188,7 +188,7 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
 void AliasAnalysisResult::add(
     const TensorView* alias,
     const TensorView* source,
-    const Layout& layout) {
+    Layout&& layout) {
   std::pair<const TensorView*, Layout>& old_source = alias_to_source_[alias];
   NVF_ERROR(
       old_source.first == nullptr,
