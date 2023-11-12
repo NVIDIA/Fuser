@@ -10,6 +10,7 @@
 #include <multidevice/pipeline_ir.h>
 #include <multidevice/runtime.h>
 #include <ops/all_ops.h>
+#include <options.h>
 #include <test/multidevice.h>
 #include <test/validator.h>
 #include <torch/cuda.h>
@@ -21,6 +22,12 @@ auto multidevice_env = static_cast<MultiDeviceEnvironment*>(
 
 void MultiDeviceEnvironment::SetUp() {
   communicator_ = std::make_unique<Communicator>();
+  if (getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT")) {
+    debug_print_ = true;
+  }
+  if (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER")) {
+    do_barrier_at_test_ = true;
+  }
 }
 
 void MultiDeviceEnvironment::TearDown() {
@@ -39,6 +46,15 @@ void MultiDeviceTest::SetUp() {
   }
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator->device());
+  debug_print = multidevice_env->debugPrint();
+  do_barrier_at_test = multidevice_env->doBarrierAtTest();
+}
+
+void MultiDeviceTest::TearDown() {
+  if (do_barrier_at_test && communicator->is_available()) {
+    communicator->barrier();
+  }
+  NVFuserTest::TearDown();
 }
 
 void CommunicationTest::SetUp() {
@@ -225,7 +241,7 @@ void PipelineTest::SetUp() {
 
 void PipelineTest::validate() {
   executeAndValidatePipeline(
-      std::move(fusion), *pipeline, inputs, communicator, print);
+      std::move(fusion), *pipeline, inputs, communicator, debug_print);
 }
 
 void PipelineTestTwoStages::SetUp() {
