@@ -151,8 +151,8 @@ Tensor reshape_fn(
 
 template <class ShapeType, serde::RecordType RType>
 Tensor random_dist_op_fn(FusionDefinition::Operators& self,
-   Scalar minval,
-   Scalar maxval,
+   Scalar arg1,
+   Scalar arg2,
    ShapeType generic_new_shape,
    std::optional<Scalar> rng_seed,
    std::optional<Scalar> rng_offset,
@@ -165,8 +165,8 @@ Tensor random_dist_op_fn(FusionDefinition::Operators& self,
 
   Tensor output = fd->defineTensor(new_shape.size);
   std::vector<State> arg_states = {
-      fd->recordingState(minval()),
-      fd->recordingState(maxval()),
+      fd->recordingState(arg1()),
+      fd->recordingState(arg2()),
       fd->recordingState(new_shape()),
   };
   if (rng_seed.has_value()) {
@@ -1990,12 +1990,12 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_CAST_OP("cast", castOp)
 #undef NVFUSER_PYTHON_BINDING_CAST_OP
 
-#define NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP(op_str, op_type)                       \
+#define NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP(op_str, op_type, arg1_str, arg2_str) \
   nvf_ops.def( \
       op_str, \
       random_dist_op_fn<Vector, op_type>, \
-      py::arg("minval"), \
-      py::arg("maxval"), \
+      py::arg(arg1_str), \
+      py::arg(arg2_str), \
       py::arg("shape"), \
       py::kw_only(), \
       py::arg("rng_seed") = py::none(), \
@@ -2005,8 +2005,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   nvf_ops.def( \
       op_str, \
       random_dist_op_fn<py::list, op_type>, \
-      py::arg("minval"), \
-      py::arg("maxval"), \
+      py::arg(arg1_str), \
+      py::arg(arg2_str), \
       py::arg("shape"), \
       py::kw_only(), \
       py::arg("rng_seed") = py::none(), \
@@ -2016,8 +2016,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   nvf_ops.def( \
       op_str, \
       random_dist_op_fn<py::tuple, op_type>, \
-      py::arg("minval"), \
-      py::arg("maxval"), \
+      py::arg(arg1_str), \
+      py::arg(arg2_str), \
       py::arg("shape"), \
       py::kw_only(), \
       py::arg("rng_seed") = py::none(), \
@@ -2025,8 +2025,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dtype") = DataType::Float, \
       py::return_value_policy::reference);
 
-  NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP("normal", serde::RecordType_NormalDistOp)
-  NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP("uniform", serde::RecordType_UniformDistOp)
+  NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP("normal", serde::RecordType_NormalDistOp, "mean", "std")
+  NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP("uniform", serde::RecordType_UniformDistOp, "minval", "maxval")
 #undef NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP
 
   nvf_ops.def(
