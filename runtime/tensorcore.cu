@@ -6,7 +6,6 @@
  */
 // clang-format on
 // Utility macro for this file
-#define DEVICE_INLINE __device__ inline
 
 // MMA instruction wrappers:
 //  The wrappers are subroutines that implement matrix of size
@@ -22,7 +21,6 @@
 //   notation.
 namespace Volta {
 
-namespace util {
 // MMA instruction wrappers (sm_70+):
 // The instruction wrappers below are quarter-warp macros, which currently
 //  nvfuser doesn't explicitly model.
@@ -32,236 +30,119 @@ namespace util {
 //  8x8x4 mma instruction, per quarter warp (8 threads), fp32 accumulate
 //  per thread register:
 //   A[4] x B[4] -> C[8]
-DEVICE_INLINE void mmaM8n8k4tt(
-    Array<float, 8, 8>* C,
-    Array<__half, 4, 4>* A,
-    Array<__half, 4, 4>* B) {
-  unsigned const* _A = reinterpret_cast<unsigned const*>(A);
-  unsigned const* _B = reinterpret_cast<unsigned const*>(B);
-  unsigned* _C = reinterpret_cast<unsigned*>(C);
 
+__device__ inline void M16N16K4TT(
+    Array<float, 8, 8>& C,
+    Array<unsigned, 2, 2>& A,
+    Array<unsigned, 2, 2>& B) {
   asm("mma.sync.aligned.m8n8k4.row.row.f32.f16.f16.f32 {%0,%1,%2,%3,%4,%5,%6,%7}, {%8,%9}, {%10,%11}, {%12,%13,%14,%15,%16,%17,%18,%19};\n"
-      : "=r"(_C[0]),
-        "=r"(_C[1]),
-        "=r"(_C[2]),
-        "=r"(_C[3]),
-        "=r"(_C[4]),
-        "=r"(_C[5]),
-        "=r"(_C[6]),
-        "=r"(_C[7])
-      : "r"(_A[0]),
-        "r"(_A[1]),
-        "r"(_B[0]),
-        "r"(_B[1]),
-        "r"(_C[0]),
-        "r"(_C[1]),
-        "r"(_C[2]),
-        "r"(_C[3]),
-        "r"(_C[4]),
-        "r"(_C[5]),
-        "r"(_C[6]),
-        "r"(_C[7]));
+      : "=f"(C[0]),
+        "=f"(C[1]),
+        "=f"(C[2]),
+        "=f"(C[3]),
+        "=f"(C[4]),
+        "=f"(C[5]),
+        "=f"(C[6]),
+        "=f"(C[7])
+      : "r"(A[0]),
+        "r"(A[1]),
+        "r"(B[0]),
+        "r"(B[1]),
+        "f"(C[0]),
+        "f"(C[1]),
+        "f"(C[2]),
+        "f"(C[3]),
+        "f"(C[4]),
+        "f"(C[5]),
+        "f"(C[6]),
+        "f"(C[7]));
 }
 
-DEVICE_INLINE void mmaM8n8k4tn(
-    Array<float, 8, 8>* C,
-    Array<__half, 4, 4>* A,
-    Array<__half, 4, 4>* B) {
-  unsigned const* _A = reinterpret_cast<unsigned const*>(A);
-  unsigned const* _B = reinterpret_cast<unsigned const*>(B);
-  unsigned* _C = reinterpret_cast<unsigned*>(C);
-
+__device__ inline void M16N16K4TN(
+    Array<float, 8, 8>& C,
+    Array<unsigned, 2, 2>& A,
+    Array<unsigned, 2, 2>& B) {
   asm("mma.sync.aligned.m8n8k4.row.col.f32.f16.f16.f32 {%0,%1,%2,%3,%4,%5,%6,%7}, {%8,%9}, {%10,%11}, {%12,%13,%14,%15,%16,%17,%18,%19};\n"
-      : "=r"(_C[0]),
-        "=r"(_C[1]),
-        "=r"(_C[2]),
-        "=r"(_C[3]),
-        "=r"(_C[4]),
-        "=r"(_C[5]),
-        "=r"(_C[6]),
-        "=r"(_C[7])
-      : "r"(_A[0]),
-        "r"(_A[1]),
-        "r"(_B[0]),
-        "r"(_B[1]),
-        "r"(_C[0]),
-        "r"(_C[1]),
-        "r"(_C[2]),
-        "r"(_C[3]),
-        "r"(_C[4]),
-        "r"(_C[5]),
-        "r"(_C[6]),
-        "r"(_C[7]));
+      : "=f"(C[0]),
+        "=f"(C[1]),
+        "=f"(C[2]),
+        "=f"(C[3]),
+        "=f"(C[4]),
+        "=f"(C[5]),
+        "=f"(C[6]),
+        "=f"(C[7])
+      : "r"(A[0]),
+        "r"(A[1]),
+        "r"(B[0]),
+        "r"(B[1]),
+        "f"(C[0]),
+        "f"(C[1]),
+        "f"(C[2]),
+        "f"(C[3]),
+        "f"(C[4]),
+        "f"(C[5]),
+        "f"(C[6]),
+        "f"(C[7]));
 }
 
-DEVICE_INLINE void mmaM8n8k4nt(
-    Array<float, 8, 8>* C,
-    Array<__half, 4, 4>* A,
-    Array<__half, 4, 4>* B) {
-  unsigned const* _A = reinterpret_cast<unsigned const*>(A);
-  unsigned const* _B = reinterpret_cast<unsigned const*>(B);
-  unsigned* _C = reinterpret_cast<unsigned*>(C);
-
+__device__ inline void M16N16K4NT(
+    Array<float, 8, 8>& C,
+    Array<unsigned, 2, 2>& A,
+    Array<unsigned, 2, 2>& B) {
   asm("mma.sync.aligned.m8n8k4.col.row.f32.f16.f16.f32 {%0,%1,%2,%3,%4,%5,%6,%7}, {%8,%9}, {%10,%11}, {%12,%13,%14,%15,%16,%17,%18,%19};\n"
-      : "=r"(_C[0]),
-        "=r"(_C[1]),
-        "=r"(_C[2]),
-        "=r"(_C[3]),
-        "=r"(_C[4]),
-        "=r"(_C[5]),
-        "=r"(_C[6]),
-        "=r"(_C[7])
-      : "r"(_A[0]),
-        "r"(_A[1]),
-        "r"(_B[0]),
-        "r"(_B[1]),
-        "r"(_C[0]),
-        "r"(_C[1]),
-        "r"(_C[2]),
-        "r"(_C[3]),
-        "r"(_C[4]),
-        "r"(_C[5]),
-        "r"(_C[6]),
-        "r"(_C[7]));
+      : "=f"(C[0]),
+        "=f"(C[1]),
+        "=f"(C[2]),
+        "=f"(C[3]),
+        "=f"(C[4]),
+        "=f"(C[5]),
+        "=f"(C[6]),
+        "=f"(C[7])
+      : "r"(A[0]),
+        "r"(A[1]),
+        "r"(B[0]),
+        "r"(B[1]),
+        "f"(C[0]),
+        "f"(C[1]),
+        "f"(C[2]),
+        "f"(C[3]),
+        "f"(C[4]),
+        "f"(C[5]),
+        "f"(C[6]),
+        "f"(C[7]));
 }
 
-DEVICE_INLINE void mmaM8n8k4nn(
-    Array<float, 8, 8>* C,
-    Array<__half, 4, 4>* A,
-    Array<__half, 4, 4>* B) {
-  unsigned const* _A = reinterpret_cast<unsigned const*>(A);
-  unsigned const* _B = reinterpret_cast<unsigned const*>(B);
-  unsigned* _C = reinterpret_cast<unsigned*>(C);
-
+__device__ inline void M16N16K4NN(
+    Array<float, 8, 8>& C,
+    Array<unsigned, 2, 2>& A,
+    Array<unsigned, 2, 2>& B) {
   asm("mma.sync.aligned.m8n8k4.col.col.f32.f16.f16.f32 {%0,%1,%2,%3,%4,%5,%6,%7}, {%8,%9}, {%10,%11}, {%12,%13,%14,%15,%16,%17,%18,%19};\n"
-      : "=r"(_C[0]),
-        "=r"(_C[1]),
-        "=r"(_C[2]),
-        "=r"(_C[3]),
-        "=r"(_C[4]),
-        "=r"(_C[5]),
-        "=r"(_C[6]),
-        "=r"(_C[7])
-      : "r"(_A[0]),
-        "r"(_A[1]),
-        "r"(_B[0]),
-        "r"(_B[1]),
-        "r"(_C[0]),
-        "r"(_C[1]),
-        "r"(_C[2]),
-        "r"(_C[3]),
-        "r"(_C[4]),
-        "r"(_C[5]),
-        "r"(_C[6]),
-        "r"(_C[7]));
-}
-
-// TODO: in a follow up,
-//    lift this part onto iterdomain ops, once the
-//    swizzle ops are ready.
-template <int acc_stride>
-DEVICE_INLINE Array<float, 8, 8> accToMma(float* _C) {
-  float C_data[8] = {
-      _C[0],
-      _C[1],
-      _C[acc_stride],
-      _C[acc_stride + 1],
-      _C[2],
-      _C[3],
-      _C[acc_stride + 2],
-      _C[acc_stride + 3],
-  };
-
-  return *reinterpret_cast<Array<float, 8, 8>*>(&C_data[0]);
-}
-
-template <int acc_stride>
-DEVICE_INLINE void mmaToAcc(float* _C, Array<float, 8, 8>& C) {
-  float* C_data = reinterpret_cast<float*>(&C);
-  _C[0] = C_data[0];
-  _C[1] = C_data[1];
-  _C[acc_stride] = C_data[2];
-  _C[acc_stride + 1] = C_data[3];
-  _C[2] = C_data[4];
-  _C[3] = C_data[5];
-  _C[acc_stride + 2] = C_data[6];
-  _C[acc_stride + 3] = C_data[7];
-}
-
-// Should be able to lift this with transpose op as well.
-template <int acc_stride>
-DEVICE_INLINE void initM16N16K4(Array<float, 8, 8>& accumulator) {
-  float* _C = reinterpret_cast<float*>(&accumulator);
-  float zeros[8] = {0, 0, 0, 0, 0, 0, 0, 0};
-  mmaToAcc<acc_stride>(_C, *reinterpret_cast<Array<float, 8, 8>*>(&zeros[0]));
-}
-
-} // namespace util
-
-template <int acc_stride>
-DEVICE_INLINE void M16N16K4TT(
-    Array<float, 8, 8>* C,
-    Array<__half, 4, 4>* A,
-    Array<__half, 4, 4>* B) {
-  float* _C = reinterpret_cast<float*>(C);
-  Array<float, 8, 8> C_data = util::accToMma<acc_stride>(_C);
-  util::mmaM8n8k4tt(&C_data, A, B);
-  util::mmaToAcc<acc_stride>(_C, C_data);
-}
-
-template <int acc_stride>
-DEVICE_INLINE void M16N16K4TN(
-    Array<float, 8, 8>* C,
-    Array<__half, 4, 4>* A,
-    Array<__half, 4, 4>* B) {
-  float* _C = reinterpret_cast<float*>(C);
-  Array<float, 8, 8> C_data = util::accToMma<acc_stride>(_C);
-  util::mmaM8n8k4tn(&C_data, A, B);
-  util::mmaToAcc<acc_stride>(_C, C_data);
-}
-
-template <int acc_stride>
-DEVICE_INLINE void M16N16K4NT(
-    Array<float, 8, 8>* C,
-    Array<__half, 4, 4>* A,
-    Array<__half, 4, 4>* B) {
-  float* _C = reinterpret_cast<float*>(C);
-  Array<float, 8, 8> C_data = util::accToMma<acc_stride>(_C);
-  util::mmaM8n8k4nt(&C_data, A, B);
-  util::mmaToAcc<acc_stride>(_C, C_data);
-}
-
-template <int acc_stride>
-DEVICE_INLINE void M16N16K4NN(
-    Array<float, 8, 8>* C,
-    Array<__half, 4, 4>* A,
-    Array<__half, 4, 4>* B) {
-  float* _C = reinterpret_cast<float*>(C);
-  Array<float, 8, 8> C_data = util::accToMma<acc_stride>(_C);
-  util::mmaM8n8k4nn(&C_data, A, B);
-  util::mmaToAcc<acc_stride>(_C, C_data);
+      : "=f"(C[0]),
+        "=f"(C[1]),
+        "=f"(C[2]),
+        "=f"(C[3]),
+        "=f"(C[4]),
+        "=f"(C[5]),
+        "=f"(C[6]),
+        "=f"(C[7])
+      : "r"(A[0]),
+        "r"(A[1]),
+        "r"(B[0]),
+        "r"(B[1]),
+        "f"(C[0]),
+        "f"(C[1]),
+        "f"(C[2]),
+        "f"(C[3]),
+        "f"(C[4]),
+        "f"(C[5]),
+        "f"(C[6]),
+        "f"(C[7]));
 }
 
 // Same initialization for now, will be different in interleaved
 //   macros
-template <int acc_stride>
-DEVICE_INLINE void initM16N16K4TT(Array<float, 8, 8>* accumulator) {
-  util::initM16N16K4<acc_stride>(*accumulator);
-}
-
-template <int acc_stride>
-DEVICE_INLINE void initM16N16K4TN(Array<float, 8, 8>* accumulator) {
-  util::initM16N16K4<acc_stride>(*accumulator);
-}
-
-template <int acc_stride>
-DEVICE_INLINE void initM16N16K4NT(Array<float, 8, 8>* accumulator) {
-  util::initM16N16K4<acc_stride>(*accumulator);
-}
-
-template <int acc_stride>
-DEVICE_INLINE void initM16N16K4NN(Array<float, 8, 8>* accumulator) {
-  util::initM16N16K4<acc_stride>(*accumulator);
+__device__ inline void initM16N16K4(Array<float, 8, 8>& accumulator) {
+  accumulator.set(0);
 }
 
 } // namespace Volta
@@ -270,88 +151,46 @@ DEVICE_INLINE void initM16N16K4NN(Array<float, 8, 8>* accumulator) {
 
 namespace Turing {
 
-namespace util {
-// MMA instruction wrappers (sm_75+):
-DEVICE_INLINE void m16n8k16TN(
-    Array<float, 4, 4>* C,
-    Array<__half, 8, 8>* A,
-    Array<__half, 4, 4>* B) {
-  unsigned const* _A = reinterpret_cast<unsigned const*>(A);
-  unsigned const* _B = reinterpret_cast<unsigned const*>(B);
-  unsigned* _C = reinterpret_cast<unsigned*>(C);
-  const unsigned* _D = reinterpret_cast<const unsigned*>(C);
+__device__ inline void initM16N8K16(Array<float, 4, 4>& accumulator) {
+  accumulator.set(0);
+}
 
+__device__ inline void M16N8K16TN(
+    Array<float, 4, 4>& C,
+    Array<unsigned, 4, 4>& A,
+    Array<unsigned, 2, 2>& B) {
   asm("mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 {%0,%1,%2,%3}, {%4,%5}, {%6}, {%7,%8,%9,%10};\n"
-      : "=r"(_C[0]), "=r"(_C[1]), "=r"(_C[2]), "=r"(_C[3])
-      : "r"(_A[0]),
-        "r"(_A[1]),
-        "r"(_B[0]),
-        "r"(_D[0]),
-        "r"(_D[1]),
-        "r"(_D[2]),
-        "r"(_D[3]));
+      : "=f"(C[0]), "=f"(C[1]), "=f"(C[2]), "=f"(C[3])
+      : "r"(A[0]),
+        "r"(A[1]),
+        "r"(B[0]),
+        "f"(C[0]),
+        "f"(C[1]),
+        "f"(C[2]),
+        "f"(C[3]));
   asm("mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32 {%0,%1,%2,%3}, {%4,%5}, {%6}, {%7,%8,%9,%10};\n"
-      : "=r"(_C[0]), "=r"(_C[1]), "=r"(_C[2]), "=r"(_C[3])
-      : "r"(_A[2]),
-        "r"(_A[3]),
-        "r"(_B[1]),
-        "r"(_D[0]),
-        "r"(_D[1]),
-        "r"(_D[2]),
-        "r"(_D[3]));
+      : "=f"(C[0]), "=f"(C[1]), "=f"(C[2]), "=f"(C[3])
+      : "r"(A[2]),
+        "r"(A[3]),
+        "r"(B[1]),
+        "f"(C[0]),
+        "f"(C[1]),
+        "f"(C[2]),
+        "f"(C[3]));
 }
 
-} // namespace util
-
-template <int acc_stride>
-DEVICE_INLINE void initM16N8K16TN(Array<float, 4, 4>* accumulator) {
-  float* _C = reinterpret_cast<float*>(accumulator);
-  _C[0] = 0;
-  _C[1] = 0;
-  _C[acc_stride] = 0;
-  _C[acc_stride + 1] = 0;
+__device__ inline void initM16N16K16(Array<float, 8, 8>& accumulator) {
+  accumulator.set(0);
 }
 
-template <int acc_stride = 2>
-DEVICE_INLINE void M16N8K16TN(
-    Array<float, 4, 4>* C,
-    Array<__half, 8, 8>* A,
-    Array<__half, 4, 4>* B) {
-  // TODO: in a follow up,
-  //    lift this fused swizzle onto iterdomain
-  float* _C = reinterpret_cast<float*>(C);
-  float C_data[4] = {_C[0], _C[1], _C[acc_stride], _C[acc_stride + 1]};
-
-  util::m16n8k16TN(reinterpret_cast<Array<float, 4, 4>*>(&C_data[0]), A, B);
-
-  _C[0] = C_data[0];
-  _C[1] = C_data[1];
-  _C[acc_stride] = C_data[2];
-  _C[acc_stride + 1] = C_data[3];
-}
-
-template <int acc_stride>
-DEVICE_INLINE void initM16N16K16TN(Array<float, 8, 8>* accumulator) {
-  float* _C = reinterpret_cast<float*>(accumulator);
-  initM16N8K16TN<acc_stride>(reinterpret_cast<Array<float, 4, 4>*>(&_C[0]));
-  initM16N8K16TN<acc_stride>(reinterpret_cast<Array<float, 4, 4>*>(&_C[2]));
-}
-
-template <int acc_stride = 2>
-DEVICE_INLINE void M16N16K16TN(
-    Array<float, 8, 8>* C,
-    Array<__half, 8, 8>* A,
-    Array<__half, 8, 8>* B) {
-  float* _C = reinterpret_cast<float*>(C);
-  __half* _B = reinterpret_cast<__half*>(B);
-  M16N8K16TN<acc_stride>(
-      reinterpret_cast<Array<float, 4, 4>*>(&_C[0]),
-      A,
-      reinterpret_cast<Array<__half, 4, 4>*>(&_B[0]));
-  M16N8K16TN<acc_stride>(
-      reinterpret_cast<Array<float, 4, 4>*>(&_C[2]),
-      A,
-      reinterpret_cast<Array<__half, 4, 4>*>(&_B[4]));
+__device__ inline void M16N16K16TN(
+    Array<float, 8, 8>& C,
+    Array<unsigned, 4, 4>& A,
+    Array<unsigned, 4, 4>& B) {
+  auto* _C = reinterpret_cast<Array<float, 4, 4>*>(&C);
+  auto* _B = reinterpret_cast<Array<unsigned, 2, 2>*>(&B);
+  M16N8K16TN(_C[0], A, _B[0]);
+  M16N8K16TN(_C[1], A, _B[1]);
 }
 
 } // namespace Turing
@@ -362,109 +201,70 @@ DEVICE_INLINE void M16N16K16TN(
 
 namespace Ampere {
 
-namespace util {
-// MMA instruction wrappers (sm_75+):
-DEVICE_INLINE void m16n8k16TN(
-    Array<float, 4, 4>* C,
-    Array<__half, 8, 8>* A,
-    Array<__half, 4, 4>* B) {
-  unsigned const* _A = reinterpret_cast<unsigned const*>(A);
-  unsigned const* _B = reinterpret_cast<unsigned const*>(B);
-  unsigned* _C = reinterpret_cast<unsigned*>(C);
-  const unsigned* _D = reinterpret_cast<const unsigned*>(C);
+__device__ inline void initM16N8K16(Array<float, 4, 4>& accumulator) {
+  accumulator.set(0);
+}
 
+__device__ inline void M16N8K16TNF16(
+    Array<float, 4, 4>& C,
+    Array<unsigned, 4, 4>& A,
+    Array<unsigned, 2, 2>& B) {
   asm("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 {%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%10,%11,%12,%13};\n"
-      : "=r"(_C[0]), "=r"(_C[1]), "=r"(_C[2]), "=r"(_C[3])
-      : "r"(_A[0]),
-        "r"(_A[1]),
-        "r"(_A[2]),
-        "r"(_A[3]),
-        "r"(_B[0]),
-        "r"(_B[1]),
-        "r"(_D[0]),
-        "r"(_D[1]),
-        "r"(_D[2]),
-        "r"(_D[3]));
+      : "=f"(C[0]), "=f"(C[1]), "=f"(C[2]), "=f"(C[3])
+      : "r"(A[0]),
+        "r"(A[1]),
+        "r"(A[2]),
+        "r"(A[3]),
+        "r"(B[0]),
+        "r"(B[1]),
+        "f"(C[0]),
+        "f"(C[1]),
+        "f"(C[2]),
+        "f"(C[3]));
 }
 
-DEVICE_INLINE void m16n8k16TN(
-    Array<float, 4, 4>* C,
-    Array<__bfloat, 8, 8>* A,
-    Array<__bfloat, 4, 4>* B) {
-  unsigned const* _A = reinterpret_cast<unsigned const*>(A);
-  unsigned const* _B = reinterpret_cast<unsigned const*>(B);
-  unsigned* _C = reinterpret_cast<unsigned*>(C);
-  const unsigned* _D = reinterpret_cast<const unsigned*>(C);
-
+__device__ inline void M16N8K16TNBF16(
+    Array<float, 4, 4>& C,
+    Array<unsigned, 4, 4>& A,
+    Array<unsigned, 2, 2>& B) {
   asm("mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 {%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%10,%11,%12,%13};\n"
-      : "=r"(_C[0]), "=r"(_C[1]), "=r"(_C[2]), "=r"(_C[3])
-      : "r"(_A[0]),
-        "r"(_A[1]),
-        "r"(_A[2]),
-        "r"(_A[3]),
-        "r"(_B[0]),
-        "r"(_B[1]),
-        "r"(_D[0]),
-        "r"(_D[1]),
-        "r"(_D[2]),
-        "r"(_D[3]));
+      : "=f"(C[0]), "=f"(C[1]), "=f"(C[2]), "=f"(C[3])
+      : "r"(A[0]),
+        "r"(A[1]),
+        "r"(A[2]),
+        "r"(A[3]),
+        "r"(B[0]),
+        "r"(B[1]),
+        "f"(C[0]),
+        "f"(C[1]),
+        "f"(C[2]),
+        "f"(C[3]));
 }
 
-} // namespace util
-
-template <int acc_stride>
-DEVICE_INLINE void initM16N8K16TN(Array<float, 4, 4>* accumulator) {
-  float* _C = reinterpret_cast<float*>(accumulator);
-  _C[0] = 0;
-  _C[1] = 0;
-  _C[acc_stride] = 0;
-  _C[acc_stride + 1] = 0;
+__device__ inline void initM16N16K16(Array<float, 8, 8>& accumulator) {
+  accumulator.set(0);
 }
 
-template <int acc_stride = 2, typename T = __half>
-DEVICE_INLINE void M16N8K16TN(
-    Array<float, 4, 4>* C,
-    Array<T, 8, 8>* A,
-    Array<T, 4, 4>* B) {
-  // TODO: in a follow up,
-  //    lift this fused swizzle onto iterdomain
-  float* _C = reinterpret_cast<float*>(C);
-  float C_data[4] = {_C[0], _C[1], _C[acc_stride], _C[acc_stride + 1]};
-
-  util::m16n8k16TN(reinterpret_cast<Array<float, 4, 4>*>(&C_data[0]), A, B);
-
-  _C[0] = C_data[0];
-  _C[1] = C_data[1];
-  _C[acc_stride] = C_data[2];
-  _C[acc_stride + 1] = C_data[3];
+__device__ inline void M16N16K16TNF16(
+    Array<float, 8, 8>& C,
+    Array<unsigned, 4, 4>& A,
+    Array<unsigned, 4, 4>& B) {
+  auto* _C = reinterpret_cast<Array<float, 4, 4>*>(&C);
+  auto* _B = reinterpret_cast<Array<unsigned, 2, 2>*>(&B);
+  M16N8K16TNF16(_C[0], A, _B[0]);
+  M16N8K16TNF16(_C[1], A, _B[1]);
 }
 
-template <int acc_stride>
-DEVICE_INLINE void initM16N16K16TN(Array<float, 8, 8>* accumulator) {
-  float* _C = reinterpret_cast<float*>(accumulator);
-  initM16N8K16TN<acc_stride>(reinterpret_cast<Array<float, 4, 4>*>(&_C[0]));
-  initM16N8K16TN<acc_stride>(reinterpret_cast<Array<float, 4, 4>*>(&_C[2]));
-}
-
-template <int acc_stride = 2, typename T = __half>
-DEVICE_INLINE void M16N16K16TN(
-    Array<float, 8, 8>* C,
-    Array<T, 8, 8>* A,
-    Array<T, 8, 8>* B) {
-  float* _C = reinterpret_cast<float*>(C);
-  T* _B = reinterpret_cast<T*>(B);
-  M16N8K16TN<acc_stride>(
-      reinterpret_cast<Array<float, 4, 4>*>(&_C[0]),
-      A,
-      reinterpret_cast<Array<T, 4, 4>*>(&_B[0]));
-  M16N8K16TN<acc_stride>(
-      reinterpret_cast<Array<float, 4, 4>*>(&_C[2]),
-      A,
-      reinterpret_cast<Array<T, 4, 4>*>(&_B[4]));
+__device__ inline void M16N16K16TNBF16(
+    Array<float, 8, 8>& C,
+    Array<unsigned, 4, 4>& A,
+    Array<unsigned, 4, 4>& B) {
+  auto* _C = reinterpret_cast<Array<float, 4, 4>*>(&C);
+  auto* _B = reinterpret_cast<Array<unsigned, 2, 2>*>(&B);
+  M16N8K16TNBF16(_C[0], A, _B[0]);
+  M16N8K16TNBF16(_C[1], A, _B[1]);
 }
 
 } // namespace Ampere
 
 #endif // Arch 80
-
-#undef DEVICE_INLINE

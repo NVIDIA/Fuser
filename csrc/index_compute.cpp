@@ -37,6 +37,11 @@ namespace {
 
 //! Offset of an index of a producer axis with respect to its
 //! corresponding consumer index
+//! TODO: this function assumes that we are indexing into rFactor domain, which
+//! is no longer the case. Today, we are indexing into allocaiton domain, and if
+//! the allocation domain is not a permutation of the rFactor domain, this
+//! function will just return 0, because we do not have a case that uses both
+//! allocation domain and halo yet.
 int getProducerHaloOffset(
     const TensorView* producer_tv,
     size_t producer_axis,
@@ -57,9 +62,6 @@ int getProducerHaloOffset(
   // producer tensors, where reduction axes are skipped, producer_id
   // should never be a reduction axis.
   if (it == p2c.end()) {
-    TORCH_WARN(
-        "getProducerHaloOffset p2c mapping has failed. See "
-        "https://github.com/NVIDIA/Fuser/issues/1122");
     return 0;
   }
   IterDomain* consumer_id = it->second;
