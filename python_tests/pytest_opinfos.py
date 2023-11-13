@@ -1076,7 +1076,7 @@ uniform_opinfo = OpInfo(
     dtypes=(bool_int_dtypes + complex_dtypes),
     error_input_generator=random_dist_error_generator,
     symbolic_parameter_list=(
-        ArgumentType.ConstantScalar, 
+        ArgumentType.ConstantScalar,
         ArgumentType.ConstantScalar,
         ArgumentType.Constant,
     ),
@@ -1092,7 +1092,7 @@ uniform_opinfo = OpInfo(
     dtypes=(bool_int_dtypes + complex_dtypes),
     error_input_generator=random_dist_error_generator,
     symbolic_parameter_list=(
-        ArgumentType.ConstantScalar, 
+        ArgumentType.ConstantScalar,
         ArgumentType.ConstantScalar,
         ArgumentType.Constant,
     ),

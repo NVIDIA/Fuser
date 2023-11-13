@@ -2651,15 +2651,11 @@ struct RandomDistOpRecord : RecordFunctor {
       std::vector<State> _args,
       std::vector<State> _outputs,
       PrimDataType dtype)
-      : RecordFunctor(
-            std::move(_args),
-            std::move(_outputs),
-            "",
-            RType),
+      : RecordFunctor(std::move(_args), std::move(_outputs), "", RType),
         dtype_(dtype) {
     static_assert(
-      (RType == serde::RecordType_NormalDistOp) ||
-      (RType == serde::RecordType_UniformDistOp));
+        (RType == serde::RecordType_NormalDistOp) ||
+        (RType == serde::RecordType_UniformDistOp));
     if constexpr (RType == serde::RecordType_UniformDistOp) {
       name_ = "ops.uniform";
     } else if constexpr (RType == serde::RecordType_NormalDistOp) {
@@ -2700,7 +2696,7 @@ struct RandomDistOpRecord : RecordFunctor {
         fd.getFusionStateVector(args_.at(2).index);
 
     Val* output = nullptr;
-    if constexpr (RType ==  serde::RecordType_UniformDistOp) {
+    if constexpr (RType == serde::RecordType_UniformDistOp) {
       if (args_.size() == 3) { // stochastic uniform
         output = uniform(output_shape, arg1, arg2, dtype_);
       } else if (args_.size() == 5) { // provided seed and offset

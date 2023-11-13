@@ -2474,9 +2474,11 @@ class TestNvFuserFrontend(TestCase):
                 if deterministic:
                     rng_seed = fd.define_scalar(DataType.Int)
                     rng_offset = fd.define_scalar(DataType.Int)
-                    u = eval("fd.ops." + randopname)(a, b, shape=[5, 9], rng_seed=rng_seed, rng_offset=rng_offset)
+                    u = randop(
+                        a, b, shape=[5, 9], rng_seed=rng_seed, rng_offset=rng_offset
+                    )
                 else:
-                    u = eval("fd.ops." + randopname)(a, b, shape=[5,9])
+                    u = randop(a, b, shape=[5, 9])
                 t2 = t1 * u
                 fd.add_output(t2)
 

@@ -150,17 +150,22 @@ Tensor reshape_fn(
 }
 
 template <class ShapeType, serde::RecordType RType>
-Tensor random_dist_op_fn(FusionDefinition::Operators& self,
-   Scalar arg1,
-   Scalar arg2,
-   ShapeType generic_new_shape,
-   std::optional<Scalar> rng_seed,
-   std::optional<Scalar> rng_offset,
-   PrimDataType dtype) {
-  static_assert((RType == serde::RecordType_NormalDistOp) || (RType == serde::RecordType_UniformDistOp));
+Tensor random_dist_op_fn(
+    FusionDefinition::Operators& self,
+    Scalar arg1,
+    Scalar arg2,
+    ShapeType generic_new_shape,
+    std::optional<Scalar> rng_seed,
+    std::optional<Scalar> rng_offset,
+    PrimDataType dtype) {
+  static_assert(
+      (RType == serde::RecordType_NormalDistOp) ||
+      (RType == serde::RecordType_UniformDistOp));
+  NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
   NVF_CHECK(
-      self.validUse(), "Attempting to add to a completed definition!");
-  NVF_CHECK(isFloatingPointType(dtype), "Random distributions only create floating point types! ", dtype);
+      isFloatingPointType(dtype),
+      "Random distributions only create floating point types! ",
+      dtype);
   FusionDefinition* fd = self.fusion_definition;
   Vector new_shape = ShapeAsVector(generic_new_shape, *fd);
 
@@ -179,9 +184,7 @@ Tensor random_dist_op_fn(FusionDefinition::Operators& self,
   }
 
   fd->defineRecord(new RandomDistOpRecord<RType>(
-      arg_states,
-      {fd->recordingState(output())},
-      dtype));
+      arg_states, {fd->recordingState(output())}, dtype));
 
   return output;
 }
@@ -1991,43 +1994,46 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_CAST_OP("cast", castOp)
 #undef NVFUSER_PYTHON_BINDING_CAST_OP
 
-#define NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP(op_str, op_type, arg1_str, arg2_str) \
-  nvf_ops.def( \
-      op_str, \
-      random_dist_op_fn<Vector, op_type>, \
-      py::arg(arg1_str), \
-      py::arg(arg2_str), \
-      py::arg("shape"), \
-      py::kw_only(), \
-      py::arg("rng_seed") = py::none(), \
-      py::arg("rng_offset") = py::none(), \
-      py::arg("dtype") = DataType::Float, \
-      py::return_value_policy::reference); \
-  nvf_ops.def( \
-      op_str, \
-      random_dist_op_fn<py::list, op_type>, \
-      py::arg(arg1_str), \
-      py::arg(arg2_str), \
-      py::arg("shape"), \
-      py::kw_only(), \
-      py::arg("rng_seed") = py::none(), \
-      py::arg("rng_offset") = py::none(), \
-      py::arg("dtype") = DataType::Float, \
-      py::return_value_policy::reference); \
-  nvf_ops.def( \
-      op_str, \
-      random_dist_op_fn<py::tuple, op_type>, \
-      py::arg(arg1_str), \
-      py::arg(arg2_str), \
-      py::arg("shape"), \
-      py::kw_only(), \
-      py::arg("rng_seed") = py::none(), \
-      py::arg("rng_offset") = py::none(), \
-      py::arg("dtype") = DataType::Float, \
+#define NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP( \
+    op_str, op_type, arg1_str, arg2_str)       \
+  nvf_ops.def(                                 \
+      op_str,                                  \
+      random_dist_op_fn<Vector, op_type>,      \
+      py::arg(arg1_str),                       \
+      py::arg(arg2_str),                       \
+      py::arg("shape"),                        \
+      py::kw_only(),                           \
+      py::arg("rng_seed") = py::none(),        \
+      py::arg("rng_offset") = py::none(),      \
+      py::arg("dtype") = DataType::Float,      \
+      py::return_value_policy::reference);     \
+  nvf_ops.def(                                 \
+      op_str,                                  \
+      random_dist_op_fn<py::list, op_type>,    \
+      py::arg(arg1_str),                       \
+      py::arg(arg2_str),                       \
+      py::arg("shape"),                        \
+      py::kw_only(),                           \
+      py::arg("rng_seed") = py::none(),        \
+      py::arg("rng_offset") = py::none(),      \
+      py::arg("dtype") = DataType::Float,      \
+      py::return_value_policy::reference);     \
+  nvf_ops.def(                                 \
+      op_str,                                  \
+      random_dist_op_fn<py::tuple, op_type>,   \
+      py::arg(arg1_str),                       \
+      py::arg(arg2_str),                       \
+      py::arg("shape"),                        \
+      py::kw_only(),                           \
+      py::arg("rng_seed") = py::none(),        \
+      py::arg("rng_offset") = py::none(),      \
+      py::arg("dtype") = DataType::Float,      \
       py::return_value_policy::reference);
 
-  NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP("normal", serde::RecordType_NormalDistOp, "mean", "std")
-  NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP("uniform", serde::RecordType_UniformDistOp, "minval", "maxval")
+  NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP(
+      "normal", serde::RecordType_NormalDistOp, "mean", "std")
+  NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP(
+      "uniform", serde::RecordType_UniformDistOp, "minval", "maxval")
 #undef NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP
 
   nvf_ops.def(
