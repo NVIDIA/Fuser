@@ -380,6 +380,13 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
         NVF_ERROR(
             false, "dtype not supported in evaluator: ", *out()->getDataType());
       }
+      break;
+    case UnaryOpType::Sigmoid:
+      return {in.as<at::Tensor>().sigmoid()};
+      break;
+    case UnaryOpType::Tanh:
+      return {in.as<at::Tensor>().tanh()};
+      break;
     default:
       NVF_CHECK(
           false,

@@ -683,19 +683,8 @@ TEST_F(NVFuserTest, FusionLSTMCell_CUDA) {
   aten_inputs.insert(aten_inputs.end(), chunked2.begin(), chunked2.end());
   aten_inputs.insert(aten_inputs.end(), chunked3.begin(), chunked3.end());
 
-  auto at_ingate =
-      chunked0[0].add(chunked0[1]).add(chunked0[2]).add(chunked0[3]).sigmoid();
-  auto at_forgetgate =
-      chunked1[0].add(chunked1[1]).add(chunked1[2]).add(chunked1[3]).sigmoid();
-  auto at_cellgate =
-      chunked2[0].add(chunked2[1]).add(chunked2[2]).add(chunked2[3]).tanh();
-  auto at_outgate =
-      chunked3[0].add(chunked3[1]).add(chunked3[2]).add(chunked3[3]).sigmoid();
-
   auto at_cx = at::randn({batch_size, hidden_features}, options);
   aten_inputs.push_back(at_cx);
-  auto at_cy = at_forgetgate.mul(at_cx).add(at_ingate.mul(at_cellgate));
-  auto at_hy = at_outgate.mul(at_cy.tanh());
 
   auto lparams = schedulePointwise(&fusion, aten_inputs);
 
@@ -704,7 +693,7 @@ TEST_F(NVFuserTest, FusionLSTMCell_CUDA) {
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
   testValidate(
-      &fusion, cg_outputs, aten_inputs, {at_cy, at_hy}, __LINE__, __FILE__);
+      &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionReductionHalf_CUDA) {
