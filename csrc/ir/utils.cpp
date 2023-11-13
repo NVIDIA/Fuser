@@ -134,8 +134,9 @@ std::vector<int> normalizeOld2New(
 
   // All available new positions
   std::set<int> all_positions;
-  for (decltype(ndims) i{0}; i < ndims; i++)
+  for (decltype(ndims) i{0}; i < ndims; i++) {
     all_positions.insert((int)i);
+  }
 
   // Check what positions haven't been specified.
   std::set<int> positions_left;
@@ -1071,6 +1072,21 @@ bool isTensorSize(const Val* val) {
 bool isTensorStride(const Val* val) {
   return isTensorAttr(val, "logical_stride") ||
       isTensorAttr(val, "alloc_stride");
+}
+
+int64_t getVectorizeSize(TensorView* tv) {
+  for (auto id : tv->getLeafDomain()) {
+    if (!isParallelTypeVectorize(id->getParallelType())) {
+      continue;
+    }
+
+    NVF_ERROR(
+        id->extent()->isConstInt(),
+        "Could not evaluate constant value bound to vectorized dim.");
+
+    return id->extent()->evaluate().as<int64_t>();
+  }
+  return 1;
 }
 
 } // namespace nvfuser::ir_utils

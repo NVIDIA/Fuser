@@ -361,8 +361,10 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
   return ret;
 }
 
-FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion> fusion)
-    : fusion_(std::move(fusion)) {}
+FusionExecutorCache::FusionExecutorCache(
+    std::unique_ptr<Fusion> fusion,
+    int64_t fusion_id)
+    : fusion_(std::move(fusion)), fusion_id_{fusion_id} {}
 
 KernelArgumentHolder FusionExecutorCache::prepareInputs(
     const at::ArrayRef<c10::IValue>& inputs,
@@ -685,10 +687,9 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
   // Initialize or fetch vector of FusionKernelRuntime objects associated with
   // each pair of device ID and
-  auto& kernel_runtimes =
-      kernel_runtimes_
-          .try_emplace(std::make_pair(args.getDeviceIndex(), conc_info))
-          .first->second;
+  auto config = std::make_pair(args.getDeviceIndex(), conc_info);
+  auto& kernel_runtimes = kernel_runtimes_.try_emplace(config).first->second;
+  conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
 
   // Check for re-use hit case
   //  a kernel runtime is re-usable if all the compiled
@@ -754,7 +755,12 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     }
     FusionGuard fg(conc_fusion.get());
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
-        std::move(conc_fusion), args, forced_index_type));
+        std::move(conc_fusion),
+        args,
+        forced_index_type,
+        fusion_id_,
+        conc_info_id_map_.at(config),
+        kernel_runtimes.size()));
     kernel_runtime = kernel_runtimes.back().get();
 
     if (profiling_) {
@@ -797,9 +803,13 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
 
     // We recompute the DynamicTransformConcretizationInfo during
     // deserialization using a metadata copy of kernel inputs.
-    auto&& [device_id, dynamic_info] = config;
+    auto&& [device_id, conc_info] = config;
     fb_kernel_runtimes.push_back(CreateKernelRuntimeStateDirect(
-        builder, device_id, (dynamic_info != nullptr), &fb_device_runtimes));
+        builder,
+        device_id,
+        conc_info_id_map_.at(config),
+        (conc_info != nullptr),
+        &fb_device_runtimes));
   }
 
   // 2. Serialize input id to kernel cache
@@ -815,6 +825,7 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
 
   return serde::CreateFusionExecutorCacheDirect(
       builder,
+      fusion_id_,
       inputs_id_lookup_.serialize(builder),
       &fb_kernel_runtimes,
       &kernel_cache_keys,
@@ -822,11 +833,17 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
 }
 
 void FusionExecutorCache::deserialize(
-    const serde::FusionExecutorCache* buffer) {
+    const serde::FusionExecutorCache* buffer,
+    int64_t fusion_id) {
   // See definitions in serde/fusion_cache.fbs for tables
   // FusionExecutorCache and KernelRuntimes
 
   NVF_ERROR(buffer != nullptr, "serde::FusionExecutorCache is nullptr.");
+  NVF_ERROR(
+      fusion_id == buffer->fusion_id(),
+      "Expected serde fusion_id to match given fusion_id.");
+
+  fusion_id_ = buffer->fusion_id();
 
   inputs_id_lookup_.deserialize(buffer->inputs_cache());
 
@@ -842,8 +859,6 @@ void FusionExecutorCache::deserialize(
         fb_device_runtimes->has_dynamic_transform_info());
     NVF_ERROR(fb_device_runtimes->runtimes()->size() > 0);
 
-    std::vector<std::unique_ptr<FusionKernelRuntime>> device_runtimes;
-
     DynamicTransformConcretizationInfo* conc_info = nullptr;
     if (initial_info.isDynamic()) {
       // Each FusionKernelRuntime stores a metadata copy of its initial inputs.
@@ -857,6 +872,11 @@ void FusionExecutorCache::deserialize(
               &initial_info, &expr_eval));
       conc_info = cached_conc_info_.back().get();
     }
+
+    auto config =
+        std::make_pair((int8_t)fb_device_runtimes->device_id(), conc_info);
+    auto& device_runtimes = kernel_runtimes_.try_emplace(config).first->second;
+    conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
 
     for (auto runtime : *fb_device_runtimes->runtimes()) {
       auto conc_fusion = std::make_unique<Fusion>(*fusion_);
@@ -881,9 +901,18 @@ void FusionExecutorCache::deserialize(
       KernelArgumentHolder args;
       args.deserialize(runtime->args());
 
+      NVF_ERROR(
+          (int8_t)fb_device_runtimes->device_id() == args.getDeviceIndex(),
+          "Expected serde FusionKernelRuntime device_id to match KernelArgumentHolder metadata device id.");
+
       // 2. Construct new FusionKernelRuntime
-      device_runtimes.emplace_back(
-          std::make_unique<FusionKernelRuntime>(std::move(conc_fusion), args));
+      device_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
+          std::move(conc_fusion),
+          args,
+          std::nullopt,
+          fusion_id_,
+          fb_device_runtimes->concrete_id(),
+          device_runtimes.size()));
 
       // 3. For FusionKernelRuntime, we have a separate deserialize function
       // to create the FusionExecutor objects.
@@ -891,10 +920,6 @@ void FusionExecutorCache::deserialize(
 
       all_runtimes.emplace_back(device_runtimes.back().get());
     }
-
-    kernel_runtimes_.emplace(
-        std::make_pair(fb_device_runtimes->device_id(), conc_info),
-        std::move(device_runtimes));
   }
 
   // 2. Rebuild input id to kernel cache
@@ -908,7 +933,13 @@ void FusionExecutorCache::deserialize(
 FusionKernelRuntime::FusionKernelRuntime(
     std::unique_ptr<Fusion> fusion,
     const KernelArgumentHolder& args,
-    std::optional<PrimDataType> forced_index_type) {
+    std::optional<PrimDataType> forced_index_type,
+    int64_t fusion_id,
+    int64_t concrete_id,
+    int64_t runtime_id)
+    : fusion_id_{fusion_id},
+      concrete_id_{concrete_id},
+      runtime_id_{runtime_id} {
   FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
 
   NVF_ERROR(
@@ -972,7 +1003,12 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
   }
 
   return serde::CreateFusionKernelRuntimeDirect(
-      builder, args_metadata_.serialize(builder), &executors_fb);
+      builder,
+      fusion_id_,
+      concrete_id_,
+      runtime_id_,
+      args_metadata_.serialize(builder),
+      &executors_fb);
 }
 
 void FusionKernelRuntime::deserialize(
@@ -981,6 +1017,15 @@ void FusionKernelRuntime::deserialize(
 
   NVF_ERROR(buffer != nullptr, "serde::FusionKernelRuntime is nullptr.");
   NVF_ERROR(runtime_workspace_.group_run_order.size() == executors_.size());
+  NVF_ERROR(
+      fusion_id_ == buffer->fusion_id(),
+      "Expected FusionKernelRuntime fusion_id to match serde fusion_id.");
+  NVF_ERROR(
+      concrete_id_ == buffer->concrete_id(),
+      "Expected FusionKernelRuntime concrete_id to match serde concrete_id.");
+  NVF_ERROR(
+      runtime_id_ == buffer->runtime_id(),
+      "Expected FusionKernelRuntime runtime_id to match serde runtime_id.");
 
   // 1. Deserialize FusionExecutor objects
   for (auto idx : c10::irange(buffer->executors()->size())) {
@@ -999,7 +1044,12 @@ void FusionKernelRuntime::deserialize(
     executors_.at(group_id).deserialize(
         buffer->executors()->Get(group_id),
         fusion_to_run.get(),
-        scheduler_entry->params()->cparams);
+        scheduler_entry->params()->cparams,
+        scheduler_entry->heuristic(),
+        fusion_id_,
+        concrete_id_,
+        runtime_id_,
+        group_id);
   }
 }
 
@@ -1228,7 +1278,12 @@ void FusionKernelRuntime::compileKernel(
       fusion_to_run.get(),
       args,
       scheduler_entry->params()->lparams,
-      scheduler_entry->params()->cparams);
+      scheduler_entry->params()->cparams,
+      scheduler_entry->heuristic(),
+      fusion_id_,
+      concrete_id_,
+      runtime_id_,
+      group_id);
   if (isProfilerEnabled()) {
     FusionProfiler::segment(group_id).stopCompile();
   }

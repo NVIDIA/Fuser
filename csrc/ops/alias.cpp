@@ -804,4 +804,28 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
   return out;
 }
 
+TensorView* slice(
+    TensorView* inp,
+    const std::vector<int64_t>& starts,
+    const std::vector<int64_t>& stops) {
+  std::vector<int64_t> steps(starts.size(), 1);
+  return slice(inp, starts, stops, steps);
+}
+
+TensorView* slice(
+    TensorView* inp,
+    const std::vector<int64_t>& starts,
+    const std::vector<int64_t>& stops,
+    const std::vector<int64_t>& steps) {
+  std::vector<Slice> slices;
+  slices.reserve(starts.size());
+  for (size_t i = 0; i < starts.size(); i++) {
+    slices.push_back(
+        {IrBuilder::create<Val>(starts[i]),
+         IrBuilder::create<Val>(stops[i]),
+         IrBuilder::create<Val>(steps[i])});
+  }
+  return slice(inp, slices);
+}
+
 } // namespace nvfuser

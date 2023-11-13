@@ -147,7 +147,11 @@ class Predicate final : public Val {
 
 class TensorIndex final : public Val {
  public:
-  TensorIndex(IrBuilderPasskey, const TensorView* view, Val* index);
+  TensorIndex(
+      IrBuilderPasskey,
+      const TensorView* view,
+      Val* index,
+      DataType dtype = DataType::Null);
 
   Val* index() const {
     return index_;
