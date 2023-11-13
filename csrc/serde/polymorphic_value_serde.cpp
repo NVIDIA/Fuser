@@ -62,7 +62,8 @@ nvfuser::PolymorphicValue deserializePolymorphicValue(const Scalar* c) {
           std::complex<double>(c->real_value(), c->imag_value()));
     }
     default:
-      NVF_ERROR(false, "Unable to deserialize Scalar as PolymorphicValue.");
+      NVF_ERROR(
+          false, "Unable to deserialize serde::Scalar as PolymorphicValue.");
   }
 }
 
