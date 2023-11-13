@@ -2372,6 +2372,15 @@ kir::TensorIndex* Index::getProducerIndex(
       override_index,
       generate_pointer);
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
+  if (ir_utils::isLdMatrixOp(consumer->definition())) {
+    if (at::cuda::getCurrentDeviceProperties()->major < 8) {
+      // For Turing, unused indices for ldmatrix needs to be aligned, although they are not
+      // used.
+      auto orig_index = index;
+      index = create<Val>(index->dtype());
+      IrBuilder::create<UnaryOp>(UnaryOpType::AdjustPartialLdMatrixAddrInTuring, index, orig_index);
+    }
+  }
   return SimplifyingIrBuilder::create<kir::TensorIndex>(producer, index);
 }
 
