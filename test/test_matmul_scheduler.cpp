@@ -77,8 +77,6 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
   const auto [in_prim_type, out_prim_type] = GetParam();
   const auto [abs_err_thr, rel_err_thr] = errs[GetParam()];
 
-  // NOTE: default precisions in (fp16) -> compute(fp32) -> out(fp32)
-  const auto default_out_type = (PrimDataType::Float == out_prim_type);
   const auto in_type = DataType(in_prim_type);
   const auto out_type = DataType(out_prim_type);
   const auto at_in_type = data_type_to_aten(in_prim_type);
@@ -100,7 +98,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
   // tv3 := A x B
   auto tv3 = matmul(tv0, tv1, layout, true);
   // tv4 := cast(tv3)
-  auto tv4 = default_out_type ? tv3 : castOp(out_type, tv3);
+  auto tv4 = maybeCastOp(out_type, tv3);
 
   // tv5 := (A x B) + bias
   auto tv5 = biasEpilogue(tv4, tv2);
@@ -143,7 +141,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
   auto t2 = matmulAtInput(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
 
   auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
-  auto t4 = default_out_type ? t2 : t2.to(at_out_type);
+  auto t4 = t2.to(at_out_type);
 
   auto t5 = atBiasEpilogue(t3, t2);
 
@@ -179,8 +177,6 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
   const auto [in_prim_type, out_prim_type] = GetParam();
   const auto [abs_err_thr, rel_err_thr] = errs[GetParam()];
 
-  // NOTE: default precisions in (fp16) -> compute(fp32) -> out(fp32)
-  const auto default_out_type = (PrimDataType::Float == out_prim_type);
   const auto in_type = DataType(in_prim_type);
   const auto out_type = DataType(out_prim_type);
   const auto at_in_type = data_type_to_aten(in_prim_type);
@@ -200,7 +196,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
 
   auto tv2 = matmul(tv0, tv1, layout, true);
   auto tv3 = relu(tv2);
-  auto tv4 = default_out_type ? tv3 : castOp(out_type, tv3);
+  auto tv4 = maybeCastOp(out_type, tv3);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -238,7 +234,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
   auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at_in_type, M, N, K);
   auto t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t3 = at::relu(t2);
-  auto t4 = default_out_type ? t3 : t3.to(at_out_type);
+  auto t4 = t3.to(at_out_type);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
@@ -271,8 +267,6 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
   const auto [in_prim_type, out_prim_type] = GetParam();
   const auto [abs_err_thr, rel_err_thr] = errs[GetParam()];
 
-  // NOTE: default precisions in (fp16) -> compute(fp32) -> out(fp32)
-  const auto default_out_type = (PrimDataType::Float == out_prim_type);
   const auto in_type = DataType(in_prim_type);
   const auto out_type = DataType(out_prim_type);
   const auto at_in_type = data_type_to_aten(in_prim_type);
@@ -293,14 +287,14 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
 
   // tv3 := A x B
   auto tv3 = matmul(tv0, tv1, layout, true);
-  auto tv4 = default_out_type ? tv3 : castOp(out_type, tv3);
+  auto tv4 = maybeCastOp(out_type, tv3);
 
   // tv5 := (A x B) + bias
   auto tv5 = biasEpilogue(tv4, tv2);
 
   // tv6 := relu((A x B) + bias)
   auto tv6 = relu(tv5);
-  auto tv7 = default_out_type ? tv6 : castOp(out_type, tv6);
+  auto tv7 = maybeCastOp(out_type, tv6);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -340,7 +334,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
   auto t2 = matmulAtInput(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
 
   auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
-  auto t4 = default_out_type ? t3 : t3.to(at_out_type);
+  auto t4 = t3.to(at_out_type);
   auto t5 = atBiasEpilogue(t4, t2);
   auto t7 = at::relu(t5);
 
@@ -378,8 +372,6 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueReluAux) {
   const auto [in_prim_type, out_prim_type] = GetParam();
   const auto [abs_err_thr, rel_err_thr] = errs[GetParam()];
 
-  // NOTE: default precisions in (fp16) -> compute(fp32) -> out(fp32)
-  const auto default_out_type = (PrimDataType::Float == out_prim_type);
   const auto in_type = DataType(in_prim_type);
   const auto out_type = DataType(out_prim_type);
   const auto at_in_type = data_type_to_aten(in_prim_type);
@@ -398,9 +390,9 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueReluAux) {
   auto tv1 = makeContigTensor(2, in_type);
 
   auto tv2 = matmul(tv0, tv1, layout, true);
-  auto tv3 = default_out_type ? tv2 : castOp(out_type, tv2);
+  auto tv3 = maybeCastOp(out_type, tv2);
   auto tv4 = relu(tv3);
-  auto tv5 = default_out_type ? tv4 : castOp(out_type, tv4);
+  auto tv5 = maybeCastOp(out_type, tv4);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -438,9 +430,9 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueReluAux) {
   auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at_in_type, M, N, K);
   auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at_in_type, M, N, K);
   auto t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
-  auto t3 = default_out_type ? t2 : t2.to(at_out_type);
+  auto t3 = t2.to(at_out_type);
   auto t4 = at::relu(t2);
-  auto t5 = default_out_type ? t4 : t4.to(at_out_type);
+  auto t5 = t4.to(at_out_type);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
@@ -477,8 +469,6 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasReluAux) {
   const auto [in_prim_type, out_prim_type] = GetParam();
   const auto [abs_err_thr, rel_err_thr] = errs[GetParam()];
 
-  // NOTE: default precisions in (fp16) -> compute(fp32) -> out(fp32)
-  const auto default_out_type = (PrimDataType::Float == out_prim_type);
   const auto in_type = DataType(in_prim_type);
   const auto out_type = DataType(out_prim_type);
   const auto at_in_type = data_type_to_aten(in_prim_type);
@@ -499,14 +489,14 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasReluAux) {
 
   // tv3 := A x B
   auto tv3 = matmul(tv0, tv1, layout, true);
-  auto tv4 = default_out_type ? tv3 : castOp(out_type, tv3);
+  auto tv4 = maybeCastOp(out_type, tv3);
 
   // tv5 := (A x B) + bias
   auto tv5 = biasEpilogue(tv4, tv2);
 
   // tv6 := relu((A x B) + bias)
   auto tv6 = relu(tv5);
-  auto tv7 = default_out_type ? tv6 : castOp(out_type, tv6);
+  auto tv7 = maybeCastOp(out_type, tv6);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -547,7 +537,7 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasReluAux) {
   auto t2 = matmulAtInput(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
 
   auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
-  auto t4 = default_out_type ? t3 : t3.to(at_out_type);
+  auto t4 = t3.to(at_out_type);
   auto t5 = atBiasEpilogue(t4, t2);
   auto t7 = at::relu(t5);
 
@@ -586,8 +576,6 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
   const auto [in_prim_type, out_prim_type] = GetParam();
   const auto [abs_err_thr, rel_err_thr] = errs[GetParam()];
 
-  // NOTE: default precisions in (fp16) -> compute(fp32) -> out(fp32)
-  const auto default_out_type = (PrimDataType::Float == out_prim_type);
   const auto in_type = DataType(in_prim_type);
   const auto out_type = DataType(out_prim_type);
   const auto at_in_type = data_type_to_aten(in_prim_type);
@@ -607,7 +595,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
 
   auto tv2 = matmul(tv0, tv1, layout, true);
   auto tv3 = gelu(tv2);
-  auto tv4 = default_out_type ? tv3 : castOp(out_type, tv3);
+  auto tv4 = maybeCastOp(out_type, tv3);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -645,7 +633,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
   auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at_in_type, M, N, K);
   auto t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   auto t3 = at::gelu(t2);
-  auto t4 = default_out_type ? t3 : t3.to(at_out_type);
+  auto t4 = t3.to(at_out_type);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
@@ -678,8 +666,6 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueGeluAux) {
   const auto [in_prim_type, out_prim_type] = GetParam();
   const auto [abs_err_thr, rel_err_thr] = errs[GetParam()];
 
-  // NOTE: default precisions in (fp16) -> compute(fp32) -> out(fp32)
-  const auto default_out_type = (PrimDataType::Float == out_prim_type);
   const auto in_type = DataType(in_prim_type);
   const auto out_type = DataType(out_prim_type);
   const auto at_in_type = data_type_to_aten(in_prim_type);
@@ -698,9 +684,9 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueGeluAux) {
   auto tv1 = makeContigTensor(2, in_type);
 
   auto tv2 = matmul(tv0, tv1, layout, true);
-  auto tv3 = default_out_type ? tv2 : castOp(out_type, tv2);
+  auto tv3 = maybeCastOp(out_type, tv2);
   auto tv4 = gelu(tv2);
-  auto tv5 = default_out_type ? tv4 : castOp(out_type, tv4);
+  auto tv5 = maybeCastOp(out_type, tv4);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -738,9 +724,9 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueGeluAux) {
   auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at_in_type, M, N, K);
   auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at_in_type, M, N, K);
   auto t2 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
-  auto t3 = default_out_type ? t2 : t2.to(at_out_type);
+  auto t3 = t2.to(at_out_type);
   auto t4 = at::gelu(t2);
-  auto t5 = default_out_type ? t4 : t4.to(at_out_type);
+  auto t5 = t4.to(at_out_type);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
@@ -775,8 +761,6 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
   const auto [in_prim_type, out_prim_type] = GetParam();
   const auto [abs_err_thr, rel_err_thr] = errs[GetParam()];
 
-  // NOTE: default precisions in (fp16) -> compute(fp32) -> out(fp32)
-  const auto default_out_type = (PrimDataType::Float == out_prim_type);
   const auto in_type = DataType(in_prim_type);
   const auto out_type = DataType(out_prim_type);
   const auto at_in_type = data_type_to_aten(in_prim_type);
@@ -797,14 +781,14 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
 
   // tv3 := A x B
   auto tv3 = matmul(tv0, tv1, layout, true);
-  auto tv4 = default_out_type ? tv3 : castOp(out_type, tv3);
+  auto tv4 = maybeCastOp(out_type, tv3);
 
   // tv5 := (A x B) + bias
   auto tv5 = biasEpilogue(tv4, tv2);
 
   // tv6 := gelu((A x B) + bias)
   auto tv6 = gelu(tv5);
-  auto tv7 = default_out_type ? tv6 : castOp(out_type, tv6);
+  auto tv7 = maybeCastOp(out_type, tv6);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -844,7 +828,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
   auto t2 = matmulAtInput(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
 
   auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
-  auto t4 = default_out_type ? t3 : t3.to(at_out_type);
+  auto t4 = t3.to(at_out_type);
   auto t5 = atBiasEpilogue(t4, t2);
   auto t7 = at::gelu(t5);
 
@@ -882,8 +866,6 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasGeluAux) {
   const auto [in_prim_type, out_prim_type] = GetParam();
   const auto [abs_err_thr, rel_err_thr] = errs[GetParam()];
 
-  // NOTE: default precisions in (fp16) -> compute(fp32) -> out(fp32)
-  const auto default_out_type = (PrimDataType::Float == out_prim_type);
   const auto in_type = DataType(in_prim_type);
   const auto out_type = DataType(out_prim_type);
   const auto at_in_type = data_type_to_aten(in_prim_type);
@@ -904,14 +886,14 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasGeluAux) {
 
   // tv3 := A x B
   auto tv3 = matmul(tv0, tv1, layout, true);
-  auto tv4 = default_out_type ? tv3 : castOp(out_type, tv3);
+  auto tv4 = maybeCastOp(out_type, tv3);
 
   // tv5 := (A x B) + bias
   auto tv5 = biasEpilogue(tv4, tv2);
 
   // tv6 := gelu((A x B) + bias)
   auto tv6 = gelu(tv5);
-  auto tv7 = default_out_type ? tv6 : castOp(DataType::Half, tv6);
+  auto tv7 = maybeCastOp(out_type, tv6);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -952,7 +934,7 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasGeluAux) {
   auto t2 = matmulAtInput(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
 
   auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
-  auto t4 = default_out_type ? t3 : t3.to(at_out_type);
+  auto t4 = t3.to(at_out_type);
   auto t5 = atBiasEpilogue(t4, t2);
   auto t7 = at::gelu(t5);
 
