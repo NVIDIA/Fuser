@@ -530,6 +530,8 @@ std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion);
 //! Returns true if fusion has any reduction ops.
 bool hasAnyReductionOps(Fusion* fusion);
 
+int64_t getVectorizeSize(TensorView* tv);
+
 // Returns the permutation from `in` to `out`, i.e., `out[i]==in[perm[i]]`. If
 // `out` is not a permutation of `in`, returns nullopt.
 template <typename T>
