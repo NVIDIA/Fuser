@@ -187,4 +187,37 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Schedule) {
   }
 }
 
+TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
+  // Keep multiples of 8 to keep vectorizable.
+  int M = 504, N = 136, K = 248;
+  const auto layout = MmaLayout::TT;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  auto tv1 = makeContigTensor(2, DataType::Half);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = matmul(tv0, tv1, layout, true, true);
+  fusion->addOutput(tv2);
+  ASSERT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion.get()).empty());
+
+  auto t0 = matmulAtInput(layout, TensorMatmulPos::A, at::kHalf, M, N, K);
+  auto t1 = matmulAtInput(layout, TensorMatmulPos::B, at::kHalf, M, N, K);
+  auto tref = atMatmul(t0, t1, layout);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  NVF_CHECK(
+      !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
+      "fusion got segmented, expected to match whole fusion with single segment");
+
+  testValidate(
+      executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

@@ -169,11 +169,11 @@ ProblemShape getProblemShape(
 
 std::string isMatmulFusionDefinitionSupported(
     Fusion* fusion,
-    const MmaOp* mma_expr) {
+    mma_utils::MmaOrMulSumProperties::InputsOutputs props) {
   const auto& fusion_inputs = fusion->inputs();
   const auto& fusion_outputs = fusion->outputs();
-  const auto& mma_inputs = mma_expr->inputs();
-  const auto mma_output = mma_expr->out()->as<TensorView>();
+  std::vector<TensorView*> mma_inputs = {props.a, props.b};
+  const auto mma_output = props.out;
 
   const auto fusion_inputs_tvs =
       ir_utils::filterByType<TensorView>(fusion_inputs).vector();
@@ -181,16 +181,18 @@ std::string isMatmulFusionDefinitionSupported(
       ir_utils::filterByType<TensorView>(fusion_outputs).vector();
 
   constexpr size_t minimal_number_of_inputs = 2;
+  MmaOpUtils::MmaOpDetails mma_details =
+      MmaOpUtils::getMmaOpDetails(props.out, props.a, props.b);
 
   // Quick checks - MmaOp
   {
     // Check if MmaOp represents gemm (requires M/N/K == 1, B == 0)
     //  or bgemm (requires M/N/K/B == 1)
     constexpr size_t expected_axes_numbers = 1;
-    if (mma_expr->mAxes().size() != expected_axes_numbers ||
-        mma_expr->nAxes().size() != expected_axes_numbers ||
-        mma_expr->kAxes().size() != expected_axes_numbers ||
-        mma_expr->batchAxes().size() > expected_axes_numbers) {
+    if (mma_details.m_axes.size() != expected_axes_numbers ||
+        mma_details.n_axes.size() != expected_axes_numbers ||
+        mma_details.k_axes.size() != expected_axes_numbers ||
+        mma_details.batch_axes.size() > expected_axes_numbers) {
       return "MmaOp has unsupported number of one of M/N/K/Batch axes";
     }
 
@@ -209,7 +211,7 @@ std::string isMatmulFusionDefinitionSupported(
 
   // Fusion topology check
   {
-    const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
+    const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion, props);
     if (!roles_map_opt.isValid()) {
       return roles_map_opt.getErrorMsg();
     }
@@ -307,20 +309,48 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // 1. check if there is exactly one MmaOp defined in the fusion
   // 2. check if MmaOp inputs match any of supported inputs layout
   // 3. check if fusion represents expressions that are recognized by matmul
-  //    scheduler
+  // scheduler In addition to the above, it may be the case that there is no mma
+  // op, but a mul-sum pair which may be replaced by a mma op. In that case we
+  // run a pass through the IR to find such a pair of mul-sum, and the
+  // properties of that pair. We then test if the mma op that would replace the
+  // mul-sum pair can be scheduled.
 
   // #1
   auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
+  // Initializing the machinery to check if there's a Mul-Sum pair
+  // can be replaced by a Mma Op.
+  mma_utils::CombineMulSum combiner(fusion);
+  std::vector<mma_utils::MmaOrMulSumProperties> mma_from_mul_sums = {};
+  mma_utils::MmaOrMulSumProperties::InputsOutputs mma_inputs_out;
+
   if (mma_exprs.size() != 1) {
-    std::stringstream ss;
-    ss << "Matmul scheduler supports fusions only with a single MMA op, got: "
-       << mma_exprs.size();
-    return ss.str();
+    // If there are no mma ops, check if there's a suitable mul-sum pair
+    // that can be substituted by a mma op.
+    if (mma_exprs.empty()) {
+      mma_from_mul_sums = combiner.generateMulSumCanidates();
+    }
+    // There are more than 1 mma op, or there no mma ops and no suitable mul-sum
+    // pair.
+    if (mma_from_mul_sums.size() != 1) {
+      std::stringstream ss;
+      ss << "Matmul scheduler supports fusions only with a single MMA op, got: "
+         << mma_exprs.size();
+      return ss.str();
+    }
+  }
+
+  if (!mma_exprs.empty()) {
+    mma_inputs_out = {
+        static_cast<TensorView*>(mma_exprs.front()->inA()),
+        static_cast<TensorView*>(mma_exprs.front()->inB()),
+        static_cast<TensorView*>(mma_exprs.front()->out())};
   }
 
   // #2
   {
-    const auto input_layout_opt = mma_utils::getMmaLayout(fusion);
+    const auto input_layout_opt = mma_utils::getMmaLayout(
+        fusion,
+        mma_exprs.empty() ? mma_from_mul_sums.front().insouts : mma_inputs_out);
     if (!input_layout_opt.isValid()) {
       return input_layout_opt.getErrorMsg();
     }
@@ -328,11 +358,14 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
 
   // #3
   {
-    for (auto mma_expr : mma_exprs) {
-      auto support_status = isMatmulFusionDefinitionSupported(fusion, mma_expr);
-      if (!support_status.empty()) {
-        return support_status;
-      }
+    auto support_status = isMatmulFusionDefinitionSupported(
+        fusion,
+        mma_exprs.empty() ? mma_from_mul_sums.front().insouts : mma_inputs_out);
+    if (!support_status.empty()) {
+      return support_status;
+    }
+    if (!mma_from_mul_sums.empty()) {
+      combiner.replaceWithMmaOp();
     }
   }
 
