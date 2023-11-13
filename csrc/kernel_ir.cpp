@@ -243,6 +243,9 @@ Asm::Asm(
 namespace {
 
 const char* dataTypeToPTXConstraints(DataType dt) {
+  if (std::holds_alternative<ArrayType>(dt.type)) {
+    dt = *std::get<ArrayType>(dt.type).type;
+  }
   auto size = dataTypeSize(dt);
   switch (size) {
     case 2:

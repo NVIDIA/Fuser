@@ -7,8 +7,11 @@
 // clang-format on
 
 #include <device_lower/pass/inline_ptx.h>
+#include <device_lower/utils.h>
 #include <ir/builder.h>
 #include <kernel_ir_dispatch.h>
+
+#include <sstream>
 
 namespace nvfuser {
 
@@ -46,10 +49,24 @@ class LowerToInlinePtx : public kir::ExprMutator {
     registerReplace(wait, replace);
   }
 
-  void handle(LoadStoreOp* ldst) {
+  void handle(LoadStoreOp* ldst) override {
     if (ir_utils::isLdMatrixOp(ldst)) {
       auto op = ldst->opType();
-      std::string op_str = "";
+      std::stringstream ss;
+      ss << "ldmatrix.sync.aligned.x"
+         << std::get<ArrayType>(ldst->out()->dtype().type).size;
+      if (op == LoadStoreOpType::LdMatrixTranspose) {
+        ss << ".trans";
+      }
+      ss << ".m8n8.shared.b16";
+      registerReplace(
+          ldst,
+          IrBuilder::create<kir::Asm>(
+              ss.str(),
+              std::vector<Val*>{ldst->out()},
+              std::vector<Val*>{ldst->in()},
+              kir::Asm::Options{true}));
+      return;
     }
   }
 };

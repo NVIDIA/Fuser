@@ -539,12 +539,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       code_ << "*(volatile " << ti->getDataType().value() << "*)&";
     }
     if (different_dtype) {
-      code_ << "*reinterpret_cast<" << ti->getDataType().value() << "*>(&";
+      code_ << "(*reinterpret_cast<" << ti->getDataType().value() << "*>(&";
     }
     code_ << genVariableName(ti->view()) << "[" << genInline(ti->index())
           << "]";
     if (different_dtype) {
-      code_ << ")";
+      code_ << "))";
     }
   }
 
@@ -617,20 +617,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genInline(smem_ti->index()));
 
     indent() << genCall(func_name, func_args) << ";\n";
-  }
-
-  void genLdMatrix(const LoadStoreOp* ldst) {
-    auto dtype = ldst->in()->getDataType().value();
-
-    bool is_transpose = (ldst->opType() == LoadStoreOpType::LdMatrixTranspose);
-    std::string name =
-        (is_transpose ? "Turing::ldMatrixT" : "Turing::ldMatrix");
-
-    ArgumentBuilder func_args;
-    func_args.arg(gen(ldst->out()));
-    func_args.arg(genInline(ldst->in()->as<kir::TensorIndex>()->index()));
-
-    indent() << genCall(name, func_args) << ";\n";
   }
 
   void handle(const GetMetaData* gop) final {
@@ -1312,6 +1298,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const LoadStoreOp* ldst) final {
     auto optype = ldst->opType();
+    NVF_ERROR(
+        optype != LoadStoreOpType::LdMatrix &&
+            optype != LoadStoreOpType::LdMatrixTranspose,
+        "ldmatrix should be lowered as kir::Asm");
+
     if (ldst->out()->isA<kir::TensorIndex>()) {
       auto out_ti = ldst->out()->as<kir::TensorIndex>();
       auto out_tv = out_ti->view();
@@ -1337,14 +1328,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         NVF_ERROR(
             ldst->out()->dtype() == ldst->in()->dtype(),
             "Vectorized store/load requires input and output datatypes match.");
-      }
-
-      // dispatch ldmatrix
-      if (optype == LoadStoreOpType::LdMatrix ||
-          optype == LoadStoreOpType::LdMatrixTranspose) {
-        NVF_ERROR(is_vector_op, "LdMatrix: Vectorization required: ", ldst);
-        genLdMatrix(ldst);
-        return;
       }
 
       // dispatch cp.async
@@ -2879,6 +2862,19 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         (asm_->code().size() +
              (asm_->inputs().size() + asm_->outputs().size()) * 5 >
          80);
+    if (!multiline) {
+      // If any of the operand is an array type, force using multiline
+      for (const auto& l :
+           std::array<std::reference_wrapper<const std::vector<Val*>>, 2>{
+               asm_->inputs(), asm_->outputs()}) {
+        for (const auto& v : l.get()) {
+          if (std::holds_alternative<ArrayType>(v->dtype().type)) {
+            multiline = true;
+            break;
+          }
+        }
+      }
+    }
     code_ << "(";
     if (multiline) {
       code_ << "\n";
@@ -2899,15 +2895,30 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         [&](const auto& constraints_and_registers) {
           bool first = true;
           for (auto [constraint, register_] : constraints_and_registers) {
-            if (!first) {
+            auto next_line = [&]() {
               code_ << ", ";
               if (multiline) {
                 code_ << "\n";
-                indent();
+                indent() << " ";
               }
+            };
+            if (!first) {
+              next_line();
             }
             first = false;
-            code_ << "\"" << constraint << "\"(" << gen(register_) << ")";
+            if (std::holds_alternative<ArrayType>(register_->dtype().type)) {
+              for (auto i : c10::irange(
+                       std::get<ArrayType>(register_->dtype().type).size)) {
+                if (i > 0) {
+                  next_line();
+                }
+                code_ << "\"" << constraint << "\"(" << gen(register_) << "["
+                      << i << "]"
+                      << ")";
+              }
+            } else {
+              code_ << "\"" << constraint << "\"(" << gen(register_) << ")";
+            }
           }
         };
 
