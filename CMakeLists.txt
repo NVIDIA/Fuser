@@ -31,9 +31,7 @@ set(ATEN_CUDA_ROOT "${TORCH_INSTALL_PREFIX}/include/ATen")
 string(APPEND CMAKE_CXX_FLAGS " ${TORCH_CXX_FLAGS}")
 include(cmake/FlatBuffers.cmake)
 
-if(BUILD_NVFUSER_BENCHMARK)
-  include(cmake/Dependencies.cmake)
-endif()
+include(cmake/Dependencies.cmake)
 
 # set CUDA_ARCH for cu tests.
 if(EXISTS ${TORCH_CUDA_ARCH_LIST})
