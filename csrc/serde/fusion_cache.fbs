@@ -362,6 +362,39 @@ table FusionExecutor {
   compiled_kernel: CudaKernel;
 }
 
+// A directed edge on DAG, which wraps a value that connects segmented groups.
+table SegmentedEdge {
+  from_segmented_group: long;
+  to_segmented_group: long;
+  val: long;
+}
+
+// Each SegmentedGroup represents a segmented fusion.
+table SegmentedGroup {
+  producer_edges: [long];
+  consumer_edges: [long];
+  input_vals: [long];
+  output_vals: [long];
+  group_id: long;
+  heuristic: long;
+  exprs: [long];
+  level: long;
+  visited: bool;
+  merge_with_segmented_group: long;
+  merge_through_segmented_edge: long;
+  merged: bool;
+  is_fusion_input: bool;
+}
+
+// The SegmentedFusion represents a segmented fusion graph that owns the segmented groups.
+table SegmentedFusion {
+  segmented_fusion_name: ulong;
+  edges: [SegmentedEdge];
+  groups: [SegmentedGroup];
+  force_fp16_tv_set: [long];
+  force_half_precision_type: long;
+}
+
 // Each FusionKernelRuntime represents a concretized, segmented Fusion.
 // We store the metadata for the original arguments to segment, schedule, and compile the Fusion at deserialization.
 // Each fusion segment is given a FusionExecutor.
@@ -372,6 +405,7 @@ table FusionKernelRuntime {
   runtime_id: long;
   args: KernelArgumentHolder;
   executors: [FusionExecutor];
+  segmented_fusion: SegmentedFusion;
 }
 
 // EncodingEntry for InputsIdLookup LRU cache.
