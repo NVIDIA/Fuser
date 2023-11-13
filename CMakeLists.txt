@@ -440,14 +440,17 @@ if(BUILD_TEST)
   add_executable(${NVFUSER_TESTS} ${JIT_TEST_SRCS})
   set_property(TARGET ${NVFUSER_TESTS} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
   target_compile_definitions(${NVFUSER_TESTS} PRIVATE USE_GTEST)
-  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} ${NVFUSER_TESTS_KERNELS} dynamic_type gtest_main gmock_main flatbuffers)
   target_include_directories(${NVFUSER_TESTS} PRIVATE "${NVFUSER_ROOT}")
-
-  target_compile_options(${NVFUSER_TESTS} PRIVATE -Wall -Wno-unused-function)
-  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${TORCH_LIBRARIES})
+  target_include_directories(${NVFUSER_TESTS} SYSTEM PRIVATE
+    ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include
+    ${CMAKE_SOURCE_DIR}/third_party/googletest/googlemock/include
+  )
+  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} ${NVFUSER_TESTS_KERNELS} dynamic_type GTest::gtest_main GTest::gmock_main flatbuffers ${TORCH_LIBRARIES})
 
   if(NOT MSVC)
-    set_property(SOURCE ${JIT_TEST_SRCS} APPEND PROPERTY COMPILE_OPTIONS "-Werror")
+    target_compile_options(${NVFUSER_TESTS} PRIVATE
+      -Wall -Wno-unused-function -Werror
+    )
   endif()
 endif()
 
@@ -493,17 +496,24 @@ if(BUILD_NVFUSER_BENCHMARK)
   add_executable(${NVFUSER_BENCHMARK} ${BENCHMARK_SRCS})
   set_property(TARGET ${NVFUSER_BENCHMARK} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
 
-  target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Wall -Wno-unused-function)
-  target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE dynamic_type)
-  target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE ${TORCH_LIBRARIES})
-  target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE benchmark::benchmark)
+  target_include_directories(${NVFUSER_BENCHMARK} SYSTEM PRIVATE
+    ${NVFUSER_ROOT}
+    ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include
+    ${CMAKE_SOURCE_DIR}/third_party/benchmark/include
+  )
+  target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE
+    dynamic_type
+    ${TORCH_LIBRARIES}
+    benchmark::benchmark
+    ${NVFUSER_CODEGEN}
+  )
 
   if(NOT MSVC)
-    target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Werror -Wno-deprecated-copy)
+    target_compile_options(${NVFUSER_BENCHMARK} PRIVATE
+      -Wall -Wno-unused-function
+      -Werror -Wno-deprecated-copy
+    )
   endif()
-
-  target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_CODEGEN})
-  target_include_directories(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_ROOT})
 endif()
 
 # --- generate runtime files
