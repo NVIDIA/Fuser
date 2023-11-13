@@ -387,6 +387,15 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::Tanh:
       return {in.as<at::Tensor>().tanh()};
       break;
+    case UnaryOpType::Relu:
+      return {at::relu(in.as<at::Tensor>())};
+      break;
+    case UnaryOpType::Gelu:
+      return {at::relu(in.as<at::Tensor>())};
+      break;
+    case UnaryOpType::Exp:
+      return {at::exp(in.as<at::Tensor>())};
+      break;
     default:
       NVF_CHECK(
           false,

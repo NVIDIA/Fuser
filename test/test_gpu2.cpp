@@ -3540,10 +3540,6 @@ TEST_F(NVFuserTest, FusionSegmentReduceSoftmax_CUDA) {
 
   auto outputs = executor_cache.runFusionWithInputs({at_x});
 
-  auto t1 = at_x.add(1.0);
-  auto t2 = t1.sum({2});
-  auto t3 = at::_softmax(t2.to(at::kDouble), -1, false);
-
   auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
   ASSERT_TRUE(optimized_fusion->isSegmented()) << "segmentation didn't happen";
   ASSERT_EQ(optimized_fusion->fusionSegments()->groups().size(), 2)
@@ -3562,7 +3558,7 @@ TEST_F(NVFuserTest, FusionSegmentReduceSoftmax_CUDA) {
       << "Unexpected vectorization factor";
 
   testValidate(
-      executor_cache.fusion(), outputs, {at_x}, {t3}, __LINE__, __FILE__);
+      executor_cache.fusion(), outputs, {at_x}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionGridPersistence_CUDA) {
@@ -5371,12 +5367,7 @@ TEST_F(NVFuserTest, FusionSBAR_CUDA) {
   executor.compileFusion(&fusion, inputs, lparams);
   outputs = executor.runFusion(inputs, lparams);
 
-  auto at_scale = at::mul(at_x, at_weight);
-  auto at_scale_bias = at::add(at_scale, at_bias);
-  auto pwise_add = at::add(at_scale_bias, at_y);
-  auto output = at::relu(pwise_add);
-
-  testValidate(&fusion, outputs, inputs, {output}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionSingleElement_CUDA) {
@@ -8236,11 +8227,7 @@ TEST_F(NVFuserTest, FusionPointwiseBroadcast_CUDA) {
   fe.compileFusion(&fusion, aten_inputs);
   auto outputs = fe.runFusion(aten_inputs);
 
-  auto at_x_add_bias = at_x + at_bias;
-  auto at_x_view = at::native::view(at_x_add_bias, output_shape);
-  auto aten_y = at::gelu(at_x_view);
-
-  testValidate(&fusion, outputs, aten_inputs, {aten_y}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionPointwiseVectorize_CUDA) {
@@ -8652,7 +8639,7 @@ TEST_F(NVFuserTest, FusionFloatPow_CUDA) {
       &fusion,
       outputs,
       aten_inputs,
-      {p4, p2, p2, p3, p3, t6},
+      // {p4, p2, p2, p3, p3, t6},
       __LINE__,
       __FILE__);
 }
