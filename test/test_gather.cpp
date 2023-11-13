@@ -291,8 +291,7 @@ TEST_F(IndexingOpTest, TorchGatherSumAdd_CUDA) {
 
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
         auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-        testValidate(
-            &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+        testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
       }
     }
   }
@@ -501,8 +500,7 @@ TEST_F(IndexingOpTest, GatherBroadcastInput_CUDA) {
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
         auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-        testValidate(
-            &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+        testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
       }
     }
   }

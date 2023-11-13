@@ -210,7 +210,7 @@ std::vector<PolymorphicValue> TorchGatherOp::evaluate(
   const auto& input = inputs.at(0).as<at::Tensor>();
   const auto& index = inputs.at(1).as<at::Tensor>();
   auto dimension = dim();
-  if (exactSizes()){
+  if (exactSizes()) {
     return {at::take_along_dim(input, index, dimension)};
   } else {
     return {at::gather(input, dimension, index)};
