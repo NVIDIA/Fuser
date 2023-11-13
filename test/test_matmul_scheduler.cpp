@@ -32,19 +32,19 @@ using TestCaseErrorThresholds = std::map<PrecisionsDesc, ErrorThresholds>;
 class PrecisionParametrizedTest
     : public NVFuserFixtureParamTest<PrecisionsDesc> {};
 
-[[nodiscard]] auto getAtType(const PrimDataType& type) {
+[[nodiscard]] auto get_type_letter(const PrimDataType& type) {
   switch (type) {
     case PrimDataType::Half:
-      return at::kHalf;
+      return "H";
     case PrimDataType::Float:
-      return at::kFloat;
+      return "S";
     case PrimDataType::BFloat16:
-      return at::kBFloat16;
+      return "T";
     default:
       break;
   }
   NVF_ERROR(false, "Unsupported conversion of PrimDataType");
-  return at::kHalf;
+  return "*";
 }
 
 static const PrecisionsDesc HSH =
@@ -81,8 +81,8 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
   const auto default_out_type = (PrimDataType::Float == out_prim_type);
   const auto in_type = DataType(in_prim_type);
   const auto out_type = DataType(out_prim_type);
-  const auto at_in_type = getAtType(in_prim_type);
-  const auto at_out_type = getAtType(out_prim_type);
+  const auto at_in_type = data_type_to_aten(in_prim_type);
+  const auto at_out_type = data_type_to_aten(out_prim_type);
 
   // NOTE: bfloat16 is not supported on pre-Ampere archs
   if (DataType::BFloat16 == in_type || DataType::BFloat16 == out_type) {
@@ -183,8 +183,8 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
   const auto default_out_type = (PrimDataType::Float == out_prim_type);
   const auto in_type = DataType(in_prim_type);
   const auto out_type = DataType(out_prim_type);
-  const auto at_in_type = getAtType(in_prim_type);
-  const auto at_out_type = getAtType(out_prim_type);
+  const auto at_in_type = data_type_to_aten(in_prim_type);
+  const auto at_out_type = data_type_to_aten(out_prim_type);
 
   // NOTE: bfloat16 is not supported on pre-Ampere archs
   if (DataType::BFloat16 == in_type || DataType::BFloat16 == out_type) {
@@ -275,8 +275,8 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
   const auto default_out_type = (PrimDataType::Float == out_prim_type);
   const auto in_type = DataType(in_prim_type);
   const auto out_type = DataType(out_prim_type);
-  const auto at_in_type = getAtType(in_prim_type);
-  const auto at_out_type = getAtType(out_prim_type);
+  const auto at_in_type = data_type_to_aten(in_prim_type);
+  const auto at_out_type = data_type_to_aten(out_prim_type);
 
   // NOTE: bfloat16 is not supported on pre-Ampere archs
   if (DataType::BFloat16 == in_type || DataType::BFloat16 == out_type) {
@@ -382,8 +382,8 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueReluAux) {
   const auto default_out_type = (PrimDataType::Float == out_prim_type);
   const auto in_type = DataType(in_prim_type);
   const auto out_type = DataType(out_prim_type);
-  const auto at_in_type = getAtType(in_prim_type);
-  const auto at_out_type = getAtType(out_prim_type);
+  const auto at_in_type = data_type_to_aten(in_prim_type);
+  const auto at_out_type = data_type_to_aten(out_prim_type);
 
   // NOTE: bfloat16 is not supported on pre-Ampere archs
   if (DataType::BFloat16 == in_type || DataType::BFloat16 == out_type) {
@@ -481,8 +481,8 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasReluAux) {
   const auto default_out_type = (PrimDataType::Float == out_prim_type);
   const auto in_type = DataType(in_prim_type);
   const auto out_type = DataType(out_prim_type);
-  const auto at_in_type = getAtType(in_prim_type);
-  const auto at_out_type = getAtType(out_prim_type);
+  const auto at_in_type = data_type_to_aten(in_prim_type);
+  const auto at_out_type = data_type_to_aten(out_prim_type);
 
   // NOTE: bfloat16 is not supported on pre-Ampere archs
   if (DataType::BFloat16 == in_type || DataType::BFloat16 == out_type) {
@@ -590,8 +590,8 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
   const auto default_out_type = (PrimDataType::Float == out_prim_type);
   const auto in_type = DataType(in_prim_type);
   const auto out_type = DataType(out_prim_type);
-  const auto at_in_type = getAtType(in_prim_type);
-  const auto at_out_type = getAtType(out_prim_type);
+  const auto at_in_type = data_type_to_aten(in_prim_type);
+  const auto at_out_type = data_type_to_aten(out_prim_type);
 
   // NOTE: bfloat16 is not supported on pre-Ampere archs
   if (DataType::BFloat16 == in_type || DataType::BFloat16 == out_type) {
@@ -682,8 +682,8 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueGeluAux) {
   const auto default_out_type = (PrimDataType::Float == out_prim_type);
   const auto in_type = DataType(in_prim_type);
   const auto out_type = DataType(out_prim_type);
-  const auto at_in_type = getAtType(in_prim_type);
-  const auto at_out_type = getAtType(out_prim_type);
+  const auto at_in_type = data_type_to_aten(in_prim_type);
+  const auto at_out_type = data_type_to_aten(out_prim_type);
 
   // NOTE: bfloat16 is not supported on pre-Ampere archs
   if (DataType::BFloat16 == in_type || DataType::BFloat16 == out_type) {
@@ -779,8 +779,8 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
   const auto default_out_type = (PrimDataType::Float == out_prim_type);
   const auto in_type = DataType(in_prim_type);
   const auto out_type = DataType(out_prim_type);
-  const auto at_in_type = getAtType(in_prim_type);
-  const auto at_out_type = getAtType(out_prim_type);
+  const auto at_in_type = data_type_to_aten(in_prim_type);
+  const auto at_out_type = data_type_to_aten(out_prim_type);
 
   // NOTE: bfloat16 is not supported on pre-Ampere archs
   if (DataType::BFloat16 == in_type || DataType::BFloat16 == out_type) {
@@ -886,8 +886,8 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasGeluAux) {
   const auto default_out_type = (PrimDataType::Float == out_prim_type);
   const auto in_type = DataType(in_prim_type);
   const auto out_type = DataType(out_prim_type);
-  const auto at_in_type = getAtType(in_prim_type);
-  const auto at_out_type = getAtType(out_prim_type);
+  const auto at_in_type = data_type_to_aten(in_prim_type);
+  const auto at_out_type = data_type_to_aten(out_prim_type);
 
   // NOTE: bfloat16 is not supported on pre-Ampere archs
   if (DataType::BFloat16 == in_type || DataType::BFloat16 == out_type) {
@@ -972,10 +972,17 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasGeluAux) {
 
 } // namespace
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     MatmulSchedulerTest,
     PrecisionParametrizedTest,
-    ::testing::Values(HSS, HSH, TSS, TST));
+    ::testing::Values(HSS, HSH, TSS, TST),
+    [](const testing::TestParamInfo<PrecisionsDesc>& info) {
+      std::ostringstream os;
+      os << get_type_letter(std::get<0>(info.param));
+      os << get_type_letter(PrimDataType::Float);
+      os << get_type_letter(std::get<1>(info.param));
+      return os.str();
+    });
 
 // Matmul test that uses segmenter for 'C = A x B' fusion,
 //   for Ampere with strict ref check, hence single layout check

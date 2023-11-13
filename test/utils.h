@@ -486,68 +486,8 @@ class NVFuserTest : public ::testing::Test {
 // Fixture with param class must be uniquely identified, i.e., can't be in an
 // anonymous namespace
 template <typename tParam>
-class NVFuserFixtureParamTest : public ::testing::TestWithParam<tParam> {
- protected:
-  void SetUp() override {
-    // requires PASCAL or newer
-    if (!deviceMajorMinorCheck(6)) {
-      GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
-    }
-    setFillAllocationWithNan(true);
-
-    maybeClearAllocator();
-
-    // If NVFUSER_TEST_RANDOM_SEED is provided, use that for the C random seed.
-    // Otherwise, use system time. If a test fails, this seed will be printed.
-    at::manual_seed(getATenRandomSeed());
-
-    // If NVFUSER_TEST_ATEN_RANDOM_SEED is provided, use that for the ATen
-    // random seed. Otherwise, use zero. If a test fails, this seed will be
-    // printed.
-    std::srand(getCRandomSeed());
-  }
-
-  void TearDown() override {
-    if (::testing::Test::HasFailure()) {
-      auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
-      std::cerr << "To reproduce: NVFUSER_TEST_RANDOM_SEED=" << getCRandomSeed()
-                << " NVFUSER_TEST_ATEN_RANDOM_SEED=" << getATenRandomSeed()
-                << " nvfuser_tests --gtest_filter='"
-                << test_info->test_suite_name() << "." << test_info->name()
-                << "'" << std::endl;
-    }
-
-    // Make sure capturing of stdout is stopped
-    ensureStopCaptureStdout();
-  }
-
-  // Start capturing of stdout if not already started
-  void captureStdout() {
-    if (!capturing_) {
-      testing::internal::CaptureStdout();
-      capturing_ = true;
-    }
-  }
-
-  // Stop capturing of stdout if being captured
-  void ensureStopCaptureStdout() {
-    if (capturing_) {
-      testing::internal::GetCapturedStdout();
-      capturing_ = false;
-    }
-  }
-
-  // Get capturing stdout
-  std::string getCapturedStdout() {
-    NVF_ERROR(capturing_, "Not captured");
-    auto str = testing::internal::GetCapturedStdout();
-    capturing_ = false;
-    return str;
-  }
-
- private:
-  bool capturing_ = false;
-};
+class NVFuserFixtureParamTest : public NVFuserTest,
+                                public ::testing::WithParamInterface<tParam> {};
 
 // assert that the given fusion lowers to the given CUDA kernel
 void assertCUDAKernel(Fusion* fusion, const std::string& expected_kernel);
