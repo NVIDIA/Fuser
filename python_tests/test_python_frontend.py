@@ -2662,6 +2662,52 @@ class TestNvFuserFrontend(TestCase):
 
         self.assertEqual(y.data_ptr(), x.data_ptr())
 
+    # This tests no dead code at definition does not cause a problem due to
+    # removal of empty tensors
+    # See https://github.com/NVIDIA/Fuser/pull/1270
+    def test_issue1270(self):
+        inputs = [
+            torch.randn(5, 0, device="cuda", dtype=torch.bfloat16),
+            torch.randn(5, 0, device="cuda", dtype=torch.bfloat16),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, None],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            T1 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[None, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            T2 = fd.ops.cast(T1, dtype=DataType.Float)
+            S3 = fd.define_scalar(1.00000, dtype=DataType.Double)
+            T4 = fd.ops.full(fill_value=S3, shape=[5, 0], dtype=DataType.BFloat16)
+            T5 = fd.ops.cast(T4, dtype=DataType.Float)
+            T6 = fd.ops.mul(T2, T5)
+            T7 = fd.ops.cast(T0, dtype=DataType.Float)
+            T8 = fd.ops.mul(T7, T5)
+            T24 = fd.ops.sum(T6, axes=[1], keepdim=False, dtype=DataType.Null)
+            T11 = fd.ops.sum(T8, axes=[0], keepdim=False, dtype=DataType.Null)
+            fd.add_output(T24)
+            fd.add_output(T11)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        t2 = inputs[1].type(torch.float32)
+        t4 = torch.full([5, 0], 1.0, dtype=torch.bfloat16, device="cuda")
+        t5 = t4.type(torch.float32)
+        t6 = t2 * t5
+        t7 = inputs[0].type(torch.float32)
+        t8 = t7 * t5
+        t24 = t6.sum([1])
+        t11 = t8.sum([0])
+        self.assertEqual(nvf_out[0], t24)
+        self.assertEqual(nvf_out[1], t11)
+
 
 if __name__ == "__main__":
     run_tests()
