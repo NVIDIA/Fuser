@@ -197,10 +197,6 @@ class ValGraph {
   bool propagate_through_exprs_ = true;
 
   // Keeps a disjoint set entry for all Vals.
-  //
-  // Using an array here might be nice, but it seems hard to use an enum as an
-  // array key
-  // https://stackoverflow.com/questions/2102582/how-can-i-count-the-items-in-an-enum
   DisjointSets<Val*> disjoint_vals_;
 
   // Keeps a disjoint set entry for all Exprs.

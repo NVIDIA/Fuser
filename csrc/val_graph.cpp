@@ -30,7 +30,9 @@ ValGraph::ValGraph(const ValGraph& other)
       new_expr_groups.pushBack(toGroup(orig_expr_group->front()));
     }
 
-    unique_definitions_[new_val_group] = new_expr_groups;
+    NVF_ERROR(
+        unique_definitions_.emplace(new_val_group, std::move(new_expr_groups))
+            .second);
   }
 
   for (const auto& [orig_val_group, orig_expr_groups] : other.unique_uses_) {
@@ -41,7 +43,8 @@ ValGraph::ValGraph(const ValGraph& other)
       new_expr_groups.pushBack(toGroup(orig_expr_group->front()));
     }
 
-    unique_uses_[new_val_group] = new_expr_groups;
+    NVF_ERROR(
+        unique_uses_.emplace(new_val_group, std::move(new_expr_groups)).second);
   }
 }
 
