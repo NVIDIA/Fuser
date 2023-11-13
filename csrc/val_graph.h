@@ -104,14 +104,12 @@ class ValGraph {
   ExprGroups allDefinitionsOf(const ValGroups& of) const;
 
   //! Returns the pointer to expressions associated with the
-  //! definitions of the provided ValGroup in the provided
-  //! mapping mode (if it exists). Nullptr is returned otherwise.
+  //! definitions of the provided ValGroup. Nullptr is returned otherwise.
   //!
   //! The returned pointer is to a vector of vector of expressions. The
-  //! inner vector is proven to be equivalent based on the provided mode. The
-  //! outer vector are expression groups that are not equivalent based on the
-  //! provided mode, but produce one of the ValGroups within the same disjoint
-  //! Val set based on the provided mode.
+  //! inner vector is proven to be equivalent. The
+  //! outer vector are expression groups that are not equivalent, but
+  //! produce one of the ValGroups within the same disjoint Val set.
   const ExprGroups* getDefinitions(const ValGroup& val_group) const;
 
   //! Same as getDefinitions but for uses instead of
@@ -171,13 +169,13 @@ class ValGraph {
   // defined as inputs and outputs in the same position across
   // expressions are mapped. If the expressions are determined the
   // same then
+  //
   // if forward
   //   will map outputs
   // else
   //   will map inputs
-  // in the provided mode.
-  // Returns true if expressions were mapped through.
   //
+  // Returns true if expressions were mapped through.
   bool mapThroughExpr(Expr* first, Expr* second, bool forward);
 
   DisjointSets<Val*>& disjointValSets() {
