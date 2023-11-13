@@ -52,4 +52,24 @@ TEST(LinkedHashMapTest, Erase) {
   EXPECT_THAT(map, ElementsAre(Pair("a", 1)));
 }
 
+TEST(LinkedHashMapTest, EraseThenPushBack) {
+  LinkedHashMap<std::string, int> map;
+  map.pushBack("a", 1);
+  map.pushBack("b", 2);
+  map.pushBack("c", 3);
+
+  auto [v, i] = map.erase("b");
+  EXPECT_EQ(v, 2);
+  EXPECT_EQ(i->first, "c");
+  EXPECT_THAT(map, ElementsAre(Pair("a", 1), Pair("c", 3)));
+
+  std::tie(v, i) = map.erase("c");
+  EXPECT_EQ(v, 3);
+  EXPECT_EQ(i, map.end());
+  EXPECT_THAT(map, ElementsAre(Pair("a", 1)));
+
+  map.pushBack("b", 4);
+  EXPECT_THAT(map, ElementsAre(Pair("a", 1), Pair("b", 4)));
+}
+
 } // namespace nvfuser
