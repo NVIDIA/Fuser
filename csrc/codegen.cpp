@@ -536,7 +536,19 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         kernel_->summary().sync_map->needsRawSync(ti->view()).hasBID();
     bool is_pointer = isPointerType(ti->index()->dtype());
     if (is_pointer) {
+      bool is_u32_ptr = ti->index()->dtype() == DataType::SMemAddress;
+      if (is_u32_ptr) {
+        // DataType::SMemAddress is implemented as uint32_t in C++. The problem
+        // for this implementation is, the type promotion rule in C++ for
+        // uint32_t mismatch with the type promotion rule for
+        // DataType::SMemAddress in nvFuser. As a workaround, we always cast to
+        // the correct type in the generated code.
+        code_ << "(uint32_t)(";
+      }
       code_ << genInline(ti->index());
+      if (is_u32_ptr) {
+        code_ << ")";
+      }
       return;
     }
     bool different_dtype = ti->view()->dtype() != ti->dtype();
