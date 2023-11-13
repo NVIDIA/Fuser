@@ -40,6 +40,9 @@ void setSameSharding(TensorView* tv, TensorView* ref) {
 
     auto domain = tv->getLeafDomain();
     auto domain_ref = ref->getLeafDomain();
+    // auto domain = tv->domain()->noBroadcasts();
+    // auto domain_ref = ref->domain()->noBroadcasts();
+
     std::cout << "domain = " << domain << "\ndomain_ref = " << domain_ref << std::endl;
     NVF_ERROR(domain.size() == domain_ref.size(), "tensors ", tv, " and ",
         ref, " have mismatching leaf domains");

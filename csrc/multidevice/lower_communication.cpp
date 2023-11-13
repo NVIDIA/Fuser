@@ -404,6 +404,9 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   std::vector<std::shared_ptr<Communication>> comms;
+  NVF_ERROR(c->in()->as<PipelineVal>()->getOriginalVal()->isA<TensorView>()
+    && c->out()->as<PipelineVal>()->getOriginalVal()->isA<TensorView>(),
+    "I/O must be TensorViews");
   TensorView* input_tv =
       c->in()->as<PipelineVal>()->getOriginalVal()->as<TensorView>();
   TensorView* output_tv =
@@ -421,7 +424,10 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
   const bool is_output_sharded =
       output_tv->isSharded() && receiver_mesh.vector().size() > 1;
 
-  bool is_reduction = output_tv->definition()->isA<ReductionOp>();
+  auto original_expr = output_tv->definition();
+  NVF_ERROR(isLowerableToCommunication(original_expr), "Lowering expression ",
+    original_expr," to communication is not supported");
+  bool is_reduction = original_expr->isA<ReductionOp>();
 
   NVF_ERROR(
       !is_input_sharded ||
@@ -510,9 +516,21 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
 }
 
 bool isLowerableToCommunication(Expr* expr) {
-    return (expr->isA<LoadStoreOp>()
-                  && (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set))
-            || expr->isA<ReductionOp>();
+  if (expr->isA<ReductionOp>()) {
+    auto in = expr->as<ReductionOp>()->in();
+    auto out = expr->as<ReductionOp>()->out();
+    NVF_ERROR(in->isA<TensorView>());
+    NVF_ERROR(out->isA<TensorView>());
+    auto in_tv = in->as<TensorView>();
+    auto out_tv = out->as<TensorView>();
+    std::cout << "in_tv=" << in_tv << "\nout_tv=" << out_tv << std::endl;
+    NVF_ERROR(out_tv->domain()->nDims() == TensorDomain::noReductions(out_tv->getMaybeRFactorDomain()).size() + 1);
+    return true;
+    // noBroadcasts
+    // noReductions
+  }
+  return expr->isA<LoadStoreOp>()
+                && (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set);
 }
 
 } // namespace nvfuser
