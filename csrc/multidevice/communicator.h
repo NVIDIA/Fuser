@@ -109,8 +109,7 @@ class Communicator {
   bool isBackendAvailable(CommunicatorBackend backend) const {
     if (backend == CommunicatorBackend::ucc) {
       return ucc_available_;
-    }
-    else if (backend == CommunicatorBackend::nccl) {
+    } else if (backend == CommunicatorBackend::nccl) {
       return nccl_available_;
     }
     return false;
