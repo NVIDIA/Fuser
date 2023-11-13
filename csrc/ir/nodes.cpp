@@ -391,7 +391,7 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       return {at::relu(in.as<at::Tensor>())};
       break;
     case UnaryOpType::Gelu:
-      return {at::relu(in.as<at::Tensor>())};
+      return {at::gelu(in.as<at::Tensor>())};
       break;
     case UnaryOpType::Exp:
       return {at::exp(in.as<at::Tensor>())};

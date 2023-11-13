@@ -692,8 +692,7 @@ TEST_F(NVFuserTest, FusionLSTMCell_CUDA) {
   fe.compileFusion(&fusion, aten_inputs, lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionReductionHalf_CUDA) {
@@ -1215,12 +1214,7 @@ TEST_F(NVFuserTest, FusionBiasGeluFwd_CUDA) {
   fe.compileFusion(&fusion, aten_inputs, lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
-  testValidate(
-      &fusion,
-      cg_outputs,
-      aten_inputs,
-      __LINE__,
-      __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionBiasGeluBwd_CUDA) {
@@ -3557,8 +3551,7 @@ TEST_F(NVFuserTest, FusionSegmentReduceSoftmax_CUDA) {
   ASSERT_EQ(rparams->unroll_factor_inner_reduction, 2)
       << "Unexpected vectorization factor";
 
-  testValidate(
-      executor_cache.fusion(), outputs, {at_x}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, {at_x}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionGridPersistence_CUDA) {
