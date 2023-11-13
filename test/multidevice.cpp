@@ -29,9 +29,6 @@ void MultiDeviceEnvironment::SetUp() {
   if (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER")) {
     do_barrier_at_test_ = true;
   }
-  std::cout << "Create communicator" << std::endl;
-  // Sets default backend to NCCL.
-  communicator_ = std::make_unique<Communicator>(CommunicatorBackend::nccl);
 }
 
 void MultiDeviceEnvironment::TearDown() {
@@ -63,6 +60,9 @@ void MultiDeviceTest::TearDown() {
 
 void CommunicationTest::SetUp() {
   MultiDeviceTest::SetUp();
+  if (!communicator->isBackendAvailable(GetParam())) {
+    GTEST_SKIP() << "Backend not available";
+  }
   all_ranks = std::vector<DeviceIdxType>(communicator->size());
   std::iota(all_ranks.begin(), all_ranks.end(), 0);
 }
@@ -303,6 +303,7 @@ void executeAndValidatePipeline(
 void PipelineTest::SetUp() {
   MultiDeviceTest::SetUp();
   fusion = std::make_unique<Fusion>();
+  communicator->setDefaultBackend(CommunicatorBackend::nccl);
 }
 
 void PipelineTest::validate() {
@@ -312,7 +313,12 @@ void PipelineTest::validate() {
 
 void PipelineTestTwoStages::SetUp() {
   PipelineTest::SetUp();
-  auto [mesh0, mesh1, is_stage0_sharded, is_stage1_sharded] = GetParam();
+  auto [backend, mesh0, mesh1, is_stage0_sharded, is_stage1_sharded] =
+      GetParam();
+  if (!communicator->isBackendAvailable(backend)) {
+    GTEST_SKIP() << "Backend not available";
+  }
+  communicator->setDefaultBackend(backend);
 
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(4);

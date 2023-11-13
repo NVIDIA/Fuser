@@ -102,7 +102,8 @@ bool parseEnv(
 }
 
 inline std::string getTeamKey(const Team& team, CommunicatorBackend backend) {
-  std::string backend_str = (backend == CommunicatorBackend::ucc) ? "ucc" : "nccl";
+  std::string backend_str =
+      (backend == CommunicatorBackend::ucc) ? "ucc" : "nccl";
   return std::accumulate(
       std::begin(team),
       std::end(team),
@@ -118,7 +119,6 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
     c10::intrusive_ptr<c10d::Store> store,
     RankType rank,
     int64_t size) {
-
 #ifdef USE_C10D_NCCL
   if (backend == CommunicatorBackend::nccl) {
     auto pg_opts = c10::make_intrusive<::c10d::ProcessGroupNCCL::Options>();
@@ -138,7 +138,8 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
 #if defined(USE_C10D_UCC) && defined(NVFUSER_BUILD_WITH_UCC)
   if (backend == CommunicatorBackend::ucc) {
     constexpr auto timeout = std::chrono::milliseconds(30 * 60 * 1000);
-    return c10d::ProcessGroupUCC::createProcessGroupUCC(store, rank, size, timeout);
+    return c10d::ProcessGroupUCC::createProcessGroupUCC(
+        store, rank, size, timeout);
   }
 #endif
   NVF_CHECK(false, "no distributed backend available");
@@ -153,7 +154,9 @@ Communicator::Communicator(
       size_(0),
       local_rank_(0),
       local_size_(0),
-      master_port_(0) {
+      master_port_(0),
+      ucc_available_(false),
+      nccl_available_(false) {
   // retrieves rank and communicator size
   is_available_ = parseEnv(
       rank_, size_, local_rank_, local_size_, master_addr_, master_port_);
@@ -175,13 +178,21 @@ Communicator::Communicator(
   }
   store_opts.port = master_port_ ? master_port_ : comm_master_port_default;
   store_ = c10::make_intrusive<c10d::TCPStore>(master_addr_, store_opts);
+
+#if defined(USE_C10D_UCC) && defined(NVFUSER_BUILD_WITH_UCC)
+  ucc_available_ = true;
+#endif
+
+#ifdef USE_C10D_NCCL
+  nccl_available_ = false;
+#endif
 }
 
 c10::intrusive_ptr<c10d::Backend> Communicator::getBackendForTeam(
-    const Team& team, CommunicatorBackend backend) {
-  if (backend == CommunicatorBackend::none) 
-    backend = default_backend_;
-  std::string team_key = getTeamKey(team, backend);
+    const Team& team,
+    std::optional<CommunicatorBackend> backend) {
+  CommunicatorBackend b = getBackend(backend);
+  std::string team_key = getTeamKey(team, b);
   // check if backend associated with the team is present in the cache
   if (backends_.find(team_key) ==
       backends_.end()) { // create the backend and cache it
@@ -195,7 +206,7 @@ c10::intrusive_ptr<c10d::Backend> Communicator::getBackendForTeam(
     // generate a string key which is unique to the team
     // create the team and cache it
     backends_[team_key] = createBackend(
-        backend,
+        b,
         c10::make_intrusive<c10d::PrefixStore>(team_key, store_),
         team_rank,
         static_cast<int64_t>(team.size()));
@@ -207,15 +218,12 @@ c10::intrusive_ptr<c10d::Work> Communicator::sendRecv(
     DeviceIdxType receiver,
     DeviceIdxType sender,
     std::vector<at::Tensor>& tensors,
-    CommunicatorBackend backend,
+    std::optional<CommunicatorBackend> backend,
     int tag) {
   NVF_ERROR(
       deviceId() == sender || deviceId() == receiver,
       "only sender or receiver should post the sendRecv");
   NVF_ERROR(sender != receiver, "cannot send to self");
-  if (backend == CommunicatorBackend::none) {
-    backend = default_backend_;
-  }
 
   auto world = getWorld(backend);
   if (deviceId() == sender) {
@@ -224,11 +232,12 @@ c10::intrusive_ptr<c10d::Work> Communicator::sendRecv(
   return world->recv(tensors, static_cast<int>(dIdToRank(sender)), tag);
 }
 
-c10::intrusive_ptr<c10d::Backend> Communicator::getWorld(CommunicatorBackend backend) {
-  CommunicatorBackend b = (backend == CommunicatorBackend::none) ? default_backend_ : backend;
+c10::intrusive_ptr<c10d::Backend> Communicator::getWorld(
+    std::optional<CommunicatorBackend> backend) {
   std::vector<RankType> all_ranks(size_);
   std::iota(all_ranks.begin(), all_ranks.end(), 0);
-  return getBackendForTeam(all_ranks, b);
+
+  return getBackendForTeam(all_ranks, backend);
 }
 
 } // namespace nvfuser

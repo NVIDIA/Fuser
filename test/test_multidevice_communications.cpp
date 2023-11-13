@@ -73,9 +73,6 @@ TEST_P(CommunicationTest, Communication_Allgather) {
 }
 
 TEST_P(CommunicationTest, Communication_Scatter) {
-  // TODO: Remove when UCC-scatter fix is merged
-  if (GetParam() == CommunicatorBackend::ucc) 
-    return;
   params.root = root;
   params.team = all_ranks;
   if (communicator->deviceId() == root) {
@@ -269,10 +266,14 @@ TEST_P(CommunicationTest, Communication_ReduceScatter) {
     validate(obtained, ref);
   }
 }
-INSTANTIATE_TEST_SUITE_P(CommunicatorBackend,
-                         CommunicationTest,
-                         testing::Values(CommunicatorBackend::nccl, 
-                                         CommunicatorBackend::ucc));
+
+INSTANTIATE_TEST_SUITE_P(
+    CommunicatorBackend,
+    CommunicationTest,
+    ::testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc)
+
+);
+
 
 } // namespace nvfuser
 

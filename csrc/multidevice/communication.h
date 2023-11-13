@@ -67,8 +67,9 @@ class Communication {
 
   // Triggers the execution of the communication. This is a non-blocking call.
   // The communication can be posted multiple times
-  virtual c10::intrusive_ptr<c10d::Work> post(Communicator& comm, 
-      CommunicatorBackend backend = CommunicatorBackend::none)= 0;
+  virtual c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) = 0;
 
  protected:
   // argument "name" is only used for printing
@@ -99,8 +100,9 @@ Requirements:
 class Broadcast : public Communication {
  public:
   Broadcast(CommParams params);
-  c10::intrusive_ptr<c10d::Work> post(Communicator& comm, 
-      CommunicatorBackend backend = CommunicatorBackend::none) override;
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
 /*
@@ -117,8 +119,9 @@ Requirements:
 class Gather : public Communication {
  public:
   Gather(CommParams params);
-  c10::intrusive_ptr<c10d::Work> post(Communicator& comm, 
-      CommunicatorBackend backend = CommunicatorBackend::none) override;
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
 /*
@@ -133,8 +136,9 @@ Requirements:
 class Allgather : public Communication {
  public:
   Allgather(CommParams params);
-  c10::intrusive_ptr<c10d::Work> post(Communicator& comm, 
-      CommunicatorBackend backend = CommunicatorBackend::none) override;
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
 /*
@@ -150,8 +154,9 @@ Requirements:
 class Scatter : public Communication {
  public:
   Scatter(CommParams params);
-  c10::intrusive_ptr<c10d::Work> post(Communicator& comm, 
-      CommunicatorBackend backend = CommunicatorBackend::none) override;
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
 /*
@@ -213,8 +218,9 @@ buffer
 class SendRecv : public Communication {
  public:
   SendRecv(CommParams params);
-  c10::intrusive_ptr<c10d::Work> post(Communicator& comm, 
-      CommunicatorBackend backend = CommunicatorBackend::none) override;
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
 } // namespace nvfuser

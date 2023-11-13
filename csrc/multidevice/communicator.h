@@ -32,9 +32,13 @@ namespace nvfuser {
 using RankType = DeviceIdxType;
 
 // Supported backends. TODO: gloo untested
-enum class CommunicatorBackend { nccl, ucc, gloo, none };
+enum class CommunicatorBackend { nccl, ucc, gloo };
 
+#ifdef USE_C10D_NCCL
 constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::nccl;
+#else
+constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::ucc;
+#endif
 constexpr int comm_server_local_rank_default = 0;
 constexpr int comm_master_port_default =
     c10d::TCPStoreOptions::kDefaultPort; // 29500
@@ -62,26 +66,29 @@ class Communicator {
   auto local_size() const {
     return local_size_;
   }
-  
+
   // sets the communicator's default backend
-  void setDefaultBackend(CommunicatorBackend backend) {default_backend_ = backend;}
+  void setDefaultBackend(CommunicatorBackend backend) {
+    default_backend_ = backend;
+  }
 
   // performs a send/receive p2p data transfer
   c10::intrusive_ptr<c10d::Work> sendRecv(
       DeviceIdxType receiver,
       DeviceIdxType sender,
       std::vector<at::Tensor>& tensor,
-      CommunicatorBackend backend = CommunicatorBackend::none,
+      std::optional<CommunicatorBackend> backend = std::nullopt,
       int tag = 0);
 
   // performs a blocking barrier in the communicator
-  void barrier(CommunicatorBackend backend = CommunicatorBackend::none) {
+  void barrier(std::optional<CommunicatorBackend> backend = std::nullopt) {
     getWorld(backend)->barrier()->wait();
   }
 
   // returns the backend associated with a team
-  c10::intrusive_ptr<c10d::Backend> getBackendForTeam(const Team& team, 
-        CommunicatorBackend backend = CommunicatorBackend::none);
+  c10::intrusive_ptr<c10d::Backend> getBackendForTeam(
+      const Team& team,
+      std::optional<CommunicatorBackend> backend);
 
   // returns the device associated with the current process
   auto device() const {
@@ -92,8 +99,20 @@ class Communicator {
   DeviceIdxType deviceId() const {
     return rankToDiD(rank_);
   }
-  
-  c10::intrusive_ptr<c10d::Backend> getWorld(CommunicatorBackend backend = CommunicatorBackend::none);
+
+  // returns world backend for communicator backend or default backend if not
+  // specified.
+  c10::intrusive_ptr<c10d::Backend> getWorld(
+      std::optional<CommunicatorBackend> backend = std::nullopt);
+
+  // returns if a backend is available for creation
+  bool isBackendAvailable(CommunicatorBackend backend) const {
+    if (backend == CommunicatorBackend::ucc)
+      return ucc_available_;
+    else if (backend == CommunicatorBackend::nccl)
+      return nccl_available_;
+    return false;
+  }
 
  private:
   // returns the rank corresponding to a device index
@@ -106,6 +125,10 @@ class Communicator {
     return static_cast<DeviceIdxType>(rank);
   }
 
+  CommunicatorBackend getBackend(std::optional<CommunicatorBackend> backend) {
+    return backend.value_or(default_backend_);
+  }
+
   bool is_available_;
   CommunicatorBackend default_backend_;
   RankType rank_;
@@ -114,6 +137,8 @@ class Communicator {
   int64_t local_size_;
   std::string master_addr_;
   int master_port_;
+  bool ucc_available_;
+  bool nccl_available_;
   // stores the world's store used for the backend init
   c10::intrusive_ptr<c10d::TCPStore> store_;
   // cache for the created backends. The keys are strings generated from Teams
