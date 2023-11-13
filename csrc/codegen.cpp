@@ -534,6 +534,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void handle(const kir::TensorIndex* ti) final {
     bool is_volatile = ti->view()->getMemoryType() == MemoryType::Global &&
         kernel_->summary().sync_map->needsRawSync(ti->view()).hasBID();
+    bool is_pointer = isPointerType(ti->index()->dtype());
+    if (is_pointer) {
+      code_ << genInline(ti->index());
+      return;
+    }
     bool different_dtype = ti->view()->dtype() != ti->dtype();
     if (is_volatile) {
       code_ << "*(volatile " << ti->getDataType().value() << "*)&";
@@ -573,8 +578,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     template_args.arg(vec_size);
 
     ArgumentBuilder func_args;
-    func_args.arg(genInline(ldst->out()->as<kir::TensorIndex>()->index()));
-    func_args.arg(genInline(ldst->in()->as<kir::TensorIndex>()->index()));
+    func_args.arg(genInline(ldst->out()));
+    func_args.arg(genInline(ldst->in()));
     if (ldst->predicate() != nullptr) {
       func_args.arg(genInline(ldst->predicate()));
     }
