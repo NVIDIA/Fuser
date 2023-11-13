@@ -167,8 +167,11 @@ struct SubstituteInExpr : public OptOutMutator {
     NVF_ERROR(
         expr != nullptr && reference != nullptr && substitute != nullptr,
         "Nullptr arg found.");
+  std::cout << "inside SubstituteInExpr::subsitute" << std::endl;
     SubstituteInExpr sie(reference, substitute);
+  std::cout << "before mutation" << std::endl;
     sie.mutate(expr);
+  std::cout << "after mutation" << std::endl;
     // if nothing substituted, then return the original expr
     return sie.expr_ == nullptr ? expr : sie.expr_;
   }
@@ -193,8 +196,11 @@ struct SubstituteInExpr : public OptOutMutator {
 
 Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute) {
   FusionGuard fg(expr->fusion());
-  return ValReplacement::SubstituteInExpr::subsitute(
+  std::cout << "inside replaceValInExprInputs" << std::endl;
+  auto ret = ValReplacement::SubstituteInExpr::subsitute(
       expr, reference, substitute);
+  std::cout << "before returning" << std::endl;
+  return ret;
 }
 
 Expr* transferDefinitionToNewOutputs(
@@ -1072,5 +1078,35 @@ bool isTensorStride(const Val* val) {
   return isTensorAttr(val, "logical_stride") ||
       isTensorAttr(val, "alloc_stride");
 }
+
+namespace {
+
+std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
+  std::vector<IterDomain*> sharded_ids;
+  std::copy_if(tv->getLeafDomain().begin(), 
+              tv->getLeafDomain().end(), 
+              std::back_inserter(sharded_ids), [](auto id){return id->isDevice();});
+  return sharded_ids;
+}
+
+}
+
+bool haveSameSharding(TensorView* tv1, TensorView* tv2) {
+  if (!(*tv1->getDeviceMesh() == *tv2->getDeviceMesh())) {
+    return false;
+  }
+  auto sharding_domain1 = getShardedIterDomains(tv1);
+  auto sharding_domain2 = getShardedIterDomains(tv2);
+  if (sharding_domain1.size() != sharding_domain2.size()) {
+    return false;
+  }
+  for (auto i : c10::irange(sharding_domain1.size())) {
+    if (!sharding_domain1[i]->sameAs(sharding_domain2[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 
 } // namespace nvfuser::ir_utils

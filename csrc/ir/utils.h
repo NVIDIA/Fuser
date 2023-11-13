@@ -528,4 +528,7 @@ std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion);
 //! Returns true if fusion has any reduction ops.
 bool hasAnyReductionOps(Fusion* fusion);
 
+
+bool haveSameSharding(TensorView* tv1, TensorView* tv2);
+
 } // namespace nvfuser::ir_utils

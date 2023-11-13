@@ -348,35 +348,6 @@ bool Expr::sameAs(const Statement* other) const {
   return true;
 }
 
-namespace {
-
-std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
-  std::vector<IterDomain*> sharded_ids;
-  std::copy_if(tv->getLeafDomain().begin(), 
-              tv->getLeafDomain().end(), 
-              std::back_inserter(sharded_ids), [](auto id){return id->isDevice();});
-  return sharded_ids;
-}
-
-bool haveSameSharding(TensorView* tv1, TensorView* tv2) {
-  if (!(*tv1->getDeviceMesh() == *tv2->getDeviceMesh())) {
-    return false;
-  }
-  auto sharding_domain1 = getShardedIterDomains(tv1);
-  auto sharding_domain2 = getShardedIterDomains(tv2);
-  if (sharding_domain1.size() != sharding_domain2.size()) {
-    return false;
-  }
-  for (auto i : c10::irange(sharding_domain1.size())) {
-    if (!sharding_domain1[i]->sameAs(sharding_domain2[i])) {
-      return false;
-    }
-  }
-  return true;
-}
-
-} // namespace
-
 bool Expr::isResharding() const {
   std::unordered_set<TensorView*> tvs;
   for (auto tv: ir_utils::filterByType<TensorView>(inputs_)) {
@@ -389,7 +360,7 @@ bool Expr::isResharding() const {
     return false;
   }
   auto tv_ref = *tvs.begin();
-  return !std::all_of(++tvs.begin(), tvs.end(), [tv_ref](auto tv) {return haveSameSharding(tv, tv_ref);});
+  return !std::all_of(++tvs.begin(), tvs.end(), [tv_ref](auto tv) {return ir_utils::haveSameSharding(tv, tv_ref);});
 }
 
 kir::Predicate* Expr::predicate() const {

@@ -337,7 +337,7 @@ TEST_F(NVFuserTest, ReshardingDetection) {
 
 
 using automaticSetInsertionTestParams =
-    std::tuple<DeviceMesh, DeviceMesh, bool, bool, UnaryOpType>;
+    std::tuple<DeviceMesh, DeviceMesh, DeviceMesh, bool, bool, bool, UnaryOpType, BinaryOpType>;
 
 class automaticSetInsertionTest :
   public NVFuserTest,
@@ -349,7 +349,9 @@ protected:
   }
   void validate() {
     for (auto expr: fusion->exprs()) {
-      GTEST_EXPECT_TRUE(!expr->isResharding() || isLowerableToCommunication(expr));
+      GTEST_EXPECT_TRUE(!expr->isResharding() || isLowerableToCommunication(expr)) <<
+      "Expr " << expr << ", isResharding=" << expr->isResharding()
+      << ", isLowerableToCommunication="<<isLowerableToCommunication(expr);
     }
   }
 
@@ -358,14 +360,17 @@ protected:
 };
 
 TEST_P(automaticSetInsertionTest, unary_ops) {
-  auto [mesh0, mesh1, is_tv0_sharded, is_tv1_sharded, unary_op_type] = GetParam();
+  auto [mesh0, mesh1, mesh2, is_tv0_sharded, is_tv1_sharded, is_tv2_sharded, unary_op_type, binary_op_type] = GetParam();
 
   TensorView* tv0 = makeContigTensor(3);
   tv0->setDeviceMesh(&mesh0);
   TensorView* tv1 = unaryOp(unary_op_type, tv0);
+  TensorView* tv2 = binaryOp(binary_op_type, tv0, tv1);
   tv1->setDeviceMesh(&mesh1);
+  tv2->setDeviceMesh(&mesh2);
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
+  fusion->addOutput(tv2);
 
   if (is_tv0_sharded) {
     tv0->axis(0)->parallelize(ParallelType::DIDx);
@@ -373,24 +378,41 @@ TEST_P(automaticSetInsertionTest, unary_ops) {
   if (is_tv1_sharded) {
     tv1->axis(0)->parallelize(ParallelType::DIDx);
   }
+  if (is_tv2_sharded) {
+    tv2->axis(0)->parallelize(ParallelType::DIDx);
+  }
+  std::cout << "before transformation";
+  fusion->print();
 
+  std::cout
+  <<"tv0=" << tv0 
+  <<"\ntv1=" << tv1 
+  <<"\ntv2=" << tv2 
+  << std::endl;
+  std::cout<<"entering insertSetBeforeReshardingExpr" << std::endl;
   insertSetBeforeReshardingExpr(fusion.get());
+  std::cout << "after transformation";
+  fusion->print();
   validate();
 }
 
 DeviceMesh Mesh0({0});
-DeviceMesh Mesh1({1});
-DeviceMesh Mesh2({0, 1, 2, 3});
+DeviceMesh Mesh1({1,2});
+DeviceMesh Mesh2({0,2});
+DeviceMesh Mesh3({0, 1, 2, 3});
 
 INSTANTIATE_TEST_SUITE_P(
     ,
     automaticSetInsertionTest,
     ::testing::Combine(
-        ::testing::Values(Mesh0, Mesh1, Mesh2),
-        ::testing::Values(Mesh0, Mesh1, Mesh2),
+        ::testing::Values(Mesh0, Mesh3),
+        ::testing::Values(Mesh1, Mesh3),
+        ::testing::Values(Mesh2, Mesh3),
         ::testing::Bool(),
         ::testing::Bool(),
-        ::testing::Values(UnaryOpType::Exp, UnaryOpType::Abs)));
+        ::testing::Bool(),
+        ::testing::Values(UnaryOpType::Exp),
+        ::testing::Values(BinaryOpType::Add)));
         // ));
 
 } // namespace nvfuser
