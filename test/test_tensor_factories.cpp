@@ -34,7 +34,8 @@ TEST_F(TensorFactoryTest, StandaloneFull) {
       at::kBFloat16,
       at::kInt,
       at::kComplexFloat,
-      at::kComplexDouble};
+      at::kComplexDouble
+      };
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -97,7 +98,8 @@ TEST_F(TensorFactoryTest, StandaloneZeros) {
       at::kBFloat16,
       at::kInt,
       at::kComplexFloat,
-      at::kComplexDouble};
+      at::kComplexDouble
+      };
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());

@@ -70,23 +70,13 @@ std::string FullOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> FullOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  std::vector<int> shape;
+  std::vector<int64_t> shape;
   for (auto i: c10::irange(inputs.size() - 1)){
     shape.push_back((int)inputs.at(i));
   }
   DataType dtype = getFillValue()->getDataType().value();
-  auto fill_value;
-
-  if (isIntegralType(dtype)) {
-    fill_value = (int64_t)getFillValue();
-  } else if (isFloatingPointType(dtype)) {
-    fill_value = (double)getFillValue();
-  } else if (dtype == DataType::Bool) {
-    fill_value = (bool)getFillValue();
-  } else if (isComplexType(dtype)) {
-    fill_value = (std::complex<double>)getFillValue();
-  }
-  return {at::fill(shape, fill_value)};
+  const auto options = at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA); 
+  return {at::full(shape, (at::Scalar)inputs.back(), options)};
 }
 
 
