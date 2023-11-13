@@ -471,6 +471,10 @@ table FusionCache {
   auto_gen_schedules: [FusionExecutorCache];
   // static fusion executor counter
   global_fusion_count: long;
+  device_major: long;
+  device_minor: long;
+  cuda_major: long;
+  cuda_minor: long;
 }
 
 root_type FusionCache;

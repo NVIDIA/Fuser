@@ -41,15 +41,15 @@ std::string getSerdeTmpFile() {
 }
 
 std::string getSerdeFile() {
-  auto cuda_prop = at::cuda::getCurrentDeviceProperties();
-  int nvrtc_major = 0;
-  int nvrtc_minor = 0;
-  NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&nvrtc_major, &nvrtc_minor));
+  auto device_prop = at::cuda::getCurrentDeviceProperties();
+  int cuda_major = 0;
+  int cuda_minor = 0;
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&cuda_major, &cuda_minor));
 
   std::stringstream ss;
   ss << "nvf_serde";
-  ss << "_arch" << cuda_prop->major << "_" << cuda_prop->minor;
-  ss << "_nvrtc" << nvrtc_major << "_" << nvrtc_minor;
+  ss << "_device" << device_prop->major << "_" << device_prop->minor;
+  ss << "_cuda" << cuda_major << "_" << cuda_minor;
   return ss.str();
 }
 
@@ -446,6 +446,11 @@ void FusionCache::serialize(std::string filename) const {
         schedule->auto_gen_schedules->serialize(builder));
   }
 
+  auto device_prop = at::cuda::getCurrentDeviceProperties();
+  int cuda_major = 0;
+  int cuda_minor = 0;
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&cuda_major, &cuda_minor));
+
   // 6. Build FusionCache flatbuffer object
   // See table definition for FusionCache in serde/fusion_cache.fbs
   auto fusion_cache = serde::CreateFusionCacheDirect(
@@ -454,7 +459,11 @@ void FusionCache::serialize(std::string filename) const {
       &fb_nodes,
       &terminal_node_idx,
       &fb_auto_gen_schedules,
-      FusionExecutor::getGlobalFusionCount());
+      FusionExecutor::getGlobalFusionCount(),
+      device_prop->major,
+      device_prop->minor,
+      cuda_major,
+      cuda_minor);
   builder.Finish(fusion_cache, "NV00" /* file_identifier */);
 
   // 6. Write flatbuffer binary to file
@@ -498,6 +507,34 @@ const serde::FusionCache* verifyFusionCache(const BinaryBuffer& buffer) {
   NVF_CHECK(
       serde::FusionCacheBufferHasIdentifier(buffer.data()),
       "Failed to verify the schema version of the FusionCache buffer");
+  auto device_prop = at::cuda::getCurrentDeviceProperties();
+  NVF_CHECK(
+      device_prop->major == fusion_cache_buffer->device_major() &&
+          device_prop->minor == fusion_cache_buffer->device_minor(),
+      "Expected cuda version ",
+      device_prop->major,
+      ".",
+      device_prop->minor,
+      " but flatbuffer has cuda version ",
+      fusion_cache_buffer->device_major(),
+      ".",
+      fusion_cache_buffer->device_minor());
+
+  int cuda_major = 0;
+  int cuda_minor = 0;
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&cuda_major, &cuda_minor));
+  NVF_CHECK(
+      cuda_major == fusion_cache_buffer->cuda_major() &&
+          cuda_minor == fusion_cache_buffer->cuda_minor(),
+      "Expected cuda version ",
+      cuda_major,
+      ".",
+      cuda_minor,
+      " but flatbuffer has cuda version ",
+      fusion_cache_buffer->cuda_major(),
+      ".",
+      fusion_cache_buffer->cuda_minor());
+
   return fusion_cache_buffer;
 }
 
