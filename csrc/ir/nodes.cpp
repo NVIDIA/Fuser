@@ -67,6 +67,29 @@ std::string FullOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+std::vector<PolymorphicValue> FullOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  std::vector<int> shape;
+  for (auto i: c10::irange(inputs.size() - 1)){
+    shape.push_back((int)inputs.at(i));
+  }
+  DataType dtype = getFillValue()->getDataType().value();
+  auto fill_value;
+
+  if (isIntegralType(dtype)) {
+    fill_value = (int64_t)getFillValue();
+  } else if (isFloatingPointType(dtype)) {
+    fill_value = (double)getFillValue();
+  } else if (dtype == DataType::Bool) {
+    fill_value = (bool)getFillValue();
+  } else if (isComplexType(dtype)) {
+    fill_value = (std::complex<double>)getFillValue();
+  }
+  return {at::fill(shape, fill_value)};
+}
+
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(FullOp)
 
 SelectOp::SelectOp(

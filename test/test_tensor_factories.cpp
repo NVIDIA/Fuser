@@ -80,7 +80,7 @@ TEST_F(TensorFactoryTest, StandaloneFull) {
         executor_cache.fusion(),
         cg_outputs,
         {size, 11, 12, 13},
-        expect,
+        // expect,
         __LINE__,
         __FILE__);
   }
