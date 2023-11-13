@@ -527,16 +527,18 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeNormalDistRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_TensorCreationSymbolic();
-    return new python_frontend::RandomDistOpRecord<serde::RecordType_NormalDistOp>(
+    return new python_frontend::RandomDistOpRecord<
+        serde::RecordType_NormalDistOp>(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         mapToNvfuserDtype(data->dtype()));
   };
   registerParser(serde::RecordType_NormalDistOp, deserializeNormalDistRecord);
-  
+
   auto deserializeUniformDistRecord = [](const serde::RecordFunctor* buffer) {
     auto data = buffer->data_as_TensorCreationSymbolic();
-    return new python_frontend::RandomDistOpRecord<serde::RecordType_UniformDistOp>(
+    return new python_frontend::RandomDistOpRecord<
+        serde::RecordType_UniformDistOp>(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         mapToNvfuserDtype(data->dtype()));
