@@ -286,18 +286,13 @@ TEST_F(IndexingOpTest, TorchGatherSumAdd_CUDA) {
         at::Tensor input2 = at::randn(input2_dims, options); // lookup
         at::Tensor input_idx =
             at::randint(0, input_dims[dim], index_dims, options_i);
-        at::Tensor output = at::zeros(index_dims, options);
-
-        auto t_gather = at::gather(input, dim, input_idx);
-        auto t_sum = at::sum(t_gather.to(at::kDouble), {0}, true);
-        auto tv_out_ref = at::add(input2.to(at::kDouble), t_sum);
 
         std::vector<c10::IValue> aten_inputs = {input, input_idx, input2};
 
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
         auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
         testValidate(
-            &fusion, cg_outputs, aten_inputs, {tv_out_ref}, __LINE__, __FILE__);
+            &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
       }
     }
   }
@@ -448,11 +443,7 @@ TEST_F(IndexingOpTest, TakeAlongBroadcastIndex_CUDA) {
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-    auto t4 = at::take_along_dim(
-        t0, t1.unsqueeze(0).unsqueeze(-1).expand(out_dims), 1);
-    auto ref = t4 + t2;
-
-    testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
 
@@ -510,12 +501,8 @@ TEST_F(IndexingOpTest, GatherBroadcastInput_CUDA) {
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
         auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-        auto t4 = is_take_along ? at::take_along_dim(t0, t1.unsqueeze(-1), 1)
-                                : at::gather(t0, 1, t1.unsqueeze(-1));
-        auto ref = t4 + t2;
-
         testValidate(
-            &fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+            &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
       }
     }
   }
@@ -604,8 +591,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise1_CUDA) {
 
   auto outputs = fe.runFusion(aten_inputs);
 
-  auto ref = at::take_along_dim(t0 + 1, t1.unsqueeze(-1), 1);
-
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -642,8 +627,6 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorPointwise2_CUDA) {
   validateSegmentation(
       fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::PointWise});
 
-  auto ref = at::take_along_dim(t0 + 1, t1.unsqueeze(-1), 1);
-
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -679,9 +662,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction1_CUDA) {
       fec.getMostRecentKernelRuntime(),
       {ScheduleHeuristic::Reduction, ScheduleHeuristic::PointWise});
 
-  auto ref = at::take_along_dim(t0.to(at::kDouble).sum({1}), t1, 0);
-
-  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // take_along_axis to broadcast, squeeze, then reduction. Segmented
@@ -721,10 +702,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction2_CUDA) {
       fec.getMostRecentKernelRuntime(),
       {ScheduleHeuristic::PointWise, ScheduleHeuristic::Reduction});
 
-  auto t4 = at::take_along_dim(t0.to(at::kDouble) + 1, t1.unsqueeze(-1), 1);
-  auto ref = t4.squeeze(1).sum({0});
-
-  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // take_along_axis then reduction. Should not be segmented.
@@ -762,9 +740,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction3_CUDA) {
   validateSegmentation(
       fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::Reduction});
 
-  auto ref = at::take_along_dim(t0.to(at::kDouble) + 1, t1, 1).sum({1});
-
-  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Similar to TakeAlongAxisIntermediateTensorReduction2, but no
@@ -805,10 +781,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorReduction4_CUDA) {
   validateSegmentation(
       fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::Reduction});
 
-  auto ref =
-      at::take_along_dim(t0.to(at::kDouble) + 1, t1.unsqueeze(-1), 1).sum({0});
-
-  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Normalization then take_along_axis
@@ -1074,9 +1047,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose1_CUDA) {
   validateSegmentation(
       fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::Transpose});
 
-  auto ref = at::take_along_dim(t0 + 1, t1.unsqueeze(0), 0).transpose(1, 2);
-
-  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // transpose then take_along_axis. Currently failed to pick the
@@ -1119,9 +1090,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose2_CUDA) {
   validateSegmentation(
       fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::PointWise});
 
-  auto ref = at::take_along_dim(t0.transpose(1, 2), t1, 0);
-
-  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // transpose the dimension produced by take_along_axis. Currently not
@@ -1165,9 +1134,7 @@ TEST_F(IndexingOpTest, TakeAlongAxisIntermediateTensorTranspose3_CUDA) {
   validateSegmentation(
       fec.getMostRecentKernelRuntime(), {ScheduleHeuristic::PointWise});
 
-  auto ref = at::take_along_dim(t0 + 1, t1.unsqueeze(0), 2).transpose(1, 2);
-
-  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(IndexingOpTest, TakeAlongAxisCrossEntropyLoss_CUDA) {
