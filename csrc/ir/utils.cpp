@@ -134,8 +134,9 @@ std::vector<int> normalizeOld2New(
 
   // All available new positions
   std::set<int> all_positions;
-  for (decltype(ndims) i{0}; i < ndims; i++)
+  for (auto i : c10::irange(ndims)) {
     all_positions.insert((int)i);
+  }
 
   // Check what positions haven't been specified.
   std::set<int> positions_left;
@@ -264,15 +265,9 @@ TensorView* rfactorHelper(
 namespace {
 
 template <typename T>
-std::vector<T*> uniqueEntries(const std::vector<T*>& tv_deuqe) {
-  std::vector<T*> unique_entries;
-  std::unordered_set<T*> inserted;
-  for (auto tv_entry : tv_deuqe) {
-    if (inserted.emplace(tv_entry).second) {
-      unique_entries.emplace_back(tv_entry);
-    }
-  }
-  return unique_entries;
+std::vector<T*> uniqueEntries(const std::vector<T*>& tv_vector) {
+  VectorOfUniqueEntries<T*> unique_vector(tv_vector.begin(), tv_vector.end());
+  return unique_vector.vector();
 }
 
 } // namespace
@@ -415,6 +410,19 @@ std::vector<TensorView*> allTvs(Fusion* fusion) {
 
   // all_tvs has duplicates, to deduplicate it and return
   return uniqueEntries<TensorView>(all_tvs);
+}
+
+VectorOfUniqueEntries<TensorView*> allTvsOfExprs(
+    const std::vector<Expr*>& exprs) {
+  VectorOfUniqueEntries<TensorView*> all_tvs;
+  for (auto expr : exprs) {
+    auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
+    auto output_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+    for (const auto& tvs : {input_tvs, output_tvs}) {
+      all_tvs.pushBack(tvs.begin(), tvs.end());
+    }
+  }
+  return all_tvs;
 }
 
 std::vector<TensorView*> allTvsExcept(
@@ -1071,6 +1079,21 @@ bool isTensorSize(const Val* val) {
 bool isTensorStride(const Val* val) {
   return isTensorAttr(val, "logical_stride") ||
       isTensorAttr(val, "alloc_stride");
+}
+
+int64_t getVectorizeSize(TensorView* tv) {
+  for (auto id : tv->getLeafDomain()) {
+    if (!isParallelTypeVectorize(id->getParallelType())) {
+      continue;
+    }
+
+    NVF_ERROR(
+        id->extent()->isConstInt(),
+        "Could not evaluate constant value bound to vectorized dim.");
+
+    return id->extent()->evaluate().as<int64_t>();
+  }
+  return 1;
 }
 
 } // namespace nvfuser::ir_utils
