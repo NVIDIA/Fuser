@@ -181,14 +181,14 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
 
     FusionExecutorCache executor_cache(std::move(fusion));
 
-    const auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-
     switch (dtype) {
       case at::kInt:
       case at::kLong: {
         for (auto length : lengths) {
           for (auto start : starts) {
             for (auto step : steps) {
+              int64_t start_ = (int64_t)start;
+              int64_t step_ = (int64_t)step;
               auto cg_outputs =
                   executor_cache.runFusionWithInputs({length, start_, step_});
 
@@ -210,7 +210,6 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
             for (auto step : steps) {
               double start_ = (double)start;
               double step_ = (double)step;
-
               auto cg_outputs =
                   executor_cache.runFusionWithInputs({length, start_, step_});
 
@@ -265,8 +264,6 @@ TEST_F(TensorFactoryTest, StandaloneARange) {
     fusion->addOutput(tv3);
 
     FusionExecutorCache executor_cache(std::move(fusion));
-
-    const auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
 
     for (auto start : starts_ends) {
       for (auto end : starts_ends) {
