@@ -184,7 +184,7 @@ Communicator::Communicator(
 #endif
 
 #ifdef USE_C10D_NCCL
-  nccl_available_ = false;
+  nccl_available_ = true;
 #endif
 }
 
