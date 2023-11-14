@@ -88,7 +88,7 @@ TensorView* bitCastOp(DataType dtype, TensorView* v1) {
   return bitCastOp(dtype, v1->as<Val>())->as<TensorView>();
 }
 
-Val* unaryOp(UnaryOpType type, Val* v1) { //check here as well
+Val* unaryOp(UnaryOpType type, Val* v1) {
   Val* out = ops::newValLike(v1, v1->getDataType().value());
   IrBuilder::create<UnaryOp>(type, out, v1);
   return out;

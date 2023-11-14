@@ -307,32 +307,32 @@ TEST_F(NVFuserTest, ReshardingDetection) {
   TensorView* tv26 = add(tv5, tv6); // resharding
   tv26->setDeviceMesh(&mesh2);
 
-  GTEST_EXPECT_TRUE(!tv1->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv2->definition()->isResharding());
-  GTEST_EXPECT_TRUE(!tv3->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv4->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv5->definition()->isResharding());
-  GTEST_EXPECT_TRUE(!tv6->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv7->definition()->isResharding());
-  GTEST_EXPECT_TRUE(!tv8->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv9->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv10->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv11->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv12->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv13->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv14->definition()->isResharding());
-  GTEST_EXPECT_TRUE(!tv15->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv16->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv17->definition()->isResharding());
-  GTEST_EXPECT_TRUE(!tv18->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv19->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv20->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv21->definition()->isResharding());
-  GTEST_EXPECT_TRUE(!tv22->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv23->definition()->isResharding());
-  GTEST_EXPECT_TRUE(!tv24->definition()->isResharding());
-  GTEST_EXPECT_TRUE(!tv25->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv26->definition()->isResharding());
+  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv1->definition()));
+  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv2->definition()));
+  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv3->definition()));
+  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv4->definition()));
+  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv5->definition()));
+  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv6->definition()));
+  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv7->definition()));
+  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv8->definition()));
+  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv9->definition()));
+  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv10->definition()));
+  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv11->definition()));
+  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv12->definition()));
+  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv13->definition()));
+  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv14->definition()));
+  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv15->definition()));
+  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv16->definition()));
+  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv17->definition()));
+  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv18->definition()));
+  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv19->definition()));
+  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv20->definition()));
+  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv21->definition()));
+  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv22->definition()));
+  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv23->definition()));
+  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv24->definition()));
+  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv25->definition()));
+  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv26->definition()));
 }
 
 
@@ -342,14 +342,10 @@ using automaticSetInsertionTestParams =
     DeviceMesh,
     DeviceMesh,
     DeviceMesh,
-    // DeviceMesh,
     bool,
     bool,
     bool,
-    bool,
-    // bool,
-    UnaryOpType,
-    BinaryOpType>;
+    bool>;
 
 class automaticSetInsertionTest :
   public NVFuserTest,
@@ -361,9 +357,7 @@ protected:
   }
   void validate() {
     for (auto expr: fusion->exprs()) {
-      GTEST_EXPECT_TRUE(!expr->isResharding() || isLowerableToCommunication(expr)) <<
-      "Expr " << expr << ", isResharding=" << expr->isResharding()
-      << ", isLowerableToCommunication="<<isLowerableToCommunication(expr);
+      GTEST_EXPECT_TRUE(!ir_utils::isResharding(expr) || isLowerableToCommunication(expr));
     }
   }
 
@@ -371,38 +365,29 @@ protected:
   std::unique_ptr<FusionGuard> fg;
 };
 
-TEST_P(automaticSetInsertionTest, unary_ops) {
+TEST_P(automaticSetInsertionTest, ops) {
   auto [
   mesh0,
   mesh1,
   mesh2,
   mesh3,
-  // mesh4,
   is_tv0_sharded,
   is_tv1_sharded,
   is_tv2_sharded,
-  is_tv3_sharded,
-  // is_tv4_sharded,
-  unary_op_type,
-  binary_op_type] = GetParam();
+  is_tv3_sharded] = GetParam();
 
   TensorView* tv0 = makeContigTensor(3);
-  TensorView* tv1 = unaryOp(unary_op_type, tv0);
-  TensorView* tv2 = binaryOp(binary_op_type, tv0, tv1);
+  TensorView* tv1 = unaryOp(UnaryOpType::Exp, tv0);
+  TensorView* tv2 = binaryOp(BinaryOpType::Add, tv0, tv1);
   TensorView* tv3 = sum(tv2, {0});
-  // TensorView* tv5 = binaryOp(binary_op_type, tv2, tv3);
-  // TensorView* tv4 = tv5->definition()->inputs().at(1)->as<TensorView>(); // intermediate tensor, tv4 = broadcast(tv3)
 
   tv0->setDeviceMesh(&mesh0);
   tv1->setDeviceMesh(&mesh1);
   tv2->setDeviceMesh(&mesh2);
   tv3->setDeviceMesh(&mesh3);
-  // tv4->setDeviceMesh(&mesh4);
-  // tv5->setDeviceMesh(&mesh4);
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
   fusion->addOutput(tv3);
-  // fusion->addOutput(tv5);
 
   if (is_tv0_sharded) {
     tv0->axis(0)->parallelize(ParallelType::DIDx);
@@ -416,49 +401,31 @@ TEST_P(automaticSetInsertionTest, unary_ops) {
   if (is_tv3_sharded) {
     tv3->axis(0)->parallelize(ParallelType::DIDx);
   }
-  // if (is_tv4_sharded) {
-  //   tv4->axis(0)->parallelize(ParallelType::DIDx);
-  //   tv5->axis(0)->parallelize(ParallelType::DIDx);
-  // }
-  std::cout << "before transformation";
-  fusion->print();
 
-  std::cout
-  <<"tv0=" << tv0 
-  <<"\ntv1=" << tv1 
-  <<"\ntv2=" << tv2 
-  <<"\ntv3=" << tv3 
-  // <<"\ntv4=" << tv4 
-  // <<"\ntv5=" << tv5 
-  << std::endl;
-  std::cout<<"entering insertSetBeforeReshardingExpr" << std::endl;
   insertSetBeforeReshardingExpr(fusion.get());
-  std::cout << "after transformation";
-  fusion->print();
   validate();
 }
 
-DeviceMesh Mesh0({0});
-DeviceMesh Mesh1({1,2});
-DeviceMesh Mesh2({0,2});
-DeviceMesh Mesh3({0, 1, 2, 3});
+namespace {
+
+DeviceMesh mesh0({0});
+DeviceMesh mesh1({1,2});
+DeviceMesh mesh2({0,2});
+DeviceMesh mesh3({0, 1, 2, 3});
+
+} // namespace
 
 INSTANTIATE_TEST_SUITE_P(
     ,
     automaticSetInsertionTest,
     ::testing::Combine(
-        ::testing::Values(Mesh0, Mesh3),
-        ::testing::Values(Mesh1, Mesh3),
-        ::testing::Values(Mesh2, Mesh3),
-        ::testing::Values(Mesh0, Mesh3),
-        // ::testing::Values(Mesh1, Mesh3),
+        ::testing::Values(mesh0, mesh3),
+        ::testing::Values(mesh1, mesh3),
+        ::testing::Values(mesh2, mesh3),
+        ::testing::Values(mesh0, mesh3),
         ::testing::Bool(),
         ::testing::Bool(),
         ::testing::Bool(),
-        ::testing::Bool(),
-        // ::testing::Bool(),
-        ::testing::Values(UnaryOpType::Exp),
-        ::testing::Values(BinaryOpType::Add)));
-        // ));
+        ::testing::Bool()));
 
 } // namespace nvfuser

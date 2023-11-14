@@ -531,4 +531,6 @@ bool hasAnyReductionOps(Fusion* fusion);
 
 bool haveSameSharding(TensorView* tv1, TensorView* tv2);
 
+bool isResharding(Expr* expr);
+
 } // namespace nvfuser::ir_utils

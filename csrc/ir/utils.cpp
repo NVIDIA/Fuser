@@ -167,11 +167,8 @@ struct SubstituteInExpr : public OptOutMutator {
     NVF_ERROR(
         expr != nullptr && reference != nullptr && substitute != nullptr,
         "Nullptr arg found.");
-  std::cout << "inside SubstituteInExpr::subsitute" << std::endl;
     SubstituteInExpr sie(reference, substitute);
-  std::cout << "before mutation" << std::endl;
     sie.mutate(expr);
-  std::cout << "after mutation" << std::endl;
     // if nothing substituted, then return the original expr
     return sie.expr_ == nullptr ? expr : sie.expr_;
   }
@@ -196,11 +193,8 @@ struct SubstituteInExpr : public OptOutMutator {
 
 Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute) {
   FusionGuard fg(expr->fusion());
-  std::cout << "inside replaceValInExprInputs" << std::endl;
-  auto ret = ValReplacement::SubstituteInExpr::subsitute(
+  return ValReplacement::SubstituteInExpr::subsitute(
       expr, reference, substitute);
-  std::cout << "before returning" << std::endl;
-  return ret;
 }
 
 Expr* transferDefinitionToNewOutputs(
@@ -1108,5 +1102,19 @@ bool haveSameSharding(TensorView* tv1, TensorView* tv2) {
   return true;
 }
 
+bool isResharding(Expr* expr) {
+  std::unordered_set<TensorView*> tvs;
+  for (auto tv: filterByType<TensorView>(expr->inputs())) {
+    tvs.insert(tv);
+  }
+  for (auto tv: filterByType<TensorView>(expr->outputs())) {
+    tvs.insert(tv);
+  }
+  if (tvs.empty()) {
+    return false;
+  }
+  auto tv_ref = *tvs.begin();
+  return !std::all_of(++tvs.begin(), tvs.end(), [tv_ref](auto tv) {return ir_utils::haveSameSharding(tv, tv_ref);});
+}
 
 } // namespace nvfuser::ir_utils

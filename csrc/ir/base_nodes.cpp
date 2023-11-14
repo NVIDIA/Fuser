@@ -348,21 +348,6 @@ bool Expr::sameAs(const Statement* other) const {
   return true;
 }
 
-bool Expr::isResharding() const {
-  std::unordered_set<TensorView*> tvs;
-  for (auto tv: ir_utils::filterByType<TensorView>(inputs_)) {
-    tvs.insert(tv);
-  }
-  for (auto tv: ir_utils::filterByType<TensorView>(outputs_)) {
-    tvs.insert(tv);
-  }
-  if (tvs.empty()) {
-    return false;
-  }
-  auto tv_ref = *tvs.begin();
-  return !std::all_of(++tvs.begin(), tvs.end(), [tv_ref](auto tv) {return ir_utils::haveSameSharding(tv, tv_ref);});
-}
-
 kir::Predicate* Expr::predicate() const {
   NVF_ERROR(container()->isA<kir::Kernel>(), "Function invalid for fusion.");
   return predicate_;

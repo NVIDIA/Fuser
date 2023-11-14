@@ -18,7 +18,7 @@ namespace nvfuser {
 
 Val* set(Val* v) {
   Val* out = ops::newValLike(v, v->getDataType().value());
-  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, v); //mimick whats done here for unaryOp
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, v);
   return out;
 }
 

@@ -517,17 +517,12 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
 
 bool isLowerableToCommunication(Expr* expr) {
   if (expr->isA<ReductionOp>()) {
-    auto in = expr->as<ReductionOp>()->in();
     auto out = expr->as<ReductionOp>()->out();
-    NVF_ERROR(in->isA<TensorView>());
-    NVF_ERROR(out->isA<TensorView>());
-    auto in_tv = in->as<TensorView>();
+    NVF_ERROR(out->isA<TensorView>(), "output is not a TensorView");
     auto out_tv = out->as<TensorView>();
-    std::cout << "in_tv=" << in_tv << "\nout_tv=" << out_tv << std::endl;
-    NVF_ERROR(out_tv->domain()->nDims() == TensorDomain::noReductions(out_tv->getMaybeRFactorDomain()).size() + 1);
+    NVF_ERROR(out_tv->domain()->nDims() == TensorDomain::noReductions(out_tv->getMaybeRFactorDomain()).size() + 1,
+      "only reducing one-axis at a time is supported");
     return true;
-    // noBroadcasts
-    // noReductions
   }
   return expr->isA<LoadStoreOp>()
                 && (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set);
