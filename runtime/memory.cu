@@ -235,18 +235,6 @@ struct CpAsyncBulkTensorTileS2GIndex {
   Array<int32_t, dim> crds;
 };
 
-__device__ inline void cpAsyncBulkS2GCommit() {
-  asm volatile("cp.async.bulk.commit_group;");
-}
-
-template <int keep_stages>
-__device__ inline void cpAsyncBulkS2GPartialReadBarrier() {
-  asm volatile("cp.async.bulk.wait_group.read %0;"
-               :
-               : "n"(keep_stages)
-               : "memory");
-}
-
 __device__ inline void cpAsyncBulkTensorTileS2G(
     const CpAsyncBulkTensorTileS2GIndex<1>& dest,
     uint32_t smem_addr) {
