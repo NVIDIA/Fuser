@@ -317,6 +317,32 @@ std::string IotaOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+std::vector<PolymorphicValue> IotaOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  
+  const auto options = at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype()));
+  int64_t length = (int64_t)inputs.at(0);
+
+  if (isIntegralType(dtype())){
+    int64_t start = (int64_t)inputs.at(1);
+    int64_t step = (int64_t)inputs.at(2);
+    int64_t end = start + step * length;
+    return {at::arange(start, end, step, options)};
+  } else if (isFloatingPointType(dtype())){
+    double start = (double)inputs.at(1);
+    double step = (double)inputs.at(2);
+    // Due to rounding error, it can be hard to guarantee the size of
+    // the output of arange to be exactly length, so we generate a
+    // larger tensor and truncate it to length.
+    double end = start + step * (length + 1);
+    return {at::arange(start, end, step, options).narrow(0, 0, length)};
+  } else {
+    NVF_ERROR(false, "Unsupported dtype in IotaOp evaluator: ", dtype());
+  }
+
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(IotaOp)
 
 EyeOp::EyeOp(IrBuilderPasskey passkey, Val* out, DataType dtype)

@@ -211,7 +211,7 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
                   executor_cache.fusion(),
                   cg_outputs,
                   {length, start_, step_},
-                  {a},
+                  // {a},
                   __LINE__,
                   __FILE__);
             }
@@ -241,7 +241,7 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
                   executor_cache.fusion(),
                   cg_outputs,
                   {length, start_, step_},
-                  {a},
+                  // {a},
                   __LINE__,
                   __FILE__);
             }
@@ -325,7 +325,7 @@ TEST_F(TensorFactoryTest, StandaloneARange) {
                (double)start,
                (double)end,
                (double)step},
-              {a, b, c, d},
+              // {a, b, c, d},
               __LINE__,
               __FILE__);
         }
