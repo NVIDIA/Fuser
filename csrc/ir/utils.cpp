@@ -1086,4 +1086,19 @@ bool isTensorStride(const Val* val) {
       isTensorAttr(val, "alloc_stride");
 }
 
+int64_t getVectorizeSize(TensorView* tv) {
+  for (auto id : tv->getLeafDomain()) {
+    if (!isParallelTypeVectorize(id->getParallelType())) {
+      continue;
+    }
+
+    NVF_ERROR(
+        id->extent()->isConstInt(),
+        "Could not evaluate constant value bound to vectorized dim.");
+
+    return id->extent()->evaluate().as<int64_t>();
+  }
+  return 1;
+}
+
 } // namespace nvfuser::ir_utils

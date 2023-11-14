@@ -11,6 +11,7 @@
 
 #include <ops/all_ops.h>
 
+#include <regex>
 #include <sstream>
 #include <string_view>
 
@@ -213,6 +214,7 @@ Container parse(const std::string& nvdisasm_output) {
   bool started = false;
   std::stringstream ss(nvdisasm_output);
   std::string header;
+  std::regex find_header_regex(".text.(.+):");
   for (std::string line; std::getline(ss, line);) {
     line = trim(line);
     if (line.empty() || starts_with(line, "//")) {
@@ -242,13 +244,10 @@ Container parse(const std::string& nvdisasm_output) {
       if (line == header) {
         started = true;
       } else if (line[0] == '.') {
-        std::stringstream ss(line);
-        std::string key, value;
-        char ignore = '\0';
-        ss >> ignore >> key >> value;
-        result.attributes[key] = value;
-        if (key == "global") {
-          header = ".text." + value + ":";
+        std::smatch line_match;
+        std::regex_match(line, line_match, find_header_regex);
+        if (line_match.size() == 2) {
+          header = line_match.str(1) + ":";
         }
       }
     }

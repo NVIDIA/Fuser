@@ -1224,6 +1224,10 @@ std::ostream& operator<<(std::ostream& os, const CacheOp& cache_op) {
   return os;
 }
 
+std::ostream& operator<<(std::ostream& os, const std::optional<bool>& b) {
+  return os << (b.has_value() ? (*b ? "t" : "f") : "n");
+}
+
 std::optional<std::string> inline_op_str(const UnaryOpType uotype) {
   const char* str = unary_op_type_inline_op2string(uotype);
   return str != nullptr ? std::optional<std::string>(std::string(str))

@@ -486,7 +486,8 @@ class Index {
       const std::vector<kir::ForLoop*>& loops,
       const std::unordered_set<kir::ForLoop*>& rotated_loops,
       const std::unordered_map<int, Val*>& override_index = {},
-      bool generate_pointer = false);
+      bool generate_pointer = false,
+      DataType as_type = DataType::Null);
 
   //! Returns a vector of strided indices mapped onto the (rfactor)
   //! allocation domain of a producer tensor. The size of the returned
