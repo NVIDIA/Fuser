@@ -44,16 +44,11 @@ void record_cupti_activity(CUpti_Activity* pRecord, FILE* pFileHandle) {
       KernelProfile prof;
       prof.name.assign(demangle(pKARecord->name));
 
-      size_t kernel_start = prof.name.find("kernel");
-      size_t nvfuser_start = prof.name.find("nvfuser");
-      NVF_ERROR(
-          kernel_start != std::string::npos ||
-              nvfuser_start != std::string::npos,
-          "Failed to find kernel name start position.")
-
-      size_t start = std::min(kernel_start, nvfuser_start);
-      size_t end = prof.name.find('(');
-      prof.name = prof.name.substr(start, end - start);
+      size_t start = prof.name.find("nvfuser");
+      if (start != std::string::npos) {
+        size_t end = prof.name.find('(', start);
+        prof.name = prof.name.substr(start, end - start);
+      } 
       prof.device = (int)pKARecord->deviceId;
       prof.stream = pKARecord->streamId;
       prof.correlation_id = pKARecord->correlationId;
@@ -411,7 +406,6 @@ std::array<const char*, 25> column_strs{
     "EffBw(GB/s)",
     "%PeakBw",
     "S-Seg#",
-    "S-KerName",
     "S-KerTm(ms)",
     "S-CmpTm(ms)",
     "S-EffBw(GB/s)",
@@ -425,8 +419,9 @@ std::array<const char*, 25> column_strs{
     "S-Cluster",
     "S-Dev",
     "S-Stm",
-    "S-PeakBw(GB/s)",
-    "S-DeviceName"};
+    "S-PkBw(GB/s)",
+    "S-DeviceName",
+    "S-KerName"};
 
 std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
   if (fp.fusion_id == 0) {
@@ -442,29 +437,30 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
          << std::get<7>(column_strs);
 
       os << " " << std::setw(6) << std::get<8>(column_strs) << " "
-         << std::setw(10) << std::get<9>(column_strs) << " " << std::setw(11)
-         << std::get<10>(column_strs);
+         << std::setw(9) << std::get<9>(column_strs); 
 
       if (fp.verbose) {
-        os << " " << std::setw(11) << std::get<11>(column_strs);
+        os << " " << std::setw(11) << std::get<10>(column_strs);
       }
 
-      os << " " << std::setw(13) << std::get<12>(column_strs) << " "
-         << std::setw(9) << std::get<13>(column_strs) << " " << std::setw(9)
-         << std::get<14>(column_strs) << " " << std::setw(9)
-         << std::get<15>(column_strs) << " " << std::setw(16)
-         << std::get<16>(column_strs) << " " << std::setw(6)
+      os << " " << std::setw(13) << std::get<11>(column_strs) << " "
+         << std::setw(9) << std::get<12>(column_strs) << " " << std::setw(9)
+         << std::get<13>(column_strs) << " " << std::setw(9)
+         << std::get<14>(column_strs) << " " << std::setw(16)
+         << std::get<15>(column_strs) << " " << std::setw(6)
+         << std::get<16>(column_strs) << " " << std::setw(16)
          << std::get<17>(column_strs) << " " << std::setw(16)
-         << std::get<18>(column_strs) << " " << std::setw(16)
-         << std::get<19>(column_strs);
+         << std::get<18>(column_strs);
 
       if (fp.verbose) {
-        os << " " << std::setw(16) << std::get<20>(column_strs) << " "
-           << std::setw(5) << std::get<21>(column_strs) << " " << std::setw(5)
-           << std::get<22>(column_strs) << " " << std::setw(14)
-           << std::get<23>(column_strs) << " " << std::setw(20)
-           << std::get<24>(column_strs);
+        os << " " << std::setw(16) << std::get<19>(column_strs) << " "
+           << std::setw(5) << std::get<20>(column_strs) << " " << std::setw(5)
+           << std::get<21>(column_strs) << " " << std::setw(12)
+           << std::get<22>(column_strs) << " " << std::setw(20)
+           << std::get<23>(column_strs);
       }
+
+      os << " " << std::setw(20) << std::get<24>(column_strs);
     }
 
     os << std::endl;
@@ -517,8 +513,7 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
       smem << "[" << kp.dynamic_shared_mem << ", " << kp.static_shared_mem
            << "]";
       os << std::setfill(' ') << std::right << std::fixed << " " << std::setw(6)
-         << idx << " " << std::setw(10) << kp.name << " " << std::setw(11)
-         << std::setprecision(3) << kp.time_ms;
+         << idx << " " << std::setw(11) << std::setprecision(3) << kp.time_ms;
 
       if (fp.verbose) {
         os << " " << std::setw(11) << std::setprecision(3)
@@ -537,9 +532,10 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
       if (fp.verbose) {
         os << " " << std::setw(16) << cluster.str() << " " << std::setw(5)
            << kp.device << " " << std::setw(5) << kp.stream << " "
-           << std::setw(14) << std::setprecision(2) << kp.peak_bandwidth_gbs
+           << std::setw(12) << std::setprecision(2) << kp.peak_bandwidth_gbs
            << " " << std::setw(20) << kp.device_name;
       }
+      os << " " << std::setw(20) << kp.name;
       os << std::endl;
       ++idx;
     }
