@@ -55,8 +55,8 @@ std::pair<V, typename LinkedHashMap<K, V>::const_iterator> LinkedHashMap<K, V>::
     erase(const K& key) {
   const_iterator index = key_to_index_.at(key);
   key_to_index_.erase(key);
-  V value = index->second;
-  return {value, order_.erase(index)};
+  V value = std::move(index->second);
+  return {std::move(value), order_.erase(index)};
 }
 
 template <typename K, typename V>
