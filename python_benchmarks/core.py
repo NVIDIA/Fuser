@@ -7,7 +7,7 @@ from torch.autograd import DeviceType
 
 def get_device_properties() -> Tuple[int, float]:
     """
-    Computes L2 cache size and peak device bandwidth (GBps) using ctypes and cuda.
+    Computes device properties using ctypes and cuda.
     Note: Consider using CUDA-Python when CUDA support >= 12.0.
     """
     libnames = ("libcuda.so", "libcuda.dylib", "nvcuda.dll", "cuda.dll")

@@ -128,10 +128,14 @@ TEST_F(AliasAnalysisTest, Permute) {
   TensorView* out = permute(in, {1, 2, 0});
   fusion.addOutput(out);
 
-  // We haven't handled `Set.Permute` yet.
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.findRoot(out), out);
+  EXPECT_EQ(alias_analysis.findRoot(out), in);
+
+  const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
+  EXPECT_THAT(
+      alias_analysis.preferredLayout(out).allocation_domain,
+      ElementsAre(out_rfactor[2], out_rfactor[0], out_rfactor[1]));
 }
 
 TEST_F(AliasAnalysisTest, View_SplitExpandedBroadcast) {
@@ -206,7 +210,7 @@ TEST_F(AliasAnalysisTest, View_MergeExpandedBroadcast) {
 
 using AliasTest = NVFuserTest;
 
-TEST_F(AliasTest, ReinterpretCast) {
+TEST_F(AliasTest, View) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -229,13 +233,34 @@ TEST_F(AliasTest, ReinterpretCast) {
   EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
 
   // Verify output values.
-  testValidate(
-      fec.fusion(),
-      {out_tensor},
-      {in_tensor},
-      {in_tensor.view({2, 12})},
-      __LINE__,
-      __FILE__);
+  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+}
+
+TEST_F(AliasTest, ViewPermute) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const std::vector<int64_t> in_shape({2, 3, 4});
+  const std::vector<int64_t> out_shape({2, 12});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  fusion->addInput(in);
+  TensorView* out = reshape(in, in_shape, out_shape);
+  out = permute(out, {1, 0});
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  ASSERT_EQ(out_tensors.size(), 1);
+  at::Tensor out_tensor = out_tensors[0];
+
+  // Verify aliasing.
+  EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
+
+  // Verify output values.
+  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

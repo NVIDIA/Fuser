@@ -25,15 +25,28 @@ class MultiDeviceEnvironment : public testing::Environment {
     return communicator_.get();
   }
 
+  bool debugPrint() const {
+    return debug_print_;
+  }
+
+  bool doBarrierAtTest() const {
+    return do_barrier_at_test_;
+  }
+
  private:
   std::unique_ptr<Communicator> communicator_ = nullptr;
+  bool debug_print_ = false;
+  bool do_barrier_at_test_ = false;
 };
 
 class MultiDeviceTest : public NVFuserTest {
  protected:
   void SetUp() override;
+  void TearDown() override;
   Communicator* communicator;
   c10::TensorOptions tensor_options;
+  bool debug_print;
+  bool do_barrier_at_test;
 };
 
 class CommunicationTest : public MultiDeviceTest {
@@ -54,7 +67,6 @@ class PipelineTest : public MultiDeviceTest {
  protected:
   void SetUp() override;
   void validate();
-  bool print = false;
   std::unique_ptr<Pipeline> pipeline;
   std::unique_ptr<Fusion> fusion;
   std::vector<c10::IValue> inputs;

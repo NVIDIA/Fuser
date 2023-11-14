@@ -144,6 +144,7 @@ def test_layernorm_fwd_benchmark(
     dtype: torch.dtype,
     disable_validation: bool,
     disable_benchmarking: bool,
+    eps: float = 1e-5,
 ):
     inputs = [
         torch.randn(*size, device="cuda", dtype=dtype),
@@ -155,11 +156,15 @@ def test_layernorm_fwd_benchmark(
         layernorm_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
 
     if not disable_validation:
-        nvf_output = fd.execute(inputs)
         eager_output = torch.nn.functional.layer_norm(
             inputs[0], inputs[0].shape[1:], weight=inputs[1], bias=inputs[2]
         )
-        assert torch.allclose(nvf_output[0], eager_output, rtol=1e-3, atol=1e-3)
+
+        mean = inputs[0].to(torch.float).mean(dim=-1)
+        variance = inputs[0].to(torch.float).var(dim=-1, unbiased=False)
+        invstd = (1.0 / torch.sqrt(variance + eps)).unsqueeze(1)
+
+        fd.validate(inputs, [eager_output, mean, invstd])
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
@@ -191,13 +196,16 @@ def test_layernorm_bwd_benchmark(
 
     if not disable_validation:
         eager_output = torch.nn.functional.layer_norm(
-            inputs, inputs.shape[1:], weight=weights, bias=bias
+            inputs.to(torch.double),
+            inputs.shape[1:],
+            weight=weights.to(torch.double),
+            bias=bias.to(torch.double),
         )
-        eager_output.backward(grads)
-        nvf_output = fd.execute([inputs, grads, mean, invstd, weights])
-        assert torch.allclose(
-            nvf_output[0], inputs.grad, rtol=1e-3, atol=1e-3
-        ), f"{torch.max(nvf_output[0] - inputs.grad)}"
+        eager_output.backward(grads.to(torch.double))
+        fd.validate(
+            [inputs, grads, mean, invstd, weights],
+            [inputs.grad, weights.grad, bias.grad],
+        )
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [inputs, grads, mean, invstd, weights])

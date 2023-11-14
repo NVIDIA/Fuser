@@ -210,7 +210,11 @@ std::vector<PolymorphicValue> TorchGatherOp::evaluate(
   const auto& input = inputs.at(0).as<at::Tensor>();
   const auto& index = inputs.at(1).as<at::Tensor>();
   auto dimension = dim();
-  return {at::gather(input, dimension, index)};
+  if (exactSizes()) {
+    return {at::take_along_dim(input, index, dimension)};
+  } else {
+    return {at::gather(input, dimension, index)};
+  }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(TorchGatherOp)
@@ -380,6 +384,22 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
         NVF_ERROR(
             false, "dtype not supported in evaluator: ", *out()->getDataType());
       }
+      break;
+    case UnaryOpType::Sigmoid:
+      return {in.as<at::Tensor>().sigmoid()};
+      break;
+    case UnaryOpType::Tanh:
+      return {in.as<at::Tensor>().tanh()};
+      break;
+    case UnaryOpType::Relu:
+      return {at::relu(in.as<at::Tensor>())};
+      break;
+    case UnaryOpType::Gelu:
+      return {at::gelu(in.as<at::Tensor>())};
+      break;
+    case UnaryOpType::Exp:
+      return {at::exp(in.as<at::Tensor>())};
+      break;
     default:
       NVF_CHECK(
           false,
@@ -2382,43 +2402,21 @@ LoadStoreOp::LoadStoreOp(
   addDataAttribute(cache_op);
 }
 
-namespace {
-// Returns the permutation from `in` to `out`, i.e., `out[i]==in[perm[i]]`. As a
-// precondition, `out` must be a permutation of `in` per the definition of
-// std::is_permutation.
-template <typename T>
-std::vector<int64_t> computePermutation(
-    const std::vector<T>& in,
-    const std::vector<T>& out) {
-  std::vector<int64_t> permutation;
-  permutation.reserve(out.size());
-  // O(n^2) is totally fine for the current use case of computing the
-  // root-to-rfactor permutation. If needed, this can be improved by requiring T
-  // to be hashable and/or comparable.
-  for (const T& out_element : out) {
-    permutation.push_back(std::distance(
-        in.begin(), std::find(in.begin(), in.end(), out_element)));
-  }
-  return permutation;
-}
-} // namespace
-
 std::vector<PolymorphicValue> LoadStoreOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   if (TensorView* out_tv = dynamic_cast<TensorView*>(out())) {
     if (out_tv->hasRFactor()) {
+      std::optional<std::vector<int64_t>> permutation =
+          ir_utils::computePermutation(
+              out_tv->getRootDomain(), out_tv->getRFactorDomain());
       NVF_ERROR(
-          std::is_permutation(
-              out_tv->getRootDomain().begin(),
-              out_tv->getRootDomain().end(),
-              out_tv->getRFactorDomain().begin()),
+          permutation.has_value(),
           "The rfactor domain of a Set.Permute is supposed to be a permutation of the root domain: ",
           out_tv->toString());
       NVF_ERROR(inputs.size() == 1);
       at::Tensor in_tensor = inputs[0].as<at::Tensor>();
-      at::Tensor out_tensor = in_tensor.permute(computePermutation(
-          out_tv->getRootDomain(), out_tv->getRFactorDomain()));
+      at::Tensor out_tensor = in_tensor.permute(*permutation);
       return {out_tensor};
     }
   }
@@ -3693,9 +3691,10 @@ std::vector<IterDomain*> TensorDomain::noBroadcasts(
   return noBroadcastDomain;
 }
 
-std::vector<std::optional<bool>> TensorDomain::getContiguityFilledWith(
-    const std::vector<IterDomain*>& rfactor_domain,
-    bool fill_value) {
+/*static*/ std::vector<std::optional<bool>> TensorDomain::
+    getContiguityFilledWith(
+        const std::vector<IterDomain*>& rfactor_domain,
+        bool fill_value) {
   std::vector<std::optional<bool>> contiguity;
   contiguity.reserve(rfactor_domain.size());
   for (auto id : rfactor_domain) {

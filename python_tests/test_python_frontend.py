@@ -20,20 +20,16 @@ from torch.testing._internal.jit_utils import RUN_CUDA
 import torch._refs as refs
 import torch._prims as prims
 
-# Will only create the nvfuser module if CUDA is available
-try:
-    from nvfuser import (
-        FusionCache,
-        FusionDefinition,
-        DataType,
-        Tensor,
-        version,
-        compute_contiguity,
-        compute_tensor_descriptor,
-    )
-    from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-except ImportError:
-    pass
+from nvfuser import (
+    FusionCache,
+    FusionDefinition,
+    DataType,
+    Tensor,
+    version,
+    compute_contiguity,
+    compute_tensor_descriptor,
+)
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
@@ -1407,20 +1403,39 @@ class TestNvFuserFrontend(TestCase):
             .unsqueeze(-1)
             .expand(2, 3, 4)
             .transpose(2, 0),
+            torch.randn(5 * 960, device="cuda").as_strided(
+                (5, 4, 1, 5, 16), (960, 48, 16, 192, 1)
+            ),
+            torch.randn(6, device="cuda").as_strided((2, 16, 3), (3, 0, 1)),
         ]
 
         def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
             t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.from_pytorch(inputs[2])
+            t3 = fd.define_tensor(
+                shape=[-1, 16, 3],
+                contiguity=[None, True, True],
+                dtype=DataType.Float,
+                stride_order=[1, 2, 0],
+                is_cpu=False,
+            )
 
             t0_b = fd.ops.broadcast(t0, [True, False, False])
-            t2 = fd.ops.add(t0_b, t1)
+            t4 = fd.ops.add(t0_b, t1)
+            c0 = fd.define_scalar(3.0)
+            t5 = fd.ops.add(t2, c0)
+            t6 = fd.ops.mul(t3, c0)
 
-            fd.add_output(t2)
+            fd.add_output(t4)
+            fd.add_output(t5)
+            fd.add_output(t6)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         eager_out = inputs[0] + inputs[1]
-        self.assertEqual(eager_out, nvf_out[0])
+        self.assertEqual(nvf_out[0], inputs[0] + inputs[1])
+        self.assertEqual(nvf_out[1], inputs[2] + 3.0)
+        self.assertEqual(nvf_out[2], inputs[3] * 3.0)
 
     def test_prod(self):
         inputs = [
@@ -2648,6 +2663,52 @@ class TestNvFuserFrontend(TestCase):
         y = ys[0]
 
         self.assertEqual(y.data_ptr(), x.data_ptr())
+
+    # This tests no dead code at definition does not cause a problem due to
+    # removal of empty tensors
+    # See https://github.com/NVIDIA/Fuser/pull/1270
+    def test_issue1270(self):
+        inputs = [
+            torch.randn(5, 0, device="cuda", dtype=torch.bfloat16),
+            torch.randn(5, 0, device="cuda", dtype=torch.bfloat16),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, None],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            T1 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[None, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            T2 = fd.ops.cast(T1, dtype=DataType.Float)
+            S3 = fd.define_scalar(1.00000, dtype=DataType.Double)
+            T4 = fd.ops.full(fill_value=S3, shape=[5, 0], dtype=DataType.BFloat16)
+            T5 = fd.ops.cast(T4, dtype=DataType.Float)
+            T6 = fd.ops.mul(T2, T5)
+            T7 = fd.ops.cast(T0, dtype=DataType.Float)
+            T8 = fd.ops.mul(T7, T5)
+            T24 = fd.ops.sum(T6, axes=[1], keepdim=False, dtype=DataType.Null)
+            T11 = fd.ops.sum(T8, axes=[0], keepdim=False, dtype=DataType.Null)
+            fd.add_output(T24)
+            fd.add_output(T11)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        t2 = inputs[1].type(torch.float32)
+        t4 = torch.full([5, 0], 1.0, dtype=torch.bfloat16, device="cuda")
+        t5 = t4.type(torch.float32)
+        t6 = t2 * t5
+        t7 = inputs[0].type(torch.float32)
+        t8 = t7 * t5
+        t24 = t6.sum([1])
+        t11 = t8.sum([0])
+        self.assertEqual(nvf_out[0], t24)
+        self.assertEqual(nvf_out[1], t11)
 
 
 if __name__ == "__main__":
