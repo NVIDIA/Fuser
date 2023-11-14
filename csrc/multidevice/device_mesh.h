@@ -23,6 +23,8 @@ class DeviceMesh final {
     setDevices(devices);
   }
 
+  std::string toString() const;
+
   DeviceMesh& operator=(const std::vector<DeviceIdxType>& devices) {
     setDevices(devices);
     return *this;
@@ -50,5 +52,7 @@ class DeviceMesh final {
   // stores the list of device indices
   std::vector<DeviceIdxType> vector_;
 };
+
+std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh);
 
 } // namespace nvfuser

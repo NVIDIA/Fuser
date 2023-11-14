@@ -43,7 +43,15 @@ void record_cupti_activity(CUpti_Activity* pRecord, FILE* pFileHandle) {
 
       KernelProfile prof;
       prof.name.assign(demangle(pKARecord->name));
-      size_t start = prof.name.find("kernel");
+
+      size_t kernel_start = prof.name.find("kernel");
+      size_t nvfuser_start = prof.name.find("nvfuser");
+      NVF_ERROR(
+          kernel_start != std::string::npos ||
+              nvfuser_start != std::string::npos,
+          "Failed to find kernel name start position.")
+
+      size_t start = std::min(kernel_start, nvfuser_start);
       size_t end = prof.name.find('(');
       prof.name = prof.name.substr(start, end - start);
       prof.device = (int)pKARecord->deviceId;

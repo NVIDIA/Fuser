@@ -47,7 +47,7 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 
 # TODO: fix MSVC
 if(NOT MSVC)
-  find_library(LIBCUPTI libcupti.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
+  find_library(LIBCUPTI libcupti.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/extras/CUPTI/lib64/ ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
   find_library(LIBNVTOOLSEXT libnvToolsExt.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
 endif()
 
@@ -77,6 +77,9 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/executor_utils.cpp
   ${NVFUSER_SRCS_DIR}/fusion.cpp
   ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/to_string.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/validation_utils.cpp
   ${NVFUSER_SRCS_DIR}/index_compute.cpp
   ${NVFUSER_SRCS_DIR}/instrumentation.cpp
   ${NVFUSER_SRCS_DIR}/ir/base_nodes.cpp
@@ -128,6 +131,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/maxinfo_propagator.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communication.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communicator.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/device_mesh.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/executor.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/lower_communication.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/pipeline.cpp
@@ -190,6 +194,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/optimization/mark_alias.cpp
   ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/optimization/remove_empty.cpp
+  ${NVFUSER_SRCS_DIR}/val_graph.cpp
 )
 
 # We don't link CUPTI for MSVC
@@ -228,6 +233,7 @@ target_link_libraries(${NVFUSER_CODEGEN} PRIVATE flatbuffers)
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE dynamic_type)
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT} ${LIBCUPTI})
+list(APPEND CUDA_INCLUDE_DIRS ${CUDA_TOOLKIT_ROOT_DIR}/extras/CUPTI/include/)
 target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
 
 # TODO: we should guard the include of gloo
@@ -249,7 +255,7 @@ target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES} dl)
 
 # this is to find pip installed nvrtc/nvtx .so
 set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH
-  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib:$ORIGIN/../../torch/lib")
+  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib")
 install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION lib)
 
 # We are keeping fusion_cache_generated.h for the submodule build because flatc is unavailable.
@@ -354,7 +360,7 @@ if(BUILD_PYTHON)
   target_link_libraries(${NVFUSER} PRIVATE dynamic_type)
   target_link_libraries(${NVFUSER} PRIVATE pybind11::pybind11)
   set_target_properties(${NVFUSER} PROPERTIES INSTALL_RPATH
-    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib:$ORIGIN/../torch/lib")
+    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib")
   install(TARGETS ${NVFUSER} DESTINATION lib)
 
 endif()
@@ -412,6 +418,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_alias.cpp
     ${NVFUSER_ROOT}/test/test_scalar_hoisting.cpp
     ${NVFUSER_ROOT}/test/test_no_op.cpp
+    ${NVFUSER_ROOT}/test/test_linked_hash_map.cpp
   )
 
   # We don't link CUPTI for MSVC
@@ -435,6 +442,7 @@ if(BUILD_TEST)
   # CUDA 11 does not support C++20, so hard code C++17 here
   set_property(TARGET ${NVFUSER_TESTS_KERNELS} PROPERTY CXX_STANDARD 17)
   target_link_libraries(${NVFUSER_TESTS_KERNELS} PRIVATE torch ${TORCH_LIBRARIES} ${NVFUSER_CODEGEN})
+  target_include_directories(${NVFUSER_TESTS_KERNELS} PRIVATE "${NVFUSER_ROOT}")
 
   add_executable(${NVFUSER_TESTS} ${JIT_TEST_SRCS})
   set_property(TARGET ${NVFUSER_TESTS} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
@@ -576,6 +584,7 @@ message(STATUS "******** Nvfuser configuration summary ********")
 message(STATUS "  UCC_FOUND: ${UCC_FOUND}")
 message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}")
 message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
+message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
 
 if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   message(STATUS "    UCC_HOME: $ENV{UCC_HOME}")

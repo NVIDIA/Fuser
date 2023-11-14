@@ -65,7 +65,7 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& code,
     const std::string& func_name,
-    int64_t id,
+    const std::string& id,
     const CompileParams& compile_params = CompileParams(),
     std::optional<int64_t> opt_block_size = std::nullopt);
 

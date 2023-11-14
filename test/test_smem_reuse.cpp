@@ -85,7 +85,7 @@ TEST_F(SmemReuseTest, SimpleCase) {
     ExpressionEvaluator ee;
     std::unordered_set<int64_t> addresses;
     int64_t smem_usage = 0;
-    for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+    for (auto alloc : gpulw.run()->summary().dynamic_smem_allocations) {
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
       NVF_CHECK(
           addresses.insert(addr).second,
@@ -107,7 +107,7 @@ TEST_F(SmemReuseTest, SimpleCase) {
     GpuLower gpulw(fusion.get());
     ExpressionEvaluator ee;
     int64_t smem_usage = 0;
-    for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+    for (auto alloc : gpulw.run()->summary().dynamic_smem_allocations) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
@@ -184,7 +184,7 @@ TEST_F(SmemReuseTest, NeedsReorderedPush) {
     ExpressionEvaluator ee;
     std::unordered_set<int64_t> addresses;
     int64_t smem_usage = 0;
-    for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+    for (auto alloc : gpulw.run()->summary().dynamic_smem_allocations) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
       NVF_CHECK(
@@ -204,7 +204,7 @@ TEST_F(SmemReuseTest, NeedsReorderedPush) {
     GpuLower gpulw(fusion.get());
     ExpressionEvaluator ee;
     int64_t smem_usage = 0;
-    for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+    for (auto alloc : gpulw.run()->summary().dynamic_smem_allocations) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
@@ -230,7 +230,7 @@ TEST_F(SmemReuseTest, PromoteReuse) {
     ExpressionEvaluator ee;
     std::unordered_set<int64_t> addresses;
     int64_t smem_usage = 0;
-    for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+    for (auto alloc : gpulw.run()->summary().dynamic_smem_allocations) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
       NVF_CHECK(
@@ -251,7 +251,7 @@ TEST_F(SmemReuseTest, PromoteReuse) {
     GpuLower gpulw(fusion.get());
     ExpressionEvaluator ee;
     int64_t smem_usage = 0;
-    for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+    for (auto alloc : gpulw.run()->summary().dynamic_smem_allocations) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
@@ -298,7 +298,7 @@ TEST_F(SmemReuseTest, PromoteReuseMultipleDownstream) {
     ExpressionEvaluator ee;
     std::unordered_set<int64_t> addresses;
     int64_t smem_usage = 0;
-    for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+    for (auto alloc : gpulw.run()->summary().dynamic_smem_allocations) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
       NVF_CHECK(
@@ -319,7 +319,7 @@ TEST_F(SmemReuseTest, PromoteReuseMultipleDownstream) {
     GpuLower gpulw(fusion.get());
     ExpressionEvaluator ee;
     int64_t smem_usage = 0;
-    for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+    for (auto alloc : gpulw.run()->summary().dynamic_smem_allocations) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *
@@ -380,7 +380,7 @@ TEST_F(SmemReuseTest, MultiplePromoteReuse) {
     ExpressionEvaluator ee;
     std::unordered_set<int64_t> addresses;
     int64_t smem_usage = 0;
-    for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+    for (auto alloc : gpulw.run()->summary().dynamic_smem_allocations) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
       NVF_CHECK(
@@ -403,7 +403,7 @@ TEST_F(SmemReuseTest, MultiplePromoteReuse) {
     GpuLower gpulw(fusion.get());
     ExpressionEvaluator ee;
     int64_t smem_usage = 0;
-    for (auto alloc : gpulw.kernel()->summary().dynamic_smem_allocations) {
+    for (auto alloc : gpulw.run()->summary().dynamic_smem_allocations) {
       EXPECT_NE(alloc->address(), nullptr);
       auto addr = ee.evaluate(alloc->address()).as<int64_t>();
       auto size = ee.evaluate(alloc->size()).as<int64_t>() *

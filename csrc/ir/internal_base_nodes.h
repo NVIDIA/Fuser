@@ -516,16 +516,7 @@ class TensorDomain : public Val {
   void setContiguity(const std::vector<std::optional<bool>>& contig);
 
   std::string getContiguityString() const {
-    std::stringstream ss;
-    bool first = true;
-    for (auto b : contiguity()) {
-      if (!first) {
-        ss << " ";
-      }
-      first = false;
-      ss << (b.has_value() ? (*b ? "t" : "f") : "n");
-    }
-    return ss.str();
+    return toDelimitedString(contiguity(), /*delim=*/" ");
   }
 
   bool hasReduction() const {
