@@ -37,6 +37,19 @@ std::string indent(int size = 0) {
 }
 } // namespace
 
+std::string toString(const std::vector<Val*>& id_group, int indent_size) {
+  std::vector<unsigned int> names;
+  names.reserve(id_group.size());
+  for (auto id : id_group) {
+    names.push_back(id->name());
+  }
+  std::sort(names.begin(), names.end());
+
+  std::stringstream ss;
+  ss << indent(indent_size) << "{" << names << "}";
+  return ss.str();
+}
+
 std::string toString(
     const std::vector<IterDomain*>& id_group,
     int indent_size) {
@@ -52,7 +65,7 @@ std::string toString(
   return ss.str();
 }
 
-std::string toString(const IdGroup& id_group, int indent_size, bool with_ptr) {
+std::string toString(const ValGroup& id_group, int indent_size, bool with_ptr) {
   std::stringstream ss;
   ss << indent(indent_size) << "idg" << (with_ptr ? "(" : "")
      << toString(id_group.get(), with_ptr) << (with_ptr ? ")" : "")
@@ -61,7 +74,7 @@ std::string toString(const IdGroup& id_group, int indent_size, bool with_ptr) {
 }
 
 std::string toString(
-    const std::vector<IdGroup>& id_groups,
+    const std::vector<ValGroup>& id_groups,
     int indent_size,
     bool with_ptr) {
   std::stringstream ss;
@@ -71,7 +84,7 @@ std::string toString(
 
   unsigned int pos = 0;
 
-  for (const IdGroup& id_group : id_groups) {
+  for (const ValGroup& id_group : id_groups) {
     unsigned int min_id_name = std::numeric_limits<unsigned int>::max();
     for (auto id : *id_group) {
       if (id->name() < min_id_name) {
@@ -96,7 +109,7 @@ std::string toString(
 }
 
 std::string toString(
-    const IdGroups& id_groups,
+    const ValGroups& id_groups,
     int indent_size,
     bool with_ptr) {
   std::stringstream ss;
@@ -106,7 +119,7 @@ std::string toString(
 
   unsigned int pos = 0;
 
-  for (const IdGroup& id_group : id_groups) {
+  for (const ValGroup& id_group : id_groups) {
     unsigned int min_id_name = std::numeric_limits<unsigned int>::max();
     for (auto id : *id_group) {
       if (id->name() < min_id_name) {
@@ -130,13 +143,13 @@ std::string toString(
   return ss.str();
 }
 
-std::string toInlineString(const std::vector<IdGroup>& id_groups) {
+std::string toInlineString(const std::vector<ValGroup>& id_groups) {
   // Track position in id_groups and its min iter domain name in the set
   std::vector<std::pair<unsigned int, unsigned int>> group_name_info;
 
   unsigned int pos = 0;
 
-  for (const IdGroup& id_group : id_groups) {
+  for (const ValGroup& id_group : id_groups) {
     unsigned int min_id_name = std::numeric_limits<unsigned int>::max();
     for (auto id : *id_group) {
       if (id->name() < min_id_name) {
@@ -192,7 +205,7 @@ std::string toString(
 }
 
 std::string toString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     const std::vector<ExprGroup>& expr_groups,
     int indent_size,
     bool with_ptr) {
@@ -222,8 +235,8 @@ std::string toString(
     auto pos = group_name_info[i].second;
     const ExprGroup& expr_group = expr_groups[pos];
 
-    auto inputs = IdGroups(id_graph.inputGroups(expr_group));
-    auto outputs = IdGroups(id_graph.outputGroups(expr_group));
+    auto inputs = ValGroups(id_graph.inputGroups(expr_group));
+    auto outputs = ValGroups(id_graph.outputGroups(expr_group));
 
     ss << indent(indent_size + 1) << toInlineString(inputs.vector()) << " --"
        << toString(expr_group, 0, with_ptr) << "--> "
@@ -235,7 +248,7 @@ std::string toString(
 }
 
 std::string toString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     const ExprGroups& expr_groups,
     int indent_size,
     bool with_ptr) {
@@ -265,8 +278,8 @@ std::string toString(
     auto pos = group_name_info[i].second;
     auto expr_group = expr_groups.vector()[pos];
 
-    auto inputs = IdGroups(id_graph.inputGroups(expr_group));
-    auto outputs = IdGroups(id_graph.outputGroups(expr_group));
+    auto inputs = ValGroups(id_graph.inputGroups(expr_group));
+    auto outputs = ValGroups(id_graph.outputGroups(expr_group));
 
     ss << indent(indent_size + 1) << toInlineString(inputs.vector()) << " --"
        << toString(expr_group, 0, with_ptr) << "--> "
@@ -278,16 +291,16 @@ std::string toString(
 }
 
 std::string idGroupsString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     int indent_size,
     bool with_ptr) {
-  IdGroups id_groups(
-      id_graph.disjointIdSets().disjointSets().begin(),
-      id_graph.disjointIdSets().disjointSets().end());
+  ValGroups id_groups(
+      id_graph.disjointValSets().disjointSets().begin(),
+      id_graph.disjointValSets().disjointSets().end());
   return toString(id_groups, indent_size, with_ptr);
 }
 std::string exprGroupsString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     int indent_size,
     bool with_ptr) {
   ExprGroups expr_groups(
@@ -297,11 +310,11 @@ std::string exprGroupsString(
 }
 
 std::string definitionsString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     int indent_size,
     bool with_ptr) {
   ExprGroups defs;
-  for (const IdGroup& id_group : id_graph.disjointIdSets().disjointSets()) {
+  for (const ValGroup& id_group : id_graph.disjointValSets().disjointSets()) {
     auto definition_pair = id_graph.getDefinitions(id_group);
     if (definition_pair.second) {
       for (const ExprGroup& expr_group : definition_pair.first) {
@@ -313,11 +326,11 @@ std::string definitionsString(
 }
 
 std::string usesString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     int indent_size,
     bool with_ptr) {
   ExprGroups uses;
-  for (const IdGroup& id_group : id_graph.disjointIdSets().disjointSets()) {
+  for (const ValGroup& id_group : id_graph.disjointValSets().disjointSets()) {
     auto definition_pair = id_graph.getUses(id_group);
     if (definition_pair.second) {
       for (const ExprGroup& expr_group : definition_pair.first) {

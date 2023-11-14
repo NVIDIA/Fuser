@@ -9,8 +9,8 @@
 
 #include <disjoint_set.h>
 #include <fusion.h>
-#include <id_model/id_graph.h>
 #include <ir/all_nodes.h>
+#include <val_graph.h>
 
 #include <string>
 #include <unordered_map>
@@ -19,7 +19,7 @@
 
 namespace nvfuser {
 
-class IdGraph;
+class ValGraph;
 
 namespace {
 // Convenience to store some intermediate data across a few lowering build
@@ -97,8 +97,8 @@ class IdModel : public PolymorphicBase {
   IdModel(Fusion* fusion, bool allow_self_mapping = false);
 
   // Returns iter domain graph of provided mode.
-  const IdGraph& idGraph(IdMappingMode mode) const;
-  IdGraph& idGraph(IdMappingMode mode);
+  const ValGraph& idGraph(IdMappingMode mode) const;
+  ValGraph& idGraph(IdMappingMode mode);
 
   // IterDomains from the original fusion are only allowed to be used once in
   // the IterDomain graph, id->uses() are not directly used as there's no bounds
@@ -165,7 +165,7 @@ class IdModel : public PolymorphicBase {
   // not have any registered uses or definitions.
   IterDomain* cloneIterDomain(IterDomain* id);
 
-  const std::unordered_map<IdGroup, IterDomain*> loopPromotionMap() const {
+  const std::unordered_map<ValGroup, IterDomain*> loopPromotionMap() const {
     return loop_promotion_map_;
   }
 
@@ -187,7 +187,7 @@ class IdModel : public PolymorphicBase {
 
   // Iterates over all IterDomains in id_definitions_ and calls initializeID on
   // a new IdGraph and returns it.
-  IdGraph initializeIdGraph(bool propagate_through_exprs = true);
+  ValGraph initializeIdGraph(bool propagate_through_exprs = true);
 
   // Fills disjoint_ids_[IdMappingMode::EXACT] for relationships between inputs
   // and first output of expr
@@ -222,9 +222,9 @@ class IdModel : public PolymorphicBase {
 
   // Returns an IdGraph with all Id's mapped that are mapped both in graph0 and
   // graph1.
-  IdGraph buildIntersection(
-      const IdGraph& graph0,
-      const IdGraph& graph1,
+  ValGraph buildIntersection(
+      const ValGraph& graph0,
+      const ValGraph& graph1,
       bool propagate_exprs = true);
 
   // !! END Helper functions to build loop promotion and index map!!
@@ -232,19 +232,19 @@ class IdModel : public PolymorphicBase {
   // Start loop map by grouping inlined iter domains
   void initializeLoopMap(StatefulLoweringInfo& info);
 
-  // Returns map of IdGroups in the loop map to a representative IterDomain that
-  // contains all resolved transformations that the terminal IterDomains should
-  // be promoted to. The returned promotions are valid only for inlined iter
-  // domains.
-  std::unordered_map<IdGroup, IterDomain*> buildInlinePromotions(
+  // Returns map of ValGroups in the loop map to a representative IterDomain
+  // that contains all resolved transformations that the terminal IterDomains
+  // should be promoted to. The returned promotions are valid only for inlined
+  // iter domains.
+  std::unordered_map<ValGroup, IterDomain*> buildInlinePromotions(
       StatefulLoweringInfo& info);
 
   // Returns a similar thing to buildInlinePromotions but also includes iter
   // domains that are not inlined.
-  std::unordered_map<IdGroup, IterDomain*> buildLoopPromotionMap(
+  std::unordered_map<ValGroup, IterDomain*> buildLoopPromotionMap(
       const std::vector<Expr*>& exprs,
       StatefulLoweringInfo& info,
-      const std::unordered_map<IdGroup, IterDomain*>& stale_promotion_map);
+      const std::unordered_map<ValGroup, IterDomain*>& stale_promotion_map);
 
   // Builds idGraph(IdMappingMode::INDEX) and returns the iter domain promotion
   // map to go from leaf domains of each (consumer only?) tensor to their
@@ -253,14 +253,14 @@ class IdModel : public PolymorphicBase {
       const std::vector<Expr*>& exprs,
       const std::vector<TensorView*>& all_tvs,
       StatefulLoweringInfo& info,
-      std::unordered_map<IdGroup, IterDomain*> stale_promotion_map);
+      std::unordered_map<ValGroup, IterDomain*> stale_promotion_map);
 
   // Returns the terminal rfactor or input iter domains each group in the almost
   // exact map covers (in the almost exact map). This effectively returns all
   // the input almost exact iter domain groups for each almost exact iter domain
   // group. RFactor axes are considered an "input" as all broadcast dimensions
   // have to be resolved by or before the rfactor iter domain.
-  std::unordered_map<IdGroup, IdGroups> buildCoveredAlmostExact();
+  std::unordered_map<ValGroup, ValGroups> buildCoveredAlmostExact();
 
   // ======= END Iteration domain build process in order called =======
 
@@ -272,7 +272,7 @@ class IdModel : public PolymorphicBase {
   // Using an array here might be nice, but it seems hard to use an enum as an
   // array key
   // https://stackoverflow.com/questions/2102582/how-can-i-count-the-items-in-an-enum
-  std::unordered_map<IdMappingMode, IdGraph> id_graphs_;
+  std::unordered_map<IdMappingMode, ValGraph> id_graphs_;
 
   // If multiple transformations occur IterDomains could have multiple uses,
   // however only one should be active in the given Fusion. When we resolve loop
@@ -291,7 +291,7 @@ class IdModel : public PolymorphicBase {
       self_mapping_info_ = c10::nullopt;
 
   // Promotion domain for each loop group
-  std::unordered_map<IdGroup, IterDomain*> loop_promotion_map_;
+  std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_;
 
   std::unordered_set<IterDomain*> view_rfactor_ids_;
 };
