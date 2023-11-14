@@ -208,43 +208,44 @@ endif()
 
 set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
 add_library(${NVFUSER_CODEGEN} SHARED ${NVFUSER_SRCS})
-target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Wall -Wno-unused-function)
-target_compile_options(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
 
 if(NOT MSVC)
-  target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Werror)
+  target_compile_options(${NVFUSER_CODEGEN} PRIVATE
+    -Wall -Wno-unused-function
+    -Werror
+  )
 endif()
 
-# NB: This must be target_compile_definitions, not target_compile_options,
-# as the latter is not respected by nvcc
 target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
-
-# Link flatbuffers for serialization support
-target_link_libraries(${NVFUSER_CODEGEN} PRIVATE flatbuffers)
-
-# For kernel_db, linking STL Filesystem Library for backward compatability with C++14
-target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
-target_link_libraries(${NVFUSER_CODEGEN} PRIVATE dynamic_type)
-target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT} ${LIBCUPTI})
-list(APPEND CUDA_INCLUDE_DIRS ${CUDA_TOOLKIT_ROOT_DIR}/extras/CUPTI/include/)
-target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
-
-# TODO: we should guard the include of gloo
-target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${PROJECT_SOURCE_DIR}/third_party/gloo)
+target_include_directories(${NVFUSER_CODEGEN} SYSTEM PRIVATE
+  ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
+  ${CMAKE_SOURCE_DIR}/third_party/gloo # TODO: guard this on usage
+  ${CUDA_TOOLKIT_ROOT_DIR}/extras/CUPTI/include
+  ${CUDA_INCLUDE_DIRS}
+)
 target_include_directories(${NVFUSER_CODEGEN} PUBLIC
   "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
 )
 set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
 
+# Ensure we don't link against libcuda; we'll dlopen it ourselves.
+list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
+target_link_libraries(${NVFUSER_CODEGEN} PRIVATE
+  flatbuffers
+  stdc++fs  # for compatibility with C++14
+  dynamic_type
+  ${CUDA_NVRTC_LIB}
+  ${LIBNVTOOLSEXT}
+  ${LIBCUPTI}
+  ${TORCH_LIBRARIES}
+  dl
+)
+
 if(NVFUSER_BUILD_WITH_ASAN)
   add_compile_options(-fsanitize=address)
   add_link_options(-fsanitize=address)
 endif()
-
-list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
-
-target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES} dl)
 
 # this is to find pip installed nvrtc/nvtx .so
 set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH
@@ -311,6 +312,9 @@ if(BUILD_PYTHON)
   set(NVFUSER "${PROJECT_NAME}")
   add_library(${NVFUSER} MODULE ${NVFUSER_PYTHON_SRCS})
   set_property(TARGET ${NVFUSER} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
+  target_include_directories(${NVFUSER} SYSTEM PRIVATE
+    ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
+  )
 
   # setup python API version
   add_custom_command(
@@ -336,6 +340,7 @@ if(BUILD_PYTHON)
   target_compile_definitions(${NVFUSER} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
 
   if(NOT MSVC)
+    target_compile_options(${NVFUSER} PRIVATE -Wall -Wno-unused-function)
     target_compile_options(${NVFUSER} PRIVATE -Werror)
     set_target_properties(${NVFUSER} PROPERTIES SUFFIX ".so")
   else()
@@ -347,7 +352,6 @@ if(BUILD_PYTHON)
 
   target_compile_definitions(${NVFUSER} PRIVATE EXTENSION_NAME=_C)
 
-  target_compile_options(${NVFUSER} PRIVATE -Wall -Wno-unused-function)
   target_link_libraries(${NVFUSER} PRIVATE ${TORCH_LIBRARIES})
   target_link_libraries(${NVFUSER} PRIVATE "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so")
   target_link_libraries(${NVFUSER} PRIVATE dynamic_type)
@@ -497,16 +501,18 @@ if(BUILD_NVFUSER_BENCHMARK)
   set_property(TARGET ${NVFUSER_BENCHMARK} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
 
   target_include_directories(${NVFUSER_BENCHMARK} SYSTEM PRIVATE
-    ${NVFUSER_ROOT}
-    ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include
     ${CMAKE_SOURCE_DIR}/third_party/benchmark/include
+    ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
+    ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include
   )
+  target_include_directories(${NVFUSER_BENCHMARK} PUBLIC ${NVFUSER_ROOT})
   target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE
     dynamic_type
     ${TORCH_LIBRARIES}
     benchmark::benchmark
     ${NVFUSER_CODEGEN}
   )
+  add_dependencies(${NVFUSER_BENCHMARK} flatc build_flatbuffer_config)
 
   if(NOT MSVC)
     target_compile_options(${NVFUSER_BENCHMARK} PRIVATE
