@@ -8632,7 +8632,7 @@ TEST_F(NVFuserTest, FusionFloatPow_CUDA) {
       &fusion,
       outputs,
       aten_inputs,
-      // {p4, p2, p2, p3, p3, t6},
+      {p4, p2, p2, p3, p3, t6},
       __LINE__,
       __FILE__);
 }
