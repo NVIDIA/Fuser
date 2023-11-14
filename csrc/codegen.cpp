@@ -2898,7 +2898,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       block_nest_level_++;
       indent();
     }
-    code_ << "\"" << asm_->code() << " " << asm_->parameters() << ";\\n\"";
+
+    code_ << "\"" << asm_->code();
+    auto parameters = asm_->parameters();
+    if (!parameters.empty()) {
+      code_ << " " << parameters;
+    }
+    code_ << ";\\n\"";
 
     auto next_section = [&]() {
       if (multiline) {
