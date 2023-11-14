@@ -9,8 +9,8 @@
 
 #include <disjoint_set.h>
 #include <fusion.h>
-#include <id_model/id_graph.h>
 #include <ir/all_nodes.h>
+#include <val_graph.h>
 
 #include <string>
 #include <unordered_map>

@@ -8,8 +8,8 @@
 #pragma once
 
 #include <disjoint_set.h>
-#include <id_model/id_graph.h>
 #include <ir/all_nodes.h>
+#include <val_graph.h>
 
 namespace nvfuser {
 
