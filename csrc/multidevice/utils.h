@@ -16,4 +16,4 @@ namespace nvfuser {
 // Checks that the other non-reduction axis are not parallelized on Didx
 bool isSharded(TensorView*);
 
-} //namspace nvfuser
+} // namespace nvfuser

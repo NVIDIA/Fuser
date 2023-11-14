@@ -810,9 +810,9 @@ void ComputeAtMap::allocateIndexVariables() {
     // We don't allocate any index variable for domains which
     // are parallelized accross devices
     if (auto result = std::find_if(
-        loop_disjoint_set->vector().begin(),
-        loop_disjoint_set->vector().end(),
-        [](IterDomain* id) { return id->isDeviceDim(); });
+            loop_disjoint_set->vector().begin(),
+            loop_disjoint_set->vector().end(),
+            [](IterDomain* id) { return id->isDeviceDim(); });
         result != loop_disjoint_set->vector().end()) {
       loop_index_variable_map_[loop_disjoint_set.get()] = fusion_->zeroVal();
       continue;
@@ -824,14 +824,15 @@ void ComputeAtMap::allocateIndexVariables() {
     //  will be realized implicitly using parallel index variables.
 
     if (auto result = std::find_if(
-        loop_disjoint_set->vector().begin(),
-        loop_disjoint_set->vector().end(),
-        [](IterDomain* id) {
-          // Halo extended parallel loops currently are handled
-          // differently and an index variable would still
-          // be allocated in this case.
-          return id->isThread() &&
-              (GpuLower::current()->haloInfo()->getExtent(id) == nullptr);});
+            loop_disjoint_set->vector().begin(),
+            loop_disjoint_set->vector().end(),
+            [](IterDomain* id) {
+              // Halo extended parallel loops currently are handled
+              // differently and an index variable would still
+              // be allocated in this case.
+              return id->isThread() &&
+                  (GpuLower::current()->haloInfo()->getExtent(id) == nullptr);
+            });
         result != loop_disjoint_set->vector().end()) {
       ptype = (*result)->getParallelType();
       loop_index_variable_map_[loop_disjoint_set.get()] =

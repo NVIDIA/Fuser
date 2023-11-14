@@ -6,8 +6,8 @@
  */
 // clang-format on
 
-#include <multidevice/utils.h>
 #include <ir/internal_base_nodes.h>
+#include <multidevice/utils.h>
 
 #include <c10/util/irange.h>
 
@@ -28,4 +28,4 @@ bool isSharded(TensorView* tv) {
   return is_sharded.empty() ? false : is_sharded.at(0);
 }
 
-} //namspace nvfuser
+} // namespace nvfuser
