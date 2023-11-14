@@ -199,10 +199,6 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
         for (auto length : lengths) {
           for (auto start : starts) {
             for (auto step : steps) {
-              int64_t start_ = (int64_t)start;
-              int64_t step_ = (int64_t)step;
-              int64_t end_ = start_ + step_ * length;
-              auto a = at::arange(start_, end_, step_, options);
 
               auto cg_outputs =
                   executor_cache.runFusionWithInputs({length, start_, step_});
@@ -211,7 +207,6 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
                   executor_cache.fusion(),
                   cg_outputs,
                   {length, start_, step_},
-                  // {a},
                   __LINE__,
                   __FILE__);
             }
@@ -227,13 +222,6 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
               double start_ = (double)start;
               double step_ = (double)step;
 
-              // Due to rounding error, it can be hard to guarantee the size of
-              // the output of arange to be exactly length, so we generate a
-              // larger tensor and truncate it to length.
-              double end_ = start_ + step_ * (length + 1);
-              auto a =
-                  at::arange(start_, end_, step_, options).narrow(0, 0, length);
-
               auto cg_outputs =
                   executor_cache.runFusionWithInputs({length, start_, step_});
 
@@ -241,7 +229,6 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
                   executor_cache.fusion(),
                   cg_outputs,
                   {length, start_, step_},
-                  // {a},
                   __LINE__,
                   __FILE__);
             }
@@ -299,15 +286,6 @@ TEST_F(TensorFactoryTest, StandaloneARange) {
             continue;
           }
 
-          at::Tensor a =
-              at::arange((int64_t)start, (int64_t)end, (int64_t)step, options);
-          at::Tensor b =
-              at::arange((double)start, (double)end, (double)step, options);
-          at::Tensor c =
-              at::arange((int64_t)start, (double)end, (double)step, options);
-          at::Tensor d =
-              at::arange((double)start, (double)end, (int64_t)step, options);
-
           auto cg_outputs = executor_cache.runFusionWithInputs(
               {(int64_t)start,
                (int64_t)end,
@@ -325,7 +303,6 @@ TEST_F(TensorFactoryTest, StandaloneARange) {
                (double)start,
                (double)end,
                (double)step},
-              // {a, b, c, d},
               __LINE__,
               __FILE__);
         }
@@ -367,24 +344,12 @@ TEST_F(TensorFactoryTest, StandaloneEye) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   for (auto size : sizes) {
-    std::vector<at::Tensor> expect;
-    expect.reserve(dtypes.size());
-    for (auto dtype : dtypes) {
-      if (!isSupportedTypeByDevice(aten_to_data_type(dtype))) {
-        continue;
-      }
-      const auto options =
-          at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-      expect.emplace_back(at::eye(size, options));
-      expect.emplace_back(at::eye(size, 15, options));
-    }
     auto cg_outputs = executor_cache.runFusionWithInputs({size, 15});
 
     testValidate(
         executor_cache.fusion(),
         cg_outputs,
         {size, 15},
-        expect,
         __LINE__,
         __FILE__);
   }

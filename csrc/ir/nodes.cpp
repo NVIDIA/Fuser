@@ -370,6 +370,18 @@ std::string EyeOp::toString(int indent_size) const {
 std::string EyeOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
+std::vector<PolymorphicValue> EyeOp::evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const {
+  const auto options = at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype()));
+  int64_t nrows = (int64_t)inputs.at(0);
+  if (inputs.size() > 1){
+    int64_t ncols = (int64_t)inputs.at(1);
+    return {at::eye(nrows, ncols, options)};
+  } else {
+    return {at::eye(nrows, options)};
+  }
+}
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(EyeOp)
 
