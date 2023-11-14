@@ -867,6 +867,9 @@ PredicateElimination::PredicateElimination(Fusion* fusion) {
 }
 
 bool PredicateElimination::needsPredicate(Expr* expr) const {
+  if (ir_utils::isLdMatrixOp(expr)) {
+    return false;
+  }
   return PredicateChcker::needsPredicate(expr, *this);
 }
 

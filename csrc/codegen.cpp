@@ -1135,17 +1135,17 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto macro = mma->macro();
     auto in_a = mma->inA()->as<kir::TensorIndex>()->view();
     auto dtype = in_a->getDataType().value();
-    indent() << kTab << "(reinterpret_cast<Array<unsigned"
+    indent() << kTab << "(*reinterpret_cast<Array<unsigned"
              << "," << getInputARegisterSize(macro) << ", 1>*>(&"
              << genVariableName(mma->inA()->as<kir::TensorIndex>()->view())
-             << ")[" << genInline(mma->inA()->as<kir::TensorIndex>()->index())
-             << "])"
+             << "[" << genInline(mma->inA()->as<kir::TensorIndex>()->index())
+             << "]))"
              << ",\n";
-    indent() << kTab << "(reinterpret_cast<Array<unsigned"
+    indent() << kTab << "(*reinterpret_cast<Array<unsigned"
              << "," << getInputBRegisterSize(macro) << ", 1>*>(&"
              << genVariableName(mma->inB()->as<kir::TensorIndex>()->view())
-             << ")[" << genInline(mma->inB()->as<kir::TensorIndex>()->index())
-             << "])";
+             << "[" << genInline(mma->inB()->as<kir::TensorIndex>()->index())
+             << "]))";
   }
 
   void handle(const MmaOp* mma) final {

@@ -1001,26 +1001,31 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
         "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain",
         tv->toString());
 
+    //  -2   -1
     //[16m, 16k]
     tv->split(-2, 8);
-    tv->split(-1, 8);
+    tv->split(-1, 2);
+    tv->split(-2, 4);
 
-    // -4  -3  -2  -1
-    //[2o, 8o, 2i, 8i]
-    tv->reorder({{-4, -3}, {-3, -2}, {-2, -4}});
+    // -5  -4  -3  -2  -1
+    //[2m, 8m, 2k, 4k, 2k']
+    tv->reorder({{-4, -5}, {-5, -2}, {-2, -4}});
 
-    //  -4  -3 -2  -1
-    // [2i, 2o, 8o, 8i]
+    // -5  -4   -3  -2  -1
+    //[8m, 4k, 2k, 2m, 2k']
+    tv->setAllocationDomain(tv->getLeafDomain(), true);
 
     if (transposed) {
+      NVF_ERROR(false);
       tv->reorder({{-1, -2}, {-2, -1}});
     }
 
-    tv->merge(-4);
-    tv->merge(-3);
+    // tv->merge(-5);
+    // tv->merge(-3);
+    // tv->merge(-2);
     // [warp, 8i/o]
 
-    tv->axis(-2)->parallelize(ParallelType::TIDx);
+    // tv->axis(-2)->parallelize(ParallelType::TIDx);
   } else if (options.operand == MmaOptions::Operand::B) {
     auto mma = options.mmaOp();
     auto n_dims = getMmaRootDimensions(tv, mma, MmaDimension::N);
@@ -1046,6 +1051,7 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
     bool use_ldmatrix4 = canValidateIsInnerDim(n_dims.back(), tv->axis(-2), 16);
 
     if (use_ldmatrix4) {
+      NVF_ERROR(false);
       // [... N16, K16]
       tv->split(-2, 8);
       tv->split(-1, 8);
@@ -1056,6 +1062,7 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
       // [... N2o, K2o, N8, K8]
 
       if (transposed) {
+        NVF_ERROR(false);
         tv->reorder({{-1, -2}, {-2, -1}});
       }
 
@@ -1071,6 +1078,7 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
           "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
 
       if (transposed) {
+        NVF_ERROR(false);
         // [8, 16]
         tv->split(-2, 4);
 
@@ -1081,31 +1089,33 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
         tv->merge(-3);
         // [warp, 4i]
       } else {
-        //[8, 16]
-        tv->split(-1, 4);
-        tv->split(-2, 2);
+        //[N8, K16]
+        tv->split(-2, 8);
+        tv->split(-1, 2);
+        tv->split(-2, 4);
 
-        // 0  1   2   3
-        //[8, oo2,oi2,i4]
-        tv->reorder({{-4, -2}, {-2, -4}});
+        // -5  -4  -3  -2  -1
+        //[N1, N8, K2, K4, K2']
+        tv->reorder({{-4, -5}, {-5, -2}, {-2, -4}});
 
-        // 0     1   2  3
-        //[oi2, oo2, 8,i4]
+        // -5  -4  -3  -2  -1
+        //[N8, K4, K2, N1, K2']
+        tv->setAllocationDomain(tv->getLeafDomain(), true);
 
-        tv->merge(-4);
-        tv->merge(-3);
-        //  0    1
+        // tv->merge(-4);
+        // tv->merge(-2);
+        //  -2   -1
         //[warp, i4]
       }
 
-      tv->axis(-2)->parallelize(ParallelType::TIDx);
+      // tv->axis(-2)->parallelize(ParallelType::TIDx);
     }
   } else {
     NVF_ERROR(false, "unreachable");
   }
 
   if (is_immediate_output) {
-    tv->axis(-1)->parallelize(ParallelType::Vectorize);
+    // tv->axis(-1)->parallelize(ParallelType::Vectorize);
   }
 }
 
@@ -1215,20 +1225,41 @@ void WarpMmaSwizzler::scheduleTuringM16N8K16MmaWarpOutput(
   //  m
   // [16, 8  (,R)]
   tv->split(m_pos, 8);
+  tv->split(m_pos + 1, 8);
+  //        m
+  // [2, 8, 1, 8  (,R)]
   tv->split(m_pos + 1, 2);
 
-  //          m
-  // [2o, 8o, 4i, 2i (,R)]
+  //              m
+  // [2o, 8o, 1, 4i, 2i (,R)]
+  tv->reorder({{m_pos, m_pos - 1}, {m_pos - 1, m_pos}});
+  m_pos--;
+  //           m
+  // [2o, 8o, 4i, 1, 2i (,R)]
   tv->merge(m_pos - 1);
 
   //       m
-  // [2o, Warp, 2i (,R)]
+  // [2o, Warp, 1, 2i (,R)]
+  tv->reorder({{m_pos, m_pos - 1}, {m_pos - 1, m_pos}});
+  m_pos--;
+
+  //    m
+  // [Warp, 2o, 1, 2i (,R)]
+  if (is_reduction) {
+    tv->split(-1, 2);
+    tv->split(-2, 4);
+    m_pos -= 2;
+    //    m
+    // [Warp, 2o, 2i, R2, R4, R2]
+  }
+
   NVF_CHECK(tv->definition() != nullptr);
 
   if (is_reduction && tv->definition()->isA<MmaOp>()) {
     // Set instruction loops for mma reduce
-    for (int pos : c10::irange(4)) {
-      tv->axis(-pos - 1)->parallelize(ParallelType::Mma);
+    int pos = -1;
+    while (pos > m_pos) {
+      tv->axis(pos--)->parallelize(ParallelType::Mma);
     }
   }
 
