@@ -77,6 +77,9 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/executor_utils.cpp
   ${NVFUSER_SRCS_DIR}/fusion.cpp
   ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/to_string.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/validation_utils.cpp
   ${NVFUSER_SRCS_DIR}/index_compute.cpp
   ${NVFUSER_SRCS_DIR}/instrumentation.cpp
   ${NVFUSER_SRCS_DIR}/ir/base_nodes.cpp
@@ -190,6 +193,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/optimization/mark_alias.cpp
   ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/optimization/remove_empty.cpp
+  ${NVFUSER_SRCS_DIR}/val_graph.cpp
 )
 
 # We don't link CUPTI for MSVC
@@ -413,6 +417,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_alias.cpp
     ${NVFUSER_ROOT}/test/test_scalar_hoisting.cpp
     ${NVFUSER_ROOT}/test/test_no_op.cpp
+    ${NVFUSER_ROOT}/test/test_linked_hash_map.cpp
   )
 
   # We don't link CUPTI for MSVC

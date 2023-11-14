@@ -13,20 +13,6 @@ file_identifier "NV00";
 // =====================================================================================
 // Enum definitions
 
-// Datatype enum represents the data type of a Tensor, Scalar, or Function.
-enum DataType: int {
-    Double = 0,
-    Float,
-    Half,
-    Int,
-    Int32,
-    Bool,
-    BFloat16,
-    ComplexFloat,
-    ComplexDouble,
-    None
-}
-
 // The StateType enum indicates whether the state object is a Scalar or Tensor.
 enum StateType: int {
     Tensor = 0,
@@ -154,9 +140,9 @@ struct State {
 
 // Data for Scalar
 table Scalar {
-  dtype: DataType;
+  dtype: long;
   has_value: bool;
-  value_type: DataType;
+  value_type: long;
   bool_value: bool;
   long_value: long;
   double_value: double;
@@ -177,10 +163,10 @@ table ScalarCpu {
 // However, only a metadata tensor is returned upon deserialization.
 // The ptr parameter is used to determine vectorization during scheduling.
 table TensorArg {
-  ptr: ulong;
-  sizes: [long];
-  strides: [long];
-  dtype: DataType;
+  ptr : ulong;
+  sizes : [long];
+  strides : [long];
+  dtype: long;
 }
 
 // This table corresponds with a given PolymorphicValue object.
@@ -222,13 +208,13 @@ table LaunchParams {
 // For output tensors, we use its position in the fusion outputs.
 // For intermediate tensors, we use its position in the KernelSummary global_allocations.
 table GlobalBufferInfo {
-  tv: long = -1;
-  sizes: [long];
-  strides: [long];
-  dtype: DataType;
-  zero_init: bool;
-  is_profile_buffer: bool;
-  is_fusion_output: bool;
+  tv : long = -1;
+  sizes : [long];
+  strides : [long];
+  dtype : long;
+  zero_init : bool;
+  is_profile_buffer : bool;
+  is_fusion_output : bool;
 }
 
 // This table describes the cached ExecutorEntry for a kernel.
@@ -266,7 +252,7 @@ table BroadcastInDim {
 
 // Data for CastOpRecord, ScalarRecord, and IotaOpRecord
 table Dtype {
-  dtype: DataType;
+  dtype: long;
 }
 
 // Data for TorchGatherOpRecord, TakeAlongAxisOpRecord, and IndexSelectOpRecord
@@ -300,7 +286,7 @@ table Dims {
 table Reduction {
   axes: [int];
   keep_dim: bool;
-  dtype: DataType;
+  dtype: long;
 }
 
 // Data for SizeOpRecord
@@ -326,7 +312,7 @@ table Tensor {
   sizes: [long];
   contiguity: [Contiguity];
   stride_order: [long];
-  dtype: DataType;
+  dtype: long;
   is_cpu: bool;
 }
 
@@ -334,18 +320,18 @@ table Tensor {
 // The shape is defined with constant numbers.
 table TensorCreation {
   shape: [long];
-  dtype: DataType;
+  dtype: long;
 }
 
 // Data for RandomDistOpRecord
 // The shape is symbolic.
 table TensorCreationSymbolic {
-  dtype: DataType;
+  dtype: long;
 }
 
 // Data for Vector
 table Vector {
-  dtype: DataType;
+  dtype: long;
 }
 
 // =====================================================================================
@@ -380,7 +366,7 @@ table FusionExecutor {
   executor_entry_lookup_keys: [ulong];
   executor_entry_lookup_values: [ExecutorEntry];
   // Is this kernel being compiled with int32 or int64 indexing?
-  index_type: DataType;
+  index_type : long;
   compiled_kernel: CudaKernel;
 }
 

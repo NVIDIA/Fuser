@@ -51,7 +51,6 @@ from pytest_input_generators import (
 from pytest_utils import (
     bool_int_dtypes,
     complex_dtypes,
-    float_dtypes,
     full_precision_float_dtypes,
     int_dtypes,
     int_float_dtypes,

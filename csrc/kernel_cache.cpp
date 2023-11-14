@@ -750,7 +750,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
       if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
         debug() << "Concretized Fusion:" << std::endl;
-        conc_fusion->printMath();
+        conc_fusion->print();
       }
     }
     FusionGuard fg(conc_fusion.get());
