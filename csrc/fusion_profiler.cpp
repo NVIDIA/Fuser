@@ -48,7 +48,7 @@ void record_cupti_activity(CUpti_Activity* pRecord, FILE* pFileHandle) {
       if (start != std::string::npos) {
         size_t end = prof.name.find('(', start);
         prof.name = prof.name.substr(start, end - start);
-      } 
+      }
       prof.device = (int)pKARecord->deviceId;
       prof.stream = pKARecord->streamId;
       prof.correlation_id = pKARecord->correlationId;
@@ -397,30 +397,12 @@ void FusionProfile::reset() {
 }
 
 std::array<const char*, 25> column_strs{
-    "Fus#",
-    "NSegs",
-    "CuEvtTm(ms)",
-    "HstTm(ms)",
-    "CmpTm(ms)",
-    "KerTm(ms)",
-    "EffBw(GB/s)",
-    "%PeakBw",
-    "S-Seg#",
-    "S-KerTm(ms)",
-    "S-CmpTm(ms)",
-    "S-EffBw(GB/s)",
-    "S-%PeakBw",
-    "S-In(MB)",
-    "S-Out(MB)",
-    "S-Smem[Dyn,Stat]",
-    "S-Regs",
-    "S-Grid",
-    "S-Block",
-    "S-Cluster",
-    "S-Dev",
-    "S-Stm",
-    "S-PkBw(GB/s)",
-    "S-DeviceName",
+    "Fus#",      "NSegs",       "CuEvtTm(ms)",  "HstTm(ms)",
+    "CmpTm(ms)", "KerTm(ms)",   "EffBw(GB/s)",  "%PeakBw",
+    "S-Seg#",    "S-KerTm(ms)", "S-CmpTm(ms)",  "S-EffBw(GB/s)",
+    "S-%PeakBw", "S-In(MB)",    "S-Out(MB)",    "S-Smem[Dyn,Stat]",
+    "S-Regs",    "S-Grid",      "S-Block",      "S-Cluster",
+    "S-Dev",     "S-Stm",       "S-PkBw(GB/s)", "S-DeviceName",
     "S-KerName"};
 
 std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
@@ -437,7 +419,7 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
          << std::get<7>(column_strs);
 
       os << " " << std::setw(6) << std::get<8>(column_strs) << " "
-         << std::setw(9) << std::get<9>(column_strs); 
+         << std::setw(9) << std::get<9>(column_strs);
 
       if (fp.verbose) {
         os << " " << std::setw(11) << std::get<10>(column_strs);
