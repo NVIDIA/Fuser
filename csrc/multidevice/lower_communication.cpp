@@ -10,6 +10,7 @@
 #include <multidevice/device_mesh.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/pipeline.h>
+#include <multidevice/utils.h>
 
 namespace nvfuser {
 
@@ -256,9 +257,9 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
 
   // Stores whether the I/O has its first axis parallelized on Didx
   const bool is_input_sharded =
-      input_tv->isSharded() && sender_mesh.vector().size() > 1;
+      isSharded(input_tv) && sender_mesh.vector().size() > 1;
   const bool is_output_sharded =
-      output_tv->isSharded() && receiver_mesh.vector().size() > 1;
+      isSharded(output_tv) && receiver_mesh.vector().size() > 1;
 
   NVF_ERROR(
       !is_input_sharded ||

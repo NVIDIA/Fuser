@@ -9,6 +9,7 @@
 #include <ir/all_nodes.h>
 #include <multidevice/pipeline_ir.h>
 #include <multidevice/runtime.h>
+#include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <test/multidevice.h>
 #include <test/validator.h>
@@ -68,7 +69,7 @@ namespace {
 
 void unshardTv(TensorView* tv) {
   for (IterDomain* id : tv->getLeafDomain()) {
-    if (id->isDevice()) {
+    if (id->isDeviceDim()) {
       id->parallelize(ParallelType::Serial);
     }
   }
@@ -109,7 +110,7 @@ void SendToTester(
     Communicator* communicator) {
   std::vector<at::Tensor> buffer;
   auto& mesh = pVal->getStage()->descriptor()->mesh;
-  if (pVal->getOriginalVal()->as<TensorView>()->isSharded()) {
+  if (isSharded(pVal->getOriginalVal()->as<TensorView>())) {
     for (DeviceIdxType j : c10::irange(mesh.vector().size())) {
       at::Tensor send_buf, recv_buf;
       auto sender = mesh.vector().at(j);
