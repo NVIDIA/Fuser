@@ -63,25 +63,12 @@ TEST_F(TensorFactoryTest, StandaloneFull) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   for (auto size : sizes) {
-    std::vector<at::Tensor> expect;
-    expect.reserve(dtypes.size());
-    for (auto dtype : dtypes) {
-      if (!isSupportedTypeByDevice(aten_to_data_type(dtype))) {
-        continue;
-      }
-      const auto options =
-          at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-      expect.emplace_back(at::full({size}, 11, options));
-      expect.emplace_back(at::full({size, size}, 12, options));
-      expect.emplace_back(at::full({size, size}, 13, options));
-    }
     auto cg_outputs = executor_cache.runFusionWithInputs({size, 11, 12, 13});
 
     testValidate(
         executor_cache.fusion(),
         cg_outputs,
         {size, 11, 12, 13},
-        // expect,
         __LINE__,
         __FILE__);
   }
@@ -121,25 +108,12 @@ TEST_F(TensorFactoryTest, StandaloneZeros) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   for (auto size : sizes) {
-    std::vector<at::Tensor> expect;
-    expect.reserve(dtypes.size());
-    for (auto dtype : dtypes) {
-      if (!isSupportedTypeByDevice(aten_to_data_type(dtype))) {
-        continue;
-      }
-      const auto options =
-          at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-      expect.emplace_back(at::zeros({size}, options));
-      expect.emplace_back(at::zeros({size, size}, options));
-      expect.emplace_back(at::zeros({size, size}, options));
-    }
     auto cg_outputs = executor_cache.runFusionWithInputs({size});
 
     testValidate(
         executor_cache.fusion(),
         cg_outputs,
         {size},
-        expect,
         __LINE__,
         __FILE__);
   }
@@ -178,25 +152,12 @@ TEST_F(TensorFactoryTest, StandaloneOnes) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   for (auto size : sizes) {
-    std::vector<at::Tensor> expect;
-    expect.reserve(dtypes.size());
-    for (auto dtype : dtypes) {
-      if (!isSupportedTypeByDevice(aten_to_data_type(dtype))) {
-        continue;
-      }
-      const auto options =
-          at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-      expect.emplace_back(at::ones({size}, options));
-      expect.emplace_back(at::ones({size, size}, options));
-      expect.emplace_back(at::ones({size, size}, options));
-    }
     auto cg_outputs = executor_cache.runFusionWithInputs({size});
 
     testValidate(
         executor_cache.fusion(),
         cg_outputs,
         {size},
-        expect,
         __LINE__,
         __FILE__);
   }

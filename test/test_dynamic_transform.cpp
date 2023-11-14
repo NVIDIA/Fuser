@@ -1262,7 +1262,7 @@ TEST_F(NVFuserTest, OptOutMutatorRedefinedConstant) {
 
   auto outputs = fe.runFusion({3L});
 
-  testValidate(fusion, outputs, {3L}, {t0}, __LINE__, __FILE__);
+  testValidate(fusion, outputs, {3L}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
