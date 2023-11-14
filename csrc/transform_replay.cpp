@@ -572,8 +572,9 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
 
   // If this is a reduction operation, we may call transform_replay on the same
   // tensor view. When this happens, just return thet target view.
-  if (consumer == producer)
+  if (consumer == producer) {
     return {consumer->domain(), consumer->nDims()};
+  }
 
   if (producer_pos < 0) {
     producer_pos += (int64_t)producer->nDims() + 1;
