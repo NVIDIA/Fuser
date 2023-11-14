@@ -43,41 +43,41 @@ std::string toString(
     bool with_ptr = false);
 
 std::string toString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     const std::vector<Expr*>& expr_group,
     int indent_size = 0,
     bool with_ptr = false);
 std::string toString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     const ExprGroup& expr_groups,
     int indent_size = 0,
     bool with_ptr = false);
 
 std::string toString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     const std::vector<ExprGroup>& expr_groups,
     int indent_size = 0,
     bool with_ptr = false);
 std::string toString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     const ExprGroups& expr_groups,
     int indent_size = 0,
     bool with_ptr = false);
 
 std::string idGroupsString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     int indent_size = 0,
     bool with_ptr = false);
 std::string exprGroupsString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     int indent_size = 0,
     bool with_ptr = false);
 std::string definitionsString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     int indent_size = 0,
     bool with_ptr = false);
 std::string usesString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     int indent_size = 0,
     bool with_ptr = false);
 

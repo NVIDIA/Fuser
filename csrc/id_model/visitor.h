@@ -36,7 +36,7 @@ class IdGraphVisitor {
   // If sub_selection is assumed to be a set of iter domains by which form a
   // sub-regrion of the IdGraph provided. Only that sub-region will be visited.
   IdGraphVisitor(
-      const IdGraph& id_graph,
+      const ValGraph& id_graph,
       const VectorOfUniqueEntries<IterDomain*> sub_selection = {})
       : id_graph_(id_graph), sub_selection_(sub_selection) {}
 
@@ -49,12 +49,12 @@ class IdGraphVisitor {
 
   void traverse();
 
-  const IdGraph& graph() {
+  const ValGraph& graph() {
     return id_graph_;
   };
 
  private:
-  const IdGraph& id_graph_;
+  const ValGraph& id_graph_;
   const VectorOfUniqueEntries<IterDomain*> sub_selection_;
 };
 
@@ -62,7 +62,7 @@ class IdGraphVisitor {
 class IdGraphStmtSort : public IdGraphVisitor {
  public:
   IdGraphStmtSort(
-      const IdGraph& id_graph,
+      const ValGraph& id_graph,
       const VectorOfUniqueEntries<IterDomain*> sub_selection = {})
       : IdGraphVisitor(id_graph, sub_selection) {
     IdGraphVisitor::traverse();

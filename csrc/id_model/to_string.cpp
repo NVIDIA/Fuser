@@ -192,7 +192,7 @@ std::string toString(
 }
 
 std::string toString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     const std::vector<ExprGroup>& expr_groups,
     int indent_size,
     bool with_ptr) {
@@ -235,7 +235,7 @@ std::string toString(
 }
 
 std::string toString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     const ExprGroups& expr_groups,
     int indent_size,
     bool with_ptr) {
@@ -278,7 +278,7 @@ std::string toString(
 }
 
 std::string idGroupsString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     int indent_size,
     bool with_ptr) {
   IdGroups id_groups(
@@ -287,7 +287,7 @@ std::string idGroupsString(
   return toString(id_groups, indent_size, with_ptr);
 }
 std::string exprGroupsString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     int indent_size,
     bool with_ptr) {
   ExprGroups expr_groups(
@@ -297,7 +297,7 @@ std::string exprGroupsString(
 }
 
 std::string definitionsString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     int indent_size,
     bool with_ptr) {
   ExprGroups defs;
@@ -313,7 +313,7 @@ std::string definitionsString(
 }
 
 std::string usesString(
-    const IdGraph& id_graph,
+    const ValGraph& id_graph,
     int indent_size,
     bool with_ptr) {
   ExprGroups uses;

@@ -74,13 +74,13 @@ IdModel::IdModel(Fusion* fusion, bool allow_self_mapping) {
   }
 }
 
-const IdGraph& IdModel::idGraph(IdMappingMode mode) const {
+const ValGraph& IdModel::idGraph(IdMappingMode mode) const {
   auto graph_it = id_graphs_.find(mode);
   NVF_ERROR(graph_it != id_graphs_.end());
   return graph_it->second;
 }
 
-IdGraph& IdModel::idGraph(IdMappingMode mode) {
+ValGraph& IdModel::idGraph(IdMappingMode mode) {
   auto graph_it = id_graphs_.find(mode);
   NVF_ERROR(graph_it != id_graphs_.end());
   return graph_it->second;
@@ -625,8 +625,8 @@ IterDomain* IdModel::cloneIterDomain(IterDomain* id) {
   return id_copy;
 }
 
-IdGraph IdModel::initializeIdGraph(bool propagate_through_exprs) {
-  IdGraph id_graph(propagate_through_exprs);
+ValGraph IdModel::initializeIdGraph(bool propagate_through_exprs) {
+  ValGraph id_graph(propagate_through_exprs);
 
   for (const auto& [id, defs] : id_definitions_) {
     auto uses_it = id_uses_.find(id);
@@ -851,8 +851,8 @@ std::unordered_map<IterDomain*, IterDomain*> resolvedRootBroadcasts(
 
 StatefulLoweringInfo buildInfo(
     const std::vector<Expr*>& exprs,
-    const IdGraph& exact_graph,
-    const IdGraph& permissive_graph) {
+    const ValGraph& exact_graph,
+    const ValGraph& permissive_graph) {
   StatefulLoweringInfo info;
   // Grab inlining relationships
   for (auto expr : exprs) {
@@ -939,7 +939,7 @@ void IdModel::build(
   // found, then querying an empty permissive map will fail later.
   // Initialize disjoint sets
   for (auto mode : kIdMappingModes) {
-    id_graphs_[mode] = IdGraph();
+    id_graphs_[mode] = ValGraph();
   }
 
   std::vector<Expr*> tv_exprs;
@@ -1071,9 +1071,9 @@ VectorOfUniqueEntries<IterDomain*> IdModel::computeTerminalLoopIds(
   return terminal_loop_ids;
 }
 
-IdGraph IdModel::buildIntersection(
-    const IdGraph& graph0,
-    const IdGraph& graph1,
+ValGraph IdModel::buildIntersection(
+    const ValGraph& graph0,
+    const ValGraph& graph1,
     bool propagate_exprs) {
   auto intersection = initializeIdGraph(propagate_exprs);
   for (const auto& group0 : graph0.disjointIdSets().disjointSets()) {
@@ -1137,7 +1137,7 @@ std::unordered_map<IdGroup, IterDomain*> IdModel::buildInlinePromotions(
   // smaller groups and this algorithm scales with the number of groups *
   // (number of entries in groups ^ 2)
 
-  IdGraph intersection_exact_loop_graph = buildIntersection(
+  ValGraph intersection_exact_loop_graph = buildIntersection(
       idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false);
 
   // Promotion logic is going to be on the intersection of the exact and loop
@@ -1334,7 +1334,7 @@ std::unordered_map<IdGroup, IterDomain*> IdModel::buildInlinePromotions(
       if (iel_expr == iel_use_group) {
         continue;
       }
-      if (IdGraph::transformAtributesMatch(
+      if (ValGraph::transformAtributesMatch(
               iel_expr->front(), iel_use_group->front())) {
         auto use_inps =
             ir_utils::filterByType<IterDomain>(iel_use_group->front()->inputs())
@@ -1393,7 +1393,7 @@ namespace {
 
 std::unordered_map<IdGroup, IterDomain*> updateMap(
     const std::unordered_map<IdGroup, IterDomain*>& stale_map,
-    IdGraph& new_graph) {
+    ValGraph& new_graph) {
   std::unordered_map<IdGroup, IterDomain*> new_map;
 
   for (const auto& [stale_key, mapped_id] : stale_map) {
@@ -1415,7 +1415,7 @@ std::unordered_map<IdGroup, IterDomain*> updateMap(
 // traversing on definitions. Ignoring broadcast IdGroups and resetting inputs
 // at RFactor IdGroups.
 std::unordered_map<IdGroup, IdGroups> computeCoveredGroups(
-    const IdGraph& exact_graph,
+    const ValGraph& exact_graph,
     const std::unordered_set<IterDomain*>& view_rfactor_ids) {
   // Map from an exact iter domain group, to all the exact iter domain groups it
   // covers
@@ -1723,7 +1723,7 @@ std::unordered_map<IdGroup, IterDomain*> IdModel::buildLoopPromotionMap(
     for (const ExprGroup& iel_use_group : promoted_input_uses) {
       NVF_ERROR(!iel_use_group->empty());
       // Check if all the attributes (including type) of the transform match
-      if (!IdGraph::transformAtributesMatch(
+      if (!ValGraph::transformAtributesMatch(
               iel_expr->front(), iel_use_group->front())) {
         continue;
       }

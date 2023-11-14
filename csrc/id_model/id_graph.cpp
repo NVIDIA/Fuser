@@ -5,10 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <id_model/id_graph.h>
 #include <id_model/to_string.h>
 #include <id_model/utils.h>
 #include <ir/utils.h>
-#include <val_graph.h>
 
 namespace nvfuser {
 
