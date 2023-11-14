@@ -353,6 +353,8 @@ TEST_F(AliasTest, NotAllOutputsAlias) {
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
   std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
 
+  // As a known limitation, nvFuser still generates code to copy data from `in`
+  // to `slice_out` despite the fact that `slice_out` is an alias.
   testValidate(
       fec.fusion(),
       out_tensors,
