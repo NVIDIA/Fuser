@@ -15,26 +15,28 @@
 
 namespace nvfuser {
 
+std::string toString(const std::vector<Val*>& id_group, int indent_size = 0);
+
 std::string toString(
     const std::vector<IterDomain*>& id_group,
     int indent_size = 0);
 std::string toString(
-    const IdGroup& id_group,
+    const ValGroup& id_group,
     int indent_size = 0,
     bool with_ptr = false);
 
 std::string toString(
-    const std::vector<IdGroup>& id_groups,
+    const std::vector<ValGroup>& id_groups,
     int indent_size = 0,
     bool with_ptr = false);
 
 std::string toString(
-    const IdGroups& id_groups,
+    const ValGroups& id_groups,
     int indent_size = 0,
     bool with_ptr = false);
 
-std::string toInlineString(const std::vector<IdGroup>& id_groups);
-std::string toInlineString(const IdGroups& id_groups);
+std::string toInlineString(const std::vector<ValGroup>& id_groups);
+std::string toInlineString(const ValGroups& id_groups);
 
 std::string toString(const std::vector<Expr*>& expr_group, int indent_size = 0);
 std::string toString(

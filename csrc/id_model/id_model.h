@@ -165,7 +165,7 @@ class IdModel : public PolymorphicBase {
   // not have any registered uses or definitions.
   IterDomain* cloneIterDomain(IterDomain* id);
 
-  const std::unordered_map<IdGroup, IterDomain*> loopPromotionMap() const {
+  const std::unordered_map<ValGroup, IterDomain*> loopPromotionMap() const {
     return loop_promotion_map_;
   }
 
@@ -232,19 +232,19 @@ class IdModel : public PolymorphicBase {
   // Start loop map by grouping inlined iter domains
   void initializeLoopMap(StatefulLoweringInfo& info);
 
-  // Returns map of IdGroups in the loop map to a representative IterDomain that
-  // contains all resolved transformations that the terminal IterDomains should
-  // be promoted to. The returned promotions are valid only for inlined iter
-  // domains.
-  std::unordered_map<IdGroup, IterDomain*> buildInlinePromotions(
+  // Returns map of ValGroups in the loop map to a representative IterDomain
+  // that contains all resolved transformations that the terminal IterDomains
+  // should be promoted to. The returned promotions are valid only for inlined
+  // iter domains.
+  std::unordered_map<ValGroup, IterDomain*> buildInlinePromotions(
       StatefulLoweringInfo& info);
 
   // Returns a similar thing to buildInlinePromotions but also includes iter
   // domains that are not inlined.
-  std::unordered_map<IdGroup, IterDomain*> buildLoopPromotionMap(
+  std::unordered_map<ValGroup, IterDomain*> buildLoopPromotionMap(
       const std::vector<Expr*>& exprs,
       StatefulLoweringInfo& info,
-      const std::unordered_map<IdGroup, IterDomain*>& stale_promotion_map);
+      const std::unordered_map<ValGroup, IterDomain*>& stale_promotion_map);
 
   // Builds idGraph(IdMappingMode::INDEX) and returns the iter domain promotion
   // map to go from leaf domains of each (consumer only?) tensor to their
@@ -253,14 +253,14 @@ class IdModel : public PolymorphicBase {
       const std::vector<Expr*>& exprs,
       const std::vector<TensorView*>& all_tvs,
       StatefulLoweringInfo& info,
-      std::unordered_map<IdGroup, IterDomain*> stale_promotion_map);
+      std::unordered_map<ValGroup, IterDomain*> stale_promotion_map);
 
   // Returns the terminal rfactor or input iter domains each group in the almost
   // exact map covers (in the almost exact map). This effectively returns all
   // the input almost exact iter domain groups for each almost exact iter domain
   // group. RFactor axes are considered an "input" as all broadcast dimensions
   // have to be resolved by or before the rfactor iter domain.
-  std::unordered_map<IdGroup, IdGroups> buildCoveredAlmostExact();
+  std::unordered_map<ValGroup, ValGroups> buildCoveredAlmostExact();
 
   // ======= END Iteration domain build process in order called =======
 
@@ -291,7 +291,7 @@ class IdModel : public PolymorphicBase {
       self_mapping_info_ = c10::nullopt;
 
   // Promotion domain for each loop group
-  std::unordered_map<IdGroup, IterDomain*> loop_promotion_map_;
+  std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_;
 
   std::unordered_set<IterDomain*> view_rfactor_ids_;
 };

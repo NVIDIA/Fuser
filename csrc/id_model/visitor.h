@@ -16,11 +16,11 @@ namespace nvfuser {
 // Iterates through an IterDomain Graph in topological order, calling handle on
 // all Id and all Expr groups in a forward topological order.
 //
-// Warning: Expr groups that have an input and output in the same IdGroup are
+// Warning: Expr groups that have an input and output in the same ValGroup are
 // ignored.
 //
 // Warning: This is not a great iterator if there's a desire to minimize paths
-// traveled to simply visit all IdGroups in order. See ExprsBetween to see how
+// traveled to simply visit all ValGroups in order. See ExprsBetween to see how
 // we might minimize paths.
 class IdGraphVisitor {
  public:
@@ -44,7 +44,7 @@ class IdGraphVisitor {
 
   IdGraphVisitor(IdGraphVisitor&& other) = default;
 
-  virtual void handle(IdGroup id_group) = 0;
+  virtual void handle(ValGroup id_group) = 0;
   virtual void handle(ExprGroup expr_group) = 0;
 
   void traverse();
@@ -74,7 +74,7 @@ class IdGraphStmtSort : public IdGraphVisitor {
     return sorted_exprs_;
   }
 
-  IdGroups ids() const {
+  ValGroups ids() const {
     return sorted_ids_;
   }
 
@@ -82,7 +82,7 @@ class IdGraphStmtSort : public IdGraphVisitor {
 
  protected:
   using IdGraphVisitor::handle;
-  void handle(IdGroup id_group) override {
+  void handle(ValGroup id_group) override {
     sorted_ids_.pushBack(id_group);
   }
 
@@ -91,7 +91,7 @@ class IdGraphStmtSort : public IdGraphVisitor {
   }
 
   ExprGroups sorted_exprs_;
-  IdGroups sorted_ids_;
+  ValGroups sorted_ids_;
 };
 
 } // namespace nvfuser

@@ -36,11 +36,11 @@ class ValGraph {
 
   // Returns the disjoint IterDomain set.
   const DisjointSets<IterDomain*>& disjointIdSets() const {
-    return disjoint_ids_;
+    return disjoint_vals_;
   }
 
-  DisjointSets<IterDomain*>& disjointIdSets() {
-    return disjoint_ids_;
+  DisjointSets<IterDomain*>& disjointValSets() {
+    return disjoint_vals_;
   }
 
   // Returns the disjoint Expr set.
@@ -237,7 +237,7 @@ class ValGraph {
   // Using an array here might be nice, but it seems hard to use an enum as an
   // array key
   // https://stackoverflow.com/questions/2102582/how-can-i-count-the-items-in-an-enum
-  DisjointSets<IterDomain*> disjoint_ids_;
+  DisjointSets<IterDomain*> disjoint_vals_;
 
   // Keeps a disjoint set entry for all Expressions for all mapping mode types.
   DisjointSets<Expr*> disjoint_exprs_;

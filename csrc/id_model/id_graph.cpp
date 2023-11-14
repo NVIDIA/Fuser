@@ -18,7 +18,7 @@ using DequeOfExprGroup = std::deque<ExprGroup>;
 } // namespace
 
 ValGraph::ValGraph(const ValGraph& other)
-    : disjoint_ids_(other.disjoint_ids_),
+    : disjoint_vals_(other.disjoint_vals_),
       disjoint_exprs_(other.disjoint_exprs_),
       unique_definitions_(),
       unique_uses_() {
@@ -47,7 +47,7 @@ ValGraph::ValGraph(const ValGraph& other)
 }
 
 ValGraph& ValGraph::operator=(const ValGraph& other) {
-  disjoint_ids_.clear();
+  disjoint_vals_.clear();
   disjoint_exprs_.clear();
   unique_definitions_.clear();
   unique_uses_.clear();
@@ -63,7 +63,7 @@ bool ValGraph::hasGroup(Expr* expr) const {
 
 // Return if there's a group entry in the graph for this id
 bool ValGraph::hasGroup(IterDomain* id) const {
-  return disjoint_ids_.mappingExists(id);
+  return disjoint_vals_.mappingExists(id);
 }
 
 const ExprGroup& ValGraph::toGroup(Expr* expr) const {
@@ -76,9 +76,9 @@ const ExprGroup& ValGraph::toGroup(Expr* expr) const {
 }
 
 const IdGroup& ValGraph::toGroup(IterDomain* id) const {
-  auto disjoint_set_it = disjoint_ids_.disjointSetMap().find(id);
+  auto disjoint_set_it = disjoint_vals_.disjointSetMap().find(id);
   NVF_ERROR(
-      disjoint_set_it != disjoint_ids_.disjointSetMap().end(),
+      disjoint_set_it != disjoint_vals_.disjointSetMap().end(),
       "\nId group could not be found in graph associated with: ",
       id->toString(),
       "\n");
@@ -599,7 +599,7 @@ void ValGraph::initializeId(
     const VectorOfUniqueEntries<Expr*>& definitions,
     const VectorOfUniqueEntries<Expr*>& uses) {
   const IdGroup& id_disjoint_set =
-      disjointIdSets().initializeSet(id).first->second;
+      disjointValSets().initializeSet(id).first->second;
 
   ExprGroups def_groups;
   for (auto def : definitions) {
@@ -724,7 +724,7 @@ void ValGraph::mapIds(IterDomain* id0, IterDomain* id1) {
     return;
   }
 
-  if (disjointIdSets().strictAreMapped(id0, id1)) {
+  if (disjointValSets().strictAreMapped(id0, id1)) {
     return;
   }
   // Definitions and uses are based on the groups of id0 and id1, don't merge
@@ -740,7 +740,7 @@ void ValGraph::mapIds(IterDomain* id0, IterDomain* id1) {
   // Map the iter domains together before we traverse across definitions and
   // uses. Traversing definitions and uses could use the new property of id0 and
   // id1 being mapped.
-  disjointIdSets().mapEntries(id0, id1);
+  disjointValSets().mapEntries(id0, id1);
   auto new_id_group = toGroup(id0);
 
   unique_definitions_[new_id_group] = orig_defs0.computeUnion(orig_defs1);
@@ -944,7 +944,7 @@ void ValGraph::removeTrivialExprs() {
 // erasing multiple expr_groups.
 void ValGraph::eraseExprGroup(const ExprGroup& expr_group) {
   // Erase entries that exist in unique_definitions_ and unique_uses_
-  for (const IdGroup& id_group : disjointIdSets().disjointSets()) {
+  for (const IdGroup& id_group : disjointValSets().disjointSets()) {
     // Make sure the entries exists
     NVF_ERROR(
         unique_definitions_.find(id_group) != unique_definitions_.end(),

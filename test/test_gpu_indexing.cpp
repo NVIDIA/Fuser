@@ -883,12 +883,12 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
 
   // All of the IDs that are generated with merge operations from the
   // root domains should be mapped to the single group.
-  const IdGroup& merge_loop_group =
+  const ValGroup& merge_loop_group =
       id_model.idGraph(IdMappingMode::LOOP).toGroup(tv1->getRootDomain().at(0));
   for (auto tv : {tv1, tv2, tv4, tv5, tv6, tv8, tv9}) {
     for (auto id : ir_utils::allIDsOf(tv)) {
       if (dynamic_cast<Split*>(id->definition()) == nullptr) {
-        const IdGroup& loop_group =
+        const ValGroup& loop_group =
             id_model.idGraph(IdMappingMode::LOOP).toGroup(id);
         ASSERT_EQ(loop_group, merge_loop_group)
             << "Unexpected loop group: " << nvfuser::toString(loop_group);
@@ -1002,7 +1002,8 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
           if (loop_mapped_id == id) {
             continue;
           }
-          ASSERT_FALSE(isIdOfConsumerTensor(loop_mapped_id, tv))
+          ASSERT_FALSE(
+              isIdOfConsumerTensor(loop_mapped_id->as<IterDomain>(), tv))
               << "Invalid promotion: " << id->toString() << " of "
               << tv->toString() << ". Found to mapped a consumer tensor: "
               << loop_mapped_id->name();
