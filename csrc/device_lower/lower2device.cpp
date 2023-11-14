@@ -486,8 +486,6 @@ void GpuLower::analysis(Fusion* fusion) {
 
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
-  // Run our passes keeping the lowered expressions and forwarding
-  // them
 }
 
 kir::Kernel* GpuLower::kernel() const {
