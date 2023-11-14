@@ -264,7 +264,7 @@ add_custom_command(
   DEPENDS
   ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
   DEPENDS flatc
-  COMMAND ${CMAKE_CURRENT_BINARY_DIR}/third_party/flatbuffers/flatc --gen-object-api -o ${NVFUSER_ROOT}/csrc/serde/ -c -b ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
+  COMMAND ${CMAKE_CURRENT_BINARY_DIR}/third_party/flatbuffers/flatc --scoped-enums -o ${NVFUSER_ROOT}/csrc/serde/ -c -b ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
   COMMENT "Generating fusion_cache_generated header from fusion_cache.fbs"
   VERBATIM
 )

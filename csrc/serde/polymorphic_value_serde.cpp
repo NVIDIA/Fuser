@@ -14,14 +14,13 @@ namespace nvfuser::serde {
 
 namespace {
 
-nvfuser::PolymorphicValue makeCpuScalarTensor(
-    const serde::ScalarCpu* scalar_cpu) {
+nvfuser::PolymorphicValue makeCpuScalarTensor(const ScalarCpu* scalar_cpu) {
   NVF_ERROR(scalar_cpu != nullptr);
   auto scalar = deserializePolymorphicValue(scalar_cpu->scalar_value());
   return nvfuser::PolymorphicValue_functions::toTensor(scalar, at::kCPU);
 }
 
-nvfuser::PolymorphicValue getMetaTensorArg(const serde::TensorArg* tensor) {
+nvfuser::PolymorphicValue getMetaTensorArg(const TensorArg* tensor) {
   NVF_ERROR(tensor != nullptr);
   if (tensor->strides() != nullptr) {
     auto meta_tensor = at::detail::empty_strided_meta(
@@ -44,7 +43,7 @@ nvfuser::PolymorphicValue getMetaTensorArg(const serde::TensorArg* tensor) {
 
 } // namespace
 
-nvfuser::PolymorphicValue deserializePolymorphicValue(const serde::Scalar* c) {
+nvfuser::PolymorphicValue deserializePolymorphicValue(const Scalar* c) {
   if (!c->has_value()) {
     return {};
   }
@@ -69,26 +68,26 @@ nvfuser::PolymorphicValue deserializePolymorphicValue(const serde::Scalar* c) {
 }
 
 void PolymorphicValueFactory::registerAllParsers() {
-  auto deserializeScalar = [](const serde::PolymorphicValue* buffer) {
+  auto deserializeScalar = [](const PolymorphicValue* buffer) {
     return deserializePolymorphicValue(buffer->data_as_Scalar());
   };
-  registerParser(serde::PolymorphicValueData_Scalar, deserializeScalar);
+  registerParser(PolymorphicValueData::Scalar, deserializeScalar);
 
-  auto deserializeScalarCpu = [](const serde::PolymorphicValue* buffer) {
+  auto deserializeScalarCpu = [](const PolymorphicValue* buffer) {
     return makeCpuScalarTensor(buffer->data_as_ScalarCpu());
   };
-  registerParser(serde::PolymorphicValueData_ScalarCpu, deserializeScalarCpu);
+  registerParser(PolymorphicValueData::ScalarCpu, deserializeScalarCpu);
 
   // TODO Encode ptr field which corresponds to the aten tensor's data pointer.
   // It is used during scheduling for vectorization. A meta aten tensor assumes
   // that the pointer address is zero.
-  auto deserializeTensorArg = [](const serde::PolymorphicValue* buffer) {
+  auto deserializeTensorArg = [](const PolymorphicValue* buffer) {
     return getMetaTensorArg(buffer->data_as_TensorArg());
   };
-  registerParser(serde::PolymorphicValueData_TensorArg, deserializeTensorArg);
+  registerParser(PolymorphicValueData::TensorArg, deserializeTensorArg);
 }
 
-flatbuffers::Offset<serde::Scalar> serializeScalarCpu(
+flatbuffers::Offset<Scalar> serializeScalarCpu(
     flatbuffers::FlatBufferBuilder& builder,
     const at::Tensor& tensor) {
   NVF_ERROR(
@@ -118,7 +117,7 @@ flatbuffers::Offset<serde::Scalar> serializeScalarCpu(
   }
 }
 
-flatbuffers::Offset<serde::PolymorphicValue> serializePolymorphicValue(
+flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
     flatbuffers::FlatBufferBuilder& builder,
     std::shared_ptr<nvfuser::PolymorphicValue> v) {
   NVF_ERROR(!v->is<std::monostate>(), "PolymorphicValue is a std::monostate.");
@@ -139,9 +138,9 @@ flatbuffers::Offset<serde::PolymorphicValue> serializePolymorphicValue(
     if (tensor.is_cpu() && tensor.numel() == 1) {
       // CPU Scalar
       auto fb_scalar_data = serializeScalarCpu(builder, tensor);
-      auto data = serde::CreateScalarCpu(builder, fb_scalar_data);
+      auto data = CreateScalarCpu(builder, fb_scalar_data);
       return CreatePolymorphicValue(
-          builder, PolymorphicValueData_ScalarCpu, data.Union());
+          builder, PolymorphicValueData::ScalarCpu, data.Union());
     } else {
       // GPU Tensor
       // Convert IntArrayRef to std::vector for flatbuffer compatibility
@@ -158,23 +157,23 @@ flatbuffers::Offset<serde::PolymorphicValue> serializePolymorphicValue(
         strides_fb.push_back(tensor.stride(dim));
       }
 
-      auto data = serde::CreateTensorArg(
+      auto data = CreateTensorArg(
           builder,
           (size_t)tensor.data_ptr(),
           builder.CreateVector(sizes_fb),
           builder.CreateVector(strides_fb),
           nvfuser::toUnderlying(tensor.scalar_type()));
       return CreatePolymorphicValue(
-          builder, PolymorphicValueData_TensorArg, data.Union());
+          builder, PolymorphicValueData::TensorArg, data.Union());
     }
   } else {
     auto data = serializeScalar(builder, *v, getDataType(*v));
     return CreatePolymorphicValue(
-        builder, PolymorphicValueData_Scalar, data.Union());
+        builder, PolymorphicValueData::Scalar, data.Union());
   }
 }
 
-flatbuffers::Offset<serde::Scalar> serializeScalar(
+flatbuffers::Offset<Scalar> serializeScalar(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::PolymorphicValue& v,
     nvfuser::DataType t) {
@@ -206,7 +205,7 @@ flatbuffers::Offset<serde::Scalar> serializeScalar(
     builder_.add_imag_value(std::imag(c));
     return builder_.Finish();
   }
-  NVF_ERROR(false, "Unable to convert ", v.type().name(), " to serde::Scalar.");
+  NVF_ERROR(false, "Unable to convert ", v.type().name(), " to Scalar.");
 }
 
 } // namespace nvfuser::serde
