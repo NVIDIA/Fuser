@@ -337,7 +337,7 @@ std::vector<PolymorphicValue> IotaOp::evaluate(
     // Due to rounding error, it can be hard to guarantee the size of
     // the output of arange to be exactly length, so we generate a
     // larger tensor and truncate it to length.
-    double end = start + step * (length + 1);
+    double end = start + step * ((double)length + 1);
     return {at::arange(start, end, step, options).narrow(0, 0, length)};
   } else {
     NVF_ERROR(false, "Unsupported dtype in IotaOp evaluator: ", dtype());
