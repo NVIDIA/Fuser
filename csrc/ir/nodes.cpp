@@ -2171,6 +2171,17 @@ std::string ExpandOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+std::vector<PolymorphicValue> ExpandOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  std::vector<int64_t> expanded_size;
+  for (auto i : c10::irange(1, inputs.size())) {
+    expanded_size.push_back((int64_t)inputs.at(i));
+  }
+  return {at::expand_copy(in, expanded_size)};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)
 
 ShiftOp::ShiftOp(
