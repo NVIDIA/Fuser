@@ -1248,4 +1248,32 @@ TEST_F(AllocationDomainTest, VectorizeOverlappingTensor) {
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
+TEST_F(AllocationDomainTest, IntermediateGlobalOutput) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = TensorViewBuilder()
+                       .ndims(2)
+                       .dtype(DataType::Float)
+                       .contiguity({false, true})
+                       .shape({-1, -1})
+                       .build();
+  fusion->addInput(in);
+  TensorView* out1 = permute(in, {1, 0});
+  fusion->addOutput(out1);
+  TensorView* out2 = add(out1, fusion->oneVal());
+  fusion->addOutput(out2);
+
+  at::Tensor in_tensor = at::randn({2 * 4}).cuda().as_strided({2, 3}, {4, 1});
+
+  FusionExecutorCache fec(std::move(fusion));
+  fec.runFusionWithInputs({in_tensor});
+
+  const std::vector<SegmentedGroup*>& groups =
+      fec.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  ASSERT_EQ(groups.size(), 1);
+  SegmentedGroup* group = groups[0];
+  EXPECT_EQ(group->heuristic(), ScheduleHeuristic::PointWise);
+}
+
 } // namespace nvfuser

@@ -805,8 +805,8 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
       consumer->container(),
       consumer->getRootDomain(),
       consumer->getRFactorDomain(),
-      std::vector<IterDomain*>{},
-      new_IDs,
+      /*allocation=*/std::vector<IterDomain*>{},
+      /*leaf=*/new_IDs,
       consumer->domain()->contiguity());
 
   if (producer->hasAllocation()) {
@@ -829,7 +829,8 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
           consumer->toString());
       new_allocation_domain.emplace_back(it->second);
     }
-    replayed->setAllocationDomain(std::move(new_allocation_domain), true);
+    replayed->setAllocationDomain(
+        std::move(new_allocation_domain), producer->getContiguity());
   }
   return {replayed, consumer_pos};
 }
