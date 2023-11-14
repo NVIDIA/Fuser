@@ -49,14 +49,15 @@ def norm_fwd_fusion(
 
     var, mean = fd.ops.var_mean(input, axes=reduction_axes, correction=0, keepdim=False)
 
-    var_bcast = fd.ops.broadcast(var, bcast_mask)
-    mean_bcast = fd.ops.broadcast(mean, bcast_mask)
-
     eps = fd.define_scalar(eps, dtype=DataType.Double)
-    x_sub_mean = fd.ops.sub(input, mean_bcast)
-    var_eps = fd.ops.add(var_bcast, eps)
+    var_eps = fd.ops.add(var, eps)
     invstd = fd.ops.rsqrt(var_eps)
-    x_norm = fd.ops.mul(x_sub_mean, invstd)
+
+    invstd_bcast = fd.ops.broadcast(invstd, bcast_mask)
+    mean_bcast = fd.ops.broadcast(mean, bcast_mask)
+    x_sub_mean = fd.ops.sub(input, mean_bcast)
+
+    x_norm = fd.ops.mul(x_sub_mean, invstd_bcast)
 
     weight = fd.ops.broadcast(weight, channels_only_bcast_mask)
     x_scaled = fd.ops.mul(x_norm, weight)
@@ -86,8 +87,6 @@ def norm_fwd_fusion(
     fd.add_output(output)
     fd.add_output(mean)
     fd.add_output(invstd)
-    fd.add_output(updated_mean, alias_input=running_mean)
-    fd.add_output(updated_var, alias_input=running_var)
 
 
 def norm_bwd_fusion(
@@ -197,6 +196,7 @@ def norm_fwd_benchmark(
     channels_last: bool,
     disable_validation: bool,
     disable_benchmarking: bool,
+    eps: float = 1e-5,
 ):
     """
     Common benchmark setup for batchnorm/instance forward call in training mode.
@@ -230,8 +230,6 @@ def norm_fwd_benchmark(
         )
 
     if not disable_validation:
-        nvf_output = fd.execute([inputs, weight, bias, running_mean, running_var])
-
         # PyTorch expects running mean and variance to be of same type as input.
         if norm == "batch_norm":
             eager_output = torch.nn.functional.batch_norm(
@@ -250,13 +248,23 @@ def norm_fwd_benchmark(
                 weight=weight,
                 bias=bias,
             )
-
         if channels_last:
-            nvf_output[0] = nvf_output[0].permute((0, -1, *range(1, num_dims - 1)))
+            eager_output = eager_output.permute((0, *range(2, num_dims), 1))
 
-        assert torch.allclose(
-            nvf_output[0], eager_output, rtol=1e-3, atol=1e-3
-        ), f"{torch.max(nvf_output[0] - eager_output)}"
+        batch_dim = 0
+        channel_dim = 1 if not channels_last else num_dims - 1
+        reduction_axes = [i for i in range(len(size)) if i != channel_dim]
+        if norm == "instance_norm":
+            reduction_axes.remove(batch_dim)
+
+        mean = inputs.to(torch.float).mean(dim=reduction_axes)
+        var = inputs.to(torch.float).var(dim=reduction_axes, unbiased=False)
+        invstd = 1.0 / torch.sqrt(var + eps)
+
+        fd.validate(
+            [inputs, weight, bias, running_mean, running_var],
+            [eager_output, mean, invstd],
+        )
 
     if not disable_benchmarking:
         run_benchmark(
@@ -326,10 +334,6 @@ def norm_bwd_benchmark(
         )
 
     if not disable_validation:
-        nvf_output = fd.execute(
-            [inputs, grads, weight, running_mean, running_var, mean, invstd]
-        )
-
         # PyTorch expects running mean and variance to be of same type as input.
         if norm == "batch_norm":
             eager_output = torch.nn.functional.batch_norm(
@@ -350,14 +354,16 @@ def norm_bwd_benchmark(
             )
 
         eager_output.backward(at_grads)
-        if channels_last:
-            nvf_output[0] = nvf_output[0].permute((0, -1, *range(1, num_dims - 1)))
 
-        assert torch.allclose(
-            nvf_output[0], at_inputs.grad, rtol=1e-3, atol=1e-3
-        ), f"{torch.max(nvf_output[0] - at_inputs.grad)}"
-        assert nvf_output[1].shape == weight.grad.shape
-        assert nvf_output[2].shape == bias.grad.shape
+        if channels_last:
+            eager_grad = at_inputs.grad.permute((0, *range(2, num_dims), 1))
+        else:
+            eager_grad = at_inputs.grad
+
+        fd.validate(
+            [inputs, grads, weight, running_mean, running_var, mean, invstd],
+            [eager_grad, weight.grad, bias.grad],
+        )
 
     if not disable_benchmarking:
         run_benchmark(
