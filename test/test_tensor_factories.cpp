@@ -34,8 +34,7 @@ TEST_F(TensorFactoryTest, StandaloneFull) {
       at::kBFloat16,
       at::kInt,
       at::kComplexFloat,
-      at::kComplexDouble
-      };
+      at::kComplexDouble};
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -85,8 +84,7 @@ TEST_F(TensorFactoryTest, StandaloneZeros) {
       at::kBFloat16,
       at::kInt,
       at::kComplexFloat,
-      at::kComplexDouble
-      };
+      at::kComplexDouble};
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -111,11 +109,7 @@ TEST_F(TensorFactoryTest, StandaloneZeros) {
     auto cg_outputs = executor_cache.runFusionWithInputs({size});
 
     testValidate(
-        executor_cache.fusion(),
-        cg_outputs,
-        {size},
-        __LINE__,
-        __FILE__);
+        executor_cache.fusion(), cg_outputs, {size}, __LINE__, __FILE__);
   }
 }
 
@@ -155,11 +149,7 @@ TEST_F(TensorFactoryTest, StandaloneOnes) {
     auto cg_outputs = executor_cache.runFusionWithInputs({size});
 
     testValidate(
-        executor_cache.fusion(),
-        cg_outputs,
-        {size},
-        __LINE__,
-        __FILE__);
+        executor_cache.fusion(), cg_outputs, {size}, __LINE__, __FILE__);
   }
 }
 
@@ -199,7 +189,6 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
         for (auto length : lengths) {
           for (auto start : starts) {
             for (auto step : steps) {
-
               auto cg_outputs =
                   executor_cache.runFusionWithInputs({length, start_, step_});
 
@@ -347,11 +336,7 @@ TEST_F(TensorFactoryTest, StandaloneEye) {
     auto cg_outputs = executor_cache.runFusionWithInputs({size, 15});
 
     testValidate(
-        executor_cache.fusion(),
-        cg_outputs,
-        {size, 15},
-        __LINE__,
-        __FILE__);
+        executor_cache.fusion(), cg_outputs, {size, 15}, __LINE__, __FILE__);
   }
 }
 

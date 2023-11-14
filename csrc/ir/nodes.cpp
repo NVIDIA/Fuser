@@ -71,20 +71,22 @@ std::vector<PolymorphicValue> FullOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   std::vector<int64_t> shape;
-  for (auto i: c10::irange(inputs.size() - 1)){
+  for (auto i : c10::irange(inputs.size() - 1)) {
     shape.push_back((int)inputs.at(i));
   }
   DataType dtype = getFillValue()->getDataType().value();
   const auto options = at::TensorOptions().device(at::kCUDA);
-  if (dtype == DataType::ComplexFloat){
+  if (dtype == DataType::ComplexFloat) {
     return {at::full(shape, (c10::complex<float>)inputs.back(), options)};
-  } else if (dtype == DataType::ComplexDouble){
+  } else if (dtype == DataType::ComplexDouble) {
     return {at::full(shape, (c10::complex<double>)inputs.back(), options)};
-  } else{
-    return {at::full(shape, (at::Scalar)inputs.back(), options.dtype(data_type_to_aten(dtype)))};
+  } else {
+    return {at::full(
+        shape,
+        (at::Scalar)inputs.back(),
+        options.dtype(data_type_to_aten(dtype)))};
   }
 }
-
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(FullOp)
 
@@ -320,16 +322,16 @@ std::string IotaOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> IotaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  
-  const auto options = at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype()));
+  const auto options =
+      at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype()));
   int64_t length = (int64_t)inputs.at(0);
 
-  if (isIntegralType(dtype())){
+  if (isIntegralType(dtype())) {
     int64_t start = (int64_t)inputs.at(1);
     int64_t step = (int64_t)inputs.at(2);
     int64_t end = start + step * length;
     return {at::arange(start, end, step, options)};
-  } else if (isFloatingPointType(dtype())){
+  } else if (isFloatingPointType(dtype())) {
     double start = (double)inputs.at(1);
     double step = (double)inputs.at(2);
     // Due to rounding error, it can be hard to guarantee the size of
@@ -340,7 +342,6 @@ std::vector<PolymorphicValue> IotaOp::evaluate(
   } else {
     NVF_ERROR(false, "Unsupported dtype in IotaOp evaluator: ", dtype());
   }
-
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IotaOp)
@@ -371,11 +372,12 @@ std::string EyeOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 std::vector<PolymorphicValue> EyeOp::evaluate(
-      const ExpressionEvaluator& ee,
-      const std::vector<PolymorphicValue>& inputs) const {
-  const auto options = at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype()));
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto options =
+      at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype()));
   int64_t nrows = (int64_t)inputs.at(0);
-  if (inputs.size() > 1){
+  if (inputs.size() > 1) {
     int64_t ncols = (int64_t)inputs.at(1);
     return {at::eye(nrows, ncols, options)};
   } else {
