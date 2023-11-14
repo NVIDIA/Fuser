@@ -382,7 +382,7 @@ void GpuLower::analysis(Fusion* fusion) {
   // functionality should be affected. New IterDomains may be created,
   // so it is expected that generated code may use diffrent variable
   // names
-  if (true || isOptionEnabled(EnableOption::IdModel)) {
+  if (isOptionEnabled(EnableOption::IdModel)) {
     IdModel id_model(fusion_);
     // Only the exact graph is genereated at this moment
     IdModelValidator::checkExactGraphEquivalence(
