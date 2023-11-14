@@ -1248,7 +1248,7 @@ TEST_F(AllocationDomainTest, VectorizeOverlappingTensor) {
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(AllocationDomainTest, IntermediateGlobalOutput) {
+TEST_F(AllocationDomainTest, Issue1290) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1269,6 +1269,9 @@ TEST_F(AllocationDomainTest, IntermediateGlobalOutput) {
   FusionExecutorCache fec(std::move(fusion));
   fec.runFusionWithInputs({in_tensor});
 
+  // The initial issue was detected in the pointwise scheduler, so I added these
+  // checks to make sure it's a valid regression test. The transpose scheduler
+  // could accept this but decided not to because of a small problem size.
   const std::vector<SegmentedGroup*>& groups =
       fec.getMostRecentKernelRuntime()->fusionSegments()->groups();
   ASSERT_EQ(groups.size(), 1);
