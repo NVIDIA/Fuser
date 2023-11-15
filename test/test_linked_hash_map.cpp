@@ -13,15 +13,15 @@
 #include <linked_hash_map.h>
 
 namespace {
-class Key {
+class CopyableKey {
  public:
-  explicit Key(std::string data) : data_(std::move(data)) {}
+  explicit CopyableKey(std::string data) : data_(std::move(data)) {}
 
   size_t hash() const {
     return std::hash<std::string>()(data_);
   }
 
-  bool operator==(const Key& other) const {
+  bool operator==(const CopyableKey& other) const {
     return data_ == other.data_;
   }
 
@@ -29,15 +29,15 @@ class Key {
   std::string data_;
 };
 
-class Value {
+class MovableValue {
  public:
-  explicit Value(int data) : data_(data) {}
+  explicit MovableValue(int data) : data_(data) {}
 
-  Value(const Value&) = delete;
-  Value& operator=(const Value&) = delete;
+  MovableValue(const MovableValue&) = delete;
+  MovableValue& operator=(const MovableValue&) = delete;
 
-  Value(Value&&) = default;
-  Value& operator=(Value&&) = default;
+  MovableValue(MovableValue&&) = default;
+  MovableValue& operator=(MovableValue&&) = default;
 
   int data() const {
     return data_;
@@ -50,8 +50,8 @@ class Value {
 
 namespace std {
 template <>
-struct hash<Key> {
-  size_t operator()(const Key& key) const {
+struct hash<CopyableKey> {
+  size_t operator()(const CopyableKey& key) const {
     return key.hash();
   }
 };
@@ -125,12 +125,12 @@ MATCHER_P(DataIs, data, "") {
 } // namespace
 
 TEST(LinkedHashMapTest, MovableValue) {
-  LinkedHashMap<Key, Value> map;
-  map.pushBack(Key("a"), Value(1));
-  map.pushBack(Key("b"), Value(2));
-  map.erase(Key("b"));
+  LinkedHashMap<CopyableKey, MovableValue> map;
+  map.pushBack(CopyableKey("a"), MovableValue(1));
+  map.pushBack(CopyableKey("b"), MovableValue(2));
+  map.erase(CopyableKey("b"));
 
-  EXPECT_THAT(map, ElementsAre(Pair(Key("a"), DataIs(1))));
+  EXPECT_THAT(map, ElementsAre(Pair(CopyableKey("a"), DataIs(1))));
 }
 
 } // namespace nvfuser
