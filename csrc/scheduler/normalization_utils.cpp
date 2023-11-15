@@ -889,8 +889,6 @@ PersistentKernelProperties getPersistentKernelProperties(
   auto max_persistent_buffer_size = project_persistent_buffers
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;
-  std::cout << "persistent_buffer_size= " << persistent_buffer_size_info.persistent_buffer_size << std::endl;
-  std::cout << "projected_persistent_buffer_size= " << persistent_buffer_size_info.projected_persistent_buffer_size << std::endl;
   // (7) info about input and output tensors
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
@@ -1138,9 +1136,6 @@ void beforeSchedule(
   // does not create trouble for transform propagation.
   dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
       fusion, rparams.project_persistent_buffers);
-
-  std::cout << "after project: " << std::endl;
-  fusion->printMath();
 
   // Cache tensors before grabbing any references to reductions as cache_before
   // can invalidate the references since when applied to a reduction tensor view

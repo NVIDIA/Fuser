@@ -537,7 +537,6 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
 
   // Find projectable persistent buffers
   auto reduction_tvs = getReductionTvs(fusion);
-  fusion->printMath();
   for (auto persistent_buffer : persistent_buffer_info.persistent_buffers) {
     // Inputs marked as persistent buffers can't be projected any further back
     if (persistent_buffer->isFusionInput()) {
