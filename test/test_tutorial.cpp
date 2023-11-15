@@ -5,13 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <fusion.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
-#include <ops/all_ops.h>
-#include <fusion.h>
 #include <inlining.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
+#include <ops/all_ops.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
 #include <test/utils.h>
@@ -630,7 +630,7 @@ TEST_F(Tutorial, Reshape) {
   }
 }
 
-TEST_F(NVFuserTest, TMP) {
+TEST_F(NVFuserTest, SoftmaxProjectToInput) {
   auto test_softmax = [](int batch, int feature, DataType dtype) {
     Fusion fusion;
     FusionGuard fg(&fusion);
@@ -639,18 +639,19 @@ TEST_F(NVFuserTest, TMP) {
     std::vector<int64_t> input_shape{batch, feature};
     TensorView* input = makeContigTensor(input_shape.size(), dtype);
     fusion.addInput(input);
-
     if (dtype == DataType::Half) {
       input = castOp(DataType::Float, input);
     }
-
     auto output = softmax(input, kReductionAxis);
-
     if (dtype == DataType::Half) {
       output = castOp(DataType::Half, output);
     }
-
     fusion.addOutput(output);
+
+    // There should be 2 projectable persistent buffers.
+    auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
+    auto& projectable = persistent_buffer_info.projectable_persistent_buffers;
+    NVF_ERROR(projectable.size() == 2);
 
     auto options = at::TensorOptions()
                        .dtype(data_type_to_aten(dtype))
@@ -661,11 +662,8 @@ TEST_F(NVFuserTest, TMP) {
 
     auto reduction_params = getInnerPersistentHeuristics(&fusion, {aten_input});
     NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-
     scheduleInnerPersistentKernel(&fusion, *reduction_params);
-
     auto lparams = reduction_params->lparams;
-
     nvfuser::FusionExecutor fe;
     fe.compileFusion(&fusion, {aten_input}, lparams);
     auto cg_outputs = fe.runFusion({aten_input}, lparams);
@@ -681,9 +679,7 @@ TEST_F(NVFuserTest, TMP) {
         lparams);
   };
   const int batch = 2048;
-  // test small values, values can't be vectorized, regular pupular values,
-  // prime numbers with or without vectorization, and large values
-  std::vector<int> features = {13*1024};
+  std::vector<int> features = {13 * 1024};
   std::vector<DataType> test_dtypes = {DataType::Half};
   for (auto dtype : test_dtypes) {
     for (auto feature : features) {

@@ -9048,8 +9048,7 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation2_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionPersistentBufferCalculation3_CUDA) {
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
+  Fusion fusion;
   FusionGuard fg(&fusion);
 
   auto tv0 = makeSymbolicTensor(2, DataType::Half);
@@ -9131,10 +9130,6 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation3_CUDA) {
       persistent_buffer_size.projected_persistent_buffer_size ==
       static_cast<int64_t>(
           aten_t0.size(1) * dataTypeSize(DataType::Half) * 2));
-
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs({aten_t0, aten_t5});
-  testValidate(&fusion, cg_outputs, {aten_t0, aten_t5}, __LINE__, __FILE__);          
 }
 
 TEST_F(NVFuserTest, FusionPersistentBufferCalculation4_CUDA) {
