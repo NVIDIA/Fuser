@@ -554,9 +554,10 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
           consumer->toString(),
           " to producer tensor ",
           producer->toString());
-      new_allocation_domain.emplace_back(it->second);
+      new_allocation_domain.push_back(it->second);
     }
-    replayed->setAllocationDomain(std::move(new_allocation_domain), true);
+    replayed->setAllocationDomain(
+        std::move(new_allocation_domain), consumer->getContiguity());
   }
 
   return {replayed, producer_pos};
