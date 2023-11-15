@@ -274,7 +274,6 @@ INSTANTIATE_TEST_SUITE_P(
 
 );
 
-
 } // namespace nvfuser
 
 #endif

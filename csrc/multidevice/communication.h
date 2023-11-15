@@ -171,7 +171,9 @@ Requirements:
 class Reduce : public Communication {
  public:
   Reduce(CommParams params);
-  c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
 /*
@@ -184,7 +186,9 @@ Requirements:
 class Allreduce : public Communication {
  public:
   Allreduce(CommParams params);
-  c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
 /*
@@ -197,7 +201,9 @@ Requirements:
 class ReduceScatter : public Communication {
  public:
   ReduceScatter(CommParams params);
-  c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
 /*
