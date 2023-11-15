@@ -1279,4 +1279,22 @@ TEST_F(AllocationDomainTest, Issue1290) {
   EXPECT_EQ(group->heuristic(), ScheduleHeuristic::PointWise);
 }
 
+TEST_F(AllocationDomainTest, CacheBefore) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* out = sum(in, {1});
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  out->setAllocationDomain({out->axis(0)}, true);
+  out->cacheBefore();
+
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {in_tensor});
+  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+  std::cerr << out_tensor.sizes() << std::endl;
+}
+
 } // namespace nvfuser
