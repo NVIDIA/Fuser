@@ -406,6 +406,173 @@ TEST_F(PipelineTest, Overlap) {
   validate();
 }
 
+TensorView* MatrixMultiplication(TensorView* a, TensorView* b) {
+  auto a_b = broadcast(a, {false, false, true}); // (x,y,b)
+  auto b_b = broadcast(b, {true, false, false}); // (b,y,z)
+
+  auto c = mul(a_b, b_b); // (x,y,z)
+  auto d = sum(c, {1}); // (x,r,z)
+  return d;
+}
+
+TEST_F(PipelineTest, matmul_summa) {
+  if (communicator->deviceId()) {
+    return;
+  }
+  // Matrices dimensions
+  // a's shape=[x,y]
+  // b's shape=[y,z]
+  constexpr int64_t x = 12;
+  constexpr int64_t y = 18;
+  constexpr int64_t z = 24;
+  const std::vector<int64_t> a_extents = {x, y};
+  const std::vector<int64_t> b_extents = {y, z};
+
+  // Device Mesh
+  // [ 0 1 2
+  //   3 4 5 ]
+  constexpr int64_t N = 2;
+  constexpr int64_t M = 3;
+  DeviceMesh mesh ({0,1,2,3,4,5});
+  mesh.reshape({N,M});
+
+  auto fusion = std::make_unique<Fusion>();
+  auto fg = std::make_unique<FusionGuard>(fusion.get());
+
+  // a {DIDx{N}, x/N, DIDy{M}, y/M}
+  // b {DIDx{N}, y/N, DIDy{M}, z/M}
+  auto a = makeConcreteTensor(a_extents);
+  auto b = makeConcreteTensor(b_extents);
+  a->split(0, N, false);
+  a->split(2, M, false);
+  b->split(0, N, false);
+  b->split(2, M, false);
+  a->setDeviceMesh(&mesh);
+  b->setDeviceMesh(&mesh);
+  a->axis(0)->parallelize(ParallelType::DIDx);
+  a->axis(2)->parallelize(ParallelType::DIDy);
+  b->axis(0)->parallelize(ParallelType::DIDx);
+  b->axis(2)->parallelize(ParallelType::DIDy);
+  fusion->addInput(a);
+  fusion->addInput(b);
+
+  // a2 {DIDx{N}, x/N, y}
+  // b2 {y, DIDy{M}, z/M}
+  auto a2 = set(a);
+  auto b2 = set(b);
+  a2->split(0, N, false);
+  b2->split(1, M, false);
+  a2->setDeviceMesh(&mesh);
+  b2->setDeviceMesh(&mesh);
+  a2->axis(0)->parallelize(ParallelType::DIDx);
+  b2->axis(1)->parallelize(ParallelType::DIDy);
+
+  // a3 {DIDx{N}, x/N, y, b,  b }
+  // b3 {b,  b , y, DIDy{M}, z/M}
+  auto a3 = broadcast(a2, {false, false, true, true});
+  auto b3 = broadcast(b2, {true, true, false, false});
+  a3->split(0, N, false);
+  b3->split(3, M, false);
+  a3->setDeviceMesh(&mesh);
+  b3->setDeviceMesh(&mesh);
+  a3->axis(0)->parallelize(ParallelType::DIDx);
+  b3->axis(3)->parallelize(ParallelType::DIDy);
+
+  // c {DIDx{N}, x/N, y, DIDy{M}, z/M}
+  auto c = mul(a3, b3);
+  c->setDeviceMesh(&mesh);
+  c->axis(0)->parallelize(ParallelType::DIDx);
+  c->axis(3)->parallelize(ParallelType::DIDy);
+
+  // d {DIDx{N}, x/N, r{y}, DIDy{M}, z/M}
+  auto d = sum(c, {2});
+  d->setDeviceMesh(&mesh);
+  d->axis(0)->parallelize(ParallelType::DIDx);
+  d->axis(3)->parallelize(ParallelType::DIDy);
+  fusion->addOutput(d);
+
+  fusion->print();
+
+  inputs = {at::randn(a_extents, tensor_options), at::randn(b_extents, tensor_options)};
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), inputs);
+  auto ref_outputs = fe.runFusion(inputs);
+
+  std::cout
+  << "a (concrete inputs): \n" << inputs.at(0)
+  << "\nb (concrete inputs): \n" << inputs.at(1)
+  << std::endl;
+  for (auto t: c10::irange(ref_outputs.size())) {
+    std::cout
+    << "\noutput " << t <<":\n"
+    << ref_outputs.at(t);
+  }
+  std::cout << std::endl;
+}
+
+// matmulAtInput
+// MmaOp
+
+
+  // a {s, x/N, M, y/M}
+  // b {N, y/N, s, z/M}
+
+
+
+ // a {N, x/N, M, y/M}
+ // b {N, y/N, M, z/M}
+
+
+
+ // aij = a [i, :, j, :]
+ // auto ai = select(a, 0, IrBuilder::create<Val>(i));
+
+// index_select
+  // std::vector<TensorView*> indices_tv;
+  // for (int i=0; i<std::max(N,M); i++) {
+  //   auto i_tv = makeContigTensor(0, DataType::Int);
+  //   indices_tv.push_back(i_tv);
+  //   fusion->addInput(i_tv);
+  //   inputs.push_back(at::ones({}) * i);
+  // }
+
+  // int i = 1;
+  // int j = 2;
+
+  // auto ai = select(a, 0, IrBuilder::create<Val>(i));
+  // // auto ai = index_select(a, 0, indices_tv[i]);
+  // std::cout
+  //   << "ai=" << ai
+  //   << std::endl;
+  // fusion->addOutput(ai);
+  // fusion->print();
+
+  // // auto aij = select(ai, 1, IrBuilder::create<Val>(j));
+  // auto aij = index_select(ai, 1, indices_tv[j]);
+  // fusion->addOutput(aij);
+
+  // std::cout
+  //   << "ai=" << ai
+  //   << ", aij=" << aij
+  //   << std::endl;
+  // fusion->print();
+
+  // TensorView* select(TensorView* tv, int dim, Val* index) {
+
+  // TensorView *tv1x, *tv2x, *tv3x;
+  // std::vector<TensorView*> tv3_slices;
+  // std::vector<Slice> slices {3};
+  // for (int i = 0; i < number_of_slices; i++) {
+  //   slices.at(2).start = IrBuilder::create<Val>(i * extent_of_slice);
+  //   slices.at(2).stop = IrBuilder::create<Val>((i+1) * extent_of_slice);
+  //   tv1x = slice(tv1, slices);
+  // auto ref = MatrixMultiplication(a, b);
+  // fusion->addOutput(ref);
+
+
+
+
 } // namespace nvfuser
 
 #endif

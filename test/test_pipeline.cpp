@@ -428,4 +428,28 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Bool(),
         ::testing::Bool()));
 
+TEST_F(NVFuserTest, 2DMesh) {
+  auto fusion = std::make_unique<Fusion>();
+  auto fg = std::make_unique<FusionGuard>(fusion.get());
+
+  auto tv0 = makeContigTensor(3);
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+  tv0->axis(1)->parallelize(ParallelType::DIDy);
+  DeviceMesh mesh ({0,1,2,3,4,5});
+  mesh.reshape({2,3});
+  tv0->setDeviceMesh(&mesh);
+  std::cout << tv0 << std::endl;
+}
+
+TEST_F(NVFuserTest, select_bug) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(3);
+  fusion.addInput(tv0);
+  auto tv1 = select(tv0, 0, IrBuilder::create<Val>(0));
+  fusion.addOutput(tv1);
+  fusion.print();
+}
+
 } // namespace nvfuser
