@@ -75,17 +75,10 @@ std::vector<PolymorphicValue> FullOp::evaluate(
     shape.push_back((int)inputs.at(i));
   }
   DataType dtype = getFillValue()->getDataType().value();
-  const auto options = at::TensorOptions().device(at::kCUDA);
-  if (dtype == DataType::ComplexFloat) {
-    return {at::full(shape, (c10::complex<float>)inputs.back(), options)};
-  } else if (dtype == DataType::ComplexDouble) {
-    return {at::full(shape, (c10::complex<double>)inputs.back(), options)};
-  } else {
-    return {at::full(
-        shape,
-        (at::Scalar)inputs.back(),
-        options.dtype(data_type_to_aten(dtype)))};
-  }
+  const auto options =
+      at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype));
+  using namespace PolymorphicValue_functions;
+  return {at::full(shape, toScalar(inputs.back()), options)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(FullOp)
