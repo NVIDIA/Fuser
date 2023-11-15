@@ -100,10 +100,6 @@ class Value {
   Value(Value&&) = default;
   Value& operator=(Value&&) = default;
 
-  bool operator==(const Value& other) const {
-    return data_ == other.data_;
-  }
-
   int data() const {
     return data_;
   }
