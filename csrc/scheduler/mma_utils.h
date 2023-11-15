@@ -179,8 +179,11 @@ class WarpMmaSwizzler {
       TensorView* tv,
       const MmaOptions& options);
 
-  //! Operand swizzle implementations for Turing and Ampere mma.
-  static void scheduleTuringOperandRead(TensorView* tv, MmaOptions options);
+  //! Memory layout for MMA operand.
+  static void scheduleTuringOperandRead(TensorView* tv);
+
+  //! Indexing for ldmatrix
+  static void scheduleLdMatrix(TensorView* tv);
 
   //! Accumulator swizzle implementation for Turing and Ampere mma.
   static void scheduleTuringM16N8K16MmaWarpOutput(

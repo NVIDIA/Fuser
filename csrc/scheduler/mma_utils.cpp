@@ -625,7 +625,7 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOptions options) {
     case MmaOptions::MacroType::Ampere_16_8_16:
     case MmaOptions::MacroType::Turing_16_16_16:
     case MmaOptions::MacroType::Ampere_16_16_16:
-      scheduleTuringOperandRead(tv, options);
+      scheduleTuringOperandRead(tv);
       break;
     default:
       NVF_CHECK(false, "WarpMmaSwizzler: please specify macro");
@@ -856,50 +856,6 @@ void validateMmaRootInnerMN(TensorView* tv, MmaOptions options, int m, int n) {
       "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
 }
 
-//! Performs checks on tv given to schedule ld matrix.
-//!  Currently only allowed ones are either:
-//!    1. direct output of an ldmatrix op  or
-//!    2. direct output of a broadcast op following a ldmatrix op
-//!  Returns true if the tv is an immediate output of ldmatrix op
-//!
-//! TODO: this check is a WAR with pattern matching for now.
-//!  The two patterns mentioned above are the only supported use
-//!    cases of ldmatrix currently. This restriction can be greatly
-//!    relaxed after the iterdomain swizzle infrastructure, which
-//!    will provide the capability to directly model the exact
-//!    data format of ldmatrix output.
-bool checkLdMatrixTv(TensorView* tv) {
-  // First check if tv is an ldmatrix output:
-  auto tv_def = tv->definition();
-  NVF_CHECK(tv_def != nullptr, "ldmatrix : invalid tv");
-  bool is_immediate_output = true;
-  if (!ir_utils::isLdMatrixOp(tv_def)) {
-    // Only allow one broadcast in between tv and the ldmatrix op
-    NVF_CHECK(
-        tv_def->isA<BroadcastOp>(),
-        "ldmatrix: only allow serial broadcast between ldmatrix and mma");
-    tv_def = tv_def->input(0)->definition();
-    NVF_CHECK(tv_def != nullptr, "ldmatrix : invalid tv");
-    is_immediate_output = false;
-  }
-  NVF_CHECK(
-      ir_utils::isLdMatrixOp(tv_def),
-      "ldmatrix : invalid op type: ",
-      tv_def->toString());
-  NVF_CHECK(
-      tv->nDims() >= 2,
-      "ldmatrix: scheduled tv needs to be at least 2 dimensional");
-  NVF_CHECK(
-      !tv->axis(-1)->isBroadcast(), "ldmatrix: unsupported scheduled axes");
-  NVF_CHECK(
-      !tv->axis(-1)->isReduction(), "ldmatrix: unsupported scheduled axes");
-  NVF_CHECK(
-      !tv->axis(-2)->isBroadcast(), "ldmatrix: unsupported scheduled axes");
-  NVF_CHECK(
-      !tv->axis(-2)->isReduction(), "ldmatrix: unsupported scheduled axes");
-  return is_immediate_output;
-}
-
 void scheduleVoltaA(TensorView* tv, MmaOptions options) {
   // Assumed:
   // [..., 16, 16 ,4]
@@ -968,134 +924,6 @@ void scheduleVoltaB(TensorView* tv, MmaOptions options) {
 
   //[Moo, Mi8, Warp, K/Nii4]
   tv->axis(-2)->parallelize(ParallelType::TIDx);
-}
-
-void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
-  // Check if tv should use ldmatrix layout and
-  //   if tv is immediate output of ldmatrix
-  bool is_immediate_output = checkLdMatrixTv(tv);
-
-  // Check mma option is supported
-  NVF_CHECK(
-      options.macro == MmaOptions::MacroType::Ampere_16_8_16 ||
-          options.macro == MmaOptions::MacroType::Ampere_16_16_16 ||
-          options.macro == MmaOptions::MacroType::Turing_16_8_16 ||
-          options.macro == MmaOptions::MacroType::Turing_16_16_16,
-      "scheduleLdMatrix: unknown macro for ldmatrix");
-
-  if (options.operand == MmaOptions::Operand::A) {
-    NVF_ERROR(tv->nDims() >= 2);
-    // validation:
-    auto mma = options.mmaOp();
-    auto m_dims = getMmaRootDimensions(tv, mma, MmaDimension::M);
-    auto k_dims = getMmaRootDimensions(tv, mma, MmaDimension::K);
-
-    NVF_ERROR(
-        canValidateIsInnerDim(m_dims.back(), tv->axis(-2), 16),
-        "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
-    NVF_ERROR(
-        canValidateIsInnerDim(k_dims.back(), tv->axis(-1), 16),
-        "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain",
-        tv->toString());
-
-    //  -2   -1
-    //[16m, 16k]
-    tv->split(-2, 8);
-    tv->split(-1, 2);
-    tv->split(-2, 4);
-
-    // -5  -4  -3  -2  -1
-    //[2m, 8m, 2k, 4k, 2k']
-    tv->reorder({{-4, -5}, {-5, -2}, {-2, -4}});
-
-    // -5  -4   -3  -2  -1
-    //[8m, 4k, 2k, 2m, 2k']
-    tv->setAllocationDomain(tv->getLeafDomain(), true);
-
-    // tv->merge(-5);
-    // tv->merge(-3);
-    // tv->merge(-2);
-    // [warp, 8i/o]
-
-    // tv->axis(-2)->parallelize(ParallelType::TIDx);
-  } else if (options.operand == MmaOptions::Operand::B) {
-    auto mma = options.mmaOp();
-    auto n_dims = getMmaRootDimensions(tv, mma, MmaDimension::N);
-    auto k_dims = getMmaRootDimensions(tv, mma, MmaDimension::K);
-    bool transposed =
-        (options.layout == MmaOptions::MmaLayout::NT ||
-         options.layout == MmaOptions::MmaLayout::TT);
-
-    NVF_ERROR(
-        canValidateIsInnerDim(k_dims.back(), tv->axis(-1), 16),
-        "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
-
-    // Each ldmatrix 4 would be loading an effective 16x16x16 tile, which is 2x
-    // the
-    //  size of regular 16x8x16 tile supported by largest mma operation. The
-    //  swizzle also needs to be different to take this into account.
-    // TODO:
-    //  Using an emulated 16x16x16 mma tile is a temporary step to enable the
-    //   widest load possible for scheduler bring up phase.
-    //  A unifying step would be needed in a follow up to support all these
-    //  swizzles
-    //   with a single affine utility.
-    bool use_ldmatrix4 = canValidateIsInnerDim(n_dims.back(), tv->axis(-2), 16);
-
-    if (use_ldmatrix4) {
-      NVF_ERROR(false);
-      // [... N16, K16]
-      tv->split(-2, 8);
-      tv->split(-1, 8);
-
-      //       -4   -3  -2  -1
-      // [... N2o, N8, K2o, K8]
-      tv->reorder({{-3, -2}, {-2, -3}});
-      // [... N2o, K2o, N8, K8]
-
-      if (transposed) {
-        NVF_ERROR(false);
-        tv->reorder({{-1, -2}, {-2, -1}});
-      }
-
-      tv->merge(-4);
-      tv->merge(-3);
-
-      // [Warp, K8]
-      tv->axis(-2)->parallelize(ParallelType::TIDx);
-    } else {
-      // validation:
-      NVF_ERROR(
-          canValidateIsInnerDim(n_dims.back(), tv->axis(-2), 8),
-          "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
-
-      //[N8, K16]
-      tv->split(-2, 8);
-      tv->split(-1, 2);
-      tv->split(-2, 4);
-
-      // -5  -4  -3  -2  -1
-      //[N1, N8, K2, K4, K2']
-      tv->reorder({{-4, -5}, {-5, -2}, {-2, -4}});
-
-      // -5  -4  -3  -2  -1
-      //[N8, K4, K2, N1, K2']
-      tv->setAllocationDomain(tv->getLeafDomain(), true);
-
-      // tv->merge(-4);
-      // tv->merge(-2);
-      //  -2   -1
-      //[warp, i4]
-
-      // tv->axis(-2)->parallelize(ParallelType::TIDx);
-    }
-  } else {
-    NVF_ERROR(false, "unreachable");
-  }
-
-  if (is_immediate_output) {
-    // tv->axis(-1)->parallelize(ParallelType::Vectorize);
-  }
 }
 
 } // namespace
@@ -1178,10 +1006,22 @@ void WarpMmaSwizzler::scheduleVoltaM16N16K4Fp32Output(
   }
 }
 
-void WarpMmaSwizzler::scheduleTuringOperandRead(
-    TensorView* tv,
-    MmaOptions options) {
-  scheduleLdMatrix(tv, options);
+void WarpMmaSwizzler::scheduleTuringOperandRead(TensorView* tv) {
+  NVF_ERROR(tv->nDims() >= 2);
+  //  -2   -1
+  //[16m, 16k]
+  tv->split(-2, 8);
+  tv->split(-1, 2);
+  tv->split(-2, 4);
+
+  // -5  -4  -3  -2  -1
+  //[2m, 8m, 2k, 4k, 2k']
+  tv->reorder({{-4, -5}, {-5, -2}, {-2, -4}});
+
+  // -5  -4   -3  -2  -1
+  //[8m, 4k, 2k, 2m, 2k']
+  tv->setAllocationDomain(tv->getLeafDomain(), true);
+
   setWarpMapped(tv, 2);
 }
 

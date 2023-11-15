@@ -477,7 +477,6 @@ TEST_F(NVFuserTest, FusionVoltaMatmulRegDoubleBuffer_CUDA) {
 }
 
 void scheduleLdMatrix(TensorView* consumer) {
-  std::cout << consumer->toString() << std::endl;
   //  -5  -4   -3   -2   -1
   //[8mi, 4k, 2ko, 2mo, 2ki]
   consumer->reorder({{-2, -4}, {-3, -5}});
@@ -490,11 +489,9 @@ void scheduleLdMatrix(TensorView* consumer) {
   //[32, 8]
   consumer->axis(-2)->parallelize(ParallelType::TIDx);
   consumer->axis(-1)->parallelize(ParallelType::Vectorize);
-  std::cout << consumer->toString() << std::endl;
 }
 
 void scheduleLdMatrixT(TensorView* consumer) {
-  std::cout << consumer->toString() << std::endl;
   //  -5  -4   -3   -2   -1
   //[8mi, 4k, 2ko, 2mo, 2ki]
   consumer->reorder({{-2, -4}, {-4, -2}});
@@ -513,7 +510,6 @@ void scheduleLdMatrixT(TensorView* consumer) {
   //[32, 8]
   consumer->axis(-2)->parallelize(ParallelType::TIDx);
   consumer->axis(-1)->parallelize(ParallelType::Vectorize);
-  std::cout << consumer->toString() << std::endl;
 }
 
 // MMA unit test on Ampere
@@ -835,9 +831,6 @@ TEST_F(NVFuserTest, FusionAmpereMMANN_CUDA) {
       0,
       fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
   auto cg_outputs = fe.runFusion({t0, t1});
-
-  std::cout << t1 << std::endl;
-  std::cout << cg_outputs[0] << std::endl;
 
   auto tref = t0.t().to(at::kFloat).matmul(t1.t().to(at::kFloat));
 
