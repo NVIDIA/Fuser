@@ -12,6 +12,51 @@
 
 #include <linked_hash_map.h>
 
+namespace {
+class Key {
+ public:
+  explicit Key(std::string data) : data_(std::move(data)) {}
+
+  size_t hash() const {
+    return std::hash<std::string>()(data_);
+  }
+
+  bool operator==(const Key& other) const {
+    return data_ == other.data_;
+  }
+
+ private:
+  std::string data_;
+};
+
+class Value {
+ public:
+  explicit Value(int data) : data_(data) {}
+
+  Value(const Value&) = delete;
+  Value& operator=(const Value&) = delete;
+
+  Value(Value&&) = default;
+  Value& operator=(Value&&) = default;
+
+  int data() const {
+    return data_;
+  }
+
+ private:
+  int data_;
+};
+} // namespace
+
+namespace std {
+template <>
+struct hash<Key> {
+  size_t operator()(const Key& key) const {
+    return key.hash();
+  }
+};
+} // namespace std
+
 namespace nvfuser {
 
 using testing::ElementsAre;
@@ -72,54 +117,6 @@ TEST(LinkedHashMapTest, EraseThenPushBack) {
   map.pushBack("b", 4);
   EXPECT_THAT(map, ElementsAre(Pair("a", 1), Pair("b", 4)));
 }
-
-namespace {
-class Key {
- public:
-  explicit Key(std::string data) : data_(std::move(data)) {}
-
-  size_t hash() const {
-    return std::hash<std::string>()(data_);
-  }
-
-  bool operator==(const Key& other) const {
-    return data_ == other.data_;
-  }
-
- private:
-  std::string data_;
-};
-
-class Value {
- public:
-  explicit Value(int data) : data_(data) {}
-
-  Value(const Value&) = delete;
-  Value& operator=(const Value&) = delete;
-
-  Value(Value&&) = default;
-  Value& operator=(Value&&) = default;
-
-  int data() const {
-    return data_;
-  }
-
- private:
-  int data_;
-};
-} // namespace
-} // namespace nvfuser
-
-namespace std {
-template <>
-struct hash<nvfuser::Key> {
-  size_t operator()(const nvfuser::Key& key) const {
-    return key.hash();
-  }
-};
-} // namespace std
-
-namespace nvfuser {
 
 namespace {
 MATCHER_P(DataIs, data, "") {
