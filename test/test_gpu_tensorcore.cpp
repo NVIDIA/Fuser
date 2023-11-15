@@ -477,10 +477,10 @@ TEST_F(NVFuserTest, FusionVoltaMatmulRegDoubleBuffer_CUDA) {
 }
 
 void scheduleLdMatrix(TensorView* consumer) {
+  std::cout << consumer->toString() << std::endl;
   //  -5  -4   -3   -2   -1
   //[8mi, 4k, 2ko, 2mo, 2ki]
   consumer->reorder({{-2, -4}, {-3, -5}});
-  std::cout << consumer->toString() << std::endl;
   //  -5  -4   -3   -2   -1
   //[2ko, 2mo, 8mi, 4k, 2ki]
   consumer->merge(-5);
@@ -494,15 +494,18 @@ void scheduleLdMatrix(TensorView* consumer) {
 }
 
 void scheduleLdMatrixT(TensorView* consumer) {
+  std::cout << consumer->toString() << std::endl;
   //  -5  -4   -3   -2   -1
   //[8mi, 4k, 2ko, 2mo, 2ki]
   consumer->reorder({{-2, -4}, {-4, -2}});
   //  -5   -4   -3  -2   -1
   //[8mi, 2mo, 2ko, 4k, 2ki]
-  consumer->reorder({{-4, -1}});
-  //  -5   -4   -3  -2   -1
-  //[8mi, 2ko, 4k, 2ki, 2mo]
   consumer->merge(-2);
+  //  -4   -3  -2   -1
+  //[8mi, 2mo, 2ko, 8k]
+  consumer->reorder({{-2, -3}});
+  //  -4   -3  -2   -1
+  //[8mi, 2ko, 2mo, 8k]
   consumer->merge(-2);
   consumer->merge(-2);
   consumer->reorder({{-1, -2}});
@@ -731,8 +734,8 @@ TEST_F(NVFuserTest, FusionAmpereMMANT_CUDA) {
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  scheduleLdMatrix(tv0cr);
-  scheduleLdMatrix(tv1cr);
+  scheduleLdMatrixT(tv0cr);
+  scheduleLdMatrixT(tv1cr);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -812,7 +815,7 @@ TEST_F(NVFuserTest, FusionAmpereMMANN_CUDA) {
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  scheduleLdMatrix(tv0cr);
+  scheduleLdMatrixT(tv0cr);
   scheduleLdMatrix(tv1cr);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
@@ -823,7 +826,7 @@ TEST_F(NVFuserTest, FusionAmpereMMANN_CUDA) {
   tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  auto t0 = at::randn({16, 16}, options);
+  auto t0 = at::eye(16, options);
   auto t1 = at::randn({8, 16}, options);
 
   FusionExecutor fe;
@@ -832,6 +835,9 @@ TEST_F(NVFuserTest, FusionAmpereMMANN_CUDA) {
       0,
       fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
   auto cg_outputs = fe.runFusion({t0, t1});
+
+  std::cout << t1 << std::endl;
+  std::cout << cg_outputs[0] << std::endl;
 
   auto tref = t0.t().to(at::kFloat).matmul(t1.t().to(at::kFloat));
 

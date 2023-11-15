@@ -989,9 +989,6 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
     auto mma = options.mmaOp();
     auto m_dims = getMmaRootDimensions(tv, mma, MmaDimension::M);
     auto k_dims = getMmaRootDimensions(tv, mma, MmaDimension::K);
-    bool transposed =
-        (options.layout == MmaOptions::MmaLayout::NN ||
-         options.layout == MmaOptions::MmaLayout::NT);
 
     NVF_ERROR(
         canValidateIsInnerDim(m_dims.back(), tv->axis(-2), 16),
@@ -1014,11 +1011,6 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
     // -5  -4   -3  -2  -1
     //[8m, 4k, 2k, 2m, 2k']
     tv->setAllocationDomain(tv->getLeafDomain(), true);
-
-    if (transposed) {
-      NVF_ERROR(false);
-      tv->reorder({{-1, -2}, {-2, -1}});
-    }
 
     // tv->merge(-5);
     // tv->merge(-3);
