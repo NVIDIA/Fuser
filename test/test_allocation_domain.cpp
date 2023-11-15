@@ -24,6 +24,8 @@ namespace nvfuser {
 
 class AllocationDomainTest : public NVFuserTest {};
 
+using ::testing::ElementsAre;
+
 // A global->shared->global copy kernel, shared memory allocated transposed to
 // avoid bank conflict.
 TEST_F(AllocationDomainTest, TransposedIntermediate) {
@@ -1248,7 +1250,7 @@ TEST_F(AllocationDomainTest, VectorizeOverlappingTensor) {
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(AllocationDomainTest, Issue1290) {
+TEST_F(AllocationDomainTest, Issue1290_ContiguityWasMissing) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1279,7 +1281,7 @@ TEST_F(AllocationDomainTest, Issue1290) {
   EXPECT_EQ(group->heuristic(), ScheduleHeuristic::PointWise);
 }
 
-TEST_F(AllocationDomainTest, CacheBefore) {
+TEST_F(AllocationDomainTest, Issue1290_ReplayCasPFailedDueToDifferentRanks) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   TensorView* in = makeContigConcreteTensor({2, 3});
@@ -1287,14 +1289,14 @@ TEST_F(AllocationDomainTest, CacheBefore) {
   fusion.addInput(in);
   fusion.addOutput(out);
 
-  out->setAllocationDomain({out->axis(0)}, true);
+  out->setAllocationDomain({out->axis(0), out->axis(1)}, true);
   out->cacheBefore();
 
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
   FusionExecutor fe;
   fe.compileFusion(&fusion, {in_tensor});
   at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
-  std::cerr << out_tensor.sizes() << std::endl;
+  EXPECT_THAT(out_tensor.sizes(), ElementsAre(2));
 }
 
 } // namespace nvfuser
