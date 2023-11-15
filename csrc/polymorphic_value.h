@@ -383,8 +383,11 @@ inline c10::Scalar toScalar(const PolymorphicValue& x) {
     return x.as<bool>();
   } else if (x.is<std::complex<double>>()) {
     return (c10::complex<double>)x.as<std::complex<double>>();
-  } else { NVF_ERROR(
-      false, "PolymorphicValue toTensor not implemented for ", x.type().name());
+  } else {
+    NVF_ERROR(
+        false,
+        "PolymorphicValue toTensor not implemented for ",
+        x.type().name());
   }
 }
 
