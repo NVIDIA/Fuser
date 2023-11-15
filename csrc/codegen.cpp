@@ -1089,7 +1089,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       ss << toString(mma_layout_opt.value());
     }
     if (!init && isAmpere(macro)) {
-      if (mma->inA()->getDataType().value() == DataType::Half) {
+      if (mma->inA()->as<kir::TensorIndex>()->view()->getDataType().value() ==
+          DataType::Half) {
         ss << "F16";
       } else {
         ss << "BF16";
