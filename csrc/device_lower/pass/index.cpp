@@ -24,7 +24,8 @@ Val* IndexLowering::lowerSrcIndex(
     Val* src,
     Val* dst,
     const std::unordered_map<IterDomain*, Val*>& override_index,
-    bool generate_pointer) const {
+    bool generate_pointer,
+    DataType as_type) const {
   if (auto tv = dynamic_cast<TensorView*>(src)) {
     NVF_ERROR(dst->isA<TensorView>());
     return Index::getProducerIndex(
@@ -33,7 +34,8 @@ Val* IndexLowering::lowerSrcIndex(
         for_loops_,
         getRotatedLoop(),
         override_index,
-        generate_pointer);
+        generate_pointer,
+        as_type);
   } else {
     return src;
   }
@@ -1352,6 +1354,44 @@ void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
   pushBack(IrBuilder::create<kir::CpAsyncBulkS2GWait>(0));
 }
 
+static DataType getMmaInputAType(MmaOptions::MacroType macro) {
+  int size;
+  switch (macro) {
+    case MmaOptions::MacroType::Volta_16_16_4:
+      size = 2;
+      break;
+    case MmaOptions::MacroType::Turing_16_8_16:
+    case MmaOptions::MacroType::Turing_16_16_16:
+    case MmaOptions::MacroType::Ampere_16_8_16:
+    case MmaOptions::MacroType::Ampere_16_16_16:
+      size = 4;
+      break;
+    default:
+      NVF_ERROR(false, "unknown macro");
+      break;
+  }
+  return ArrayType{std::make_shared<DataType>(DataType::UInt32), (size_t)size};
+}
+
+static DataType getMmaInputBType(MmaOptions::MacroType macro) {
+  int size;
+  switch (macro) {
+    case MmaOptions::MacroType::Volta_16_16_4:
+    case MmaOptions::MacroType::Turing_16_8_16:
+    case MmaOptions::MacroType::Ampere_16_8_16:
+      size = 2;
+      break;
+    case MmaOptions::MacroType::Turing_16_16_16:
+    case MmaOptions::MacroType::Ampere_16_16_16:
+      size = 4;
+      break;
+    default:
+      NVF_ERROR(false, "unknown macro");
+      break;
+  }
+  return ArrayType{std::make_shared<DataType>(DataType::UInt32), (size_t)size};
+}
+
 static inline DataType getMmaOutType(TensorView* mma_out) {
   int64_t size = 1;
   for (auto id : mma_out->getLeafDomain()) {
@@ -1398,8 +1438,10 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
 }
 
 void IndexLowering::handle(const MmaOp* mma) {
-  const auto a = lowerSrcIndex(mma->inA(), mma->out());
-  const auto b = lowerSrcIndex(mma->inB(), mma->out());
+  const auto a = lowerSrcIndex(
+      mma->inA(), mma->out(), {}, false, getMmaInputAType(mma->macro()));
+  const auto b = lowerSrcIndex(
+      mma->inB(), mma->out(), {}, false, getMmaInputBType(mma->macro()));
   const auto out = lowerDstIndex(
       mma->out(), {}, false, getMmaOutType(mma->out()->as<TensorView>()));
   auto mma_indexed = IrBuilder::create<MmaOp>(

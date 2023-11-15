@@ -1098,60 +1098,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     return ss.str();
   }
 
-  static int getInputARegisterSize(MmaOptions::MacroType macro) {
-    switch (macro) {
-      case MmaOptions::MacroType::Volta_16_16_4:
-        return 2;
-      case MmaOptions::MacroType::Turing_16_8_16:
-      case MmaOptions::MacroType::Turing_16_16_16:
-      case MmaOptions::MacroType::Ampere_16_8_16:
-      case MmaOptions::MacroType::Ampere_16_16_16:
-        return 4;
-      default:
-        NVF_ERROR(false, "unknown macro");
-        break;
-    }
-    return -1;
-  }
-
-  static int getInputBRegisterSize(MmaOptions::MacroType macro) {
-    switch (macro) {
-      case MmaOptions::MacroType::Volta_16_16_4:
-      case MmaOptions::MacroType::Turing_16_8_16:
-      case MmaOptions::MacroType::Ampere_16_8_16:
-        return 2;
-      case MmaOptions::MacroType::Turing_16_16_16:
-      case MmaOptions::MacroType::Ampere_16_16_16:
-        return 4;
-      default:
-        NVF_ERROR(false, "unknown macro");
-        break;
-    }
-    return -1;
-  }
-
-  void genMmaOperands(const MmaOp* mma) {
-    std::stringstream ss;
-    auto macro = mma->macro();
-    auto in_a = mma->inA()->as<kir::TensorIndex>()->view();
-    auto dtype = in_a->getDataType().value();
-    indent() << kTab << "(*reinterpret_cast<Array<unsigned"
-             << "," << getInputARegisterSize(macro) << ", 1>*>(&"
-             << genVariableName(mma->inA()->as<kir::TensorIndex>()->view())
-             << "[" << genInline(mma->inA()->as<kir::TensorIndex>()->index())
-             << "]))"
-             << ",\n";
-    indent() << kTab << "(*reinterpret_cast<Array<unsigned"
-             << "," << getInputBRegisterSize(macro) << ", 1>*>(&"
-             << genVariableName(mma->inB()->as<kir::TensorIndex>()->view())
-             << "[" << genInline(mma->inB()->as<kir::TensorIndex>()->index())
-             << "]))";
-  }
-
   void handle(const MmaOp* mma) final {
     indent() << genMmaOp(mma) << "(\n";
     indent() << kTab << gen(mma->out()) << ",\n";
-    genMmaOperands(mma);
+    indent() << kTab << gen(mma->inA()) << ",\n";
+    indent() << kTab << gen(mma->inB());
     code_ << ");\n";
   }
 
