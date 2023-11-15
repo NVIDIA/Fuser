@@ -52,7 +52,7 @@ TrieNode::TrieNode(RecordFunctor* rec, TrieNode* _parent, size_t _fusion_id)
       trie_node_lock() {}
 
 bool TrieNode::isTerminal() const {
-  return (record.get()->recordType() == serde::RecordType_End);
+  return (record.get()->recordType() == serde::RecordType::End);
 }
 
 flatbuffers::Offset<serde::TrieNode> TrieNode::serialize(
@@ -106,7 +106,7 @@ void FusionCache::print(std::ostream& os) const {
       std::vector<TrieNode*> rev_fusion_records;
       TrieNode* end = node->parent;
       while (end) {
-        if (end->record->recordType() != serde::RecordType_Start) {
+        if (end->record->recordType() != serde::RecordType::Start) {
           rev_fusion_records.emplace_back(end);
         }
         end = end->parent;
@@ -242,7 +242,7 @@ TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
     child = child_node.value();
   } else {
     size_t fusion_id = 0;
-    if (rec->recordType() == serde::RecordType_End) {
+    if (rec->recordType() == serde::RecordType::End) {
       NVF_CHECK(
           (fusions_.size() + 1) <= max_fusions_,
           "The number of fusions in nvfuser has exceeded ",
@@ -263,7 +263,7 @@ TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
     child = node->children[new_rec].get();
     NVF_CHECK(child, "Created child of TrieNode should not be null!");
     ++(child->visits);
-    if (rec->recordType() == serde::RecordType_End) {
+    if (rec->recordType() == serde::RecordType::End) {
       terminal_nodes_.push_back(node->children[new_rec].get());
     }
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
@@ -488,7 +488,7 @@ void FusionCache::deserialize(std::string filename) {
           fb_trie_node->children()->size() == 0,
           "This terminal node should not have any children.")
       NVF_CHECK(
-          fb_trie_node->record()->type() == serde::RecordType_End,
+          fb_trie_node->record()->type() == serde::RecordType::End,
           "This terminal node should have an EndRecord RecordFunctor")
       NVF_CHECK(
           trie_ptr->fusion_id == fb_trie_node->fusion_id(),
