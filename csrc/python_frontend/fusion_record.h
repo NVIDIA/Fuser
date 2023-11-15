@@ -2657,9 +2657,9 @@ struct RandomDistOpRecord : RecordFunctor {
     static_assert(
         (RType == serde::RecordType::NormalDistOp) ||
         (RType == serde::RecordType::UniformDistOp));
-    if constexpr (RType == serde::RecordType_UniformDistOp) {
+    if constexpr (RType == serde::RecordType::UniformDistOp) {
       name_ = "ops.uniform";
-    } else if constexpr (RType == serde::RecordType_NormalDistOp) {
+    } else if constexpr (RType == serde::RecordType::NormalDistOp) {
       name_ = "ops.normal";
     }
     setArgName(2, "shape");
@@ -2729,7 +2729,7 @@ struct RandomDistOpRecord : RecordFunctor {
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
-        serde::RecordData_TensorCreationSymbolic,
+        serde::RecordData::TensorCreationSymbolic,
         serde::CreateTensorCreationSymbolic(builder, toUnderlying(dtype_))
             .Union()};
   }

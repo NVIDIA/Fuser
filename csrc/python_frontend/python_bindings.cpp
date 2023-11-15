@@ -2032,9 +2032,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
 
   NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP(
-      "normal", serde::RecordType_NormalDistOp, "mean", "std")
+      "normal", serde::RecordType::NormalDistOp, "mean", "std")
   NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP(
-      "uniform", serde::RecordType_UniformDistOp, "minval", "maxval")
+      "uniform", serde::RecordType::UniformDistOp, "minval", "maxval")
 #undef NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP
 
   nvf_ops.def(
