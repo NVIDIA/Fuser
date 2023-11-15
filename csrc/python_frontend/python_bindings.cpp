@@ -2010,9 +2010,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg(arg2_str),                           \
       py::arg("shape"),                            \
       py::kw_only(),                               \
-      py::arg("rng_seed").none(true) = py::none(),            \
-      py::arg("rng_offset").none(true) = py::none(),          \
-      py::arg("dtype").none(true) = DataType::Float,          \
+      py::arg("rng_seed") = py::none(),            \
+      py::arg("rng_offset") = py::none(),          \
+      py::arg("dtype") = DataType::Float,          \
       py::return_value_policy::reference);
 
 #define NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP(...) \
