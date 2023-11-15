@@ -1077,36 +1077,23 @@ void scheduleLdMatrix(TensorView* tv, MmaOptions options) {
           canValidateIsInnerDim(n_dims.back(), tv->axis(-2), 8),
           "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
 
-      if (transposed) {
-        NVF_ERROR(false);
-        // [8, 16]
-        tv->split(-2, 4);
+      //[N8, K16]
+      tv->split(-2, 8);
+      tv->split(-1, 2);
+      tv->split(-2, 4);
 
-        // [2i, 4i, 16]
-        tv->reorder({{-1, -2}, {-2, -1}});
-        // [2i, 16, 4i]
+      // -5  -4  -3  -2  -1
+      //[N1, N8, K2, K4, K2']
+      tv->reorder({{-4, -5}, {-5, -2}, {-2, -4}});
 
-        tv->merge(-3);
-        // [warp, 4i]
-      } else {
-        //[N8, K16]
-        tv->split(-2, 8);
-        tv->split(-1, 2);
-        tv->split(-2, 4);
+      // -5  -4  -3  -2  -1
+      //[N8, K4, K2, N1, K2']
+      tv->setAllocationDomain(tv->getLeafDomain(), true);
 
-        // -5  -4  -3  -2  -1
-        //[N1, N8, K2, K4, K2']
-        tv->reorder({{-4, -5}, {-5, -2}, {-2, -4}});
-
-        // -5  -4  -3  -2  -1
-        //[N8, K4, K2, N1, K2']
-        tv->setAllocationDomain(tv->getLeafDomain(), true);
-
-        // tv->merge(-4);
-        // tv->merge(-2);
-        //  -2   -1
-        //[warp, i4]
-      }
+      // tv->merge(-4);
+      // tv->merge(-2);
+      //  -2   -1
+      //[warp, i4]
 
       // tv->axis(-2)->parallelize(ParallelType::TIDx);
     }
