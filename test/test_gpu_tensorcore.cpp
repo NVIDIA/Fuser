@@ -476,29 +476,6 @@ TEST_F(NVFuserTest, FusionVoltaMatmulRegDoubleBuffer_CUDA) {
   }
 }
 
-void scheduleLdMatrix(TensorView* consumer) {
-  bool transpose = consumer->hasRFactor();
-  //  -5  -4   -3   -2   -1
-  //[8mi, 4k, 2ko, 2mo, 2ki]
-  consumer->reorder({{-2, -4}, {-3, -5}});
-  //  -5  -4   -3   -2   -1
-  //[2ko, 2mo, 8mi, 4k, 2ki]
-  consumer->merge(-2);
-  //  -4   -3   -2  -1
-  //[2ko, 2mo, 8mi, 8k]
-  if (transpose) {
-    consumer->reorder({{-2, -1}});
-    //  -4   -3  -2   -1
-    //[2ko, 2mo, 8k, 8mi]
-  }
-  consumer->merge(-4);
-  consumer->merge(-3);
-  // -2  -1
-  //[32, 8k]
-  consumer->axis(-2)->parallelize(ParallelType::TIDx);
-  consumer->axis(-1)->parallelize(ParallelType::Vectorize);
-}
-
 // MMA unit test on Ampere
 TEST_F(NVFuserTest, FusionAmpereMMATN_CUDA) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
@@ -551,8 +528,8 @@ TEST_F(NVFuserTest, FusionAmpereMMATN_CUDA) {
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  scheduleLdMatrix(tv0cr);
-  scheduleLdMatrix(tv1cr);
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -632,8 +609,8 @@ TEST_F(NVFuserTest, FusionAmpereMMATT_CUDA) {
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  scheduleLdMatrix(tv0cr);
-  scheduleLdMatrix(tv1cr);
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -717,8 +694,8 @@ TEST_F(NVFuserTest, FusionAmpereMMANT_CUDA) {
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  scheduleLdMatrix(tv0cr);
-  scheduleLdMatrix(tv1cr);
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -798,8 +775,8 @@ TEST_F(NVFuserTest, FusionAmpereMMANN_CUDA) {
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  scheduleLdMatrix(tv0cr);
-  scheduleLdMatrix(tv1cr);
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(

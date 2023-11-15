@@ -170,6 +170,13 @@ class WarpMmaSwizzler {
       TensorView* tv,
       MmaOptions options = MmaOptions());
 
+  //! Note [schedule of ldmatrix]
+  //! If you look at the documentation of ldmatrix and mma for Turing and Ampere:
+  //! https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-fragment-mma-16816-float
+  //! https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-fragment-mma-16816-float
+  //! you will find that, 
+  static void scheduleLdMatrix(TensorView* tv);
+
  private:
   //! Operand swizzle implementations for Volta mma.
   static void scheduleVoltaOperandRead(TensorView* tv, MmaOptions options);
@@ -179,11 +186,8 @@ class WarpMmaSwizzler {
       TensorView* tv,
       const MmaOptions& options);
 
-  //! Memory layout for MMA operand.
+  //! Memory layout for MMA operand, see note [schedule of ldmatrix]
   static void scheduleTuringOperandRead(TensorView* tv);
-
-  //! Indexing for ldmatrix
-  static void scheduleLdMatrix(TensorView* tv);
 
   //! Accumulator swizzle implementation for Turing and Ampere mma.
   static void scheduleTuringM16N8K16MmaWarpOutput(

@@ -1025,6 +1025,29 @@ void WarpMmaSwizzler::scheduleTuringOperandRead(TensorView* tv) {
   setWarpMapped(tv, 2);
 }
 
+void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv) {
+  bool transpose = tv->hasRFactor();
+  //  -5  -4   -3   -2   -1
+  //[8mi, 4k, 2ko, 2mo, 2ki]
+  tv->reorder({{-2, -4}, {-3, -5}});
+  //  -5  -4   -3   -2   -1
+  //[2ko, 2mo, 8mi, 4k, 2ki]
+  tv->merge(-2);
+  //  -4   -3   -2  -1
+  //[2ko, 2mo, 8mi, 8k]
+  if (transpose) {
+    tv->reorder({{-2, -1}});
+    //  -4   -3  -2   -1
+    //[2ko, 2mo, 8k, 8mi]
+  }
+  tv->merge(-4);
+  tv->merge(-3);
+  // -2  -1
+  //[32, 8k]
+  tv->axis(-2)->parallelize(ParallelType::TIDx);
+  tv->axis(-1)->parallelize(ParallelType::Vectorize);
+}
+
 void WarpMmaSwizzler::scheduleTuringM16N8K16MmaWarpOutput(
     TensorView* tv,
     const MmaOptions& options) {
