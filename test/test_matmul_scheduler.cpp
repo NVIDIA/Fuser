@@ -15,15 +15,13 @@
 #include <scheduler/mma_utils.h>
 #include <test/utils.h>
 #include <test/validator.h>
-#include "ops/arith.h"
-#include "type.h"
 
 namespace nvfuser {
 
 namespace {
 class MatmulSchedulerTest : public NVFuserTest {};
 
-using PrecisionsDesc = std::pair<PrimDataType, PrimDataType>;
+using PrecisionsDesc = std::tuple<PrimDataType, PrimDataType, PrimDataType>;
 
 using AbsoluteError = double;
 using RelariveError = double;
@@ -47,14 +45,22 @@ class PrecisionParametrizedTest
   return "*";
 }
 
-static const PrecisionsDesc HSH =
-    std::make_pair(PrimDataType::Half, PrimDataType::Half);
-static const PrecisionsDesc HSS =
-    std::make_pair(PrimDataType::Half, PrimDataType::Float);
-static const PrecisionsDesc TST =
-    std::make_pair(PrimDataType::BFloat16, PrimDataType::BFloat16);
-static const PrecisionsDesc TSS =
-    std::make_pair(PrimDataType::BFloat16, PrimDataType::Float);
+static const PrecisionsDesc HSH = std::make_tuple(
+    PrimDataType::Half,
+    PrimDataType::Float,
+    PrimDataType::Half);
+static const PrecisionsDesc HSS = std::make_tuple(
+    PrimDataType::Half,
+    PrimDataType::Float,
+    PrimDataType::Float);
+static const PrecisionsDesc TST = std::make_tuple(
+    PrimDataType::BFloat16,
+    PrimDataType::Float,
+    PrimDataType::BFloat16);
+static const PrecisionsDesc TSS = std::make_tuple(
+    PrimDataType::BFloat16,
+    PrimDataType::Float,
+    PrimDataType::Float);
 
 // Matmul test that uses segmenter for fusion:
 //   D = (A x B) + bias
@@ -74,12 +80,14 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
       errs.count(GetParam()) != 0,
       "Undefined error thresholds for requested precisions");
 
-  const auto [in_prim_type, out_prim_type] = GetParam();
+  const auto [in_prim_type, accu_prim_type, out_prim_type] = GetParam();
   const auto [abs_err_thr, rel_err_thr] = errs[GetParam()];
 
   const auto in_type = DataType(in_prim_type);
+  const auto accu_type = DataType(accu_prim_type);
   const auto out_type = DataType(out_prim_type);
   const auto at_in_type = data_type_to_aten(in_prim_type);
+  const auto at_accu_type = data_type_to_aten(accu_prim_type);
   const auto at_out_type = data_type_to_aten(out_prim_type);
 
   // NOTE: bfloat16 is not supported on pre-Ampere archs
@@ -97,16 +105,18 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
 
   // tv3 := A x B
   auto tv3 = matmul(tv0, tv1, layout, true);
-  // tv4 := cast(tv3)
-  auto tv4 = maybeCastOp(out_type, tv3);
+  // tv4 := cast(bias)
+  auto tv4 = maybeCastOp(accu_type, tv2);
 
   // tv5 := (A x B) + bias
-  auto tv5 = biasEpilogue(tv4, tv2);
+  auto tv5 = biasEpilogue(tv3, tv4);
+  // tv6 := cast(tv5)
+  auto tv6 = maybeCastOp(out_type, tv5);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   fusion->addInput(tv2);
-  fusion->addOutput(tv5);
+  fusion->addOutput(tv6);
 
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
@@ -141,9 +151,10 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
   auto t2 = matmulAtInput(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
 
   auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
-  auto t4 = t2.to(at_out_type);
+  auto t4 = t2.to(at_accu_type);
 
-  auto t5 = atBiasEpilogue(t3, t2);
+  auto t5 = atBiasEpilogue(t3, t4);
+  auto t6 = t5.to(at_out_type);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
@@ -153,7 +164,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  NVF_CHECK(outputs[0].allclose(t5, abs_err_thr, rel_err_thr));
+  NVF_CHECK(outputs[0].allclose(t6, abs_err_thr, rel_err_thr));
 }
 
 // Matmul test that uses segmenter for fusion:
@@ -174,7 +185,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
       errs.count(GetParam()) != 0,
       "Undefined error thresholds for requested precisions");
 
-  const auto [in_prim_type, out_prim_type] = GetParam();
+  const auto [in_prim_type, accu_prim_type, out_prim_type] = GetParam();
   const auto [abs_err_thr, rel_err_thr] = errs[GetParam()];
 
   const auto in_type = DataType(in_prim_type);
@@ -264,12 +275,14 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
       errs.count(GetParam()) != 0,
       "Undefined error thresholds for requested precisions");
 
-  const auto [in_prim_type, out_prim_type] = GetParam();
+  const auto [in_prim_type, accu_prim_type, out_prim_type] = GetParam();
   const auto [abs_err_thr, rel_err_thr] = errs[GetParam()];
 
   const auto in_type = DataType(in_prim_type);
+  const auto accu_type = DataType(accu_prim_type);
   const auto out_type = DataType(out_prim_type);
   const auto at_in_type = data_type_to_aten(in_prim_type);
+  const auto at_accu_type = data_type_to_aten(accu_prim_type);
   const auto at_out_type = data_type_to_aten(out_prim_type);
 
   // NOTE: bfloat16 is not supported on pre-Ampere archs
@@ -287,10 +300,12 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
 
   // tv3 := A x B
   auto tv3 = matmul(tv0, tv1, layout, true);
-  auto tv4 = maybeCastOp(out_type, tv3);
+
+  // tv4 := cast(bias)
+  auto tv4 = maybeCastOp(accu_type, tv2);
 
   // tv5 := (A x B) + bias
-  auto tv5 = biasEpilogue(tv4, tv2);
+  auto tv5 = biasEpilogue(tv3, tv4);
 
   // tv6 := relu((A x B) + bias)
   auto tv6 = relu(tv5);
@@ -334,9 +349,10 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
   auto t2 = matmulAtInput(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
 
   auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
-  auto t4 = t3.to(at_out_type);
-  auto t5 = atBiasEpilogue(t4, t2);
-  auto t7 = at::relu(t5);
+  auto t4 = t2.to(at_accu_type);
+  auto t5 = atBiasEpilogue(t3, t4);
+  auto t6 = at::relu(t5);
+  auto t7 = t6.to(at_out_type);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
@@ -345,8 +361,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
       "segmentation did happen");
 
   // NOTE: increasted absolute tolerance to silence false negative verification
-  //       caused by different way of calculating reference
-  // D tensor results
+  //       caused by different way of calculating reference D tensor results
   NVF_CHECK(outputs[0].allclose(t7, abs_err_thr, rel_err_thr));
 }
 
@@ -369,7 +384,7 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueReluAux) {
       errs.count(GetParam()) != 0,
       "Undefined error thresholds for requested precisions");
 
-  const auto [in_prim_type, out_prim_type] = GetParam();
+  const auto [in_prim_type, accu_prim_type, out_prim_type] = GetParam();
   const auto [abs_err_thr, rel_err_thr] = errs[GetParam()];
 
   const auto in_type = DataType(in_prim_type);
@@ -391,7 +406,7 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueReluAux) {
 
   auto tv2 = matmul(tv0, tv1, layout, true);
   auto tv3 = maybeCastOp(out_type, tv2);
-  auto tv4 = relu(tv3);
+  auto tv4 = relu(tv2);
   auto tv5 = maybeCastOp(out_type, tv4);
 
   fusion->addInput(tv0);
@@ -466,12 +481,14 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasReluAux) {
       errs.count(GetParam()) != 0,
       "Undefined error thresholds for requested precisions");
 
-  const auto [in_prim_type, out_prim_type] = GetParam();
+  const auto [in_prim_type, accu_prim_type, out_prim_type] = GetParam();
   const auto [abs_err_thr, rel_err_thr] = errs[GetParam()];
 
   const auto in_type = DataType(in_prim_type);
+  const auto accu_type = DataType(accu_prim_type);
   const auto out_type = DataType(out_prim_type);
   const auto at_in_type = data_type_to_aten(in_prim_type);
+  const auto at_accu_type = data_type_to_aten(accu_prim_type);
   const auto at_out_type = data_type_to_aten(out_prim_type);
 
   // NOTE: bfloat16 is not supported on pre-Ampere archs
@@ -489,20 +506,24 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasReluAux) {
 
   // tv3 := A x B
   auto tv3 = matmul(tv0, tv1, layout, true);
-  auto tv4 = maybeCastOp(out_type, tv3);
+  // tv4 := cast(bias)
+  auto tv4 = maybeCastOp(accu_type, tv2);
 
   // tv5 := (A x B) + bias
-  auto tv5 = biasEpilogue(tv4, tv2);
+  auto tv5 = biasEpilogue(tv3, tv4);
 
-  // tv6 := relu((A x B) + bias)
-  auto tv6 = relu(tv5);
-  auto tv7 = maybeCastOp(out_type, tv6);
+  // tv6 := cast((A x B) + bias)
+  auto tv6 = maybeCastOp(out_type, tv5);
+
+  // tv7 := relu((A x B) + bias)
+  auto tv7 = relu(tv5);
+  auto tv8 = maybeCastOp(out_type, tv7);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   fusion->addInput(tv2);
-  fusion->addOutput(tv5);
-  fusion->addOutput(tv7);
+  fusion->addOutput(tv6);
+  fusion->addOutput(tv8);
 
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
@@ -537,9 +558,11 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasReluAux) {
   auto t2 = matmulAtInput(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
 
   auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
-  auto t4 = t3.to(at_out_type);
-  auto t5 = atBiasEpilogue(t4, t2);
+  auto t4 = t2.to(at_accu_type);
+  auto t5 = atBiasEpilogue(t3, t4);
+  auto t6 = t5.to(at_out_type);
   auto t7 = at::relu(t5);
+  auto t8 = t7.to(at_out_type);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
@@ -548,11 +571,10 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasReluAux) {
       "segmentation did happen");
 
   // NOTE: increasted absolute tolerance to silence false negative verification
-  //       caused by different way of calculating reference
-  // D tensor results
-  NVF_CHECK(outputs[0].allclose(t5, abs_err_thr, rel_err_thr));
+  //       caused by different way of calculating reference D tensor results
+  NVF_CHECK(outputs[0].allclose(t6, abs_err_thr, rel_err_thr));
   // Aux tensor results
-  NVF_CHECK(outputs[1].allclose(t7, abs_err_thr, rel_err_thr));
+  NVF_CHECK(outputs[1].allclose(t8, abs_err_thr, rel_err_thr));
 }
 
 // Matmul test that uses segmenter for fusion:
@@ -573,7 +595,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
       errs.count(GetParam()) != 0,
       "Undefined error thresholds for requested precisions");
 
-  const auto [in_prim_type, out_prim_type] = GetParam();
+  const auto [in_prim_type, accu_prim_type, out_prim_type] = GetParam();
   const auto [abs_err_thr, rel_err_thr] = errs[GetParam()];
 
   const auto in_type = DataType(in_prim_type);
@@ -663,7 +685,7 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueGeluAux) {
       errs.count(GetParam()) != 0,
       "Undefined error thresholds for requested precisions");
 
-  const auto [in_prim_type, out_prim_type] = GetParam();
+  const auto [in_prim_type, accu_prim_type, out_prim_type] = GetParam();
   const auto [abs_err_thr, rel_err_thr] = errs[GetParam()];
 
   const auto in_type = DataType(in_prim_type);
@@ -758,12 +780,14 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
       errs.count(GetParam()) != 0,
       "Undefined error thresholds for requested precisions");
 
-  const auto [in_prim_type, out_prim_type] = GetParam();
+  const auto [in_prim_type, accu_prim_type, out_prim_type] = GetParam();
   const auto [abs_err_thr, rel_err_thr] = errs[GetParam()];
 
   const auto in_type = DataType(in_prim_type);
+  const auto accu_type = DataType(accu_prim_type);
   const auto out_type = DataType(out_prim_type);
   const auto at_in_type = data_type_to_aten(in_prim_type);
+  const auto at_accu_type = data_type_to_aten(accu_prim_type);
   const auto at_out_type = data_type_to_aten(out_prim_type);
 
   // NOTE: bfloat16 is not supported on pre-Ampere archs
@@ -781,10 +805,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
 
   // tv3 := A x B
   auto tv3 = matmul(tv0, tv1, layout, true);
-  auto tv4 = maybeCastOp(out_type, tv3);
+  // tv4 := cast(bias)
+  auto tv4 = maybeCastOp(accu_type, tv2);
 
   // tv5 := (A x B) + bias
-  auto tv5 = biasEpilogue(tv4, tv2);
+  auto tv5 = biasEpilogue(tv3, tv4);
 
   // tv6 := gelu((A x B) + bias)
   auto tv6 = gelu(tv5);
@@ -828,9 +853,10 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
   auto t2 = matmulAtInput(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
 
   auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
-  auto t4 = t3.to(at_out_type);
-  auto t5 = atBiasEpilogue(t4, t2);
-  auto t7 = at::gelu(t5);
+  auto t4 = t2.to(at_accu_type);
+  auto t5 = atBiasEpilogue(t3, t4);
+  auto t6 = at::gelu(t5);
+  auto t7 = t6.to(at_out_type);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
@@ -863,12 +889,14 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasGeluAux) {
       errs.count(GetParam()) != 0,
       "Undefined error thresholds for requested precisions");
 
-  const auto [in_prim_type, out_prim_type] = GetParam();
+  const auto [in_prim_type, accu_prim_type, out_prim_type] = GetParam();
   const auto [abs_err_thr, rel_err_thr] = errs[GetParam()];
 
   const auto in_type = DataType(in_prim_type);
+  const auto accu_type = DataType(accu_prim_type);
   const auto out_type = DataType(out_prim_type);
   const auto at_in_type = data_type_to_aten(in_prim_type);
+  const auto at_accu_type = data_type_to_aten(accu_prim_type);
   const auto at_out_type = data_type_to_aten(out_prim_type);
 
   // NOTE: bfloat16 is not supported on pre-Ampere archs
@@ -886,20 +914,23 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasGeluAux) {
 
   // tv3 := A x B
   auto tv3 = matmul(tv0, tv1, layout, true);
-  auto tv4 = maybeCastOp(out_type, tv3);
+  // tv4 := cast(bias)
+  auto tv4 = maybeCastOp(accu_type, tv2);
 
   // tv5 := (A x B) + bias
-  auto tv5 = biasEpilogue(tv4, tv2);
+  auto tv5 = biasEpilogue(tv3, tv4);
+  // tv6 := cast((A x B) + bias)
+  auto tv6 = maybeCastOp(out_type, tv5);
 
-  // tv6 := gelu((A x B) + bias)
-  auto tv6 = gelu(tv5);
-  auto tv7 = maybeCastOp(out_type, tv6);
+  // tv7 := gelu((A x B) + bias)
+  auto tv7 = gelu(tv5);
+  auto tv8 = maybeCastOp(out_type, tv7);
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   fusion->addInput(tv2);
-  fusion->addOutput(tv5);
-  fusion->addOutput(tv7);
+  fusion->addOutput(tv6);
+  fusion->addOutput(tv8);
 
   NVF_CHECK(
       1 == ir_utils::getOpsOfType<MmaOp>(fusion.get()).size(),
@@ -934,9 +965,11 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasGeluAux) {
   auto t2 = matmulAtInput(layout, TensorMatmulPos::Bias, at_out_type, M, N, K);
 
   auto t3 = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
-  auto t4 = t3.to(at_out_type);
-  auto t5 = atBiasEpilogue(t4, t2);
+  auto t4 = t2.to(at_accu_type);
+  auto t5 = atBiasEpilogue(t3, t4);
+  auto t6 = t5.to(at_out_type);
   auto t7 = at::gelu(t5);
+  auto t8 = t7.to(at_out_type);
 
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
@@ -945,11 +978,10 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasGeluAux) {
       "segmentation did happen");
 
   // NOTE: increasted absolute tolerance to silence false negative verification
-  //       caused by different way of calculating reference
-  // D tensor results
-  NVF_CHECK(outputs[0].allclose(t5, abs_err_thr, rel_err_thr));
+  //       caused by different way of calculating reference D tensor results
+  NVF_CHECK(outputs[0].allclose(t6, abs_err_thr, rel_err_thr));
   // Aux tensor results
-  NVF_CHECK(outputs[1].allclose(t7, abs_err_thr, rel_err_thr));
+  NVF_CHECK(outputs[1].allclose(t8, abs_err_thr, rel_err_thr));
 }
 
 } // namespace
@@ -961,8 +993,8 @@ INSTANTIATE_TEST_SUITE_P(
     [](const testing::TestParamInfo<PrecisionsDesc>& info) {
       std::ostringstream os;
       os << get_type_letter(std::get<0>(info.param));
-      os << get_type_letter(PrimDataType::Float);
       os << get_type_letter(std::get<1>(info.param));
+      os << get_type_letter(std::get<2>(info.param));
       return os.str();
     });
 
