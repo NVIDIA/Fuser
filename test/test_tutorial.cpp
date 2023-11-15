@@ -637,7 +637,7 @@ TEST_F(NVFuserTest, TMP) {
 
     const int kReductionAxis = 1;
     std::vector<int64_t> input_shape{batch, feature};
-    TensorView* input = makeSymbolicTensor(input_shape.size(), dtype);
+    TensorView* input = makeContigTensor(input_shape.size(), dtype);
     fusion.addInput(input);
 
     if (dtype == DataType::Half) {
@@ -680,11 +680,10 @@ TEST_F(NVFuserTest, TMP) {
         "",
         lparams);
   };
-  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  const int batch = dev_prop->multiProcessorCount;
+  const int batch = 2048;
   // test small values, values can't be vectorized, regular pupular values,
   // prime numbers with or without vectorization, and large values
-  std::vector<int> features = {10240};
+  std::vector<int> features = {13*1024};
   std::vector<DataType> test_dtypes = {DataType::Half};
   for (auto dtype : test_dtypes) {
     for (auto feature : features) {

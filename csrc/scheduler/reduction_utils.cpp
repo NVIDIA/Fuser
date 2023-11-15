@@ -721,6 +721,7 @@ class PersistentBufferProjector {
         project_to_inputs_(project_to_inputs) {}
 
   const std::vector<TensorView*>& project() {
+    const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion_);
     if (project_to_inputs_) {
       // Iterate through projected buffers, tracking which index it corresponds
       // too since there's a resolution point entry for every buffer.
@@ -732,8 +733,18 @@ class PersistentBufferProjector {
                 buffer) == projectable_persistent_buffers.end()) {
           continue;
         }
+        std::vector<Val*> vals_project_to = fusion_->inputs();
+        auto dep_vals = DependencyCheck::getAllValsBetween(
+            {reduction_tvs.begin(), reduction_tvs.end()}, {buffer});
+        for (auto val : dep_vals) {
+          if (auto tv = dynamic_cast<TensorView*>(val)) {
+            if (tv->hasBroadcast()) {
+              vals_project_to.push_back(val);
+            }
+          }
+        }
         projectToInputOrImmediatePersistentProducer(
-            (int)buffer_i, fusion_->inputs());
+            (int)buffer_i, vals_project_to);
       }
     } else {
       std::unordered_set<TensorView*> persistent_buffer_set(

@@ -1139,6 +1139,9 @@ void beforeSchedule(
   dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
       fusion, rparams.project_persistent_buffers);
 
+  std::cout << "after project: " << std::endl;
+  fusion->printMath();
+
   // Cache tensors before grabbing any references to reductions as cache_before
   // can invalidate the references since when applied to a reduction tensor view
   // the new tensor view contains the reduction and original doesn't.
