@@ -1049,7 +1049,7 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     } pred_checker;
 
     GpuLower gpulw(&fusion);
-    pred_checker.handle(gpulw.kernel()->topLevelExprs());
+    pred_checker.handle(gpulw.run()->topLevelExprs());
     ASSERT_TRUE(pred_checker.found_mma);
   };
 
