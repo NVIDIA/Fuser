@@ -1663,6 +1663,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
+  bool is_mma_input = consumer_tv->definition()->isA<MmaOp>();
   const auto gpu_lower = GpuLower::current();
   // Replay producer to look like consumer so we can index on producer since our
   // loop nests look like consumer
@@ -1767,6 +1768,23 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   std::vector<Val*> strided_inds(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
+
+  // MMA operation op is a special operation that our automatic "zero domain"
+  // analysis of our current indexing approach does not work. So we need to
+  // manually specify which dimensions are used for MMA allocation.
+  std::function<bool(const IterDomain* id)> is_mma_allocation;
+  if (is_mma_input) {
+    int size = alloc_dom.size();
+    const IterDomain* allocation0 = alloc_dom.at(size - 3);
+    const IterDomain* allocation1 = alloc_dom.at(size - 2);
+    const IterDomain* allocation2 = alloc_dom.at(size - 1);
+    is_mma_allocation = [=](const IterDomain* id) {
+      return id == allocation0 || id == allocation1 || id == allocation2;
+    };
+  } else {
+    is_mma_allocation = [](const IterDomain* id) { return false; };
+  }
+
   for (const auto i : c10::irange(alloc_dom.size())) {
     if (skip_indexing.count(alloc_dom[i])) {
       continue;
@@ -1817,7 +1835,8 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
       alloc_ext_j = getHaloExtentOfRootAxis(alloc_dom[j], alloc_ext_j);
 
-      if (zero_domain_map.count(alloc_dom[j]) == 0) {
+      if (zero_domain_map.count(alloc_dom[j]) == 0 ||
+          is_mma_allocation(alloc_dom[j])) {
         if (stride == nullptr) {
           stride = alloc_ext_j;
         } else {

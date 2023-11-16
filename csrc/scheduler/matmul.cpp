@@ -1017,12 +1017,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   if (isTuring(params.mma_macro) || isAmpere(params.mma_macro)) {
     acr->setAllocationDomain(acr->getLeafDomain(), true);
     bcr->setAllocationDomain(bcr->getLeafDomain(), true);
-    std::cout << "acr: " << acr->toString() << std::endl;
-    std::cout << "bcr: " << bcr->toString() << std::endl;
     mma_utils::WarpMmaSwizzler::scheduleLdMatrix(acr);
     mma_utils::WarpMmaSwizzler::scheduleLdMatrix(bcr);
-    std::cout << "acr: " << acr->toString() << std::endl;
-    std::cout << "bcr: " << bcr->toString() << std::endl;
 
     //  -5  -4   -3   -2   -1          or          -5  -4   -3   -2   -1
     //[8mi, 4k, 2ko, 2mo, 2ki]                   [8ni, 4k, 2ko, 1no, 2ki]
