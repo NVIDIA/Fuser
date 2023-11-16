@@ -272,7 +272,7 @@ TEST_F(AliasTest, DuplicateOutputs) {
     const std::vector<int64_t> in_shape({2, 3, 4});
 
     TensorView* in = makeContigConcreteTensor(in_shape);
-    fusion->addInput(in)
+    fusion->addInput(in);
     TensorView* out = add(in, IrBuilder::create<Val>(3.141));
     fusion->addOutput(out);
     fusion->addOutput(out); // duplicated outputs
