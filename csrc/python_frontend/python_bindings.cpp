@@ -115,8 +115,6 @@ Tensor broadcast_in_dim_fn(
     std::vector<int64_t>& broadcast_dims) {
   FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
   FusionDefinition* fd = op.fusion_definition;
-  NVF_CHECK(!fd->completed(), "Attempting to add to a completed definition!");
-
   NVF_CHECK(op.validUse(), "Attempting to add to a completed definition!");
   Vector output_shape = ShapeAsVector(generic_output_shape, *fd);
   NVF_CHECK(
@@ -129,6 +127,23 @@ Tensor broadcast_in_dim_fn(
       {fd->recordingState(output())},
       output_shape.size,
       broadcast_dims));
+  return output;
+}
+
+template <class ShapeType>
+Tensor full_op_fn(
+    FusionDefinition::Operators& self,
+    ShapeType generic_output_shape,
+    Scalar fill_value,
+    PrimDataType dtype) {
+  NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
+  FusionDefinition* fd = self.fusion_definition;
+  Vector output_shape = ShapeAsVector(generic_output_shape, *fd);
+  Tensor output = fd->defineTensor(output_shape.size);
+  fd->defineRecord(new FullOpRecord(
+      {fd->recordingState(output_shape()), fd->recordingState(fill_value())},
+      {fd->recordingState(output())},
+      dtype));
   return output;
 }
 
@@ -2025,6 +2040,19 @@ void initNvFuserPythonBindings(PyObject* module) {
 #undef NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP
 #undef NVFUSER_RANDOM_DIST_OP_HELPER
 
+#define NVFUSER_FULL_OP_HELPER(vec_type, ...) \
+  nvf_ops.def(                                \
+      "full",                                 \
+      full_op_fn<vec_type>,                   \
+      py::arg("shape"),                       \
+      py::arg("fill_value"),                  \
+      py::arg("dtype"),                       \
+      py::return_value_policy::reference);
+
+  // NOTE: The second argument is a dummy to satisfy the macro
+  NVFUSER_ALL_VECTOR_TYPES(NVFUSER_FULL_OP_HELPER, false)
+#undef NVFUSER_FULL_OP_HELPER
+
   nvf_ops.def(
       "batch_norm",
       [](FusionDefinition::Operators& self,
@@ -2567,27 +2595,6 @@ void initNvFuserPythonBindings(PyObject* module) {
       reshape_fn<py::tuple>,
       py::arg("arg"),
       py::arg("new_shape"),
-      py::return_value_policy::reference);
-  nvf_ops.def(
-      "full",
-      [](FusionDefinition::Operators& self,
-         std::vector<int64_t>& shape,
-         Scalar fill_value,
-         PrimDataType dtype) -> Tensor {
-        NVF_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(shape.size());
-        fd->defineRecord(new FullOpRecord(
-            {fd->recordingState(fill_value())},
-            {fd->recordingState(output())},
-            std::move(shape),
-            dtype));
-        return output;
-      },
-      py::arg("shape"),
-      py::arg("fill_value"),
-      py::arg("dtype"),
       py::return_value_policy::reference);
   nvf_ops.def(
       "iota",
