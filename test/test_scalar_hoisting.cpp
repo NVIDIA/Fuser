@@ -217,7 +217,7 @@ TEST_F(ScalarHoistTest, IndexHoist1) {
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
-  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Hoist indices for vectorized tensors
@@ -261,9 +261,7 @@ TEST_F(ScalarHoistTest, IndexHoist2) {
   fe.compileFusion(&fusion, {t0, t1});
   auto cg_outputs = fe.runFusion({t0, t1});
 
-  auto ref = t0 + t1;
-
-  testValidate(&fusion, cg_outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(ScalarHoistTest, IndexHoist3) {
@@ -334,7 +332,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
 
   assertCUDAKernel(fusion.get(), expected_kernel);
 
-  testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+  testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(ScalarHoistTest, ARange) {
@@ -397,7 +395,6 @@ __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<i
       fusion.get(),
       cg_outputs,
       {start, end, step},
-      {t0, t1},
       __LINE__,
       __FILE__);
 }
