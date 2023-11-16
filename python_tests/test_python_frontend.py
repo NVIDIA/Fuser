@@ -2662,7 +2662,7 @@ class TestNvFuserFrontend(TestCase):
 
         self.assertEqual(y.data_ptr(), x.data_ptr())
 
-    # Test that slice to broadcast with concrete sizes sets extents properly
+    # Test that reshape to slice to sum with concrete sizes sets extents properly
     # https://github.com/NVIDIA/Fuser/issues/1221
     def test_sum_sliced_reshape_to_broadcast(self):
         inputs = [torch.randn((24, 128, 25, 32), dtype=torch.float32, device="cuda:0")]
