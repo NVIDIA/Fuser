@@ -135,6 +135,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/multidevice/pipeline.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/pipeline_ir.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/runtime.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/utils.cpp
   ${NVFUSER_SRCS_DIR}/mutator.cpp
   ${NVFUSER_SRCS_DIR}/non_divisible_split.cpp
   ${NVFUSER_SRCS_DIR}/ops/alias.cpp

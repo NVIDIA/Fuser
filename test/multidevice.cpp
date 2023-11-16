@@ -9,6 +9,7 @@
 #include <ir/all_nodes.h>
 #include <multidevice/pipeline_ir.h>
 #include <multidevice/runtime.h>
+#include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <options.h>
 #include <test/multidevice.h>
@@ -82,36 +83,77 @@ void CommunicationTest::resetDstBuffers() {
 
 namespace {
 
+void unshardTv(TensorView* tv) {
+  for (IterDomain* id : tv->getLeafDomain()) {
+    if (id->isDeviceDim()) {
+      id->parallelize(ParallelType::Serial);
+    }
+  }
+}
+
+void doSendRecv(
+    DeviceIdxType sender,
+    DeviceIdxType receiver,
+    at::Tensor send_buf,
+    at::Tensor recv_buf,
+    Communicator* communicator) {
+  CommParams params;
+  params.root = sender;
+  if (sender == receiver) {
+    params.team = {sender};
+  } else {
+    params.team = {sender, receiver};
+  }
+  if (send_buf.numel()) {
+    params.src_bufs = {send_buf};
+  }
+  if (recv_buf.numel()) {
+    params.dst_bufs = {recv_buf};
+  }
+  auto work = SendRecv(params).post(*communicator);
+  if (work) {
+    work->wait();
+  }
+}
+
 // Send a possibly sharded tensor represented by a PipelineVal
 // to one "tester" device
 void SendToTester(
     PipelineVal* pVal,
     at::Tensor tensor,
+    at::Tensor tester_tensor,
     DeviceIdxType tester,
     Communicator* communicator) {
   std::vector<at::Tensor> buffer;
   auto& mesh = pVal->getStage()->descriptor()->mesh;
-  if (isParallelTypeDeviceDim(pVal->getOriginalVal()
-                                  ->as<TensorView>()
-                                  ->getRootDomain()
-                                  .at(0)
-                                  ->getParallelType())) {
+  if (isSharded(pVal->getOriginalVal()->as<TensorView>())) {
     for (DeviceIdxType j : c10::irange(mesh.vector().size())) {
-      buffer = {tensor.index({j, "..."})};
+      at::Tensor send_buf, recv_buf;
       auto sender = mesh.vector().at(j);
-      if (tester != sender &&
-          (communicator->deviceId() == sender ||
-           communicator->deviceId() == tester)) {
-        communicator->sendRecv(tester, sender, buffer)->wait();
+      if (communicator->deviceId() == sender ||
+          communicator->deviceId() == tester) {
+        if (communicator->deviceId() == sender) {
+          send_buf = tensor.index({0, "..."});
+        }
+        if (communicator->deviceId() == tester) {
+          recv_buf = tester_tensor.index({j, "..."});
+        }
+        doSendRecv(sender, tester, send_buf, recv_buf, communicator);
       }
     }
   } else {
-    buffer = {tensor};
+    at::Tensor send_buf, recv_buf;
     auto sender = mesh.vector().at(0);
     if (tester != sender &&
         (communicator->deviceId() == sender ||
          communicator->deviceId() == tester)) {
-      communicator->sendRecv(tester, sender, buffer)->wait();
+      if (communicator->deviceId() == sender) {
+        send_buf = tensor;
+      }
+      if (communicator->deviceId() == tester) {
+        recv_buf = tester_tensor;
+      }
+      doSendRecv(sender, tester, send_buf, recv_buf, communicator);
     }
   }
 }
@@ -130,20 +172,29 @@ void testValidateMultidevice(
     bool validate = true,
     bool set_mem_type_to_global = true,
     bool auto_schedule = false) {
+  std::vector<c10::IValue> unsharded_inputs;
+  std::vector<at::Tensor> unsharded_outputs;
+
   // gathering all the inputs at tester
   for (auto i : c10::irange(inputs.size())) {
+    c10::IValue unsharded_input = inputs.at(i).deepcopy();
+    unsharded_inputs.push_back(unsharded_input);
     SendToTester(
         runtime.pipeline()->inputs().at(i)->as<PipelineVal>(),
         inputs.at(i).toTensor(),
+        unsharded_inputs.at(i).toTensor(),
         tester,
         communicator);
   }
 
   // gathering all the outputs at tester
   for (auto i : c10::irange(outputs.size())) {
+    at::Tensor unsharded_output = at::clone(outputs.at(i));
+    unsharded_outputs.push_back(unsharded_output);
     SendToTester(
         runtime.pipeline()->outputs().at(i)->as<PipelineVal>(),
         outputs.at(i),
+        unsharded_outputs.at(i),
         tester,
         communicator);
   }
@@ -153,7 +204,12 @@ void testValidateMultidevice(
       std::stringstream ss;
       std::string indent = "  ";
       ss << "Obtained final outputs:{\n";
-      for (auto& t : outputs) {
+      for (auto& t : unsharded_outputs) {
+        ss << indent << t;
+      }
+      ss << "\n}\n";
+      ss << "Reference (unsharded) input:{\n";
+      for (auto& t : unsharded_inputs) {
         ss << indent << t;
       }
       ss << "\n}";
@@ -161,8 +217,9 @@ void testValidateMultidevice(
     }
 
     // sets all the memory type to global to avoid an execution error
-    if (set_mem_type_to_global) {
-      for (auto tv : ir_utils::filterByType<TensorView>(fusion_ptr->vals())) {
+    for (auto tv : ir_utils::filterByType<TensorView>(fusion_ptr->vals())) {
+      unshardTv(tv);
+      if (set_mem_type_to_global) {
         tv->setMemoryType(MemoryType::Global);
       }
     }
@@ -172,11 +229,11 @@ void testValidateMultidevice(
     Fusion& fusion = *fusion_ptr.get();
     if (auto_schedule) {
       FusionExecutorCache fec(std::move(fusion_ptr));
-      ref_outputs = fec.runFusionWithInputs(inputs);
+      ref_outputs = fec.runFusionWithInputs(unsharded_inputs);
     } else {
       FusionExecutor fe;
-      fe.compileFusion(&fusion, inputs);
-      ref_outputs = fe.runFusion(inputs);
+      fe.compileFusion(&fusion, unsharded_inputs);
+      ref_outputs = fe.runFusion(unsharded_inputs);
     }
 
     if (print) {
@@ -191,7 +248,13 @@ void testValidateMultidevice(
     }
 
     if (validate) {
-      testValidate(&fusion, outputs, inputs, ref_outputs, __LINE__, __FILE__);
+      testValidate(
+          &fusion,
+          unsharded_outputs,
+          unsharded_inputs,
+          ref_outputs,
+          __LINE__,
+          __FILE__);
     }
   }
 }
