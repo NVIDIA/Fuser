@@ -2720,6 +2720,7 @@ class TestNvFuserFrontend(TestCase):
         ]
 
         for final_mul in [False, True]:
+
             def fusion_func(fd: FusionDefinition) -> None:
                 T0 = fd.define_tensor(
                     shape=[1, -1, -1, -1],
