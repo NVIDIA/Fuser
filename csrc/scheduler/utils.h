@@ -136,7 +136,7 @@ size_t mergeNonReduction(TensorView* tv);
 // Position `pos` means selecting all the dimensions [0, 1, ..., pos - 1]. pos =
 // -1 means selecting all dimensions. `selected_tvs` are selected tensors in the
 // DAG. Empty `selected_tvs` means selecting all tensors in the fusion of
-// `reference_tv`. `selected_parallel_types` are the selected parallel types.
+// `reference_tv` except the fusion's inputs. `selected_parallel_types` are the selected parallel types.
 // Empty `selected_parallel_types` means selecting all parallel types.
 void parallelizeAllLike(
     TensorView* reference_tv,

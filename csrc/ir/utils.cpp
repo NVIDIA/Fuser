@@ -1073,4 +1073,66 @@ bool isTensorStride(const Val* val) {
       isTensorAttr(val, "alloc_stride");
 }
 
+namespace {
+
+std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
+  std::vector<IterDomain*> sharded_ids;
+  std::copy_if(tv->getLeafDomain().begin(), 
+              tv->getLeafDomain().end(), 
+              std::back_inserter(sharded_ids), [](auto id){return id->isDevice();});
+  return sharded_ids;
+}
+
+}
+
+std::unordered_set<TensorView*> haveDifferentSharding(TensorView* ref, std::unordered_set<TensorView*> tvs) {
+  std::unordered_set<TensorView*> ret;
+
+  const auto& reference_dom = ref->getLeafDomain();
+  FusionGuard fg(ref->fusion());
+  auto ca_map = ComputeAtMap(FusionGuard::getCurFusion());
+  std::unordered_map<IterDomain*, IterDomain*> concrete_to_reference_map;
+  for (auto id : reference_dom) {
+    auto ca_id =
+        ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
+    concrete_to_reference_map[ca_id] = id;
+  }
+
+  for (auto tv: tvs) {
+    if (!(*ref->getDeviceMesh() == *tv->getDeviceMesh())) {
+      ret.insert(tv);
+      continue;
+    }
+    for (auto id : tv->getLeafDomain()) {
+      auto ca_id = ca_map.getConcreteMappedID(
+          id, IdMappingMode::PERMISSIVE_RESIZE);
+      if (concrete_to_reference_map.count(ca_id) > 0) {
+        auto ref_id = concrete_to_reference_map.at(ca_id);
+        if ((ref_id->isDevice() || id->isDevice())
+            && ref_id->getParallelType() != id->getParallelType()) {
+          ret.insert(tv);
+          break;
+        }
+      }
+    }
+  }
+  return ret;
+}
+
+bool isResharding(Expr* expr) {
+  std::unordered_set<TensorView*> tvs;
+  for (auto tv: filterByType<TensorView>(expr->inputs())) {
+    tvs.insert(tv);
+  }
+  for (auto tv: filterByType<TensorView>(expr->outputs())) {
+    tvs.insert(tv);
+  }
+  if (tvs.empty()) {
+    return false;
+  }
+  auto tv_ref = *tvs.begin();
+  tvs.erase(tv_ref);
+  return !haveDifferentSharding(tv_ref, tvs).empty();
+}
+
 } // namespace nvfuser::ir_utils

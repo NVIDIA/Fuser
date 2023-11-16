@@ -14,6 +14,8 @@
 
 namespace nvfuser {
 
+bool isLowerableToCommunication(Expr* expr);
+
 // Lower a PipelineCommunication into a series of Communication, given a
 // device_index.
 std::vector<std::shared_ptr<Communication>> lowerCommunication(

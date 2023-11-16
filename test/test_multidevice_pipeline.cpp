@@ -25,6 +25,7 @@
 #include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <mma_type.h>
+#include <multidevice/lower_resharding_expr.h>
 #include <ops/all_ops.h>
 #include <root_domain_map.h>
 #include <scheduler/all_schedulers.h>
@@ -138,12 +139,16 @@ TEST_F(PipelineTest, Pipeline) {
   validate();
 }
 
+namespace {
+
 DeviceMesh mesh0({0});
 DeviceMesh mesh1({1});
 DeviceMesh mesh2({0, 1, 2, 3});
 DeviceMesh mesh3({0, 2, 3});
 DeviceMesh mesh4({1, 0, 2});
 auto all_meshes = ::testing::Values(mesh0, mesh1, mesh2, mesh3, mesh4);
+
+} // namespace
 
 TEST_P(PipelineTestTwoStages, Communication) {}
 
@@ -401,136 +406,172 @@ TEST_F(PipelineTest, Overlap) {
   validate();
 }
 
-TEST_F(NVFuserTest, ReshardingDetection) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+TensorView* MatrixMultiplication(TensorView* a, TensorView* b) {
+  auto a_b = broadcast(a, {false, false, true}); // (x,y,b)
+  auto b_b = broadcast(b, {true, false, false}); // (b,y,z)
 
-  DeviceMesh mesh0,mesh1; 
-  mesh0 = {0,1};
-  mesh1 = {0,2};
-  mesh2 = {0,1,2};
-
-  TensorView* tv0 = makeContigTensor(3);
-  tv0->setDeviceMesh(&mesh0);
-
-  TensorView* tv1 = set(tv0);
-  tv1->setDeviceMesh(&mesh0);
-
-  TensorView* tv2 = set(tv1); // resharding
-  tv2->setDeviceMesh(&mesh1);
-
-  TensorView* tv3 = set(tv2);
-  tv3->setDeviceMesh(&mesh1);
-
-  TensorView* tv4 = set(tv3); // resharding
-  tv4->setDeviceMesh(&mesh2);
-
-  TensorView* tv5 = set(tv4); // resharding
-  tv5->setDeviceMesh(&mesh2);
-  tv5->axis(0)->parallelize(ParallelType::DIDx);
-
-  TensorView* tv6 = set(tv5);
-  tv6->setDeviceMesh(&mesh2);
-  tv6->axis(0)->parallelize(ParallelType::DIDx);
-
-  TensorView* tv7 = set(tv6); // resharding
-  tv7->setDeviceMesh(&mesh2);
-
-  TensorView* tv8 = sum(tv0, {0});
-  tv8->setDeviceMesh(&mesh0);
-
-  TensorView* tv9 = sum(tv0, {0}); //resharding, but seems invalid
-  tv9->setDeviceMesh(&mesh0);
-  tv9->axis(0)->parallelize(ParallelType::DIDx);
-
-  TensorView* tv10 = sum(tv0, {0}); //resharding,
-  tv10->setDeviceMesh(&mesh0);
-  tv10->axis(1)->parallelize(ParallelType::DIDx);
-
-  TensorView* tv11 = sum(tv0, {0}); //resharding,
-  tv11->setDeviceMesh(&mesh1);
-
-  TensorView* tv12 = sum(tv5, {0}); // resharding
-  tv12->setDeviceMesh(&mesh2);
-  tv12->axis(0)->parallelize(ParallelType::DIDx);
-
-  TensorView* tv13 = sum(tv5, {0}); // resharding
-  tv13->setDeviceMesh(&mesh2);
-  tv13->axis(1)->parallelize(ParallelType::DIDx);
-
-  TensorView* tv14 = sum(tv5, {0}); // resharding
-  tv14->setDeviceMesh(&mesh2);
-  tv14->axis(0)->parallelize(ParallelType::DIDx);
-  tv14->axis(1)->parallelize(ParallelType::DIDx);
-
-  TensorView* tv15 = add(tv0, tv1);
-  tv15->setDeviceMesh(&mesh0);
-
-  TensorView* tv16 = add(tv0, tv1); //resharding
-  tv16->setDeviceMesh(&mesh1);
-
-  TensorView* tv17 = add(tv0, tv1); //resharding
-  tv17->setDeviceMesh(&mesh0);
-  tv17->axis(0)->parallelize(ParallelType::DIDx);
-
-  TensorView* tv18 = add(tv5, tv6);
-  tv18->setDeviceMesh(&mesh2);
-  tv18->axis(0)->parallelize(ParallelType::DIDx);
-
-  TensorView* tv19 = add(tv5, tv7); // resharding
-  tv19->setDeviceMesh(&mesh2);
-  tv19->axis(0)->parallelize(ParallelType::DIDx);
-
-  TensorView* tv20 = add(tv5, tv7); // resharding
-  tv20->setDeviceMesh(&mesh2);
-
-  TensorView* tv21 = add(tv0, tv7); // resharding
-  tv21->setDeviceMesh(&mesh2);
-
-  TensorView* tv22 = sum(tv5, {1});
-  tv22->setDeviceMesh(&mesh2);
-  tv22->axis(0)->parallelize(ParallelType::DIDx);
-
-  TensorView* tv23 = sum(tv5, {1}); //resharding
-  tv23->setDeviceMesh(&mesh2);
-
-  TensorView* tv24 = sum(tv7, {0});
-  tv24->setDeviceMesh(&mesh2);
-
-  TensorView* tv25 = sum(tv7, {0}); //not resharding but invalid
-  tv25->setDeviceMesh(&mesh2);
-  tv22->axis(0)->parallelize(ParallelType::DIDx);
-
-  TensorView* tv26 = add(tv5, tv6); // resharding
-  tv26->setDeviceMesh(&mesh2);
-
-  GTEST_EXPECT_TRUE(!tv1->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv2->definition()->isResharding());
-  GTEST_EXPECT_TRUE(!tv3->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv4->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv5->definition()->isResharding());
-  GTEST_EXPECT_TRUE(!tv6->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv7->definition()->isResharding());
-  GTEST_EXPECT_TRUE(!tv8->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv9->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv10->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv11->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv12->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv13->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv14->definition()->isResharding());
-  GTEST_EXPECT_TRUE(!tv15->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv16->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv17->definition()->isResharding());
-  GTEST_EXPECT_TRUE(!tv18->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv19->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv20->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv21->definition()->isResharding());
-  GTEST_EXPECT_TRUE(!tv22->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv23->definition()->isResharding());
-  GTEST_EXPECT_TRUE(!tv24->definition()->isResharding());
-  GTEST_EXPECT_TRUE(!tv25->definition()->isResharding());
-  GTEST_EXPECT_TRUE(tv26->definition()->isResharding());
+  auto c = mul(a_b, b_b); // (x,y,z)
+  auto d = sum(c, {1}); // (x,r,z)
+  return d;
 }
+
+TEST_F(PipelineTest, matmul_summa) {
+  if (communicator->deviceId()) {
+    return;
+  }
+  // Matrices dimensions
+  // a's shape=[x,y]
+  // b's shape=[y,z]
+  constexpr int64_t x = 12;
+  constexpr int64_t y = 18;
+  constexpr int64_t z = 24;
+  const std::vector<int64_t> a_extents = {x, y};
+  const std::vector<int64_t> b_extents = {y, z};
+
+  // Device Mesh
+  // [ 0 1 2
+  //   3 4 5 ]
+  constexpr int64_t N = 2;
+  constexpr int64_t M = 3;
+  DeviceMesh mesh ({0,1,2,3,4,5});
+  mesh.reshape({N,M});
+
+  auto fusion = std::make_unique<Fusion>();
+  auto fg = std::make_unique<FusionGuard>(fusion.get());
+
+  // a {DIDx{N}, x/N, DIDy{M}, y/M}
+  // b {DIDx{N}, y/N, DIDy{M}, z/M}
+  auto a = makeConcreteTensor(a_extents);
+  auto b = makeConcreteTensor(b_extents);
+  a->split(0, N, false);
+  a->split(2, M, false);
+  b->split(0, N, false);
+  b->split(2, M, false);
+  a->setDeviceMesh(&mesh);
+  b->setDeviceMesh(&mesh);
+  a->axis(0)->parallelize(ParallelType::DIDx);
+  a->axis(2)->parallelize(ParallelType::DIDy);
+  b->axis(0)->parallelize(ParallelType::DIDx);
+  b->axis(2)->parallelize(ParallelType::DIDy);
+  fusion->addInput(a);
+  fusion->addInput(b);
+
+  // a2 {DIDx{N}, x/N, y}
+  // b2 {y, DIDy{M}, z/M}
+  auto a2 = set(a);
+  auto b2 = set(b);
+  a2->split(0, N, false);
+  b2->split(1, M, false);
+  a2->setDeviceMesh(&mesh);
+  b2->setDeviceMesh(&mesh);
+  a2->axis(0)->parallelize(ParallelType::DIDx);
+  b2->axis(1)->parallelize(ParallelType::DIDy);
+
+  // a3 {DIDx{N}, x/N, y, b,  b }
+  // b3 {b,  b , y, DIDy{M}, z/M}
+  auto a3 = broadcast(a2, {false, false, true, true});
+  auto b3 = broadcast(b2, {true, true, false, false});
+  a3->split(0, N, false);
+  b3->split(3, M, false);
+  a3->setDeviceMesh(&mesh);
+  b3->setDeviceMesh(&mesh);
+  a3->axis(0)->parallelize(ParallelType::DIDx);
+  b3->axis(3)->parallelize(ParallelType::DIDy);
+
+  // c {DIDx{N}, x/N, y, DIDy{M}, z/M}
+  auto c = mul(a3, b3);
+  c->setDeviceMesh(&mesh);
+  c->axis(0)->parallelize(ParallelType::DIDx);
+  c->axis(3)->parallelize(ParallelType::DIDy);
+
+  // d {DIDx{N}, x/N, r{y}, DIDy{M}, z/M}
+  auto d = sum(c, {2});
+  d->setDeviceMesh(&mesh);
+  d->axis(0)->parallelize(ParallelType::DIDx);
+  d->axis(3)->parallelize(ParallelType::DIDy);
+  fusion->addOutput(d);
+
+  fusion->print();
+
+  inputs = {at::randn(a_extents, tensor_options), at::randn(b_extents, tensor_options)};
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get(), inputs);
+  auto ref_outputs = fe.runFusion(inputs);
+
+  std::cout
+  << "a (concrete inputs): \n" << inputs.at(0)
+  << "\nb (concrete inputs): \n" << inputs.at(1)
+  << std::endl;
+  for (auto t: c10::irange(ref_outputs.size())) {
+    std::cout
+    << "\noutput " << t <<":\n"
+    << ref_outputs.at(t);
+  }
+  std::cout << std::endl;
+}
+
+// matmulAtInput
+// MmaOp
+
+
+  // a {s, x/N, M, y/M}
+  // b {N, y/N, s, z/M}
+
+
+
+ // a {N, x/N, M, y/M}
+ // b {N, y/N, M, z/M}
+
+
+
+ // aij = a [i, :, j, :]
+ // auto ai = select(a, 0, IrBuilder::create<Val>(i));
+
+// index_select
+  // std::vector<TensorView*> indices_tv;
+  // for (int i=0; i<std::max(N,M); i++) {
+  //   auto i_tv = makeContigTensor(0, DataType::Int);
+  //   indices_tv.push_back(i_tv);
+  //   fusion->addInput(i_tv);
+  //   inputs.push_back(at::ones({}) * i);
+  // }
+
+  // int i = 1;
+  // int j = 2;
+
+  // auto ai = select(a, 0, IrBuilder::create<Val>(i));
+  // // auto ai = index_select(a, 0, indices_tv[i]);
+  // std::cout
+  //   << "ai=" << ai
+  //   << std::endl;
+  // fusion->addOutput(ai);
+  // fusion->print();
+
+  // // auto aij = select(ai, 1, IrBuilder::create<Val>(j));
+  // auto aij = index_select(ai, 1, indices_tv[j]);
+  // fusion->addOutput(aij);
+
+  // std::cout
+  //   << "ai=" << ai
+  //   << ", aij=" << aij
+  //   << std::endl;
+  // fusion->print();
+
+  // TensorView* select(TensorView* tv, int dim, Val* index) {
+
+  // TensorView *tv1x, *tv2x, *tv3x;
+  // std::vector<TensorView*> tv3_slices;
+  // std::vector<Slice> slices {3};
+  // for (int i = 0; i < number_of_slices; i++) {
+  //   slices.at(2).start = IrBuilder::create<Val>(i * extent_of_slice);
+  //   slices.at(2).stop = IrBuilder::create<Val>((i+1) * extent_of_slice);
+  //   tv1x = slice(tv1, slices);
+  // auto ref = MatrixMultiplication(a, b);
+  // fusion->addOutput(ref);
+
+
+
 
 } // namespace nvfuser
 

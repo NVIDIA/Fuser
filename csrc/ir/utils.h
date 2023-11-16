@@ -528,4 +528,9 @@ std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion);
 //! Returns true if fusion has any reduction ops.
 bool hasAnyReductionOps(Fusion* fusion);
 
+
+std::unordered_set<TensorView*> haveDifferentSharding(TensorView* ref, std::unordered_set<TensorView*> tvs);
+
+bool isResharding(Expr* expr);
+
 } // namespace nvfuser::ir_utils

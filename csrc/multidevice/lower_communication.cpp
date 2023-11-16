@@ -11,6 +11,7 @@
 #include <multidevice/device_mesh.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/pipeline.h>
+#include <ops/all_ops.h>
 
 namespace nvfuser {
 
@@ -403,6 +404,9 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   std::vector<std::shared_ptr<Communication>> comms;
+  NVF_ERROR(c->in()->as<PipelineVal>()->getOriginalVal()->isA<TensorView>()
+    && c->out()->as<PipelineVal>()->getOriginalVal()->isA<TensorView>(),
+    "I/O must be TensorViews");
   TensorView* input_tv =
       c->in()->as<PipelineVal>()->getOriginalVal()->as<TensorView>();
   TensorView* output_tv =
@@ -420,7 +424,10 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
   const bool is_output_sharded =
       output_tv->isSharded() && receiver_mesh.vector().size() > 1;
 
-  bool is_reduction = output_tv->definition()->isA<ReductionOp>();
+  auto original_expr = output_tv->definition();
+  NVF_ERROR(isLowerableToCommunication(original_expr), "Lowering expression ",
+    original_expr," to communication is not supported");
+  bool is_reduction = original_expr->isA<ReductionOp>();
 
   NVF_ERROR(
       !is_input_sharded ||
@@ -506,6 +513,19 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
     }
   }
   return comms;
+}
+
+bool isLowerableToCommunication(Expr* expr) {
+  if (expr->isA<ReductionOp>()) {
+    auto out = expr->as<ReductionOp>()->out();
+    NVF_ERROR(out->isA<TensorView>(), "output is not a TensorView");
+    auto out_tv = out->as<TensorView>();
+    NVF_ERROR(out_tv->domain()->nDims() == TensorDomain::noReductions(out_tv->getMaybeRFactorDomain()).size() + 1,
+      "only reducing one-axis at a time is supported");
+    return true;
+  }
+  return expr->isA<LoadStoreOp>()
+                && (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set);
 }
 
 } // namespace nvfuser

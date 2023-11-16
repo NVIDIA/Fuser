@@ -646,6 +646,7 @@ enum class TernaryOpType { Clamp, Lerp, Threshold, Where };
 
 enum class ParallelType {
   DIDx,
+  DIDy,
   BIDz,
   BIDy,
   BIDx,
@@ -673,8 +674,9 @@ static constexpr std::array<ParallelType, 6> kParallelTypeThreads = {
     ParallelType::TIDy,
     ParallelType::TIDz};
 
-static constexpr std::array<ParallelType, 1> kParallelTypeDIDs = {
-    ParallelType::DIDx};
+static constexpr std::array<ParallelType, 2> kParallelTypeDIDs = {
+    ParallelType::DIDx,
+    ParallelType::DIDy};
 
 static constexpr std::array<ParallelType, 3> kParallelTypeBIDs = {
     ParallelType::BIDx,
@@ -904,9 +906,7 @@ bool isParallelTypeThreadDim(ParallelType);
 bool isParallelTypeBlockDim(ParallelType);
 // Returns if parallel type is a grid or block parallelization dimension
 bool isParallelTypeThread(ParallelType);
-// Returns if parallel type is DIDx
-bool isParallelTypeDeviceDim(ParallelType);
-// Returns if parallel type is DIDx
+// Returns if parallel type is DID[x,y]
 bool isParallelTypeDeviceDim(ParallelType);
 
 bool isParallelTypeVectorize(ParallelType);
