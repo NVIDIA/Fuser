@@ -24,7 +24,11 @@ if(BUILD_TEST)
             test/unary_ops.cpp
         )
         target_include_directories(${target} PUBLIC src)
-        target_link_libraries(${target} PRIVATE gtest_main gmock_main)
+        target_include_directories(${target} SYSTEM PRIVATE
+            ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include
+            ${CMAKE_SOURCE_DIR}/third_party/googletest/googlemock/include
+        )
+        target_link_libraries(${target} PRIVATE GTest::gtest_main GTest::gmock_main)
         set_property(TARGET ${target} PROPERTY CXX_STANDARD ${std_version})
     endfunction()
 

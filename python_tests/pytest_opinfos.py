@@ -35,6 +35,7 @@ from pytest_input_generators import (
     pad_error_generator,
     permute_generator,
     permute_error_generator,
+    random_dist_error_generator,
     reduction_error_generator,
     reshape_generator,
     reshape_error_generator,
@@ -49,8 +50,9 @@ from pytest_input_generators import (
 )
 from pytest_utils import (
     bool_int_dtypes,
-    int_dtypes,
+    complex_dtypes,
     full_precision_float_dtypes,
+    int_dtypes,
     int_float_dtypes,
     float_complex_dtypes,
     ArgumentType,
@@ -1063,6 +1065,38 @@ iota_opinfo = OpInfo(
     ),
 )
 tensor_creation_ops.append(iota_opinfo)
+
+# NOTE: normal's python API does not produce value based errors given most parameters are
+# symbolic as Scalar or Vector parameters.  The dtype parameter is checked to make sure the
+# user does not ask for non-floating point random numbers.
+uniform_opinfo = OpInfo(
+    lambda fd: fd.ops.normal,
+    "normal",
+    dtypes=(bool_int_dtypes + complex_dtypes),
+    error_input_generator=random_dist_error_generator,
+    symbolic_parameter_list=(
+        ArgumentType.ConstantScalar,
+        ArgumentType.ConstantScalar,
+        ArgumentType.Constant,
+    ),
+)
+tensor_creation_ops.append(uniform_opinfo)
+
+# NOTE: uniform's python API does not produce value based errors given most parameters are
+# symbolic as Scalar or Vector parameters.  The dtype parameter is checked to make sure the
+# user does not ask for non-floating point random numbers.
+uniform_opinfo = OpInfo(
+    lambda fd: fd.ops.uniform,
+    "uniform",
+    dtypes=(bool_int_dtypes + complex_dtypes),
+    error_input_generator=random_dist_error_generator,
+    symbolic_parameter_list=(
+        ArgumentType.ConstantScalar,
+        ArgumentType.ConstantScalar,
+        ArgumentType.Constant,
+    ),
+)
+tensor_creation_ops.append(uniform_opinfo)
 
 """ End Tensor Creation """
 

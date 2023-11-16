@@ -9,6 +9,7 @@
 
 #include <c10/util/Exception.h>
 #include <exceptions.h>
+#include <type.h>
 #include <functional>
 
 namespace nvfuser::serde {
@@ -28,20 +29,24 @@ class Factory {
 
   Factory(size_t num_parsers) : parsers_(num_parsers, nullptr){};
 
-  void registerParser(int serde_type, SerdeParser parser) {
+  template <typename SerdeEnum>
+  void registerParser(SerdeEnum serde_type, SerdeParser parser) {
+    auto serde_integer = nvfuser::toUnderlying(serde_type);
     NVF_ERROR(
-        serde_type >= 0 && serde_type < (int)parsers_.size(),
+        serde_integer >= 0 && serde_integer < (int)parsers_.size(),
         "RegisterParser: Invalid serde type: ",
-        serde_type);
-    parsers_.at(serde_type) = parser;
+        serde_integer);
+    parsers_.at(serde_integer) = parser;
   }
 
-  BaseTypePtr parse(int serde_type, const SerdeBuffer* buffer) {
+  template <typename SerdeEnum>
+  BaseTypePtr parse(SerdeEnum serde_type, const SerdeBuffer* buffer) {
+    auto serde_integer = nvfuser::toUnderlying(serde_type);
     NVF_ERROR(
-        serde_type >= 0 && serde_type < (int)parsers_.size(),
+        serde_integer >= 0 && serde_integer < (int)parsers_.size(),
         "Deserialize: Invalid serde type: ",
-        serde_type);
-    return parsers_.at(serde_type)(buffer);
+        serde_integer);
+    return parsers_.at(serde_integer)(buffer);
   }
 
  private:
