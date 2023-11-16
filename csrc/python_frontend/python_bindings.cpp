@@ -115,8 +115,6 @@ Tensor broadcast_in_dim_fn(
     std::vector<int64_t>& broadcast_dims) {
   FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
   FusionDefinition* fd = op.fusion_definition;
-  NVF_CHECK(!fd->completed(), "Attempting to add to a completed definition!");
-
   NVF_CHECK(op.validUse(), "Attempting to add to a completed definition!");
   Vector output_shape = ShapeAsVector(generic_output_shape, *fd);
   NVF_CHECK(
@@ -129,6 +127,23 @@ Tensor broadcast_in_dim_fn(
       {fd->recordingState(output())},
       output_shape.size,
       broadcast_dims));
+  return output;
+}
+
+template <class ShapeType>
+Tensor full_op_fn(
+    FusionDefinition::Operators& self,
+    ShapeType generic_output_shape,
+    Scalar fill_value,
+    PrimDataType dtype) {
+  NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
+  FusionDefinition* fd = self.fusion_definition;
+  Vector output_shape = ShapeAsVector(generic_output_shape, *fd);
+  Tensor output = fd->defineTensor(output_shape.size);
+  fd->defineRecord(new FullOpRecord(
+      {fd->recordingState(output_shape()), fd->recordingState(fill_value())},
+      {fd->recordingState(output())},
+      dtype));
   return output;
 }
 
@@ -146,6 +161,47 @@ Tensor reshape_fn(
   fd->defineRecord(new ReshapeOpRecord(
       {fd->recordingState(arg()), fd->recordingState(new_shape())},
       {fd->recordingState(output())}));
+  return output;
+}
+
+template <class ShapeType, serde::RecordType RType>
+Tensor random_dist_op_fn(
+    FusionDefinition::Operators& self,
+    Scalar arg1,
+    Scalar arg2,
+    ShapeType generic_new_shape,
+    std::optional<Scalar> rng_seed,
+    std::optional<Scalar> rng_offset,
+    PrimDataType dtype) {
+  static_assert(
+      (RType == serde::RecordType::NormalDistOp) ||
+      (RType == serde::RecordType::UniformDistOp));
+  NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
+  NVF_CHECK(
+      isFloatingPointType(dtype),
+      "Random distributions only create floating point types! ",
+      dtype);
+  FusionDefinition* fd = self.fusion_definition;
+  Vector new_shape = ShapeAsVector(generic_new_shape, *fd);
+
+  Tensor output = fd->defineTensor(new_shape.size);
+  std::vector<State> arg_states = {
+      fd->recordingState(arg1()),
+      fd->recordingState(arg2()),
+      fd->recordingState(new_shape()),
+  };
+  if (rng_seed.has_value() && rng_offset.has_value()) {
+    arg_states.push_back(fd->recordingState(rng_seed.value()()));
+    arg_states.push_back(fd->recordingState(rng_offset.value()()));
+  } else {
+    NVF_CHECK(
+        !rng_seed.has_value() && !rng_offset.has_value(),
+        "rng_seed and rng_offset must be provided together!");
+  }
+
+  fd->defineRecord(new RandomDistOpRecord<RType>(
+      arg_states, {fd->recordingState(output())}, dtype));
+
   return output;
 }
 
@@ -553,7 +609,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                 !self.completed(),
                 "Attempting to add to a completed definition!");
             self.defineRecord(new OutputRecord<Val>(
-                {self.recordingState(output())}, serde::RecordType_OutputVal));
+                {self.recordingState(output())}, serde::RecordType::OutputVal));
           },
           py::arg("output"))
       .def(
@@ -569,10 +625,11 @@ void initNvFuserPythonBindings(PyObject* module) {
               self.defineRecord(new OutputRecord<TensorView>(
                   {self.recordingState(output()),
                    self.recordingState(alias_input.value()())},
-                  serde::RecordType_OutputTv));
+                  serde::RecordType::OutputTv));
             } else {
               self.defineRecord(new OutputRecord<TensorView>(
-                  {self.recordingState(output())}, serde::RecordType_OutputTv));
+                  {self.recordingState(output())},
+                  serde::RecordType::OutputTv));
             }
           },
           py::arg("output"),
@@ -601,7 +658,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                 "duplicated elements in stride_order detected!");
             self.defineRecord(new OutputRecord<TensorView>(
                 {self.recordingState(output())},
-                serde::RecordType_OutputTv,
+                serde::RecordType::OutputTv,
                 stride_order));
           },
           py::arg("output"),
@@ -836,7 +893,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(input())},                                    \
             {fd->recordingState(output())},                                   \
             ("ops." op_str),                                                  \
-            serde::RecordType_Unary_TV,                                       \
+            serde::RecordType::Unary_TV,                                      \
             static_cast<TensorView* (*)(TensorView*)>(op_name)));             \
         return output;                                                        \
       },                                                                      \
@@ -853,7 +910,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(input())},                                    \
             {fd->recordingState(output())},                                   \
             ("ops." op_str),                                                  \
-            serde::RecordType_Unary_VAL,                                      \
+            serde::RecordType::Unary_VAL,                                     \
             static_cast<Val* (*)(Val*)>(op_name)));                           \
         return output;                                                        \
       },                                                                      \
@@ -928,7 +985,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             "Operator stride_order expects `stride_order` argument to have the same length as input!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
-        fd->defineRecord(new DimsOpRecord<serde::RecordType_StrideOrderOp>(
+        fd->defineRecord(new DimsOpRecord<serde::RecordType::StrideOrderOp>(
             {fd->recordingState(arg())},
             {fd->recordingState(output())},
             std::move(stride_order),
@@ -963,7 +1020,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              fd->recordingState(rng_offset())},                               \
             {fd->recordingState(output())},                                   \
             ("ops." op_str),                                                  \
-            serde::RecordType_Ternary_TV_VAL_VAL,                             \
+            serde::RecordType::Ternary_TV_VAL_VAL,                            \
             static_cast<TensorView* (*)(TensorView*)>(op_name)));             \
         return output;                                                        \
       },                                                                      \
@@ -991,7 +1048,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(input())},                                     \
             {fd->recordingState(output())},                                    \
             ("ops." op_str),                                                   \
-            serde::RecordType_Unary_TV,                                        \
+            serde::RecordType::Unary_TV,                                       \
             static_cast<TensorView* (*)(TensorView*)>(op_name)));              \
         return output;                                                         \
       },                                                                       \
@@ -1008,7 +1065,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(input())},                                     \
             {fd->recordingState(output())},                                    \
             ("ops." op_str),                                                   \
-            serde::RecordType_Unary_VAL,                                       \
+            serde::RecordType::Unary_VAL,                                      \
             static_cast<Val* (*)(Val*)>(op_name)));                            \
         return output;                                                         \
       },                                                                       \
@@ -1032,7 +1089,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
             {fd->recordingState(output())},                                    \
             ("ops." op_str),                                                   \
-            serde::RecordType_Binary_TV,                                       \
+            serde::RecordType::Binary_TV,                                      \
             static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name))); \
         return output;                                                         \
       },                                                                       \
@@ -1059,7 +1116,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
             {fd->recordingState(output())},                                    \
             ("ops." op_str),                                                   \
-            serde::RecordType_Binary_TV,                                       \
+            serde::RecordType::Binary_TV,                                      \
             static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name))); \
         return output;                                                         \
       },                                                                       \
@@ -1078,7 +1135,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
             {fd->recordingState(output())},                                    \
             ("ops." op_str),                                                   \
-            serde::RecordType_Binary_TV_VAL,                                   \
+            serde::RecordType::Binary_TV_VAL,                                  \
             static_cast<TensorView* (*)(TensorView*, Val*)>(op_name)));        \
         return output;                                                         \
       },                                                                       \
@@ -1097,7 +1154,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
             {fd->recordingState(output())},                                    \
             ("ops." op_str),                                                   \
-            serde::RecordType_Binary_VAL_TV,                                   \
+            serde::RecordType::Binary_VAL_TV,                                  \
             static_cast<TensorView* (*)(Val*, TensorView*)>(op_name)));        \
         return output;                                                         \
       },                                                                       \
@@ -1116,7 +1173,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
             {fd->recordingState(output())},                                    \
             ("ops." op_str),                                                   \
-            serde::RecordType_Binary_VAL,                                      \
+            serde::RecordType::Binary_VAL,                                     \
             static_cast<Val* (*)(Val*, Val*)>(op_name)));                      \
         return output;                                                         \
       },                                                                       \
@@ -1161,7 +1218,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
             {fd->recordingState(output())},                                    \
             ("ops." op_str),                                                   \
-            serde::RecordType_Binary_TV,                                       \
+            serde::RecordType::Binary_TV,                                      \
             static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name))); \
         return output;                                                         \
       },                                                                       \
@@ -1176,7 +1233,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
             {fd->recordingState(output())},                                    \
             ("ops." op_str),                                                   \
-            serde::RecordType_Binary_TV_VAL,                                   \
+            serde::RecordType::Binary_TV_VAL,                                  \
             static_cast<TensorView* (*)(TensorView*, Val*)>(op_name)));        \
         return output;                                                         \
       },                                                                       \
@@ -1191,7 +1248,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
             {fd->recordingState(output())},                                    \
             ("ops." op_str),                                                   \
-            serde::RecordType_Binary_VAL_TV,                                   \
+            serde::RecordType::Binary_VAL_TV,                                  \
             static_cast<TensorView* (*)(Val*, TensorView*)>(op_name)));        \
         return output;                                                         \
       },                                                                       \
@@ -1206,7 +1263,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(arg1()), fd->recordingState(arg2())},          \
             {fd->recordingState(output())},                                    \
             ("ops." op_str),                                                   \
-            serde::RecordType_Binary_VAL,                                      \
+            serde::RecordType::Binary_VAL,                                     \
             static_cast<Val* (*)(Val*, Val*)>(op_name)));                      \
         return output;                                                         \
       },                                                                       \
@@ -1262,7 +1319,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                  fd->recordingState(arg3())},                                 \
                 {fd->recordingState(output())},                               \
                 ("ops." op_str),                                              \
-                serde::RecordType_Ternary_TV_TV_VAL,                          \
+                serde::RecordType::Ternary_TV_TV_VAL,                         \
                 static_cast<TensorView* (*)(TensorView*, TensorView*, Val*)>( \
                     op_name)));                                               \
         return output;                                                        \
@@ -1285,7 +1342,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              fd->recordingState(arg3())},                                     \
             {fd->recordingState(output())},                                   \
             ("ops." op_str),                                                  \
-            serde::RecordType_Ternary_TV_VAL_VAL,                             \
+            serde::RecordType::Ternary_TV_VAL_VAL,                            \
             static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(op_name))); \
         return output;                                                        \
       },                                                                      \
@@ -1307,7 +1364,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              fd->recordingState(arg3())},                                     \
             {fd->recordingState(output())},                                   \
             ("ops." op_str),                                                  \
-            serde::RecordType_Ternary_VAL_TV_VAL,                             \
+            serde::RecordType::Ternary_VAL_TV_VAL,                            \
             static_cast<TensorView* (*)(Val*, TensorView*, Val*)>(op_name))); \
         return output;                                                        \
       },                                                                      \
@@ -1329,7 +1386,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              fd->recordingState(arg3())},                                     \
             {fd->recordingState(output())},                                   \
             ("ops." op_str),                                                  \
-            serde::RecordType_Ternary_VAL,                                    \
+            serde::RecordType::Ternary_VAL,                                   \
             static_cast<Val* (*)(Val*, Val*, Val*)>(op_name)));               \
         return output;                                                        \
       },                                                                      \
@@ -1357,7 +1414,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              fd->recordingState(arg3())},                                     \
             {fd->recordingState(output())},                                   \
             ("ops." op_str),                                                  \
-            serde::RecordType_Ternary_VAL,                                    \
+            serde::RecordType::Ternary_VAL,                                   \
             static_cast<Val* (*)(Val*, Val*, Val*)>(op_name)));               \
         return output;                                                        \
       },                                                                      \
@@ -1380,7 +1437,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                  fd->recordingState(arg3())},                                 \
                 {fd->recordingState(output())},                               \
                 ("ops." op_str),                                              \
-                serde::RecordType_Ternary_TV,                                 \
+                serde::RecordType::Ternary_TV,                                \
                 static_cast<                                                  \
                     TensorView* (*)(TensorView*, TensorView*, TensorView*)>(  \
                     op_name)));                                               \
@@ -1405,7 +1462,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                  fd->recordingState(arg3())},                                 \
                 {fd->recordingState(output())},                               \
                 ("ops." op_str),                                              \
-                serde::RecordType_Ternary_TV_TV_VAL,                          \
+                serde::RecordType::Ternary_TV_TV_VAL,                         \
                 static_cast<TensorView* (*)(TensorView*, TensorView*, Val*)>( \
                     op_name)));                                               \
         return output;                                                        \
@@ -1429,7 +1486,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                  fd->recordingState(arg3())},                                 \
                 {fd->recordingState(output())},                               \
                 ("ops." op_str),                                              \
-                serde::RecordType_Ternary_TV_VAL_TV,                          \
+                serde::RecordType::Ternary_TV_VAL_TV,                         \
                 static_cast<TensorView* (*)(TensorView*, Val*, TensorView*)>( \
                     op_name)));                                               \
         return output;                                                        \
@@ -1453,7 +1510,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                  fd->recordingState(arg3())},                                 \
                 {fd->recordingState(output())},                               \
                 ("ops." op_str),                                              \
-                serde::RecordType_Ternary_VAL_TV_TV,                          \
+                serde::RecordType::Ternary_VAL_TV_TV,                         \
                 static_cast<TensorView* (*)(Val*, TensorView*, TensorView*)>( \
                     op_name)));                                               \
         return output;                                                        \
@@ -1476,7 +1533,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              fd->recordingState(arg3())},                                     \
             {fd->recordingState(output())},                                   \
             ("ops." op_str),                                                  \
-            serde::RecordType_Ternary_VAL_VAL_TV,                             \
+            serde::RecordType::Ternary_VAL_VAL_TV,                            \
             static_cast<TensorView* (*)(Val*, Val*, TensorView*)>(op_name))); \
         return output;                                                        \
       },                                                                      \
@@ -1498,7 +1555,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              fd->recordingState(arg3())},                                     \
             {fd->recordingState(output())},                                   \
             ("ops." op_str),                                                  \
-            serde::RecordType_Ternary_TV_VAL_VAL,                             \
+            serde::RecordType::Ternary_TV_VAL_VAL,                            \
             static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(op_name))); \
         return output;                                                        \
       },                                                                      \
@@ -1520,7 +1577,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              fd->recordingState(arg3())},                                     \
             {fd->recordingState(output())},                                   \
             ("ops." op_str),                                                  \
-            serde::RecordType_Ternary_VAL_TV_VAL,                             \
+            serde::RecordType::Ternary_VAL_TV_VAL,                            \
             static_cast<TensorView* (*)(Val*, TensorView*, Val*)>(op_name))); \
         return output;                                                        \
       },                                                                      \
@@ -1548,7 +1605,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              fd->recordingState(arg3())},                                      \
             {fd->recordingState(output())},                                    \
             ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_VAL,                                     \
+            serde::RecordType::Ternary_VAL,                                    \
             static_cast<Val* (*)(Val*, Val*, Val*)>(op_name)));                \
         return output;                                                         \
       },                                                                       \
@@ -1570,7 +1627,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              fd->recordingState(arg3())},                                      \
             {fd->recordingState(output())},                                    \
             ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_TV_VAL_VAL,                              \
+            serde::RecordType::Ternary_TV_VAL_VAL,                             \
             static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(op_name)));  \
         return output;                                                         \
       },                                                                       \
@@ -1600,7 +1657,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              fd->recordingState(arg4())},                                      \
             {fd->recordingState(output())},                                    \
             ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_Alpha_VAL,                               \
+            serde::RecordType::Ternary_Alpha_VAL,                              \
             static_cast<Val* (*)(Val*, Val*, Val*, Val*)>(op_name)));          \
         return output;                                                         \
       },                                                                       \
@@ -1629,7 +1686,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              fd->recordingState(arg4())},                                      \
             {fd->recordingState(output())},                                    \
             ("ops." op_str),                                                   \
-            serde::RecordType_Ternary_Alpha_TV,                                \
+            serde::RecordType::Ternary_Alpha_TV,                               \
             static_cast<                                                       \
                 TensorView* (*)(TensorView*, TensorView*, TensorView*, Val*)>( \
                 op_name)));                                                    \
@@ -1656,7 +1713,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                  fd->recordingState(arg4())},                                  \
                 {fd->recordingState(output())},                                \
                 ("ops." op_str),                                               \
-                serde::RecordType_Ternary_Alpha_TV_TV_VAL,                     \
+                serde::RecordType::Ternary_Alpha_TV_TV_VAL,                    \
                 static_cast<                                                   \
                     TensorView* (*)(TensorView*, TensorView*, Val*, Val*)>(    \
                     op_name)));                                                \
@@ -1683,7 +1740,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                  fd->recordingState(arg4())},                                  \
                 {fd->recordingState(output())},                                \
                 ("ops." op_str),                                               \
-                serde::RecordType_Ternary_Alpha_TV_VAL_TV,                     \
+                serde::RecordType::Ternary_Alpha_TV_VAL_TV,                    \
                 static_cast<                                                   \
                     TensorView* (*)(TensorView*, Val*, TensorView*, Val*)>(    \
                     op_name)));                                                \
@@ -1710,7 +1767,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                  fd->recordingState(arg4())},                                  \
                 {fd->recordingState(output())},                                \
                 ("ops." op_str),                                               \
-                serde::RecordType_Ternary_Alpha_VAL_TV_TV,                     \
+                serde::RecordType::Ternary_Alpha_VAL_TV_TV,                    \
                 static_cast<                                                   \
                     TensorView* (*)(Val*, TensorView*, TensorView*, Val*)>(    \
                     op_name)));                                                \
@@ -1737,7 +1794,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                  fd->recordingState(arg4())},                                  \
                 {fd->recordingState(output())},                                \
                 ("ops." op_str),                                               \
-                serde::RecordType_Ternary_Alpha_VAL_VAL_TV,                    \
+                serde::RecordType::Ternary_Alpha_VAL_VAL_TV,                   \
                 static_cast<TensorView* (*)(Val*, Val*, TensorView*, Val*)>(   \
                     op_name)));                                                \
         return output;                                                         \
@@ -1763,7 +1820,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                  fd->recordingState(arg4())},                                  \
                 {fd->recordingState(output())},                                \
                 ("ops." op_str),                                               \
-                serde::RecordType_Ternary_Alpha_TV_VAL_VAL,                    \
+                serde::RecordType::Ternary_Alpha_TV_VAL_VAL,                   \
                 static_cast<TensorView* (*)(TensorView*, Val*, Val*, Val*)>(   \
                     op_name)));                                                \
         return output;                                                         \
@@ -1789,7 +1846,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                  fd->recordingState(arg4())},                                  \
                 {fd->recordingState(output())},                                \
                 ("ops." op_str),                                               \
-                serde::RecordType_Ternary_Alpha_VAL_TV_VAL,                    \
+                serde::RecordType::Ternary_Alpha_VAL_TV_VAL,                   \
                 static_cast<TensorView* (*)(Val*, TensorView*, Val*, Val*)>(   \
                     op_name)));                                                \
         return output;                                                         \
@@ -1896,13 +1953,13 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
 
   NVFUSER_PYTHON_BINDING_REDUCTION_OP(
-      "max", max, serde::RecordType::RecordType_ReductionMax)
+      "max", max, serde::RecordType::ReductionMax)
   NVFUSER_PYTHON_BINDING_REDUCTION_OP(
-      "min", min, serde::RecordType::RecordType_ReductionMin)
+      "min", min, serde::RecordType::ReductionMin)
   NVFUSER_PYTHON_BINDING_REDUCTION_OP(
-      "prod", prod, serde::RecordType::RecordType_ReductionProd)
+      "prod", prod, serde::RecordType::ReductionProd)
   NVFUSER_PYTHON_BINDING_REDUCTION_OP(
-      "sum", sum, serde::RecordType::RecordType_ReductionSum)
+      "sum", sum, serde::RecordType::ReductionSum)
 #undef NVFUSER_PYTHON_BINDING_REDUCTION_OP
 
 #define NVFUSER_PYTHON_BINDING_CAST_OP(op_str, op_name)                       \
@@ -1920,7 +1977,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(arg())},                                      \
             {fd->recordingState(output())},                                   \
             ("ops." op_str),                                                  \
-            serde::RecordType_CastTv,                                         \
+            serde::RecordType::CastTv,                                        \
             static_cast<TensorView* (*)(DataType, TensorView*)>(op_name),     \
             dtype));                                                          \
         return output;                                                        \
@@ -1942,7 +1999,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(arg())},                                      \
             {fd->recordingState(output())},                                   \
             ("ops." op_str),                                                  \
-            serde::RecordType_CastVal,                                        \
+            serde::RecordType::CastVal,                                       \
             static_cast<Val* (*)(DataType, Val*)>(op_name),                   \
             dtype));                                                          \
         return output;                                                        \
@@ -1953,6 +2010,48 @@ void initNvFuserPythonBindings(PyObject* module) {
 
   NVFUSER_PYTHON_BINDING_CAST_OP("cast", castOp)
 #undef NVFUSER_PYTHON_BINDING_CAST_OP
+
+#define NVFUSER_ALL_VECTOR_TYPES(fn, ...) \
+  fn(Vector, __VA_ARGS__);                \
+  fn(py::list, __VA_ARGS__);              \
+  fn(py::tuple, __VA_ARGS__);
+
+#define NVFUSER_RANDOM_DIST_OP_HELPER(             \
+    vec_type, op_str, op_type, arg1_str, arg2_str) \
+  nvf_ops.def(                                     \
+      op_str,                                      \
+      random_dist_op_fn<vec_type, op_type>,        \
+      py::arg(arg1_str),                           \
+      py::arg(arg2_str),                           \
+      py::arg("shape"),                            \
+      py::kw_only(),                               \
+      py::arg("rng_seed") = py::none(),            \
+      py::arg("rng_offset") = py::none(),          \
+      py::arg("dtype") = DataType::Float,          \
+      py::return_value_policy::reference);
+
+#define NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP(...) \
+  NVFUSER_ALL_VECTOR_TYPES(NVFUSER_RANDOM_DIST_OP_HELPER, __VA_ARGS__)
+
+  NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP(
+      "normal", serde::RecordType::NormalDistOp, "mean", "std")
+  NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP(
+      "uniform", serde::RecordType::UniformDistOp, "minval", "maxval")
+#undef NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP
+#undef NVFUSER_RANDOM_DIST_OP_HELPER
+
+#define NVFUSER_FULL_OP_HELPER(vec_type, ...) \
+  nvf_ops.def(                                \
+      "full",                                 \
+      full_op_fn<vec_type>,                   \
+      py::arg("shape"),                       \
+      py::arg("fill_value"),                  \
+      py::arg("dtype"),                       \
+      py::return_value_policy::reference);
+
+  // NOTE: The second argument is a dummy to satisfy the macro
+  NVFUSER_ALL_VECTOR_TYPES(NVFUSER_FULL_OP_HELPER, false)
+#undef NVFUSER_FULL_OP_HELPER
 
   nvf_ops.def(
       "batch_norm",
@@ -1975,16 +2074,15 @@ void initNvFuserPythonBindings(PyObject* module) {
         Tensor invstd = fd->defineTensor(1);
         auto weight_state = weight.has_value()
             ? fd->recordingState(weight.value()())
-            : State(0, serde::StateType::StateType_None);
-        auto bias_state = bias.has_value()
-            ? fd->recordingState(bias.value()())
-            : State(0, serde::StateType::StateType_None);
+            : State(0, serde::StateType::None);
+        auto bias_state = bias.has_value() ? fd->recordingState(bias.value()())
+                                           : State(0, serde::StateType::None);
         auto running_mean_state = running_mean.has_value()
             ? fd->recordingState(running_mean.value()())
-            : State(0, serde::StateType::StateType_None);
+            : State(0, serde::StateType::None);
         auto running_var_state = running_var.has_value()
             ? fd->recordingState(running_var.value()())
-            : State(0, serde::StateType::StateType_None);
+            : State(0, serde::StateType::None);
         fd->defineRecord(new BatchNormOpRecord(
             {fd->recordingState(arg()),
              weight_state,
@@ -2178,7 +2276,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         Tensor output = fd->defineTensor(arg.dims);
         auto value_state = value.has_value()
             ? fd->recordingState(value.value()())
-            : State(0, serde::StateType_None);
+            : State(0, serde::StateType::None);
         fd->defineRecord(new PadOpRecord(
             {fd->recordingState(arg()), value_state},
             {fd->recordingState(output())},
@@ -2261,7 +2359,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
         self.fusion_definition->defineRecord(
-            new DimsOpRecord<serde::RecordType_PermuteOp>(
+            new DimsOpRecord<serde::RecordType::PermuteOp>(
                 {fd->recordingState(arg())},
                 {fd->recordingState(output())},
                 std::move(dims),
@@ -2355,8 +2453,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       "slice",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         std::vector<int64_t>& start_indices,
-         std::vector<int64_t>& end_indices,
+         const std::vector<int64_t>& start_indices,
+         const std::vector<int64_t>& end_indices,
          // NOTE: Tried to use std::reference_wrapper to a vector and during
          // testing, I was not getting the proper value back.  It was like
          // like the code was referencing the strides vector that holds the
@@ -2367,7 +2465,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
 
-        std::vector<int64_t> strides(start_indices.size(), int64_t(1));
+        std::vector<int64_t> strides;
         if (opt_strides.has_value()) {
           NVF_CHECK(
               start_indices.size() == opt_strides.value().size(),
@@ -2377,7 +2475,10 @@ void initNvFuserPythonBindings(PyObject* module) {
               opt_strides.value().size());
           strides.assign(
               opt_strides.value().begin(), opt_strides.value().end());
+        } else {
+          strides.resize(start_indices.size(), 1);
         }
+
         NVF_CHECK(
             arg.dims == start_indices.size(),
             "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
@@ -2496,27 +2597,6 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("new_shape"),
       py::return_value_policy::reference);
   nvf_ops.def(
-      "full",
-      [](FusionDefinition::Operators& self,
-         std::vector<int64_t>& shape,
-         Scalar fill_value,
-         PrimDataType dtype) -> Tensor {
-        NVF_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(shape.size());
-        fd->defineRecord(new FullOpRecord(
-            {fd->recordingState(fill_value())},
-            {fd->recordingState(output())},
-            std::move(shape),
-            dtype));
-        return output;
-      },
-      py::arg("shape"),
-      py::arg("fill_value"),
-      py::arg("dtype"),
-      py::return_value_policy::reference);
-  nvf_ops.def(
       "iota",
       [](FusionDefinition::Operators& self,
          Scalar length,
@@ -2529,9 +2609,9 @@ void initNvFuserPythonBindings(PyObject* module) {
         Tensor output = fd->defineTensor(1);
         auto start_state = start.has_value()
             ? fd->recordingState(start.value()())
-            : State(0, serde::StateType_None);
+            : State(0, serde::StateType::None);
         auto step_state = step.has_value() ? fd->recordingState(step.value()())
-                                           : State(0, serde::StateType_None);
+                                           : State(0, serde::StateType::None);
         fd->defineRecord(new IotaOpRecord(
             {fd->recordingState(length()), start_state, step_state},
             {fd->recordingState(output())},
@@ -2595,102 +2675,6 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("axes"),
       py::arg("correction") = 1,
       py::arg("keepdim") = false,
-      py::return_value_policy::reference);
-  nvf_ops.def(
-      "uniform",
-      [](FusionDefinition::Operators& self,
-         Scalar minval,
-         Scalar maxval,
-         std::vector<Scalar>& shape,
-         PrimDataType dtype,
-         std::optional<Scalar> rng_seed,
-         std::optional<Scalar> rng_offset) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.uniform");
-        NVF_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(shape.size());
-        std::vector<State> output_shape_states(
-            shape.size(), State(0, serde::StateType_Scalar));
-        std::transform(
-            shape.begin(),
-            shape.end(),
-            output_shape_states.begin(),
-            [&fd](const Scalar& s) { return fd->recordingState(s()); });
-        std::vector<State> arg_states = {
-            fd->recordingState(minval()),
-            fd->recordingState(maxval()),
-        };
-        if (rng_seed.has_value()) {
-          NVF_CHECK(
-              rng_offset.has_value(),
-              "When providing rng_seed, rng_offset must also be provided");
-          arg_states.push_back(fd->recordingState(rng_seed.value()()));
-          arg_states.push_back(fd->recordingState(rng_offset.value()()));
-        }
-        fd->defineRecord(new RandomOpRecord(
-            arg_states,
-            {fd->recordingState(output())},
-            output_shape_states,
-            "ops.uniform",
-            dtype));
-        return output;
-      },
-      py::arg("minval"),
-      py::arg("maxval"),
-      py::arg("shape"),
-      py::arg("dtype") = DataType::Float,
-      py::kw_only(),
-      py::arg("rng_seed") = py::none(),
-      py::arg("rng_offset") = py::none(),
-      py::return_value_policy::reference);
-  nvf_ops.def(
-      "normal",
-      [](FusionDefinition::Operators& self,
-         Scalar mean,
-         Scalar std,
-         std::vector<Scalar>& shape,
-         PrimDataType dtype,
-         std::optional<Scalar> rng_seed,
-         std::optional<Scalar> rng_offset) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.normal");
-        NVF_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(shape.size());
-        std::vector<State> output_shape_states(
-            shape.size(), State(0, serde::StateType_Scalar));
-        std::transform(
-            shape.begin(),
-            shape.end(),
-            output_shape_states.begin(),
-            [&fd](const Scalar& s) { return fd->recordingState(s()); });
-        std::vector<State> arg_states = {
-            fd->recordingState(mean()),
-            fd->recordingState(std()),
-        };
-        if (rng_seed.has_value()) {
-          NVF_CHECK(
-              rng_offset.has_value(),
-              "When providing rng_seed, rng_offset must also be provided");
-          arg_states.push_back(fd->recordingState(rng_seed.value()()));
-          arg_states.push_back(fd->recordingState(rng_offset.value()()));
-        }
-        fd->defineRecord(new RandomOpRecord(
-            arg_states,
-            {fd->recordingState(output())},
-            output_shape_states,
-            "ops.normal",
-            dtype));
-        return output;
-      },
-      py::arg("mean"),
-      py::arg("std"),
-      py::arg("shape"),
-      py::arg("dtype") = DataType::Float,
-      py::kw_only(),
-      py::arg("rng_seed") = py::none(),
-      py::arg("rng_offset") = py::none(),
       py::return_value_policy::reference);
   //! The ScedOperators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of schedule operators.

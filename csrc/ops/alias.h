@@ -96,4 +96,17 @@ TensorView* cat(
 //! PyTorch.
 TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges);
 
+//! A variant of the above `slice` function. This is closer to the Python API.
+TensorView* slice(
+    TensorView* inp,
+    const std::vector<int64_t>& starts,
+    const std::vector<int64_t>& stops,
+    const std::vector<int64_t>& steps);
+
+//! Same as above except that `steps` are all 1.
+TensorView* slice(
+    TensorView* inp,
+    const std::vector<int64_t>& starts,
+    const std::vector<int64_t>& stops);
+
 } // namespace nvfuser

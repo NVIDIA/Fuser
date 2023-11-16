@@ -27,18 +27,7 @@ bool isSmemTensorIndex(Val* value) {
 }
 
 int64_t getVectorizeSize(kir::TensorIndex* ti) {
-  for (auto id : ti->view()->getLeafDomain()) {
-    if (!isParallelTypeVectorize(id->getParallelType())) {
-      continue;
-    }
-
-    NVF_ERROR(
-        id->extent()->isConstInt(),
-        "Could not evaluate constant value bound to vectorized dim.");
-
-    return id->extent()->evaluate().as<int64_t>();
-  }
-  return 1;
+  return ir_utils::getVectorizeSize(ti->view());
 }
 
 inline int64_t getPhaseSize(int64_t word_size_bytes) {

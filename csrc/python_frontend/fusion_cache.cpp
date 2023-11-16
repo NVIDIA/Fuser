@@ -26,14 +26,15 @@ UserSchedule::UserSchedule() : schedule(nullptr), executor(nullptr) {
   executor = std::make_unique<FusionExecutor>();
 }
 
-FusionSchedules::FusionSchedules()
+FusionSchedules::FusionSchedules(int64_t fusion_id)
     : auto_gen_schedules(nullptr),
       user_def_schedules(),
       last_user_def_scheduled_ir(nullptr),
       last_user_def_executor(nullptr),
-      scheds_lock() {
-  auto_gen_schedules =
-      std::make_unique<FusionExecutorCache>(std::make_unique<Fusion>());
+      scheds_lock(),
+      fusion_id_{fusion_id} {
+  auto_gen_schedules = std::make_unique<FusionExecutorCache>(
+      std::make_unique<Fusion>(), fusion_id);
 }
 
 Fusion* FusionSchedules::preschedFusion() {
@@ -51,7 +52,7 @@ TrieNode::TrieNode(RecordFunctor* rec, TrieNode* _parent, size_t _fusion_id)
       trie_node_lock() {}
 
 bool TrieNode::isTerminal() const {
-  return (record.get()->recordType() == serde::RecordType_End);
+  return (record.get()->recordType() == serde::RecordType::End);
 }
 
 flatbuffers::Offset<serde::TrieNode> TrieNode::serialize(
@@ -105,7 +106,7 @@ void FusionCache::print(std::ostream& os) const {
       std::vector<TrieNode*> rev_fusion_records;
       TrieNode* end = node->parent;
       while (end) {
-        if (end->record->recordType() != serde::RecordType_Start) {
+        if (end->record->recordType() != serde::RecordType::Start) {
           rev_fusion_records.emplace_back(end);
         }
         end = end->parent;
@@ -241,15 +242,15 @@ TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
     child = child_node.value();
   } else {
     size_t fusion_id = 0;
-    if (rec->recordType() == serde::RecordType_End) {
+    if (rec->recordType() == serde::RecordType::End) {
       NVF_CHECK(
           (fusions_.size() + 1) <= max_fusions_,
           "The number of fusions in nvfuser has exceeded ",
           max_fusions_,
           "fusions.  The max_fusions for the FusionCache might need to be ",
           "increased if the max number is not being exceeded due to an error.");
-      fusions_.emplace_back(std::make_unique<FusionSchedules>());
-      fusion_id = fusions_.size() - 1;
+      fusion_id = fusions_.size();
+      fusions_.emplace_back(std::make_unique<FusionSchedules>(fusion_id));
     }
 
     // Copying the record owned by the FusionDefinition that calls this function
@@ -262,7 +263,7 @@ TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
     child = node->children[new_rec].get();
     NVF_CHECK(child, "Created child of TrieNode should not be null!");
     ++(child->visits);
-    if (rec->recordType() == serde::RecordType_End) {
+    if (rec->recordType() == serde::RecordType::End) {
       terminal_nodes_.push_back(node->children[new_rec].get());
     }
     if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
@@ -295,6 +296,8 @@ UserSchedule* FusionCache::createUserSchedule(
       user_scheds[input_id.id].at(device) = UserSchedule();
     }
   }
+  user_scheds[input_id.id].at(device).fusion_id_ = scheds->fusion_id_;
+  user_scheds[input_id.id].at(device).device_id_ = device;
   return &user_scheds[input_id.id].at(device);
 }
 
@@ -370,7 +373,8 @@ void FusionCache::serialize(std::string filename) const {
       max_fusions_,
       &fb_nodes,
       &terminal_node_idx,
-      &fb_auto_gen_schedules);
+      &fb_auto_gen_schedules,
+      FusionExecutor::getGlobalFusionCount());
   builder.Finish(fusion_cache, "NV00" /* file_identifier */);
 
   // 6. Write flatbuffer binary to file
@@ -429,6 +433,10 @@ void FusionCache::deserialize(std::string filename) {
   auto buffer = openFusionCache(filename);
   auto fusion_cache_buffer = verifyFusionCache(buffer);
 
+  // 0. Set static fusion count in Fusion Executor
+  FusionExecutor::setGlobalFusionCount(
+      fusion_cache_buffer->global_fusion_count());
+
   // 1. Deserialize max_fusions field
   max_fusions_ = fusion_cache_buffer->max_fusions();
 
@@ -480,7 +488,7 @@ void FusionCache::deserialize(std::string filename) {
           fb_trie_node->children()->size() == 0,
           "This terminal node should not have any children.")
       NVF_CHECK(
-          fb_trie_node->record()->type() == serde::RecordType_End,
+          fb_trie_node->record()->type() == serde::RecordType::End,
           "This terminal node should have an EndRecord RecordFunctor")
       NVF_CHECK(
           trie_ptr->fusion_id == fb_trie_node->fusion_id(),
@@ -534,11 +542,13 @@ void FusionCache::deserialize(std::string filename) {
       // Parallelize the deserialization of each FusionExecutorCache.
       getThreadPool()->run([=]() {
         FUSER_PERF_SCOPE("FusionCache::deserializeFusionParallel");
-        fusion_schedule->auto_gen_schedules->deserialize(fb_fec_node);
+        fusion_schedule->auto_gen_schedules->deserialize(
+            fb_fec_node, (int64_t)trie_node->fusion_id);
       });
     } else {
       FUSER_PERF_SCOPE("FusionCache::deserializeFusionSerial");
-      fusion_schedule->auto_gen_schedules->deserialize(fb_fec_node);
+      fusion_schedule->auto_gen_schedules->deserialize(
+          fb_fec_node, (int64_t)trie_node->fusion_id);
     }
   }
 

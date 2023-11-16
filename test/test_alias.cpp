@@ -233,13 +233,7 @@ TEST_F(AliasTest, View) {
   EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
 
   // Verify output values.
-  testValidate(
-      fec.fusion(),
-      {out_tensor},
-      {in_tensor},
-      {in_tensor.view({2, 12})},
-      __LINE__,
-      __FILE__);
+  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
 TEST_F(AliasTest, ViewPermute) {
@@ -266,13 +260,7 @@ TEST_F(AliasTest, ViewPermute) {
   EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
 
   // Verify output values.
-  testValidate(
-      fec.fusion(),
-      {out_tensor},
-      {in_tensor},
-      {in_tensor.view({2, 12}).permute({1, 0})},
-      __LINE__,
-      __FILE__);
+  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

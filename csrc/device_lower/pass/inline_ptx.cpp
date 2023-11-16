@@ -45,6 +45,27 @@ class LowerToInlinePtx : public kir::ExprMutator {
 
     registerReplace(wait, replace);
   }
+
+  void handle(kir::CpAsyncBulkS2GCommit* commit) override {
+    registerReplace(
+        commit,
+        IrBuilder::create<kir::Asm>(
+            "cp.async.bulk.commit_group;",
+            std::vector<Val*>{},
+            std::vector<Val*>{},
+            kir::Asm::Options{true}));
+  }
+
+  void handle(kir::CpAsyncBulkS2GWait* wait) override {
+    auto stages = wait->keepStages();
+    registerReplace(
+        wait,
+        IrBuilder::create<kir::Asm>(
+            "cp.async.bulk.wait_group.read %0;",
+            std::vector<Val*>{},
+            std::vector<Val*>{IrBuilder::create<Val>(stages)},
+            kir::Asm::Options{true, true}));
+  }
 };
 
 std::vector<Expr*> lowerToInlinePtx(const std::vector<Expr*>& exprs) {

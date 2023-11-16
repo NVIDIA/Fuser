@@ -185,6 +185,88 @@ TEST_F(CommunicationTest, Communication_SendRecvToSelf) {
   }
 }
 
+TEST_F(CommunicationTest, Communication_Reduce) {
+  params.redOp = red_op;
+  params.root = root;
+  params.team = all_ranks;
+  params.src_bufs = {at::empty(tensor_size, tensor_options)};
+  if (communicator->deviceId() == root) {
+    params.dst_bufs = {at::empty(tensor_size, tensor_options)};
+  }
+  auto communication = Reduce(params);
+
+  for (int j : c10::irange(number_of_repetitions)) {
+    resetDstBuffers();
+    params.src_bufs.at(0).copy_(
+        at::arange(tensor_size, tensor_options) +
+        (communicator->deviceId() + 1) * j);
+
+    auto work = communication.post(*communicator);
+    work->wait();
+
+    if (communicator->deviceId() == root) {
+      auto obtained = params.dst_bufs.at(0);
+      int S = communicator->size();
+      auto ref =
+          at::arange(tensor_size, tensor_options) * S + S * (S + 1) / 2 * j;
+      validate(obtained, ref);
+    }
+  }
+}
+
+TEST_F(CommunicationTest, Communication_Allreduce) {
+  params.redOp = red_op;
+  params.team = all_ranks;
+  params.src_bufs = {at::empty(tensor_size, tensor_options)};
+  params.dst_bufs = {at::empty(tensor_size, tensor_options)};
+  auto communication = Allreduce(params);
+
+  for (int j : c10::irange(number_of_repetitions)) {
+    resetDstBuffers();
+    params.src_bufs.at(0).copy_(
+        at::arange(tensor_size, tensor_options) +
+        (communicator->deviceId() + 1) * j);
+
+    auto work = communication.post(*communicator);
+    work->wait();
+
+    auto obtained = params.dst_bufs.at(0);
+    int S = communicator->size();
+    auto ref =
+        at::arange(tensor_size, tensor_options) * S + S * (S + 1) / 2 * j;
+    validate(obtained, ref);
+  }
+}
+
+TEST_F(CommunicationTest, Communication_ReduceScatter) {
+  params.redOp = red_op;
+  params.root = root;
+  params.team = all_ranks;
+  for (int64_t i = 0; i < communicator->size(); i++) {
+    params.src_bufs.push_back(at::empty(tensor_size, tensor_options));
+  }
+  params.dst_bufs = {at::empty(tensor_size, tensor_options)};
+  auto communication = ReduceScatter(params);
+
+  for (int j : c10::irange(number_of_repetitions)) {
+    resetDstBuffers();
+    for (int i : c10::irange(communicator->size())) {
+      params.src_bufs.at(i).copy_(
+          at::arange(tensor_size, tensor_options) +
+          (communicator->deviceId() + 1) * (i + j));
+    }
+
+    auto work = communication.post(*communicator);
+    work->wait();
+
+    auto obtained = params.dst_bufs.at(0);
+    int S = communicator->size();
+    auto ref = at::arange(tensor_size, tensor_options) * S +
+        S * (S + 1) / 2 * (communicator->deviceId() + j);
+    validate(obtained, ref);
+  }
+}
+
 } // namespace nvfuser
 
 #endif

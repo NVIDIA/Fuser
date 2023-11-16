@@ -72,49 +72,37 @@ __device__ inline void adjustPartialLdMatrixAddrInTuring(
 // Finally is an x4 modifier producing a 32x8 using addrs from 0-31 in each
 // warp.
 
-template <typename T>
-__device__ inline void ldMatrix(Array<T, 4, 4>* out, unsigned addr) {
-  static_assert(sizeof(T) == 2);
-  uint2* val = reinterpret_cast<uint2*>(out);
+__device__ inline void ldMatrix(Array<uint32_t, 2, 1>& out, unsigned addr) {
 #if (__CUDA_ARCH__ < 800)
   util::adjustPartialLdMatrixAddrInTuring(addr);
 #endif
   asm volatile("ldmatrix.sync.aligned.x2.m8n8.shared.b16 {%0,%1}, [%2];"
-               : "=r"(val->x), "=r"(val->y)
+               : "=r"(out[0]), "=r"(out[1])
                : "r"(addr));
 }
 
 // Same as previous, 8x8 matrix is vectorized loaded, then scattered (to perform
 // transpose) so threads will hold 2 values down a column (instead of the
 // previous instruction that's across a row).
-template <typename T>
-__device__ inline void ldMatrixT(Array<T, 4, 4>* out, unsigned addr) {
-  static_assert(sizeof(T) == 2);
-  uint2* val = reinterpret_cast<uint2*>(out);
+__device__ inline void ldMatrixT(Array<uint32_t, 2, 1>& out, unsigned addr) {
 #if (__CUDA_ARCH__ < 800)
   util::adjustPartialLdMatrixAddrInTuring(addr);
 #endif
   asm volatile("ldmatrix.sync.aligned.x2.trans.m8n8.shared.b16 {%0,%1}, [%2];"
-               : "=r"(val->x), "=r"(val->y)
+               : "=r"(out[0]), "=r"(out[1])
                : "r"(addr));
 }
 
-template <typename T>
-__device__ inline void ldMatrix(Array<T, 8, 8>* out, unsigned addr) {
-  static_assert(sizeof(T) == 2);
-  uint4* val = reinterpret_cast<uint4*>(out);
+__device__ inline void ldMatrix(Array<uint32_t, 4, 1>& out, unsigned addr) {
   asm volatile("ldmatrix.sync.aligned.x4.m8n8.shared.b16 {%0,%1,%2,%3}, [%4];"
-               : "=r"(val->x), "=r"(val->y), "=r"(val->z), "=r"(val->w)
+               : "=r"(out[0]), "=r"(out[1]), "=r"(out[2]), "=r"(out[3])
                : "r"(addr));
 }
 
-template <typename T>
-__device__ inline void ldMatrixT(Array<T, 8, 8>* out, unsigned addr) {
-  static_assert(sizeof(T) == 2);
-  uint4* val = reinterpret_cast<uint4*>(out);
+__device__ inline void ldMatrixT(Array<uint32_t, 4, 1>& out, unsigned addr) {
   asm volatile(
       "ldmatrix.sync.aligned.x4.trans.m8n8.shared.b16 {%0,%1,%2,%3}, [%4];"
-      : "=r"(val->x), "=r"(val->y), "=r"(val->z), "=r"(val->w)
+      : "=r"(out[0]), "=r"(out[1]), "=r"(out[2]), "=r"(out[3])
       : "r"(addr));
 }
 
@@ -295,18 +283,6 @@ struct CpAsyncBulkTensorTileS2GIndex {
   const TensorMap* descriptor;
   Array<int32_t, dim> crds;
 };
-
-__device__ inline void cpAsyncBulkS2GCommit() {
-  asm volatile("cp.async.bulk.commit_group;");
-}
-
-template <int keep_stages>
-__device__ inline void cpAsyncBulkS2GPartialReadBarrier() {
-  asm volatile("cp.async.bulk.wait_group.read %0;"
-               :
-               : "n"(keep_stages)
-               : "memory");
-}
 
 __device__ inline void cpAsyncBulkTensorTileS2G(
     const CpAsyncBulkTensorTileS2GIndex<1>& dest,
