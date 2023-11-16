@@ -2654,13 +2654,14 @@ struct RandomDistOpRecord : RecordFunctor {
       PrimDataType dtype)
       : RecordFunctor(std::move(_args), std::move(_outputs), "", RType),
         dtype_(dtype) {
-    static_assert(
-        (RType == serde::RecordType::NormalDistOp) ||
-        (RType == serde::RecordType::UniformDistOp));
     if constexpr (RType == serde::RecordType::UniformDistOp) {
       name_ = "ops.uniform";
     } else if constexpr (RType == serde::RecordType::NormalDistOp) {
       name_ = "ops.normal";
+    } else {
+      static_assert(
+          (RType == serde::RecordType::NormalDistOp) ||
+          (RType == serde::RecordType::UniformDistOp));
     }
     setArgName(2, "shape");
     if (args_.size() == 5) {
@@ -2713,6 +2714,10 @@ struct RandomDistOpRecord : RecordFunctor {
         auto offset = fd.getFusionState(args_.at(4).index);
         output = normal(output_shape, arg1, arg2, dtype_, seed, offset);
       }
+    } else {
+      static_assert(
+          (RType == serde::RecordType::NormalDistOp) ||
+          (RType == serde::RecordType::UniformDistOp));
     }
 
     fd.setFusionState(outputs_.at(0).index, output);
