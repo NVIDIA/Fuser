@@ -289,7 +289,6 @@ TEST_F(ScalarHoistTest, IndexHoist3) {
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::arange(10000, options).view({100, 100});
-  at::Tensor t1 = t0.sin() + 10000;
 
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), {t0});
