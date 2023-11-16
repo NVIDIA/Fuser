@@ -9,6 +9,7 @@
 
 #include <ATen/core/ivalue.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <c10/core/DeviceType.h>
 #include <c10/util/Exception.h>
@@ -35,18 +36,17 @@ namespace executor_utils {
 std::string kernelPreamble();
 
 //! Bind input values to runtime values
-ExpressionEvaluator bindInputs(
-    const KernelArgumentHolder& args,
-    Fusion* fusion);
+NVF_API ExpressionEvaluator
+bindInputs(const KernelArgumentHolder& args, Fusion* fusion);
 
-std::string disassembleBinary(
+NVF_API std::string disassembleBinary(
     const std::vector<char>& cubin,
     const std::string& nvdisasm_args);
 
 // I'm not happy with CompiledKernel being a struct exposing all the fields.
 // This could be refactored.
 struct CompiledKernel : public NonCopyable {
-  ~CompiledKernel();
+  NVF_API ~CompiledKernel();
 
   CUmodule module = nullptr;
   CUfunction function = nullptr;

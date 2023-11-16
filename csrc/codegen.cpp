@@ -20,7 +20,6 @@
 #include <cmath>
 #include <sstream>
 #include <typeindex>
-#include <typeinfo>
 #include <vector>
 
 namespace nvfuser {

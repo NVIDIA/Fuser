@@ -50,10 +50,7 @@
 
 #include <algorithm>
 #include <cmath>
-#include <iostream>
 #include <sstream>
-#include <thread>
-#include <typeinfo>
 
 namespace nvfuser {
 

@@ -16,6 +16,7 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
 #include <utils.h>
+#include <visibility.h>
 
 #include <deque>
 #include <list>
@@ -589,13 +590,13 @@ class SegmentCandidateFinder {
 
   static bool hasSegmentHints(Fusion* fusion);
 
-  static bool translateWelfordInFusion(
+  NVF_API static bool translateWelfordInFusion(
       Fusion* fusion,
       const KernelArgumentHolder& runtime_inputs);
 
  private:
   // Perform segmentation on and take ownership of the given fusion
-  SegmentCandidateFinder(
+  NVF_API SegmentCandidateFinder(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
       SegmentCandidateFinderOptions options);

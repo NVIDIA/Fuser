@@ -56,7 +56,7 @@ class IrGraphGenerator : private OptInConstDispatch {
       DetailLevel detail_level = DetailLevel::Basic,
       ExprColorMap* expr_color_map = nullptr);
 
-  static std::string toGraphviz(
+  NVF_API static std::string toGraphviz(
       const Fusion* fusion,
       DetailLevel detail_level,
       ExprColorMap* expr_color_map = nullptr);

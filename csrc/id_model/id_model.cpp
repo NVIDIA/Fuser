@@ -19,7 +19,6 @@
 
 #include <memory>
 #include <tuple>
-#include <typeinfo>
 #include <utility>
 
 namespace nvfuser {

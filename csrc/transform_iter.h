@@ -9,6 +9,7 @@
 
 #include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <disjoint_set.h>
 #include <ir/all_nodes.h>
@@ -471,13 +472,13 @@ class BestEffortReplay {
   // Then there will be two equivalent sets"
   //   - {I1, I1'}
   //   - {I0, I0', I0'*b1, (I0'*b1)*b2}
-  DisjointSets<IterDomain*> getIterDomainEquivalence();
+  NVF_API DisjointSets<IterDomain*> getIterDomainEquivalence();
 
   // Runs a best effort replay that ignores broadcast axes that appear in
   // consumer that are not mapped to producer in root_map.
   //
   // When skip_resize is true, resize is ignored or in other words forwarded
-  static BestEffortReplay replayCasP(
+  NVF_API static BestEffortReplay replayCasP(
       const TensorView* consumer,
       const TensorView* producer,
       int producer_compute_at_axis,
@@ -490,7 +491,7 @@ class BestEffortReplay {
   // consumer that are not mapped to producer in root_map.
   //
   // When skip_resize is true, resize is ignored or in other words forwarded
-  static BestEffortReplay replayPasC(
+  NVF_API static BestEffortReplay replayPasC(
       const TensorView* producer,
       const TensorView* consumer,
       int consumer_compute_at_axis,

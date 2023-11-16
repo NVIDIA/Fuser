@@ -17,6 +17,7 @@
 #include <mma_type.h>
 #include <multidevice/device_mesh.h>
 #include <type.h>
+#include <visibility.h>
 
 #include <torch/csrc/jit/ir/ir.h>
 
@@ -77,7 +78,7 @@ class TVDomainGuard;
 //! thought of as representing physical memory, however, its dimensionality is
 //! modifed as split/merge/computeAt functions are called. The history of
 //! these transformations are kept and used for generating actual code
-//! referncing physical memory. Generally when users are thinking of code
+//! referencing physical memory. Generally when users are thinking of code
 //! generation in reference to a Tensor, this is the class they should be
 //! interacting with.
 //!
@@ -97,7 +98,7 @@ class TVDomainGuard;
 //! getComputeAtAxis not being const because it can return a TV that some expect
 //! to be non-const is the biggest headache.
 //!
-class TensorView : public Val {
+class NVF_API TensorView : public Val {
  public:
   TensorView(
       IrBuilderPasskey passkey,
@@ -631,7 +632,7 @@ class TensorView : public Val {
 //!       .contiguity(contiguity)
 //!       .build();
 //!
-class TensorViewBuilder {
+class NVF_API TensorViewBuilder {
  public:
   //! Set the number of dimensions of the tensor (default 0, meaning scalar)
   TensorViewBuilder& ndims(size_t ndims);

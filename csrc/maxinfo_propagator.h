@@ -11,6 +11,7 @@
 #include <exceptions.h>
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -146,11 +147,11 @@ class MaxInfoSpanningTree {
   std::shared_ptr<Information> reference_info_;
 
  public:
-  MaxInfoSpanningTree(
+  NVF_API MaxInfoSpanningTree(
       TensorView* reference,
       std::shared_ptr<Information> reference_info,
       Selector* selector = nullptr);
-  void traverse(Propagator* propagator);
+  NVF_API void traverse(Propagator* propagator);
   virtual ~MaxInfoSpanningTree() = default;
 };
 
@@ -163,7 +164,7 @@ class MaxInfoSpanningTree {
 // level. This information is stored as a vector of `RootIDInfo`, where each
 // item in the vector corresponds to one ID in the reference tensor's root
 // domain.
-class MaxRootDomainInfoSpanningTree : public MaxInfoSpanningTree {
+class NVF_API MaxRootDomainInfoSpanningTree : public MaxInfoSpanningTree {
  protected:
   // This is a struct storing how the information about a root ID in the
   // starting tensor is preserved during path-finding. If during path-finding,
@@ -270,7 +271,7 @@ class SpanningTreePrinter : public MaxInfoSpanningTree::Propagator {
 // Simple selector for selecting subgraphs to build spanning trees. The selector
 // allows propagation only to the given set of selected tensorviews, except for
 // sibiling propagation, which we should never block.
-class SetSelector : public MaxInfoSpanningTree::Selector {
+class NVF_API SetSelector : public MaxInfoSpanningTree::Selector {
   std::unordered_set<TensorView*> selected_;
 
  public:
