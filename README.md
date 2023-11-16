@@ -16,7 +16,7 @@ Note that nvfuser built against torch-2.1 isn't compatible with nightly pytorch 
 You can instll a given nvfuser version with `pip install nvfuser-cu121 -i https://pypi.nvidia.com`
 
 As we build against nightly torch wheel and there's no compatibility promised on nightly wheels, we have explicitly marked the nightly torch wheel as an optinoal dependency. You can choose to install the torch wheel along with nvfuser package. e.g.
-`pip install "nvfuser-cu121[torch]" -i https://pypi.nvidia.com`.
+`pip install "nvfuser-cu121[torch]" --extra-index-url https://pypi.nvidia.com`.
 Note that this may uninstall your local pytorch installation and install the compatible nightly pytorch.
 
 Versioned nvfuser will be published on pypi.org [WIP]
