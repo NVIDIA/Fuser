@@ -294,7 +294,12 @@ TEST_F(AliasTest, DuplicateOutputs) {
 
     at::Tensor out_tensor = in_tensor.add(3.141);
     // Verify output values.
-    testValidate(fec.fusion(), {out_tensor, out_tensor}, {in_tensor}, __LINE__, __FILE__);
+    testValidate(
+        fec.fusion(),
+        {out_tensor, out_tensor},
+        {in_tensor},
+        __LINE__,
+        __FILE__);
   }
 
   {
@@ -308,8 +313,8 @@ TEST_F(AliasTest, DuplicateOutputs) {
     fusion->addInput(in);
     TensorView* intermediate_tv = add(in, IrBuilder::create<Val>(3.141));
     TensorView* segment_tv = segment_set(intermediate_tv);
-    TensorView* out = mul(segment_tv , IrBuilder::create<Val>(2.0));
-    
+    TensorView* out = mul(segment_tv, IrBuilder::create<Val>(2.0));
+
     fusion->addOutput(intermediate_tv);
     fusion->addOutput(intermediate_tv);
     fusion->addOutput(out);
@@ -333,16 +338,19 @@ TEST_F(AliasTest, DuplicateOutputs) {
         fec.getMostRecentKernelRuntime()->isSegmented(),
         "segmentation didn't happen");
     NVF_CHECK(
-        fec.getMostRecentKernelRuntime()
-                ->fusionSegments()
-                ->groups()
-                .size() == 2,
+        fec.getMostRecentKernelRuntime()->fusionSegments()->groups().size() ==
+            2,
         "segmentation didn't happen as expected");
 
     at::Tensor intermediate_tensor = in_tensor.add(3.141);
     at::Tensor out_tensor = intermediate_tensor.mul(2.0);
     // Verify output values.
-    testValidate(fec.fusion(), {intermediate_tensor, intermediate_tensor, out_tensor, out_tensor}, {in_tensor}, __LINE__, __FILE__);
+    testValidate(
+        fec.fusion(),
+        {intermediate_tensor, intermediate_tensor, out_tensor, out_tensor},
+        {in_tensor},
+        __LINE__,
+        __FILE__);
   }
 }
 
