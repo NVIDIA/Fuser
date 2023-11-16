@@ -746,7 +746,7 @@ def full_error_generator(
     negative_input_shape = [2, -2]
     yield SampleInput(
         negative_input_shape, make_number(dtype), dtype
-    ), RuntimeError, "extent_int >= 0"
+    ), RuntimeError, "The value -2 at index 1 was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1)."
 
 
 def gather_generator(
