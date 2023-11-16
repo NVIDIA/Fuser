@@ -1323,7 +1323,8 @@ bool isParallelLoopIndexSubstitutedAsZero(
   // to consumer but they should still be detected as same
   // parallel type. In a follow up may want to extend
   // find_matching_parallel_domain to cover this case.
-  if (within_mma_loops && loop_id->getParallelType() == ParallelType::TIDx) {
+  if ((within_mma_loops || ir_utils::isLdMatrixOp(tv->definition())) &&
+      loop_id->getParallelType() == ParallelType::TIDx) {
     return true;
   }
 

@@ -1014,9 +1014,45 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //   and needs more configurability.
   // ------------------------------------------------------------------
 
-  // Vectorize smem stores/loads:
-  acr->axis(-1)->parallelize(ParallelType::Vectorize);
-  bcr->axis(-1)->parallelize(ParallelType::Vectorize);
+  if (isTuring(params.mma_macro) || isAmpere(params.mma_macro)) {
+    acr->setAllocationDomain(acr->getLeafDomain(), true);
+    bcr->setAllocationDomain(bcr->getLeafDomain(), true);
+    std::cout << "acr: " << acr->toString() << std::endl;
+    std::cout << "bcr: " << bcr->toString() << std::endl;
+    mma_utils::WarpMmaSwizzler::scheduleLdMatrix(acr);
+    mma_utils::WarpMmaSwizzler::scheduleLdMatrix(bcr);
+    std::cout << "acr: " << acr->toString() << std::endl;
+    std::cout << "bcr: " << bcr->toString() << std::endl;
+
+    //  -5  -4   -3   -2   -1          or          -5  -4   -3   -2   -1
+    //[8mi, 4k, 2ko, 2mo, 2ki]                   [8ni, 4k, 2ko, 1no, 2ki]
+    for (auto tv : {ab, bb}) {
+      tv->merge(-5);
+      tv->axis(-4)->parallelize(ParallelType::TIDx);
+      //  -4   -3   -2   -1          or           -4   -3   -2   -1
+      //[warp, 2ko, 2mo, 2ki]                   [warp, 2ko, 1no, 2ki]
+      tv->merge(-2);
+      tv->merge(-2);
+      //  -2       -1         or               -2       -1
+      //[warp, 2ko*2mo*2ki]                  [warp, 2ko*1no*2ki]
+    }
+
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        ab,
+        -1,
+        {acr},
+        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType());
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        bb,
+        -1,
+        {bcr},
+        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType());
+  } else {
+    acr->axis(-1)->parallelize(ParallelType::Vectorize);
+    bcr->axis(-1)->parallelize(ParallelType::Vectorize);
+  }
 
   // Parallelization strategy:
   // Here the top two rows indicate how we can index each axis. The third row

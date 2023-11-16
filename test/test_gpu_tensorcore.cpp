@@ -786,7 +786,7 @@ TEST_F(NVFuserTest, FusionAmpereMMANN_CUDA) {
   tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  auto t0 = at::eye(16, options);
+  auto t0 = at::randn({16, 16}, options);
   auto t1 = at::randn({8, 16}, options);
 
   FusionExecutor fe;

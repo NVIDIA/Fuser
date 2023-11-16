@@ -1008,43 +1008,63 @@ void WarpMmaSwizzler::scheduleVoltaM16N16K4Fp32Output(
 
 void WarpMmaSwizzler::scheduleTuringOperandRead(TensorView* tv) {
   NVF_ERROR(tv->nDims() >= 2);
-  //  -2   -1
-  //[16m, 16k]
+  //  -2   -1          or          -2   -1
+  //[16m, 16k]                    [8n, 16k]
   tv->split(-2, 8);
   tv->split(-1, 2);
   tv->split(-2, 4);
 
-  // -5  -4  -3  -2  -1
-  //[2m, 8m, 2k, 4k, 2k']
+  // -5  -4  -3  -2  -1      or      -5  -4  -3  -2  -1
+  //[2m, 8m, 2k, 4k, 2k']           [1n, 8n, 2k, 4k, 2k']
   tv->reorder({{-4, -5}, {-5, -2}, {-2, -4}});
 
-  // -5  -4   -3  -2  -1
-  //[8m, 4k, 2k, 2m, 2k']
+  // -5  -4   -3  -2  -1    or      -5  -4  -3  -2  -1
+  //[8m, 4k, 2k, 2m, 2k']          [8n, 4k, 2k, 1n, 2k']
   tv->setAllocationDomain(tv->getLeafDomain(), true);
-
-  setWarpMapped(tv, 2);
 }
 
 void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv) {
   bool transpose = tv->hasRFactor();
-  //  -5  -4   -3   -2   -1
-  //[8mi, 4k, 2ko, 2mo, 2ki]
+  //  -5  -4   -3   -2   -1          or          -5  -4   -3   -2   -1
+  //[8mi, 4k, 2ko, 2mo, 2ki]                   [8ni, 4k, 2ko, 1no, 2ki]
   tv->reorder({{-2, -4}, {-3, -5}});
-  //  -5  -4   -3   -2   -1
-  //[2ko, 2mo, 8mi, 4k, 2ki]
+  //  -5  -4   -3   -2   -1          or          -5  -4   -3   -2   -1
+  //[2ko, 2mo, 8mi, 4k, 2ki]                   [2ko, 1no, 8ni, 4k, 2ki]
   tv->merge(-2);
-  //  -4   -3   -2  -1
-  //[2ko, 2mo, 8mi, 8k]
+  //  -4   -3   -2  -1         or          -4   -3   -2  -1
+  //[2ko, 2mo, 8mi, 8k]                  [2ko, 1no, 8ni, 8k]
   if (transpose) {
     tv->reorder({{-2, -1}});
-    //  -4   -3  -2   -1
-    //[2ko, 2mo, 8k, 8mi]
+    //  -4   -3  -2   -1        or          -4   -3  -2   -1
+    //[2ko, 2mo, 8k, 8mi]                 [2ko, 1no, 8k, 8ni]
   }
   tv->merge(-4);
   tv->merge(-3);
-  // -2  -1
-  //[32, 8k]
+  // -2  -1         or          -2  -1
+  //[32, 8k]                   [16, 8k]
+
+  // The extent of axis(-2) is the number of threads that contains useful
+  // addresses. We can not parallelize axis(-2) directly if the extent is less
+  // than 32. Instead, we should split axis(-1) and merge it to axis(-2) to
+  // get a complete warp of 32 threads. This makes sure that, during lowering,
+  // our system can correctly compute the buffer size.
+  int64_t num_tidx_with_addr = tv->axis(-2)->extent()->evaluate().as<int64_t>();
+  if (num_tidx_with_addr < 32) {
+    int factor = 32 / num_tidx_with_addr;
+    tv->split(-1, factor, false);
+    tv->reorder({{-2, -3}, {-3, -2}});
+    //    -3           -2              -1
+    // [factor, num_tidx_with_addr, 8/factor]
+    // For indexing, we only care about what we get when the index of axis(-3)
+    // is 0. For higher values, they are garbage, and abandoned.
+    tv->merge(-3);
+  }
+
+  // -2 -1        or          -2 -1
+  //[32, 8k]                [32, 4k]
+
   tv->axis(-2)->parallelize(ParallelType::TIDx);
+  // TODO: this is not really vectorization. Change its parallel type to Mma.
   tv->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 
