@@ -358,9 +358,6 @@ TEST_F(ScalarHoistTest, ARange) {
   fe.compileFusion(fusion.get(), {start, end, step});
   auto cg_outputs = fe.runFusion({start, end, step});
 
-  const auto options =
-      at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<int64_t, 1, 1> T0, Tensor<int64_t, 1, 1> T1) {
   int64_t i3;
