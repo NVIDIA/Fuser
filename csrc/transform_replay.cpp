@@ -517,49 +517,17 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
     }
   }
 
-  if (!opt.replay_allocation) {
-    TensorDomain* replayed = IrBuilder::create<TensorDomain>(
-        producer->container(),
-        producer->getRootDomain(),
-        producer->getRFactorDomain(),
-        producer->getAllocationDomain(),
-        new_IDs,
-        producer->domain()->contiguity());
-    return {replayed, producer_pos};
-  }
+  NVF_ERROR(
+      !opt.replay_allocation,
+      "replayAllocation is not implemented yet for TransformReplay::replayPasC");
 
   TensorDomain* replayed = IrBuilder::create<TensorDomain>(
       producer->container(),
       producer->getRootDomain(),
       producer->getRFactorDomain(),
-      std::vector<IterDomain*>{},
+      producer->getAllocationDomain(),
       new_IDs,
       producer->domain()->contiguity());
-
-  if (consumer->hasAllocation()) {
-    auto replay_PasC = BestEffortReplay(
-        new_IDs,
-        consumer->getLeafDomain(),
-        root_map.mapConsumerToProducer(consumer->domain(), replayed));
-    const auto& c2p_map = replay_PasC.getReplay();
-    std::vector<IterDomain*> new_allocation_domain;
-    new_allocation_domain.reserve(consumer->getAllocationDomain().size());
-    for (auto id : consumer->getAllocationDomain()) {
-      auto it = c2p_map.find(id);
-      NVF_CHECK(
-          it != c2p_map.end(),
-          "Unable to replayPasC: can not map ",
-          id->toString(),
-          " in the allocation domain of consumer tensor ",
-          consumer->toString(),
-          " to producer tensor ",
-          producer->toString());
-      new_allocation_domain.push_back(it->second);
-    }
-    replayed->setAllocationDomain(
-        std::move(new_allocation_domain), consumer->getContiguity());
-  }
-
   return {replayed, producer_pos};
 }
 
