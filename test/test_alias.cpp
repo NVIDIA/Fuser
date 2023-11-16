@@ -263,4 +263,67 @@ TEST_F(AliasTest, ViewPermute) {
   testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
+TEST_F(AliasTest, DuplicateOutputs) {
+  {
+    // testing a complete fusion
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    const std::vector<int64_t> in_shape({2, 3, 4});
+
+    TensorView* in = makeContigConcreteTensor(in_shape);
+    fusion->addInput(in)
+    TensorView* out = add(in, IrBuilder::create<Val>(3.141));
+    fusion->addOutput(out);
+    fusion->addOutput(out); // duplicated outputs
+
+    FusionExecutorCache fec(std::move(fusion));
+    at::Tensor in_tensor =
+        at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA, 0));
+    std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+    ASSERT_EQ(out_tensors.size(), 2);
+    at::Tensor out_tensor_0 = out_tensors[0];
+    at::Tensor out_tensor_1 = out_tensors[1];
+
+    // TODO: Verify aliasing among duplicated outputs
+    // TODO: Verify no segmentation
+
+    at::Tensor out_tensor = in_tensor.add(3.141);
+    // Verify output values.
+    testValidate(fec.fusion(), {out_tensor, out_tensor}, {in_tensor}, __LINE__, __FILE__);
+  }
+
+  {
+    // testing segmented fusion
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    const std::vector<int64_t> in_shape({2, 3, 4});
+
+    TensorView* in = makeContigConcreteTensor(in_shape);
+    fusion->addInput(in)
+    TensorView* intermediate = add(in, IrBuilder::create<Val>(3.141));
+    TensorView* segment_set = segment_set(tv1);
+    TensorView* out = mul(segment_set, IrBuilder::create<Val>(2.0));
+    
+    fusion->addOutput(out);
+    fusion->addOutput(out); // duplicated outputs
+
+    FusionExecutorCache fec(std::move(fusion));
+    at::Tensor in_tensor =
+        at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA, 0));
+    std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+    ASSERT_EQ(out_tensors.size(), 2);
+    at::Tensor out_tensor_0 = out_tensors[0];
+    at::Tensor out_tensor_1 = out_tensors[1];
+
+    // TODO: Verify aliasing among duplicated outputs
+    // TODO: Verify segmentation
+
+    at::Tensor out_tensor = in_tensor.add(3.141).mul(2.0);
+    // Verify output values.
+    testValidate(fec.fusion(), {out_tensor, out_tensor}, {in_tensor}, __LINE__, __FILE__);
+  }
+}
+
 } // namespace nvfuser
