@@ -21,6 +21,9 @@ void MarkAliasPass::runPass(Fusion* fusion) {
     // the allocation domain is incompatible with what we prefer for
     // aliasing.
     if (out->hasAllocation()) {
+      debug() << "MarkAliasPass skipped " << out->toString()
+              << " because it already has an allocation domain:" << std::endl
+              << out->domain()->toString(1, /*leaf_only=*/false) << std::endl;
       continue;
     }
 
