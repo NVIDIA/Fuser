@@ -737,11 +737,6 @@ def full_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
     # torch.full(size, fill_value, dtype=None)
-
-    make_arg = partial(
-        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
-    )
-
     # Error: Trying to create tensor with negative dimension
     negative_input_shape = [2, -2]
     yield SampleInput(

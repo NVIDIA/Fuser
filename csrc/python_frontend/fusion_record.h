@@ -2496,6 +2496,7 @@ struct FullOpRecord : RecordFunctor {
             serde::RecordType::FullOp),
         dtype_(dtype) {
     setArgName(0, "shape");
+    setArgName(1, "fill_value");
   }
   ~FullOpRecord() override = default;
   RecordFunctor* clone() final {
