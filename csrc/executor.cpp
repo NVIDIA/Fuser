@@ -101,7 +101,7 @@ std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
     return "";
   }
   std::string all_external_code_paths(external_code_path);
-  if (all_external_code_paths.empty() || fusion_id < 0) {
+  if (all_external_code_paths.empty() || fusion_id < 1) {
     return "";
   }
   auto getExternalCodeFile =
@@ -110,7 +110,7 @@ std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
     std::string token;
     int64_t count = 0;
     while (std::getline(ss, token, ',')) {
-      if (count++ == fusion_id) {
+      if (++count == fusion_id) {
         return token;
       }
     }
