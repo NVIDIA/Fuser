@@ -21,6 +21,7 @@ from pytest_utils import (
     complex_dtypes,
 )
 from nvfuser import DataType
+from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
 MINIMUM_SYMBOLIC_SIZE = -1
 INT64_MAX = 2**63 - 1
@@ -1009,6 +1010,18 @@ def permute_error_generator(
     yield SampleInput(
         make_arg(input_shape), [0, 1, 2, 3, 4]
     ), RuntimeError, "argument to have the same length as input"
+
+
+def random_dist_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    # Checking that non-supported dtypes fail
+    yield SampleInput(
+        make_number(torch.float),
+        make_number(torch.float),
+        [2, 2],
+        dtype=torch_dtype_to_nvfuser_dtype(dtype),
+    ), RuntimeError, "Random distributions only create floating point types"
 
 
 def reduction_generator(

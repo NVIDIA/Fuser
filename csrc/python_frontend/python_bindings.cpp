@@ -149,6 +149,47 @@ Tensor reshape_fn(
   return output;
 }
 
+template <class ShapeType, serde::RecordType RType>
+Tensor random_dist_op_fn(
+    FusionDefinition::Operators& self,
+    Scalar arg1,
+    Scalar arg2,
+    ShapeType generic_new_shape,
+    std::optional<Scalar> rng_seed,
+    std::optional<Scalar> rng_offset,
+    PrimDataType dtype) {
+  static_assert(
+      (RType == serde::RecordType::NormalDistOp) ||
+      (RType == serde::RecordType::UniformDistOp));
+  NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
+  NVF_CHECK(
+      isFloatingPointType(dtype),
+      "Random distributions only create floating point types! ",
+      dtype);
+  FusionDefinition* fd = self.fusion_definition;
+  Vector new_shape = ShapeAsVector(generic_new_shape, *fd);
+
+  Tensor output = fd->defineTensor(new_shape.size);
+  std::vector<State> arg_states = {
+      fd->recordingState(arg1()),
+      fd->recordingState(arg2()),
+      fd->recordingState(new_shape()),
+  };
+  if (rng_seed.has_value() && rng_offset.has_value()) {
+    arg_states.push_back(fd->recordingState(rng_seed.value()()));
+    arg_states.push_back(fd->recordingState(rng_offset.value()()));
+  } else {
+    NVF_CHECK(
+        !rng_seed.has_value() && !rng_offset.has_value(),
+        "rng_seed and rng_offset must be provided together!");
+  }
+
+  fd->defineRecord(new RandomDistOpRecord<RType>(
+      arg_states, {fd->recordingState(output())}, dtype));
+
+  return output;
+}
+
 struct DimInfo {
   int64_t index;
   int64_t size;
@@ -1955,6 +1996,35 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_CAST_OP("cast", castOp)
 #undef NVFUSER_PYTHON_BINDING_CAST_OP
 
+#define NVFUSER_ALL_VECTOR_TYPES(fn, ...) \
+  fn(Vector, __VA_ARGS__);                \
+  fn(py::list, __VA_ARGS__);              \
+  fn(py::tuple, __VA_ARGS__);
+
+#define NVFUSER_RANDOM_DIST_OP_HELPER(             \
+    vec_type, op_str, op_type, arg1_str, arg2_str) \
+  nvf_ops.def(                                     \
+      op_str,                                      \
+      random_dist_op_fn<vec_type, op_type>,        \
+      py::arg(arg1_str),                           \
+      py::arg(arg2_str),                           \
+      py::arg("shape"),                            \
+      py::kw_only(),                               \
+      py::arg("rng_seed") = py::none(),            \
+      py::arg("rng_offset") = py::none(),          \
+      py::arg("dtype") = DataType::Float,          \
+      py::return_value_policy::reference);
+
+#define NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP(...) \
+  NVFUSER_ALL_VECTOR_TYPES(NVFUSER_RANDOM_DIST_OP_HELPER, __VA_ARGS__)
+
+  NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP(
+      "normal", serde::RecordType::NormalDistOp, "mean", "std")
+  NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP(
+      "uniform", serde::RecordType::UniformDistOp, "minval", "maxval")
+#undef NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP
+#undef NVFUSER_RANDOM_DIST_OP_HELPER
+
   nvf_ops.def(
       "batch_norm",
       [](FusionDefinition::Operators& self,
@@ -2598,102 +2668,6 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("axes"),
       py::arg("correction") = 1,
       py::arg("keepdim") = false,
-      py::return_value_policy::reference);
-  nvf_ops.def(
-      "uniform",
-      [](FusionDefinition::Operators& self,
-         Scalar minval,
-         Scalar maxval,
-         std::vector<Scalar>& shape,
-         PrimDataType dtype,
-         std::optional<Scalar> rng_seed,
-         std::optional<Scalar> rng_offset) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.uniform");
-        NVF_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(shape.size());
-        std::vector<State> output_shape_states(
-            shape.size(), State(0, serde::StateType::Scalar));
-        std::transform(
-            shape.begin(),
-            shape.end(),
-            output_shape_states.begin(),
-            [&fd](const Scalar& s) { return fd->recordingState(s()); });
-        std::vector<State> arg_states = {
-            fd->recordingState(minval()),
-            fd->recordingState(maxval()),
-        };
-        if (rng_seed.has_value()) {
-          NVF_CHECK(
-              rng_offset.has_value(),
-              "When providing rng_seed, rng_offset must also be provided");
-          arg_states.push_back(fd->recordingState(rng_seed.value()()));
-          arg_states.push_back(fd->recordingState(rng_offset.value()()));
-        }
-        fd->defineRecord(new RandomOpRecord(
-            arg_states,
-            {fd->recordingState(output())},
-            output_shape_states,
-            "ops.uniform",
-            dtype));
-        return output;
-      },
-      py::arg("minval"),
-      py::arg("maxval"),
-      py::arg("shape"),
-      py::arg("dtype") = DataType::Float,
-      py::kw_only(),
-      py::arg("rng_seed") = py::none(),
-      py::arg("rng_offset") = py::none(),
-      py::return_value_policy::reference);
-  nvf_ops.def(
-      "normal",
-      [](FusionDefinition::Operators& self,
-         Scalar mean,
-         Scalar std,
-         std::vector<Scalar>& shape,
-         PrimDataType dtype,
-         std::optional<Scalar> rng_seed,
-         std::optional<Scalar> rng_offset) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.normal");
-        NVF_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(shape.size());
-        std::vector<State> output_shape_states(
-            shape.size(), State(0, serde::StateType::Scalar));
-        std::transform(
-            shape.begin(),
-            shape.end(),
-            output_shape_states.begin(),
-            [&fd](const Scalar& s) { return fd->recordingState(s()); });
-        std::vector<State> arg_states = {
-            fd->recordingState(mean()),
-            fd->recordingState(std()),
-        };
-        if (rng_seed.has_value()) {
-          NVF_CHECK(
-              rng_offset.has_value(),
-              "When providing rng_seed, rng_offset must also be provided");
-          arg_states.push_back(fd->recordingState(rng_seed.value()()));
-          arg_states.push_back(fd->recordingState(rng_offset.value()()));
-        }
-        fd->defineRecord(new RandomOpRecord(
-            arg_states,
-            {fd->recordingState(output())},
-            output_shape_states,
-            "ops.normal",
-            dtype));
-        return output;
-      },
-      py::arg("mean"),
-      py::arg("std"),
-      py::arg("shape"),
-      py::arg("dtype") = DataType::Float,
-      py::kw_only(),
-      py::arg("rng_seed") = py::none(),
-      py::arg("rng_offset") = py::none(),
       py::return_value_policy::reference);
   //! The ScedOperators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of schedule operators.
