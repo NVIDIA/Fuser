@@ -10,6 +10,7 @@
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
+#include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir_dispatch.h>
 
@@ -294,6 +295,15 @@ class ValidateAllocation : private OptOutConstDispatch {
 };
 
 } // namespace
+
+Kernel::Kernel(Fusion* fusion, PrimDataType index_type)
+    : Fusion(*fusion), index_type_(index_type) {
+  // Index type must be resolved to either int32 or int64
+  NVF_ERROR(
+      index_type_ == PrimDataType::Int || index_type_ == PrimDataType::Int32 ||
+          "Invalid index type: ",
+      index_type_);
+}
 
 // TODO(kir): Kernel IR validation
 void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
