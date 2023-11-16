@@ -390,11 +390,7 @@ __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<i
   assertCUDAKernel(fusion.get(), expected_kernel);
 
   testValidate(
-      fusion.get(),
-      cg_outputs,
-      {start, end, step},
-      __LINE__,
-      __FILE__);
+      fusion.get(), cg_outputs, {start, end, step}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
