@@ -361,8 +361,6 @@ TEST_F(ScalarHoistTest, ARange) {
 
   const auto options =
       at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  at::Tensor t0 = at::arange(start, end, step, options);
-  at::Tensor t1 = at::full_like(t0, end - start, options);
 
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<int64_t, 1, 1> T0, Tensor<int64_t, 1, 1> T1) {
