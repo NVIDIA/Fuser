@@ -1024,7 +1024,8 @@ void WarpMmaSwizzler::scheduleTuringOperandRead(TensorView* tv) {
 }
 
 void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv) {
-  bool transpose = tv->hasRFactor();
+  bool transpose = tv->definition()->as<LoadStoreOp>()->opType() ==
+      LoadStoreOpType::LdMatrixTranspose;
   //  -5  -4   -3   -2   -1          or          -5  -4   -3   -2   -1
   //[8mi, 4k, 2ko, 2mo, 2ki]                   [8ni, 4k, 2ko, 1no, 2ki]
   tv->reorder({{-2, -4}, {-3, -5}});
