@@ -301,10 +301,10 @@ TEST_F(AliasTest, DuplicateOutputs) {
     const std::vector<int64_t> in_shape({2, 3, 4});
 
     TensorView* in = makeContigConcreteTensor(in_shape);
-    fusion->addInput(in)
-    TensorView* intermediate = add(in, IrBuilder::create<Val>(3.141));
-    TensorView* segment_set = segment_set(tv1);
-    TensorView* out = mul(segment_set, IrBuilder::create<Val>(2.0));
+    fusion->addInput(in);
+    TensorView* intermediate_tv = add(in, IrBuilder::create<Val>(3.141));
+    TensorView* segment_tv = segment_set(intermediate_tv);
+    TensorView* out = mul(segment_tv , IrBuilder::create<Val>(2.0));
     
     fusion->addOutput(out);
     fusion->addOutput(out); // duplicated outputs
