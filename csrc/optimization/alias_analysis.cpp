@@ -197,12 +197,6 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
     return;
   }
 
-  // Another lazy move: we could check compatibility and only give up when
-  // the allocation domain is incompatible with what we prefer for aliasing.
-  if (out->hasAllocation()) {
-    return;
-  }
-
   TensorView* in = permute->in()->as<TensorView>();
   // Look at the preferred layout not `in`'s current layout.
   Layout in_layout = analysis_.preferredLayout(in);
@@ -253,8 +247,8 @@ void AliasAnalysisResult::add(
     const TensorView* alias,
     const TensorView* source,
     Layout&& layout) {
-  auto [i, inserted] =
-      alias_to_source_.emplace(alias, std::make_pair(source, layout));
+  auto [i, inserted] = alias_to_source_.emplace(
+      alias, std::make_pair(source, std::move(layout)));
   NVF_ERROR(
       inserted,
       "The current implementation of alias analysis shouldn't find two sources for an alias. However, it's trying to make ",

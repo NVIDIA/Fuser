@@ -17,6 +17,13 @@ void MarkAliasPass::runPass(Fusion* fusion) {
   const AliasAnalysisResult alias_analysis = findAliases(fusion);
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
+    // Lazy move: we could check compatibility and only give up when
+    // the allocation domain is incompatible with what we prefer for
+    // aliasing.
+    if (out->hasAllocation()) {
+      continue;
+    }
+
     if (const Val* in = alias_analysis.findRoot(out); in->isFusionInput()) {
       fusion->aliasOutputToInput(
           out,

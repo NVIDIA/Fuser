@@ -51,9 +51,16 @@ class AliasAnalysisResult {
 };
 
 // Finds aliases of the fusion inputs. The analysis should be conservative --
-// when the analysis says B is an alias of input A,
+// when the analysis says B is an alias of input A and that B's layout
+// (allocation domain and contiguity) is compatible with the preferred layout,
 // `ExpressionEvaluator::evaluate(B)` should produce an `at::Tensor` that's an
 // alias of the `at::Tensor` bound to A.
+//
+// Currently, for implementation convenience, AliasAnalysis ignores allocation
+// domains of non-fusion-input TensorViews. It produces preferred layouts for
+// these TensorViews and expects the user to resolve any incompatibility.
+// MarkAliasPass, its only user at this moment, marks an output as an alias only
+// when its allocation domain is empty. I'm happy to revisit this contract.
 AliasAnalysisResult findAliases(Fusion* fusion);
 
 } // namespace nvfuser::optimization
