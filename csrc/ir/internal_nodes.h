@@ -1434,6 +1434,10 @@ class ExpandOp : public Expr {
   std::vector<Val*> expanded_extents() const {
     return {inputs().begin() + 1, inputs().end()};
   }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 };
 
 //! Shift
