@@ -101,7 +101,7 @@ std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
     return "";
   }
   std::string all_external_code_paths(external_code_path);
-  if (all_external_code_paths.empty() || fusion_id < 1) {
+  if (all_external_code_paths.empty() || fusion_id < 0) {
     return "";
   }
   auto getExternalCodeFile =
@@ -110,7 +110,7 @@ std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
     std::string token;
     int64_t count = 0;
     while (std::getline(ss, token, ',')) {
-      if (++count == fusion_id) {
+      if (count++ == fusion_id) {
         return token;
       }
     }
@@ -369,7 +369,11 @@ void FusionExecutor::compileFusion(
   // If the loaded external source code is empty, revert to the default codegen.
   // The external_structured_code is moved to structured_code and explicitly
   // cleared to avoid use-after-move scenarios.
-  auto structured_code = getStructuredCodeFromExternalFiles(fusion_id_);
+  // Note: we index these with getGlobalFusionCount() instead of fusion_id_ in
+  // order to match the numbering of files output with
+  // NVFUSER_DUMP=cuda_to_file
+  auto structured_code =
+      getStructuredCodeFromExternalFiles(getGlobalFusionCount());
   if (structured_code.empty()) {
     structured_code = getStructuredCode();
   }
