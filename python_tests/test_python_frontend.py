@@ -2708,6 +2708,49 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(nvf_out[0], t24)
         self.assertEqual(nvf_out[1], t11)
 
+    # This tests squeeze of dynamic input is handled properly
+    def test_issue1273(self):
+        inputs = [
+            torch.randn((4,), dtype=torch.float32, device="cuda:0").as_strided(
+                (2, 2), (2, 1)
+            ),
+            1e-05,
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            S1 = fd.define_scalar(None, dtype=DataType.Double)
+            T7 = fd.ops.reshape(T0, new_shape=[2, 1, 2])
+            T8, T9 = fd.ops.var_mean(T7, axes=[2], correction=0, keepdim=False)
+            T14 = fd.ops.broadcast_in_dim(T8, shape=[2, 1, 1], broadcast_dims=[0, 1])
+            T19 = fd.ops.broadcast_in_dim(T9, shape=[2, 1, 1], broadcast_dims=[0, 1])
+            T20 = fd.ops.add(T14, S1)
+            T21 = fd.ops.rsqrt(T20)
+            T26 = fd.ops.broadcast_in_dim(
+                T19, shape=[2, 1, 2], broadcast_dims=[0, 1, 2]
+            )
+            T27 = fd.ops.sub(T7, T26)
+            T32 = fd.ops.broadcast_in_dim(
+                T21, shape=[2, 1, 2], broadcast_dims=[0, 1, 2]
+            )
+            T33 = fd.ops.mul(T27, T32)
+            T37 = fd.ops.reshape(T33, new_shape=[2, 2])
+            fd.add_output(T37)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        t7 = inputs[0].reshape((2, 1, 2))
+        t8 = t7.var(dim=2, unbiased=False)
+        t9 = t7.mean(dim=2)
+        t27 = t7 - t9.unsqueeze(-1).expand((2, 1, 2))
+        t32 = torch.rsqrt(inputs[1] + t8.unsqueeze(-1)).expand((2, 1, 2))
+        torch_ref = (t27 * t32).reshape((2, 2))
+        self.assertEqual(nvf_out[0], torch_ref)
+
 
 if __name__ == "__main__":
     run_tests()
