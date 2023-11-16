@@ -408,7 +408,6 @@ void RecordFunctorFactory::registerAllParsers() {
     return new python_frontend::FullOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        parseVector(data->shape()),
         mapToNvfuserDtype(data->dtype()));
   };
   registerParser(RecordType::FullOp, deserializeFullRecord);
