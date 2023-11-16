@@ -292,11 +292,11 @@ TEST_F(AliasTest, DuplicateOutputs) {
         !fec.getMostRecentKernelRuntime()->isSegmented(),
         "segmentation is not supposed to happen");
 
-    at::Tensor out_tensor = in_tensor.add(3.141);
+    at::Tensor expected_out_tensor = in_tensor.add(3.141);
     // Verify output values.
     testValidate(
         fec.fusion(),
-        {out_tensor, out_tensor},
+        {expected_out_tensor, expected_out_tensor},
         {in_tensor},
         __LINE__,
         __FILE__);
