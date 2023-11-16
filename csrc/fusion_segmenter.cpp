@@ -1554,7 +1554,9 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
     }
   }
 
-  for (auto out : getAllOutputs(sg)) {
+  // note, we would want to keep output consistent and not artificially drop
+  // duplicates.
+  for (auto out : sg->output_vals) {
     fusion_segment->addOutput(complete_to_segment_map.clone(out));
   }
 
