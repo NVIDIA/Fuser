@@ -2719,27 +2719,34 @@ class TestNvFuserFrontend(TestCase):
             ),
         ]
 
-        def fusion_func(fd: FusionDefinition) -> None:
-            T0 = fd.define_tensor(
-                shape=[1, -1, -1, -1],
-                contiguity=[None, True, True, True],
-                dtype=DataType.Float,
-                is_cpu=False,
-            )
-            T1 = fd.define_tensor(
-                shape=[1, -1, -1, -1],
-                contiguity=[None, True, False, True],
-                dtype=DataType.Float,
-                is_cpu=False,
-            )
-            S2 = fd.define_scalar(2.00000, dtype=DataType.Double)
-            T3 = fd.ops.mul(T0, S2)
-            T4 = fd.ops.cat([T3, T1], dim=-1)
-            fd.add_output(T4)
+        for final_mul in [False, True]:
+            def fusion_func(fd: FusionDefinition) -> None:
+                T0 = fd.define_tensor(
+                    shape=[1, -1, -1, -1],
+                    contiguity=[None, True, True, True],
+                    dtype=DataType.Float,
+                    is_cpu=False,
+                )
+                T1 = fd.define_tensor(
+                    shape=[1, -1, -1, -1],
+                    contiguity=[None, True, False, True],
+                    dtype=DataType.Float,
+                    is_cpu=False,
+                )
+                S2 = fd.define_scalar(2.00000, dtype=DataType.Double)
+                T3 = fd.ops.mul(T0, S2)
+                T4 = fd.ops.cat([T3, T1], dim=-1)
+                if final_mul:
+                    # NOTE: original repro does not have this final op
+                    S3 = fd.define_scalar(1.00000, dtype=DataType.Double)
+                    T5 = fd.ops.mul(T4, S3)
+                    fd.add_output(T5)
+                else:
+                    fd.add_output(T4)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
-        torch_ref = torch.cat([2.0 * inputs[0], inputs[1]], dim=-1)
-        self.assertEqual(nvf_out[0], torch_ref)
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+            torch_ref = torch.cat([2.0 * inputs[0], inputs[1]], dim=-1)
+            self.assertEqual(nvf_out[0], torch_ref)
 
 
 if __name__ == "__main__":
