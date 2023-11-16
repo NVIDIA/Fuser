@@ -993,18 +993,22 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Propagate mma input swizzle up the DAG
   //  to all the tensors before mma op and after shared mem read.
-  scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-      ab,
-      -1,
-      {acw_smem},
-      scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-          .propagateParallelType());
-  scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-      bb,
-      -1,
-      {bcw_smem},
-      scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-          .propagateParallelType());
+  auto propagate_mma_input_schedule_to = [&](TensorView* a_boundary,
+                                             TensorView* b_boundary) {
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        ab,
+        -1,
+        {a_boundary},
+        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType());
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        bb,
+        -1,
+        {b_boundary},
+        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType());
+  };
+  propagate_mma_input_schedule_to(acw_smem, bcw_smem);
 
   mma_result->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
@@ -1025,26 +1029,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     for (auto tv : {ab, bb}) {
       tv->merge(-5);
       tv->axis(-4)->parallelize(ParallelType::TIDx);
-      //  -4   -3   -2   -1          or           -4   -3   -2   -1
-      //[warp, 2ko, 2mo, 2ki]                   [warp, 2ko, 1no, 2ki]
-      tv->merge(-2);
-      tv->merge(-2);
-      //  -2       -1         or               -2       -1
-      //[warp, 2ko*2mo*2ki]                  [warp, 2ko*1no*2ki]
     }
-
-    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-        ab,
-        -1,
-        {acr},
-        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-            .propagateParallelType());
-    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-        bb,
-        -1,
-        {bcr},
-        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-            .propagateParallelType());
+    propagate_mma_input_schedule_to(acr, bcr);
   } else {
     acr->axis(-1)->parallelize(ParallelType::Vectorize);
     bcr->axis(-1)->parallelize(ParallelType::Vectorize);
