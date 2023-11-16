@@ -529,7 +529,7 @@ std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion);
 bool hasAnyReductionOps(Fusion* fusion);
 
 
-bool haveSameSharding(TensorView* tv1, TensorView* tv2);
+std::unordered_set<TensorView*> haveDifferentSharding(TensorView* ref, std::unordered_set<TensorView*> tvs);
 
 bool isResharding(Expr* expr);
 

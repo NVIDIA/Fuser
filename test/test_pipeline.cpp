@@ -341,13 +341,11 @@ using automaticSetInsertionTestParams =
     DeviceMesh,
     DeviceMesh,
     DeviceMesh,
-    DeviceMesh,
-    bool,
     bool,
     bool,
     bool>;
 
-class automaticSetInsertionTest :
+class automaticReshardingTest :
   public NVFuserTest,
   public ::testing::WithParamInterface<automaticSetInsertionTestParams> {
 protected:
@@ -357,7 +355,7 @@ protected:
   }
   void validate() {
     for (auto expr: fusion->exprs()) {
-      GTEST_EXPECT_TRUE(!ir_utils::isResharding(expr) || isLowerableToCommunication(expr));
+      GTEST_EXPECT_TRUE(!ir_utils::isResharding(expr) || isLowerableToCommunication(expr)) << "on expr=" << expr;
     }
   }
 
@@ -365,65 +363,65 @@ protected:
   std::unique_ptr<FusionGuard> fg;
 };
 
-TEST_P(automaticSetInsertionTest, ops) {
+TEST_P(automaticReshardingTest, setInsertion) {
   auto [
   mesh0,
   mesh1,
   mesh2,
-  mesh3,
-  is_tv0_sharded,
-  is_tv1_sharded,
-  is_tv2_sharded,
-  is_tv3_sharded] = GetParam();
+  is_tv0_tv3_tv5_sharded,
+  is_tv1_tv4_sharded,
+  is_tv2_sharded
+  ] = GetParam();
 
   TensorView* tv0 = makeContigTensor(3);
   TensorView* tv1 = unaryOp(UnaryOpType::Exp, tv0);
   TensorView* tv2 = binaryOp(BinaryOpType::Add, tv0, tv1);
   TensorView* tv3 = sum(tv2, {0});
+  TensorView* tv4 = broadcast(tv3, {true, false, false});
+  TensorView* tv5 = binaryOp(BinaryOpType::Mul, tv2, tv4);
 
   tv0->setDeviceMesh(&mesh0);
   tv1->setDeviceMesh(&mesh1);
   tv2->setDeviceMesh(&mesh2);
-  tv3->setDeviceMesh(&mesh3);
+  tv3->setDeviceMesh(&mesh0);
+  tv4->setDeviceMesh(&mesh1);
+  tv5->setDeviceMesh(&mesh0);
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
-  fusion->addOutput(tv3);
+  fusion->addOutput(tv5);
 
-  if (is_tv0_sharded) {
+  if (is_tv0_tv3_tv5_sharded) {
     tv0->axis(0)->parallelize(ParallelType::DIDx);
+    tv3->axis(0)->parallelize(ParallelType::DIDx);
+    tv5->axis(0)->parallelize(ParallelType::DIDx);
   }
-  if (is_tv1_sharded) {
+  if (is_tv1_tv4_sharded) {
     tv1->axis(0)->parallelize(ParallelType::DIDx);
+    tv4->axis(0)->parallelize(ParallelType::DIDx);
   }
   if (is_tv2_sharded) {
     tv2->axis(0)->parallelize(ParallelType::DIDx);
   }
-  if (is_tv3_sharded) {
-    tv3->axis(0)->parallelize(ParallelType::DIDx);
-  }
 
-  insertSetBeforeReshardingExpr(fusion.get());
+  insertReshardings(fusion.get());
   validate();
 }
 
 namespace {
 
-DeviceMesh mesh0({0});
-DeviceMesh mesh1({1,2});
-DeviceMesh mesh2({0,2});
-DeviceMesh mesh3({0, 1, 2, 3});
+DeviceMesh Mesh0({0});
+DeviceMesh Mesh1({1,2});
+DeviceMesh Mesh2({0, 1, 2, 3});
 
 } // namespace
 
 INSTANTIATE_TEST_SUITE_P(
     ,
-    automaticSetInsertionTest,
+    automaticReshardingTest,
     ::testing::Combine(
-        ::testing::Values(mesh0, mesh3),
-        ::testing::Values(mesh1, mesh3),
-        ::testing::Values(mesh2, mesh3),
-        ::testing::Values(mesh0, mesh3),
-        ::testing::Bool(),
+        ::testing::Values(Mesh0, Mesh2),
+        ::testing::Values(Mesh1, Mesh2),
+        ::testing::Values(Mesh2),
         ::testing::Bool(),
         ::testing::Bool(),
         ::testing::Bool()));
@@ -439,17 +437,6 @@ TEST_F(NVFuserTest, 2DMesh) {
   mesh.reshape({2,3});
   tv0->setDeviceMesh(&mesh);
   std::cout << tv0 << std::endl;
-}
-
-TEST_F(NVFuserTest, select_bug) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeContigTensor(3);
-  fusion.addInput(tv0);
-  auto tv1 = select(tv0, 0, IrBuilder::create<Val>(0));
-  fusion.addOutput(tv1);
-  fusion.print();
 }
 
 } // namespace nvfuser

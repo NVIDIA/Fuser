@@ -1085,21 +1085,38 @@ std::vector<IterDomain*> getShardedIterDomains(TensorView* tv) {
 
 }
 
-bool haveSameSharding(TensorView* tv1, TensorView* tv2) {
-  if (!(*tv1->getDeviceMesh() == *tv2->getDeviceMesh())) {
-    return false;
+std::unordered_set<TensorView*> haveDifferentSharding(TensorView* ref, std::unordered_set<TensorView*> tvs) {
+  std::unordered_set<TensorView*> ret;
+
+  const auto& reference_dom = ref->getLeafDomain();
+  FusionGuard fg(ref->fusion());
+  auto ca_map = ComputeAtMap(FusionGuard::getCurFusion());
+  std::unordered_map<IterDomain*, IterDomain*> concrete_to_reference_map;
+  for (auto id : reference_dom) {
+    auto ca_id =
+        ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
+    concrete_to_reference_map[ca_id] = id;
   }
-  auto sharding_domain1 = getShardedIterDomains(tv1);
-  auto sharding_domain2 = getShardedIterDomains(tv2);
-  if (sharding_domain1.size() != sharding_domain2.size()) {
-    return false;
-  }
-  for (auto i : c10::irange(sharding_domain1.size())) {
-    if (!sharding_domain1[i]->sameAs(sharding_domain2[i])) {
-      return false;
+
+  for (auto tv: tvs) {
+    if (!(*ref->getDeviceMesh() == *tv->getDeviceMesh())) {
+      ret.insert(tv);
+      continue;
+    }
+    for (auto id : tv->getLeafDomain()) {
+      auto ca_id = ca_map.getConcreteMappedID(
+          id, IdMappingMode::PERMISSIVE_RESIZE);
+      if (concrete_to_reference_map.count(ca_id) > 0) {
+        auto ref_id = concrete_to_reference_map.at(ca_id);
+        if ((ref_id->isDevice() || id->isDevice())
+            && ref_id->getParallelType() != id->getParallelType()) {
+          ret.insert(tv);
+          break;
+        }
+      }
     }
   }
-  return true;
+  return ret;
 }
 
 bool isResharding(Expr* expr) {
@@ -1114,7 +1131,8 @@ bool isResharding(Expr* expr) {
     return false;
   }
   auto tv_ref = *tvs.begin();
-  return !std::all_of(++tvs.begin(), tvs.end(), [tv_ref](auto tv) {return ir_utils::haveSameSharding(tv, tv_ref);});
+  tvs.erase(tv_ref);
+  return !haveDifferentSharding(tv_ref, tvs).empty();
 }
 
 } // namespace nvfuser::ir_utils

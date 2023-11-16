@@ -12,7 +12,7 @@
 
 namespace nvfuser {
 
-void insertSetBeforeReshardingExpr(Fusion* fusion);
+void insertReshardings(Fusion* fusion);
 
 } // namespace nvfuser
 
