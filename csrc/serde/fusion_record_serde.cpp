@@ -408,7 +408,6 @@ void RecordFunctorFactory::registerAllParsers() {
     return new python_frontend::FullOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        parseVector(data->shape()),
         mapToNvfuserDtype(data->dtype()));
   };
   registerParser(RecordType::FullOp, deserializeFullRecord);
@@ -489,16 +488,23 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(RecordType::StrideOrderOp, deserializeStrideOrderRecord);
 
-  auto deserializeRandomRecord = [](const RecordFunctor* buffer) {
+  auto deserializeNormalDistRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_TensorCreationSymbolic();
-    return new python_frontend::RandomOpRecord(
+    return new python_frontend::RandomDistOpRecord<RecordType::NormalDistOp>(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        parseStateArgs(data->shape()),
-        buffer->name()->str(),
         mapToNvfuserDtype(data->dtype()));
   };
-  registerParser(RecordType::RandomOp, deserializeRandomRecord);
+  registerParser(RecordType::NormalDistOp, deserializeNormalDistRecord);
+
+  auto deserializeUniformDistRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_TensorCreationSymbolic();
+    return new python_frontend::RandomDistOpRecord<RecordType::UniformDistOp>(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        mapToNvfuserDtype(data->dtype()));
+  };
+  registerParser(RecordType::UniformDistOp, deserializeUniformDistRecord);
 
   auto deserializeReshapeRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::ReshapeOpRecord(
