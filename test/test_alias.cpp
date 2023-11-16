@@ -199,6 +199,52 @@ TEST_F(AliasAnalysisTest, View_MergeExpandedBroadcast) {
   EXPECT_EQ(alias_analysis.findRoot(out), expand_out);
 }
 
+TEST_F(AliasAnalysisTest, TrivialSlice) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  fusion.addInput(in);
+  TensorView* out = slice(in, {0, 0}, {2, 3});
+  out = reshape(out, {2, 3}, {6});
+  fusion.addOutput(out);
+
+  optimization::AliasAnalysisResult alias_analysis =
+      optimization::findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.findRoot(out), in);
+}
+
+TEST_F(AliasAnalysisTest, MergeTriviallySlicedDimensions) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  fusion.addInput(in);
+  TensorView* out = slice(in, {0, 0, 0}, {2, 2, 5});
+  out = reshape(out, {2, 2, 5}, {2, 10});
+  fusion.addOutput(out);
+
+  optimization::AliasAnalysisResult alias_analysis =
+      optimization::findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.findRoot(out), in);
+}
+
+TEST_F(AliasAnalysisTest, MergeSlicedDimensions) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  fusion.addInput(in);
+  TensorView* slice_out = slice(in, {0, 0, 0}, {2, 2, 5});
+  TensorView* out = reshape(slice_out, {2, 2, 5}, {4, 5});
+  fusion.addOutput(out);
+
+  optimization::AliasAnalysisResult alias_analysis =
+      optimization::findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.findRoot(out), out);
+  EXPECT_EQ(alias_analysis.findRoot(slice_out), in);
+}
+
 using AliasTest = NVFuserTest;
 
 TEST_F(AliasTest, View) {

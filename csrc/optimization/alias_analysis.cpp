@@ -242,6 +242,8 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
   analysis_.add(out, in, std::move(out_layout));
 }
 
+// For future improvement, a PadOp with negative padding amount can also be
+// treated as a slice.
 void AliasFinder::handle(const SliceOp* slice) {
   TensorView* in = slice->in();
   TensorView* out = slice->out();
