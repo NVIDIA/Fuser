@@ -45,7 +45,7 @@ TEST_F(NoOpTest, FusionNullScheduler) {
   std::cerr << t1.sizes() << std::endl;
 
   testValidate(
-      executor_cache.fusion(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+      executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 
   auto groups =
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
@@ -76,10 +76,8 @@ TEST_F(NoOpTest, FusionNullScheduler2) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto t1 = t0.sum({1, 2});
-
   testValidate(
-      executor_cache.fusion(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+      executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 
   auto groups =
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
@@ -115,7 +113,6 @@ TEST_F(NoOpTest, FusionNullScheduler3) {
       executor_cache.fusion(),
       cg_outputs,
       {t0, t1},
-      {t0 + t1},
       __LINE__,
       __FILE__);
 
@@ -147,10 +144,8 @@ TEST_F(NoOpTest, FusionReducingZeroElements) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto t1 = t0.sum({0, 1, 2});
-
   testValidate(
-      executor_cache.fusion(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+      executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(NoOpTest, FusionEmpty) {
@@ -176,7 +171,6 @@ TEST_F(NoOpTest, FusionEmpty) {
   testValidate(
       executor_cache.fusion(),
       cg_outputs,
-      {t0, t1},
       {t0, t1},
       __LINE__,
       __FILE__);
