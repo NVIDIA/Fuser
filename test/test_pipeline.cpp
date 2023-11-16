@@ -214,6 +214,7 @@ TEST_F(NVFuserTest, ReshardingDetection) {
   mesh2 = {0,1,2};
 
   TensorView* tv0 = makeContigTensor(3);
+  fusion.addInput(tv0);
   tv0->setDeviceMesh(&mesh0);
 
   TensorView* tv1 = set(tv0);
@@ -253,7 +254,7 @@ TEST_F(NVFuserTest, ReshardingDetection) {
   TensorView* tv11 = sum(tv0, {0}); //resharding,
   tv11->setDeviceMesh(&mesh1);
 
-  TensorView* tv12 = sum(tv5, {0}); // resharding
+  TensorView* tv12 = sum(tv5, {0}); // not resharding
   tv12->setDeviceMesh(&mesh2);
   tv12->axis(0)->parallelize(ParallelType::DIDx);
 
@@ -307,6 +308,33 @@ TEST_F(NVFuserTest, ReshardingDetection) {
   TensorView* tv26 = add(tv5, tv6); // resharding
   tv26->setDeviceMesh(&mesh2);
 
+  fusion.addOutput(tv1);
+  fusion.addOutput(tv2);
+  fusion.addOutput(tv3);
+  fusion.addOutput(tv4);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+  fusion.addOutput(tv7);
+  fusion.addOutput(tv8);
+  fusion.addOutput(tv9);
+  fusion.addOutput(tv10);
+  fusion.addOutput(tv11);
+  fusion.addOutput(tv12);
+  fusion.addOutput(tv13);
+  fusion.addOutput(tv14);
+  fusion.addOutput(tv15);
+  fusion.addOutput(tv16);
+  fusion.addOutput(tv17);
+  fusion.addOutput(tv18);
+  fusion.addOutput(tv19);
+  fusion.addOutput(tv20);
+  fusion.addOutput(tv21);
+  fusion.addOutput(tv22);
+  fusion.addOutput(tv23);
+  fusion.addOutput(tv24);
+  fusion.addOutput(tv25);
+  fusion.addOutput(tv26);
+
   GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv1->definition()));
   GTEST_EXPECT_TRUE(ir_utils::isResharding(tv2->definition()));
   GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv3->definition()));
@@ -318,7 +346,7 @@ TEST_F(NVFuserTest, ReshardingDetection) {
   GTEST_EXPECT_TRUE(ir_utils::isResharding(tv9->definition()));
   GTEST_EXPECT_TRUE(ir_utils::isResharding(tv10->definition()));
   GTEST_EXPECT_TRUE(ir_utils::isResharding(tv11->definition()));
-  GTEST_EXPECT_TRUE(ir_utils::isResharding(tv12->definition()));
+  GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv12->definition()));
   GTEST_EXPECT_TRUE(ir_utils::isResharding(tv13->definition()));
   GTEST_EXPECT_TRUE(ir_utils::isResharding(tv14->definition()));
   GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv15->definition()));
