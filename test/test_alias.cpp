@@ -334,8 +334,7 @@ TEST_F(AliasTest, DuplicateOutputsSegmentedFusion) {
   EXPECT_TRUE(out_tensor_2.is_alias_of(out_tensor_3));
   // Verify segmentation
   NVF_CHECK(
-      fec.getMostRecentKernelRuntime()->fusionSegments()->groups().size() ==
-          2,
+      fec.getMostRecentKernelRuntime()->fusionSegments()->groups().size() == 2,
       "segmentation didn't happen as expected");
 
   at::Tensor intermediate_tensor = in_tensor.add(3.141);
