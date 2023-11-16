@@ -9,6 +9,7 @@
 
 #include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <ir/base_nodes.h>
 #include <utils.h>
@@ -35,7 +36,7 @@ class IrContainerPasskey {
 
 class IrContainer : public PolymorphicBase {
  public:
-  IrContainer();
+  NVF_API IrContainer();
 
   IrContainer(const IrContainer& other);
   IrContainer(IrContainer&& other) noexcept;
@@ -105,13 +106,13 @@ class IrContainer : public PolymorphicBase {
   }
 
   //! Register the Statement with this container
-  virtual void registerStmt(IrBuilderPasskey, Statement* stmt);
+  NVF_API virtual void registerStmt(IrBuilderPasskey, Statement* stmt);
 
   //! Register the Val with this container
-  virtual void registerVal(IrBuilderPasskey, Val* val);
+  NVF_API virtual void registerVal(IrBuilderPasskey, Val* val);
 
   //! Register expr with this container.
-  virtual void registerExpr(IrBuilderPasskey, Expr* expr);
+  NVF_API virtual void registerExpr(IrBuilderPasskey, Expr* expr);
 
   //! Return the set of Exprs registered with this fusion. Warning: This will
   //! return exprs outside inputs/outputs, so can be unsafe for use with
@@ -126,13 +127,13 @@ class IrContainer : public PolymorphicBase {
   }
 
   // Shortcuts for frequently used vals
-  Val* zeroVal();
-  Val* oneVal();
+  NVF_API Val* zeroVal();
+  NVF_API Val* oneVal();
   Val* falseVal();
   Val* trueVal();
   NamedScalar* magicZeroVal();
-  Val* zeroVal(DataType dtype);
-  Val* oneVal(DataType dtype);
+  NVF_API Val* zeroVal(DataType dtype);
+  NVF_API Val* oneVal(DataType dtype);
   Val* metadataOf(Val*);
 
   // Axioms about CUDA programming, for example: threadIdx.x < blockDim.x

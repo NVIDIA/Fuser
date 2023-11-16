@@ -1324,7 +1324,7 @@ TEST_F(TransposeTest, TransposeSplitAggregatedVectorizationWidth) {
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
   // TODO: check on vectorization!
   auto heuristic =
-      runtime->schedulerHeuristics()->heuristicsList().at(0).get()->heuristic();
+      runtime->schedulerHeuristics()->heuristicsList().at(0)->heuristic();
   NVF_CHECK(
       heuristic == ScheduleHeuristic::Transpose,
       "Unexpected heuristic: ",

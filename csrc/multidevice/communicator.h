@@ -13,6 +13,7 @@
 #include <torch/csrc/distributed/c10d/ProcessGroup.hpp>
 #include <torch/csrc/distributed/c10d/Store.hpp>
 #include <torch/csrc/distributed/c10d/TCPStore.hpp>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -45,7 +46,7 @@ constexpr int comm_master_port_default =
 
 class Communicator {
  public:
-  Communicator(
+  NVF_API Communicator(
       CommunicatorBackend backend = comm_backend_default,
       RankType server_local_rank = comm_server_local_rank_default);
 
@@ -73,7 +74,7 @@ class Communicator {
   }
 
   // performs a send/receive p2p data transfer
-  c10::intrusive_ptr<c10d::Work> sendRecv(
+  NVF_API c10::intrusive_ptr<c10d::Work> sendRecv(
       DeviceIdxType receiver,
       DeviceIdxType sender,
       std::vector<at::Tensor>& tensor,
@@ -102,7 +103,7 @@ class Communicator {
 
   // returns world backend for communicator backend or default backend if not
   // specified.
-  c10::intrusive_ptr<c10d::Backend> getWorld(
+  NVF_API c10::intrusive_ptr<c10d::Backend> getWorld(
       std::optional<CommunicatorBackend> backend = std::nullopt);
 
   // returns if a backend is available for creation

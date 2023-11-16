@@ -17,6 +17,7 @@
 #include <ir/base_nodes.h>
 #include <ir/container.h>
 #include <iter_visitor.h>
+#include <visibility.h>
 
 #include <any>
 #include <string>
@@ -71,11 +72,11 @@ class DynamicTransformConcretizationInfo;
 class FusionGuard {
  public:
   //! Set the active fusion so it can be manipulated.
-  explicit FusionGuard(Fusion* fusion);
+  NVF_API explicit FusionGuard(Fusion* fusion);
 
-  ~FusionGuard();
+  NVF_API ~FusionGuard();
 
-  static Fusion* getCurFusion();
+  NVF_API static Fusion* getCurFusion();
   static void setCurFusion(Fusion* fusion);
 
  private:
@@ -111,7 +112,7 @@ struct AliasInfo {
 //! The Fusion owns the whole IR graph (Vals and Exprs)
 //!
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class Fusion : public IrContainer {
+class NVF_API Fusion : public IrContainer {
   typedef std::unordered_map<int, std::vector<int64_t>> PermutationMap;
 
  public:
@@ -245,7 +246,7 @@ class Fusion : public IrContainer {
   // the input tensor to the section where output is produced. Currently,
   // aliases of type `PointerArithmetics` are marked after segmentation, but
   // those of type `InplaceUpdate` are marked in fusion definitions.
-  void aliasOutputToInput(Val* output, Val* input, AliasType type);
+  NVF_API void aliasOutputToInput(Val* output, Val* input, AliasType type);
 
   //! Returns the aliased input of a given output along with an `AliasInfo`
   //! describing how they alias. Returns <nullptr,nullptr> when `output` is not

@@ -7,6 +7,7 @@
 // clang-format on
 #include <c10/util/Exception.h>
 #include <exceptions.h>
+#include <executor_utils.h>
 
 #if defined(__linux__)
 

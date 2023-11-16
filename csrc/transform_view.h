@@ -9,6 +9,7 @@
 
 #include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <ir/all_nodes.h>
 
@@ -105,7 +106,7 @@ struct AnalyzeViewConstraint {
 //! Infer -1 value in new view std::vector<int64_t> based on original view
 //! std::vector<int64_t>. This shouldn't generally be used directly but is
 //! useful for testing.
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferViewShapes(
+NVF_API std::pair<std::vector<int64_t>, std::vector<int64_t>> inferViewShapes(
     const std::vector<int64_t>& original_sizes,
     const std::vector<int64_t>& new_sizes);
 
@@ -117,7 +118,7 @@ AnalyzeViewResult analyzeView(
     const std::vector<int64_t>& new_sizes);
 
 // Find the constraints derived from the view transformations
-AnalyzeViewConstraint analyzeViewConstraint(
+NVF_API AnalyzeViewConstraint analyzeViewConstraint(
     const std::vector<int64_t>& original_sizes,
     const std::vector<int64_t>& new_sizes);
 
@@ -129,6 +130,8 @@ TensorDomain* transformView(
     const AnalyzeViewResult& view_analysis);
 
 //! Apply the reshape transformations of view_analysis to inp_tv
-TensorView* reshape(TensorView* inp_tv, const AnalyzeViewResult& view_analysis);
+NVF_API TensorView* reshape(
+    TensorView* inp_tv,
+    const AnalyzeViewResult& view_analysis);
 
 } // namespace nvfuser

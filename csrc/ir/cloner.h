@@ -11,6 +11,7 @@
 #include <dispatch.h>
 #include <exceptions.h>
 #include <ir/builder.h>
+#include <visibility.h>
 
 #include <tuple>
 #include <unordered_map>
@@ -36,7 +37,7 @@ class IrCloner {
   explicit IrCloner(IrContainer* container);
   virtual ~IrCloner() = default;
 
-  Statement* clone(const Statement* statement);
+  NVF_API Statement* clone(const Statement* statement);
 
   int64_t clone(int64_t x) {
     return x;
@@ -98,7 +99,7 @@ class IrCloner {
   }
 
  protected:
-  void registerClone(const Statement* src, Statement* clone);
+  NVF_API void registerClone(const Statement* src, Statement* clone);
   virtual Statement* handle(const Statement* s);
 
  protected:
@@ -120,7 +121,7 @@ class IrCloner {
 class RecomputeTv : private IrCloner {
  public:
   // Replicates expressions and values in provided expressions.
-  static TensorView* recompute(
+  NVF_API static TensorView* recompute(
       TensorView* tv,
       const std::vector<Val*>& from = {});
 

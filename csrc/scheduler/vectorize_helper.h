@@ -13,6 +13,7 @@
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <maxinfo_propagator.h>
+#include <visibility.h>
 // TODO: Move to cpp file.
 #include <ir/builder.h>
 
@@ -134,8 +135,9 @@ namespace vectorize_helper {
 // MaxInfoSpanningTree::computeInfoC2P with recording_=true where it will
 // actually record the computed information since it will be then projected
 // through the DAG maximizing saving information.
-class ContiguousInnerDimensionsMapper : public MaxInfoSpanningTree,
-                                        MaxInfoSpanningTree::Propagator {
+class NVF_API ContiguousInnerDimensionsMapper
+    : public MaxInfoSpanningTree,
+      MaxInfoSpanningTree::Propagator {
  public:
   ContiguousInnerDimensionsMapper() = delete;
 

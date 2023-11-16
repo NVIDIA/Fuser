@@ -15,6 +15,7 @@
 #include <tma.h>
 #include <type.h>
 #include <utils.h>
+#include <visibility.h>
 
 #include <c10/macros/Export.h>
 
@@ -77,7 +78,7 @@ class Predicate final : public Val {
 
   std::string toString(int indent_size = 0) const override;
 
-  std::string toInlineString(int indent_size = 0) const override;
+  NVF_API std::string toInlineString(int indent_size = 0) const override;
 
   PredicateType predicate_type() const {
     return ptype_;
@@ -147,7 +148,7 @@ class Predicate final : public Val {
   Val* value_ = nullptr;
 };
 
-class TensorIndex final : public Val {
+class NVF_API TensorIndex final : public Val {
  public:
   TensorIndex(
       IrBuilderPasskey,
@@ -251,7 +252,7 @@ class Asm final : public Expr {
 //! is required as an intermediate within a kernel. The extent is the expression
 //! of the size of the buffer that is generated from the TensorView that
 //! describes the output of an operation.
-class Allocate final : public Expr {
+class NVF_API Allocate final : public Expr {
  public:
   using Expr::Expr;
 
@@ -345,7 +346,7 @@ class Allocate final : public Expr {
 //
 // TODO(kir): change name to SyncThreads as we could have other barriers.
 //
-class BlockSync final : public Expr {
+class NVF_API BlockSync final : public Expr {
  public:
   using Expr::Expr;
 
@@ -368,7 +369,7 @@ class BlockSync final : public Expr {
 
 // Synchronize all blocks in device, implies cooperative group launch is
 // required.
-class GridSync final : public Expr {
+class NVF_API GridSync final : public Expr {
  public:
   using Expr::Expr;
 
@@ -395,7 +396,7 @@ class GridSync final : public Expr {
   }
 };
 
-class MBarrierInit final : public Expr {
+class NVF_API MBarrierInit final : public Expr {
  public:
   using Expr::Expr;
   explicit MBarrierInit(
@@ -421,7 +422,7 @@ class MBarrierInit final : public Expr {
   }
 };
 
-class MBarrierInvalidate final : public Expr {
+class NVF_API MBarrierInvalidate final : public Expr {
  public:
   using Expr::Expr;
   explicit MBarrierInvalidate(IrBuilderPasskey passkey, Val* mbarrier);
@@ -440,7 +441,7 @@ class MBarrierInvalidate final : public Expr {
   }
 };
 
-class MBarrierArrive final : public Expr {
+class NVF_API MBarrierArrive final : public Expr {
  public:
   using Expr::Expr;
   explicit MBarrierArrive(IrBuilderPasskey passkey, Val* state, Val* mbarrier);
@@ -467,7 +468,7 @@ class MBarrierArrive final : public Expr {
 // This is usually used to specify the number of bytes that will be
 // transferred for cp.async and cp.async.bulk, so that future mbarrier.wait
 // can wait for the completion of the transfer.
-class MBarrierArriveExpectTx final : public Expr {
+class NVF_API MBarrierArriveExpectTx final : public Expr {
  public:
   using Expr::Expr;
   explicit MBarrierArriveExpectTx(
@@ -498,7 +499,7 @@ class MBarrierArriveExpectTx final : public Expr {
   }
 };
 
-class MBarrierWait final : public Expr {
+class NVF_API MBarrierWait final : public Expr {
  public:
   using Expr::Expr;
   explicit MBarrierWait(IrBuilderPasskey passkey, Val* mbarrier, Val* state);
@@ -775,7 +776,7 @@ class Scope {
 //! ForLoop may represent a part of an iteration domain representend
 //! by iter_domain_. In that case, the loop extent field, extent_, may
 //! be smaller than the extent of iter_domain_.
-class ForLoop final : public Expr {
+class NVF_API ForLoop final : public Expr {
  public:
   using Expr::Expr;
 
@@ -901,7 +902,7 @@ class ForLoop final : public Expr {
 //!
 //! TODO(kir): this is not a real expression
 //!
-class IfThenElse final : public Expr {
+class NVF_API IfThenElse final : public Expr {
  public:
   using Expr::Expr;
 
@@ -1020,7 +1021,7 @@ class GridReduction final : public ReductionOp {
   }
 };
 
-class GroupedGridReduction final : public GroupedReductionOp {
+class NVF_API GroupedGridReduction final : public GroupedReductionOp {
  public:
   using GroupedReductionOp::GroupedReductionOp;
 
@@ -1111,7 +1112,7 @@ class GroupedGridReduction final : public GroupedReductionOp {
 //!
 //! This node provides FusionExecutor the information it needs to allocate the
 //! broadcast and sync buffers.
-class GridBroadcast final : public Expr {
+class NVF_API GridBroadcast final : public Expr {
  public:
   using Expr::Expr;
 
@@ -1222,7 +1223,7 @@ class GridWelford final : public Expr {
   }
 };
 
-class GroupedGridWelford final : public GroupedWelfordOp {
+class NVF_API GroupedGridWelford final : public GroupedWelfordOp {
  public:
   using GroupedWelfordOp::GroupedWelfordOp;
 
@@ -1316,7 +1317,7 @@ class GroupedGridWelford final : public GroupedWelfordOp {
 
 //! Represents a WelfordOp with the division by count is hoisted out
 //! of an innermost loop
-class VectorizedWelfordOp final : public WelfordOp {
+class NVF_API VectorizedWelfordOp final : public WelfordOp {
  public:
   using WelfordOp::WelfordOp;
 

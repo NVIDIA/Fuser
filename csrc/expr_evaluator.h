@@ -14,6 +14,7 @@
 #include <ir/interface_nodes.h>
 #include <iter_visitor.h>
 #include <polymorphic_value.h>
+#include <visibility.h>
 
 #include <string>
 #include <unordered_map>
@@ -24,7 +25,7 @@ class PrecomputedValues;
 
 //! Calculate Fusion IR expressions
 class ExpressionEvaluator {
-  void bind_(
+  NVF_API void bind_(
       const Val* value,
       PolymorphicValue concrete_value,
       bool evaluate_validate);
@@ -51,13 +52,13 @@ class ExpressionEvaluator {
   void bind(ParallelType pt, PolymorphicValue concrete_value);
 
   //! Try to evaluate a Fusion IR value
-  const PolymorphicValue& evaluate(const Val* value);
+  NVF_API const PolymorphicValue& evaluate(const Val* value);
 
   //! Try to evaluate a parallel dimension
   const PolymorphicValue& evaluate(ParallelType pt);
 
   //! Try to evaluate a value using const evaluator ref
-  PolymorphicValue evaluate(const Val* value) const;
+  NVF_API PolymorphicValue evaluate(const Val* value) const;
 
   bool isKnown(const Val* value) const {
     return known_values_.count(value) > 0;

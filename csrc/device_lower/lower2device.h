@@ -32,6 +32,7 @@
 #include <partial_split_map.h>
 #include <root_domain_map.h>
 #include <vectorization_info.h>
+#include <visibility.h>
 
 #include <functional>
 #include <memory>
@@ -60,11 +61,11 @@ class GpuLower : public NonCopyable {
   // into cuda code. index_type allows to compile the kernel based on int32
   // indexing instead of int64 for additional performance.
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-  explicit GpuLower(
+  NVF_API explicit GpuLower(
       Fusion* fusion,
       const CompileParams& cparams = CompileParams());
 
-  kir::Kernel* kernel() const;
+  NVF_API kir::Kernel* kernel() const;
 
   //! Returns the currently active lowering object.
   //! It's an error if no lowering is in progress.
@@ -75,7 +76,7 @@ class GpuLower : public NonCopyable {
 
   //! Actually run the lowering by executing the passes in the order given by
   //! passes_
-  kir::Kernel* run();
+  NVF_API kir::Kernel* run();
 
   const PrimDataType& indexType() const {
     return cparams_.index_type.value();

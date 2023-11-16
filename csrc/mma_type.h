@@ -12,6 +12,7 @@
 #include <c10/macros/Export.h>
 #include <exceptions.h>
 #include <fusion.h>
+#include <visibility.h>
 
 #include <cstring>
 
@@ -258,15 +259,15 @@ int64_t getBytesFromSwizzle(MmaInputSmemSwizzle swizzle);
 MmaInputSmemSwizzle getSwizzleFromBytes(int64_t bytes);
 
 // MMA stringify utils
-std::string toString(MmaLayout input_layout);
+NVF_API std::string toString(MmaLayout input_layout);
 std::string toString(const GemmTile& tile);
-std::string toString(const MatMulTileOptions& opts);
-std::string toString(MmaMacro macro);
-std::string toString(MmaInputSmemSwizzle swizzle);
+NVF_API std::string toString(const MatMulTileOptions& opts);
+NVF_API std::string toString(MmaMacro macro);
+NVF_API std::string toString(MmaInputSmemSwizzle swizzle);
 
 // MMA hash utils
-size_t hash(MmaMacro macro);
+NVF_API size_t hash(MmaMacro macro);
 size_t hash(MmaLayout input_layout);
 size_t hash(const GemmTile& tile);
-size_t hash(const MatMulTileOptions& opts);
+NVF_API size_t hash(const MatMulTileOptions& opts);
 } // namespace nvfuser
