@@ -3595,9 +3595,9 @@ void TensorDomain::merge(int axis_o, int axis_i) {
   IterDomain* first = axis(axis_o);
   IterDomain* second = axis(axis_i);
 
-  // NVF_ERROR(
-  //     !first->isMmaSwizzled() && !second->isMmaSwizzled(),
-  //     "Further transformation on warp mapped id's not allowed.");
+  NVF_ERROR(
+      !first->isMmaSwizzled() && !second->isMmaSwizzled(),
+      "Further transformation on warp mapped id's not allowed.");
 
   IterDomain* merged_id = IterDomain::merge(first, second);
 
