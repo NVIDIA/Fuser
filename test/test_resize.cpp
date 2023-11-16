@@ -3073,8 +3073,6 @@ TEST_F(ResizeTest, PadOfExpandedBroadcast) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  auto ref = at::pad(at::expand_copy(t0, shape0e), {1, 1});
-
   testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
