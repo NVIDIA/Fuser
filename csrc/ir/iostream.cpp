@@ -88,7 +88,7 @@ void IrTransformPrinter::handle(Fusion* f) {
   }
 }
 
-void IrTransformPrinter::printTransforms(TensorView* tv) {
+void IrTransformPrinter::printTransforms(const TensorView* tv) {
   const auto& root_domain = tv->getRootDomain();
   os() << " root domain : (" << toDelimitedString(root_domain) << ")\n";
 

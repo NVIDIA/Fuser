@@ -224,8 +224,9 @@ const PolymorphicValue& ExpressionEvaluator::getValue(
   }
 
   auto it = known_values_.find(value);
-  if (it != known_values_.end())
+  if (it != known_values_.end()) {
     return it->second;
+  }
 
   if (&additional_known_values != &known_values_) {
     it = additional_known_values.find(value);

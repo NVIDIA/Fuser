@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#pragma once
+
 #include <unordered_map>
 
 #include <fusion.h>
@@ -32,10 +34,7 @@ class AliasAnalysisResult {
 
   // Marks `source` as the immediate aliasing source of `alias` and sets the
   // preferred layout.
-  void add(
-      const TensorView* alias,
-      const TensorView* source,
-      const Layout& layout);
+  void add(const TensorView* alias, const TensorView* source, Layout&& layout);
 
   AliasAnalysisResult(const AliasAnalysisResult&) = delete;
   AliasAnalysisResult& operator=(const AliasAnalysisResult&) = delete;

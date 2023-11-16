@@ -120,6 +120,8 @@ class TensorView : public Val {
 
   std::string toInlineString(int indent_size = 0) const override;
 
+  void printTransforms() const;
+
   TensorDomain* domain() const {
     return domain_;
   }
