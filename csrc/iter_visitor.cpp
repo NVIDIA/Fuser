@@ -1051,10 +1051,6 @@ bool DeadCodeRemover::registerReplacement(Val* old_val, Val* new_val) {
   // Mark new val live
   markLiveRecursive(new_val);
 
-  if (old_val->isFusionOutput()) {
-    fusion_->replaceOutput(old_val, new_val);
-  }
-
   vals_to_replace_.emplace_back(old_val, new_val);
 
   if (old_val->isFusionInput()) {
@@ -1125,7 +1121,20 @@ void DeadCodeRemover::markLiveRecursive(Statement* stmt) {
 }
 
 bool DeadCodeRemover::markDead(Statement* stmt) {
-  return (bool)live_statements_.erase(stmt);
+  if (auto e = dynamic_cast<Expr*>(stmt)) {
+    // If this is an expression, ensure it is not marked as a future live use
+    // of any of its inputs
+    for (Val* inp : e->inputs()) {
+      if (std::find(inp->uses().begin(), inp->uses().end(), e) ==
+          inp->uses().end()) {
+        auto fu_it = future_uses_.find(inp);
+        if (fu_it != future_uses_.end()) {
+          fu_it->second.erase(e);
+        }
+      }
+    }
+  }
+  return live_statements_.erase(stmt);
 }
 
 bool DeadCodeRemover::modifyFusion() const {
