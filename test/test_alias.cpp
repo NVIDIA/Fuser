@@ -285,8 +285,12 @@ TEST_F(AliasTest, DuplicateOutputs) {
     at::Tensor out_tensor_0 = out_tensors[0];
     at::Tensor out_tensor_1 = out_tensors[1];
 
-    // TODO: Verify aliasing among duplicated outputs
-    // TODO: Verify no segmentation
+    // Verify aliasing among duplicated outputs
+    EXPECT_TRUE(out_tensor_0.is_alias_of(out_tensor_1));
+    // Verify no segmentation
+    NVF_CHECK(
+        !fec.getMostRecentKernelRuntime()->isSegmented(),
+        "segmentation is not supposed to happen");
 
     at::Tensor out_tensor = in_tensor.add(3.141);
     // Verify output values.
@@ -294,7 +298,7 @@ TEST_F(AliasTest, DuplicateOutputs) {
   }
 
   {
-    // testing segmented fusion
+    // testing duplicated output in segmented fusion
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 
@@ -306,6 +310,8 @@ TEST_F(AliasTest, DuplicateOutputs) {
     TensorView* segment_tv = segment_set(intermediate_tv);
     TensorView* out = mul(segment_tv , IrBuilder::create<Val>(2.0));
     
+    fusion->addOutput(intermediate_tv);
+    fusion->addOutput(intermediate_tv);
     fusion->addOutput(out);
     fusion->addOutput(out); // duplicated outputs
 
@@ -313,16 +319,30 @@ TEST_F(AliasTest, DuplicateOutputs) {
     at::Tensor in_tensor =
         at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA, 0));
     std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
-    ASSERT_EQ(out_tensors.size(), 2);
+    ASSERT_EQ(out_tensors.size(), 4);
     at::Tensor out_tensor_0 = out_tensors[0];
     at::Tensor out_tensor_1 = out_tensors[1];
+    at::Tensor out_tensor_2 = out_tensors[2];
+    at::Tensor out_tensor_3 = out_tensors[3];
 
-    // TODO: Verify aliasing among duplicated outputs
-    // TODO: Verify segmentation
+    // Verify aliasing among duplicated outputs
+    EXPECT_TRUE(out_tensor_0.is_alias_of(out_tensor_1));
+    EXPECT_TRUE(out_tensor_2.is_alias_of(out_tensor_3));
+    // Verify segmentation
+    NVF_CHECK(
+        fec.getMostRecentKernelRuntime()->isSegmented(),
+        "segmentation didn't happen");
+    NVF_CHECK(
+        fec.getMostRecentKernelRuntime()
+                ->fusionSegments()
+                ->groups()
+                .size() == 2,
+        "segmentation didn't happen as expected");
 
-    at::Tensor out_tensor = in_tensor.add(3.141).mul(2.0);
+    at::Tensor intermediate_tensor = in_tensor.add(3.141);
+    at::Tensor out_tensor = intermediate_tensor.mul(2.0);
     // Verify output values.
-    testValidate(fec.fusion(), {out_tensor, out_tensor}, {in_tensor}, __LINE__, __FILE__);
+    testValidate(fec.fusion(), {intermediate_tensor, intermediate_tensor, out_tensor, out_tensor}, {in_tensor}, __LINE__, __FILE__);
   }
 }
 
