@@ -358,6 +358,7 @@ void multiReductionInliner(
     const bool unroll,
     const bool vectorize,
     const bool is_outer_grid_persistence,
+    const bool maybe_special_inline_cached_inputs,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
@@ -385,8 +386,37 @@ void multiReductionInliner(
     fusion->removeOutput(output);
   }
 
-  // Inline the schedule
-  inlineMost();
+  // This special inline for cached_inputs is used when
+  // `maybe_special_inline_cached_inputs` is true and all the cached input tvs
+  // or their consumers are persistent. It seperates data loading and
+  // computation without inrcreasing requested registers and showed performance
+  // increase, see SoftmaxNotInlineDataLoad.
+  bool is_special_inline_cached_input = maybe_special_inline_cached_inputs;
+      // checkCachedInputAndConsumer(fusion, cached_inputs)
+  if (is_special_inline_cached_input) {
+    inlineMost(ir_utils::allTvsExcept(
+        fusion, {cached_inputs.begin(), cached_inputs.end()}));
+    // The inner persistent tvs are scheduled as [..., persistent batch,
+    // unswitch, vect/unroll], inline them before [persistent batch].
+    for (auto tv : cached_inputs) {
+      int64_t tailing_static_dims = 0;
+      for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
+        if (tv->axis(i)->extent()->isConstInt()) {
+          tailing_static_dims++;
+        } else {
+          break;
+        }
+      }
+      auto producer = ir_utils::getSoleProducerTv(tv);
+      inlineSelectedAt(
+          {tv},
+          producer,
+          (int64_t)producer->nDims() - tailing_static_dims,
+          true);
+    }
+  } else {
+    inlineMost();
+  }
 }
 
 void propagateTransformation(

@@ -280,9 +280,12 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   int64_t buffer_per_thread = max_persistent_buffer_size /
       total_reduction_numel * vectorization_val * persistent_val;
   int64_t buffer_reg_per_thread = getRegisterPerThread(buffer_per_thread);
-  int64_t nvrtc_register_per_thread =
-      std::max(buffer_reg_per_thread, occupancy_reg_per_thread);
-  std::cout << "occupancy_reg_per_thread= " << occupancy_reg_per_thread << ", buffer_reg_per_thread= " << buffer_reg_per_thread << std::endl;
+  // int64_t nvrtc_register_per_thread = 
+  //     std::max(buffer_reg_per_thread, occupancy_reg_per_thread);
+  int64_t nvrtc_register_per_thread = buffer_reg_per_thread;
+  std::cout << "occupancy_reg_per_thread= " << occupancy_reg_per_thread
+            << ", buffer_reg_per_thread= " << buffer_reg_per_thread
+            << std::endl;
   // results
   auto rparams = std::make_shared<ReductionParams>();
   rparams->cparams.maxrregcount = (int)nvrtc_register_per_thread;
@@ -416,7 +419,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         max_persistent_buffer_size,
         vectorize_factor);
   }
-  if (std::getenv("TEST_NEW")) {
+  if (std::getenv("TEST_HEURISTICS")) {
     if (total_reduction_numel == inner_most_dimension_numel) {
       return innerPersistentHeuristic2D(
           total_reduction_numel,
@@ -969,6 +972,13 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
       prop.vectorize_factor);
   rparams->project_persistent_buffers = prop.project_persistent_buffers;
   rparams->cparams.index_type = runtime_info.getIndexType();
+  // If there are more than 1 persistent batches, needs special
+  // inline to separate data loading and calculation, see multiReductionInliner.
+  if (std::getenv("TEST_INLINE") &&
+      rparams->batches_per_block_inner_reduction > 1) {
+    std::cout << "maybe_special_inline_cached_inputs = true" << std::endl;
+    rparams->maybe_special_inline_cached_inputs = true;
+  }
   return rparams;
 }
 

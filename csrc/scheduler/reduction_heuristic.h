@@ -135,7 +135,9 @@ class ReductionParams : public HeuristicParams {
 
   // use shared memory for persistent buffer, if false, will use registers
   bool shared_mem_persistent_buffer = false;
-
+  
+  // Inline all tvs
+  bool maybe_special_inline_cached_inputs = false;
  public:
   using HeuristicParams::HeuristicParams;
 
