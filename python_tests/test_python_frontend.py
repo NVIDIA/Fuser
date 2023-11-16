@@ -20,7 +20,6 @@ from torch.testing._internal.jit_utils import RUN_CUDA
 import torch._refs as refs
 import torch._prims as prims
 
-import nvfuser
 from nvfuser import (
     FusionCache,
     FusionDefinition,
@@ -29,13 +28,14 @@ from nvfuser import (
     version,
     compute_contiguity,
     compute_tensor_descriptor,
+    serialize as nv_serialize,
 )
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
 # Test automatic serialization to common workplace
 import atexit
 
-atexit.register(nvfuser.serialize)
+atexit.register(nv_serialize)
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
