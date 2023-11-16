@@ -1265,4 +1265,45 @@ TEST_F(NVFuserTest, OptOutMutatorRedefinedConstant) {
   testValidate(fusion, outputs, {3L}, {t0}, __LINE__, __FILE__);
 }
 
+// Test that we can squeeze Symbolic IterDomains and that we properly detect
+// improper concretizations where we have squeezed a dimension with extent
+// other than 1.
+// See https://github.com/NVIDIA/Fuser/issues/1273
+TEST_F(NVFuserTest, SymbolicSqueeze) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s1 = IrBuilder::create<Val>(DataType::Index);
+  fusion->addInput(tv0);
+  fusion->addInput(s0);
+  fusion->addInput(s1);
+
+  auto tv1 = reshape(tv0, {s0, s1});
+  auto tv2 = squeeze(
+      tv1, std::vector<bool>({false, true})); // Squeeze second dimension
+  fusion->addOutput(tv2);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({3, 2}, options);
+  std::vector<c10::IValue> valid_inputs = {t0, 6, 1};
+  // An invalid input has a second dimension that cannot be squeezed
+  std::vector<c10::IValue> invalid_inputs = {t0, 2, 3};
+
+  auto outputs = fec.runFusionWithInputs(valid_inputs);
+
+  testValidate(fusion, outputs, valid_inputs, __LINE__, __FILE__);
+
+  // An informative error message should be given by
+  // SqueezeOp::checkConcretization
+  EXPECT_THAT(
+      [&]() { fec.runFusionWithInputs(invalid_inputs); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          " must concretize to IterType::Broadcast but found")));
+}
+
 } // namespace nvfuser
