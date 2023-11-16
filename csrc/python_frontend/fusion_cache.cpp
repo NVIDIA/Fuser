@@ -88,22 +88,25 @@ BinaryBuffer openFusionCache(std::string filename) {
   return buffer;
 }
 
-bool verify(const BinaryBuffer& buffer, const serde::FusionCache* fc) {
-  flatbuffers::Verifier v(buffer.data(), buffer.size());
-  return fc->Verify(v);
-}
-
-const serde::FusionCache* verifyFusionCache(const BinaryBuffer& buffer) {
+// This check function only throws errors if strict flag is enabled.
+const serde::FusionCache* verifyFusionCache(
+    const BinaryBuffer& buffer,
+    bool strict) {
   FUSER_PERF_SCOPE("Flatbuffers::verifyFusionCache");
   auto fusion_cache_buffer = serde::GetFusionCache(buffer.data());
 
   // Check flatbuffer integrity
-  if (!verify(buffer, fusion_cache_buffer)) {
+  flatbuffers::Verifier v(buffer.data(), buffer.size());
+  if (!fusion_cache_buffer->Verify(v)) {
+    NVF_CHECK(!strict, "Failed to verify the integrity of FusionCache buffer.");
     return nullptr;
   }
 
   // Check schema version
   if (!serde::FusionCacheBufferHasIdentifier(buffer.data())) {
+    NVF_CHECK(
+        !strict,
+        "Failed to verify the schema version of the FusionCache buffer");
     return nullptr;
   }
 
@@ -111,6 +114,16 @@ const serde::FusionCache* verifyFusionCache(const BinaryBuffer& buffer) {
   auto device_prop = at::cuda::getCurrentDeviceProperties();
   if (device_prop->major != fusion_cache_buffer->device_major() ||
       device_prop->minor != fusion_cache_buffer->device_minor()) {
+    NVF_CHECK(
+        !strict,
+        "Expected cuda version ",
+        device_prop->major,
+        ".",
+        device_prop->minor,
+        " but flatbuffer has cuda version ",
+        fusion_cache_buffer->device_major(),
+        ".",
+        fusion_cache_buffer->device_minor());
     return nullptr;
   }
 
@@ -120,51 +133,18 @@ const serde::FusionCache* verifyFusionCache(const BinaryBuffer& buffer) {
   NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&cuda_major, &cuda_minor));
   if (cuda_major != fusion_cache_buffer->cuda_major() ||
       cuda_minor != fusion_cache_buffer->cuda_minor()) {
+    NVF_CHECK(
+        !strict,
+        "Expected cuda version ",
+        cuda_major,
+        ".",
+        cuda_minor,
+        " but flatbuffer has cuda version ",
+        fusion_cache_buffer->cuda_major(),
+        ".",
+        fusion_cache_buffer->cuda_minor());
     return nullptr;
   }
-
-  return fusion_cache_buffer;
-}
-
-const serde::FusionCache* verifyFusionCacheStrict(const BinaryBuffer& buffer) {
-  FUSER_PERF_SCOPE("Flatbuffers::verifyFusionCache");
-  auto fusion_cache_buffer = serde::GetFusionCache(buffer.data());
-
-  NVF_CHECK(
-      verify(buffer, fusion_cache_buffer),
-      "Failed to verify the integrity of FusionCache buffer.");
-
-  NVF_CHECK(
-      serde::FusionCacheBufferHasIdentifier(buffer.data()),
-      "Failed to verify the schema version of the FusionCache buffer");
-
-  auto device_prop = at::cuda::getCurrentDeviceProperties();
-  NVF_CHECK(
-      device_prop->major == fusion_cache_buffer->device_major() &&
-          device_prop->minor == fusion_cache_buffer->device_minor(),
-      "Expected cuda version ",
-      device_prop->major,
-      ".",
-      device_prop->minor,
-      " but flatbuffer has cuda version ",
-      fusion_cache_buffer->device_major(),
-      ".",
-      fusion_cache_buffer->device_minor());
-
-  int cuda_major = 0;
-  int cuda_minor = 0;
-  NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&cuda_major, &cuda_minor));
-  NVF_CHECK(
-      cuda_major == fusion_cache_buffer->cuda_major() &&
-          cuda_minor == fusion_cache_buffer->cuda_minor(),
-      "Expected cuda version ",
-      cuda_major,
-      ".",
-      cuda_minor,
-      " but flatbuffer has cuda version ",
-      fusion_cache_buffer->cuda_major(),
-      ".",
-      fusion_cache_buffer->cuda_minor());
 
   return fusion_cache_buffer;
 }
@@ -346,7 +326,8 @@ FusionCache::FusionCache(size_t max_fusions, bool load_from_default_workspace)
   auto file_path = getSerdeFilePath(getSerdeFile()).native();
   if (load_from_default_workspace && fs::exists(file_path)) {
     const BinaryBuffer& buffer = openFusionCache(file_path);
-    const serde::FusionCache* fc = verifyFusionCache(buffer);
+    const serde::FusionCache* fc =
+        verifyFusionCache(buffer, false /* strict */);
     // The saved workspace can become out-of-date between nvfuser updates.
     if (fc != nullptr) {
       // Only deserialize if the current binary is valid.
@@ -595,7 +576,7 @@ void FusionCache::deserialize(std::string filename) {
       "Deserialization is prohibited if FusionCache is already populated.");
   const BinaryBuffer& buffer = openFusionCache(filename);
   const serde::FusionCache* fusion_cache_buffer =
-      verifyFusionCacheStrict(buffer);
+      verifyFusionCache(buffer, true /* strict */);
   deserialize(buffer, fusion_cache_buffer);
 }
 
