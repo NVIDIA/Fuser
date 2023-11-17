@@ -217,7 +217,7 @@ TEST_F(ScalarHoistTest, IndexHoist1) {
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
-  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
 // Hoist indices for vectorized tensors
@@ -261,7 +261,9 @@ TEST_F(ScalarHoistTest, IndexHoist2) {
   fe.compileFusion(&fusion, {t0, t1});
   auto cg_outputs = fe.runFusion({t0, t1});
 
-  testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+  auto ref = t0 + t1;
+
+  testValidate(&fusion, cg_outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
 
 TEST_F(ScalarHoistTest, IndexHoist3) {
@@ -289,6 +291,7 @@ TEST_F(ScalarHoistTest, IndexHoist3) {
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::arange(10000, options).view({100, 100});
+  at::Tensor t1 = t0.sin() + 10000;
 
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), {t0});
@@ -331,7 +334,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
 
   assertCUDAKernel(fusion.get(), expected_kernel);
 
-  testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
 TEST_F(ScalarHoistTest, ARange) {
@@ -357,6 +360,11 @@ TEST_F(ScalarHoistTest, ARange) {
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), {start, end, step});
   auto cg_outputs = fe.runFusion({start, end, step});
+
+  const auto options =
+      at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::Tensor t0 = at::arange(start, end, step, options);
+  at::Tensor t1 = at::full_like(t0, end - start, options);
 
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<int64_t, 1, 1> T0, Tensor<int64_t, 1, 1> T1) {
@@ -386,7 +394,12 @@ __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<i
   assertCUDAKernel(fusion.get(), expected_kernel);
 
   testValidate(
-      fusion.get(), cg_outputs, {start, end, step}, __LINE__, __FILE__);
+      fusion.get(),
+      cg_outputs,
+      {start, end, step},
+      {t0, t1},
+      __LINE__,
+      __FILE__);
 }
 
 } // namespace nvfuser

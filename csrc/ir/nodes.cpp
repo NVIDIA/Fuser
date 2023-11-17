@@ -400,9 +400,6 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::Exp:
       return {at::exp(in.as<at::Tensor>())};
       break;
-    case UnaryOpType::Sin:
-      return {in.as<at::Tensor>().sin()};
-      break;
     default:
       NVF_CHECK(
           false,
