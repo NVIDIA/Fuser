@@ -373,6 +373,15 @@ inline PolymorphicValue toTensor(
       false, "PolymorphicValue toTensor not implemented for ", x.type().name());
 }
 
+// Convert PolymorphicValue to c10::Scalar.
+inline c10::Scalar toScalar(const PolymorphicValue& x) {
+  if (x.is<std::complex<double>>()) {
+    return (c10::complex<double>)x.as<std::complex<double>>();
+  } else {
+    return (c10::Scalar)x;
+  }
+}
+
 } // namespace PolymorphicValue_functions
 
 } // namespace nvfuser
