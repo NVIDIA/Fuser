@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <index_compute.h>
@@ -13,6 +14,7 @@
 #include <ops/arith.h>
 #include <options.h>
 #include <predicate_compute.h>
+#include <transform_iter.h>
 
 #include <device_lower/pass/index.h>
 
@@ -40,10 +42,16 @@ Val* IndexLowering::lowerSrcIndex(
 Val* IndexLowering::lowerDstIndex(
     Val* dst,
     const std::unordered_map<int, Val*>& override_index,
-    bool generate_pointer) const {
+    bool generate_pointer,
+    DataType as_type) const {
   if (auto tv = dynamic_cast<TensorView*>(dst)) {
     return Index::getConsumerIndex(
-        tv, for_loops_, getRotatedLoop(), override_index, generate_pointer);
+        tv,
+        for_loops_,
+        getRotatedLoop(),
+        override_index,
+        generate_pointer,
+        as_type);
   } else {
     return dst;
   }
@@ -1120,8 +1128,8 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
   if (!tidx_val->isConstInt() || !tidy_val->isConstInt()) {
     return false;
   }
-  auto tidx = static_cast<int>(tidx_val->evaluateInt());
-  auto tidy = static_cast<int>(tidy_val->evaluateInt());
+  auto tidx = static_cast<int>(tidx_val->evaluate());
+  auto tidy = static_cast<int>(tidy_val->evaluate());
 
   // TIDz and BIDz must be unused or just 1. This contraint can be
   // lifted if necessary.
@@ -1151,7 +1159,7 @@ bool canUseOuterOptRuntimeKernel(const GroupedWelfordOp* grouped_wop) {
           axis->extent()->isConstInt(),
           "Grouped IterDomain must have a static integer extent: ",
           axis->extent()->toInlineString());
-      num_grouped_iterations *= (int)axis->extent()->evaluateInt();
+      num_grouped_iterations *= (int)axis->extent()->evaluate();
     }
   }
 
@@ -1282,34 +1290,120 @@ void IndexLowering::handleGroupedGridWelford(
   }
 }
 
-void IndexLowering::handle(const LoadStoreOp* ldst) {
-  Val* in = nullptr;
-  Val* out = nullptr;
-  if (ir_utils::isCpAsyncBulk(ldst)) {
-    NVF_ERROR(ir_utils::isCpAsyncBulkStore(ldst));
-    in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
-    out = Index::cpAsyncBulkIndex(ldst->out()->as<TensorView>(), for_loops_);
-  } else {
-    in = lowerSrcIndex(
-        ldst->in(),
-        ldst->out(),
-        {},
-        ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
-    out = lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst));
+void IndexLowering::handle(const kir::MBarrierInit* minit) {
+  auto minit_indexed = IrBuilder::create<kir::MBarrierInit>(
+      lower_utils::u32IndexScalarSmemTv(minit->mbarrier()->as<TensorView>()),
+      minit->threadCount());
+  pushBack(minit_indexed);
+  GpuLower::current()->propagateExprInfo(minit, minit_indexed);
+}
+
+void IndexLowering::handle(const kir::MBarrierInvalidate* minval) {
+  auto minval_indexed = IrBuilder::create<kir::MBarrierInvalidate>(
+      lower_utils::u32IndexScalarSmemTv(minval->mbarrier()->as<TensorView>()));
+  pushBack(minval_indexed);
+  GpuLower::current()->propagateExprInfo(minval, minval_indexed);
+}
+
+void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
+  auto out_tv = ldst->out()->as<TensorView>();
+  auto in_tv = ldst->in()->as<TensorView>();
+
+  // indexing mbarrier
+  auto mbarrier = GpuLower::current()->ldstMBarrierMap().at(ldst);
+  auto mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
+
+  // arrive and expect_tx mbarrier
+  auto state = IrBuilder::create<Val>(DataType::UInt);
+  pushBack(IrBuilder::create<kir::Allocate>(
+      state, MemoryType::Local, ldst->container()->oneVal()));
+  Val* expect_bytes = IrBuilder::create<Val>(dataTypeSize(in_tv->dtype()));
+  for (auto id : in_tv->getLeafDomain()) {
+    expect_bytes = SimplifyingIrBuilder::mulExpr(expect_bytes, id->extent());
   }
+  expect_bytes =
+      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expect_bytes);
+  pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
+      state, mbarrier_index, expect_bytes));
+
+  // indexing ldst op
+  auto out = lowerDstIndex(ldst->out(), {}, true);
+  auto in = Index::cpAsyncBulkIndex(in_tv, out_tv, mbarrier_index, for_loops_);
   auto new_ldst =
       IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
           ->withPredicate(ldst->predicate());
   pushBack(new_ldst);
   GpuLower::current()->propagateExprInfo(ldst, back());
+  // wait mbarrier
+  pushBack(IrBuilder::create<kir::MBarrierWait>(mbarrier_index, state));
+}
+
+void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
+  auto in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
+  auto out_tv = ldst->out()->as<TensorView>();
+  auto out = Index::cpAsyncBulkIndex(out_tv, out_tv, nullptr, for_loops_);
+  auto new_ldst =
+      IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
+          ->withPredicate(ldst->predicate());
+  pushBack(new_ldst);
+  GpuLower::current()->propagateExprInfo(ldst, back());
+  pushBack(IrBuilder::create<kir::CpAsyncBulkS2GCommit>());
+  // Waits on all the prior bulk async-groups to complete.
+  pushBack(IrBuilder::create<kir::CpAsyncBulkS2GWait>(0));
+}
+
+static inline DataType getMmaOutType(TensorView* mma_out) {
+  int64_t size = 1;
+  for (auto id : mma_out->getLeafDomain()) {
+    if (id->isMma() && !id->isReduction()) {
+      size *= id->extent()->evaluate().as<int64_t>();
+    }
+  }
+  return ArrayType{std::make_shared<DataType>(DataType::Float), (size_t)size};
+}
+
+void IndexLowering::handle(const LoadStoreOp* ldst) {
+  Val* in = nullptr;
+  Val* out = nullptr;
+  if (ir_utils::isCpAsyncBulk(ldst)) {
+    if (ir_utils::isCpAsyncBulkLoad(ldst)) {
+      handleCpAsyncBulkLoad(ldst);
+    } else if (ir_utils::isCpAsyncBulkStore(ldst)) {
+      handleCpAsyncBulkStore(ldst);
+    } else {
+      NVF_ERROR(false);
+    }
+  } else {
+    DataType as_type = DataType::Null;
+    if (ir_utils::isLdMatrixOp(ldst)) {
+      as_type = ArrayType{
+          std::make_shared<DataType>(DataType::UInt32),
+          (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>()) /
+              2};
+    } else if (ldst->out()->definition()->isA<MmaOp>()) {
+      as_type = getMmaOutType(ldst->out()->as<TensorView>());
+    }
+    in = lowerSrcIndex(
+        ldst->in(),
+        ldst->out(),
+        {},
+        ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst));
+    out = lowerDstIndex(ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+    auto new_ldst =
+        IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
+            ->withPredicate(ldst->predicate());
+    pushBack(new_ldst);
+    GpuLower::current()->propagateExprInfo(ldst, back());
+  }
 }
 
 void IndexLowering::handle(const MmaOp* mma) {
   const auto a = lowerSrcIndex(mma->inA(), mma->out());
   const auto b = lowerSrcIndex(mma->inB(), mma->out());
-  const auto out = lowerDstIndex(mma->out());
+  const auto out = lowerDstIndex(
+      mma->out(), {}, false, getMmaOutType(mma->out()->as<TensorView>()));
   auto mma_indexed = IrBuilder::create<MmaOp>(
-      out, a, b, mma->init(), mma->options(), mma->layout());
+      out, a, b, mma->init(), mma->macro(), mma->layout());
   pushBack(mma_indexed);
   GpuLower::current()->propagateExprInfo(mma, back());
 }
@@ -1393,6 +1487,16 @@ void IndexLowering::handle(const kir::CpAsyncCommit* commit) {
   pushBack(const_cast<kir::CpAsyncCommit*>(commit)); // NOLINT
 }
 
+void IndexLowering::handle(const kir::CpAsyncBulkS2GWait* wait) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::CpAsyncBulkS2GWait*>(wait)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::CpAsyncBulkS2GCommit* commit) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::CpAsyncBulkS2GCommit*>(commit)); // NOLINT
+}
+
 void IndexLowering::generate(const std::vector<Expr*>& exprs) {
   for (auto expr : exprs) {
     OptOutConstDispatch::dispatch(expr);
@@ -1462,9 +1566,47 @@ void IndexLowering::allocateUniqueFusedReduction(
   insertAtTopLevel(fused_reduction_alloc_reduction);
 }
 
+// This is mostly copied from Index::getProducerPerDimLogicalIndex()
+Val* IndexLowering::getIterationIndexForBroadcast(
+    TensorView* producer_tv,
+    TensorView* consumer_tv,
+    IterDomain* broadcast_id) const {
+  NVF_ERROR(
+      broadcast_id->isBroadcast(),
+      "Expected broadcast ID but found ",
+      broadcast_id->toString());
+
+  auto c2p_root_map = PairwiseRootDomainMap(producer_tv, consumer_tv)
+                          .mapBroadcast(false)
+                          .mapConsumerToProducer();
+
+  // This replay has to be consistent with compute at index map.
+  BestEffortReplay replay_producer_as_consumer(
+      producer_tv->getLeafDomain(), consumer_tv->getLeafDomain(), c2p_root_map);
+
+  const auto& c2p_map = replay_producer_as_consumer.getReplay();
+  const auto& producer_indexing_from_idgraph = getTensorIndexFromIdGraph(
+      for_loops_, getRotatedLoop(), consumer_tv, producer_tv, true, c2p_map);
+
+  const auto& producer_indexing = producer_indexing_from_idgraph.index;
+
+  const auto& index_map = producer_indexing.indexMap();
+  const auto index_it = index_map.find(broadcast_id);
+  NVF_ERROR(
+      index_it != index_map.end(),
+      "Could not find padded consumer IterDomain ",
+      broadcast_id->toString(),
+      " from consumer TensorView ",
+      consumer_tv->toString(),
+      " in index map for producer TensorView ",
+      producer_tv->toString());
+
+  return index_it->second;
+}
+
 void IndexLowering::handle(const PadOp* pad) {
   // Convert to a where op as:
-  // consumer[consumer_idx] = (produer_idx >= 0 && produer_idx <
+  // consumer[consumer_idx] = (producer_idx >= 0 && producer_idx <
   //                           producer_extent) ?
   //     producer[producer_idx] :
   //     0;
@@ -1479,8 +1621,21 @@ void IndexLowering::handle(const PadOp* pad) {
 
   const auto pad_val = pad->value();
 
+  std::unordered_map<IterDomain*, Val*> override_index;
+  for (auto padded_axis : pad->getPaddedAxes()) {
+    auto padded_id = producer_doms.at(padded_axis);
+    if (padded_id->isBroadcast()) {
+      // When we pad a Broadcast IterDomain, we should not treat it as a
+      // Broadcast as we normally would. Instead, we will treat it as a regular
+      // Iteration domain with extent 1.
+      auto ind =
+          getIterationIndexForBroadcast(producer_tv, consumer_tv, padded_id);
+      override_index.emplace(padded_id, ind);
+    }
+  }
+
   const auto producer_root_indices = Index::getProducerPerDimLogicalIndex(
-      producer_tv, consumer_tv, for_loops_, getRotatedLoop());
+      producer_tv, consumer_tv, for_loops_, getRotatedLoop(), override_index);
 
   // Build a predicate for where
   Val* pred = IrBuilder::create<Val>(true);
@@ -1495,7 +1650,7 @@ void IndexLowering::handle(const PadOp* pad) {
             SimplifyingIrBuilder::geExpr(
                 producer_idx, GpuLower::current()->kernel()->zeroVal()),
             SimplifyingIrBuilder::ltExpr(
-                producer_idx, producer_root_id->extent())));
+                producer_idx, producer_root_id->getMaybeExpandedExtent())));
   }
 
   pushBack(IrBuilder::create<TernaryOp>(

@@ -45,7 +45,7 @@ TEST_F(SwizzleTest, SimpleSwizzle0) {
   tv1->swizzle(Swizzle2DType::ZShape, -2, -1);
 
   GpuLower gpulw(&fusion);
-  auto exprs = gpulw.kernel()->topLevelExprs();
+  auto exprs = gpulw.run()->topLevelExprs();
   auto str = ir_utils::toString(exprs);
   NVF_CHECK(str.find("where") != std::string::npos);
 
@@ -54,10 +54,9 @@ TEST_F(SwizzleTest, SimpleSwizzle0) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({2, 32}, options);
-  auto t2 = t0 + 2.0;
   auto cg_outputs = fe.runFusion({t0});
 
-  testValidate(&fusion, cg_outputs, {t0}, {t2}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Test swizzle inlining
@@ -94,10 +93,9 @@ TEST_F(SwizzleTest, SimpleSwizzle1) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({2, 32}, options);
-  auto t3 = t0 + 3.0;
   auto cg_outputs = fe.runFusion({t0});
 
-  testValidate(&fusion, cg_outputs, {t0}, {t3}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Test sync insertion and memory check in parallelized swizzles.
@@ -125,15 +123,15 @@ TEST_F(SwizzleTest, SimpleSwizzle2) {
 
   // Validation should fail since TV1 is not in shared
   //  memory as required by sync info pass.
-  ASSERT_ANY_THROW(GpuLower gpulw_throw(&fusion));
+  ASSERT_ANY_THROW(GpuLower(&fusion).run());
 
   tv1->setMemoryType(MemoryType::Shared);
 
   // Make sure that a sync is inserted:
   bool sync_found = false;
-  GpuLower gpu_lw(&fusion);
+  GpuLower gpulw(&fusion);
   auto flattened_exps =
-      ir_utils::flattenScopedExprs(gpu_lw.kernel()->topLevelExprs());
+      ir_utils::flattenScopedExprs(gpulw.run()->topLevelExprs());
 
   for (auto expr : flattened_exps) {
     if (expr->isA<kir::BlockSync>()) {
@@ -152,10 +150,9 @@ TEST_F(SwizzleTest, SimpleSwizzle2) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({32, 32}, options);
-  auto t2 = t0 + 2.0;
   auto cg_outputs = fe.runFusion({t0});
 
-  testValidate(&fusion, cg_outputs, {t0}, {t2}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Test BestEffortReplay behavior with swizzle op
@@ -282,10 +279,9 @@ TEST_F(SwizzleTest, LoopSwizzle0) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({2, 32}, options);
-  auto t2 = t0 + 2.0;
   auto cg_outputs = fe.runFusion({t0});
 
-  testValidate(&fusion, cg_outputs, {t0}, {t2}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Outer block zshape pattern
@@ -318,10 +314,9 @@ TEST_F(SwizzleTest, LoopSwizzle1) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({45, 77}, options);
-  auto t2 = t0 + 2.0;
   auto cg_outputs = fe.runFusion({t0});
 
-  testValidate(&fusion, cg_outputs, {t0}, {t2}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Test assertion in unsupported pattern: non-leaf loop swizzle.
@@ -401,7 +396,7 @@ TEST_F(SwizzleTest, SwizzleVectorize) {
   tv1->swizzle(Swizzle2DType::XOR, 0, 1);
   tv1->axis(1)->parallelize(ParallelType::Vectorize);
 
-  ASSERT_ANY_THROW(GpuLower lower(&fusion));
+  ASSERT_ANY_THROW(GpuLower(&fusion).run());
 }
 
 TEST_F(SwizzleTest, TransposeBankConflictSwizzle1) {
@@ -619,7 +614,7 @@ TEST_F(SwizzleTest, SwizzleIndexing170) {
   fe.compileFusion(&fusion);
   auto outputs = fe.runFusion({t});
 
-  testValidate(&fusion, outputs, {t}, {t}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t}, __LINE__, __FILE__);
 }
 
 TEST_F(SwizzleTest, TransformPropagatorSkipSwizzleOnTarget) {

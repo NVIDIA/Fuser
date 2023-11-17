@@ -116,7 +116,7 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
               DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
         },
         ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-            "Total element counts across view operation must match.")));
+            "Total element counts across view operation must match:")));
   }
 }
 
@@ -212,9 +212,7 @@ TEST_F(NVFuserTest, DynamicTransform3_CUDA) {
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs(inputs);
 
-  auto ref = t1 + t0.reshape(shape_after);
-
-  testValidate(fec.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+  testValidate(fec.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 // Test multiple patterns of reshape
@@ -698,9 +696,8 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
     auto t1 = at::randn({3, 4}, options);
     std::vector<c10::IValue> inputs = {t0, t1};
     auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-    auto ref = t0 + t1;
     testValidate(
-        executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+        executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
     NVF_CHECK(
         executor_cache.countRuntimes() == 1,
         "Expect to create a single runtime");
@@ -710,9 +707,8 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
     auto t1 = at::randn({4, 3}, options);
     std::vector<c10::IValue> inputs = {t0, t1};
     auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-    auto ref = t0.view({4, 3}) + t1;
     testValidate(
-        executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+        executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
     auto num_rts = executor_cache.countRuntimes();
     auto num_concs = executor_cache.countConcretizations();
     NVF_CHECK(num_rts == 2, "Non-trivial reshape should create new runtime");
@@ -725,9 +721,8 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
     auto t1 = at::randn({4, 3}, options);
     std::vector<c10::IValue> inputs = {t0, t1};
     auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-    auto ref = t0.view({4, 3}) + t1;
     testValidate(
-        executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+        executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
     auto num_rts = executor_cache.countRuntimes();
     auto num_concs = executor_cache.countConcretizations();
     NVF_CHECK(
@@ -844,11 +839,8 @@ void reductionDynamicViewAddFusion(
     auto at_tv1 = (reshape_before_reduction) ? (at_x + at_bias)
                                              : at::sum(at_x, kReductionAxis);
     auto at_x_reshape = at::native::view(at_tv1, output_shape);
-    auto at_y = (reshape_before_reduction)
-        ? at::sum(at_x_reshape, kReductionAxis)
-        : at::add(at_x_reshape, at_bias);
 
-    testValidate(&fusion, outputs, aten_inputs, {at_y}, __LINE__, __FILE__);
+    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
 
@@ -952,7 +944,7 @@ void reductionDynamicPadAddFusion(
     auto at_x_pad = at::pad(at_x, pad_widths);
     auto at_y = at::sum(at_x_pad, kReductionAxis);
 
-    testValidate(&fusion, outputs, aten_inputs, {at_y}, __LINE__, __FILE__);
+    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
 #undef CHECK_CACHE
@@ -1018,9 +1010,7 @@ TEST_F(NVFuserTest, FusionDynamicSliceToBroadcast_CUDA) {
   at::Tensor at0 = at::randn({5}, options);
   std::vector<c10::IValue> aten_inputs = {at0};
   auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
-  auto at1 = at::slice(at0, 0, 0, 2);
-  auto at2 = at::slice(at1, 0, 0, 1);
-  testValidate(&fusion, outputs, aten_inputs, {at2}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test that empty input to cat is concretized away
@@ -1048,8 +1038,7 @@ TEST_F(NVFuserTest, FusionDynamicEmptyCat1_CUDA) {
   at::Tensor at2 = at::randn({3}, options);
   std::vector<c10::IValue> aten_inputs = {at0, at1, at2};
   auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
-  auto at3 = at::cat({at0, at1, at2}, 0);
-  testValidate(&fusion, outputs, aten_inputs, {at3}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test that empty input to cat is concretized away
@@ -1074,8 +1063,7 @@ TEST_F(NVFuserTest, FusionDynamicEmptyCat2_CUDA) {
   at::Tensor at1 = at::randn({0}, options);
   std::vector<c10::IValue> aten_inputs = {at0, at1};
   auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
-  auto at2 = at::cat({at0, at1}, 0);
-  testValidate(&fusion, outputs, aten_inputs, {at2}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 
   // Check that fusion consists only of tv2 = set(tv0)
   auto fkr = fusion_executor_cache.getMostRecentKernelRuntime();
@@ -1144,18 +1132,11 @@ TEST_F(NVFuserTest, Issue249_CUDA) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor at_x = at::randn({2, 3, 4, 5}, options);
-  auto at_y = (at_x + at_x).reshape({2, 4, -1});
-  auto at_z = at_y + at_y;
 
   auto outputs = fusion_executor_cache.runFusionWithInputs({at_x});
 
   testValidate(
-      fusion_executor_cache.fusion(),
-      outputs,
-      {at_x},
-      {at_z},
-      __LINE__,
-      __FILE__);
+      fusion_executor_cache.fusion(), outputs, {at_x}, __LINE__, __FILE__);
 }
 
 // This is just like the test above, but uses an input scalar with value -1
@@ -1183,8 +1164,6 @@ TEST_F(NVFuserTest, Issue249InputNegative1_CUDA) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor at_x = at::randn({2, 3, 4, 5}, options);
-  auto at_y = (at_x + at_x).reshape({2, 4, -1});
-  auto at_z = at_y + at_y;
 
   // Dynamic reshape sizes that are not constant at definition must be explicit:
   // no -1 allowed
@@ -1199,7 +1178,6 @@ TEST_F(NVFuserTest, Issue249InputNegative1_CUDA) {
       fusion_executor_cache.fusion(),
       outputs,
       {at_x, 2, 4, 15},
-      {at_z},
       __LINE__,
       __FILE__);
 }
@@ -1244,7 +1222,7 @@ TEST_F(NVFuserTest, OptOutMutatorMutatedOutput) {
 
   auto outputs = fe.runFusion({t0});
 
-  testValidate(fusion, outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Another test related to https://github.com/NVIDIA/Fuser/issues/852

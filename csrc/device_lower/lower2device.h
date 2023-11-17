@@ -33,6 +33,7 @@
 #include <root_domain_map.h>
 #include <vectorization_info.h>
 
+#include <functional>
 #include <memory>
 #include <ostream>
 #include <unordered_map>
@@ -51,16 +52,17 @@ class GpuLower : public NonCopyable {
  public:
   GpuLower() = delete;
 
+  using Pass = std::pair<
+      std::string, // name of the pass
+      std::function<std::vector<Expr*>(const std::vector<Expr*>&)>>;
+
   // GpuLower lowers the provided fusion into a kernel which can be translated
   // into cuda code. index_type allows to compile the kernel based on int32
   // indexing instead of int64 for additional performance.
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
   explicit GpuLower(
       Fusion* fusion,
-      const CompileParams& cparams = CompileParams())
-      : cparams_(cparams) {
-    lower(fusion);
-  }
+      const CompileParams& cparams = CompileParams());
 
   kir::Kernel* kernel() const;
 
@@ -70,6 +72,10 @@ class GpuLower : public NonCopyable {
 
   //! Query if lowering is in progress
   static bool hasCurrent();
+
+  //! Actually run the lowering by executing the passes in the order given by
+  //! passes_
+  kir::Kernel* run();
 
   const PrimDataType& indexType() const {
     return cparams_.index_type.value();
@@ -180,6 +186,14 @@ class GpuLower : public NonCopyable {
     return profile_;
   }
 
+  std::unordered_map<const Expr*, TensorView*>& ldstMBarrierMap() {
+    return ldst_mbarrier_map_;
+  }
+
+  const std::unordered_map<const Expr*, TensorView*>& ldstMBarrierMap() const {
+    return ldst_mbarrier_map_;
+  }
+
   bool isNvFuserZeroEnabled() {
     if (isOptionDisabled(DisableOption::MagicZero)) {
       return false;
@@ -208,8 +222,16 @@ class GpuLower : public NonCopyable {
     return all_known_vals_;
   }
 
+  const std::vector<Pass>& passes() const {
+    return passes_;
+  }
+
+  std::vector<Pass>& passes() {
+    return passes_;
+  }
+
  private:
-  void lower(Fusion* fusion);
+  void analysis(Fusion* fusion);
 
   // Goes through the parallelized iterdomains of the used TVs and find
   //  the parallel dimensions that need to be padded to a multiples of
@@ -221,6 +243,9 @@ class GpuLower : public NonCopyable {
  private:
   // Lowered Kernel IR
   std::unique_ptr<kir::Kernel> kernel_;
+
+  // Passes to lower kernel, in order
+  std::vector<Pass> passes_;
 
   // Some stateful information during lowering
   // TODO: A lot of this information uses a define class then call build. It
@@ -256,6 +281,9 @@ class GpuLower : public NonCopyable {
   // All vals that are known to the kernel, including fusion inputs and
   // precomputed values
   std::vector<Val*> all_known_vals_;
+
+  // keep track of the mbarrier used for each load/store operation
+  std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_map_;
 
   Fusion* fusion_ = nullptr;
 };

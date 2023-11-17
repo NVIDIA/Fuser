@@ -10,6 +10,7 @@
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
+#include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir_dispatch.h>
 
@@ -160,8 +161,8 @@ class KernelIrScanner : private IrVisitor {
           tidy_val->isConstInt(),
           "TIDy is expected to be a const int: ",
           tidy_val->toInlineString());
-      auto tidx = static_cast<int>(tidx_val->evaluateInt());
-      auto tidy = static_cast<int>(tidy_val->evaluateInt());
+      auto tidx = static_cast<int>(tidx_val->evaluate());
+      auto tidy = static_cast<int>(tidy_val->evaluate());
       summary_.outer_grouped_grid_welford_largest_smem_size = std::max(
           summary_.outer_grouped_grid_welford_largest_smem_size,
           grid_welford->getSmemBufferSize(tidx, tidy, 1));
@@ -294,6 +295,15 @@ class ValidateAllocation : private OptOutConstDispatch {
 };
 
 } // namespace
+
+Kernel::Kernel(Fusion* fusion, PrimDataType index_type)
+    : Fusion(*fusion), index_type_(index_type) {
+  // Index type must be resolved to either int32 or int64
+  NVF_ERROR(
+      index_type_ == PrimDataType::Int || index_type_ == PrimDataType::Int32 ||
+          "Invalid index type: ",
+      index_type_);
+}
 
 // TODO(kir): Kernel IR validation
 void Kernel::finalize(std::vector<Expr*> top_level_exprs) {

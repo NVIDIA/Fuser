@@ -12,11 +12,11 @@
 #include <dynamic_transform.h>
 #include <executor_params.h>
 #include <executor_utils.h>
+#include <fusion_profiler.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <optimization/pre_segmenter.h>
 #include <options.h>
-#include <parser.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
 #include <torch/csrc/jit/jit_log.h>
@@ -192,19 +192,22 @@ class ArgumentManager {
         group_outputs.size() == group_runtime_outputs.size(),
         "Output size does not match.");
 
-    // Trivial forwarding outputs an empty tensor to save bandwidth. We skip
-    // updating the tensor_map because we want all future use of inputs on
-    // the original tensor input. See note [Trivial Forwarding]
     for (const size_t group_out_i : c10::irange(group_outputs.size())) {
-      if (!group_outputs[group_out_i]->isFusionInput()) {
-        if constexpr (std::is_pointer_v<
-                          decltype(group_runtime_outputs[group_out_i])>) {
-          fusion_args_.push(*group_runtime_outputs[group_out_i]);
-        } else {
-          fusion_args_.push(group_runtime_outputs[group_out_i]);
-        }
-        tensor_map_.emplace(group_outputs[group_out_i], fusion_args_.back());
+      Val* output = group_outputs[group_out_i];
+      const PolymorphicValue*& runtime_output = tensor_map_[output];
+      if (runtime_output != nullptr) {
+        // A trivial forwarding output shares the same `Val*` as an input, so we
+        // simply map it to the same runtime output.
+        continue;
       }
+
+      if constexpr (std::is_pointer_v<
+                        decltype(group_runtime_outputs[group_out_i])>) {
+        fusion_args_.push(*group_runtime_outputs[group_out_i]);
+      } else {
+        fusion_args_.push(group_runtime_outputs[group_out_i]);
+      }
+      runtime_output = fusion_args_.back();
     }
   }
 };
@@ -358,8 +361,10 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
   return ret;
 }
 
-FusionExecutorCache::FusionExecutorCache(std::unique_ptr<Fusion> fusion)
-    : fusion_(std::move(fusion)) {}
+FusionExecutorCache::FusionExecutorCache(
+    std::unique_ptr<Fusion> fusion,
+    int64_t fusion_id)
+    : fusion_(std::move(fusion)), fusion_id_{fusion_id} {}
 
 KernelArgumentHolder FusionExecutorCache::prepareInputs(
     const at::ArrayRef<c10::IValue>& inputs,
@@ -439,6 +444,10 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     std::optional<PrimDataType> forced_index_type,
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
+  // NOTE: This should be the first code in the method to capture all host time
+  if (isProfilerEnabled()) {
+    FusionProfiler::start(isProfilerEnabledWithoutCupti());
+  }
 
   // Permute input tensor for kernel execution.
   // See Part_1 in Note [ Channels-Last support in nvfuser ]
@@ -459,6 +468,10 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
 
   KernelArgumentHolder args = prepareInputs(perm_inputs, selected_device);
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
+
+  if (isProfilerEnabled()) {
+    FusionProfiler::createSegments(kernel_runtime->executors().size());
+  }
 
   if (!kernel_runtime->isCompiled()) {
     kernel_runtime->compileFusionParallel(args);
@@ -505,12 +518,30 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   // Removing aliased outputs, since those are updated by the Fusion. It is not
   // semantically correct to actually return them as outputs from
   // fusion.
-  int offset = 0;
-  const auto& indices = fusion->getIndicesOfAliasedOutputs();
-  std::set<int> aliased_output_indices(indices.begin(), indices.end());
-  for (const auto& v : aliased_output_indices) {
-    outputs.erase(outputs.begin() + v - offset);
-    offset++;
+  const auto& io_alias = fusion->ioAlias();
+  auto should_remove = [&io_alias](Val* out_val) -> bool {
+    if (auto alias_it = io_alias.find(out_val); alias_it != io_alias.end()) {
+      return alias_it->second.second.hide_output;
+    }
+    return false;
+  };
+
+  NVF_ERROR(fusion->outputs().size() == outputs.size());
+  size_t new_size = 0;
+  for (size_t out_index = 0; out_index < outputs.size(); out_index++) {
+    if (!should_remove(fusion->outputs()[out_index])) {
+      outputs[new_size] = outputs[out_index];
+      new_size++;
+    }
+  }
+  outputs.resize(new_size);
+
+  // NOTE: This should be the last code in the method to capture all host time
+  if (isProfilerEnabled()) {
+    FusionProfiler::stop();
+  }
+  if (isProfilerPrintingEnabled()) {
+    debug() << FusionProfiler::profile();
   }
 
   return outputs;
@@ -656,10 +687,9 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
   // Initialize or fetch vector of FusionKernelRuntime objects associated with
   // each pair of device ID and
-  auto& kernel_runtimes =
-      kernel_runtimes_
-          .try_emplace(std::make_pair(args.getDeviceIndex(), conc_info))
-          .first->second;
+  auto config = std::make_pair(args.getDeviceIndex(), conc_info);
+  auto& kernel_runtimes = kernel_runtimes_.try_emplace(config).first->second;
+  conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
 
   // Check for re-use hit case
   //  a kernel runtime is re-usable if all the compiled
@@ -720,12 +750,17 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
       if (isDebugDumpEnabled(DebugDumpOption::FusionIrConcretized)) {
         debug() << "Concretized Fusion:" << std::endl;
-        conc_fusion->printMath();
+        conc_fusion->print();
       }
     }
     FusionGuard fg(conc_fusion.get());
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
-        std::move(conc_fusion), args, forced_index_type));
+        std::move(conc_fusion),
+        args,
+        forced_index_type,
+        fusion_id_,
+        conc_info_id_map_.at(config),
+        kernel_runtimes.size()));
     kernel_runtime = kernel_runtimes.back().get();
 
     if (profiling_) {
@@ -768,9 +803,13 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
 
     // We recompute the DynamicTransformConcretizationInfo during
     // deserialization using a metadata copy of kernel inputs.
-    auto&& [device_id, dynamic_info] = config;
+    auto&& [device_id, conc_info] = config;
     fb_kernel_runtimes.push_back(CreateKernelRuntimeStateDirect(
-        builder, device_id, (dynamic_info != nullptr), &fb_device_runtimes));
+        builder,
+        device_id,
+        conc_info_id_map_.at(config),
+        (conc_info != nullptr),
+        &fb_device_runtimes));
   }
 
   // 2. Serialize input id to kernel cache
@@ -786,6 +825,7 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
 
   return serde::CreateFusionExecutorCacheDirect(
       builder,
+      fusion_id_,
       inputs_id_lookup_.serialize(builder),
       &fb_kernel_runtimes,
       &kernel_cache_keys,
@@ -793,11 +833,17 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
 }
 
 void FusionExecutorCache::deserialize(
-    const serde::FusionExecutorCache* buffer) {
+    const serde::FusionExecutorCache* buffer,
+    int64_t fusion_id) {
   // See definitions in serde/fusion_cache.fbs for tables
   // FusionExecutorCache and KernelRuntimes
 
   NVF_ERROR(buffer != nullptr, "serde::FusionExecutorCache is nullptr.");
+  NVF_ERROR(
+      fusion_id == buffer->fusion_id(),
+      "Expected serde fusion_id to match given fusion_id.");
+
+  fusion_id_ = buffer->fusion_id();
 
   inputs_id_lookup_.deserialize(buffer->inputs_cache());
 
@@ -813,8 +859,6 @@ void FusionExecutorCache::deserialize(
         fb_device_runtimes->has_dynamic_transform_info());
     NVF_ERROR(fb_device_runtimes->runtimes()->size() > 0);
 
-    std::vector<std::unique_ptr<FusionKernelRuntime>> device_runtimes;
-
     DynamicTransformConcretizationInfo* conc_info = nullptr;
     if (initial_info.isDynamic()) {
       // Each FusionKernelRuntime stores a metadata copy of its initial inputs.
@@ -828,6 +872,11 @@ void FusionExecutorCache::deserialize(
               &initial_info, &expr_eval));
       conc_info = cached_conc_info_.back().get();
     }
+
+    auto config =
+        std::make_pair((int8_t)fb_device_runtimes->device_id(), conc_info);
+    auto& device_runtimes = kernel_runtimes_.try_emplace(config).first->second;
+    conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
 
     for (auto runtime : *fb_device_runtimes->runtimes()) {
       auto conc_fusion = std::make_unique<Fusion>(*fusion_);
@@ -852,9 +901,18 @@ void FusionExecutorCache::deserialize(
       KernelArgumentHolder args;
       args.deserialize(runtime->args());
 
+      NVF_ERROR(
+          (int8_t)fb_device_runtimes->device_id() == args.getDeviceIndex(),
+          "Expected serde FusionKernelRuntime device_id to match KernelArgumentHolder metadata device id.");
+
       // 2. Construct new FusionKernelRuntime
-      device_runtimes.emplace_back(
-          std::make_unique<FusionKernelRuntime>(std::move(conc_fusion), args));
+      device_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
+          std::move(conc_fusion),
+          args,
+          std::nullopt,
+          fusion_id_,
+          fb_device_runtimes->concrete_id(),
+          device_runtimes.size()));
 
       // 3. For FusionKernelRuntime, we have a separate deserialize function
       // to create the FusionExecutor objects.
@@ -862,10 +920,6 @@ void FusionExecutorCache::deserialize(
 
       all_runtimes.emplace_back(device_runtimes.back().get());
     }
-
-    kernel_runtimes_.emplace(
-        std::make_pair(fb_device_runtimes->device_id(), conc_info),
-        std::move(device_runtimes));
   }
 
   // 2. Rebuild input id to kernel cache
@@ -879,7 +933,13 @@ void FusionExecutorCache::deserialize(
 FusionKernelRuntime::FusionKernelRuntime(
     std::unique_ptr<Fusion> fusion,
     const KernelArgumentHolder& args,
-    std::optional<PrimDataType> forced_index_type) {
+    std::optional<PrimDataType> forced_index_type,
+    int64_t fusion_id,
+    int64_t concrete_id,
+    int64_t runtime_id)
+    : fusion_id_{fusion_id},
+      concrete_id_{concrete_id},
+      runtime_id_{runtime_id} {
   FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
 
   NVF_ERROR(
@@ -943,7 +1003,12 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
   }
 
   return serde::CreateFusionKernelRuntimeDirect(
-      builder, args_metadata_.serialize(builder), &executors_fb);
+      builder,
+      fusion_id_,
+      concrete_id_,
+      runtime_id_,
+      args_metadata_.serialize(builder),
+      &executors_fb);
 }
 
 void FusionKernelRuntime::deserialize(
@@ -952,6 +1017,15 @@ void FusionKernelRuntime::deserialize(
 
   NVF_ERROR(buffer != nullptr, "serde::FusionKernelRuntime is nullptr.");
   NVF_ERROR(runtime_workspace_.group_run_order.size() == executors_.size());
+  NVF_ERROR(
+      fusion_id_ == buffer->fusion_id(),
+      "Expected FusionKernelRuntime fusion_id to match serde fusion_id.");
+  NVF_ERROR(
+      concrete_id_ == buffer->concrete_id(),
+      "Expected FusionKernelRuntime concrete_id to match serde concrete_id.");
+  NVF_ERROR(
+      runtime_id_ == buffer->runtime_id(),
+      "Expected FusionKernelRuntime runtime_id to match serde runtime_id.");
 
   // 1. Deserialize FusionExecutor objects
   for (auto idx : c10::irange(buffer->executors()->size())) {
@@ -970,7 +1044,12 @@ void FusionKernelRuntime::deserialize(
     executors_.at(group_id).deserialize(
         buffer->executors()->Get(group_id),
         fusion_to_run.get(),
-        scheduler_entry->params()->cparams);
+        scheduler_entry->params()->cparams,
+        scheduler_entry->heuristic(),
+        fusion_id_,
+        concrete_id_,
+        runtime_id_,
+        group_id);
   }
 }
 
@@ -1001,7 +1080,17 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
     executor.setMeasureKernelTimeFlag(true);
   }
 
+  if (isProfilerEnabled()) {
+    auto& sprof = FusionProfiler::segment(group_id);
+    sprof.inputBytesAccessed(executor.inputBytesProcessed(args));
+    sprof.startKernel(args.getDeviceIndex());
+  }
   auto outputs = executor.runFusion(args, launch_params, compile_params);
+  if (isProfilerEnabled()) {
+    auto& sprof = FusionProfiler::segment(group_id);
+    sprof.stopKernel();
+    sprof.outputBytesAccessed(executor.outputBytesProcessed(outputs));
+  }
 
   // Accumulate the kernel time of each segment
   kernel_time_ms_ += executor.kernelTimeMs();
@@ -1111,6 +1200,9 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
   num_live_args_after_segment_runs_.reserve(num_groups);
+  if (isProfilerEnabled()) {
+    FusionProfiler::startCompile();
+  }
   for (int64_t group_id = 0; group_id < num_groups; ++group_id) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
 
@@ -1132,7 +1224,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       compileKernel(group_runtime_inputs, group_to_run);
     } else {
       // launch compileKernel thread here
-      getThreadPool()->run([=]() {
+      getThreadPool()->run([this, args, group_runtime_inputs, group_to_run]() {
         FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
         c10::cuda::CUDAGuard dg(args.getDeviceIndex());
         c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
@@ -1155,6 +1247,9 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     // wait until all segments finish compiling
     getThreadPool()->waitWorkComplete();
   }
+  if (isProfilerEnabled()) {
+    FusionProfiler::stopCompile();
+  }
 }
 
 void FusionKernelRuntime::compileKernel(
@@ -1162,6 +1257,9 @@ void FusionKernelRuntime::compileKernel(
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
   auto group_id = sg->groupId();
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id).startCompile(args.getDeviceIndex());
+  }
   auto scheduler_entry = schedulers().at(group_id).get();
 
   // Check that the heuristics are matched, in the case of segmented fusion
@@ -1180,7 +1278,15 @@ void FusionKernelRuntime::compileKernel(
       fusion_to_run.get(),
       args,
       scheduler_entry->params()->lparams,
-      scheduler_entry->params()->cparams);
+      scheduler_entry->params()->cparams,
+      scheduler_entry->heuristic(),
+      fusion_id_,
+      concrete_id_,
+      runtime_id_,
+      group_id);
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id).stopCompile();
+  }
 }
 
 std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
@@ -1217,61 +1323,15 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
 
   // Produce final global output
   std::vector<at::Tensor> fusion_outputs;
-  for (auto output : segmented_fusion_->outputs()) {
-    const auto iter = tensor_map.find(output);
-    if (iter != tensor_map.end()) {
-      // Note [ trivial forwarding ]
-      //
-      // Background:
-      // NvFuser codegen does not handle aliases. When we have a fusion that
-      // forwards an input to output without any operations on it, this is
-      // a no-op for codegen and the output tensor is never written to. However,
-      // the codegen cannot "forward" an input to output, since all outputs are
-      // allocated in integration. If we do not special case it, we'll ended up
-      // having a "fresh" tensor allocated for the forwarded-input.
-      //
-      // Approach:
-      // There are two aspects of the support:
-      // 1) Codegen handles forwarding implicitly. Forwarded inputs do not
-      // have any producer in the IR, so the output argument is not used in
-      // the code. However, it is required to be a kernel argument, which acts
-      // as a place-holder, so we can map the arguments correctly.
-      //
-      // 2) Integration handles the trivial forwarding of inputs. When we put
-      // together `fusion_outputs` for a given fusion and the outputs are
-      // fusion inputs, we directly return the input tensor.
-      NVF_ERROR(iter->second->is<at::Tensor>());
-      fusion_outputs.push_back(iter->second->as<at::Tensor>());
-    } else {
-      bool empty_type_check = output->getDataType().has_value() &&
-          output->getDataType().value() == DataType::Float;
-
-      // Only support two cases of empty tensor here, since this is hot path.
-      auto out_tv = output->as<TensorView>();
-
-      // TODO: should be only one of the two once the "empty"
-      //  definition has been unified throughout the ops.
-      bool empty_tensor_check = out_tv->isZeroDim() || out_tv->isEmptyTensor();
-
-      // This is the check for an empty tensor;
-      NVF_ERROR(
-          empty_tensor_check && empty_type_check,
-          "Is empty tensor? ",
-          !empty_tensor_check,
-          " Is empty type check? ",
-          !empty_type_check,
-          " Output empty tensor check failed for tensor: ",
-          out_tv->toString(),
-          " In function: ",
-          __FUNCTION__);
-
-      // TODO: would need to clean up this part when
-      //   we have a unified and consistent way to generate
-      //   size-0 tensors.
-      const auto tensor_options =
-          at::TensorOptions().dtype(at::kFloat).device(device);
-      fusion_outputs.emplace_back(at::empty({0}, tensor_options));
-    }
+  fusion_outputs.reserve(segmented_fusion_->outputs().size());
+  for (Val* output : segmented_fusion_->outputs()) {
+    NVF_ERROR(
+        tensor_map.count(output),
+        "Segmented fusion output ",
+        output->toString(),
+        " does not exist in `tensor_map`.");
+    const PolymorphicValue* runtime_output = tensor_map.at(output);
+    fusion_outputs.push_back(runtime_output->as<at::Tensor>());
   }
   return fusion_outputs;
 }
@@ -1330,6 +1390,27 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
         total_bytes_processed += bytes;
       }
     }
+  }
+
+  if (isProfilerEnabled()) {
+    int64_t input_bytes = 0;
+    for (auto inp : fusionSegments()->inputs()) {
+      if (dynamic_cast<TensorView*>(inp)) {
+        auto aten_ten = args_manager.checkTensorMap(inp);
+        input_bytes +=
+            static_cast<int64_t>(aten_ten->as<at::Tensor>().storage().nbytes());
+      }
+    }
+    FusionProfiler::inputBytesAccessed(input_bytes);
+    int64_t output_bytes = 0;
+    for (auto outp : fusionSegments()->outputs()) {
+      if (dynamic_cast<TensorView*>(outp)) {
+        auto aten_ten = args_manager.checkTensorMap(outp);
+        output_bytes +=
+            static_cast<int64_t>(aten_ten->as<at::Tensor>().storage().nbytes());
+      }
+    }
+    FusionProfiler::outputBytesAccessed(output_bytes);
   }
 
   if (compute_overall_bw) {
@@ -1469,43 +1550,6 @@ std::optional<FusionKernelRuntime::HeuristicsPtr> FusionKernelRuntime::
   }
 
   return ret;
-}
-
-void GraphCache::createFusion(const std::shared_ptr<torch::jit::Graph>& graph) {
-  FUSER_PERF_SCOPE("GraphCache::createFusion");
-
-  fusion_executor_cache_ =
-      std::make_unique<FusionExecutorCache>(parseJitIR(graph));
-
-  num_of_outputs_ = graph->outputs().size();
-}
-
-// NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-GraphCache::GraphCache(const std::shared_ptr<torch::jit::Graph>& graph) {
-  FUSER_PERF_SCOPE("GraphCache::GraphCache");
-  NVF_ERROR(
-      torch::jit::IsNewExecutorEnabled(),
-      "legacy executor is not supported by nvfuser");
-
-  GRAPH_DEBUG("GraphCache constructor: ", this);
-  GRAPH_DUMP("GraphCache created for graph", graph);
-  createFusion(graph);
-}
-
-std::vector<at::Tensor> GraphCache::runGraphWithInputs(
-    const at::ArrayRef<c10::IValue>& inputs) {
-  FUSER_PERF_SCOPE("GraphCache::runGraphWithInputs");
-
-  GRAPH_DEBUG("running GraphCache: ", this);
-  auto outputs = fusion_executor_cache_->runFusionWithInputs(inputs);
-  NVF_ERROR(
-      outputs.size() == num_of_outputs_,
-      "FusionExecutorCache returned ",
-      outputs.size(),
-      " outputs, doesn't match computational graph, which requires ",
-      num_of_outputs_);
-
-  return outputs;
 }
 
 } // namespace nvfuser

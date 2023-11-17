@@ -15,7 +15,7 @@
 namespace nvfuser::serde {
 
 std::vector<python_frontend::State> parseStateArgs(
-    const flatbuffers::Vector<const serde::State*>* args) {
+    const flatbuffers::Vector<const State*>* args) {
   std::vector<python_frontend::State> result;
   for (auto s : *args) {
     result.emplace_back(s->index(), s->type());
@@ -23,13 +23,13 @@ std::vector<python_frontend::State> parseStateArgs(
   return result;
 }
 
-std::optional<bool> mapContiguityEnumToOptional(int v) {
+std::optional<bool> mapContiguityEnumToOptional(Contiguity v) {
   switch (v) {
-    case serde::Contiguity_Strided:
+    case Contiguity::Strided:
       return std::optional<bool>(false);
-    case serde::Contiguity_Contiguous:
+    case Contiguity::Contiguous:
       return std::optional<bool>(true);
-    case serde::Contiguity_None:
+    case Contiguity::None:
       return std::nullopt;
   }
   NVF_ERROR(false, "Invalid contiguity type.");
@@ -39,8 +39,8 @@ std::optional<bool> mapContiguityEnumToOptional(int v) {
 template <class fn_type, class... Signature>
 python_frontend::RecordFunctor* deserializeOpRecord(
     const std::unordered_map<std::string, fn_type>& str_to_func_map,
-    serde::RecordType record_type,
-    const serde::RecordFunctor* buffer) {
+    RecordType record_type,
+    const RecordFunctor* buffer) {
   NVF_ERROR(
       str_to_func_map.find(buffer->name()->str()) != str_to_func_map.end(),
       "Missing mapping from operation string to nvfuser function in serde deserialization.");
@@ -58,8 +58,8 @@ python_frontend::RecordFunctor* deserializeReductionRecord(
         const std::vector<int>&,
         bool,
         nvfuser::DataType)> fusion_op,
-    serde::RecordType record_type,
-    const serde::RecordFunctor* buffer) {
+    RecordType record_type,
+    const RecordFunctor* buffer) {
   auto data = buffer->data_as_Reduction();
   return new python_frontend::ReductionOpRecord(
       parseStateArgs(buffer->args()),
@@ -73,299 +73,266 @@ python_frontend::RecordFunctor* deserializeReductionRecord(
 }
 
 void RecordFunctorFactory::registerAllParsers() {
-  auto deserializeStartRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeStartRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::StartRecord();
   };
-  registerParser(serde::RecordType_Start, deserializeStartRecord);
+  registerParser(RecordType::Start, deserializeStartRecord);
 
-  auto deserializeEndRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeEndRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::EndRecord();
   };
-  registerParser(serde::RecordType_End, deserializeEndRecord);
+  registerParser(RecordType::End, deserializeEndRecord);
 
   // Unary Ops
-  auto unary_tv_parser = [&](const serde::RecordFunctor* buffer) {
+  auto unary_tv_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<unary_tv_fn, TensorView*, TensorView*>(
-        unary_tv, serde::RecordType_Unary_TV, buffer);
+        unary_tv, RecordType::Unary_TV, buffer);
   };
-  registerParser(serde::RecordType_Unary_TV, unary_tv_parser);
+  registerParser(RecordType::Unary_TV, unary_tv_parser);
 
-  auto unary_val_parser = [&](const serde::RecordFunctor* buffer) {
+  auto unary_val_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<unary_val_fn, Val*, Val*>(
-        unary_val, serde::RecordType_Unary_VAL, buffer);
+        unary_val, RecordType::Unary_VAL, buffer);
   };
-  registerParser(serde::RecordType_Unary_VAL, unary_val_parser);
+  registerParser(RecordType::Unary_VAL, unary_val_parser);
 
   // Binary Ops
-  auto binary_tv_parser = [&](const serde::RecordFunctor* buffer) {
+  auto binary_tv_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         binary_tv_fn,
         TensorView*,
         TensorView*,
-        TensorView*>(binary_tv, serde::RecordType_Binary_TV, buffer);
+        TensorView*>(binary_tv, RecordType::Binary_TV, buffer);
   };
-  registerParser(serde::RecordType_Binary_TV, binary_tv_parser);
+  registerParser(RecordType::Binary_TV, binary_tv_parser);
 
-  auto binary_tv_val_parser = [&](const serde::RecordFunctor* buffer) {
+  auto binary_tv_val_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         binary_tv_val_fn,
         TensorView*,
         TensorView*,
-        Val*>(binary_tv_val, serde::RecordType_Binary_TV_VAL, buffer);
+        Val*>(binary_tv_val, RecordType::Binary_TV_VAL, buffer);
   };
-  registerParser(serde::RecordType_Binary_TV_VAL, binary_tv_val_parser);
+  registerParser(RecordType::Binary_TV_VAL, binary_tv_val_parser);
 
-  auto binary_val_tv_parser = [&](const serde::RecordFunctor* buffer) {
+  auto binary_val_tv_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         binary_val_tv_fn,
         TensorView*,
         Val*,
-        TensorView*>(binary_val_tv, serde::RecordType_Binary_VAL_TV, buffer);
+        TensorView*>(binary_val_tv, RecordType::Binary_VAL_TV, buffer);
   };
-  registerParser(serde::RecordType_Binary_VAL_TV, binary_val_tv_parser);
+  registerParser(RecordType::Binary_VAL_TV, binary_val_tv_parser);
 
-  auto binary_val_parser = [&](const serde::RecordFunctor* buffer) {
+  auto binary_val_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<binary_val_fn, Val*, Val*, Val*>(
-        binary_val, serde::RecordType_Binary_VAL, buffer);
+        binary_val, RecordType::Binary_VAL, buffer);
   };
-  registerParser(serde::RecordType_Binary_VAL, binary_val_parser);
+  registerParser(RecordType::Binary_VAL, binary_val_parser);
 
   // Ternary Ops
-  auto ternary_tv_parser = [&](const serde::RecordFunctor* buffer) {
+  auto ternary_tv_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_tv_fn,
         TensorView*,
         TensorView*,
         TensorView*,
-        TensorView*>(ternary_tv, serde::RecordType_Ternary_TV, buffer);
+        TensorView*>(ternary_tv, RecordType::Ternary_TV, buffer);
   };
-  registerParser(serde::RecordType_Ternary_TV, ternary_tv_parser);
+  registerParser(RecordType::Ternary_TV, ternary_tv_parser);
 
-  auto ternary_tv_tv_val_parser = [&](const serde::RecordFunctor* buffer) {
+  auto ternary_tv_tv_val_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_tv_tv_val_fn,
         TensorView*,
         TensorView*,
         TensorView*,
-        Val*>(ternary_tv_tv_val, serde::RecordType_Ternary_TV_TV_VAL, buffer);
+        Val*>(ternary_tv_tv_val, RecordType::Ternary_TV_TV_VAL, buffer);
   };
-  registerParser(serde::RecordType_Ternary_TV_TV_VAL, ternary_tv_tv_val_parser);
+  registerParser(RecordType::Ternary_TV_TV_VAL, ternary_tv_tv_val_parser);
 
-  auto ternary_tv_val_tv_parser = [&](const serde::RecordFunctor* buffer) {
+  auto ternary_tv_val_tv_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_tv_val_tv_fn,
         TensorView*,
         TensorView*,
         Val*,
-        TensorView*>(
-        ternary_tv_val_tv, serde::RecordType_Ternary_TV_VAL_TV, buffer);
+        TensorView*>(ternary_tv_val_tv, RecordType::Ternary_TV_VAL_TV, buffer);
   };
-  registerParser(serde::RecordType_Ternary_TV_VAL_TV, ternary_tv_val_tv_parser);
+  registerParser(RecordType::Ternary_TV_VAL_TV, ternary_tv_val_tv_parser);
 
-  auto ternary_val_tv_tv_parser = [&](const serde::RecordFunctor* buffer) {
+  auto ternary_val_tv_tv_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_val_tv_tv_fn,
         TensorView*,
         Val*,
         TensorView*,
-        TensorView*>(
-        ternary_val_tv_tv, serde::RecordType_Ternary_VAL_TV_TV, buffer);
+        TensorView*>(ternary_val_tv_tv, RecordType::Ternary_VAL_TV_TV, buffer);
   };
-  registerParser(serde::RecordType_Ternary_VAL_TV_TV, ternary_val_tv_tv_parser);
+  registerParser(RecordType::Ternary_VAL_TV_TV, ternary_val_tv_tv_parser);
 
-  auto ternary_val_val_tv_parser = [&](const serde::RecordFunctor* buffer) {
+  auto ternary_val_val_tv_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_val_val_tv_fn,
         TensorView*,
         Val*,
         Val*,
         TensorView*>(
-        ternary_val_val_tv, serde::RecordType_Ternary_VAL_VAL_TV, buffer);
+        ternary_val_val_tv, RecordType::Ternary_VAL_VAL_TV, buffer);
   };
-  registerParser(
-      serde::RecordType_Ternary_VAL_VAL_TV, ternary_val_val_tv_parser);
+  registerParser(RecordType::Ternary_VAL_VAL_TV, ternary_val_val_tv_parser);
 
-  auto ternary_tv_val_val_parser = [&](const serde::RecordFunctor* buffer) {
+  auto ternary_tv_val_val_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_tv_val_val_fn,
         TensorView*,
         TensorView*,
         Val*,
-        Val*>(ternary_tv_val_val, serde::RecordType_Ternary_TV_VAL_VAL, buffer);
+        Val*>(ternary_tv_val_val, RecordType::Ternary_TV_VAL_VAL, buffer);
   };
-  registerParser(
-      serde::RecordType_Ternary_TV_VAL_VAL, ternary_tv_val_val_parser);
+  registerParser(RecordType::Ternary_TV_VAL_VAL, ternary_tv_val_val_parser);
 
-  auto ternary_val_tv_val_parser = [&](const serde::RecordFunctor* buffer) {
+  auto ternary_val_tv_val_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_val_tv_val_fn,
         TensorView*,
         Val*,
         TensorView*,
-        Val*>(ternary_val_tv_val, serde::RecordType_Ternary_VAL_TV_VAL, buffer);
+        Val*>(ternary_val_tv_val, RecordType::Ternary_VAL_TV_VAL, buffer);
   };
-  registerParser(
-      serde::RecordType_Ternary_VAL_TV_VAL, ternary_val_tv_val_parser);
+  registerParser(RecordType::Ternary_VAL_TV_VAL, ternary_val_tv_val_parser);
 
-  auto ternary_val_parser = [&](const serde::RecordFunctor* buffer) {
+  auto ternary_val_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<ternary_val_fn, Val*, Val*, Val*, Val*>(
-        ternary_val, serde::RecordType_Ternary_VAL, buffer);
+        ternary_val, RecordType::Ternary_VAL, buffer);
   };
-  registerParser(serde::RecordType_Ternary_VAL, ternary_val_parser);
+  registerParser(RecordType::Ternary_VAL, ternary_val_parser);
 
   // Ternary-Alpha Ops
-  auto ternary_alpha_tv_parser = [&](const serde::RecordFunctor* buffer) {
+  auto ternary_alpha_tv_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_alpha_tv_fn,
         TensorView*,
         TensorView*,
         TensorView*,
         TensorView*,
-        Val*>(ternary_alpha_tv, serde::RecordType_Ternary_Alpha_TV, buffer);
+        Val*>(ternary_alpha_tv, RecordType::Ternary_Alpha_TV, buffer);
   };
-  registerParser(serde::RecordType_Ternary_Alpha_TV, ternary_alpha_tv_parser);
+  registerParser(RecordType::Ternary_Alpha_TV, ternary_alpha_tv_parser);
 
-  auto ternary_alpha_tv_tv_val_parser =
-      [&](const serde::RecordFunctor* buffer) {
-        return deserializeOpRecord<
-            ternary_alpha_tv_tv_val_fn,
-            TensorView*,
-            TensorView*,
-            TensorView*,
-            Val*,
-            Val*>(
-            ternary_alpha_tv_tv_val,
-            serde::RecordType_Ternary_Alpha_TV_TV_VAL,
-            buffer);
-      };
+  auto ternary_alpha_tv_tv_val_parser = [&](const RecordFunctor* buffer) {
+    return deserializeOpRecord<
+        ternary_alpha_tv_tv_val_fn,
+        TensorView*,
+        TensorView*,
+        TensorView*,
+        Val*,
+        Val*>(
+        ternary_alpha_tv_tv_val, RecordType::Ternary_Alpha_TV_TV_VAL, buffer);
+  };
   registerParser(
-      serde::RecordType_Ternary_Alpha_TV_TV_VAL,
-      ternary_alpha_tv_tv_val_parser);
+      RecordType::Ternary_Alpha_TV_TV_VAL, ternary_alpha_tv_tv_val_parser);
 
-  auto ternary_alpha_tv_val_tv_parser =
-      [&](const serde::RecordFunctor* buffer) {
-        return deserializeOpRecord<
-            ternary_alpha_tv_val_tv_fn,
-            TensorView*,
-            TensorView*,
-            Val*,
-            TensorView*,
-            Val*>(
-            ternary_alpha_tv_val_tv,
-            serde::RecordType_Ternary_Alpha_TV_VAL_TV,
-            buffer);
-      };
+  auto ternary_alpha_tv_val_tv_parser = [&](const RecordFunctor* buffer) {
+    return deserializeOpRecord<
+        ternary_alpha_tv_val_tv_fn,
+        TensorView*,
+        TensorView*,
+        Val*,
+        TensorView*,
+        Val*>(
+        ternary_alpha_tv_val_tv, RecordType::Ternary_Alpha_TV_VAL_TV, buffer);
+  };
   registerParser(
-      serde::RecordType_Ternary_Alpha_TV_VAL_TV,
-      ternary_alpha_tv_val_tv_parser);
+      RecordType::Ternary_Alpha_TV_VAL_TV, ternary_alpha_tv_val_tv_parser);
 
-  auto ternary_alpha_val_tv_tv_parser =
-      [&](const serde::RecordFunctor* buffer) {
-        return deserializeOpRecord<
-            ternary_alpha_val_tv_tv_fn,
-            TensorView*,
-            Val*,
-            TensorView*,
-            TensorView*,
-            Val*>(
-            ternary_alpha_val_tv_tv,
-            serde::RecordType_Ternary_Alpha_VAL_TV_TV,
-            buffer);
-      };
+  auto ternary_alpha_val_tv_tv_parser = [&](const RecordFunctor* buffer) {
+    return deserializeOpRecord<
+        ternary_alpha_val_tv_tv_fn,
+        TensorView*,
+        Val*,
+        TensorView*,
+        TensorView*,
+        Val*>(
+        ternary_alpha_val_tv_tv, RecordType::Ternary_Alpha_VAL_TV_TV, buffer);
+  };
   registerParser(
-      serde::RecordType_Ternary_Alpha_VAL_TV_TV,
-      ternary_alpha_val_tv_tv_parser);
+      RecordType::Ternary_Alpha_VAL_TV_TV, ternary_alpha_val_tv_tv_parser);
 
-  auto ternary_alpha_val_val_tv_parser =
-      [&](const serde::RecordFunctor* buffer) {
-        return deserializeOpRecord<
-            ternary_alpha_val_val_tv_fn,
-            TensorView*,
-            Val*,
-            Val*,
-            TensorView*,
-            Val*>(
-            ternary_alpha_val_val_tv,
-            serde::RecordType_Ternary_Alpha_VAL_VAL_TV,
-            buffer);
-      };
+  auto ternary_alpha_val_val_tv_parser = [&](const RecordFunctor* buffer) {
+    return deserializeOpRecord<
+        ternary_alpha_val_val_tv_fn,
+        TensorView*,
+        Val*,
+        Val*,
+        TensorView*,
+        Val*>(
+        ternary_alpha_val_val_tv, RecordType::Ternary_Alpha_VAL_VAL_TV, buffer);
+  };
   registerParser(
-      serde::RecordType_Ternary_Alpha_VAL_VAL_TV,
-      ternary_alpha_val_val_tv_parser);
+      RecordType::Ternary_Alpha_VAL_VAL_TV, ternary_alpha_val_val_tv_parser);
 
-  auto ternary_alpha_tv_val_val_parser =
-      [&](const serde::RecordFunctor* buffer) {
-        return deserializeOpRecord<
-            ternary_alpha_tv_val_val_fn,
-            TensorView*,
-            TensorView*,
-            Val*,
-            Val*,
-            Val*>(
-            ternary_alpha_tv_val_val,
-            serde::RecordType_Ternary_Alpha_TV_VAL_VAL,
-            buffer);
-      };
+  auto ternary_alpha_tv_val_val_parser = [&](const RecordFunctor* buffer) {
+    return deserializeOpRecord<
+        ternary_alpha_tv_val_val_fn,
+        TensorView*,
+        TensorView*,
+        Val*,
+        Val*,
+        Val*>(
+        ternary_alpha_tv_val_val, RecordType::Ternary_Alpha_TV_VAL_VAL, buffer);
+  };
   registerParser(
-      serde::RecordType_Ternary_Alpha_TV_VAL_VAL,
-      ternary_alpha_tv_val_val_parser);
+      RecordType::Ternary_Alpha_TV_VAL_VAL, ternary_alpha_tv_val_val_parser);
 
-  auto ternary_alpha_val_tv_val_parser =
-      [&](const serde::RecordFunctor* buffer) {
-        return deserializeOpRecord<
-            ternary_alpha_val_tv_val_fn,
-            TensorView*,
-            Val*,
-            TensorView*,
-            Val*,
-            Val*>(
-            ternary_alpha_val_tv_val,
-            serde::RecordType_Ternary_Alpha_VAL_TV_VAL,
-            buffer);
-      };
+  auto ternary_alpha_val_tv_val_parser = [&](const RecordFunctor* buffer) {
+    return deserializeOpRecord<
+        ternary_alpha_val_tv_val_fn,
+        TensorView*,
+        Val*,
+        TensorView*,
+        Val*,
+        Val*>(
+        ternary_alpha_val_tv_val, RecordType::Ternary_Alpha_VAL_TV_VAL, buffer);
+  };
   registerParser(
-      serde::RecordType_Ternary_Alpha_VAL_TV_VAL,
-      ternary_alpha_val_tv_val_parser);
+      RecordType::Ternary_Alpha_VAL_TV_VAL, ternary_alpha_val_tv_val_parser);
 
-  auto ternary_alpha_val_parser = [&](const serde::RecordFunctor* buffer) {
+  auto ternary_alpha_val_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_alpha_val_fn,
         Val*,
         Val*,
         Val*,
         Val*,
-        Val*>(ternary_alpha_val, serde::RecordType_Ternary_Alpha_VAL, buffer);
+        Val*>(ternary_alpha_val, RecordType::Ternary_Alpha_VAL, buffer);
   };
-  registerParser(serde::RecordType_Ternary_Alpha_VAL, ternary_alpha_val_parser);
+  registerParser(RecordType::Ternary_Alpha_VAL, ternary_alpha_val_parser);
   // END OpRecord Parsers
 
   // START Reduction Parsers
-  auto reduction_max_parser = [](const serde::RecordFunctor* buffer) {
-    return deserializeReductionRecord(
-        max, serde::RecordType_ReductionMax, buffer);
+  auto reduction_max_parser = [](const RecordFunctor* buffer) {
+    return deserializeReductionRecord(max, RecordType::ReductionMax, buffer);
   };
-  registerParser(serde::RecordType_ReductionMax, reduction_max_parser);
+  registerParser(RecordType::ReductionMax, reduction_max_parser);
 
-  auto reduction_min_parser = [](const serde::RecordFunctor* buffer) {
-    return deserializeReductionRecord(
-        min, serde::RecordType_ReductionMin, buffer);
+  auto reduction_min_parser = [](const RecordFunctor* buffer) {
+    return deserializeReductionRecord(min, RecordType::ReductionMin, buffer);
   };
-  registerParser(serde::RecordType_ReductionMin, reduction_min_parser);
+  registerParser(RecordType::ReductionMin, reduction_min_parser);
 
-  auto reduction_prod_parser = [](const serde::RecordFunctor* buffer) {
-    return deserializeReductionRecord(
-        prod, serde::RecordType_ReductionProd, buffer);
+  auto reduction_prod_parser = [](const RecordFunctor* buffer) {
+    return deserializeReductionRecord(prod, RecordType::ReductionProd, buffer);
   };
-  registerParser(serde::RecordType_ReductionProd, reduction_prod_parser);
+  registerParser(RecordType::ReductionProd, reduction_prod_parser);
 
-  auto reduction_sum_parser = [](const serde::RecordFunctor* buffer) {
-    return deserializeReductionRecord(
-        sum, serde::RecordType_ReductionSum, buffer);
+  auto reduction_sum_parser = [](const RecordFunctor* buffer) {
+    return deserializeReductionRecord(sum, RecordType::ReductionSum, buffer);
   };
-  registerParser(serde::RecordType_ReductionSum, reduction_sum_parser);
+  registerParser(RecordType::ReductionSum, reduction_sum_parser);
   // END Reduction Parsers
 
-  auto deserializeBatchNormRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeBatchNormRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_BatchNorm();
     return new python_frontend::BatchNormOpRecord(
         parseStateArgs(buffer->args()),
@@ -373,180 +340,179 @@ void RecordFunctorFactory::registerAllParsers() {
         data->training(),
         data->channels_last());
   };
-  registerParser(serde::RecordType_BatchNormOp, deserializeBatchNormRecord);
+  registerParser(RecordType::BatchNormOp, deserializeBatchNormRecord);
 
-  auto deserializeBroadcastRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeBroadcastRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::BroadcastOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         buffer->name()->str(),
         parseBoolVector(buffer->data_as_Broadcast()->broadcast_dims()));
   };
-  registerParser(serde::RecordType_BroadcastOp, deserializeBroadcastRecord);
+  registerParser(RecordType::BroadcastOp, deserializeBroadcastRecord);
 
-  auto deserializeCatRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeCatRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::CatOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         buffer->data_as_Dimension()->dim());
   };
-  registerParser(serde::RecordType_CatOp, deserializeCatRecord);
+  registerParser(RecordType::CatOp, deserializeCatRecord);
 
-  auto deserializeBroadcastInDimRecord =
-      [](const serde::RecordFunctor* buffer) {
-        auto data = buffer->data_as_BroadcastInDim();
-        return new python_frontend::BroadcastInDimOpRecord(
-            parseStateArgs(buffer->args()),
-            parseStateArgs(buffer->outputs()),
-            data->output_size(),
-            parseVector(data->broadcast_dims()));
-      };
-  registerParser(
-      serde::RecordType_BroadcastInDim, deserializeBroadcastInDimRecord);
+  auto deserializeBroadcastInDimRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_BroadcastInDim();
+    return new python_frontend::BroadcastInDimOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        data->output_size(),
+        parseVector(data->broadcast_dims()));
+  };
+  registerParser(RecordType::BroadcastInDim, deserializeBroadcastInDimRecord);
 
-  auto deserializeCastTvRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeCastTvRecord = [](const RecordFunctor* buffer) {
     std::function<TensorView*(nvfuser::DataType, TensorView*)> fusion_op =
         static_cast<TensorView* (*)(nvfuser::DataType, TensorView*)>(castOp);
     return new python_frontend::CastOpRecord<TensorView*, TensorView*>(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         buffer->name()->str(),
-        serde::RecordType_CastTv,
+        RecordType::CastTv,
         fusion_op,
         mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()));
   };
-  registerParser(serde::RecordType_CastTv, deserializeCastTvRecord);
+  registerParser(RecordType::CastTv, deserializeCastTvRecord);
 
-  auto deserializeCastValRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeCastValRecord = [](const RecordFunctor* buffer) {
     std::function<Val*(nvfuser::DataType, Val*)> fusion_op =
         static_cast<Val* (*)(nvfuser::DataType, Val*)>(castOp);
     return new python_frontend::CastOpRecord<Val*, Val*>(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         buffer->name()->str(),
-        serde::RecordType_CastVal,
+        RecordType::CastVal,
         fusion_op,
         mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()));
   };
-  registerParser(serde::RecordType_CastVal, deserializeCastValRecord);
+  registerParser(RecordType::CastVal, deserializeCastValRecord);
 
-  auto deserializeScalarRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeScalarRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::ScalarRecord(
         parseStateArgs(buffer->outputs()),
         deserializePolymorphicValue(buffer->data_as_Scalar()),
         mapToNvfuserDtype(buffer->data_as_Scalar()->dtype()));
   };
-  registerParser(serde::RecordType_Scalar, deserializeScalarRecord);
+  registerParser(RecordType::Scalar, deserializeScalarRecord);
 
-  auto deserializeFullRecord = [](const serde::RecordFunctor* buffer) {
-    auto data = buffer->data_as_TensorCreation();
+  auto deserializeFullRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_TensorCreationSymbolic();
     return new python_frontend::FullOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        parseVector(data->shape()),
         mapToNvfuserDtype(data->dtype()));
   };
-  registerParser(serde::RecordType_FullOp, deserializeFullRecord);
+  registerParser(RecordType::FullOp, deserializeFullRecord);
 
-  auto deserializeIotaRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeIotaRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::IotaOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()));
   };
-  registerParser(serde::RecordType_IotaOp, deserializeIotaRecord);
+  registerParser(RecordType::IotaOp, deserializeIotaRecord);
 
-  auto deserializeTorchGatherRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeTorchGatherRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::TorchGatherOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         buffer->data_as_Dimension()->dim());
   };
-  registerParser(serde::RecordType_TorchGatherOp, deserializeTorchGatherRecord);
+  registerParser(RecordType::TorchGatherOp, deserializeTorchGatherRecord);
 
-  auto deserializeTakeAlongAxisRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeTakeAlongAxisRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::TakeAlongAxisOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         buffer->data_as_Dimension()->dim());
   };
-  registerParser(
-      serde::RecordType_TakeAlongAxisOp, deserializeTakeAlongAxisRecord);
+  registerParser(RecordType::TakeAlongAxisOp, deserializeTakeAlongAxisRecord);
 
-  auto deserializeIndexSelectRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeIndexSelectRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::IndexSelectOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         buffer->data_as_Dimension()->dim());
   };
-  registerParser(serde::RecordType_IndexSelectOp, deserializeIndexSelectRecord);
+  registerParser(RecordType::IndexSelectOp, deserializeIndexSelectRecord);
 
-  auto deserializeOutputTvRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeOutputTvRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Output();
     return new python_frontend::OutputRecord<TensorView>(
         parseStateArgs(buffer->args()),
-        serde::RecordType_OutputTv,
+        RecordType::OutputTv,
         parseVector(data->stride_order()));
   };
-  registerParser(serde::RecordType_OutputTv, deserializeOutputTvRecord);
+  registerParser(RecordType::OutputTv, deserializeOutputTvRecord);
 
-  auto deserializeOutputValRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeOutputValRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Output();
     return new python_frontend::OutputRecord<Val>(
         parseStateArgs(buffer->args()),
-        serde::RecordType_OutputVal,
+        RecordType::OutputVal,
         parseVector(data->stride_order()));
   };
-  registerParser(serde::RecordType_OutputVal, deserializeOutputValRecord);
+  registerParser(RecordType::OutputVal, deserializeOutputValRecord);
 
-  auto deserializePadRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializePadRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::PadOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         parseVector(buffer->data_as_Pad()->pad_widths()));
   };
-  registerParser(serde::RecordType_PadOp, deserializePadRecord);
+  registerParser(RecordType::PadOp, deserializePadRecord);
 
-  auto deserializePermuteRecord = [](const serde::RecordFunctor* buffer) {
-    return new python_frontend::DimsOpRecord<serde::RecordType_PermuteOp>(
+  auto deserializePermuteRecord = [](const RecordFunctor* buffer) {
+    return new python_frontend::DimsOpRecord<RecordType::PermuteOp>(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         parseVector(buffer->data_as_Dims()->dims()),
         buffer->name()->str());
   };
-  registerParser(serde::RecordType_PermuteOp, deserializePermuteRecord);
+  registerParser(RecordType::PermuteOp, deserializePermuteRecord);
 
-  auto deserializeStrideOrderRecord = [](const serde::RecordFunctor* buffer) {
-    return new python_frontend::DimsOpRecord<serde::RecordType_StrideOrderOp>(
+  auto deserializeStrideOrderRecord = [](const RecordFunctor* buffer) {
+    return new python_frontend::DimsOpRecord<RecordType::StrideOrderOp>(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         parseVector(buffer->data_as_Dims()->dims()),
         buffer->name()->str());
   };
-  registerParser(serde::RecordType_StrideOrderOp, deserializeStrideOrderRecord);
+  registerParser(RecordType::StrideOrderOp, deserializeStrideOrderRecord);
 
-  auto deserializeRandomRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeNormalDistRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_TensorCreationSymbolic();
-    return new python_frontend::RandomOpRecord(
+    return new python_frontend::RandomDistOpRecord<RecordType::NormalDistOp>(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        parseStateArgs(data->shape()),
-        buffer->name()->str(),
         mapToNvfuserDtype(data->dtype()));
   };
-  registerParser(serde::RecordType_RandomOp, deserializeRandomRecord);
+  registerParser(RecordType::NormalDistOp, deserializeNormalDistRecord);
 
-  auto deserializeReshapeRecord = [](const serde::RecordFunctor* buffer) {
-    auto data = buffer->data_as_Reshape();
-    return new python_frontend::ReshapeOpRecord(
+  auto deserializeUniformDistRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_TensorCreationSymbolic();
+    return new python_frontend::RandomDistOpRecord<RecordType::UniformDistOp>(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        parseVector(data->original_shape()),
-        parseVector(data->new_shape()));
+        mapToNvfuserDtype(data->dtype()));
   };
-  registerParser(serde::RecordType_ReshapeOp, deserializeReshapeRecord);
+  registerParser(RecordType::UniformDistOp, deserializeUniformDistRecord);
 
-  auto deserializeSliceRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeReshapeRecord = [](const RecordFunctor* buffer) {
+    return new python_frontend::ReshapeOpRecord(
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+  };
+  registerParser(RecordType::ReshapeOp, deserializeReshapeRecord);
+
+  auto deserializeSliceRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Slice();
     return new python_frontend::SliceOpRecord(
         parseStateArgs(buffer->args()),
@@ -555,9 +521,9 @@ void RecordFunctorFactory::registerAllParsers() {
         parseVector(data->end_indices()),
         parseVector(data->strides()));
   };
-  registerParser(serde::RecordType_SliceOp, deserializeSliceRecord);
+  registerParser(RecordType::SliceOp, deserializeSliceRecord);
 
-  auto deserializeSqueezeRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeSqueezeRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Squeeze();
     return new python_frontend::SqueezeOpRecord(
         parseStateArgs(buffer->args()),
@@ -565,9 +531,9 @@ void RecordFunctorFactory::registerAllParsers() {
         parseVector(data->original_shape()),
         parseVector(data->squeeze_dims()));
   };
-  registerParser(serde::RecordType_SqueezeOp, deserializeSqueezeRecord);
+  registerParser(RecordType::SqueezeOp, deserializeSqueezeRecord);
 
-  auto deserializeTensorRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeTensorRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Tensor();
 
     std::vector<std::optional<bool>> contiguity;
@@ -582,41 +548,42 @@ void RecordFunctorFactory::registerAllParsers() {
         parseVector(data->sizes()),
         contiguity,
         mapToNvfuserDtype(data->dtype()),
-        data->is_cpu());
+        data->is_cpu(),
+        parseVector(data->stride_order()));
   };
-  registerParser(serde::RecordType_Tensor, deserializeTensorRecord);
+  registerParser(RecordType::Tensor, deserializeTensorRecord);
 
-  auto deserializeTensorSizesRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeTensorSizesRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::TensorSizesRecord(
         parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
   };
-  registerParser(serde::RecordType_TensorSizes, deserializeTensorSizesRecord);
+  registerParser(RecordType::TensorSizes, deserializeTensorSizesRecord);
 
-  auto deserializeShapeOpRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeShapeOpRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::ShapeOpRecord(
         parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
   };
-  registerParser(serde::RecordType_ShapeOp, deserializeShapeOpRecord);
+  registerParser(RecordType::ShapeOp, deserializeShapeOpRecord);
 
-  auto deserializeSizeOpRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeSizeOpRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Size();
     return new python_frontend::SizeOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         data->dim());
   };
-  registerParser(serde::RecordType_SizeOp, deserializeSizeOpRecord);
+  registerParser(RecordType::SizeOp, deserializeSizeOpRecord);
 
-  auto deserializeAtOpRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeAtOpRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_At();
     return new python_frontend::AtOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         data->index());
   };
-  registerParser(serde::RecordType_AtOp, deserializeAtOpRecord);
+  registerParser(RecordType::AtOp, deserializeAtOpRecord);
 
-  auto deserializeVarianceRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeVarianceRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Norm();
     return new python_frontend::VarianceOpRecord(
         parseStateArgs(buffer->args()),
@@ -625,9 +592,9 @@ void RecordFunctorFactory::registerAllParsers() {
         data->correction(),
         data->keep_dim());
   };
-  registerParser(serde::RecordType_VarianceOp, deserializeVarianceRecord);
+  registerParser(RecordType::VarianceOp, deserializeVarianceRecord);
 
-  auto deserializeVarianceMeanRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeVarianceMeanRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Norm();
     return new python_frontend::VarianceMeanOpRecord(
         parseStateArgs(buffer->args()),
@@ -636,17 +603,16 @@ void RecordFunctorFactory::registerAllParsers() {
         data->correction(),
         data->keep_dim());
   };
-  registerParser(
-      serde::RecordType_VarianceMeanOp, deserializeVarianceMeanRecord);
+  registerParser(RecordType::VarianceMeanOp, deserializeVarianceMeanRecord);
 
-  auto deserializeVectorRecord = [](const serde::RecordFunctor* buffer) {
+  auto deserializeVectorRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Vector();
     return new python_frontend::VectorRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         mapToNvfuserDtype(data->dtype()));
   };
-  registerParser(serde::RecordType_Vector, deserializeVectorRecord);
+  registerParser(RecordType::Vector, deserializeVectorRecord);
 }
 
 void RecordFunctorFactory::setupFunctionMaps() {

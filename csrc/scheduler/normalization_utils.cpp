@@ -6,6 +6,9 @@
  */
 // clang-format on
 #include <expr_evaluator.h>
+#include <grouped_reduction.h>
+#include <instrumentation.h>
+#include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
@@ -14,6 +17,7 @@
 #include <utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
+
 namespace nvfuser {
 namespace normalization_scheduler_utils {
 
@@ -599,6 +603,61 @@ bool isConnectedOnlyThroughReductionProducer(
   return true;
 }
 
+bool isReductionIterationAxisMatched(
+    const std::vector<TensorView*>& inner_reduction_tvs,
+    const std::vector<TensorView*>& outer_reduction_tvs) {
+  // set up reference, checkIfReductionsAreInnerOuter already ensures all the
+  // tensor domains are either iteration or reduction, so we can just use a
+  // vector of bool.
+  auto reference_tv = inner_reduction_tvs[0];
+  std::vector<bool> is_reduction(reference_tv->nDims(), false);
+  for (const auto i : c10::irange(reference_tv->nDims())) {
+    auto id = reference_tv->axis((int)i);
+    NVF_CHECK(
+        id->getIterType() == IterType::Iteration ||
+            id->getIterType() == IterType::Reduction,
+        "Invalid iteration type: ",
+        id->getIterType());
+    if (id->isReduction()) {
+      is_reduction[i] = true;
+    }
+  }
+  // check other inner reduction tvs, the corresponding axis should be
+  // reduction.
+  for (auto i : c10::irange(1, inner_reduction_tvs.size())) {
+    auto tv = inner_reduction_tvs[i];
+    for (const auto i : c10::irange(tv->nDims())) {
+      auto id = tv->axis((int)i);
+      NVF_CHECK(
+          id->getIterType() == IterType::Iteration ||
+              id->getIterType() == IterType::Reduction,
+          "Invalid iteration type: ",
+          id->getIterType());
+
+      if (id->isReduction() != is_reduction.at(i)) {
+        return false;
+      }
+    }
+  }
+  // check outer reduction tvs, the corresponding axis should be iteration.
+  for (auto tv : outer_reduction_tvs) {
+    for (const auto i : c10::irange(tv->nDims())) {
+      auto id = tv->axis((int)i);
+      NVF_CHECK(
+          id->getIterType() == IterType::Iteration ||
+              id->getIterType() == IterType::Reduction,
+          "Invalid iteration type: ",
+          id->getIterType());
+
+      if (id->isIteration() != is_reduction.at(i)) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
 int64_t partialReductionBufferSize(
     const std::vector<TensorView*>& outer_reduction_tvs,
     SchedulerRuntimeInfo& runtime_info) {
@@ -740,7 +799,138 @@ ScheduleHeuristic getPersistentHeuristicFor(ReductionType reduction_type) {
   }
 }
 
-// check ops and inputs
+void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv) {
+  NVF_ERROR(ref_red_tv != nullptr, "Reduction TensorView wasn't found.");
+  NVF_ERROR(ref_red_tv->hasReduction(), "TensorView doesn't have a reduction.");
+  NVF_ERROR(
+      ir_utils::isReductionOp(ref_red_tv->definition()),
+      "TensorView doesn't have a reduction.");
+  NVF_ERROR(
+      std::any_of(
+          fusion->inputs().begin(),
+          fusion->inputs().end(),
+          [](Val* inp) { return inp->isA<TensorView>(); }),
+      "Tried to schedule a fusion with no tensor inputs, currently not supported.");
+}
+
+PersistentKernelProperties getPersistentKernelProperties(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicSummary* data_cache,
+    ScheduleHeuristic heuristic) {
+  FUSER_PERF_SCOPE("getPersistentKernelProperties");
+
+  auto reduction_tv_entry =
+      HeuristicSummaryEntry<HeuristicCompileTime::ReductionTVs>(
+          data_cache, [&fusion]() {
+            return std::make_unique<std::vector<TensorView*>>(
+                scheduler_utils::getReductionTvs(fusion));
+          });
+  auto& reduction_tvs = reduction_tv_entry.get();
+  NVF_ERROR(!reduction_tvs.empty(), "Need reduction tensor views to schedule.");
+  auto ref_red_tv = reduction_tvs[0];
+
+  // (1) fusion checks
+  checkReductionTvForScheduling(fusion, ref_red_tv);
+
+  // (2) reduction properties
+  auto properties =
+      scheduler_utils::getReductionProperties(fusion, runtime_info, ref_red_tv);
+
+  // (3) vectorization factor
+  auto reduced_tv = ir_utils::getSoleProducerTv(ref_red_tv);
+  auto vectorize_factor = vectorize_helper::getVectorizationFactor(
+      runtime_info,
+      reduced_tv,
+      data_cache,
+      vectorize_helper::getVectorizationBreakPointOfReductionProducer(
+          ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
+
+  // (4) info about persistent buffer
+  auto persistent_buffer_info_entry =
+      HeuristicSummaryEntry<HeuristicCompileTime::PersistentBufferInfo>(
+          data_cache, [&fusion]() {
+            return std::make_unique<scheduler_utils::PersistentBufferInfo>(
+                scheduler_utils::persistentBuffers(fusion));
+          });
+  auto& persistent_buffer_info = persistent_buffer_info_entry.get();
+  NVF_ERROR(
+      !persistent_buffer_info.persistent_buffers.empty(),
+      "Persistent scheduler requires persistent buffers.");
+  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
+      fusion, runtime_info, persistent_buffer_info, data_cache);
+
+  // (5) can project to input?
+  // Figure out if we want to projet persistent buffers to the inputs for
+  // exmaple if we have an input tensor t0 that's fp16:
+  //
+  // t0 = makeSymbolicTensor(2, DataType::Half)
+  // t1 = castOp(DataType::Float, t0)
+  // t2 = sum(t1, 1)
+  // t3 = broadcast(t2, {false, true})
+  // t4 = set(t1)
+  // t5 = add(t4, t3)
+  // t6 = castOp(DataType::Half, t5)
+  //
+  // The persistent buffer is detected as being t1, which would save the
+  // persistent buffer as a float, however we could obviously just save t0 which
+  // is half and would take half the memory. A more complex scenario of this
+  // which requires more advanced analysis is batch norm backwards.
+  // TODO: Fix projected persistent buffers with view
+  // https://github.com/csarofeen/pytorch/issues/2054
+  // If projected persistent buffers are smaller, they will be used.
+  bool can_project = ir_utils::getViewOps(fusion).empty() &&
+      persistent_buffer_size_info.projected_persistent_buffer_size > 0;
+
+  // (6) make a decision on whether to project to input
+  bool project_persistent_buffers = can_project &&
+      persistent_buffer_size_info.projected_persistent_buffer_size <
+          persistent_buffer_size_info.persistent_buffer_size;
+  auto max_persistent_buffer_size = project_persistent_buffers
+      ? persistent_buffer_size_info.projected_persistent_buffer_size
+      : persistent_buffer_size_info.persistent_buffer_size;
+
+  // (7) info about input and output tensors
+  // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
+  // share inner dimension with data pattern we're looking at).
+  // TODO: This might be better if it was the larger of input or outputs. Would
+  // be even better if we had better analysis as not all unrolled elements have
+  // to be alive at the same time.
+  auto unrollable_inputs_outputs_entry =
+      HeuristicSummaryEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
+          data_cache, [&reduced_tv]() {
+            return std::make_unique<std::vector<TensorView*>>(
+                scheduler_utils::getInputsOutputsWithInnerDim(
+                    reduced_tv, false, false));
+          });
+  auto& unrollable_inputs_outputs = unrollable_inputs_outputs_entry.get();
+  int64_t max_dtype_size = 1;
+  int64_t n_tensor_inputs = 0;
+  for (auto tv : unrollable_inputs_outputs) {
+    if (!tv->isFusionInput()) {
+      continue;
+    }
+    max_dtype_size = std::max(
+        max_dtype_size,
+        dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
+    n_tensor_inputs++;
+  }
+  // To prevent division by zero, ensure that n_tensor_inputs is not equal to
+  // zero.
+  n_tensor_inputs = std::max(n_tensor_inputs, (int64_t)1);
+
+  // (8) return collected properties to get heuristics.
+  return PersistentKernelProperties{
+      .inner_most_dimension_numel = properties.inner_most_dimension_numel,
+      .total_reduction_numel = properties.total_reduction_numel,
+      .total_iteration_numel = properties.total_iteration_numel,
+      .max_persistent_buffer_size = max_persistent_buffer_size,
+      .n_tensor_inputs = n_tensor_inputs,
+      .max_dtype_size = max_dtype_size,
+      .vectorize_factor = vectorize_factor,
+      .project_persistent_buffers = project_persistent_buffers};
+}
+
 bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
   // Needs at least one reduction to consider.
   if (!ir_utils::hasAnyReductionOps(fusion)) {
@@ -789,7 +979,8 @@ bool checkReductionPattern(
   ComputeAtRootDomainMap root_map;
   root_map.build(true);
 
-  // Helper function to check the pattern equivalence for a list of TensorViews
+  // Helper function to check the pattern equivalence for a list of
+  // TensorViews
   auto checkPattern = [&](const std::vector<TensorView*>& rtvs) -> bool {
     for (const auto it : c10::irange(1, rtvs.size())) {
       if (!registry_utils::checkPatternEquivalence(
@@ -849,9 +1040,6 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
         "schedule_heuristic doesn't match with reduction type.");
     return false;
   }
-  if (!checkReductionPattern(fusion, schedule_heuristic, reduction_tvs)) {
-    return false;
-  }
 
   if (!ir_utils::getViewOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
@@ -905,6 +1093,10 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
     }
   }
 
+  if (!checkReductionPattern(fusion, schedule_heuristic, reduction_tvs)) {
+    return false;
+  }
+
   // Only accept persistent kernels
   auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
   if (persistent_buffer_info.persistent_buffers.empty()) {
@@ -929,6 +1121,159 @@ bool compileTimeCheck(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
   }
 
   return true;
+}
+
+// common prepare for all persistent schedulers
+void beforeSchedule(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    std::vector<TensorView*>& dummy_outputs,
+    std::vector<TensorView*>& cached_inputs,
+    std::vector<TensorView*>& reduction_tvs,
+    std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
+  // Project the persistent buffers to the inputs. Inputs will be cached in a
+  // later step, this will move them to be in a register buffer as expected.
+  // dummy outputs are helper tensors to make sure persistent buffer projection
+  // does not create trouble for transform propagation.
+  dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
+      fusion, rparams.project_persistent_buffers);
+
+  // Cache tensors before grabbing any references to reductions as cache_before
+  // can invalidate the references since when applied to a reduction tensor view
+  // the new tensor view contains the reduction and original doesn't.
+  bool unroll = rparams.isUnrolled();
+  // Cache inputs even if not unrolled, as otherwise we may not create a
+  // persistent buffer if that persistent buffer would be the input.
+  cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+
+  // Cache and fork outputs
+  cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, unroll);
+
+  // Make sure we don't have global memory set on intermediate tensors from
+  // fusion segmentation
+  scheduler_utils::clearMemorySpace(fusion);
+  scheduler_utils::prepareForMemoryTypePromotion(fusion);
+
+  // Use shared memory to store persistent buffers
+  if (rparams.shared_mem_persistent_buffer) {
+    const auto& persistent_buffers =
+        scheduler_utils::persistentBuffers(fusion).persistent_buffers;
+    for (auto tv : persistent_buffers) {
+      tv->setMemoryType(MemoryType::Shared);
+    }
+  }
+
+  reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+}
+
+TensorView* scheduleReductionGeneral(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    std::vector<TensorView*>& reduction_tvs,
+    ScheduleHeuristic schedule_heuristic) {
+  NVF_ERROR(!reduction_tvs.empty());
+  // Registry assumes the reference tv is the first reduction_tv, if this
+  // changes registry needs to change.
+  auto reduction_tv = reduction_tvs[0];
+
+  if (!ir_utils::getViewOps(fusion).empty()) {
+    ComputeAtMap ca_map(fusion);
+    // Propagate reshape transforms through the graph, expecially the reference.
+    scheduler_utils::propagateReshapeTransforms(fusion, ca_map);
+
+    // Reorder reference_tv after propagating the view operation. This will
+    // reorder for better merging.
+    reduction_tv->reorder(
+        scheduler_utils::domainReorderAsRfactorMap(reduction_tv));
+  }
+
+  if (schedule_heuristic == ScheduleHeuristic::OuterPersistent &&
+      rparams.cross_grid_inner_reduction && reduction_tvs.size() > 1) {
+    groupReductions(reduction_tvs, false);
+  }
+
+  auto dim_analysis = scheduler_utils::canonicalDimReduction(
+      fusion, reduction_tv, rparams.fastest_dim && rparams.schedule_3D);
+  bool has_iter_axis = dim_analysis.first;
+  bool has_red_axis = dim_analysis.second;
+
+  NVF_ERROR(
+      has_red_axis,
+      "Could not find reduction axis in tensor used for reduction scheduler.");
+
+  if (!has_iter_axis) {
+    NVF_ERROR(
+        rparams.fastest_dim,
+        "If all dims are reduction, should be sending it to fastest dim scheduler.");
+  }
+
+  return reduction_scheduler_utils::scheduleReductionTV(
+      rparams, reduction_tv, has_iter_axis);
+}
+
+// fusion is the input IR that will be modified by this function
+void schedulePersistentKernel(
+    Fusion* fusion,
+    const ReductionParams& rparams,
+    ScheduleHeuristic schedule_heuristic) {
+  FUSER_PERF_SCOPE("schedulePersistentKernel");
+
+  FusionGuard fg(fusion);
+
+  // Grab the reduction, input, and output tensor views. dummy_outputs are
+  // helper tensors for persistent buffer projection.
+  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
+  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
+  beforeSchedule(
+      fusion,
+      rparams,
+      dummy_outputs,
+      cached_inputs,
+      reduction_tvs,
+      cached_outputs);
+
+  TensorView* reference_tv = scheduleReductionGeneral(
+      fusion, rparams, reduction_tvs, schedule_heuristic);
+
+  // Reduction tensor views and rfactor tensor views are setup. Let's finish off
+  // the scheduling, particularly inlining and unrolling.
+  NVF_ERROR(
+      reference_tv != nullptr && reduction_tvs[0] != nullptr,
+      "Need these two tensor views to finish the scheduling.");
+
+  for (auto output : dummy_outputs) {
+    fusion->addOutput(output);
+  }
+
+  const bool unroll = rparams.isUnrolled();
+  const bool vectorize =
+      rparams.vectorize_inner_reduction || rparams.vectorize_iter_dom;
+  const bool is_outer_grid_persistence = rparams.persistent_kernel &&
+      rparams.cross_grid_inner_reduction && !rparams.fastest_dim;
+  reduction_scheduler_utils::multiReductionInliner(
+      fusion,
+      reduction_tvs[0],
+      reference_tv,
+      unroll,
+      vectorize,
+      is_outer_grid_persistence,
+      reduction_tvs,
+      cached_inputs,
+      cached_outputs,
+      dummy_outputs);
+
+  if (rparams.compute_persistent_buffer_with_first_consumer) {
+    NVF_ERROR(
+        rparams.persistent_kernel,
+        "computeWith should be only used with persistent kernels");
+    for (const auto persistent_buffer : cached_inputs) {
+      persistent_buffer->computeWith(-1, true);
+    }
+  }
+
+  scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
+
+  refineCachePolicy(fusion);
 }
 
 } // namespace normalization_scheduler_utils

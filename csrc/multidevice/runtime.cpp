@@ -17,34 +17,31 @@ namespace nvfuser {
 
 std::vector<at::Tensor> MultiDeviceRuntime::runWithInput(
     std::vector<c10::IValue> inputs) {
+  auto error_msg = validate();
+  NVF_ERROR(error_msg.empty(), error_msg);
   PipelineExecutor executor(*this);
   return executor.runWithInput(inputs);
 }
 
-void MultiDeviceRuntime::validate() const {
-  // stores all the device indices present in the pipeline accross all stages
-  std::unordered_set<DeviceIdxType> device_indices;
-  for (auto& stage_desc : pipeline_->descriptor().stage_descriptors) {
-    for (auto d_id : stage_desc.mesh.deviceIndices()) {
-      device_indices.insert(d_id);
-    }
+std::string MultiDeviceRuntime::validate() const {
+  if (!comm_.is_available()) {
+    return "distributed configuration required";
   }
 
-  // Checks if all the device indices involved in the pipeline are
-  // associated with a process at runtime
-  for (auto d_id : device_indices) {
-    NVF_ERROR(
-        d_id < comm_.size(),
-        "device index " + std::to_string(d_id) +
-            " is present in the pipeline but no process in the communicator runs it");
+  if (pipeline_->requestedNumberOfDevices() > comm_.size()) {
+    return "the pipeline requests " +
+        std::to_string(pipeline_->requestedNumberOfDevices()) +
+        " GPUs to run, but there are only " + std::to_string(comm_.size()) +
+        " ranks in the communicator";
   }
 
-  // Checks that the number of processes within the node is less or equal
-  // to the number of available GPUs.
-  NVF_ERROR(
-      comm_.local_size() <= at::cuda::getNumGPUs(),
-      std::to_string(comm_.local_size()) + " processes are spawn but only " +
-          std::to_string(at::cuda::getNumGPUs()) + " GPUs are available");
+  if (comm_.local_size() > at::cuda::getNumGPUs()) {
+    return std::to_string(comm_.local_size()) +
+        " processes are spawn on the node but only " +
+        std::to_string(at::cuda::getNumGPUs()) + " GPUs are available";
+  }
+
+  return "";
 }
 
 } // namespace nvfuser

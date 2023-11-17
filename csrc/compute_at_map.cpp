@@ -154,11 +154,11 @@ bool IterDomainGraph::exprsMap(
 
     auto extent_0_match = extent_0o->sameAs(extent_1o) ||
         (extent_0o->isConstInt() && extent_1o->isConstInt() &&
-         extent_0o->evaluateInt() == extent_1o->evaluateInt());
+         extent_0o->evaluate() == extent_1o->evaluate());
 
     auto extent_1_match = extent_0i->sameAs(extent_1i) ||
         (extent_0i->isConstInt() && extent_1i->isConstInt() &&
-         extent_0i->evaluateInt() == extent_1i->evaluateInt());
+         extent_0i->evaluate() == extent_1i->evaluate());
 
     if (!(extent_0_match || extent_1_match)) {
       return false;
@@ -806,22 +806,34 @@ void ComputeAtMap::allocateIndexVariables() {
   //  and we only need one index variable for each set.
   for (const auto& loop_disjoint_set : id_graph_.loopNodes().disjointSets()) {
     ParallelType ptype = ParallelType::Serial;
+
+    // We don't allocate any index variable for domains which
+    // are parallelized accross devices
+    if (auto result = std::find_if(
+            loop_disjoint_set->vector().begin(),
+            loop_disjoint_set->vector().end(),
+            [](IterDomain* id) { return id->isDeviceDim(); });
+        result != loop_disjoint_set->vector().end()) {
+      loop_index_variable_map_[loop_disjoint_set.get()] = fusion_->zeroVal();
+      continue;
+    }
+
     // first allocate thread and grid parallel indices:
     //  The validation pass will check that the parallel bindings within the
     //  loop nodes are consistent so all the loops within this disjoint set
     //  will be realized implicitly using parallel index variables.
 
-    auto result = std::find_if(
-        loop_disjoint_set->vector().begin(),
-        loop_disjoint_set->vector().end(),
-        [](IterDomain* id) {
-          // Halo extended parallel loops currently are handled
-          // differently and an index variable would still
-          // be allocated in this case.
-          return id->isThread() &&
-              (GpuLower::current()->haloInfo()->getExtent(id) == nullptr);
-        });
-    if (result != loop_disjoint_set->vector().end()) {
+    if (auto result = std::find_if(
+            loop_disjoint_set->vector().begin(),
+            loop_disjoint_set->vector().end(),
+            [](IterDomain* id) {
+              // Halo extended parallel loops currently are handled
+              // differently and an index variable would still
+              // be allocated in this case.
+              return id->isThread() &&
+                  (GpuLower::current()->haloInfo()->getExtent(id) == nullptr);
+            });
+        result != loop_disjoint_set->vector().end()) {
       ptype = (*result)->getParallelType();
       loop_index_variable_map_[loop_disjoint_set.get()] =
           NamedScalar::getParallelIndex(ptype);
@@ -1425,7 +1437,7 @@ std::string ComputeAtMap::toString() const {
      << idGraphNodesToString(*this, IdMappingMode::PERMISSIVE);
   ss << "Permissive-Resize map:\n"
      << idGraphNodesToString(*this, IdMappingMode::PERMISSIVE_RESIZE);
-  ss << "Permissive-Relaxed-Resize map:\n"
+  ss << "Innermost map:\n"
      << idGraphNodesToString(*this, IdMappingMode::INNERMOST);
   ss << "Consumer maps:\n";
   for (auto key : getSortedKeys(id_graph_.consumers(), Statement::lessThan)) {

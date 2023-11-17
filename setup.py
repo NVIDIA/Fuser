@@ -29,6 +29,9 @@
 #   --debinfo
 #     Building nvfuser in release mode with debug info, a.k.a. RelwithDebInfo
 #
+#   --build-dir=<ABSOLUTE PATH>
+#     Specify in which directory to build nvfuser. If not specified, the default build directory is "./build".
+#
 #   -version-tag=TAG
 #     Specify the tag for build nvfuser version, this is used for pip wheel
 #     package nightly where we might want to add a date tag
@@ -41,6 +44,9 @@
 #   -wheel-name=NAME
 #     Specify the wheel name this is used for pip wheel package where we want
 #     to identify the cuda toolkit version
+#
+#   --cpp=STANDARD
+#     Specify the C++ standard to use for building nvfuser. The default is C++17.
 #
 
 import multiprocessing
@@ -67,7 +73,10 @@ OVERWRITE_VERSION = False
 VERSION_TAG = None
 BUILD_TYPE = "Release"
 WHEEL_NAME = "nvfuser"
+BUILD_DIR = ""
 INSTALL_REQUIRES = []
+EXTRAS_REQUIRE = {}
+CPP_STANDARD = 17
 forward_args = []
 for i, arg in enumerate(sys.argv):
     if arg == "--cmake-only":
@@ -97,8 +106,14 @@ for i, arg in enumerate(sys.argv):
     if arg == "--debinfo":
         BUILD_TYPE = "RelwithDebInfo"
         continue
+    if arg.startswith("--build-dir"):
+        BUILD_DIR = arg.split("=")[1]
+        continue
     if arg.startswith("-install_requires="):
         INSTALL_REQUIRES = arg.split("=")[1].split(",")
+        continue
+    if arg.startswith("--extras_require="):
+        EXTRAS_REQUIRE = eval("=".join(arg.split("=")[1:]))
         continue
     if arg.startswith("-version-tag="):
         OVERWRITE_VERSION = True
@@ -106,6 +121,9 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg.startswith("-wheel-name="):
         WHEEL_NAME = arg.split("=")[1]
+        continue
+    if arg.startswith("--cpp="):
+        CPP_STANDARD = int(arg.split("=")[1])
         continue
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
@@ -258,10 +276,10 @@ def version_tag():
 from tools.memory import get_available_memory_gb
 
 
-def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
+def cmake(install_prefix: str = "./nvfuser"):
     # make build directories
     cwd = os.path.dirname(os.path.abspath(__file__))
-    cmake_build_dir = os.path.join(cwd, "build" if not build_dir else build_dir)
+    cmake_build_dir = os.path.join(cwd, "build") if not BUILD_DIR else BUILD_DIR
     if not os.path.exists(cmake_build_dir):
         os.makedirs(cmake_build_dir)
 
@@ -285,6 +303,7 @@ def cmake(build_dir: str = "", install_prefix: str = "./nvfuser"):
         pytorch_cmake_config,
         "-DCMAKE_BUILD_TYPE=" + BUILD_TYPE,
         f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
+        f"-DNVFUSER_CPP_STANDARD={CPP_STANDARD}",
         "-B",
         cmake_build_dir,
     ]
@@ -385,8 +404,9 @@ def main():
                 "nvfuser": nvfuser_package_data,
             },
             install_requires=INSTALL_REQUIRES,
-            extra_requires={
+            extras_require={
                 "test": ["numpy", "expecttest", "pytest"],
+                **EXTRAS_REQUIRE,
             },
             entry_points={
                 "console_scripts": [

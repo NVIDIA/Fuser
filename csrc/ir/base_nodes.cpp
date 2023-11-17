@@ -206,115 +206,42 @@ bool Val::isConstInt() const {
   return ir_utils::dependenciesSatisfied(this) && isIntegralScalar();
 }
 
-int64_t Val::evaluateInt() {
-  NVF_ERROR(
-      ir_utils::dependenciesSatisfied(this),
-      "Cannot get Int of not const values through IR nodes, must use runtime ExpressionEvaluator.");
-
+PolymorphicValue Val::evaluate() {
   if (this->value().hasValue()) {
-    return this->value().as<int64_t>();
+    return this->value();
   }
 
   ExpressionEvaluator ee;
   auto evaluated_val = ee.evaluate(this);
   NVF_ERROR(
       evaluated_val.hasValue(),
-      "Detected a const integer but failed to infer its value: ",
+      "Detected a const value but failed to infer its value: ",
       toInlineString());
-  return evaluated_val.as<int64_t>();
-}
-
-double Val::evaluateDouble() {
-  NVF_ERROR(
-      ir_utils::dependenciesSatisfied(this),
-      "Cannot get Double of not const doubles through IR nodes, must use runtime ExpressionEvaluator.");
-
-  if (this->value().hasValue()) {
-    return this->value().as<double>();
-  }
-
-  ExpressionEvaluator ee;
-  auto evaluated_val = ee.evaluate(this);
-  NVF_ERROR(
-      evaluated_val.hasValue(),
-      "Detected a const integer but failed to infer its value.");
-  return evaluated_val.as<double>();
-}
-
-bool Val::evaluateBool() {
-  NVF_ERROR(
-      ir_utils::dependenciesSatisfied(this),
-      "Cannot get Bool of not const bools through IR nodes, must use runtime ExpressionEvaluator.");
-
-  if (this->value().hasValue()) {
-    return this->value().as<bool>();
-  }
-
-  ExpressionEvaluator ee;
-  auto evaluated_val = ee.evaluate(this);
-  NVF_ERROR(
-      evaluated_val.hasValue(),
-      "Detected a const integer but failed to infer its value.");
-  return evaluated_val.as<bool>();
-}
-
-std::optional<int64_t> Val::getInt() const {
-  if (isConstScalar() && isIntegralScalar()) {
-    auto val = this->value();
-    if (val.is<int64_t>()) {
-      return val.as<int64_t>();
-    }
-    return std::nullopt;
-  }
-  return std::nullopt;
-}
-
-std::optional<double> Val::getDouble() const {
-  if (isConstScalar() && isFloatingPointScalar()) {
-    auto val = this->value();
-    if (val.is<double>()) {
-      return val.as<double>();
-    }
-    return std::nullopt;
-  }
-  return std::nullopt;
-}
-
-std::optional<bool> Val::getBool() const {
-  if (isConstScalar() && isABool()) {
-    auto val = this->value();
-    if (val.is<bool>()) {
-      return val.as<bool>();
-    }
-    return std::nullopt;
-  }
-  return std::nullopt;
+  return evaluated_val;
 }
 
 bool Val::isZero() const {
-  return getInt() == 0 || getDouble() == 0.0;
+  return value().hasValue() && value() == 0;
 }
 
 bool Val::isZeroInt() const {
-  auto int_val = getInt();
-  return int_val.has_value() && int_val.value() == 0;
+  return value().hasValue() && value().is<int64_t>() && value() == 0;
 }
 
 bool Val::isOne() const {
-  return getInt() == 1 || getDouble() == 1.0;
+  return value().hasValue() && value() == 1;
 }
 
 bool Val::isOneInt() const {
-  auto int_val = getInt();
-  return int_val.has_value() && int_val.value() == 1;
+  return value().hasValue() && value().is<int64_t>() && value() == 1;
 }
 
 bool Val::isTrue() const {
-  return getBool() == true;
+  return value().hasValue() && value().is<bool>() && value().as<bool>();
 }
 
 bool Val::isFalse() const {
-  return getBool() == false;
+  return value().hasValue() && value().is<bool>() && !value().as<bool>();
 }
 
 std::optional<DataType> Val::getDataType() const {
@@ -392,6 +319,29 @@ void Expr::checkConcretization(Val* old_val, Val* new_val) const {
       "Concretization must not change ValType");
 }
 
+bool Expr::sameOp(const Expr* other) const {
+  if (this == other) {
+    return true;
+  }
+  if (other == nullptr) {
+    return false;
+  }
+  if (typeid(*this) != typeid(*other)) {
+    return false;
+  }
+  if (inputs().size() != other->inputs().size() ||
+      outputs().size() != other->outputs().size() ||
+      attributes().size() != other->attributes().size()) {
+    return false;
+  }
+  for (const auto i : c10::irange(attributes().size())) {
+    if (!attribute(i)->sameAs(other->attribute(i))) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool Expr::sameAs(const Statement* other) const {
   if (this == other) {
     return true;
@@ -400,21 +350,11 @@ bool Expr::sameAs(const Statement* other) const {
     return false;
   }
   const Expr* other_expr = other->as<Expr>();
-  if (typeid(*this) != typeid(*other_expr)) {
-    return false;
-  }
-  if (inputs().size() != other_expr->inputs().size() ||
-      outputs().size() != other_expr->outputs().size() ||
-      attributes().size() != other_expr->attributes().size()) {
+  if (!sameOp(other_expr)) {
     return false;
   }
   for (const auto i : c10::irange(inputs().size())) {
     if (!input(i)->sameAs(other_expr->input(i))) {
-      return false;
-    }
-  }
-  for (const auto i : c10::irange(attributes().size())) {
-    if (!attribute(i)->sameAs(other_expr->attribute(i))) {
       return false;
     }
   }

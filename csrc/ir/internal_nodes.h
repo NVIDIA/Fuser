@@ -883,6 +883,9 @@ class ReductionOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
     return output(0);
@@ -1321,21 +1324,6 @@ class GroupedWelfordOp : public Expr {
 //! Fused Matmul operation
 class MmaOp : public Expr {
  public:
-  // This is a temporary data structure to for the
-  //  scheduling specific parameters that we still need
-  //  to store on an mma node. Eventually will only be
-  //  the mma macro type that will stay on the IR node
-  //  after additional cleaning ups.
-  struct OptionsInMma {
-    MmaOptions::MacroType macro = MmaOptions::MacroType::NoMMA;
-    int accumulator_stride = 0;
-
-    bool operator==(const OptionsInMma& other) const {
-      return macro == other.macro &&
-          accumulator_stride == other.accumulator_stride;
-    }
-  };
-
   using AxesData = std::vector<int64_t>;
   using MmaLayoutOpt = std::optional<MmaOptions::MmaLayout>;
   using Expr::Expr;
@@ -1348,7 +1336,7 @@ class MmaOp : public Expr {
       Val* in_a,
       Val* in_b,
       Val* init,
-      const OptionsInMma& options,
+      const MmaOptions::MacroType& options,
       const MmaLayoutOpt& input_layout);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
@@ -1376,12 +1364,8 @@ class MmaOp : public Expr {
     return attributeVal(0);
   }
 
-  const auto& options() const {
-    return attribute<OptionsInMma>(ATTR_POS_OPTS);
-  }
-
-  auto accStride() const {
-    return options().accumulator_stride;
+  const auto& macro() const {
+    return attribute<MmaOptions::MacroType>(ATTR_POS_MACRO);
   }
 
   void configureOptions(MmaOptions options);
@@ -1411,7 +1395,7 @@ class MmaOp : public Expr {
   //  magic numbers, based on order in which attributes are initialized
   //  in constructor
   static constexpr size_t ATTR_POS_INIT = 0;
-  static constexpr size_t ATTR_POS_OPTS = 1;
+  static constexpr size_t ATTR_POS_MACRO = 1;
   static constexpr size_t ATTR_POS_M_AXES = 2;
   static constexpr size_t ATTR_POS_N_AXES = 3;
   static constexpr size_t ATTR_POS_K_AXES = 4;
@@ -1450,6 +1434,10 @@ class ExpandOp : public Expr {
   std::vector<Val*> expanded_extents() const {
     return {inputs().begin() + 1, inputs().end()};
   }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 };
 
 //! Shift
@@ -1596,13 +1584,17 @@ class ViewOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  Val* out() const {
-    return output(0);
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
   }
 
-  Val* in() const {
-    return input(0);
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
   }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 };
 
 //! This operator explicitly models data movement between
@@ -2079,12 +2071,12 @@ class SliceOp : public Expr {
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
-  Val* out() const {
-    return output(0);
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
   }
 
-  Val* in() const {
-    return input(0);
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
   }
 
   std::vector<Slice> getRanges() const;

@@ -16,7 +16,7 @@ NoOpScheduler::NoOpScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
-    : SchedulerEntry(ScheduleHeuristic::NoOp) {
+    : SchedulerEntry(heuristicType()) {
   params_ = std::make_shared<NoOpHeuristic>("", runtime_info.getIndexType());
 }
 
@@ -25,6 +25,7 @@ bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
   if (fusion->isNoOp()) {
     return true;
   }
+
   // Check there're no non-trivial reduction ops.
   for (auto reduction : ir_utils::getAllTypesOfReductionOps(fusion)) {
     for (auto output :
@@ -37,8 +38,7 @@ bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
           [](IterDomain* id) { return id->extent()->isZeroInt(); });
       if (all_nonzero) {
         scheduler_debug_utils::canScheduleRejectReason(
-            ScheduleHeuristic::NoOp,
-            "reduction of non-zero elements is not supported");
+            heuristicType(), "reduction of non-zero elements is not supported");
         return false;
       }
     }
@@ -50,14 +50,14 @@ bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
         TensorDomain::noBroadcasts(out_tv->getLeafDomain()));
     if (!concrete_dimension.empty()) {
       scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::NoOp, "output has a concrete dimension");
+          heuristicType(), "output has a concrete dimension");
       return false;
     }
   }
 
   // Check that inputs of all select/gather-like ops are fusion inputs
   if (registry_utils::rejectScheduleForMemoryPromotion(
-          fusion, ScheduleHeuristic::NoOp)) {
+          fusion, heuristicType())) {
     return false;
   }
 

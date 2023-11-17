@@ -83,8 +83,11 @@ std::string Predicate::toInlineString(int indent_size) const {
 TensorIndex::TensorIndex(
     IrBuilderPasskey passkey,
     const TensorView* view,
-    Val* index)
-    : Val(passkey, ValType::TensorIndex, view->getDataType().value()),
+    Val* index,
+    DataType dtype)
+    : Val(passkey,
+          ValType::TensorIndex,
+          dtype != DataType::Null ? dtype : view->getDataType().value()),
       view_(view),
       index_(index) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
@@ -94,7 +97,7 @@ TensorIndex::TensorIndex(
   NVF_ERROR(
       isPointerType(index->dtype()) || index->dtype() == DataType::Index ||
           isStructType(index->dtype()),
-      "Cannot index with a value other than an int.");
+      "Cannot index with a value other than an int/pointer/struct.");
 }
 
 std::string TensorIndex::toString(int indent_size) const {
@@ -217,6 +220,115 @@ std::string Allocate::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Allocate)
 
+Asm::Asm(
+    IrBuilderPasskey passkey,
+    const std::string& code,
+    const std::vector<Val*>& outputs,
+    const std::vector<Val*>& inputs,
+    const Options& options)
+    : Expr(passkey) {
+  addDataAttribute(code);
+  addDataAttribute(options);
+  for (auto out : outputs) {
+    addOutput(out);
+  }
+  for (auto in : inputs) {
+    addInput(in);
+  }
+}
+
+// Reference:
+// https://docs.nvidia.com/cuda/inline-ptx-assembly/#constraints
+
+namespace {
+
+const char* dataTypeToPTXConstraints(DataType dt) {
+  auto size = dataTypeSize(dt);
+  switch (size) {
+    case 2:
+      return "h";
+    case 4:
+      if (isFloatingPointType(dt)) {
+        return "f";
+      } else {
+        return "r";
+      }
+    case 8:
+      if (isFloatingPointType(dt)) {
+        return "d";
+      } else {
+        return "l";
+      }
+    default:
+      NVF_ERROR(
+          false, "Unsupported data type ", dt, " for inline PTX assembly.");
+  }
+}
+
+} // namespace
+
+std::vector<std::pair<std::string, Val*>> Asm::constraintsAndOutputs() const {
+  std::vector<std::pair<std::string, Val*>> result;
+  std::string prefix = "=";
+  for (auto out : outputs()) {
+    NVF_ERROR(!out->isConst());
+    result.emplace_back(prefix + dataTypeToPTXConstraints(out->dtype()), out);
+  }
+  return result;
+}
+std::vector<std::pair<std::string, Val*>> Asm::constraintsAndInputs() const {
+  std::vector<std::pair<std::string, Val*>> result;
+  for (auto in : inputs()) {
+    const char* constraint = nullptr;
+    if (in->isConst()) {
+      constraint = "n";
+    } else {
+      constraint = dataTypeToPTXConstraints(in->dtype());
+    }
+    result.emplace_back(constraint, in);
+  }
+  return result;
+}
+
+std::string Asm::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "asm";
+  if (volatile_()) {
+    ss << " volatile";
+  }
+  ss << "(\n";
+  indent(ss, indent_size + 1) << "\"" << code() << "\"\n:";
+  bool first = true;
+  for (auto out : outputs()) {
+    if (!first) {
+      ss << ",\n";
+    }
+    first = false;
+    indent(ss, indent_size + 1) << out->toString();
+  }
+  ss << "\n:";
+  first = true;
+  for (auto in : inputs()) {
+    if (!first) {
+      ss << ",\n";
+    }
+    first = false;
+    indent(ss, indent_size + 1) << in->toString();
+  }
+  if (memory()) {
+    ss << "\n:";
+    indent(ss, indent_size + 1) << "memory";
+  }
+  ss << ");";
+  return ss.str();
+}
+
+std::string Asm::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Asm op can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Asm)
+
 BlockSync::BlockSync(IrBuilderPasskey passkey, bool war_sync) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
@@ -261,6 +373,120 @@ std::string GridSync::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GridSync)
 
+MBarrierInit::MBarrierInit(
+    IrBuilderPasskey passkey,
+    Val* mbarrier,
+    Val* thread_count)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_CHECK(thread_count->dtype() == DataType::UInt32);
+  addInput(mbarrier);
+  addInput(thread_count);
+}
+
+std::string MBarrierInit::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "MBarrierInit(" << mbarrier()->toString() << ", "
+                          << threadCount()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string MBarrierInit::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "MBarrierInit can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierInit)
+
+MBarrierInvalidate::MBarrierInvalidate(IrBuilderPasskey passkey, Val* mbarrier)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  addInput(mbarrier);
+}
+
+std::string MBarrierInvalidate::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "MBarrierInvalidate(" << mbarrier()->toString()
+                          << ")\n";
+  return ss.str();
+}
+
+std::string MBarrierInvalidate::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "MBarrierInvalidate can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierInvalidate)
+
+MBarrierArrive::MBarrierArrive(
+    IrBuilderPasskey passkey,
+    Val* state,
+    Val* mbarrier)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_CHECK(state->dtype() == DataType::UInt);
+  addInput(mbarrier);
+  addOutput(state);
+}
+
+std::string MBarrierArrive::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "MBarrierArrive(" << mbarrier()->toString() << ", "
+                          << state()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string MBarrierArrive::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "MBarrierArrive can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierArrive)
+
+MBarrierArriveExpectTx::MBarrierArriveExpectTx(
+    IrBuilderPasskey passkey,
+    Val* state,
+    Val* mbarrier,
+    Val* tx_count)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_CHECK(tx_count->dtype() == DataType::UInt32);
+  addInput(mbarrier);
+  addInput(tx_count);
+  addOutput(state);
+}
+
+std::string MBarrierArriveExpectTx::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "MBarrierArriveExpectTx(" << mbarrier()->toString()
+                          << ", " << txCount()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string MBarrierArriveExpectTx::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "MBarrierArriveExpectTx can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierArriveExpectTx)
+
+MBarrierWait::MBarrierWait(IrBuilderPasskey passkey, Val* mbarrier, Val* state)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_CHECK(state->dtype() == DataType::UInt);
+  addInput(mbarrier);
+  addInput(state);
+}
+
+std::string MBarrierWait::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "MBarrierWait(" << mbarrier()->toString() << ", "
+                          << state()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string MBarrierWait::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "MBarrierWait can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierWait)
+
 CpAsyncWait::CpAsyncWait(IrBuilderPasskey passkey, int64_t keep_stages)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
@@ -272,12 +498,12 @@ CpAsyncWait::CpAsyncWait(IrBuilderPasskey passkey, int64_t keep_stages)
 
 std::string CpAsyncWait::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "CPASYNC_WAIT(" << keepStages() << ")\n";
+  indent(ss, indent_size) << "CpAsyncWait(" << keepStages() << ")\n";
   return ss.str();
 }
 
 std::string CpAsyncWait::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "CpAsyncWait can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncWait)
@@ -291,15 +517,58 @@ CpAsyncCommit::CpAsyncCommit(IrBuilderPasskey passkey) : Expr(passkey) {
 
 std::string CpAsyncCommit::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "CPASYNC_WAIT()\n";
+  indent(ss, indent_size) << "CpAsyncCommit()\n";
   return ss.str();
 }
 
 std::string CpAsyncCommit::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "CpAsyncCommit can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncCommit)
+
+CpAsyncBulkS2GWait::CpAsyncBulkS2GWait(
+    IrBuilderPasskey passkey,
+    int64_t keep_stages)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+  addDataAttribute(keep_stages);
+}
+
+std::string CpAsyncBulkS2GWait::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "CpAsyncBulkS2GWait(" << keepStages() << ")\n";
+  return ss.str();
+}
+
+std::string CpAsyncBulkS2GWait::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "CpAsyncBulkS2GWait can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncBulkS2GWait)
+
+CpAsyncBulkS2GCommit::CpAsyncBulkS2GCommit(IrBuilderPasskey passkey)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+}
+
+std::string CpAsyncBulkS2GCommit::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "CpAsyncBulkS2GCommit()\n";
+  return ss.str();
+}
+
+std::string CpAsyncBulkS2GCommit::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "CpAsyncBulkS2GCommit can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncBulkS2GCommit)
 
 InitMagicZero::InitMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
@@ -516,8 +785,8 @@ bool ForLoop::isUnrollable() const {
   // dimension, cannot be bound to a parallel dimension, must not be
   // vectorized.
   return start()->isConstScalar() && stop()->isConstScalar() &&
-      !iter_domain()->isThread() && !iter_domain()->isBroadcast() &&
-      !vectorize();
+      !iter_domain()->isThread() && !iter_domain()->isDeviceDim() &&
+      !iter_domain()->isBroadcast() && !vectorize();
 }
 
 bool ForLoop::isUnrolled() const {
@@ -591,7 +860,7 @@ bool ForLoop::isTrivial() const {
   // These loops are not materialized
   if (vectorize() || iter_domain()->isBroadcast() ||
       iter_domain()->isStride() || iter_domain()->isMma() ||
-      iter_domain()->isBulk()) {
+      iter_domain()->isBulk() || iter_domain()->isDeviceDim()) {
     return true;
   }
 
@@ -1050,9 +1319,8 @@ int GroupedGridWelford::getSmemBufferSize(int bdimx, int bdimy, int bdimz)
   for (auto axis : out_tv->getLeafDomain()) {
     auto pt = axis->getParallelType();
     if (pt == ParallelType::Group) {
-      auto extent_int = axis->extent()->getInt();
-      NVF_ERROR(extent_int.has_value());
-      group_count *= (int)extent_int.value();
+      auto extent_int = axis->extent()->value();
+      group_count *= (int)extent_int;
     }
   }
 

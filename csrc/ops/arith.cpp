@@ -354,13 +354,13 @@ TensorView* iota(Val* length, Val* start, Val* step, DataType dtype) {
 
   if (start->isConst() && start->isFloatingPointScalar()) {
     NVF_ERROR(
-        std::isfinite(start->getDouble().value()),
+        std::isfinite(start->value().as<double>()),
         "iota: length, start, step must be finite numbers.");
   }
 
   if (step->isConst() && step->isFloatingPointScalar()) {
     NVF_ERROR(
-        std::isfinite(step->getDouble().value()),
+        std::isfinite(step->value().as<double>()),
         "iota: length, start, step must be finite numbers.");
   }
 
@@ -1468,15 +1468,17 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
     auto out_id_builder = IterDomainBuilder(inp_id);
     maybe_expanded_sizes[i] = inp_domain[i]->extent();
 
-    auto expanded_size_int = expanded_sizes[i]->getInt();
+    auto expanded_size_int = expanded_sizes[i]->value();
 
     // If the expanded size is -1, let the input extent be propagated
     // as is
-    if (expanded_size_int == -1) {
+    if (expanded_size_int.hasValue() && expanded_size_int == -1) {
       // This is just done for clarity. It isn't necessary as it's
       // already done when constructing out_id_builder.
       out_id_builder.extent(inp_id->extent());
-    } else if (inp_id->isBroadcast() && expanded_size_int != 1) {
+    } else if (
+        inp_id->isBroadcast() &&
+        (!expanded_size_int.hasValue() || expanded_size_int != 1)) {
       // When input id is a broadcast, expand the extent to the given
       // size, which can be concrete or symbolic.
       expanded = true;
@@ -1493,8 +1495,8 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
       // Input id is non-expand and its extent is concrete. Nothing
       // to expand, but the input and expanded sizes should match if
       // the expanded size is also concrete.
-      auto inp_id_size_int = inp_id->extent()->evaluateInt();
-      if (expanded_size_int.has_value()) {
+      auto inp_id_size_int = inp_id->extent()->evaluate();
+      if (expanded_size_int.is<int64_t>()) {
         NVF_CHECK(
             inp_id_size_int == expanded_size_int,
             "Invalid expand size, ",
@@ -1618,7 +1620,7 @@ Val* size(TensorView* inp, int64_t dim) {
   return iter_domains.at(idx)->getMaybeExpandedExtent();
 }
 
-Val* at(std::vector<Val*>& inp, int64_t index) {
+Val* at(const std::vector<Val*>& inp, int64_t index) {
   auto idx = index;
   if (idx < 0) {
     idx = static_cast<int64_t>(inp.size()) + idx;
@@ -2379,7 +2381,7 @@ TensorView* gather(
         inp_axis->stopOffset()->isConstInt(),
         "Dynamic stop offset not supported: ",
         inp_axis);
-    const auto inp_stop_offset = inp_axis->stopOffset()->evaluateInt();
+    const auto inp_stop_offset = inp_axis->stopOffset()->evaluate();
     const auto extent_adjustment = window_dim - 1 - pad_left - pad_right;
     NVF_CHECK(
         extent_adjustment >= 0,
