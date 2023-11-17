@@ -263,4 +263,89 @@ TEST_F(AliasTest, ViewPermute) {
   testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
+TEST_F(AliasTest, DuplicateOutputs) {
+  // testing a complete fusion
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const std::vector<int64_t> in_shape({2, 3, 4});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  fusion->addInput(in);
+  TensorView* out = add(in, IrBuilder::create<Val>(3.141));
+  fusion->addOutput(out);
+  fusion->addOutput(out); // duplicated outputs
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  ASSERT_EQ(out_tensors.size(), 2);
+  at::Tensor out_tensor_0 = out_tensors[0];
+  at::Tensor out_tensor_1 = out_tensors[1];
+
+  // Verify aliasing among duplicated outputs
+  EXPECT_TRUE(out_tensor_0.is_alias_of(out_tensor_1));
+  // Verify no segmentation
+  NVF_CHECK(
+      !fec.getMostRecentKernelRuntime()->isSegmented(),
+      "segmentation is not supposed to happen");
+
+  at::Tensor expected_out_tensor = in_tensor.add(3.141);
+  // Verify output values.
+  testValidate(
+      fec.fusion(),
+      {expected_out_tensor, expected_out_tensor},
+      {in_tensor},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(AliasTest, DuplicateOutputsSegmentedFusion) {
+  // testing duplicated output in segmented fusion
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const std::vector<int64_t> in_shape({2, 3, 4});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  fusion->addInput(in);
+  TensorView* intermediate_tv = add(in, IrBuilder::create<Val>(3.141));
+  TensorView* segment_tv = segment_set(intermediate_tv);
+  TensorView* out = mul(segment_tv, IrBuilder::create<Val>(2.0));
+
+  fusion->addOutput(intermediate_tv);
+  fusion->addOutput(intermediate_tv);
+  fusion->addOutput(out);
+  fusion->addOutput(out); // duplicated outputs
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn(in_shape, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  ASSERT_EQ(out_tensors.size(), 4);
+  at::Tensor out_tensor_0 = out_tensors[0];
+  at::Tensor out_tensor_1 = out_tensors[1];
+  at::Tensor out_tensor_2 = out_tensors[2];
+  at::Tensor out_tensor_3 = out_tensors[3];
+
+  // Verify aliasing among duplicated outputs
+  EXPECT_TRUE(out_tensor_0.is_alias_of(out_tensor_1));
+  EXPECT_TRUE(out_tensor_2.is_alias_of(out_tensor_3));
+  // Verify segmentation
+  NVF_CHECK(
+      fec.getMostRecentKernelRuntime()->fusionSegments()->groups().size() == 2,
+      "segmentation didn't happen as expected");
+
+  at::Tensor intermediate_tensor = in_tensor.add(3.141);
+  at::Tensor out_tensor = intermediate_tensor.mul(2.0);
+  // Verify output values.
+  testValidate(
+      fec.fusion(),
+      {intermediate_tensor, intermediate_tensor, out_tensor, out_tensor},
+      {in_tensor},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser
