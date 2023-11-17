@@ -459,7 +459,11 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       return {in.as<at::Tensor>().cos()};
       break;
     case UnaryOpType::BitCast:
-      return {in.as<at::Tensor>().view(data_type_to_aten(out()->dtype()))};
+      if (isComplexType(input(0)->dtype()) && !isComplexType(out()->dtype())){
+        return {at::view_as_real(in.as<at::Tensor>())};
+      } else {
+        return {in.as<at::Tensor>().view(data_type_to_aten(out()->dtype()))};
+      }
       break;
     case UnaryOpType::Rsqrt:
       return {in.as<at::Tensor>().rsqrt()};
@@ -707,8 +711,13 @@ std::vector<PolymorphicValue> TernaryOp::evaluate(
       return {(a <= b) ? c : a};
       break;
     case TernaryOpType::Where:
+      using namespace PolymorphicValue_functions;
       if (a.is<at::Tensor>()){
-        return {at::where(a.as<at::Tensor>().to(at::kBool), b.as<at::Tensor>(), c.as<at::Tensor>())};
+        return {at::where(
+          a.as<at::Tensor>().to(at::kBool), 
+          toTensor(b).as<at::Tensor>(), 
+          toTensor(c).as<at::Tensor>())
+        };
       }
       return {a.as<bool>() ? b : c};
       break;
