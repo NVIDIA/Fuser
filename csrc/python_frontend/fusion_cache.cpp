@@ -152,7 +152,7 @@ const serde::FusionCache* verifyFusionCache(
 } // namespace
 
 void serialize() {
-  auto tmp_file_path = getSerdeFilePath(getSerdeTmpFile()).native();
+  auto tmp_file_path = getSerdeFilePath(getSerdeTmpFile());
   FusionCache::get()->serialize(tmp_file_path);
 
   // Save to a per-process temporary file to avoid multi-process contention.
@@ -161,13 +161,17 @@ void serialize() {
   // Files replaced through this process should remain extant if they are being
   // read because of UNIX filesystem properties, but this behavior is
   // unverified.
-  auto file_path = getSerdeFilePath(getSerdeFile()).native();
-  if (std::rename(tmp_file_path.c_str(), file_path.c_str()) != 0) {
+  auto file_path = getSerdeFilePath(getSerdeFile());
+  std::error_code rename_ec;
+  fs::rename(tmp_file_path, file_path, rename_ec);
+
+  // Failed to replace common workspace, so remove the temporary file.
+  if (rename_ec) {
     try {
       fs::remove(tmp_file_path);
       std::cout
-          << "Removed temporary file because we could not replace common workspace."
-          << std::endl;
+          << "Removed temporary file because we could not replace common workspace. Exception:\t"
+          << rename_ec.message() << std::endl;
     } catch (const std::exception& e) {
       std::cout << "Failed to delete temporary file. Exception:\t" << e.what()
                 << std::endl;
