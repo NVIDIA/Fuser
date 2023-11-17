@@ -311,25 +311,26 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       nvrtc_register_per_thread = buffer_reg_per_thread;
       occupancy_achieved = false;
     }
-
+    int64_t blocks_per_sm = getThreadsPerSMGivenRegPerThread(nvrtc_register_per_thread) / (warps_per_block*dev_prop->warpSize);
     return std::make_tuple(
-        bdimx_val, bdimy_val, nvrtc_register_per_thread, occupancy_achieved);
+        bdimx_val, bdimy_val, nvrtc_register_per_thread, blocks_per_sm, occupancy_achieved);
   };
   // calculate occupancy, if it is lower than 50%, try reduce [persistent_val]
+  if (warps_after_vect % persistent_val != 0) {
+    persistent_val = persistent_min;
+  }
   auto
       [bdimx_val,
        bdimy_val,
        nvrtc_register_per_thread,
        occupancy_50p_achieved] = getParasUsingPersistentVal(persistent_val);
-  if (warps_after_vect % persistent_val != 0) {
-    while (persistent_val > persistent_min && !occupancy_50p_achieved) {
-      std::tie(
-          bdimx_val,
-          bdimy_val,
-          nvrtc_register_per_thread,
-          occupancy_50p_achieved) = getParasUsingPersistentVal(persistent_val);
-      persistent_val--;
-    }
+  while (persistent_val < persistent_max && !occupancy_50p_achieved) {
+    std::tie(
+        bdimx_val,
+        bdimy_val,
+        nvrtc_register_per_thread,
+        occupancy_50p_achieved) = getParasUsingPersistentVal(persistent_val);
+    persistent_val++;
   }
 
   // (5) iteration dim, set [gdimx] and maybe also [bdimy]
