@@ -90,10 +90,10 @@ enum class AliasType : int {
   // For example, the tensor storing BatchNorm's running mean. The output EMA is
   // updated in place.
   InplaceUpdate,
-  // For example, the output of a ViewOp is merely a pointer cast of the input.
-  // In this case, we use `ExpressionEvaluator` (instead of a kernel) to compute
-  // the output tensor.
-  PointerCast,
+  // For example, the output of a ViewOp is merely a pointer arithmetic of the
+  // input.  In this case, we use `ExpressionEvaluator` (instead of a kernel) to
+  // cheaply compute the output tensor.
+  PointerArithmetic,
 };
 
 struct AliasInfo {
