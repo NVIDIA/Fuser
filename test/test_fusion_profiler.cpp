@@ -21,11 +21,10 @@
 
 namespace nvfuser {
 
-namespace {
-
-class ProfilingOptsManager {
- public:
-  ProfilingOptsManager() {
+class FusionProfilerTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
     if (ProfilerOptionsGuard::getCurOptions().hasAny()) {
       const auto& current_profiling_opts =
           ProfilerOptionsGuard::getCurOptions();
@@ -41,7 +40,8 @@ class ProfilingOptsManager {
       }
     }
   }
-  ~ProfilingOptsManager() {
+
+  void TearDown() override {
     if (ProfilerOptionsGuard::getCurOptions().hasAny() ||
         !stored_data_.empty()) {
       auto& current_profiling_opts = ProfilerOptionsGuard::getCurOptions();
@@ -59,6 +59,7 @@ class ProfilingOptsManager {
         }
       }
     }
+    NVFuserTest::TearDown();
   }
 
  private:
@@ -66,14 +67,9 @@ class ProfilingOptsManager {
   // NOTE: the same type as the type of storage in nvfuser::Options
   std::map<ProfilerOption, std::vector<std::string>> stored_data_;
 };
-} // anonymous namespace
-
-class FusionProfilerTest : public NVFuserTest {};
 
 // RUN CMD: bin/nvfuser_tests --gtest_filter="*Profile1Segment*"
 TEST_F(FusionProfilerTest, Profile1Segment) {
-  ProfilingOptsManager prof_opts_mngr;
-  (void)prof_opts_mngr;
   try {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
@@ -127,8 +123,6 @@ TEST_F(FusionProfilerTest, Profile1Segment) {
 }
 
 TEST_F(FusionProfilerTest, ProfileNocupti1Segment) {
-  ProfilingOptsManager prof_opts_mngr;
-  (void)prof_opts_mngr;
   try {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
@@ -169,8 +163,6 @@ TEST_F(FusionProfilerTest, ProfileNocupti1Segment) {
 }
 
 TEST_F(FusionProfilerTest, Profile3Segments) {
-  ProfilingOptsManager prof_opts_mngr;
-  (void)prof_opts_mngr;
   try {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
