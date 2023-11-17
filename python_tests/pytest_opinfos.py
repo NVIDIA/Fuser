@@ -1026,7 +1026,7 @@ squeeze_opinfo = OpInfo(
     lambda fd: fd.ops.squeeze,
     "squeeze",
     sample_input_generator=squeeze_generator,
-    #error_input_generator=squeeze_error_generator,
+    error_input_generator=squeeze_error_generator,
     reference=torch.squeeze,
     symbolic_parameter_list=(
         ArgumentType.Symbolic,

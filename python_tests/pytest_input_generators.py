@@ -1260,6 +1260,7 @@ def squeeze_generator(
         a = make_arg(shape)
         yield SampleInput(a, squeeze_dims)
 
+
 def squeeze_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
@@ -1269,22 +1270,19 @@ def squeeze_error_generator(
 
     # shape, start_indices, end_indices
     cases = (
-        ((5, 1, 1), (1, 2)),
-        ((5, 1, 1), (-2, -1)),
-        ((5, 1, 1), (2, 1)),
-        ((5, 1, 1), (-1, -2)),
-        ((1, 5, 1), (0, 2)),
-        ((1, 5, 1), (-3, -1)),
-        ((1, 1, 5), (0, 1)),
-        ((1, 1, 5), (-3, -2)),
-        ((5, 5, 5), ()),
-        ((1, 1, 1), (0, 1, 2)),
-        ((1, 1, 1), (-3, -2, -1)),
+        ((5, 1, 1), (-4, -5)),  # Dims are completely outside of tensor dims
+        ((5, 1, 1), (3, 4)),
+        ((5, 1, 1), (-3, -4)),  # One dim in range, one dim out of range
+        ((5, 1, 1), (2, 3)),
+        ((), (0,)),  # Try an empty tensor
+        ((), (-1,)),
     )
 
+    error_type = RuntimeError
+    error_str = "Squeeze dim is outside of Tensor size!"
     for shape, squeeze_dims in cases:
         a = make_arg(shape)
-        yield SampleInput(a, squeeze_dims)
+        yield SampleInput(a, squeeze_dims), error_type, error_str
 
 
 def take_along_axis_generator(
