@@ -455,6 +455,15 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::Sin:
       return {in.as<at::Tensor>().sin()};
       break;
+    case UnaryOpType::Cos:
+      return {in.as<at::Tensor>().cos()};
+      break;
+    case UnaryOpType::BitCast:
+      return {in.as<at::Tensor>().view(data_type_to_aten(out()->dtype()))};
+      break;
+    case UnaryOpType::Rsqrt:
+      return {in.as<at::Tensor>().rsqrt()};
+      break;
     default:
       NVF_CHECK(
           false,
@@ -698,6 +707,9 @@ std::vector<PolymorphicValue> TernaryOp::evaluate(
       return {(a <= b) ? c : a};
       break;
     case TernaryOpType::Where:
+      if (a.is<at::Tensor>()){
+        return {at::where(a.as<at::Tensor>().to(at::kBool), b.as<at::Tensor>(), c.as<at::Tensor>())};
+      }
       return {a.as<bool>() ? b : c};
       break;
     default:
