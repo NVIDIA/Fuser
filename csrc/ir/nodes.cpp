@@ -2920,6 +2920,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
                                                      : nullptr)
           .parallel_type(in->getParallelType())
           .iter_type(in->getIterType())
+          .is_rfactor_domain(rfactor_domain)
           .build();
 
   // inner loop IterDomain
@@ -2950,10 +2951,12 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
     IterDomain* in,
     Val* factor,
     bool inner_split,
-    bool trim_out_of_bounds) {
+    bool trim_out_of_bounds,
+    bool rfactor_domain) {
   auto start_offset = trim_out_of_bounds ? in->start() : nullptr;
   auto stop_offset = trim_out_of_bounds ? in->stopOffset() : nullptr;
-  return IterDomain::split(in, factor, inner_split, start_offset, stop_offset);
+  return IterDomain::split(
+      in, factor, inner_split, start_offset, stop_offset, rfactor_domain);
 }
 
 std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {

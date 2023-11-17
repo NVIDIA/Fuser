@@ -271,7 +271,7 @@ class SplitTransform final : public ViewTransform {
         "Didn't expect to apply view transformations on an iter domain",
         " starting at a non-zero position.");
 
-    auto& [factor_id, remainder_id] = IterDomain::split(
+    auto [factor_id, remainder_id] = IterDomain::split(
         id,
         factor,
         /*inner_split*/ false,
