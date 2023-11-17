@@ -2811,7 +2811,15 @@ std::vector<IterDomain*> IterDomain::clone(
 // domains is enforced by predicates. Note that since only root
 // domains have valid start and stop, it's not possible to contiguous
 // predication.
-IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
+IterDomain* IterDomain::merge(
+    IterDomain* outer,
+    IterDomain* inner,
+    bool rfactor_domain) {
+  NVF_ERROR(
+      outer->start()->isZeroInt() && inner->start()->isZeroInt(),
+      "Didn't expect to apply view transformations on an iter domain",
+      " starting at a non-zero position.");
+
   NVF_CHECK(
       outer->isReduction() == inner->isReduction(),
       "Merging IterDomains requires that their iteration types match. ",
@@ -2872,6 +2880,7 @@ IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
           .parallel_type(outer->getParallelType())
           .expanded_extent(expanded_extent)
           .iter_type(itype)
+          .is_rfactor_domain(rfactor_domain)
           .build();
 
   IrBuilder::create<Merge>(outer->container(), merged_id, outer, inner);

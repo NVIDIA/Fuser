@@ -206,19 +206,8 @@ class MergeTransform final : public ViewTransform {
       inner_id = replaceRootIdWithRFactor(root_domain, inner_id);
     }
 
-    NVF_ERROR(
-        outer_id->start()->isZeroInt() && inner_id->start()->isZeroInt(),
-        "Didn't expect to apply view transformations on an iter domain",
-        " starting at a non-zero position.");
-
-    auto merged_extent = mul(outer_id->extent(), inner_id->extent());
-
     auto new_merged_id =
-        IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), merged_extent)
-            .is_rfactor_domain(true)
-            .build();
-
-    IrBuilder::create<Merge>(new_merged_id, outer_id, inner_id);
+        IterDomain::merge(outer_id, inner_id, /*rfactor_domain*/ true);
 
     current_transformed_domain.erase(
         current_transformed_domain.begin() + index_);
