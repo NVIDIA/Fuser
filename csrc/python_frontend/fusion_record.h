@@ -582,14 +582,12 @@ struct SqueezeOpRecord : RecordFunctor {
   SqueezeOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      std::vector<int64_t> original_shape,
       std::vector<int64_t> dims)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "ops.squeeze",
             serde::RecordType::SqueezeOp),
-        original_shape_(std::move(original_shape)),
         dims_(std::move(dims)) {}
   ~SqueezeOpRecord() override = default;
   RecordFunctor* clone() final {
@@ -597,69 +595,53 @@ struct SqueezeOpRecord : RecordFunctor {
   }
 
   //! Child specific hash function in lower 32 bits.
-  //! | 31 -------------- 16 | 15 --------------  0 |
-  //! | Squeeze Dim hash     | original_shape hash  |
+  //! | 31 -------------------------------------  0 |
+  //! | Squeeze Dim hash                            |
   size_t hash() const final {
     auto result = RecordFunctor::hash();
-    size_t original_shape_hash = 0;
-    for (auto shape : original_shape_) {
-      original_shape_hash ^= static_cast<size_t>(shape);
-    }
     size_t squeeze_dims_hash = 0;
     for (auto dim : dims_) {
       squeeze_dims_hash ^= static_cast<size_t>(dim);
     }
-    squeeze_dims_hash = (squeeze_dims_hash & 0xffff) << 16;
-    return result | squeeze_dims_hash | (original_shape_hash & 0xffff);
+    result = result | (squeeze_dims_hash & 0xffffffff);
+    return result;
   }
 
   bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const SqueezeOpRecord*>(&other)) {
-      result = RecordFunctor::operator==(other);
-      if (result) {
-        result = (original_shape_.size() == child_ptr->original_shape_.size());
-        if (result) {
-          for (size_t i = 0; i < dims_.size(); ++i) {
-            if (dims_[i] != child_ptr->dims_[i]) {
-              result = false;
-              break;
-            }
-          }
-        }
-        if (result) {
-          for (size_t i = 0; i < original_shape_.size(); ++i) {
-            if (original_shape_[i] != child_ptr->original_shape_[i]) {
-              result = false;
-              break;
-            }
-          }
-        }
-      }
+      result = RecordFunctor::operator==(other) && (dims_ == child_ptr->dims_);
     }
     return result;
   }
 
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    auto output = squeeze(arg, original_shape_, dims_);
+    const auto inp_dom =
+        TensorDomain::noReductions(arg->getMaybeRFactorDomain());
+    const auto ndims = inp_dom.size();
+    std::vector<bool> squeeze_dims(ndims, false);
+    for (auto dim : dims_) {
+      // Handle negative relative to the end dimensions specifications
+      if (dim < 0) {
+        dim = static_cast<int64_t>(squeeze_dims.size()) + dim;
+      }
+      NVF_CHECK(
+          (dim >= 0) && (static_cast<size_t>(dim) < squeeze_dims.size()),
+          "Squeeze dim is outside of Tensor size! Tensor Size: ",
+          squeeze_dims.size(),
+          " Dim: ",
+          dim);
+      squeeze_dims[dim] = true;
+    }
+    auto output = squeeze(arg, squeeze_dims);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
-    os << ", original_shape=[";
+    os << ", dims=[";
     bool first_arg = true;
-    for (auto shape : original_shape_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      os << shape;
-    }
-    os << "], dims=[";
-    first_arg = true;
     for (auto dim : dims_) {
       if (first_arg) {
         first_arg = false;
@@ -678,12 +660,10 @@ struct SqueezeOpRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData::Squeeze,
-        serde::CreateSqueezeDirect(builder, &original_shape_, &dims_).Union()};
+        serde::CreateSqueezeDirect(builder, &dims_).Union()};
   }
 
  private:
-  //! Represents the tensor dimensions of the input tensor.
-  std::vector<int64_t> original_shape_;
   //! Dimension to squeeze.
   std::vector<int64_t> dims_;
 };

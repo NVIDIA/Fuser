@@ -303,7 +303,6 @@ table Slice {
 
 // Data for SqueezeOpRecord
 table Squeeze {
-  original_shape: [long];
   squeeze_dims: [long];
 }
 
