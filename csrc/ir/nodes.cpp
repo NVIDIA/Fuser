@@ -2815,11 +2815,6 @@ IterDomain* IterDomain::merge(
     IterDomain* outer,
     IterDomain* inner,
     bool rfactor_domain) {
-  NVF_ERROR(
-      outer->start()->isZeroInt() && inner->start()->isZeroInt(),
-      "Didn't expect to apply view transformations on an iter domain",
-      " starting at a non-zero position.");
-
   NVF_CHECK(
       outer->isReduction() == inner->isReduction(),
       "Merging IterDomains requires that their iteration types match. ",

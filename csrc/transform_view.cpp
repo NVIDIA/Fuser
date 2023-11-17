@@ -206,6 +206,11 @@ class MergeTransform final : public ViewTransform {
       inner_id = replaceRootIdWithRFactor(root_domain, inner_id);
     }
 
+    NVF_ERROR(
+        outer_id->start()->isZeroInt() && inner_id->start()->isZeroInt(),
+        "Didn't expect to apply view transformations on an iter domain",
+        " starting at a non-zero position.");
+
     auto new_merged_id =
         IterDomain::merge(outer_id, inner_id, /*rfactor_domain*/ true);
 
@@ -266,23 +271,13 @@ class SplitTransform final : public ViewTransform {
         "Didn't expect to apply view transformations on an iter domain",
         " starting at a non-zero position.");
 
-    Val* remainder = ceilDiv(id->extent(), factor);
-
-    // outer loop IterDomain
-    IterDomain* factor_id =
-        IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), factor)
-            .parallel_type(id->getParallelType())
-            .iter_type(id->getIterType())
-            .is_rfactor_domain(true)
-            .build();
-
-    // inner loop IterDomain
-    IterDomain* remainder_id =
-        IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), remainder)
-            .is_rfactor_domain(true)
-            .build();
-
-    IrBuilder::create<Split>(factor_id, remainder_id, id, factor, false);
+    auto& [factor_id, remainder_id] = IterDomain::split(
+        id,
+        factor,
+        /*inner_split*/ false,
+        /*start_offset*/ nullptr,
+        /*stop_offset*/ nullptr,
+        /*rfactor_domain*/ true);
 
     current_transformed_domain.erase(
         current_transformed_domain.begin() + index_);

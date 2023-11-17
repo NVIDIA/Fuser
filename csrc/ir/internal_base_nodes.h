@@ -123,7 +123,7 @@ class IterDomain : public Val {
   static IterDomain* merge(
       IterDomain* outer,
       IterDomain* inner,
-      bool rfactor_domain);
+      bool rfactor_domain = false);
 
   //! start_offset and stop_offset defines partial split. Only root
   //! domains are allowed to have non-zero start and stop offsets.
@@ -132,7 +132,8 @@ class IterDomain : public Val {
       Val* factor,
       bool inner_split,
       Val* start_offset = nullptr,
-      Val* stop_offset = nullptr);
+      Val* stop_offset = nullptr,
+      bool rfactor_domain = false);
 
   //! trim_out_of_bounds controls how the values outside start and stop
   //! positions are treated. The option is only valid with root
@@ -144,7 +145,8 @@ class IterDomain : public Val {
       IterDomain* in,
       Val* factor,
       bool inner_split,
-      bool trim_out_of_bounds);
+      bool trim_out_of_bounds,
+      bool rfactor_domain = false);
 
   //! Resize an IterDomain by expanding both the left and right sides
   //! by given widths. The resulting IterDomain has an extent of
