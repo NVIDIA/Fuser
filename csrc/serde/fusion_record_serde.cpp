@@ -404,7 +404,7 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(RecordType::Scalar, deserializeScalarRecord);
 
   auto deserializeFullRecord = [](const RecordFunctor* buffer) {
-    auto data = buffer->data_as_TensorCreation();
+    auto data = buffer->data_as_TensorCreationSymbolic();
     return new python_frontend::FullOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),

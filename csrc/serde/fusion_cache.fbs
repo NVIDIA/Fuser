@@ -116,7 +116,6 @@ union RecordData {
   Scalar,
   Size,
   Tensor,
-  TensorCreation,
   TensorCreationSymbolic,
   Vector,
 }
@@ -314,13 +313,6 @@ table Tensor {
   stride_order: [long];
   dtype: long;
   is_cpu: bool;
-}
-
-// Data for FullOpRecord
-// The shape is defined with constant numbers.
-table TensorCreation {
-  shape: [long];
-  dtype: long;
 }
 
 // Data for RandomDistOpRecord
