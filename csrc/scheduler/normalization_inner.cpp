@@ -183,7 +183,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     const int64_t total_iteration_numel,
     const int64_t max_persistent_buffer_size,
     const size_t max_vectorize_factor,
-    const bool has_rng_ops = false) {
+    const bool has_rng_ops) {
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
 
   // Some assumptions
@@ -216,32 +216,62 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       max_vectorize_factor);
   int64_t vectorization_val = max_vectorize_factor;
   int64_t after_vect = total_reduction_numel / vectorization_val;
+  int64_t warps_after_vect = ceilDiv(after_vect, dev_prop->warpSize);
 
   // (2) reduction dim, set [persistent]
   // start with max val, then reduce to range
   // [persistent_min,persistent_experiment_max], prioritize a val divisible by
   // [warps_after_vect], can't be smaller than [persistent_min] to avoid bdimx
   // larger than maxThreadsPerBlock.
+
   int64_t bdimx_min = std::min((int64_t)after_vect, min_threads_per_block);
   int64_t bdimx_max = dev_prop->maxThreadsPerBlock;
   int64_t persistent_min = ceilDiv(after_vect, bdimx_max);
-  int64_t persistent_max = ceilDiv(after_vect, bdimx_min);
-  int64_t persistent_val = persistent_max;
+  int64_t persistent_max = std::max(persistent_experiment_max, persistent_min);
+  int64_t persistent_val =
+      has_rng_ops ? after_vect / bdimx_min : ceilDiv(after_vect, bdimx_min);
+  ;
   if (persistent_val > persistent_experiment_max) {
-    persistent_val = std::max(persistent_experiment_max, persistent_min);
-    // try to use a divisible persistent_val, e.g. after_vect = 9*32, we want
-    // persistent_val to be 3 instead of 5 or 4.
-    // if (after_vect % dev_prop->warpSize == 0) {
-    //   int64_t warps_after_vect = after_vect / dev_prop->warpSize;
-    //   int64_t p_divisible_min = std::max(persistent_min, 2l);
-    //   for (int64_t p = persistent_val; p >= p_divisible_min; p--) {
-    //     if (warps_after_vect % p == 0) {
-    //       persistent_val = p;
-    //       break;
-    //     }
-    //   }
-    // }
+    persistent_val = persistent_experiment_max;
   }
+  if (persistent_val < persistent_min) {
+    persistent_val = persistent_min;
+  }
+  // if not divisible, try to reduce 1, e.g. 1280/8/32 = 5, perfer
+  // persistent_val to be 1 instead of 2. since 2 is not divisible by 5. Latency
+  // for dropout_layernorm reduced from 31 us to 24 us on A100.
+  if (warps_after_vect % persistent_val != 0) {
+    auto maybeChangeBy = [&](int x) {
+      if ((warps_after_vect % (persistent_val + x) == 0) &&
+          (persistent_val + x <= persistent_max) &&
+          (persistent_val + x >= persistent_min)) {
+        return true;
+      } else {
+        return false;
+      }
+    };
+    for (auto x : {-1, -2, -3, 1}) {
+      if (maybeChangeBy(x)) {
+        persistent_val += x;
+        break;
+      }
+    }
+  }
+  // If still not divisible after previous adjust, set to persistent_min
+  if (warps_after_vect % persistent_val != 0){
+    persistent_val = persistent_min;
+  }
+  // try to use a divisible persistent_val, e.g. after_vect = 9*32, we want
+  // persistent_val to be 3 instead of 5 or 4.
+  // if (after_vect % dev_prop->warpSize == 0) {
+  //   int64_t p_divisible_min = std::max(persistent_min, 2l);
+  //   for (int64_t p = persistent_val; p >= p_divisible_min; p--) {
+  //     if (warps_after_vect % p == 0) {
+  //       persistent_val = p;
+  //       break;
+  //     }
+  //   }
+  // }
 
   // (3) reduction dim, set [bdimx]
   int64_t bdimx_val = ceilDiv(after_vect, persistent_val);
@@ -305,11 +335,12 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   }
   std::cout << "total_reduction_numel= " << total_reduction_numel
             << ", persistent_val= " << persistent_val
+            << ", persistent_min= " << persistent_min
+            << ", persistent_max= " << persistent_max
             << ", occupancy_reg_per_thread= " << occupancy_reg_per_thread
             << ", buffer_reg_per_thread= " << buffer_reg_per_thread
             << ", nvrtc_register_per_thread= " << nvrtc_register_per_thread
-            << ", occupancy_achieved= " << occupancy_achieved
-            << std::endl;
+            << ", occupancy_achieved= " << occupancy_achieved << std::endl;
   // results
   auto rparams = std::make_shared<ReductionParams>();
   rparams->cparams.maxrregcount = (int)nvrtc_register_per_thread;
@@ -431,7 +462,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const int64_t n_tensor_inputs,
     const int64_t max_input_dtype_size,
     const int64_t max_persistent_buffer_size,
-    const size_t vectorize_factor) {
+    const size_t vectorize_factor,
+    const bool has_rng_op) {
   if (max_persistent_buffer_size > scheduler_utils::register_file_size) {
     // use shared memory for persistent buffer
     return innerPersistentHeuristicSharedMemory(
@@ -449,7 +481,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
           total_reduction_numel,
           total_iteration_numel,
           max_persistent_buffer_size,
-          vectorize_factor);
+          vectorize_factor,
+          has_rng_op);
     }
   }
   // Set some targets for parallelization
@@ -986,6 +1019,8 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
           data_cache,
           InnerPersistentKernelScheduler::heuristicType());
 
+  bool has_rng_op = ir_utils::hasOpsOfType<RNGOp>(fusion);
+
   std::shared_ptr<ReductionParams> rparams = innerPersistentHeuristic(
       prop.total_reduction_numel,
       prop.total_iteration_numel,
@@ -993,7 +1028,8 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
       prop.n_tensor_inputs,
       prop.max_dtype_size,
       prop.max_persistent_buffer_size,
-      prop.vectorize_factor);
+      prop.vectorize_factor,
+      has_rng_op);
   rparams->project_persistent_buffers = prop.project_persistent_buffers;
   rparams->cparams.index_type = runtime_info.getIndexType();
   // If there are more than 1 persistent batches, needs special
