@@ -2891,7 +2891,8 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
     Val* factor,
     bool inner_split,
     Val* start_offset,
-    Val* stop_offset) {
+    Val* stop_offset,
+    bool rfactor_domain) {
   NVF_CHECK(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
@@ -2930,6 +2931,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
                                                       : nullptr)
           .parallel_type(in->getParallelType())
           .iter_type(in->getIterType())
+          .is_rfactor_domain(rfactor_domain)
           .build();
 
   IrBuilder::create<Split>(
