@@ -832,14 +832,8 @@ class TestNvFuserFrontend(TestCase):
             t0 = fd.define_tensor(shape=[-1], contiguity=[True])
             t1 = fd.define_tensor(sizes=t1_sizes, strides=[4, 1, 1])
             t2 = fd.define_tensor(sizes=t2_sizes, strides=[4, 4, 1])
-            t3 = fd.ops.squeeze(t1, t1_sizes, [0, -1])
-            t4 = fd.ops.squeeze(
-                t2,
-                t2_sizes,
-                [
-                    -2,
-                ],
-            )
+            t3 = fd.ops.squeeze(t1, [0, -1])
+            t4 = fd.ops.squeeze(t2, [-2])
             t5 = fd.ops.sum(t4, [0])
             t6 = fd.ops.mul(t0, t3)
             t7 = fd.ops.mul(t6, t5)

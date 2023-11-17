@@ -41,6 +41,8 @@ from pytest_input_generators import (
     reshape_error_generator,
     slice_generator,
     slice_error_generator,
+    squeeze_generator,
+    squeeze_error_generator,
     take_along_axis_generator,
     take_along_axis_error_generator,
     tensor_size_error_generator,
@@ -1019,6 +1021,19 @@ slice_opinfo = OpInfo(
     reference_type=ReferenceType.Jax,
 )
 shape_ops.append(slice_opinfo)
+
+squeeze_opinfo = OpInfo(
+    lambda fd: fd.ops.squeeze,
+    "squeeze",
+    sample_input_generator=squeeze_generator,
+    #error_input_generator=squeeze_error_generator,
+    reference=torch.squeeze,
+    symbolic_parameter_list=(
+        ArgumentType.Symbolic,
+        ArgumentType.Constant,
+    ),
+)
+shape_ops.append(squeeze_opinfo)
 
 take_along_axis_opinfo = OpInfo(
     lambda fd: fd.ops.take_along_axis,

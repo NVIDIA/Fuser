@@ -1233,6 +1233,60 @@ def slice_error_generator(
         yield SampleInput(input_tensor, **es.kwargs), es.ex_type, es.ex_str
 
 
+def squeeze_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    # shape, squeeze_dims
+    cases = (
+        ((5, 1, 1), (1, 2)),
+        ((5, 1, 1), (-2, -1)),
+        ((5, 1, 1), (2, 1)),
+        ((5, 1, 1), (-1, -2)),
+        ((1, 5, 1), (0, 2)),
+        ((1, 5, 1), (-3, -1)),
+        ((1, 1, 5), (0, 1)),
+        ((1, 1, 5), (-3, -2)),
+        ((5, 5, 5), ()),
+        ((1, 1, 1), ()),
+        ((1, 1, 1), (0, 1, 2)),
+        ((1, 1, 1), (-3, -2, -1)),
+    )
+
+    for shape, squeeze_dims in cases:
+        a = make_arg(shape)
+        yield SampleInput(a, squeeze_dims)
+
+def squeeze_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    # shape, start_indices, end_indices
+    cases = (
+        ((5, 1, 1), (1, 2)),
+        ((5, 1, 1), (-2, -1)),
+        ((5, 1, 1), (2, 1)),
+        ((5, 1, 1), (-1, -2)),
+        ((1, 5, 1), (0, 2)),
+        ((1, 5, 1), (-3, -1)),
+        ((1, 1, 5), (0, 1)),
+        ((1, 1, 5), (-3, -2)),
+        ((5, 5, 5), ()),
+        ((1, 1, 1), (0, 1, 2)),
+        ((1, 1, 1), (-3, -2, -1)),
+    )
+
+    for shape, squeeze_dims in cases:
+        a = make_arg(shape)
+        yield SampleInput(a, squeeze_dims)
+
+
 def take_along_axis_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
