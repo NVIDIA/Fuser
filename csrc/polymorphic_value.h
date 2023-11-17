@@ -374,7 +374,7 @@ inline PolymorphicValue toTensor(
 }
 
 // Convert PolymorphicValue to c10::Scalar.
-inline c10::Scalar toScalar (const PolymorphicValue& x) {
+inline c10::Scalar toScalar(const PolymorphicValue& x) {
   if (x.is<std::complex<double>>()) {
     return (c10::complex<double>)x.as<std::complex<double>>();
   } else {
