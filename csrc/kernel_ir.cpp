@@ -785,8 +785,8 @@ bool ForLoop::isUnrollable() const {
   // dimension, cannot be bound to a parallel dimension, must not be
   // vectorized.
   return start()->isConstScalar() && stop()->isConstScalar() &&
-      !iter_domain()->isThread() && !iter_domain()->isBroadcast() &&
-      !vectorize();
+      !iter_domain()->isThread() && !iter_domain()->isDeviceDim() &&
+      !iter_domain()->isBroadcast() && !vectorize();
 }
 
 bool ForLoop::isUnrolled() const {
@@ -860,7 +860,7 @@ bool ForLoop::isTrivial() const {
   // These loops are not materialized
   if (vectorize() || iter_domain()->isBroadcast() ||
       iter_domain()->isStride() || iter_domain()->isMma() ||
-      iter_domain()->isBulk()) {
+      iter_domain()->isBulk() || iter_domain()->isDeviceDim()) {
     return true;
   }
 
