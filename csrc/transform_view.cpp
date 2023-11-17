@@ -274,10 +274,10 @@ class SplitTransform final : public ViewTransform {
     auto [factor_id, remainder_id] = IterDomain::split(
         id,
         factor,
-        /*inner_split*/ false,
-        /*start_offset*/ nullptr,
-        /*stop_offset*/ nullptr,
-        /*rfactor_domain*/ true);
+        /*inner_split=*/false,
+        /*start_offset=*/nullptr,
+        /*stop_offset=*/nullptr,
+        /*rfactor_domain=*/true);
 
     current_transformed_domain.erase(
         current_transformed_domain.begin() + index_);
