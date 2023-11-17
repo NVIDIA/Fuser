@@ -120,7 +120,8 @@ class IterDomain : public Val {
   static std::vector<IterDomain*> clone(
       const std::vector<IterDomain*>& domains);
 
-  // When `rfactor_domain` is true, also set the `is_rfactor_domain_` flag of the result IterDomain. 
+  // When `rfactor_domain` is true, also set the `is_rfactor_domain_` flag of
+  // the result IterDomain.
   static IterDomain* merge(
       IterDomain* outer,
       IterDomain* inner,
