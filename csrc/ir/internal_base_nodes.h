@@ -120,8 +120,8 @@ class IterDomain : public Val {
   static std::vector<IterDomain*> clone(
       const std::vector<IterDomain*>& domains);
 
-  // When `rfactor_domain` is true, also set the `is_rfactor_domain_` flag of
-  // the result IterDomain.
+  //! When `rfactor_domain` is true, also set the `is_rfactor_domain_` flag of
+  //! the result IterDomain.
   static IterDomain* merge(
       IterDomain* outer,
       IterDomain* inner,
@@ -129,6 +129,8 @@ class IterDomain : public Val {
 
   //! start_offset and stop_offset defines partial split. Only root
   //! domains are allowed to have non-zero start and stop offsets.
+  //! When `rfactor_domain` is true, also set the `is_rfactor_domain_` flag of
+  //! both result IterDomains.
   static std::pair<IterDomain*, IterDomain*> split(
       IterDomain* in,
       Val* factor,
