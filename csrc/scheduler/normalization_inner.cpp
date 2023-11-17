@@ -228,16 +228,14 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   int64_t bdimx_max = dev_prop->maxThreadsPerBlock;
   int64_t persistent_min = ceilDiv(after_vect, bdimx_max);
   int64_t persistent_max = std::max(persistent_experiment_max, persistent_min);
-  int64_t persistent_val =
-      has_rng_ops ? after_vect / bdimx_min : ceilDiv(after_vect, bdimx_min);
-  ;
+  int64_t persistent_val = ceilDiv(after_vect, bdimx_min);
   if (persistent_val > persistent_experiment_max) {
     persistent_val = persistent_experiment_max;
   }
   if (persistent_val < persistent_min) {
     persistent_val = persistent_min;
   }
-  // if not divisible, try to reduce 1, e.g. 1280/8/32 = 5, perfer
+  // Try to use divisible persistent_val, e.g. 1280/8/32 = 5, perfer
   // persistent_val to be 1 instead of 2. since 2 is not divisible by 5. Latency
   // for dropout_layernorm reduced from 31 us to 24 us on A100.
   if (warps_after_vect % persistent_val != 0) {
@@ -257,45 +255,81 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       }
     }
   }
-  // If still not divisible after previous adjust, set to persistent_min
-  if (warps_after_vect % persistent_val != 0){
-    persistent_val = persistent_min;
-  }
-  // try to use a divisible persistent_val, e.g. after_vect = 9*32, we want
-  // persistent_val to be 3 instead of 5 or 4.
-  // if (after_vect % dev_prop->warpSize == 0) {
-  //   int64_t p_divisible_min = std::max(persistent_min, 2l);
-  //   for (int64_t p = persistent_val; p >= p_divisible_min; p--) {
-  //     if (warps_after_vect % p == 0) {
-  //       persistent_val = p;
-  //       break;
-  //     }
-  //   }
-  // }
+  auto getParasUsingPersistentVal = [&](int64_t persistent_val_x)
+      -> std::tuple<int64_t, int64_t, int64_t, bool> {
+    // (3) reduction dim, set [bdimx]
+    int64_t bdimx_val = ceilDiv(after_vect, persistent_val_x);
+    if (bdimx_val > 16 && bdimx_val % dev_prop->warpSize != 0) {
+      bdimx_val = ceilDiv(bdimx_val, dev_prop->warpSize) * dev_prop->warpSize;
+    }
 
-  // (3) reduction dim, set [bdimx]
-  int64_t bdimx_val = ceilDiv(after_vect, persistent_val);
-  if (bdimx_val > 16 && bdimx_val % dev_prop->warpSize != 0) {
-    bdimx_val = ceilDiv(bdimx_val, dev_prop->warpSize) * dev_prop->warpSize;
-  }
+    // (4) iteration dim, set [bdimy]
+    int64_t bdimy_val = 1l;
+    if (bdimx_val < min_threads_per_block) {
+      // If we don't have enough threads, let's do multiple reductions per
+      // block. Multiple reductions per block shows better performance than
+      // unroll iterations. Still keep vectorization as it is important for
+      // performance since V100. Compute maximum number of reductions we could
+      // do in the same kernel based on persistent buffer size. Bounded by the
+      // wave count for utilization of SMs.
+      const int64_t max_multi_reduction_factor = std::min(
+          scheduler_utils::safeDiv(
+              scheduler_utils::register_file_size, max_persistent_buffer_size),
+          ceilDiv(
+              total_iteration_numel, (int64_t)dev_prop->multiProcessorCount));
+      bdimy_val = std::min(
+          scheduler_utils::safeDiv(min_threads_per_block, bdimx_val),
+          max_multi_reduction_factor);
+    }
+    // (5) set register usage to achieve 50% occupancy (32 warps per sm).
+    // To achieve 50% occupancy, we need to set register per thread to
+    // occupancy_reg_per_thread.
+    int64_t target_warps_per_sm = 32l;
+    int64_t warps_per_block =
+        ceilDiv(bdimx_val * bdimy_val, dev_prop->warpSize);
+    int64_t target_blocks_per_sm =
+        ceilDiv(target_warps_per_sm, warps_per_block);
+    int64_t occupancy_reg_per_thread = getRegPerThreadGivenThreadsPerSM(
+        target_blocks_per_sm * warps_per_block * dev_prop->warpSize);
+    int64_t buffer_per_thread = max_persistent_buffer_size /
+        total_reduction_numel * vectorization_val * persistent_val_x;
+    int64_t buffer_reg_per_thread = getRegisterPerThread(buffer_per_thread);
+    int64_t nvrtc_register_per_thread =
+        scheduler_utils::max_registers_per_thread;
+    // allows 64 -> 56, disallows 64 -> 48
+    constexpr int64_t max_adjust_count = 8;
+    bool occupancy_achieved = true;
+    if (occupancy_reg_per_thread > buffer_reg_per_thread) {
+      // (1) can achieve 50% or higher occupancy
+      nvrtc_register_per_thread = buffer_reg_per_thread;
+    } else if (
+        occupancy_reg_per_thread >= buffer_reg_per_thread - max_adjust_count) {
+      // (2) can achieve 50% occupancy
+      nvrtc_register_per_thread = occupancy_reg_per_thread;
+    } else {
+      // (3) can't achieve 50% occupancy
+      nvrtc_register_per_thread = buffer_reg_per_thread;
+      occupancy_achieved = false;
+    }
 
-  // (4) iteration dim, set [bdimy]
-  int64_t bdimy_val = 1l;
-  if (bdimx_val < min_threads_per_block) {
-    // If we don't have enough threads, let's do multiple reductions per block.
-    // Multiple reductions per block shows better performance than unroll
-    // iterations. Still keep vectorization as it is important for performance
-    // since V100.
-    // Compute maximum number of reductions we could do in the same kernel based
-    // on persistent buffer size. Bounded by the wave count for utilization of
-    // SMs.
-    const int64_t max_multi_reduction_factor = std::min(
-        scheduler_utils::safeDiv(
-            scheduler_utils::register_file_size, max_persistent_buffer_size),
-        ceilDiv(total_iteration_numel, (int64_t)dev_prop->multiProcessorCount));
-    bdimy_val = std::min(
-        scheduler_utils::safeDiv(min_threads_per_block, bdimx_val),
-        max_multi_reduction_factor);
+    return std::make_tuple(
+        bdimx_val, bdimy_val, nvrtc_register_per_thread, occupancy_achieved);
+  };
+  // calculate occupancy, if it is lower than 50%, try reduce [persistent_val]
+  auto
+      [bdimx_val,
+       bdimy_val,
+       nvrtc_register_per_thread,
+       occupancy_50p_achieved] = getParasUsingPersistentVal(persistent_val);
+  if (warps_after_vect % persistent_val != 0) {
+    while (persistent_val > persistent_min && !occupancy_50p_achieved) {
+      std::tie(
+          bdimx_val,
+          bdimy_val,
+          nvrtc_register_per_thread,
+          occupancy_50p_achieved) = getParasUsingPersistentVal(persistent_val);
+      persistent_val--;
+    }
   }
 
   // (5) iteration dim, set [gdimx] and maybe also [bdimy]
@@ -306,41 +340,14 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     gdimx_val = scheduler_utils::x_grid_limit;
   }
 
-  // (6) set register usage to achieve 50% occupancy (32 warps per sm).
-  // To achieve 50% occupancy, we need to set register per thread to
-  // occupancy_reg_per_thread.
-  int64_t target_warps_per_sm = 32l;
-  int64_t warps_per_block = ceilDiv(bdimx_val * bdimy_val, dev_prop->warpSize);
-  int64_t target_blocks_per_sm = ceilDiv(target_warps_per_sm, warps_per_block);
-  int64_t occupancy_reg_per_thread = getRegPerThreadGivenThreadsPerSM(
-      target_blocks_per_sm * warps_per_block * dev_prop->warpSize);
-  int64_t buffer_per_thread = max_persistent_buffer_size /
-      total_reduction_numel * vectorization_val * persistent_val;
-  int64_t buffer_reg_per_thread = getRegisterPerThread(buffer_per_thread);
-  int64_t nvrtc_register_per_thread = scheduler_utils::max_registers_per_thread;
-  // allows 64 -> 56, disallows 64 -> 48
-  constexpr int64_t max_adjust_count = 8;
-  bool occupancy_achieved = true;
-  if (occupancy_reg_per_thread > buffer_reg_per_thread) {
-    // (1) can achieve 50% or higher occupancy
-    nvrtc_register_per_thread = buffer_reg_per_thread;
-  } else if (
-      occupancy_reg_per_thread >= buffer_reg_per_thread - max_adjust_count) {
-    // (2) can achieve 50% occupancy
-    nvrtc_register_per_thread = occupancy_reg_per_thread;
-  } else {
-    // (3) can't achieve 50% occupancy
-    nvrtc_register_per_thread = buffer_reg_per_thread;
-    occupancy_achieved = false;
-  }
   std::cout << "total_reduction_numel= " << total_reduction_numel
             << ", persistent_val= " << persistent_val
             << ", persistent_min= " << persistent_min
             << ", persistent_max= " << persistent_max
-            << ", occupancy_reg_per_thread= " << occupancy_reg_per_thread
-            << ", buffer_reg_per_thread= " << buffer_reg_per_thread
+            << ", bdimx_val= " << bdimx_val
             << ", nvrtc_register_per_thread= " << nvrtc_register_per_thread
-            << ", occupancy_achieved= " << occupancy_achieved << std::endl;
+            << ", occupancy_50p_achieved= " << occupancy_50p_achieved
+            << std::endl;
   // results
   auto rparams = std::make_shared<ReductionParams>();
   rparams->cparams.maxrregcount = (int)nvrtc_register_per_thread;
