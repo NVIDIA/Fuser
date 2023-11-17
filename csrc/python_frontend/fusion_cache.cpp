@@ -163,8 +163,15 @@ void serialize() {
   // unverified.
   auto file_path = getSerdeFilePath(getSerdeFile()).native();
   if (std::rename(tmp_file_path.c_str(), file_path.c_str()) != 0) {
-    // Removes tmp file if the rename failed
-    std::remove(tmp_file_path.c_str());
+    try {
+      fs::remove(tmp_file_path);
+      std::cout
+          << "Removed temporary file because we could not replace common workspace."
+          << std::endl;
+    } catch (const std::exception& e) {
+      std::cout << "Failed to delete temporary file. Exception:\t" << e.what()
+                << std::endl;
+    }
   }
 }
 
@@ -333,8 +340,13 @@ FusionCache::FusionCache(size_t max_fusions, bool load_from_default_workspace)
       // Only deserialize if the current binary is valid.
       deserialize(buffer, fc);
     } else {
-      // Delete incompatible workspace.
-      fs::remove(file_path);
+      try {
+        fs::remove(file_path);
+        std::cout << "Delete incompatible workspace." << std::endl;
+      } catch (const std::exception& e) {
+        std::cout << "Failed to delete workspace. Exception:\t" << e.what()
+                  << std::endl;
+      }
     }
   }
 }
