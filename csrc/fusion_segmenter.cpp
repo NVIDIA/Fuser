@@ -3687,8 +3687,17 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
   }
 
   // Keep track of composite fusion inputs used in this group
-  std::unordered_set<Val*> input_set(
-      group->input_vals.begin(), group->input_vals.end());
+  std::unordered_set<Val*> input_set;
+  for (auto inp : group->input_vals) {
+    input_set.insert(inp);
+    if (auto tv = dynamic_cast<TensorView*>(inp)) {
+      for (IterDomain* id : tv->getMaybeRFactorDomain()) {
+        // Extents of inputs will already be bound. This prevents adding them
+        // as redundant inputs.
+        input_set.insert(id->getMaybeExpandedExtent());
+      }
+    }
+  }
 
   // Record and append all missing scalar exprs at the end.
   std::vector<Expr*> exprs_to_add;
