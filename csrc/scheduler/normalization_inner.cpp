@@ -191,7 +191,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // cuda-c-best-practices-guide.
   const int64_t min_threads_per_block = 4l * dev_prop->warpSize;
   // (2) hint for max persistent size based on experiments
-  const int64_t persistent_experiment_max = has_rng_ops ? 4l : 7l;
+  const int64_t persistent_experiment_max = has_rng_ops ? 4l : 5l;
   // (3) hint for register usage based on experiments
   auto getRegisterPerThread = [](int64_t buffer_per_thread) {
     return 24l +
@@ -218,22 +218,29 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   int64_t after_vect = total_reduction_numel / vectorization_val;
 
   // (2) reduction dim, set [persistent]
-  // start with max val, then reduce to range [persistent_min,
-  // max(persistent_experiment_max,persistent_min)], prioritize a val divisible
-  // by [after_vect]
+  // start with max val, then reduce to range
+  // [persistent_min,persistent_experiment_max], prioritize a val divisible by
+  // [warps_after_vect], can't be smaller than [persistent_min] to avoid bdimx
+  // larger than maxThreadsPerBlock.
   int64_t bdimx_min = std::min((int64_t)after_vect, min_threads_per_block);
   int64_t bdimx_max = dev_prop->maxThreadsPerBlock;
-  int64_t persistent_min = scheduler_utils::safeDiv(after_vect, bdimx_max);
+  int64_t persistent_min = ceilDiv(after_vect, bdimx_max);
   int64_t persistent_max = ceilDiv(after_vect, bdimx_min);
   int64_t persistent_val = persistent_max;
   if (persistent_val > persistent_experiment_max) {
-    int64_t persistent_tmp =
-        std::max(persistent_experiment_max, persistent_min);
-    while (after_vect % persistent_tmp != 0 &&
-           persistent_tmp > persistent_min) {
-      persistent_tmp--;
-    }
-    persistent_val = persistent_tmp;
+    persistent_val = std::max(persistent_experiment_max, persistent_min);
+    // try to use a divisible persistent_val, e.g. after_vect = 9*32, we want
+    // persistent_val to be 3 instead of 5 or 4.
+    // if (after_vect % dev_prop->warpSize == 0) {
+    //   int64_t warps_after_vect = after_vect / dev_prop->warpSize;
+    //   int64_t p_divisible_min = std::max(persistent_min, 2l);
+    //   for (int64_t p = persistent_val; p >= p_divisible_min; p--) {
+    //     if (warps_after_vect % p == 0) {
+    //       persistent_val = p;
+    //       break;
+    //     }
+    //   }
+    // }
   }
 
   // (3) reduction dim, set [bdimx]
@@ -280,11 +287,28 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   int64_t buffer_per_thread = max_persistent_buffer_size /
       total_reduction_numel * vectorization_val * persistent_val;
   int64_t buffer_reg_per_thread = getRegisterPerThread(buffer_per_thread);
-  // int64_t nvrtc_register_per_thread = 
-  //     std::max(buffer_reg_per_thread, occupancy_reg_per_thread);
-  int64_t nvrtc_register_per_thread = buffer_reg_per_thread;
-  std::cout << "occupancy_reg_per_thread= " << occupancy_reg_per_thread
+  int64_t nvrtc_register_per_thread = scheduler_utils::max_registers_per_thread;
+  // allows 64 -> 56, disallows 64 -> 48
+  constexpr int64_t max_adjust_count = 8;
+  bool occupancy_achieved = true;
+  if (occupancy_reg_per_thread > buffer_reg_per_thread) {
+    // (1) can achieve 50% or higher occupancy
+    nvrtc_register_per_thread = buffer_reg_per_thread;
+  } else if (
+      occupancy_reg_per_thread >= buffer_reg_per_thread - max_adjust_count) {
+    // (2) can achieve 50% occupancy
+    nvrtc_register_per_thread = occupancy_reg_per_thread;
+  } else {
+    // (3) can't achieve 50% occupancy
+    nvrtc_register_per_thread = buffer_reg_per_thread;
+    occupancy_achieved = false;
+  }
+  std::cout << "total_reduction_numel= " << total_reduction_numel
+            << ", persistent_val= " << persistent_val
+            << ", occupancy_reg_per_thread= " << occupancy_reg_per_thread
             << ", buffer_reg_per_thread= " << buffer_reg_per_thread
+            << ", nvrtc_register_per_thread= " << nvrtc_register_per_thread
+            << ", occupancy_achieved= " << occupancy_achieved
             << std::endl;
   // results
   auto rparams = std::make_shared<ReductionParams>();
