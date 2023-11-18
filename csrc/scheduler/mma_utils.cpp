@@ -594,14 +594,9 @@ void WarpMmaSwizzler::scheduleMmaWarpOutput(
       break;
     case MmaOptions::MacroType::Turing_16_8_16:
     case MmaOptions::MacroType::Ampere_16_8_16:
-      scheduleTuringM16N8K16MmaWarpOutput(tv, options);
-      if (tv->definition()->isA<MmaOp>()) {
-        setWarpMapped(tv, 4);
-      }
-      break;
     case MmaOptions::MacroType::Turing_16_16_16:
     case MmaOptions::MacroType::Ampere_16_16_16:
-      scheduleTuringM16N16K16MmaWarpOutput(tv, options);
+      scheduleTuringMmaWarpOutput(tv, options);
       if (tv->definition()->isA<MmaOp>()) {
         setWarpMapped(tv, 4);
       }
@@ -1023,21 +1018,26 @@ void WarpMmaSwizzler::scheduleTuringOperandRead(TensorView* tv) {
   tv->setAllocationDomain(tv->getLeafDomain(), true);
 }
 
-void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv) {
+void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, bool mn_major) {
   bool transpose = tv->definition()->as<LoadStoreOp>()->opType() ==
       LoadStoreOpType::LdMatrixTranspose;
-  //  -5  -4   -3   -2   -1          or          -5  -4   -3   -2   -1
-  //[8mi, 4k, 2ko, 2mo, 2ki]                   [8ni, 4k, 2ko, 1no, 2ki]
+  //  -5   -4   -3   -2    -1          or          -5   -4   -3   -2   -1
+  //[8mni, 4k, 2ko, 2mno, 2ki]                   [8mni, 4k, 2ko, 1mno, 2ki]
   tv->reorder({{-2, -4}, {-3, -5}});
-  //  -5  -4   -3   -2   -1          or          -5  -4   -3   -2   -1
-  //[2ko, 2mo, 8mi, 4k, 2ki]                   [2ko, 1no, 8ni, 4k, 2ki]
+  //  -5   -4    -3   -2   -1          or          -5   -4    -3   -2   -1
+  //[2ko, 2mno, 8mni, 4k, 2ki]                   [2ko, 1mno, 8mni, 4k, 2ki]
   tv->merge(-2);
-  //  -4   -3   -2  -1         or          -4   -3   -2  -1
-  //[2ko, 2mo, 8mi, 8k]                  [2ko, 1no, 8ni, 8k]
+  //  -4   -3    -2   -1         or          -4   -3    -2   -1
+  //[2ko, 2mno, 8mni, 8k]                  [2ko, 1mno, 8mni, 8k]
   if (transpose) {
     tv->reorder({{-2, -1}});
-    //  -4   -3  -2   -1        or          -4   -3  -2   -1
-    //[2ko, 2mo, 8k, 8mi]                 [2ko, 1no, 8k, 8ni]
+    //  -4   -3   -2   -1        or          -4    -3   -2   -1
+    //[2ko, 2mno, 8k, 8mni]                 [2ko, 1mno, 8k, 8mni]
+  }
+  if (mn_major) {
+    tv->reorder({{-4, -3}, {-3, -4}});
+    //  -4    -3  -2   -1        or           -4    -3  -2   -1
+    //[2mno, 2ko, 8k, 8mni]                 [1mno, 2ko, 8k, 8mni]
   }
   tv->merge(-4);
   tv->merge(-3);
@@ -1069,19 +1069,12 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv) {
   tv->axis(-1)->parallelize(ParallelType::Vectorize);
 }
 
-void WarpMmaSwizzler::scheduleTuringM16N8K16MmaWarpOutput(
+void WarpMmaSwizzler::scheduleTuringMmaWarpOutput(
     TensorView* tv,
     const MmaOptions& options) {
   // Assume last 2 dims [M16, N8] or [M16, N8, R]
   // Locate instruction m
   bool is_reduction = tv->axis(-1)->isReduction();
-
-  // Make sure instruction tile size is correct.
-  if (is_reduction) {
-    validateMmaRootInnerMNK(tv, options, 16, 8, 16);
-  } else {
-    validateMmaRootInnerMN(tv, options, 16, 8);
-  }
 
   int m_pos = is_reduction ? -3 : -2;
 
@@ -1103,11 +1096,11 @@ void WarpMmaSwizzler::scheduleTuringM16N8K16MmaWarpOutput(
 
   //       m
   // [2o, Warp, 1, 2i (,R)]
-  tv->reorder({{m_pos, m_pos - 1}, {m_pos - 1, m_pos}});
+  tv->reorder({{m_pos, m_pos - 1}, {m_pos + 1, m_pos}});
   m_pos--;
 
   //    m
-  // [Warp, 2o, 1, 2i (,R)]
+  // [Warp, 1, 2o, 2i (,R)]
   if (is_reduction) {
     tv->split(-1, 2);
     tv->split(-2, 4);
@@ -1123,52 +1116,6 @@ void WarpMmaSwizzler::scheduleTuringM16N8K16MmaWarpOutput(
     int pos = -1;
     while (pos > m_pos) {
       tv->axis(pos--)->parallelize(ParallelType::Mma);
-    }
-  }
-
-  tv->axis(m_pos)->parallelize(ParallelType::TIDx);
-}
-
-void WarpMmaSwizzler::scheduleTuringM16N16K16MmaWarpOutput(
-    TensorView* tv,
-    const MmaOptions& options) {
-  // Assume last 2 dims [M16, N8] or [M16, N8, R]
-  // Locate instruction m
-  bool is_reduction = tv->axis(-1)->isReduction();
-
-  // Make sure instruction tile size is correct.
-  if (is_reduction) {
-    validateMmaRootInnerMNK(tv, options, 16, 16, 16);
-  } else {
-    validateMmaRootInnerMN(tv, options, 16, 16);
-  }
-
-  int m_pos = is_reduction ? -3 : -2;
-  //  m
-  // [16, 16  (,R)]
-
-  tv->split(m_pos + 1, 8);
-  //       m
-  // [16, n2, 8 (,R)]
-  tv->reorder({{m_pos, m_pos - 1}, {m_pos - 1, m_pos}});
-
-  //       m
-  // [n2, 16, 8  (,R)]
-  tv->split(m_pos, 8);
-  tv->split(m_pos + 1, 2);
-
-  //          m
-  // [2o, 8o, 4i, 2i (,R)]
-  tv->merge(m_pos - 1);
-
-  //       m
-  // [2o, Warp, 2i (,R)]
-  NVF_CHECK(tv->definition() != nullptr);
-
-  if (is_reduction && tv->definition()->isA<MmaOp>()) {
-    // Set instruction loops for mma reduce
-    for (int pos : c10::irange(5)) {
-      tv->axis(-pos - 1)->parallelize(ParallelType::Mma);
     }
   }
 

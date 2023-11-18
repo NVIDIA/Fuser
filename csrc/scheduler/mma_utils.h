@@ -184,7 +184,23 @@ class WarpMmaSwizzler {
   //! leaf domain of the ldmatrix output. The allocation domain of the ldmatrix
   //! output and mma inputs are scheduled in scheduleOperandRead, which must be
   //! called before this function.
-  static void scheduleLdMatrix(TensorView* tv);
+  //!
+  //! ldmatrix loads multiple 8x8 matrices from shared memory to registers in a
+  //! swizzled memory format.
+  //!   +--------+--------+
+  //!   |        |        |
+  //!   |  8x8   |  8x8   |
+  //!   |        |        |
+  //!   +--------+--------+
+  //!   |        |        |
+  //!   |  8x8   |  8x8   |
+  //!   |        |        |
+  //!   +--------+--------+
+  //! If mn_major is true, these 8x8 matrices are visited in the order of:
+  //! top left -> top right -> bottom left -> bottom right.
+  //! If mn_major is false, these 8x8 matrices are visited in the order of:
+  //! top left -> bottom left -> top right -> bottom right.
+  static void scheduleLdMatrix(TensorView* tv, bool mn_major = false);
 
  private:
   //! Operand swizzle implementations for Volta mma.
@@ -199,7 +215,7 @@ class WarpMmaSwizzler {
   static void scheduleTuringOperandRead(TensorView* tv);
 
   //! Accumulator swizzle implementation for Turing and Ampere mma.
-  static void scheduleTuringM16N8K16MmaWarpOutput(
+  static void scheduleTuringMmaWarpOutput(
       TensorView* tv,
       const MmaOptions& options);
 
