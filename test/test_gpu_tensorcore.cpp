@@ -2170,7 +2170,9 @@ TEST_F(NVFuserTest, FusionTuringMMATN_CUDA) {
   // [M, N, K] -> [N, M, K]
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -2248,7 +2250,9 @@ TEST_F(NVFuserTest, FusionTuringMMATT_CUDA) {
   // [M, N, K] -> [N, M, K]
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -2328,7 +2332,9 @@ TEST_F(NVFuserTest, FusionTuringMMANT_CUDA) {
   // [K,M,N] -> [N,M,K]
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -2406,7 +2412,9 @@ TEST_F(NVFuserTest, FusionTuringMMANN_CUDA) {
   // [M, N, K] -> [N, M, K]
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
