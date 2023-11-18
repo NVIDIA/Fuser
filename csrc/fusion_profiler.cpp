@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+
 #include <cupti.h>
 #include <fusion_profiler.h>
 #include <iomanip>
@@ -378,6 +379,78 @@ uint32_t SegmentProfiler::segmentId() const {
   return segment_id_;
 }
 
+auto FusionProfile::toTuple(const FusionProfile& prof, size_t seg_id) {
+  NVF_CHECK(!prof.kernel_profiles.empty(), "Cannot convert FusionProfile to a tuple containing CUPTI gathered stats!");
+  NVF_CHECK(seg_id < prof.kernel_profiles.size(), "Invalid seg_id for FusionProfile. Segments: ", prof.kernel_profiles.size(), " seg_id: ", seg_id);
+  auto& kp = prof.kernel_profiles[seg_id];
+
+  std::stringstream grid;
+  grid << "[" << std::get<0>(kp.grid) << ", " << std::get<1>(kp.grid)
+       << ", " << std::get<2>(kp.grid) << "]";
+  std::stringstream block;
+  block << "[" << std::get<0>(kp.block) << ", " << std::get<1>(kp.block)
+        << ", " << std::get<2>(kp.block) << "]";
+  std::stringstream cluster;
+  cluster << "[" << std::get<0>(kp.cluster) << ", "
+          << std::get<1>(kp.cluster) << ", " << std::get<2>(kp.cluster) << "]";
+  std::stringstream smem;
+  smem << "[" << kp.dynamic_shared_mem << ", " << kp.static_shared_mem << "]";
+
+  return std::tie(prof.fusion_id,
+                  prof.segments,
+                  prof.cuda_evt_time_ms,
+                  prof.host_time_ms,
+                  prof.compile_time_ms,
+                  prof.kernel_time_ms,
+                  prof.effective_bandwidth_gbs,
+                  prof.percentage_peak_bandwidth,
+                  prof.input_bytes,
+                  prof.output_bytes,
+                  seg_id,
+                  kp.time_ms,
+                  kp.compile_time_ms,
+                  kp.effective_bandwidth_gbs,
+                  kp.percentage_peak_bandwidth,
+                  kp.input_bytes,
+                  kp.output_bytes,
+                  smem,
+                  kp.registers,
+                  grid,
+                  block,
+                  cluster,
+                  kp.device,
+                  kp.stream,
+                  kp.peak_bandwidth_gbs,
+                  kp.device_name,
+                  kp.name
+                );
+}
+
+auto FusionProfile::toNocuptiTuple(const FusionProfile& prof) {
+  NVF_CHECK(prof.kernel_profiles.empty(), "Cannot convert FusionProfile to a tuple without CUPTI gathered stats!");
+
+  return std::tie(prof.fusion_id,
+                  prof.segments,
+                  prof.cuda_evt_time_ms,
+                  prof.host_time_ms,
+                  prof.compile_time_ms);
+}
+
+namespace {
+template <size_t I = 0, typename... Ts>
+constexpr std::ostream& print_tuple(std::ostream& os, std::tuple<Ts...> tup, size_t seg_id) {
+  if constexpr(I == sizeof...(Ts)) {
+    return os;
+  } else {
+    // Print the tuple and go to next element
+    os << std::get<I>(tup) << " ";
+ 
+    // Going for next element.
+    return print_tuple<I + 1>(os, tup, seg_id);
+  }
+}
+} // namespace
+
 void FusionProfile::reset() {
   fusion_id = -1;
   segments = 0;
@@ -386,12 +459,12 @@ void FusionProfile::reset() {
   host_time_ms = 0.0;
   compile_time_ms = 0.0;
   kernel_time_ms = 0.0;
+  
+  effective_bandwidth_gbs = 0.0;
+  percentage_peak_bandwidth = 0.0;
 
   input_bytes = 0;
   output_bytes = 0;
-
-  effective_bandwidth_gbs = 0.0;
-  percentage_peak_bandwidth = 0.0;
 
   kernel_profiles.clear();
 }
@@ -405,6 +478,62 @@ std::array<const char*, 25> column_strs{
     "S-Dev",     "S-Stm",       "S-PkBw(GB/s)", "S-DeviceName",
     "S-KerName"};
 
+const size_t FusionProfile::first_cupti_idx = 5;
+const std::vector<ProfileAttrDescriptor> FusionProfile::profile_attr_descs{
+    // column_header, var_name, verbose, segment, list, column_width, number, mantissa_width
+    {"Fus#", "fusion_id", false, false, false, 5, true, 0},
+    {"NSegs", "segments", false, false, false, 5, true, 0},
+    {"CuEvtTm(ms)", "cuda_evt_time_ms", false, false, false, 11, true, 3},
+    {"HstTm(ms)", "host_time_ms", false, false, false, 9, true, 3},
+    {"CmpTm(ms)", "compile_time_ms", false, false, false, 9, true, 3},
+    {"KerTm(ms)", "kernel_time_ms", false, false, false, 9, true, 3},
+    {"EffBw(GB/s)", "effective_bandwidth_gbs", false, false, false, 11, true, 3},
+    {"%PeakBw", "percentage_peak_bandwidth", false, false, false, 9, true, 2},
+    {"In(MB)", "input_bytes", true, false, false, 9, true, 3},
+    {"Out(MB)", "output_bytes", true, false, false, 9, true, 3},
+    {"S-Seg#", "segment_id", false, true, false, 6, true, 0},
+    {"S-KerName", "name", false, true, false, 10, false, 0},
+    {"S-KerTm(ms)", "time_ms", false, true, false, 11, true, 3},
+    {"S-CmpTm(ms)", "compile_time_ms", true, true, false, 11, true, 3},
+    {"S-EffBw(GB/s)", "effective_bandwidth_gbs", false, true, false, 13, true, 3},
+    {"S-%PeakBw", "percentage_peak_bandwidth", false, true, false, 9, true, 2},
+    {"S-In(MB)", "input_bytes", false, true, false, 9, true, 3},
+    {"S-Out(MB)", "output_bytes", false, true, false, 9, true, 3},
+    {"S-Smem[Dyn,State]", "shared_mem", false, true, true, 16, true, 0},
+    {"S-Regs", "registers", false, true, false, 6, true, 0},
+    {"S-Grid", "grid", false, true, true, 16, true, 0},
+    {"S-Block", "block", false, true, true, 16, true, 0},
+    {"S-Cluster", "cluster", true, true, true, 16, true, 0},
+    {"S-Dev", "device", true, true, false, 5, true, 0},
+    {"S-Stm", "stream", true, true, false, 5, true, 0},
+    {"S-PkBw(GB/s)", "peak_bandwidth_gbs", true, true, false, 12, true, 3},
+    {"S-DeviceName", "device_name", true, true, false, 20, false, 0},
+    {"S-KerName", "name", false, true, false, 20, false, 0}};
+
+std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
+  // Print headers only for first fusion
+  if (fp.fusion_id == 0) {
+    // Print headers starting on the left
+    os << std::left;
+    
+    // Print no-cupti headers
+    for (size_t i = 0; i < FusionProfile::first_cupti_idx; ++i) {
+      const auto& desc = FusionProfile::profile_attr_descs[i];
+      os << " " << std::setw(desc.column_width) << desc.column_header;
+    }
+
+    if (!fp.kernel_profiles.empty()) {
+      for (size_t i = FusionProfile::first_cupti_idx; i < FusionProfile::profile_attr_descs.size(); ++i) {
+        const auto& desc = FusionProfile::profile_attr_descs[i];
+        if ((fp.verbose && desc.verbose) || !desc.verbose) {
+          os << " " << std::setw(desc.column_width) << desc.column_header;
+        }
+      }
+    }
+  }
+  return os;
+}
+/* 
 std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
   if (fp.fusion_id == 0) {
     os << std::left << std::setw(5) << std::get<0>(column_strs) << " "
@@ -523,7 +652,7 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
     }
   }
   return os;
-}
+}*/
 
 FusionProfiler::FusionProfiler()
     : cupti_disabled_(false),
