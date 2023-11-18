@@ -598,7 +598,7 @@ void WarpMmaSwizzler::scheduleMmaWarpOutput(
     case MmaOptions::MacroType::Ampere_16_16_16:
       scheduleTuringMmaWarpOutput(tv, options);
       if (tv->definition()->isA<MmaOp>()) {
-        setWarpMapped(tv, 4);
+        setWarpMapped(tv, 7);
       }
       break;
     default:
@@ -1067,6 +1067,7 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, bool mn_major) {
   tv->axis(-2)->parallelize(ParallelType::TIDx);
   // TODO: this is not really vectorization. Change its parallel type to Mma.
   tv->axis(-1)->parallelize(ParallelType::Vectorize);
+  setWarpMapped(tv, 2);
 }
 
 void WarpMmaSwizzler::scheduleTuringMmaWarpOutput(
@@ -1106,7 +1107,7 @@ void WarpMmaSwizzler::scheduleTuringMmaWarpOutput(
     tv->split(-2, 4);
     m_pos -= 2;
     //    m
-    // [Warp, 2o, 2i, R2, R4, R2]
+    // [Warp, 1, 2o, 2i, R2, R4, R2]
   }
 
   NVF_CHECK(tv->definition() != nullptr);
