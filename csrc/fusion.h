@@ -244,7 +244,7 @@ class Fusion : public IrContainer {
   //! Returns the aliased input of a given output along with an `AliasInfo`
   //! describing how they alias. Returns <nullptr,nullptr> when `output` is not
   //! aliased.
-  std::pair<Val*, const AliasInfo*> getOutputAlias(Val* output);
+  std::pair<Val*, const AliasInfo*> getOutputAlias(Val* output) const;
 
   // mark input at index to be permuted by permutation
   void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
@@ -274,11 +274,6 @@ class Fusion : public IrContainer {
 
   bool isUpdatingTVUseInfo() {
     return is_during_update_uses_;
-  }
-
-  // TODO: Have getOutputAlias expose AliasInfo and then remove this method.
-  const std::unordered_map<Val*, std::pair<Val*, AliasInfo>>& ioAlias() const {
-    return io_alias_;
   }
 
   // NOTE: [Fusion managed data]
