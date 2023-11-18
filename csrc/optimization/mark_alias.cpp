@@ -17,12 +17,22 @@ void MarkAliasPass::runPass(Fusion* fusion) {
   const AliasAnalysisResult alias_analysis = findAliases(fusion);
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
+    // Lazy move: we could check compatibility and only give up when
+    // the allocation domain is incompatible with what we prefer for
+    // aliasing.
+    if (out->hasAllocation()) {
+      debug() << "MarkAliasPass skipped " << out->toString()
+              << " because it already has an allocation domain:" << std::endl
+              << out->domain()->toString(1, /*leaf_only=*/false) << std::endl;
+      continue;
+    }
+
     if (const Val* in = alias_analysis.findRoot(out); in->isFusionInput()) {
       fusion->aliasOutputToInput(
           out,
           // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
           const_cast<Val*>(in),
-          AliasType::PointerCast);
+          AliasType::PointerArithmetic);
       if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
         debug() << "MarkAliasPass marked " << out->toString()
                 << " as an alias of " << in->toString() << std::endl;
@@ -38,14 +48,10 @@ void MarkAliasPass::runPass(Fusion* fusion) {
           debug() << "  Old TensorDomain:" << std::endl;
           debug() << out->domain()->toString(4, /*leaf_only=*/false)
                   << std::endl;
+          debug() << "  New layout:" << out_layout.toString() << std::endl;
         }
         out->setAllocationDomain(
             out_layout.allocation_domain, out_layout.contiguity);
-        if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-          debug() << "  New TensorDomain:" << std::endl;
-          debug() << out->domain()->toString(4, /*leaf_only=*/false)
-                  << std::endl;
-        }
       }
     }
   }

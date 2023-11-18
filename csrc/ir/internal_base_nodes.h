@@ -229,6 +229,10 @@ class IterDomain : public Val {
     return (isBlockDim() || isThreadDim());
   }
 
+  bool isDeviceDim() const {
+    return isParallelTypeDeviceDim(getParallelType());
+  }
+
   void parallelize(ParallelType t);
 
   ParallelType getParallelType() const {

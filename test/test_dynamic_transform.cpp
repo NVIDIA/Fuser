@@ -1252,9 +1252,6 @@ TEST_F(NVFuserTest, OptOutMutatorRedefinedConstant) {
       c->definition(), nullptr); // Replacement value should not be redefined
   EXPECT_EQ(tv0->definition()->as<FullOp>()->getFillValue(), c);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::full({2}, 1L, options);
-
   inlineMost();
 
   FusionExecutor fe;
@@ -1262,7 +1259,7 @@ TEST_F(NVFuserTest, OptOutMutatorRedefinedConstant) {
 
   auto outputs = fe.runFusion({3L});
 
-  testValidate(fusion, outputs, {3L}, {t0}, __LINE__, __FILE__);
+  testValidate(fusion, outputs, {3L}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
