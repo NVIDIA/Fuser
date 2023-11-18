@@ -205,8 +205,27 @@ void Fusion::removeVal(Val* val) {
     removeExpr(orig);
   }
 
-  for (Expr* use : unordered_uses(val)) {
-    removeExpr(use);
+  // We previously first looped over val->uses() and removed them all from the
+  // Fusion. This seems correct at first glance, but it is incomplete since
+  // `val->uses()` actually only gives all live uses. When there is dead code in
+  // the Fusion that includes some uses of a val that is to be removed, we can
+  // wind up with an expression that holds an invalid pointer to the removed
+  // value in its inputs(). In https://github.com/NVIDIA/Fuser/issues/1270 this
+  // caused a segfault when the fusion was cloned since that will clone not only
+  // live objects but also these dangerous dangling dead ones.
+  std::vector<Expr*> exprs_to_remove;
+  for (Expr* e : exprs_) {
+    if (!inContainer(e)) {
+      continue;
+    }
+    if (std::find(e->inputs().begin(), e->inputs().end(), val) !=
+        e->inputs().end()) {
+      // Avoid removing until after we've looped through exprs_
+      exprs_to_remove.push_back(e);
+    }
+  }
+  for (auto e : exprs_to_remove) {
+    removeExpr(e);
   }
   IrContainer::removeVal(val);
 }
@@ -313,23 +332,45 @@ std::vector<Expr*> Fusion::exprs() {
   return StmtSort::getExprs(this);
 }
 
+namespace {
+
+bool allOutputsArePointerArithmetics(Fusion* fusion) {
+  for (Val* out : fusion->outputs()) {
+    const auto& [in, info] = fusion->getOutputAlias(out);
+    if (in == nullptr) {
+      return false;
+    }
+    NVF_ERROR(info != nullptr);
+    if (info->type != AliasType::PointerArithmetic) {
+      return false;
+    }
+  }
+  return true;
+}
+
+} // namespace
+
 bool Fusion::isNoOp() {
   if (exprs().empty()) {
     return true;
   }
+
+  if (allOutputsArePointerArithmetics(this)) {
+    return true;
+  }
+
   for (auto out_tv : ir_utils::filterByType<TensorView>(outputs())) {
-    auto root_dom = TensorDomain::noReductions(out_tv->getMaybeRFactorDomain());
-    bool size_zero = false;
-    for (auto id : root_dom) {
-      if (id->extent()->isConstScalar() && id->extent()->evaluate() == 0) {
-        size_zero = true;
-        break;
-      }
-    }
+    const std::vector<IterDomain*>& root_dom =
+        TensorDomain::noReductions(out_tv->getMaybeRFactorDomain());
+    const bool size_zero =
+        std::any_of(root_dom.begin(), root_dom.end(), [](IterDomain* id) {
+          return id->extent()->isConstScalar() && id->extent()->evaluate() == 0;
+        });
     if (!size_zero) {
       return false;
     }
   }
+
   return true;
 }
 
@@ -389,8 +430,9 @@ void Fusion::printKernel(const CompileParams& compile_params) {
       !this->isA<kir::Kernel>(),
       "Cannot \"print kernel\" of a kernel container. ",
       "This would require lowering during lowering.");
-  debug() << codegen::generateCudaKernel(
-      GpuLower(this, compile_params).kernel());
+  GpuLower lower(this, compile_params);
+  lower.run();
+  debug() << codegen::generateCudaKernel(lower.kernel());
 }
 
 std::unordered_map<TensorView*, std::pair<std::vector<int>, std::vector<int>>>
@@ -411,6 +453,7 @@ Fusion::bankConflictInfo(const CompileParams& compile_params) {
   manage("smem_tvs", smem_tvs);
 
   GpuLower lower(this, compile_params);
+  lower.run();
   auto kernel = lower.kernel();
   auto info = getBankConflictInfo(kernel);
 
@@ -779,40 +822,6 @@ std::pair<Val*, const AliasInfo*> Fusion::getOutputAlias(Val* output) {
     return {in_val_and_info.first, &in_val_and_info.second};
   }
   return {nullptr, nullptr};
-}
-
-std::vector<InputOutputAlias> Fusion::getOutputToInputAliasIndices() const {
-  if (io_alias_.empty()) {
-    return {};
-  }
-
-  std::unordered_map<const Val*, size_t> in_val_index, out_val_index;
-  for (const auto input_idx : c10::irange(inputs_.size())) {
-    in_val_index[inputs_[input_idx]] = input_idx;
-  }
-  for (const auto output_idx : c10::irange(outputs_.size())) {
-    out_val_index[outputs_[output_idx]] = output_idx;
-  }
-
-  std::vector<InputOutputAlias> input_output_aliases;
-  input_output_aliases.reserve(io_alias_.size());
-  for (const auto& [out, in_info] : io_alias_) {
-    if (!out_val_index.count(out)) {
-      // Can't assert false here. We may have segmented fusion where not all
-      // alias outputs are present.
-      continue;
-    }
-    const Val* in = in_info.first;
-    NVF_ERROR(
-        in_val_index.count(in),
-        in->toString(),
-        " is marked as an input alias but isn't a fusion input.");
-    input_output_aliases.push_back(InputOutputAlias{
-        static_cast<int>(out_val_index.at(out)),
-        static_cast<int>(in_val_index.at(in)),
-        in_info.second});
-  }
-  return input_output_aliases;
 }
 
 bool Fusion::hasDynamicTransform() {

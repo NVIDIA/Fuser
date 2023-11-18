@@ -3,11 +3,16 @@ SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIAT
 All rights reserved.
 SPDX-License-Identifier: BSD-3-Clause
 -#}
+{%- if is_benchmark -%}
+    <h3>Benchmark Runtimes</h3>
+    {% include 'benchmark_plot.html' %}
+{%- endif -%}
 <h3>
     {{ testorbench }} Diffs
     <button onclick="toggleAllDiffs()">Toggle All</button>
 </h3>
-{% set loop_vars = namespace(total_diffs=0, warned=False) %}
+{#- initialize loop_vars for holding multiple loops' info -#}
+{%- set loop_vars = namespace(total_diffs=0, warned=False) %}
 {%- for test_diff in test_diffs -%}
     {%- if loop_vars.total_diffs >= max_diffs -%}
         {%- if not loop_vars.warned -%}
@@ -18,7 +23,7 @@ SPDX-License-Identifier: BSD-3-Clause
             {%- set loop_vars.warned = True -%}
         {%- endif -%}
     {%- else -%}
-        <span class="test_name">{{ loop.index }}: <b>{{ test_diff.testname }}</b></span>
+        <span id="test_{{ loop.index }}" class="test_name">{{ loop.index }}: <b>{{ test_diff.testname }}</b></span>
         {% if is_benchmark %}
             {% if test_diff.test1.benchmark_result is not none and test_diff.test2.benchmark_result is not none -%}
                 {%- set t1 = test_diff.test1.benchmark_result.gpu_time | float -%}

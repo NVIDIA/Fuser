@@ -758,10 +758,10 @@ std::vector<char> compileNvrtcProgramToCubin(const nvrtcProgram& program) {
 // Returns the name of the dumped file.
 std::string dumpCompiledCodeToFile(
     const std::vector<char>& code,
-    const int64_t fusion_id,
+    const std::string& id,
     const std::string& suffix) {
   std::stringstream file_name;
-  file_name << "__tmp_kernel" << fusion_id << suffix;
+  file_name << "__tmp_kernel_" << id << suffix;
   debug() << "PRINTING: " << file_name.str() << std::endl;
   std::ofstream out(file_name.str());
   NVF_ERROR(out.is_open());
@@ -1095,10 +1095,10 @@ void warnRegisterSpill(const std::string& compile_log) {
 
 void createNvrtcProgram(
     nvrtcProgram& program,
-    int64_t id,
+    const std::string& id,
     const std::string& full_src_code) {
   std::stringstream ss;
-  ss << "__tmp_kernel" << id << ".cu";
+  ss << "__tmp_kernel_" << id << ".cu";
   std::string name = ss.str();
   FUSER_PERF_SCOPE("executor_utils::NvrtcCreateProgram");
   NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
@@ -1109,7 +1109,7 @@ void createNvrtcProgram(
 std::unique_ptr<CompiledKernel> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
-    const int64_t id,
+    const std::string& id,
     const bool compile_to_sass,
     NvrtcCompileDriver& nvrtc_compile) {
   std::stringstream log;
@@ -1164,7 +1164,7 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& full_src_code,
     const std::string& func_name,
-    int64_t id,
+    const std::string& id,
     const CompileParams& compile_params,
     std::optional<int64_t> opt_block_size) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
@@ -1433,7 +1433,6 @@ ExecutorCompileTimeEntry<EntryClass>::ExecutorCompileTimeEntry(
 template class ExecutorCompileTimeEntry<ParallelBindingIterDomains>;
 template class ExecutorCompileTimeEntry<ParallelIterExtentMap>;
 template class ExecutorCompileTimeEntry<VectorizedTensorValidation>;
-template class ExecutorCompileTimeEntry<InputOutputAliases>;
 
 } // namespace caching
 

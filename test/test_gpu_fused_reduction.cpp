@@ -110,7 +110,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce1_CUDA) {
   tv1->axis(1)->parallelize(ParallelType::Unswitch);
 
   GpuLower gpulw(&fusion);
-  validateNoParallelBroadcastExist(gpulw.kernel());
+  validateNoParallelBroadcastExist(gpulw.run());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({nx}, options);
@@ -159,7 +159,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce2_CUDA) {
   tv1->axis(1)->parallelize(ParallelType::TIDy);
 
   GpuLower gpulw(&fusion);
-  validateNoParallelBroadcastExist(gpulw.kernel());
+  validateNoParallelBroadcastExist(gpulw.run());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({nx}, options);
@@ -207,7 +207,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce3_CUDA) {
   scheduler_utils::parallelizeAllLike(tv3);
 
   GpuLower gpulw(&fusion);
-  validateNoParallelBroadcastExist(gpulw.kernel());
+  validateNoParallelBroadcastExist(gpulw.run());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({nx, ny}, options);
@@ -252,7 +252,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce4_CUDA) {
   scheduler_utils::parallelizeAllLike(tv4);
 
   GpuLower gpulw(&fusion);
-  validateNoParallelBroadcastExist(gpulw.kernel());
+  validateNoParallelBroadcastExist(gpulw.run());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({nx}, options);
@@ -313,7 +313,7 @@ TEST_F(NVFuserTest, FusionGridAllreduce5_CUDA) {
   tv6->axis(1)->parallelize(ParallelType::BIDx);
 
   GpuLower gpulw(&fusion);
-  validateNoParallelBroadcastExist(gpulw.kernel());
+  validateNoParallelBroadcastExist(gpulw.run());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({iter, nx}, options);
@@ -412,7 +412,7 @@ TEST_F(NVFuserTest, FusionGridAllreduceWelford1_CUDA) {
   scheduler_utils::parallelizeAllLike(tv5);
 
   GpuLower gpulw(&fusion);
-  validateNoParallelBroadcastExist(gpulw.kernel());
+  validateNoParallelBroadcastExist(gpulw.run());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({nx}, options);
@@ -462,7 +462,7 @@ TEST_F(NVFuserTest, FusionGridAllreduceWelford2_CUDA) {
 
   // There must be no parallel broadcast
   GpuLower gpulw(&fusion);
-  validateNoParallelBroadcastExist(gpulw.kernel());
+  validateNoParallelBroadcastExist(gpulw.run());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({nx, ny}, options);
@@ -584,7 +584,7 @@ TEST_F(NVFuserTest, FusionFusedReductionBatchnorm_CUDA) {
   std::vector<c10::IValue> aten_inputs = {t0, t1, t2, t3, t4};
 
   GpuLower gpulw(&fusion);
-  validateNoParallelBroadcastExist(gpulw.kernel());
+  validateNoParallelBroadcastExist(gpulw.run());
 
   FusionExecutor fe;
   LaunchParams launch_params(2, 2, -1, -1, -1, -1);
@@ -1429,7 +1429,7 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
       {at_input, at_grad_output, at_weight, at_save_mean, at_save_invstd});
 
   GpuLower gpulw(&fusion);
-  validateNoParallelBroadcastExist(gpulw.kernel());
+  validateNoParallelBroadcastExist(gpulw.run());
 
   FusionExecutor fe;
   fe.compileFusion(&fusion, aten_inputs);
@@ -1844,7 +1844,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce1_CUDA) {
   // grouped or parallelized
   GpuLower gpulw(&fusion);
   bool validated = false;
-  for (auto expr : KernelExprVisitor::getAllExprs(gpulw.kernel())) {
+  for (auto expr : KernelExprVisitor::getAllExprs(gpulw.run())) {
     auto grouped_grid_reduction =
         dynamic_cast<kir::GroupedGridReduction*>(expr);
     if (grouped_grid_reduction == nullptr) {
@@ -1924,7 +1924,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce2_CUDA) {
   // grouped or parallelized
   GpuLower gpulw(&fusion);
   bool validated = false;
-  for (auto expr : KernelExprVisitor::getAllExprs(gpulw.kernel())) {
+  for (auto expr : KernelExprVisitor::getAllExprs(gpulw.run())) {
     auto grouped_grid_reduction =
         dynamic_cast<kir::GroupedGridReduction*>(expr);
     if (grouped_grid_reduction == nullptr) {
@@ -2006,7 +2006,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce3_CUDA) {
   // grouped or parallelized
   GpuLower gpulw(&fusion);
   bool validated = false;
-  for (auto expr : KernelExprVisitor::getAllExprs(gpulw.kernel())) {
+  for (auto expr : KernelExprVisitor::getAllExprs(gpulw.run())) {
     auto grouped_grid_reduction =
         dynamic_cast<kir::GroupedGridReduction*>(expr);
     if (grouped_grid_reduction == nullptr) {
@@ -2098,7 +2098,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduce4_CUDA) {
   // grouped or parallelized
   GpuLower gpulw(&fusion);
   bool validated = false;
-  for (auto expr : KernelExprVisitor::getAllExprs(gpulw.kernel())) {
+  for (auto expr : KernelExprVisitor::getAllExprs(gpulw.run())) {
     auto grouped_grid_reduction =
         dynamic_cast<kir::GroupedGridReduction*>(expr);
     if (grouped_grid_reduction == nullptr) {
@@ -2172,7 +2172,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford1_CUDA) {
   // grouped or parallelized
   GpuLower gpulw(&fusion);
   bool validated = false;
-  for (auto expr : KernelExprVisitor::getAllExprs(gpulw.kernel())) {
+  for (auto expr : KernelExprVisitor::getAllExprs(gpulw.run())) {
     auto grouped_grid_reduction = dynamic_cast<kir::GroupedGridWelford*>(expr);
     if (grouped_grid_reduction == nullptr) {
       continue;
@@ -2239,7 +2239,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelford2_CUDA) {
   // grouped or parallelized
   GpuLower gpulw(&fusion);
   bool validated = false;
-  for (auto expr : KernelExprVisitor::getAllExprs(gpulw.kernel())) {
+  for (auto expr : KernelExprVisitor::getAllExprs(gpulw.run())) {
     auto grouped_grid_reduction = dynamic_cast<kir::GroupedGridWelford*>(expr);
     if (grouped_grid_reduction == nullptr) {
       continue;
@@ -2376,7 +2376,7 @@ TEST_F(NVFuserTest, FusionCrossIterationGroupedGridAllreduceWelfordShmoo_CUDA) {
     // grouped or parallelized
     GpuLower gpulw(&fusion);
     bool validated = false;
-    for (auto expr : KernelExprVisitor::getAllExprs(gpulw.kernel())) {
+    for (auto expr : KernelExprVisitor::getAllExprs(gpulw.run())) {
       (void)expr; // Suppress unused variable warning
       validated = true;
     }

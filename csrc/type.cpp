@@ -761,6 +761,10 @@ static const char* id_map_mode_type2string(IdMappingMode t) {
       return "permissive";
     case IdMappingMode::LOOP:
       return "loop";
+    case IdMappingMode::INNERMOST:
+      return "innermost";
+    case IdMappingMode::PERMISSIVE_RESIZE:
+      return "permissive_resize";
     default:
       // Don't try to print t as it would recursively call this function
       NVF_ERROR(false, "Unexpected IdMappingMode Type.");
@@ -1218,6 +1222,10 @@ std::ostream& operator<<(std::ostream& os, const CacheOp& cache_op) {
       break;
   }
   return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const std::optional<bool>& b) {
+  return os << (b.has_value() ? (*b ? "t" : "f") : "n");
 }
 
 std::optional<std::string> inline_op_str(const UnaryOpType uotype) {

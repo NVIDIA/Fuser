@@ -44,8 +44,7 @@ TEST_F(NoOpTest, FusionNullScheduler) {
   std::cerr << cg_outputs[0].sizes() << std::endl;
   std::cerr << t1.sizes() << std::endl;
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 
   auto groups =
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
@@ -76,10 +75,7 @@ TEST_F(NoOpTest, FusionNullScheduler2) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto t1 = t0.sum({1, 2});
-
-  testValidate(
-      executor_cache.fusion(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 
   auto groups =
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
@@ -112,12 +108,7 @@ TEST_F(NoOpTest, FusionNullScheduler3) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      {t0, t1},
-      {t0 + t1},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 
   auto groups =
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
@@ -147,10 +138,7 @@ TEST_F(NoOpTest, FusionReducingZeroElements) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto t1 = t0.sum({0, 1, 2});
-
-  testValidate(
-      executor_cache.fusion(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(NoOpTest, FusionEmpty) {
@@ -174,12 +162,7 @@ TEST_F(NoOpTest, FusionEmpty) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      {t0, t1},
-      {t0, t1},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 
   auto groups =
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
@@ -188,6 +171,36 @@ TEST_F(NoOpTest, FusionEmpty) {
   for (auto group : groups) {
     EXPECT_EQ(group->heuristic(), ScheduleHeuristic::NoOp);
   }
+}
+
+TEST_F(NoOpTest, View) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const std::vector<int64_t> in_shape({2, 3, 4});
+  const std::vector<int64_t> out_shape({2, 12});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  fusion->addInput(in);
+  TensorView* out = reshape(in, in_shape, out_shape);
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  ASSERT_EQ(out_tensors.size(), 1);
+  at::Tensor out_tensor = out_tensors[0];
+
+  // Verify aliasing.
+  EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
+
+  // Verify the NoOp scheduler was kicked in.
+  const std::vector<SegmentedGroup*>& groups =
+      fec.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  ASSERT_EQ(groups.size(), 1);
+  SegmentedGroup* group = groups[0];
+  EXPECT_EQ(group->heuristic(), ScheduleHeuristic::NoOp);
 }
 
 } // namespace nvfuser

@@ -170,7 +170,7 @@ TEST_F(ResizeTest, FusionResizePad5) {
       tv1->getMemoryType());
 
   GpuLower gpulw(&fusion);
-  auto all_lowered_exprs = KernelExprVisitor::getAllExprs(gpulw.kernel());
+  auto all_lowered_exprs = KernelExprVisitor::getAllExprs(gpulw.run());
   NVF_CHECK(
       std::find_if(
           all_lowered_exprs.begin(),
@@ -454,17 +454,8 @@ TEST_F(ResizeTest, FusionResizePadScheduler4) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto t0_double = t0.to(at::kDouble);
-  auto t2 = at::pad(t0_double, {1, 1}).sum({0});
-  auto t4 = at::pad(t0_double, {1, 1}).sum({1});
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {t2, t4},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Pad a broadcast
@@ -944,11 +935,8 @@ TEST_F(ResizeTest, FusionResizeSlice2) {
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
 
-  auto tv1 = slice(
-      tv0,
-      {Slice(),
-       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(shape[1] / 2)}});
-  auto tv2 = slice(tv0, {Slice(), {IrBuilder::create<Val>(shape[1] / 2)}});
+  auto tv1 = slice(tv0, {0, 0}, {shape[0], shape[1] / 2});
+  auto tv2 = slice(tv0, {0, shape[1] / 2}, {shape[0], shape[1]});
   auto tv3 = add(tv1, tv2);
   fusion.addOutput(tv3);
 
@@ -1327,15 +1315,8 @@ TEST_F(ResizeTest, FusionResizePadReduceScheduler1) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto ref = at::pad(t0, pad_extents).sum({1});
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {ref},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(ResizeTest, FusionResizeSliceReduceScheduler1) {
@@ -1374,18 +1355,8 @@ TEST_F(ResizeTest, FusionResizeSliceReduceScheduler1) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto t1 = t0.index(
-      {at::indexing::Slice(slice_inputs[0], slice_inputs[1]),
-       at::indexing::Slice(slice_inputs[2], slice_inputs[3])});
-  auto ref = t1.sum({1});
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {ref},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Multiple slice+reduction. Different slices.
@@ -1428,22 +1399,8 @@ TEST_F(ResizeTest, FusionResizeSliceReduceScheduler2) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto t1 = t0.index(
-      {at::indexing::Slice(0, at::indexing::None),
-       at::indexing::Slice(slice_inputs[0], slice_inputs[1])});
-  auto t2 = t1.sum({1});
-  auto t3 = t0.index(
-      {at::indexing::Slice(0, at::indexing::None),
-       at::indexing::Slice(slice_inputs[2], slice_inputs[3])});
-  auto t4 = t3.sum({1});
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {t2, t4},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Multiple slice+reduction. Same slices. Should be segmented at the moment.
@@ -1482,22 +1439,8 @@ TEST_F(ResizeTest, FusionSliceReduceScheduler3) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto t1 = t0.index(
-      {at::indexing::Slice(0, at::indexing::None),
-       at::indexing::Slice(slice_inputs[0], slice_inputs[1])});
-  auto t2 = t1.to(at::kDouble).sum({1});
-  auto t3 = t0.index(
-      {at::indexing::Slice(0, at::indexing::None),
-       at::indexing::Slice(slice_inputs[0], slice_inputs[1])});
-  auto t4 = t3.to(at::kDouble).sum({1});
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {t2, t4},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(ResizeTest, FusionResizeCatReduceScheduler1) {
@@ -1526,15 +1469,8 @@ TEST_F(ResizeTest, FusionResizeCatReduceScheduler1) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto ref = at::cat({t0, t1}, 1).sum({1});
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {ref},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(ResizeTest, FusionResizeCatSoftmaxScheduler1) {
@@ -1563,16 +1499,8 @@ TEST_F(ResizeTest, FusionResizeCatSoftmaxScheduler1) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto t2 = at::cat({t0, t1}, 1);
-  auto ref = at::_softmax(t2.to(at::kDouble), -1, false);
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {ref},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(ResizeTest, FusionResizeReductionSliceScheduler1) {
@@ -1600,16 +1528,8 @@ TEST_F(ResizeTest, FusionResizeReductionSliceScheduler1) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto t1 = t0.to(at::kDouble).sum({1});
-  auto t2 = t1.index({at::indexing::Slice(1, shape0[0] - 2)});
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {t2},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Softmax followed by slicing of a non-normalized dimension
@@ -1639,18 +1559,8 @@ TEST_F(ResizeTest, FusionResizeSoftmaxSliceScheduler1) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto t1 = at::_softmax(t0.to(at::kDouble), -1, false);
-  auto t2 = t1.index(
-      {at::indexing::Slice(1, shape0[0] - 2),
-       at::indexing::Slice(0, at::indexing::None)});
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {t2},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Softmax followed by slicing of a normalized dimension
@@ -1680,18 +1590,8 @@ TEST_F(ResizeTest, FusionResizeSoftmaxSliceScheduler2) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  auto t1 = at::_softmax(t0.to(at::kDouble), -1, false);
-  auto t2 = t1.index(
-      {at::indexing::Slice(0, at::indexing::None),
-       at::indexing::Slice(1, shape0[1] - 2)});
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {t2},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Same as Pad1 but pad by specified value
@@ -2090,19 +1990,8 @@ TEST_F(ResizeTest, ResizePermuteAndSlice) {
       "Unexpected heuristic: ",
       heuristic);
 
-  auto ref_t2 = (t0 + 1).index(
-      {at::indexing::Slice(1, shape.at(0) - 1),
-       at::indexing::Slice(2, shape.at(1) - 2)});
-  auto ref_t3 = ref_t2.transpose(0, 1);
-  auto ref_t4 = ref_t2 + 1;
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {ref_t3, ref_t4},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // When scheduling this test, the pointwise scheduler attempt to replay a Split
@@ -2363,7 +2252,7 @@ TEST_F(ResizeTest, SliceVectorization) {
 
   // testValidate does not check that dtypes match
   EXPECT_EQ(cg_outputs[0].dtype(), ref.dtype());
-  testValidate(&fusion, cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 // Concretize a symbolic pad that results in a broadcast (static pads)
@@ -2432,16 +2321,7 @@ TEST_F(NVFuserTest, ResizePadToBroadcastStatic_CUDA) {
     EXPECT_EQ(conc_t2->axis(i)->getIterType(), expected_itertypes.at(i));
   }
 
-  auto t2_padded = at::pad(t0, pad_widths);
-  auto ref_t2 = t1 * t2_padded;
-
-  testValidate(
-      concretized_fusion,
-      cg_outputs,
-      aten_inputs,
-      {ref_t2},
-      __LINE__,
-      __FILE__);
+  testValidate(concretized_fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Concretize a symbolic pad that results in a broadcast (dynamic pads)
@@ -2508,16 +2388,7 @@ TEST_F(NVFuserTest, ResizePadToBroadcastDynamic_CUDA) {
   EXPECT_EQ(conc_t2->axis(3)->getIterType(), IterType::Broadcast);
   EXPECT_EQ(conc_t2->axis(4)->getIterType(), IterType::Iteration);
 
-  auto t2_padded = at::pad(t0, pad_widths);
-  auto ref_t2 = t1 * t2_padded;
-
-  testValidate(
-      concretized_fusion,
-      cg_outputs,
-      aten_inputs,
-      {ref_t2},
-      __LINE__,
-      __FILE__);
+  testValidate(concretized_fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // See https://github.com/NVIDIA/Fuser/issues/596
@@ -2548,14 +2419,10 @@ TEST_F(NVFuserTest, ResizePadToBroadcastIssue596_CUDA) {
   runtime.compileFusionParallel(args);
   auto cg_outputs = runtime.runWithInputs(args);
 
-  auto t2_padded = at::pad(t0, {0, -1});
-  auto ref_t2 = t1 * t2_padded;
-
   testValidate(
       runtime.fusionSegments()->completeFusion(),
       cg_outputs,
       aten_inputs,
-      {ref_t2},
       __LINE__,
       __FILE__);
 }
@@ -3177,9 +3044,7 @@ TEST_F(ResizeTest, PadOfBroadcast) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  auto ref = at::pad(t0, {1, 1});
-
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test that we can cat along broadcast dims that have been expanded
@@ -3208,9 +3073,7 @@ TEST_F(ResizeTest, PadOfExpandedBroadcast) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  auto ref = at::pad(at::expand_copy(t0, shape0e), {1, 1});
-
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

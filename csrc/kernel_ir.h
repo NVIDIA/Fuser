@@ -35,6 +35,7 @@ class TensorIndex;
 
 // Expressions
 class Allocate;
+class Asm;
 class BlockSync;
 class GridSync;
 class MBarrierInit;
@@ -146,7 +147,11 @@ class Predicate final : public Val {
 
 class TensorIndex final : public Val {
  public:
-  TensorIndex(IrBuilderPasskey, const TensorView* view, Val* index);
+  TensorIndex(
+      IrBuilderPasskey,
+      const TensorView* view,
+      Val* index,
+      DataType dtype = DataType::Null);
 
   Val* index() const {
     return index_;
@@ -164,6 +169,68 @@ class TensorIndex final : public Val {
  private:
   const TensorView* view_ = nullptr;
   Val* index_ = nullptr;
+};
+
+// In theory, we should just put this struct into class Asm, but unfortunately,
+// due to compiler bug, we can not do that:
+// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=88165
+struct AsmOptions {
+  bool volatile_ = false;
+  bool memory = false;
+};
+
+class Asm final : public Expr {
+ public:
+  using Options = AsmOptions;
+
+  using Expr::Expr;
+
+  explicit Asm(
+      IrBuilderPasskey passkey,
+      const std::string& code,
+      const std::vector<Val*>& outputs,
+      const std::vector<Val*>& inputs,
+      const Options& options = Options());
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "Asm";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  const std::string& code() const {
+    return attribute<std::string>(0);
+  }
+
+  const Options& options() const {
+    return attribute<Options>(1);
+  }
+
+  Options& options() {
+    return attribute<Options>(1);
+  }
+
+  bool volatile_() const {
+    return options().volatile_;
+  }
+
+  bool& volatile_() {
+    return options().volatile_;
+  }
+
+  bool memory() const {
+    return options().memory;
+  }
+
+  bool& memory() {
+    return options().memory;
+  }
+
+  std::vector<std::pair<std::string, Val*>> constraintsAndOutputs() const;
+  std::vector<std::pair<std::string, Val*>> constraintsAndInputs() const;
 };
 
 //! Allocate is a lower level Node that describes a buffer of memory that

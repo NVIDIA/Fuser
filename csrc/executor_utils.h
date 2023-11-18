@@ -65,7 +65,7 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& code,
     const std::string& func_name,
-    int64_t id,
+    const std::string& id,
     const CompileParams& compile_params = CompileParams(),
     std::optional<int64_t> opt_block_size = std::nullopt);
 
@@ -144,16 +144,6 @@ class VectorizedTensorValidation {
   using DataType = VectorizedTensorInfo;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::VECTORIZED_TENSOR_VALIDATION;
-};
-
-//! Compile-time info to be cached in each FusionExecutor:
-//!  InputOutputAliases
-//!    Stores position info of aliased input tensors
-class InputOutputAliases {
- public:
-  using DataType = std::vector<InputOutputAlias>;
-  static const CompileTimeEntryType EntryType =
-      CompileTimeEntryType::INPUT_ALIAS_INDICES;
 };
 
 //! Base abstract class for unified storage in `ExecutorCompileTimeInfoCache`,

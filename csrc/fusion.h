@@ -90,22 +90,16 @@ enum class AliasType : int {
   // For example, the tensor storing BatchNorm's running mean. The output EMA is
   // updated in place.
   InplaceUpdate,
-  // For example, the output of a ViewOp is merely a pointer cast of the input.
-  // In this case, we use `ExpressionEvaluator` (instead of a kernel) to compute
-  // the output tensor.
-  PointerCast,
+  // For example, the output of a ViewOp is merely a pointer arithmetic of the
+  // input.  In this case, we use `ExpressionEvaluator` (instead of a kernel) to
+  // cheaply compute the output tensor.
+  PointerArithmetic,
 };
 
 struct AliasInfo {
   AliasType type;
   // Whether integration should hide the output from users.
   bool hide_output;
-};
-
-struct InputOutputAlias {
-  int64_t out;
-  int64_t in;
-  AliasInfo info;
 };
 
 //! Fusion is mutable but unique. Nodes cannot be copied in any way from one
@@ -251,13 +245,6 @@ class Fusion : public IrContainer {
   //! describing how they alias. Returns <nullptr,nullptr> when `output` is not
   //! aliased.
   std::pair<Val*, const AliasInfo*> getOutputAlias(Val* output);
-
-  //! Get alias mappings from fusion outputs to inputs
-  //
-  // TODO: this method is only used for serialization. We should be able to get
-  // rid of it and serialize the alias map to
-  // `serde::ExecutorEntry::input_output_alias` directly.
-  std::vector<InputOutputAlias> getOutputToInputAliasIndices() const;
 
   // mark input at index to be permuted by permutation
   void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
