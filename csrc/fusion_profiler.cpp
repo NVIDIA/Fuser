@@ -438,15 +438,28 @@ auto FusionProfile::toNocuptiTuple(const FusionProfile& prof) {
 
 namespace {
 template <size_t I = 0, typename... Ts>
-constexpr std::ostream& print_tuple(std::ostream& os, std::tuple<Ts...> tup, size_t seg_id) {
-  if constexpr(I == sizeof...(Ts)) {
+constexpr std::ostream& print_tuple(std::ostream& os, std::tuple<Ts...> tup, size_t seg_id, bool verbose) {
+  if constexpr (I == sizeof...(Ts)) {
     return os;
   } else {
+    os << std::right;
+    if constexpr (I > 0) {
+      os << " ";
+    }
+    const auto& desc = FusionProfile::profile_attr_descs.at(I);
     // Print the tuple and go to next element
-    os << std::get<I>(tup) << " ";
- 
+    if (seg_id > 0 && !desc.segment) {
+      os << std::setw(desc.column_width) << " ";
+    } else {
+      if ((verbose && desc.verbose) || !desc.verbose) {
+        if (desc.number) {
+          os << std::setprecision(desc.mantissa_width);
+        }
+        os << std::setw(desc.column_width) << std::get<I>(tup);
+      }
+    }
     // Going for next element.
-    return print_tuple<I + 1>(os, tup, seg_id);
+    return print_tuple<I + 1>(os, tup, seg_id, verbose);
   }
 }
 } // namespace
@@ -531,6 +544,7 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
       }
     }
   }
+
   return os;
 }
 /* 
