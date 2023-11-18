@@ -27,33 +27,37 @@ void MarkAliasPass::runPass(Fusion* fusion) {
       continue;
     }
 
-    if (const Val* in = alias_analysis.findRoot(out); in->isFusionInput()) {
-      fusion->aliasOutputToInput(
-          out,
-          // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-          const_cast<Val*>(in),
-          AliasType::PointerArithmetic);
-      if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-        debug() << "MarkAliasPass marked " << out->toString()
-                << " as an alias of " << in->toString() << std::endl;
-      }
-
-      // A scalar `out` triggers a corner case that crashes
-      // `validateDomainEquivalence`.
-      if (!out->isZeroDim()) {
-        const Layout out_layout = alias_analysis.preferredLayout(out);
-        if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-          debug() << "MarkAliasPass changed the layout of " << out->toString()
-                  << std::endl;
-          debug() << "  Old TensorDomain:" << std::endl;
-          debug() << out->domain()->toString(4, /*leaf_only=*/false)
-                  << std::endl;
-          debug() << "  New layout:" << out_layout.toString() << std::endl;
-        }
-        out->setAllocationDomain(
-            out_layout.allocation_domain, out_layout.contiguity);
-      }
+    const Val* in = alias_analysis.findRoot(out);
+    if (!in->isFusionInput()) {
+      continue;
     }
+
+    fusion->aliasOutputToInput(
+        out,
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+        const_cast<Val*>(in),
+        AliasType::PointerArithmetic);
+    if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+      debug() << "MarkAliasPass marked " << out->toString()
+              << " as an alias of " << in->toString() << std::endl;
+    }
+
+    // When `out` is a scalar, `out->setAllocationDomain` triggers a corner case
+    // that crashes `validateDomainEquivalence`.
+    if (out->isZeroDim()) {
+      continue;
+    }
+
+    const Layout out_layout = alias_analysis.preferredLayout(out);
+    if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+      debug() << "MarkAliasPass changed the layout of " << out->toString()
+              << std::endl;
+      debug() << "  Old TensorDomain:" << std::endl;
+      debug() << out->domain()->toString(4, /*leaf_only=*/false) << std::endl;
+      debug() << "  New layout:" << out_layout.toString() << std::endl;
+    }
+    out->setAllocationDomain(
+        out_layout.allocation_domain, out_layout.contiguity);
   }
 }
 
