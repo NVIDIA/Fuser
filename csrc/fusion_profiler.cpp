@@ -384,17 +384,10 @@ auto FusionProfile::toTuple(const FusionProfile& prof, size_t seg_id) {
   NVF_CHECK(seg_id < prof.kernel_profiles.size(), "Invalid seg_id for FusionProfile. Segments: ", prof.kernel_profiles.size(), " seg_id: ", seg_id);
   auto& kp = prof.kernel_profiles[seg_id];
 
-  std::stringstream grid;
-  grid << "[" << std::get<0>(kp.grid) << ", " << std::get<1>(kp.grid)
-       << ", " << std::get<2>(kp.grid) << "]";
-  std::stringstream block;
-  block << "[" << std::get<0>(kp.block) << ", " << std::get<1>(kp.block)
-        << ", " << std::get<2>(kp.block) << "]";
-  std::stringstream cluster;
-  cluster << "[" << std::get<0>(kp.cluster) << ", "
-          << std::get<1>(kp.cluster) << ", " << std::get<2>(kp.cluster) << "]";
-  std::stringstream smem;
-  smem << "[" << kp.dynamic_shared_mem << ", " << kp.static_shared_mem << "]";
+  const std::string grid{"[" + std::to_string(std::get<0>(kp.grid)) + ", " + std::to_string(std::get<1>(kp.grid)) + ", " + std::to_string(std::get<2>(kp.grid)) + "]"};
+  const std::string block{"[" + std::to_string(std::get<0>(kp.block)) + ", " + std::to_string(std::get<1>(kp.block)) + ", " + std::to_string(std::get<2>(kp.block)) + "]"};
+  const std::string cluster{"[" + std::to_string(std::get<0>(kp.cluster)) + ", " + std::to_string(std::get<1>(kp.cluster)) + ", " + std::to_string(std::get<2>(kp.cluster)) + "]"};
+  const std::string smem{"[" + std::to_string(kp.dynamic_shared_mem) + ", " + std::to_string(kp.static_shared_mem) + "]"};
 
   return std::tie(prof.fusion_id,
                   prof.segments,
@@ -543,6 +536,11 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
         }
       }
     }
+  }
+
+  for (size_t i = 0; i < fp.kernel_profiles.size(); ++i) {
+    print_tuple(os, FusionProfile::toTuple(fp, i), i, fp.verbose);
+    os << std::endl;
   }
 
   return os;
