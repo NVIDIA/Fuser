@@ -53,7 +53,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
     registerReplace(
         commit,
         IrBuilder::create<kir::Asm>(
-            "cp.async.bulk.commit_group;",
+            "cp.async.bulk.commit_group",
             std::vector<Val*>{},
             std::vector<Val*>{},
             kir::Asm::Options{true}));
