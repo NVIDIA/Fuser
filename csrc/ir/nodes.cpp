@@ -3082,7 +3082,11 @@ IterDomain* IterDomain::resize(
   }
 
   auto resized_id =
-      IterDomainBuilder(in->container()->zeroVal(), resized_id_size)
+      IterDomainBuilder(
+          in->container()->zeroVal(),
+          // Set immediate constant size of 1 if resize produces broadcast
+          iter_type == IterType::Broadcast ? in->fusion()->oneVal()
+                                           : resized_id_size)
           .is_rfactor_domain(mark_as_rfactor)
           .iter_type(iter_type)
           .build();
