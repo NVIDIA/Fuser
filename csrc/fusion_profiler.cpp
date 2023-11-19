@@ -388,23 +388,23 @@ auto FusionProfile::toTuple(const FusionProfile& prof, size_t seg_id) {
                   prof.cuda_evt_time_ms,
                   prof.host_time_ms,
                   prof.compile_time_ms,
-                  prof.kernel_time_ms,
+                  prof.kernel_time_ms, // Idx 5
                   prof.effective_bandwidth_gbs,
                   prof.percentage_peak_bandwidth,
                   prof.input_bytes,
                   prof.output_bytes,
-                  kp.segment_id,
+                  kp.segment_id,           // Idx 10
                   kp.time_ms,
                   kp.compile_time_ms,
                   kp.effective_bandwidth_gbs,
                   kp.percentage_peak_bandwidth,
                   kp.input_bytes,
                   kp.output_bytes,
-                  kp.shared_mem,
+                  kp.shared_mem, // Idx 17
                   kp.registers,
-                  kp.grid,
-                  kp.block,
-                  kp.cluster,
+                  kp.grid, // Idx 19
+                  kp.block, // Idx 20
+                  kp.cluster, // Idx 212
                   kp.device,
                   kp.stream,
                   kp.peak_bandwidth_gbs,
@@ -424,43 +424,42 @@ auto FusionProfile::toNocuptiTuple(const FusionProfile& prof) {
 }
 
 namespace {
+template<typename T, size_t I>
+std::ostream& operator<<(std::ostream& os, const std::array<T, I>& cont) {
+  os << "[";
+  bool first_elem = true;
+  for(const auto& elem : cont) {
+    if (first_elem) {
+        first_elem = false;
+    } else {
+      os << ", ";
+    }
+    os << elem;
+  }
+  os << "]";
+  return os;
+}
+
 template <size_t I = 0, typename... Ts>
 constexpr std::ostream& print_tuple(std::ostream& os, std::tuple<Ts...> tup, size_t seg_id, bool verbose) {
   if constexpr (I == sizeof...(Ts)) {
     return os;
   } else {
-    os << std::setfill(' ') << std::right;
-    if constexpr (I > 0) {
-      os << " ";
-    }
+    os << std::setfill(' ') << std::fixed << std::right;
     const auto& desc = FusionProfile::profile_attr_descs.at(I);
     // Print the tuple and go to next element
-    if (seg_id > 0 && !desc.segment) {
-      os << std::setw(desc.column_width) << "-";
-    } else {
-      if ((verbose && desc.verbose) || !desc.verbose) {
-        os << std::setw(desc.column_width) ;
-        if constexpr (std::is_same_v<std::tuple_element<I, decltype(tup)>, std::array<int32_t, 3>> || 
-                      std::is_same_v<std::tuple_element<I, decltype(tup)>, std::array<uint32_t, 3>> ||
-                      std::is_same_v<std::tuple_element<I, decltype(tup)>, std::array<int32_t, 2>>) {
-
-          os << "[";
-          bool first_elem = true;
-          for(const auto& elem : std::get<I>(tup)) {
-            if (first_elem) {
-                first_elem = false;
-            } else {
-              os << ", ";
-            }
-            os << elem;
-          }
-          os << "]";
-        } else {
-          if (desc.number) {
-            os << std::setprecision(desc.mantissa_width);
-          }
-          os << std::get<I>(tup);
+    if ((verbose && desc.verbose) || !desc.verbose) {
+      if constexpr (I > 0) {
+        os << " ";
+      }
+      os << std::setw(desc.column_width);
+      if (seg_id > 0 && !desc.segment) {
+        os << "-";
+      } else {
+        if (desc.number) {
+          os << std::setprecision(desc.mantissa_width);
         }
+        os << std::get<I>(tup);
       }
     }
     // Going for next element.
