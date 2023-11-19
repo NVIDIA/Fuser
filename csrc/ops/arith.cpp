@@ -1294,7 +1294,8 @@ TensorView* reductionOp(
   for (unsigned int axis : uint_axes) {
     auto id = tv_root[axis];
     is_trivial_reduction[axis] = id->isBroadcast() &&
-        !id->hasExpandedExtent() && id->extent()->isOneInt();
+        !id->hasExpandedExtent() && id->extent()->isConstInt() &&
+        id->extent()->evaluate().as<int64_t>() == 1;
     if (!is_trivial_reduction[axis]) {
       reduction_axes.push_back((int)axis + offset);
     } else if (!keep_dim) {
