@@ -60,8 +60,7 @@ void record_cupti_activity(CUpti_Activity* pRecord, FILE* pFileHandle) {
       prof.block = {pKARecord->blockX, pKARecord->blockY, pKARecord->blockZ};
       prof.cluster = {
           pKARecord->clusterX, pKARecord->clusterY, pKARecord->clusterZ};
-      prof.dynamic_shared_mem = pKARecord->dynamicSharedMemory;
-      prof.static_shared_mem = pKARecord->staticSharedMemory;
+      prof.shared_mem = {pKARecord->dynamicSharedMemory, pKARecord->staticSharedMemory};
       prof.registers = pKARecord->registersPerThread;
 
       FusionProfiler::recordAsyncKernelActivity(std::move(prof));
@@ -384,11 +383,6 @@ auto FusionProfile::toTuple(const FusionProfile& prof, size_t seg_id) {
   NVF_CHECK(seg_id < prof.kernel_profiles.size(), "Invalid seg_id for FusionProfile. Segments: ", prof.kernel_profiles.size(), " seg_id: ", seg_id);
   auto& kp = prof.kernel_profiles[seg_id];
 
-  const std::string grid{"[" + std::to_string(std::get<0>(kp.grid)) + ", " + std::to_string(std::get<1>(kp.grid)) + ", " + std::to_string(std::get<2>(kp.grid)) + "]"};
-  const std::string block{"[" + std::to_string(std::get<0>(kp.block)) + ", " + std::to_string(std::get<1>(kp.block)) + ", " + std::to_string(std::get<2>(kp.block)) + "]"};
-  const std::string cluster{"[" + std::to_string(std::get<0>(kp.cluster)) + ", " + std::to_string(std::get<1>(kp.cluster)) + ", " + std::to_string(std::get<2>(kp.cluster)) + "]"};
-  const std::string smem{"[" + std::to_string(kp.dynamic_shared_mem) + ", " + std::to_string(kp.static_shared_mem) + "]"};
-
   return std::tie(prof.fusion_id,
                   prof.segments,
                   prof.cuda_evt_time_ms,
@@ -399,18 +393,18 @@ auto FusionProfile::toTuple(const FusionProfile& prof, size_t seg_id) {
                   prof.percentage_peak_bandwidth,
                   prof.input_bytes,
                   prof.output_bytes,
-                  seg_id,
+                  kp.segment_id,
                   kp.time_ms,
                   kp.compile_time_ms,
                   kp.effective_bandwidth_gbs,
                   kp.percentage_peak_bandwidth,
                   kp.input_bytes,
                   kp.output_bytes,
-                  smem,
+                  kp.shared_mem,
                   kp.registers,
-                  grid,
-                  block,
-                  cluster,
+                  kp.grid,
+                  kp.block,
+                  kp.cluster,
                   kp.device,
                   kp.stream,
                   kp.peak_bandwidth_gbs,
@@ -435,20 +429,38 @@ constexpr std::ostream& print_tuple(std::ostream& os, std::tuple<Ts...> tup, siz
   if constexpr (I == sizeof...(Ts)) {
     return os;
   } else {
-    os << std::right;
+    os << std::setfill(' ') << std::right;
     if constexpr (I > 0) {
       os << " ";
     }
     const auto& desc = FusionProfile::profile_attr_descs.at(I);
     // Print the tuple and go to next element
     if (seg_id > 0 && !desc.segment) {
-      os << std::setw(desc.column_width) << " ";
+      os << std::setw(desc.column_width) << "-";
     } else {
       if ((verbose && desc.verbose) || !desc.verbose) {
-        if (desc.number) {
-          os << std::setprecision(desc.mantissa_width);
+        os << std::setw(desc.column_width) ;
+        if constexpr (std::is_same_v<std::tuple_element<I, decltype(tup)>, std::array<int32_t, 3>> || 
+                      std::is_same_v<std::tuple_element<I, decltype(tup)>, std::array<uint32_t, 3>> ||
+                      std::is_same_v<std::tuple_element<I, decltype(tup)>, std::array<int32_t, 2>>) {
+
+          os << "[";
+          bool first_elem = true;
+          for(const auto& elem : std::get<I>(tup)) {
+            if (first_elem) {
+                first_elem = false;
+            } else {
+              os << ", ";
+            }
+            os << elem;
+          }
+          os << "]";
+        } else {
+          if (desc.number) {
+            os << std::setprecision(desc.mantissa_width);
+          }
+          os << std::get<I>(tup);
         }
-        os << std::setw(desc.column_width) << std::get<I>(tup);
       }
     }
     // Going for next element.
@@ -520,22 +532,26 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
   // Print headers only for first fusion
   if (fp.fusion_id == 0) {
     // Print headers starting on the left
-    os << std::left;
+    os << std::setfill(' ') << std::left;
     
     // Print no-cupti headers
     for (size_t i = 0; i < FusionProfile::first_cupti_idx; ++i) {
-      const auto& desc = FusionProfile::profile_attr_descs[i];
-      os << " " << std::setw(desc.column_width) << desc.column_header;
+      const auto& desc = FusionProfile::profile_attr_descs.at(i);
+      if (i > 0) {
+        os << " ";
+      }
+      os << std::setw(desc.column_width) << desc.column_header;
     }
 
     if (!fp.kernel_profiles.empty()) {
       for (size_t i = FusionProfile::first_cupti_idx; i < FusionProfile::profile_attr_descs.size(); ++i) {
-        const auto& desc = FusionProfile::profile_attr_descs[i];
+        const auto& desc = FusionProfile::profile_attr_descs.at(i);
         if ((fp.verbose && desc.verbose) || !desc.verbose) {
           os << " " << std::setw(desc.column_width) << desc.column_header;
         }
       }
     }
+    os << std::endl;
   }
 
   for (size_t i = 0; i < fp.kernel_profiles.size(); ++i) {
@@ -816,6 +832,7 @@ void FusionProfiler::stop() {
           fp->segments_[kp_idx].state() == ProfilerState::Finished,
           "SegmentProfiler ProfilerState is not Finished!",
           fp->segments_[kp_idx].state());
+      kprof.segment_id = static_cast<size_t>(kp_idx);
       kprof.input_bytes = segment(kp_idx).inputBytes();
       kprof.output_bytes = segment(kp_idx).outputBytes();
       kprof.effective_bandwidth_gbs =
