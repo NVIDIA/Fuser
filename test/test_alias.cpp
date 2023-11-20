@@ -381,6 +381,35 @@ TEST_F(AliasTest, SliceToSizeOne_Issue1353) {
   at::Tensor in_tensor = at::randn({4, 6, 7}).cuda();
   at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
   EXPECT_TRUE(out_tensor.is_alias_of(in_tensor));
+
+  testValidate(
+      fec.fusion(),
+      {in_tensor.slice(/*dim=*/2, /*start=*/c10::nullopt, /*end=*/1)},
+      {in_tensor},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(AliasTest, SliceRightOfBroadcast) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({4, 1, 7});
+  fusion->addInput(in);
+  TensorView* out = slice(in, {0, 0, 0}, {4, 1, 5});
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({4, 1, 7}).cuda();
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  EXPECT_TRUE(out_tensor.is_alias_of(in_tensor));
+
+  testValidate(
+      fec.fusion(),
+      {in_tensor.slice(/*dim=*/2, /*start=*/c10::nullopt, /*end=*/5)},
+      {in_tensor},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(AliasTest, SliceViewPermute) {
