@@ -38,7 +38,7 @@ void MarkAliasPass::runPass(Fusion* fusion) {
         out,
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
         const_cast<Val*>(in),
-        AliasType::PointerArithmetic);
+        AliasType::PointerCast);
     if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
       debug() << "MarkAliasPass marked " << out->toString()
               << " as an alias of " << in->toString() << std::endl;
