@@ -204,7 +204,7 @@ class WarpMmaSwizzler {
 
  private:
   //! Operand swizzle implementations for Turing and Ampere mma.
-  static void scheduleTuringOperandRead(TensorView* tv, MmaOptions options);
+  static void scheduleTuringOperandRead(TensorView* tv);
 
   //! Accumulator swizzle implementation for Turing and Ampere mma.
   static void scheduleTuringMmaWarpOutput(
