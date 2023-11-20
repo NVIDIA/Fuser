@@ -1066,13 +1066,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     return ss.str();
   }
 
-  std::string genMmaOp(const MmaOp* mma, bool init = false) {
+  std::string genMmaOp(const MmaOp* mma) {
     std::stringstream ss;
     auto macro = mma->macro();
     ss << genArchString(macro) << "::";
-    if (init) {
-      ss << "init";
-    }
     ss << toString(macro);
 
     // clang-tidy: bugprone-unchecked-optional-access
@@ -1085,10 +1082,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           "MMAs in Turing and Ampere are TN only, transpose is handled either "
           "via ldmatrix.trans for fp16 or explicitly for other types.");
     }
-    if (!init) {
-      ss << toString(mma_layout_opt.value());
-    }
-    if (!init && isAmpere(macro)) {
+    ss << toString(mma_layout_opt.value());
+    if (isAmpere(macro)) {
       if (mma->inA()->getDataType().value() == DataType::Half) {
         ss << "F16";
       } else {
@@ -1324,7 +1319,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         auto mma = dynamic_cast<MmaOp*>(out_tv->definition());
         NVF_ERROR(mma != nullptr, "CodeGen: mma op not in mma loop");
         NVF_ERROR(optype == LoadStoreOpType::Set);
-        indent() << genMmaOp(mma, true) << "(" << gen(ldst->out()) << ");\n";
+        indent() << "(" << gen(ldst->out()) << ").set(0);\n";
         return;
       }
 

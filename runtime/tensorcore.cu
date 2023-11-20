@@ -139,21 +139,11 @@ __device__ inline void M16N16K4NN(
         "f"(C[7]));
 }
 
-// Same initialization for now, will be different in interleaved
-//   macros
-__device__ inline void initM16N16K4(Array<float, 8, 1>& accumulator) {
-  accumulator.set(0);
-}
-
 } // namespace Volta
 
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 750))
 
 namespace Turing {
-
-__device__ inline void initM16N8K16(Array<float, 4, 1>& accumulator) {
-  accumulator.set(0);
-}
 
 __device__ inline void M16N8K16TN(
     Array<float, 4, 1>& C,
@@ -179,10 +169,6 @@ __device__ inline void M16N8K16TN(
         "f"(C[3]));
 }
 
-__device__ inline void initM16N16K16(Array<float, 8, 1>& accumulator) {
-  accumulator.set(0);
-}
-
 __device__ inline void M16N16K16TN(
     Array<float, 8, 1>& C,
     Array<unsigned, 4, 1>& A,
@@ -200,10 +186,6 @@ __device__ inline void M16N16K16TN(
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800))
 
 namespace Ampere {
-
-__device__ inline void initM16N8K16(Array<float, 4, 1>& accumulator) {
-  accumulator.set(0);
-}
 
 __device__ inline void M16N8K16TNF16(
     Array<float, 4, 1>& C,
@@ -239,10 +221,6 @@ __device__ inline void M16N8K16TNBF16(
         "f"(C[1]),
         "f"(C[2]),
         "f"(C[3]));
-}
-
-__device__ inline void initM16N16K16(Array<float, 8, 1>& accumulator) {
-  accumulator.set(0);
 }
 
 __device__ inline void M16N16K16TNF16(
