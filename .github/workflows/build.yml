@@ -32,6 +32,7 @@ jobs:
           source tools/setup-env.sh
           sudo rm -rf /usr/lib/gcc/x86_64-linux-gnu/13
           sudo rm -rf /usr/lib/gcc/x86_64-linux-gnu/12
+          sudo rm -rf /usr/lib/gcc/x86_64-linux-gnu/11
           export CC=clang
           export CXX=clang++
           wait
