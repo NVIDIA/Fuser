@@ -197,8 +197,7 @@ TEST_F(GpuViewTest, FusionReshapeOutput) {
   fe.compileFusion(&fusion, aten_inputs, lparams);
   auto outputs = fe.runFusion(aten_inputs, lparams);
 
-  testValidate(
-      &fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(GpuViewTest, FusionReshapeFailMismatchSize) {
@@ -845,8 +844,7 @@ TEST_F(GpuViewTest, FusionFlattenAfterUnsqueezeOutput) {
   fe.compileFusion(&fusion, aten_inputs);
   auto outputs = fe.runFusion(aten_inputs);
 
-  testValidate(
-      &fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(GpuViewTest, FusionComputeAtRootDomainMapWithView) {
@@ -1252,11 +1250,7 @@ TEST_F(GpuViewTest, FusionExpandFlatten) {
   auto cg_outputs = executor_cache.runFusionWithInputs({input});
 
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      {input},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, {input}, __LINE__, __FILE__);
 }
 
 TEST_F(GpuViewTest, FusionIllegalReductionFlatten) {
@@ -1293,8 +1287,7 @@ TEST_F(GpuViewTest, FusionReductionFlatten1) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(GpuViewTest, FusionPwiseViewSchedule) {
@@ -1556,8 +1549,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule3) {
       executor_cache.getMostRecentExecutorInfo().params->as<PointwiseParams>();
   NVF_CHECK(pparams->break_point == 1);
 
-  testValidate(
-      &fusion, cg_outputs, {t0, t3, t6}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0, t3, t6}, __LINE__, __FILE__);
 }
 
 // Make sure broadcasts through reshapes when not conflicting with reshape are
@@ -1611,8 +1603,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule4) {
       executor_cache.getMostRecentExecutorInfo().params->as<PointwiseParams>();
   NVF_CHECK(pparams->break_point == 1);
 
-  testValidate(
-      &fusion, cg_outputs, {t0, t3, t4}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0, t3, t4}, __LINE__, __FILE__);
 }
 
 // Make sure different reshapes that are consumed by the reference are segmented
@@ -1830,12 +1821,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule9) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2, t3, t4});
 
-  testValidate(
-      &fusion,
-      cg_outputs,
-      {t0, t1, t2, t3, t4},
-      __LINE__,
-      __FILE__);
+  testValidate(&fusion, cg_outputs, {t0, t1, t2, t3, t4}, __LINE__, __FILE__);
 }
 
 // Simpler version of FusionReshapeMagicSchedule9_CUDA
@@ -2090,10 +2076,39 @@ TEST_F(GpuViewTest, FusionIssue2076) {
   at::Tensor t1 = at::randn({48, 128, 128}, options);
   at::Tensor t2 = at::randn({4, 1, 128, 128}, options);
 
+  auto t3 = t0.to(at::kFloat);
+  auto t4 = t1.reshape({4, 12, 128, 128});
+
+  // [4, 1, 128, 128]
+  auto t5 = t3 * 1;
+  auto t6 = 1 - t5;
+  auto t7 = t6.to(at::kBool);
+  auto t8 = at::where(t7, -3.4028200000000001e+38, t6);
+  auto t9 = t8 + t2;
+  auto t10 = t9;
+  // [4, 1, 128, 128]
+  auto t11 = t10.expand({4, 12, 128, 128});
+
+  auto t12 = t4 + t11;
+  auto t13 = t12.reshape({48, 128, 128});
+  // 48, 128, 128
+  auto t14 = std::get<0>(t13.max(2));
+  auto t15 = t14.unsqueeze(-1);
+  // 48, 128, 1
+  auto t16 = t15;
+  auto t17 = t16.expand({48, 128, 128});
+  auto t18 = t13 - t17;
+  auto t19 = t18.exp();
+  auto t20 = t19.sum({2});
+  auto t21 = t20.unsqueeze(-1);
+  auto t22 = t21;
+  auto t23 = t22.expand({48, 128, 128});
+  auto t24 = t19 / t23;
+
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
   testValidate(
-      &fusion, cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
+      &fusion, cg_outputs, {t0, t1, t2}, {t9, t24}, __LINE__, __FILE__);
 }
 
 // Simplify first to reproduce compute at issue
@@ -2299,12 +2314,7 @@ TEST_F(GpuViewTest, ExpandedBroadcast) {
   fe.compileFusion(&fusion, {in_tensor});
   at::Tensor actual_out_tensor = fe.runFusion({in_tensor})[0];
 
-  testValidate(
-      &fusion,
-      {actual_out_tensor},
-      {in_tensor},
-      __LINE__,
-      __FILE__);
+  testValidate(&fusion, {actual_out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

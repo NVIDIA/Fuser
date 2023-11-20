@@ -459,7 +459,7 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       return {in.as<at::Tensor>().cos()};
       break;
     case UnaryOpType::BitCast:
-      if (isComplexType(input(0)->dtype()) && !isComplexType(out()->dtype())){
+      if (isComplexType(input(0)->dtype()) && !isComplexType(out()->dtype())) {
         return {at::view_as_real(in.as<at::Tensor>())};
       } else {
         return {in.as<at::Tensor>().view(data_type_to_aten(out()->dtype()))};
@@ -711,14 +711,6 @@ std::vector<PolymorphicValue> TernaryOp::evaluate(
       return {(a <= b) ? c : a};
       break;
     case TernaryOpType::Where:
-      using namespace PolymorphicValue_functions;
-      if (a.is<at::Tensor>()){
-        return {at::where(
-          a.as<at::Tensor>().to(at::kBool), 
-          toTensor(b).as<at::Tensor>(), 
-          toTensor(c).as<at::Tensor>())
-        };
-      }
       return {a.as<bool>() ? b : c};
       break;
     default:
@@ -2405,6 +2397,21 @@ std::string ViewAsScalar::toString(int indent_size) const {
 
 std::string ViewAsScalar::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> ViewAsScalar::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const at::Tensor& in_tensor = inputs[0].as<at::Tensor>();
+  const std::vector<IterDomain*>& out_domain = TensorDomain::noReductions(
+      out()->as<TensorView>()->getMaybeRFactorDomain());
+  std::vector<int64_t> out_shape;
+  out_shape.reserve(out_domain.size());
+  for (IterDomain* id : out_domain) {
+    out_shape.push_back(
+        ee.evaluate(id->getMaybeExpandedExtent()).as<int64_t>());
+  }
+  return {in_tensor.reshape(out_shape)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ViewAsScalar)
