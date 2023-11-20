@@ -171,7 +171,7 @@ std::string FusionExecutor::getStructuredCode(
   if (isDebugDumpEnabled(DebugDumpOption::CudaToFile) ||
       isDebugDumpEnabled(DebugDumpOption::DebugInfo)) {
     std::stringstream file_name;
-    file_name << "__tmp_kernel" << getGlobalFusionCount() << ".cu";
+    file_name << "__tmp_kernel_" << kernel_id_ << ".cu";
     debug() << "PRINTING: " << file_name.str() << std::endl;
     std::ofstream out(file_name.str());
     out << code << std::endl;
@@ -369,7 +369,11 @@ void FusionExecutor::compileFusion(
   // If the loaded external source code is empty, revert to the default codegen.
   // The external_structured_code is moved to structured_code and explicitly
   // cleared to avoid use-after-move scenarios.
-  auto structured_code = getStructuredCodeFromExternalFiles(fusion_id_);
+  // Note: we index these with getGlobalFusionCount() instead of fusion_id_ in
+  // order to match the numbering of files output with
+  // NVFUSER_DUMP=cuda_to_file
+  auto structured_code =
+      getStructuredCodeFromExternalFiles(getGlobalFusionCount());
   if (structured_code.empty()) {
     structured_code = getStructuredCode();
   }
@@ -945,19 +949,19 @@ at::Tensor allocateOutput(
 
     switch (alias_it->second.second.type) {
       case AliasType::InplaceUpdate:
-        // Unlike for `AliasType::PointerCast`, don't use
+        // Unlike for `AliasType::PointerArithmetic`, don't use
         // ExpressionEvaluator to compute the output tensor. This is because
         // the output tensor may hold different data from the input, e.g., an
         // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
         // would trigger non-trivial host computation.
         return in_tensor;
 
-      case AliasType::PointerCast:
+      case AliasType::PointerArithmetic:
         auto* in_tv = kernel->inputs()[aliased_in_index]->as<TensorView>();
         ee.bind(in_tv, in_tensor);
         at::Tensor out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
         NVF_ERROR(
-            in_tensor.data_ptr() == out_tensor.data_ptr(),
+            out_tensor.is_alias_of(in_tensor),
             "ExpressionEvaluator failed to evaluate ",
             out_tv->toString(),
             " as an alias of ",

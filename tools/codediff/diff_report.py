@@ -579,7 +579,8 @@ class TestRun:
                         kern.index_type = m.groups()[0]
                 if not strip_preamble or i >= self.preamble_size_lines:
                     # replace kernel934 with kernel1 to facilitate diffing
-                    kern.code += re.sub(r"\bkernel\d+\b", "kernelN", line)
+                    # also match kernel_43 to handle new-style naming with static fusion count
+                    kern.code += re.sub(r"\bkernel_?\d+\b", "kernelN", line)
         kern.code = kern.code.rstrip()
         if strip_preamble and kern.code[-1] == "}":
             # trailing curly brace is close of namespace. This will clean it up so that we have just the kernel

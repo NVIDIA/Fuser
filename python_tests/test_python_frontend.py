@@ -28,8 +28,14 @@ from nvfuser import (
     version,
     compute_contiguity,
     compute_tensor_descriptor,
+    serialize as nv_serialize,
 )
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+
+# Test automatic serialization to common workplace
+import atexit
+
+atexit.register(nv_serialize)
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
@@ -954,8 +960,7 @@ class TestNvFuserFrontend(TestCase):
             t0 = fd.from_pytorch(inputs[0])
             s_mean = fd.define_scalar(mean)
             s_std = fd.define_scalar(std)
-            size = fd.ops.tensor_sizes(t0)
-            t1 = fd.ops.normal(s_mean, s_std, size, DataType.Double)
+            t1 = fd.ops.normal(s_mean, s_std, t0.shape(), dtype=DataType.Double)
             fd.add_output(t1)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
@@ -992,8 +997,7 @@ class TestNvFuserFrontend(TestCase):
             t0 = fd.from_pytorch(inputs[0])
             s_lo = fd.define_scalar(lo)
             s_hi = fd.define_scalar(hi)
-            size = fd.ops.tensor_sizes(t0)
-            t1 = fd.ops.uniform(s_lo, s_hi, size, DataType.Double)
+            t1 = fd.ops.uniform(s_lo, s_hi, t0.shape(), dtype=DataType.Double)
             fd.add_output(t1)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
@@ -2472,14 +2476,15 @@ class TestNvFuserFrontend(TestCase):
                 t1 = fd.from_pytorch(inputs[0])
                 a = fd.define_scalar(0.3, DataType.Float)
                 b = fd.define_scalar(1.7, DataType.Float)
-                shape = [fd.define_scalar(5), fd.define_scalar(9)]
                 randop = getattr(fd.ops, randopname)
                 if deterministic:
                     rng_seed = fd.define_scalar(DataType.Int)
                     rng_offset = fd.define_scalar(DataType.Int)
-                    u = randop(a, b, shape, rng_seed=rng_seed, rng_offset=rng_offset)
+                    u = randop(
+                        a, b, shape=[5, 9], rng_seed=rng_seed, rng_offset=rng_offset
+                    )
                 else:
-                    u = randop(a, b, shape)
+                    u = randop(a, b, shape=[5, 9])
                 t2 = t1 * u
                 fd.add_output(t2)
 
@@ -2516,7 +2521,6 @@ class TestNvFuserFrontend(TestCase):
                     except AssertionError as e:
                         print(f"Assertion failed for iteration {i} with seed {seed}")
                         print(e)
-                        break
 
     # Test expand to zero is replaced with expanded extent and not 1
     # see https://github.com/NVIDIA/Fuser/issues/603
@@ -2664,6 +2668,36 @@ class TestNvFuserFrontend(TestCase):
 
         self.assertEqual(y.data_ptr(), x.data_ptr())
 
+    # Test that reshape to slice to sum with concrete sizes sets extents properly
+    # https://github.com/NVIDIA/Fuser/issues/1221
+    def test_sum_sliced_reshape_to_broadcast(self):
+        inputs = [torch.randn((24, 128, 25, 32), dtype=torch.float32, device="cuda:0")]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T18 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            S91 = fd.define_scalar(12, dtype=DataType.Int)
+            S92 = fd.define_scalar(128, dtype=DataType.Int)
+            S93 = fd.define_scalar(25, dtype=DataType.Int)
+            S94 = fd.define_scalar(32, dtype=DataType.Int)
+            S95 = fd.define_scalar(2, dtype=DataType.Int)
+            V96 = fd.define_vector([S91, S92, S93, S94, S95], dtype=DataType.Int)
+            T97 = fd.ops.reshape(T18, new_shape=V96)
+            T98 = fd.ops.slice(
+                T97,
+                start_indices=[0, 0, 0, 0, 0],
+                end_indices=[12, 128, 25, 32, 1],
+                strides=[1, 1, 1, 1, 1],
+            )
+            T89 = fd.ops.sum(T98, axes=[4], keepdim=False, dtype=DataType.Null)
+            fd.add_output(T89)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
     # This tests no dead code at definition does not cause a problem due to
     # removal of empty tensors
     # See https://github.com/NVIDIA/Fuser/pull/1270
@@ -2709,6 +2743,47 @@ class TestNvFuserFrontend(TestCase):
         t11 = t8.sum([0])
         self.assertEqual(nvf_out[0], t24)
         self.assertEqual(nvf_out[1], t11)
+
+    # See https://github.com/NVIDIA/Fuser/issues/1246
+    def test_issue1246(self):
+        inputs = [
+            torch.randn((8388608,), dtype=torch.float32, device="cuda:0").as_strided(
+                (1, 32, 2048, 128), (8388608, 262144, 128, 1)
+            ),
+            torch.randn((0,), dtype=torch.float32, device="cuda:0").as_strided(
+                (1, 32, 2048, 0), (8388608, 262144, 128, 1)
+            ),
+        ]
+
+        for final_mul in [False, True]:
+
+            def fusion_func(fd: FusionDefinition) -> None:
+                T0 = fd.define_tensor(
+                    shape=[1, -1, -1, -1],
+                    contiguity=[None, True, True, True],
+                    dtype=DataType.Float,
+                    is_cpu=False,
+                )
+                T1 = fd.define_tensor(
+                    shape=[1, -1, -1, -1],
+                    contiguity=[None, True, False, True],
+                    dtype=DataType.Float,
+                    is_cpu=False,
+                )
+                S2 = fd.define_scalar(2.00000, dtype=DataType.Double)
+                T3 = fd.ops.mul(T0, S2)
+                T4 = fd.ops.cat([T3, T1], dim=-1)
+                if final_mul:
+                    # NOTE: original repro does not have this final op
+                    S3 = fd.define_scalar(1.00000, dtype=DataType.Double)
+                    T5 = fd.ops.mul(T4, S3)
+                    fd.add_output(T5)
+                else:
+                    fd.add_output(T4)
+
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+            torch_ref = torch.cat([2.0 * inputs[0], inputs[1]], dim=-1)
+            self.assertEqual(nvf_out[0], torch_ref)
 
 
 if __name__ == "__main__":

@@ -67,6 +67,20 @@ std::string FullOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+std::vector<PolymorphicValue> FullOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  std::vector<int64_t> shape;
+  for (auto i : c10::irange(inputs.size() - 1)) {
+    shape.push_back((int)inputs.at(i));
+  }
+  DataType dtype = getFillValue()->getDataType().value();
+  const auto options =
+      at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype));
+  using namespace PolymorphicValue_functions;
+  return {at::full(shape, toScalar(inputs.back()), options)};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(FullOp)
 
 SelectOp::SelectOp(
@@ -298,6 +312,31 @@ std::string IotaOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+std::vector<PolymorphicValue> IotaOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto options =
+      at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype()));
+  int64_t length = (int64_t)inputs.at(0);
+
+  if (isIntegralType(dtype())) {
+    int64_t start = (int64_t)inputs.at(1);
+    int64_t step = (int64_t)inputs.at(2);
+    int64_t end = start + step * length;
+    return {at::arange(start, end, step, options)};
+  } else if (isFloatingPointType(dtype())) {
+    double start = (double)inputs.at(1);
+    double step = (double)inputs.at(2);
+    // Due to rounding error, it can be hard to guarantee the size of
+    // the output of arange to be exactly length, so we generate a
+    // larger tensor and truncate it to length.
+    double end = start + step * ((double)length + 1);
+    return {at::arange(start, end, step, options).narrow(0, 0, length)};
+  } else {
+    NVF_ERROR(false, "Unsupported dtype in IotaOp evaluator: ", dtype());
+  }
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(IotaOp)
 
 EyeOp::EyeOp(IrBuilderPasskey passkey, Val* out, DataType dtype)
@@ -324,6 +363,19 @@ std::string EyeOp::toString(int indent_size) const {
 
 std::string EyeOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+std::vector<PolymorphicValue> EyeOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto options =
+      at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype()));
+  int64_t nrows = (int64_t)inputs.at(0);
+  if (inputs.size() > 1) {
+    int64_t ncols = (int64_t)inputs.at(1);
+    return {at::eye(nrows, ncols, options)};
+  } else {
+    return {at::eye(nrows, options)};
+  }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(EyeOp)
@@ -399,6 +451,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       break;
     case UnaryOpType::Exp:
       return {at::exp(in.as<at::Tensor>())};
+      break;
+    case UnaryOpType::Sin:
+      return {in.as<at::Tensor>().sin()};
       break;
     default:
       NVF_CHECK(
@@ -2171,6 +2226,17 @@ std::string ExpandOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+std::vector<PolymorphicValue> ExpandOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  std::vector<int64_t> expanded_size;
+  for (auto i : c10::irange(1, inputs.size())) {
+    expanded_size.push_back((int64_t)inputs.at(i));
+  }
+  return {at::expand_copy(in, expanded_size)};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)
 
 ShiftOp::ShiftOp(
@@ -3016,7 +3082,11 @@ IterDomain* IterDomain::resize(
   }
 
   auto resized_id =
-      IterDomainBuilder(in->container()->zeroVal(), resized_id_size)
+      IterDomainBuilder(
+          in->container()->zeroVal(),
+          // Set immediate constant size of 1 if resize produces broadcast
+          iter_type == IterType::Broadcast ? in->fusion()->oneVal()
+                                           : resized_id_size)
           .is_rfactor_domain(mark_as_rfactor)
           .iter_type(iter_type)
           .build();
