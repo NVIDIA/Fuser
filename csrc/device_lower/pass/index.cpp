@@ -1357,9 +1357,6 @@ void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
 static DataType getMmaInputAType(MmaOptions::MacroType macro) {
   int size = -1;
   switch (macro) {
-    case MmaOptions::MacroType::Volta_16_16_4:
-      size = 2;
-      break;
     case MmaOptions::MacroType::Turing_16_8_16:
     case MmaOptions::MacroType::Turing_16_16_16:
     case MmaOptions::MacroType::Ampere_16_8_16:
@@ -1376,7 +1373,6 @@ static DataType getMmaInputAType(MmaOptions::MacroType macro) {
 static DataType getMmaInputBType(MmaOptions::MacroType macro) {
   int size = -1;
   switch (macro) {
-    case MmaOptions::MacroType::Volta_16_16_4:
     case MmaOptions::MacroType::Turing_16_8_16:
     case MmaOptions::MacroType::Ampere_16_8_16:
       size = 2;
