@@ -14,7 +14,7 @@ namespace nvfuser {
 std::string toString(ScheduleHeuristic sh) {
   switch (sh) {
     case ScheduleHeuristic::NoOp:
-      return "no-op";
+      return "no_op";
     case ScheduleHeuristic::PointWise:
       return "pointwise";
     case ScheduleHeuristic::Reduction:
@@ -29,6 +29,8 @@ std::string toString(ScheduleHeuristic sh) {
       return "transpose";
     case ScheduleHeuristic::Matmul:
       return "matmul";
+    case ScheduleHeuristic::None:
+      return "none";
     default:
       NVF_ERROR(false, "undefined schedule");
   }

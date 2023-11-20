@@ -889,6 +889,7 @@ std::ostream& operator<<(std::ostream&, const Swizzle2DType&);
 std::ostream& operator<<(std::ostream&, const SwizzleMode&);
 std::ostream& operator<<(std::ostream&, const KernelIndexMode&);
 std::ostream& operator<<(std::ostream&, const CacheOp&);
+std::ostream& operator<<(std::ostream& os, const std::optional<bool>&);
 
 std::string stringifyThreadSize(const ParallelType);
 std::string stringifyThread(const ParallelType);
@@ -991,6 +992,14 @@ inline PolymorphicValue castToDtype(
     });
   }
   return value;
+}
+
+// Converts an enum to its underlying type.
+// It corresponds with std::to_underlying introduced in c++23
+// https://en.cppreference.com/w/cpp/utility/to_underlying
+template <typename E>
+constexpr auto toUnderlying(E e) noexcept {
+  return static_cast<std::underlying_type_t<E>>(e);
 }
 
 } // namespace nvfuser

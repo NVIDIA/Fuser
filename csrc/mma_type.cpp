@@ -25,25 +25,6 @@ MmaBuilder::MmaBuilder(
     MmaOptions::MacroType macro,
     MatMulTileOptions gemm_tile) {
   option_.macro = macro;
-  // Calculate accumulator stride, will be removed once transpose swizzle ready
-  int outer_stride = gemm_tile.warp_tile.n / gemm_tile.instruction_tile.n;
-  switch (macro) {
-    // Numbers depend on actual output layout of mma instruction
-    case MmaOptions::MacroType::Volta_16_16_4:
-      option_.accumulator_stride = outer_stride * 4;
-      break;
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-      option_.accumulator_stride = outer_stride * 2;
-      break;
-    case MmaOptions::MacroType::Ampere_16_16_16:
-    case MmaOptions::MacroType::Turing_16_16_16:
-      option_.accumulator_stride = outer_stride * 4;
-      break;
-    default:
-      NVF_CHECK(false, "unsupported macro");
-      break;
-  }
 }
 
 MmaBuilder& MmaBuilder::layout(MmaOptions::MmaLayout layout) {
@@ -122,54 +103,6 @@ bool isAmpere(MmaOptions::MacroType macro) {
   return macro == MmaOptions::MacroType::Ampere_16_8_8 ||
       macro == MmaOptions::MacroType::Ampere_16_8_16 ||
       macro == MmaOptions::MacroType::Ampere_16_16_16;
-}
-
-int getOutputRegisterSize(MmaOptions::MacroType macro) {
-  switch (macro) {
-    case MmaOptions::MacroType::Volta_16_16_4:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-    case MmaOptions::MacroType::Turing_16_16_16:
-      return 8;
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-      return 4;
-    default:
-      NVF_ERROR(false, "unknown macro");
-      break;
-  }
-  return -1;
-}
-
-int getInputARegisterSize(MmaOptions::MacroType macro) {
-  switch (macro) {
-    case MmaOptions::MacroType::Volta_16_16_4:
-      return 4;
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      return 8;
-    default:
-      NVF_ERROR(false, "unknown macro");
-      break;
-  }
-  return -1;
-}
-
-int getInputBRegisterSize(MmaOptions::MacroType macro) {
-  switch (macro) {
-    case MmaOptions::MacroType::Volta_16_16_4:
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-      return 4;
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      return 8;
-    default:
-      NVF_ERROR(false, "unknown macro");
-      break;
-  }
-  return -1;
 }
 
 bool isOperandTransposed(MmaOptions options) {

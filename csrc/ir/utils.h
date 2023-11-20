@@ -11,8 +11,10 @@
 #include <ir/all_nodes.h>
 #include <type.h>
 
+#include <algorithm>
 #include <iterator>
 #include <unordered_map>
+#include <vector>
 
 namespace nvfuser::ir_utils {
 
@@ -311,6 +313,10 @@ std::vector<TensorView*> outputTvsOf(std::vector<TensorView*> tvs);
 // returns all tensor views in fusion that are used between outputs and inputs.
 std::vector<TensorView*> allTvs(Fusion* fusion);
 
+// returns all tensor views used in the provided expressions
+VectorOfUniqueEntries<TensorView*> allTvsOfExprs(
+    const std::vector<Expr*>& exprs);
+
 // returns all tensor views in fusion that are used between outputs and inputs
 // except the specified set.
 std::vector<TensorView*> allTvsExcept(
@@ -527,5 +533,29 @@ std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion);
 
 //! Returns true if fusion has any reduction ops.
 bool hasAnyReductionOps(Fusion* fusion);
+
+int64_t getVectorizeSize(TensorView* tv);
+
+// Returns the permutation from `in` to `out`, i.e., `out[i]==in[perm[i]]`. If
+// `out` is not a permutation of `in`, returns nullopt.
+template <typename T>
+std::optional<std::vector<int64_t>> computePermutation(
+    const std::vector<T>& in,
+    const std::vector<T>& out) {
+  if (!std::is_permutation(in.begin(), in.end(), out.begin())) {
+    return std::nullopt;
+  }
+
+  std::vector<int64_t> permutation;
+  permutation.reserve(out.size());
+  // O(n^2) is totally fine for the current use case of computing the
+  // root-to-rfactor permutation. If needed, this can be improved by making T
+  // hashable and/or comparable.
+  for (const T& out_element : out) {
+    permutation.push_back(std::distance(
+        in.begin(), std::find(in.begin(), in.end(), out_element)));
+  }
+  return permutation;
+}
 
 } // namespace nvfuser::ir_utils

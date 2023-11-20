@@ -119,8 +119,11 @@ class CompiledKernel:
         # Example input:
         #
         #   ptxas info    : 307 bytes gmem
-        #   ptxas info    : Compiling entry function '_ZN11CudaCodeGen7kernel1ENS_6TensorIfLi2ELi2EEES1_S1_' for 'sm_86'
-        #   ptxas info    : Function properties for _ZN11CudaCodeGen7kernel1ENS_6TensorIfLi2ELi2EEES1_S1_
+        #   ptxas info    : Compiling entry function
+        #   '_ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_'
+        #   for 'sm_86'
+        #   ptxas info    : Function properties for
+        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_
         #   ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
         #   ptxas info    : Used 203 registers, 16 bytes smem, 472 bytes cmem[0], 8 bytes cmem[2]
         #
@@ -576,7 +579,8 @@ class TestRun:
                         kern.index_type = m.groups()[0]
                 if not strip_preamble or i >= self.preamble_size_lines:
                     # replace kernel934 with kernel1 to facilitate diffing
-                    kern.code += re.sub(r"\bkernel\d+\b", "kernelN", line)
+                    # also match kernel_43 to handle new-style naming with static fusion count
+                    kern.code += re.sub(r"\bkernel_?\d+\b", "kernelN", line)
         kern.code = kern.code.rstrip()
         if strip_preamble and kern.code[-1] == "}":
             # trailing curly brace is close of namespace. This will clean it up so that we have just the kernel
@@ -633,6 +637,24 @@ class TestDiff:
     kernel_diffs: list[KernelDiff] | None = None
 
 
+def sanitize_ptx_lines(lines: list[str]) -> list[str]:
+    """Remove comments and remove kernel id"""
+    sanitary_lines = []
+    for l in lines:
+        # Replace mangled kernel names like
+        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_
+        # with
+        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_cu_8995cef2_3255329nvfuser_pointwiseENS_6TensorIfLi2ELi2EEES1_S1_
+        l = re.sub(
+            r"_tmp_kernel_[a-z0-9_]+nvfuser_[a-z]+_f\d+_c\d*_r\d+_g\d+", "kernel", l
+        )
+
+        # Remove comments. This is important for
+        l = re.sub(r"//.*$", "", l)
+        sanitary_lines.append(l)
+    return sanitary_lines
+
+
 @dataclass
 class TestDifferences:
     run1: TestRun
@@ -645,6 +667,7 @@ class TestDifferences:
     show_diffs: InitVar[bool] = False
     inclusion_criterion: InitVar[str] = "mismatched_cuda_or_ptx"
     preamble_diff: str = field(init=False)
+    env_diff: str = field(init=False)
 
     def __post_init__(self, show_diffs: bool, kernel_inclusion_criterion: str):
         if self.run1.command != self.run2.command:
@@ -669,6 +692,16 @@ class TestDifferences:
         )
         if len(self.preamble_diff) > 0:
             print("Preambles differ between runs indicating changes to runtime files")
+
+        self.env_diff = "\n".join(
+            difflib.unified_diff(
+                self.run1.env.splitlines(),
+                self.run2.env.splitlines(),
+                fromfile=self.run1.name,
+                tofile=self.run2.name,
+                n=5,
+            )
+        )
 
         for testname, compiled_test1 in self.run1.kernel_map.items():
             if testname not in self.run2.kernel_map:
@@ -708,8 +741,8 @@ class TestDifferences:
                 if kern1.ptx is not None and kern2.ptx is not None:
                     ptx_diff_lines = list(
                         difflib.unified_diff(
-                            kern1.ptx.splitlines(),
-                            kern2.ptx.splitlines(),
+                            sanitize_ptx_lines(kern1.ptx.splitlines()),
+                            sanitize_ptx_lines(kern2.ptx.splitlines()),
                             fromfile=self.run1.name,
                             tofile=self.run2.name,
                             n=5,

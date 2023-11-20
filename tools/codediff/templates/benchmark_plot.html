@@ -1,0 +1,134 @@
+{#-
+SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+All rights reserved.
+SPDX-License-Identifier: BSD-3-Clause
+-#}
+{#- Plot benchmark relative runtimes deltas -#}
+<div id="scatter_area">
+    <script type="module">
+import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
+
+// set the dimensions and margins of the graph
+var margin = {top: 20, right: 50, bottom: 50, left: 75},
+    width = 950 - margin.left - margin.right,
+    height = 400 - margin.top - margin.bottom;
+
+// append the svg object to the body of the page
+var svG = d3.select("#scatter_area")
+  .append("svg")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height + margin.top + margin.bottom)
+  .append("g")
+    .attr("transform",
+          "translate(" + margin.left + "," + margin.top + ")");
+
+// Create data
+var data = [
+  //  {old_runtime: 28.4, new_runtime: 34.2, new_runtime_rel: 23.4, name:"test1", num:8},
+  //  {name:"foobar3", new_runtime_rel: 3.4, num:2},
+  //  {name:"XYZ  Foo/343", new_runtime_rel: -11.2, num: 4}
+{%- for test_diff in test_diffs -%}
+    {%- set t1 = test_diff.test1.benchmark_result.gpu_time | float -%}
+    {%- set t2 = test_diff.test2.benchmark_result.gpu_time | float -%}
+ {name:"{{test_diff.testname|e}}", new_runtime_rel: {{(t2 - t1) / t1 * 100}}, num: {{loop.index}}},
+{% endfor -%}
+    ]
+
+data = d3.sort(data.slice(), (a) => a.new_runtime_rel);
+
+var ymin = d3.min(data.slice(), (a) => a.new_runtime_rel);
+var ymax = d3.max(data.slice(), (a) => a.new_runtime_rel);
+
+var xmin_display = 0.5;
+var xmax_display = data.length + .5;
+var yrange = ymax == ymin ? 1 : ymax - ymin; // prevent collapse when there's only one benchmark
+var ymin_display = ymin - yrange * .1;
+var ymax_display = ymax + yrange * .1;
+
+// X scale and Axis
+var x = d3.scaleLinear()
+    .domain([xmin_display, xmax_display])
+    .range([0, width]);
+
+svG
+  .append('g')
+  .attr("transform", "translate(0," + height + ")")
+  .call(d3.axisBottom(x));
+
+// X scale and Axis
+var y = d3.scaleLinear()
+    .domain([ymin_display, ymax_display])
+    .range([height, 0]);
+svG
+  .append('g')
+  .call(d3.axisLeft(y));
+
+// Y axis label
+// https://stackoverflow.com/a/30417969
+var axisLabelX = -50;
+var axisLabelY = height / 2;
+svG
+  .append('g')
+  .attr('transform', 'translate(' + axisLabelX + ', ' + axisLabelY + ')')
+  .append('text')
+  .attr('text-anchor', 'middle')
+  .attr('transform', 'rotate(-90)')
+  .text('Delta runtime (%)')
+  ;
+
+var div = d3.select("body").append("div")
+     .attr("class", "tooltip")
+     .style("opacity", 0);
+
+// x axis
+svG
+  .append("line")
+  .attr("x1", x(xmin_display))
+  .attr("x2", x(xmax_display))
+  .attr("y1", y(0))
+  .attr("y2", y(0))
+  .attr("stroke", "black")
+
+var dot_rad_small = 5;
+var dot_rad_big = 8;
+
+svG
+  .selectAll("dot")
+  .data(data)
+  .enter()
+  .append("circle")
+    .attr("cx", function(d, i){ return x(i + 1) })
+    .attr("cy", function(d){ return y(d.new_runtime_rel) })
+    .attr("fill", function(d){ return d.new_runtime_rel <= 0.0 ? "green" : "red" })
+    .attr("r", dot_rad_small)
+    .on('click', (event, d) => {
+        window.location = "#test_" + d.num;
+    })
+    .on('mouseenter', (event, d) => {
+         d3.select(event.target).transition()
+        .duration('100')
+        .attr('r', dot_rad_big)
+        .attr('class', 'tooltip')
+        .style('cursor', 'pointer');
+
+        div.transition()
+            .duration('100')
+            .style("opacity", 1);
+        div.html('<span style="font-weight: lighter">' + d.num + ":</span> " + d.name + " <span style='font-size: large; color: " + (d.new_runtime_rel > 0 ? "red" : "green") + "'>" +
+            (d.new_runtime_rel > 0 ? "+" : "") +
+            d3.format(".2f")(d.new_runtime_rel) + "</span>")
+          .style("left", event.pageX + 10 + 'px')
+          .style("top", event.pageY + 20 + 'px');
+    })
+    .on('mouseout', (event, d) => {
+        d3.select(event.target).transition()
+        .duration('200')
+        .attr('r', dot_rad_small)
+        .style('cursor', 'default');
+
+        div.transition()
+            .duration('200')
+            .style("opacity", 0);
+    });
+    </script>
+</div>

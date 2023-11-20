@@ -51,7 +51,7 @@ TEST_F(ScalarHoistTest, IndexHoist1) {
   // Use Int32 as the index type to verify Int32 is used as the type
   // of hoisted indices
   GpuLower gpulw(&fusion, {DataType::Int32});
-  auto kernel = gpulw.kernel();
+  auto kernel = gpulw.run();
 
   auto is_index_times_ns = [](Val* val, Val* index, std::string name) -> bool {
     auto def = dynamic_cast<BinaryOp*>(val->definition());
@@ -217,7 +217,7 @@ TEST_F(ScalarHoistTest, IndexHoist1) {
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
-  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Hoist indices for vectorized tensors
@@ -261,9 +261,7 @@ TEST_F(ScalarHoistTest, IndexHoist2) {
   fe.compileFusion(&fusion, {t0, t1});
   auto cg_outputs = fe.runFusion({t0, t1});
 
-  auto ref = t0 + t1;
-
-  testValidate(&fusion, cg_outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(ScalarHoistTest, IndexHoist3) {
@@ -291,7 +289,6 @@ TEST_F(ScalarHoistTest, IndexHoist3) {
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::arange(10000, options).view({100, 100});
-  at::Tensor t1 = t0.sin() + 10000;
 
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), {t0});
@@ -300,7 +297,7 @@ TEST_F(ScalarHoistTest, IndexHoist3) {
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T2) {
   nvfuser_index_t i0;
-  i0 = ((nvfuser_index_t)threadIdx.x) + (256 * ((nvfuser_index_t)blockIdx.x));
+  i0 = ((nvfuser_index_t)threadIdx.x) + (256LL * ((nvfuser_index_t)blockIdx.x));
   Tensor<float, 2, 2> s1;
   s1.data = T0.data;
   s1.logical_size = T0.logical_size;
@@ -308,25 +305,25 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   Array<nvfuser_index_t, 2, 1> a2;
   a2 = s1.logical_size;
   nvfuser_index_t i3;
-  i3 = a2[0];
+  i3 = a2[0LL];
   Array<nvfuser_index_t, 2, 1> a4;
   a4 = s1.logical_size;
   nvfuser_index_t i5;
-  i5 = a4[1];
+  i5 = a4[1LL];
   nvfuser_index_t i6;
   i6 = i3 * i5;
   bool b7;
   b7 = i0 < i6;
   float f8;
   f8 = (float)(i6);
-  float T1[1];
+  float T1[1LL];
   if (b7) {
-    T1[0]
+    T1[0LL]
        = sinf(T0[i0]);
   }
   if (b7) {
     T2[i0]
-      = T1[0]
+      = T1[0LL]
       + f8;
   }
 }
@@ -334,7 +331,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
 
   assertCUDAKernel(fusion.get(), expected_kernel);
 
-  testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+  testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(ScalarHoistTest, ARange) {
@@ -360,11 +357,6 @@ TEST_F(ScalarHoistTest, ARange) {
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), {start, end, step});
   auto cg_outputs = fe.runFusion({start, end, step});
-
-  const auto options =
-      at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  at::Tensor t0 = at::arange(start, end, step, options);
-  at::Tensor t1 = at::full_like(t0, end - start, options);
 
   const std::string expected_kernel = R"(
 __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<int64_t, 1, 1> T0, Tensor<int64_t, 1, 1> T1) {
@@ -394,12 +386,7 @@ __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<i
   assertCUDAKernel(fusion.get(), expected_kernel);
 
   testValidate(
-      fusion.get(),
-      cg_outputs,
-      {start, end, step},
-      {t0, t1},
-      __LINE__,
-      __FILE__);
+      fusion.get(), cg_outputs, {start, end, step}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

@@ -115,14 +115,9 @@ struct MmaOptions {
   //! Utility to annotate which input of mma this option struct describes
   Operand operand = Operand::A;
 
-  //! Accumulator register stride, will be removed when the swizzle op
-  //!  is introduced and the output can be labeled with a transpose swizzle.
-  int accumulator_stride = 0;
-
   bool operator==(const MmaOptions& other) const {
     return macro == other.macro && layout == other.layout &&
-        operand == other.operand &&
-        accumulator_stride == other.accumulator_stride;
+        operand == other.operand;
   }
 
   // The accumulator tensorview register supplied by the
