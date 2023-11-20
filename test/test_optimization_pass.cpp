@@ -428,12 +428,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyReduction_CUDA) {
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);
 
-  testValidate(
-      preseg_fusion,
-      outputs,
-      aten_inputs,
-      __LINE__,
-      __FILE__);
+  testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // In this test, a reduction over a non-empty axis occurs first, followed by a
@@ -466,12 +461,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyReductionWithNonReduction_CUDA) {
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);
 
-  testValidate(
-      preseg_fusion,
-      outputs,
-      aten_inputs,
-      __LINE__,
-      __FILE__);
+  testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test that we replace empty Welford with full
@@ -563,12 +553,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyCat_CUDA) {
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);
 
-  testValidate(
-      preseg_fusion,
-      outputs,
-      aten_inputs,
-      __LINE__,
-      __FILE__);
+  testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test that we replace empty tensors in pad properly
@@ -606,12 +591,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyPad_CUDA) {
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);
 
-  testValidate(
-      preseg_fusion,
-      outputs,
-      aten_inputs,
-      __LINE__,
-      __FILE__);
+  testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test that we replace empty tensors in matmuls properly
@@ -656,12 +636,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyMatmul_CUDA) {
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);
 
-  testValidate(
-      preseg_fusion,
-      outputs,
-      aten_inputs,
-      __LINE__,
-      __FILE__);
+  testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser::optimization
