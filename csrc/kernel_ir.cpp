@@ -256,6 +256,9 @@ DataType getTypeOrIndexType(Val* value) {
 const char* getPTXConstraints(Val* value) {
   DataType dt = getTypeOrIndexType(value);
   if (auto ti = dynamic_cast<kir::TensorIndex*>(value)) {
+    // If the index type is a pointer type, then we directly uses the pointer in
+    // the generated code, instead of generating something like T0[i]. For this
+    // case we should use the pointer type as the constraint.
     if (isPointerType(ti->index()->dtype())) {
       dt = ti->index()->dtype();
     }
