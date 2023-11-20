@@ -120,16 +120,24 @@ class IterDomain : public Val {
   static std::vector<IterDomain*> clone(
       const std::vector<IterDomain*>& domains);
 
-  static IterDomain* merge(IterDomain* outer, IterDomain* inner);
+  //! When `rfactor_domain` is true, also set the `is_rfactor_domain_` flag of
+  //! the result IterDomain.
+  static IterDomain* merge(
+      IterDomain* outer,
+      IterDomain* inner,
+      bool rfactor_domain = false);
 
   //! start_offset and stop_offset defines partial split. Only root
   //! domains are allowed to have non-zero start and stop offsets.
+  //! When `rfactor_domain` is true, also set the `is_rfactor_domain_` flag of
+  //! both result IterDomains.
   static std::pair<IterDomain*, IterDomain*> split(
       IterDomain* in,
       Val* factor,
       bool inner_split,
       Val* start_offset = nullptr,
-      Val* stop_offset = nullptr);
+      Val* stop_offset = nullptr,
+      bool rfactor_domain = false);
 
   //! trim_out_of_bounds controls how the values outside start and stop
   //! positions are treated. The option is only valid with root
@@ -141,7 +149,8 @@ class IterDomain : public Val {
       IterDomain* in,
       Val* factor,
       bool inner_split,
-      bool trim_out_of_bounds);
+      bool trim_out_of_bounds,
+      bool rfactor_domain = false);
 
   //! Resize an IterDomain by expanding both the left and right sides
   //! by given widths. The resulting IterDomain has an extent of

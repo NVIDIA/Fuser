@@ -502,10 +502,6 @@ bool canValidateIsInnerDim(
     IterDomain* root,
     IterDomain* leaf,
     int inner_dim_size) {
-  // Accept boundary case for Volta.
-  if (leaf == root && leaf->isBroadcast()) {
-    return true;
-  }
   auto expr = leaf->definition();
   if (!leaf->extent()->isConstInt()) {
     return false;
@@ -586,12 +582,6 @@ void WarpMmaSwizzler::scheduleMmaWarpOutput(
     MmaOptions options) {
   auto macro = options.macro;
   switch (macro) {
-    case MmaOptions::MacroType::Volta_16_16_4:
-      scheduleVoltaM16N16K4Fp32Output(tv, options);
-      if (tv->definition()->isA<MmaOp>()) {
-        setWarpMapped(tv, 5);
-      }
-      break;
     case MmaOptions::MacroType::Turing_16_8_16:
     case MmaOptions::MacroType::Ampere_16_8_16:
     case MmaOptions::MacroType::Turing_16_16_16:
@@ -613,9 +603,6 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOptions options) {
   // Assumes M, N, K
 
   switch (options.macro) {
-    case MmaOptions::MacroType::Volta_16_16_4:
-      scheduleVoltaOperandRead(tv, options);
-      break;
     case MmaOptions::MacroType::Turing_16_8_16:
     case MmaOptions::MacroType::Ampere_16_8_16:
     case MmaOptions::MacroType::Turing_16_16_16:
@@ -851,155 +838,7 @@ void validateMmaRootInnerMN(TensorView* tv, MmaOptions options, int m, int n) {
       "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
 }
 
-void scheduleVoltaA(TensorView* tv, MmaOptions options) {
-  // Assumed:
-  // [..., 16, 16 ,4]
-  // [..., M,  BN, K]
-  // Some validation:
-  validateMmaRootInnerMNK(tv, options, 16, 16, 4);
-  bool transposed = isOperandTransposed(options);
-
-  tv->split(-3, 4);
-
-  // Split out 16 from the bcast
-  tv->split(-2, 16);
-  tv->split(-2, 8);
-
-  // -6   -5    -4  -3   -2  -1
-  //[Mo4, Mi4, Noo, No2, Ni8, K]
-
-  if (transposed) {
-    tv->reorder({{-5, -3}, {-3, -5}});
-    // -6   -5    -4  -3   -2  -1
-    //[Mo4, No2, Noo, Mi4, Ni8, K]
-
-  } else {
-    tv->reorder({{-5, -1}, {-3, -5}, {-1, -3}});
-    // -6   -5    -4  -3  -2  -1
-    //[Mo4, No2, Noo,  K, Ni8, Mi4]
-  }
-
-  tv->merge(-6);
-  tv->merge(-5);
-  tv->merge(-4);
-
-  //[Warp, Ni8, K/Mi4]
-  tv->axis(-3)->parallelize(ParallelType::TIDx);
-}
-
-void scheduleVoltaB(TensorView* tv, MmaOptions options) {
-  // Assumed:
-  // [..., 16,16,4]
-  // [..., BM, N, K]
-  // Some validation:
-  validateMmaRootInnerMNK(tv, options, 16, 16, 4);
-
-  bool transposed = isOperandTransposed(options);
-  tv->split(-3, 16);
-  tv->split(-3, 8);
-
-  tv->split(-2, 8);
-  tv->split(-2, 4);
-
-  // -7   -6   -5   -4   -3    -2   -1
-  //[Moo, Mo2, Mi8, No2, Nio2, Nii4, K]
-  tv->reorder({{-6, -4}, {-5, -6}, {-4, -3}, {-3, -5}});
-
-  // -7   -6   -5   -4    -3    -2   -1
-  //[Moo, Mi8, Nio2, Mo2, No2,  Nii4, K ]
-  if (transposed) {
-    tv->reorder({{-2, -1}, {-1, -2}});
-    //  -7   -6   -5   -4    -3  -2   -1
-    //[Moo, Mi8, Nio2, Mo2, No2, K, Nii4]
-  }
-
-  tv->merge(-5);
-  tv->merge(-4);
-  tv->merge(-3);
-
-  //[Moo, Mi8, Warp, K/Nii4]
-  tv->axis(-2)->parallelize(ParallelType::TIDx);
-}
-
 } // namespace
-
-void WarpMmaSwizzler::scheduleVoltaOperandRead(
-    TensorView* tv,
-    MmaOptions options) {
-  switch (options.operand) {
-    case MmaOptions::Operand::A:
-      scheduleVoltaA(tv, options);
-      setWarpMapped(tv, 3);
-      break;
-    case MmaOptions::Operand::B:
-      scheduleVoltaB(tv, options);
-      setWarpMapped(tv, 4);
-      break;
-    default:
-      NVF_CHECK(false, "WarpMmaSwizzler: please specify operand");
-  }
-}
-
-// Fp32 and Fp16 outputs have different layouts on volta,
-//   but we only support fp32 accumulate at this stage.
-void WarpMmaSwizzler::scheduleVoltaM16N16K4Fp32Output(
-    TensorView* tv,
-    const MmaOptions& options) {
-  // Assume last 2 dims [M16, N16] or [M16, N16, R]
-  bool is_reduction = tv->axis(-1)->isReduction();
-
-  // Make sure instruction tile size is correct.
-  if (is_reduction) {
-    validateMmaRootInnerMNK(tv, options, 16, 16, 4);
-  } else {
-    validateMmaRootInnerMN(tv, options, 16, 16);
-  }
-
-  int m_pos = is_reduction ? -3 : -2;
-
-  // Assumed:
-  //       m
-  // [..., 16,16, (4)]
-  // [..., M, N,  (R)]
-  tv->split(m_pos, 4);
-  tv->split(m_pos, 2);
-  tv->split(m_pos + 1, 8);
-  tv->split(m_pos + 1, 4);
-  tv->split(m_pos + 1, 2);
-
-  //        m-5  m-4   m-3   m-2   m-1    m     m+1   m+2
-  // [..., Mo4, Mio2, Mii2,  No2, Nio2, Niio2, Niii2, (R)]
-  tv->reorder(
-      {{m_pos - 4, m_pos - 1},
-       {m_pos - 3, m_pos - 2},
-       {m_pos - 2, m_pos - 4},
-       {m_pos - 1, m_pos},
-       {m_pos, m_pos - 3}});
-
-  //        m-5  m-4   m-3   m-2   m-1    m     m+1   m+2
-  //  [..., Mo4, No2, Niio2, Mii2, Mio2, Nio2, Niii2, (R)]
-
-  tv->merge(m_pos - 5);
-  tv->merge(m_pos - 4);
-  tv->merge(m_pos - 3);
-
-  //  m-2   m-1   m     m+1   m+2
-  //[Warp, Mio2, Nio2, Niii2, (R)]
-  tv->reorder({{m_pos - 1, m_pos}});
-  //  m-2   m-1   m     m+1   m+2
-  //[Warp, Nio2, Mio2, Niii2, (R)]
-  tv->axis(m_pos - 2)->parallelize(ParallelType::TIDx);
-
-  if (is_reduction && tv->definition()->isA<MmaOp>()) {
-    // Set instruction loops for mma reduce output
-    for (int pos : c10::irange(5)) {
-      if (!tv->axis(-pos - 1)->isThread()) {
-        tv->axis(-pos - 1)->parallelize(ParallelType::Mma);
-      }
-      tv->axis(-pos - 1)->toMmaSwizzled();
-    }
-  }
-}
 
 void WarpMmaSwizzler::scheduleTuringOperandRead(TensorView* tv) {
   NVF_ERROR(tv->nDims() >= 2);
