@@ -5,8 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <macros.h>
+
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+
+#if IS_CPP20
+#include <ranges>
+#endif
 
 namespace nvfuser {
 namespace kir {
@@ -127,8 +133,13 @@ std::vector<Expr*> ExprMutator::mutate(bool reverse_order) {
   };
 
   if (reverse_order) {
+#if IS_CPP20
+    for (const auto& i : std::ranges::reverse_view(insertions_)) {
+#else
     for (auto it = insertions_.rbegin(); it != insertions_.rend(); ++it) {
-      run_insertion(*it);
+      const auto& i = *it;
+#endif
+      run_insertion(i);
     }
   } else {
     for (auto insertion_info : insertions_) {
