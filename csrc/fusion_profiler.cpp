@@ -388,23 +388,23 @@ auto FusionProfile::toTuple(const FusionProfile& prof, size_t seg_id) {
                   prof.cuda_evt_time_ms,
                   prof.host_time_ms,
                   prof.compile_time_ms,
-                  prof.kernel_time_ms, // Idx 5
+                  prof.kernel_time_ms,
                   prof.effective_bandwidth_gbs,
                   prof.percentage_peak_bandwidth,
                   prof.input_bytes,
                   prof.output_bytes,
-                  kp.segment_id,           // Idx 10
+                  kp.segment_id,
                   kp.time_ms,
                   kp.compile_time_ms,
                   kp.effective_bandwidth_gbs,
                   kp.percentage_peak_bandwidth,
                   kp.input_bytes,
                   kp.output_bytes,
-                  kp.shared_mem, // Idx 17
+                  kp.shared_mem,
                   kp.registers,
-                  kp.grid, // Idx 19
-                  kp.block, // Idx 20
-                  kp.cluster, // Idx 212
+                  kp.grid,
+                  kp.block,
+                  kp.cluster,
                   kp.device,
                   kp.stream,
                   kp.peak_bandwidth_gbs,
@@ -505,22 +505,21 @@ const std::vector<ProfileAttrDescriptor> FusionProfile::profile_attr_descs{
     {"CmpTm(ms)", "compile_time_ms", false, false, false, 9, true, 3},
     {"KerTm(ms)", "kernel_time_ms", false, false, false, 9, true, 3},
     {"EffBw(GB/s)", "effective_bandwidth_gbs", false, false, false, 11, true, 3},
-    {"%PeakBw", "percentage_peak_bandwidth", false, false, false, 9, true, 2},
-    {"In(MB)", "input_bytes", true, false, false, 9, true, 3},
+    {"%PkBw", "percentage_peak_bandwidth", false, false, false, 7, true, 2},
+    {"In(MB)", "input_bytes", true, false, false, 8, true, 3},
     {"Out(MB)", "output_bytes", true, false, false, 9, true, 3},
     {"S-Seg#", "segment_id", false, true, false, 6, true, 0},
-    {"S-KerName", "name", false, true, false, 10, false, 0},
     {"S-KerTm(ms)", "time_ms", false, true, false, 11, true, 3},
     {"S-CmpTm(ms)", "compile_time_ms", true, true, false, 11, true, 3},
     {"S-EffBw(GB/s)", "effective_bandwidth_gbs", false, true, false, 13, true, 3},
-    {"S-%PeakBw", "percentage_peak_bandwidth", false, true, false, 9, true, 2},
-    {"S-In(MB)", "input_bytes", false, true, false, 9, true, 3},
+    {"S-%PkBw", "percentage_peak_bandwidth", false, true, false, 7, true, 2},
+    {"S-In(MB)", "input_bytes", false, true, false, 8, true, 3},
     {"S-Out(MB)", "output_bytes", false, true, false, 9, true, 3},
-    {"S-Smem[Dyn,State]", "shared_mem", false, true, true, 16, true, 0},
+    {"S-Smem[Dyn,Stat]", "shared_mem", false, true, true, 16, false, 0},
     {"S-Regs", "registers", false, true, false, 6, true, 0},
     {"S-Grid", "grid", false, true, true, 16, true, 0},
-    {"S-Block", "block", false, true, true, 16, true, 0},
-    {"S-Cluster", "cluster", true, true, true, 16, true, 0},
+    {"S-Block", "block", false, true, true, 16, false, 0},
+    {"S-Cluster", "cluster", true, true, true, 16, false, 0},
     {"S-Dev", "device", true, true, false, 5, true, 0},
     {"S-Stm", "stream", true, true, false, 5, true, 0},
     {"S-PkBw(GB/s)", "peak_bandwidth_gbs", true, true, false, 12, true, 3},
@@ -835,7 +834,7 @@ void FusionProfiler::stop() {
       kprof.input_bytes = segment(kp_idx).inputBytes();
       kprof.output_bytes = segment(kp_idx).outputBytes();
       kprof.effective_bandwidth_gbs =
-          (double)(kprof.input_bytes + kprof.output_bytes) / kprof.time_ms *
+          (double)(segment(kp_idx).inputBytes() + segment(kp_idx).outputBytes()) / kprof.time_ms *
           mb_divider;
       kprof.percentage_peak_bandwidth =
           kprof.effective_bandwidth_gbs / kprof.peak_bandwidth_gbs * 100.0;
