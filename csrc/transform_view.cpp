@@ -211,14 +211,8 @@ class MergeTransform final : public ViewTransform {
         "Didn't expect to apply view transformations on an iter domain",
         " starting at a non-zero position.");
 
-    auto merged_extent = mul(outer_id->extent(), inner_id->extent());
-
     auto new_merged_id =
-        IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), merged_extent)
-            .is_rfactor_domain(true)
-            .build();
-
-    IrBuilder::create<Merge>(new_merged_id, outer_id, inner_id);
+        IterDomain::merge(outer_id, inner_id, /*rfactor_domain*/ true);
 
     current_transformed_domain.erase(
         current_transformed_domain.begin() + index_);
@@ -277,23 +271,13 @@ class SplitTransform final : public ViewTransform {
         "Didn't expect to apply view transformations on an iter domain",
         " starting at a non-zero position.");
 
-    Val* remainder = ceilDiv(id->extent(), factor);
-
-    // outer loop IterDomain
-    IterDomain* factor_id =
-        IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), factor)
-            .parallel_type(id->getParallelType())
-            .iter_type(id->getIterType())
-            .is_rfactor_domain(true)
-            .build();
-
-    // inner loop IterDomain
-    IterDomain* remainder_id =
-        IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), remainder)
-            .is_rfactor_domain(true)
-            .build();
-
-    IrBuilder::create<Split>(factor_id, remainder_id, id, factor, false);
+    auto [factor_id, remainder_id] = IterDomain::split(
+        id,
+        factor,
+        /*inner_split=*/false,
+        /*start_offset=*/nullptr,
+        /*stop_offset=*/nullptr,
+        /*rfactor_domain=*/true);
 
     current_transformed_domain.erase(
         current_transformed_domain.begin() + index_);
