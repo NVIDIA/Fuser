@@ -144,9 +144,6 @@ struct FusionProfile {
 
   static const size_t first_cupti_idx;
   static const std::vector<ProfileAttrDescriptor> profile_attr_descs;
-  //! A static array to capture header strings for tables that print
-  //! the profiled information
-  static std::array<const char*, 25> column_strs;
 
   bool verbose{isProfilerPrintingVerbose()};
   int64_t fusion_id{-1};
@@ -227,6 +224,9 @@ class FusionProfiler {
   static void reset();
   static ProfilerState state();
 
+  static void setCppPrinting(bool enable);
+  static bool cppPrintingEnabled();
+
   //! Profiling Methods
   static void start(bool cupti_disable = false);
   static void stop();
@@ -256,6 +256,8 @@ class FusionProfiler {
  private:
   //! Disables CUPTI usage in order to measure Host Time without CUPTI overhead
   bool cupti_disabled_;
+  //! Indicates whether CPP Printing is enabled
+  bool cpp_printing_enabled_;
   //! Buffer for Cupti to store Activity Buffers during async activity
   std::vector<uint8_t> cupti_buffer_;
   //! The state is used to check for errors in usage
