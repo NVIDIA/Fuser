@@ -443,36 +443,47 @@ void FusionProfile::reset() {
 
 const size_t FusionProfile::first_cupti_idx = 5;
 const std::vector<ProfileAttrDescriptor> FusionProfile::profile_attr_descs{
-    // column_header, var_name, verbose, segment, list, column_width, number, mantissa_width
-    {"Fus#", "fusion_id", false, false, false, 5, true, 0},
-    {"NSegs", "segments", false, false, false, 5, true, 0},
-    {"CuEvtTm(ms)", "cuda_evt_time_ms", false, false, false, 11, true, 3},
-    {"HstTm(ms)", "host_time_ms", false, false, false, 9, true, 3},
-    {"CmpTm(ms)", "compile_time_ms", false, false, false, 9, true, 3},
-    {"KerTm(ms)", "kernel_time_ms", false, false, false, 9, true, 3},
-    {"EffBw(GB/s)", "effective_bandwidth_gbs", false, false, false, 11, true, 3},
-    {"%PkBw", "percentage_peak_bandwidth", false, false, false, 7, true, 2},
-    {"In(MB)", "input_bytes", true, false, false, 8, true, 3},
-    {"Out(MB)", "output_bytes", true, false, false, 9, true, 3},
-    {"S-Seg#", "segment_id", false, true, false, 6, true, 0},
-    {"S-KerTm(ms)", "time_ms", false, true, false, 11, true, 3},
-    {"S-CmpTm(ms)", "compile_time_ms", true, true, false, 11, true, 3},
-    {"S-EffBw(GB/s)", "effective_bandwidth_gbs", false, true, false, 13, true, 3},
-    {"S-%PkBw", "percentage_peak_bandwidth", false, true, false, 7, true, 2},
-    {"S-In(MB)", "input_bytes", false, true, false, 8, true, 3},
-    {"S-Out(MB)", "output_bytes", false, true, false, 9, true, 3},
-    {"S-Smem[Dyn,Stat]", "shared_mem", false, true, true, 16, false, 0},
-    {"S-Regs", "registers", false, true, false, 6, true, 0},
-    {"S-Grid", "grid", false, true, true, 16, true, 0},
-    {"S-Block", "block", false, true, true, 16, false, 0},
-    {"S-Cluster", "cluster", true, true, true, 16, false, 0},
-    {"S-Dev", "device", true, true, false, 5, true, 0},
-    {"S-Stm", "stream", true, true, false, 5, true, 0},
-    {"S-PkBw(GB/s)", "peak_bandwidth_gbs", true, true, false, 12, true, 3},
-    {"S-DeviceName", "device_name", true, true, false, 20, false, 0},
-    {"S-KerName", "name", false, true, false, 20, false, 0}};
+    // column_header, verbose, segment, list, column_width, number, mantissa_width, unit_multiplier
+    {"Fus#", false, false, false, 5, true, 0, std::nullopt},
+    {"NSegs", false, false, false, 5, true, 0, std::nullopt},
+    {"CuEvtTm(ms)", false, false, false, 11, true, 3, std::nullopt},
+    {"HstTm(ms)", false, false, false, 9, true, 3, std::nullopt},
+    {"CmpTm(ms)", false, false, false, 9, true, 3, std::nullopt},
+    {"KerTm(ms)", false, false, false, 9, true, 3, std::nullopt},
+    {"EffBw(GB/s)", false, false, false, 11, true, 3, std::nullopt},
+    {"%PkBw", false, false, false, 7, true, 2, std::nullopt},
+    {"In(MB)", true, false, false, 8, true, 3, 1.0e-6},
+    {"Out(MB)", true, false, false, 9, true, 3, 1.0e-6},
+    {"S-Seg#", false, true, false, 6, true, 0, std::nullopt},
+    {"S-KerTm(ms)", false, true, false, 11, true, 3, std::nullopt},
+    {"S-CmpTm(ms)", true, true, false, 11, true, 3},
+    {"S-EffBw(GB/s)", false, true, false, 13, true, 3, std::nullopt},
+    {"S-%PkBw", false, true, false, 7, true, 2, std::nullopt},
+    {"S-In(MB)", false, true, false, 8, true, 3, 1.0e-6},
+    {"S-Out(MB)", false, true, false, 9, true, 3, 1.0e-6},
+    {"S-Smem[Dyn,Stat]", false, true, true, 16, false, 0, std::nullopt},
+    {"S-Regs", false, true, false, 6, true, 0, std::nullopt},
+    {"S-Grid", false, true, true, 16, true, 0, std::nullopt},
+    {"S-Block", false, true, true, 16, false, 0, std::nullopt},
+    {"S-Cluster", true, true, true, 16, false, 0, std::nullopt},
+    {"S-Dev", true, true, false, 5, true, 0, std::nullopt},
+    {"S-Stm", true, true, false, 5, true, 0, std::nullopt},
+    {"S-PkBw(GB/s)", true, true, false, 12, true, 3, std::nullopt},
+    {"S-DeviceName", true, true, false, 20, false, 0, std::nullopt},
+    {"S-KerName", false, true, false, 20, false, 0, std::nullopt}};
 
 namespace {
+// The operator* overloads are to satisfy the compiler and should not be called!
+template<typename T, size_t I>
+double operator*(const std::array<T, I>& a, double b) {
+  NVF_ERROR(false, "This types operator* overload should not be called!");
+  return 0.0;
+}
+double operator*(const std::basic_string<char>& a,  double b) {
+  NVF_ERROR(false, "This types operator* overload should not be called!");
+  return 0.0;
+}
+
 template<typename T, size_t I>
 std::ostream& operator<<(std::ostream& os, const std::array<T, I>& cont) {
   std::string out{"["};
@@ -509,7 +520,11 @@ constexpr std::ostream& print_tuple(std::ostream& os, std::tuple<Ts...> tup, siz
         if (desc.number) {
           os << std::setprecision(desc.mantissa_width);
         }
-        os << std::get<I>(tup);
+        if (desc.unit_multiplier.has_value()) {
+          os << static_cast<double>(std::get<I>(tup) * desc.unit_multiplier.value());
+        } else {
+          os << std::get<I>(tup);
+        }
       }
     }
     // Going for next element.

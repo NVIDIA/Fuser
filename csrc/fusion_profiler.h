@@ -121,7 +121,6 @@ struct KernelProfile {
 
 struct ProfileAttrDescriptor {
   std::string column_header{};
-  std::string var_name{};
   
   bool verbose{false};
   bool segment{false};
@@ -130,6 +129,8 @@ struct ProfileAttrDescriptor {
   int column_width{0};
   bool number{false};
   int mantissa_width{0};
+
+  std::optional<double> unit_multiplier{std::nullopt};
 };
 
 //! \struct FusionProfile
