@@ -85,7 +85,6 @@ struct MmaOptions {
   //!  latency bound kernels.
   enum class MacroType {
     NoMMA = 0,
-    Volta_16_16_4,
     Ampere_16_8_16,
     Ampere_16_16_16,
     Turing_16_8_16,
@@ -188,7 +187,6 @@ class MmaBuilder {
 };
 
 //! GPU arch check for macro type
-bool isVolta(MmaOptions::MacroType macro);
 bool isTuring(MmaOptions::MacroType macro);
 bool isAmpere(MmaOptions::MacroType macro);
 

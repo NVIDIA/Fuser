@@ -1057,9 +1057,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   std::string genArchString(MmaOptions::MacroType macro) {
     std::stringstream ss;
-    if (isVolta(macro)) {
-      ss << "Volta";
-    } else if (isTuring(macro)) {
+    if (isTuring(macro)) {
       ss << "Turing";
     } else if (isAmpere(macro)) {
       ss << "Ampere";
