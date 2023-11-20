@@ -476,10 +476,6 @@ void addViewGeluFusion(
     fe.compileFusion(&fusion, aten_inputs, lparams);
     auto outputs = fe.runFusion(aten_inputs, lparams);
 
-    auto at_x_add_bias = at_x + at_bias;
-    auto at_x_reshape = at::native::view(at_x_add_bias, output_shape);
-    auto at_y = at::gelu(at_x_reshape);
-
     testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
   }
 }
@@ -908,8 +904,6 @@ TEST_F(GpuViewTest, FusionExpandRepro) {
   fe.compileFusion(&fusion);
   LaunchParams l_params;
   auto outputs = fe.runFusion(aten_inputs, {}, l_params, {});
-
-  auto out = at_x.expand_as(at_y);
 
   testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
 
