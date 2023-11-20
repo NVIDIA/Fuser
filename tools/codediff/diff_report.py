@@ -545,7 +545,7 @@ class TestRun:
                     # we set nvfuser_index_t in the preamble. We ignore that change for the purposes of this diff
                     if line[:8] == "typedef " and line[-17:] == " nvfuser_index_t;":
                         line = "typedef int nvfuser_index_t; // NOTE: index type hard-coded as int for display only"
-                    if re.search(r"void kernel\d+\b", line) is not None:
+                    if re.search(r"void (nvfuser|kernel)_?\d+\b", line) is not None:
                         # we arrived at the kernel definition
                         break
                     if first:
@@ -580,7 +580,7 @@ class TestRun:
                 if not strip_preamble or i >= self.preamble_size_lines:
                     # replace kernel934 with kernel1 to facilitate diffing
                     # also match kernel_43 to handle new-style naming with static fusion count
-                    kern.code += re.sub(r"\bkernel_?\d+\b", "kernelN", line)
+                    kern.code += re.sub(r"\bnvfuser_\d+\b", "nvfuser_N", line)
         kern.code = kern.code.rstrip()
         if strip_preamble and kern.code[-1] == "}":
             # trailing curly brace is close of namespace. This will clean it up so that we have just the kernel
@@ -643,13 +643,17 @@ def sanitize_ptx_lines(lines: list[str]) -> list[str]:
     for l in lines:
         # Replace mangled kernel names like
         #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_
+        # or
+        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_4_cu_8995cef2_3255329nvfuser_4ENS_6TensorIfLi2ELi2EEES1_S1_
         # with
-        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_cu_8995cef2_3255329nvfuser_pointwiseENS_6TensorIfLi2ELi2EEES1_S1_
+        #   _ZN76_GLOBAL__N__00000000_37__kernel_cu_8995cef2_3255329kernelENS_6TensorIfLi2ELi2EEES1_S1_
         l = re.sub(
-            r"_tmp_kernel_[a-z0-9_]+nvfuser_[a-z]+_f\d+_c\d*_r\d+_g\d+", "kernel", l
+            r"(_tmp_kernel|nvfuser)(_[a-z]+)?_(\d+|f\d+_c\d*_r\d+_g\d+)", "kernel", l
         )
+        # This part removes the hash and timestamp of the cu file
+        l = re.sub(r"kernel_cu_[0-9a-z]{8}_\d{5}", "kernel_cu_", l)
 
-        # Remove comments. This is important for
+        # Remove comments. This fixes mismatches in PTX "callseq" comments, which appear to be non-repeatable.
         l = re.sub(r"//.*$", "", l)
         sanitary_lines.append(l)
     return sanitary_lines
@@ -858,7 +862,10 @@ if __name__ == "__main__":
     )
     parser.add_argument("--html", action="store_true", help="Write HTML file?")
     parser.add_argument(
-        "--hide-diffs", action="store_true", help="Print diffs to STDOUT?"
+        "--hide-diffs",
+        "--no-print-diff",
+        action="store_true",
+        help="Print diffs to STDOUT?",
     )
     parser.add_argument(
         "--kernel-inclusion-criterion",
