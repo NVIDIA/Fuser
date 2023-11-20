@@ -1066,8 +1066,6 @@ void validateMma(Fusion* fusion) {
       validateMmaTensors(mma);
 
       switch (mma->macro()) {
-        case MmaOptions::MacroType::Volta_16_16_4:
-          break;
         case MmaOptions::MacroType::Turing_16_8_16:
         case MmaOptions::MacroType::Turing_16_16_16:
         case MmaOptions::MacroType::Ampere_16_8_16:
