@@ -20,11 +20,12 @@ void MarkAliasPass::runPass(Fusion* fusion) {
     // Lazy move: we could check compatibility and only give up when
     // the allocation domain is incompatible with what we prefer for
     // aliasing.
-    if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging) &&
-        out->hasAllocation()) {
-      debug() << "MarkAliasPass skipped " << out->toString()
-              << " because it already has an allocation domain:" << std::endl
-              << out->domain()->toString(1, /*leaf_only=*/false) << std::endl;
+    if (out->hasAllocation()) {
+      if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+        debug() << "MarkAliasPass skipped " << out->toString()
+                << " because it already has an allocation domain:" << std::endl
+                << out->domain()->toString(1, /*leaf_only=*/false) << std::endl;
+      }
       continue;
     }
 
