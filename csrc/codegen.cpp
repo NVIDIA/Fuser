@@ -1054,9 +1054,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   std::string genArchString(MmaOptions::MacroType macro) {
     std::stringstream ss;
-    if (isVolta(macro)) {
-      ss << "Volta";
-    } else if (isTuring(macro)) {
+    if (isTuring(macro)) {
       ss << "Turing";
     } else if (isAmpere(macro)) {
       ss << "Ampere";
@@ -1100,8 +1098,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   static int getInputARegisterSize(MmaOptions::MacroType macro) {
     switch (macro) {
-      case MmaOptions::MacroType::Volta_16_16_4:
-        return 2;
       case MmaOptions::MacroType::Turing_16_8_16:
       case MmaOptions::MacroType::Turing_16_16_16:
       case MmaOptions::MacroType::Ampere_16_8_16:
@@ -1116,7 +1112,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   static int getInputBRegisterSize(MmaOptions::MacroType macro) {
     switch (macro) {
-      case MmaOptions::MacroType::Volta_16_16_4:
       case MmaOptions::MacroType::Turing_16_8_16:
       case MmaOptions::MacroType::Ampere_16_8_16:
         return 2;

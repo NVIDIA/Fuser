@@ -257,49 +257,6 @@ Container parse(const std::string& nvdisasm_output) {
 
 } // namespace sass
 
-TensorView* matmulVolta(TensorView* a, TensorView* b, MatmulLayout layout) {
-  NVF_CHECK(
-      a->nDims() == 2 && b->nDims() == 2, "only pure matmuls for these tests");
-  // Here, we canonicalize the mma output as M, N, K, but the position of K does
-  // not really matter. So the implicit transpose is only required for NN.
-  TensorView *tv2 = nullptr, *tv0b = nullptr, *tv1b = nullptr;
-  switch (layout) {
-    case MatmulLayout::TT:
-      tv0b = broadcast(a, {false, false, true});
-      tv1b = broadcast(b, {true, false, false});
-      tv2 = fusedMultiplySum(tv0b, tv1b, {1});
-      // M, K, N -> M, N, K
-      tv2->reorder({{1, -1}});
-      tv2->commitLeafToRFactor();
-      break;
-    case MatmulLayout::TN:
-      tv0b = broadcast(a, {false, true, false});
-      tv1b = broadcast(b, {true, false, false});
-      tv2 = fusedMultiplySum(tv0b, tv1b, {2});
-      // M, N, K
-      break;
-    case MatmulLayout::NT:
-      tv0b = broadcast(a, {false, false, true});
-      tv1b = broadcast(b, {false, true, false});
-      tv2 = fusedMultiplySum(tv0b, tv1b, {0});
-      // K, M, N -> M, N, K
-      tv2->reorder({{0, -1}});
-      tv2->commitLeafToRFactor();
-      break;
-    case MatmulLayout::NN:
-      tv0b = broadcast(a, {true, false, false});
-      tv1b = broadcast(b, {false, false, true});
-      tv2 = fusedMultiplySum(tv0b, tv1b, {1});
-      // N, K, M -> M, N, K
-      tv2->reorder({{-1, 0}});
-      tv2->commitLeafToRFactor();
-      break;
-    default:
-      NVF_CHECK(false, "unsupported data layout.");
-  }
-  return tv2;
-}
-
 // matmulAtInput provides batched inputs in a splitk-like ordering. It provides
 // contiguous tensors with these shapes
 //   TT: [M, B, K] [B, K, N]
@@ -377,11 +334,8 @@ TensorView* matmul(
     MatmulLayout layout,
     bool turing_or_later // TODO: This is a temporary solution. Remove this!
 ) {
-  if (turing_or_later) {
-    return matmulTuringOrLater(a, b, layout);
-  } else {
-    return matmulVolta(a, b, layout);
-  }
+  NVF_ERROR(turing_or_later, "Only Turing or later is supported for now.");
+  return matmulTuringOrLater(a, b, layout);
 }
 
 TensorView* splitkLikeBatchedMatmul(

@@ -52,8 +52,6 @@ inline std::optional<MmaOptions::MacroType> getMmaOp(
   const bool use_small_n = ((n_extend % 8) == 0) && ((n_extend % 16) != 0);
 
   switch (dev_version) {
-    case 70:
-      return MacroType::Volta_16_16_4;
     case 75:
       return (use_small_n) ? MacroType::Turing_16_8_16
                            : MacroType::Turing_16_16_16;
@@ -81,25 +79,20 @@ inline bool initCoreHeuristics(
 
   // warp tile shape
   {
-    if (isAmpere(mma_op) || isTuring(mma_op)) {
-      // Initial target:
-      // - 1 MMA ops per thread in a warp (32 threads), warp tile should be
-      //   then 32x bigger than instruction tile,
-      // - start with [4, 4, 2] shape, later it should depend on problem
-      //   shape and have bigger impact on CTA tile shape
+    // Initial target:
+    // - 1 MMA ops per thread in a warp (32 threads), warp tile should be
+    //   then 32x bigger than instruction tile,
+    // - start with [4, 4, 2] shape, later it should depend on problem
+    //   shape and have bigger impact on CTA tile shape
 
-      const DimType m_ratio = 4;
-      const DimType n_ratio = 4;
-      const DimType k_ratio = 2;
+    const DimType m_ratio = 4;
+    const DimType n_ratio = 4;
+    const DimType k_ratio = 2;
 
-      warp_tile = {
-          instruction_tile.m * m_ratio,
-          instruction_tile.n * n_ratio,
-          instruction_tile.k * k_ratio};
-    } else {
-      // No support for Volta
-      return false;
-    }
+    warp_tile = {
+        instruction_tile.m * m_ratio,
+        instruction_tile.n * n_ratio,
+        instruction_tile.k * k_ratio};
   }
 
   // cta tile shape
