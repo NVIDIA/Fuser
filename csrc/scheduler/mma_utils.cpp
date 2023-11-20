@@ -1051,7 +1051,7 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, bool mn_major) {
   // our system can correctly compute the buffer size.
   int64_t num_tidx_with_addr = tv->axis(-2)->extent()->evaluate().as<int64_t>();
   if (num_tidx_with_addr < 32) {
-    int factor = 32 / num_tidx_with_addr;
+    int64_t factor = 32 / num_tidx_with_addr;
     tv->split(-1, factor, false);
     tv->reorder({{-2, -3}, {-3, -2}});
     //    -3           -2              -1

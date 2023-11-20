@@ -1776,7 +1776,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
   // manually specify which dimensions are used for MMA allocation.
   std::function<bool(const IterDomain* id)> is_mma_allocation;
   if (is_mma_input) {
-    int size = alloc_dom.size();
+    int size = (int)alloc_dom.size();
     const IterDomain* allocation0 = alloc_dom.at(size - 3);
     const IterDomain* allocation1 = alloc_dom.at(size - 2);
     const IterDomain* allocation2 = alloc_dom.at(size - 1);
