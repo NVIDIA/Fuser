@@ -242,7 +242,27 @@ Asm::Asm(
 
 namespace {
 
-const char* dataTypeToPTXConstraints(DataType dt) {
+// If value is a kir::TensorIndex, and its index is a pointer type, then
+// return the pointer type. Otherwise return the value's dtype.
+DataType getTypeOrIndexType(Val* value) {
+  if (auto ti = dynamic_cast<kir::TensorIndex*>(value)) {
+    if (isPointerType(ti->index()->dtype())) {
+      return ti->index()->dtype();
+    }
+  }
+  return value->dtype();
+}
+
+const char* getPTXConstraints(Val* value) {
+  DataType dt = getTypeOrIndexType(value);
+  if (auto ti = dynamic_cast<kir::TensorIndex*>(value)) {
+    if (isPointerType(ti->index()->dtype())) {
+      dt = ti->index()->dtype();
+    }
+  }
+  if (std::holds_alternative<ArrayType>(dt.type)) {
+    dt = *std::get<ArrayType>(dt.type).type;
+  }
   auto size = dataTypeSize(dt);
   switch (size) {
     case 2:
@@ -272,7 +292,7 @@ std::vector<std::pair<std::string, Val*>> Asm::constraintsAndOutputs() const {
   std::string prefix = "=";
   for (auto out : outputs()) {
     NVF_ERROR(!out->isConst());
-    result.emplace_back(prefix + dataTypeToPTXConstraints(out->dtype()), out);
+    result.emplace_back(prefix + getPTXConstraints(out), out);
   }
   return result;
 }
@@ -283,11 +303,44 @@ std::vector<std::pair<std::string, Val*>> Asm::constraintsAndInputs() const {
     if (in->isConst()) {
       constraint = "n";
     } else {
-      constraint = dataTypeToPTXConstraints(in->dtype());
+      constraint = getPTXConstraints(in);
     }
     result.emplace_back(constraint, in);
   }
   return result;
+}
+
+std::string Asm::parameters() const {
+  int64_t counter = 0;
+  std::stringstream ss;
+  auto gen = [&counter, &ss](Val* v) {
+    DataType dtype = getTypeOrIndexType(v);
+    if (counter > 0) {
+      ss << ", ";
+    }
+    if (isPointerType(dtype)) {
+      ss << "[%" << counter++ << "]";
+    } else if (std::holds_alternative<PrimDataType>(dtype.type)) {
+      ss << "%" << counter++;
+    } else if (std::holds_alternative<ArrayType>(dtype.type)) {
+      auto type = std::get<ArrayType>(dtype.type);
+      ss << "{";
+      for (auto i : c10::irange(type.size)) {
+        if (i > 0) {
+          ss << ", ";
+        }
+        ss << "%" << counter++;
+      }
+      ss << "}";
+    }
+  };
+  for (auto out : outputs()) {
+    gen(out);
+  }
+  for (auto in : inputs()) {
+    gen(in);
+  }
+  return ss.str();
 }
 
 std::string Asm::toString(int indent_size) const {
