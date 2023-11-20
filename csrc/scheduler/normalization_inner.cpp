@@ -189,7 +189,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // Some assumptions
   // (1) use at least four warps per warp as recommended by the
   // cuda-c-best-practices-guide.
-  const int64_t min_threads_per_block = 4l * dev_prop->warpSize;
+  const int64_t min_threads_per_block = (has_rng_ops ? 8l : 4l) * dev_prop->warpSize;
   // (2) target 50% occupancy based on experiments
   const int64_t target_min_warps_per_sm = 32;
   // (2) hint for max persistent size based on experiments.
@@ -365,7 +365,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
        warps_per_sm] = getParasUsingPersistentVal(persistent_val);
 
   // if occupancy is lower than 50%, search for [persistent_val] for higher
-  // occupancy. 
+  // occupancy. The code in this if block increased bandwidth for bias_dropout_add_layer_norm around 18 to 20K by 5%.
   if (rng_and_nondivisible && warps_per_sm < target_min_warps_per_sm) {
     for (auto p = persistent_min + 1; p <= persistent_max; p++) {
       auto
