@@ -2668,6 +2668,36 @@ class TestNvFuserFrontend(TestCase):
 
         self.assertEqual(y.data_ptr(), x.data_ptr())
 
+    # Test that reshape to slice to sum with concrete sizes sets extents properly
+    # https://github.com/NVIDIA/Fuser/issues/1221
+    def test_sum_sliced_reshape_to_broadcast(self):
+        inputs = [torch.randn((24, 128, 25, 32), dtype=torch.float32, device="cuda:0")]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T18 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            S91 = fd.define_scalar(12, dtype=DataType.Int)
+            S92 = fd.define_scalar(128, dtype=DataType.Int)
+            S93 = fd.define_scalar(25, dtype=DataType.Int)
+            S94 = fd.define_scalar(32, dtype=DataType.Int)
+            S95 = fd.define_scalar(2, dtype=DataType.Int)
+            V96 = fd.define_vector([S91, S92, S93, S94, S95], dtype=DataType.Int)
+            T97 = fd.ops.reshape(T18, new_shape=V96)
+            T98 = fd.ops.slice(
+                T97,
+                start_indices=[0, 0, 0, 0, 0],
+                end_indices=[12, 128, 25, 32, 1],
+                strides=[1, 1, 1, 1, 1],
+            )
+            T89 = fd.ops.sum(T98, axes=[4], keepdim=False, dtype=DataType.Null)
+            fd.add_output(T89)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
     # This tests no dead code at definition does not cause a problem due to
     # removal of empty tensors
     # See https://github.com/NVIDIA/Fuser/pull/1270
@@ -2713,6 +2743,47 @@ class TestNvFuserFrontend(TestCase):
         t11 = t8.sum([0])
         self.assertEqual(nvf_out[0], t24)
         self.assertEqual(nvf_out[1], t11)
+
+    # See https://github.com/NVIDIA/Fuser/issues/1246
+    def test_issue1246(self):
+        inputs = [
+            torch.randn((8388608,), dtype=torch.float32, device="cuda:0").as_strided(
+                (1, 32, 2048, 128), (8388608, 262144, 128, 1)
+            ),
+            torch.randn((0,), dtype=torch.float32, device="cuda:0").as_strided(
+                (1, 32, 2048, 0), (8388608, 262144, 128, 1)
+            ),
+        ]
+
+        for final_mul in [False, True]:
+
+            def fusion_func(fd: FusionDefinition) -> None:
+                T0 = fd.define_tensor(
+                    shape=[1, -1, -1, -1],
+                    contiguity=[None, True, True, True],
+                    dtype=DataType.Float,
+                    is_cpu=False,
+                )
+                T1 = fd.define_tensor(
+                    shape=[1, -1, -1, -1],
+                    contiguity=[None, True, False, True],
+                    dtype=DataType.Float,
+                    is_cpu=False,
+                )
+                S2 = fd.define_scalar(2.00000, dtype=DataType.Double)
+                T3 = fd.ops.mul(T0, S2)
+                T4 = fd.ops.cat([T3, T1], dim=-1)
+                if final_mul:
+                    # NOTE: original repro does not have this final op
+                    S3 = fd.define_scalar(1.00000, dtype=DataType.Double)
+                    T5 = fd.ops.mul(T4, S3)
+                    fd.add_output(T5)
+                else:
+                    fd.add_output(T4)
+
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+            torch_ref = torch.cat([2.0 * inputs[0], inputs[1]], dim=-1)
+            self.assertEqual(nvf_out[0], torch_ref)
 
 
 if __name__ == "__main__":
