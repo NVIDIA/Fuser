@@ -2916,8 +2916,9 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
       IterDomainBuilder(
           in->container()->zeroVal(), inner_split ? remainder : factor)
           .expanded_extent(
-              in->hasExpandedExtent() && inner_split ? expanded_remainder
-                                                     : nullptr)
+              in->hasExpandedExtent()
+                  ? (inner_split ? expanded_remainder : factor)
+                  : nullptr)
           .parallel_type(in->getParallelType())
           .iter_type(in->getIterType())
           .is_rfactor_domain(rfactor_domain)
@@ -2928,8 +2929,9 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
       IterDomainBuilder(
           in->container()->zeroVal(), inner_split ? factor : remainder)
           .expanded_extent(
-              in->hasExpandedExtent() && !inner_split ? expanded_remainder
-                                                      : nullptr)
+              in->hasExpandedExtent()
+                  ? (inner_split ? factor : expanded_remainder)
+                  : nullptr)
           .parallel_type(in->getParallelType())
           .iter_type(in->getIterType())
           .is_rfactor_domain(rfactor_domain)
