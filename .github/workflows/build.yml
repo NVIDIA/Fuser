@@ -33,6 +33,7 @@ jobs:
           sudo rm -rf /usr/lib/gcc/x86_64-linux-gnu/13
           sudo rm -rf /usr/lib/gcc/x86_64-linux-gnu/12
           sudo rm -rf /usr/lib/gcc/x86_64-linux-gnu/11 /usr/include/c++/11
+          sudo rm -rf /usr/lib/gcc/x86_64-linux-gnu/10 /usr/include/c++/10
           export CC=clang
           export CXX=clang++
           wait
