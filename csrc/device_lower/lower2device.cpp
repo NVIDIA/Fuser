@@ -263,7 +263,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
           // printed in verbose mode of lowering. The function must take a
           // const std::vector<Expr*>& and return a std::vector<Expr*>.
           {{"LoopNestGenerator", LoopNestGenerator::loweredExprs},
-           {"unarySetOpInserter", unarySetOpInserter},
+           {"loadStoreOpInserter", loadStoreOpInserter},
            {"insertAllocations", insertAllocations},
            {"insertRawThreadSynchronization", insertRawThreadSynchronization},
            {"reuseMemoryAllocations", reuseMemoryAllocations},
