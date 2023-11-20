@@ -936,14 +936,14 @@ at::Tensor allocateOutput(
   if (aliased_in != nullptr) {
     switch (alias_info->type) {
       case AliasType::InplaceUpdate:
-        // Unlike for `AliasType::PointerArithmetic`, don't use
+        // Unlike for `AliasType::PointerCast`, don't use
         // ExpressionEvaluator to compute the output tensor. This is because
         // the output tensor may hold different data from the input, e.g., an
         // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
         // would trigger non-trivial host computation.
         return aliased_in_tensor;
 
-      case AliasType::PointerArithmetic:
+      case AliasType::PointerCast:
         auto* in_tv = aliased_in->as<TensorView>();
         ee.bind(in_tv, aliased_in_tensor);
         at::Tensor out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
