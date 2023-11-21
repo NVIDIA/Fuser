@@ -400,11 +400,11 @@ auto FusionProfile::toTuple(const FusionProfile& prof, size_t seg_id) {
                   kp.percentage_peak_bandwidth,
                   kp.input_bytes,
                   kp.output_bytes,
-                  kp.shared_mem,
+                  kp.shared_mem_str,
                   kp.registers,
-                  kp.grid,
-                  kp.block,
-                  kp.cluster,
+                  kp.grid_str,
+                  kp.block_str,
+                  kp.cluster_str,
                   kp.device,
                   kp.stream,
                   kp.peak_bandwidth_gbs,
@@ -474,18 +474,13 @@ const std::vector<ProfileAttrDescriptor> FusionProfile::profile_attr_descs{
 
 namespace {
 // The operator* overloads are to satisfy the compiler and should not be called!
-template<typename T, size_t I>
-double operator*(const std::array<T, I>& a, double b) {
-  NVF_ERROR(false, "This types operator* overload should not be called!");
-  return 0.0;
-}
 double operator*(const std::basic_string<char>& a,  double b) {
   NVF_ERROR(false, "This types operator* overload should not be called!");
   return 0.0;
 }
 
 template<typename T, size_t I>
-std::ostream& operator<<(std::ostream& os, const std::array<T, I>& cont) {
+std::string to_string(const std::array<T, I>& cont) {
   std::string out{"["};
   bool first_elem = true;
   for(const auto& elem : cont) {
@@ -497,8 +492,7 @@ std::ostream& operator<<(std::ostream& os, const std::array<T, I>& cont) {
     out += std::to_string(elem);
   }
   out += "]";
-  os << out;
-  return os;
+  return out;
 }
 
 template <bool NOCUPTI = false, size_t I = 0, typename... Ts>
@@ -743,6 +737,11 @@ void FusionProfiler::stop() {
       kprof.percentage_peak_bandwidth =
           kprof.effective_bandwidth_gbs / kprof.peak_bandwidth_gbs * 100.0;
       kprof.compile_time_ms = segment(kp_idx).compileTime();
+
+      kprof.grid_str = to_string(kprof.grid);
+      kprof.block_str = to_string(kprof.block);
+      kprof.cluster_str = to_string(kprof.cluster);
+      kprof.shared_mem_str = to_string(kprof.shared_mem);
 
       kernel_time_ms += kprof.time_ms;
       fprof.kernel_profiles[kp_idx] = std::move(kprof);

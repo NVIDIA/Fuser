@@ -117,6 +117,13 @@ struct KernelProfile {
 
   std::string device_name{};
   double peak_bandwidth_gbs{0.0};
+  
+  // These strings are here to capture the conversion
+  // in struct that can be reference when making a tuple
+  std::string grid_str{};
+  std::string block_str{};
+  std::string cluster_str{};
+  std::string shared_mem_str{};
 };
 
 struct ProfileAttrDescriptor {
