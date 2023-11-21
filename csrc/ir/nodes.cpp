@@ -459,8 +459,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       return {in.as<at::Tensor>().cos()};
       break;
     case UnaryOpType::BitCast:
-      if (isComplexType(input(0)->dtype()) && !isComplexType(out()->dtype())) {
-        return {at::view_as_real(in.as<at::Tensor>())};
+      if (isComplexType(input(0)->dtype()) && !isComplexType(out()->dtype())){
+        // view_as_real case.
+        return {in.as<at::Tensor>()};
       } else {
         return {in.as<at::Tensor>().view(data_type_to_aten(out()->dtype()))};
       }
@@ -2402,16 +2403,8 @@ std::string ViewAsScalar::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> ViewAsScalar::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  const at::Tensor& in_tensor = inputs[0].as<at::Tensor>();
-  const std::vector<IterDomain*>& out_domain = TensorDomain::noReductions(
-      out()->as<TensorView>()->getMaybeRFactorDomain());
-  std::vector<int64_t> out_shape;
-  out_shape.reserve(out_domain.size());
-  for (IterDomain* id : out_domain) {
-    out_shape.push_back(
-        ee.evaluate(id->getMaybeExpandedExtent()).as<int64_t>());
-  }
-  return {in_tensor.reshape(out_shape)};
+  const at::Tensor& in = inputs.at(0).as<at::Tensor>();
+  return {at::view_as_real(in)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ViewAsScalar)
