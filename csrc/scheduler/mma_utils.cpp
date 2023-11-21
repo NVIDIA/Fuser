@@ -1096,16 +1096,13 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
         continue;
       }
     }
-    for (auto& [role, tvs] : roles_map) {
-      // sort tvs by name()
-      std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
-        return a->name() < b->name();
-      });
-    }
   };
 
   const auto findOutputRolesByDomains = [](const DependenciesMap& deps_map,
                                            RolesMap& roles_map) {
+    std::vector<TensorView*> storage;
+    storage.reserve(deps_map.size());
+
     for (const auto& entry : deps_map) {
       const auto& domains = entry.second;
       const auto begin = domains.begin();
@@ -1122,19 +1119,24 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
       // NOTE: the core fusion output tensors are the ones with m and n
       // domains
       if (has_m && has_n) {
-        roles_map[MatmulRole::OUTPUT_D].push_back(entry.first);
+        storage.push_back(entry.first);
       }
     }
 
-    for (auto& [role, tvs] : roles_map) {
-      // sort tvs in descending order by uses() size, and if equal then then by
-      // name() done to make decide which tv should be a reference output tensor
-      // view, if there are more output tvs that match requirements
-      std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
-        return (a->uses().size() == b->uses().size())
-            ? (a->name() < b->name())
-            : (a->uses().size() > b->uses().size());
-      });
+    std::sort(storage.begin(), storage.end(), [](TensorView* a, TensorView* b) {
+      return (a->uses().size() == b->uses().size())
+          ? (a->name() < b->name())
+          : (a->uses().size() > b->uses().size());
+    });
+
+    if (!storage.empty()) {
+      // NOTE: currently, we pick as a reference tensor one with `m` and `n`
+      //       IterDomains and the most uses
+      auto pos = storage.begin();
+      roles_map[MatmulRole::OUTPUT_D].push_back(*pos);
+      for (++pos; pos != storage.end(); ++pos) {
+        roles_map[MatmulRole::OUTPUT_AUX].push_back(*pos);
+      }
     }
   };
 
@@ -1157,6 +1159,17 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
   resolveTvToMatmulDomainsMapping(
       deps_map, mma_output_candidates, m, n, k, ca_map);
   findOutputRolesByDomains(deps_map, roles_map);
+
+  for (auto& [role, tvs] : roles_map) {
+    // sort tvs in descending order by uses() size, and if equal then then by
+    // name() done to make decide which tv should be a reference output tensor
+    // view, if there are more output tvs that match requirements
+    std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
+      return (a->uses().size() == b->uses().size())
+          ? (a->name() < b->name())
+          : (a->uses().size() > b->uses().size());
+    });
+  }
 
   return roles_map;
 }

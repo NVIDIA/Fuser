@@ -253,6 +253,12 @@ std::string isMatmulFusionDefinitionSupported(
       tvs_with_roles.insert(entry->second.begin(), entry->second.end());
     }
 
+    // Non-core output roles are optional, no requirements for definitions
+    entry = roles_map.find(MatmulRole::OUTPUT_AUX);
+    if (entry != roles_map.end()) {
+      tvs_with_roles.insert(entry->second.begin(), entry->second.end());
+    }
+
     const auto in_out_tvs_count =
         fusion_inputs_tvs.size() + fusion_outputs_tvs.size();
     if (in_out_tvs_count != tvs_with_roles.size()) {
