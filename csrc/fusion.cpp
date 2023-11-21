@@ -334,14 +334,14 @@ std::vector<Expr*> Fusion::exprs() {
 
 namespace {
 
-bool allOutputsArePointerCasts(Fusion* fusion) {
+bool allOutputsArePointerArithmetics(Fusion* fusion) {
   for (Val* out : fusion->outputs()) {
     const auto& [in, info] = fusion->getOutputAlias(out);
     if (in == nullptr) {
       return false;
     }
     NVF_ERROR(info != nullptr);
-    if (info->type != AliasType::PointerCast) {
+    if (info->type != AliasType::PointerArithmetic) {
       return false;
     }
   }
@@ -355,7 +355,7 @@ bool Fusion::isNoOp() {
     return true;
   }
 
-  if (allOutputsArePointerCasts(this)) {
+  if (allOutputsArePointerArithmetics(this)) {
     return true;
   }
 

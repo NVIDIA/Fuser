@@ -20,6 +20,7 @@
 
 namespace nvfuser {
 
+using testing::_;
 using testing::Each;
 using testing::ElementsAre;
 using testing::IsEmpty;
@@ -199,6 +200,52 @@ TEST_F(AliasAnalysisTest, View_MergeExpandedBroadcast) {
   EXPECT_EQ(alias_analysis.findRoot(out), expand_out);
 }
 
+TEST_F(AliasAnalysisTest, TrivialSlice) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  fusion.addInput(in);
+  TensorView* out = slice(in, {0, 0}, {2, 3});
+  out = reshape(out, {2, 3}, {6});
+  fusion.addOutput(out);
+
+  optimization::AliasAnalysisResult alias_analysis =
+      optimization::findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.findRoot(out), in);
+}
+
+TEST_F(AliasAnalysisTest, MergeTriviallySlicedDimensions) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  fusion.addInput(in);
+  TensorView* out = slice(in, {0, 0, 0}, {2, 2, 5});
+  out = reshape(out, {2, 2, 5}, {2, 10});
+  fusion.addOutput(out);
+
+  optimization::AliasAnalysisResult alias_analysis =
+      optimization::findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.findRoot(out), in);
+}
+
+TEST_F(AliasAnalysisTest, MergeSlicedDimensions) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  fusion.addInput(in);
+  TensorView* slice_out = slice(in, {0, 0, 0}, {2, 2, 5});
+  TensorView* out = reshape(slice_out, {2, 2, 5}, {4, 5});
+  fusion.addOutput(out);
+
+  optimization::AliasAnalysisResult alias_analysis =
+      optimization::findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.findRoot(out), out);
+  EXPECT_EQ(alias_analysis.findRoot(slice_out), in);
+}
+
 using AliasTest = NVFuserTest;
 
 TEST_F(AliasTest, View) {
@@ -322,6 +369,106 @@ TEST_F(AliasTest, DuplicateOutputs) {
       __FILE__);
 }
 
+TEST_F(AliasTest, SliceToSizeOne_Issue1353) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({4, 6, 7});
+  fusion->addInput(in);
+  TensorView* out = slice(in, {0, 0, 0}, {4, 6, 1});
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({4, 6, 7}).cuda();
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
+  EXPECT_THAT(out_tensor.strides(), ElementsAre(42, 7, _));
+
+  testValidate(
+      fec.fusion(),
+      {in_tensor.slice(/*dim=*/2, /*start=*/c10::nullopt, /*end=*/1)},
+      {in_tensor},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(AliasTest, SliceRightOfBroadcast) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({4, 1, 7});
+  fusion->addInput(in);
+  TensorView* out = slice(in, {0, 0, 0}, {4, 1, 5});
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({4, 1, 7}).cuda();
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
+  EXPECT_THAT(out_tensor.strides(), ElementsAre(7, _, 1));
+
+  testValidate(
+      fec.fusion(),
+      {in_tensor.slice(/*dim=*/2, /*start=*/c10::nullopt, /*end=*/5)},
+      {in_tensor},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(AliasTest, SliceViewPermute) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int batches = 16;
+  constexpr int seq_length = 128;
+  constexpr int features = 1024;
+  constexpr int heads = 16;
+
+  // The input tensor is a concatenation of [query, key, value], and therefore
+  // has a feature dimension of size `features * 3`.
+  TensorView* in =
+      makeContigConcreteTensor({batches, seq_length, features * 3});
+  fusion->addInput(in);
+  std::vector<TensorView*> splits({
+      slice(in, {0, 0, 0}, {batches, seq_length, features}),
+      slice(in, {0, 0, features}, {batches, seq_length, features * 2}),
+      slice(in, {0, 0, features * 2}, {batches, seq_length, features * 3}),
+  });
+  for (TensorView* split : splits) {
+    split = reshape(
+        split,
+        {batches, seq_length, features},
+        {batches, seq_length, heads, features / heads});
+    split = permute(split, {0, 2, 1, 3});
+    fusion->addOutput(split);
+  }
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({batches, seq_length, features * 3}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  EXPECT_EQ(out_tensors.size(), 3);
+
+  for (const auto& out_tensor : out_tensors) {
+    EXPECT_TRUE(out_tensor.is_alias_of(in_tensor));
+  }
+
+  std::vector<at::Tensor> expected_out_tensors =
+      in_tensor.split(/*split_size=*/features, /*dim=*/-1);
+  for (auto& expected_out_tensor : expected_out_tensors) {
+    expected_out_tensor =
+        expected_out_tensor.view({batches, seq_length, heads, -1})
+            .permute({0, 2, 1, 3});
+  }
+
+  testValidate(
+      fec.fusion(),
+      out_tensors,
+      {in_tensor},
+      expected_out_tensors,
+      __LINE__,
+      __FILE__);
+}
+
 TEST_F(AliasTest, DuplicateOutputsSegmentedFusion) {
   // testing duplicated output in segmented fusion
   auto fusion = std::make_unique<Fusion>();
@@ -367,6 +514,35 @@ TEST_F(AliasTest, DuplicateOutputsSegmentedFusion) {
       {in_tensor},
       __LINE__,
       __FILE__);
+}
+
+TEST_F(AliasTest, NotAllOutputsAlias) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* slice_out = slice(in, {0, 0}, {2, 2});
+  TensorView* add_out = add(in, fusion->oneVal());
+  fusion->addInput(in);
+  fusion->addOutput(slice_out);
+  fusion->addOutput(add_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+
+  // As a known limitation, nvFuser still generates code to copy data from `in`
+  // to `slice_out` despite the fact that `slice_out` is an alias.
+  testValidate(
+      fec.fusion(),
+      out_tensors,
+      {in_tensor},
+      {in_tensor.slice(/*dim=*/1, /*start=*/0, /*end=*/2), in_tensor + 1.f},
+      __LINE__,
+      __FILE__);
+
+  at::Tensor slice_out_tensor = out_tensors[0];
+  EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
 }
 
 } // namespace nvfuser
