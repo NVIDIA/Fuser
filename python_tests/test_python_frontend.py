@@ -2785,6 +2785,40 @@ class TestNvFuserFrontend(TestCase):
             torch_ref = torch.cat([2.0 * inputs[0], inputs[1]], dim=-1)
             self.assertEqual(nvf_out[0], torch_ref)
 
+    # Test that inputs are properly forwarded when an input is used in multiple
+    # UnaryOps, some having one and others having multiple further uses.
+    # See https://github.com/NVIDIA/Fuser/issues/1301#issuecomment-1812470502
+    def test_issue1310(self):
+        inputs = [torch.randn((16, 128, 768), dtype=torch.bfloat16, device="cuda:0")]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T3 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            T14 = fd.ops.cast(
+                T3, dtype=DataType.Float
+            )  # NOTE that RHS is same, but the result is assigned to different variables
+            T15 = fd.ops.cast(
+                T3, dtype=DataType.Float
+            )  # NOTE that RHS is same, but the result is assigned to different variables
+            T16 = fd.ops.sum(T15, axes=[0, 1], keepdim=False, dtype=DataType.Null)
+            T20 = fd.ops.sum(T14, axes=[0, 1], keepdim=False, dtype=DataType.Null)
+            T31 = fd.ops.sum(T14, axes=[2], keepdim=False, dtype=DataType.Null)
+            fd.add_output(T16)
+            fd.add_output(T20)
+            fd.add_output(T31)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        t14 = inputs[0].type(torch.float32)
+        t16 = t14.sum([0, 1])
+        t31 = t14.sum([2])
+        self.assertEqual(nvf_out[0], t16)
+        self.assertEqual(nvf_out[1], t16)  # T16 == T20
+        self.assertEqual(nvf_out[2], t31)
+
 
 if __name__ == "__main__":
     run_tests()
