@@ -717,6 +717,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         code_ << cast_str.value();
       } else if (op_type == UnaryOpType::BitCast) {
         code_ << "std::bit_cast<" << uop->out()->dtype() << ">";
+      } else if (op_type == UnaryOpType::RefCast) {
+        code_ << "(*reinterpret_cast<" << uop->out()->dtype() << "*>(&";
       } else {
         code_ << op_type;
         if (needFloatSuffix(op_type) &&
@@ -726,6 +728,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
 
       code_ << "(" << gen(uop->in()) << ")";
+      if (op_type == UnaryOpType::RefCast) {
+        code_ << "))";
+      }
     }
 
     if (!print_inline_) {
@@ -1053,54 +1058,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else {
       NVF_ERROR(false, "unkown scatterOp");
     }
-  }
-
-  std::string genArchString(MmaOptions::MacroType macro) {
-    std::stringstream ss;
-    if (isTuring(macro)) {
-      ss << "Turing";
-    } else if (isAmpere(macro)) {
-      ss << "Ampere";
-    } else {
-      NVF_ERROR(false, "mma macro unknown arch");
-    }
-    return ss.str();
-  }
-
-  std::string genMmaOp(const MmaOp* mma) {
-    std::stringstream ss;
-    auto macro = mma->macro();
-    ss << genArchString(macro) << "::";
-    ss << toString(macro);
-
-    // clang-tidy: bugprone-unchecked-optional-access
-    // clang-tidy assumes that function result is unstable, so we need a copy.
-    auto mma_layout_opt = mma->layout();
-    NVF_ERROR(mma_layout_opt.has_value(), "mma unknown input layout");
-    if (isTuring(macro) || isAmpere(macro)) {
-      NVF_ERROR(
-          mma_layout_opt == MmaOptions::MmaLayout::TN,
-          "MMAs in Turing and Ampere are TN only, transpose is handled either "
-          "via ldmatrix.trans for fp16 or explicitly for other types.");
-    }
-    ss << toString(mma_layout_opt.value());
-    if (isAmpere(macro)) {
-      if (mma->inA()->as<kir::TensorIndex>()->view()->getDataType().value() ==
-          DataType::Half) {
-        ss << "F16";
-      } else {
-        ss << "BF16";
-      }
-    }
-    return ss.str();
-  }
-
-  void handle(const MmaOp* mma) final {
-    indent() << genMmaOp(mma) << "(\n";
-    indent() << kTab << gen(mma->out()) << ",\n";
-    indent() << kTab << gen(mma->inA()) << ",\n";
-    indent() << kTab << gen(mma->inB());
-    code_ << ");\n";
   }
 
   std::string genReductionOp(BinaryOpType op_type, DataType data_type) {

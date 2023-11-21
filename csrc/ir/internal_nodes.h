@@ -1377,6 +1377,26 @@ class MmaOp : public Expr {
     return attribute<MmaOptions::MacroType>(ATTR_POS_MACRO);
   }
 
+  int m() const {
+    return getM(macro());
+  }
+
+  int n() const {
+    return getN(macro());
+  }
+
+  int k() const {
+    return getK(macro());
+  }
+
+  bool isTuring() const {
+    return nvfuser::isTuring(macro());
+  }
+
+  bool isAmpere() const {
+    return nvfuser::isAmpere(macro());
+  }
+
   void configureOptions(MmaOptions options);
 
   auto layout() const {

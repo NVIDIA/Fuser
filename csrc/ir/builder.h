@@ -62,6 +62,7 @@ class IrBuilder {
   static Val* absExpr(Val* val);
   static Val* setExpr(Val* val);
   static Val* maybeCastExpr(DataType dtype, Val* val);
+  static Val* maybeRefCastExpr(DataType dtype, Val* val);
   static Val* addressExpr(Val* val);
   static NamedScalar* setExprNamedScalar(const std::string& name, Val* val);
   static NamedScalar* addressExprNamedScalar(const std::string& name, Val* val);
