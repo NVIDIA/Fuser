@@ -14,7 +14,13 @@ option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
 option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
 
 if(NOT NVFUSER_CPP_STANDARD)
-  set(NVFUSER_CPP_STANDARD 17)
+  set(NVFUSER_CPP_STANDARD 20)
+endif()
+
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.4)
+        message(FATAL_ERROR "GCC < 11.4 has compiler bugs and can not compile nvFuser.")
+    endif()
 endif()
 
 string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
