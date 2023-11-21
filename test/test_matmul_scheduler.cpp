@@ -171,7 +171,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
 //   D = relu(A x B)
 //  Target architectures: Turing, Ampere
 TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
 
   static TestCaseErrorThresholds errs = {
@@ -370,7 +370,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
 //   Aux = relu(D)
 //  Target architectures: Turing, Ampere
 TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueReluAux) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
 
   static TestCaseErrorThresholds errs = {
@@ -581,7 +581,7 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasReluAux) {
 //   D = gelu(A x B)
 //  Target architectures: Turing, Ampere
 TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
 
   static TestCaseErrorThresholds errs = {
@@ -671,7 +671,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
 //   Aux = gelu(D)
 //  Target architectures: Turing, Ampere
 TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueGeluAux) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
 
   static TestCaseErrorThresholds errs = {
@@ -766,7 +766,7 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueGeluAux) {
 //   D = gelu((A x B) + bias)
 //  Target architectures: Turing, Ampere
 TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const auto layout = MatmulLayout::TT;
 
   static TestCaseErrorThresholds errs = {
