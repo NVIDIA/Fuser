@@ -20,6 +20,7 @@
 
 namespace nvfuser {
 
+using testing::_;
 using testing::Each;
 using testing::ElementsAre;
 using testing::IsEmpty;
@@ -380,7 +381,8 @@ TEST_F(AliasTest, SliceToSizeOne_Issue1353) {
   FusionExecutorCache fec(std::move(fusion));
   at::Tensor in_tensor = at::randn({4, 6, 7}).cuda();
   at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
-  EXPECT_TRUE(out_tensor.is_alias_of(in_tensor));
+  EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
+  EXPECT_THAT(out_tensor.strides(), ElementsAre(42, 7, _));
 
   testValidate(
       fec.fusion(),
@@ -402,7 +404,8 @@ TEST_F(AliasTest, SliceRightOfBroadcast) {
   FusionExecutorCache fec(std::move(fusion));
   at::Tensor in_tensor = at::randn({4, 1, 7}).cuda();
   at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
-  EXPECT_TRUE(out_tensor.is_alias_of(in_tensor));
+  EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
+  EXPECT_THAT(out_tensor.strides(), ElementsAre(7, _, 1));
 
   testValidate(
       fec.fusion(),
