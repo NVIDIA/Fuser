@@ -7,8 +7,11 @@
 // clang-format on
 
 #include <device_lower/pass/inline_ptx.h>
+#include <device_lower/utils.h>
 #include <ir/builder.h>
 #include <kernel_ir_dispatch.h>
+
+#include <sstream>
 
 namespace nvfuser {
 
@@ -20,7 +23,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
     registerReplace(
         commit,
         IrBuilder::create<kir::Asm>(
-            "cp.async.commit_group;",
+            "cp.async.commit_group",
             std::vector<Val*>{},
             std::vector<Val*>{},
             kir::Asm::Options{true}));
@@ -31,13 +34,13 @@ class LowerToInlinePtx : public kir::ExprMutator {
     Expr* replace = nullptr;
     if (stages > 0) {
       replace = IrBuilder::create<kir::Asm>(
-          "cp.async.wait_group %0;",
+          "cp.async.wait_group",
           std::vector<Val*>{},
           std::vector<Val*>{IrBuilder::create<Val>(stages)},
           kir::Asm::Options{true});
     } else {
       replace = IrBuilder::create<kir::Asm>(
-          "cp.async.wait_all;",
+          "cp.async.wait_all",
           std::vector<Val*>{},
           std::vector<Val*>{},
           kir::Asm::Options{true});
@@ -50,7 +53,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
     registerReplace(
         commit,
         IrBuilder::create<kir::Asm>(
-            "cp.async.bulk.commit_group;",
+            "cp.async.bulk.commit_group",
             std::vector<Val*>{},
             std::vector<Val*>{},
             kir::Asm::Options{true}));
@@ -61,10 +64,31 @@ class LowerToInlinePtx : public kir::ExprMutator {
     registerReplace(
         wait,
         IrBuilder::create<kir::Asm>(
-            "cp.async.bulk.wait_group.read %0;",
+            "cp.async.bulk.wait_group.read",
             std::vector<Val*>{},
             std::vector<Val*>{IrBuilder::create<Val>(stages)},
             kir::Asm::Options{true, true}));
+  }
+
+  void handle(LoadStoreOp* ldst) override {
+    if (ir_utils::isLdMatrixOp(ldst)) {
+      auto op = ldst->opType();
+      std::stringstream ss;
+      ss << "ldmatrix.sync.aligned.x"
+         << std::get<ArrayType>(ldst->out()->dtype().type).size;
+      if (op == LoadStoreOpType::LdMatrixTranspose) {
+        ss << ".trans";
+      }
+      ss << ".m8n8.shared.b16";
+      registerReplace(
+          ldst,
+          IrBuilder::create<kir::Asm>(
+              ss.str(),
+              std::vector<Val*>{ldst->out()},
+              std::vector<Val*>{ldst->in()},
+              kir::Asm::Options{true}));
+      return;
+    }
   }
 };
 
