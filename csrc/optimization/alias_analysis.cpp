@@ -295,16 +295,14 @@ void AliasFinder::handle(const SliceOp* slice) {
   for (auto i = static_cast<int64_t>(out_rank) - 1; i >= 0; i--) {
     if (out_layout.allocation_domain[i]->isBroadcast()) {
       out_layout.contiguity[i] = std::nullopt;
-      continue;
-    }
-
-    if (next_non_broadcast_is_non_contiguous) {
+    } else if (next_non_broadcast_is_non_contiguous) {
       out_layout.contiguity[i] = false;
       next_non_broadcast_is_non_contiguous = false;
     } else {
       out_layout.contiguity[i] = in_layout.contiguity[i];
     }
 
+    // A broadcast dimension can be a slicing product as well.
     std::vector<Expr*> dependencies = DependencyCheck::getAllExprsBetween(
         {out_root.begin(), out_root.end()}, {out_layout.allocation_domain[i]});
     if (std::find_if(

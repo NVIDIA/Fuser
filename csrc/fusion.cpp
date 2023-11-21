@@ -816,7 +816,7 @@ void Fusion::aliasOutputToInput(Val* output, Val* input, const AliasType type) {
   }
 }
 
-std::pair<Val*, const AliasInfo*> Fusion::getOutputAlias(Val* output) {
+std::pair<Val*, const AliasInfo*> Fusion::getOutputAlias(Val* output) const {
   if (auto search = io_alias_.find(output); search != io_alias_.end()) {
     const std::pair<Val*, AliasInfo>& in_val_and_info = search->second;
     return {in_val_and_info.first, &in_val_and_info.second};

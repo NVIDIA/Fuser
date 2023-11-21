@@ -922,46 +922,33 @@ int64_t IndexOfFusionInput(const Val* in, const Fusion* fusion) {
 }
 
 // Returns the at::Tensor allocated for `out_info`.
-//
-// TODO: clean up the API so we explicitly pass in the input alias. This way, we
-// can remove `args` and `kernel`, which unnecessary expose information of
-// unrelated arguments.
 at::Tensor allocateOutput(
     const FusionExecutor::GlobalBufferInfo& out_info,
-    const KernelArgumentHolder& args,
+    Val* aliased_in,
+    const AliasInfo* alias_info,
+    const at::Tensor& aliased_in_tensor,
     const c10::Device& device,
-    const kir::Kernel* kernel,
     ExpressionEvaluator& ee) {
   TensorView* out_tv = out_info.tv;
 
-  auto alias_it = kernel->ioAlias().find(out_tv);
   // Note: aliased output is not returned as output. But we still need it
   // for kernel execution, so would need to push them to args
-  if (alias_it != kernel->ioAlias().end()) {
-    const auto aliased_in_index =
-        IndexOfFusionInput(alias_it->second.first, kernel);
-    const PolymorphicValue& in_val = *args[aliased_in_index];
-    NVF_ERROR(
-        in_val.is<at::Tensor>(),
-        "Alias io only supports tensor. Found ",
-        PolymorphicValue_functions::toString(in_val));
-    at::Tensor in_tensor = in_val.as<at::Tensor>();
-
-    switch (alias_it->second.second.type) {
+  if (aliased_in != nullptr) {
+    switch (alias_info->type) {
       case AliasType::InplaceUpdate:
         // Unlike for `AliasType::PointerArithmetic`, don't use
         // ExpressionEvaluator to compute the output tensor. This is because
         // the output tensor may hold different data from the input, e.g., an
         // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
         // would trigger non-trivial host computation.
-        return in_tensor;
+        return aliased_in_tensor;
 
       case AliasType::PointerArithmetic:
-        auto* in_tv = kernel->inputs()[aliased_in_index]->as<TensorView>();
-        ee.bind(in_tv, in_tensor);
+        auto* in_tv = aliased_in->as<TensorView>();
+        ee.bind(in_tv, aliased_in_tensor);
         at::Tensor out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
         NVF_ERROR(
-            out_tensor.is_alias_of(in_tensor),
+            out_tensor.is_alias_of(aliased_in_tensor),
             "ExpressionEvaluator failed to evaluate ",
             out_tv->toString(),
             " as an alias of ",
@@ -1001,8 +988,25 @@ std::vector<at::Tensor> allocateOutputs(
   std::vector<at::Tensor> outputs;
   outputs.reserve(output_info.size());
   for (const auto output_idx : c10::irange(output_info.size())) {
-    outputs.push_back(
-        allocateOutput(output_info[output_idx], inputs, device, kernel, ee));
+    Val* out = kernel->outputs()[output_idx];
+    auto [aliased_in, alias_info] = kernel->getOutputAlias(out);
+    at::Tensor aliased_in_tensor;
+    if (aliased_in != nullptr) {
+      const PolymorphicValue& aliased_in_val =
+          *inputs[IndexOfFusionInput(aliased_in, kernel)];
+      NVF_ERROR(
+          aliased_in_val.is<at::Tensor>(),
+          "Alias io only supports tensor. Found ",
+          PolymorphicValue_functions::toString(aliased_in_val));
+      aliased_in_tensor = aliased_in_val.as<at::Tensor>();
+    }
+    outputs.push_back(allocateOutput(
+        output_info[output_idx],
+        aliased_in,
+        alias_info,
+        aliased_in_tensor,
+        device,
+        ee));
   }
   return outputs;
 }

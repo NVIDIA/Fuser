@@ -429,6 +429,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::ToUnsignedSmemAddr:
       return {(int64_t)(unsigned)in};
       break;
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring:
+      return {in};
+      break;
     case UnaryOpType::Dereference:
       if (*out()->getDataType() == DataType::Float) {
         return {PolymorphicValue((double)*(float*)in)};
@@ -2811,7 +2814,10 @@ std::vector<IterDomain*> IterDomain::clone(
 // domains is enforced by predicates. Note that since only root
 // domains have valid start and stop, it's not possible to contiguous
 // predication.
-IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
+IterDomain* IterDomain::merge(
+    IterDomain* outer,
+    IterDomain* inner,
+    bool rfactor_domain) {
   NVF_CHECK(
       outer->isReduction() == inner->isReduction(),
       "Merging IterDomains requires that their iteration types match. ",
@@ -2872,6 +2878,7 @@ IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
           .parallel_type(outer->getParallelType())
           .expanded_extent(expanded_extent)
           .iter_type(itype)
+          .is_rfactor_domain(rfactor_domain)
           .build();
 
   IrBuilder::create<Merge>(outer->container(), merged_id, outer, inner);
@@ -2887,7 +2894,8 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
     Val* factor,
     bool inner_split,
     Val* start_offset,
-    Val* stop_offset) {
+    Val* stop_offset,
+    bool rfactor_domain) {
   NVF_CHECK(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
@@ -2915,6 +2923,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
                                                      : nullptr)
           .parallel_type(in->getParallelType())
           .iter_type(in->getIterType())
+          .is_rfactor_domain(rfactor_domain)
           .build();
 
   // inner loop IterDomain
@@ -2926,6 +2935,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
                                                       : nullptr)
           .parallel_type(in->getParallelType())
           .iter_type(in->getIterType())
+          .is_rfactor_domain(rfactor_domain)
           .build();
 
   IrBuilder::create<Split>(
@@ -2944,10 +2954,12 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
     IterDomain* in,
     Val* factor,
     bool inner_split,
-    bool trim_out_of_bounds) {
+    bool trim_out_of_bounds,
+    bool rfactor_domain) {
   auto start_offset = trim_out_of_bounds ? in->start() : nullptr;
   auto stop_offset = trim_out_of_bounds ? in->stopOffset() : nullptr;
-  return IterDomain::split(in, factor, inner_split, start_offset, stop_offset);
+  return IterDomain::split(
+      in, factor, inner_split, start_offset, stop_offset, rfactor_domain);
 }
 
 std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
