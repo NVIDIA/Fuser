@@ -325,7 +325,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         scheduler_utils::max_registers_per_thread;
     if (occupancy_reg_per_thread > buffer_reg_per_thread) {
       // (1) can achieve 50% or higher occupancy
-      nvrtc_register_per_thread = buffer_reg_per_thread;
+      nvrtc_register_per_thread = occupancy_reg_per_thread;
     } else if (
         occupancy_reg_per_thread >= buffer_reg_per_thread - max_adjust_count) {
       // (2) can achieve 50% occupancy
@@ -387,26 +387,28 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         nvrtc_register_per_thread = nvrtc_register_per_thread_tmp;
         blocks_per_sm = blocks_per_sm_tmp;
         warps_per_sm = warps_per_sm_tmp;
-        break;
       }
     }
   }
 
   // deal with regression for layer_norm around 32K.
   if (blocks_per_sm == 1) {
-    auto
-        [bdimx_val_tmp,
-         bdimy_val_tmp,
-         nvrtc_register_per_thread_tmp,
-         blocks_per_sm_tmp,
-         warps_per_sm_tmp] = getParasUsingPersistentVal(persistent_val * 2);
-    if (blocks_per_sm_tmp > 1) {
-      persistent_val *= 2;
-      bdimx_val = bdimx_val_tmp;
-      bdimy_val = bdimy_val_tmp;
-      nvrtc_register_per_thread = nvrtc_register_per_thread_tmp;
-      blocks_per_sm = blocks_per_sm_tmp;
-      warps_per_sm = warps_per_sm_tmp;
+    for (auto p = persistent_val + 1; p <= persistent_max*2; p++) {
+      auto
+          [bdimx_val_tmp,
+           bdimy_val_tmp,
+           nvrtc_register_per_thread_tmp,
+           blocks_per_sm_tmp,
+           warps_per_sm_tmp] = getParasUsingPersistentVal(p);
+      if (warps_per_sm_tmp > warps_per_sm) {
+        persistent_val = p;
+        bdimx_val = bdimx_val_tmp;
+        bdimy_val = bdimy_val_tmp;
+        nvrtc_register_per_thread = nvrtc_register_per_thread_tmp;
+        blocks_per_sm = blocks_per_sm_tmp;
+        warps_per_sm = warps_per_sm_tmp;
+        std::cout << "debug_blocks_per_sm increased to " << blocks_per_sm << std::endl;
+      }
     }
   }
 

@@ -672,10 +672,10 @@ static void MatmulShapeWarpStageAutoSplitK(benchmark::internal::Benchmark* b) {
       ->UseManualTime()                   \
       ->Apply(MatmulShapeWarpStageAutoSplitK);
 
-ForAllLayouts(EagerModeBenchmark);
-ForAllLayouts(NvfuserMatmulBenchmark);
-ForAllLayouts(AutoSplitKBenchmark);
-ForAllLayouts(AutoPartitionedKBenchmark);
+// ForAllLayouts(EagerModeBenchmark);
+// ForAllLayouts(NvfuserMatmulBenchmark);
+// ForAllLayouts(AutoSplitKBenchmark);
+// ForAllLayouts(AutoPartitionedKBenchmark);
 
 // Note: SplitK Reduction benchmarks are parametrized only by M, N. The splitk
 // factor is deduced automatically from N
