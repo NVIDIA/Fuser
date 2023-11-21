@@ -459,6 +459,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       return {in.as<at::Tensor>().cos()};
       break;
     case UnaryOpType::BitCast:
+      NVF_CHECK(
+          dataTypeSize(input(0)->dtype()) == dataTypeSize(out()->dtype()),
+          "BitCast only works for types of the same size");
       if (isComplexType(input(0)->dtype()) && !isComplexType(out()->dtype())) {
         // view_as_real case.
         return {in.as<at::Tensor>()};
