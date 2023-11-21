@@ -21,9 +21,11 @@ void MarkAliasPass::runPass(Fusion* fusion) {
     // the allocation domain is incompatible with what we prefer for
     // aliasing.
     if (out->hasAllocation()) {
-      debug() << "MarkAliasPass skipped " << out->toString()
-              << " because it already has an allocation domain:" << std::endl
-              << out->domain()->toString(1, /*leaf_only=*/false) << std::endl;
+      if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+        debug() << "MarkAliasPass skipped " << out->toString()
+                << " because it already has an allocation domain:" << std::endl
+                << out->domain()->toString(1, /*leaf_only=*/false) << std::endl;
+      }
       continue;
     }
 
@@ -36,7 +38,7 @@ void MarkAliasPass::runPass(Fusion* fusion) {
         out,
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
         const_cast<Val*>(in),
-        AliasType::PointerArithmetic);
+        AliasType::PointerCast);
     if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
       debug() << "MarkAliasPass marked " << out->toString()
               << " as an alias of " << in->toString() << std::endl;

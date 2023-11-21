@@ -334,14 +334,14 @@ std::vector<Expr*> Fusion::exprs() {
 
 namespace {
 
-bool allOutputsArePointerArithmetics(Fusion* fusion) {
+bool allOutputsArePointerCasts(Fusion* fusion) {
   for (Val* out : fusion->outputs()) {
     const auto& [in, info] = fusion->getOutputAlias(out);
     if (in == nullptr) {
       return false;
     }
     NVF_ERROR(info != nullptr);
-    if (info->type != AliasType::PointerArithmetic) {
+    if (info->type != AliasType::PointerCast) {
       return false;
     }
   }
@@ -355,7 +355,7 @@ bool Fusion::isNoOp() {
     return true;
   }
 
-  if (allOutputsArePointerArithmetics(this)) {
+  if (allOutputsArePointerCasts(this)) {
     return true;
   }
 
@@ -816,7 +816,7 @@ void Fusion::aliasOutputToInput(Val* output, Val* input, const AliasType type) {
   }
 }
 
-std::pair<Val*, const AliasInfo*> Fusion::getOutputAlias(Val* output) {
+std::pair<Val*, const AliasInfo*> Fusion::getOutputAlias(Val* output) const {
   if (auto search = io_alias_.find(output); search != io_alias_.end()) {
     const std::pair<Val*, AliasInfo>& in_val_and_info = search->second;
     return {in_val_and_info.first, &in_val_and_info.second};
