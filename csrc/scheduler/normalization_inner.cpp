@@ -189,7 +189,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // Some assumptions
   // (1) use at least four warps per warp as recommended by the
   // cuda-c-best-practices-guide.
-  const int64_t min_threads_per_block = (has_rng_ops ? 8l : 4l) * dev_prop->warpSize;
+  const int64_t min_threads_per_block = 4l * dev_prop->warpSize;
   // (2) target 50% occupancy based on experiments
   const int64_t target_min_warps_per_sm = 32;
   // (2) hint for max persistent size based on experiments.
@@ -199,6 +199,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     return 24l +
         ceilDiv(buffer_per_thread, scheduler_utils::bytes_per_register);
   };
+  // allows 64 -> 56, disallows 64 -> 48
+  constexpr int64_t max_adjust_count = 8;
 
   // How the heuristic works?
   // The reduction dim is parallelized by [bdimx], [persistent], and
@@ -280,6 +282,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       }
     }
   }
+
   auto getParasUsingPersistentVal = [&](int64_t persistent_val_x) {
     // (3) reduction dim, set [bdimx]
     int64_t bdimx_val = ceilDiv(after_vect, persistent_val_x);
@@ -320,8 +323,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     int64_t buffer_reg_per_thread = getRegisterPerThread(buffer_per_thread);
     int64_t nvrtc_register_per_thread =
         scheduler_utils::max_registers_per_thread;
-    // allows 64 -> 56, disallows 64 -> 48
-    constexpr int64_t max_adjust_count = 8;
     if (occupancy_reg_per_thread > buffer_reg_per_thread) {
       // (1) can achieve 50% or higher occupancy
       nvrtc_register_per_thread = buffer_reg_per_thread;
@@ -352,10 +353,12 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         warps_per_sm);
   };
 
-  // if has rng and [persistent_val] is not divisible, use [persistent_min] to reduce workload of each thread.
-  bool rng_and_nondivisible = has_rng_ops && warps_after_vect % persistent_val != 0;
-  if(rng_and_nondivisible){
-     persistent_val = persistent_min;
+  // if has rng and [persistent_val] is not divisible, use [persistent_min] to
+  // reduce workload of each thread.
+  bool rng_and_nondivisible =
+      has_rng_ops && warps_after_vect % persistent_val != 0;
+  if (rng_and_nondivisible) {
+    persistent_val = persistent_min;
   }
   auto
       [bdimx_val,
@@ -365,7 +368,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
        warps_per_sm] = getParasUsingPersistentVal(persistent_val);
 
   // if occupancy is lower than 50%, search for [persistent_val] for higher
-  // occupancy. The code in this if block increased bandwidth for bias_dropout_add_layer_norm around 18 to 20K by 5%.
+  // occupancy. The code in this if block increased bandwidth for
+  // bias_dropout_add_layer_norm around 18 to 20K by 5%.
   if (rng_and_nondivisible && warps_per_sm < target_min_warps_per_sm) {
     for (auto p = persistent_min + 1; p <= persistent_max; p++) {
       auto
@@ -385,6 +389,24 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         warps_per_sm = warps_per_sm_tmp;
         break;
       }
+    }
+  }
+
+  // deal with regression for layer_norm around 32K.
+  if (blocks_per_sm == 1) {
+    auto
+        [bdimx_val_tmp,
+         bdimy_val_tmp,
+         nvrtc_register_per_thread_tmp,
+         blocks_per_sm_tmp,
+         warps_per_sm_tmp] = getParasUsingPersistentVal(persistent_val * 2);
+    if (blocks_per_sm_tmp > 1) {
+      persistent_val *= 2;
+      bdimx_val = bdimx_val_tmp;
+      bdimy_val = bdimy_val_tmp;
+      nvrtc_register_per_thread = nvrtc_register_per_thread_tmp;
+      blocks_per_sm = blocks_per_sm_tmp;
+      warps_per_sm = warps_per_sm_tmp;
     }
   }
 
@@ -432,7 +454,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     }
   }
   rparams->lparams = LaunchParams(
-      gdimx_val,
+      gdimy_val > 1 ? gdimx_val : LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
