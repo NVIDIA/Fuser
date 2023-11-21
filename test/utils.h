@@ -483,6 +483,12 @@ class NVFuserTest : public ::testing::Test {
   bool capturing_ = false;
 };
 
+// Fixture with param class must be uniquely identified, i.e., can't be in an
+// anonymous namespace
+template <typename tParam>
+class NVFuserFixtureParamTest : public NVFuserTest,
+                                public ::testing::WithParamInterface<tParam> {};
+
 // assert that the given fusion lowers to the given CUDA kernel
 void assertCUDAKernel(Fusion* fusion, const std::string& expected_kernel);
 
