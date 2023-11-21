@@ -111,8 +111,8 @@ class LowerToInlinePtx : public kir::ExprMutator {
       op = op_ss.str();
     }
 
-    int64_t split_n = size_t(mma->n() / n);
-    int64_t split_k = size_t(mma->k() / k);
+    int64_t split_n = mma->n() / n;
+    int64_t split_k = mma->k() / k;
 
     // If factor == 1, then do nothing, otherwise, view array<T, n> as
     // array<array<T, n / factor>, factor>
