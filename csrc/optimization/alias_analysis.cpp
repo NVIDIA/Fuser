@@ -295,9 +295,6 @@ void AliasFinder::handle(const SliceOp* slice) {
   for (auto i = static_cast<int64_t>(out_rank) - 1; i >= 0; i--) {
     if (out_layout.allocation_domain[i]->isBroadcast()) {
       out_layout.contiguity[i] = std::nullopt;
-      // But don't reset next_non_broadcast_is_non_contiguous. Say we slice a
-      // TV of shape [4,1,7],[t,t,t] to a TV of shape [4,1,5]. The output
-      // contiguity should be [f,n,t].
     } else if (next_non_broadcast_is_non_contiguous) {
       out_layout.contiguity[i] = false;
       next_non_broadcast_is_non_contiguous = false;
