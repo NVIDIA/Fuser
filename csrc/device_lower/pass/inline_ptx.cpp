@@ -133,6 +133,8 @@ class LowerToInlinePtx : public kir::ExprMutator {
     if (split_n > 1) {
       auto& item_type = *std::get<ArrayType>(b_type.type).type;
       item_type = maybe_outer_split(item_type, split_k);
+    } else {
+      b_type = maybe_outer_split(b_type, split_k);
     }
 
     auto accumulator =
