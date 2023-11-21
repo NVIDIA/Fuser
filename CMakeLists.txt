@@ -18,9 +18,8 @@ if(NOT NVFUSER_CPP_STANDARD)
 endif()
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    # Check if the GCC version is at least 11.4
     if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.4)
-        message(FATAL_ERROR "GCC version must be at least 11.4!")
+        message(FATAL_ERROR "GCC < 11.4 has compiler bugs and can not compile nvFuser.")
     endif()
 endif()
 
