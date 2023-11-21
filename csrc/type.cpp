@@ -338,6 +338,7 @@ bool needFloatSuffix(UnaryOpType t) {
     case UnaryOpType::IsReal:
     case UnaryOpType::Print:
     case UnaryOpType::ToUnsignedSmemAddr:
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring:
       return false;
     default:
       return true;
@@ -456,6 +457,8 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "std::imag";
     case UnaryOpType::ToUnsignedSmemAddr:
       return "toSmem";
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring:
+      return "Turing::adjustPartialLdMatrixAddrInTuring";
     default:
       NVF_ERROR(false, "No string found for unary op type.");
   }
