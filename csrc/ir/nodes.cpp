@@ -459,7 +459,7 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       return {in.as<at::Tensor>().cos()};
       break;
     case UnaryOpType::BitCast:
-      if (isComplexType(input(0)->dtype()) && !isComplexType(out()->dtype())){
+      if (isComplexType(input(0)->dtype()) && !isComplexType(out()->dtype())) {
         // view_as_real case.
         return {in.as<at::Tensor>()};
       } else {
