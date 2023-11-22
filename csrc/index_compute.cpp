@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <macros.h>
+
 #include <index_compute.h>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -30,6 +32,10 @@
 #include <swizzle.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
+
+#if IS_CPP20
+#include <ranges>
+#endif
 
 #include <memory>
 
@@ -577,9 +583,13 @@ void IndexCompute::handle(Merge* merge) {
         })) {
       index_map_[*(input_ids.end() - 1)] = out_ind;
     } else {
+#if IS_CPP20
+      for (auto id : std::ranges::reverse_view(input_ids)) {
+#else
       for (auto id_it = input_ids.rbegin(); id_it != input_ids.rend();
            id_it++) {
         auto id = *id_it;
+#endif
         if (id->isBroadcast() || id->isReduction() || id->isStride()) {
           continue;
         } else {
