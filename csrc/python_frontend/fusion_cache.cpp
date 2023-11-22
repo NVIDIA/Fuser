@@ -336,20 +336,26 @@ FusionCache::FusionCache(size_t max_fusions, bool load_from_default_workspace)
   // Deserialize cache hierarchy from common workspace automatically
   auto file_path = getSerdeFilePath(getSerdeFile()).native();
   if (load_from_default_workspace && fs::exists(file_path)) {
-    const BinaryBuffer& buffer = openFusionCache(file_path);
-    const serde::FusionCache* fc =
-        verifyFusionCache(buffer, false /* strict */);
-    // The saved workspace can become out-of-date between nvfuser updates.
-    if (fc != nullptr) {
-      // Only deserialize if the current binary is valid.
+    try {
+      const BinaryBuffer& buffer = openFusionCache(file_path);
+      const serde::FusionCache* fc =
+          verifyFusionCache(buffer, false /* strict */);
       deserialize(buffer, fc);
-    } else {
-      try {
-        fs::remove(file_path);
-        std::cout << "Delete incompatible workspace." << std::endl;
-      } catch (const std::exception& e) {
-        std::cout << "Failed to delete workspace. Exception:\t" << e.what()
-                  << std::endl;
+    } catch (const std::exception& deserialize_exception) {
+      // The saved workspace can become out-of-date between nvfuser updates.
+      // Send warning and delete the incompatible workspace.
+      // A new workspace will be saved upon program exit.
+      std::cout
+          << "Warning: Failed to deserialize common workspace. Exception:\t"
+          << deserialize_exception.what() << std::endl;
+      std::cout
+          << "Deleting incompatible workspace. A new workspace will be saved upon program exit."
+          << std::endl;
+      std::error_code remove_ec;
+      fs::remove(file_path);
+      if (remove_ec) {
+        std::cout << "Failed to delete common workspace. Exception:\t"
+                  << remove_ec.message() << std::endl;
       }
     }
   }
