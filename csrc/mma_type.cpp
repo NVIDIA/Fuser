@@ -104,6 +104,10 @@ bool isOperandTransposed(MmaOptions options) {
   return false;
 }
 
+GemmTile getMmaOpShape(MmaOptions::MacroType macro) {
+  return {getM(macro), getN(macro), getK(macro)};
+}
+
 std::string toString(MmaOptions::MmaLayout input_layout) {
   std::stringstream ss;
   switch (input_layout) {
