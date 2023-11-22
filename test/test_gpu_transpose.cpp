@@ -1237,9 +1237,6 @@ TEST_F(TransposeTest, FusionReshapeSmallTransposeDimensionSchedule) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   at::Tensor t0 = at::randn({x, y, z, w}, options);
-  auto t1 = at::native::view(t0, {x, y * z, w});
-
-  auto t2 = t1.transpose(0, 2);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   // Collect the heuristic params
