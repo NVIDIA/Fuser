@@ -47,6 +47,13 @@ def is_pre_volta():
     return prop.major < 7
 
 
+def is_pre_ampere():
+    if not RUN_NVFUSER:
+        return False
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    return prop.major < 8
+
+
 def serde_check(test_fn: Callable):
     """
     A decorator to verify that serialization works with the given exec_nvfuser function.
@@ -2788,6 +2795,7 @@ class TestNvFuserFrontend(TestCase):
     # Test that inputs are properly forwarded when an input is used in multiple
     # UnaryOps, some having one and others having multiple further uses.
     # See https://github.com/NVIDIA/Fuser/issues/1301#issuecomment-1812470502
+    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
     def test_issue1310(self):
         inputs = [torch.randn((16, 128, 768), dtype=torch.bfloat16, device="cuda:0")]
 
