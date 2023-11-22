@@ -777,7 +777,8 @@ SyncMap::SyncMap(Fusion* fusion) {
               raw_dims.toString());
         } else if (raw_dims.hasTID()) {
           NVF_ERROR(
-              producer->getMemoryType() == MemoryType::Global ||
+              ir_utils::isLdMatrixOp(producer->definition()) ||
+                  producer->getMemoryType() == MemoryType::Global ||
                   producer->getMemoryType() == MemoryType::Shared,
               "Inconsistent parallelization found between TV",
               producer->name(),
