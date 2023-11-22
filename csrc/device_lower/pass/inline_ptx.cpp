@@ -9,6 +9,7 @@
 #include <device_lower/pass/inline_ptx.h>
 #include <device_lower/utils.h>
 #include <ir/builder.h>
+#include <ir/utils.h>
 #include <kernel_ir_dispatch.h>
 
 #include <sstream>
@@ -88,6 +89,30 @@ class LowerToInlinePtx : public kir::ExprMutator {
               std::vector<Val*>{ldst->in()},
               kir::Asm::Options{true}));
       return;
+    } else if (ir_utils::isCpAsyncOp(ldst)) {
+      auto out_tv = ldst->out()->as<kir::TensorIndex>()->view();
+      auto vec_size =
+          ir_utils::getVectorizeSize(out_tv) * dataTypeSize(out_tv->dtype());
+      std::stringstream ss;
+      ss << "cp.async.";
+      if (ldst->cacheOp() == CacheOp::AllLevels) {
+        ss << "ca";
+      } else {
+        ss << "cg";
+        NVF_ERROR(vec_size == 16, "cp.async.cg only support vectorize 16 bytes");
+      }
+      ss << ".shared.global";
+      registerReplace(
+          ldst,
+          IrBuilder::create<kir::Asm>(
+              ss.str(),
+              std::vector<Val*>{},
+              std::vector<Val*>{
+                  ldst->out(),
+                  ldst->in(),
+                  IrBuilder::create<Val>(vec_size),
+                  ldst->predicate()},
+              kir::Asm::Options{true}));
     }
   }
 };

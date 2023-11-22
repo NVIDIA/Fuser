@@ -255,6 +255,9 @@ DataType getTypeOrIndexType(Val* value) {
 
 const char* getPTXConstraints(Val* value) {
   DataType dt = getTypeOrIndexType(value);
+  if (dt == DataType::Bool) {
+    return "r";
+  }
   if (auto ti = dynamic_cast<kir::TensorIndex*>(value)) {
     // If the index type is a pointer type, then we directly uses the pointer in
     // the generated code, instead of generating something like T0[i]. For this
@@ -315,14 +318,17 @@ std::vector<std::pair<std::string, Val*>> Asm::constraintsAndInputs() const {
 
 std::string Asm::parameters() const {
   int64_t counter = 0;
+  int64_t bool_counter = 0;
   std::stringstream ss;
-  auto gen = [&counter, &ss](Val* v) {
+  auto gen = [&counter, &bool_counter, &ss](Val* v) {
     DataType dtype = getTypeOrIndexType(v);
     if (counter > 0) {
       ss << ", ";
     }
     if (isPointerType(dtype)) {
       ss << "[%" << counter++ << "]";
+    } else if (dtype == DataType::Bool) {
+      ss << "p" << bool_counter++;
     } else if (std::holds_alternative<PrimDataType>(dtype.type)) {
       ss << "%" << counter++;
     } else if (std::holds_alternative<ArrayType>(dtype.type)) {
@@ -335,6 +341,8 @@ std::string Asm::parameters() const {
         ss << "%" << counter++;
       }
       ss << "}";
+    } else {
+      NVF_ERROR(false, "Unsupported data type ", dtype);
     }
   };
   for (auto out : outputs()) {
