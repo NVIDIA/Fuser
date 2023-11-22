@@ -7,8 +7,10 @@
 // clang-format on
 #include <index_compute.h>
 
+#include <ATen/cuda/CUDAContext.h>
 #include <c10/util/Exception.h>
 #include <c10/util/irange.h>
+
 #include <contiguity.h>
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/analysis/shift.h>
@@ -2372,6 +2374,16 @@ kir::TensorIndex* Index::getProducerIndex(
       override_index,
       generate_pointer);
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
+  if (ir_utils::isLdMatrixOp(consumer->definition())) {
+    if (at::cuda::getCurrentDeviceProperties()->major < 8) {
+      // For Turing, unused indices for ldmatrix needs to be aligned, although
+      // they are not used.
+      auto orig_index = index;
+      index = IrBuilder::create<Val>(index->dtype());
+      IrBuilder::create<UnaryOp>(
+          UnaryOpType::AdjustPartialLdMatrixAddrInTuring, index, orig_index);
+    }
+  }
   return SimplifyingIrBuilder::create<kir::TensorIndex>(producer, index);
 }
 

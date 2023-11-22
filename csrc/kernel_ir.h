@@ -231,6 +231,8 @@ class Asm final : public Expr {
 
   std::vector<std::pair<std::string, Val*>> constraintsAndOutputs() const;
   std::vector<std::pair<std::string, Val*>> constraintsAndInputs() const;
+
+  std::string parameters() const;
 };
 
 //! Allocate is a lower level Node that describes a buffer of memory that

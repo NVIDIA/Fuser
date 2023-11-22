@@ -140,6 +140,8 @@ TEST_F(PipelineTest, Pipeline) {
 }
 
 namespace {
+auto all_backends =
+    ::testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc);
 
 DeviceMesh mesh0({0});
 DeviceMesh mesh1({1});
@@ -156,6 +158,7 @@ INSTANTIATE_TEST_SUITE_P(
     Gather,
     PipelineTestTwoStages,
     ::testing::Combine(
+        all_backends,
         all_meshes,
         all_meshes,
         ::testing::Values(true),
@@ -165,6 +168,7 @@ INSTANTIATE_TEST_SUITE_P(
     Scatter,
     PipelineTestTwoStages,
     ::testing::Combine(
+        all_backends,
         all_meshes,
         all_meshes,
         ::testing::Values(false),
@@ -174,6 +178,7 @@ INSTANTIATE_TEST_SUITE_P(
     Bcast,
     PipelineTestTwoStages,
     ::testing::Combine(
+        all_backends,
         all_meshes,
         all_meshes,
         ::testing::Values(false),
@@ -183,6 +188,7 @@ INSTANTIATE_TEST_SUITE_P(
     Bcast_sharded,
     PipelineTestTwoStages,
     ::testing::Combine(
+        all_backends,
         ::testing::Values(mesh3),
         ::testing::Values(mesh4),
         ::testing::Values(true),
@@ -510,68 +516,6 @@ TEST_F(PipelineTest, matmul_summa) {
   }
   std::cout << std::endl;
 }
-
-// matmulAtInput
-// MmaOp
-
-
-  // a {s, x/N, M, y/M}
-  // b {N, y/N, s, z/M}
-
-
-
- // a {N, x/N, M, y/M}
- // b {N, y/N, M, z/M}
-
-
-
- // aij = a [i, :, j, :]
- // auto ai = select(a, 0, IrBuilder::create<Val>(i));
-
-// index_select
-  // std::vector<TensorView*> indices_tv;
-  // for (int i=0; i<std::max(N,M); i++) {
-  //   auto i_tv = makeContigTensor(0, DataType::Int);
-  //   indices_tv.push_back(i_tv);
-  //   fusion->addInput(i_tv);
-  //   inputs.push_back(at::ones({}) * i);
-  // }
-
-  // int i = 1;
-  // int j = 2;
-
-  // auto ai = select(a, 0, IrBuilder::create<Val>(i));
-  // // auto ai = index_select(a, 0, indices_tv[i]);
-  // std::cout
-  //   << "ai=" << ai
-  //   << std::endl;
-  // fusion->addOutput(ai);
-  // fusion->print();
-
-  // // auto aij = select(ai, 1, IrBuilder::create<Val>(j));
-  // auto aij = index_select(ai, 1, indices_tv[j]);
-  // fusion->addOutput(aij);
-
-  // std::cout
-  //   << "ai=" << ai
-  //   << ", aij=" << aij
-  //   << std::endl;
-  // fusion->print();
-
-  // TensorView* select(TensorView* tv, int dim, Val* index) {
-
-  // TensorView *tv1x, *tv2x, *tv3x;
-  // std::vector<TensorView*> tv3_slices;
-  // std::vector<Slice> slices {3};
-  // for (int i = 0; i < number_of_slices; i++) {
-  //   slices.at(2).start = IrBuilder::create<Val>(i * extent_of_slice);
-  //   slices.at(2).stop = IrBuilder::create<Val>((i+1) * extent_of_slice);
-  //   tv1x = slice(tv1, slices);
-  // auto ref = MatrixMultiplication(a, b);
-  // fusion->addOutput(ref);
-
-
-
 
 } // namespace nvfuser
 
