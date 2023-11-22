@@ -184,10 +184,10 @@ constexpr MmaMacroUnderlying::MmaMacroUnderlying(MmaMacro macro) {
   // std::bit_cast for bit field is not supported by clang yet
   *this = std::bit_cast<MmaMacroUnderlying>(macro);
 #else
-  k = (uint64_t)macro & 0xFFFF; // NOLINT
-  n = ((uint64_t)macro >> 16) & 0xFFFF; // NOLINT
-  m = ((uint64_t)macro >> 32) & 0xFFFF; // NOLINT
-  arch = (Arch)((uint64_t)macro >> 48); // NOLINT
+  k = toUnderlying(macro) & 0xFFFF; // NOLINT(*-member-init)
+  n = (toUnderlying(macro) >> 16) & 0xFFFF; // NOLINT(*-member-init)
+  m = (toUnderlying(macro) >> 32) & 0xFFFF; // NOLINT(*-member-init)
+  arch = (Arch)(toUnderlying(macro) >> 48); // NOLINT(*-member-init)
 #endif
 }
 
