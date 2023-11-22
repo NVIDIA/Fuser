@@ -2869,7 +2869,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           boolean_counter++;
         }
         if (std::holds_alternative<ArrayType>(input->dtype().type)) {
-          counter += std::get<ArrayType>(input->dtype().type).size;
+          counter += (int64_t)std::get<ArrayType>(input->dtype().type).size;
         } else {
           counter++;
         }
@@ -2882,11 +2882,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (!parameters.empty()) {
       code_ << " " << parameters;
     }
-    code_ << ";\\n\"";
+    code_ << R"(;\n")";
 
     if (asm_->hasBooleanInput()) {
       code_ << "\n";
-      indent() << "\"}\\n\"";
+      indent() << R"("}\n")";
     }
 
     auto next_section = [&]() {
