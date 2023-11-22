@@ -271,7 +271,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   auto tailing_current =
       ceilDiv(warps_after_vect, persistent_val) * persistent_val -
       warps_after_vect;
-  if (tailing_current > 0) {
+  if (is_vectorization && tailing_current > 0) {
     const std::vector<int> mayChangePersistentValBy =
         [&]() -> std::vector<int> {
       if (has_rng_ops) {
@@ -375,7 +375,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // reduce workload of each thread.
   bool rng_and_nondivisible =
       has_rng_ops && warps_after_vect % persistent_val != 0;
-  if (rng_and_nondivisible) {
+  if (rng_and_nondivisible || !is_vectorization) {
     persistent_val = persistent_min;
   }
   auto
@@ -388,7 +388,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // if occupancy is lower than 50%, search for [persistent_val] for higher
   // occupancy. The code in this if block increased bandwidth for
   // bias_dropout_add_layer_norm around 18 to 20K by 5%.
-  if (rng_and_nondivisible && warps_per_sm < target_min_warps_per_sm) {
+  if (is_vectorization && rng_and_nondivisible && warps_per_sm < target_min_warps_per_sm) {
     for (auto p = persistent_min + 1; p <= persistent_max; p++) {
       auto
           [bdimx_val_tmp,
@@ -410,7 +410,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   }
 
   // deal with regression for layer_norm around 32K.
-  if (blocks_per_sm == 1 && n_waves_max > 1) {
+  if (blocks_per_sm == 1 && n_waves_max > 1 && is_vectorization) {
     for (auto p = persistent_val + 1; p <= persistent_max * 2; p++) {
       auto
           [bdimx_val_tmp,
