@@ -2593,6 +2593,7 @@ class TestNvFuserFrontend(TestCase):
 
     def test_allocation_domain_concretization(self):
         inputs = [
+            # we need an empty tensor here so we'll trigger `concretizeEmptyExtents`
             torch.randn((0,), dtype=torch.float64, device="cuda:0").as_strided(
                 (1, 0, 1, 1), (0, 1, 1, 1)
             ),
