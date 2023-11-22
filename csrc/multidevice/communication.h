@@ -10,8 +10,8 @@
 
 #include <multidevice/communicator.h>
 #include <multidevice/multidevice.h>
-#include <type.h>
 #include <torch/csrc/distributed/c10d/Types.hpp>
+#include <type.h>
 
 namespace nvfuser {
 

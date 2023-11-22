@@ -90,10 +90,6 @@ LoadStoreOpType MmaBuilder::ldMatrix() const {
   return getLdMatrixType(option_);
 }
 
-bool isVolta(MmaOptions::MacroType macro) {
-  return macro == MmaOptions::MacroType::Volta_16_16_4;
-}
-
 bool isTuring(MmaOptions::MacroType macro) {
   return macro == MmaOptions::MacroType::Turing_16_8_16 ||
       macro == MmaOptions::MacroType::Turing_16_16_16;
@@ -103,54 +99,6 @@ bool isAmpere(MmaOptions::MacroType macro) {
   return macro == MmaOptions::MacroType::Ampere_16_8_8 ||
       macro == MmaOptions::MacroType::Ampere_16_8_16 ||
       macro == MmaOptions::MacroType::Ampere_16_16_16;
-}
-
-int getOutputRegisterSize(MmaOptions::MacroType macro) {
-  switch (macro) {
-    case MmaOptions::MacroType::Volta_16_16_4:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-    case MmaOptions::MacroType::Turing_16_16_16:
-      return 8;
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-      return 4;
-    default:
-      NVF_ERROR(false, "unknown macro");
-      break;
-  }
-  return -1;
-}
-
-int getInputARegisterSize(MmaOptions::MacroType macro) {
-  switch (macro) {
-    case MmaOptions::MacroType::Volta_16_16_4:
-      return 4;
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      return 8;
-    default:
-      NVF_ERROR(false, "unknown macro");
-      break;
-  }
-  return -1;
-}
-
-int getInputBRegisterSize(MmaOptions::MacroType macro) {
-  switch (macro) {
-    case MmaOptions::MacroType::Volta_16_16_4:
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-      return 4;
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      return 8;
-    default:
-      NVF_ERROR(false, "unknown macro");
-      break;
-  }
-  return -1;
 }
 
 bool isOperandTransposed(MmaOptions options) {
@@ -169,8 +117,6 @@ bool isOperandTransposed(MmaOptions options) {
 
 GemmTile getMmaOpShape(MmaOptions::MacroType macro) {
   switch (macro) {
-    case MmaOptions::MacroType::Volta_16_16_4:
-      return {16, 16, 4};
     case MmaOptions::MacroType::Turing_16_8_16:
     case MmaOptions::MacroType::Ampere_16_8_16:
       return {16, 8, 16};
@@ -212,9 +158,6 @@ std::string toString(MmaOptions::MacroType mt) {
   switch (mt) {
     case MmaOptions::MacroType::NoMMA:
       ss << "NoOp";
-      break;
-    case MmaOptions::MacroType::Volta_16_16_4:
-      ss << "M16N16K4";
       break;
     case MmaOptions::MacroType::Turing_16_8_16:
     case MmaOptions::MacroType::Ampere_16_8_16:
@@ -260,8 +203,6 @@ std::string toString(MmaOptions::MacroType mt, bool) {
       return "Turing_16_8_16";
     case MmaOptions::MacroType::Turing_16_16_16:
       return "Turing_16_16_16";
-    case MmaOptions::MacroType::Volta_16_16_4:
-      return "Volta_16_16_4";
   }
   NVF_ERROR(false, "Unsupported mma type");
   return "Unsupported";

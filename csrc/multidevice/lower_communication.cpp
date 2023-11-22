@@ -12,6 +12,7 @@
 #include <multidevice/lower_communication.h>
 #include <multidevice/pipeline.h>
 #include <ops/all_ops.h>
+#include <multidevice/utils.h>
 
 namespace nvfuser {
 
@@ -108,7 +109,7 @@ CommParams createParamsForGatherScatter(
 
   if (mesh.has(my_device_index)) {
     auto sliced_buf = buf.index({0, "..."});
-    ((is_scatter)? params.dst_bufs : params.src_bufs) = {sliced_buf};
+    ((is_scatter) ? params.dst_bufs : params.src_bufs) = {sliced_buf};
   }
 
   if (my_device_index == root) {
@@ -187,8 +188,7 @@ void lowerToAllgather(
     params.dst_bufs.push_back(
         output_tensor.index({static_cast<int>(i), "..."}));
   }
-  params.src_bufs = {
-      input_tensor.index({0, "..."})};
+  params.src_bufs = {input_tensor.index({0, "..."})};
 
   comms.push_back(std::make_shared<Allgather>(std::move(params)));
 }
@@ -241,17 +241,17 @@ void lowerToBroadcastOrP2P(
 
 // Adds several Broadcast or Send/Recv communications to the vector 'comms'
 // For now, we assume that this function is called only if
-// the input and output have the same parallelization (given by
-// the argument "is_parallelized"). Later we could support more general cases.
+// the input and output have the same sharding. Later we could support more
+// general cases.
 void lowerToBroadcastOrP2P(
     DeviceIdxType my_device_index,
     const DeviceMesh& sender_mesh,
     const DeviceMesh& receiver_mesh,
     at::Tensor input_tensor,
     at::Tensor output_tensor,
-    bool is_parallelized,
+    bool is_sharded,
     std::vector<std::shared_ptr<Communication>>& comms) {
-  if (is_parallelized) {
+  if (is_sharded) {
     // if the inputs and ouputs are parallelized,
     // we create as many Broadcast as that will be handled in parallel
     for (auto i : c10::irange(sender_mesh.vector().size())) {

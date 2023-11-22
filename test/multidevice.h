@@ -25,7 +25,7 @@ class MultiDeviceEnvironment : public testing::Environment {
     return communicator_.get();
   }
 
-  bool debug_print() const {
+  bool debugPrint() const {
     return debug_print_;
   }
 
@@ -57,7 +57,8 @@ class CommunicationTest : public MultiDeviceTest {
   static constexpr DeviceIdxType root = 0;
   static constexpr int tensor_size = 1024;
   static constexpr int number_of_repetitions = 8;
-  static constexpr c10d::ReduceOp::RedOpType red_op = c10d::ReduceOp::RedOpType::SUM;
+  static constexpr c10d::ReduceOp::RedOpType red_op =
+      c10d::ReduceOp::RedOpType::SUM;
   CommParams params;
   std::vector<DeviceIdxType> all_ranks;
 };

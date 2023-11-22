@@ -198,7 +198,8 @@ TEST_F(CommunicationTest, Communication_Reduce) {
   for (int j : c10::irange(number_of_repetitions)) {
     resetDstBuffers();
     params.src_bufs.at(0).copy_(
-        at::arange(tensor_size, tensor_options) + (communicator->deviceId() + 1) * j);
+        at::arange(tensor_size, tensor_options) +
+        (communicator->deviceId() + 1) * j);
 
     auto work = communication.post(*communicator);
     work->wait();
@@ -206,7 +207,8 @@ TEST_F(CommunicationTest, Communication_Reduce) {
     if (communicator->deviceId() == root) {
       auto obtained = params.dst_bufs.at(0);
       int S = communicator->size();
-      auto ref = at::arange(tensor_size, tensor_options) * S + S * (S + 1) / 2 * j;
+      auto ref =
+          at::arange(tensor_size, tensor_options) * S + S * (S + 1) / 2 * j;
       validate(obtained, ref);
     }
   }
@@ -216,20 +218,22 @@ TEST_F(CommunicationTest, Communication_Allreduce) {
   params.redOp = red_op;
   params.team = all_ranks;
   params.src_bufs = {at::empty(tensor_size, tensor_options)};
-  params.dst_bufs= {at::empty(tensor_size, tensor_options)};
+  params.dst_bufs = {at::empty(tensor_size, tensor_options)};
   auto communication = Allreduce(params);
 
   for (int j : c10::irange(number_of_repetitions)) {
     resetDstBuffers();
     params.src_bufs.at(0).copy_(
-        at::arange(tensor_size, tensor_options) + (communicator->deviceId() + 1) * j);
+        at::arange(tensor_size, tensor_options) +
+        (communicator->deviceId() + 1) * j);
 
     auto work = communication.post(*communicator);
     work->wait();
 
     auto obtained = params.dst_bufs.at(0);
     int S = communicator->size();
-    auto ref = at::arange(tensor_size, tensor_options) * S + S * (S + 1) / 2 * j;
+    auto ref =
+        at::arange(tensor_size, tensor_options) * S + S * (S + 1) / 2 * j;
     validate(obtained, ref);
   }
 }
@@ -248,7 +252,8 @@ TEST_F(CommunicationTest, Communication_ReduceScatter) {
     resetDstBuffers();
     for (int i : c10::irange(communicator->size())) {
       params.src_bufs.at(i).copy_(
-          at::arange(tensor_size, tensor_options) + (communicator->deviceId() + 1) * (i + j));
+          at::arange(tensor_size, tensor_options) +
+          (communicator->deviceId() + 1) * (i + j));
     }
 
     auto work = communication.post(*communicator);
@@ -256,7 +261,8 @@ TEST_F(CommunicationTest, Communication_ReduceScatter) {
 
     auto obtained = params.dst_bufs.at(0);
     int S = communicator->size();
-    auto ref = at::arange(tensor_size, tensor_options) * S + S * (S + 1) / 2 * (communicator->deviceId() + j);
+    auto ref = at::arange(tensor_size, tensor_options) * S +
+        S * (S + 1) / 2 * (communicator->deviceId() + j);
     validate(obtained, ref);
   }
 }

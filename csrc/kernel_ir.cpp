@@ -83,8 +83,11 @@ std::string Predicate::toInlineString(int indent_size) const {
 TensorIndex::TensorIndex(
     IrBuilderPasskey passkey,
     const TensorView* view,
-    Val* index)
-    : Val(passkey, ValType::TensorIndex, view->getDataType().value()),
+    Val* index,
+    DataType dtype)
+    : Val(passkey,
+          ValType::TensorIndex,
+          dtype != DataType::Null ? dtype : view->getDataType().value()),
       view_(view),
       index_(index) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
@@ -94,7 +97,7 @@ TensorIndex::TensorIndex(
   NVF_ERROR(
       isPointerType(index->dtype()) || index->dtype() == DataType::Index ||
           isStructType(index->dtype()),
-      "Cannot index with a value other than an int.");
+      "Cannot index with a value other than an int/pointer/struct.");
 }
 
 std::string TensorIndex::toString(int indent_size) const {
@@ -782,8 +785,8 @@ bool ForLoop::isUnrollable() const {
   // dimension, cannot be bound to a parallel dimension, must not be
   // vectorized.
   return start()->isConstScalar() && stop()->isConstScalar() &&
-      !iter_domain()->isThread() && !iter_domain()->isDevice() && !iter_domain()->isBroadcast() &&
-      !vectorize();
+      !iter_domain()->isThread() && !iter_domain()->isDeviceDim() &&
+      !iter_domain()->isBroadcast() && !vectorize();
 }
 
 bool ForLoop::isUnrolled() const {
@@ -857,7 +860,7 @@ bool ForLoop::isTrivial() const {
   // These loops are not materialized
   if (vectorize() || iter_domain()->isBroadcast() ||
       iter_domain()->isStride() || iter_domain()->isMma() ||
-      iter_domain()->isBulk() || iter_domain()->isDevice()) {
+      iter_domain()->isBulk() || iter_domain()->isDeviceDim()) {
     return true;
   }
 

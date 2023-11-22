@@ -13,6 +13,7 @@
 #include <inlining.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <optimization/mark_alias.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
@@ -39,8 +40,28 @@ TensorView* transposeMaybeInplace(
 
 } // namespace
 
+class TransposeTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    previously_enabled_ = optimization::MarkAliasPass::getEnabled();
+    // For convenience, disable MarkAliasPass. Many tests in this file run a
+    // fusion that consists of `transpose` only. MarkAliasPass would turn those
+    // fusions into a no-op, skipping the transpose scheduler.
+    optimization::MarkAliasPass::setEnabled(false);
+  }
+
+  void TearDown() override {
+    optimization::MarkAliasPass::setEnabled(previously_enabled_);
+    NVFuserTest::TearDown();
+  }
+
+ private:
+  bool previously_enabled_ = false;
+};
+
 // x->sin->transpose->cos->y
-TEST_F(NVFuserTest, FusionScheduleTransposeSimple_CUDA) {
+TEST_F(TransposeTest, FusionScheduleTransposeSimple) {
   for (auto inplace : {true, false}) {
     Fusion fusion;
     FusionGuard fg(&fusion);
@@ -68,7 +89,7 @@ TEST_F(NVFuserTest, FusionScheduleTransposeSimple_CUDA) {
 }
 
 // x->tanspose->sin->transpose->cos->y
-TEST_F(NVFuserTest, FusionScheduleTransposeSinTransposeCos_CUDA) {
+TEST_F(TransposeTest, FusionScheduleTransposeSinTransposeCos) {
   for (auto inplace : {true, false}) {
     Fusion fusion;
     FusionGuard fg(&fusion);
@@ -102,7 +123,7 @@ TEST_F(NVFuserTest, FusionScheduleTransposeSinTransposeCos_CUDA) {
  *                 \
  * t1->transpose---add-->sin->t5
  */
-TEST_F(NVFuserTest, FusionScheduleTransposeMultipleInput_CUDA) {
+TEST_F(TransposeTest, FusionScheduleTransposeMultipleInput) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -134,7 +155,7 @@ TEST_F(NVFuserTest, FusionScheduleTransposeMultipleInput_CUDA) {
 
 // t0->sin->transpose->t5
 //  `->cos->transpose->t6
-TEST_F(NVFuserTest, FusionScheduleTransposeMultipleOutput_CUDA) {
+TEST_F(TransposeTest, FusionScheduleTransposeMultipleOutput) {
   for (auto inplace : {true, false}) {
     Fusion fusion;
     FusionGuard fg(&fusion);
@@ -171,7 +192,7 @@ TEST_F(NVFuserTest, FusionScheduleTransposeMultipleOutput_CUDA) {
  *   /
  * t1
  */
-TEST_F(NVFuserTest, FusionScheduleTransposeMultipleInputOutput_CUDA) {
+TEST_F(TransposeTest, FusionScheduleTransposeMultipleInputOutput) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -213,7 +234,7 @@ TEST_F(NVFuserTest, FusionScheduleTransposeMultipleInputOutput_CUDA) {
  * x->transpose->transpose->add->y
  *  \_______________________/
  */
-TEST_F(NVFuserTest, FusionScheduleTransposeMatchingSkipConnection_CUDA) {
+TEST_F(TransposeTest, FusionScheduleTransposeMatchingSkipConnection) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -244,7 +265,7 @@ TEST_F(NVFuserTest, FusionScheduleTransposeMatchingSkipConnection_CUDA) {
 
 // x->transpose--add->z
 // y->broadcast-/
-TEST_F(NVFuserTest, FusionScheduleTransposeBroadcast_CUDA) {
+TEST_F(TransposeTest, FusionScheduleTransposeBroadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -275,7 +296,7 @@ TEST_F(NVFuserTest, FusionScheduleTransposeBroadcast_CUDA) {
 
 // x->broadcast--add->z
 // y->broadcast-/
-TEST_F(NVFuserTest, FusionScheduleTransposeNoReference_CUDA) {
+TEST_F(TransposeTest, FusionScheduleTransposeNoReference) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -302,7 +323,7 @@ TEST_F(NVFuserTest, FusionScheduleTransposeNoReference_CUDA) {
 
 // x->broadcast--add->z
 // y->broadcast-/
-TEST_F(NVFuserTest, FusionScheduleBroadcastOnly_CUDA) {
+TEST_F(TransposeTest, FusionScheduleBroadcastOnly) {
   for (bool contig0 : {true, false}) {
     for (bool contig1 : {true, false}) {
       Fusion fusion;
@@ -364,7 +385,7 @@ TEST_F(NVFuserTest, FusionScheduleBroadcastOnly_CUDA) {
 //   style T9 fill:lightblue
 //   style T10 fill:lightblue
 // ```
-TEST_F(NVFuserTest, FusionScheduleTransposeComplexDAG1_CUDA) {
+TEST_F(TransposeTest, FusionScheduleTransposeComplexDAG1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -449,7 +470,7 @@ TEST_F(NVFuserTest, FusionScheduleTransposeComplexDAG1_CUDA) {
 //   style T9 fill:lightblue
 //   style T10 fill:lightblue
 // ```
-TEST_F(NVFuserTest, FusionManualScheduleTransposeComplexDAG1_CUDA) {
+TEST_F(TransposeTest, FusionManualScheduleTransposeComplexDAG1) {
   // achieved: 833.526 GB/s on RTX 3090 (theoretical bandwidth: 936 GB/s)
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -618,7 +639,7 @@ TEST_F(NVFuserTest, FusionManualScheduleTransposeComplexDAG1_CUDA) {
 }
 
 // x->view->y
-TEST_F(NVFuserTest, FusionViewNoTranspose_CUDA) {
+TEST_F(TransposeTest, FusionViewNoTranspose) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -630,7 +651,7 @@ TEST_F(NVFuserTest, FusionViewNoTranspose_CUDA) {
   NVF_CHECK(!hasAtLeastTwoValidGroups(&fusion));
 }
 
-TEST_F(NVFuserTest, FusionTransposeSelfMapping_CUDA) {
+TEST_F(TransposeTest, FusionTransposeSelfMapping) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -660,7 +681,7 @@ TEST_F(NVFuserTest, FusionTransposeSelfMapping_CUDA) {
 
 #if 0
 // silent wrong result
-TEST_F(NVFuserTest, FusionTransposeViewSelfMapping_CUDA) {
+TEST_F(TransposeTest, FusionTransposeViewSelfMapping) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -688,7 +709,7 @@ TEST_F(NVFuserTest, FusionTransposeViewSelfMapping_CUDA) {
 // t0------------.
 // t2->broadcast->sub->mul->relu->t6
 // t1------------------'
-TEST_F(NVFuserTest, FusionScheduleTransposeMissingDim_CUDA) {
+TEST_F(TransposeTest, FusionScheduleTransposeMissingDim) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -725,7 +746,7 @@ TEST_F(NVFuserTest, FusionScheduleTransposeMissingDim_CUDA) {
 }
 
 // x->sin->transpose->cos->y
-TEST_F(NVFuserTest, FusionScheduleTransposeSmall_CUDA) {
+TEST_F(TransposeTest, FusionScheduleTransposeSmall) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -751,7 +772,7 @@ TEST_F(NVFuserTest, FusionScheduleTransposeSmall_CUDA) {
 }
 
 // x->sin->transpose->cos->y
-TEST_F(NVFuserTest, FusionScheduleTransposeSmallInnerSize1_CUDA) {
+TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -777,7 +798,7 @@ TEST_F(NVFuserTest, FusionScheduleTransposeSmallInnerSize1_CUDA) {
 }
 
 // x->sin->transpose->cos->y
-TEST_F(NVFuserTest, FusionScheduleTransposeSmallInnerSize2_CUDA) {
+TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -803,7 +824,7 @@ TEST_F(NVFuserTest, FusionScheduleTransposeSmallInnerSize2_CUDA) {
 }
 
 // x->sin->transpose->cos->y
-TEST_F(NVFuserTest, FusionScheduleTransposeSmallInnerSize3_CUDA) {
+TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -829,7 +850,7 @@ TEST_F(NVFuserTest, FusionScheduleTransposeSmallInnerSize3_CUDA) {
 }
 
 // x->sin->transpose->cos->y
-TEST_F(NVFuserTest, FusionScheduleTranspose2DSmallInnerSize_CUDA) {
+TEST_F(TransposeTest, FusionScheduleTranspose2DSmallInnerSize) {
   std::array<std::vector<int64_t>, 2> shapes{
       std::vector<int64_t>{1024 * 1024 * 128, 2},
       std::vector<int64_t>{2, 1024 * 1024 * 128}};
@@ -859,7 +880,7 @@ TEST_F(NVFuserTest, FusionScheduleTranspose2DSmallInnerSize_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionTransposeBankConflict1_CUDA) {
+TEST_F(TransposeTest, FusionTransposeBankConflict1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -879,7 +900,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict1_CUDA) {
   ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{32});
 }
 
-TEST_F(NVFuserTest, FusionTransposeBankConflict2_CUDA) {
+TEST_F(TransposeTest, FusionTransposeBankConflict2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -899,7 +920,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict2_CUDA) {
   ASSERT_EQ(bank_conflict_info.at(tv1).second, std::vector<int>(2, 32));
 }
 
-TEST_F(NVFuserTest, FusionTransposeBankConflict3_CUDA) {
+TEST_F(TransposeTest, FusionTransposeBankConflict3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -919,7 +940,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict3_CUDA) {
   ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{8});
 }
 
-TEST_F(NVFuserTest, FusionTransposeBankConflict4_CUDA) {
+TEST_F(TransposeTest, FusionTransposeBankConflict4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -958,7 +979,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict4_CUDA) {
   ASSERT_EQ(bank_conflict_info.at(tv2).second, std::vector<int>{4});
 }
 
-TEST_F(NVFuserTest, FusionTransposeBankConflict5_CUDA) {
+TEST_F(TransposeTest, FusionTransposeBankConflict5) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -981,7 +1002,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict5_CUDA) {
   ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{32});
 }
 
-TEST_F(NVFuserTest, FusionTransposeBankConflict6_CUDA) {
+TEST_F(TransposeTest, FusionTransposeBankConflict6) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1004,7 +1025,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict6_CUDA) {
   ASSERT_EQ(bank_conflict_info.at(tv1).first, std::vector<int>{32});
 }
 
-TEST_F(NVFuserTest, FusionTransposeBankConflict7_CUDA) {
+TEST_F(TransposeTest, FusionTransposeBankConflict7) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1030,7 +1051,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict7_CUDA) {
   ASSERT_EQ(bank_conflict_info.at(tv1).second, std::vector<int>(2, 2));
 }
 
-TEST_F(NVFuserTest, FusionTransposeBankConflict8_CUDA) {
+TEST_F(TransposeTest, FusionTransposeBankConflict8) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1055,7 +1076,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict8_CUDA) {
   NVF_CHECK(bank_conflict_info.empty());
 }
 
-TEST_F(NVFuserTest, FusionTransposeBankConflict9_CUDA) {
+TEST_F(TransposeTest, FusionTransposeBankConflict9) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1099,7 +1120,7 @@ TEST_F(NVFuserTest, FusionTransposeBankConflict9_CUDA) {
 }
 
 // small transpose dimension with merge and split. See issue #667
-TEST_F(NVFuserTest, UnswitchPredicateIssueRepro667_CUDA) {
+TEST_F(TransposeTest, UnswitchPredicateIssueRepro667) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1129,7 +1150,7 @@ TEST_F(NVFuserTest, UnswitchPredicateIssueRepro667_CUDA) {
 }
 
 // small transpose dimension with merge but no split
-TEST_F(NVFuserTest, TransposeAggregatedVectorizationWidth_CUDA) {
+TEST_F(TransposeTest, TransposeAggregatedVectorizationWidth) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1170,7 +1191,7 @@ TEST_F(NVFuserTest, TransposeAggregatedVectorizationWidth_CUDA) {
   NVF_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
-TEST_F(NVFuserTest, ViewTransposeReshape_CUDA) {
+TEST_F(TransposeTest, ViewTransposeReshape) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1202,7 +1223,7 @@ TEST_F(NVFuserTest, ViewTransposeReshape_CUDA) {
   NVF_CHECK(ref.equal(cg_outputs.at(0)));
 }
 
-TEST_F(NVFuserTest, ReshapePermuteTransposeScheduler_CUDA) {
+TEST_F(TransposeTest, ReshapePermuteTransposeScheduler) {
   // This is extracted from CSA in nanogpt, where we want transpose scheduler
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1247,8 +1268,8 @@ TEST_F(NVFuserTest, ReshapePermuteTransposeScheduler_CUDA) {
 }
 
 TEST_F(
-    NVFuserTest,
-    ReshapePermuteTransposeSchedulerRejectByTransposeViewPropagator_CUDA) {
+    TransposeTest,
+    ReshapePermuteTransposeSchedulerRejectByTransposeViewPropagator) {
   // This example sets transpose scheduler that requires P2C transform
   // propagation across a reshape op, which is not currently supported yet.
   auto fusion = std::make_unique<Fusion>();
@@ -1299,7 +1320,7 @@ TEST_F(
 // Test reshape with small transpose dimension
 // This introduces an incoherent transformation that can't currently be
 // replayed. Transpose scheduler should have rejected this
-TEST_F(NVFuserTest, FusionReshapeSmallTransposeDimensionSchedule_CUDA) {
+TEST_F(TransposeTest, FusionReshapeSmallTransposeDimensionSchedule) {
   int x = 2, y = 1024, z = 128, w = 2;
 
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -1334,7 +1355,7 @@ TEST_F(NVFuserTest, FusionReshapeSmallTransposeDimensionSchedule_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t1, t2}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, ViewTransposeMergedInnermostOnGroupTwo_CUDA) {
+TEST_F(TransposeTest, ViewTransposeMergedInnermostOnGroupTwo) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1373,7 +1394,7 @@ TEST_F(NVFuserTest, ViewTransposeMergedInnermostOnGroupTwo_CUDA) {
 
 // TODO: we don't yet support vectorization on split dimension
 // https://github.com/NVIDIA/Fuser/pull/690#issue-1837392331
-TEST_F(NVFuserTest, TransposeSplitAggregatedVectorizationWidth_CUDA) {
+TEST_F(TransposeTest, TransposeSplitAggregatedVectorizationWidth) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 

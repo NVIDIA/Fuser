@@ -9,7 +9,9 @@
 #include <ir/all_nodes.h>
 #include <multidevice/pipeline_ir.h>
 #include <multidevice/runtime.h>
+#include <multidevice/utils.h>
 #include <ops/all_ops.h>
+#include <options.h>
 #include <test/multidevice.h>
 #include <test/validator.h>
 #include <torch/cuda.h>
@@ -21,10 +23,10 @@ auto multidevice_env = static_cast<MultiDeviceEnvironment*>(
 
 void MultiDeviceEnvironment::SetUp() {
   communicator_ = std::make_unique<Communicator>();
-  if (getenv("NVFUSER_MULTIDEVICE_DEBUG_PRINT")) {
+  if (getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT")) {
     debug_print_ = true;
   }
-  if (getenv("NVFUSER_MULTIDEVICE_DO_BARRIER")) {
+  if (getNvFuserEnv("MULTIDEVICE_DEBUG_BARRIER")) {
     do_barrier_at_test_ = true;
   }
 }
@@ -45,7 +47,7 @@ void MultiDeviceTest::SetUp() {
   }
   tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator->device());
-  debug_print = multidevice_env->debug_print();
+  debug_print = multidevice_env->debugPrint();
   do_barrier_at_test = multidevice_env->doBarrierAtTest();
 }
 
@@ -83,18 +85,18 @@ namespace {
 
 void unshardTv(TensorView* tv) {
   for (IterDomain* id : tv->getLeafDomain()) {
-    if (id->isDevice()) {
+    if (id->isDeviceDim()) {
       id->parallelize(ParallelType::Serial);
     }
   }
 }
 
-void doSendRecv(DeviceIdxType sender,
-                DeviceIdxType receiver,
-                at::Tensor send_buf,
-                at::Tensor recv_buf,
-                Communicator* communicator)
-{
+void doSendRecv(
+    DeviceIdxType sender,
+    DeviceIdxType receiver,
+    at::Tensor send_buf,
+    at::Tensor recv_buf,
+    Communicator* communicator) {
   CommParams params;
   params.root = sender;
   if (sender == receiver) {
@@ -124,27 +126,17 @@ void SendToTester(
     Communicator* communicator,
     bool debug_print) {
   auto& mesh = pVal->getStage()->descriptor()->mesh;
-  if (pVal->getOriginalVal()->as<TensorView>()->isSharded()) {
+  if (isSharded(pVal->getOriginalVal()->as<TensorView>())) {
     for (DeviceIdxType j : c10::irange(mesh.vector().size())) {
       at::Tensor send_buf, recv_buf;
       auto sender = mesh.vector().at(j);
       if (communicator->deviceId() == sender ||
-           communicator->deviceId() == tester) {
+          communicator->deviceId() == tester) {
         if (communicator->deviceId() == sender) {
           send_buf = tensor.index({0, "..."});
         }
         if (communicator->deviceId() == tester) {
           recv_buf = tester_tensor.index({j, "..."});
-        }
-        if (debug_print) {
-          std::cout
-          << "Device " << communicator->deviceId()
-          << " posts send/recv of (sharded) tv " << pVal->getOriginalVal()
-          << " from sender device " << sender
-          << " to tester device " << tester
-          << " at index " << j
-          << ". Buffer values:\n" << tensor
-          << std::endl;
         }
         doSendRecv(sender, tester, send_buf, recv_buf, communicator);
       }
@@ -155,15 +147,6 @@ void SendToTester(
     if (tester != sender &&
         (communicator->deviceId() == sender ||
          communicator->deviceId() == tester)) {
-      if (debug_print) {
-        std::cout
-        << "Device " << communicator->deviceId()
-        << " posts send/recv of (unsharded) tv " << pVal->getOriginalVal()
-        << " from sender device " << sender
-        << " to tester device " << tester
-        << ". Buffer values:\n" << tensor
-        << std::endl;
-      }
       if (communicator->deviceId() == sender) {
         send_buf = tensor;
       }

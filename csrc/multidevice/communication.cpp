@@ -10,7 +10,6 @@
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
 
-
 #include <multidevice/communication.h>
 
 namespace nvfuser {
@@ -221,12 +220,19 @@ c10::intrusive_ptr<c10d::Work> Reduce::post(Communicator& comm) {
   }
   post_common(*this, comm);
   auto backend = comm.getBackendForTeam(params_.team);
+#ifdef USE_C10D_NCCL
   auto nccl_backend = dynamic_cast<c10d::ProcessGroupNCCL*>(backend.get());
-  auto& buf = (comm.deviceId() == params_.root)? params_.dst_bufs : params_.src_bufs;
-  c10d::ReduceOptions options = {.reduceOp = params_.redOp,
-                                 .rootRank = root_relative_index_};
+#else
+  constexpr bool nccl_backend = false;
+#endif
+  auto& buf =
+      (comm.deviceId() == params_.root) ? params_.dst_bufs : params_.src_bufs;
+  c10d::ReduceOptions options = {
+      .reduceOp = params_.redOp, .rootRank = root_relative_index_};
   if (nccl_backend) {
-    return nccl_backend->_reduce_oop(buf, params_.src_bufs, options); 
+#ifdef USE_C10D_NCCL
+    return nccl_backend->_reduce_oop(buf, params_.src_bufs, options);
+#endif
   } else {
     if (comm.deviceId() == params_.root) {
       doLocalCopy(params_.dst_bufs.at(0), params_.src_bufs.at(0));
@@ -235,7 +241,8 @@ c10::intrusive_ptr<c10d::Work> Reduce::post(Communicator& comm) {
   }
 }
 
-Allreduce::Allreduce(CommParams params) : Communication(params, "allreduce", false) {
+Allreduce::Allreduce(CommParams params)
+    : Communication(params, "allreduce", false) {
   assertBuffersHaveSameSize(params_.src_bufs, params_.dst_bufs);
   assertBufferCount(params_.src_bufs, 1);
   assertBufferCount(params_.dst_bufs, 1);
@@ -245,10 +252,12 @@ Allreduce::Allreduce(CommParams params) : Communication(params, "allreduce", fal
 c10::intrusive_ptr<c10d::Work> Allreduce::post(Communicator& comm) {
   post_common(*this, comm);
   doLocalCopy(params_.dst_bufs.at(0), params_.src_bufs.at(0));
-  return comm.getBackendForTeam(params_.team)->allreduce(params_.dst_bufs, {.reduceOp = params_.redOp});
+  return comm.getBackendForTeam(params_.team)
+      ->allreduce(params_.dst_bufs, {.reduceOp = params_.redOp});
 }
 
-ReduceScatter::ReduceScatter(CommParams params) : Communication(params, "reduce_scatter", false) {
+ReduceScatter::ReduceScatter(CommParams params)
+    : Communication(params, "reduce_scatter", false) {
   assertBufferCount(params_.src_bufs, params_.team.size());
   assertBufferCount(params_.dst_bufs, 1);
   NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
@@ -259,7 +268,9 @@ c10::intrusive_ptr<c10d::Work> ReduceScatter::post(Communicator& comm) {
   // This is used to change the representation of the buffers to match c10d
   // ProcessGroup API
   std::vector<std::vector<at::Tensor>> buf_list = {std::move(params_.src_bufs)};
-  auto work = comm.getBackendForTeam(params_.team)->reduce_scatter(params_.dst_bufs, buf_list, {.reduceOp = params_.redOp});
+  auto work = comm.getBackendForTeam(params_.team)
+                  ->reduce_scatter(
+                      params_.dst_bufs, buf_list, {.reduceOp = params_.redOp});
   params_.src_bufs = std::move(buf_list.back());
   return work;
 }
