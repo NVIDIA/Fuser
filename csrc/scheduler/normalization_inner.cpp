@@ -193,7 +193,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // (2) target 50% occupancy based on experiments
   const int64_t target_min_warps_per_sm = 32;
   // (2) hint for max persistent size based on experiments.
-  const int64_t persistent_experiment_max = has_rng_ops ? 4l : 5l;
+  const int64_t persistent_experiment_max = (has_rng_ops ? 4l : 5l) * 8l / max_vectorize_factor;
   // (3) hint for register usage based on experiments
   auto getRegisterPerThread = [](int64_t buffer_per_thread) {
     return 24l +
