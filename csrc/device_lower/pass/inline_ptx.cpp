@@ -99,7 +99,8 @@ class LowerToInlinePtx : public kir::ExprMutator {
         ss << "ca";
       } else {
         ss << "cg";
-        NVF_ERROR(vec_size == 16, "cp.async.cg only support vectorize 16 bytes");
+        NVF_ERROR(
+            vec_size == 16, "cp.async.cg only support vectorize 16 bytes");
       }
       ss << ".shared.global";
       registerReplace(

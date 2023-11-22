@@ -2864,7 +2864,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       for (auto input : asm_->inputs()) {
         if (input->dtype() == DataType::Bool) {
           indent() << "\"  .reg .pred p" << boolean_counter << "; \\n\"\n";
-          indent() << "\"  setp.ne.b32 p" << boolean_counter << ", %" << counter << ", 0;\\n\"\n";
+          indent() << "\"  setp.ne.b32 p" << boolean_counter << ", %" << counter
+                   << ", 0;\\n\"\n";
           boolean_counter++;
         }
         if (std::holds_alternative<ArrayType>(input->dtype().type)) {
