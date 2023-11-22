@@ -462,8 +462,18 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       NVF_CHECK(
           dataTypeSize(input(0)->dtype()) == dataTypeSize(out()->dtype()),
           "BitCast only works for types of the same size");
-      if (isComplexType(input(0)->dtype()) && !isComplexType(out()->dtype())) {
+      if (isComplexType(input(0)->dtype()) &&
+          std::holds_alternative<ArrayType>(out()->dtype().type)) {
         // view_as_real case.
+        auto vec_type = std::get<ArrayType>(out()->dtype().type);
+        auto inp_scalar_type = getTypeFromComplexType(input(0)->dtype());
+        NVF_CHECK(
+            *vec_type.type == inp_scalar_type,
+            "Output type must be the same as the scalar type of the complex input.");
+        NVF_CHECK(
+            vec_type.size == 2,
+            "Expected output to be array of size 2, found array of size ",
+            vec_type.size);
         return {in.as<at::Tensor>()};
       } else {
         return {in.as<at::Tensor>().view(data_type_to_aten(out()->dtype()))};
