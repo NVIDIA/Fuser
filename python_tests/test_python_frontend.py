@@ -2584,6 +2584,21 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(y.shape, torch.Size([3, 2, 2]))
         self.assertEqual(x.flatten(), y.flatten())
 
+    def test_allocation_domain_concretization(self):
+        inputs = [
+            torch.randn((0,), dtype=torch.float64, device='cuda:0').as_strided((1, 0, 1, 1), (0, 1, 1, 1)),
+        ]
+
+        def fusion_func(fd : FusionDefinition) -> None :
+            T1 = fd.define_tensor(shape=[1, -1, 1, 1], contiguity=[True, None, None, None], dtype=DataType.Double, is_cpu=False, stride_order=[0, 3, 2, 1])
+            S1 = fd.define_scalar(2.0, dtype=DataType.Double)
+            T2 = fd.ops.mul(T1, S1)
+            fd.add_output(T2)
+        
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        torch_ref = inputs[0] * 2.0
+        self.assertEqual(nvf_out[0], torch_ref)
+
     def test_allocation_domain_index_select(self):
         inputs = [
             torch.randn((252,), dtype=torch.float32, device="cuda:0").as_strided(
