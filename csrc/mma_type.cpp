@@ -142,20 +142,20 @@ std::string toString(const MatMulTileOptions& opts) {
 
 std::string toString(MmaOptions::MacroType macro) {
   std::stringstream ss;
-  auto underlying = static_cast<MmaMacroUnderlying>(macro);
+  auto underlying = static_cast<MmaMacroEncode>(macro);
   switch (underlying.arch) {
-    case MmaMacroUnderlying::Arch::NoMma:
+    case MmaMacroEncode::Arch::NoMma:
       return "NoOp";
-    case MmaMacroUnderlying::Arch::Volta:
+    case MmaMacroEncode::Arch::Volta:
       ss << "Volta";
       break;
-    case MmaMacroUnderlying::Arch::Turing:
+    case MmaMacroEncode::Arch::Turing:
       ss << "Turing";
       break;
-    case MmaMacroUnderlying::Arch::Ampere:
+    case MmaMacroEncode::Arch::Ampere:
       ss << "Ampere";
       break;
-    case MmaMacroUnderlying::Arch::Hopper:
+    case MmaMacroEncode::Arch::Hopper:
       ss << "Hopper";
       break;
   }
