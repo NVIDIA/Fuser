@@ -200,6 +200,14 @@ class WarpMmaSwizzler {
   //! top left -> top right -> bottom left -> bottom right.
   //! If mn_major is false, these 8x8 matrices are visited in the order of:
   //! top left -> bottom left -> top right -> bottom right.
+  //!
+  //! In principle, only `mn_major = false` should be needed. But unfortunately,
+  //! we are taking advantage of the ldmatrix large load in a pretty hacky way.
+  //! For example, for Turing, only m16n8k8 is supported by hardware. But we are
+  //! also using a fake m16n8k16 and m16n16k16, which uses a single large
+  //! ldmatrix to load data to register, and run multiple mma instructions to
+  //! consume these data. In the future, we should only keep the m16n8k8 macro,
+  //! and schedule m16n8k16 and m16n16k16 more correctly than this current way.
   static void scheduleLdMatrix(TensorView* tv, bool mn_major = false);
 
  private:
