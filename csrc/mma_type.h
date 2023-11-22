@@ -83,7 +83,7 @@ struct MatMulTileOptions {
 
 enum class MmaMacro : uint64_t;
 
-struct MmaMacroUnderlying {
+struct MmaMacroEncode {
   enum class Arch { NoMma, Volta, Turing, Ampere, Hopper } arch : 16;
   unsigned m : 16;
   unsigned n : 16;
@@ -101,13 +101,13 @@ struct MmaMacroUnderlying {
 
   constexpr operator MmaMacro();
 
-  constexpr MmaMacroUnderlying(MmaMacro macro);
+  constexpr MmaMacroEncode(MmaMacro macro);
 
-  constexpr MmaMacroUnderlying(Arch arch, unsigned m, unsigned n, unsigned k)
+  constexpr MmaMacroEncode(Arch arch, unsigned m, unsigned n, unsigned k)
       : arch(arch), m(m), n(n), k(k) {}
 };
 
-static_assert(sizeof(MmaMacroUnderlying) == sizeof(uint64_t));
+static_assert(sizeof(MmaMacroEncode) == sizeof(uint64_t));
 
 //! Type of mma instrinsic macro to use
 //!  This will translate to which mma intrinsic from runtime string
@@ -121,8 +121,7 @@ static_assert(sizeof(MmaMacroUnderlying) == sizeof(uint64_t));
 //!  latency bound kernels.
 
 #define MACRO(arch, m, n, k) \
-  arch##_##m##_##n##_##k =   \
-      MmaMacroUnderlying(MmaMacroUnderlying::Arch::arch, m, n, k)
+  arch##_##m##_##n##_##k = MmaMacroEncode(MmaMacroEncode::Arch::arch, m, n, k)
 
 enum class MmaMacro : uint64_t {
   NoMMA = 0,
@@ -170,7 +169,7 @@ enum class MmaMacro : uint64_t {
 
 #undef MACRO
 
-constexpr MmaMacroUnderlying::operator MmaMacro() {
+constexpr MmaMacroEncode::operator MmaMacro() {
 #if IS_CPP20 && !defined(__clang__)
   // std::bit_cast for bit field is not supported by clang yet
   return std::bit_cast<MmaMacro>(*this);
@@ -179,10 +178,10 @@ constexpr MmaMacroUnderlying::operator MmaMacro() {
 #endif
 }
 
-constexpr MmaMacroUnderlying::MmaMacroUnderlying(MmaMacro macro) {
+constexpr MmaMacroEncode::MmaMacroEncode(MmaMacro macro) {
 #if IS_CPP20 && !defined(__clang__)
   // std::bit_cast for bit field is not supported by clang yet
-  *this = std::bit_cast<MmaMacroUnderlying>(macro);
+  *this = std::bit_cast<MmaMacroEncode>(macro);
 #else
   k = toUnderlying(macro) & 0xFFFF; // NOLINT(*-member-init)
   n = (toUnderlying(macro) >> 16) & 0xFFFF; // NOLINT(*-member-init)
@@ -291,30 +290,30 @@ class MmaBuilder {
 
 //! GPU arch check for macro type
 inline bool isTuring(MmaOptions::MacroType macro) {
-  return MmaMacroUnderlying(macro).arch == MmaMacroUnderlying::Arch::Turing;
+  return MmaMacroEncode(macro).arch == MmaMacroEncode::Arch::Turing;
 }
 
 inline bool isAmpere(MmaOptions::MacroType macro) {
-  return MmaMacroUnderlying(macro).arch == MmaMacroUnderlying::Arch::Ampere;
+  return MmaMacroEncode(macro).arch == MmaMacroEncode::Arch::Ampere;
 }
 
 inline bool isHopper(MmaOptions::MacroType macro) {
-  return MmaMacroUnderlying(macro).arch == MmaMacroUnderlying::Arch::Hopper;
+  return MmaMacroEncode(macro).arch == MmaMacroEncode::Arch::Hopper;
 }
 
 //! Get the m size from macro type
 inline int getM(MmaOptions::MacroType macro) {
-  return MmaMacroUnderlying(macro).m;
+  return MmaMacroEncode(macro).m;
 }
 
 //! Get the n size from macro type
 inline int getN(MmaOptions::MacroType macro) {
-  return MmaMacroUnderlying(macro).n;
+  return MmaMacroEncode(macro).n;
 }
 
 //! Get the k size from macro type
 inline int getK(MmaOptions::MacroType macro) {
-  return MmaMacroUnderlying(macro).k;
+  return MmaMacroEncode(macro).k;
 }
 
 //! Returns true if the given option describes a transposed operand
