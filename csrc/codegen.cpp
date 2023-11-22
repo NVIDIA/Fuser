@@ -1071,7 +1071,23 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     std::stringstream ss;
     auto macro = mma->macro();
     ss << genArchString(macro) << "::";
-    ss << toString(macro);
+
+    switch (macro) {
+      case MmaOptions::MacroType::NoMMA:
+        ss << "NoOp";
+        break;
+      case MmaOptions::MacroType::Turing_16_8_16:
+      case MmaOptions::MacroType::Ampere_16_8_16:
+        ss << "M16N8K16";
+        break;
+      case MmaOptions::MacroType::Turing_16_16_16:
+      case MmaOptions::MacroType::Ampere_16_16_16:
+        ss << "M16N16K16";
+        break;
+      default:
+        NVF_ERROR(false, "undefined mma type");
+        break;
+    }
 
     // clang-tidy: bugprone-unchecked-optional-access
     // clang-tidy assumes that function result is unstable, so we need a copy.

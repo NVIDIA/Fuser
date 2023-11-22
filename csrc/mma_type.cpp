@@ -90,17 +90,6 @@ LoadStoreOpType MmaBuilder::ldMatrix() const {
   return getLdMatrixType(option_);
 }
 
-bool isTuring(MmaOptions::MacroType macro) {
-  return macro == MmaOptions::MacroType::Turing_16_8_16 ||
-      macro == MmaOptions::MacroType::Turing_16_16_16;
-}
-
-bool isAmpere(MmaOptions::MacroType macro) {
-  return macro == MmaOptions::MacroType::Ampere_16_8_8 ||
-      macro == MmaOptions::MacroType::Ampere_16_8_16 ||
-      macro == MmaOptions::MacroType::Ampere_16_16_16;
-}
-
 bool isOperandTransposed(MmaOptions options) {
   switch (options.operand) {
     case MmaOptions::Operand::A:
@@ -113,23 +102,6 @@ bool isOperandTransposed(MmaOptions options) {
       NVF_CHECK(false, "isOperandTransposed: please specify operand");
   }
   return false;
-}
-
-GemmTile getMmaOpShape(MmaOptions::MacroType macro) {
-  switch (macro) {
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-      return {16, 8, 16};
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      return {16, 16, 16};
-    case MmaOptions::MacroType::Ampere_16_8_8:
-      return {16, 8, 8};
-    case MmaOptions::MacroType::NoMMA:
-      return {1, 1, 1};
-  }
-
-  NVF_ERROR(false, "unknown MMA macro");
 }
 
 std::string toString(MmaOptions::MmaLayout input_layout) {
@@ -153,27 +125,6 @@ std::string toString(MmaOptions::MmaLayout input_layout) {
   return ss.str();
 }
 
-std::string toString(MmaOptions::MacroType mt) {
-  std::stringstream ss;
-  switch (mt) {
-    case MmaOptions::MacroType::NoMMA:
-      ss << "NoOp";
-      break;
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-      ss << "M16N8K16";
-      break;
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      ss << "M16N16K16";
-      break;
-    default:
-      NVF_ERROR(false, "undefined mma type");
-      break;
-  }
-  return ss.str();
-}
-
 std::string toString(const GemmTile& tile) {
   std::stringstream ss;
   ss << "[" << tile.m << ", " << tile.n << ", " << tile.k << "]";
@@ -189,23 +140,27 @@ std::string toString(const MatMulTileOptions& opts) {
   return ss.str();
 }
 
-std::string toString(MmaOptions::MacroType mt, bool) {
-  switch (mt) {
-    case MmaOptions::MacroType::Ampere_16_8_8:
-      return "Ampere_16_8_8";
-    case MmaOptions::MacroType::Ampere_16_8_16:
-      return "Ampere_16_8_16";
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      return "Ampere_16_16_16";
-    case MmaOptions::MacroType::NoMMA:
+std::string toString(MmaOptions::MacroType macro) {
+  std::stringstream ss;
+  auto underlying = static_cast<MmaMacroUnderlying>(macro);
+  switch (underlying.arch) {
+    case MmaMacroUnderlying::Arch::NoMma:
       return "NoOp";
-    case MmaOptions::MacroType::Turing_16_8_16:
-      return "Turing_16_8_16";
-    case MmaOptions::MacroType::Turing_16_16_16:
-      return "Turing_16_16_16";
+    case MmaMacroUnderlying::Arch::Volta:
+      ss << "Volta";
+      break;
+    case MmaMacroUnderlying::Arch::Turing:
+      ss << "Turing";
+      break;
+    case MmaMacroUnderlying::Arch::Ampere:
+      ss << "Ampere";
+      break;
+    case MmaMacroUnderlying::Arch::Hopper:
+      ss << "Hopper";
+      break;
   }
-  NVF_ERROR(false, "Unsupported mma type");
-  return "Unsupported";
+  ss << "_" << underlying.m << "_" << underlying.n << "_" << underlying.k;
+  return ss.str();
 }
 
 size_t hash(MmaOptions::MacroType macro) {

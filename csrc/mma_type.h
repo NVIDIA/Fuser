@@ -6,9 +6,19 @@
  */
 // clang-format on
 #pragma once
+
+#include <macros.h>
+
 #include <c10/macros/Export.h>
 #include <exceptions.h>
 #include <fusion.h>
+
+#include <cstring>
+
+#if IS_CPP20
+#include <bit>
+#endif
+#include <cstdint>
 
 namespace nvfuser {
 
@@ -71,26 +81,121 @@ struct MatMulTileOptions {
   }
 };
 
+enum class MmaMacro : uint64_t;
+
+struct MmaMacroUnderlying {
+  enum class Arch { NoMma, Volta, Turing, Ampere, Hopper } arch : 16;
+  unsigned m : 16;
+  unsigned n : 16;
+  unsigned k : 16;
+
+  constexpr operator uint64_t() {
+#if IS_CPP20 && !defined(__clang__)
+    // std::bit_cast for bit field is not supported by clang yet
+    return std::bit_cast<uint64_t>(*this);
+#else
+    return (uint64_t)arch << 48 | (uint64_t)m << 32 | (uint64_t)n << 16 |
+        (uint64_t)k;
+#endif
+  }
+
+  constexpr operator MmaMacro();
+
+  constexpr MmaMacroUnderlying(MmaMacro macro);
+
+  constexpr MmaMacroUnderlying(Arch arch, unsigned m, unsigned n, unsigned k)
+      : arch(arch), m(m), n(n), k(k) {}
+};
+
+static_assert(sizeof(MmaMacroUnderlying) == sizeof(uint64_t));
+
+//! Type of mma instrinsic macro to use
+//!  This will translate to which mma intrinsic from runtime string
+//!    to be generated to implement the mma op. The current plan
+//!    is to have exactly one macro for each
+//!  (arch, datatype, operand layout) triple, though there
+//!  exists multiple possibilities for some cases, e.g. for Turing and fp16
+//!  one can use 16_8_8 or 16_8_16.
+//! Will consider adding more choices that the scheduler can pick from
+//!  when our perf target becomes more fine grained, which is more likely in
+//!  latency bound kernels.
+
+#define MACRO(arch, m, n, k) \
+  arch##_##m##_##n##_##k =   \
+      MmaMacroUnderlying(MmaMacroUnderlying::Arch::arch, m, n, k)
+
+enum class MmaMacro : uint64_t {
+  NoMMA = 0,
+
+  MACRO(Turing, 16, 8, 16),
+  MACRO(Turing, 16, 16, 16),
+
+  MACRO(Ampere, 16, 8, 16),
+  MACRO(Ampere, 16, 16, 16),
+  MACRO(Ampere, 16, 8, 8),
+
+  MACRO(Hopper, 64, 8, 16),
+  MACRO(Hopper, 64, 16, 16),
+  MACRO(Hopper, 64, 24, 16),
+  MACRO(Hopper, 64, 32, 16),
+  MACRO(Hopper, 64, 40, 16),
+  MACRO(Hopper, 64, 48, 16),
+  MACRO(Hopper, 64, 56, 16),
+  MACRO(Hopper, 64, 64, 16),
+  MACRO(Hopper, 64, 72, 16),
+  MACRO(Hopper, 64, 80, 16),
+  MACRO(Hopper, 64, 88, 16),
+  MACRO(Hopper, 64, 96, 16),
+  MACRO(Hopper, 64, 104, 16),
+  MACRO(Hopper, 64, 112, 16),
+  MACRO(Hopper, 64, 120, 16),
+  MACRO(Hopper, 64, 128, 16),
+  MACRO(Hopper, 64, 136, 16),
+  MACRO(Hopper, 64, 144, 16),
+  MACRO(Hopper, 64, 152, 16),
+  MACRO(Hopper, 64, 160, 16),
+  MACRO(Hopper, 64, 168, 16),
+  MACRO(Hopper, 64, 176, 16),
+  MACRO(Hopper, 64, 184, 16),
+  MACRO(Hopper, 64, 192, 16),
+  MACRO(Hopper, 64, 200, 16),
+  MACRO(Hopper, 64, 208, 16),
+  MACRO(Hopper, 64, 216, 16),
+  MACRO(Hopper, 64, 224, 16),
+  MACRO(Hopper, 64, 232, 16),
+  MACRO(Hopper, 64, 240, 16),
+  MACRO(Hopper, 64, 248, 16),
+  MACRO(Hopper, 64, 256, 16),
+};
+
+#undef MACRO
+
+constexpr MmaMacroUnderlying::operator MmaMacro() {
+#if IS_CPP20 && !defined(__clang__)
+  // std::bit_cast for bit field is not supported by clang yet
+  return std::bit_cast<MacroType>(*this);
+#else
+  // clang-format off
+  return (MmaMacro)(uint64_t)*this;
+  // clang-format on
+#endif
+}
+
+constexpr MmaMacroUnderlying::MmaMacroUnderlying(MmaMacro macro) {
+#if IS_CPP20 && !defined(__clang__)
+  // std::bit_cast for bit field is not supported by clang yet
+  *this = std::bit_cast<MmaMacroUnderlying>(macro);
+#else
+  k = (uint64_t)macro & 0xFFFF;
+  n = ((uint64_t)macro >> 16) & 0xFFFF;
+  m = ((uint64_t)macro >> 32) & 0xFFFF;
+  arch = (Arch)((uint64_t)macro >> 48);
+#endif
+}
+
 //! Information for configuring and lowering mma ops
 struct MmaOptions {
-  //! Type of mma instrinsic macro to use
-  //!  This will translate to which mma intrinsic from runtime string
-  //!    to be generated to implement the mma op. The current plan
-  //!    is to have exactly one macro for each
-  //!  (arch, datatype, operand layout) triple, though there
-  //!  exists multiple possibilities for some cases, e.g. for Turing and fp16
-  //!  one can use 16_8_8 or 16_8_16.
-  //! Will consider adding more choices that the scheduler can pick from
-  //!  when our perf target becomes more fine grained, which is more likely in
-  //!  latency bound kernels.
-  enum class MacroType {
-    NoMMA = 0,
-    Ampere_16_8_16,
-    Ampere_16_16_16,
-    Turing_16_8_16,
-    Turing_16_16_16,
-    Ampere_16_8_8 // place holder for tf32
-  };
+  using MacroType = MmaMacro;
 
   //! [Operand Layout Convention]
   //! Operand layout, T=transposed/row_major, N=normal/col_major
@@ -187,8 +292,32 @@ class MmaBuilder {
 };
 
 //! GPU arch check for macro type
-bool isTuring(MmaOptions::MacroType macro);
-bool isAmpere(MmaOptions::MacroType macro);
+inline bool isTuring(MmaOptions::MacroType macro) {
+  return MmaMacroUnderlying(macro).arch == MmaMacroUnderlying::Arch::Turing;
+}
+
+inline bool isAmpere(MmaOptions::MacroType macro) {
+  return MmaMacroUnderlying(macro).arch == MmaMacroUnderlying::Arch::Ampere;
+}
+
+inline bool isHopper(MmaOptions::MacroType macro) {
+  return MmaMacroUnderlying(macro).arch == MmaMacroUnderlying::Arch::Hopper;
+}
+
+//! Get the m size from macro type
+inline int getM(MmaOptions::MacroType macro) {
+  return MmaMacroUnderlying(macro).m;
+}
+
+//! Get the n size from macro type
+inline int getN(MmaOptions::MacroType macro) {
+  return MmaMacroUnderlying(macro).n;
+}
+
+//! Get the k size from macro type
+inline int getK(MmaOptions::MacroType macro) {
+  return MmaMacroUnderlying(macro).k;
+}
 
 //! Returns true if the given option describes a transposed operand
 bool isOperandTransposed(MmaOptions options);
@@ -203,11 +332,10 @@ int getInputBRegisterSize(MmaOptions::MacroType macro);
 GemmTile getMmaOpShape(MmaOptions::MacroType macro);
 
 // MMA stringify utils
-std::string toString(MmaOptions::MacroType macro);
 std::string toString(MmaOptions::MmaLayout input_layout);
 std::string toString(const GemmTile& tile);
 std::string toString(const MatMulTileOptions& opts);
-std::string toString(MmaOptions::MacroType macro, bool);
+std::string toString(MmaOptions::MacroType macro);
 
 // MMA hash utils
 size_t hash(MmaOptions::MacroType macro);
