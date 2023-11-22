@@ -181,19 +181,24 @@ namespace {
 std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
+    const int64_t n_tensor_inputs,
+    const int64_t max_input_dtype_size,
     const int64_t max_persistent_buffer_size,
     const size_t max_vectorize_factor,
     const bool has_rng_ops) {
+  // Some facts:
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-
+  const int64_t n_waves_max =
+      ceilDiv(total_iteration_numel, (int64_t)dev_prop->multiProcessorCount);
   // Some assumptions
   // (1) use at least four warps per warp as recommended by the
   // cuda-c-best-practices-guide.
-  const int64_t min_threads_per_block = 4l * dev_prop->warpSize;
+  const int64_t min_threads_per_block =
+      n_waves_max > 1l ? 4l * dev_prop->warpSize : dev_prop->maxThreadsPerBlock;
   // (2) target 50% occupancy based on experiments
-  const int64_t target_min_warps_per_sm = 32;
+  const int64_t target_min_warps_per_sm = n_waves_max > 1l ? 32l : 1l;
   // (2) hint for max persistent size based on experiments.
-  const int64_t persistent_experiment_max = (has_rng_ops ? 4l : 5l) * 8l / max_vectorize_factor;
+  const int64_t persistent_experiment_max = (has_rng_ops ? 4l : 5l);
   // (3) hint for register usage based on experiments
   auto getRegisterPerThread = [](int64_t buffer_per_thread) {
     return 24l +
@@ -201,6 +206,11 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   };
   // allows 64 -> 56, disallows 64 -> 48
   constexpr int64_t max_adjust_count = 8;
+  auto const max_unroll = ceilDiv(
+      // Available unrolling based on size of data type
+      16l / max_input_dtype_size,
+      // Reduce unrolling if we have many inputs, start reduction at 4 inputs
+      scheduler_utils::lastPow2(std::max(n_tensor_inputs >> 2, 1l)));
 
   // How the heuristic works?
   // The reduction dim is parallelized by [bdimx], [persistent], and
@@ -212,15 +222,15 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // register usage to achieve 50% occupancy.
 
   // struct InnerParams {
-  //   int64_t vectorization_val = -1;
+  //   int64_t vectorization_unroll_val = -1;
   //   int64_t persistent_val = -1;
   //   int64_t bdimx_val = -1;
   //   int64_t bdimy_val = -1;
 
   //   void verify() {
-  //     NVF_ERROR(vectorization_val != -1, "vectorization_val is not set.");
-  //     NVF_ERROR(persistent_val != -1, "persistent_val is not set.");
-  //     NVF_ERROR(bdimx_val != -1, "bdimx_val is not set.");
+  //     NVF_ERROR(vectorization_unroll_val != -1, "vectorization_unroll_val is
+  //     not set."); NVF_ERROR(persistent_val != -1, "persistent_val is not
+  //     set."); NVF_ERROR(bdimx_val != -1, "bdimx_val is not set.");
   //     NVF_ERROR(bdimy_val != -1, "bdimy_val is not set.");
   //   }
   // };
@@ -232,8 +242,10 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       total_reduction_numel,
       ", max_vectorize_factor= ",
       max_vectorize_factor);
-  int64_t vectorization_val = max_vectorize_factor;
-  int64_t after_vect = total_reduction_numel / vectorization_val;
+  bool is_vectorization = max_vectorize_factor > 1;
+  int64_t vectorization_unroll_val =
+      is_vectorization ? max_vectorize_factor : max_unroll;
+  int64_t after_vect = total_reduction_numel / vectorization_unroll_val;
   int64_t warps_after_vect = ceilDiv(after_vect, dev_prop->warpSize);
 
   // (2) reduction dim, set [persistent]
@@ -256,31 +268,38 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // Try to use divisible persistent_val, e.g. 1280/8/32 = 5, perfer
   // persistent_val to be 1 instead of 2. since 2 is not divisible by 5. Latency
   // for dropout_layernorm reduced from 31 us to 24 us on A100.
-  if (warps_after_vect % persistent_val != 0) {
-    auto maybeChangeBy = [&](int x) {
-      if ((warps_after_vect % (persistent_val + x) == 0) &&
-          (persistent_val + x <= persistent_max) &&
-          (persistent_val + x >= persistent_min)) {
-        return true;
-      } else {
-        return false;
-      }
-    };
+  auto tailing_current =
+      ceilDiv(warps_after_vect, persistent_val) * persistent_val -
+      warps_after_vect;
+  if (tailing_current > 0) {
     const std::vector<int> mayChangePersistentValBy =
         [&]() -> std::vector<int> {
-      // divisible split is more important if has_rng_ops
       if (has_rng_ops) {
-        return {-1, -2, -3};
+        return {-1, -2, -3, 1};
       } else {
-        return {-1};
+        return {1, 2, 3, -1};
       }
     }();
+    int64_t persistent_new = persistent_val;
     for (auto x : mayChangePersistentValBy) {
-      if (maybeChangeBy(x)) {
-        persistent_val += x;
-        break;
+      auto persistent_tmp = persistent_val + x;
+      if (persistent_tmp < persistent_min) {
+        continue;
+      }
+      auto tailing_tmp =
+          ceilDiv(warps_after_vect, persistent_tmp) * persistent_tmp -
+          warps_after_vect;
+      std::cout << "persistent_tmp= " << persistent_tmp
+                << ", tailing_tmp= " << tailing_tmp << std::endl;
+      if (tailing_tmp < tailing_current) {
+        tailing_current = tailing_tmp;
+        persistent_new = persistent_tmp;
+        if (tailing_tmp == 0) {
+          break;
+        }
       }
     }
+    persistent_val = persistent_new;
   }
 
   auto getParasUsingPersistentVal = [&](int64_t persistent_val_x) {
@@ -302,8 +321,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       const int64_t max_multi_reduction_factor = std::min(
           scheduler_utils::safeDiv(
               scheduler_utils::register_file_size, max_persistent_buffer_size),
-          ceilDiv(
-              total_iteration_numel, (int64_t)dev_prop->multiProcessorCount));
+          n_waves_max);
       bdimy_val = std::min(
           scheduler_utils::safeDiv(min_threads_per_block, bdimx_val),
           max_multi_reduction_factor);
@@ -319,7 +337,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     int64_t occupancy_reg_per_thread = getRegPerThreadGivenThreadsPerSM(
         target_blocks_per_sm * warps_per_block * dev_prop->warpSize);
     int64_t buffer_per_thread = max_persistent_buffer_size /
-        total_reduction_numel * vectorization_val * persistent_val_x;
+        total_reduction_numel * vectorization_unroll_val * persistent_val_x;
     int64_t buffer_reg_per_thread = getRegisterPerThread(buffer_per_thread);
     int64_t nvrtc_register_per_thread =
         scheduler_utils::max_registers_per_thread;
@@ -392,8 +410,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   }
 
   // deal with regression for layer_norm around 32K.
-  if (blocks_per_sm == 1) {
-    for (auto p = persistent_val + 1; p <= persistent_max*2; p++) {
+  if (blocks_per_sm == 1 && n_waves_max > 1) {
+    for (auto p = persistent_val + 1; p <= persistent_max * 2; p++) {
       auto
           [bdimx_val_tmp,
            bdimy_val_tmp,
@@ -407,12 +425,13 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         nvrtc_register_per_thread = nvrtc_register_per_thread_tmp;
         blocks_per_sm = blocks_per_sm_tmp;
         warps_per_sm = warps_per_sm_tmp;
-        std::cout << "debug_blocks_per_sm increased to " << blocks_per_sm << std::endl;
+        std::cout << "debug_blocks_per_sm increased to " << blocks_per_sm
+                  << std::endl;
       }
     }
   }
 
-  // (5) iteration dim, set [gdimx] and maybe also [bdimy]
+  // (5) iteration dim, set [gdimx] and maybe also [gdimy]
   int64_t gdimx_val = ceilDiv(total_iteration_numel, bdimy_val);
   int64_t gdimy_val = LaunchParams::UNINITIALIZED_VAL;
   if (gdimx_val > scheduler_utils::x_grid_limit) {
@@ -441,8 +460,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   rparams->batches_per_block_inner_reduction = persistent_val;
   // For persistent schedules always have to mark the reduction unrolled
   // otherwise rfactor can fail
-  rparams->unroll_factor_inner_reduction = vectorization_val;
-  rparams->vectorize_inner_reduction = vectorization_val > 1l;
+  rparams->vectorize_inner_reduction = is_vectorization;
+  rparams->unroll_factor_inner_reduction = vectorization_unroll_val;
 
   // Iter domain
   rparams->multiple_reds_per_blk = bdimy_val > 1l;
@@ -467,7 +486,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     debug() << "\n===== Reduction Stats ========\n"
             << "total_reduction_numel: " << total_reduction_numel << "\n"
             << "total_iteration_numel: " << total_iteration_numel << "\n"
-            << "vectorize_factor: " << vectorization_val << "\n"
+            << "vectorize_factor: " << vectorization_unroll_val << "\n"
             << "max_persistent_buffer_size: " << max_persistent_buffer_size
             << "\n"
             << "\n"
@@ -569,6 +588,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
       return innerPersistentHeuristic2D(
           total_reduction_numel,
           total_iteration_numel,
+          (int64_t)n_tensor_inputs,
+          (int64_t)max_input_dtype_size,
           max_persistent_buffer_size,
           vectorize_factor,
           has_rng_op);
