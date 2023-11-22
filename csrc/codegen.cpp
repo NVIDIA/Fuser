@@ -2874,10 +2874,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           counter++;
         }
       }
-      indent() << "  ";
+      indent() << "\"  " << asm_->code();
+    } else {
+      code_ << "\"" << asm_->code();
     }
 
-    code_ << "\"" << asm_->code();
     auto parameters = asm_->parameters();
     if (!parameters.empty()) {
       code_ << " " << parameters;
@@ -2902,10 +2903,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           bool first = true;
           for (auto [constraint, register_] : constraints_and_registers) {
             auto next_line = [&]() {
-              code_ << ", ";
+              code_ << ",";
               if (multiline) {
                 code_ << "\n";
                 indent() << " ";
+              } else {
+                code_ << " ";
               }
             };
             if (!first) {
