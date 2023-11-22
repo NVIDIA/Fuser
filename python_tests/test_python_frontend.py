@@ -28,14 +28,8 @@ from nvfuser import (
     version,
     compute_contiguity,
     compute_tensor_descriptor,
-    serialize as nv_serialize,
 )
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-
-# Test automatic serialization to common workplace
-import atexit
-
-atexit.register(nv_serialize)
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
