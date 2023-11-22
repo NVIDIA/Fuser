@@ -753,6 +753,9 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
       ? updateIdVec(td->maybeRFactor())
       : std::vector<IterDomain*>();
   std::vector<IterDomain*> domain = updateIdVec(td->leaf());
+  std::vector<IterDomain*> alloc_dom = td->hasAllocation()
+      ? updateIdVec(td->maybeAllocation())
+      : std::vector<IterDomain*>();
 
   if (!mutated) {
     return;
@@ -761,8 +764,16 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   // Update the contiguity vector. Drop the contig val if mutated to broadcast
   auto contig = td->contiguity();
 
-  for (const auto i : c10::irange(td->maybeRFactor().size())) {
-    auto original_id = td->maybeRFactor().at(i);
+  const auto& new_alloc = td->hasAllocation() ? alloc_dom
+      : td->hasRFactor()                      ? rfactor_dom
+                                              : root_dom;
+  const auto& original_alloc = td->maybeAllocation();
+  NVF_ERROR(
+      new_alloc.size() == original_alloc.size(),
+      "rank of allocation domain shouldn't change in concretization");
+
+  for (const auto i : c10::irange(original_alloc.size())) {
+    auto original_id = original_alloc.at(i);
     if (original_id->getIterType() != IterType::Symbolic) {
       continue;
     }
@@ -772,7 +783,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
         "Unexpected to have a non-contig symbolic domain: ",
         original_id->toString());
 
-    auto updated_id = td->hasRFactor() ? rfactor_dom.at(i) : root_dom.at(i);
+    auto updated_id = new_alloc.at(i);
 
     // If the concretized ID is a broadcast domain, drop the contig val
     if (updated_id->isBroadcast()) {
@@ -781,7 +792,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   }
 
   Val* mutated_val = IrBuilder::create<TensorDomain>(
-      td->container(), root_dom, rfactor_dom, domain, contig);
+      td->container(), root_dom, rfactor_dom, alloc_dom, domain, contig);
   registerConcretization(td, mutated_val);
 }
 
