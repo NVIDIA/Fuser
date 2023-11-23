@@ -325,7 +325,7 @@ computeTensorDescriptor(
     // broadcast dims
     NVF_CHECK(strides[i] >= 0, "negative stride on tensor is not supported");
     DimInfo dim_info = DimInfo{(int64_t)i, sizes[i], strides[i]};
-    if (strides[i] == 0) {
+    if (strides[i] != 0) {
       dim_info_vec.push_back(std::move(dim_info));
     } else {
       broadcast_dim_vec.push_back(std::move(dim_info));
