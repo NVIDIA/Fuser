@@ -617,24 +617,7 @@ struct SqueezeOpRecord : RecordFunctor {
 
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    const auto inp_dom =
-        TensorDomain::noReductions(arg->getMaybeRFactorDomain());
-    const auto ndims = inp_dom.size();
-    std::vector<bool> squeeze_dims(ndims, false);
-    for (auto dim : dims_) {
-      // Handle negative relative to the end dimensions specifications
-      if (dim < 0) {
-        dim = static_cast<int64_t>(squeeze_dims.size()) + dim;
-      }
-      NVF_CHECK(
-          (dim >= 0) && (static_cast<size_t>(dim) < squeeze_dims.size()),
-          "Squeeze dim is outside of Tensor size! Tensor Size: ",
-          squeeze_dims.size(),
-          " Dim: ",
-          dim);
-      squeeze_dims[dim] = true;
-    }
-    auto output = squeeze(arg, squeeze_dims);
+    auto output = squeeze(arg, dims_);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 

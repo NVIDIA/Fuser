@@ -2127,7 +2127,7 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
   // concretized to Broadcast
   // NOTE: squeeze interface should be updated to match reshape and friends,
   // accepting Val inputs
-  auto tv2 = squeeze(tv1, {20, 1}, 1);
+  auto tv2 = squeeze(tv1, std::vector<int64_t>{1});
   // tv1 is of shape {0, 5}
   fusion->addOutput(tv2);
 
