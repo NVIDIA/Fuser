@@ -876,10 +876,14 @@ namespace {
 //!  specialization of tidx as lane id.
 void validateMmaTensors(MmaOp* mma) {
   bool tidx_validated = false;
-  std::vector<TensorView*> to_validate = {
-      mma->inA()->as<TensorView>(),
-      mma->inB()->as<TensorView>(),
-      mma->out()->as<TensorView>()};
+  std::vector<TensorView*> to_validate = {mma->out()->as<TensorView>()};
+
+  if (ir_utils::isLdMatrixOp(mma->inA()->definition())) {
+    to_validate.push_back(mma->inA()->as<TensorView>());
+  }
+  if (ir_utils::isLdMatrixOp(mma->inB()->definition())) {
+    to_validate.push_back(mma->inB()->as<TensorView>());
+  }
 
   for (auto tv : to_validate) {
     for (auto id : tv->getLeafDomain()) {
