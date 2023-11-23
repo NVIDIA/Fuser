@@ -105,7 +105,7 @@ class MatmulParams : public HeuristicParams {
     std::stringstream ss;
     ss << "\n===== Matmul Parameters ========\n"
        << (tag.empty() ? "" : "Tag: ") << tag << "\n"
-       << "MMA macro: " << nvfuser::toString(mma_macro, true) << "\n"
+       << "MMA macro: " << nvfuser::toString(mma_macro) << "\n"
        << double_buffer_options.toString() << "\n"
        << nvfuser::toString(tile_sizes) << "\n"
        << "Rotate ldmatrix out of main loop: "
