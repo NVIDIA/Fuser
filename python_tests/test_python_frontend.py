@@ -1387,25 +1387,61 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(compute_contiguity(sizes, strides), contiguity)
 
     def test_compute_tensor_descriptor(self):
-        sizes = [2, 1, 3, 1, 4, 3]
-        strides = [12, 4, 4, 4, 1, 0]
-        contiguity = [True, None, True, None, True, None]
-        stride_order = [5, 4, 3, 2, 1, 0]
-        computed_contiguity, computed_stride_order = compute_tensor_descriptor(
-            sizes, strides
+        configs = (
+            (
+                # size
+                [2, 1, 3, 1, 4, 3],
+                # stride
+                [12, 4, 4, 4, 1, 0],
+                # expected contiguity
+                [True, None, True, None, True, None],
+                # expected stride_order
+                [5, 4, 3, 2, 1, 0],
+            ),
+            (
+                [2, 3, 1, 5, 4],
+                [28, 4, 14, 0, 1],
+                [False, None, True, None, True],
+                [4, 2, 3, 1, 0],
+            ),
+            (
+                [2, 2, 1, 1, 2, 2, 2],
+                [8, 4, 3, 9, 2, 0, 1],
+                [None, True, True, None, True, None, True],
+                [5, 4, 3, 6, 2, 1, 0],
+            ),
+            (
+                [2, 2, 1, 2, 4, 2],
+                [2, 32, 1, 8, 0, 4],
+                [False, True, True, False, None, None],
+                [2, 5, 0, 4, 1, 3],
+            ),
+            (
+                [2, 2, 2, 2],
+                [8, 4, 2, 1],
+                [True, True, True, True],
+                [3, 2, 1, 0],
+            ),
+            (
+                [2, 1, 3, 1, 4],
+                [24, 4, 8, 4, 2],
+                [True, True, None, None, False],
+                [4, 2, 3, 1, 0],
+            ),
+            (
+                [2, 2, 2, 2],
+                [8, 4, 0, 2],
+                [True, True, None, False],
+                [3, 2, 1, 0],
+            ),
         )
-        self.assertEqual(computed_contiguity, contiguity)
-        self.assertEqual(computed_stride_order, stride_order)
 
-        sizes = [2, 3, 1, 5, 4]
-        strides = [28, 4, 14, 0, 1]
-        contiguity = [False, None, True, True, None]
-        stride_order = [4, 2, 3, 0, 1]
-        computed_contiguity, computed_stride_order = compute_tensor_descriptor(
-            sizes, strides
-        )
-        self.assertEqual(computed_contiguity, contiguity)
-        self.assertEqual(computed_stride_order, stride_order)
+        for sizes, strides, contiguity, stride_order in configs:
+            computed_contiguity, computed_stride_order = compute_tensor_descriptor(
+                sizes, strides
+            )
+            self.assertEqual(computed_contiguity, contiguity)
+            self.assertEqual(computed_stride_order, stride_order)
 
     def test_stride_order_with_explicit_broadcast(self):
         inputs = [
