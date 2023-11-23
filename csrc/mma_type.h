@@ -178,17 +178,19 @@ constexpr MmaMacroEncode::operator MmaMacro() {
 #endif
 }
 
-constexpr MmaMacroEncode::MmaMacroEncode(MmaMacro macro) {
+constexpr MmaMacroEncode::MmaMacroEncode(MmaMacro macro)
 #if IS_CPP20 && !defined(__clang__)
+{
   // std::bit_cast for bit field is not supported by clang yet
   *this = std::bit_cast<MmaMacroEncode>(macro);
-#else
-  k = toUnderlying(macro) & 0xFFFF; // NOLINT(*-member-init*)
-  n = (toUnderlying(macro) >> 16) & 0xFFFF; // NOLINT(*-member-init*)
-  m = (toUnderlying(macro) >> 32) & 0xFFFF; // NOLINT(*-member-init*)
-  arch = (Arch)(toUnderlying(macro) >> 48); // NOLINT(*-member-init*)
-#endif
 }
+#else
+    : arch((Arch)(toUnderlying(macro) >> 48)),
+      m((toUnderlying(macro) >> 32) & 0xFFFF),
+      n((toUnderlying(macro) >> 16) & 0xFFFF),
+      k(toUnderlying(macro) & 0xFFFF) {
+}
+#endif
 
 //! Information for configuring and lowering mma ops
 struct MmaOptions {
