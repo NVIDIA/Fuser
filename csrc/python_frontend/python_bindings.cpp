@@ -271,32 +271,43 @@ std::vector<std::optional<bool>> computeContiguity(
 // `stride order` vector corresponds to the order for each logical domain in
 //     physical memory; For any 0 <= i < n , we know the dimension i has the
 //     stride_order[i]-th smallest stride.
-//     An exception to this are broadcast dimensions, i.e. dimensions with
-//     `stride == 0 || size == 1`, where we would maintain their semantical
-//     position
+//     An exception to this are implicit broadcast dimensions, i.e. dimensions
+//     with `stride == 0`, where we would maintain their semantical position
 // `contiguity` vector to whether or not indexing could be collaped
 //     corresponding to each physical domain;
 //
 // e.g. Given size and stride as follow:
-//   sizes   = [2, 1, 3, 1, 4, 3]
-//   strides = [12, 4, 4, 4, 1, 0]
-// we would compute stride order as: [5, 4, 3, 2, 1, 0]. Since the original
-// stride is in descending order. Note that there's more than one way to define
-// a stride order when we have equal strides. In the context of index
-// collapsing, how we resolve that shouldn't matter, hence we just go with
-// preserving their original order. Similarly, we compute contiguity as: [True,
-// None, True, None, True, None], Since the physical order is the same as the
-// logical order, this one is trivial to compute.
+//   sizes   = [2, 2, 2, 2]
+//   strides = [8, 4, 2, 1]
+// Obviously the stride order as: [3, 2, 1, 0] for row-major order, i.e. stride
+// in descending order and contiguity flag will be [True, True, True, True]
 //
 // e.g. Given size and stride as follow:
-//   sizes   = [2, 3, 1, 5, 4]
-//   strides = [28, 4, 14, 0, 1]
-// stride_order would be: [4, 2, 3, 1, 0], marking the order of strides in the
-// vector. Meanwhile, contiguity would be computed on the physical domain, i.e.
-// on sorted sizes & strides.
-//   sorted_size    = [2, 1, 3, 5, 4]
-//   sorted_strides = [28, 14, 4, 0, 1]
-//   contiguity would be: [False, None, True, True, None]
+//   sizes   = [2, 1, 3, 1, 4]
+//   strides = [24, 4, 8, 4, 2]
+// Note that there are a few explicit broadcast dimensions, dimensions with size
+// == 1. The stride for explicit broadcast dimensions participates in stride
+// order computation. The reason is that, frameworks could assign meaningful
+// stride to an explicit broadcast dimensions to hint memory format, which could
+// be used to deduce the desired output memory format. We use stable sort to
+// break tie when two dimension has equal stride, i.e. try to preserve their
+// semantical order. Hence, we would compute stride order as: [4, 2, 3, 1, 0].
+// In the context of index, collapsing, how we resolve that shouldn't matter.
+// With sorted sizes & strides:
+//   sorted_size    = [2, 3, 1, 1, 4]
+//   sorted_strides = [24, 8, 4, 4, 2]
+// Here, we compute contiguity as: [True, True, None, None, False]
+//
+// e.g. Given size and stride as follow:
+//   sizes   = [2, 2, 2, 2]
+//   strides = [8, 4, 0, 1]
+// The stride of implicit broadcast dimensions, dimensions with stride == 0,
+// does not participate in stride order computation and preserves their
+// semantical position in stride order. The logic behind this is so that we
+// would not unnecessarily introduce permutated alloc_domain for a naive
+// unsqueeze/expanded operation when it doesn't improve indexing. For the given
+// example, computed stride_order would be: [3, 2, 1, 0] and contiguity would
+// be: [True, True, None, False]
 //
 // This function returns a pair of <contiguity, stride_order>
 std::pair<std::vector<std::optional<bool>>, std::vector<int64_t>>
@@ -314,7 +325,7 @@ computeTensorDescriptor(
     // broadcast dims
     NVF_CHECK(strides[i] >= 0, "negative stride on tensor is not supported");
     DimInfo dim_info = DimInfo{(int64_t)i, sizes[i], strides[i]};
-    if (!dim_info.isBroadcast()) {
+    if (strides[i] == 0) {
       dim_info_vec.push_back(std::move(dim_info));
     } else {
       broadcast_dim_vec.push_back(std::move(dim_info));
