@@ -170,12 +170,52 @@ class WarpMmaSwizzler {
       TensorView* tv,
       MmaOptions options = MmaOptions());
 
+  //! Note [schedule of ldmatrix]
+  //! If you look at the doc of ldmatrix and mma for Turing and Ampere:
+  //! https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-fragment-mma-16816-float
+  //! https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-instructions-ldmatrix
+  //! you will find that, the memory layout of the output of ldmatrix, which
+  //! matches with the input layout of MMA instruction, mismatch with the index
+  //! that each thread uses to call ldmatrix. In nvFuser, we schedule the
+  //! allocation domain of the ldmatrix output and mma inputs to be consistent
+  //! with the memory layout of the output of ldmatrix, and we schedule the
+  //! leaf domain of the ldmatrix output to be consistent with the index that
+  //! each thread uses to call ldmatrix. This function is used to schedule the
+  //! leaf domain of the ldmatrix output. The allocation domain of the ldmatrix
+  //! output and mma inputs are scheduled in scheduleOperandRead, which must be
+  //! called before this function.
+  //!
+  //! ldmatrix loads multiple 8x8 matrices from shared memory to registers in a
+  //! swizzled memory format.
+  //!   +--------+--------+
+  //!   |        |        |
+  //!   |  8x8   |  8x8   |
+  //!   |        |        |
+  //!   +--------+--------+
+  //!   |        |        |
+  //!   |  8x8   |  8x8   |
+  //!   |        |        |
+  //!   +--------+--------+
+  //! If mn_major is true, these 8x8 matrices are visited in the order of:
+  //! top left -> top right -> bottom left -> bottom right.
+  //! If mn_major is false, these 8x8 matrices are visited in the order of:
+  //! top left -> bottom left -> top right -> bottom right.
+  //!
+  //! In principle, only `mn_major = false` should be needed. But unfortunately,
+  //! we are taking advantage of the ldmatrix large load in a pretty hacky way.
+  //! For example, for Turing, only m16n8k8 is supported by hardware. But we are
+  //! also using a fake m16n8k16 and m16n16k16, which uses a single large
+  //! ldmatrix to load data to register, and run multiple mma instructions to
+  //! consume these data. In the future, we should only keep the m16n8k8 macro,
+  //! and schedule m16n8k16 and m16n16k16 more correctly than this current way.
+  static void scheduleLdMatrix(TensorView* tv, bool mn_major = false);
+
  private:
-  //! Operand swizzle implementations for Turing and Ampere mma.
-  static void scheduleTuringOperandRead(TensorView* tv, MmaOptions options);
+  //! Memory layout for MMA operand, see note [schedule of ldmatrix]
+  static void scheduleTuringOperandRead(TensorView* tv);
 
   //! Accumulator swizzle implementation for Turing and Ampere mma.
-  static void scheduleTuringM16N8K16MmaWarpOutput(
+  static void scheduleTuringMmaWarpOutput(
       TensorView* tv,
       const MmaOptions& options);
 

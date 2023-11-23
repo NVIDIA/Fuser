@@ -47,6 +47,13 @@ def is_pre_volta():
     return prop.major < 7
 
 
+def is_pre_ampere():
+    if not RUN_NVFUSER:
+        return False
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    return prop.major < 8
+
+
 def serde_check(test_fn: Callable):
     """
     A decorator to verify that serialization works with the given exec_nvfuser function.
@@ -2584,6 +2591,30 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(y.shape, torch.Size([3, 2, 2]))
         self.assertEqual(x.flatten(), y.flatten())
 
+    def test_allocation_domain_concretization(self):
+        inputs = [
+            # we need an empty tensor here so we'll trigger `concretizeEmptyExtents`
+            torch.randn((0,), dtype=torch.float64, device="cuda:0").as_strided(
+                (1, 0, 1, 1), (0, 1, 1, 1)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T1 = fd.define_tensor(
+                shape=[1, -1, 1, 1],
+                contiguity=[True, None, None, None],
+                dtype=DataType.Double,
+                is_cpu=False,
+                stride_order=[0, 3, 2, 1],
+            )
+            S1 = fd.define_scalar(2.0, dtype=DataType.Double)
+            T2 = fd.ops.mul(T1, S1)
+            fd.add_output(T2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        torch_ref = inputs[0] * 2.0
+        self.assertEqual(nvf_out[0], torch_ref)
+
     def test_allocation_domain_index_select(self):
         inputs = [
             torch.randn((252,), dtype=torch.float32, device="cuda:0").as_strided(
@@ -2788,6 +2819,7 @@ class TestNvFuserFrontend(TestCase):
     # Test that inputs are properly forwarded when an input is used in multiple
     # UnaryOps, some having one and others having multiple further uses.
     # See https://github.com/NVIDIA/Fuser/issues/1301#issuecomment-1812470502
+    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
     def test_issue1310(self):
         inputs = [torch.randn((16, 128, 768), dtype=torch.bfloat16, device="cuda:0")]
 

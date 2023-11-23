@@ -319,6 +319,9 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
   if (a.is<std::complex<double>>()) {
     return std::abs(a.as<std::complex<double>>());
   }
+  if (a.is<at::Tensor>()) {
+    return a.as<at::Tensor>().abs();
+  }
   NVF_ERROR(
       false, "PolymorphicValue abs not implemented for ", a.type().name());
 }
