@@ -102,7 +102,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   // Invert the predicate of given expr.
   void invertPredicate(Expr* expr) {
-    NVF_ERROR(expr->predicate() != nullptr);
+    NVF_ERROR(expr != nullptr);
     auto pred = expr->predicate()->value();
     Val* invert = SimplifyingIrBuilder::logicalNotExpr(pred);
     invert =
