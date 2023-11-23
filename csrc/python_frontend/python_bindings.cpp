@@ -271,6 +271,9 @@ std::vector<std::optional<bool>> computeContiguity(
 // `stride order` vector corresponds to the order for each logical domain in
 //     physical memory; For any 0 <= i < n , we know the dimension i has the
 //     stride_order[i]-th smallest stride.
+//     An exception to this are broadcast dimensions, i.e. dimensions with
+//     `stride == 0 || size == 1`, where we would maintain their semantical
+//     position
 // `contiguity` vector to whether or not indexing could be collaped
 //     corresponding to each physical domain;
 //
@@ -288,11 +291,11 @@ std::vector<std::optional<bool>> computeContiguity(
 // e.g. Given size and stride as follow:
 //   sizes   = [2, 3, 1, 5, 4]
 //   strides = [28, 4, 14, 0, 1]
-// stride_order would be: [4, 2, 3, 0, 1], marking the order of strides in the
+// stride_order would be: [4, 2, 3, 1, 0], marking the order of strides in the
 // vector. Meanwhile, contiguity would be computed on the physical domain, i.e.
 // on sorted sizes & strides.
-//   sorted_size    = [2, 1, 3, 4, 5]
-//   sorted_strides = [28, 14, 4, 1, 0]
+//   sorted_size    = [2, 1, 3, 5, 4]
+//   sorted_strides = [28, 14, 4, 0, 1]
 //   contiguity would be: [False, None, True, True, None]
 //
 // This function returns a pair of <contiguity, stride_order>
@@ -302,18 +305,32 @@ computeTensorDescriptor(
     const std::vector<int64_t>& strides) {
   NVF_CHECK(
       sizes.size() == strides.size(),
-      "compute_tensor_descriptor: Sizes and strides must have the same number of dimensions");
+      "compute_tensor_descriptor: "
+      "Sizes and strides must have the same number of dimensions");
   std::vector<DimInfo> dim_info_vec;
+  std::vector<DimInfo> broadcast_dim_vec;
   for (auto i : c10::irange(sizes.size())) {
-    // NOTE: not supporting negative stride yet.
+    // NOTE: not supporting negative stride yet, but we can probably allow it on
+    // broadcast dims
     NVF_CHECK(strides[i] >= 0, "negative stride on tensor is not supported");
-    dim_info_vec.emplace_back(DimInfo{(int64_t)i, sizes[i], strides[i]});
+    DimInfo dim_info = DimInfo{(int64_t)i, sizes[i], strides[i]};
+    if (!dim_info.isBroadcast()) {
+      dim_info_vec.push_back(std::move(dim_info));
+    } else {
+      broadcast_dim_vec.push_back(std::move(dim_info));
+    }
   }
-  // sort by stride
-  std::sort(
+  // sort non-broadcast dimensions by stride
+  std::stable_sort(
       dim_info_vec.begin(),
       dim_info_vec.end(),
       [](const auto& l, const auto& r) { return l.stride > r.stride; });
+
+  // combine dimensions while preserving the semantical position of broadcast
+  // dimensions
+  for (const auto& dim_info : broadcast_dim_vec) {
+    dim_info_vec.insert(dim_info_vec.begin() + dim_info.index, dim_info);
+  }
 
   // Dimensions are marked contiguous by inspecting the current dimension and
   // one to the right towards the inner dimension while skipping over broadcast
