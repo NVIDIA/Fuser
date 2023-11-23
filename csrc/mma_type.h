@@ -318,54 +318,6 @@ inline int getK(MmaOptions::MacroType macro) {
   return MmaMacroEncode(macro).k;
 }
 
-//! Get the m size from macro type
-inline int getM(MmaOptions::MacroType macro) {
-  switch (macro) {
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      return 16;
-    case MmaOptions::MacroType::Ampere_16_8_8:
-      return 8;
-    default:
-      NVF_ERROR(false, "unknown macro");
-      break;
-  }
-}
-
-//! Get the n size from macro type
-inline int getN(MmaOptions::MacroType macro) {
-  switch (macro) {
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      return 16;
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_8:
-      return 8;
-    default:
-      NVF_ERROR(false, "unknown macro");
-      break;
-  }
-}
-
-//! Get the k size from macro type
-inline int getK(MmaOptions::MacroType macro) {
-  switch (macro) {
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      return 16;
-    case MmaOptions::MacroType::Ampere_16_8_8:
-      return 8;
-    default:
-      NVF_ERROR(false, "unknown macro");
-      break;
-  }
-}
-
 //! Returns true if the given option describes a transposed operand
 bool isOperandTransposed(MmaOptions options);
 
