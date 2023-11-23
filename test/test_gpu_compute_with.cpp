@@ -168,9 +168,7 @@ TEST_F(NVFuserTest, FusionComputeWith1_CUDA) {
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
-  auto ref = t0.sum({1}).unsqueeze(-1) + t0;
-
-  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // StoreAt with 1D softmax
@@ -267,9 +265,7 @@ TEST_F(NVFuserTest, FusionComputeWith3_CUDA) {
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
-  auto ref = t0.unsqueeze(0);
-
-  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Compute a tensor that has siblings with a consumer. All of the

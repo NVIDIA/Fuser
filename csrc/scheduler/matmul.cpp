@@ -978,23 +978,18 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //   and needs more configurability.
   // ------------------------------------------------------------------
 
-  if (isTuring(params.mma_macro) || isAmpere(params.mma_macro)) {
-    acr->setAllocationDomain(acr->getLeafDomain(), true);
-    bcr->setAllocationDomain(bcr->getLeafDomain(), true);
-    mma_utils::WarpMmaSwizzler::scheduleLdMatrix(acr);
-    mma_utils::WarpMmaSwizzler::scheduleLdMatrix(bcr, true);
+  acr->setAllocationDomain(acr->getLeafDomain(), true);
+  bcr->setAllocationDomain(bcr->getLeafDomain(), true);
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(acr);
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(bcr, true);
 
-    //  -5  -4   -3   -2   -1          or          -5  -4   -3   -2   -1
-    //[8mi, 4k, 2ko, 2mo, 2ki]                   [8ni, 4k, 2ko, 1no, 2ki]
-    for (auto tv : {ab, bb}) {
-      tv->merge(-5);
-      tv->axis(-4)->parallelize(ParallelType::TIDx);
-    }
-    propagate_mma_input_schedule_to(acr, bcr);
-  } else {
-    acr->axis(-1)->parallelize(ParallelType::Vectorize);
-    bcr->axis(-1)->parallelize(ParallelType::Vectorize);
+  //  -5  -4   -3   -2   -1          or          -5  -4   -3   -2   -1
+  //[8mi, 4k, 2ko, 2mo, 2ki]                   [8ni, 4k, 2ko, 1no, 2ki]
+  for (auto tv : {ab, bb}) {
+    tv->merge(-5);
+    tv->axis(-4)->parallelize(ParallelType::TIDx);
   }
+  propagate_mma_input_schedule_to(acr, bcr);
 
   // Parallelization strategy:
   // Here the top two rows indicate how we can index each axis. The third row
