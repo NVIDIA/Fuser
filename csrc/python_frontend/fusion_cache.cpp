@@ -5,6 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ATen/cuda/CUDAContext.h>
+#include <nvrtc.h>
+
 #include <debug.h>
 #include <instrumentation.h>
 #include <options.h>
@@ -15,7 +18,166 @@
 #include <filesystem>
 namespace fs = std::filesystem;
 
+#ifdef _WIN32
+#include <c10/util/win32-headers.h>
+#else
+#include <pthread.h>
+#include <unistd.h>
+#endif
+
 namespace nvfuser::python_frontend {
+
+namespace {
+// Generate temporary file for this FusionCacheBuffer
+std::string getSerdeTmpFile() {
+#ifdef _WIN32
+  const unsigned int pid = GetCurrentProcessId();
+#else
+  const unsigned int pid = getpid();
+#endif // _WIN32
+  std::stringstream ss;
+  ss << "nvf_serde_tmp_" << pid;
+  return ss.str();
+}
+
+std::string getSerdeFile() {
+  auto device_prop = at::cuda::getCurrentDeviceProperties();
+  int cuda_major = 0;
+  int cuda_minor = 0;
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&cuda_major, &cuda_minor));
+
+  std::stringstream ss;
+  ss << "nvf_serde";
+  ss << "_device" << device_prop->major << "_" << device_prop->minor;
+  ss << "_cuda" << cuda_major << "_" << cuda_minor;
+  return ss.str();
+}
+
+// Get std::filesystem::path to specified file in nvfuser kernel database
+// directory.
+fs::path getSerdeFilePath(const std::string& file_name) {
+  fs::path kernel_db_path = fs::temp_directory_path() / "nvfuser_kernel_db";
+  if (!fs::is_directory(kernel_db_path)) {
+    try {
+      fs::create_directory(kernel_db_path);
+    } catch (const std::exception& e) {
+      NVF_ERROR(
+          "Unable to create nvFuser Kernel DB directory! ",
+          kernel_db_path.string(),
+          e.what());
+    }
+  }
+  return kernel_db_path / file_name;
+}
+
+using BinaryBuffer = std::vector<uint8_t>;
+BinaryBuffer openFusionCache(std::string filename) {
+  FUSER_PERF_SCOPE("Flatbuffers::openFusionCache");
+  auto file_handle = std::fopen(filename.c_str(), "rb");
+  NVF_CHECK(file_handle != nullptr, "Failed to open FusionCache buffer.");
+
+  auto file_path = fs::path(filename.c_str());
+  auto file_size = fs::file_size(file_path);
+  NVF_CHECK(file_size > 0, "FusionCache buffer is empty.");
+
+  BinaryBuffer buffer(file_size);
+  size_t read_status =
+      std::fread(buffer.data(), sizeof(uint8_t), file_size, file_handle);
+  NVF_CHECK(
+      read_status == file_size, "Failed to read entire FusionCache buffer.\n");
+  return buffer;
+}
+
+// This check function only throws errors if strict flag is enabled.
+const serde::FusionCache* verifyFusionCache(
+    const BinaryBuffer& buffer,
+    bool strict) {
+  FUSER_PERF_SCOPE("Flatbuffers::verifyFusionCache");
+  auto fusion_cache_buffer = serde::GetFusionCache(buffer.data());
+
+  // Check flatbuffer integrity
+  flatbuffers::Verifier v(buffer.data(), buffer.size());
+  if (!fusion_cache_buffer->Verify(v)) {
+    NVF_CHECK(!strict, "Failed to verify the integrity of FusionCache buffer.");
+    return nullptr;
+  }
+
+  // Check schema version
+  if (!serde::FusionCacheBufferHasIdentifier(buffer.data())) {
+    NVF_CHECK(
+        !strict,
+        "Failed to verify the schema version of the FusionCache buffer");
+    return nullptr;
+  }
+
+  // Check device major and minor versions
+  auto device_prop = at::cuda::getCurrentDeviceProperties();
+  if (device_prop->major != fusion_cache_buffer->device_major() ||
+      device_prop->minor != fusion_cache_buffer->device_minor()) {
+    NVF_CHECK(
+        !strict,
+        "Expected cuda version ",
+        device_prop->major,
+        ".",
+        device_prop->minor,
+        " but flatbuffer has cuda version ",
+        fusion_cache_buffer->device_major(),
+        ".",
+        fusion_cache_buffer->device_minor());
+    return nullptr;
+  }
+
+  // Check cuda installation
+  int cuda_major = 0;
+  int cuda_minor = 0;
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&cuda_major, &cuda_minor));
+  if (cuda_major != fusion_cache_buffer->cuda_major() ||
+      cuda_minor != fusion_cache_buffer->cuda_minor()) {
+    NVF_CHECK(
+        !strict,
+        "Expected cuda version ",
+        cuda_major,
+        ".",
+        cuda_minor,
+        " but flatbuffer has cuda version ",
+        fusion_cache_buffer->cuda_major(),
+        ".",
+        fusion_cache_buffer->cuda_minor());
+    return nullptr;
+  }
+
+  return fusion_cache_buffer;
+}
+
+} // namespace
+
+void serialize() {
+  auto tmp_file_path = getSerdeFilePath(getSerdeTmpFile());
+  FusionCache::get()->serialize(tmp_file_path);
+
+  // Save to a per-process temporary file to avoid multi-process contention.
+  // Then, rename the temporary file to the actual file. If the actual file
+  // already exists, then the rename may fail or replace the actual file.
+  // Files replaced through this process should remain extant if they are being
+  // read because of UNIX filesystem properties, but this behavior is
+  // unverified.
+  auto file_path = getSerdeFilePath(getSerdeFile());
+  std::error_code rename_ec;
+  fs::rename(tmp_file_path, file_path, rename_ec);
+
+  // Failed to replace common workspace, so remove the temporary file.
+  if (rename_ec) {
+    try {
+      fs::remove(tmp_file_path);
+      std::cout
+          << "Removed temporary file because we could not replace common workspace. Exception:\t"
+          << rename_ec.message() << std::endl;
+    } catch (const std::exception& e) {
+      std::cout << "Failed to delete temporary file. Exception:\t" << e.what()
+                << std::endl;
+    }
+  }
+}
 
 // FusionCache static data member definitions for singleton usage
 std::mutex FusionCache::singleton_lock_;
@@ -76,11 +238,13 @@ flatbuffers::Offset<serde::TrieNode> TrieNode::serialize(
       isTerminal());
 }
 
-FusionCache* FusionCache::get(size_t max_fusions) {
+FusionCache* FusionCache::get(
+    size_t max_fusions,
+    bool load_from_default_workspace) {
   FUSER_PERF_SCOPE("FusionCache::get");
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ == nullptr) {
-    singleton_ = new FusionCache(max_fusions);
+    singleton_ = new FusionCache(max_fusions, load_from_default_workspace);
   }
   NVF_CHECK(
       max_fusions >= singleton_->fusions_.size(),
@@ -151,16 +315,16 @@ void FusionCache::stats(std::ostream& os) const {
   }
 }
 
-void FusionCache::reset() {
+void FusionCache::reset(bool load_from_default_workspace) {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ != nullptr) {
     auto max_fusions = singleton_->max_fusions_;
     delete singleton_;
-    singleton_ = new FusionCache(max_fusions);
+    singleton_ = new FusionCache(max_fusions, load_from_default_workspace);
   }
 }
 
-FusionCache::FusionCache(size_t max_fusions)
+FusionCache::FusionCache(size_t max_fusions, bool load_from_default_workspace)
     : max_fusions_(max_fusions),
       root_(nullptr),
       fusions_(),
@@ -168,6 +332,27 @@ FusionCache::FusionCache(size_t max_fusions)
       user_def_input_encodings_() {
   RecordFunctor* start = new StartRecord();
   root_ = std::make_unique<TrieNode>(start);
+
+  // Deserialize cache hierarchy from common workspace automatically
+  auto file_path = getSerdeFilePath(getSerdeFile()).native();
+  if (load_from_default_workspace && fs::exists(file_path)) {
+    const BinaryBuffer& buffer = openFusionCache(file_path);
+    const serde::FusionCache* fc =
+        verifyFusionCache(buffer, false /* strict */);
+    // The saved workspace can become out-of-date between nvfuser updates.
+    if (fc != nullptr) {
+      // Only deserialize if the current binary is valid.
+      deserialize(buffer, fc);
+    } else {
+      try {
+        fs::remove(file_path);
+        std::cout << "Delete incompatible workspace." << std::endl;
+      } catch (const std::exception& e) {
+        std::cout << "Failed to delete workspace. Exception:\t" << e.what()
+                  << std::endl;
+      }
+    }
+  }
 }
 
 // In order to keep queries fast, this method does not lock.
@@ -188,6 +373,7 @@ std::optional<TrieNode*> FusionCache::queryChildren(
     return std::optional<TrieNode*>(trie_node->second.get());
   }
 }
+
 FusionSchedules* FusionCache::queryFusionSchedules(size_t fusion_id) const {
   NVF_CHECK(
       fusion_id < fusions_.size(),
@@ -366,6 +552,11 @@ void FusionCache::serialize(std::string filename) const {
         schedule->auto_gen_schedules->serialize(builder));
   }
 
+  auto device_prop = at::cuda::getCurrentDeviceProperties();
+  int cuda_major = 0;
+  int cuda_minor = 0;
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&cuda_major, &cuda_minor));
+
   // 6. Build FusionCache flatbuffer object
   // See table definition for FusionCache in serde/fusion_cache.fbs
   auto fusion_cache = serde::CreateFusionCacheDirect(
@@ -374,7 +565,11 @@ void FusionCache::serialize(std::string filename) const {
       &fb_nodes,
       &terminal_node_idx,
       &fb_auto_gen_schedules,
-      FusionExecutor::getGlobalFusionCount());
+      FusionExecutor::getGlobalFusionCount(),
+      device_prop->major,
+      device_prop->minor,
+      cuda_major,
+      cuda_minor);
   builder.Finish(fusion_cache, "NV00" /* file_identifier */);
 
   // 6. Write flatbuffer binary to file
@@ -388,41 +583,6 @@ void FusionCache::serialize(std::string filename) const {
   std::fclose(file_handle);
 }
 
-namespace {
-typedef std::vector<uint8_t> BinaryBuffer;
-
-BinaryBuffer openFusionCache(std::string filename) {
-  FUSER_PERF_SCOPE("Flatbuffers::openFusionCache");
-  auto file_handle = std::fopen(filename.c_str(), "rb");
-  NVF_CHECK(file_handle != nullptr, "Failed to open FusionCache buffer.");
-
-  auto file_path = fs::path(filename.c_str());
-  auto file_size = fs::file_size(file_path);
-  NVF_CHECK(file_size > 0, "FusionCache buffer is empty.");
-
-  BinaryBuffer buffer(file_size);
-  size_t read_status =
-      std::fread(buffer.data(), sizeof(uint8_t), file_size, file_handle);
-  NVF_CHECK(
-      read_status == file_size, "Failed to read entire FusionCache buffer.\n");
-  return buffer;
-}
-
-const serde::FusionCache* verifyFusionCache(const BinaryBuffer& buffer) {
-  FUSER_PERF_SCOPE("Flatbuffers::verifyFusionCache");
-  auto fusion_cache_buffer = serde::GetFusionCache(buffer.data());
-  flatbuffers::Verifier v(buffer.data(), buffer.size());
-  NVF_CHECK(
-      fusion_cache_buffer->Verify(v),
-      "Failed to verify the integrity of FusionCache buffer.");
-  NVF_CHECK(
-      serde::FusionCacheBufferHasIdentifier(buffer.data()),
-      "Failed to verify the schema version of the FusionCache buffer");
-  return fusion_cache_buffer;
-}
-
-} // namespace
-
 void FusionCache::deserialize(std::string filename) {
   // See table definition for FusionCache in serde/fusion_cache.fbs
   // 0. Load flatbuffer binary from file
@@ -430,8 +590,18 @@ void FusionCache::deserialize(std::string filename) {
   NVF_CHECK(
       fusions_.empty(),
       "Deserialization is prohibited if FusionCache is already populated.");
-  auto buffer = openFusionCache(filename);
-  auto fusion_cache_buffer = verifyFusionCache(buffer);
+  const BinaryBuffer& buffer = openFusionCache(filename);
+  const serde::FusionCache* fusion_cache_buffer =
+      verifyFusionCache(buffer, true /* strict */);
+  deserialize(buffer, fusion_cache_buffer);
+}
+
+void FusionCache::deserialize(
+    const BinaryBuffer& buffer,
+    const serde::FusionCache* fusion_cache_buffer) {
+  // See table definition for FusionCache in serde/fusion_cache.fbs
+  FUSER_PERF_SCOPE("FusionCache::deserialize");
+  NVF_CHECK(fusion_cache_buffer != nullptr, "Fusion Cache buffer is invalid.");
 
   // 0. Set static fusion count in Fusion Executor
   FusionExecutor::setGlobalFusionCount(

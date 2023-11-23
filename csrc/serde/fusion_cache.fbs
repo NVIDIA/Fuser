@@ -116,7 +116,6 @@ union RecordData {
   Scalar,
   Size,
   Tensor,
-  TensorCreation,
   TensorCreationSymbolic,
   Vector,
 }
@@ -315,13 +314,6 @@ table Tensor {
   is_cpu: bool;
 }
 
-// Data for FullOpRecord
-// The shape is defined with constant numbers.
-table TensorCreation {
-  shape: [long];
-  dtype: long;
-}
-
 // Data for RandomDistOpRecord
 // The shape is symbolic.
 table TensorCreationSymbolic {
@@ -456,6 +448,10 @@ table FusionCache {
   auto_gen_schedules: [FusionExecutorCache];
   // static fusion executor counter
   global_fusion_count: long;
+  device_major: long;
+  device_minor: long;
+  cuda_major: long;
+  cuda_minor: long;
 }
 
 root_type FusionCache;

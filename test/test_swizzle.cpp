@@ -54,10 +54,9 @@ TEST_F(SwizzleTest, SimpleSwizzle0) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({2, 32}, options);
-  auto t2 = t0 + 2.0;
   auto cg_outputs = fe.runFusion({t0});
 
-  testValidate(&fusion, cg_outputs, {t0}, {t2}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Test swizzle inlining
@@ -94,10 +93,9 @@ TEST_F(SwizzleTest, SimpleSwizzle1) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({2, 32}, options);
-  auto t3 = t0 + 3.0;
   auto cg_outputs = fe.runFusion({t0});
 
-  testValidate(&fusion, cg_outputs, {t0}, {t3}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Test sync insertion and memory check in parallelized swizzles.
@@ -152,10 +150,9 @@ TEST_F(SwizzleTest, SimpleSwizzle2) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({32, 32}, options);
-  auto t2 = t0 + 2.0;
   auto cg_outputs = fe.runFusion({t0});
 
-  testValidate(&fusion, cg_outputs, {t0}, {t2}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Test BestEffortReplay behavior with swizzle op
@@ -282,10 +279,9 @@ TEST_F(SwizzleTest, LoopSwizzle0) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({2, 32}, options);
-  auto t2 = t0 + 2.0;
   auto cg_outputs = fe.runFusion({t0});
 
-  testValidate(&fusion, cg_outputs, {t0}, {t2}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Outer block zshape pattern
@@ -318,10 +314,9 @@ TEST_F(SwizzleTest, LoopSwizzle1) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({45, 77}, options);
-  auto t2 = t0 + 2.0;
   auto cg_outputs = fe.runFusion({t0});
 
-  testValidate(&fusion, cg_outputs, {t0}, {t2}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Test assertion in unsupported pattern: non-leaf loop swizzle.
@@ -619,7 +614,7 @@ TEST_F(SwizzleTest, SwizzleIndexing170) {
   fe.compileFusion(&fusion);
   auto outputs = fe.runFusion({t});
 
-  testValidate(&fusion, outputs, {t}, {t}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t}, __LINE__, __FILE__);
 }
 
 TEST_F(SwizzleTest, TransformPropagatorSkipSwizzleOnTarget) {

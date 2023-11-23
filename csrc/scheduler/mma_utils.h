@@ -70,7 +70,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv);
 //!   This class is used to implement the thread swizzle format
 //!     required for the mma macros, cf. PTX ISA 9.7.13.4.
 //!
-//!   The mma instructions (Volta through Ampere) require specific
+//!   The mma instructions (Volta and later arch) require specific
 //!     thread mapping within a warp for both the mma inputs and
 //!     mma outputs. All mma swizzle patterns seen so far turned out
 //!     to be affine, so we could use the normal scheduler interface
@@ -89,7 +89,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv);
 //!     as follows:
 //!
 //!   Step 1. Before scheduling, the mma op needs to be configured with a macro
-//!   type, either manually or inferred (eg. Volta_16_16_4).
+//!   type, either manually or inferred (eg. Ampere_16_8_8).
 //!
 //!   Step 2. Scheduler can tile the outer dimensions based on any heuristics,
 //!   i.e. the CTA tiling, warp tiling, splitK etc.
@@ -100,7 +100,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv);
 //!    tensordomain (see [Operand Layout Convention] for exact definition).
 //!
 //!    For example before calling WarpMmaSwizzler, the domain could look like:
-//!    [TileM, TileN, TileK, Im(16), In(16), Rk(4)], to use Volta_16_16_4.
+//!    [TileM, TileN, TileK, Im(16), In(8), Rk(8)], to use Ampere_16_8_8.
 //!    The rightmost 3 iterdomains need to be the innermost component of their
 //!    corresponding root id, similar to vectorization except this requirement
 //!    applies to all 3 rightmost dims.
@@ -170,20 +170,52 @@ class WarpMmaSwizzler {
       TensorView* tv,
       MmaOptions options = MmaOptions());
 
+  //! Note [schedule of ldmatrix]
+  //! If you look at the doc of ldmatrix and mma for Turing and Ampere:
+  //! https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-fragment-mma-16816-float
+  //! https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-instructions-ldmatrix
+  //! you will find that, the memory layout of the output of ldmatrix, which
+  //! matches with the input layout of MMA instruction, mismatch with the index
+  //! that each thread uses to call ldmatrix. In nvFuser, we schedule the
+  //! allocation domain of the ldmatrix output and mma inputs to be consistent
+  //! with the memory layout of the output of ldmatrix, and we schedule the
+  //! leaf domain of the ldmatrix output to be consistent with the index that
+  //! each thread uses to call ldmatrix. This function is used to schedule the
+  //! leaf domain of the ldmatrix output. The allocation domain of the ldmatrix
+  //! output and mma inputs are scheduled in scheduleOperandRead, which must be
+  //! called before this function.
+  //!
+  //! ldmatrix loads multiple 8x8 matrices from shared memory to registers in a
+  //! swizzled memory format.
+  //!   +--------+--------+
+  //!   |        |        |
+  //!   |  8x8   |  8x8   |
+  //!   |        |        |
+  //!   +--------+--------+
+  //!   |        |        |
+  //!   |  8x8   |  8x8   |
+  //!   |        |        |
+  //!   +--------+--------+
+  //! If mn_major is true, these 8x8 matrices are visited in the order of:
+  //! top left -> top right -> bottom left -> bottom right.
+  //! If mn_major is false, these 8x8 matrices are visited in the order of:
+  //! top left -> bottom left -> top right -> bottom right.
+  //!
+  //! In principle, only `mn_major = false` should be needed. But unfortunately,
+  //! we are taking advantage of the ldmatrix large load in a pretty hacky way.
+  //! For example, for Turing, only m16n8k8 is supported by hardware. But we are
+  //! also using a fake m16n8k16 and m16n16k16, which uses a single large
+  //! ldmatrix to load data to register, and run multiple mma instructions to
+  //! consume these data. In the future, we should only keep the m16n8k8 macro,
+  //! and schedule m16n8k16 and m16n16k16 more correctly than this current way.
+  static void scheduleLdMatrix(TensorView* tv, bool mn_major = false);
+
  private:
-  //! Operand swizzle implementations for Volta mma.
-  static void scheduleVoltaOperandRead(TensorView* tv, MmaOptions options);
-
-  //! Accumulator swizzle implementations for Volta mma.
-  static void scheduleVoltaM16N16K4Fp32Output(
-      TensorView* tv,
-      const MmaOptions& options);
-
-  //! Operand swizzle implementations for Turing and Ampere mma.
-  static void scheduleTuringOperandRead(TensorView* tv, MmaOptions options);
+  //! Memory layout for MMA operand, see note [schedule of ldmatrix]
+  static void scheduleTuringOperandRead(TensorView* tv);
 
   //! Accumulator swizzle implementation for Turing and Ampere mma.
-  static void scheduleTuringM16N8K16MmaWarpOutput(
+  static void scheduleTuringMmaWarpOutput(
       TensorView* tv,
       const MmaOptions& options);
 
@@ -270,7 +302,7 @@ using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 //! - matmul layout which contains information about transposition of matmul
 //!  inputs, it is based on the order of key domains (M,N K) in fusion input
 //!  tensors,
-//! - mma layout, some architectures (e.g. Volta) support all combination of
+//! - mma layout, some architectures (e.g. Hopper) support all combination of
 //!  transposition of inputs in mma instructions, while other (e.g. Turing,
 //!  Ampere) the only supported transposition is TN which means that mma
 //!  instruction first input is transposed, the second input is non-transposed.

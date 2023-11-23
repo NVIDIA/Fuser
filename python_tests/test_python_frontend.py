@@ -28,8 +28,14 @@ from nvfuser import (
     version,
     compute_contiguity,
     compute_tensor_descriptor,
+    serialize as nv_serialize,
 )
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+
+# Test automatic serialization to common workplace
+import atexit
+
+atexit.register(nv_serialize)
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
@@ -39,6 +45,13 @@ def is_pre_volta():
         return False
     prop = torch.cuda.get_device_properties(torch.cuda.current_device())
     return prop.major < 7
+
+
+def is_pre_ampere():
+    if not RUN_NVFUSER:
+        return False
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    return prop.major < 8
 
 
 def serde_check(test_fn: Callable):
@@ -2572,6 +2585,30 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(y.shape, torch.Size([3, 2, 2]))
         self.assertEqual(x.flatten(), y.flatten())
 
+    def test_allocation_domain_concretization(self):
+        inputs = [
+            # we need an empty tensor here so we'll trigger `concretizeEmptyExtents`
+            torch.randn((0,), dtype=torch.float64, device="cuda:0").as_strided(
+                (1, 0, 1, 1), (0, 1, 1, 1)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T1 = fd.define_tensor(
+                shape=[1, -1, 1, 1],
+                contiguity=[True, None, None, None],
+                dtype=DataType.Double,
+                is_cpu=False,
+                stride_order=[0, 3, 2, 1],
+            )
+            S1 = fd.define_scalar(2.0, dtype=DataType.Double)
+            T2 = fd.ops.mul(T1, S1)
+            fd.add_output(T2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        torch_ref = inputs[0] * 2.0
+        self.assertEqual(nvf_out[0], torch_ref)
+
     def test_allocation_domain_index_select(self):
         inputs = [
             torch.randn((252,), dtype=torch.float32, device="cuda:0").as_strided(
@@ -2656,6 +2693,36 @@ class TestNvFuserFrontend(TestCase):
 
         self.assertEqual(y.data_ptr(), x.data_ptr())
 
+    # Test that reshape to slice to sum with concrete sizes sets extents properly
+    # https://github.com/NVIDIA/Fuser/issues/1221
+    def test_sum_sliced_reshape_to_broadcast(self):
+        inputs = [torch.randn((24, 128, 25, 32), dtype=torch.float32, device="cuda:0")]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T18 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            S91 = fd.define_scalar(12, dtype=DataType.Int)
+            S92 = fd.define_scalar(128, dtype=DataType.Int)
+            S93 = fd.define_scalar(25, dtype=DataType.Int)
+            S94 = fd.define_scalar(32, dtype=DataType.Int)
+            S95 = fd.define_scalar(2, dtype=DataType.Int)
+            V96 = fd.define_vector([S91, S92, S93, S94, S95], dtype=DataType.Int)
+            T97 = fd.ops.reshape(T18, new_shape=V96)
+            T98 = fd.ops.slice(
+                T97,
+                start_indices=[0, 0, 0, 0, 0],
+                end_indices=[12, 128, 25, 32, 1],
+                strides=[1, 1, 1, 1, 1],
+            )
+            T89 = fd.ops.sum(T98, axes=[4], keepdim=False, dtype=DataType.Null)
+            fd.add_output(T89)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
     # This tests no dead code at definition does not cause a problem due to
     # removal of empty tensors
     # See https://github.com/NVIDIA/Fuser/pull/1270
@@ -2701,6 +2768,82 @@ class TestNvFuserFrontend(TestCase):
         t11 = t8.sum([0])
         self.assertEqual(nvf_out[0], t24)
         self.assertEqual(nvf_out[1], t11)
+
+    # See https://github.com/NVIDIA/Fuser/issues/1246
+    def test_issue1246(self):
+        inputs = [
+            torch.randn((8388608,), dtype=torch.float32, device="cuda:0").as_strided(
+                (1, 32, 2048, 128), (8388608, 262144, 128, 1)
+            ),
+            torch.randn((0,), dtype=torch.float32, device="cuda:0").as_strided(
+                (1, 32, 2048, 0), (8388608, 262144, 128, 1)
+            ),
+        ]
+
+        for final_mul in [False, True]:
+
+            def fusion_func(fd: FusionDefinition) -> None:
+                T0 = fd.define_tensor(
+                    shape=[1, -1, -1, -1],
+                    contiguity=[None, True, True, True],
+                    dtype=DataType.Float,
+                    is_cpu=False,
+                )
+                T1 = fd.define_tensor(
+                    shape=[1, -1, -1, -1],
+                    contiguity=[None, True, False, True],
+                    dtype=DataType.Float,
+                    is_cpu=False,
+                )
+                S2 = fd.define_scalar(2.00000, dtype=DataType.Double)
+                T3 = fd.ops.mul(T0, S2)
+                T4 = fd.ops.cat([T3, T1], dim=-1)
+                if final_mul:
+                    # NOTE: original repro does not have this final op
+                    S3 = fd.define_scalar(1.00000, dtype=DataType.Double)
+                    T5 = fd.ops.mul(T4, S3)
+                    fd.add_output(T5)
+                else:
+                    fd.add_output(T4)
+
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+            torch_ref = torch.cat([2.0 * inputs[0], inputs[1]], dim=-1)
+            self.assertEqual(nvf_out[0], torch_ref)
+
+    # Test that inputs are properly forwarded when an input is used in multiple
+    # UnaryOps, some having one and others having multiple further uses.
+    # See https://github.com/NVIDIA/Fuser/issues/1301#issuecomment-1812470502
+    @unittest.skipIf(is_pre_ampere(), "Only supported on Ampere and newer devices.")
+    def test_issue1310(self):
+        inputs = [torch.randn((16, 128, 768), dtype=torch.bfloat16, device="cuda:0")]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T3 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+            )
+            T14 = fd.ops.cast(
+                T3, dtype=DataType.Float
+            )  # NOTE that RHS is same, but the result is assigned to different variables
+            T15 = fd.ops.cast(
+                T3, dtype=DataType.Float
+            )  # NOTE that RHS is same, but the result is assigned to different variables
+            T16 = fd.ops.sum(T15, axes=[0, 1], keepdim=False, dtype=DataType.Null)
+            T20 = fd.ops.sum(T14, axes=[0, 1], keepdim=False, dtype=DataType.Null)
+            T31 = fd.ops.sum(T14, axes=[2], keepdim=False, dtype=DataType.Null)
+            fd.add_output(T16)
+            fd.add_output(T20)
+            fd.add_output(T31)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        t14 = inputs[0].type(torch.float32)
+        t16 = t14.sum([0, 1])
+        t31 = t14.sum([2])
+        self.assertEqual(nvf_out[0], t16)
+        self.assertEqual(nvf_out[1], t16)  # T16 == T20
+        self.assertEqual(nvf_out[2], t31)
 
 
 if __name__ == "__main__":

@@ -7,8 +7,10 @@
 // clang-format on
 #include <index_compute.h>
 
+#include <ATen/cuda/CUDAContext.h>
 #include <c10/util/Exception.h>
 #include <c10/util/irange.h>
+
 #include <contiguity.h>
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/analysis/shift.h>
@@ -1323,7 +1325,8 @@ bool isParallelLoopIndexSubstitutedAsZero(
   // to consumer but they should still be detected as same
   // parallel type. In a follow up may want to extend
   // find_matching_parallel_domain to cover this case.
-  if (within_mma_loops && loop_id->getParallelType() == ParallelType::TIDx) {
+  if ((within_mma_loops || ir_utils::isLdMatrixOp(tv->definition())) &&
+      loop_id->getParallelType() == ParallelType::TIDx) {
     return true;
   }
 
@@ -1662,6 +1665,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
+  bool is_mma_input = consumer_tv->definition()->isA<MmaOp>();
   const auto gpu_lower = GpuLower::current();
   // Replay producer to look like consumer so we can index on producer since our
   // loop nests look like consumer
@@ -1753,7 +1757,9 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
   for (auto alloc_id : alloc_dom) {
     // Already taken care of because we can detect no indexing required
     if (alloc_id->isBroadcast() || alloc_id->isReduction() ||
-        alloc_id->isStride()) {
+        alloc_id->isStride() ||
+        (alloc_id->isThread() &&
+         producer_tv->getMemoryType() == MemoryType::Local)) {
       skip_indexing.insert(alloc_id);
       continue;
     }
@@ -1766,6 +1772,23 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   std::vector<Val*> strided_inds(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
+
+  // MMA operation op is a special operation that our automatic "zero domain"
+  // analysis of our current indexing approach does not work. So we need to
+  // manually specify which dimensions are used for MMA allocation.
+  std::function<bool(const IterDomain* id)> is_mma_allocation;
+  if (is_mma_input) {
+    int size = (int)alloc_dom.size();
+    const IterDomain* allocation0 = alloc_dom.at(size - 3);
+    const IterDomain* allocation1 = alloc_dom.at(size - 2);
+    const IterDomain* allocation2 = alloc_dom.at(size - 1);
+    is_mma_allocation = [=](const IterDomain* id) {
+      return id == allocation0 || id == allocation1 || id == allocation2;
+    };
+  } else {
+    is_mma_allocation = [](const IterDomain* id) { return false; };
+  }
+
   for (const auto i : c10::irange(alloc_dom.size())) {
     if (skip_indexing.count(alloc_dom[i])) {
       continue;
@@ -1816,7 +1839,8 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
       alloc_ext_j = getHaloExtentOfRootAxis(alloc_dom[j], alloc_ext_j);
 
-      if (zero_domain_map.count(alloc_dom[j]) == 0) {
+      if (zero_domain_map.count(alloc_dom[j]) == 0 ||
+          is_mma_allocation(alloc_dom[j])) {
         if (stride == nullptr) {
           stride = alloc_ext_j;
         } else {
@@ -2191,7 +2215,9 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
   for (const auto i : c10::irange(alloc_dom.size())) {
     if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast() ||
-        alloc_dom[i]->isStride()) {
+        alloc_dom[i]->isStride() ||
+        (alloc_dom[i]->isThread() &&
+         consumer_tv->getMemoryType() == MemoryType::Local)) {
       continue;
     }
 
@@ -2363,7 +2389,8 @@ kir::TensorIndex* Index::getProducerIndex(
     const std::vector<kir::ForLoop*>& loops,
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index,
-    bool generate_pointer) {
+    bool generate_pointer,
+    DataType as_type) {
   auto index = getProducerStridedIndices(
       producer,
       consumer,
@@ -2372,7 +2399,17 @@ kir::TensorIndex* Index::getProducerIndex(
       override_index,
       generate_pointer);
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
-  return SimplifyingIrBuilder::create<kir::TensorIndex>(producer, index);
+  if (ir_utils::isLdMatrixOp(consumer->definition())) {
+    if (at::cuda::getCurrentDeviceProperties()->major < 8) {
+      // For Turing, unused indices for ldmatrix needs to be aligned, although
+      // they are not used.
+      auto orig_index = index;
+      index = IrBuilder::create<Val>(index->dtype());
+      IrBuilder::create<UnaryOp>(
+          UnaryOpType::AdjustPartialLdMatrixAddrInTuring, index, orig_index);
+    }
+  }
+  return IrBuilder::create<kir::TensorIndex>(producer, index, as_type);
 }
 
 Val* Index::getConsumerStridedIndices(

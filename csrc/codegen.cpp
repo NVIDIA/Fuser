@@ -534,17 +534,34 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void handle(const kir::TensorIndex* ti) final {
     bool is_volatile = ti->view()->getMemoryType() == MemoryType::Global &&
         kernel_->summary().sync_map->needsRawSync(ti->view()).hasBID();
+    bool is_pointer = isPointerType(ti->index()->dtype());
+    if (is_pointer) {
+      bool is_u32_ptr = ti->index()->dtype() == DataType::SMemAddress;
+      if (is_u32_ptr) {
+        // DataType::SMemAddress is implemented as uint32_t in C++. The problem
+        // for this implementation is, the type promotion rule in C++ for
+        // uint32_t mismatch with the type promotion rule for
+        // DataType::SMemAddress in nvFuser. As a workaround, we always cast to
+        // the correct type in the generated code.
+        code_ << "(uint32_t)(";
+      }
+      code_ << genInline(ti->index());
+      if (is_u32_ptr) {
+        code_ << ")";
+      }
+      return;
+    }
     bool different_dtype = ti->view()->dtype() != ti->dtype();
     if (is_volatile) {
       code_ << "*(volatile " << ti->getDataType().value() << "*)&";
     }
     if (different_dtype) {
-      code_ << "*reinterpret_cast<" << ti->getDataType().value() << "*>(&";
+      code_ << "(*reinterpret_cast<" << ti->getDataType().value() << "*>(&";
     }
     code_ << genVariableName(ti->view()) << "[" << genInline(ti->index())
           << "]";
     if (different_dtype) {
-      code_ << ")";
+      code_ << "))";
     }
   }
 
@@ -573,8 +590,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     template_args.arg(vec_size);
 
     ArgumentBuilder func_args;
-    func_args.arg(genInline(ldst->out()->as<kir::TensorIndex>()->index()));
-    func_args.arg(genInline(ldst->in()->as<kir::TensorIndex>()->index()));
+    func_args.arg(genInline(ldst->out()));
+    func_args.arg(genInline(ldst->in()));
     if (ldst->predicate() != nullptr) {
       func_args.arg(genInline(ldst->predicate()));
     }
@@ -617,20 +634,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genInline(smem_ti->index()));
 
     indent() << genCall(func_name, func_args) << ";\n";
-  }
-
-  void genLdMatrix(const LoadStoreOp* ldst) {
-    auto dtype = ldst->in()->getDataType().value();
-
-    bool is_transpose = (ldst->opType() == LoadStoreOpType::LdMatrixTranspose);
-    std::string name =
-        (is_transpose ? "Turing::ldMatrixT" : "Turing::ldMatrix");
-
-    ArgumentBuilder func_args;
-    func_args.arg(gen(ldst->out()));
-    func_args.arg(genInline(ldst->in()->as<kir::TensorIndex>()->index()));
-
-    indent() << genCall(name, func_args) << ";\n";
   }
 
   void handle(const GetMetaData* gop) final {
@@ -1054,9 +1057,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   std::string genArchString(MmaOptions::MacroType macro) {
     std::stringstream ss;
-    if (isVolta(macro)) {
-      ss << "Volta";
-    } else if (isTuring(macro)) {
+    if (isTuring(macro)) {
       ss << "Turing";
     } else if (isAmpere(macro)) {
       ss << "Ampere";
@@ -1066,14 +1067,27 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     return ss.str();
   }
 
-  std::string genMmaOp(const MmaOp* mma, bool init = false) {
+  std::string genMmaOp(const MmaOp* mma) {
     std::stringstream ss;
     auto macro = mma->macro();
     ss << genArchString(macro) << "::";
-    if (init) {
-      ss << "init";
+
+    switch (macro) {
+      case MmaOptions::MacroType::NoMMA:
+        ss << "NoOp";
+        break;
+      case MmaOptions::MacroType::Turing_16_8_16:
+      case MmaOptions::MacroType::Ampere_16_8_16:
+        ss << "M16N8K16";
+        break;
+      case MmaOptions::MacroType::Turing_16_16_16:
+      case MmaOptions::MacroType::Ampere_16_16_16:
+        ss << "M16N16K16";
+        break;
+      default:
+        NVF_ERROR(false, "undefined mma type");
+        break;
     }
-    ss << toString(macro);
 
     // clang-tidy: bugprone-unchecked-optional-access
     // clang-tidy assumes that function result is unstable, so we need a copy.
@@ -1085,11 +1099,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           "MMAs in Turing and Ampere are TN only, transpose is handled either "
           "via ldmatrix.trans for fp16 or explicitly for other types.");
     }
-    if (!init) {
-      ss << toString(mma_layout_opt.value());
-    }
-    if (!init && isAmpere(macro)) {
-      if (mma->inA()->getDataType().value() == DataType::Half) {
+    ss << toString(mma_layout_opt.value());
+    if (isAmpere(macro)) {
+      if (mma->inA()->as<kir::TensorIndex>()->view()->getDataType().value() ==
+          DataType::Half) {
         ss << "F16";
       } else {
         ss << "BF16";
@@ -1098,60 +1111,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     return ss.str();
   }
 
-  static int getInputARegisterSize(MmaOptions::MacroType macro) {
-    switch (macro) {
-      case MmaOptions::MacroType::Volta_16_16_4:
-        return 2;
-      case MmaOptions::MacroType::Turing_16_8_16:
-      case MmaOptions::MacroType::Turing_16_16_16:
-      case MmaOptions::MacroType::Ampere_16_8_16:
-      case MmaOptions::MacroType::Ampere_16_16_16:
-        return 4;
-      default:
-        NVF_ERROR(false, "unknown macro");
-        break;
-    }
-    return -1;
-  }
-
-  static int getInputBRegisterSize(MmaOptions::MacroType macro) {
-    switch (macro) {
-      case MmaOptions::MacroType::Volta_16_16_4:
-      case MmaOptions::MacroType::Turing_16_8_16:
-      case MmaOptions::MacroType::Ampere_16_8_16:
-        return 2;
-      case MmaOptions::MacroType::Turing_16_16_16:
-      case MmaOptions::MacroType::Ampere_16_16_16:
-        return 4;
-      default:
-        NVF_ERROR(false, "unknown macro");
-        break;
-    }
-    return -1;
-  }
-
-  void genMmaOperands(const MmaOp* mma) {
-    std::stringstream ss;
-    auto macro = mma->macro();
-    auto in_a = mma->inA()->as<kir::TensorIndex>()->view();
-    auto dtype = in_a->getDataType().value();
-    indent() << kTab << "(reinterpret_cast<Array<unsigned"
-             << "," << getInputARegisterSize(macro) << ", 1>*>(&"
-             << genVariableName(mma->inA()->as<kir::TensorIndex>()->view())
-             << ")[" << genInline(mma->inA()->as<kir::TensorIndex>()->index())
-             << "])"
-             << ",\n";
-    indent() << kTab << "(reinterpret_cast<Array<unsigned"
-             << "," << getInputBRegisterSize(macro) << ", 1>*>(&"
-             << genVariableName(mma->inB()->as<kir::TensorIndex>()->view())
-             << ")[" << genInline(mma->inB()->as<kir::TensorIndex>()->index())
-             << "])";
-  }
-
   void handle(const MmaOp* mma) final {
     indent() << genMmaOp(mma) << "(\n";
     indent() << kTab << gen(mma->out()) << ",\n";
-    genMmaOperands(mma);
+    indent() << kTab << gen(mma->inA()) << ",\n";
+    indent() << kTab << gen(mma->inB());
     code_ << ");\n";
   }
 
@@ -1312,6 +1276,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const LoadStoreOp* ldst) final {
     auto optype = ldst->opType();
+    NVF_ERROR(
+        optype != LoadStoreOpType::LdMatrix &&
+            optype != LoadStoreOpType::LdMatrixTranspose,
+        "ldmatrix should be lowered as kir::Asm");
+
     if (ldst->out()->isA<kir::TensorIndex>()) {
       auto out_ti = ldst->out()->as<kir::TensorIndex>();
       auto out_tv = out_ti->view();
@@ -1324,7 +1293,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         auto mma = dynamic_cast<MmaOp*>(out_tv->definition());
         NVF_ERROR(mma != nullptr, "CodeGen: mma op not in mma loop");
         NVF_ERROR(optype == LoadStoreOpType::Set);
-        indent() << genMmaOp(mma, true) << "(" << gen(ldst->out()) << ");\n";
+        indent() << "(" << gen(ldst->out()) << ").set(0);\n";
         return;
       }
 
@@ -1337,14 +1306,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         NVF_ERROR(
             ldst->out()->dtype() == ldst->in()->dtype(),
             "Vectorized store/load requires input and output datatypes match.");
-      }
-
-      // dispatch ldmatrix
-      if (optype == LoadStoreOpType::LdMatrix ||
-          optype == LoadStoreOpType::LdMatrixTranspose) {
-        NVF_ERROR(is_vector_op, "LdMatrix: Vectorization required: ", ldst);
-        genLdMatrix(ldst);
-        return;
       }
 
       // dispatch cp.async
@@ -2879,13 +2840,32 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         (asm_->code().size() +
              (asm_->inputs().size() + asm_->outputs().size()) * 5 >
          80);
+    if (!multiline) {
+      // If any of the operand is an array type, force using multiline
+      for (const auto& l :
+           std::array<std::reference_wrapper<const std::vector<Val*>>, 2>{
+               asm_->inputs(), asm_->outputs()}) {
+        for (const auto& v : l.get()) {
+          if (std::holds_alternative<ArrayType>(v->dtype().type)) {
+            multiline = true;
+            break;
+          }
+        }
+      }
+    }
     code_ << "(";
     if (multiline) {
       code_ << "\n";
       block_nest_level_++;
       indent();
     }
-    code_ << "\"" << asm_->code() << "\\n\"";
+
+    code_ << "\"" << asm_->code();
+    auto parameters = asm_->parameters();
+    if (!parameters.empty()) {
+      code_ << " " << parameters;
+    }
+    code_ << ";\\n\"";
 
     auto next_section = [&]() {
       if (multiline) {
@@ -2899,15 +2879,30 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         [&](const auto& constraints_and_registers) {
           bool first = true;
           for (auto [constraint, register_] : constraints_and_registers) {
-            if (!first) {
+            auto next_line = [&]() {
               code_ << ", ";
               if (multiline) {
                 code_ << "\n";
-                indent();
+                indent() << " ";
               }
+            };
+            if (!first) {
+              next_line();
             }
             first = false;
-            code_ << "\"" << constraint << "\"(" << gen(register_) << ")";
+            if (std::holds_alternative<ArrayType>(register_->dtype().type)) {
+              for (auto i : c10::irange(
+                       std::get<ArrayType>(register_->dtype().type).size)) {
+                if (i > 0) {
+                  next_line();
+                }
+                code_ << "\"" << constraint << "\"(" << gen(register_) << "["
+                      << i << "]"
+                      << ")";
+              }
+            } else {
+              code_ << "\"" << constraint << "\"(" << gen(register_) << ")";
+            }
           }
         };
 

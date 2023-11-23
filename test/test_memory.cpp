@@ -26,9 +26,9 @@
 
 namespace nvfuser {
 
-class MemoryTest
-    : public NVFuserTest,
-      public testing::WithParamInterface<std::tuple<CacheOp, std::string>> {
+using MemoryTestParams = std::tuple<CacheOp, std::string>;
+
+class MemoryTest : public NVFuserFixtureParamTest<MemoryTestParams> {
  protected:
   void expectMatchCount(
       const std::string& text,
@@ -107,7 +107,7 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_tuple(CacheOp::AllLevels, "ca"),
         std::make_tuple(CacheOp::Global, "cg"),
         std::make_tuple(CacheOp::Streaming, "cs")),
-    [](const testing::TestParamInfo<std::tuple<CacheOp, std::string>>& info) {
+    [](const testing::TestParamInfo<MemoryTestParams>& info) {
       std::ostringstream os;
       os << std::get<0>(info.param);
       return os.str();
