@@ -300,7 +300,7 @@ std::vector<std::optional<bool>> computeContiguity(
 //
 // e.g. Given size and stride as follow:
 //   sizes   = [2, 2, 2, 2]
-//   strides = [8, 4, 0, 1]
+//   strides = [8, 4, 0, 2]
 // The stride of implicit broadcast dimensions, dimensions with stride == 0,
 // does not participate in stride order computation and preserves their
 // semantical position in stride order. The logic behind this is so that we
