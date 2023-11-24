@@ -1096,6 +1096,17 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
         continue;
       }
     }
+
+    for (auto& [role, tvs] : roles_map) {
+      // NOTE: sort input roles in descending order by uses() size, and
+      //  if equal then by name() to ensure the stable ordering of tensor
+      //  views in collections assigned to the supported roles
+      std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
+        return (a->uses().size() == b->uses().size())
+            ? (a->name() < b->name())
+            : (a->uses().size() > b->uses().size());
+      });
+    }
   };
 
   const auto findOutputRolesByDomains = [](const DependenciesMap& deps_map,
@@ -1117,12 +1128,15 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
       //    is not present
 
       // NOTE: the core fusion output tensors are the ones with m and n
-      // domains
+      //  domains
       if (has_m && has_n) {
         storage.push_back(entry.first);
       }
     }
 
+    // NOTE: sort output roles in descending order by uses() size, and
+    //  if equal then by name() to ensure the stable ordering of tensor
+    //  views in collections assigned to the supported roles
     std::sort(storage.begin(), storage.end(), [](TensorView* a, TensorView* b) {
       return (a->uses().size() == b->uses().size())
           ? (a->name() < b->name())
@@ -1159,17 +1173,6 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
   resolveTvToMatmulDomainsMapping(
       deps_map, mma_output_candidates, m, n, k, ca_map);
   findOutputRolesByDomains(deps_map, roles_map);
-
-  for (auto& [role, tvs] : roles_map) {
-    // sort tvs in descending order by uses() size, and if equal then then by
-    // name() done to make decide which tv should be a reference output tensor
-    // view, if there are more output tvs that match requirements
-    std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
-      return (a->uses().size() == b->uses().size())
-          ? (a->name() < b->name())
-          : (a->uses().size() > b->uses().size());
-    });
-  }
 
   return roles_map;
 }
