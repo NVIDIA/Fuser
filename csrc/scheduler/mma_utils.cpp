@@ -738,7 +738,6 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOptions options) {
   //  -5  -4  -3   -2  -1     or      -5  -4  -3  -2  -1
   //[8mn, 4k, 2k, 2mn, 2k']          [8n, 4k, 2k, 1n, 2k']
 
-
   // ldmatrix loads multiple 8x8 matrices from shared memory to registers in a
   // swizzled memory format.
   //   +--------+--------+
