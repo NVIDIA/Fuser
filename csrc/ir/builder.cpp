@@ -122,6 +122,16 @@ Val* IrBuilder::maybeCastExpr(DataType dtype, Val* val) {
   return result;
 }
 
+Val* IrBuilder::maybeRefCastExpr(DataType dtype, Val* val) {
+  NVF_CHECK(val != nullptr, "val is a nullptr in bitCastExpr.");
+  if (val->dtype() == dtype) {
+    return val;
+  }
+  auto result = create<Val>(dtype);
+  IrBuilder::create<UnaryOp>(UnaryOpType::RefCast, result, val);
+  return result;
+}
+
 Val* IrBuilder::addressExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in addressExpr.");
   auto result = create<Val>(
