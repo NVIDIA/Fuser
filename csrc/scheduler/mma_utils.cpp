@@ -774,56 +774,58 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOptions options) {
 void WarpMmaSwizzler::scheduleMmaWarpOutput(
     TensorView* tv,
     MmaOptions options) {
-  // Assume last 2 dims [M16, N8] or [M16, N8, R]
-  // Locate instruction m
-  bool is_reduction = tv->axis(-1)->isReduction();
+  // This function works for all mma ops, regardless of the architecture. The
+  // Hopper one is the most general one. For earlier architectures, we will have
+  // some dimensions with size 1 after split, this is fine.
+  // Memory format for hopper mma:
+  // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#wgmma-64n16-d
 
-  int m_pos = is_reduction ? -3 : -2;
+  // Assume last 2 dims, for example [M64, N24] or [M64, N24, R]
+  NVF_ERROR(tv->nDims() >= 2);
+  bool is_mma_output = tv->definition()->isA<MmaOp>();
 
-  //  m
-  // [16, 8  (,R)]
-  tv->split(m_pos, 8);
-  tv->split(m_pos + 1, 8);
-  //        m
-  // [2, 8, 1, 8  (,R)]
-  tv->split(m_pos + 1, 2);
+  int m_pos = is_mma_output ? -3 : -2;
+  int n_pos = is_mma_output ? -2 : -1;
 
-  //              m
-  // [2o, 8o, 1, 4i, 2i (,R)]
-  tv->reorder({{m_pos, m_pos - 1}, {m_pos - 1, m_pos}});
-  m_pos--;
-  //           m
-  // [2o, 8o, 4i, 1, 2i (,R)]
-  tv->merge(m_pos - 1);
+  //   m    n
+  // [M64, N24  (,R)]
+  tv->split(m_pos--, 8);
+  tv->split(m_pos--, 2);
+  //   m           n
+  // [M4, M2, M8, N24  (,R)]
+  tv->split(n_pos--, 8);
+  tv->split(n_pos-- + 1, 2);
+  m_pos -= 2;
+  //  m           n
+  // [M4, M2, M8, N3, N4, N2  (,R)]
+
+  tv->reorder({{m_pos + 1, n_pos + 1}, {n_pos + 1, m_pos + 2}});
+  //  m           n
+  // [M4, M8, N4, N3, M2, N2  (,R)]
+  tv->merge(m_pos++);
+  tv->merge(m_pos++);
 
   //       m
-  // [2o, Warp, 1, 2i (,R)]
-  tv->reorder({{m_pos, m_pos - 1}, {m_pos + 1, m_pos}});
-  m_pos--;
+  // [WarpGroup128, N3, M2, N2  (,R)]
 
-  //    m
-  // [Warp, 1, 2o, 2i (,R)]
-  if (is_reduction) {
+  if (is_mma_output) {
     tv->split(-1, 2);
     tv->split(-2, 4);
     m_pos -= 2;
-    //    m
-    // [Warp, 1, 2o, 2i, R2, R4, R2]
+    //       m
+    // [WarpGroup128, N3, M2, N2, Ro, R4, R2]
   }
 
   NVF_CHECK(tv->definition() != nullptr);
 
-  if (is_reduction && tv->definition()->isA<MmaOp>()) {
+  tv->axis(m_pos)->parallelize(ParallelType::TIDx);
+
+  if (is_mma_output) {
     // Set instruction loops for mma reduce
     int pos = -1;
     while (pos > m_pos) {
       tv->axis(pos--)->parallelize(ParallelType::Mma);
     }
-  }
-
-  tv->axis(m_pos)->parallelize(ParallelType::TIDx);
-
-  if (tv->definition()->isA<MmaOp>()) {
     setWarpMapped(tv, 7);
   }
 }
