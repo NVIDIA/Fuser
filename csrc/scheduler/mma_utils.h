@@ -213,9 +213,6 @@ class WarpMmaSwizzler {
  private:
   //! Memory layout for MMA operand, see note [schedule of ldmatrix]
   static void scheduleTuringOperandRead(TensorView* tv);
-
-  //! Utility to lock the transformed dimensions from further transforms.
-  static void setWarpMapped(TensorView* tv, int number_of_dims);
 };
 
 void checkDimSize(

@@ -577,6 +577,13 @@ void checkDimSize(
   }
 }
 
+//! Utility to lock the transformed dimensions from further transforms.
+static void setWarpMapped(TensorView* tv, int number_of_dims) {
+  for (int id : c10::irange(number_of_dims)) {
+    tv->axis(-id - 1)->toMmaSwizzled();
+  }
+}
+
 void WarpMmaSwizzler::scheduleMmaOutput(TensorView* tv, MmaOptions options) {
   // This function works for all mma ops, regardless of the architecture. The
   // Hopper one is the most general one. For earlier architectures, we will have
@@ -641,23 +648,16 @@ void WarpMmaSwizzler::scheduleMmaOutput(TensorView* tv, MmaOptions options) {
 void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOptions options) {
   // Schedules operand for inner most 3 contiguous dimensions
   // Assumes M, N, K
+  auto macro = MmaMacroEncode(options.macro);
 
-  switch (options.macro) {
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
+  switch (macro.arch) {
+    case MmaMacroEncode::Arch::Turing:
+    case MmaMacroEncode::Arch::Ampere:
       scheduleTuringOperandRead(tv);
       break;
     default:
       NVF_CHECK(false, "WarpMmaSwizzler: please specify macro");
       break;
-  }
-}
-
-void WarpMmaSwizzler::setWarpMapped(TensorView* tv, int number_of_dims) {
-  for (int id : c10::irange(number_of_dims)) {
-    tv->axis(-id - 1)->toMmaSwizzled();
   }
 }
 
