@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <macros.h>
+
 #include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
@@ -295,7 +297,14 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
       bool found_mma = false;
 
      private:
-      void handle(MmaOp* uop) final {
+      void handle(kir::Asm* asm_) final {
+#if IS_CPP20
+        if (!asm_->code().starts_with("mma")) {
+#else
+        if (asm_->code().substr(0, 3) != "mma") {
+#endif
+          return;
+        }
         found_mma = true;
         for (auto expr : scope_exprs_) {
           NVF_CHECK(
