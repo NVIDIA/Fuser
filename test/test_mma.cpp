@@ -77,9 +77,7 @@ TEST_F(TuringMmaTest, TN) {
   // [M, N, K] -> [N, M, K]
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -154,9 +152,7 @@ TEST_F(TuringMmaTest, TT) {
   // [M, N, K] -> [N, M, K]
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -233,9 +229,7 @@ TEST_F(TuringMmaTest, NT) {
   // [K,M,N] -> [N,M,K]
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -310,9 +304,7 @@ TEST_F(TuringMmaTest, NN) {
   // [M, N, K] -> [N, M, K]
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -394,8 +386,6 @@ TEST_F(AmpereMmaTest, TN) {
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -473,8 +463,6 @@ TEST_F(AmpereMmaTest, TT) {
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -556,8 +544,6 @@ TEST_F(AmpereMmaTest, NT) {
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -635,8 +621,6 @@ TEST_F(AmpereMmaTest, NN) {
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -711,8 +695,6 @@ TEST_F(AmpereMmaTest, LargeTN) {
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -790,8 +772,6 @@ TEST_F(AmpereMmaTest, LargeTT) {
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -873,8 +853,6 @@ TEST_F(AmpereMmaTest, LargeNT) {
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
@@ -952,8 +930,6 @@ TEST_F(AmpereMmaTest, LargeNN) {
   tv0cr->reorder({{-2, -3}, {-3, -2}});
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(

@@ -533,14 +533,12 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
   // Schedule gemm 2 mma input
   // ---------------------------------------------------------------------------
   tv3cr->applyMmaSwizzle(mma_builder2.operand(MmaOptions::Operand::A).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv3cr);
 
   // [... Mi, Ni, Ki] want [Ni, Mi, Ki]
   tv3b->reorder({{-2, -3}, {-3, -2}});
   tv3b->applyMmaSwizzle(mma_builder2.operand(MmaOptions::Operand::A).build());
 
   tv2cr->applyMmaSwizzle(mma_builder2.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv2cr, true);
   tv2b->applyMmaSwizzle(mma_builder2.operand(MmaOptions::Operand::B).build());
 
   // Schedule mma output
@@ -600,13 +598,11 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
   // Schedule mma input
   // ---------------------------------------------------------------------------
   tv0cr->applyMmaSwizzle(mma_builder1.operand(MmaOptions::Operand::A).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
   // [... Mi, Ni, Ki] want [Ni, Mi, Ki]
   tv0b->reorder({{-2, -3}, {-3, -2}});
   tv0b->applyMmaSwizzle(mma_builder1.operand(MmaOptions::Operand::A).build());
 
   tv1cr->applyMmaSwizzle(mma_builder1.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv1b->applyMmaSwizzle(mma_builder1.operand(MmaOptions::Operand::B).build());
 
   // Schedule mma output
@@ -839,13 +835,11 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   // Schedule gemm 2 mma input
   // ---------------------------------------------------------------------------
   tv3cr->applyMmaSwizzle(mma_builder2.operand(MmaOptions::Operand::A).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv3cr);
   // [... Mi, Ni, Ki] want [Ni, Mi, Ki]
   tv3b->reorder({{-2, -3}, {-3, -2}});
   tv3b->applyMmaSwizzle(mma_builder2.operand(MmaOptions::Operand::A).build());
 
   tv2cr->applyMmaSwizzle(mma_builder2.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv2cr, true);
   tv2b->applyMmaSwizzle(mma_builder2.operand(MmaOptions::Operand::B).build());
 
   // Schedule mma output
@@ -913,13 +907,11 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   // Schedule mma input
   // ---------------------------------------------------------------------------
   tv0cr->applyMmaSwizzle(mma_builder1.operand(MmaOptions::Operand::A).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
   // [... Mi, Ni, Ki] want [Ni, Mi, Ki]
   tv0b->reorder({{-2, -3}, {-3, -2}});
   tv0b->applyMmaSwizzle(mma_builder1.operand(MmaOptions::Operand::A).build());
 
   tv1cr->applyMmaSwizzle(mma_builder1.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv1b->applyMmaSwizzle(mma_builder1.operand(MmaOptions::Operand::B).build());
 
   // // Schedule mma output
@@ -1187,13 +1179,11 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
   // Schedule mma input
   // ---------------------------------------------------------------------------
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
   // [... Mi, Ni, Ki]
   tv0b->reorder({{-2, -3}, {-3, -2}});
   tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
 
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
 
   // Schedule mma output
@@ -1355,14 +1345,12 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
   // Schedule mma input
   // ---------------------------------------------------------------------------
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
 
   // [... Mi, Ni, Ki] want [Ni, Mi, Ki]
   tv0b->reorder({{-2, -3}, {-3, -2}});
   tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
 
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
 
   // Schedule mma output
@@ -1525,14 +1513,12 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
   // Schedule mma input
   // ---------------------------------------------------------------------------
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
 
   // [... Mi, Ni, Ki] want [Ni, Mi, Ki]
   tv0b->reorder({{-2, -3}, {-3, -2}});
   tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
 
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
 
   // Schedule mma output
@@ -1713,14 +1699,12 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
   tv1cw->setMemoryType(MemoryType::Shared);
   // Schedule mma input
   tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
 
   // [... Mi, Ni, Ki]
   tv0b->reorder({{-2, -3}, {-3, -2}});
   tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
 
   tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
   tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
 
   // Schedule mma output

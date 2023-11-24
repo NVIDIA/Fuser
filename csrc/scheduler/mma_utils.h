@@ -162,13 +162,11 @@ class WarpMmaSwizzler {
   //! The rightmost iterdomains must follow the m,n,k convention before calling.
   static void scheduleMmaWarpOutput(TensorView* tv, MmaOptions options);
 
-  //! Applies the input mma swizzling to the given tv, should be used
-  //!  on mma input or tv's involved in any fusion before mma, but after smem
-  //!  read.
+  //! Applies the input mma swizzling to the given tv as its allocation domain,
+  //! should be used on mma input or tv's involved in any fusion before mma, but
+  //! after smem read.
   //! The rightmost iterdomains must follow the m,n,k convention before calling.
-  static void scheduleOperandRead(
-      TensorView* tv,
-      MmaOptions options = MmaOptions());
+  static void scheduleOperandRead(TensorView* tv, MmaOptions options);
 
   //! Note [schedule of ldmatrix]
   //! If you look at the doc of ldmatrix and mma for Turing and Ampere:
@@ -184,62 +182,13 @@ class WarpMmaSwizzler {
   //! leaf domain of the ldmatrix output. The allocation domain of the ldmatrix
   //! output and mma inputs are scheduled in scheduleOperandRead, which must be
   //! called before this function.
-  //!
-  //! ldmatrix loads multiple 8x8 matrices from shared memory to registers in a
-  //! swizzled memory format.
-  //!   +--------+--------+
-  //!   |        |        |
-  //!   |  8x8   |  8x8   |
-  //!   |        |        |
-  //!   +--------+--------+
-  //!   |        |        |
-  //!   |  8x8   |  8x8   |
-  //!   |        |        |
-  //!   +--------+--------+
-  //! If mn_major is true, these 8x8 matrices are visited in the order of:
-  //! top left -> top right -> bottom left -> bottom right.
-  //! If mn_major is false, these 8x8 matrices are visited in the order of:
-  //! top left -> bottom left -> top right -> bottom right.
-  //!
-  //! In principle, only `mn_major = false` should be needed. But unfortunately,
-  //! we are taking advantage of the ldmatrix large load in a pretty hacky way.
-  //! For example, for Turing, only m16n8k8 is supported by hardware. But we are
-  //! also using a fake m16n8k16 and m16n16k16, which uses a single large
-  //! ldmatrix to load data to register, and run multiple mma instructions to
-  //! consume these data. In the future, we should only keep the m16n8k8 macro,
-  //! and schedule m16n8k16 and m16n16k16 more correctly than this current way.
-  static void scheduleLdMatrix(TensorView* tv, bool mn_major = false);
-
- private:
-  //! Memory layout for MMA operand, see note [schedule of ldmatrix]
-  static void scheduleTuringOperandRead(TensorView* tv);
-
-  //! Accumulator swizzle implementation for Turing and Ampere mma.
-  static void scheduleTuringMmaWarpOutput(
-      TensorView* tv,
-      const MmaOptions& options);
-
-  //! Accumulator swizzle implementation for emulated 16x16x16 mma tile
-  //!  that enables using ldmatrix.x4.
-  //! Note:
-  //!   Keeping both this option and the ldmatrix.x2 variant above for
-  //! now for wider scheduler exploration space. Eventually both of
-  //! these can be unified with a single affine utility.
-  static void scheduleTuringM16N16K16MmaWarpOutput(
-      TensorView* tv,
-      const MmaOptions& options);
-
-  //! Utility to lock the transformed dimensions from further transforms.
-  static void setWarpMapped(TensorView* tv, int number_of_dims);
+  static void scheduleLdMatrix(TensorView* tv, MmaOptions options);
 };
 
 void checkDimSize(
     TensorView* tv,
     std::vector<int> axis,
     std::vector<int> expect);
-
-// Returns if the loopnest is initializing for an mma op.
-bool isMmaInitLoop(const kir::ForLoop* loop);
 
 //! A constant with minimum number of fusion inputs that could be MMA inputs.
 //!  TODO: update for square matmuls where both inputs are the same tensor
