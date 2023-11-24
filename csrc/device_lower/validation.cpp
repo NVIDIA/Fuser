@@ -950,40 +950,6 @@ void validateMmaTensors(MmaOp* mma) {
       "MMA op cannot directly take double buffered register input, put a set stage before.");
 }
 
-//! Note and TODO:
-//!   Currently relying on ldmatrix to
-//!     obtain the correct data layout for turing/ampere
-//!     mma's.
-//!   This restriction will eventually not
-//!    be necessary once the scatter swizzle is ready.
-void validateTuringMmaInput(TensorView* tv) {
-  // Pattern matching here to make sure LDMatrix is the right format.
-  //  Format is done through swizzling in the scheduling and
-  //  we check that swizzling to make sure it's correctly setup for LDMatrix.
-  //  We could in theory support patterns LDMatrix doesn't support,
-  //  but that would also mean the MMA isn't supported and
-  //  so we would have to lower to something completely different.
-
-  // MemCpy async is a more generic utility that we can use.
-  // Currently only allowed input paths are:
-  //  ldmatrix -> mma or
-  //  ldmatrix -> broadcast -> mma
-  // We actually wouldn't want too much flexibility here since
-  //  this path is very perf critical. But the check itself
-  //  can be made cleaner once we have the correct swizzle
-  //  labeling.
-  // The most generic support would involve build out to
-  //  support any pointwise ops that does not change the
-  //  datalayout.
-  auto tv_def = tv->definition();
-  NVF_ERROR(tv_def);
-  if (tv_def->isA<BroadcastOp>()) {
-    tv_def = tv_def->input(0)->definition();
-  }
-  NVF_ERROR(tv_def);
-  NVF_ERROR(ir_utils::isLdMatrixOp(tv_def));
-}
-
 // Output of ldmatrix is swizzled with the mma format, so it
 //  currently should not be fused with any pointwise ops. This
 //  check is to protect against these cases.
@@ -1068,21 +1034,6 @@ void validateMma(Fusion* fusion) {
   for (auto expr : exprs) {
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
       validateMmaTensors(mma);
-
-      switch (mma->macro()) {
-        case MmaOptions::MacroType::Turing_16_8_16:
-        case MmaOptions::MacroType::Turing_16_16_16:
-        case MmaOptions::MacroType::Ampere_16_8_16:
-        case MmaOptions::MacroType::Ampere_16_16_16:
-          // Check that operands come from ldmatrix, can be
-          //  relaxed once swizzles can be labeled on iterdomains.
-          validateTuringMmaInput(mma->inA()->as<TensorView>());
-          validateTuringMmaInput(mma->inB()->as<TensorView>());
-          break;
-        default:
-          NVF_ERROR(false, "validate mma: unsupported macro");
-          break;
-      }
     }
     if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
       validateArchMemoryOp(ldst);

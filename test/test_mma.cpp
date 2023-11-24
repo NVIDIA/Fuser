@@ -66,25 +66,23 @@ TEST_F(TuringMmaTest, TN) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
-
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0b->reorder({{-2, -3}, {-3, -2}});
+  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0b->merge(1);
+  tv0b->axis(1)->parallelize(ParallelType::TIDx);
+  tv1b->merge(1);
+  tv1b->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -139,27 +137,23 @@ TEST_F(TuringMmaTest, TT) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1t;
-  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0b->reorder({{-2, -3}, {-3, -2}});
+  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0b->merge(1);
+  tv0b->axis(1)->parallelize(ParallelType::TIDx);
+  tv1t->merge(1);
+  tv1t->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -214,29 +208,23 @@ TEST_F(TuringMmaTest, NT) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0t;
-  tv0cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1t;
-  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
   // [K,M,N] -> [N,M,K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0t->reorder({{-2, -3}, {-3, -2}});
+  tv0t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0t->merge(1);
+  tv0t->axis(1)->parallelize(ParallelType::TIDx);
+  tv1t->merge(1);
+  tv1t->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -291,27 +279,23 @@ TEST_F(TuringMmaTest, NN) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0t;
-  tv0cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
-
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0t->reorder({{-2, -3}, {-3, -2}});
+  tv0t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0t->merge(1);
+  tv0t->axis(1)->parallelize(ParallelType::TIDx);
+  tv1b->merge(1);
+  tv1b->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -374,25 +358,23 @@ TEST_F(AmpereMmaTest, TN) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
-
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0b->reorder({{-2, -3}, {-3, -2}});
+  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0b->merge(1);
+  tv0b->axis(1)->parallelize(ParallelType::TIDx);
+  tv1b->merge(1);
+  tv1b->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -449,27 +431,23 @@ TEST_F(AmpereMmaTest, TT) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1t;
-  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0b->reorder({{-2, -3}, {-3, -2}});
+  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0b->merge(1);
+  tv0b->axis(1)->parallelize(ParallelType::TIDx);
+  tv1t->merge(1);
+  tv1t->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -528,29 +506,23 @@ TEST_F(AmpereMmaTest, NT) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0t;
-  tv0cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1t;
-  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0t->reorder({{-2, -3}, {-3, -2}});
+  tv0t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0t->merge(1);
+  tv0t->axis(1)->parallelize(ParallelType::TIDx);
+  tv1t->merge(1);
+  tv1t->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -607,27 +579,23 @@ TEST_F(AmpereMmaTest, NN) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0t;
-  tv0cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
-
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0t->reorder({{-2, -3}, {-3, -2}});
+  tv0t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0t->merge(1);
+  tv0t->axis(1)->parallelize(ParallelType::TIDx);
+  tv1b->merge(1);
+  tv1b->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -683,25 +651,23 @@ TEST_F(AmpereMmaTest, LargeTN) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
-
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0b->reorder({{-2, -3}, {-3, -2}});
+  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0b->merge(1);
+  tv0b->axis(1)->parallelize(ParallelType::TIDx);
+  tv1b->merge(1);
+  tv1b->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -758,27 +724,23 @@ TEST_F(AmpereMmaTest, LargeTT) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1t;
-  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0b->reorder({{-2, -3}, {-3, -2}});
+  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0b->merge(1);
+  tv0b->axis(1)->parallelize(ParallelType::TIDx);
+  tv1t->merge(1);
+  tv1t->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -837,29 +799,23 @@ TEST_F(AmpereMmaTest, LargeNT) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0t;
-  tv0cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1t;
-  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0t->reorder({{-2, -3}, {-3, -2}});
+  tv0t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0t->merge(1);
+  tv0t->axis(1)->parallelize(ParallelType::TIDx);
+  tv1t->merge(1);
+  tv1t->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -916,27 +872,23 @@ TEST_F(AmpereMmaTest, LargeNN) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0t;
-  tv0cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
-
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0t->reorder({{-2, -3}, {-3, -2}});
+  tv0t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0t->merge(1);
+  tv0t->axis(1)->parallelize(ParallelType::TIDx);
+  tv1b->merge(1);
+  tv1b->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
