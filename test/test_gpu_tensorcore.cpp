@@ -1581,7 +1581,7 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   tv3->applyMmaSwizzle(
       mma_builder1.operand(MmaOptions::Operand::Accumulator).build());
 
-  // mma_utils::WarpMmaSwizzler::scheduleMmaWarpOutput(tv3ccw,
+  // mma_utils::WarpMmaSwizzler::scheduleMmaOutput(tv3ccw,
   // mma_builder1.build());
 
   // Put tv3 result in smem

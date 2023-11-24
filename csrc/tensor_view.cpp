@@ -1382,7 +1382,7 @@ bool TensorView::isEmptyTensor() const {
 void TensorView::applyMmaSwizzle(MmaOptions options) {
   switch (options.operand) {
     case MmaOptions::Operand::Accumulator:
-      mma_utils::WarpMmaSwizzler::scheduleMmaWarpOutput(this, options);
+      mma_utils::WarpMmaSwizzler::scheduleMmaOutput(this, options);
       if (definition()->isA<MmaOp>()) {
         setAllocationDomain(getLeafDomain(), true);
       }

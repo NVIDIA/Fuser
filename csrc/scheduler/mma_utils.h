@@ -160,7 +160,7 @@ class WarpMmaSwizzler {
   //! Applies the output mma swizzling to the given tv, should be used
   //!  on mma output or tv's involved in epilog fusion, i.e. bias.
   //! The rightmost iterdomains must follow the m,n,k convention before calling.
-  static void scheduleMmaWarpOutput(TensorView* tv, MmaOptions options);
+  static void scheduleMmaOutput(TensorView* tv, MmaOptions options);
 
   //! Applies the input mma swizzling to the given tv, should be used
   //!  on mma input or tv's involved in any fusion before mma, but after smem
@@ -213,21 +213,6 @@ class WarpMmaSwizzler {
  private:
   //! Memory layout for MMA operand, see note [schedule of ldmatrix]
   static void scheduleTuringOperandRead(TensorView* tv);
-
-  //! Accumulator swizzle implementation for Turing and Ampere mma.
-  static void scheduleTuringMmaWarpOutput(
-      TensorView* tv,
-      const MmaOptions& options);
-
-  //! Accumulator swizzle implementation for emulated 16x16x16 mma tile
-  //!  that enables using ldmatrix.x4.
-  //! Note:
-  //!   Keeping both this option and the ldmatrix.x2 variant above for
-  //! now for wider scheduler exploration space. Eventually both of
-  //! these can be unified with a single affine utility.
-  static void scheduleTuringM16N16K16MmaWarpOutput(
-      TensorView* tv,
-      const MmaOptions& options);
 
   //! Utility to lock the transformed dimensions from further transforms.
   static void setWarpMapped(TensorView* tv, int number_of_dims);
