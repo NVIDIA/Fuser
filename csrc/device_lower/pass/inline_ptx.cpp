@@ -92,6 +92,8 @@ class LowerToInlinePtx : public kir::ExprMutator {
   }
 
   void handle(MmaOp* mma) override {
+    // Constants definitions based on MMA PTX instruction documentation:
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#multiply-and-accumulate-instruction-mma
     const int m = 16;
     const int n = 8;
     const int k = mma->isAmpere() ? 16 : 8;
@@ -131,9 +133,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
     DataType a_type = maybe_outer_split(mma->inA()->dtype(), split_k);
     DataType b_type = maybe_outer_split(mma->inB()->dtype(), split_n);
     if (split_n > 1) {
+      // array<array<array<T, n / split_n / split_k>, split_k>, split_n>
       auto& item_type = *std::get<ArrayType>(b_type.type).type;
       item_type = maybe_outer_split(item_type, split_k);
     } else {
+      // array<array<T, n / split_k>, split_k>
       b_type = maybe_outer_split(b_type, split_k);
     }
 
