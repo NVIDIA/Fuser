@@ -1389,7 +1389,7 @@ void TensorView::applyMmaSwizzle(MmaOptions options) {
       break;
     case MmaOptions::Operand::A:
     case MmaOptions::Operand::B:
-      mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, options);
+      mma_utils::WarpMmaSwizzler::scheduleOperandReadAllocation(this, options);
       break;
     default:
       NVF_ERROR(false, "unknown operand flag");

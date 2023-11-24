@@ -76,10 +76,10 @@ TEST_F(TuringMmaTest, TN) {
 
   // [M, N, K] -> [N, M, K]
   tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv0cr);
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(tv1cr, true);
+  auto opta = mma_builder.operand(MmaOptions::Operand::A).build();
+  tv0cr->applyMmaSwizzle(opta);
+  auto optb = mma_builder.operand(MmaOptions::Operand::B).build();
+  tv1cr->applyMmaSwizzle(optb);
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
