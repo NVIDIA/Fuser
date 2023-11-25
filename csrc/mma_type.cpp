@@ -86,10 +86,6 @@ LoadStoreOpType getLdMatrixType(MmaOptions options) {
 
 } // namespace
 
-LoadStoreOpType MmaBuilder::ldMatrix() const {
-  return getLdMatrixType(option_);
-}
-
 bool isOperandTransposed(MmaOptions options) {
   switch (options.operand) {
     case MmaOptions::Operand::A:

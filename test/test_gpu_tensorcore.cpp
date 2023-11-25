@@ -1276,11 +1276,9 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
   auto tv0r = tv0->cacheAfter();
   auto tv1r = tv1->cacheAfter();
   auto tv0cw = tv0r->cacheAfter();
-  auto tv0cr =
-      tv0cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::A).ldMatrix());
+  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
   auto tv1cw = tv1r->cacheAfter();
-  auto tv1cr =
-      tv1cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::B).ldMatrix());
+  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 
@@ -1458,11 +1456,9 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
   auto tv0r = tv0->cacheAfter();
   auto tv1r = tv1->cacheAfter();
   auto tv0cw = tv0_reshape->cacheAfter();
-  auto tv0cr =
-      tv0cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::A).ldMatrix());
+  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
   auto tv1cw = tv1r->cacheAfter();
-  auto tv1cr =
-      tv1cw->cacheAfter(mma_builder.operand(MmaOptions::Operand::B).ldMatrix());
+  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
   auto tv2c = tv2->cacheBefore();
   mma_builder.accumulatorTv(tv2c);
 

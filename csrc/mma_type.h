@@ -264,10 +264,6 @@ class MmaBuilder {
   //!  - This option is ignored when configuring the mma operator itself.
   MmaBuilder& operand(MmaOptions::Operand a_or_b);
 
-  //! Generates the matching ldmatrix instruction type for the
-  //!  specified mma option.
-  LoadStoreOpType ldMatrix() const;
-
   //! Store the accumulator tv register reference in mma builder
   //!  to avoid automatic matching of which mma ops.
   void accumulatorTv(TensorView* tv);
