@@ -55,16 +55,15 @@ TEST_F(TuringMmaTest, TN) {
   gemm_tile.warp_tile = GemmTile(16, 8, 16);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaMacro::Turing_16_8_16, gemm_tile)
+                         .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Turing_16_8_16);
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
@@ -128,16 +127,15 @@ TEST_F(TuringMmaTest, TT) {
   gemm_tile.warp_tile = GemmTile(16, 8, 16);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TT);
+  auto mma_builder = MmaBuilder(MmaMacro::Turing_16_8_16, gemm_tile)
+                         .layout(MmaOptions::MmaLayout::TT);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Turing_16_8_16);
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
@@ -203,16 +201,15 @@ TEST_F(TuringMmaTest, NT) {
   gemm_tile.warp_tile = GemmTile(16, 8, 16);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NT);
+  auto mma_builder = MmaBuilder(MmaMacro::Turing_16_8_16, gemm_tile)
+                         .layout(MmaOptions::MmaLayout::NT);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Turing_16_8_16);
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0t;
@@ -280,16 +277,15 @@ TEST_F(TuringMmaTest, NN) {
   gemm_tile.warp_tile = GemmTile(16, 8, 16);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NN);
+  auto mma_builder = MmaBuilder(MmaMacro::Turing_16_8_16, gemm_tile)
+                         .layout(MmaOptions::MmaLayout::NN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Turing_16_8_16);
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0t;
@@ -363,16 +359,15 @@ TEST_F(AmpereMmaTest, TN) {
   gemm_tile.warp_tile = GemmTile(16, 8, 16);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaMacro::Ampere_16_8_16, gemm_tile)
+                         .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Ampere_16_8_16);
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
@@ -438,16 +433,15 @@ TEST_F(AmpereMmaTest, TT) {
   gemm_tile.warp_tile = GemmTile(16, 8, 16);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TT);
+  auto mma_builder = MmaBuilder(MmaMacro::Ampere_16_8_16, gemm_tile)
+                         .layout(MmaOptions::MmaLayout::TT);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Ampere_16_8_16);
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
@@ -517,16 +511,15 @@ TEST_F(AmpereMmaTest, NT) {
   gemm_tile.warp_tile = GemmTile(16, 8, 16);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NT);
+  auto mma_builder = MmaBuilder(MmaMacro::Ampere_16_8_16, gemm_tile)
+                         .layout(MmaOptions::MmaLayout::NT);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Ampere_16_8_16);
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0t;
@@ -596,16 +589,15 @@ TEST_F(AmpereMmaTest, NN) {
   gemm_tile.warp_tile = GemmTile(16, 8, 16);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NN);
+  auto mma_builder = MmaBuilder(MmaMacro::Ampere_16_8_16, gemm_tile)
+                         .layout(MmaOptions::MmaLayout::NN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Ampere_16_8_16);
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0t;
@@ -672,16 +664,15 @@ TEST_F(AmpereMmaTest, LargeTN) {
   gemm_tile.warp_tile = GemmTile(16, 16, 16);
   gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaMacro::Ampere_16_16_16, gemm_tile)
+                         .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Ampere_16_16_16);
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
@@ -747,16 +738,15 @@ TEST_F(AmpereMmaTest, LargeTT) {
   gemm_tile.warp_tile = GemmTile(16, 16, 16);
   gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TT);
+  auto mma_builder = MmaBuilder(MmaMacro::Ampere_16_16_16, gemm_tile)
+                         .layout(MmaOptions::MmaLayout::TT);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Ampere_16_16_16);
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
@@ -826,16 +816,15 @@ TEST_F(AmpereMmaTest, LargeNT) {
   gemm_tile.warp_tile = GemmTile(16, 16, 16);
   gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NT);
+  auto mma_builder = MmaBuilder(MmaMacro::Ampere_16_16_16, gemm_tile)
+                         .layout(MmaOptions::MmaLayout::NT);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Ampere_16_16_16);
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0t;
@@ -905,16 +894,15 @@ TEST_F(AmpereMmaTest, LargeNN) {
   gemm_tile.warp_tile = GemmTile(16, 16, 16);
   gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NN);
+  auto mma_builder = MmaBuilder(MmaMacro::Ampere_16_16_16, gemm_tile)
+                         .layout(MmaOptions::MmaLayout::NN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Ampere_16_16_16);
 
   auto tv0cw = tv0b->cacheAfter();
   auto tv0cr = tv0t;

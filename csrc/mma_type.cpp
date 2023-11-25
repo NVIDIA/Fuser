@@ -22,7 +22,7 @@ MmaOp* MmaOptions::mmaOp() const {
 }
 
 MmaBuilder::MmaBuilder(
-    MmaOptions::MacroType macro,
+    MmaMacro macro,
     MatMulTileOptions gemm_tile) {
   option_.macro = macro;
 }
@@ -45,11 +45,6 @@ MmaOptions MmaBuilder::build() const {
   return option_;
 }
 
-void MmaBuilder::configureMma(MmaOp* mma) const {
-  NVF_CHECK(mma, "configureMma: invalid op object ", mma);
-  mma->configureOptions(option_);
-}
-
 void MmaBuilder::accumulatorTv(TensorView* tv) {
   NVF_CHECK(
       tv->getMemoryType() == MemoryType::Local, "Mma only outputs to register");
@@ -66,10 +61,10 @@ namespace {
 LoadStoreOpType getLdMatrixType(MmaOptions options) {
   bool transpose = false;
   switch (options.macro) {
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-    case MmaOptions::MacroType::Turing_16_16_16:
+    case MmaMacro::Turing_16_8_16:
+    case MmaMacro::Ampere_16_8_16:
+    case MmaMacro::Ampere_16_16_16:
+    case MmaMacro::Turing_16_16_16:
       // Turing mma assumes TN as default
       transpose = (options.operand == MmaOptions::Operand::A &&
                    !isOperandTransposed(options)) ||
@@ -104,7 +99,7 @@ bool isOperandTransposed(MmaOptions options) {
   return false;
 }
 
-GemmTile getMmaOpShape(MmaOptions::MacroType macro) {
+GemmTile getMmaOpShape(MmaMacro macro) {
   return {getM(macro), getN(macro), getK(macro)};
 }
 
@@ -144,7 +139,7 @@ std::string toString(const MatMulTileOptions& opts) {
   return ss.str();
 }
 
-std::string toString(MmaOptions::MacroType macro) {
+std::string toString(MmaMacro macro) {
   std::stringstream ss;
   auto underlying = static_cast<MmaMacroEncode>(macro);
   switch (underlying.arch) {
@@ -167,7 +162,7 @@ std::string toString(MmaOptions::MacroType macro) {
   return ss.str();
 }
 
-size_t hash(MmaOptions::MacroType macro) {
+size_t hash(MmaMacro macro) {
   return std::hash<size_t>{}(static_cast<size_t>(macro));
 }
 

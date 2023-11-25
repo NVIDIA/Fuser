@@ -79,7 +79,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmul_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
-    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
@@ -129,7 +129,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBFloat16_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
-    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
@@ -183,7 +183,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulPipelineGmem_CUDA) {
       gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
       MatmulParams params;
-      params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+      params.mma_macro = MmaMacro::Ampere_16_8_16;
       params.tile_sizes = gemm_tile;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
@@ -247,7 +247,7 @@ TEST_F(NVFuserTest, FusionAmpereSwizzle_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
-    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
@@ -364,7 +364,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulRegDoubleBuffer_CUDA) {
       gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
       MatmulParams params;
-      params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+      params.mma_macro = MmaMacro::Ampere_16_8_16;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
       params.double_buffer_options.double_buffer_smem_write = true;
@@ -446,21 +446,19 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
   gemm_tile2.instruction_tile = GemmTile(16, 8, 16);
   gemm_tile2.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder1 =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile1)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder1 = MmaBuilder(MmaMacro::Ampere_16_8_16, gemm_tile1)
+                          .layout(MmaOptions::MmaLayout::TN);
 
-  auto mma_builder2 =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile2)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder2 = MmaBuilder(MmaMacro::Ampere_16_8_16, gemm_tile2)
+                          .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       2 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 2, got ",
       mma_ops.size());
-  mma_builder1.configureMma(mma_ops[0]);
-  mma_builder2.configureMma(mma_ops[1]);
+  mma_ops[0]->setMacro(MmaMacro::Ampere_16_8_16);
+  mma_ops[1]->setMacro(MmaMacro::Ampere_16_8_16);
 
   // Global read for gemm 1
   auto tv0r = tv0->cacheAfter();
@@ -746,21 +744,19 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   // Using Ampere mma macro
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder1 =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder1 = MmaBuilder(MmaMacro::Ampere_16_8_16, gemm_tile)
+                          .layout(MmaOptions::MmaLayout::TN);
 
-  auto mma_builder2 =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder2 = MmaBuilder(MmaMacro::Ampere_16_8_16, gemm_tile)
+                          .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       2 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 2, got ",
       mma_ops.size());
-  mma_builder1.configureMma(mma_ops[0]);
-  mma_builder2.configureMma(mma_ops[1]);
+  mma_ops[0]->setMacro(MmaMacro::Ampere_16_8_16);
+  mma_ops[1]->setMacro(MmaMacro::Ampere_16_8_16);
 
   // Global read for gemm 1
   auto tv0r = inp->cacheAfter();
@@ -1073,7 +1069,7 @@ TEST_F(NVFuserTest, FusionTuringMatmul_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
-    params.mma_macro = MmaOptions::MacroType::Turing_16_8_16;
+    params.mma_macro = MmaMacro::Turing_16_8_16;
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
 
@@ -1119,16 +1115,15 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaMacro::Ampere_16_8_16, gemm_tile)
+                         .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Ampere_16_8_16);
 
   auto tv0cw = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
@@ -1262,16 +1257,15 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaMacro::Ampere_16_8_16, gemm_tile)
+                         .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Ampere_16_8_16);
 
   auto tv0r = tv0->cacheAfter();
   auto tv1r = tv1->cacheAfter();
@@ -1444,16 +1438,15 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaMacro::Ampere_16_8_16, gemm_tile)
+                         .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Ampere_16_8_16);
 
   auto tv0r = tv0->cacheAfter();
   auto tv1r = tv1->cacheAfter();
@@ -1600,9 +1593,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
   auto tv0b = broadcast(tv0, {false, true, false});
   auto tv1b = broadcast(tv1, {true, false, false});
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaMacro::Turing_16_8_16, gemm_tile)
+                         .layout(MmaOptions::MmaLayout::TN);
 
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
 
@@ -1613,7 +1605,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Turing_16_8_16);
 
   auto tv0cw = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
@@ -1777,7 +1769,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoad_CUDA) {
     gemm_tile.warp_tile = GemmTile(64, 64, 64);
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
     MatmulParams params;
-    params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
+    params.mma_macro = MmaMacro::Ampere_16_16_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
@@ -1828,7 +1820,7 @@ TEST_F(NVFuserTest, FusionTuringMatmulLargeLoad_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
     MatmulParams params;
-    params.mma_macro = MmaOptions::MacroType::Turing_16_16_16;
+    params.mma_macro = MmaMacro::Turing_16_16_16;
     params.tile_sizes = gemm_tile;
     scheduleMatmul(&fusion, params);
 
@@ -1880,7 +1872,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck4warp_CUDA) {
         gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
         MatmulParams params;
-        params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
+        params.mma_macro = MmaMacro::Ampere_16_16_16;
         params.tile_sizes = gemm_tile;
         params.async_gmem_load_operands = true;
         params.double_buffer_options.double_buffer_smem_write = true;
@@ -1946,7 +1938,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck8warp_CUDA) {
           gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
           MatmulParams params;
-          params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
+          params.mma_macro = MmaMacro::Ampere_16_16_16;
           params.tile_sizes = gemm_tile;
           params.async_gmem_load_operands = true;
           params.double_buffer_options.double_buffer_smem_write = true;
@@ -2010,7 +2002,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTileCheck6warp_CUDA) {
       gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
       MatmulParams params;
-      params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
+      params.mma_macro = MmaMacro::Ampere_16_16_16;
       params.tile_sizes = gemm_tile;
       params.async_gmem_load_operands = true;
       params.double_buffer_options.double_buffer_smem_write = true;
@@ -2066,7 +2058,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulLargeLoadLargeK_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
     MatmulParams params;
-    params.mma_macro = MmaOptions::MacroType::Ampere_16_16_16;
+    params.mma_macro = MmaMacro::Ampere_16_16_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
@@ -2117,7 +2109,7 @@ TEST_F(NVFuserTest, FusionAmpereSplitKLikeStridedBatchedMatmul_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
-    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
@@ -2170,7 +2162,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogue_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
-    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
@@ -2298,7 +2290,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueCast_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
-    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
@@ -2385,7 +2377,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSmemEpilogueRelu_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
-    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.async_gmem_load_operands = true;
     params.double_buffer_options.double_buffer_smem_write = true;
@@ -2477,7 +2469,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
-    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.splitk_factor = 2;
     scheduleMatmul(&fusion, params);
@@ -2530,7 +2522,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitKBias_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
-    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.splitk_factor = 2;
     scheduleMatmul(&fusion, params);
@@ -2582,7 +2574,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitK_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
-    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.splitk_factor = 2;
     scheduleMatmul(&fusion, params);
@@ -2639,7 +2631,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulBatchSplitKBias_CUDA) {
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
-    params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
+    params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
     params.splitk_factor = 2;
     scheduleMatmul(&fusion, params);

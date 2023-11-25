@@ -1345,7 +1345,7 @@ class MmaOp : public Expr {
       Val* in_a,
       Val* in_b,
       Val* init,
-      const MmaOptions::MacroType& options,
+      const MmaMacro& options,
       const MmaLayoutOpt& input_layout);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
@@ -1374,7 +1374,7 @@ class MmaOp : public Expr {
   }
 
   const auto& macro() const {
-    return attribute<MmaOptions::MacroType>(ATTR_POS_MACRO);
+    return attribute<MmaMacro>(ATTR_POS_MACRO);
   }
 
   int m() const {
@@ -1397,7 +1397,7 @@ class MmaOp : public Expr {
     return nvfuser::isAmpere(macro());
   }
 
-  void configureOptions(MmaOptions options);
+  void setMacro(MmaMacro options);
 
   auto layout() const {
     return attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);

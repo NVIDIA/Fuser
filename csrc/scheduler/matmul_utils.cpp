@@ -42,10 +42,10 @@ using MatmulLayout = MmaOptions::MmaLayout;
 using ProblemShape = std::array<int64_t, 3>;
 
 //! A helper for deciding the type of MMA op for given fusion and problem shape.
-inline std::optional<MmaOptions::MacroType> getMmaOp(
+inline std::optional<MmaMacro> getMmaOp(
     const int dev_version,
     const ProblemShape& problem) {
-  using MacroType = MmaOptions::MacroType;
+  using MacroType = MmaMacro;
 
   // NOTE: A temp condition
   const ProblemShape::value_type n_extend = problem[(size_t)MatmulDomain::N];
@@ -69,7 +69,7 @@ inline std::optional<MmaOptions::MacroType> getMmaOp(
 //! A wrapper for core heuristics initialization
 inline bool initCoreHeuristics(
     std::shared_ptr<MatmulParams> params,
-    const MmaOptions::MacroType& mma_op,
+    const MmaMacro& mma_op,
     const ProblemShape& problem_shape) {
   const GemmTile instruction_tile = getMmaOpShape(mma_op);
   GemmTile warp_tile = {-1, -1, -1};

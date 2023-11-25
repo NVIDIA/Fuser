@@ -1070,10 +1070,10 @@ void validateMma(Fusion* fusion) {
       validateMmaTensors(mma);
 
       switch (mma->macro()) {
-        case MmaOptions::MacroType::Turing_16_8_16:
-        case MmaOptions::MacroType::Turing_16_16_16:
-        case MmaOptions::MacroType::Ampere_16_8_16:
-        case MmaOptions::MacroType::Ampere_16_16_16:
+        case MmaMacro::Turing_16_8_16:
+        case MmaMacro::Turing_16_16_16:
+        case MmaMacro::Ampere_16_8_16:
+        case MmaMacro::Ampere_16_16_16:
           // Check that operands come from ldmatrix, can be
           //  relaxed once swizzles can be labeled on iterdomains.
           validateTuringMmaInput(mma->inA()->as<TensorView>());
