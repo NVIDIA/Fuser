@@ -7,8 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-
 #include <ir/iostream.h>
 #include <iter_visitor.h>
 

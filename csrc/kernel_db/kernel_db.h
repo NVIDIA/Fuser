@@ -20,7 +20,6 @@ namespace fs = std::experimental::filesystem;
 #include <unordered_map>
 #include <vector>
 
-#include <c10/macros/Export.h>
 #include <visibility.h>
 
 namespace nvfuser {

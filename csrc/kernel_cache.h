@@ -17,7 +17,6 @@
 #include <scheduler/registry.h>
 #include <serde/fusion_cache_generated.h>
 
-#include <c10/macros/Export.h>
 #include <c10/util/ArrayRef.h>
 
 #include <mutex>

@@ -9,7 +9,6 @@
 #include <exceptions.h>
 #include <iostream>
 
-#include <c10/macros/Export.h>
 #include <kernel_cache.h>
 #include <python_frontend/fusion_state.h>
 #include <visibility.h>

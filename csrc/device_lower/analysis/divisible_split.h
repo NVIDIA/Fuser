@@ -7,8 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-
 #include <compute_at_map.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
