@@ -589,43 +589,43 @@ static void MatmulShapeWarpStageAutoSplitK(benchmark::internal::Benchmark* b) {
   }
 }
 
-#define EagerModeBenchmark(layout)                                            \
-  BENCHMARK_CAPTURE(                                                          \
+#define EagerModeBenchmark(layout)                                         \
+  BENCHMARK_CAPTURE(                                                       \
       Baseline_Matmul, eagermode_legacyshapes_##layout, MmaLayout::layout) \
-      ->Unit(benchmark::kMicrosecond)                                         \
-      ->UseManualTime()                                                       \
-      ->Apply([](benchmark::internal::Benchmark* b) {                         \
-        return MatmulShape(                                                   \
-            b, sizeProduct<long int>(LegacyMs, LegacyNs, LegacyKs));          \
-      });                                                                     \
-  BENCHMARK_CAPTURE(                                                          \
+      ->Unit(benchmark::kMicrosecond)                                      \
+      ->UseManualTime()                                                    \
+      ->Apply([](benchmark::internal::Benchmark* b) {                      \
+        return MatmulShape(                                                \
+            b, sizeProduct<long int>(LegacyMs, LegacyNs, LegacyKs));       \
+      });                                                                  \
+  BENCHMARK_CAPTURE(                                                       \
       Baseline_Matmul, eagermode_timmshapes_##layout, MmaLayout::layout)   \
-      ->Unit(benchmark::kMicrosecond)                                         \
-      ->UseManualTime()                                                       \
-      ->Apply([](benchmark::internal::Benchmark* b) {                         \
-        return MatmulShape(b, TIMMShapes);                                    \
-      });                                                                     \
-  BENCHMARK_CAPTURE(                                                          \
+      ->Unit(benchmark::kMicrosecond)                                      \
+      ->UseManualTime()                                                    \
+      ->Apply([](benchmark::internal::Benchmark* b) {                      \
+        return MatmulShape(b, TIMMShapes);                                 \
+      });                                                                  \
+  BENCHMARK_CAPTURE(                                                       \
       Baseline_Matmul, eagermode_splitkshapes_##layout, MmaLayout::layout) \
-      ->Unit(benchmark::kMicrosecond)                                         \
-      ->UseManualTime()                                                       \
-      ->Apply([](benchmark::internal::Benchmark* b) {                         \
-        return MatmulShape(                                                   \
-            b, sizeProduct<long int>(SplitKMs, splitKNs(), SplitKKs));        \
+      ->Unit(benchmark::kMicrosecond)                                      \
+      ->UseManualTime()                                                    \
+      ->Apply([](benchmark::internal::Benchmark* b) {                      \
+        return MatmulShape(                                                \
+            b, sizeProduct<long int>(SplitKMs, splitKNs(), SplitKKs));     \
       });
 
 #define NvfuserMatmulBenchmark(layout)                                 \
   BENCHMARK_CAPTURE(                                                   \
       NvFuserScheduler_Matmul,                                         \
       nvfuser_nosplitk_legacyshapes_##layout,                          \
-      MmaLayout::layout)                                            \
+      MmaLayout::layout)                                               \
       ->Unit(benchmark::kMicrosecond)                                  \
       ->UseManualTime()                                                \
       ->Apply(MatmulShapeWarpStageAutoSplitK);                         \
   BENCHMARK_CAPTURE(                                                   \
       NvFuserScheduler_Matmul,                                         \
       nvfuser_nosplitk_timmshapes_##layout,                            \
-      MmaLayout::layout)                                            \
+      MmaLayout::layout)                                               \
       ->Unit(benchmark::kMicrosecond)                                  \
       ->UseManualTime()                                                \
       ->Apply([](benchmark::internal::Benchmark* b) {                  \
@@ -634,7 +634,7 @@ static void MatmulShapeWarpStageAutoSplitK(benchmark::internal::Benchmark* b) {
   BENCHMARK_CAPTURE(                                                   \
       NvFuserScheduler_Matmul,                                         \
       nvfuser_nosplitk_splitkshapes_##layout,                          \
-      MmaLayout::layout)                                            \
+      MmaLayout::layout)                                               \
       ->Unit(benchmark::kMicrosecond)                                  \
       ->UseManualTime()                                                \
       ->Apply([](benchmark::internal::Benchmark* b) {                  \
@@ -652,7 +652,7 @@ static void MatmulShapeWarpStageAutoSplitK(benchmark::internal::Benchmark* b) {
   BENCHMARK_CAPTURE(                  \
       NvFuserScheduler_Matmul,        \
       nvfuser_auto_splitk_##layout,   \
-      MmaLayout::layout,           \
+      MmaLayout::layout,              \
       -1)                             \
       ->Unit(benchmark::kMicrosecond) \
       ->UseManualTime()               \
@@ -662,7 +662,7 @@ static void MatmulShapeWarpStageAutoSplitK(benchmark::internal::Benchmark* b) {
   BENCHMARK_CAPTURE(                      \
       NvFuserScheduler_Matmul,            \
       nvfuser_auto_partitionedk_##layout, \
-      MmaLayout::layout,               \
+      MmaLayout::layout,                  \
       -1,                                 \
       true)                               \
       ->Unit(benchmark::kMicrosecond)     \
