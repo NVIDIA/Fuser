@@ -971,7 +971,7 @@ ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
   return ProblemIterDomains{m, n, k};
 }
 
-MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion) {
+MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion) {
   ComputeAtMap ca_map(fusion);
   const auto mma_input_candidates =
       ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
@@ -1034,16 +1034,16 @@ MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion) {
   }
 
   if ((mk_found && kn_found) && !(km_found || nk_found)) {
-    return MmaOptions::MmaLayout::TT;
+    return MmaLayout::TT;
   }
   if ((km_found && kn_found) && !(mk_found || nk_found)) {
-    return MmaOptions::MmaLayout::NT;
+    return MmaLayout::NT;
   }
   if ((mk_found && nk_found) && !(km_found || kn_found)) {
-    return MmaOptions::MmaLayout::TN;
+    return MmaLayout::TN;
   }
   if ((km_found && nk_found) && !(mk_found || kn_found)) {
-    return MmaOptions::MmaLayout::NN;
+    return MmaLayout::NN;
   }
 
   return {"Failed to decide fusion inputs' data layout."};

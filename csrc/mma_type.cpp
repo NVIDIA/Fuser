@@ -27,11 +27,6 @@ MmaBuilder::MmaBuilder(
   option_.macro = macro;
 }
 
-MmaBuilder& MmaBuilder::layout(MmaOptions::MmaLayout layout) {
-  option_.layout = layout;
-  return *this;
-}
-
 MmaBuilder& MmaBuilder::operand(MmaOptions::Operand a_or_b) {
   option_.operand = a_or_b;
   return *this;
@@ -60,63 +55,23 @@ void MmaBuilder::accumulatorTv(TensorView* tv) {
   option_.accumulator_tv = tv;
 }
 
-namespace {
-
-// Utility to get ldmatrix direction a mma layout and operand
-LoadStoreOpType getLdMatrixType(MmaOptions options) {
-  bool transpose = false;
-  switch (options.macro) {
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-    case MmaOptions::MacroType::Turing_16_16_16:
-      // Turing mma assumes TN as default
-      transpose = (options.operand == MmaOptions::Operand::A &&
-                   !isOperandTransposed(options)) ||
-          (options.operand == MmaOptions::Operand::B &&
-           isOperandTransposed(options));
-      break;
-    default:
-      NVF_ERROR(false, "unsupported op with ldmatrix");
-      break;
-  }
-  return transpose ? LoadStoreOpType::LdMatrixTranspose
-                   : LoadStoreOpType::LdMatrix;
-}
-
-} // namespace
-
-bool isOperandTransposed(MmaOptions options) {
-  switch (options.operand) {
-    case MmaOptions::Operand::A:
-      return options.layout == MmaOptions::MmaLayout::TT ||
-          options.layout == MmaOptions::MmaLayout::TN;
-    case MmaOptions::Operand::B:
-      return options.layout == MmaOptions::MmaLayout::TT ||
-          options.layout == MmaOptions::MmaLayout::NT;
-    default:
-      NVF_CHECK(false, "isOperandTransposed: please specify operand");
-  }
-  return false;
-}
-
 GemmTile getMmaOpShape(MmaOptions::MacroType macro) {
   return {getM(macro), getN(macro), getK(macro)};
 }
 
-std::string toString(MmaOptions::MmaLayout input_layout) {
+std::string toString(MmaLayout input_layout) {
   std::stringstream ss;
   switch (input_layout) {
-    case MmaOptions::MmaLayout::TT:
+    case MmaLayout::TT:
       ss << "TT";
       break;
-    case MmaOptions::MmaLayout::TN:
+    case MmaLayout::TN:
       ss << "TN";
       break;
-    case MmaOptions::MmaLayout::NT:
+    case MmaLayout::NT:
       ss << "NT";
       break;
-    case MmaOptions::MmaLayout::NN:
+    case MmaLayout::NN:
       ss << "NN";
       break;
     default:
@@ -167,7 +122,7 @@ size_t hash(MmaOptions::MacroType macro) {
   return std::hash<size_t>{}(static_cast<size_t>(macro));
 }
 
-size_t hash(MmaOptions::MmaLayout input_layout) {
+size_t hash(MmaLayout input_layout) {
   return std::hash<size_t>{}(static_cast<size_t>(input_layout));
 }
 

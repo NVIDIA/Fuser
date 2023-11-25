@@ -36,7 +36,6 @@
 namespace nvfuser {
 namespace {
 
-using MatmulLayout = MmaOptions::MmaLayout;
 //! Access to the structure should be done with labels defined in
 //!  MmaOptions::MmaDomains.
 using ProblemShape = std::array<int64_t, 3>;
@@ -325,7 +324,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
 
   // #2
   {
-    const auto input_layout_opt = mma_utils::getMatmulLayout(fusion);
+    const auto input_layout_opt = mma_utils::getMmaLayout(fusion);
     if (!input_layout_opt.isValid()) {
       return input_layout_opt.getErrorMsg();
     }

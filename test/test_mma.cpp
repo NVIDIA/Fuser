@@ -56,8 +56,7 @@ TEST_F(TuringMmaTest, TN) {
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -129,8 +128,7 @@ TEST_F(TuringMmaTest, TT) {
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TT);
+      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -204,8 +202,7 @@ TEST_F(TuringMmaTest, NT) {
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NT);
+      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -281,8 +278,7 @@ TEST_F(TuringMmaTest, NN) {
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NN);
+      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -364,8 +360,7 @@ TEST_F(AmpereMmaTest, TN) {
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -439,8 +434,7 @@ TEST_F(AmpereMmaTest, TT) {
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TT);
+      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -518,8 +512,7 @@ TEST_F(AmpereMmaTest, NT) {
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NT);
+      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -597,8 +590,7 @@ TEST_F(AmpereMmaTest, NN) {
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NN);
+      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -673,8 +665,7 @@ TEST_F(AmpereMmaTest, LargeTN) {
   gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
   auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -748,8 +739,7 @@ TEST_F(AmpereMmaTest, LargeTT) {
   gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
   auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TT);
+      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -827,8 +817,7 @@ TEST_F(AmpereMmaTest, LargeNT) {
   gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
   auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NT);
+      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -906,8 +895,7 @@ TEST_F(AmpereMmaTest, LargeNN) {
   gemm_tile.instruction_tile = GemmTile(16, 16, 16);
 
   auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NN);
+      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
