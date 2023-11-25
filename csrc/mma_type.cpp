@@ -21,9 +21,7 @@ MmaOp* MmaOptions::mmaOp() const {
   return mma_op;
 }
 
-MmaBuilder::MmaBuilder(
-    MmaOptions::MacroType macro,
-    MatMulTileOptions gemm_tile) {
+MmaBuilder::MmaBuilder(MmaOptions::MacroType macro) {
   option_.macro = macro;
 }
 

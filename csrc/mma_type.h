@@ -126,12 +126,12 @@ static_assert(sizeof(MmaMacroEncode) == sizeof(uint64_t));
 enum class MmaMacro : uint64_t {
   NoMMA = 0,
 
+  MACRO(Turing, 16, 8, 8),
   MACRO(Turing, 16, 8, 16),
   MACRO(Turing, 16, 16, 16),
 
   MACRO(Ampere, 16, 8, 16),
   MACRO(Ampere, 16, 16, 16),
-  MACRO(Ampere, 16, 8, 8),
 
   MACRO(Hopper, 64, 8, 16),
   MACRO(Hopper, 64, 16, 16),
@@ -243,12 +243,7 @@ struct MmaOptions {
 class MmaBuilder {
  public:
   //! Initialized a mma builder, for the given mma instruction type.
-  //!  TODO: the mma implementation is generic and should not have
-  //!   strong dependency on the actual matmul tiling shapes. The
-  //!   MatMulTileOptions provided in here is a WAR for mma format and
-  //!   should be removed once there is support for labeling swizzles
-  //!   on iterdomains.
-  MmaBuilder(MmaOptions::MacroType macro, MatMulTileOptions gemm_tile);
+  MmaBuilder(MmaOptions::MacroType macro);
 
   //! User configuration function:
   //!  Specifies the input matrix layout for the mma instruction.

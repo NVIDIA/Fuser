@@ -723,8 +723,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   const auto fusion_layout = mma_utils::getMatmulLayout(fusion);
   NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
 
-  auto mma_builder =
-      MmaBuilder(params.mma_macro, params.tile_sizes).layout(mma_layout);
+  auto mma_builder = MmaBuilder(params.mma_macro).layout(mma_layout);
   const auto& gemm_tile = params.tile_sizes;
   const bool has_epilogue = !mma->out()->isFusionOutput();
 

@@ -446,13 +446,11 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
   gemm_tile2.instruction_tile = GemmTile(16, 8, 16);
   gemm_tile2.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder1 =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile1)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder1 = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16)
+                          .layout(MmaOptions::MmaLayout::TN);
 
-  auto mma_builder2 =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile2)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder2 = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16)
+                          .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -746,13 +744,11 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   // Using Ampere mma macro
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder1 =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder1 = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16)
+                          .layout(MmaOptions::MmaLayout::TN);
 
-  auto mma_builder2 =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder2 = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16)
+                          .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -1119,9 +1115,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16)
+                         .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -1262,9 +1257,8 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16)
+                         .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -1444,9 +1438,8 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16)
+                         .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -1600,9 +1593,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
   auto tv0b = broadcast(tv0, {false, true, false});
   auto tv1b = broadcast(tv1, {true, false, false});
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16)
+                         .layout(MmaOptions::MmaLayout::TN);
 
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
 
