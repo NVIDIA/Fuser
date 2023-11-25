@@ -769,7 +769,18 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOptions options) {
     //[2k, 8mn, 2mn, 4k, 2k']          [2k, 8n, 1n, 4k, 2k']
   }
 
-  tv->setAllocationDomain(tv->getLeafDomain(), true);
+  bool set_allocation = ir_utils::isLdMatrixOp(tv->definition());
+  if (!set_allocation) {
+    for (auto u : tv->uses()) {
+      if (u->isA<MmaOp>()) {
+        set_allocation = true;
+        break;
+      }
+    }
+  }
+  if (set_allocation) {
+    tv->setAllocationDomain(tv->getLeafDomain(), true);
+  }
 }
 
 void WarpMmaSwizzler::scheduleMmaWarpOutput(

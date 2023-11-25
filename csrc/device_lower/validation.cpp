@@ -950,34 +950,6 @@ void validateMmaTensors(MmaOp* mma) {
       "MMA op cannot directly take double buffered register input, put a set stage before.");
 }
 
-// Output of ldmatrix is swizzled with the mma format, so it
-//  currently should not be fused with any pointwise ops. This
-//  check is to protect against these cases.
-// This would also not be needed once scatter swizzle ready, should
-//  just become a swizzle format check if we wanted to fuse ldmatrix
-//  with any op other than mma.
-void validateLdMatrixOutput(TensorView* tv) {
-  const auto& out_uses = tv->fusion()->unordered_uses(tv);
-  if (out_uses.empty()) {
-    return;
-  }
-  // TODO: restricting to single use pipelines for now which
-  //  is true to matmul mainloop. This Could be relaxed to
-  //  support more complex mma usage.
-  NVF_ERROR(out_uses.size() == 1);
-  auto out_use = *(out_uses.begin());
-
-  if (out_use->isA<BroadcastOp>()) {
-    validateLdMatrixOutput(out_use->output(0)->as<TensorView>());
-    return;
-  }
-
-  NVF_ERROR(
-      out_use->isA<MmaOp>(),
-      "validateLdMatrixOutput: currently only supports single mma use for ldmatrix",
-      out_use);
-}
-
 void validateSizeMemoryOp(LoadStoreOp* ldst) {
   if (!ldst->out()->isA<TensorView>()) {
     return;
@@ -1012,18 +984,6 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
   }
 }
 
-// Checks that the memory ops are supported on the targeted GPU
-void validateArchMemoryOp(LoadStoreOp* ldst) {
-  switch (ldst->opType()) {
-    case LoadStoreOpType::LdMatrix:
-    case LoadStoreOpType::LdMatrixTranspose:
-      validateLdMatrixOutput(ldst->out()->as<TensorView>());
-      return;
-    default:
-      return;
-  }
-}
-
 } // namespace
 
 //! Validate data format and GPU arch compatibility of scheduled
@@ -1036,7 +996,6 @@ void validateMma(Fusion* fusion) {
       validateMmaTensors(mma);
     }
     if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
-      validateArchMemoryOp(ldst);
       validateSizeMemoryOp(ldst);
     }
   }
