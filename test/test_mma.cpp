@@ -50,14 +50,8 @@ TEST_F(TuringMmaTest, TN) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 8, 16);
-  gemm_tile.warp_tile = GemmTile(16, 8, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16)
+                         .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -67,7 +61,6 @@ TEST_F(TuringMmaTest, TN) {
   mma_builder.configureMma(mma_ops.front());
 
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
   tv0b->reorder({{-2, -3}, {-3, -2}});
@@ -121,14 +114,8 @@ TEST_F(TuringMmaTest, TT) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 8, 16);
-  gemm_tile.warp_tile = GemmTile(16, 8, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TT);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16)
+                         .layout(MmaOptions::MmaLayout::TT);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -138,7 +125,6 @@ TEST_F(TuringMmaTest, TT) {
   mma_builder.configureMma(mma_ops.front());
 
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
   tv0b->reorder({{-2, -3}, {-3, -2}});
@@ -192,14 +178,8 @@ TEST_F(TuringMmaTest, NT) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 8, 16);
-  gemm_tile.warp_tile = GemmTile(16, 8, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NT);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16)
+                         .layout(MmaOptions::MmaLayout::NT);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -209,7 +189,6 @@ TEST_F(TuringMmaTest, NT) {
   mma_builder.configureMma(mma_ops.front());
 
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [K,M,N] -> [N,M,K]
   tv0t->reorder({{-2, -3}, {-3, -2}});
@@ -263,14 +242,8 @@ TEST_F(TuringMmaTest, NN) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 8, 16);
-  gemm_tile.warp_tile = GemmTile(16, 8, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16)
+                         .layout(MmaOptions::MmaLayout::NN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -280,7 +253,6 @@ TEST_F(TuringMmaTest, NN) {
   mma_builder.configureMma(mma_ops.front());
 
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
   tv0t->reorder({{-2, -3}, {-3, -2}});
@@ -342,14 +314,8 @@ TEST_F(AmpereMmaTest, TN) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 8, 16);
-  gemm_tile.warp_tile = GemmTile(16, 8, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16)
+                         .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -359,7 +325,6 @@ TEST_F(AmpereMmaTest, TN) {
   mma_builder.configureMma(mma_ops.front());
 
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
   tv0b->reorder({{-2, -3}, {-3, -2}});
@@ -381,10 +346,7 @@ TEST_F(AmpereMmaTest, TN) {
   auto t1 = at::randn({8, 16}, options);
 
   FusionExecutor fe;
-  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
 
   auto tref = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
@@ -415,14 +377,8 @@ TEST_F(AmpereMmaTest, TT) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 8, 16);
-  gemm_tile.warp_tile = GemmTile(16, 8, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TT);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16)
+                         .layout(MmaOptions::MmaLayout::TT);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -432,7 +388,6 @@ TEST_F(AmpereMmaTest, TT) {
   mma_builder.configureMma(mma_ops.front());
 
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
   tv0b->reorder({{-2, -3}, {-3, -2}});
@@ -455,10 +410,7 @@ TEST_F(AmpereMmaTest, TT) {
 
   FusionExecutor fe;
 
-  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
 
   auto cg_outputs = fe.runFusion({t0, t1});
 
@@ -490,14 +442,8 @@ TEST_F(AmpereMmaTest, NT) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 8, 16);
-  gemm_tile.warp_tile = GemmTile(16, 8, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NT);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16)
+                         .layout(MmaOptions::MmaLayout::NT);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -507,7 +453,6 @@ TEST_F(AmpereMmaTest, NT) {
   mma_builder.configureMma(mma_ops.front());
 
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
   tv0t->reorder({{-2, -3}, {-3, -2}});
@@ -529,10 +474,7 @@ TEST_F(AmpereMmaTest, NT) {
   auto t1 = at::randn({16, 8}, options);
 
   FusionExecutor fe;
-  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
 
   auto tref = t0.t().to(at::kFloat).matmul(t1.to(at::kFloat));
@@ -563,14 +505,8 @@ TEST_F(AmpereMmaTest, NN) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 8, 16);
-  gemm_tile.warp_tile = GemmTile(16, 8, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16)
+                         .layout(MmaOptions::MmaLayout::NN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -580,7 +516,6 @@ TEST_F(AmpereMmaTest, NN) {
   mma_builder.configureMma(mma_ops.front());
 
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
   tv0t->reorder({{-2, -3}, {-3, -2}});
@@ -602,10 +537,7 @@ TEST_F(AmpereMmaTest, NN) {
   auto t1 = at::randn({8, 16}, options);
 
   FusionExecutor fe;
-  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
 
   auto tref = t0.t().to(at::kFloat).matmul(t1.t().to(at::kFloat));
@@ -635,14 +567,8 @@ TEST_F(AmpereMmaTest, LargeTN) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 16, 16);
-  gemm_tile.warp_tile = GemmTile(16, 16, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 16, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16)
+                         .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -652,7 +578,6 @@ TEST_F(AmpereMmaTest, LargeTN) {
   mma_builder.configureMma(mma_ops.front());
 
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
   tv0b->reorder({{-2, -3}, {-3, -2}});
@@ -674,10 +599,7 @@ TEST_F(AmpereMmaTest, LargeTN) {
   auto t1 = at::randn({16, 16}, options);
 
   FusionExecutor fe;
-  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
 
   auto tref = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
@@ -708,14 +630,8 @@ TEST_F(AmpereMmaTest, LargeTT) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 16, 16);
-  gemm_tile.warp_tile = GemmTile(16, 16, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 16, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TT);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16)
+                         .layout(MmaOptions::MmaLayout::TT);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -725,7 +641,6 @@ TEST_F(AmpereMmaTest, LargeTT) {
   mma_builder.configureMma(mma_ops.front());
 
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
   tv0b->reorder({{-2, -3}, {-3, -2}});
@@ -748,10 +663,7 @@ TEST_F(AmpereMmaTest, LargeTT) {
 
   FusionExecutor fe;
 
-  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
 
   auto cg_outputs = fe.runFusion({t0, t1});
 
@@ -783,14 +695,8 @@ TEST_F(AmpereMmaTest, LargeNT) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 16, 16);
-  gemm_tile.warp_tile = GemmTile(16, 16, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 16, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NT);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16)
+                         .layout(MmaOptions::MmaLayout::NT);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -800,7 +706,6 @@ TEST_F(AmpereMmaTest, LargeNT) {
   mma_builder.configureMma(mma_ops.front());
 
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
   tv0t->reorder({{-2, -3}, {-3, -2}});
@@ -822,10 +727,7 @@ TEST_F(AmpereMmaTest, LargeNT) {
   auto t1 = at::randn({16, 16}, options);
 
   FusionExecutor fe;
-  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
 
   auto tref = t0.t().to(at::kFloat).matmul(t1.to(at::kFloat));
@@ -856,14 +758,8 @@ TEST_F(AmpereMmaTest, LargeNN) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 16, 16);
-  gemm_tile.warp_tile = GemmTile(16, 16, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 16, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16)
+                         .layout(MmaOptions::MmaLayout::NN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -873,7 +769,6 @@ TEST_F(AmpereMmaTest, LargeNN) {
   mma_builder.configureMma(mma_ops.front());
 
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
   tv0t->reorder({{-2, -3}, {-3, -2}});
@@ -895,10 +790,7 @@ TEST_F(AmpereMmaTest, LargeNN) {
   auto t1 = at::randn({16, 16}, options);
 
   FusionExecutor fe;
-  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
 
   auto tref = t0.t().to(at::kFloat).matmul(t1.t().to(at::kFloat));
