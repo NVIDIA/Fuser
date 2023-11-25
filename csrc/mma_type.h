@@ -222,19 +222,6 @@ struct MmaOptions {
     return macro == other.macro && layout == other.layout &&
         operand == other.operand;
   }
-
-  // The accumulator tensorview register supplied by the
-  //  scheduler interface. Each mma builder is responsible
-  //  for the parameters of one mma op, so the options struct
-  //  would need a pointer to keep track of which mma op it
-  //  is describing.
-  // Tracking mma expressions would not be stable as the expression
-  //  can get deleted by mutate passes.
-  TensorView* accumulator_tv = nullptr;
-
-  //! Returns the mma op that this options parameter list
-  //!  is describing. See comment on accumulator_tv.
-  MmaOp* mmaOp() const;
 };
 
 //! User interface for configuring the mma and mma related
@@ -262,10 +249,6 @@ class MmaBuilder {
   //! Generates the matching ldmatrix instruction type for the
   //!  specified mma option.
   LoadStoreOpType ldMatrix() const;
-
-  //! Store the accumulator tv register reference in mma builder
-  //!  to avoid automatic matching of which mma ops.
-  void accumulatorTv(TensorView* tv);
 
   //! Fill in mma options in scheduling time.
   //!  Each mma op in Fusion IR must be configured once before lowering.
