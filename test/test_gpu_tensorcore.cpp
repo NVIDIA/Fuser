@@ -1119,6 +1119,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0cw = tv0->cacheAfter(LoadStoreOpType::CpAsync);
   auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
@@ -1259,6 +1260,7 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0r = tv0->cacheAfter();
   auto tv1r = tv1->cacheAfter();
@@ -1438,6 +1440,7 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
+  mma_builder.configureMma(mma_ops.front());
 
   auto tv0r = tv0->cacheAfter();
   auto tv1r = tv1->cacheAfter();
