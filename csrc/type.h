@@ -12,9 +12,6 @@
 #include <visibility.h>
 
 #include <c10/core/ScalarType.h>
-#include <c10/util/Exception.h>
-
-#include <c10/macros/Export.h>
 
 #include <polymorphic_value.h>
 

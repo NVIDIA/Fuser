@@ -12,8 +12,6 @@
 #include <root_domain_map.h>
 #include <visibility.h>
 
-#include <c10/macros/Export.h>
-
 namespace nvfuser {
 
 //! Traverse and collect all concretized broadcast domains.

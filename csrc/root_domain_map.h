@@ -14,8 +14,6 @@
 #include <utils.h>
 #include <visibility.h>
 
-#include <c10/macros/Export.h>
-
 namespace nvfuser {
 
 //! Generic interface for mapping root domains of a producer-consumer pair.

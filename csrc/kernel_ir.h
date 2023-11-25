@@ -17,8 +17,6 @@
 #include <utils.h>
 #include <visibility.h>
 
-#include <c10/macros/Export.h>
-
 #include <cstdint>
 #include <string>
 #include <unordered_map>

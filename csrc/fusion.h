@@ -8,8 +8,6 @@
 #pragma once
 
 #include <ATen/core/ivalue.h>
-#include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
 
 #include <debug.h>

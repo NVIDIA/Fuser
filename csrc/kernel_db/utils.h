@@ -9,7 +9,6 @@
 #include <string>
 #include <vector>
 
-#include <c10/macros/Export.h>
 #include <visibility.h>
 
 namespace nvfuser {
