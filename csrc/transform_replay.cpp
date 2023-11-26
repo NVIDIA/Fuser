@@ -771,6 +771,12 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
     return {replayed, consumer_pos};
   }
 
+  NVF_ERROR(
+      consumer->definition()->isA<LoadStoreOp>() && !consumer->hasRFactor(),
+      "TransformReplay::replayCasP currently replays allocation only for Set. "
+      "Other ops (e.g. `consumer = broadcast(producer)`) can break. "
+      "See https://github.com/NVIDIA/Fuser/pull/1291#discussion_r1391999007 for details.");
+
   TensorDomain* replayed = IrBuilder::create<TensorDomain>(
       consumer->container(),
       consumer->getRootDomain(),
