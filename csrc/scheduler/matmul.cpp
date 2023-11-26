@@ -980,8 +980,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   acr->setAllocationDomain(acr->getLeafDomain(), true);
   bcr->setAllocationDomain(bcr->getLeafDomain(), true);
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(acr);
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(bcr, true);
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(
+      acr, mma_builder.operand(MmaOptions::Operand::A).build());
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(
+      bcr, mma_builder.operand(MmaOptions::Operand::B).build());
 
   //  -5  -4   -3   -2   -1          or          -5  -4   -3   -2   -1
   //[8mi, 4k, 2ko, 2mo, 2ki]                   [8ni, 4k, 2ko, 1no, 2ki]

@@ -3014,9 +3014,6 @@ TEST_F(ResizeTest, PadExpandedEmpty) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
-  std::cout << t0 << std::endl;
-  std::cout << t0.strides() << std::endl;
-
   testValidate(
       executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
