@@ -1355,36 +1355,14 @@ void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
 }
 
 static DataType getMmaInputAType(MmaOptions::MacroType macro) {
-  int size = -1;
-  switch (macro) {
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      size = 4;
-      break;
-    default:
-      NVF_ERROR(false, "unknown macro");
-      break;
-  }
+  int size = getM(macro) * getK(macro) / 32 /* threads per warp */ /
+      2 /* halves per 32bit register */;
   return ArrayType{std::make_shared<DataType>(DataType::UInt32), (size_t)size};
 }
 
 static DataType getMmaInputBType(MmaOptions::MacroType macro) {
-  int size = -1;
-  switch (macro) {
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-      size = 2;
-      break;
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      size = 4;
-      break;
-    default:
-      NVF_ERROR(false, "unknown macro");
-      break;
-  }
+  int size = getN(macro) * getK(macro) / 32 /* threads per warp */ /
+      2 /* halves per 32bit register */;
   return ArrayType{std::make_shared<DataType>(DataType::UInt32), (size_t)size};
 }
 

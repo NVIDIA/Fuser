@@ -577,45 +577,7 @@ void checkDimSize(
   }
 }
 
-void WarpMmaSwizzler::scheduleMmaWarpOutput(
-    TensorView* tv,
-    MmaOptions options) {
-  auto macro = options.macro;
-  switch (macro) {
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      scheduleTuringMmaWarpOutput(tv, options);
-      if (tv->definition()->isA<MmaOp>()) {
-        setWarpMapped(tv, 7);
-      }
-      break;
-    default:
-      NVF_CHECK(
-          false, "scheduleMmaWarp: unsupported mma option ", toString(macro));
-      break;
-  }
-}
-
-void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOptions options) {
-  // Schedules operand for inner most 3 contiguous dimensions
-  // Assumes M, N, K
-
-  switch (options.macro) {
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      scheduleTuringOperandRead(tv);
-      break;
-    default:
-      NVF_CHECK(false, "WarpMmaSwizzler: please specify macro");
-      break;
-  }
-}
-
-void WarpMmaSwizzler::setWarpMapped(TensorView* tv, int number_of_dims) {
+static void setWarpMapped(TensorView* tv, int number_of_dims) {
   for (int id : c10::irange(number_of_dims)) {
     tv->axis(-id - 1)->toMmaSwizzled();
   }
@@ -710,154 +672,9 @@ std::unordered_set<IterDomain*> getMmaDomainSet(
   return {mma_domains.begin(), mma_domains.end()};
 }
 
-// [MMA dimension matching]
-// Returns all the axes that correspond to the given mma dimension. This is the
-//   first relaxation step on the mma check.
-// Mma operations concerns 3 dimensions, namely, the M, N,
-//  and K dimension, more details see [Operand Layout Convention] in mma_type.h.
-//  The current implementation, for best effort safety, supports the patterns
-//  where the root axes can be classified into one of the 3 dimension types.
-//  This is a helpful initial step into defining tensor contraction
-//  optimizations.
-//
-// A concrete example:
-//  T0 [I0, I1, I2, R3, I4, I5] = mma(T1[I01, B11, B21, I31, I41, B51], T2[B02,
-//  I12, B22, I32, I42, I52], {3};
-// In this case some example querries:
-//  K dimension of T0 = {R3}
-//  M dimension of T1 = {I01}
-//  N dimension of T2 = {I52}
-//  etc.
-std::vector<IterDomain*> getMmaRootDimensions(
-    TensorView* tv,
-    MmaOp* mma,
-    MmaDimension dimension) {
-  // Build a fusion-level root domain map
-  //  so we can use the mma swizzles on non-immediate tensor operands, for
-  //  example loadstore staging ops.
-  ComputeAtRootDomainMap root_map;
-  root_map.build();
-
-  // FIXME:
-  // Several optimization is possible at this stage but assuming we don't have
-  //  a lot of mma ops in a fusion this could be lower priority.
-  // First it'd be nice not having to build root map every time this function
-  //  is called. That'd require some explicit boundary where we "lock" the
-  //  compute in the fusion so the root map stays valid.
-  // Second it'd reduce complexity of the below matching by an order if we have
-  //  something similar to "disjointSetOf" in idGraph, for just the root domains
-  //  at scheduler composing time.
-  auto mma_root_dimensions = getMmaDomains(mma, dimension);
-  auto mma_accumulator_tv = mma->out()->as<TensorView>();
-
-  std::vector<IterDomain*> result;
-
-  // Need to use root domain for accumulator tv and maybe rfactor domain
-  //  otherwise. See [Use Root Domain in Accumulator TV].
-  auto is_mma_output =
-      tv->definition() != nullptr && tv->definition()->isA<MmaOp>();
-  const auto& tv_root_domain =
-      is_mma_output ? tv->getRootDomain() : tv->getMaybeRFactorDomain();
-
-  // Loop through tensorview's root domains and accumulate all the
-  //  root domain IterDomain's that maps to any of the collected
-  //  mma root dimension from the mma accumulator tv.
-  for (auto tv_id : tv_root_domain) {
-    if (std::any_of(
-            mma_root_dimensions.begin(),
-            mma_root_dimensions.end(),
-            [&](IterDomain* mma_id) {
-              return root_map.canMap(
-                  tv->domain(), tv_id, mma_accumulator_tv->domain(), mma_id);
-            })) {
-      result.push_back(tv_id);
-    }
-  }
-
-  return result;
-}
-
-//! Utility function to help check that the innermost 3 iterdomains
-//!  are also the corresponding innermost {m,n,k} dimensions of
-//!  the root id's that are participating in the mma operation.
-//! This is a format check before the warp mma swizzler applies mma
-//!  swizzles to make sure that the swizzler is applying the right
-//!  swizzles to the right axes.
-//! This check will be relaxed as we build out the mma usage patterns.
-void validateMmaRootInnerMNK(
-    TensorView* tv,
-    MmaOptions options,
-    int m,
-    int n,
-    int k) {
-  auto mma = options.mmaOp();
-  auto m_dims = getMmaRootDimensions(tv, mma, MmaDimension::M);
-  auto n_dims = getMmaRootDimensions(tv, mma, MmaDimension::N);
-  auto k_dims = getMmaRootDimensions(tv, mma, MmaDimension::K);
-
-  NVF_CHECK(
-      !m_dims.empty() && !n_dims.empty() && !k_dims.empty(),
-      "validateMmaRootInnerMNK: MMA Axes incomplete");
-
-  // Still check the innermost dims of each at the current state:
-  NVF_ERROR(tv->nDims() >= 3);
-  NVF_ERROR(
-      canValidateIsInnerDim(m_dims.back(), tv->axis(-3), m),
-      "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
-  NVF_ERROR(
-      canValidateIsInnerDim(n_dims.back(), tv->axis(-2), n),
-      "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
-  NVF_ERROR(
-      canValidateIsInnerDim(k_dims.back(), tv->axis(-1), k),
-      "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
-}
-
-//! Utility function to help check that the innermost 3 iterdomains
-//!  are also the corresponding innermost {m,n} dimensions of
-//!  the root id's that are participating in the mma operation.
-//! This is a format check before the warp mma swizzler applies mma
-//!  swizzles to make sure that the swizzler is applying the right
-//!  swizzles to the right axes.
-//! This check will be relaxed as we build out the mma usage patterns.
-void validateMmaRootInnerMN(TensorView* tv, MmaOptions options, int m, int n) {
-  auto mma = options.mmaOp();
-  auto m_dims = getMmaRootDimensions(tv, mma, MmaDimension::M);
-  auto n_dims = getMmaRootDimensions(tv, mma, MmaDimension::N);
-
-  NVF_CHECK(
-      !m_dims.empty() && !n_dims.empty(),
-      "validateMmaRootInnerMNK: MMA Axes incomplete");
-
-  // Still check the innermost dims of each at the current state:
-  NVF_ERROR(tv->nDims() >= 2);
-  NVF_ERROR(
-      canValidateIsInnerDim(m_dims.back(), tv->axis(-2), m),
-      "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
-  NVF_ERROR(
-      canValidateIsInnerDim(n_dims.back(), tv->axis(-1), n),
-      "MMA swizzle: requires instruction tile iterdomains on the innermost side of the tensordomain");
-}
-
 } // namespace
 
-void WarpMmaSwizzler::scheduleTuringOperandRead(TensorView* tv) {
-  NVF_ERROR(tv->nDims() >= 2);
-  //  -2   -1          or          -2   -1
-  //[16m, 16k]                    [8n, 16k]
-  tv->split(-2, 8);
-  tv->split(-1, 2);
-  tv->split(-2, 4);
-
-  // -5  -4  -3  -2  -1      or      -5  -4  -3  -2  -1
-  //[2m, 8m, 2k, 4k, 2k']           [1n, 8n, 2k, 4k, 2k']
-  tv->reorder({{-4, -5}, {-5, -2}, {-2, -4}});
-
-  // -5  -4   -3  -2  -1    or      -5  -4  -3  -2  -1
-  //[8m, 4k, 2k, 2m, 2k']          [8n, 4k, 2k, 1n, 2k']
-  tv->setAllocationDomain(tv->getLeafDomain(), true);
-}
-
-void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, bool mn_major) {
+void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOptions options) {
   bool transpose = tv->definition()->as<LoadStoreOp>()->opType() ==
       LoadStoreOpType::LdMatrixTranspose;
   //  -5   -4   -3   -2    -1          or          -5   -4   -3   -2   -1
@@ -873,11 +690,7 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, bool mn_major) {
     //  -4   -3   -2   -1        or          -4    -3   -2   -1
     //[2ko, 2mno, 8k, 8mni]                 [2ko, 1mno, 8k, 8mni]
   }
-  if (mn_major) {
-    tv->reorder({{-4, -3}, {-3, -4}});
-    //  -4    -3  -2   -1        or           -4    -3  -2   -1
-    //[2mno, 2ko, 8k, 8mni]                 [1mno, 2ko, 8k, 8mni]
-  }
+
   tv->merge(-4);
   tv->merge(-3);
   // -2  -1         or          -2  -1
@@ -909,9 +722,70 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, bool mn_major) {
   setWarpMapped(tv, 2);
 }
 
-void WarpMmaSwizzler::scheduleTuringMmaWarpOutput(
+void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOptions options) {
+  NVF_ERROR(tv->nDims() >= 2);
+
+  //  -2    -1          or          -2   -1
+  //[16mn, 16k]                    [8n, 16k]
+  tv->split(-2, 8);
+  tv->split(-1, 2);
+  tv->split(-2, 4);
+
+  //  -5   -4  -3  -2  -1      or      -5  -4  -3  -2  -1
+  //[2mn, 8mn, 2k, 4k, 2k']           [1n, 8n, 2k, 4k, 2k']
+  tv->reorder({{-4, -5}, {-5, -2}, {-2, -4}});
+
+  //  -5  -4  -3   -2  -1     or      -5  -4  -3  -2  -1
+  //[8mn, 4k, 2k, 2mn, 2k']          [8n, 4k, 2k, 1n, 2k']
+
+  // ldmatrix loads multiple 8x8 matrices from shared memory to registers in a
+  // swizzled memory format.
+  //   +--------+--------+
+  //   |        |        |
+  //   |  8x8   |  8x8   |
+  //   |        |        |
+  //   +--------+--------+
+  //   |        |        |
+  //   |  8x8   |  8x8   |
+  //   |        |        |
+  //   +--------+--------+
+  // If n_major is true, these 8x8 matrices are visited in the order of:
+  // top left -> top right -> bottom left -> bottom right.
+  // If n_major is false, these 8x8 matrices are visited in the order of:
+  // top left -> bottom left -> top right -> bottom right.
+  //
+  // In principle, only `n_major = false` should be needed. But unfortunately,
+  // we are taking advantage of the ldmatrix large load in a pretty hacky way.
+  // For example, for Turing, only m16n8k8 is supported by hardware. But we are
+  // also using a fake m16n8k16 and m16n16k16, which uses a single large
+  // ldmatrix to load data to register, and run multiple mma instructions to
+  // consume these data. In the future, we should only keep the m16n8k8 macro,
+  // and schedule m16n8k16 and m16n16k16 more correctly than this current way.
+  bool n_major =
+      options.operand == MmaOptions::Operand::B && getN(options.macro) > 8;
+  if (n_major) {
+    tv->reorder({{-2, -3}, {-3, -2}});
+    //  -5  -4   -3  -2   -1     or       -5  -4  -2  -3   -1
+    //[8mn, 4k, 2mn, 2k, 2k']            [8n, 4k, 1n, 2k, 2k']
+  }
+
+  bool set_allocation = ir_utils::isLdMatrixOp(tv->definition());
+  if (!set_allocation) {
+    for (auto u : tv->uses()) {
+      if (u->isA<MmaOp>()) {
+        set_allocation = true;
+        break;
+      }
+    }
+  }
+  if (set_allocation) {
+    tv->setAllocationDomain(tv->getLeafDomain(), true);
+  }
+}
+
+void WarpMmaSwizzler::scheduleMmaWarpOutput(
     TensorView* tv,
-    const MmaOptions& options) {
+    MmaOptions options) {
   // Assume last 2 dims [M16, N8] or [M16, N8, R]
   // Locate instruction m
   bool is_reduction = tv->axis(-1)->isReduction();
@@ -960,49 +834,10 @@ void WarpMmaSwizzler::scheduleTuringMmaWarpOutput(
   }
 
   tv->axis(m_pos)->parallelize(ParallelType::TIDx);
-}
 
-namespace {
-
-bool isMmaInitLoop(const kir::Scope& loop_body) {
-  for (auto expr : loop_body.exprs()) {
-    if (auto inner_loop = dynamic_cast<kir::ForLoop*>(expr)) {
-      if (!isMmaInitLoop(inner_loop->body())) {
-        return false;
-      }
-    } else if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
-      if (!ir_utils::isTvOp(ldst)) {
-        return false;
-      }
-      if (auto ti = dynamic_cast<kir::TensorIndex*>(ldst->output(0))) {
-        if (!ti->view()->definition() ||
-            !ti->view()->definition()->isA<MmaOp>()) {
-          return false;
-        }
-      }
-      if (auto tv = dynamic_cast<TensorView*>(ldst->output(0))) {
-        if (!tv->definition() || !tv->definition()->isA<MmaOp>()) {
-          return false;
-        }
-      }
-    } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
-      if (!isMmaInitLoop(ite->thenBody())) {
-        return false;
-      }
-      if (!isMmaInitLoop(ite->elseBody())) {
-        return false;
-      }
-    } else {
-      return false;
-    }
+  if (tv->definition()->isA<MmaOp>()) {
+    setWarpMapped(tv, 7);
   }
-  return true;
-}
-
-} // namespace
-
-bool isMmaInitLoop(const kir::ForLoop* loop) {
-  return isMmaInitLoop(loop->body());
 }
 
 void canonicalizeMmaTvOrdering(TensorView* tv) {
@@ -1244,9 +1079,8 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
     return mma_output_domains.getErrorMsg();
   }
 
-  const auto findRolesByDomains = [](const DependenciesMap& deps_map,
-                                     RolesMap& roles_map,
-                                     const bool processing_output) {
+  const auto findInputRolesByDomains = [](const DependenciesMap& deps_map,
+                                          RolesMap& roles_map) {
     for (const auto& entry : deps_map) {
       const auto& domains = entry.second;
       const auto begin = domains.begin();
@@ -1256,38 +1090,79 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
       bool has_n = (end != std::find(begin, end, MatmulDomain::N));
       bool has_k = (end != std::find(begin, end, MatmulDomain::K));
 
-      if (!processing_output && has_m && has_k && !has_n) {
+      if (has_m && has_k && !has_n) {
         roles_map[MatmulRole::INPUT_A].push_back(entry.first);
         continue;
       }
-      if (!processing_output && has_n && has_k && !has_m) {
+      if (has_n && has_k && !has_m) {
         roles_map[MatmulRole::INPUT_B].push_back(entry.first);
         continue;
       }
-      if (!processing_output && has_m && has_n && !has_k) {
+      if (has_m && has_n && !has_k) {
         roles_map[MatmulRole::INPUT_C].push_back(entry.first);
         continue;
       }
       // Bias vectors are assigned to INPUT_C role
-      if (!processing_output && has_m && !has_n && !has_k) {
+      if (has_m && !has_n && !has_k) {
         roles_map[MatmulRole::INPUT_C].push_back(entry.first);
         continue;
       }
+    }
+
+    for (auto& [role, tvs] : roles_map) {
+      // NOTE: sort input roles in descending order by uses() size, and
+      //  if equal then by name() to ensure the stable ordering of tensor
+      //  views in collections assigned to the supported roles
+      std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
+        return (a->uses().size() == b->uses().size())
+            ? (a->name() < b->name())
+            : (a->uses().size() > b->uses().size());
+      });
+    }
+  };
+
+  const auto findOutputRolesByDomains = [](const DependenciesMap& deps_map,
+                                           RolesMap& roles_map) {
+    std::vector<TensorView*> storage;
+    storage.reserve(deps_map.size());
+
+    for (const auto& entry : deps_map) {
+      const auto& domains = entry.second;
+      const auto begin = domains.begin();
+      const auto end = domains.end();
+
+      bool has_m = (end != std::find(begin, end, MatmulDomain::M));
+      bool has_n = (end != std::find(begin, end, MatmulDomain::N));
 
       // NOTE: depending on fusion definition k domain may appear in the output:
       //  - for mma_output == fusion output k domain is present
       //  - for mma_output != fusion output (fusion with epilogue) k domain
       //    is not present
-      if (processing_output && has_m && has_n) {
-        roles_map[MatmulRole::OUTPUT_D].push_back(entry.first);
-        continue;
+
+      // NOTE: the core fusion output tensors are the ones with m and n
+      //  domains
+      if (has_m && has_n) {
+        storage.push_back(entry.first);
       }
     }
-    for (auto& [role, tvs] : roles_map) {
-      // sort tvs by name()
-      std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
-        return a->name() < b->name();
-      });
+
+    // NOTE: sort output roles in descending order by uses() size, and
+    //  if equal then by name() to ensure the stable ordering of tensor
+    //  views in collections assigned to the supported roles
+    std::sort(storage.begin(), storage.end(), [](TensorView* a, TensorView* b) {
+      return (a->uses().size() == b->uses().size())
+          ? (a->name() < b->name())
+          : (a->uses().size() > b->uses().size());
+    });
+
+    if (!storage.empty()) {
+      // NOTE: currently, we pick as a reference tensor one with `m` and `n`
+      //       IterDomains and the most uses
+      auto pos = storage.begin();
+      roles_map[MatmulRole::OUTPUT_D].push_back(*pos);
+      for (++pos; pos != storage.end(); ++pos) {
+        roles_map[MatmulRole::OUTPUT_AUX].push_back(*pos);
+      }
     }
   };
 
@@ -1300,18 +1175,16 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
   RolesMap roles_map;
 
   // Handle fusion input TensorView objects
-  bool handling_output = false;
   resolveTvToMatmulDomainsMapping(
       deps_map, mma_input_candidates, m, n, k, ca_map);
-  findRolesByDomains(deps_map, roles_map, handling_output);
+  findInputRolesByDomains(deps_map, roles_map);
 
   deps_map.clear();
 
   // Handle fusion output TensorView objects
-  handling_output = true;
   resolveTvToMatmulDomainsMapping(
       deps_map, mma_output_candidates, m, n, k, ca_map);
-  findRolesByDomains(deps_map, roles_map, handling_output);
+  findOutputRolesByDomains(deps_map, roles_map);
 
   return roles_map;
 }

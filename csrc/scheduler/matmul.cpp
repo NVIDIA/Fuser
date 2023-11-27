@@ -696,6 +696,10 @@ void scheduleFusionInputsForEpilogue(
 } // namespace
 
 void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
+  static const bool should_unroll = true;
+  auto cached_and_forked_outputs =
+      scheduler_utils::cacheAndForkOutputs(fusion, should_unroll);
+
   const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
 
   // NOTE: the contents of roles_map have been already validated during
@@ -712,7 +716,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Core roles: there can be only one... TV with assigned core role
   TensorView* a = roles_map.at(MatmulRole::INPUT_A).front();
   TensorView* b = roles_map.at(MatmulRole::INPUT_B).front();
-  TensorView* d = roles_map.at(MatmulRole::OUTPUT_D).front();
 
   // Collect mma swizzle info
   auto mma = mma_ops.front();
@@ -723,8 +726,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   const auto fusion_layout = mma_utils::getMatmulLayout(fusion);
   NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
 
-  auto mma_builder =
-      MmaBuilder(params.mma_macro, params.tile_sizes).layout(mma_layout);
+  auto mma_builder = MmaBuilder(params.mma_macro).layout(mma_layout);
   const auto& gemm_tile = params.tile_sizes;
   const bool has_epilogue = !mma->out()->isFusionOutput();
 
@@ -785,10 +787,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   auto bb = mma->inB()->as<TensorView>();
 
   // Setup accumulator register.
-  auto dc = d->cacheBefore();
-  // Mma object is valid only because cacheBefore has been done on
-  //  TV which is not output of MmaOp, as there is an epilogue
-  auto mma_result = has_epilogue ? mma->out()->as<TensorView>() : dc;
+  auto mma_result = mma->out()->as<TensorView>();
 
   // Unswizzle mma result in shared memory
   auto smem_epilogue =
@@ -796,9 +795,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Clear MmaOp pointer, it's not needed from now on
   mma = nullptr;
-
-  // Set accumulation tv for mma op.
-  mma_builder.accumulatorTv(mma_result);
 
   // Staging register for global memory load
   TensorView *ar = a, *br = b;
@@ -908,10 +904,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     splitk_sum = mma_result;
     mma_result = splitk_sum->rFactor({-4, -1});
 
-    // the accumulator must be the output of the MMA op, which is now the
-    // rfactor TV
-    mma_builder.accumulatorTv(mma_result);
-
     num_splitk_dims = 1;
   }
 
@@ -980,8 +972,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   acr->setAllocationDomain(acr->getLeafDomain(), true);
   bcr->setAllocationDomain(bcr->getLeafDomain(), true);
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(acr);
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(bcr, true);
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(
+      acr, mma_builder.operand(MmaOptions::Operand::A).build());
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(
+      bcr, mma_builder.operand(MmaOptions::Operand::B).build());
 
   //  -5  -4   -3   -2   -1          or          -5  -4   -3   -2   -1
   //[8mi, 4k, 2ko, 2mo, 2ki]                   [8ni, 4k, 2ko, 1no, 2ki]
@@ -1061,23 +1055,27 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
             .propagateToBoundary());
     smem_epilogue->axis(-1)->parallelize(ParallelType::Vectorize);
 
-    // Schedule output tensor differently for better global memory access
-    // pattern.
-    scheduleOutputTensor(mma_result, d, gemm_tile);
-    d->axis(-1)->parallelize(ParallelType::Vectorize);
+    for (auto [dc, d] : cached_and_forked_outputs) {
+      // Schedule output tensor differently for better global memory access
+      // pattern.
+      scheduleOutputTensor(mma_result, d, gemm_tile);
+      d->axis(-1)->parallelize(ParallelType::Vectorize);
 
-    // Propagate output tensor transformations back to smem_epilogue
-    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-        d, -1, {smem_epilogue});
+      // Propagate output tensor transformations back to smem_epilogue
+      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+          d, -1, {smem_epilogue});
+    }
   } else {
-    scheduler_utils::BoundedDirectionalTransformPropagator::forward(
-        mma_result,
-        -1,
-        {d},
-        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-            .propagateParallelType()
-            .propagateToBoundary());
-    d->axis(-1)->parallelize(ParallelType::Vectorize);
+    for (auto [dc, d] : cached_and_forked_outputs) {
+      scheduler_utils::BoundedDirectionalTransformPropagator::forward(
+          mma_result,
+          -1,
+          {d},
+          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+              .propagateParallelType()
+              .propagateToBoundary());
+      d->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
   }
   // propagate output transformations to all inputs that are part of epilogue
   //  operations, input tvs with non-core roles
