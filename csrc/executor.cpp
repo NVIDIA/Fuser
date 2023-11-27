@@ -1058,6 +1058,7 @@ int64_t FusionExecutor::computeSharedMemory(
           dataTypeSize(smem_alloc->buffer()->dtype(), index_type);
       const int64_t size_bytes = size_val.as<int64_t>() * data_size;
       const auto last_byte = first_byte + size_bytes;
+
       total = std::max(total, last_byte);
     }
   }
