@@ -477,7 +477,7 @@ using LdMatrixTestParam = std::tuple<MmaMacro, MmaOptions::Operand>;
 class LdMatrixTest : public NVFuserFixtureParamTest<LdMatrixTestParam> {
  protected:
   void SetUp() override {
-    // requires Hopper or newer
+    // requires Turing or newer
     if (cudaArchGuardShouldSkip(7, 5)) {
       GTEST_SKIP() << "skipping tests on pre-Turing GPUs";
     }

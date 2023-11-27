@@ -765,8 +765,8 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOptions options) {
       options.operand == MmaOptions::Operand::B && getN(options.macro) > 8;
   if (n_major) {
     tv->reorder({{-2, -3}, {-3, -2}});
-    // -5   -4   -3  -2  -1     or      -5  -4  -2  -3  -1
-    //[2k, 8mn, 2mn, 4k, 2k']          [2k, 8n, 1n, 4k, 2k']
+    //  -5  -4   -3  -2   -1     or       -5  -4  -2  -3   -1
+    //[8mn, 4k, 2mn, 2k, 2k']            [8n, 4k, 1n, 2k, 2k']
   }
 
   bool set_allocation = ir_utils::isLdMatrixOp(tv->definition());
