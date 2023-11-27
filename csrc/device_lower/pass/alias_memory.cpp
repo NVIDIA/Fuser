@@ -1925,16 +1925,52 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
   using kir::ExprMutator::dispatch;
 
   void dispatch(Expr* expr) final {
-    auto position = allocation_info_map_.getScopeMap().getExprPos(expr);
+    int prev_position = position_;
+    position_ = allocation_info_map_.getScopeMap().getExprPos(expr);
+
+    std::cout << "dispatch position " << position_
+              << " (prev_position=" << prev_position << ")" << std::endl;
+
+    // We might skip expressions if they are deleted before this pass. In that
+    // case the previously dispatched expr might not be position-1 but instead
+    // position-n. In case some sync interval overlaps the skipped expressions.
+    // If a sync interval is contained entirely within the skipped expression
+    // range, then we place a sync before the current expression if expr is not
+    // itself a syncing expression. Otherwise, if the sync interval ended in
+    // the skipped region and was not already resolved, we add a sync before
+    // the current expression if expr is not itself a syncing expression.
+    // Finally, if a sync interval started within the skipped region then we
+    // mark it as upcoming.
+    if (position_ - prev_position > 1) {
+      if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+        debug() << "Skipped non-expression positions between " << prev_position
+                << " and " << position_ << std::endl;
+      }
+      for (auto [start, end] : sync_intervals_) {
+        if (start >= prev_position && start < position_) {
+          if (end >= prev_position && end < position_) {
+            // interval is contained in skipped exprs
+            if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+              debug() << "Sync interval (" << start << ", " << end << ") is "
+                      << " contained in skipped expression interval ("
+                      << prev_position << ", " << position_ << ")" << std::endl;
+            }
+          } else {
+          }
+        }
+      }
+      // TODO: Check upcoming_writes that terminated in this region
+    } else {
+    }
 
     // Lifetime intervals are closed, so sync intervals are open. If this is the
     // first expr past a lifetime's last read, then add the corresponding upper
     // endpoint for the sync interval. Note that we add these before checking
     // for first writes so that we can detect adjacent intervals properly.
-    auto range = sync_intervals_.equal_range(position - 1);
+    auto range = sync_intervals_.equal_range(position_ - 1);
     for (auto& it = range.first; it != range.second; ++it) {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-        debug() << "Found dependency last read at position " << position - 1
+        debug() << "Found dependency last read at position " << position_ - 1
                 << " corresponding to first write at " << it->second
                 << std::endl;
       }
@@ -1944,9 +1980,9 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
     // If this is an upcoming first write that has not yet been erased, it means
     // we have not seen a sync in its interval. So we should insert a BlockSync
     // before this expr.
-    if (upcoming_first_writes_.erase(position)) {
+    if (upcoming_first_writes_.erase(position_)) {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-        debug() << "Inserting block sync before position " << position
+        debug() << "Inserting block sync before position " << position_
                 << std::endl;
       }
       auto new_sync = IrBuilder::create<kir::BlockSync>();
@@ -1963,7 +1999,7 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
     // writes since they can be considered safe.
     if (lower_utils::hasBlockSync(expr, GpuLower::current()->threadPredMap())) {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-        debug() << "Found blocking expression at position " << position
+        debug() << "Found blocking expression at position " << position_
                 << std::endl;
       }
       upcoming_first_writes_.clear();
@@ -1986,6 +2022,8 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
 
   // Holds all new syncs we have inserted
   std::unordered_set<Expr*> inserted_syncs_;
+
+  int position_ = -1;
 };
 
 // Insert missing synchronizations in cases where a TensorView is marked as

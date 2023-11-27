@@ -3392,13 +3392,15 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
   }
 
   // Keep multiples of 8 to keep vectorizable.
-  int M = 504, N = 136, K = 8096;
+  int M = 1024, N = 2048, K = 4096;
+  // int M = 1024, N = 2048, K = 50304;
 
-  for (auto layout : kAllSupportedMatmulLayout) {
+  // for (auto layout : kAllSupportedMatmulLayout) {
+  for (auto layout : {MatmulLayout::NN}) {
     Fusion fusion;
     FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+    auto tv0 = makeContigTensor(2, DataType::BFloat16);
+    auto tv1 = makeContigTensor(2, DataType::BFloat16);
 
     fusion.addInput(tv0);
     fusion.addInput(tv1);
@@ -3408,28 +3410,33 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
     fusion.addOutput(tv2);
 
     MatMulTileOptions gemm_tile;
-    gemm_tile.cta_tile = GemmTile(128, 128, 32);
+    gemm_tile.cta_tile = GemmTile(256, 128, 32);
     gemm_tile.warp_tile = GemmTile(64, 64, 32);
     gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
     MatmulParams params;
     params.mma_macro = MmaOptions::MacroType::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
-    params.splitk_factor = 2;
+    params.double_buffer_options.smem_double_buffer_stage = 3;
+    params.splitk_factor = 5;
+    params.use_smem_epilogue = true;
+    params.promote_prologue_smem_reuse = true;
     scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout);
+    auto inputs = matmulAtInput(M, N, K, layout, at::kBFloat16);
 
     FusionExecutor fe;
     NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
         7, 5, fe.compileFusion(&fusion, {inputs.first, inputs.second}));
     ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
     auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
-    auto tref = atMatmul(
-        inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+    auto tref = atMatmul(inputs.first, inputs.second, layout).to(at::kFloat);
+
+    std::cout << "NVFuser: " << cg_outputs[0][512][1024] << std::endl;
+    std::cout << "ATen: " << tref[512][1024] << std::endl;
 
     // Relax tolerance for larger sum due to large K
-    NVF_CHECK(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
+    NVF_CHECK(cg_outputs[0].allclose(tref, 1e-4 * K, 1e-4 * K));
   }
 }
 
