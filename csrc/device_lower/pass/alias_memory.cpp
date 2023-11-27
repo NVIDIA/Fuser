@@ -1928,41 +1928,23 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
     int prev_position = position_;
     position_ = allocation_info_map_.getScopeMap().getExprPos(expr);
 
-    // We might skip expressions if they are deleted before this pass. In that
-    // case the previously dispatched expr might not be position-1 but instead
-    // position-n. In case some sync interval overlaps the skipped expressions.
-    // If a sync interval is contained entirely within the skipped expression
-    // range, then we place a sync before the current expression if expr is not
-    // itself a syncing expression. Otherwise, if the sync interval ended in
-    // the skipped region and was not already resolved, we add a sync before
-    // the current expression if expr is not itself a syncing expression.
-    // Finally, if a sync interval started within the skipped region then we
-    // mark it as upcoming.
     if (position_ - prev_position > 1) {
-      if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-        debug() << "Skipped non-expression positions between " << prev_position
-                << " and " << position_ << std::endl;
-      }
       for (auto [start, end] : sync_intervals_) {
-        if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-          debug() << "Examining sync interval (" << start << ", " << end << ")"
-                  << std::endl;
-        }
         if (start >= prev_position && start < position_) {
-          if (end >= prev_position && end < position_) {
-            // interval is contained in skipped exprs
-            if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-              debug() << "Sync interval (" << start << ", " << end << ") is "
-                      << " contained in skipped expression interval ("
-                      << prev_position << ", " << position_ << ")" << std::endl;
-            }
-          } else {
-            if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-              debug() << "Sync interval (" << start << ", " << end << ") "
-                      << " begins in skipped expression interval ("
-                      << prev_position << ", " << position_ << ")" << std::endl;
-            }
-          }
+          // Positions exist for which there are no active expressions; for
+          // example the end of each for loop has a position but no expression.
+          // We also might skip expressions if they are deleted before this
+          // pass. In these cases the previously dispatched expr might not be
+          // position-1 but instead position-n.
+          //
+          // If a sync interval is contained entirely within the skipped
+          // expression range, then we insert the current position as the first
+          // write, so that we will place a sync before the current expression
+          // if expr is not itself a syncing expression.
+          //
+          // If the sync interval began within the skipped region but is not
+          // yet resolved, then we insert the original (later) first write
+          // position.
           upcoming_first_writes_.insert(std::max(position_, end));
         }
       }
