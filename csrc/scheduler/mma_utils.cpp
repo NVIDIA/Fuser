@@ -793,8 +793,10 @@ void WarpMmaSwizzler::scheduleMmaWarpOutput(
   tv->split(m_pos--, 2);
   //   m           n
   // [M4, M2, M8, N24  (,R)]
-  tv->split(n_pos--, 8);
-  tv->split(n_pos-- + 1, 2);
+  tv->split(n_pos, 8);
+  tv->split(n_pos, 2);
+
+  n_pos -= 2;
   m_pos -= 2;
   //  m           n
   // [M4, M2, M8, N3, N4, N2  (,R)]
