@@ -505,8 +505,7 @@ TEST_P(LdMatrixTest, Regular) {
   auto tv3 = set(tv2);
   fusion.addOutput(tv3);
 
-  auto mma_builder =
-      MmaBuilder(macro).layout(MmaOptions::MmaLayout::TN).operand(operand);
+  auto mma_builder = MmaBuilder(macro).operand(operand);
   tv2->applyMmaSwizzle(mma_builder.build());
   tv3->applyMmaSwizzle(mma_builder.build());
 
@@ -544,8 +543,7 @@ TEST_P(LdMatrixTest, Transpose) {
   auto tv3 = set(tv2);
   fusion.addOutput(tv3);
 
-  auto mma_builder =
-      MmaBuilder(macro).layout(MmaOptions::MmaLayout::NT).operand(operand);
+  auto mma_builder = MmaBuilder(macro).operand(operand);
   tv2->applyMmaSwizzle(mma_builder.build());
   tv3->applyMmaSwizzle(mma_builder.build());
 

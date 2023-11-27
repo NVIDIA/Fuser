@@ -50,8 +50,7 @@ TEST_F(TuringMmaTest, TN) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16)
-                         .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -114,8 +113,7 @@ TEST_F(TuringMmaTest, TT) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16)
-                         .layout(MmaOptions::MmaLayout::TT);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -178,8 +176,7 @@ TEST_F(TuringMmaTest, NT) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16)
-                         .layout(MmaOptions::MmaLayout::NT);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -242,8 +239,7 @@ TEST_F(TuringMmaTest, NN) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16)
-                         .layout(MmaOptions::MmaLayout::NN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -314,8 +310,7 @@ TEST_F(AmpereMmaTest, TN) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16)
-                         .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -377,8 +372,7 @@ TEST_F(AmpereMmaTest, TT) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16)
-                         .layout(MmaOptions::MmaLayout::TT);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -442,8 +436,7 @@ TEST_F(AmpereMmaTest, NT) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16)
-                         .layout(MmaOptions::MmaLayout::NT);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -505,8 +498,7 @@ TEST_F(AmpereMmaTest, NN) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16)
-                         .layout(MmaOptions::MmaLayout::NN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -567,8 +559,7 @@ TEST_F(AmpereMmaTest, LargeTN) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16)
-                         .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -630,8 +621,7 @@ TEST_F(AmpereMmaTest, LargeTT) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16)
-                         .layout(MmaOptions::MmaLayout::TT);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -695,8 +685,7 @@ TEST_F(AmpereMmaTest, LargeNT) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16)
-                         .layout(MmaOptions::MmaLayout::NT);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -758,8 +747,7 @@ TEST_F(AmpereMmaTest, LargeNN) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16)
-                         .layout(MmaOptions::MmaLayout::NN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
