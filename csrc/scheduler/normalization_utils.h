@@ -230,6 +230,7 @@ struct PersistentKernelProperties {
   int64_t max_dtype_size;
   int64_t vectorize_factor;
   bool project_persistent_buffers;
+  PrimDataType index_type;
 };
 PersistentKernelProperties getPersistentKernelProperties(
     Fusion* fusion,
