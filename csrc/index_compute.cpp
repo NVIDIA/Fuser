@@ -1833,7 +1833,8 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
         continue;
       }
 
-      auto alloc_ext_j = extent_map.find(alloc_dom[j]) == extent_map.end()
+      auto alloc_ext_j = (extent_map.find(alloc_dom[j]) == extent_map.end() ||
+                          is_mma_allocation(alloc_dom[j]))
           ? alloc_dom[j]->extent()
           : extent_map.at(alloc_dom[j]);
 
