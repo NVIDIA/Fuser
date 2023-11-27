@@ -781,6 +781,23 @@ getScopePersistenceFactors(
 
 } // namespace
 
+// Returns true if a persistent tv can be projected to its persistent producers.
+bool canProjectToPersistentProducer(
+    TensorView* buffer,
+    const std::vector<TensorView*>& producers,
+    const std::unordered_set<TensorView*>& persistent_buffer_set) {
+  if (buffer->hasReduction() || producers.empty()) {
+    return false;
+  }
+  if (std::all_of(producers.begin(), producers.end(), [&](auto producer) {
+        return persistent_buffer_set.count(producer) > 0;
+      })) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
 PersistentBufferSizeReturn persistentBufferSize(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -913,6 +930,19 @@ PersistentBufferSizeReturn persistentBufferSize(
         projected_mask, active_buffers, persistent_buffer_sizes, all_buffers);
     max_proj_persistence_size =
         std::max(max_proj_persistence_size, projected_buffer_size);
+  }
+
+  // reduce max_persistence_size if a persistent buffer can be projected to
+  // other persistent tvs.
+  std::unordered_set<TensorView*> persistent_buffer_set(
+      persistent_buffers.begin(), persistent_buffers.end());
+  for (auto buffer_i : c10::irange(persistent_buffers.size())) {
+    auto buffer = persistent_buffers[buffer_i];
+    const auto& producers = ir_utils::producerTvsOf(buffer);
+    if (canProjectToPersistentProducer(
+            buffer, producers, persistent_buffer_set)) {
+      max_persistence_size -= persistent_buffer_sizes[buffer_i];
+    }
   }
 
   PersistentBufferSizeReturn persistent_buffer_size;

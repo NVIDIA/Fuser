@@ -736,24 +736,38 @@ class PersistentBufferProjector {
             (int)buffer_i, fusion_->inputs());
       }
     } else {
+      // visit consumer before producer. e.g.
+      // T1 = f(T0); Tx = add(T1, broadcast(sum(T1)));
+      // T2 = f(T1); Ty = add(T2, broadcast(sum(T2)));
+      // T3 = f(T2); Tz = add(T3, broadcast(sum(T3)));
+      // T1, T2, T3 are persistent buffers.
+      // The visiting order should be [T3, T2, T1].
+      // After project T3 to its producers, we have:
+      // Tz = add(f(T2),broadcast(sum(T3)));
+      // After project T2 to its producers, we have:
+      // Tz = add(f(f(T1)),broadcast(sum(T3)));
+      // Ty = add(f(T1), broadcast(sum(T2)));
+      // The only left persistent buffer is T1.
+      // Also see test case ProjectToPersistentProducers.
+      std::vector<int> visiting_order(persistent_buffers.size());
+      std::iota(visiting_order.begin(), visiting_order.end(), 0);
+      std::sort(
+          visiting_order.begin(), visiting_order.end(), [this](int a, int b) {
+            return !DependencyCheck::isDependencyOf(
+                persistent_buffers[a], persistent_buffers[b]);
+          });
+
+      // try to project buffer to its producers
       std::unordered_set<TensorView*> persistent_buffer_set(
           persistent_buffers.begin(), persistent_buffers.end());
-      for (auto buffer_i : c10::irange(persistent_buffers.size())) {
+      for (auto buffer_i : visiting_order) {
         auto buffer = persistent_buffers[buffer_i];
-        // skip reduction buffers
-        if (buffer->hasReduction()) {
-          continue;
-        }
         const auto& producers = ir_utils::producerTvsOf(buffer);
-        if (!producers.empty() &&
-            std::all_of(producers.begin(), producers.end(), [&](auto producer) {
-              return persistent_buffer_set.count(producer) > 0;
-            })) {
+        if (scheduler_utils::canProjectToPersistentProducer(
+                buffer, producers, persistent_buffer_set)) {
           projectToInputOrImmediatePersistentProducer(
               (int)buffer_i,
               std::vector<Val*>(producers.begin(), producers.end()));
-          // "buffer" is no longer a persistent buffer
-          persistent_buffer_set.erase(buffer);
         }
       }
     }
