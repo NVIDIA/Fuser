@@ -726,8 +726,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   const auto fusion_layout = mma_utils::getMatmulLayout(fusion);
   NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
 
-  auto mma_builder =
-      MmaBuilder(params.mma_macro, params.tile_sizes).layout(mma_layout);
+  auto mma_builder = MmaBuilder(params.mma_macro).layout(mma_layout);
   const auto& gemm_tile = params.tile_sizes;
   const bool has_epilogue = !mma->out()->isFusionOutput();
 
@@ -796,9 +795,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Clear MmaOp pointer, it's not needed from now on
   mma = nullptr;
-
-  // Set accumulation tv for mma op.
-  mma_builder.accumulatorTv(mma_result);
 
   // Staging register for global memory load
   TensorView *ar = a, *br = b;
@@ -907,10 +903,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     // the actual MmaOp output, so here we reassign that to the intermediate.
     splitk_sum = mma_result;
     mma_result = splitk_sum->rFactor({-4, -1});
-
-    // the accumulator must be the output of the MMA op, which is now the
-    // rfactor TV
-    mma_builder.accumulatorTv(mma_result);
 
     num_splitk_dims = 1;
   }

@@ -691,37 +691,6 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOptions options) {
     //[2ko, 2mno, 8k, 8mni]                 [2ko, 1mno, 8k, 8mni]
   }
 
-  // ldmatrix loads multiple 8x8 matrices from shared memory to registers in a
-  // swizzled memory format.
-  //   +--------+--------+
-  //   |        |        |
-  //   |  8x8   |  8x8   |
-  //   |        |        |
-  //   +--------+--------+
-  //   |        |        |
-  //   |  8x8   |  8x8   |
-  //   |        |        |
-  //   +--------+--------+
-  // If mn_major is true, these 8x8 matrices are visited in the order of:
-  // top left -> top right -> bottom left -> bottom right.
-  // If mn_major is false, these 8x8 matrices are visited in the order of:
-  // top left -> bottom left -> top right -> bottom right.
-  //
-  // In principle, only `mn_major = false` should be needed. But unfortunately,
-  // we are taking advantage of the ldmatrix large load in a pretty hacky way.
-  // For example, for Turing, only m16n8k8 is supported by hardware. But we are
-  // also using a fake m16n8k16 and m16n16k16, which uses a single large
-  // ldmatrix to load data to register, and run multiple mma instructions to
-  // consume these data. In the future, we should only keep the m16n8k8 macro,
-  // and schedule m16n8k16 and m16n16k16 more correctly than this current way.
-  bool mn_major =
-      options.operand == MmaOptions::Operand::B && getN(options.macro) > 8;
-  if (mn_major) {
-    tv->reorder({{-4, -3}, {-3, -4}});
-    //  -4    -3  -2   -1        or           -4    -3  -2   -1
-    //[2mno, 2ko, 8k, 8mni]                 [1mno, 2ko, 8k, 8mni]
-  }
-
   tv->merge(-4);
   tv->merge(-3);
   // -2  -1         or          -2  -1
@@ -756,19 +725,62 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOptions options) {
 void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOptions options) {
   NVF_ERROR(tv->nDims() >= 2);
 
-  //  -2   -1          or          -2   -1
-  //[16m, 16k]                    [8n, 16k]
+  //  -2    -1          or          -2   -1
+  //[16mn, 16k]                    [8n, 16k]
   tv->split(-2, 8);
   tv->split(-1, 2);
   tv->split(-2, 4);
 
-  // -5  -4  -3  -2  -1      or      -5  -4  -3  -2  -1
-  //[2m, 8m, 2k, 4k, 2k']           [1n, 8n, 2k, 4k, 2k']
+  //  -5   -4  -3  -2  -1      or      -5  -4  -3  -2  -1
+  //[2mn, 8mn, 2k, 4k, 2k']           [1n, 8n, 2k, 4k, 2k']
   tv->reorder({{-4, -5}, {-5, -2}, {-2, -4}});
 
-  // -5  -4   -3  -2  -1    or      -5  -4  -3  -2  -1
-  //[8m, 4k, 2k, 2m, 2k']          [8n, 4k, 2k, 1n, 2k']
-  tv->setAllocationDomain(tv->getLeafDomain(), true);
+  //  -5  -4  -3   -2  -1     or      -5  -4  -3  -2  -1
+  //[8mn, 4k, 2k, 2mn, 2k']          [8n, 4k, 2k, 1n, 2k']
+
+  // ldmatrix loads multiple 8x8 matrices from shared memory to registers in a
+  // swizzled memory format.
+  //   +--------+--------+
+  //   |        |        |
+  //   |  8x8   |  8x8   |
+  //   |        |        |
+  //   +--------+--------+
+  //   |        |        |
+  //   |  8x8   |  8x8   |
+  //   |        |        |
+  //   +--------+--------+
+  // If n_major is true, these 8x8 matrices are visited in the order of:
+  // top left -> top right -> bottom left -> bottom right.
+  // If n_major is false, these 8x8 matrices are visited in the order of:
+  // top left -> bottom left -> top right -> bottom right.
+  //
+  // In principle, only `n_major = false` should be needed. But unfortunately,
+  // we are taking advantage of the ldmatrix large load in a pretty hacky way.
+  // For example, for Turing, only m16n8k8 is supported by hardware. But we are
+  // also using a fake m16n8k16 and m16n16k16, which uses a single large
+  // ldmatrix to load data to register, and run multiple mma instructions to
+  // consume these data. In the future, we should only keep the m16n8k8 macro,
+  // and schedule m16n8k16 and m16n16k16 more correctly than this current way.
+  bool n_major =
+      options.operand == MmaOptions::Operand::B && getN(options.macro) > 8;
+  if (n_major) {
+    tv->reorder({{-2, -3}, {-3, -2}});
+    //  -5  -4   -3  -2   -1     or       -5  -4  -2  -3   -1
+    //[8mn, 4k, 2mn, 2k, 2k']            [8n, 4k, 1n, 2k, 2k']
+  }
+
+  bool set_allocation = ir_utils::isLdMatrixOp(tv->definition());
+  if (!set_allocation) {
+    for (auto u : tv->uses()) {
+      if (u->isA<MmaOp>()) {
+        set_allocation = true;
+        break;
+      }
+    }
+  }
+  if (set_allocation) {
+    tv->setAllocationDomain(tv->getLeafDomain(), true);
+  }
 }
 
 void WarpMmaSwizzler::scheduleMmaWarpOutput(

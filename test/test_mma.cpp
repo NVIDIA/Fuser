@@ -50,14 +50,8 @@ TEST_F(TuringMmaTest, TN) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 8, 16);
-  gemm_tile.warp_tile = GemmTile(16, 8, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16)
+                         .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -66,25 +60,22 @@ TEST_F(TuringMmaTest, TN) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
-
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0b->reorder({{-2, -3}, {-3, -2}});
+  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0b->merge(1);
+  tv0b->axis(1)->parallelize(ParallelType::TIDx);
+  tv1b->merge(1);
+  tv1b->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -123,14 +114,8 @@ TEST_F(TuringMmaTest, TT) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 8, 16);
-  gemm_tile.warp_tile = GemmTile(16, 8, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TT);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16)
+                         .layout(MmaOptions::MmaLayout::TT);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -139,27 +124,22 @@ TEST_F(TuringMmaTest, TT) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1t;
-  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0b->reorder({{-2, -3}, {-3, -2}});
+  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0b->merge(1);
+  tv0b->axis(1)->parallelize(ParallelType::TIDx);
+  tv1t->merge(1);
+  tv1t->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -198,14 +178,8 @@ TEST_F(TuringMmaTest, NT) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 8, 16);
-  gemm_tile.warp_tile = GemmTile(16, 8, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NT);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16)
+                         .layout(MmaOptions::MmaLayout::NT);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -214,29 +188,22 @@ TEST_F(TuringMmaTest, NT) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0t;
-  tv0cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1t;
-  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [K,M,N] -> [N,M,K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0t->reorder({{-2, -3}, {-3, -2}});
+  tv0t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0t->merge(1);
+  tv0t->axis(1)->parallelize(ParallelType::TIDx);
+  tv1t->merge(1);
+  tv1t->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -275,14 +242,8 @@ TEST_F(TuringMmaTest, NN) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 8, 16);
-  gemm_tile.warp_tile = GemmTile(16, 8, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16)
+                         .layout(MmaOptions::MmaLayout::NN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -291,27 +252,22 @@ TEST_F(TuringMmaTest, NN) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0t;
-  tv0cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
-
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0t->reorder({{-2, -3}, {-3, -2}});
+  tv0t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0t->merge(1);
+  tv0t->axis(1)->parallelize(ParallelType::TIDx);
+  tv1b->merge(1);
+  tv1b->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -358,14 +314,8 @@ TEST_F(AmpereMmaTest, TN) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 8, 16);
-  gemm_tile.warp_tile = GemmTile(16, 8, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16)
+                         .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -374,35 +324,29 @@ TEST_F(AmpereMmaTest, TN) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
-
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0b->reorder({{-2, -3}, {-3, -2}});
+  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0b->merge(1);
+  tv0b->axis(1)->parallelize(ParallelType::TIDx);
+  tv1b->merge(1);
+  tv1b->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
   auto t1 = at::randn({8, 16}, options);
 
   FusionExecutor fe;
-  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
 
   auto tref = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
@@ -433,14 +377,8 @@ TEST_F(AmpereMmaTest, TT) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 8, 16);
-  gemm_tile.warp_tile = GemmTile(16, 8, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TT);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16)
+                         .layout(MmaOptions::MmaLayout::TT);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -449,27 +387,22 @@ TEST_F(AmpereMmaTest, TT) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1t;
-  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0b->reorder({{-2, -3}, {-3, -2}});
+  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0b->merge(1);
+  tv0b->axis(1)->parallelize(ParallelType::TIDx);
+  tv1t->merge(1);
+  tv1t->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -477,10 +410,7 @@ TEST_F(AmpereMmaTest, TT) {
 
   FusionExecutor fe;
 
-  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
 
   auto cg_outputs = fe.runFusion({t0, t1});
 
@@ -512,14 +442,8 @@ TEST_F(AmpereMmaTest, NT) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 8, 16);
-  gemm_tile.warp_tile = GemmTile(16, 8, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NT);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16)
+                         .layout(MmaOptions::MmaLayout::NT);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -528,39 +452,29 @@ TEST_F(AmpereMmaTest, NT) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0t;
-  tv0cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1t;
-  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0t->reorder({{-2, -3}, {-3, -2}});
+  tv0t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0t->merge(1);
+  tv0t->axis(1)->parallelize(ParallelType::TIDx);
+  tv1t->merge(1);
+  tv1t->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
   auto t1 = at::randn({16, 8}, options);
 
   FusionExecutor fe;
-  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
 
   auto tref = t0.t().to(at::kFloat).matmul(t1.to(at::kFloat));
@@ -591,14 +505,8 @@ TEST_F(AmpereMmaTest, NN) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 8, 16);
-  gemm_tile.warp_tile = GemmTile(16, 8, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16)
+                         .layout(MmaOptions::MmaLayout::NN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -607,37 +515,29 @@ TEST_F(AmpereMmaTest, NN) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0t;
-  tv0cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
-
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0t->reorder({{-2, -3}, {-3, -2}});
+  tv0t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0t->merge(1);
+  tv0t->axis(1)->parallelize(ParallelType::TIDx);
+  tv1b->merge(1);
+  tv1b->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
   auto t1 = at::randn({8, 16}, options);
 
   FusionExecutor fe;
-  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
 
   auto tref = t0.t().to(at::kFloat).matmul(t1.t().to(at::kFloat));
@@ -667,14 +567,8 @@ TEST_F(AmpereMmaTest, LargeTN) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 16, 16);
-  gemm_tile.warp_tile = GemmTile(16, 16, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 16, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16)
+                         .layout(MmaOptions::MmaLayout::TN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -683,35 +577,29 @@ TEST_F(AmpereMmaTest, LargeTN) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
-
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0b->reorder({{-2, -3}, {-3, -2}});
+  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0b->merge(1);
+  tv0b->axis(1)->parallelize(ParallelType::TIDx);
+  tv1b->merge(1);
+  tv1b->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
   auto t1 = at::randn({16, 16}, options);
 
   FusionExecutor fe;
-  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
 
   auto tref = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
@@ -742,14 +630,8 @@ TEST_F(AmpereMmaTest, LargeTT) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 16, 16);
-  gemm_tile.warp_tile = GemmTile(16, 16, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 16, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::TT);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16)
+                         .layout(MmaOptions::MmaLayout::TT);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -758,27 +640,22 @@ TEST_F(AmpereMmaTest, LargeTT) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1t;
-  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0b->reorder({{-2, -3}, {-3, -2}});
+  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0b->merge(1);
+  tv0b->axis(1)->parallelize(ParallelType::TIDx);
+  tv1t->merge(1);
+  tv1t->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -786,10 +663,7 @@ TEST_F(AmpereMmaTest, LargeTT) {
 
   FusionExecutor fe;
 
-  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
 
   auto cg_outputs = fe.runFusion({t0, t1});
 
@@ -821,14 +695,8 @@ TEST_F(AmpereMmaTest, LargeNT) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 16, 16);
-  gemm_tile.warp_tile = GemmTile(16, 16, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 16, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NT);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16)
+                         .layout(MmaOptions::MmaLayout::NT);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -837,39 +705,29 @@ TEST_F(AmpereMmaTest, LargeNT) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0t;
-  tv0cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1t;
-  tv1cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0t->reorder({{-2, -3}, {-3, -2}});
+  tv0t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0t->merge(1);
+  tv0t->axis(1)->parallelize(ParallelType::TIDx);
+  tv1t->merge(1);
+  tv1t->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
   auto t1 = at::randn({16, 16}, options);
 
   FusionExecutor fe;
-  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
 
   auto tref = t0.t().to(at::kFloat).matmul(t1.to(at::kFloat));
@@ -900,14 +758,8 @@ TEST_F(AmpereMmaTest, LargeNN) {
 
   fusion.addOutput(tv2);
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(16, 16, 16);
-  gemm_tile.warp_tile = GemmTile(16, 16, 16);
-  gemm_tile.instruction_tile = GemmTile(16, 16, 16);
-
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16, gemm_tile)
-          .layout(MmaOptions::MmaLayout::NN);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16)
+                         .layout(MmaOptions::MmaLayout::NN);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -916,37 +768,29 @@ TEST_F(AmpereMmaTest, LargeNN) {
       mma_ops.size());
   mma_builder.configureMma(mma_ops.front());
 
-  auto tv0cw = tv0b->cacheAfter();
-  auto tv0cr = tv0t;
-  tv0cr->definition()->as<LoadStoreOp>()->setOpType(
-      LoadStoreOpType::LdMatrixTranspose);
-  auto tv1cw = tv1b->cacheAfter();
-  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
-
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // [M, N, K] -> [N, M, K]
-  tv0cr->reorder({{-2, -3}, {-3, -2}});
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0t->reorder({{-2, -3}, {-3, -2}});
+  tv0t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+
+  tv0t->merge(1);
+  tv0t->axis(1)->parallelize(ParallelType::TIDx);
+  tv1b->merge(1);
+  tv1b->axis(1)->parallelize(ParallelType::TIDx);
+
   tv2c->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
   tv2->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  tv1cw->setMemoryType(MemoryType::Shared);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
   auto t1 = at::randn({16, 16}, options);
 
   FusionExecutor fe;
-  NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8,
-      0,
-      fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
+  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({t0, t1});
 
   auto tref = t0.t().to(at::kFloat).matmul(t1.t().to(at::kFloat));
