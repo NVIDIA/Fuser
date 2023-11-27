@@ -1896,7 +1896,7 @@ struct MmaOpDetails {
   //  and output
   AxesData batch_axes;
   // A placeholder for mma input layout
-  std::optional<MmaOptions::MmaLayout> input_layout = std::nullopt;
+  std::optional<MmaLayout> input_layout = std::nullopt;
 };
 
 // A helper structure with pieces of information about TensorView
@@ -1928,7 +1928,7 @@ TensorViewDetails getDetailsFor(const std::vector<IterDomain*>& dims) {
   return details;
 }
 
-MmaOptions::MmaLayout getInputLayout(
+MmaLayout getInputLayout(
     const TensorViewDetails& in_a,
     const TensorViewDetails& in_b,
     const MmaOp::AxesData& m_axes,
@@ -1942,7 +1942,7 @@ MmaOptions::MmaLayout getInputLayout(
       (k_axes.front() < in_a.bcasts.front()) &&
       (in_b.bcasts.front() < k_axes.front()) &&
       (in_b.bcasts.front() < n_axes.front())) {
-    return MmaOptions::MmaLayout::TT;
+    return MmaLayout::TT;
   }
   // TN layout (b - broadcast, r - reduction):
   // A = [M, b, K]
@@ -1952,7 +1952,7 @@ MmaOptions::MmaLayout getInputLayout(
       (in_a.bcasts.front() < k_axes.front()) &&
       (in_b.bcasts.front() < n_axes.front()) &&
       (in_b.bcasts.front() < k_axes.front())) {
-    return MmaOptions::MmaLayout::TN;
+    return MmaLayout::TN;
   }
   // NT layout (b - broadcast, r - reduction):
   // A = [K, M, b]
@@ -1962,7 +1962,7 @@ MmaOptions::MmaLayout getInputLayout(
       (m_axes.front() < in_a.bcasts.front()) &&
       (k_axes.front() < in_b.bcasts.front()) &&
       (in_b.bcasts.front() < n_axes.front())) {
-    return MmaOptions::MmaLayout::NT;
+    return MmaLayout::NT;
   }
   // NN layout (b - broadcast, r - reduction):
   // A = [b, K, M]
@@ -1971,7 +1971,7 @@ MmaOptions::MmaLayout getInputLayout(
   if ((in_a.bcasts.front() < k_axes.front()) &&
       (k_axes.front() < m_axes.front()) && (n_axes.front() < k_axes.front()) &&
       (k_axes.front() < in_b.bcasts.front())) {
-    return MmaOptions::MmaLayout::NN;
+    return MmaLayout::NN;
   }
 
   NVF_ERROR(false, "Unsupported input layout");

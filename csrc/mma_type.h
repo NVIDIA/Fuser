@@ -194,19 +194,18 @@ constexpr MmaMacroEncode::MmaMacroEncode(MmaMacro macro)
 }
 #endif
 
+//! [Operand Layout Convention]
+//! Operand layout, T=transposed/row_major, N=normal/col_major
+//! Ordered by position of K
+//! NT : K,M x K,N -> M,N
+//! TT : M,K X K,N -> M,N
+//! TN : M,K X N,K -> M,N
+//! NN : K,M X N,K -> M,N
+enum class MmaLayout { NT = 0, TT, TN, NN };
+
 //! Information for configuring and lowering mma ops
 struct MmaOptions {
   using MacroType = MmaMacro;
-
-  //! [Operand Layout Convention]
-  //! Operand layout, T=transposed/row_major, N=normal/col_major
-  //! Ordered by position of K
-  //! NT : K,M x K,N -> M,N
-  //! TT : M,K X K,N -> M,N
-  //! TN : M,K X N,K -> M,N
-  //! NN : K,M X N,K -> M,N
-  //! TODO: NN is currently not supported on pre-Turing and Hopper wgmma
-  enum class MmaLayout { NT = 0, TT, TN, NN };
 
   //! Utility to annotate which input of mma this option struct describes
   enum class Operand { Accumulator = 0, A, B };
@@ -214,15 +213,11 @@ struct MmaOptions {
   //! Utility to annotate which mma macro this config uses.
   MacroType macro = MacroType::NoMMA;
 
-  //! Utility to annotate transposition of operands
-  MmaLayout layout = MmaLayout::TT;
-
   //! Utility to annotate which input of mma this option struct describes
   Operand operand = Operand::A;
 
   bool operator==(const MmaOptions& other) const {
-    return macro == other.macro && layout == other.layout &&
-        operand == other.operand;
+    return macro == other.macro && operand == other.operand;
   }
 };
 
@@ -235,11 +230,6 @@ class MmaBuilder {
   MmaBuilder(MmaOptions::MacroType macro);
 
   //! User configuration function:
-  //!  Specifies the input matrix layout for the mma instruction.
-  //!    see [Operand Layout Convention].
-  MmaBuilder& layout(MmaOptions::MmaLayout layout);
-
-  //! User configuration function:
   //!  Specifies which element in the mma op this builder is generating
   //!    parameters for, i.e. A or B. This is useful when generating
   //!    data swizzles for different elements of mma.
@@ -247,10 +237,6 @@ class MmaBuilder {
   //!  op.
   //!  - This option is ignored when configuring the mma operator itself.
   MmaBuilder& operand(MmaOptions::Operand a_or_b);
-
-  //! Generates the matching ldmatrix instruction type for the
-  //!  specified mma option.
-  LoadStoreOpType ldMatrix() const;
 
   //! Export all the parameters with user's configurations applied.
   MmaOptions build() const;
@@ -300,14 +286,14 @@ int getInputBRegisterSize(MmaMacro macro);
 GemmTile getMmaOpShape(MmaMacro macro);
 
 // MMA stringify utils
-std::string toString(MmaOptions::MmaLayout input_layout);
+std::string toString(MmaLayout input_layout);
 std::string toString(const GemmTile& tile);
 std::string toString(const MatMulTileOptions& opts);
 std::string toString(MmaMacro macro);
 
 // MMA hash utils
 size_t hash(MmaMacro macro);
-size_t hash(MmaOptions::MmaLayout input_layout);
+size_t hash(MmaLayout input_layout);
 size_t hash(const GemmTile& tile);
 size_t hash(const MatMulTileOptions& opts);
 } // namespace nvfuser

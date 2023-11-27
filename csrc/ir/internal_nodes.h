@@ -1334,7 +1334,7 @@ class GroupedWelfordOp : public Expr {
 class MmaOp : public Expr {
  public:
   using AxesData = std::vector<int64_t>;
-  using MmaLayoutOpt = std::optional<MmaOptions::MmaLayout>;
+  using MmaLayoutOpt = std::optional<MmaLayout>;
   using Expr::Expr;
 
   MmaOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* init);

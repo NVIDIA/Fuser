@@ -723,10 +723,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   NVF_ERROR(
       mma_layout_opt.has_value(), "fusion mma op has undefined input layout");
   const auto mma_layout = mma_layout_opt.value();
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion);
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion);
   NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
 
-  auto mma_builder = MmaBuilder(params.mma_macro).layout(mma_layout);
+  auto mma_builder = MmaBuilder(params.mma_macro);
   const auto& gemm_tile = params.tile_sizes;
   const bool has_epilogue = !mma->out()->isFusionOutput();
 
@@ -849,10 +849,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // For Turing and Ampere, the layout of the MmaOp is always TN
   NVF_ERROR(
-      mma_layout == MmaOptions::MmaLayout::TN,
+      mma_layout == MmaLayout::TN,
       "MMAs in Turing and Ampere are TN only, transpose is handled either "
       "via ldmatrix.trans for fp16 or explicitly for other types.");
-  mma_builder.layout(fusion_layout.getData());
 
   // Make a CTA tile
   // ------------------------------------------------------------------
