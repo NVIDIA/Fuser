@@ -57,7 +57,7 @@ TEST_F(TuringMmaTest, TN) {
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Turing_16_8_16);
 
   auto tv2c = tv2->cacheBefore();
 
@@ -120,7 +120,7 @@ TEST_F(TuringMmaTest, TT) {
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Turing_16_8_16);
 
   auto tv2c = tv2->cacheBefore();
 
@@ -183,7 +183,7 @@ TEST_F(TuringMmaTest, NT) {
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Turing_16_8_16);
 
   auto tv2c = tv2->cacheBefore();
 
@@ -246,7 +246,7 @@ TEST_F(TuringMmaTest, NN) {
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Turing_16_8_16);
 
   auto tv2c = tv2->cacheBefore();
 
@@ -317,7 +317,7 @@ TEST_F(AmpereMmaTest, TN) {
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Ampere_16_8_16);
 
   auto tv2c = tv2->cacheBefore();
 
@@ -379,7 +379,7 @@ TEST_F(AmpereMmaTest, TT) {
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Ampere_16_8_16);
 
   auto tv2c = tv2->cacheBefore();
 
@@ -443,7 +443,7 @@ TEST_F(AmpereMmaTest, NT) {
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Ampere_16_8_16);
 
   auto tv2c = tv2->cacheBefore();
 
@@ -505,7 +505,7 @@ TEST_F(AmpereMmaTest, NN) {
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Ampere_16_8_16);
 
   auto tv2c = tv2->cacheBefore();
 
@@ -566,7 +566,7 @@ TEST_F(AmpereMmaTest, LargeTN) {
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Ampere_16_16_16);
 
   auto tv2c = tv2->cacheBefore();
 
@@ -628,7 +628,7 @@ TEST_F(AmpereMmaTest, LargeTT) {
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Ampere_16_16_16);
 
   auto tv2c = tv2->cacheBefore();
 
@@ -692,7 +692,7 @@ TEST_F(AmpereMmaTest, LargeNT) {
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Ampere_16_16_16);
 
   auto tv2c = tv2->cacheBefore();
 
@@ -754,7 +754,7 @@ TEST_F(AmpereMmaTest, LargeNN) {
       1 == mma_ops.size(),
       "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
       mma_ops.size());
-  mma_builder.configureMma(mma_ops.front());
+  mma_ops.front()->setMacro(MmaMacro::Ampere_16_16_16);
 
   auto tv2c = tv2->cacheBefore();
 

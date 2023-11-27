@@ -238,17 +238,6 @@ class MmaBuilder {
   //!  - This option is ignored when configuring the mma operator itself.
   MmaBuilder& operand(MmaOptions::Operand a_or_b);
 
-  //! Fill in mma options in scheduling time.
-  //!  Each mma op in Fusion IR must be configured once before lowering.
-  //!  Mma options are configuration parameters used in lowering to mma
-  //!  instrinsics, mainly the type of mma macro to use and input data layout
-  //!  etc.
-  //!
-  //! TODO: This step will very likely be removed in a follow up PR. All of
-  //!  the options configured here could actually be inferred from fusion IR
-  //!  once we are feature complete.
-  void configureMma(MmaOp* mma) const;
-
   //! Export all the parameters with user's configurations applied.
   MmaOptions build() const;
 
@@ -257,30 +246,30 @@ class MmaBuilder {
 };
 
 //! GPU arch check for macro type
-inline bool isTuring(MmaOptions::MacroType macro) {
+inline bool isTuring(MmaMacro macro) {
   return MmaMacroEncode(macro).arch == MmaMacroEncode::Arch::Turing;
 }
 
-inline bool isAmpere(MmaOptions::MacroType macro) {
+inline bool isAmpere(MmaMacro macro) {
   return MmaMacroEncode(macro).arch == MmaMacroEncode::Arch::Ampere;
 }
 
-inline bool isHopper(MmaOptions::MacroType macro) {
+inline bool isHopper(MmaMacro macro) {
   return MmaMacroEncode(macro).arch == MmaMacroEncode::Arch::Hopper;
 }
 
 //! Get the m size from macro type
-inline int getM(MmaOptions::MacroType macro) {
+inline int getM(MmaMacro macro) {
   return MmaMacroEncode(macro).m;
 }
 
 //! Get the n size from macro type
-inline int getN(MmaOptions::MacroType macro) {
+inline int getN(MmaMacro macro) {
   return MmaMacroEncode(macro).n;
 }
 
 //! Get the k size from macro type
-inline int getK(MmaOptions::MacroType macro) {
+inline int getK(MmaMacro macro) {
   return MmaMacroEncode(macro).k;
 }
 
@@ -289,21 +278,21 @@ bool isOperandTransposed(MmaOptions options);
 
 // Unpacked constants from macro type:
 //   exact numbers are defined by each individual instruction.
-int getOutputRegisterSize(MmaOptions::MacroType macro);
-int getInputARegisterSize(MmaOptions::MacroType macro);
-int getInputBRegisterSize(MmaOptions::MacroType macro);
+int getOutputRegisterSize(MmaMacro macro);
+int getInputARegisterSize(MmaMacro macro);
+int getInputBRegisterSize(MmaMacro macro);
 
 // Unpack MMA op shape
-GemmTile getMmaOpShape(MmaOptions::MacroType macro);
+GemmTile getMmaOpShape(MmaMacro macro);
 
 // MMA stringify utils
 std::string toString(MmaLayout input_layout);
 std::string toString(const GemmTile& tile);
 std::string toString(const MatMulTileOptions& opts);
-std::string toString(MmaOptions::MacroType macro);
+std::string toString(MmaMacro macro);
 
 // MMA hash utils
-size_t hash(MmaOptions::MacroType macro);
+size_t hash(MmaMacro macro);
 size_t hash(MmaLayout input_layout);
 size_t hash(const GemmTile& tile);
 size_t hash(const MatMulTileOptions& opts);

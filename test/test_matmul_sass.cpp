@@ -42,7 +42,7 @@ sass::Container getSASSFor(
     GemmTile cta_tile,
     GemmTile warp_tile,
     GemmTile instruction_tile,
-    MmaOptions::MacroType macro,
+    MmaMacro macro,
     int M,
     int N,
     int K,
@@ -98,7 +98,7 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
     GemmTile cta_tile,
     GemmTile warp_tile,
     GemmTile instruction_tile,
-    MmaOptions::MacroType macro,
+    MmaMacro macro,
     int M,
     int N,
     int K) {
@@ -176,7 +176,7 @@ TEST_F(MatmulSASSTest, AmpereSanity_CUDA) {
             GemmTile(128, 128, 32),
             GemmTile(64, 64, 32),
             GemmTile(16, 8, 16),
-            MmaOptions::MacroType::Ampere_16_8_16,
+            MmaMacro::Ampere_16_8_16,
             M,
             N,
             K));
@@ -226,7 +226,7 @@ TEST_F(MatmulSASSTest, AmpereModifiers_CUDA) {
             GemmTile(128, 128, 32),
             GemmTile(64, 64, 32),
             GemmTile(16, 8, 16),
-            MmaOptions::MacroType::Ampere_16_8_16,
+            MmaMacro::Ampere_16_8_16,
             M,
             N,
             K));
@@ -360,7 +360,7 @@ TEST_F(MatmulSASSTest, AmpereModifiersSharedMemoryEpilogue_CUDA) {
             gemm_tile.cta_tile,
             gemm_tile.warp_tile,
             gemm_tile.instruction_tile,
-            MmaOptions::MacroType::Ampere_16_8_16,
+            MmaMacro::Ampere_16_8_16,
             M,
             N,
             K,
@@ -479,7 +479,7 @@ TEST_F(MatmulSASSTest, AmpereEpilogueBinaryOpMul_CUDA) {
             GemmTile(128, 128, 32),
             GemmTile(64, 64, 32),
             GemmTile(16, 8, 16),
-            MmaOptions::MacroType::Ampere_16_8_16,
+            MmaMacro::Ampere_16_8_16,
             M,
             N,
             K));
@@ -609,7 +609,7 @@ TEST_F(MatmulSASSTest, AmpereRegisterUsageLDSM_CUDA) {
             GemmTile(128, 128, 32),
             GemmTile(64, 64, 32),
             GemmTile(16, 8, 16),
-            MmaOptions::MacroType::Ampere_16_8_16,
+            MmaMacro::Ampere_16_8_16,
             M,
             N,
             K));

@@ -2149,7 +2149,7 @@ MmaOp::MmaOp(
   // ATTR_POS_INIT
   addAttribute(init);
   // ATTR_POS_MACRO
-  addDataAttribute(MmaOptions::MacroType::NoMMA);
+  addDataAttribute(MmaMacro::NoMMA);
   // ATTR_POS_M_AXES
   addDataAttribute(AxesData{});
   // ATTR_POS_N_AXES
@@ -2183,10 +2183,10 @@ MmaOp::MmaOp(
     Val* in_a,
     Val* in_b,
     Val* init,
-    const MmaOptions::MacroType& macro,
+    const MmaMacro& macro,
     const MmaLayoutOpt& input_layout)
     : MmaOp(passkey, out, in_a, in_b, init) {
-  attribute<MmaOptions::MacroType>(ATTR_POS_MACRO) = macro;
+  attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
 
   const auto input_layout_ = attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
   if (input_layout_.has_value()) {
@@ -2215,13 +2215,9 @@ std::string MmaOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-void MmaOp::configureOptions(MmaOptions options) {
-  MmaOptions::MacroType& macro =
-      attribute<MmaOptions::MacroType>(ATTR_POS_MACRO);
-  NVF_ERROR(
-      options.macro != MmaOptions::MacroType::NoMMA,
-      "Un-configured mma type from options.");
-  macro = options.macro;
+void MmaOp::setMacro(MmaMacro macro) {
+  NVF_ERROR(macro != MmaMacro::NoMMA, "Unspecified mma type");
+  attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)

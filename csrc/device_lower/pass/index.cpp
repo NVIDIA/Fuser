@@ -1354,13 +1354,13 @@ void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
   pushBack(IrBuilder::create<kir::CpAsyncBulkS2GWait>(0));
 }
 
-static DataType getMmaInputAType(MmaOptions::MacroType macro) {
+static DataType getMmaInputAType(MmaMacro macro) {
   int size = getM(macro) * getK(macro) / 32 /* threads per warp */ /
       2 /* halves per 32bit register */;
   return ArrayType{std::make_shared<DataType>(DataType::UInt32), (size_t)size};
 }
 
-static DataType getMmaInputBType(MmaOptions::MacroType macro) {
+static DataType getMmaInputBType(MmaMacro macro) {
   int size = getN(macro) * getK(macro) / 32 /* threads per warp */ /
       2 /* halves per 32bit register */;
   return ArrayType{std::make_shared<DataType>(DataType::UInt32), (size_t)size};

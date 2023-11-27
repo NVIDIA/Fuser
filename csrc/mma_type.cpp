@@ -26,11 +26,6 @@ MmaOptions MmaBuilder::build() const {
   return option_;
 }
 
-void MmaBuilder::configureMma(MmaOp* mma) const {
-  NVF_CHECK(mma, "configureMma: invalid op object ", mma);
-  mma->configureOptions(option_);
-}
-
 GemmTile getMmaOpShape(MmaOptions::MacroType macro) {
   return {getM(macro), getN(macro), getK(macro)};
 }
@@ -71,7 +66,7 @@ std::string toString(const MatMulTileOptions& opts) {
   return ss.str();
 }
 
-std::string toString(MmaOptions::MacroType macro) {
+std::string toString(MmaMacro macro) {
   std::stringstream ss;
   auto underlying = static_cast<MmaMacroEncode>(macro);
   switch (underlying.arch) {
@@ -94,7 +89,7 @@ std::string toString(MmaOptions::MacroType macro) {
   return ss.str();
 }
 
-size_t hash(MmaOptions::MacroType macro) {
+size_t hash(MmaMacro macro) {
   return std::hash<size_t>{}(static_cast<size_t>(macro));
 }
 

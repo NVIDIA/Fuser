@@ -768,7 +768,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Currently the support is for a, b, c and d as fusion inputs/outputs
   //  aka. no prolog fusion yet.
 
-  mma_builder.configureMma(mma);
+  mma->setMacro(params.mma_macro);
 
   // TODO:
   // Beyond this point, mma_builder really just becomes a populated
