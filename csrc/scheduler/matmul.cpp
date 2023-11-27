@@ -952,8 +952,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   };
   propagate_mma_input_schedule_to(acw_smem, bcw_smem);
 
-  mma_result->applyMmaSwizzle(
-      MmaOperand::Accumulator);
+  mma_result->applyMmaSwizzle(MmaOperand::Accumulator);
 
   // Set parallelization:
   //   TODO: this section goes to a separate matmul util,

@@ -761,8 +761,8 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOperand operand) {
   // ldmatrix to load data to register, and run multiple mma instructions to
   // consume these data. In the future, we should only keep the m16n8k8 macro,
   // and schedule m16n8k16 and m16n16k16 more correctly than this current way.
-  bool n_major = operand == MmaOperand::B &&
-      tv->axis(-2)->extent()->evaluate() > 1;
+  bool n_major =
+      operand == MmaOperand::B && tv->axis(-2)->extent()->evaluate() > 1;
   if (n_major) {
     tv->reorder({{-2, -3}, {-3, -2}});
     //  -5  -4   -3  -2   -1
