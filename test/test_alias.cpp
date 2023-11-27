@@ -108,6 +108,29 @@ TEST_F(AliasAnalysisTest, View_MergeNonContiguous) {
   EXPECT_EQ(alias_analysis.findRoot(out), out);
 }
 
+TEST_F(AliasAnalysisTest, Set) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const std::vector<int64_t> in_shape({2, 3, 5});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  fusion.addInput(in);
+  TensorView* out = set(in);
+  fusion.addOutput(out);
+
+  in->setAllocationDomain({in->axis(1), in->axis(2), in->axis(0)}, true);
+
+  optimization::AliasAnalysisResult alias_analysis =
+      optimization::findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.findRoot(out), in);
+
+  const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
+  EXPECT_THAT(
+      alias_analysis.preferredLayout(out).allocation_domain,
+      ElementsAre(out_rfactor[1], out_rfactor[2], out_rfactor[0]));
+}
+
 TEST_F(AliasAnalysisTest, Permute) {
   Fusion fusion;
   FusionGuard fg(&fusion);
