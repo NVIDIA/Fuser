@@ -649,7 +649,7 @@ def sanitize_ptx_lines(lines: list[str]) -> list[str]:
         #   _ZN11_kernelfile9kernelENS_6TensorIfLi2ELi2EEES1_S1_
         # get the length of the name
 
-        m = re.match(r"^(?P<prefix>_Z?ZN)(?P<namelen>\d+)_", l)
+        m = re.match(r"^(?P<prefix>^.*\b_Z?ZN)(?P<namelen>\d+)_", l)
         if m is not None:
             d = m.groupdict()
             namelen = int(d["namelen"])
