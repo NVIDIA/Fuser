@@ -1928,9 +1928,6 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
     int prev_position = position_;
     position_ = allocation_info_map_.getScopeMap().getExprPos(expr);
 
-    std::cout << "dispatch position " << position_
-              << " (prev_position=" << prev_position << ")" << std::endl;
-
     // We might skip expressions if they are deleted before this pass. In that
     // case the previously dispatched expr might not be position-1 but instead
     // position-n. In case some sync interval overlaps the skipped expressions.
@@ -1947,6 +1944,10 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
                 << " and " << position_ << std::endl;
       }
       for (auto [start, end] : sync_intervals_) {
+        if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+          debug() << "Examining sync interval (" << start << ", " << end << ")"
+                  << std::endl;
+        }
         if (start >= prev_position && start < position_) {
           if (end >= prev_position && end < position_) {
             // interval is contained in skipped exprs
@@ -1956,11 +1957,15 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
                       << prev_position << ", " << position_ << ")" << std::endl;
             }
           } else {
+            if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
+              debug() << "Sync interval (" << start << ", " << end << ") "
+                      << " begins in skipped expression interval ("
+                      << prev_position << ", " << position_ << ")" << std::endl;
+            }
           }
+          upcoming_first_writes_.insert(std::max(position_, end));
         }
       }
-      // TODO: Check upcoming_writes that terminated in this region
-    } else {
     }
 
     // Lifetime intervals are closed, so sync intervals are open. If this is the
