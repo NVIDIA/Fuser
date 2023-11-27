@@ -650,6 +650,9 @@ def sanitize_ptx_lines(lines: list[str]) -> list[str]:
         l = re.sub(
             r"(_tmp_kernel|nvfuser)(_[a-z]+)?_(\d+|f\d+_c\d*_r\d+_g\d+)", "kernel", l
         )
+        # This part standardizes the _ZN76_ part which can change when more
+        # digits are needed for later parts of the mangled name
+        l = re.sub(r"_ZN\d+_", "_ZN76_", l)
         # This part removes the hash and timestamp of the cu file
         l = re.sub(r"kernel_cu_[0-9a-z]{8}_\d{5}", "kernel_cu_", l)
 
