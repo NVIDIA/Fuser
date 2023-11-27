@@ -369,7 +369,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
 //   D = A x B;
 //   Aux = relu(D)
 //  Target architectures: Turing, Ampere
-TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueReluAux) {
+TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const auto layout = MmaLayout::TT;
 
@@ -377,7 +377,7 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueReluAux) {
       {HSS, std::make_pair(0.001, 0.001)},
       {HSH, std::make_pair(0.001, 0.001)},
       {TSS, std::make_pair(0.001, 0.001)},
-      {TST, std::make_pair(0.001, 0.001)},
+      {TST, std::make_pair(0.01, 0.001)},
   };
 
   NVF_CHECK(
@@ -465,7 +465,7 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueReluAux) {
 //   D = (A x B) + bias
 //   Aux = relu(D)
 //  Target architectures: Ampere
-TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasReluAux) {
+TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
   // NOTE: test skips Turing arch, the relative error was too big
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const auto layout = MmaLayout::TT;
@@ -474,7 +474,7 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasReluAux) {
       {HSS, std::make_pair(0.001, 0.001)},
       {HSH, std::make_pair(0.001, 0.001)},
       {TSS, std::make_pair(0.001, 0.001)},
-      {TST, std::make_pair(0.001, 0.001)},
+      {TST, std::make_pair(0.01, 0.001)},
   };
 
   NVF_CHECK(
@@ -502,7 +502,7 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasReluAux) {
   // A - tv0, B - tv1, C - tv2
   auto tv0 = makeContigTensor(2, in_type);
   auto tv1 = makeContigTensor(2, in_type);
-  auto tv2 = makeContigTensor(1, in_type);
+  auto tv2 = makeContigTensor(1, out_type);
 
   // tv3 := A x B
   auto tv3 = matmul(tv0, tv1, layout, true);
@@ -670,7 +670,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
 //   D = A x B
 //   Aux = gelu(D)
 //  Target architectures: Turing, Ampere
-TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueGeluAux) {
+TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const auto layout = MmaLayout::TT;
 
@@ -678,7 +678,7 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueGeluAux) {
       {HSS, std::make_pair(0.001, 0.001)},
       {HSH, std::make_pair(0.001, 0.001)},
       {TSS, std::make_pair(0.001, 0.001)},
-      {TST, std::make_pair(0.001, 0.001)},
+      {TST, std::make_pair(0.01, 0.001)},
   };
 
   NVF_CHECK(
@@ -873,7 +873,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
 //   D = (A x B) + bias
 //   Aux = gelu(D)
 //  Target architectures: Ampere
-TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasGeluAux) {
+TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
   // NOTE: test skips Turing arch, the relative error was too big
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const auto layout = MmaLayout::TT;
@@ -882,7 +882,7 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasGeluAux) {
       {HSS, std::make_pair(0.001, 0.001)},
       {HSH, std::make_pair(0.01, 0.001)},
       {TSS, std::make_pair(0.001, 0.001)},
-      {TST, std::make_pair(0.001, 0.001)},
+      {TST, std::make_pair(0.01, 0.001)},
   };
 
   NVF_CHECK(

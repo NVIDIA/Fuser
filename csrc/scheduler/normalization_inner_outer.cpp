@@ -267,7 +267,11 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
   if (persistent_buffer_size > available_persistent_buffer_size) {
     scheduler_debug_utils::canScheduleRejectReason(
         heuristicType(),
-        "not enough registers or shared memory for persistence");
+        "not enough registers or shared memory for persistence. Needed ",
+        persistent_buffer_size,
+        " bytes but only ",
+        available_persistent_buffer_size,
+        " bytes are available.");
     return false;
   }
 

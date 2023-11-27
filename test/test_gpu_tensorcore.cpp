@@ -446,11 +446,9 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
   gemm_tile2.instruction_tile = GemmTile(16, 8, 16);
   gemm_tile2.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder1 =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile1);
+  auto mma_builder1 = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
 
-  auto mma_builder2 =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile2);
+  auto mma_builder2 = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -475,7 +473,6 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
 
   // Gemm 1 accumulator reg
   auto tv3c = tv3->cacheBefore();
-  mma_builder1.accumulatorTv(tv3c);
 
   // Gemm 2 main loop read
   auto tv3cw = tv3h->cacheAfter();
@@ -486,7 +483,6 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
 
   // Gemm 2 accumulator reg
   auto tv4c = tv4->cacheBefore();
-  mma_builder2.accumulatorTv(tv4c);
 
   // General idea is inlining gemm1's main loop inside gemm2's
 
@@ -744,11 +740,9 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   // Using Ampere mma macro
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder1 =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile);
+  auto mma_builder1 = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
 
-  auto mma_builder2 =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile);
+  auto mma_builder2 = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -773,7 +767,6 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
 
   // Gemm 1 accumulator reg
   auto tv3c = tv3->cacheBefore();
-  mma_builder1.accumulatorTv(tv3c);
 
   // Softmax conversion:
   auto tv3ccr = tv3->cacheAfter();
@@ -788,7 +781,6 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
 
   // Gemm 2 accumulator reg
   auto tv4c = tv4->cacheBefore();
-  mma_builder2.accumulatorTv(tv4c);
 
   // Schedule gemm 2:
   // ------------------------------------------------------------------
@@ -1115,8 +1107,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -1130,7 +1121,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
   auto tv1cw = tv1->cacheAfter(LoadStoreOpType::CpAsync);
   auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // Make a CTA tile
   // ------------------------------------------------------------------
@@ -1257,8 +1247,7 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -1274,7 +1263,6 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
   auto tv1cw = tv1r->cacheAfter();
   auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // Group the BATCHED DIMS:
   //  -4 -3  -2 -1
@@ -1436,8 +1424,7 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16, gemm_tile);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -1453,7 +1440,6 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
   auto tv1cw = tv1r->cacheAfter();
   auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
   auto tv2c = tv2->cacheBefore();
-  mma_builder.accumulatorTv(tv2c);
 
   // Make a CTA tile
   // ------------------------------------------------------------------
@@ -1589,8 +1575,7 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
   auto tv0b = broadcast(tv0, {false, true, false});
   auto tv1b = broadcast(tv1, {true, false, false});
 
-  auto mma_builder =
-      MmaBuilder(MmaOptions::MacroType::Turing_16_8_16, gemm_tile);
+  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16);
 
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
 
@@ -1608,8 +1593,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
   auto tv1cw = tv1->cacheAfter(LoadStoreOpType::CpAsync);
   auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
   auto tv2c = tv2->cacheBefore();
-
-  mma_builder.accumulatorTv(tv2c);
 
   // Make a CTA tile
   // ------------------------------------------------------------------
