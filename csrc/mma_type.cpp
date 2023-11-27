@@ -12,16 +12,7 @@
 
 namespace nvfuser {
 
-MmaOp* MmaOptions::mmaOp() const {
-  NVF_ERROR(
-      accumulator_tv != nullptr && accumulator_tv->definition() != nullptr,
-      "Invalid accumulator_tv.");
-  auto mma_op = dynamic_cast<MmaOp*>(accumulator_tv->definition());
-  NVF_ERROR(mma_op != nullptr, "accumulator tv not an output of mma op");
-  return mma_op;
-}
-
-MmaBuilder::MmaBuilder(MmaMacro macro, MatMulTileOptions gemm_tile) {
+MmaBuilder::MmaBuilder(MmaOptions::MacroType macro) {
   option_.macro = macro;
 }
 
@@ -37,20 +28,7 @@ MmaBuilder& MmaBuilder::operand(MmaOptions::Operand a_or_b) {
 
 // TODO: validate op config
 MmaOptions MmaBuilder::build() const {
-  NVF_CHECK(
-      option_.accumulator_tv != nullptr,
-      "Please configure accumulator tv before using swizzle options.")
   return option_;
-}
-
-void MmaBuilder::accumulatorTv(TensorView* tv) {
-  NVF_CHECK(
-      tv->getMemoryType() == MemoryType::Local, "Mma only outputs to register");
-  NVF_CHECK(tv->definition(), "Input cannot be accumulator tv");
-  NVF_CHECK(
-      tv->definition()->isA<MmaOp>(),
-      "Requires mma op output for reduction tv");
-  option_.accumulator_tv = tv;
 }
 
 namespace {

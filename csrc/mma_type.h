@@ -30,14 +30,16 @@ enum class MatmulDomain { M = 0, N, K };
 //! Named descriptors of TensorView roles in fusion
 //!  INPUT_A - a producer of MMA input A
 //!  INPUT_B - a producer of MMA input B
-//!  OUTPUT_D - the main consumer of MMA op results
 //!  INPUT_C - a producer of a tensor used in fusion epilogue,
 //!            for example tensor used in beta scaling fusion
+//!  OUTPUT_D - the main consumer of MMA op results
+//!  OUTPUT_AUX - fusion outputs that are consumers of OUTPUT_D
 //!
 //! Naming convention is based on the following formula:
 //!    D = alpha * A x B + beta * C
+//!    AUX = relu(D)
 //!  Note: bias vector tensors will be assigned to INPUT_C role.
-enum class MatmulRole { INPUT_A = 0, INPUT_B, OUTPUT_D, INPUT_C };
+enum class MatmulRole { INPUT_A = 0, INPUT_B, OUTPUT_D, INPUT_C, OUTPUT_AUX };
 
 //! The expected number of occurances of core TensorView roles in fusion
 static constexpr size_t MATMUL_CORE_ROLES_EXPECTED_COUNT = 1;
@@ -126,12 +128,12 @@ static_assert(sizeof(MmaMacroEncode) == sizeof(uint64_t));
 enum class MmaMacro : uint64_t {
   NoMMA = 0,
 
+  MACRO(Turing, 16, 8, 8),
   MACRO(Turing, 16, 8, 16),
   MACRO(Turing, 16, 16, 16),
 
   MACRO(Ampere, 16, 8, 16),
   MACRO(Ampere, 16, 16, 16),
-  MACRO(Ampere, 16, 8, 8),
 
   MACRO(Hopper, 64, 8, 16),
   MACRO(Hopper, 64, 16, 16),
@@ -222,19 +224,6 @@ struct MmaOptions {
     return macro == other.macro && layout == other.layout &&
         operand == other.operand;
   }
-
-  // The accumulator tensorview register supplied by the
-  //  scheduler interface. Each mma builder is responsible
-  //  for the parameters of one mma op, so the options struct
-  //  would need a pointer to keep track of which mma op it
-  //  is describing.
-  // Tracking mma expressions would not be stable as the expression
-  //  can get deleted by mutate passes.
-  TensorView* accumulator_tv = nullptr;
-
-  //! Returns the mma op that this options parameter list
-  //!  is describing. See comment on accumulator_tv.
-  MmaOp* mmaOp() const;
 };
 
 //! User interface for configuring the mma and mma related
@@ -243,12 +232,7 @@ struct MmaOptions {
 class MmaBuilder {
  public:
   //! Initialized a mma builder, for the given mma instruction type.
-  //!  TODO: the mma implementation is generic and should not have
-  //!   strong dependency on the actual matmul tiling shapes. The
-  //!   MatMulTileOptions provided in here is a WAR for mma format and
-  //!   should be removed once there is support for labeling swizzles
-  //!   on iterdomains.
-  MmaBuilder(MmaMacro macro, MatMulTileOptions gemm_tile);
+  MmaBuilder(MmaOptions::MacroType macro);
 
   //! User configuration function:
   //!  Specifies the input matrix layout for the mma instruction.
@@ -267,10 +251,6 @@ class MmaBuilder {
   //! Generates the matching ldmatrix instruction type for the
   //!  specified mma option.
   LoadStoreOpType ldMatrix() const;
-
-  //! Store the accumulator tv register reference in mma builder
-  //!  to avoid automatic matching of which mma ops.
-  void accumulatorTv(TensorView* tv);
 
   //! Export all the parameters with user's configurations applied.
   MmaOptions build() const;
