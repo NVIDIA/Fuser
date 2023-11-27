@@ -1379,19 +1379,19 @@ bool TensorView::isEmptyTensor() const {
       });
 }
 
-void TensorView::applyMmaSwizzle(MmaOptions options) {
-  switch (options.operand) {
-    case MmaOptions::Operand::Accumulator:
-      mma_utils::WarpMmaSwizzler::scheduleMmaWarpOutput(this, options);
+void TensorView::applyMmaSwizzle(MmaOperand operand) {
+  switch (operand) {
+    case MmaOperand::Accumulator:
+      mma_utils::WarpMmaSwizzler::scheduleMmaWarpOutput(this);
       if (definition()->isA<MmaOp>()) {
         setAllocationDomain(getLeafDomain(), true);
       }
       break;
-    case MmaOptions::Operand::A:
-    case MmaOptions::Operand::B:
-      mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, options);
+    case MmaOperand::A:
+    case MmaOperand::B:
+      mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, operand);
       if (ir_utils::isLdMatrixOp(definition())) {
-        mma_utils::WarpMmaSwizzler::scheduleLdMatrix(this, options);
+        mma_utils::WarpMmaSwizzler::scheduleLdMatrix(this);
       }
       break;
     default:

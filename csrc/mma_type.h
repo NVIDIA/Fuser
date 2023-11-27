@@ -203,18 +203,16 @@ constexpr MmaMacroEncode::MmaMacroEncode(MmaMacro macro)
 //! NN : K,M X N,K -> M,N
 enum class MmaLayout { NT = 0, TT, TN, NN };
 
+//! Utility to annotate which input of mma this option struct describes
+enum class MmaOperand { Accumulator = 0, A, B };
+
 //! Information for configuring and lowering mma ops
 struct MmaOptions {
-  using MacroType = MmaMacro;
-
-  //! Utility to annotate which input of mma this option struct describes
-  enum class Operand { Accumulator = 0, A, B };
-
   //! Utility to annotate which mma macro this config uses.
-  MacroType macro = MacroType::NoMMA;
+  MmaMacro macro = MmaMacro::NoMMA;
 
   //! Utility to annotate which input of mma this option struct describes
-  Operand operand = Operand::A;
+  MmaOperand operand = MmaOperand::A;
 
   bool operator==(const MmaOptions& other) const {
     return macro == other.macro && operand == other.operand;
@@ -227,7 +225,7 @@ struct MmaOptions {
 class MmaBuilder {
  public:
   //! Initialized a mma builder, for the given mma instruction type.
-  MmaBuilder(MmaOptions::MacroType macro);
+  MmaBuilder(MmaMacro macro);
 
   //! User configuration function:
   //!  Specifies which element in the mma op this builder is generating
@@ -236,7 +234,7 @@ class MmaBuilder {
   //!  - Operand::Accumulator means the parameters describe accumulator in mma
   //!  op.
   //!  - This option is ignored when configuring the mma operator itself.
-  MmaBuilder& operand(MmaOptions::Operand a_or_b);
+  MmaBuilder& operand(MmaOperand a_or_b);
 
   //! Export all the parameters with user's configurations applied.
   MmaOptions build() const;
