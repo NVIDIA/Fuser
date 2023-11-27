@@ -206,43 +206,6 @@ enum class MmaLayout { NT = 0, TT, TN, NN };
 //! Utility to annotate which input of mma this option struct describes
 enum class MmaOperand { Accumulator = 0, A, B };
 
-//! Information for configuring and lowering mma ops
-struct MmaOptions {
-  //! Utility to annotate which mma macro this config uses.
-  MmaMacro macro = MmaMacro::NoMMA;
-
-  //! Utility to annotate which input of mma this option struct describes
-  MmaOperand operand = MmaOperand::A;
-
-  bool operator==(const MmaOptions& other) const {
-    return macro == other.macro && operand == other.operand;
-  }
-};
-
-//! User interface for configuring the mma and mma related
-//!  operators by specifying the mma instruction tile type
-//!  input data layout, and the operand position of a tensor.
-class MmaBuilder {
- public:
-  //! Initialized a mma builder, for the given mma instruction type.
-  MmaBuilder(MmaMacro macro);
-
-  //! User configuration function:
-  //!  Specifies which element in the mma op this builder is generating
-  //!    parameters for, i.e. A or B. This is useful when generating
-  //!    data swizzles for different elements of mma.
-  //!  - Operand::Accumulator means the parameters describe accumulator in mma
-  //!  op.
-  //!  - This option is ignored when configuring the mma operator itself.
-  MmaBuilder& operand(MmaOperand a_or_b);
-
-  //! Export all the parameters with user's configurations applied.
-  MmaOptions build() const;
-
- private:
-  MmaOptions option_;
-};
-
 //! GPU arch check for macro type
 inline bool isTuring(MmaMacro macro) {
   return MmaMacroEncode(macro).arch == MmaMacroEncode::Arch::Turing;
@@ -270,9 +233,6 @@ inline int getN(MmaMacro macro) {
 inline int getK(MmaMacro macro) {
   return MmaMacroEncode(macro).k;
 }
-
-//! Returns true if the given option describes a transposed operand
-bool isOperandTransposed(MmaOptions options);
 
 // Unpacked constants from macro type:
 //   exact numbers are defined by each individual instruction.
