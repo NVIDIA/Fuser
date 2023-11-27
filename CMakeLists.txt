@@ -40,7 +40,7 @@ include(cmake/FlatBuffers.cmake)
 include(cmake/Dependencies.cmake)
 
 # set CUDA_ARCH for cu tests.
-if(EXISTS ${TORCH_CUDA_ARCH_LIST})
+if(TORCH_CUDA_ARCH_LIST)
   set(ARCH_FLAGS)
   cuda_select_nvcc_arch_flags(ARCH_FLAGS ${TORCH_CUDA_ARCH_LIST})
   list(APPEND CUDA_NVCC_FLAGS ${ARCH_FLAGS})
@@ -410,6 +410,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/test/test_mbarrier.cpp
     ${NVFUSER_ROOT}/test/test_memory.cpp
+    ${NVFUSER_ROOT}/test/test_mma.cpp
     ${NVFUSER_ROOT}/test/test_gpu_view.cpp
     ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
     ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
@@ -561,7 +562,6 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/memory.cu
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu
-  ${NVFUSER_ROOT}/runtime/tensorcore.cu
   ${NVFUSER_ROOT}/runtime/tuple.cu
   ${NVFUSER_ROOT}/runtime/type_traits.cu
   ${NVFUSER_ROOT}/runtime/warp.cu

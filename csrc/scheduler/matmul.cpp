@@ -953,18 +953,22 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Propagate mma input swizzle up the DAG
   //  to all the tensors before mma op and after shared mem read.
-  scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-      ab,
-      -1,
-      {acw_smem},
-      scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-          .propagateParallelType());
-  scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-      bb,
-      -1,
-      {bcw_smem},
-      scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-          .propagateParallelType());
+  auto propagate_mma_input_schedule_to = [&](TensorView* a_boundary,
+                                             TensorView* b_boundary) {
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        ab,
+        -1,
+        {a_boundary},
+        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType());
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        bb,
+        -1,
+        {b_boundary},
+        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType());
+  };
+  propagate_mma_input_schedule_to(acw_smem, bcw_smem);
 
   mma_result->applyMmaSwizzle(
       mma_builder.operand(MmaOptions::Operand::Accumulator).build());
@@ -974,9 +978,20 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //   and needs more configurability.
   // ------------------------------------------------------------------
 
-  // Vectorize smem stores/loads:
-  acr->axis(-1)->parallelize(ParallelType::Vectorize);
-  bcr->axis(-1)->parallelize(ParallelType::Vectorize);
+  acr->setAllocationDomain(acr->getLeafDomain(), true);
+  bcr->setAllocationDomain(bcr->getLeafDomain(), true);
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(
+      acr, mma_builder.operand(MmaOptions::Operand::A).build());
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(
+      bcr, mma_builder.operand(MmaOptions::Operand::B).build());
+
+  //  -5  -4   -3   -2   -1          or          -5  -4   -3   -2   -1
+  //[8mi, 4k, 2ko, 2mo, 2ki]                   [8ni, 4k, 2ko, 1no, 2ki]
+  for (auto tv : {ab, bb}) {
+    tv->merge(-5);
+    tv->axis(-4)->parallelize(ParallelType::TIDx);
+  }
+  propagate_mma_input_schedule_to(acr, bcr);
 
   // Parallelization strategy:
   // Here the top two rows indicate how we can index each axis. The third row

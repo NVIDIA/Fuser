@@ -162,44 +162,33 @@ class WarpMmaSwizzler {
   //! The rightmost iterdomains must follow the m,n,k convention before calling.
   static void scheduleMmaWarpOutput(TensorView* tv, MmaOptions options);
 
-  //! Applies the input mma swizzling to the given tv, should be used
-  //!  on mma input or tv's involved in any fusion before mma, but after smem
-  //!  read.
+  //! Applies the input mma swizzling to the given tv as its allocation domain,
+  //! should be used on mma input or tv's involved in any fusion before mma, but
+  //! after smem read.
   //! The rightmost iterdomains must follow the m,n,k convention before calling.
-  static void scheduleOperandRead(
-      TensorView* tv,
-      MmaOptions options = MmaOptions());
+  static void scheduleOperandRead(TensorView* tv, MmaOptions options);
 
- private:
-  //! Operand swizzle implementations for Turing and Ampere mma.
-  static void scheduleTuringOperandRead(TensorView* tv, MmaOptions options);
-
-  //! Accumulator swizzle implementation for Turing and Ampere mma.
-  static void scheduleTuringM16N8K16MmaWarpOutput(
-      TensorView* tv,
-      const MmaOptions& options);
-
-  //! Accumulator swizzle implementation for emulated 16x16x16 mma tile
-  //!  that enables using ldmatrix.x4.
-  //! Note:
-  //!   Keeping both this option and the ldmatrix.x2 variant above for
-  //! now for wider scheduler exploration space. Eventually both of
-  //! these can be unified with a single affine utility.
-  static void scheduleTuringM16N16K16MmaWarpOutput(
-      TensorView* tv,
-      const MmaOptions& options);
-
-  //! Utility to lock the transformed dimensions from further transforms.
-  static void setWarpMapped(TensorView* tv, int number_of_dims);
+  //! Note [schedule of ldmatrix]
+  //! If you look at the doc of ldmatrix and mma for Turing and Ampere:
+  //! https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-fragment-mma-16816-float
+  //! https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-instructions-ldmatrix
+  //! you will find that, the memory layout of the output of ldmatrix, which
+  //! matches with the input layout of MMA instruction, mismatch with the index
+  //! that each thread uses to call ldmatrix. In nvFuser, we schedule the
+  //! allocation domain of the ldmatrix output and mma inputs to be consistent
+  //! with the memory layout of the output of ldmatrix, and we schedule the
+  //! leaf domain of the ldmatrix output to be consistent with the index that
+  //! each thread uses to call ldmatrix. This function is used to schedule the
+  //! leaf domain of the ldmatrix output. The allocation domain of the ldmatrix
+  //! output and mma inputs are scheduled in scheduleOperandRead, which must be
+  //! called before this function.
+  static void scheduleLdMatrix(TensorView* tv, MmaOptions options);
 };
 
 void checkDimSize(
     TensorView* tv,
     std::vector<int> axis,
     std::vector<int> expect);
-
-// Returns if the loopnest is initializing for an mma op.
-bool isMmaInitLoop(const kir::ForLoop* loop);
 
 //! A constant with minimum number of fusion inputs that could be MMA inputs.
 //!  TODO: update for square matmuls where both inputs are the same tensor
