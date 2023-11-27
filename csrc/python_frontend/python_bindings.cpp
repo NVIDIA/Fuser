@@ -323,8 +323,8 @@ computeTensorDescriptor(
   for (auto i : c10::irange(sizes.size())) {
     // NOTE: not supporting negative stride yet, but we can probably allow it on
     // broadcast dims
-    NVF_CHECK(strides[i] >= 0, "negative stride on tensor is not supported");
-    DimInfo dim_info = DimInfo{(int64_t)i, sizes[i], strides[i]};
+    NVF_CHECK(strides[i] >= 0, "negative stride on tensor is not supported: strides[", i, "]=", strides[i]);
+    DimInfo dim_info{(int64_t)i, sizes[i], strides[i]};
     if (strides[i] != 0) {
       dim_info_vec.push_back(dim_info);
     } else {
