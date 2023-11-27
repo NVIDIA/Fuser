@@ -1930,7 +1930,7 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
 
     if (position_ - prev_position > 1) {
       for (auto [start, end] : sync_intervals_) {
-        if (start >= prev_position && start < position_) {
+        if (start >= prev_position && start < position_ - 1) {
           // Positions exist for which there are no active expressions; for
           // example the end of each for loop has a position but no expression.
           // We also might skip expressions if they are deleted before this
@@ -1945,7 +1945,18 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
           // If the sync interval began within the skipped region but is not
           // yet resolved, then we insert the original (later) first write
           // position.
-          upcoming_first_writes_.insert(std::max(position_, end));
+          upcoming_first_writes_.insert(std::max(position_ - 1, end));
+        }
+      }
+      // Look for live intervals that were already inserted but which ended in
+      // this skipped region. Translate those so that they end just before the
+      // current expression.
+      for (auto fw : upcoming_first_writes_) {
+        if (fw >= prev_position && fw < position_ - 1) {
+          // Translating this skipped end of the interval to current position
+          // will cause it to be processed after this loop
+          upcoming_first_writes_.erase(p);
+          upcoming_first_writes_.insert(position_ - 1);
         }
       }
     }
