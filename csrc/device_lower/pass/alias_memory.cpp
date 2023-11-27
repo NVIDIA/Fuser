@@ -1955,7 +1955,7 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
         if (fw >= prev_position && fw < position_ - 1) {
           // Translating this skipped end of the interval to current position
           // will cause it to be processed after this loop
-          upcoming_first_writes_.erase(p);
+          upcoming_first_writes_.erase(fw);
           upcoming_first_writes_.insert(position_ - 1);
         }
       }
