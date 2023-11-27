@@ -653,7 +653,11 @@ def sanitize_ptx_lines(lines: list[str]) -> list[str]:
         if m is not None:
             d = m.groupdict()
             namelen = int(d["namelen"])
-            l = d["prefix"] + "11_kernelfile" + l[(len(d["prefix"]) + namelen) :]
+            l = (
+                d["prefix"]
+                + "11_kernelfile"
+                + l[(len(d["prefix"]) + len(d["namelen"]) + namelen) :]
+            )
 
         # Doctor the function or variable name
         l = re.sub(
