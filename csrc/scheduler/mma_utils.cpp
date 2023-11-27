@@ -691,37 +691,6 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOptions options) {
     //[2ko, 2mno, 8k, 8mni]                 [2ko, 1mno, 8k, 8mni]
   }
 
-  // ldmatrix loads multiple 8x8 matrices from shared memory to registers in a
-  // swizzled memory format.
-  //   +--------+--------+
-  //   |        |        |
-  //   |  8x8   |  8x8   |
-  //   |        |        |
-  //   +--------+--------+
-  //   |        |        |
-  //   |  8x8   |  8x8   |
-  //   |        |        |
-  //   +--------+--------+
-  // If mn_major is true, these 8x8 matrices are visited in the order of:
-  // top left -> top right -> bottom left -> bottom right.
-  // If mn_major is false, these 8x8 matrices are visited in the order of:
-  // top left -> bottom left -> top right -> bottom right.
-  //
-  // In principle, only `mn_major = false` should be needed. But unfortunately,
-  // we are taking advantage of the ldmatrix large load in a pretty hacky way.
-  // For example, for Turing, only m16n8k8 is supported by hardware. But we are
-  // also using a fake m16n8k16 and m16n16k16, which uses a single large
-  // ldmatrix to load data to register, and run multiple mma instructions to
-  // consume these data. In the future, we should only keep the m16n8k8 macro,
-  // and schedule m16n8k16 and m16n16k16 more correctly than this current way.
-  bool mn_major =
-      options.operand == MmaOptions::Operand::B && getN(options.macro) > 8;
-  if (mn_major) {
-    tv->reorder({{-4, -3}, {-3, -4}});
-    //  -4    -3  -2   -1        or           -4    -3  -2   -1
-    //[2mno, 2ko, 8k, 8mni]                 [1mno, 2ko, 8k, 8mni]
-  }
-
   tv->merge(-4);
   tv->merge(-3);
   // -2  -1         or          -2  -1
@@ -756,19 +725,62 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOptions options) {
 void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOptions options) {
   NVF_ERROR(tv->nDims() >= 2);
 
-  //  -2   -1          or          -2   -1
-  //[16m, 16k]                    [8n, 16k]
+  //  -2    -1          or          -2   -1
+  //[16mn, 16k]                    [8n, 16k]
   tv->split(-2, 8);
   tv->split(-1, 2);
   tv->split(-2, 4);
 
-  // -5  -4  -3  -2  -1      or      -5  -4  -3  -2  -1
-  //[2m, 8m, 2k, 4k, 2k']           [1n, 8n, 2k, 4k, 2k']
+  //  -5   -4  -3  -2  -1      or      -5  -4  -3  -2  -1
+  //[2mn, 8mn, 2k, 4k, 2k']           [1n, 8n, 2k, 4k, 2k']
   tv->reorder({{-4, -5}, {-5, -2}, {-2, -4}});
 
-  // -5  -4   -3  -2  -1    or      -5  -4  -3  -2  -1
-  //[8m, 4k, 2k, 2m, 2k']          [8n, 4k, 2k, 1n, 2k']
-  tv->setAllocationDomain(tv->getLeafDomain(), true);
+  //  -5  -4  -3   -2  -1     or      -5  -4  -3  -2  -1
+  //[8mn, 4k, 2k, 2mn, 2k']          [8n, 4k, 2k, 1n, 2k']
+
+  // ldmatrix loads multiple 8x8 matrices from shared memory to registers in a
+  // swizzled memory format.
+  //   +--------+--------+
+  //   |        |        |
+  //   |  8x8   |  8x8   |
+  //   |        |        |
+  //   +--------+--------+
+  //   |        |        |
+  //   |  8x8   |  8x8   |
+  //   |        |        |
+  //   +--------+--------+
+  // If n_major is true, these 8x8 matrices are visited in the order of:
+  // top left -> top right -> bottom left -> bottom right.
+  // If n_major is false, these 8x8 matrices are visited in the order of:
+  // top left -> bottom left -> top right -> bottom right.
+  //
+  // In principle, only `n_major = false` should be needed. But unfortunately,
+  // we are taking advantage of the ldmatrix large load in a pretty hacky way.
+  // For example, for Turing, only m16n8k8 is supported by hardware. But we are
+  // also using a fake m16n8k16 and m16n16k16, which uses a single large
+  // ldmatrix to load data to register, and run multiple mma instructions to
+  // consume these data. In the future, we should only keep the m16n8k8 macro,
+  // and schedule m16n8k16 and m16n16k16 more correctly than this current way.
+  bool n_major =
+      options.operand == MmaOptions::Operand::B && getN(options.macro) > 8;
+  if (n_major) {
+    tv->reorder({{-2, -3}, {-3, -2}});
+    //  -5  -4   -3  -2   -1     or       -5  -4  -2  -3   -1
+    //[8mn, 4k, 2mn, 2k, 2k']            [8n, 4k, 1n, 2k, 2k']
+  }
+
+  bool set_allocation = ir_utils::isLdMatrixOp(tv->definition());
+  if (!set_allocation) {
+    for (auto u : tv->uses()) {
+      if (u->isA<MmaOp>()) {
+        set_allocation = true;
+        break;
+      }
+    }
+  }
+  if (set_allocation) {
+    tv->setAllocationDomain(tv->getLeafDomain(), true);
+  }
 }
 
 void WarpMmaSwizzler::scheduleMmaWarpOutput(
@@ -1069,9 +1081,8 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
     return mma_output_domains.getErrorMsg();
   }
 
-  const auto findRolesByDomains = [](const DependenciesMap& deps_map,
-                                     RolesMap& roles_map,
-                                     const bool processing_output) {
+  const auto findInputRolesByDomains = [](const DependenciesMap& deps_map,
+                                          RolesMap& roles_map) {
     for (const auto& entry : deps_map) {
       const auto& domains = entry.second;
       const auto begin = domains.begin();
@@ -1081,38 +1092,79 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
       bool has_n = (end != std::find(begin, end, MatmulDomain::N));
       bool has_k = (end != std::find(begin, end, MatmulDomain::K));
 
-      if (!processing_output && has_m && has_k && !has_n) {
+      if (has_m && has_k && !has_n) {
         roles_map[MatmulRole::INPUT_A].push_back(entry.first);
         continue;
       }
-      if (!processing_output && has_n && has_k && !has_m) {
+      if (has_n && has_k && !has_m) {
         roles_map[MatmulRole::INPUT_B].push_back(entry.first);
         continue;
       }
-      if (!processing_output && has_m && has_n && !has_k) {
+      if (has_m && has_n && !has_k) {
         roles_map[MatmulRole::INPUT_C].push_back(entry.first);
         continue;
       }
       // Bias vectors are assigned to INPUT_C role
-      if (!processing_output && has_m && !has_n && !has_k) {
+      if (has_m && !has_n && !has_k) {
         roles_map[MatmulRole::INPUT_C].push_back(entry.first);
         continue;
       }
+    }
+
+    for (auto& [role, tvs] : roles_map) {
+      // NOTE: sort input roles in descending order by uses() size, and
+      //  if equal then by name() to ensure the stable ordering of tensor
+      //  views in collections assigned to the supported roles
+      std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
+        return (a->uses().size() == b->uses().size())
+            ? (a->name() < b->name())
+            : (a->uses().size() > b->uses().size());
+      });
+    }
+  };
+
+  const auto findOutputRolesByDomains = [](const DependenciesMap& deps_map,
+                                           RolesMap& roles_map) {
+    std::vector<TensorView*> storage;
+    storage.reserve(deps_map.size());
+
+    for (const auto& entry : deps_map) {
+      const auto& domains = entry.second;
+      const auto begin = domains.begin();
+      const auto end = domains.end();
+
+      bool has_m = (end != std::find(begin, end, MatmulDomain::M));
+      bool has_n = (end != std::find(begin, end, MatmulDomain::N));
 
       // NOTE: depending on fusion definition k domain may appear in the output:
       //  - for mma_output == fusion output k domain is present
       //  - for mma_output != fusion output (fusion with epilogue) k domain
       //    is not present
-      if (processing_output && has_m && has_n) {
-        roles_map[MatmulRole::OUTPUT_D].push_back(entry.first);
-        continue;
+
+      // NOTE: the core fusion output tensors are the ones with m and n
+      //  domains
+      if (has_m && has_n) {
+        storage.push_back(entry.first);
       }
     }
-    for (auto& [role, tvs] : roles_map) {
-      // sort tvs by name()
-      std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
-        return a->name() < b->name();
-      });
+
+    // NOTE: sort output roles in descending order by uses() size, and
+    //  if equal then by name() to ensure the stable ordering of tensor
+    //  views in collections assigned to the supported roles
+    std::sort(storage.begin(), storage.end(), [](TensorView* a, TensorView* b) {
+      return (a->uses().size() == b->uses().size())
+          ? (a->name() < b->name())
+          : (a->uses().size() > b->uses().size());
+    });
+
+    if (!storage.empty()) {
+      // NOTE: currently, we pick as a reference tensor one with `m` and `n`
+      //       IterDomains and the most uses
+      auto pos = storage.begin();
+      roles_map[MatmulRole::OUTPUT_D].push_back(*pos);
+      for (++pos; pos != storage.end(); ++pos) {
+        roles_map[MatmulRole::OUTPUT_AUX].push_back(*pos);
+      }
     }
   };
 
@@ -1125,18 +1177,16 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
   RolesMap roles_map;
 
   // Handle fusion input TensorView objects
-  bool handling_output = false;
   resolveTvToMatmulDomainsMapping(
       deps_map, mma_input_candidates, m, n, k, ca_map);
-  findRolesByDomains(deps_map, roles_map, handling_output);
+  findInputRolesByDomains(deps_map, roles_map);
 
   deps_map.clear();
 
   // Handle fusion output TensorView objects
-  handling_output = true;
   resolveTvToMatmulDomainsMapping(
       deps_map, mma_output_candidates, m, n, k, ca_map);
-  findRolesByDomains(deps_map, roles_map, handling_output);
+  findOutputRolesByDomains(deps_map, roles_map);
 
   return roles_map;
 }
