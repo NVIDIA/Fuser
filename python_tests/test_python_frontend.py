@@ -2887,6 +2887,41 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(nvf_out[1], t16)  # T16 == T20
         self.assertEqual(nvf_out[2], t31)
 
+    def test_issue1393(self):
+        inputs = [
+            torch.randn((5,), dtype=torch.float16, device='cuda:0').as_strided((3, 4, 5), (0, 0, 1)),
+            torch.randn((3,), dtype=torch.float16, device='cuda:0').as_strided((3, 4), (1, 0)),
+            torch.randn((4,), dtype=torch.float16, device='cuda:0').as_strided((3, 4), (0, 1)),
+        ]
+
+        def fusion_func(fd : FusionDefinition) -> None :
+            T0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[None, None, True], dtype=DataType.Half, is_cpu=False)
+            T1 = fd.define_tensor(shape=[-1, -1], contiguity=[True, None], dtype=DataType.Half, is_cpu=False)
+            T2 = fd.define_tensor(shape=[-1, -1], contiguity=[None, True], dtype=DataType.Half, is_cpu=False)
+            T3 = fd.ops.cast(T1, dtype=DataType.Float)
+            T4 = fd.ops.cast(T2, dtype=DataType.Float)
+            T5 = fd.ops.mul(T3, T4)
+            T6 = fd.ops.cast(T5, dtype=DataType.Half)
+            S7 = fd.define_scalar(3, dtype=DataType.Int)
+            S8 = fd.define_scalar(4, dtype=DataType.Int)
+            S9 = fd.define_scalar(1, dtype=DataType.Int)
+            V10 = fd.define_vector([S7, S8, S9], dtype=DataType.Int)
+            T11 = fd.ops.reshape(T6, new_shape=V10)
+            S12 = fd.define_scalar(3, dtype=DataType.Int)
+            S13 = fd.define_scalar(4, dtype=DataType.Int)
+            S14 = fd.define_scalar(5, dtype=DataType.Int)
+            V15 = fd.define_vector([S12, S13, S14], dtype=DataType.Int)
+            T16 = fd.ops.broadcast_in_dim(T11, shape=V15, broadcast_dims=[0, 1, 2])
+            T17 = fd.ops.cast(T16, dtype=DataType.Float)
+            T18 = fd.ops.cast(T0, dtype=DataType.Float)
+            T19 = fd.ops.mul(T17, T18)
+            T20 = fd.ops.cast(T19, dtype=DataType.Half)
+            fd.add_output(T20)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        torch_ref = inputs[0] * (inputs[1] * inputs[2]).unsqueeze(-1)
+        self.assertEqual(nvf_out[0], torch_ref)
+
 
 if __name__ == "__main__":
     run_tests()
