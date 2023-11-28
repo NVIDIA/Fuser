@@ -472,7 +472,7 @@ TEST_F(TMATest, DisableIndexHoisting) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
-using LdMatrixTestParam = std::tuple<MmaMacro, MmaOptions::Operand>;
+using LdMatrixTestParam = std::tuple<MmaMacro, MmaOperand>;
 
 class LdMatrixTest : public NVFuserFixtureParamTest<LdMatrixTestParam> {
  protected:
@@ -492,7 +492,7 @@ TEST_P(LdMatrixTest, Regular) {
   auto macro = std::get<0>(GetParam());
   auto operand = std::get<1>(GetParam());
 
-  bool is_a = operand == MmaOptions::Operand::A;
+  bool is_a = operand == MmaOperand::A;
 
   int size1 = (is_a ? getM(macro) : getN(macro));
 
@@ -505,11 +505,13 @@ TEST_P(LdMatrixTest, Regular) {
   auto tv3 = set(tv2);
   fusion.addOutput(tv3);
 
-  auto mma_builder = MmaBuilder(macro).operand(operand);
-  tv2->applyMmaSwizzle(mma_builder.build());
-  tv3->applyMmaSwizzle(mma_builder.build());
+  tv2->applyMmaSwizzle(operand);
+  tv3->applyMmaSwizzle(operand);
 
   tv3->merge(0);
+  if (is_a) {
+    tv3->merge(0);
+  }
   tv3->axis(0)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
@@ -529,7 +531,7 @@ TEST_P(LdMatrixTest, Transpose) {
   auto macro = std::get<0>(GetParam());
   auto operand = std::get<1>(GetParam());
 
-  bool is_a = operand == MmaOptions::Operand::A;
+  bool is_a = operand == MmaOperand::A;
 
   int size2 = (is_a ? getM(macro) : getN(macro));
 
@@ -543,11 +545,13 @@ TEST_P(LdMatrixTest, Transpose) {
   auto tv3 = set(tv2);
   fusion.addOutput(tv3);
 
-  auto mma_builder = MmaBuilder(macro).operand(operand);
-  tv2->applyMmaSwizzle(mma_builder.build());
-  tv3->applyMmaSwizzle(mma_builder.build());
+  tv2->applyMmaSwizzle(operand);
+  tv3->applyMmaSwizzle(operand);
 
   tv3->merge(0);
+  if (is_a) {
+    tv3->merge(0);
+  }
   tv3->axis(0)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
@@ -564,15 +568,16 @@ INSTANTIATE_TEST_SUITE_P(
     CopyUsingLdMatrix,
     LdMatrixTest,
     testing::Values(
-        std::make_tuple(MmaMacro::Turing_16_8_8, MmaOptions::Operand::A),
-        std::make_tuple(MmaMacro::Turing_16_8_16, MmaOptions::Operand::A),
-        std::make_tuple(MmaMacro::Turing_16_8_8, MmaOptions::Operand::B),
-        std::make_tuple(MmaMacro::Turing_16_8_16, MmaOptions::Operand::B),
-        std::make_tuple(MmaMacro::Turing_16_16_16, MmaOptions::Operand::B)),
+        std::make_tuple(MmaMacro::Turing_16_8_8, MmaOperand::A),
+        std::make_tuple(MmaMacro::Turing_16_8_16, MmaOperand::A),
+        std::make_tuple(MmaMacro::Turing_16_8_8, MmaOperand::B),
+        std::make_tuple(MmaMacro::Turing_16_8_16, MmaOperand::B),
+        std::make_tuple(MmaMacro::Turing_16_16_16, MmaOperand::B),
+        std::make_tuple(MmaMacro::Hopper_64_8_16, MmaOperand::A)),
     [](const testing::TestParamInfo<LdMatrixTestParam>& info) {
       std::ostringstream os;
       auto macro = std::get<0>(info.param);
-      bool is_a = std::get<1>(info.param) == MmaOptions::Operand::A;
+      bool is_a = std::get<1>(info.param) == MmaOperand::A;
       os << (is_a ? "A" : "B") << "_" << (is_a ? getM(macro) : getN(macro))
          << "x" << getK(macro);
       return os.str();
