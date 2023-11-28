@@ -674,9 +674,13 @@ std::unordered_set<IterDomain*> getMmaDomainSet(
 
 } // namespace
 
-void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv) {
+void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOperand operand) {
   bool transpose = tv->definition()->as<LoadStoreOp>()->opType() ==
       LoadStoreOpType::LdMatrixTranspose;
+  // For A, we have an extra outer dim (-6), which is the "warp group". For
+  // Hopper, mma instructions executes on warp group level. For Turing/Ampere,
+  // this dim will just have extent 1.
+
   //               A                                   B
   //  -6    -5  -4   -3   -2   -1     or     -5  -4   -3   -2   -1
   //[4moo, 8mi, 4k, 2ko, 2mo, 2ki]         [8ni, 4k, 2ko, 1no, 2ki]
@@ -697,7 +701,9 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv) {
 
   tv->merge(-4);
   tv->merge(-3);
-  if (options.operand == MmaOptions::Operand::A) {
+  if (operand == MmaOptions::Operand::A) {
+    // For A, we have an extra outer dim which is the warp group. Merge it back
+    // here so that TIDx represent a warp group, instead of a single warp.
     tv->merge(-3);
   }
   //    A                         B
@@ -752,8 +758,12 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOperand operand) {
   // -5  -4  -3  -2  -1      or      -5  -4  -3  -2  -1
   //[8m, 8m, 2k, 4k, 2k']           [1n, 8n, 2k, 4k, 2k']
 
-  if (operand == MmaOptions::Operand::A) {
+  if (operand == MmaOperand::A) {
+    // For A, we need to have an extra outer dim (-6) for warp group.
     tv->split(-5, 2);
+    // On Ampere and Turing, the extent of dim -6 after the split below will be
+    // just 1. On Hopper, the dim -6 will be 4 because Hopper warp group
+    // instructions have 4x larger m extend than Ampere/Turing.
   }
 
   //            A                                 B

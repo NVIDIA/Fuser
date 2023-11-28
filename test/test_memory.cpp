@@ -568,12 +568,12 @@ INSTANTIATE_TEST_SUITE_P(
     CopyUsingLdMatrix,
     LdMatrixTest,
     testing::Values(
-        std::make_tuple(MmaMacro::Turing_16_8_8, MmaOptions::Operand::A),
-        std::make_tuple(MmaMacro::Turing_16_8_16, MmaOptions::Operand::A),
-        std::make_tuple(MmaMacro::Turing_16_8_8, MmaOptions::Operand::B),
-        std::make_tuple(MmaMacro::Turing_16_8_16, MmaOptions::Operand::B),
-        std::make_tuple(MmaMacro::Turing_16_16_16, MmaOptions::Operand::B),
-        std::make_tuple(MmaMacro::Hopper_64_8_16, MmaOptions::Operand::A)),
+        std::make_tuple(MmaMacro::Turing_16_8_8, MmaOperand::A),
+        std::make_tuple(MmaMacro::Turing_16_8_16, MmaOperand::A),
+        std::make_tuple(MmaMacro::Turing_16_8_8, MmaOperand::B),
+        std::make_tuple(MmaMacro::Turing_16_8_16, MmaOperand::B),
+        std::make_tuple(MmaMacro::Turing_16_16_16, MmaOperand::B),
+        std::make_tuple(MmaMacro::Hopper_64_8_16, MmaOperand::A)),
     [](const testing::TestParamInfo<LdMatrixTestParam>& info) {
       std::ostringstream os;
       auto macro = std::get<0>(info.param);
