@@ -677,24 +677,27 @@ std::unordered_set<IterDomain*> getMmaDomainSet(
 void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOptions options) {
   bool transpose = tv->definition()->as<LoadStoreOp>()->opType() ==
       LoadStoreOpType::LdMatrixTranspose;
-  //  -5   -4   -3   -2    -1          or          -5   -4   -3   -2   -1
-  //[8mni, 4k, 2ko, 2mno, 2ki]                   [8mni, 4k, 2ko, 1mno, 2ki]
+  //   -6    -5   -4   -3   -2    -1     or      -6    -5   -4   -3   -2   -1
+  //[4mnoo, 8mni, 4k, 2ko, 2mno, 2ki]         [1mnoo, 8mni, 4k, 2ko, 1mno, 2ki]
   tv->reorder({{-2, -4}, {-3, -5}});
-  //  -5   -4    -3   -2   -1          or          -5   -4    -3   -2   -1
-  //[2ko, 2mno, 8mni, 4k, 2ki]                   [2ko, 1mno, 8mni, 4k, 2ki]
+  //   -6    -5   -4    -3   -2   -1     or      -6    -5   -4    -3   -2   -1
+  //[4mnoo, 2ko, 2mno, 8mni, 4k, 2ki]         [1mnoo, 2ko, 1mno, 8mni, 4k, 2ki]
   tv->merge(-2);
-  //  -4   -3    -2   -1         or          -4   -3    -2   -1
-  //[2ko, 2mno, 8mni, 8k]                  [2ko, 1mno, 8mni, 8k]
+  //   -5    -4   -3    -2   -1         or           -5    -4   -3    -2   -1
+  //[4mnoo, 2ko, 2mno, 8mni, 8k]                  [1mnoo, 2ko, 1mno, 8mni, 8k]
   if (transpose) {
     tv->reorder({{-2, -1}});
-    //  -4   -3   -2   -1        or          -4    -3   -2   -1
-    //[2ko, 2mno, 8k, 8mni]                 [2ko, 1mno, 8k, 8mni]
+    //   -5    -4   -3   -2   -1        or            -5   -4    -3   -2   -1
+    //[4mnoo, 2ko, 2mno, 8k, 8mni]                 [1mnoo, 2ko, 1mno, 8k, 8mni]
   }
 
   tv->merge(-4);
   tv->merge(-3);
-  // -2  -1         or          -2  -1
-  //[32, 8k]                   [16, 8k]
+  if (options.operand == MmaOptions::Operand::A) {
+    tv->merge(-3);
+  }
+  // -2  -1         or          -2 -1
+  //[128, 8]                   [16, 8]
 
   // The extent of axis(-2) is the number of threads that contains useful
   // addresses. We can not parallelize axis(-2) directly if the extent is less
@@ -713,8 +716,8 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOptions options) {
     tv->merge(-3);
   }
 
-  // -2 -1        or          -2 -1
-  //[32, 8k]                [32, 4k]
+  // -2  -1        or        -2 -1
+  //[128, 8]                [32, 4]
 
   tv->axis(-2)->parallelize(ParallelType::TIDx);
   // TODO: this is not really vectorization. Change its parallel type to Mma.
@@ -723,20 +726,39 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOptions options) {
 }
 
 void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOptions options) {
+  // This function works for all mma ops, regardless of the architecture.
+  // Operand A and B are slightly different in the sense that operand A can be
+  // (>=16)x16 matrix, but operand B can only be 8x16 or 16x16. For operand A,
+  // the Hopper one is the most general one. For earlier architectures, we will
+  // have some dimensions with size 1 after split, this is fine. Memory format
+  // for hopper mma:
+  // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#wgmma-64n16-a
   NVF_ERROR(tv->nDims() >= 2);
 
-  //  -2    -1          or          -2   -1
-  //[16mn, 16k]                    [8n, 16k]
+  //     A                            B
+  //  -2   -1          or          -2   -1
+  //[64m, 16k]                    [8n, 16k]
   tv->split(-2, 8);
   tv->split(-1, 2);
   tv->split(-2, 4);
 
-  //  -5   -4  -3  -2  -1      or      -5  -4  -3  -2  -1
-  //[2mn, 8mn, 2k, 4k, 2k']           [1n, 8n, 2k, 4k, 2k']
+  //          A                               B
+  // -5  -4  -3  -2  -1      or      -5  -4  -3  -2  -1
+  //[8m, 8m, 2k, 4k, 2k']           [1n, 8n, 2k, 4k, 2k']
+
+  if (options.operand == MmaOptions::Operand::A) {
+    tv->split(-5, 2);
+  }
+
+  //            A                                 B
+  // -6  -5  -4  -3  -2  -1      or      -5  -4  -3  -2  -1
+  //[4m, 2m, 8m, 2k, 4k, 2k']           [1n, 8n, 2k, 4k, 2k']
+
   tv->reorder({{-4, -5}, {-5, -2}, {-2, -4}});
 
-  //  -5  -4  -3   -2  -1     or      -5  -4  -3  -2  -1
-  //[8mn, 4k, 2k, 2mn, 2k']          [8n, 4k, 2k, 1n, 2k']
+  //            A                                B
+  // -6  -5  -4  -3  -2  -1     or      -5  -4  -3  -2  -1
+  //[4m, 8m, 4k, 2k, 2m, 2k']          [8n, 4k, 2k, 1n, 2k']
 
   // ldmatrix loads multiple 8x8 matrices from shared memory to registers in a
   // swizzled memory format.
@@ -765,8 +787,8 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOptions options) {
       options.operand == MmaOptions::Operand::B && getN(options.macro) > 8;
   if (n_major) {
     tv->reorder({{-2, -3}, {-3, -2}});
-    //  -5  -4   -3  -2   -1     or       -5  -4  -2  -3   -1
-    //[8mn, 4k, 2mn, 2k, 2k']            [8n, 4k, 1n, 2k, 2k']
+    // -5  -4  -2  -3  -1
+    //[8n, 4k, 1n, 2k, 2k']
   }
 
   bool set_allocation = ir_utils::isLdMatrixOp(tv->definition());
