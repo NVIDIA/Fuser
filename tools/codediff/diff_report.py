@@ -652,9 +652,9 @@ def sanitize_ptx_lines(lines: list[str]) -> list[str]:
         m = re.match(r"^(?P<prefix>^.*\b_Z?ZN)(?P<scopenamelen>\d+)_", l)
         if m is not None:
             d = m.groupdict()
-            namelen = int(d["namelen"])
+            scopenamelen = int(d["scopenamelen"])
             # demangle second part in remainder after scope name
-            remainder = l[(len(d["prefix"]) + len(d["namelen"]) + namelen) :]
+            remainder = l[(len(d["prefix"]) + len(d["scopenamelen"]) + scopenamelen) :]
             mrem = re.match(r"^(?P<varnamelen>\d+)", remainder)
             if mrem is not None:
                 drem = mrem.groupdict()
