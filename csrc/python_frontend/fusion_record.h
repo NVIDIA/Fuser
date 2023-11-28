@@ -1257,7 +1257,7 @@ struct TensorRecord : RecordFunctor {
     // prevent vectorization. Adding this workaround to restore performance.
     std::vector<int64_t> stride_order;
     for (auto i : c10::irange(stride_order_.size())) {
-      if (stride_order_[i] != stride_order_.size() - i - 1) {
+      if (stride_order_[i] != (int64_t)(rank - 1 - i)) {
         // detect permutation in stride_order_, apply stride_order and break;
         stride_order = stride_order_;
         break;
