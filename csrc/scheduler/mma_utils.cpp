@@ -682,7 +682,7 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOptions options) {
   //[4moo, 8mi, 4k, 2ko, 2mo, 2ki]         [8ni, 4k, 2ko, 1no, 2ki]
   tv->reorder({{-2, -4}, {-3, -5}});
   //                A                                   B
-  //   -6   -5   -4   -3  -2   -1     or     -5   -4   -3  -2   -1
+  //  -6    -5   -4   -3  -2   -1     or     -5   -4   -3  -2   -1
   //[4moo, 2ko, 2mo, 8mi, 4k, 2ki]         [2ko, 1no, 8ni, 4k, 2ki]
   tv->merge(-2);
   //              A                                      B
