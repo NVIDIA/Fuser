@@ -968,6 +968,10 @@ void fillCompileOptions(
     std::optional<int64_t> opt_block_size) {
   nvrtc_compile_driver.setOption("--std=c++17");
 
+  // Suppress warnings for functions that are defined but unused, since we have
+  // many unused functions in the preamble.
+  nvrtc_compile_driver.setOption("--diag-suppress=177");
+
   // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
   // which gives better backwards compatibility to work on older driver,
   // (since older driver doesn't necessarily recognize PTX emitted by new

@@ -12,21 +12,7 @@
 
 namespace nvfuser {
 
-MmaBuilder::MmaBuilder(MmaOptions::MacroType macro) {
-  option_.macro = macro;
-}
-
-MmaBuilder& MmaBuilder::operand(MmaOptions::Operand a_or_b) {
-  option_.operand = a_or_b;
-  return *this;
-}
-
-// TODO: validate op config
-MmaOptions MmaBuilder::build() const {
-  return option_;
-}
-
-GemmTile getMmaOpShape(MmaOptions::MacroType macro) {
+GemmTile getMmaOpShape(MmaMacro macro) {
   return {getM(macro), getN(macro), getK(macro)};
 }
 

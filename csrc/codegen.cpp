@@ -577,28 +577,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     code_ << genVariableName(tv);
   }
 
-  // Utility function to emit a cp.async intrinsic
-  void genCpAsync(const LoadStoreOp* ldst, size_t vec_size) {
-    auto dtype = ldst->in()->getDataType().value();
-
-    bool is_cg = ldst->opType() == LoadStoreOpType::CpAsync &&
-        ldst->cacheOp() == CacheOp::Global;
-    std::string name = (is_cg ? "Ampere::cpAsyncCg" : "Ampere::cpAsyncCa");
-
-    ArgumentBuilder template_args;
-    template_args.arg(dtype);
-    template_args.arg(vec_size);
-
-    ArgumentBuilder func_args;
-    func_args.arg(genInline(ldst->out()));
-    func_args.arg(genInline(ldst->in()));
-    if (ldst->predicate() != nullptr) {
-      func_args.arg(genInline(ldst->predicate()));
-    }
-
-    indent() << genCall(name, template_args, func_args) << ";\n";
-  }
-
   void genCpAsyncBulkTensorTile(const LoadStoreOp* ldst) {
     auto in = ldst->in()->as<kir::TensorIndex>();
     auto out = ldst->out()->as<kir::TensorIndex>();
@@ -1219,8 +1197,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto optype = ldst->opType();
     NVF_ERROR(
         optype != LoadStoreOpType::LdMatrix &&
-            optype != LoadStoreOpType::LdMatrixTranspose,
-        "ldmatrix should be lowered as kir::Asm");
+            optype != LoadStoreOpType::LdMatrixTranspose &&
+            optype != LoadStoreOpType::CpAsync,
+        "ldmatrix and cp.async should be lowered as kir::Asm");
 
     if (ldst->out()->isA<kir::TensorIndex>()) {
       auto out_ti = ldst->out()->as<kir::TensorIndex>();
@@ -1247,17 +1226,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         NVF_ERROR(
             ldst->out()->dtype() == ldst->in()->dtype(),
             "Vectorized store/load requires input and output datatypes match.");
-      }
-
-      // dispatch cp.async
-      if (optype == LoadStoreOpType::CpAsync) {
-        if (ldst->cacheOp() == CacheOp::Global) {
-          NVF_ERROR(
-              is_vector_op && vector_word_size == 8,
-              "cp.async.cg only support vectorize 8");
-        }
-        genCpAsync(ldst, vector_word_size);
-        return;
       }
 
       // dispatch cp.async.bulk.tensor.tile
@@ -2777,7 +2745,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (asm_->volatile_()) {
       code_ << " volatile";
     }
-    bool multiline =
+    bool multiline = asm_->hasBooleanInput() ||
         (asm_->code().size() +
              (asm_->inputs().size() + asm_->outputs().size()) * 5 >
          80);
@@ -2801,12 +2769,38 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       indent();
     }
 
-    code_ << "\"" << asm_->code();
+    if (asm_->hasBooleanInput()) {
+      code_ << "\"{\\n\"\n";
+      int64_t boolean_counter = 0;
+      int64_t counter = 0;
+      for (auto input : asm_->inputs()) {
+        if (input->dtype() == DataType::Bool) {
+          indent() << "\"  .reg .pred p" << boolean_counter << "; \\n\"\n";
+          indent() << "\"  setp.ne.b32 p" << boolean_counter << ", %" << counter
+                   << ", 0;\\n\"\n";
+          boolean_counter++;
+        }
+        if (std::holds_alternative<ArrayType>(input->dtype().type)) {
+          counter += (int64_t)std::get<ArrayType>(input->dtype().type).size;
+        } else {
+          counter++;
+        }
+      }
+      indent() << "\"  " << asm_->code();
+    } else {
+      code_ << "\"" << asm_->code();
+    }
+
     auto parameters = asm_->parameters();
     if (!parameters.empty()) {
       code_ << " " << parameters;
     }
-    code_ << ";\\n\"";
+    code_ << R"(;\n")";
+
+    if (asm_->hasBooleanInput()) {
+      code_ << "\n";
+      indent() << R"("}\n")";
+    }
 
     auto next_section = [&]() {
       if (multiline) {
@@ -2821,10 +2815,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           bool first = true;
           for (auto [constraint, register_] : constraints_and_registers) {
             auto next_line = [&]() {
-              code_ << ", ";
+              code_ << ",";
               if (multiline) {
                 code_ << "\n";
                 indent() << " ";
+              } else {
+                code_ << " ";
               }
             };
             if (!first) {
@@ -2842,7 +2838,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                       << ")";
               }
             } else {
-              code_ << "\"" << constraint << "\"(" << gen(register_) << ")";
+              code_ << "\"" << constraint << "\"(";
+              if (register_->dtype() == DataType::Bool) {
+                code_ << "(uint32_t)(";
+              }
+              code_ << gen(register_);
+              if (register_->dtype() == DataType::Bool) {
+                code_ << ")";
+              }
+              code_ << ")";
             }
           }
         };

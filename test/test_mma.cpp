@@ -50,8 +50,6 @@ TEST_F(TuringMmaTest, TN) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16);
-
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
@@ -63,8 +61,8 @@ TEST_F(TuringMmaTest, TN) {
 
   // [M, N, K] -> [N, M, K]
   tv0b->reorder({{-2, -3}, {-3, -2}});
-  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0b->applyMmaSwizzle(MmaOperand::A);
+  tv1b->applyMmaSwizzle(MmaOperand::B);
 
   tv0b->merge(1);
   tv0b->merge(1);
@@ -72,10 +70,8 @@ TEST_F(TuringMmaTest, TN) {
   tv1b->merge(1);
   tv1b->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv2c->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-  tv2->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -114,8 +110,6 @@ TEST_F(TuringMmaTest, TT) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16);
-
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
@@ -127,8 +121,8 @@ TEST_F(TuringMmaTest, TT) {
 
   // [M, N, K] -> [N, M, K]
   tv0b->reorder({{-2, -3}, {-3, -2}});
-  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0b->applyMmaSwizzle(MmaOperand::A);
+  tv1t->applyMmaSwizzle(MmaOperand::B);
 
   tv0b->merge(1);
   tv0b->merge(1);
@@ -136,10 +130,8 @@ TEST_F(TuringMmaTest, TT) {
   tv1t->merge(1);
   tv1t->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv2c->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-  tv2->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -178,8 +170,6 @@ TEST_F(TuringMmaTest, NT) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16);
-
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
@@ -191,8 +181,8 @@ TEST_F(TuringMmaTest, NT) {
 
   // [K,M,N] -> [N,M,K]
   tv0t->reorder({{-2, -3}, {-3, -2}});
-  tv0t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0t->applyMmaSwizzle(MmaOperand::A);
+  tv1t->applyMmaSwizzle(MmaOperand::B);
 
   tv0t->merge(1);
   tv0t->merge(1);
@@ -200,10 +190,8 @@ TEST_F(TuringMmaTest, NT) {
   tv1t->merge(1);
   tv1t->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv2c->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-  tv2->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -242,8 +230,6 @@ TEST_F(TuringMmaTest, NN) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16);
-
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
@@ -255,8 +241,8 @@ TEST_F(TuringMmaTest, NN) {
 
   // [M, N, K] -> [N, M, K]
   tv0t->reorder({{-2, -3}, {-3, -2}});
-  tv0t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0t->applyMmaSwizzle(MmaOperand::A);
+  tv1b->applyMmaSwizzle(MmaOperand::B);
 
   tv0t->merge(1);
   tv0t->merge(1);
@@ -264,10 +250,8 @@ TEST_F(TuringMmaTest, NN) {
   tv1b->merge(1);
   tv1b->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv2c->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-  tv2->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -314,8 +298,6 @@ TEST_F(AmpereMmaTest, TN) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
-
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
@@ -327,8 +309,8 @@ TEST_F(AmpereMmaTest, TN) {
 
   // [M, N, K] -> [N, M, K]
   tv0b->reorder({{-2, -3}, {-3, -2}});
-  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0b->applyMmaSwizzle(MmaOperand::A);
+  tv1b->applyMmaSwizzle(MmaOperand::B);
 
   tv0b->merge(1);
   tv0b->merge(1);
@@ -336,10 +318,8 @@ TEST_F(AmpereMmaTest, TN) {
   tv1b->merge(1);
   tv1b->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv2c->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-  tv2->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -377,8 +357,6 @@ TEST_F(AmpereMmaTest, TT) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
-
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
@@ -390,8 +368,8 @@ TEST_F(AmpereMmaTest, TT) {
 
   // [M, N, K] -> [N, M, K]
   tv0b->reorder({{-2, -3}, {-3, -2}});
-  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0b->applyMmaSwizzle(MmaOperand::A);
+  tv1t->applyMmaSwizzle(MmaOperand::B);
 
   tv0b->merge(1);
   tv0b->merge(1);
@@ -399,10 +377,8 @@ TEST_F(AmpereMmaTest, TT) {
   tv1t->merge(1);
   tv1t->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv2c->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-  tv2->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -442,8 +418,6 @@ TEST_F(AmpereMmaTest, NT) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
-
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
@@ -455,8 +429,8 @@ TEST_F(AmpereMmaTest, NT) {
 
   // [M, N, K] -> [N, M, K]
   tv0t->reorder({{-2, -3}, {-3, -2}});
-  tv0t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0t->applyMmaSwizzle(MmaOperand::A);
+  tv1t->applyMmaSwizzle(MmaOperand::B);
 
   tv0t->merge(1);
   tv0t->merge(1);
@@ -464,10 +438,8 @@ TEST_F(AmpereMmaTest, NT) {
   tv1t->merge(1);
   tv1t->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv2c->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-  tv2->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -505,8 +477,6 @@ TEST_F(AmpereMmaTest, NN) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
-
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
@@ -518,8 +488,8 @@ TEST_F(AmpereMmaTest, NN) {
 
   // [M, N, K] -> [N, M, K]
   tv0t->reorder({{-2, -3}, {-3, -2}});
-  tv0t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0t->applyMmaSwizzle(MmaOperand::A);
+  tv1b->applyMmaSwizzle(MmaOperand::B);
 
   tv0t->merge(1);
   tv0t->merge(1);
@@ -527,10 +497,8 @@ TEST_F(AmpereMmaTest, NN) {
   tv1b->merge(1);
   tv1b->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv2c->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-  tv2->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -567,8 +535,6 @@ TEST_F(AmpereMmaTest, LargeTN) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16);
-
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
@@ -580,8 +546,8 @@ TEST_F(AmpereMmaTest, LargeTN) {
 
   // [M, N, K] -> [N, M, K]
   tv0b->reorder({{-2, -3}, {-3, -2}});
-  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0b->applyMmaSwizzle(MmaOperand::A);
+  tv1b->applyMmaSwizzle(MmaOperand::B);
 
   tv0b->merge(1);
   tv0b->merge(1);
@@ -589,10 +555,8 @@ TEST_F(AmpereMmaTest, LargeTN) {
   tv1b->merge(1);
   tv1b->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv2c->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-  tv2->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -630,8 +594,6 @@ TEST_F(AmpereMmaTest, LargeTT) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16);
-
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
@@ -643,8 +605,8 @@ TEST_F(AmpereMmaTest, LargeTT) {
 
   // [M, N, K] -> [N, M, K]
   tv0b->reorder({{-2, -3}, {-3, -2}});
-  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0b->applyMmaSwizzle(MmaOperand::A);
+  tv1t->applyMmaSwizzle(MmaOperand::B);
 
   tv0b->merge(1);
   tv0b->merge(1);
@@ -652,10 +614,8 @@ TEST_F(AmpereMmaTest, LargeTT) {
   tv1t->merge(1);
   tv1t->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv2c->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-  tv2->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -695,8 +655,6 @@ TEST_F(AmpereMmaTest, LargeNT) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16);
-
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
@@ -708,8 +666,8 @@ TEST_F(AmpereMmaTest, LargeNT) {
 
   // [M, N, K] -> [N, M, K]
   tv0t->reorder({{-2, -3}, {-3, -2}});
-  tv0t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0t->applyMmaSwizzle(MmaOperand::A);
+  tv1t->applyMmaSwizzle(MmaOperand::B);
 
   tv0t->merge(1);
   tv0t->merge(1);
@@ -717,10 +675,8 @@ TEST_F(AmpereMmaTest, LargeNT) {
   tv1t->merge(1);
   tv1t->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv2c->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-  tv2->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
@@ -758,8 +714,6 @@ TEST_F(AmpereMmaTest, LargeNN) {
 
   fusion.addOutput(tv2);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_16_16);
-
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
@@ -771,8 +725,8 @@ TEST_F(AmpereMmaTest, LargeNN) {
 
   // [M, N, K] -> [N, M, K]
   tv0t->reorder({{-2, -3}, {-3, -2}});
-  tv0t->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv0t->applyMmaSwizzle(MmaOperand::A);
+  tv1b->applyMmaSwizzle(MmaOperand::B);
 
   tv0t->merge(1);
   tv0t->merge(1);
@@ -780,10 +734,8 @@ TEST_F(AmpereMmaTest, LargeNN) {
   tv1b->merge(1);
   tv1b->axis(1)->parallelize(ParallelType::TIDx);
 
-  tv2c->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-  tv2->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 16}, options);
