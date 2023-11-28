@@ -701,7 +701,7 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOperand operand) {
 
   tv->merge(-4);
   tv->merge(-3);
-  if (operand == MmaOptions::Operand::A) {
+  if (operand == MmaOperand::A) {
     // For A, we have an extra outer dim which is the warp group. Merge it back
     // here so that TIDx represent a warp group, instead of a single warp.
     tv->merge(-3);
