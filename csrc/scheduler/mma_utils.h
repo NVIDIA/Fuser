@@ -182,7 +182,7 @@ class WarpMmaSwizzler {
   //! leaf domain of the ldmatrix output. The allocation domain of the ldmatrix
   //! output and mma inputs are scheduled in scheduleOperandRead, which must be
   //! called before this function.
-  static void scheduleLdMatrix(TensorView* tv);
+  static void scheduleLdMatrix(TensorView* tv, MmaOperand operand);
 };
 
 void checkDimSize(

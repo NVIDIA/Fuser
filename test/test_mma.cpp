@@ -65,6 +65,7 @@ TEST_F(TuringMmaTest, TN) {
   tv1b->applyMmaSwizzle(MmaOperand::B);
 
   tv0b->merge(1);
+  tv0b->merge(1);
   tv0b->axis(1)->parallelize(ParallelType::TIDx);
   tv1b->merge(1);
   tv1b->axis(1)->parallelize(ParallelType::TIDx);
@@ -123,6 +124,7 @@ TEST_F(TuringMmaTest, TT) {
   tv0b->applyMmaSwizzle(MmaOperand::A);
   tv1t->applyMmaSwizzle(MmaOperand::B);
 
+  tv0b->merge(1);
   tv0b->merge(1);
   tv0b->axis(1)->parallelize(ParallelType::TIDx);
   tv1t->merge(1);
@@ -183,6 +185,7 @@ TEST_F(TuringMmaTest, NT) {
   tv1t->applyMmaSwizzle(MmaOperand::B);
 
   tv0t->merge(1);
+  tv0t->merge(1);
   tv0t->axis(1)->parallelize(ParallelType::TIDx);
   tv1t->merge(1);
   tv1t->axis(1)->parallelize(ParallelType::TIDx);
@@ -241,6 +244,7 @@ TEST_F(TuringMmaTest, NN) {
   tv0t->applyMmaSwizzle(MmaOperand::A);
   tv1b->applyMmaSwizzle(MmaOperand::B);
 
+  tv0t->merge(1);
   tv0t->merge(1);
   tv0t->axis(1)->parallelize(ParallelType::TIDx);
   tv1b->merge(1);
@@ -309,6 +313,7 @@ TEST_F(AmpereMmaTest, TN) {
   tv1b->applyMmaSwizzle(MmaOperand::B);
 
   tv0b->merge(1);
+  tv0b->merge(1);
   tv0b->axis(1)->parallelize(ParallelType::TIDx);
   tv1b->merge(1);
   tv1b->axis(1)->parallelize(ParallelType::TIDx);
@@ -366,6 +371,7 @@ TEST_F(AmpereMmaTest, TT) {
   tv0b->applyMmaSwizzle(MmaOperand::A);
   tv1t->applyMmaSwizzle(MmaOperand::B);
 
+  tv0b->merge(1);
   tv0b->merge(1);
   tv0b->axis(1)->parallelize(ParallelType::TIDx);
   tv1t->merge(1);
@@ -427,6 +433,7 @@ TEST_F(AmpereMmaTest, NT) {
   tv1t->applyMmaSwizzle(MmaOperand::B);
 
   tv0t->merge(1);
+  tv0t->merge(1);
   tv0t->axis(1)->parallelize(ParallelType::TIDx);
   tv1t->merge(1);
   tv1t->axis(1)->parallelize(ParallelType::TIDx);
@@ -485,6 +492,7 @@ TEST_F(AmpereMmaTest, NN) {
   tv1b->applyMmaSwizzle(MmaOperand::B);
 
   tv0t->merge(1);
+  tv0t->merge(1);
   tv0t->axis(1)->parallelize(ParallelType::TIDx);
   tv1b->merge(1);
   tv1b->axis(1)->parallelize(ParallelType::TIDx);
@@ -541,6 +549,7 @@ TEST_F(AmpereMmaTest, LargeTN) {
   tv0b->applyMmaSwizzle(MmaOperand::A);
   tv1b->applyMmaSwizzle(MmaOperand::B);
 
+  tv0b->merge(1);
   tv0b->merge(1);
   tv0b->axis(1)->parallelize(ParallelType::TIDx);
   tv1b->merge(1);
@@ -599,6 +608,7 @@ TEST_F(AmpereMmaTest, LargeTT) {
   tv0b->applyMmaSwizzle(MmaOperand::A);
   tv1t->applyMmaSwizzle(MmaOperand::B);
 
+  tv0b->merge(1);
   tv0b->merge(1);
   tv0b->axis(1)->parallelize(ParallelType::TIDx);
   tv1t->merge(1);
@@ -660,6 +670,7 @@ TEST_F(AmpereMmaTest, LargeNT) {
   tv1t->applyMmaSwizzle(MmaOperand::B);
 
   tv0t->merge(1);
+  tv0t->merge(1);
   tv0t->axis(1)->parallelize(ParallelType::TIDx);
   tv1t->merge(1);
   tv1t->axis(1)->parallelize(ParallelType::TIDx);
@@ -717,6 +728,7 @@ TEST_F(AmpereMmaTest, LargeNN) {
   tv0t->applyMmaSwizzle(MmaOperand::A);
   tv1b->applyMmaSwizzle(MmaOperand::B);
 
+  tv0t->merge(1);
   tv0t->merge(1);
   tv0t->axis(1)->parallelize(ParallelType::TIDx);
   tv1b->merge(1);
