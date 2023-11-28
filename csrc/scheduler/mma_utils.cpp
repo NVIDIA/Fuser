@@ -677,18 +677,22 @@ std::unordered_set<IterDomain*> getMmaDomainSet(
 void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOptions options) {
   bool transpose = tv->definition()->as<LoadStoreOp>()->opType() ==
       LoadStoreOpType::LdMatrixTranspose;
-  //   -6    -5   -4   -3   -2    -1     or      -6    -5   -4   -3   -2   -1
-  //[4mnoo, 8mni, 4k, 2ko, 2mno, 2ki]         [1mnoo, 8mni, 4k, 2ko, 1mno, 2ki]
+  //               A                                   B
+  //  -6    -5  -4   -3   -2   -1     or     -5  -4   -3   -2   -1
+  //[4moo, 8mi, 4k, 2ko, 2mo, 2ki]         [8ni, 4k, 2ko, 1no, 2ki]
   tv->reorder({{-2, -4}, {-3, -5}});
-  //   -6    -5   -4    -3   -2   -1     or      -6    -5   -4    -3   -2   -1
-  //[4mnoo, 2ko, 2mno, 8mni, 4k, 2ki]         [1mnoo, 2ko, 1mno, 8mni, 4k, 2ki]
+  //                A                                   B
+  //   -6   -5   -4   -3  -2   -1     or     -5   -4   -3  -2   -1
+  //[4moo, 2ko, 2mo, 8mi, 4k, 2ki]         [2ko, 1no, 8ni, 4k, 2ki]
   tv->merge(-2);
-  //   -5    -4   -3    -2   -1         or           -5    -4   -3    -2   -1
-  //[4mnoo, 2ko, 2mno, 8mni, 8k]                  [1mnoo, 2ko, 1mno, 8mni, 8k]
+  //              A                                      B
+  //  -5    -4   -3   -2  -1         or          -4   -3   -2   -1
+  //[4moo, 2ko, 2mo, 8mi, 8k]                  [2ko, 1no, 8ni, 8k]
   if (transpose) {
     tv->reorder({{-2, -1}});
-    //   -5    -4   -3   -2   -1        or            -5   -4    -3   -2   -1
-    //[4mnoo, 2ko, 2mno, 8k, 8mni]                 [1mnoo, 2ko, 1mno, 8k, 8mni]
+    //              A                                     B
+    //  -5    -4   -3  -2   -1        or          -4   -3  -2   -1
+    //[4moo, 2ko, 2mo, 8k, 8mi]                 [2ko, 1no, 8k, 8ni]
   }
 
   tv->merge(-4);
@@ -696,6 +700,7 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOptions options) {
   if (options.operand == MmaOptions::Operand::A) {
     tv->merge(-3);
   }
+  //    A                         B
   // -2  -1         or          -2 -1
   //[128, 8]                   [16, 8]
 
@@ -716,6 +721,7 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOptions options) {
     tv->merge(-3);
   }
 
+  //    A                      B
   // -2  -1        or        -2 -1
   //[128, 8]                [32, 4]
 
