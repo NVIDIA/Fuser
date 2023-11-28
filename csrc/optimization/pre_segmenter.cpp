@@ -9,7 +9,6 @@
 
 #include <optimization/add_axioms.h>
 #include <optimization/consecutive_cast.h>
-#include <optimization/mark_alias.h>
 #include <optimization/remove_empty.h>
 
 namespace nvfuser::optimization {
@@ -20,7 +19,6 @@ void PreSegmenter::runPass(Fusion* fusion) {
   // removes consecutive cast operations
   OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
   OptimizationPass<AddAxiomsPass>::runPass(fusion);
-  OptimizationPass<MarkAliasPass>::runPass(fusion);
 }
 
 } // namespace nvfuser::optimization

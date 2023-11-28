@@ -584,10 +584,14 @@ TEST_F(AliasTest, DuplicateOutputsSegmentedFusion) {
 
 namespace {
 
-const FusionExecutor& mostRecentExecutor(const FusionExecutorCache& fec) {
+// Returns the only executor in the most recent runtime. Throws an assertion
+// failure when the most recent runtime launches multiple kernels.
+const FusionExecutor& onlyExecutorInMostRecentRuntime(
+    const FusionExecutorCache& fec) {
   const std::vector<FusionExecutor>& executors =
       fec.getMostRecentKernelRuntime()->executors();
-  return executors.back();
+  EXPECT_EQ(executors.size(), 1);
+  return executors.front();
 }
 
 void expectKernelDoesNotStoreToOutput(
@@ -623,7 +627,8 @@ TEST_F(AliasTest, NotAllOutputsAlias) {
   at::Tensor slice_out_tensor = out_tensors[0];
   EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
 
-  expectKernelDoesNotStoreToOutput(mostRecentExecutor(fec), /*out_index=*/0);
+  expectKernelDoesNotStoreToOutput(
+      onlyExecutorInMostRecentRuntime(fec), /*out_index=*/0);
 }
 
 TEST_F(AliasTest, Issue1452) {
@@ -646,7 +651,8 @@ TEST_F(AliasTest, Issue1452) {
   at::Tensor set_out_tensor = out_tensors[0];
   EXPECT_TRUE(set_out_tensor.is_alias_of(in_tensor));
 
-  expectKernelDoesNotStoreToOutput(mostRecentExecutor(fec), /*out_index=*/0);
+  expectKernelDoesNotStoreToOutput(
+      onlyExecutorInMostRecentRuntime(fec), /*out_index=*/0);
 }
 
 TEST_F(AliasTest, AliasOutputBeforeNonAliasOutput) {
@@ -669,7 +675,8 @@ TEST_F(AliasTest, AliasOutputBeforeNonAliasOutput) {
   at::Tensor slice_out_tensor = out_tensors[0];
   EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
 
-  expectKernelDoesNotStoreToOutput(mostRecentExecutor(fec), /*out_index=*/0);
+  expectKernelDoesNotStoreToOutput(
+      onlyExecutorInMostRecentRuntime(fec), /*out_index=*/0);
 }
 
 TEST_F(AliasTest, Set_NoAliasForIncompatibleLayout) {
@@ -737,6 +744,29 @@ TEST_F(AliasTest, DuplicateInputs) {
       [&]() { fusion->addInput(in); },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("duplicated inputs is not allowed")));
+}
+
+TEST_F(AliasTest, AliasInSegment) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // The second segment is meta-op only and turned into a no-op kernel.
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* out = add(in, in);
+  out = segment_set(out);
+  out = permute(out, {1, 0});
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  validateSegmentation(
+      fec.getMostRecentKernelRuntime(),
+      {ScheduleHeuristic::PointWise, ScheduleHeuristic::NoOp});
 }
 
 } // namespace nvfuser

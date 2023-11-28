@@ -6,11 +6,19 @@
  */
 // clang-format on
 
+#include <ir/utils.h>
+#include <optimization/alias_analysis.h>
 #include <scheduler/debug_utils.h>
+#include <scheduler/mark_aliases.h>
 #include <scheduler/no_op.h>
 #include <scheduler/registry_utils.h>
 
 namespace nvfuser {
+
+template <typename... Args>
+void vlog(const Args&... args) {
+  scheduler_debug_utils::log("[no_op] ", args...);
+}
 
 NoOpScheduler::NoOpScheduler(
     Fusion* fusion,
@@ -20,9 +28,25 @@ NoOpScheduler::NoOpScheduler(
   params_ = std::make_shared<NoOpHeuristic>("", runtime_info.getIndexType());
 }
 
+namespace {
+bool allOutputsArePointerArithmetics(Fusion* fusion) {
+  const optimization::AliasAnalysisResult analysis =
+      optimization::findAliases(fusion);
+  auto out_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
+  return std::all_of(
+      out_tvs.begin(), out_tvs.end(), [&analysis](TensorView* out) {
+        return analysis.getAliasedInput(out) != nullptr;
+      });
+}
+} // namespace
+
 //! Check if the no-op heuristics apply in given fusion
 bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
   if (fusion->isNoOp()) {
+    return true;
+  }
+
+  if (allOutputsArePointerArithmetics(fusion)) {
     return true;
   }
 
@@ -78,8 +102,7 @@ bool NoOpScheduler::canScheduleRunTime(
 }
 
 void NoOpScheduler::schedule(Fusion* fusion) {
-  // Schedule is no-op.
-  return;
+  markAliases(fusion);
 }
 
 void NoOpScheduler::computeHeuristics(
