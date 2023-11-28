@@ -1256,7 +1256,7 @@ struct TensorRecord : RecordFunctor {
     // stride_order_, but currently alloc_domain support isn't ideal and could
     // prevent vectorization. Adding this workaround to restore performance.
     std::vector<int64_t> stride_order;
-    for (auto i = c10::range(stride_order_.size())) {
+    for (auto i : c10::range(stride_order_.size())) {
       if (stride_order_[i] != stride_order_.size() - i - 1) {
         // detect permutation in stride_order_, apply stride_order and break;
         stride_order = stride_order_;
