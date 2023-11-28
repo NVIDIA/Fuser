@@ -2889,15 +2889,36 @@ class TestNvFuserFrontend(TestCase):
 
     def test_issue1393(self):
         inputs = [
-            torch.randn((5,), dtype=torch.float16, device='cuda:0').as_strided((3, 4, 5), (0, 0, 1)),
-            torch.randn((3,), dtype=torch.float16, device='cuda:0').as_strided((3, 4), (1, 0)),
-            torch.randn((4,), dtype=torch.float16, device='cuda:0').as_strided((3, 4), (0, 1)),
+            torch.randn((5,), dtype=torch.float16, device="cuda:0").as_strided(
+                (3, 4, 5), (0, 0, 1)
+            ),
+            torch.randn((3,), dtype=torch.float16, device="cuda:0").as_strided(
+                (3, 4), (1, 0)
+            ),
+            torch.randn((4,), dtype=torch.float16, device="cuda:0").as_strided(
+                (3, 4), (0, 1)
+            ),
         ]
 
-        def fusion_func(fd : FusionDefinition) -> None :
-            T0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[None, None, True], dtype=DataType.Half, is_cpu=False)
-            T1 = fd.define_tensor(shape=[-1, -1], contiguity=[True, None], dtype=DataType.Half, is_cpu=False)
-            T2 = fd.define_tensor(shape=[-1, -1], contiguity=[None, True], dtype=DataType.Half, is_cpu=False)
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[None, None, True],
+                dtype=DataType.Half,
+                is_cpu=False,
+            )
+            T1 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, None],
+                dtype=DataType.Half,
+                is_cpu=False,
+            )
+            T2 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[None, True],
+                dtype=DataType.Half,
+                is_cpu=False,
+            )
             T3 = fd.ops.cast(T1, dtype=DataType.Float)
             T4 = fd.ops.cast(T2, dtype=DataType.Float)
             T5 = fd.ops.mul(T3, T4)
