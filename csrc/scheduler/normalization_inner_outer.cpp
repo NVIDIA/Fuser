@@ -369,8 +369,10 @@ std::shared_ptr<ReductionParams> innerOuterPersistentHeuristic(
     const int64_t inner_dim_numel,
     const int64_t max_persistent_buffer_size,
     const size_t tmp_gmem_dtype_size,
-    const size_t vectorize_factor) {
+    const size_t vectorize_factor,
+    const bool project_to_input) {
   auto rparams = std::make_shared<ReductionParams>();
+  rparams->project_persistent_buffers = project_to_input;
   // Parameters for inner reduction:
   // Reduction dim: inner_vect, inner_batch, bdimx and bdimy
   // Iteration dim: gdimy
@@ -622,8 +624,8 @@ std::shared_ptr<ReductionParams> persistentHeuristic(
       inner_dim_numel,
       max_persistent_buffer_size,
       tmp_gmem_dtype_size,
-      vectorize_factor);
-  rparams->project_persistent_buffers = project_persistent_buffers;
+      vectorize_factor,
+      project_persistent_buffers);
   return rparams;
 }
 
