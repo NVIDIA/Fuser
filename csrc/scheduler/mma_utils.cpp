@@ -691,37 +691,6 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOptions options) {
     //[2ko, 2mno, 8k, 8mni]                 [2ko, 1mno, 8k, 8mni]
   }
 
-  // ldmatrix loads multiple 8x8 matrices from shared memory to registers in a
-  // swizzled memory format.
-  //   +--------+--------+
-  //   |        |        |
-  //   |  8x8   |  8x8   |
-  //   |        |        |
-  //   +--------+--------+
-  //   |        |        |
-  //   |  8x8   |  8x8   |
-  //   |        |        |
-  //   +--------+--------+
-  // If mn_major is true, these 8x8 matrices are visited in the order of:
-  // top left -> top right -> bottom left -> bottom right.
-  // If mn_major is false, these 8x8 matrices are visited in the order of:
-  // top left -> bottom left -> top right -> bottom right.
-  //
-  // In principle, only `mn_major = false` should be needed. But unfortunately,
-  // we are taking advantage of the ldmatrix large load in a pretty hacky way.
-  // For example, for Turing, only m16n8k8 is supported by hardware. But we are
-  // also using a fake m16n8k16 and m16n16k16, which uses a single large
-  // ldmatrix to load data to register, and run multiple mma instructions to
-  // consume these data. In the future, we should only keep the m16n8k8 macro,
-  // and schedule m16n8k16 and m16n16k16 more correctly than this current way.
-  bool mn_major =
-      options.operand == MmaOptions::Operand::B && getN(options.macro) > 8;
-  if (mn_major) {
-    tv->reorder({{-4, -3}, {-3, -4}});
-    //  -4    -3  -2   -1        or           -4    -3  -2   -1
-    //[2mno, 2ko, 8k, 8mni]                 [1mno, 2ko, 8k, 8mni]
-  }
-
   tv->merge(-4);
   tv->merge(-3);
   // -2  -1         or          -2  -1
@@ -756,74 +725,121 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOptions options) {
 void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOptions options) {
   NVF_ERROR(tv->nDims() >= 2);
 
-  //  -2   -1          or          -2   -1
-  //[16m, 16k]                    [8n, 16k]
+  //  -2    -1          or          -2   -1
+  //[16mn, 16k]                    [8n, 16k]
   tv->split(-2, 8);
   tv->split(-1, 2);
   tv->split(-2, 4);
 
-  // -5  -4  -3  -2  -1      or      -5  -4  -3  -2  -1
-  //[2m, 8m, 2k, 4k, 2k']           [1n, 8n, 2k, 4k, 2k']
+  //  -5   -4  -3  -2  -1      or      -5  -4  -3  -2  -1
+  //[2mn, 8mn, 2k, 4k, 2k']           [1n, 8n, 2k, 4k, 2k']
   tv->reorder({{-4, -5}, {-5, -2}, {-2, -4}});
 
-  // -5  -4   -3  -2  -1    or      -5  -4  -3  -2  -1
-  //[8m, 4k, 2k, 2m, 2k']          [8n, 4k, 2k, 1n, 2k']
-  tv->setAllocationDomain(tv->getLeafDomain(), true);
+  //  -5  -4  -3   -2  -1     or      -5  -4  -3  -2  -1
+  //[8mn, 4k, 2k, 2mn, 2k']          [8n, 4k, 2k, 1n, 2k']
+
+  // ldmatrix loads multiple 8x8 matrices from shared memory to registers in a
+  // swizzled memory format.
+  //   +--------+--------+
+  //   |        |        |
+  //   |  8x8   |  8x8   |
+  //   |        |        |
+  //   +--------+--------+
+  //   |        |        |
+  //   |  8x8   |  8x8   |
+  //   |        |        |
+  //   +--------+--------+
+  // If n_major is true, these 8x8 matrices are visited in the order of:
+  // top left -> top right -> bottom left -> bottom right.
+  // If n_major is false, these 8x8 matrices are visited in the order of:
+  // top left -> bottom left -> top right -> bottom right.
+  //
+  // In principle, only `n_major = false` should be needed. But unfortunately,
+  // we are taking advantage of the ldmatrix large load in a pretty hacky way.
+  // For example, for Turing, only m16n8k8 is supported by hardware. But we are
+  // also using a fake m16n8k16 and m16n16k16, which uses a single large
+  // ldmatrix to load data to register, and run multiple mma instructions to
+  // consume these data. In the future, we should only keep the m16n8k8 macro,
+  // and schedule m16n8k16 and m16n16k16 more correctly than this current way.
+  bool n_major =
+      options.operand == MmaOptions::Operand::B && getN(options.macro) > 8;
+  if (n_major) {
+    tv->reorder({{-2, -3}, {-3, -2}});
+    //  -5  -4   -3  -2   -1     or       -5  -4  -2  -3   -1
+    //[8mn, 4k, 2mn, 2k, 2k']            [8n, 4k, 1n, 2k, 2k']
+  }
+
+  bool set_allocation = ir_utils::isLdMatrixOp(tv->definition());
+  if (!set_allocation) {
+    for (auto u : tv->uses()) {
+      if (u->isA<MmaOp>()) {
+        set_allocation = true;
+        break;
+      }
+    }
+  }
+  if (set_allocation) {
+    tv->setAllocationDomain(tv->getLeafDomain(), true);
+  }
 }
 
 void WarpMmaSwizzler::scheduleMmaWarpOutput(
     TensorView* tv,
     MmaOptions options) {
-  // Assume last 2 dims [M16, N8] or [M16, N8, R]
-  // Locate instruction m
-  bool is_reduction = tv->axis(-1)->isReduction();
+  // This function works for all mma ops, regardless of the architecture. The
+  // Hopper one is the most general one. For earlier architectures, we will have
+  // some dimensions with size 1 after split, this is fine.
+  // Memory format for hopper mma:
+  // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#wgmma-64n16-d
 
-  int m_pos = is_reduction ? -3 : -2;
+  // Assume last 2 dims, for example [M64, N24] or [M64, N24, R]
+  NVF_ERROR(tv->nDims() >= 2);
+  bool is_mma_output = tv->definition()->isA<MmaOp>();
 
-  //  m
-  // [16, 8  (,R)]
-  tv->split(m_pos, 8);
-  tv->split(m_pos + 1, 8);
-  //        m
-  // [2, 8, 1, 8  (,R)]
-  tv->split(m_pos + 1, 2);
+  int m_pos = is_mma_output ? -3 : -2;
+  int n_pos = is_mma_output ? -2 : -1;
 
-  //              m
-  // [2o, 8o, 1, 4i, 2i (,R)]
-  tv->reorder({{m_pos, m_pos - 1}, {m_pos - 1, m_pos}});
-  m_pos--;
-  //           m
-  // [2o, 8o, 4i, 1, 2i (,R)]
-  tv->merge(m_pos - 1);
+  //   m    n
+  // [M64, N24  (,R)]
+  tv->split(m_pos--, 8);
+  tv->split(m_pos--, 2);
+  //   m           n
+  // [M4, M2, M8, N24  (,R)]
+  tv->split(n_pos, 8);
+  tv->split(n_pos, 2);
+
+  n_pos -= 2;
+  m_pos -= 2;
+  //  m           n
+  // [M4, M2, M8, N3, N4, N2  (,R)]
+
+  tv->reorder({{m_pos + 1, n_pos + 1}, {n_pos + 1, m_pos + 2}});
+  //  m           n
+  // [M4, M8, N4, N3, M2, N2  (,R)]
+  tv->merge(m_pos++);
+  tv->merge(m_pos++);
 
   //       m
-  // [2o, Warp, 1, 2i (,R)]
-  tv->reorder({{m_pos, m_pos - 1}, {m_pos + 1, m_pos}});
-  m_pos--;
+  // [WarpGroup128, N3, M2, N2  (,R)]
 
-  //    m
-  // [Warp, 1, 2o, 2i (,R)]
-  if (is_reduction) {
+  if (is_mma_output) {
     tv->split(-1, 2);
     tv->split(-2, 4);
     m_pos -= 2;
-    //    m
-    // [Warp, 1, 2o, 2i, R2, R4, R2]
+    //       m
+    // [WarpGroup128, N3, M2, N2, Ro, R4, R2]
   }
 
   NVF_CHECK(tv->definition() != nullptr);
 
-  if (is_reduction && tv->definition()->isA<MmaOp>()) {
+  tv->axis(m_pos)->parallelize(ParallelType::TIDx);
+
+  if (is_mma_output) {
     // Set instruction loops for mma reduce
     int pos = -1;
     while (pos > m_pos) {
       tv->axis(pos--)->parallelize(ParallelType::Mma);
     }
-  }
-
-  tv->axis(m_pos)->parallelize(ParallelType::TIDx);
-
-  if (tv->definition()->isA<MmaOp>()) {
     setWarpMapped(tv, 7);
   }
 }
@@ -971,7 +987,7 @@ ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
   return ProblemIterDomains{m, n, k};
 }
 
-MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion) {
+MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion) {
   ComputeAtMap ca_map(fusion);
   const auto mma_input_candidates =
       ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
@@ -1034,16 +1050,16 @@ MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion) {
   }
 
   if ((mk_found && kn_found) && !(km_found || nk_found)) {
-    return MmaOptions::MmaLayout::TT;
+    return MmaLayout::TT;
   }
   if ((km_found && kn_found) && !(mk_found || nk_found)) {
-    return MmaOptions::MmaLayout::NT;
+    return MmaLayout::NT;
   }
   if ((mk_found && nk_found) && !(km_found || kn_found)) {
-    return MmaOptions::MmaLayout::TN;
+    return MmaLayout::TN;
   }
   if ((km_found && nk_found) && !(mk_found || kn_found)) {
-    return MmaOptions::MmaLayout::NN;
+    return MmaLayout::NN;
   }
 
   return {"Failed to decide fusion inputs' data layout."};

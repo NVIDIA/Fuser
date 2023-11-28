@@ -235,7 +235,7 @@ class DataWrapperOpt {
   }
 };
 
-using MatmulProblemLayoutOpt = DataWrapperOpt<MmaOptions::MmaLayout>;
+using MatmulProblemLayoutOpt = DataWrapperOpt<MmaLayout>;
 using ProblemIterDomainsOpt = DataWrapperOpt<ProblemIterDomains>;
 using RolesMapOpt = DataWrapperOpt<RolesMap>;
 
@@ -255,7 +255,7 @@ using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 //!  transposition of inputs in mma instructions, while other (e.g. Turing,
 //!  Ampere) the only supported transposition is TN which means that mma
 //!  instruction first input is transposed, the second input is non-transposed.
-MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion);
+MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion);
 
 //! Returns wrapped collection of IterDomains that can be used to get
 //!  problem shape with runtime info.

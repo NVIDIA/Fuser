@@ -116,7 +116,7 @@ TEST_F(ExternalSrcExample, Matmul_CUDA) {
   fe.compileRtc(cuda_src_str, "kernel1", true, PrimDataType::Int32);
 
   int M = 2048, N = 3456, K = 2048;
-  MmaOptions::MmaLayout layout = MmaOptions::MmaLayout::TN;
+  MmaLayout layout = MmaLayout::TN;
   auto inputs = matmulAtInput(M, N, K, layout);
   auto at_output = atMatmul(inputs.first, inputs.second, layout).to(at::kFloat);
 

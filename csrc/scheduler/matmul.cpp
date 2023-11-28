@@ -723,11 +723,10 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   NVF_ERROR(
       mma_layout_opt.has_value(), "fusion mma op has undefined input layout");
   const auto mma_layout = mma_layout_opt.value();
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion);
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion);
   NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
 
-  auto mma_builder =
-      MmaBuilder(params.mma_macro, params.tile_sizes).layout(mma_layout);
+  auto mma_builder = MmaBuilder(params.mma_macro);
   const auto& gemm_tile = params.tile_sizes;
   const bool has_epilogue = !mma->out()->isFusionOutput();
 
@@ -769,7 +768,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Currently the support is for a, b, c and d as fusion inputs/outputs
   //  aka. no prolog fusion yet.
 
-  mma_builder.configureMma(mma);
+  mma->setMacro(params.mma_macro);
 
   // TODO:
   // Beyond this point, mma_builder really just becomes a populated
@@ -796,9 +795,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Clear MmaOp pointer, it's not needed from now on
   mma = nullptr;
-
-  // Set accumulation tv for mma op.
-  mma_builder.accumulatorTv(mma_result);
 
   // Staging register for global memory load
   TensorView *ar = a, *br = b;
@@ -853,10 +849,9 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // For Turing and Ampere, the layout of the MmaOp is always TN
   NVF_ERROR(
-      mma_layout == MmaOptions::MmaLayout::TN,
+      mma_layout == MmaLayout::TN,
       "MMAs in Turing and Ampere are TN only, transpose is handled either "
       "via ldmatrix.trans for fp16 or explicitly for other types.");
-  mma_builder.layout(fusion_layout.getData());
 
   // Make a CTA tile
   // ------------------------------------------------------------------
@@ -907,10 +902,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     // the actual MmaOp output, so here we reassign that to the intermediate.
     splitk_sum = mma_result;
     mma_result = splitk_sum->rFactor({-4, -1});
-
-    // the accumulator must be the output of the MMA op, which is now the
-    // rfactor TV
-    mma_builder.accumulatorTv(mma_result);
 
     num_splitk_dims = 1;
   }
