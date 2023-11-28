@@ -510,7 +510,9 @@ TEST_P(LdMatrixTest, Regular) {
   tv3->applyMmaSwizzle(mma_builder.build());
 
   tv3->merge(0);
-  tv3->merge(0);
+  if (is_a) {
+    tv3->merge(0);
+  }
   tv3->axis(0)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
@@ -549,7 +551,9 @@ TEST_P(LdMatrixTest, Transpose) {
   tv3->applyMmaSwizzle(mma_builder.build());
 
   tv3->merge(0);
-  tv3->merge(0);
+  if (is_a) {
+    tv3->merge(0);
+  }
   tv3->axis(0)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
