@@ -1299,4 +1299,13 @@ TEST_F(AllocationDomainTest, Issue1290_ReplayCasPFailedDueToDifferentRanks) {
   EXPECT_THAT(out_tensor.sizes(), ElementsAre(2));
 }
 
+TEST_F(AllocationDomainTest, TrivialStrideOrderTensorViewBuilder) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* tv0 = TensorViewBuilder().ndims(2).strideOrder({0, 1}).build();
+  ASSERT_TRUE(tv0.hasAllocation());
+  tv0 = TensorViewBuilder().ndims(2).strideOrder({1, 0}).build();
+  ASSERT_TRUE(!tv0.hasAllocation());
+}
+
 } // namespace nvfuser
