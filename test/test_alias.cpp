@@ -588,4 +588,41 @@ TEST_F(AliasTest, Set_NoAliasForIncompatibleLayout) {
   EXPECT_FALSE(out_tensor.is_alias_of(in_tensor));
 }
 
+TEST_F(AliasTest, DuplicatedOutputs) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  fusion->addInput(in);
+  TensorView* out = add(in, IrBuilder::create<Val>(5.0));
+  fusion->addOutput(out);
+  // duplicated output
+  fusion->addOutput(out);
+  TensorView* out1 = add(in, IrBuilder::create<Val>(1.0));
+  fusion->addOutput(out1);
+  // duplicated output
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
+  auto inc_5_tensor = in_tensor.add(5.0);
+  auto inc_1_tensor = in_tensor.add(1.0);
+
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  ASSERT_EQ(out_tensors.size(), 4);
+
+  // Verify aliases among outputs.
+  EXPECT_TRUE(out_tensors[0].is_alias_of(out_tensors[1]));
+  EXPECT_FALSE(out_tensors[0].is_alias_of(out_tensors[2]));
+  EXPECT_TRUE(out_tensors[0].is_alias_of(out_tensors[3]));
+
+  // Verify output values.
+  testValidate(
+      fec.fusion(),
+      {inc_5_tensor, inc_5_tensor, inc_1_tensor, inc_5_tensor},
+      {in_tensor},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser
