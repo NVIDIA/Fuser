@@ -626,12 +626,17 @@ TEST_F(AliasTest, DuplicatedOutputs) {
 }
 
 TEST_F(AliasTest, DuplicatedInputs) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+  EXPECT_THAT(
+      []() {
+        auto fusion = std::make_unique<Fusion>();
+        FusionGuard fg(fusion.get());
 
-  TensorView* in = makeContigConcreteTensor({2, 3, 5});
-  fusion->addInput(in);
-  fusion->addInput(in);
+        TensorView* in = makeContigConcreteTensor({2, 3, 5});
+        fusion->addInput(in);
+        fusion->addInput(in);
+      },
+      testing::ThrowsMessage<nvfuser::nvfError>(
+          testing::HasSubstr("duplicated inputs is not allowed")));
 }
 
 } // namespace nvfuser
