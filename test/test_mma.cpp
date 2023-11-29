@@ -278,10 +278,10 @@ TEST_P(Hopper, SS) {
   FusionGuard fg(&fusion);
 
   bool transpose_a = (layout == MmaLayout::NT || layout == MmaLayout::NN);
-  bool transpose_b = (layout == MmaLayout::TT || layout == MmaLayout::NT);
+  bool transpose_b = (layout == MmaLayout::TN || layout == MmaLayout::NN);
 
   std::vector<int64_t> A_shape{getM(macro), getK(macro)},
-      B_shape{getN(macro), getK(macro)};
+      B_shape{getK(macro), getN(macro)};
 
   if (transpose_a) {
     std::swap(A_shape[0], A_shape[1]);
@@ -370,29 +370,22 @@ TEST_P(Hopper, SS) {
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn(A_shape, options);
-  auto t1 = at::randn(B_shape, options);
+  auto inputs = matmulAtInput(
+      getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
   FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
-
-  auto cg_outputs = fe.runFusion({t0, t1});
-
-  at::Tensor t0t = t0, t1t = t1;
-
-  if (transpose_a) {
-    t0t = t0.t();
-  }
-
-  if (!transpose_b) {
-    t1t = t1.t();
-  }
-
-  auto tref = t0t.to(at::kFloat).matmul(t1t.to(at::kFloat));
-
-  testValidate(&fusion, cg_outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
+  fe.compileFusion(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto tref = atMatmul(
+      inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+  testValidate(
+      &fusion,
+      cg_outputs,
+      {inputs.first, inputs.second},
+      {tref},
+      __LINE__,
+      __FILE__);
 }
 
 INSTANTIATE_TEST_SUITE_P(
