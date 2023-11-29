@@ -187,10 +187,10 @@ TEST_P(Hopper, RS) {
   FusionGuard fg(&fusion);
 
   bool transpose_a = (layout == MmaLayout::NT || layout == MmaLayout::NN);
-  bool transpose_b = (layout == MmaLayout::TT || layout == MmaLayout::NT);
+  bool transpose_b = (layout == MmaLayout::TN || layout == MmaLayout::NN);
 
   std::vector<int64_t> A_shape{getM(macro), getK(macro)},
-      B_shape{getN(macro), getK(macro)};
+      B_shape{getK(macro), getN(macro)};
 
   if (transpose_a) {
     std::swap(A_shape[0], A_shape[1]);
@@ -213,13 +213,13 @@ TEST_P(Hopper, RS) {
   TensorView* tv0b = nullptr;
   int axes = 0;
   if (transpose_b) {
-    // [M, K, N]
-    tv0b = broadcast(tv0, {false, false, true});
-    axes = 1;
-  } else {
     // [M, N, K]
     tv0b = broadcast(tv0, {false, true, false});
     axes = 2;
+  } else {
+    // [M, K, N]
+    tv0b = broadcast(tv0, {false, false, true});
+    axes = 1;
   }
   auto tv1b = broadcast(tv1, {true, false, false});
 
@@ -239,11 +239,11 @@ TEST_P(Hopper, RS) {
   auto tv2c = tv2->cacheBefore();
 
   if (transpose_b) {
-    // [M, K, N] -> [N, M, K]
-    tv0b->reorder({{-1, -3}});
-  } else {
     // [M, N, K] -> [N, M, K]
     tv0b->reorder({{-2, -3}});
+  } else {
+    // [M, K, N] -> [N, M, K]
+    tv0b->reorder({{-1, -3}});
   }
   tv0b->applyMmaSwizzle(MmaOperand::A);
 
@@ -253,7 +253,7 @@ TEST_P(Hopper, RS) {
 
   tv1b->setMemoryType(MemoryType::Shared);
 
-  if (transpose_b) {
+  if (!transpose_b) {
     // [M, K, N] -> [M, N, K]
     tv2c->reorder({{-1, -2}});
   }
