@@ -36,6 +36,11 @@ constexpr int64_t register_overhead = 40l;
 constexpr int64_t max_registers_per_thread = 255l;
 constexpr int64_t bytes_per_register = 4l;
 
+// when buffer size can be considered as 'small'.
+// based on softmax on A100 and H100, needs more tests.
+constexpr int64_t small_buffer_size_threshold =
+    6 * 1024 * scheduler_utils::bytes_per_register;
+
 constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
 constexpr int64_t y_grid_limit = 65535;
 constexpr int64_t z_grid_limit = 65535;

@@ -9409,6 +9409,67 @@ TEST_F(NVFuserTest, LoweringHook) {
   EXPECT_TRUE(executed);
 }
 
+TEST_F(NVFuserTest, SoftmaxProjectToInput) {
+  auto test_softmax = [](int batch, int feature, DataType dtype) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    const int kReductionAxis = 1;
+    std::vector<int64_t> input_shape{batch, feature};
+    TensorView* input = makeContigTensor(input_shape.size(), dtype);
+    fusion.addInput(input);
+    if (dtype == DataType::Half) {
+      input = castOp(DataType::Float, input);
+    }
+    auto output = softmax(input, kReductionAxis);
+    if (dtype == DataType::Half) {
+      output = castOp(DataType::Half, output);
+    }
+    fusion.addOutput(output);
+
+    // There should be 2 projectable persistent buffers.
+    auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
+    auto& projectable = persistent_buffer_info.projectable_persistent_buffers;
+    NVF_ERROR(projectable.size() == 2);
+
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
+    at::Tensor aten_input = at::randn(input_shape, options);
+    auto aten_output =
+        at::_softmax(aten_input.to(at::kDouble), kReductionAxis, false);
+
+    auto reduction_params = getInnerPersistentHeuristics(&fusion, {aten_input});
+    NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
+    bool should_project_to_input = feature * dataTypeSize(DataType::Float) >
+        scheduler_utils::small_buffer_size_threshold;
+    NVF_CHECK(
+        reduction_params->project_persistent_buffers == should_project_to_input,
+        should_project_to_input ? "Should project to inputs!"
+                                : "Shouldn't project to inputs!");
+    scheduleInnerPersistentKernel(&fusion, *reduction_params);
+    auto lparams = reduction_params->lparams;
+    nvfuser::FusionExecutor fe;
+    fe.compileFusion(&fusion, {aten_input}, lparams);
+    auto cg_outputs = fe.runFusion({aten_input}, lparams);
+
+    testValidate(
+        &fusion,
+        cg_outputs,
+        {aten_input},
+        {aten_output},
+        __LINE__,
+        __FILE__,
+        "",
+        lparams);
+  };
+  const int batch = 2048;
+  std::vector<int> features = {4096, 10240};
+  for (auto feature : features) {
+    test_softmax(batch, feature, DataType::Half);
+  }
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

@@ -820,13 +820,14 @@ bool projectBufferToInputs(
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info) {
-  // use cache if project to inputs can't reduce buffer size
+  // don't project if can't reduce buffer size
   if (persistent_buffer_size_info.projected_persistent_buffer_size >=
       persistent_buffer_size_info.persistent_buffer_size) {
     return false;
   }
 
-  // TODO: check ops between persistent buffer and inputs.
+  // check ops between persistent buffer and inputs.
+  // TODO: check more ops, e.g. RNGOp
   bool has_exp_op = false;
   const auto& projectable_buffers =
       persistent_buffer_info.projectable_persistent_buffers;
@@ -844,12 +845,9 @@ bool projectBufferToInputs(
     return true;
   }
 
-  // use cache if buffer size is 'small', based on softmax on A100 and H100,
-  // needs more data.
-  constexpr int64_t buffer_size_threshold =
-      6 * 1024 * scheduler_utils::bytes_per_register;
+  // For cases with expensive ops, don't project if buffer size is 'small',
   if (persistent_buffer_size_info.persistent_buffer_size <=
-      buffer_size_threshold) {
+      scheduler_utils::small_buffer_size_threshold) {
     return false;
   }
 
