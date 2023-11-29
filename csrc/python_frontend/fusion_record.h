@@ -1251,26 +1251,13 @@ struct TensorRecord : RecordFunctor {
       is_expand[index] = is_broadcast && has_non_broadcast_size;
     }
 
-    // skip stride_order if it's alloc_domain is in the same order as with root
-    // domain. We don't need this and we should be able to just use
-    // stride_order_, but currently alloc_domain support isn't ideal and could
-    // prevent vectorization. Adding this workaround to restore performance.
-    std::vector<int64_t> stride_order;
-    for (auto i : c10::irange(stride_order_.size())) {
-      if (stride_order_[i] != (int64_t)(rank - 1 - i)) {
-        // detect permutation in stride_order_, apply stride_order and break;
-        stride_order = stride_order_;
-        break;
-      }
-    }
-
     auto tv = TensorViewBuilder()
                   .ndims(shape_.size())
                   .contiguity(contiguity_)
                   .shape(shape_)
                   .dtype(dtype_)
                   .expanded(std::move(is_expand))
-                  .strideOrder(stride_order)
+                  .strideOrder(stride_order_)
                   .build();
 
     if (shape_.empty() && is_cpu_) {
