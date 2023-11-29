@@ -73,12 +73,12 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
 
   // Lower then insert sync nodes manually around top-level loop
   GpuLower gpulw(fusion);
-  auto kernel = gpulw->run();
+  auto kernel = gpulw.run();
 
   // TODO: insert syncs and modify node to enable serial reduction codegen
   // - set allocation size to be same as output of reduction op
   // - swap GridReduction node with one having isSerial() == true
-  // - insert {Pre,Post}SerialReductionSync nodes before and after main loop
+  // - insert SerialReduction{Pre,Post}Sync nodes before and after main loop
 
   auto kernel_code_ =
       codegen::generateCudaKernel(kernel, "serial_gridreduce_kernel");

@@ -551,6 +551,52 @@ std::string MBarrierWait::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierWait)
 
+SerialReductionPreSync::SerialReductionPreSync(
+    IrBuilderPasskey passkey,
+    ParallelTypeBitmap sync_dims,
+    Val* sync_buffer)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  addDataAttribute(sync_dims);
+  addAttribute(sync_buffer);
+}
+
+std::string SerialReductionPreSync::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "SERIALREDUCTIONPRESYNC(" << syncDims().toString()
+                          << ", " << syncBuffer()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string SerialReductionPreSync::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Serial reduction pre sync can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(SerialReductionPreSync)
+
+SerialReductionPostSync::SerialReductionPostSync(
+    IrBuilderPasskey passkey,
+    ParallelTypeBitmap sync_dims,
+    Val* sync_buffer)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  addDataAttribute(sync_dims);
+  addAttribute(sync_buffer);
+}
+
+std::string SerialReductionPostSync::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "SERIALREDUCTIONPOSTSYNC(" << syncDims().toString()
+                          << ", " << syncBuffer()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string SerialReductionPostSync::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Serial reduction post sync can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(SerialReductionPostSync)
+
 CpAsyncWait::CpAsyncWait(IrBuilderPasskey passkey, int64_t keep_stages)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);

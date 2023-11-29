@@ -43,6 +43,8 @@ class MBarrierInvalidate;
 class MBarrierArrive;
 class MBarrierArriveExpectTx;
 class MBarrierWait;
+class SerialReductionPreSync;
+class SerialReductionPostSync;
 class CpAsyncWait;
 class CpAsyncCommit;
 class CpAsyncBulkS2GWait;
@@ -515,6 +517,70 @@ class MBarrierWait final : public Expr {
 
   Val* state() const {
     return input(1);
+  }
+};
+
+// For all but first block in each reduction segment, first thread waits for
+// sync flag to indicate it is our turn to proceed (sync flag is incremented by
+// SerialReductionPostSync). Then block sync. This has the effect of
+// serializing blocks in each reduction segment. This is a block syncing
+// operation.
+class SerialReductionPreSync final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit SerialReductionPreSync(
+      IrBuilderPasskey passkey,
+      ParallelTypeBitmap sync_dims,
+      Val* sync_buffer);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "SerialReductionPreSync";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  ParallelTypeBitmap syncDims() const {
+    return attribute<ParallelTypeBitmap>(0);
+  }
+
+  Val* syncBuffer() const {
+    return attributeVal(1);
+  }
+};
+
+// For all but last block in the reduction segment, first thread writes the
+// next segment ID to the sync flag. Then block sync except for the last block
+// in each segment. This has the effect of serializing blocks in each reduction
+// segment. This is a block syncing operation for all blocks except the last
+// block in each segment.
+class SerialReductionPostSync final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit SerialReductionPostSync(
+      IrBuilderPasskey passkey,
+      ParallelTypeBitmap sync_dims,
+      Val* sync_buffer);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "SerialReductionPostSync";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  ParallelTypeBitmap syncDims() const {
+    return attribute<ParallelTypeBitmap>(0);
+  }
+
+  Val* syncBuffer() const {
+    return attributeVal(1);
   }
 };
 
