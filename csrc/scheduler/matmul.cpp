@@ -726,7 +726,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   const auto fusion_layout = mma_utils::getMmaLayout(fusion);
   NVF_ERROR(fusion_layout.isValid(), fusion_layout.getErrorMsg());
 
-  auto mma_builder = MmaBuilder(params.mma_macro);
   const auto& gemm_tile = params.tile_sizes;
   const bool has_epilogue = !mma->out()->isFusionOutput();
 
@@ -769,14 +768,6 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //  aka. no prolog fusion yet.
 
   mma->setMacro(params.mma_macro);
-
-  // TODO:
-  // Beyond this point, mma_builder really just becomes a populated
-  //  list of parameters to describe the mma swizzles that should
-  //  be annotated on the tensor domain. Conceptually the mma builder
-  //  object should be separated to 2 parts, one as scheduler utility
-  //  and the other as matmul heuristic parameters, which we are
-  //  starting to build out.
 
   // Setup register and shared memory stages:
   //   TODO: this section goes to a separate matmul util,
@@ -939,8 +930,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     moveInnerBroadcastLeft(ab);
     moveInnerBroadcastLeft(bb);
   }
-  ab->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
-  bb->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  ab->applyMmaSwizzle(MmaOperand::A);
+  bb->applyMmaSwizzle(MmaOperand::B);
 
   // Propagate mma input swizzle up the DAG
   //  to all the tensors before mma op and after shared mem read.
@@ -961,8 +952,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   };
   propagate_mma_input_schedule_to(acw_smem, bcw_smem);
 
-  mma_result->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  mma_result->applyMmaSwizzle(MmaOperand::Accumulator);
 
   // Set parallelization:
   //   TODO: this section goes to a separate matmul util,
@@ -971,10 +961,8 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   acr->setAllocationDomain(acr->getLeafDomain(), true);
   bcr->setAllocationDomain(bcr->getLeafDomain(), true);
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(
-      acr, mma_builder.operand(MmaOptions::Operand::A).build());
-  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(
-      bcr, mma_builder.operand(MmaOptions::Operand::B).build());
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(acr, MmaOperand::A);
+  mma_utils::WarpMmaSwizzler::scheduleLdMatrix(bcr, MmaOperand::B);
 
   //  -5  -4   -3   -2   -1          or          -5  -4   -3   -2   -1
   //[8mi, 4k, 2ko, 2mo, 2ki]                   [8ni, 4k, 2ko, 1no, 2ki]
