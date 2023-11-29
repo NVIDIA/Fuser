@@ -1500,7 +1500,7 @@ TensorViewBuilder& TensorViewBuilder::strideOrder(
   // vectorization. Adding this workaround to restore performance.
   if (std::adjacent_find(
           stride_order.begin(), stride_order.end(), [](int64_t l, int64_t r) {
-            return l != r + 1;
+            return l <= r;
           }) != stride_order.end()) {
     // stride_order is not in descending order, we cannot skip it.
     stride_order_ = std::move(stride_order);
