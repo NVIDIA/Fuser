@@ -3126,10 +3126,10 @@ TEST_F(NVFuserTest, dynamicReshapeBroadcast) {
                  .contiguity({std::nullopt, true})
                  .expanded({true, false})
                  .build();
-  auto s0 = IrBuilder::create<Val>();
-  auto s1 = IrBuilder::create<Val>();
-  auto s2 = IrBuilder::create<Val>();
-  auto s3 = IrBuilder::create<Val>();
+  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s1 = IrBuilder::create<Val>(DataType::Index);
+  auto s2 = IrBuilder::create<Val>(DataType::Index);
+  auto s3 = IrBuilder::create<Val>(DataType::Index);
   auto tv1 = reshape(tv0, {s0, s1, s2});
   auto tv2 = expand(tv1, {s0, s1, s3});
   auto s4 = IrBuilder::create<Val>(1.0);
