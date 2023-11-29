@@ -83,8 +83,11 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
         summary.global_allocations;
     // There should be a work buffer and a sync buffer allocated
     ASSERT_EQ(global_allocations.size(), 2);
+    // auto orig_work_buf_alloc = global_allocations.at(0);
+    auto sync_buf = global_allocations.at(1)->buffer();
 
-    // TODO: insert syncs and modify node to enable serial reduction codegen
+    // TODO:
+    // - insert syncs and modify node to enable serial reduction codegen
     // - set allocation size to be same as output of reduction op
     // - swap GridReduction node with one having isSerial() == true
     // - insert SerialReduction{Pre,Post}Sync nodes before and after main loop
@@ -94,7 +97,7 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
 
     top_level_exprs.push_back(IrBuilder::create<kir::SerialReductionPostSync>(
         /*sync_dims=*/ParallelTypeBitmap(ParallelType::BIDy),
-        /*sync_buffer=*/nullptr));
+        /*sync_buffer=*/sync_buf));
   });
   fe.compileFusion(fusion);
 
