@@ -18,30 +18,38 @@
 
 namespace nvfuser {
 
-using TuringAmpereMmaTestParams = std::tuple<MmaMacro, DataType, MmaLayout>;
+using MmaTestParams = std::tuple<MmaMacro, PrimDataType, MmaLayout>;
 
-class TuringAmpere : public NVFuserFixtureParamTest<TuringAmpereMmaTestParams> {
+class MmaTest : public NVFuserFixtureParamTest<MmaTestParams> {
+ protected:
+  MmaLayout layout;
+  MmaMacro macro;
+  PrimDataType dtype;
+
   void SetUp() override {
-    // requires Hopper or newer
-    if (cudaArchGuardShouldSkip(7, 5)) {
+    macro = std::get<0>(GetParam());
+    dtype = std::get<1>(GetParam());
+    layout = std::get<2>(GetParam());
+
+    if (isTuring(macro) && cudaArchGuardShouldSkip(7, 5)) {
       GTEST_SKIP() << "skipping tests on pre-Turing GPUs";
+    }
+
+    if (isAmpere(macro) && cudaArchGuardShouldSkip(8, 0)) {
+      GTEST_SKIP() << "skipping tests on pre-Ampere GPUs";
+    }
+
+    if (isHopper(macro) && cudaArchGuardShouldSkip(9, 0)) {
+      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
     }
     NVFuserTest::SetUp();
   }
 };
 
 // MMA unit test on Turing
-TEST_P(TuringAmpere, SingleTile) {
+TEST_P(MmaTest, SingleTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
-
-  auto macro = std::get<0>(GetParam());
-  auto dtype = std::get<1>(GetParam());
-  auto layout = std::get<2>(GetParam());
-
-  if (isAmpere(macro) && cudaArchGuardShouldSkip(8, 0)) {
-    GTEST_SKIP() << "skipping tests on pre-Ampere GPUs";
-  }
 
   bool transpose_a = (layout == MmaLayout::NT || layout == MmaLayout::NN);
   bool transpose_b = (layout == MmaLayout::TT || layout == MmaLayout::NT);
@@ -130,117 +138,40 @@ TEST_P(TuringAmpere, SingleTile) {
   testValidate(&fusion, cg_outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
 }
 
+auto all_mma_layouts =
+    testing::Values(MmaLayout::TT, MmaLayout::TN, MmaLayout::NT, MmaLayout::NN);
+
+auto all_dtypes = testing::Values(DataType::Half, DataType::BFloat16);
+
+std::string testName(const testing::TestParamInfo<MmaTestParams>& info) {
+  std::ostringstream os;
+  auto macro = std::get<0>(info.param);
+  auto dtype = std::get<1>(info.param);
+  auto layout = std::get<2>(info.param);
+  os << getM(macro) << "_" << getN(macro) << "_" << getK(macro) << "_"
+     << toString(layout) << dtype;
+  return os.str();
+}
+
 INSTANTIATE_TEST_SUITE_P(
+    Turing,
     MmaTest,
-    TuringAmpere,
-    testing::Values(
-        std::make_tuple(MmaMacro::Turing_16_8_8, DataType::Half, MmaLayout::TT),
-        std::make_tuple(
+    testing::Combine(
+        testing::Values(
+            MmaMacro::Turing_16_8_8,
             MmaMacro::Turing_16_8_16,
-            DataType::Half,
-            MmaLayout::TT),
-        std::make_tuple(
-            MmaMacro::Turing_16_16_16,
-            DataType::Half,
-            MmaLayout::TT),
-        std::make_tuple(MmaMacro::Turing_16_8_8, DataType::Half, MmaLayout::TN),
-        std::make_tuple(
-            MmaMacro::Turing_16_8_16,
-            DataType::Half,
-            MmaLayout::TN),
-        std::make_tuple(
-            MmaMacro::Turing_16_16_16,
-            DataType::Half,
-            MmaLayout::TN),
-        std::make_tuple(MmaMacro::Turing_16_8_8, DataType::Half, MmaLayout::NT),
-        std::make_tuple(
-            MmaMacro::Turing_16_8_16,
-            DataType::Half,
-            MmaLayout::NT),
-        std::make_tuple(
-            MmaMacro::Turing_16_16_16,
-            DataType::Half,
-            MmaLayout::NT),
-        std::make_tuple(MmaMacro::Turing_16_8_8, DataType::Half, MmaLayout::NN),
-        std::make_tuple(
-            MmaMacro::Turing_16_8_16,
-            DataType::Half,
-            MmaLayout::NN),
-        std::make_tuple(
-            MmaMacro::Turing_16_16_16,
-            DataType::Half,
-            MmaLayout::NN),
-        std::make_tuple(
-            MmaMacro::Ampere_16_8_16,
-            DataType::Half,
-            MmaLayout::TT),
-        std::make_tuple(
-            MmaMacro::Ampere_16_16_16,
-            DataType::Half,
-            MmaLayout::TT),
-        std::make_tuple(
-            MmaMacro::Ampere_16_8_16,
-            DataType::BFloat16,
-            MmaLayout::TT),
-        std::make_tuple(
-            MmaMacro::Ampere_16_16_16,
-            DataType::BFloat16,
-            MmaLayout::TT),
-        std::make_tuple(
-            MmaMacro::Ampere_16_8_16,
-            DataType::Half,
-            MmaLayout::TN),
-        std::make_tuple(
-            MmaMacro::Ampere_16_16_16,
-            DataType::Half,
-            MmaLayout::TN),
-        std::make_tuple(
-            MmaMacro::Ampere_16_8_16,
-            DataType::BFloat16,
-            MmaLayout::TN),
-        std::make_tuple(
-            MmaMacro::Ampere_16_16_16,
-            DataType::BFloat16,
-            MmaLayout::TN),
-        std::make_tuple(
-            MmaMacro::Ampere_16_8_16,
-            DataType::Half,
-            MmaLayout::NT),
-        std::make_tuple(
-            MmaMacro::Ampere_16_16_16,
-            DataType::Half,
-            MmaLayout::NT),
-        std::make_tuple(
-            MmaMacro::Ampere_16_8_16,
-            DataType::BFloat16,
-            MmaLayout::NT),
-        std::make_tuple(
-            MmaMacro::Ampere_16_16_16,
-            DataType::BFloat16,
-            MmaLayout::NT),
-        std::make_tuple(
-            MmaMacro::Ampere_16_8_16,
-            DataType::Half,
-            MmaLayout::NN),
-        std::make_tuple(
-            MmaMacro::Ampere_16_16_16,
-            DataType::Half,
-            MmaLayout::NN),
-        std::make_tuple(
-            MmaMacro::Ampere_16_8_16,
-            DataType::BFloat16,
-            MmaLayout::NN),
-        std::make_tuple(
-            MmaMacro::Ampere_16_16_16,
-            DataType::BFloat16,
-            MmaLayout::NN)),
-    [](const testing::TestParamInfo<TuringAmpereMmaTestParams>& info) {
-      std::ostringstream os;
-      auto macro = std::get<0>(info.param);
-      auto dtype = std::get<1>(info.param);
-      auto layout = std::get<2>(info.param);
-      os << toString(macro) << "_" << toString(layout) << dtype;
-      return os.str();
-    });
+            MmaMacro::Turing_16_16_16),
+        testing::Values(DataType::Half),
+        all_mma_layouts),
+    testName);
+
+INSTANTIATE_TEST_SUITE_P(
+    Ampere,
+    MmaTest,
+    testing::Combine(
+        testing::Values(MmaMacro::Ampere_16_8_16, MmaMacro::Ampere_16_16_16),
+        all_dtypes,
+        all_mma_layouts),
+    testName);
 
 } // namespace nvfuser
