@@ -241,15 +241,17 @@ class LowerToInlinePtx : public kir::ExprMutator {
         /*scaleB=*/IrBuilder::create<Val>(1, DataType::Int32)};
     auto layout = *mma->layout();
     if (a_on_smem) {
-      // tnspA
+      // tnspA: by default, A should be in row-major, otherwise, it should be
+      // transposed.
       if (layout == MmaLayout::TT || layout == MmaLayout::TN) {
         inputs.push_back(IrBuilder::create<Val>(0, DataType::Int32));
       } else {
         inputs.push_back(IrBuilder::create<Val>(1, DataType::Int32));
       }
     }
-    // tnspB
-    if (layout == MmaLayout::TT || layout == MmaLayout::NT) {
+    // tnspB: by default, B should be in column-major, otherwise, it should be
+    // transposed.
+    if (layout == MmaLayout::TN || layout == MmaLayout::NN) {
       inputs.push_back(IrBuilder::create<Val>(0, DataType::Int32));
     } else {
       inputs.push_back(IrBuilder::create<Val>(1, DataType::Int32));
