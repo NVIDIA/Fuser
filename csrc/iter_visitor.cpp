@@ -469,8 +469,9 @@ void BackwardVisitor::traverseTo(
 
   {
     size_t pos = 0;
-    for (auto expr : exprs)
+    for (auto expr : exprs) {
       traversal_exprs_[expr] = pos++;
+    }
   }
 
   // All stmts we've called handle on
@@ -679,8 +680,9 @@ class DependentVals : public IterVisitor {
   std::unordered_set<Val*> boundary_;
 
   std::vector<Statement*> next(Val* v) override {
-    if (boundary_.find(v) != boundary_.end())
+    if (boundary_.find(v) != boundary_.end()) {
       return std::vector<Statement*>();
+    }
     return IterVisitor::next(v);
   }
 
@@ -1046,6 +1048,9 @@ void DeadCodeRemover::handle(TensorView* tv) {
 }
 
 bool DeadCodeRemover::registerReplacement(Val* old_val, Val* new_val) {
+  // Mark new val live
+  markLiveRecursive(new_val);
+
   vals_to_replace_.emplace_back(old_val, new_val);
 
   if (old_val->isFusionInput()) {
@@ -1102,9 +1107,9 @@ void DeadCodeRemover::markLiveRecursive(Statement* stmt) {
     return;
   }
   markLive(stmt);
-  if (stmt->isVal() && stmt->asVal()->definition()) {
-    markLiveRecursive(stmt);
-  } else {
+  if (stmt->isVal() && stmt->asVal()->definition() != nullptr) {
+    markLiveRecursive(stmt->asVal()->definition());
+  } else if (stmt->isExpr()) {
     auto expr = stmt->asExpr();
     for (const auto inp : expr->outputs()) {
       markLive(inp);
@@ -1116,7 +1121,20 @@ void DeadCodeRemover::markLiveRecursive(Statement* stmt) {
 }
 
 bool DeadCodeRemover::markDead(Statement* stmt) {
-  return (bool)live_statements_.erase(stmt);
+  if (auto e = dynamic_cast<Expr*>(stmt)) {
+    // If this is an expression, ensure it is not marked as a future live use
+    // of any of its inputs
+    for (Val* inp : e->inputs()) {
+      if (std::find(inp->uses().begin(), inp->uses().end(), e) ==
+          inp->uses().end()) {
+        auto fu_it = future_uses_.find(inp);
+        if (fu_it != future_uses_.end()) {
+          fu_it->second.erase(e);
+        }
+      }
+    }
+  }
+  return live_statements_.erase(stmt);
 }
 
 bool DeadCodeRemover::modifyFusion() const {

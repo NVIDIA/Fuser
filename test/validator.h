@@ -65,30 +65,25 @@ void testValidate(
     }
   }
 
-  const auto& io_alias = fusion->ioAlias();
-  auto should_remove = [&io_alias](Val* out_val) -> bool {
-    if (auto alias_it = io_alias.find(out_val); alias_it != io_alias.end()) {
-      return alias_it->second.second.hide_output;
-    }
-    return false;
-  };
-
-  for (size_t i = 0, j = 0; i < fusion->outputs().size(); i++) {
-    NVF_ERROR(fusion->outputs()[i]->isA<TensorView>());
-    if (should_remove(fusion->outputs()[i])) {
+  size_t j = 0;
+  for (Val* fusion_output : fusion->outputs()) {
+    const AliasInfo* alias_info = fusion->getOutputAlias(fusion_output).second;
+    if (alias_info != nullptr && alias_info->hide_output) {
       // This is an aliased output that's hidden from integration.
       // Let's not check this.
       continue;
     }
 
+    NVF_ERROR(fusion_output->isA<TensorView>());
+    TensorView* fusion_output_tv = fusion_output->as<TensorView>();
+
     auto fusion_output_tensor = fusion_outputs[j];
-    auto fusion_output_tv = fusion->outputs()[i]->as<TensorView>();
     auto aten_output_tensor = aten_outputs[j];
 
     NVF_ERROR(
         reduction_sizes.count(fusion_output_tv),
-        "Missed reduction size count on fusion output at index: ",
-        i);
+        "Missed reduction size count on fusion output: ",
+        fusion_output_tv->toString());
 
     int64_t reduction_size = reduction_sizes.at(fusion_output_tv);
 

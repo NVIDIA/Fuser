@@ -462,6 +462,14 @@ class DeadCodeRemover : BackwardVisitor {
 
   //! Check whether all uses have been marked dead
   inline bool allUsesDead(Val* val) const {
+    auto fu_it = future_uses_.find(val);
+    if (fu_it != future_uses_.end() && !fu_it->second.empty()) {
+      // Regardless of whether current uses are marked dead, this appears in a
+      // replacement expression, so it has a future live use and we should keep
+      // it.
+      return false;
+    }
+
     return std::all_of(val->uses().begin(), val->uses().end(), [&](Expr* use) {
       return isDead(use);
     });
@@ -480,6 +488,21 @@ class DeadCodeRemover : BackwardVisitor {
   //! Mark a single Statement as being alive.
   inline void markLive(Statement* stmt) {
     live_statements_.insert(stmt);
+    if (auto e = dynamic_cast<Expr*>(stmt)) {
+      // Check if this expression is already in uses() for each of its inputs
+      // and if not, record it in future_uses_
+      for (Val* inp : e->inputs()) {
+        if (std::find(inp->uses().begin(), inp->uses().end(), e) ==
+            inp->uses().end()) {
+          auto fu_it = future_uses_.find(inp);
+          if (fu_it == future_uses_.end()) {
+            future_uses_.emplace(inp, std::unordered_set<Expr*>({e}));
+          } else {
+            fu_it->second.insert(e);
+          }
+        }
+      }
+    }
   }
 
   //! Ensure that a Statement and its upstream Statements are alive. If it is an
@@ -529,6 +552,13 @@ class DeadCodeRemover : BackwardVisitor {
   //! them separately here.
   std::vector<Val*> vals_to_remove_;
   std::vector<Expr*> exprs_to_remove_;
+
+  //! This holds additional _future_ uses of each val. val->uses() only returns
+  //! currently live uses, so until we have finalized all replacements, new uses
+  //! will not appear there. The mapping below gets populated whenever we mark
+  //! an expression as live, if that expression is not already in inp->uses()
+  //! for any of its inputs.
+  std::unordered_map<Val*, std::unordered_set<Expr*>> future_uses_;
 };
 
 } // namespace nvfuser

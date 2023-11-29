@@ -1251,13 +1251,26 @@ struct TensorRecord : RecordFunctor {
       is_expand[index] = is_broadcast && has_non_broadcast_size;
     }
 
+    // skip stride_order if it's alloc_domain is in the same order as with root
+    // domain. We don't need this and we should be able to just use
+    // stride_order_, but currently alloc_domain support isn't ideal and could
+    // prevent vectorization. Adding this workaround to restore performance.
+    std::vector<int64_t> stride_order;
+    for (auto i : c10::irange(stride_order_.size())) {
+      if (stride_order_[i] != (int64_t)(rank - 1 - i)) {
+        // detect permutation in stride_order_, apply stride_order and break;
+        stride_order = stride_order_;
+        break;
+      }
+    }
+
     auto tv = TensorViewBuilder()
                   .ndims(shape_.size())
                   .contiguity(contiguity_)
                   .shape(shape_)
                   .dtype(dtype_)
                   .expanded(std::move(is_expand))
-                  .strideOrder(stride_order_)
+                  .strideOrder(stride_order)
                   .build();
 
     if (shape_.empty() && is_cpu_) {
@@ -2488,78 +2501,48 @@ struct FullOpRecord : RecordFunctor {
   FullOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      std::vector<int64_t> shape,
       PrimDataType dtype)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "ops.full",
             serde::RecordType::FullOp),
-        shape_(std::move(shape)),
-        dtype_(dtype) {}
+        dtype_(dtype) {
+    setArgName(0, "shape");
+    setArgName(1, "fill_value");
+  }
   ~FullOpRecord() override = default;
   RecordFunctor* clone() final {
     return new FullOpRecord(*this);
   }
 
   //! Child specific hash function in lower 32 bits.
-  //! | 31 --- 24 | 23 --------------------------  0 |
-  //! | Dtype     | Shape hash code                  |
+  //! | 31 --------------------------------------  0 |
+  //! | Dtype                                        |
   size_t hash() const final {
     auto result = RecordFunctor::hash();
-    size_t shape_hash = 0;
-    for (auto p : shape_) {
-      shape_hash ^= static_cast<size_t>(p);
-    }
-    result |= ((static_cast<size_t>(dtype_) & 0xff) << 24);
-    result |= (shape_hash & 0xffff);
+    result |= (static_cast<size_t>(dtype_) & 0xffffffff);
     return result;
   }
 
   bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto child_ptr = dynamic_cast<const FullOpRecord*>(&other)) {
-      result = RecordFunctor::operator==(other) &&
-          shape_ == child_ptr->shape_ && dtype_ == child_ptr->dtype_;
+      result = RecordFunctor::operator==(other) && dtype_ == child_ptr->dtype_;
     }
     return result;
   }
 
   void operator()(FusionState& fd) final {
-    auto arg = fd.getFusionState(args_.at(0).index);
+    const std::vector<Val*>& shape = fd.getFusionStateVector(args_.at(0).index);
+    auto fill_value = fd.getFusionState(args_.at(1).index);
 
-    std::vector<Val*> nvf_shape(shape_.size(), nullptr);
-    for (const auto idx : c10::irange(shape_.size())) {
-      nvf_shape[idx] = IrBuilder::create<nvfuser::Val>(shape_.at(idx));
-    }
-    auto output = full(nvf_shape, arg, dtype_);
+    auto output = full(shape, fill_value, dtype_);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
   void print(std::ostream& os, bool close_function = true) const override {
-    bool first_output = true;
-    for (auto& output : outputs_) {
-      if (first_output) {
-        first_output = false;
-      } else {
-        os << ", ";
-      }
-      os << output;
-    }
-    os << " = "
-       << "fd." << name_ << "(";
-    os << "fill_value=" << args_.at(0);
-    os << ", shape=[";
-    bool first_arg = true;
-    for (auto p : shape_) {
-      if (first_arg) {
-        first_arg = false;
-      } else {
-        os << ", ";
-      }
-      os << p;
-    }
-    os << "]";
+    RecordFunctor::print(os, false);
     os << ", dtype=" << dtypeToPyString(dtype_);
     if (close_function) {
       os << ")";
@@ -2569,15 +2552,12 @@ struct FullOpRecord : RecordFunctor {
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
-        serde::RecordData::TensorCreation,
-        serde::CreateTensorCreationDirect(
-            builder, &shape_, toUnderlying(dtype_))
+        serde::RecordData::TensorCreationSymbolic,
+        serde::CreateTensorCreationSymbolic(builder, toUnderlying(dtype_))
             .Union()};
   }
 
  private:
-  //! Represents shape of new tensor
-  std::vector<int64_t> shape_;
   //! Type of output
   PrimDataType dtype_;
 };

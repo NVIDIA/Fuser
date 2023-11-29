@@ -294,7 +294,9 @@ std::shared_ptr<ReductionParams> gridOuterPersistentHeuristic(
     const int64_t n_tensor_inputs,
     const int64_t max_input_dtype_size,
     const int64_t max_persistent_buffer_size,
-    const size_t vectorize_factor) {
+    const size_t vectorize_factor,
+    const bool project_to_input,
+    const PrimDataType index_type) {
   auto outer_params =
       normalization_scheduler_utils::getGridOuterNormalizationParams(
           total_reduction_numel,
@@ -310,6 +312,8 @@ std::shared_ptr<ReductionParams> gridOuterPersistentHeuristic(
   auto rparams = std::make_shared<ReductionParams>();
 
   rparams->persistent_kernel = true;
+  rparams->project_persistent_buffers = project_to_input;
+  rparams->cparams.index_type = index_type;
   rparams->cross_block_inner_reduction = true;
   rparams->cross_grid_inner_reduction = true;
   rparams->grid_dim_iter_dom = ParallelType::BIDx;
@@ -367,7 +371,9 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
     const int64_t n_tensor_inputs,
     const int64_t max_input_dtype_size,
     const int64_t max_persistent_buffer_size,
-    const size_t vectorize_factor) {
+    const size_t vectorize_factor,
+    const bool project_to_input,
+    const PrimDataType index_type) {
   // Set some targets for parallelization
   const int64_t n_elems = total_reduction_numel * total_iteration_numel;
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
@@ -402,7 +408,9 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
         n_tensor_inputs,
         max_input_dtype_size,
         max_persistent_buffer_size,
-        vectorize_factor);
+        vectorize_factor,
+        project_to_input,
+        index_type);
   }
 
   // Compute maximum number of reductions we could do in the same kernel based
@@ -565,6 +573,8 @@ std::shared_ptr<ReductionParams> outerPersistentHeuristic(
   auto gdimx = ceilDiv(total_iteration_numel, hp.bdimx.get());
   rparams->batches_per_block_inner_reduction = hp.batches_per_block.get();
   rparams->persistent_kernel = true;
+  rparams->project_persistent_buffers = project_to_input;
+  rparams->cparams.index_type = index_type;
 
   rparams->fastest_dim = false;
   rparams->cross_block_inner_reduction = true;
@@ -645,9 +655,9 @@ std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
       prop.n_tensor_inputs,
       prop.max_dtype_size,
       prop.max_persistent_buffer_size,
-      prop.vectorize_factor);
-  rparams->project_persistent_buffers = prop.project_persistent_buffers;
-  rparams->cparams.index_type = runtime_info.getIndexType();
+      prop.vectorize_factor,
+      prop.project_persistent_buffers,
+      prop.index_type);
   return rparams;
 }
 

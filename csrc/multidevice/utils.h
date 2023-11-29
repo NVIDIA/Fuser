@@ -7,17 +7,13 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-
-#include <dispatch.h>
-#include <fusion.h>
-#include <ir/all_nodes.h>
-
-#include <vector>
+#include <ir/interface_nodes.h>
 
 namespace nvfuser {
 
-// Transpose, Shift, Gather, and View Ops with LoadStoreOps
-std::vector<Expr*> loadStoreOpInserter(const std::vector<Expr*>& exprs);
+// Returns whether a TensorView has its first non-reduction axis parallelized
+// on Didx
+// Checks that the other non-reduction axis are not parallelized on Didx
+bool isSharded(TensorView*);
 
 } // namespace nvfuser

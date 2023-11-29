@@ -30,6 +30,9 @@ jobs:
           tools/pip-install-things.sh &
           source tools/setup-env.sh
 
+          # clang-tidy does not work well with gcc-13 headers, remove them
+          sudo rm -rf /usr/lib/gcc/x86_64-linux-gnu/13
+
           # Install lintrunner
           pip install lintrunner
 

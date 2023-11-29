@@ -118,7 +118,7 @@ struct TrieNode {
 class FusionCache {
   //! The constructor is private given the FusionCache is only constructed
   //! as a singleton.
-  FusionCache(size_t max_fusions);
+  FusionCache(size_t max_fusions, bool load_from_default_workspace);
 
  public:
   //! Copy and Assignment of the FusionCache is not supported
@@ -129,7 +129,9 @@ class FusionCache {
   //! The next 4 public methods are the python interface methods
 
   //! Gets a pointer to the singleton and creates a new one if necessary
-  static FusionCache* get(size_t max_fusions = 8192);
+  static FusionCache* get(
+      size_t max_fusions = 8192,
+      bool load_from_default_workspace = true);
   //! Number of fusions cached
   size_t numFusions() const;
   //! print cache contents
@@ -137,7 +139,8 @@ class FusionCache {
   //! print cache stats
   void stats(std::ostream& os) const;
   //! Reset Cache to an empty state
-  static void reset();
+  static void reset(bool load_from_default_workspace = false);
+
   //! Serialize Fusion Cache using flatbuffers
   void serialize(std::string filename) const;
   //! Deserialize Fusion Cache using flatbuffers
@@ -174,6 +177,12 @@ class FusionCache {
   TrieNode* rootTriePtr();
 
  private:
+  using BinaryBuffer = std::vector<uint8_t>;
+  //! Deserialize Fusion Cache
+  void deserialize(
+      const BinaryBuffer& buffer,
+      const serde::FusionCache* fusion_cache_buffer);
+
   //! The static pointer to the FusionCache
   static FusionCache* singleton_;
   //! Lock for accessing the singleton by multiple threads
@@ -198,5 +207,15 @@ class FusionCache {
   // is not allowed to be copied or moved.
   InputsIdLookup user_def_input_encodings_;
 };
+
+//! Serialize Fusion Cache to common workspace
+//! /tmp/nvfuser_kernel_db/nvf_serde_[cuda_major]_[cuda_minor]_[nvrtc_major]_[nvrtc_minor]
+//!
+//! '''python
+//! # Use atexit to automatically call serialize on program exit
+//! import atexit
+//! atexit.register(nvfuser.serialize)
+//! '''
+void serialize();
 
 } // namespace nvfuser::python_frontend

@@ -12,6 +12,20 @@
 
 namespace nvfuser {
 
+std::string CompileParams::toString() const {
+  std::stringstream ss;
+  ss << "Compile Parameters: index_type = ";
+  if (index_type.has_value()) {
+    ss << index_type.value() << ", ";
+  } else {
+    ss << "NotSet, ";
+  }
+  ss << "maxrregcount = " << maxrregcount << ", "
+     << "enable_magic_zero = " << enable_magic_zero << ", "
+     << "enable_ptxas_verbose = " << enable_ptxas_verbose << "\n";
+  return ss.str();
+}
+
 void LaunchParams::assertValid() {
   NVF_ERROR(
       bdimx() * bdimy() * bdimz() > 0 &&

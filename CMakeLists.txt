@@ -14,7 +14,13 @@ option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
 option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
 
 if(NOT NVFUSER_CPP_STANDARD)
-  set(NVFUSER_CPP_STANDARD 17)
+  set(NVFUSER_CPP_STANDARD 20)
+endif()
+
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.4)
+        message(FATAL_ERROR "GCC < 11.4 has compiler bugs and can not compile nvFuser.")
+    endif()
 endif()
 
 string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
@@ -34,7 +40,7 @@ include(cmake/FlatBuffers.cmake)
 include(cmake/Dependencies.cmake)
 
 # set CUDA_ARCH for cu tests.
-if(EXISTS ${TORCH_CUDA_ARCH_LIST})
+if(TORCH_CUDA_ARCH_LIST)
   set(ARCH_FLAGS)
   cuda_select_nvcc_arch_flags(ARCH_FLAGS ${TORCH_CUDA_ARCH_LIST})
   list(APPEND CUDA_NVCC_FLAGS ${ARCH_FLAGS})
@@ -135,6 +141,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/multidevice/pipeline.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/pipeline_ir.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/runtime.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/utils.cpp
   ${NVFUSER_SRCS_DIR}/mutator.cpp
   ${NVFUSER_SRCS_DIR}/non_divisible_split.cpp
   ${NVFUSER_SRCS_DIR}/ops/alias.cpp
@@ -403,6 +410,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/test/test_mbarrier.cpp
     ${NVFUSER_ROOT}/test/test_memory.cpp
+    ${NVFUSER_ROOT}/test/test_mma.cpp
     ${NVFUSER_ROOT}/test/test_gpu_view.cpp
     ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
     ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
@@ -420,6 +428,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_scalar_hoisting.cpp
     ${NVFUSER_ROOT}/test/test_no_op.cpp
     ${NVFUSER_ROOT}/test/test_linked_hash_map.cpp
+    ${NVFUSER_ROOT}/test/test_pointwise.cpp
   )
 
   # We don't link CUPTI for MSVC
@@ -554,7 +563,6 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/memory.cu
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu
-  ${NVFUSER_ROOT}/runtime/tensorcore.cu
   ${NVFUSER_ROOT}/runtime/tuple.cu
   ${NVFUSER_ROOT}/runtime/type_traits.cu
   ${NVFUSER_ROOT}/runtime/warp.cu
