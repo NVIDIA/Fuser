@@ -43,7 +43,6 @@ class MmaTest : public NVFuserFixtureParamTest<MmaTestParams> {
   }
 };
 
-// MMA unit test on Turing
 TEST_P(MmaTest, SingleTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
