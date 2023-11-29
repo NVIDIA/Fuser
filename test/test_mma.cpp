@@ -277,7 +277,7 @@ TEST_P(Hopper, RS) {
     t0t = t0.t();
   }
 
-  if (!transpose_b) {
+  if (transpose_b) {
     t1t = t1.t();
   }
 
