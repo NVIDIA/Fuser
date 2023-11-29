@@ -170,7 +170,9 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseRootDomainMap::map(
     // Condition 3: when the producer ID is a removed broadcast domain, there is
     // no mapping for it.
     if (!squeeze_flags.empty() && squeeze_flags.at(itp)) {
-      NVF_ERROR(producer_id->isBroadcast());
+      // Dynamic IterDomains can be squeezed, in which case they must concretize
+      // to broadcasts
+      NVF_ERROR(producer_id->isBroadcast() || producer_id->isSymbolic());
       itp++;
       continue;
     }
