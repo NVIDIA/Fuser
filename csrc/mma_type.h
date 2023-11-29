@@ -30,14 +30,16 @@ enum class MatmulDomain { M = 0, N, K };
 //! Named descriptors of TensorView roles in fusion
 //!  INPUT_A - a producer of MMA input A
 //!  INPUT_B - a producer of MMA input B
-//!  OUTPUT_D - the main consumer of MMA op results
 //!  INPUT_C - a producer of a tensor used in fusion epilogue,
 //!            for example tensor used in beta scaling fusion
+//!  OUTPUT_D - the main consumer of MMA op results
+//!  OUTPUT_AUX - fusion outputs that are consumers of OUTPUT_D
 //!
 //! Naming convention is based on the following formula:
 //!    D = alpha * A x B + beta * C
+//!    AUX = relu(D)
 //!  Note: bias vector tensors will be assigned to INPUT_C role.
-enum class MatmulRole { INPUT_A = 0, INPUT_B, OUTPUT_D, INPUT_C };
+enum class MatmulRole { INPUT_A = 0, INPUT_B, OUTPUT_D, INPUT_C, OUTPUT_AUX };
 
 //! The expected number of occurances of core TensorView roles in fusion
 static constexpr size_t MATMUL_CORE_ROLES_EXPECTED_COUNT = 1;
@@ -126,12 +128,12 @@ static_assert(sizeof(MmaMacroEncode) == sizeof(uint64_t));
 enum class MmaMacro : uint64_t {
   NoMMA = 0,
 
+  MACRO(Turing, 16, 8, 8),
   MACRO(Turing, 16, 8, 16),
   MACRO(Turing, 16, 16, 16),
 
   MACRO(Ampere, 16, 8, 16),
   MACRO(Ampere, 16, 16, 16),
-  MACRO(Ampere, 16, 8, 8),
 
   MACRO(Hopper, 64, 8, 16),
   MACRO(Hopper, 64, 16, 16),
@@ -192,153 +194,64 @@ constexpr MmaMacroEncode::MmaMacroEncode(MmaMacro macro)
 }
 #endif
 
-//! Information for configuring and lowering mma ops
-struct MmaOptions {
-  using MacroType = MmaMacro;
+//! [Operand Layout Convention]
+//! Operand layout, T=transposed/row_major, N=normal/col_major
+//! Ordered by position of K
+//! NT : K,M x K,N -> M,N
+//! TT : M,K X K,N -> M,N
+//! TN : M,K X N,K -> M,N
+//! NN : K,M X N,K -> M,N
+enum class MmaLayout { NT = 0, TT, TN, NN };
 
-  //! [Operand Layout Convention]
-  //! Operand layout, T=transposed/row_major, N=normal/col_major
-  //! Ordered by position of K
-  //! NT : K,M x K,N -> M,N
-  //! TT : M,K X K,N -> M,N
-  //! TN : M,K X N,K -> M,N
-  //! NN : K,M X N,K -> M,N
-  //! TODO: NN is currently not supported on pre-Turing and Hopper wgmma
-  enum class MmaLayout { NT = 0, TT, TN, NN };
-
-  //! Utility to annotate which input of mma this option struct describes
-  enum class Operand { Accumulator = 0, A, B };
-
-  //! Utility to annotate which mma macro this config uses.
-  MacroType macro = MacroType::NoMMA;
-
-  //! Utility to annotate transposition of operands
-  MmaLayout layout = MmaLayout::TT;
-
-  //! Utility to annotate which input of mma this option struct describes
-  Operand operand = Operand::A;
-
-  bool operator==(const MmaOptions& other) const {
-    return macro == other.macro && layout == other.layout &&
-        operand == other.operand;
-  }
-
-  // The accumulator tensorview register supplied by the
-  //  scheduler interface. Each mma builder is responsible
-  //  for the parameters of one mma op, so the options struct
-  //  would need a pointer to keep track of which mma op it
-  //  is describing.
-  // Tracking mma expressions would not be stable as the expression
-  //  can get deleted by mutate passes.
-  TensorView* accumulator_tv = nullptr;
-
-  //! Returns the mma op that this options parameter list
-  //!  is describing. See comment on accumulator_tv.
-  MmaOp* mmaOp() const;
-};
-
-//! User interface for configuring the mma and mma related
-//!  operators by specifying the mma instruction tile type
-//!  input data layout, and the operand position of a tensor.
-class MmaBuilder {
- public:
-  //! Initialized a mma builder, for the given mma instruction type.
-  //!  TODO: the mma implementation is generic and should not have
-  //!   strong dependency on the actual matmul tiling shapes. The
-  //!   MatMulTileOptions provided in here is a WAR for mma format and
-  //!   should be removed once there is support for labeling swizzles
-  //!   on iterdomains.
-  MmaBuilder(MmaOptions::MacroType macro, MatMulTileOptions gemm_tile);
-
-  //! User configuration function:
-  //!  Specifies the input matrix layout for the mma instruction.
-  //!    see [Operand Layout Convention].
-  MmaBuilder& layout(MmaOptions::MmaLayout layout);
-
-  //! User configuration function:
-  //!  Specifies which element in the mma op this builder is generating
-  //!    parameters for, i.e. A or B. This is useful when generating
-  //!    data swizzles for different elements of mma.
-  //!  - Operand::Accumulator means the parameters describe accumulator in mma
-  //!  op.
-  //!  - This option is ignored when configuring the mma operator itself.
-  MmaBuilder& operand(MmaOptions::Operand a_or_b);
-
-  //! Generates the matching ldmatrix instruction type for the
-  //!  specified mma option.
-  LoadStoreOpType ldMatrix() const;
-
-  //! Store the accumulator tv register reference in mma builder
-  //!  to avoid automatic matching of which mma ops.
-  void accumulatorTv(TensorView* tv);
-
-  //! Fill in mma options in scheduling time.
-  //!  Each mma op in Fusion IR must be configured once before lowering.
-  //!  Mma options are configuration parameters used in lowering to mma
-  //!  instrinsics, mainly the type of mma macro to use and input data layout
-  //!  etc.
-  //!
-  //! TODO: This step will very likely be removed in a follow up PR. All of
-  //!  the options configured here could actually be inferred from fusion IR
-  //!  once we are feature complete.
-  void configureMma(MmaOp* mma) const;
-
-  //! Export all the parameters with user's configurations applied.
-  MmaOptions build() const;
-
- private:
-  MmaOptions option_;
-};
+//! Utility to annotate which input of mma this option struct describes
+enum class MmaOperand { Accumulator = 0, A, B };
 
 //! GPU arch check for macro type
-inline bool isTuring(MmaOptions::MacroType macro) {
+inline bool isTuring(MmaMacro macro) {
   return MmaMacroEncode(macro).arch == MmaMacroEncode::Arch::Turing;
 }
 
-inline bool isAmpere(MmaOptions::MacroType macro) {
+inline bool isAmpere(MmaMacro macro) {
   return MmaMacroEncode(macro).arch == MmaMacroEncode::Arch::Ampere;
 }
 
-inline bool isHopper(MmaOptions::MacroType macro) {
+inline bool isHopper(MmaMacro macro) {
   return MmaMacroEncode(macro).arch == MmaMacroEncode::Arch::Hopper;
 }
 
 //! Get the m size from macro type
-inline int getM(MmaOptions::MacroType macro) {
+inline int getM(MmaMacro macro) {
   return MmaMacroEncode(macro).m;
 }
 
 //! Get the n size from macro type
-inline int getN(MmaOptions::MacroType macro) {
+inline int getN(MmaMacro macro) {
   return MmaMacroEncode(macro).n;
 }
 
 //! Get the k size from macro type
-inline int getK(MmaOptions::MacroType macro) {
+inline int getK(MmaMacro macro) {
   return MmaMacroEncode(macro).k;
 }
 
-//! Returns true if the given option describes a transposed operand
-bool isOperandTransposed(MmaOptions options);
-
 // Unpacked constants from macro type:
 //   exact numbers are defined by each individual instruction.
-int getOutputRegisterSize(MmaOptions::MacroType macro);
-int getInputARegisterSize(MmaOptions::MacroType macro);
-int getInputBRegisterSize(MmaOptions::MacroType macro);
+int getOutputRegisterSize(MmaMacro macro);
+int getInputARegisterSize(MmaMacro macro);
+int getInputBRegisterSize(MmaMacro macro);
 
 // Unpack MMA op shape
-GemmTile getMmaOpShape(MmaOptions::MacroType macro);
+GemmTile getMmaOpShape(MmaMacro macro);
 
 // MMA stringify utils
-std::string toString(MmaOptions::MmaLayout input_layout);
+std::string toString(MmaLayout input_layout);
 std::string toString(const GemmTile& tile);
 std::string toString(const MatMulTileOptions& opts);
-std::string toString(MmaOptions::MacroType macro);
+std::string toString(MmaMacro macro);
 
 // MMA hash utils
-size_t hash(MmaOptions::MacroType macro);
-size_t hash(MmaOptions::MmaLayout input_layout);
+size_t hash(MmaMacro macro);
+size_t hash(MmaLayout input_layout);
 size_t hash(const GemmTile& tile);
 size_t hash(const MatMulTileOptions& opts);
 } // namespace nvfuser

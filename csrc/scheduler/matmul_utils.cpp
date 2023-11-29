@@ -36,16 +36,15 @@
 namespace nvfuser {
 namespace {
 
-using MatmulLayout = MmaOptions::MmaLayout;
 //! Access to the structure should be done with labels defined in
 //!  MmaOptions::MmaDomains.
 using ProblemShape = std::array<int64_t, 3>;
 
 //! A helper for deciding the type of MMA op for given fusion and problem shape.
-inline std::optional<MmaOptions::MacroType> getMmaOp(
+inline std::optional<MmaMacro> getMmaOp(
     const int dev_version,
     const ProblemShape& problem) {
-  using MacroType = MmaOptions::MacroType;
+  using MacroType = MmaMacro;
 
   // NOTE: A temp condition
   const ProblemShape::value_type n_extend = problem[(size_t)MatmulDomain::N];
@@ -69,7 +68,7 @@ inline std::optional<MmaOptions::MacroType> getMmaOp(
 //! A wrapper for core heuristics initialization
 inline bool initCoreHeuristics(
     std::shared_ptr<MatmulParams> params,
-    const MmaOptions::MacroType& mma_op,
+    const MmaMacro& mma_op,
     const ProblemShape& problem_shape) {
   const GemmTile instruction_tile = getMmaOpShape(mma_op);
   GemmTile warp_tile = {-1, -1, -1};
@@ -182,7 +181,6 @@ std::string isMatmulFusionDefinitionSupported(
       ir_utils::filterByType<TensorView>(fusion_outputs).vector();
 
   constexpr size_t minimal_number_of_inputs = 2;
-  constexpr size_t expected_number_of_outputs = 1;
 
   // Quick checks - MmaOp
   {
@@ -206,11 +204,6 @@ std::string isMatmulFusionDefinitionSupported(
     // Fusion should contain at least two inputs (for now)
     if (minimal_number_of_inputs > fusion_inputs.size()) {
       return "Fusion inputs contain at least one non-TensorView object";
-    }
-
-    // Fusion has only TVs as outputs, and we expect only one object in the list
-    if ((expected_number_of_outputs != fusion_outputs_tvs.size())) {
-      return "Fusion has more than a single TensorView object in its outputs";
     }
   }
 
@@ -248,17 +241,19 @@ std::string isMatmulFusionDefinitionSupported(
 
     entry = roles_map.find(MatmulRole::OUTPUT_D);
     if (entry != roles_map.end()) {
-      if (MATMUL_CORE_ROLES_EXPECTED_COUNT == entry->second.size()) {
-        tvs_with_roles.insert(entry->second.begin(), entry->second.end());
-      } else {
-        return "There is more than a single fusion output that can be MMA output";
-      }
+      tvs_with_roles.insert(entry->second.begin(), entry->second.end());
     } else {
       return "No candidate in fusion outputs MMA output";
     }
 
-    // Non-core roles are optional, no requirements for their presence
+    // Non-core input roles are optional, no requirements for definitions
     entry = roles_map.find(MatmulRole::INPUT_C);
+    if (entry != roles_map.end()) {
+      tvs_with_roles.insert(entry->second.begin(), entry->second.end());
+    }
+
+    // Non-core output roles are optional, no requirements for definitions
+    entry = roles_map.find(MatmulRole::OUTPUT_AUX);
     if (entry != roles_map.end()) {
       tvs_with_roles.insert(entry->second.begin(), entry->second.end());
     }
@@ -325,7 +320,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
 
   // #2
   {
-    const auto input_layout_opt = mma_utils::getMatmulLayout(fusion);
+    const auto input_layout_opt = mma_utils::getMmaLayout(fusion);
     if (!input_layout_opt.isValid()) {
       return input_layout_opt.getErrorMsg();
     }

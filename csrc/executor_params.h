@@ -37,6 +37,8 @@ struct CompileParams {
   bool operator!=(const CompileParams& other) const {
     return !(*this == other);
   }
+
+  std::string toString() const;
 };
 
 class LaunchParams {

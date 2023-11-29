@@ -108,6 +108,27 @@ TEST_F(AliasAnalysisTest, View_MergeNonContiguous) {
   EXPECT_EQ(alias_analysis.findRoot(out), out);
 }
 
+TEST_F(AliasAnalysisTest, Set) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  fusion.addInput(in);
+  TensorView* out = set(in);
+  fusion.addOutput(out);
+
+  in->setAllocationDomain({in->axis(1), in->axis(2), in->axis(0)}, true);
+
+  optimization::AliasAnalysisResult alias_analysis =
+      optimization::findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.findRoot(out), in);
+
+  const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
+  EXPECT_THAT(
+      alias_analysis.preferredLayout(out).allocation_domain,
+      ElementsAre(out_rfactor[1], out_rfactor[2], out_rfactor[0]));
+}
+
 TEST_F(AliasAnalysisTest, Permute) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -543,6 +564,28 @@ TEST_F(AliasTest, NotAllOutputsAlias) {
 
   at::Tensor slice_out_tensor = out_tensors[0];
   EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
+}
+
+TEST_F(AliasTest, Set_NoAliasForIncompatibleLayout) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  fusion->addInput(in);
+  TensorView* out = set(in);
+  fusion->addOutput(out);
+
+  // I intentionally set the allocation order to be different to block aliasing.
+  out->setAllocationDomain({out->axis(1), out->axis(2), out->axis(0)}, true);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  ASSERT_EQ(out_tensors.size(), 1);
+  at::Tensor out_tensor = out_tensors[0];
+
+  // Verify `out_tensor` is not an alias of `in_tensor`.
+  EXPECT_FALSE(out_tensor.is_alias_of(in_tensor));
 }
 
 } // namespace nvfuser

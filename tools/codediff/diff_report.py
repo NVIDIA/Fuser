@@ -646,12 +646,23 @@ def sanitize_ptx_lines(lines: list[str]) -> list[str]:
         # or
         #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_4_cu_8995cef2_3255329nvfuser_4ENS_6TensorIfLi2ELi2EEES1_S1_
         # with
-        #   _ZN76_GLOBAL__N__00000000_37__kernel_cu_8995cef2_3255329kernelENS_6TensorIfLi2ELi2EEES1_S1_
-        l = re.sub(
-            r"(_tmp_kernel|nvfuser)(_[a-z]+)?_(\d+|f\d+_c\d*_r\d+_g\d+)", "kernel", l
-        )
-        # This part removes the hash and timestamp of the cu file
-        l = re.sub(r"kernel_cu_[0-9a-z]{8}_\d{5}", "kernel_cu_", l)
+        #   _ZN11kernelscope6kernelENS_6TensorIfLi2ELi2EEES1_S1_
+
+        # demangle first two parts after _ZN and replace with "kernelscope" and "kernel"
+        m = re.match(r"^(?P<prefix>^.*\b_Z?ZN)(?P<scopenamelen>\d+)_", l)
+        if m is not None:
+            d = m.groupdict()
+            scopenamelen = int(d["scopenamelen"])
+            # demangle second part in remainder after scope name
+            remainder = l[(len(d["prefix"]) + len(d["scopenamelen"]) + scopenamelen) :]
+            mrem = re.match(r"^(?P<varnamelen>\d+)", remainder)
+            if mrem is not None:
+                drem = mrem.groupdict()
+                varnamelen = int(drem["varnamelen"])
+                remainder = (
+                    "6kernel" + remainder[len(drem["varnamelen"]) + varnamelen :]
+                )
+            l = d["prefix"] + "11kernelscope" + remainder
 
         # Remove comments. This fixes mismatches in PTX "callseq" comments, which appear to be non-repeatable.
         l = re.sub(r"//.*$", "", l)

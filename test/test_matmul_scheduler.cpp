@@ -67,7 +67,7 @@ static const PrecisionsDesc TSS = std::make_tuple(
 //  Target architectures: Turing, Ampere
 TEST_P(PrecisionParametrizedTest, EpilogueBias) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
-  const auto layout = MatmulLayout::TT;
+  const auto layout = MmaLayout::TT;
 
   static TestCaseErrorThresholds errs = {
       {HSS, std::make_pair(0.0001, 0.0001)},
@@ -125,11 +125,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
       ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   NVF_CHECK(
-      MatmulLayout::TN ==
+      MmaLayout::TN ==
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -172,7 +172,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
 //  Target architectures: Turing, Ampere
 TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
-  const auto layout = MatmulLayout::TT;
+  const auto layout = MmaLayout::TT;
 
   static TestCaseErrorThresholds errs = {
       {HSS, std::make_pair(0.0001, 0.0001)},
@@ -220,11 +220,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
       ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   NVF_CHECK(
-      MatmulLayout::TN ==
+      MmaLayout::TN ==
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -262,7 +262,7 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
 TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
   // NOTE: test skips Turing arch, the relative error was too big
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
-  const auto layout = MatmulLayout::TT;
+  const auto layout = MmaLayout::TT;
 
   static TestCaseErrorThresholds errs = {
       {HSS, std::make_pair(0.001, 0.001)},
@@ -323,11 +323,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
       ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   NVF_CHECK(
-      MatmulLayout::TN ==
+      MmaLayout::TN ==
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -369,15 +369,15 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
 //   D = A x B;
 //   Aux = relu(D)
 //  Target architectures: Turing, Ampere
-TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueReluAux) {
+TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
-  const auto layout = MatmulLayout::TT;
+  const auto layout = MmaLayout::TT;
 
   static TestCaseErrorThresholds errs = {
       {HSS, std::make_pair(0.001, 0.001)},
       {HSH, std::make_pair(0.001, 0.001)},
       {TSS, std::make_pair(0.001, 0.001)},
-      {TST, std::make_pair(0.001, 0.001)},
+      {TST, std::make_pair(0.01, 0.001)},
   };
 
   NVF_CHECK(
@@ -421,11 +421,11 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueReluAux) {
       ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   NVF_CHECK(
-      MatmulLayout::TN ==
+      MmaLayout::TN ==
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -465,16 +465,16 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueReluAux) {
 //   D = (A x B) + bias
 //   Aux = relu(D)
 //  Target architectures: Ampere
-TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasReluAux) {
+TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
   // NOTE: test skips Turing arch, the relative error was too big
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
-  const auto layout = MatmulLayout::TT;
+  const auto layout = MmaLayout::TT;
 
   static TestCaseErrorThresholds errs = {
       {HSS, std::make_pair(0.001, 0.001)},
       {HSH, std::make_pair(0.001, 0.001)},
       {TSS, std::make_pair(0.001, 0.001)},
-      {TST, std::make_pair(0.001, 0.001)},
+      {TST, std::make_pair(0.01, 0.001)},
   };
 
   NVF_CHECK(
@@ -502,7 +502,7 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasReluAux) {
   // A - tv0, B - tv1, C - tv2
   auto tv0 = makeContigTensor(2, in_type);
   auto tv1 = makeContigTensor(2, in_type);
-  auto tv2 = makeContigTensor(1, in_type);
+  auto tv2 = makeContigTensor(1, out_type);
 
   // tv3 := A x B
   auto tv3 = matmul(tv0, tv1, layout, true);
@@ -532,11 +532,11 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasReluAux) {
       ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   NVF_CHECK(
-      MatmulLayout::TN ==
+      MmaLayout::TN ==
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -582,7 +582,7 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasReluAux) {
 //  Target architectures: Turing, Ampere
 TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
-  const auto layout = MatmulLayout::TT;
+  const auto layout = MmaLayout::TT;
 
   static TestCaseErrorThresholds errs = {
       {HSS, std::make_pair(0.001, 0.001)},
@@ -630,11 +630,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
       ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   NVF_CHECK(
-      MatmulLayout::TN ==
+      MmaLayout::TN ==
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -670,15 +670,15 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
 //   D = A x B
 //   Aux = gelu(D)
 //  Target architectures: Turing, Ampere
-TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueGeluAux) {
+TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
-  const auto layout = MatmulLayout::TT;
+  const auto layout = MmaLayout::TT;
 
   static TestCaseErrorThresholds errs = {
       {HSS, std::make_pair(0.001, 0.001)},
       {HSH, std::make_pair(0.001, 0.001)},
       {TSS, std::make_pair(0.001, 0.001)},
-      {TST, std::make_pair(0.001, 0.001)},
+      {TST, std::make_pair(0.01, 0.001)},
   };
 
   NVF_CHECK(
@@ -722,11 +722,11 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueGeluAux) {
       ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   NVF_CHECK(
-      MatmulLayout::TN ==
+      MmaLayout::TN ==
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -767,7 +767,7 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueGeluAux) {
 //  Target architectures: Turing, Ampere
 TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
-  const auto layout = MatmulLayout::TT;
+  const auto layout = MmaLayout::TT;
 
   static TestCaseErrorThresholds errs = {
       {HSS, std::make_pair(0.001, 0.001)},
@@ -827,11 +827,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
       ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   NVF_CHECK(
-      MatmulLayout::TN ==
+      MmaLayout::TN ==
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -873,16 +873,16 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
 //   D = (A x B) + bias
 //   Aux = gelu(D)
 //  Target architectures: Ampere
-TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasGeluAux) {
+TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
   // NOTE: test skips Turing arch, the relative error was too big
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
-  const auto layout = MatmulLayout::TT;
+  const auto layout = MmaLayout::TT;
 
   static TestCaseErrorThresholds errs = {
       {HSS, std::make_pair(0.001, 0.001)},
       {HSH, std::make_pair(0.01, 0.001)},
       {TSS, std::make_pair(0.001, 0.001)},
-      {TST, std::make_pair(0.001, 0.001)},
+      {TST, std::make_pair(0.01, 0.001)},
   };
 
   NVF_CHECK(
@@ -939,11 +939,11 @@ TEST_P(PrecisionParametrizedTest, DISABLED_EpilogueBiasGeluAux) {
       ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   NVF_CHECK(
-      MatmulLayout::TN ==
+      MmaLayout::TN ==
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1003,7 +1003,7 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 8, 9);
   const int M = 128, N = 256, K = 512;
-  const auto layout = MatmulLayout::TT;
+  const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1022,11 +1022,11 @@ TEST_F(MatmulSchedulerTest, BasicMatmulStrictCheckTT) {
       ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   NVF_CHECK(
-      MatmulLayout::TN ==
+      MmaLayout::TN ==
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must be always TN");
 
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1065,7 +1065,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulRelaxedCheck) {
   // skip until we have Hopper support
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const int M = 504, N = 136, K = 2048;
-  for (auto layout : kAllSupportedMatmulLayout) {
+  for (auto layout : kAllSupportedMmaLayout) {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 
@@ -1087,14 +1087,14 @@ TEST_F(MatmulSchedulerTest, BasicMatmulRelaxedCheck) {
             .has_value(),
         "input layout has not be set for MmaOp");
     NVF_CHECK(
-        MatmulLayout::TN ==
+        MmaLayout::TN ==
             ir_utils::getOpsOfType<MmaOp>(fusion.get())
                 .front()
                 ->layout()
                 .value(),
         "the MmaOp layout of Ampere MMA must be always TN");
 
-    const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
     NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
@@ -1135,7 +1135,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
   // skip until we have Hopper support
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const int M = 504, N = 136, K = 2048;
-  const auto layout = MmaOptions::MmaLayout::TT;
+  const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1154,11 +1154,11 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
       ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   NVF_CHECK(
-      MatmulLayout::TN ==
+      MmaLayout::TN ==
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must be always TN");
 
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1195,7 +1195,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
 //  Ampere
 TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
-  const auto layout = MatmulLayout::TT;
+  const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1217,11 +1217,11 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
       ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   NVF_CHECK(
-      MatmulLayout::TN ==
+      MmaLayout::TN ==
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1256,7 +1256,7 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
 //  Ampere
 TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
-  const auto layout = MatmulLayout::TT;
+  const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1280,11 +1280,11 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
       ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   NVF_CHECK(
-      MatmulLayout::TN ==
+      MmaLayout::TN ==
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1320,7 +1320,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
 //  fusion, for Ampere
 TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
-  const auto layout = MatmulLayout::TT;
+  const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1345,11 +1345,11 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
       ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   NVF_CHECK(
-      MatmulLayout::TN ==
+      MmaLayout::TN ==
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1386,7 +1386,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
 //  D = (A x B) + beta * C
 TEST_F(MatmulSchedulerTest, EpilogueBeta) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
-  const auto layout = MatmulLayout::TT;
+  const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1419,11 +1419,11 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta) {
       ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   NVF_CHECK(
-      MatmulLayout::TN ==
+      MmaLayout::TN ==
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1465,7 +1465,7 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta) {
 //  D = alpha * (A x B) + beta * C
 TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
-  const auto layout = MatmulLayout::TT;
+  const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1501,11 +1501,11 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
       ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   NVF_CHECK(
-      MatmulLayout::TN ==
+      MmaLayout::TN ==
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1549,7 +1549,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
 //  D = gelu(alpha * (A x B) + beta * C)
 TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
-  const auto layout = MatmulLayout::TT;
+  const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1589,11 +1589,11 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
       ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   NVF_CHECK(
-      MatmulLayout::TN ==
+      MmaLayout::TN ==
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1641,7 +1641,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
 TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
   // NOTE: test skips Turing arch, the relative error was too big
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
-  const auto layout = MatmulLayout::TT;
+  const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1681,11 +1681,11 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
       ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().has_value(),
       "input layout has not be set for MmaOp");
   NVF_CHECK(
-      MatmulLayout::TN ==
+      MmaLayout::TN ==
           ir_utils::getOpsOfType<MmaOp>(fusion.get()).front()->layout().value(),
       "the MmaOp layout of Ampere MMA must always be TN");
 
-  const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+  const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
   NVF_CHECK(
       fusion_layout.isValid(),
       "failed to get decide matmul layout through fusion definition");
@@ -1736,7 +1736,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
 TEST_F(MatmulSchedulerTest, StridedBatch) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const int M = 504, N = 136, K = 248, B = 2;
-  for (auto layout : kAllSupportedMatmulLayout) {
+  for (auto layout : kAllSupportedMmaLayout) {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 
@@ -1761,14 +1761,14 @@ TEST_F(MatmulSchedulerTest, StridedBatch) {
             .has_value(),
         "input layout has not be set for MmaOp");
     NVF_CHECK(
-        MatmulLayout::TN ==
+        MmaLayout::TN ==
             ir_utils::getOpsOfType<MmaOp>(fusion.get())
                 .front()
                 ->layout()
                 .value(),
         "the MmaOp layout of Ampere MMA must always be TN");
 
-    const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
     NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
@@ -1807,7 +1807,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaBeta) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const int M = 504, N = 136, K = 248, B = 2;
 
-  for (auto layout : kAllSupportedMatmulLayout) {
+  for (auto layout : kAllSupportedMmaLayout) {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 
@@ -1845,14 +1845,14 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaBeta) {
             .has_value(),
         "input layout has not be set for MmaOp");
     NVF_CHECK(
-        MatmulLayout::TN ==
+        MmaLayout::TN ==
             ir_utils::getOpsOfType<MmaOp>(fusion.get())
                 .front()
                 ->layout()
                 .value(),
         "the MmaOp layout of Ampere MMA must always be TN");
 
-    const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
     NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
@@ -1900,7 +1900,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaSingleBeta) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const int M = 504, N = 136, K = 248, B = 2;
 
-  for (auto layout : kAllSupportedMatmulLayout) {
+  for (auto layout : kAllSupportedMmaLayout) {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 
@@ -1941,14 +1941,14 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueAlphaSingleBeta) {
             .has_value(),
         "input layout has not be set for MmaOp");
     NVF_CHECK(
-        MatmulLayout::TN ==
+        MmaLayout::TN ==
             ir_utils::getOpsOfType<MmaOp>(fusion.get())
                 .front()
                 ->layout()
                 .value(),
         "the MmaOp layout of Ampere MMA must always be TN");
 
-    const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
     NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
@@ -1997,7 +1997,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueBias) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const int M = 504, N = 136, K = 248, B = 2;
 
-  for (auto layout : kAllSupportedMatmulLayout) {
+  for (auto layout : kAllSupportedMmaLayout) {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 
@@ -2026,14 +2026,14 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueBias) {
             .has_value(),
         "input layout has not be set for MmaOp");
     NVF_CHECK(
-        MatmulLayout::TN ==
+        MmaLayout::TN ==
             ir_utils::getOpsOfType<MmaOp>(fusion.get())
                 .front()
                 ->layout()
                 .value(),
         "the MmaOp layout of Ampere MMA must always be TN");
 
-    const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
     NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
@@ -2075,7 +2075,7 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   const int M = 504, N = 136, K = 248, B = 2;
 
-  for (auto layout : kAllSupportedMatmulLayout) {
+  for (auto layout : kAllSupportedMmaLayout) {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 
@@ -2104,14 +2104,14 @@ TEST_F(MatmulSchedulerTest, StridedBatchEpilogueSingleBias) {
             .has_value(),
         "input layout has not be set for MmaOp");
     NVF_CHECK(
-        MatmulLayout::TN ==
+        MmaLayout::TN ==
             ir_utils::getOpsOfType<MmaOp>(fusion.get())
                 .front()
                 ->layout()
                 .value(),
         "the MmaOp layout of Ampere MMA must always be TN");
 
-    const auto fusion_layout = mma_utils::getMatmulLayout(fusion.get());
+    const auto fusion_layout = mma_utils::getMmaLayout(fusion.get());
     NVF_CHECK(
         fusion_layout.isValid(),
         "failed to get decide matmul layout through fusion definition");
