@@ -125,6 +125,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
   bool found_neg_one = false;
   for (const auto i : c10::irange(new_sizes.size())) {
     auto new_size = new_sizes.at(i);
+    auto iter_type = IterType::Symbolic;
     if (new_size->isConstScalar() && new_size->evaluate() == -1) {
       // It is usually safe to use the provided scalars as the output shapes.
       // However, if -1 is provided for some position, it will not correspond to
@@ -148,13 +149,15 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
       }
       new_size = div(numel, other_new_numel);
       new_size = simplifyExpr(new_size);
+    } else if (new_size->isConstScalar() && new_size->evaluate() == 1) {
+      iter_type = IterType::Broadcast;
     }
     if (new_size->dtype() != DataType::Index) {
       new_size = castOp(DataType::Index, new_size);
     }
     auto rf_id =
         IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), new_size)
-            .iter_type(IterType::Symbolic)
+            .iter_type(iter_type)
             .is_rfactor_domain(true)
             .build();
     rfactor_domain.at(i) = rf_id;
