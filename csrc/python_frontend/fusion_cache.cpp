@@ -254,13 +254,14 @@ FusionCache* FusionCache::get(
         // Send warning and delete the incompatible workspace.
         // A new workspace will be saved upon program exit.
         std::cout
-            << "Warning: Failed to deserialize common workspace. Exception:\t"
-            << deserialize_exception.what() << std::endl;
-        std::cout
-            << "Deleting incompatible workspace. A new workspace will be saved upon program exit."
+            << "Warning: Failed to deserialize common workspace.\t"
+            << "A new workspace will be saved upon program exit after deleting incompatible workspace."
             << std::endl;
+        std::cout << deserialize_exception.what() << std::endl;
+
+        // Delete incompatible workspace
         std::error_code remove_ec;
-        fs::remove(file_path);
+        fs::remove(file_path, remove_ec);
         if (remove_ec) {
           std::cout << "Failed to delete common workspace. Exception:\t"
                     << remove_ec.message() << std::endl;
