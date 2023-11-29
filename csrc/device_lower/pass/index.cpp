@@ -1457,7 +1457,7 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto base_addr =
         IrBuilder::tensorBaseAddressExpr(mma->inA()->as<TensorView>());
     auto layout = *mma->layout();
-    int64_t inner_size_bytes = 0;
+    int inner_size_bytes = 0;
     if (layout == MmaLayout::TT || layout == MmaLayout::TN) {
       inner_size_bytes = getK(mma->macro()) * /*bytes per item*/ 2;
     } else {
@@ -1485,7 +1485,7 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto base_addr =
         IrBuilder::tensorBaseAddressExpr(mma->inB()->as<TensorView>());
     auto layout = *mma->layout();
-    int64_t inner_size_bytes = 0;
+    int inner_size_bytes = 0;
     if (layout == MmaLayout::TT || layout == MmaLayout::NT) {
       inner_size_bytes = getN(mma->macro()) * /*bytes per item*/ 2;
     } else {
