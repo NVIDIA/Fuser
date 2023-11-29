@@ -43,8 +43,8 @@ void IdGraphVisitor::traverse() {
           }
           auto inp_groups = ValGroups(graph().inputGroups(def));
           auto out_groups = ValGroups(graph().outputGroups(def));
-          if (inp_groups.subtract(all_ids).empty() &&
-              out_groups.subtract(all_ids).empty()) {
+          if (inp_groups.computeSubtract(all_ids).empty() &&
+              out_groups.computeSubtract(all_ids).empty()) {
             all_exprs.pushBack(def);
           }
         }
@@ -70,10 +70,10 @@ void IdGraphVisitor::traverse() {
     }
 
     terminating_inputs =
-        ValGroups(all_ids.begin(), all_ids.end()).subtract(not_inputs);
+        ValGroups(all_ids.begin(), all_ids.end()).computeSubtract(not_inputs);
 
     terminating_outputs =
-        ValGroups(all_ids.begin(), all_ids.end()).subtract(not_outputs);
+        ValGroups(all_ids.begin(), all_ids.end()).computeSubtract(not_outputs);
   }
 
   ValGroups to_visit_ids = terminating_inputs;

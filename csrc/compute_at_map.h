@@ -18,6 +18,8 @@
 
 namespace nvfuser {
 
+class IdModelValidator;
+
 // There's four modes of these iter domain mappings all uniquely important in
 // the lowering process.
 //
@@ -169,6 +171,9 @@ class IterDomainGraph {
 
   std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
       self_mapping_info_ = std::nullopt;
+
+  // Temporary interface exposure for validating IdModel
+  friend class IdModelValidator;
 };
 
 using DoubleBufferIndices = std::unordered_map<DoubleBufferLoopStage, Val*>;
@@ -377,6 +382,9 @@ class ComputeAtMap {
   // Shortcut to access the fusion this computeAt map was
   //  built from.
   Fusion* fusion_;
+
+  // Temporary interface exposure for validating IdModel
+  friend class IdModelValidator;
 };
 
 } // namespace nvfuser
