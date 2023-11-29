@@ -709,6 +709,7 @@ void FusionCache::deserialize(
     state_queue.pop_front();
   }
 
+  bool detect_exception_in_thread_pool = false;
   // Deserialize terminal_nodes field in the FusionCache table
   for (auto idx : c10::irange(fusions_.size())) {
     auto node_idx = fusion_cache_buffer->terminal_nodes()->Get(idx);
@@ -720,10 +721,17 @@ void FusionCache::deserialize(
 
     if (!isOptionDisabled(DisableOption::ParallelSerde)) {
       // Parallelize the deserialization of each FusionExecutorCache.
-      getThreadPool()->run([=]() {
+      getThreadPool()->run([=, &detect_exception_in_thread_pool]() {
         FUSER_PERF_SCOPE("FusionCache::deserializeFusionParallel");
-        fusion_schedule->auto_gen_schedules->deserialize(
-            fb_fec_node, (int64_t)trie_node->fusion_id);
+        try {
+          fusion_schedule->auto_gen_schedules->deserialize(
+              fb_fec_node, (int64_t)trie_node->fusion_id);
+        } catch (const std::exception& e) {
+          // Set flag inside lambda so we can throw an exception after thread
+          // pool completes its work.
+          std::cout << e.what() << std::endl;
+          detect_exception_in_thread_pool = true;
+        }
       });
     } else {
       FUSER_PERF_SCOPE("FusionCache::deserializeFusionSerial");
@@ -735,6 +743,9 @@ void FusionCache::deserialize(
   if (!isOptionDisabled(DisableOption::ParallelSerde)) {
     // Wait until all fusion executor caches are deserialized
     getThreadPool()->waitWorkComplete();
+    NVF_ERROR(
+        !detect_exception_in_thread_pool,
+        "Detected exception while deserializing fusions in parallel.");
   }
 }
 
