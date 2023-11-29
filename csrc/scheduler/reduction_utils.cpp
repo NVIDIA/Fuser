@@ -741,7 +741,8 @@ class PersistentBufferProjector {
       for (auto buffer_i : c10::irange(persistent_buffers.size())) {
         auto buffer = persistent_buffers[buffer_i];
         const auto& producers = ir_utils::producerTvsOf(buffer);
-        if (canProjectToPersistentProducer(buffer, producers, persistent_buffer_set)) {
+        if (scheduler_utils::canProjectToPersistentProducer(
+                buffer, producers, persistent_buffer_set)) {
           projectToInputOrImmediatePersistentProducer(
               (int)buffer_i,
               std::vector<Val*>(producers.begin(), producers.end()));

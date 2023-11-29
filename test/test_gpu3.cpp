@@ -8123,8 +8123,8 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
   const float kEps = 1e-5;
   const int batch_size = 2048 * 8;
   const int hidden_size = 20480;
+  DataType dtype = DataType::Half;
   {
-    DataType dtype = DataType::Half;
     auto tv0 = makeContigTensor(1, dtype);
     auto tv1 = makeContigTensor(2, dtype);
     auto tv2 = makeContigTensor(1, dtype);
@@ -8206,16 +8206,20 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
     outputs.emplace_back(t33);
   }
 
-  auto persistent_buffer_info1 = scheduler_utils::persistentBuffers(fusion);
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
   NVF_CHECK(
-      persistent_buffer_info1.persistent_buffers.size() == 2,
+      persistent_buffer_info.persistent_buffers.size() == 2,
       "Before project to other buffers, should have two persistent buffers!");
 
-  reduction_scheduler_utils::projectPersistentBuffers(fusion, false);
-  auto persistent_buffer_info2 = scheduler_utils::persistentBuffers(fusion);
+  // The buffer size should only count 1 buffer becase the other one is
+  // projected to its producer.
+  SchedulerRuntimeInfo runtime_info(fusion, inputs);
+  auto persistent_buffer_size =
+      persistentBufferSize(fusion, runtime_info, persistent_buffer_info);
   NVF_CHECK(
-      persistent_buffer_info2.persistent_buffers.size() == 1,
-      "After project to other buffers, should have one persistent buffer!");
+      persistent_buffer_size.persistent_buffer_size ==
+          hidden_size * dataTypeSize(dtype),
+      "Persistent buffer size is not correct!");
 
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs(inputs);

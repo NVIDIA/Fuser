@@ -932,6 +932,7 @@ PersistentBufferSizeReturn persistentBufferSize(
         std::max(max_proj_persistence_size, projected_buffer_size);
   }
 
+
   // reduce max_persistence_size if a persistent buffer can be projected to
   // other persistent tvs.
   std::unordered_set<TensorView*> persistent_buffer_set(
