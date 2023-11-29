@@ -71,19 +71,38 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
 
   inlineMost();
 
-  // Lower then insert sync nodes manually around top-level loop
-  GpuLower gpulw(fusion);
-  auto kernel = gpulw.run();
+  FusionExecutor fe;
+  fe.registerPostLoweringHook([](kir::Kernel* kernel) {
+    FusionGuard fg(kernel);
 
-  // TODO: insert syncs and modify node to enable serial reduction codegen
-  // - set allocation size to be same as output of reduction op
-  // - swap GridReduction node with one having isSerial() == true
-  // - insert SerialReduction{Pre,Post}Sync nodes before and after main loop
+    std::vector<Expr*>& top_level_exprs =
+        const_cast<std::vector<Expr*>&>(kernel->topLevelExprs());
+    kir::KernelSummary& summary =
+        const_cast<kir::KernelSummary&>(kernel->summary());
+    std::vector<const nvfuser::kir::Allocate*>& global_allocations =
+        summary.global_allocations;
+    // There should be a work buffer and a sync buffer allocated
+    ASSERT_EQ(global_allocations.size(), 2);
 
-  auto kernel_code_ =
-      codegen::generateCudaKernel(kernel, "serial_gridreduce_kernel");
+    // TODO: insert syncs and modify node to enable serial reduction codegen
+    // - set allocation size to be same as output of reduction op
+    // - swap GridReduction node with one having isSerial() == true
+    // - insert SerialReduction{Pre,Post}Sync nodes before and after main loop
 
-  std::cout << kernel_code_ << std::endl;
+    // There should be a single top-level ForLoop. Find its position and check
+    // that there is only one.
+
+    top_level_exprs.push_back(IrBuilder::create<kir::SerialReductionPostSync>(
+        /*sync_dims=*/ParallelTypeBitmap(ParallelType::BIDy),
+        /*sync_buffer=*/nullptr));
+  });
+  fe.compileFusion(fusion);
+
+  auto input = at::randn(
+      {16384, 256}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  auto outputs = fe.runFusion({input});
+
+  testValidate(fusion, outputs, {input}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
