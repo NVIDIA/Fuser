@@ -39,9 +39,6 @@ class MmaTest : public NVFuserFixtureParamTest<MmaTestParams> {
       GTEST_SKIP() << "skipping tests on pre-Ampere GPUs";
     }
 
-    if (isHopper(macro) && cudaArchGuardShouldSkip(9, 0)) {
-      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
-    }
     NVFuserTest::SetUp();
   }
 };
