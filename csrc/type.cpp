@@ -841,8 +841,10 @@ constexpr unsigned int supported_switch_pair(PrimDataType t1, PrimDataType t2) {
   return ((unsigned int)t1 << _WORD_SHIFT) + (unsigned int)t2;
 }
 
-static const char* supported_casts2string(
-    const std::pair<DataType, DataType>& t) {
+static const char* supported_casts2string(std::pair<DataType, DataType> t) {
+  if (t.first == DataType::SMemAddress) {
+    t.first = DataType::UInt32;
+  }
   switch (supported_switch_pair(
       std::get<PrimDataType>(t.first.type),
       std::get<PrimDataType>(t.second.type))) {
@@ -1422,6 +1424,27 @@ int max_digits10(DataType dtype) {
         dtype);
     return 0;
   }
+}
+
+std::ostream& operator<<(std::ostream& os, MatrixDescSwizzle swizzle) {
+  switch (swizzle) {
+    case MatrixDescSwizzle::None:
+      os << "NoSwizzle";
+      break;
+    case MatrixDescSwizzle::B32:
+      os << "32B";
+      break;
+    case MatrixDescSwizzle::B64:
+      os << "64B";
+      break;
+    case MatrixDescSwizzle::B128:
+      os << "128B";
+      break;
+    default:
+      NVF_CHECK(false, "Unknown tensor map swizzle type!");
+      break;
+  }
+  return os;
 }
 
 } // namespace nvfuser

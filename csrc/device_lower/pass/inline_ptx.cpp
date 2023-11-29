@@ -222,23 +222,25 @@ class LowerToInlinePtx : public kir::ExprMutator {
 
     // Do MMA
     std::stringstream inst_ss;
-    inst_ss << "wgmma.mma_async.sync.aligned.m" << mma->m() << ".n" << mma->n()
-            << ".k" << mma->k() << ".f32";
+    inst_ss << "wgmma.mma_async.sync.aligned.m" << mma->m() << "n" << mma->n()
+            << "k" << mma->k() << ".f32";
     if (mma->inA()->as<kir::TensorIndex>()->view()->getDataType().value() ==
         DataType::BFloat16) {
       inst_ss << ".bf16.bf16";
     } else {
       inst_ss << ".f16.f16";
     }
+    bool a_on_smem =
+        mma->inA()->as<kir::TensorIndex>()->view()->getMemoryType() ==
+        MemoryType::Shared;
     std::vector<Val*> inputs{
-        mma->inA(),
-        mma->inB(),
+        a_on_smem ? mma->inA()->as<kir::TensorIndex>()->index() : mma->inA(),
+        mma->inB()->as<kir::TensorIndex>()->index(),
         /*scaleD=*/IrBuilder::create<Val>(true),
         /*scaleA=*/IrBuilder::create<Val>(1, DataType::Int32),
         /*scaleB=*/IrBuilder::create<Val>(1, DataType::Int32)};
     auto layout = *mma->layout();
-    if (mma->inA()->as<kir::TensorIndex>()->view()->getMemoryType() ==
-        MemoryType::Shared) {
+    if (a_on_smem) {
       // tnspA
       if (layout == MmaLayout::TT || layout == MmaLayout::TN) {
         inputs.push_back(IrBuilder::create<Val>(0, DataType::Int32));
@@ -262,9 +264,6 @@ class LowerToInlinePtx : public kir::ExprMutator {
                 /*volatile=*/true,
                 /*memory=*/false,
                 /*readable_outputs=*/{0}}));
-
-    // Reference:
-    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-matrix-descriptor
 
     // Wait for the MMA to finish
     // TODO: we should not insert sync here. We should keep the lowerToInlinePtx

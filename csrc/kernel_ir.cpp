@@ -96,7 +96,9 @@ TensorIndex::TensorIndex(
       "IR type only valid for Kernel container.");
   NVF_ERROR(
       isPointerType(index->dtype()) || index->dtype() == DataType::Index ||
-          isStructType(index->dtype()),
+          isStructType(index->dtype()) ||
+          index->dtype() ==
+              DataType::UInt /*For matrix descriptor for hopper MMA*/,
       "Cannot index with a value other than an int/pointer/struct.");
 }
 
@@ -1585,7 +1587,7 @@ EncodeTensorMapTiled::EncodeTensorMapTiled(
     Val* box_dim,
     Val* element_strides,
     tma::TensorMapInterleave interleave,
-    tma::TensorMapSwizzle swizzle,
+    MatrixDescSwizzle swizzle,
     tma::TensorMapL2Promotion l2_promotion,
     tma::TensorMapFloatOOBFill oob_fill)
     : Expr(passkey) {

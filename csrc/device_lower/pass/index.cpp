@@ -1355,7 +1355,8 @@ void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
 }
 
 static DataType getMmaInputAType(MmaMacro macro) {
-  int size = getM(macro) * getK(macro) / 32 /* threads per warp */ /
+  int warp_group_size = isHopper(macro) ? 128 : 32;
+  int size = getM(macro) * getK(macro) / warp_group_size /
       2 /* halves per 32bit register */;
   return ArrayType{std::make_shared<DataType>(DataType::UInt32), (size_t)size};
 }
@@ -1395,6 +1396,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
           (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>()) /
               2};
     } else if (ldst->out()->definition()->isA<MmaOp>()) {
+      // For MMA accumulator initialization
       as_type = getMmaOutType(ldst->out()->as<TensorView>());
     }
     in = lowerSrcIndex(
@@ -1411,11 +1413,100 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
   }
 }
 
+// Reference:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-matrix-descriptor
+static Val* matrixDescriptorEncode(Val* x) {
+  auto x_cast = IrBuilder::maybeCastExpr(DataType::UInt, x);
+  auto mask = IrBuilder::create<Val>(0x3FFFF, DataType::UInt);
+  auto x_and = IrBuilder::bitwiseAndExpr(x_cast, mask);
+  auto shift = IrBuilder::create<Val>(0x4, DataType::UInt);
+  return IrBuilder::rShiftExpr(x_and, shift);
+}
+
+static Val* constructMatrixDescriptor(
+    Val* start_address,
+    Val* leading_dim_byte_offset,
+    Val* stride_dim_byte_offset,
+    Val* matrix_base_offset,
+    MatrixDescSwizzle swizzle) {
+  auto or0 = matrixDescriptorEncode(start_address);
+  auto or1 = IrBuilder::lShiftExpr(
+      matrixDescriptorEncode(leading_dim_byte_offset),
+      IrBuilder::create<Val>(16, DataType::UInt));
+  auto or2 = IrBuilder::lShiftExpr(
+      matrixDescriptorEncode(stride_dim_byte_offset),
+      IrBuilder::create<Val>(32, DataType::UInt));
+  auto or3 = IrBuilder::lShiftExpr(
+      matrix_base_offset, IrBuilder::create<Val>(49, DataType::UInt));
+  auto or4 = IrBuilder::lShiftExpr(
+      IrBuilder::create<Val>((int64_t)swizzle, DataType::UInt),
+      IrBuilder::create<Val>(62, DataType::UInt));
+  return IrBuilder::bitwiseOrExpr(
+      IrBuilder::bitwiseOrExpr(
+          IrBuilder::bitwiseOrExpr(IrBuilder::bitwiseOrExpr(or0, or1), or2),
+          or3),
+      or4);
+}
+
 void IndexLowering::handle(const MmaOp* mma) {
-  const auto a = lowerSrcIndex(
-      mma->inA(), mma->out(), {}, false, getMmaInputAType(mma->macro()));
-  const auto b = lowerSrcIndex(
-      mma->inB(), mma->out(), {}, false, getMmaInputBType(mma->macro()));
+  Val* a = nullptr;
+  Val* b = nullptr;
+  if (mma->inA()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
+    // TODO: This is a temporary solution and only supports a single tile in
+    // smem.
+    auto base_addr =
+        IrBuilder::tensorBaseAddressExpr(mma->inA()->as<TensorView>());
+    auto layout = *mma->layout();
+    int64_t inner_size_bytes = 0;
+    if (layout == MmaLayout::TT || layout == MmaLayout::TN) {
+      inner_size_bytes = getK(mma->macro()) * /*bytes per item*/ 2;
+    } else {
+      inner_size_bytes = getM(mma->macro()) * /*bytes per item*/ 2;
+    }
+    auto inner_size_val =
+        IrBuilder::create<Val>(inner_size_bytes, DataType::UInt);
+    auto matrix_desc = constructMatrixDescriptor(
+        base_addr,
+        inner_size_val,
+        inner_size_val,
+        IrBuilder::create<Val>(0, DataType::UInt),
+        MatrixDescSwizzle::None);
+    a = IrBuilder::create<kir::TensorIndex>(
+        mma->inA()->as<TensorView>(),
+        GpuLower::current()->commonScalarMap().hoistScalar(
+            matrix_desc, for_loops_));
+  } else {
+    a = lowerSrcIndex(
+        mma->inA(), mma->out(), {}, false, getMmaInputAType(mma->macro()));
+  }
+  if (mma->inB()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
+    // TODO: This is a temporary solution and only supports a single tile in
+    // smem.
+    auto base_addr =
+        IrBuilder::tensorBaseAddressExpr(mma->inB()->as<TensorView>());
+    auto layout = *mma->layout();
+    int64_t inner_size_bytes = 0;
+    if (layout == MmaLayout::TT || layout == MmaLayout::NT) {
+      inner_size_bytes = getN(mma->macro()) * /*bytes per item*/ 2;
+    } else {
+      inner_size_bytes = getK(mma->macro()) * /*bytes per item*/ 2;
+    }
+    auto inner_size_val =
+        IrBuilder::create<Val>(inner_size_bytes, DataType::UInt);
+    auto matrix_desc = constructMatrixDescriptor(
+        base_addr,
+        inner_size_val,
+        inner_size_val,
+        IrBuilder::create<Val>(0, DataType::UInt),
+        MatrixDescSwizzle::None);
+    b = IrBuilder::create<kir::TensorIndex>(
+        mma->inB()->as<TensorView>(),
+        GpuLower::current()->commonScalarMap().hoistScalar(
+            matrix_desc, for_loops_));
+  } else {
+    b = lowerSrcIndex(
+        mma->inB(), mma->out(), {}, false, getMmaInputBType(mma->macro()));
+  }
   const auto out = lowerDstIndex(
       mma->out(), {}, false, getMmaOutType(mma->out()->as<TensorView>()));
   auto mma_indexed = IrBuilder::create<MmaOp>(

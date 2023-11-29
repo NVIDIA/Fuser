@@ -1394,7 +1394,7 @@ class EncodeTensorMapTiled : public Expr {
       Val* box_dim,
       Val* element_strides,
       tma::TensorMapInterleave interleave,
-      tma::TensorMapSwizzle swizzle,
+      MatrixDescSwizzle swizzle,
       tma::TensorMapL2Promotion l2_promotion,
       tma::TensorMapFloatOOBFill oob_fill);
 
@@ -1439,8 +1439,8 @@ class EncodeTensorMapTiled : public Expr {
     return attribute<tma::TensorMapInterleave>(2);
   }
 
-  const tma::TensorMapSwizzle& swizzle() const {
-    return attribute<tma::TensorMapSwizzle>(3);
+  const MatrixDescSwizzle& swizzle() const {
+    return attribute<MatrixDescSwizzle>(3);
   }
 
   const tma::TensorMapL2Promotion& l2Promotion() const {

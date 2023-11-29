@@ -625,6 +625,12 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
     case BinaryOpType::Gcd:
       return {gcd(lhs, rhs)};
       break;
+    case BinaryOpType::Lshift:
+      return {lhs << rhs};
+      break;
+    case BinaryOpType::Rshift:
+      return {lhs >> rhs};
+      break;
     default:
       NVF_CHECK(
           false,

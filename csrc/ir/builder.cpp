@@ -172,6 +172,14 @@ Val* IrBuilder::bitwiseOrExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::BitwiseOr, lhs, rhs);
 }
 
+Val* IrBuilder::lShiftExpr(Val* lhs, Val* rhs) {
+  return newArithmeticExpr(BinaryOpType::Lshift, lhs, rhs);
+}
+
+Val* IrBuilder::rShiftExpr(Val* lhs, Val* rhs) {
+  return newArithmeticExpr(BinaryOpType::Rshift, lhs, rhs);
+}
+
 Val* IrBuilder::eqExpr(Val* lhs, Val* rhs) {
   return newLogicExpr(BinaryOpType::Eq, lhs, rhs);
 }
@@ -263,6 +271,21 @@ Val* IrBuilder::reverseArrayExpr(Val* array) {
 
 Val* IrBuilder::metadataExpr(TensorView* tv) {
   return tv->fusion()->metadataOf(tv);
+}
+
+Val* IrBuilder::tensorBaseAddressExpr(TensorView* tv) {
+  auto metadata = metadataExpr(tv);
+  switch (auto memtype = tv->getMemoryType()) {
+    case MemoryType::Global:
+      return getAttrExpr(metadata, "data");
+    case MemoryType::Shared: {
+      auto output = create<Val>(DataType::SMemAddress);
+      create<UnaryOp>(UnaryOpType::ToUnsignedSmemAddr, output, metadata);
+      return output;
+    }
+    default:
+      NVF_CHECK(false, "Unsupported memory type ", memtype);
+  }
 }
 
 Val* SimplifyingIrBuilder::negExpr(Val* val) {
