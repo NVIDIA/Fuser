@@ -242,6 +242,11 @@ void Fusion::addInput(Val* input) {
         "Immediate scalar value cannot be added as an input. It is not necessary to pass it as an input.");
   }
 
+  NVF_CHECK(
+      std::find(inputs_.begin(), inputs_.end(), input) == inputs_.end(),
+      "Val: ",
+      input->toString(),
+      " is already registered as input, duplicated inputs is not allowed");
   inputs_.push_back(input);
   input->setIsFusionInput(true);
 

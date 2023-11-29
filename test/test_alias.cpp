@@ -625,4 +625,13 @@ TEST_F(AliasTest, DuplicatedOutputs) {
       __FILE__);
 }
 
+TEST_F(AliasTest, DuplicatedInputs) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  fusion->addInput(in);
+  fusion->addInput(in);
+}
+
 } // namespace nvfuser
