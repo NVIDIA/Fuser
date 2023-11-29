@@ -813,6 +813,49 @@ void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv) {
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
 }
 
+// Returns true if the gains of reducing buffer size is larger than the pains of
+// recalculations. We don't know the real answer until we run it.
+bool projectBufferToInputs(
+    Fusion* fusion,
+    const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
+    const scheduler_utils::PersistentBufferSizeReturn&
+        persistent_buffer_size_info) {
+  // use cache if project to inputs can't reduce buffer size
+  if (persistent_buffer_size_info.projected_persistent_buffer_size >=
+      persistent_buffer_size_info.persistent_buffer_size) {
+    return false;
+  }
+
+  // TODO: check ops between persistent buffer and inputs.
+  bool has_exp_op = false;
+  const auto& projectable_buffers =
+      persistent_buffer_info.projectable_persistent_buffers;
+  auto all_inputs = ir_utils::inputTvsOf(projectable_buffers);
+  const auto all_exprs = DependencyCheck::getAllExprsBetween(
+      {all_inputs.begin(), all_inputs.end()},
+      {projectable_buffers.begin(), projectable_buffers.end()});
+  for (auto expr : all_exprs) {
+    if (expr->isA<UnaryOp>() &&
+        expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Exp) {
+      has_exp_op = true;
+    }
+  }
+  if (!has_exp_op) {
+    return true;
+  }
+
+  // use cache if buffer size is 'small', based on softmax on A100 and H100,
+  // needs more data.
+  constexpr int64_t buffer_size_threshold =
+      6 * 1024 * scheduler_utils::bytes_per_register;
+  if (persistent_buffer_size_info.persistent_buffer_size <=
+      buffer_size_threshold) {
+    return false;
+  }
+
+  return true;
+}
+
 PersistentKernelProperties getPersistentKernelProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -882,13 +925,16 @@ PersistentKernelProperties getPersistentKernelProperties(
   bool can_project = ir_utils::getViewOps(fusion).empty() &&
       persistent_buffer_size_info.projected_persistent_buffer_size > 0;
 
-  // (6) make a decision on whether to project to input
-  bool project_persistent_buffers = can_project &&
-      persistent_buffer_size_info.projected_persistent_buffer_size <
-          persistent_buffer_size_info.persistent_buffer_size;
+  // (6) Project to input when it can reduce buffer size and the gains of
+  // reducing buffer size is larger than the pains of recalculations.
+  bool project_persistent_buffers =
+      can_project &&
+      projectBufferToInputs(
+          fusion, persistent_buffer_info, persistent_buffer_size_info);
   auto max_persistent_buffer_size = project_persistent_buffers
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;
+
   // (7) info about input and output tensors
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
