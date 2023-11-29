@@ -28,6 +28,8 @@ namespace fs = std::filesystem;
 namespace nvfuser::python_frontend {
 
 namespace {
+using BinaryBuffer = std::vector<uint8_t>;
+
 // Generate temporary file for this FusionCacheBuffer
 std::string getSerdeTmpFile() {
 #ifdef _WIN32
@@ -70,7 +72,6 @@ fs::path getSerdeFilePath(const std::string& file_name) {
   return kernel_db_path / file_name;
 }
 
-using BinaryBuffer = std::vector<uint8_t>;
 BinaryBuffer openFusionCache(std::string filename) {
   FUSER_PERF_SCOPE("Flatbuffers::openFusionCache");
   auto file_handle = std::fopen(filename.c_str(), "rb");
@@ -89,24 +90,21 @@ BinaryBuffer openFusionCache(std::string filename) {
 }
 
 // This check function only throws errors if strict flag is enabled.
-const serde::FusionCache* verifyFusionCache(
-    const BinaryBuffer& buffer,
-    bool strict) {
+const serde::FusionCache* verifyFusionCache(const BinaryBuffer& buffer) {
   FUSER_PERF_SCOPE("Flatbuffers::verifyFusionCache");
   auto fusion_cache_buffer = serde::GetFusionCache(buffer.data());
 
   // Check flatbuffer integrity
   flatbuffers::Verifier v(buffer.data(), buffer.size());
   if (!fusion_cache_buffer->Verify(v)) {
-    NVF_CHECK(!strict, "Failed to verify the integrity of FusionCache buffer.");
+    NVF_CHECK(false, "Failed to verify the integrity of FusionCache buffer.");
     return nullptr;
   }
 
   // Check schema version
   if (!serde::FusionCacheBufferHasIdentifier(buffer.data())) {
     NVF_CHECK(
-        !strict,
-        "Failed to verify the schema version of the FusionCache buffer");
+        false, "Failed to verify the schema version of the FusionCache buffer");
     return nullptr;
   }
 
@@ -115,7 +113,7 @@ const serde::FusionCache* verifyFusionCache(
   if (device_prop->major != fusion_cache_buffer->device_major() ||
       device_prop->minor != fusion_cache_buffer->device_minor()) {
     NVF_CHECK(
-        !strict,
+        false,
         "Expected cuda version ",
         device_prop->major,
         ".",
@@ -134,7 +132,7 @@ const serde::FusionCache* verifyFusionCache(
   if (cuda_major != fusion_cache_buffer->cuda_major() ||
       cuda_minor != fusion_cache_buffer->cuda_minor()) {
     NVF_CHECK(
-        !strict,
+        false,
         "Expected cuda version ",
         cuda_major,
         ".",
@@ -250,10 +248,7 @@ FusionCache* FusionCache::get(
     auto file_path = getSerdeFilePath(getSerdeFile()).native();
     if (load_from_default_workspace && fs::exists(file_path)) {
       try {
-        const BinaryBuffer& buffer = openFusionCache(file_path);
-        const serde::FusionCache* fc =
-            verifyFusionCache(buffer, false /* strict */);
-        singleton_->deserialize(buffer, fc);
+        singleton_->deserialize(file_path);
       } catch (const std::exception& deserialize_exception) {
         // The saved workspace can become out-of-date between nvfuser updates.
         // Send warning and delete the incompatible workspace.
@@ -601,14 +596,8 @@ void FusionCache::deserialize(std::string filename) {
       fusions_.empty(),
       "Deserialization is prohibited if FusionCache is already populated.");
   const BinaryBuffer& buffer = openFusionCache(filename);
-  const serde::FusionCache* fusion_cache_buffer =
-      verifyFusionCache(buffer, true /* strict */);
-  deserialize(buffer, fusion_cache_buffer);
-}
+  const serde::FusionCache* fusion_cache_buffer = verifyFusionCache(buffer);
 
-void FusionCache::deserialize(
-    const BinaryBuffer& buffer,
-    const serde::FusionCache* fusion_cache_buffer) {
   // See table definition for FusionCache in serde/fusion_cache.fbs
   FUSER_PERF_SCOPE("FusionCache::deserialize");
   NVF_CHECK(fusion_cache_buffer != nullptr, "Fusion Cache buffer is invalid.");

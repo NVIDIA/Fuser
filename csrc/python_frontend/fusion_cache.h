@@ -177,12 +177,6 @@ class FusionCache {
   TrieNode* rootTriePtr();
 
  private:
-  using BinaryBuffer = std::vector<uint8_t>;
-  //! Deserialize Fusion Cache
-  void deserialize(
-      const BinaryBuffer& buffer,
-      const serde::FusionCache* fusion_cache_buffer);
-
   //! The static pointer to the FusionCache
   static FusionCache* singleton_;
   //! Lock for accessing the singleton by multiple threads
