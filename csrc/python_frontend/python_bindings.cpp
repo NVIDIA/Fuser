@@ -423,10 +423,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::return_value_policy::reference)
       .def("num_fusions", &FusionCache::numFusions)
       .def_static(
-          "reset",
-          &FusionCache::reset,
-          py::arg("load_from_default_workspace") = false,
-          py::return_value_policy::reference)
+          "reset", &FusionCache::reset, py::return_value_policy::reference)
       .def(
           "serialize",
           [](FusionCache& self, std::string filename) {

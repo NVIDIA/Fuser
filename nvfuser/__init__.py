@@ -34,7 +34,9 @@ logger = logging.getLogger("nvfuser")
 
 # Register automatic serialization of Nvfuser cache hierarchy and cuda kernels.
 import atexit
+
 atexit.register(_C.serialize)
+
 
 class FusionDefinition(_C._FusionDefinition):
     def __enter__(self):
