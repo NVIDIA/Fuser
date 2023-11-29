@@ -1467,7 +1467,7 @@ void IndexLowering::handle(const MmaOp* mma) {
         IrBuilder::create<Val>(inner_size_bytes, DataType::UInt);
     auto matrix_desc = constructMatrixDescriptor(
         base_addr,
-        inner_size_val,
+        IrBuilder::create<Val>(0, DataType::UInt),
         inner_size_val,
         IrBuilder::create<Val>(0, DataType::UInt),
         MatrixDescSwizzle::None);
@@ -1495,7 +1495,7 @@ void IndexLowering::handle(const MmaOp* mma) {
         IrBuilder::create<Val>(inner_size_bytes, DataType::UInt);
     auto matrix_desc = constructMatrixDescriptor(
         base_addr,
-        inner_size_val,
+        IrBuilder::create<Val>(0, DataType::UInt),
         inner_size_val,
         IrBuilder::create<Val>(0, DataType::UInt),
         MatrixDescSwizzle::None);
