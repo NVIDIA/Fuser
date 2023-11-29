@@ -509,6 +509,9 @@ TEST_P(LdMatrixTest, Regular) {
   tv3->applyMmaSwizzle(operand);
 
   tv3->merge(0);
+  if (is_a) {
+    tv3->merge(0);
+  }
   tv3->axis(0)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
@@ -546,6 +549,9 @@ TEST_P(LdMatrixTest, Transpose) {
   tv3->applyMmaSwizzle(operand);
 
   tv3->merge(0);
+  if (is_a) {
+    tv3->merge(0);
+  }
   tv3->axis(0)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
@@ -566,7 +572,8 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_tuple(MmaMacro::Turing_16_8_16, MmaOperand::A),
         std::make_tuple(MmaMacro::Turing_16_8_8, MmaOperand::B),
         std::make_tuple(MmaMacro::Turing_16_8_16, MmaOperand::B),
-        std::make_tuple(MmaMacro::Turing_16_16_16, MmaOperand::B)),
+        std::make_tuple(MmaMacro::Turing_16_16_16, MmaOperand::B),
+        std::make_tuple(MmaMacro::Hopper_64_8_16, MmaOperand::A)),
     [](const testing::TestParamInfo<LdMatrixTestParam>& info) {
       std::ostringstream os;
       auto macro = std::get<0>(info.param);
