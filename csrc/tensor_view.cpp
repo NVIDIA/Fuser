@@ -1490,7 +1490,21 @@ TensorViewBuilder& TensorViewBuilder::strideOrder(
     NVF_CHECK(ndims_ == 0 || ndims_ == stride_order.size());
     ndims_ = stride_order.size();
   }
-  stride_order_ = std::move(stride_order);
+
+  // TODO: this shouldn't be necessary. For details see issue
+  // https://github.com/NVIDIA/Fuser/issues/1399
+  //
+  // skip stride_order if its alloc_domain is in the same order as with rfactor
+  // domain. We don't need this and we should be able to just use stride_order_,
+  // but currently alloc_domain support isn't ideal and could prevent
+  // vectorization. Adding this workaround to restore performance.
+  if (std::adjacent_find(
+          stride_order.begin(), stride_order.end(), [](int64_t l, int64_t r) {
+            return l <= r;
+          }) != stride_order.end()) {
+    // stride_order is not in descending order, we cannot skip it.
+    stride_order_ = std::move(stride_order);
+  }
   return *this;
 }
 
