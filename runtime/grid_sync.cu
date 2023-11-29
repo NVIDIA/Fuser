@@ -150,4 +150,25 @@ __device__ void sync(
   block_sync::sync<Aligned>();
 }
 
+template <
+    bool X_BLOCK,
+    bool Y_BLOCK,
+    bool Z_BLOCK,
+    bool PERSISTENT,
+    bool Aligned>
+__device__ void serialGridReductionPostSync(volatile int64_t& semaphore) {
+  nvfuser_index_t segment_size =
+      index_utils::maskedSize<X_BLOCK, Y_BLOCK, Z_BLOCK>(gridDim);
+  nvfuser_index_t block_idx_in_segment =
+      index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
+  bool last_block = block_idx_in_segment == segment_size - 1;
+
+  if (PERSISTENT || !last_block) {
+    block_sync::sync<Aligned>();
+    if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+      semaphore = PERSISTENT && last_block ? 0 : block_idx_in_segment + 1;
+    }
+  }
+}
+
 } // namespace grid_sync
