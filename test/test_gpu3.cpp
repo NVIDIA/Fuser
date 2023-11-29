@@ -8211,7 +8211,7 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
       persistent_buffer_info.persistent_buffers.size() == 2,
       "Before project to other buffers, should have two persistent buffers!");
 
-  // The buffer size should only count 1 buffer becase the other one is
+  // The buffer size should only count 1 buffer because the other one is
   // projected to its producer.
   SchedulerRuntimeInfo runtime_info(fusion, inputs);
   auto persistent_buffer_size =
