@@ -960,7 +960,7 @@ void IdModel::build(
         all_tvs.begin(), all_tvs.end());
     for (auto additional_tv : additional_tvs) {
       if (all_added_tvs.find(additional_tv) == all_added_tvs.end()) {
-        all_tvs.push_back(additional_tv);
+        all_tvs.pushBack(additional_tv);
       }
     }
   }
@@ -971,7 +971,7 @@ void IdModel::build(
 
   FusionGuard fg(all_tvs.front()->fusion());
   // Add uses and definitions to all iter domains.
-  buildIterDomainDefinitionsAndUses(all_tvs);
+  buildIterDomainDefinitionsAndUses(all_tvs.vector());
 
   // Initialize the maps with all the IterDomains used in the provded
   // expressions.
@@ -989,7 +989,7 @@ void IdModel::build(
   // Only build loop map during lowering
   // TODO: make this configurable
   if (true || FusionGuard::getCurFusion()->isA<kir::Kernel>()) {
-    validatePTypes(all_tvs);
+    validatePTypes(all_tvs.vector());
 
     StatefulLoweringInfo info = buildInfo(
         tv_exprs,
@@ -1030,7 +1030,7 @@ void IdModel::build(
 
   // Debug, make sure there's no self mapping in TensorView's during lowering
   // that would invalidate lowering assumptions.
-  self_mapping_info_ = findFirstSelfMapping(all_tvs, *this);
+  self_mapping_info_ = findFirstSelfMapping(all_tvs.vector(), *this);
 }
 
 VectorOfUniqueEntries<IterDomain*> IdModel::computeTerminalLoopIds(
@@ -1208,7 +1208,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlinePromotions(
     // broadcasted to, and those that exist within the same loop groop are is
     // the promotion needed for this iel_group.
     ValGroups loop_exact_resolved_intersection =
-        resolved_exact_groups.intersect(loop_covered_exact_groups);
+        resolved_exact_groups.computeIntersect(loop_covered_exact_groups);
 
     if (loop_exact_resolved_intersection.empty()) {
       // No resolution
@@ -1232,7 +1232,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlinePromotions(
     ValGroup exact_resolution_group = loop_exact_resolved_intersection.front();
 
     VectorOfUniqueEntries<Val*> resolved_ids =
-        exact_resolution_group->intersect(*loop_group);
+        exact_resolution_group->computeIntersect(*loop_group);
     auto promoted_iel_groups =
         intersection_exact_loop_graph.toGroups(resolved_ids);
 
@@ -1325,7 +1325,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlinePromotions(
 
     ExprGroups non_promoted_input_uses;
     for (const ValGroup& iel_group :
-         promoted_input_groups.intersect(input_groups)) {
+         promoted_input_groups.computeIntersect(input_groups)) {
       non_promoted_input_uses.pushBack(
           intersection_exact_loop_graph.getUniqueUses(iel_group));
     }
@@ -1571,7 +1571,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
       IterDomain* terminal_id = entry.second;
       auto covered_it = exact_covered_ids.find(terminal_id_group);
       NVF_ERROR(covered_it != exact_covered_ids.end());
-      if (loop_group_covered_ids.subtract(covered_it->second).empty()) {
+      if (loop_group_covered_ids.computeSubtract(covered_it->second).empty()) {
         loop_promotion_id = terminal_id;
         break;
       }
@@ -1660,7 +1660,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
 
     // The inputs should be promoted based on the loop promotion map.
     bool loop_promote_inputs =
-        !inp_loop_groups.subtract(out_loop_groups).empty();
+        !inp_loop_groups.computeSubtract(out_loop_groups).empty();
 
     std::vector<IterDomain*> promoted_inputs;
 
@@ -1877,7 +1877,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
       auto covered_it = exact_covered_ids.find(
           idGraph(IdMappingMode::EXACT).toGroup(candidate_id));
       NVF_ERROR(covered_it != exact_covered_ids.end());
-      if (loop_group_covered_ids.subtract(covered_it->second).empty()) {
+      if (loop_group_covered_ids.computeSubtract(covered_it->second).empty()) {
         // Found
         VERBOSE() << "Representative found: " << candidate_id->toString()
                   << std::endl;

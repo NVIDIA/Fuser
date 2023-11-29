@@ -180,7 +180,8 @@ ExprGroups ValGraph::getExprsBetween(const ValGroups& from, const ValGroups& to)
 
   // All of the expressions between from and to. Not all will be used as we
   // just want to define each iter domain group once.
-  ExprGroups all_exprs = all_uses_of_from.intersect(all_definitions_of_to);
+  ExprGroups all_exprs =
+      all_uses_of_from.computeIntersect(all_definitions_of_to);
 
   // There could be IterDomains in from or to that are between other from and
   // to nodes. Make sure to clear those out.
@@ -206,8 +207,8 @@ ExprGroups ValGraph::getExprsBetween(const ValGroups& from, const ValGroups& to)
       all_id_groups.pushBack(out_groups);
       not_inputs.pushBack(out_groups);
     }
-    terminating_inputs = all_id_groups.subtract(not_inputs);
-    terminating_outputs = all_id_groups.subtract(not_outputs);
+    terminating_inputs = all_id_groups.computeSubtract(not_inputs);
+    terminating_outputs = all_id_groups.computeSubtract(not_outputs);
   }
 
   // Track all expressions to get from outputs to this IterDomain. We
@@ -272,7 +273,8 @@ ExprGroups ValGraph::getExprsBetween(const ValGroups& from, const ValGroups& to)
 
     // Only worry about expressions between inputs and outputs we're
     // looking at.
-    for (const ExprGroup& use_group : uses_pair.first.intersect(all_exprs)) {
+    for (const ExprGroup& use_group :
+         uses_pair.first.computeIntersect(all_exprs)) {
       auto use_required_ind_exprs_it = required_ind_exprs_exprs.find(use_group);
       if (use_required_ind_exprs_it == required_ind_exprs_exprs.end()) {
         // If there isn't an entry for the use expression it wasn't
@@ -369,7 +371,7 @@ ExprGroups ValGraph::getExprsBetween(const ValGroups& from, const ValGroups& to)
     const ValGroup& id = entry.first;
     const ExprGroups& traverse_exprs = entry.second;
     if (auto all_uses = getUses(id); all_uses.second) {
-      uses_path[id] = traverse_exprs.intersect(all_uses.first);
+      uses_path[id] = traverse_exprs.computeIntersect(all_uses.first);
     } else {
       uses_path[id] = {};
       continue;
@@ -413,7 +415,7 @@ ExprGroups ValGraph::getExprsBetween(const ValGroups& from, const ValGroups& to)
           if (!use_pair.second) {
             continue;
           }
-          still_to_visit.pushBack(use_pair.first.intersect(all_exprs));
+          still_to_visit.pushBack(use_pair.first.computeIntersect(all_exprs));
         }
       } else {
         still_to_visit.pushBack(currently_visiting);
@@ -961,7 +963,7 @@ void ValGraph::eraseExprGroup(const ExprGroup& expr_group) {
 
 bool ValGraph::isTrivialExprGroup(const ExprGroup& expr_group) const {
   return !ValGroups(inputGroups(expr_group))
-              .intersect(ValGroups(outputGroups(expr_group)))
+              .computeIntersect(ValGroups(outputGroups(expr_group)))
               .empty();
 }
 
