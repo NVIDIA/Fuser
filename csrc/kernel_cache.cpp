@@ -1197,6 +1197,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   if (isProfilerEnabled()) {
     FusionProfiler::startCompile();
   }
+
+  bool detect_exception_in_thread_pool = false;
   for (int64_t group_id = 0; group_id < num_groups; ++group_id) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
 
@@ -1218,11 +1220,22 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       compileKernel(group_runtime_inputs, group_to_run);
     } else {
       // launch compileKernel thread here
-      getThreadPool()->run([this, args, group_runtime_inputs, group_to_run]() {
+      getThreadPool()->run([this,
+                            args,
+                            group_runtime_inputs,
+                            group_to_run,
+                            &detect_exception_in_thread_pool]() {
         FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
-        c10::cuda::CUDAGuard dg(args.getDeviceIndex());
-        c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
-        compileKernel(group_runtime_inputs, group_to_run);
+        try {
+          c10::cuda::CUDAGuard dg(args.getDeviceIndex());
+          c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
+          compileKernel(group_runtime_inputs, group_to_run);
+        } catch (const std::exception& e) {
+          // Set flag inside lambda so we can throw an exception after thread
+          // pool completes its work.
+          std::cout << e.what() << std::endl;
+          detect_exception_in_thread_pool = true;
+        }
       });
     }
 
@@ -1238,8 +1251,11 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   }
 
   if (num_groups != 1 && !isOptionDisabled(DisableOption::ParallelCompile)) {
-    // wait until all segments finish compiling
+    // Wait until all segments finish compiling
     getThreadPool()->waitWorkComplete();
+    NVF_ERROR(
+        !detect_exception_in_thread_pool,
+        "Detected exception while compiling fusion segments in parallel.");
   }
   if (isProfilerEnabled()) {
     FusionProfiler::stopCompile();
