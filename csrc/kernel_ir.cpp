@@ -295,8 +295,14 @@ const char* getPTXConstraints(Val* value) {
 
 std::vector<std::pair<std::string, Val*>> Asm::constraintsAndOutputs() const {
   std::vector<std::pair<std::string, Val*>> result;
-  std::string prefix = "=";
-  for (auto out : outputs()) {
+  for (auto i : c10::irange((int64_t)(outputs().size()))) {
+    std::string prefix;
+    if (options().readable_outputs.count(i) > 0) {
+      prefix = "+";
+    } else {
+      prefix = "=";
+    }
+    auto out = output(i);
     NVF_ERROR(!out->isConst());
     result.emplace_back(prefix + getPTXConstraints(out), out);
   }

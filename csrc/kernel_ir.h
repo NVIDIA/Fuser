@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace nvfuser {
@@ -177,6 +178,7 @@ class TensorIndex final : public Val {
 struct AsmOptions {
   bool volatile_ = false;
   bool memory = false;
+  std::unordered_set<int64_t> readable_outputs = {};
 };
 
 class Asm final : public Expr {
