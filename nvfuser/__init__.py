@@ -36,11 +36,14 @@ logger = logging.getLogger("nvfuser")
 # Register automatic serialization of Nvfuser cache hierarchy and cuda kernels.
 def enable_automatic_serialization():
     import atexit
+
     atexit.register(_C.serialize)
+
 
 # Unregister automatic serialization of Nvfuser cache hierarchy and cuda kernels.
 def disable_automatic_serialization():
     import atexit
+
     atexit.unregister(_C.serialize)
 
 
