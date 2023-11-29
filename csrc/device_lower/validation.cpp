@@ -900,10 +900,18 @@ void validateMmaTensors(MmaOp* mma) {
               GpuLower::current()->parallelDimensionMap();
           NVF_ERROR(
               lower_utils::isExtentEqualToMaxParallelTypeExtent(id) &&
-                  paralel_dim_map.get(ptype)->isConstInt() &&
-                  paralel_dim_map.get(ptype)->evaluate() ==
-                      at::cuda::warp_size(),
-              "TIDx is reserved for lane id in mma kernels, and it needs to be exactly a warp");
+                  paralel_dim_map.get(ptype)->isConstInt(),
+              "TIDx is reserved for lane id in mma kernels");
+          if (mma->isHopper()) {
+            NVF_ERROR(
+                paralel_dim_map.get(ptype)->evaluate() ==
+                    at::cuda::warp_size() * 4,
+                "TIDx must be exactly a warp group for Hopper");
+          } else {
+            NVF_ERROR(
+                paralel_dim_map.get(ptype)->evaluate() == at::cuda::warp_size(),
+                "TIDx must be exactly a warp for Turing/Ampere");
+          }
           tidx_validated = true;
         }
       }
@@ -911,10 +919,23 @@ void validateMmaTensors(MmaOp* mma) {
   }
 
   // Note: this check will be relaxed in a follow up.
-  auto validate_operand = [](const TensorView* tv) {
-    NVF_ERROR(
-        tv->getMemoryType() == MemoryType::Local,
-        "Only supporting register input for mma ops, up to sm80 all mma ops have to take register inputs.");
+  auto validate_operand = [mma](const TensorView* tv, MmaOperand operand) {
+    if (mma->isHopper()) {
+      if (operand == MmaOperand::B) {
+        NVF_ERROR(
+            tv->getMemoryType() == MemoryType::Shared,
+            "Only supporting smem input for Hopper mma input B");
+      } else {
+        NVF_ERROR(
+            tv->getMemoryType() == MemoryType::Local ||
+                tv->getMemoryType() == MemoryType::Shared,
+            "Only supporting register or shared memory input for Hopper mma input A");
+      }
+    } else {
+      NVF_ERROR(
+          tv->getMemoryType() == MemoryType::Local,
+          "Only supporting register input for mma input on Ampere/Turing");
+    }
 
     NVF_ERROR(
         std::all_of(
@@ -936,8 +957,8 @@ void validateMmaTensors(MmaOp* mma) {
         tv);
   };
 
-  validate_operand(mma->inA()->as<TensorView>());
-  validate_operand(mma->inB()->as<TensorView>());
+  validate_operand(mma->inA()->as<TensorView>(), MmaOperand::A);
+  validate_operand(mma->inB()->as<TensorView>(), MmaOperand::B);
 
   // Additionally validate that mma is not directly taking a double buffered
   //  register input as the double buffer indexing is currently not compatible
