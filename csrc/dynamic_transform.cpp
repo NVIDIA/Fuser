@@ -90,7 +90,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
         !fusion->isA<kir::Kernel>(),
         "Invalid container. Kernel container not allowed.\n");
 
-    traverseTo(fusion, fusion->getTerminatingOutputs(), false, false);
+    traverseTo(fusion->getTerminatingOutputs(), false, false);
 
     finalizeDynamicVals();
 
@@ -621,7 +621,6 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
     // Note that it is assumed that theres's no further expression
     // beyond the rfactor domain as asserted above
     auto all_id_exprs = StmtSort::getExprsBetween(
-        tv->fusion(),
         {tv->getRootDomain().begin(), tv->getRootDomain().end()},
         {tv->getMaybeRFactorDomain().begin(),
          tv->getMaybeRFactorDomain().end()});

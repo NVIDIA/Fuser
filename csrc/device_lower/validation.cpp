@@ -324,7 +324,7 @@ class VectorizeValidator : public OptInDispatch {
       IterDomain* v_id,
       TensorView* tv,
       std::string name) {
-    auto replay_exprs = DependencyCheck::getAllExprsBetween(
+    auto replay_exprs = StmtSort::getExprsBetween(
         {tv->getMaybeAllocationDomain().begin(),
          tv->getMaybeAllocationDomain().end()},
         {v_id});
@@ -836,7 +836,7 @@ void validatePartialSplit(Fusion* fusion) {
 
   for (auto tv : ir_utils::allTvs(fusion)) {
     auto exprs = StmtSort::getExprsTo(
-        tv->fusion(), {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
+        {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
     for (auto split : ir_utils::filterByType<Split>(exprs)) {
       // When the start and stop offsets are not zero, make sure the
       // range defined by the split includes the required range to
@@ -1255,7 +1255,6 @@ void validateResize(Fusion* fusion) {
   for (auto tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
     // Make sure resize is only used as part of rfactor transformations
     auto rf_to_leaf_exprs = StmtSort::getExprsBetween(
-        fusion,
         {tv->getMaybeRFactorDomain().begin(),
          tv->getMaybeRFactorDomain().end()},
         {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});

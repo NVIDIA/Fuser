@@ -635,7 +635,7 @@ std::vector<Expr*> replaceInputsInExpr(
 std::vector<Expr*> getAllSwizzlesBetween(
     std::vector<IterDomain*> from,
     std::vector<IterDomain*> to) {
-  auto all_expr = DependencyCheck::getAllExprsBetween(
+  auto all_expr = StmtSort::getExprsBetween(
       {from.begin(), from.end()}, {to.begin(), to.end()});
 
   std::vector<Expr*> all_swizzles;

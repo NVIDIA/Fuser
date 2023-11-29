@@ -264,7 +264,6 @@ bool useSameIndex(
   auto consumer_root_ids = InputsOf::output(consumer_id->fusion(), consumer_id);
 
   auto producer_root_vals = StmtSort::getStmtsBetween(
-      producer_id->fusion(),
       {producer_tv->getMaybeRFactorDomain().begin(),
        producer_tv->getMaybeRFactorDomain().end()},
       {producer_id});

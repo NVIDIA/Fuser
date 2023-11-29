@@ -8643,7 +8643,6 @@ TEST_F(NVFuserTest, IterVisitorTraverseSiblings_CUDA) {
 
   // Test getting statements "to" a tensor with siblings
   stmts = StmtSort::getStmtsTo(
-      &fusion,
       {wf.n},
       /*traverse_all_paths*/ false,
       /*traverse_attributes*/ false,
