@@ -914,7 +914,8 @@ class GridReduction final : public ReductionOp {
       Allocate* sync_buffer,
       Val* entrance_index,
       Val* entrances,
-      bool is_allreduce = false);
+      bool is_allreduce = false,
+      bool is_serial = false);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -952,6 +953,10 @@ class GridReduction final : public ReductionOp {
 
   ParallelTypeBitmap& threadPredicate() {
     return attribute<ParallelTypeBitmap>(num_reduction_op_attr + 4);
+  }
+
+  bool isSerial() const {
+    return attribute<bool>(num_reduction_op_attr + 5);
   }
 
   GridReduction* withThreadPredicate(

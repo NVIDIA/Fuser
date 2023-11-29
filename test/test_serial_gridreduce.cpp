@@ -72,19 +72,18 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
   inlineMost();
 
   // Lower then insert sync nodes manually around top-level loop
-
   GpuLower gpulw(fusion);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({16384, 16}, options);
-
-  FusionExecutor fe;
-  fe.compileFusion(fusion, {t0});
-
-  // This is the non-serial reduction that uses gridReduce
-  auto cg_outputs_nonserial = fe.runFusion({t0});
+  auto kernel = gpulw->run();
 
   // TODO: insert syncs and modify node to enable serial reduction codegen
+  // - set allocation size to be same as output of reduction op
+  // - swap GridReduction node with one having isSerial() == true
+  // - insert {Pre,Post}SerialReductionSync nodes before and after main loop
+
+  auto kernel_code_ =
+      codegen::generateCudaKernel(kernel, "serial_gridreduce_kernel");
+
+  std::cout << kernel_code_ << std::endl;
 }
 
 } // namespace nvfuser
