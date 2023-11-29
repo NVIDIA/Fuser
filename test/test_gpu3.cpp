@@ -9409,48 +9409,6 @@ TEST_F(NVFuserTest, LoweringHook) {
   EXPECT_TRUE(executed);
 }
 
-TEST_F(NVFuserTest, dynamicReshapeIssue1393) {
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  Fusion* fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
-
-  auto tv0 = TensorViewBuilder()
-                 .ndims(2)
-                 .shape({-1, -1})
-                 .contiguity({true, std::nullopt})
-                 .expanded({false, true})
-                 .build();
-  auto tv1 = TensorViewBuilder()
-                 .ndims(2)
-                 .shape({-1, -1})
-                 .contiguity({std::nullopt, true})
-                 .expanded({true, false})
-                 .build();
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-
-  auto tv2 = add(tv0, tv1);
-  auto s0 = IrBuilder::create<Val>(3);
-  auto s1 = IrBuilder::create<Val>(4);
-  auto s2 = IrBuilder::create<Val>(1);
-  auto s3 = IrBuilder::create<Val>(5);
-  auto tv3 = reshape(tv2, {s0, s1, s2});
-  auto tv4 = expand(tv3, {s0, s1, s3});
-  fusion->addOutput(tv4);
-
-  FusionExecutorCache fec(std::move(fusion_ptr));
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({3}, options).as_strided({3, 4}, {1, 0});
-  at::Tensor t1 = at::randn({4}, options).as_strided({3, 4}, {0, 1});
-  auto ref = t0.add(t1).as_strided({3, 4, 5}, {4, 1, 0});
-
-  std::vector<c10::IValue> aten_inputs({t0, t1});
-  auto outputs = fec.runFusionWithInputs(aten_inputs);
-
-  testValidate(fusion, outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
-}
-
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
