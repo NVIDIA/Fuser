@@ -2970,6 +2970,41 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << call << ";\n";
   }
 
+  void handle(const kir::SerialReductionPostSync* sync) final {
+    // Use a custom synchronization method if enabled
+    bool bidx = sync->syncDims().get(ParallelType::BIDx);
+    bool bidy = sync->syncDims().get(ParallelType::BIDy);
+    bool bidz = sync->syncDims().get(ParallelType::BIDz);
+
+    ArgumentBuilder sync_call_template_parms;
+    sync_call_template_parms.arg(bidx).arg(bidy).arg(bidz).arg(true).arg(
+        isAligned());
+
+    auto sync_idx = genCall(
+        "index_utils::maskedOffset",
+        ArgumentBuilder().arg(!bidx).arg(!bidy).arg(!bidz),
+        ArgumentBuilder().arg("blockIdx").arg("gridDim"));
+
+    auto sync_segment_size = genCall(
+        "index_utils::maskedSize",
+        ArgumentBuilder().arg(bidx).arg(bidy).arg(bidz),
+        ArgumentBuilder().arg("gridDim"));
+
+    ArgumentBuilder sync_call_args;
+    sync_call_args.arg(genVariableName(sync->syncBuffer()))
+        .append("[")
+        .append(sync_idx)
+        .append("]");
+    sync_call_args.arg(sync_segment_size);
+
+    auto sync_call = genCall(
+        "grid_sync::serial_grid_sync",
+        sync_call_template_parms,
+        sync_call_args);
+
+    indent() << sync_call << ";\n";
+  }
+
   void handle(const kir::InitMagicZero*) final {
     indent() << "NVFUSER_DEFINE_MAGIC_ZERO;\n";
   }

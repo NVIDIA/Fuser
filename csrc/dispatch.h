@@ -129,6 +129,8 @@ class MBarrierInvalidate;
 class MBarrierArrive;
 class MBarrierArriveExpectTx;
 class MBarrierWait;
+class SerialReductionPreSync;
+class SerialReductionPostSync;
 class CpAsyncWait;
 class CpAsyncCommit;
 class CpAsyncBulkS2GWait;
@@ -223,6 +225,8 @@ class OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const kir::MBarrierArrive*);
   virtual void handle(const kir::MBarrierArriveExpectTx*);
   virtual void handle(const kir::MBarrierWait*);
+  virtual void handle(const kir::SerialReductionPreSync*);
+  virtual void handle(const kir::SerialReductionPostSync*);
   virtual void handle(const kir::CpAsyncWait*);
   virtual void handle(const kir::CpAsyncCommit*);
   virtual void handle(const kir::CpAsyncBulkS2GWait*);
@@ -317,6 +321,8 @@ class OptOutDispatch : public PolymorphicBase {
   virtual void handle(kir::MBarrierArrive* stmt);
   virtual void handle(kir::MBarrierArriveExpectTx* stmt);
   virtual void handle(kir::MBarrierWait* stmt);
+  virtual void handle(kir::SerialReductionPreSync* stmt);
+  virtual void handle(kir::SerialReductionPostSync* stmt);
   virtual void handle(kir::CpAsyncWait* stmt);
   virtual void handle(kir::CpAsyncCommit* stmt);
   virtual void handle(kir::CpAsyncBulkS2GWait* stmt);

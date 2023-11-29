@@ -272,6 +272,14 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::MBarrierWait>());
     return;
   }
+  if (expr->isStrictlyA<kir::SerialReductionPreSync>()) {
+    ptr(handler)->handle(expr->as<kir::SerialReductionPreSync>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::SerialReductionPostSync>()) {
+    ptr(handler)->handle(expr->as<kir::SerialReductionPostSync>());
+    return;
+  }
   if (expr->isStrictlyA<kir::CpAsyncWait>()) {
     ptr(handler)->handle(expr->as<kir::CpAsyncWait>());
     return;
@@ -586,6 +594,14 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<kir::MBarrierWait>()) {
     ptr(handler)->handle(expr->as<kir::MBarrierWait>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::SerialReductionPreSync>()) {
+    ptr(handler)->handle(expr->as<kir::SerialReductionPreSync>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::SerialReductionPostSync>()) {
+    ptr(handler)->handle(expr->as<kir::SerialReductionPostSync>());
     return;
   }
   if (expr->isStrictlyA<kir::CpAsyncWait>()) {
@@ -996,6 +1012,12 @@ void OptOutConstDispatch::handle(const kir::MBarrierArriveExpectTx* stmt) {
 void OptOutConstDispatch::handle(const kir::MBarrierWait* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const kir::SerialReductionPreSync* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::SerialReductionPostSync* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const kir::CpAsyncWait* stmt) {
   unhandled(stmt);
 }
@@ -1227,6 +1249,12 @@ void OptOutDispatch::handle(kir::MBarrierArriveExpectTx* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::MBarrierWait* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::SerialReductionPreSync* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::SerialReductionPostSync* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::CpAsyncWait* stmt) {
