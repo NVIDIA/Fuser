@@ -322,7 +322,7 @@ class FindInputDomains : BackwardVisitor {
   }
 
   DomainKeySet find() {
-    traverseTo(tv_->fusion(), {tv_});
+    traverseTo({tv_});
     return input_keys_;
   }
 
@@ -782,7 +782,7 @@ ComputeAtRootDomainMapBuilder::ComputeAtRootDomainMapBuilder(
       map_through_reduction_(map_through_reduction) {
   Fusion* fusion = FusionGuard::getCurFusion();
   NVF_ERROR(fusion != nullptr);
-  traverseTo(fusion, fusion->outputs(), false);
+  traverseTo(fusion->outputs(), false);
   if (!pending_map_.empty()) {
     std::stringstream ss;
     ss << "pending map:\n";
@@ -1241,7 +1241,7 @@ class ExactRootDomainMapBuilder : private IterVisitor {
       Fusion* fusion,
       DisjointSets<const IterDomain*>& eq_sets)
       : eq_sets_(eq_sets) {
-    traverseTo(fusion, fusion->outputs());
+    traverseTo(fusion->outputs());
   }
 
  private:
