@@ -3115,4 +3115,37 @@ TEST_F(NVFuserTest, dynamicReshapeIssue1393) {
   testValidate(fusion, outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, dynamicReshapeBroadcast) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = TensorViewBuilder()
+                 .ndims(2)
+                 .shape({-1, -1})
+                 .contiguity({std::nullopt, true})
+                 .expanded({true, false})
+                 .build();
+  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s1 = IrBuilder::create<Val>(DataType::Index);
+  auto s2 = IrBuilder::create<Val>(DataType::Index);
+  auto s3 = IrBuilder::create<Val>(DataType::Index);
+  auto tv1 = reshape(tv0, {s0, s1, s2});
+  auto tv2 = expand(tv1, {s0, s1, s3});
+  auto s4 = IrBuilder::create<Val>(1.0);
+  auto tv3 = add(tv2, s4);
+  fusion->addOutput(tv3);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({3}, options).as_strided({3, 4}, {1, 0});
+  auto ref = t0.add(1.0).as_strided({3, 4, 5}, {4, 1, 0});
+
+  std::vector<c10::IValue> aten_inputs({t0, 3, 4, 1, 5});
+  auto outputs = fec.runFusionWithInputs(aten_inputs);
+
+  testValidate(fusion, outputs, {t0}, {ref}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
