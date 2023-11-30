@@ -75,6 +75,22 @@ std::string toString(MmaMacro macro) {
   return ss.str();
 }
 
+std::string toString(MmaInputSmemSwizzle swizzle) {
+  switch (swizzle) {
+    case MmaInputSmemSwizzle::None:
+      return "NoSwizzle";
+    case MmaInputSmemSwizzle::B32:
+      return "32B";
+    case MmaInputSmemSwizzle::B64:
+      return "64B";
+    case MmaInputSmemSwizzle::B128:
+      return "128B";
+    default:
+      NVF_CHECK(false, "Unknown tensor map swizzle type!");
+      break;
+  }
+}
+
 size_t hash(MmaMacro macro) {
   return std::hash<size_t>{}(static_cast<size_t>(macro));
 }

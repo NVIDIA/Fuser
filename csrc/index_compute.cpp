@@ -3285,7 +3285,7 @@ Val* Index::cpAsyncBulkIndex(
       box_dim,
       element_strides,
       TensorMapInterleave::NoInterleave,
-      TensorMapSwizzle::NoSwizzle,
+      MmaInputSmemSwizzle::None,
       TensorMapL2Promotion::NoL2Promotion,
       TensorMapFloatOOBFill::NoOOBFill);
 
