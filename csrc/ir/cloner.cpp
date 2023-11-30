@@ -90,7 +90,7 @@ TensorView* RecomputeTv::recompute(
   return cloned_val->as<TensorView>();
 }
 
-RecomputeTv::RecomputeTv(Fusion* fusion) : IrCloner(fusion), fusion_(fusion) {
+RecomputeTv::RecomputeTv(Fusion* fusion) : IrCloner(fusion) {
   // Add inputs to the clones map to prevent cloning them.
   for (const auto inp : fusion->inputs()) {
     clones_map_[inp] = inp;
