@@ -265,6 +265,21 @@ Val* IrBuilder::metadataExpr(TensorView* tv) {
   return tv->fusion()->metadataOf(tv);
 }
 
+Val* IrBuilder::tensorBaseAddressExpr(TensorView* tv) {
+  auto metadata = metadataExpr(tv);
+  switch (auto memtype = tv->getMemoryType()) {
+    case MemoryType::Global:
+      return getAttrExpr(metadata, "data");
+    case MemoryType::Shared: {
+      auto output = create<Val>(DataType::SMemAddress);
+      create<UnaryOp>(UnaryOpType::ToUnsignedSmemAddr, output, metadata);
+      return output;
+    }
+    default:
+      NVF_CHECK(false, "Unsupported memory type ", memtype);
+  }
+}
+
 Val* SimplifyingIrBuilder::negExpr(Val* val) {
   if (val->isZeroInt()) {
     return val->container()->zeroVal(val->dtype());

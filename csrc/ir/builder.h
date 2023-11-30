@@ -100,6 +100,10 @@ class IrBuilder {
   // Get tensor metadata
   static Val* metadataExpr(TensorView* tv);
 
+  // Get tensor base address, for gmem tensor, it is something like
+  // `T1.data`. For smem tensor, it is something like `toSmem(T1)`.
+  static Val* tensorBaseAddressExpr(TensorView* tv);
+
   // Construct an array of values, or nested arrays of values.
   template <typename T>
   static Val* arrayExpr(std::vector<T> members) {
