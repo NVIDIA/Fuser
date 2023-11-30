@@ -16,6 +16,7 @@ namespace nvfuser {
 
 using IterVisitorTest = NVFuserTest;
 using testing::Contains;
+using testing::IsSupersetOf;
 using testing::UnorderedElementsAre;
 
 // Quick test of traversing attributes with IterVisitor
@@ -95,6 +96,23 @@ TEST_F(IterVisitorTest, IterVisitorGetInputsTo) {
 
   std::vector<Val*> inputs = IterVisitor::getInputsTo({e}, {a, d});
   EXPECT_THAT(inputs, UnorderedElementsAre(a, d));
+}
+
+TEST_F(IterVisitorTest, NonTerminatingOutput) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* a = makeSymbolicTensor(1);
+  TensorView* b = set(a);
+  TensorView* c = set(b);
+  TensorView* d = set(c);
+  TensorView* e = set(d);
+
+  fusion.addInput(a);
+  fusion.addOutput(c);
+  fusion.addOutput(e);
+
+  EXPECT_THAT(StmtSort::getExprsBetween({a}, {c, e}), IsSupersetOf({d->definition(), e->definition()}));
 }
 
 } // namespace nvfuser
