@@ -2060,7 +2060,6 @@ class TestNvFuserFrontend(TestCase):
             for idx in range(len(eager_out)):
                 self.assertEqual(eager_out[idx], nvf_out[idx])
 
-    '''
     def test_slice_error_checks(self):
         inputs = [
             [torch.randn(10, 10, device="cuda")],
@@ -2171,7 +2170,10 @@ class TestNvFuserFrontend(TestCase):
                     # First check is here on legel fusions since the second time
                     # through they should already be cached
                     out = self.exec_nvfuser(
-                        partial(check, acts=inp), inp, new_fusion_expected=first_check
+                        partial(check, acts=inp),
+                        inp,
+                        new_fusion_expected=first_check,
+                        skip_serde_check=True,
                     )
                 else:
                     # When a fusion definition with errors is deserialized, it is recreated, triggering an error.
@@ -2186,7 +2188,6 @@ class TestNvFuserFrontend(TestCase):
                         skip_serde_check=True,
                     )
             first_check = False
-    '''
 
     def test_constant_nans(self):
         inputs = [
