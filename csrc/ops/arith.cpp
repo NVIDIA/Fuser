@@ -1479,7 +1479,9 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
       out_id_builder.extent(inp_id->extent());
     } else if (
         (inp_id->isBroadcast() ||
-         (inp_id->isSymbolic() && inp_id->extent()->evaluate() == 1)) &&
+         // special patch for Symbolic IterDomain with a static size-1 extent
+         (inp_id->isSymbolic() && inp_id->extent()->isConstInt() &&
+          inp_id->extent()->evaluate() == 1)) &&
         (!expanded_size_int.hasValue() || expanded_size_int != 1)) {
       // When input id is a broadcast, expand the extent to the given
       // size, which can be concrete or symbolic.
