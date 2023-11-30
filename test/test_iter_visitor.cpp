@@ -15,6 +15,8 @@
 namespace nvfuser {
 
 using IterVisitorTest = NVFuserTest;
+using testing::Contains;
+using testing::UnorderedElementsAre;
 
 // Quick test of traversing attributes with IterVisitor
 TEST_F(IterVisitorTest, IterVisitorTraverseAttributes) {
@@ -35,14 +37,8 @@ TEST_F(IterVisitorTest, IterVisitorTraverseAttributes) {
   auto stmts = StmtSort::getStmts(&fusion, true, true);
 
   // Make sure the expansion parameters of tv1_resize are visited
-  NVF_CHECK(
-      std::find(stmts.begin(), stmts.end(), tv1_resize->leftExpand()) !=
-          stmts.end(),
-      "Resize left expand parameter not found");
-  NVF_CHECK(
-      std::find(stmts.begin(), stmts.end(), tv1_resize->rightExpand()) !=
-          stmts.end(),
-      "Resize right expand parameter not found");
+  EXPECT_THAT(stmts, Contains(tv1_resize->leftExpand())) << "Resize left expand parameter not found";
+  EXPECT_THAT(stmts, Contains(tv1_resize->rightExpand())) << "Resize right expand parameter not found";
 }
 
 // Test that traversing siblings with IterVisitor visits "orphans", i.e. unused
@@ -65,27 +61,17 @@ TEST_F(IterVisitorTest, IterVisitorTraverseSiblings) {
       /*traverse_attributes*/ false,
       /*traverse_siblings*/ true);
 
-  // Make sure the expansion parameters of tv1_resize are visited
-  NVF_CHECK(
-      std::find(stmts.begin(), stmts.end(), wf.avg) != stmts.end(),
-      "Welford avg not traversed");
-  NVF_CHECK(
-      std::find(stmts.begin(), stmts.end(), wf.n) != stmts.end(),
-      "Welford n not traversed");
+  EXPECT_THAT(stmts, Contains(wf.avg)) << "Welford avg not traversed";
+  EXPECT_THAT(stmts, Contains(wf.n)) << "Welford n not traversed";
 
   // Test getting statements "to" a tensor with siblings
   stmts = StmtSort::getStmtsTo(
       {wf.n},
-      /*traverse_all_paths*/ false,
-      /*traverse_attributes*/ false,
-      /*traverse_siblings*/ true);
-  // Make sure the expansion parameters of tv1_resize are visited
-  NVF_CHECK(
-      std::find(stmts.begin(), stmts.end(), wf.avg) != stmts.end(),
-      "Welford avg not traversed in getStmtsTo({n})");
-  NVF_CHECK(
-      std::find(stmts.begin(), stmts.end(), wf.var_sum) != stmts.end(),
-      "Welford var_sum not traversed in getStmtsTo({n})");
+      /*traverse_all_paths=*/false,
+      /*traverse_attributes=*/false,
+      /*traverse_siblings=*/true);
+  EXPECT_THAT(stmts, Contains(wf.avg)) << "Welford avg not traversed in getStmtsTo({n})";
+  EXPECT_THAT(stmts, Contains(wf.var_sum)) << "Welford var_sum not traversed in getStmtsTo({n})";
 }
 
 TEST_F(IterVisitorTest, IterVisitorGetInputsTo) {
@@ -107,10 +93,8 @@ TEST_F(IterVisitorTest, IterVisitorGetInputsTo) {
 
   fusion.addOutput(e);
 
-  auto inputs = IterVisitor::getInputsTo({e}, {a, d});
-  std::unordered_set<Val*> inputs_set(inputs.begin(), inputs.end());
-
-  EXPECT_EQ(inputs_set, std::unordered_set<Val*>({a, d}));
+  std::vector<Val*> inputs = IterVisitor::getInputsTo({e}, {a, d});
+  EXPECT_THAT(inputs, UnorderedElementsAre(a, d));
 }
 
 } // namespace nvfuser
