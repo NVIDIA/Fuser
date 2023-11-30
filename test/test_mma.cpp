@@ -403,7 +403,8 @@ TEST_P(Hopper, SS) {
   auto tv2c = tv2->cacheBefore();
 
   tv0b->setMemoryType(MemoryType::Shared);
-  tv0b->applyMmaSwizzle(swizzle, transpose_a);
+  // Hopper tensor core assumes K major, so we are using !transpose_a here.
+  tv0b->applyMmaSwizzle(swizzle, !transpose_a);
   tv1b->setMemoryType(MemoryType::Shared);
   tv1b->applyMmaSwizzle(swizzle, transpose_b);
 
@@ -414,6 +415,7 @@ TEST_P(Hopper, SS) {
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
   // debug
+  /*
   inputs.second.zero_();
   for (auto i : c10::irange(std::min(getK(macro), getN(macro)))) {
     inputs.second[i][i] = 1;
@@ -422,6 +424,7 @@ TEST_P(Hopper, SS) {
     inputs.first.view({-1})[i] = 1000 + i;
   }
   std::cout << "A:\n" << inputs.first << std::endl;
+  */
 
   FusionExecutor fe;
   fe.compileFusion(
@@ -429,8 +432,8 @@ TEST_P(Hopper, SS) {
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-  std::cout << "tref:\n" << tref << std::endl;
-  std::cout << "result:\n" << cg_outputs.front() << std::endl;
+  // std::cout << "tref:\n" << tref << std::endl;
+  // std::cout << "result:\n" << cg_outputs.front() << std::endl;
   testValidate(
       &fusion,
       cg_outputs,
