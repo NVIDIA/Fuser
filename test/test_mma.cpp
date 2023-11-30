@@ -257,6 +257,15 @@ TEST_P(Hopper, RS) {
   auto inputs = matmulAtInput(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
+  //debug
+  inputs.first.zero_();
+  for (auto i : c10::irange(16)) {
+    inputs.first[i][i] = 1.0f;
+  }
+  for (auto i : c10::irange(inputs.second.numel())) {
+    inputs.second.view({-1})[i] = 100 + i;
+  }
+
   FusionExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
@@ -264,6 +273,8 @@ TEST_P(Hopper, RS) {
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+  std::cout << "tref:\n" << tref << std::endl;
+  std::cout << "cg_outputs:\n" << cg_outputs[0] << std::endl;
   testValidate(
       &fusion,
       cg_outputs,
