@@ -72,6 +72,8 @@ class IrBuilder {
   static Val* logicalOrExpr(Val* lhs, Val* rhs);
   static Val* bitwiseAndExpr(Val* lhs, Val* rhs);
   static Val* bitwiseOrExpr(Val* lhs, Val* rhs);
+  static Val* lShiftExpr(Val* lhs, Val* rhs);
+  static Val* rShiftExpr(Val* lhs, Val* rhs);
   static Val* eqExpr(Val* lhs, Val* rhs);
   static Val* neExpr(Val* lhs, Val* rhs);
   static Val* gtExpr(Val* lhs, Val* rhs);
