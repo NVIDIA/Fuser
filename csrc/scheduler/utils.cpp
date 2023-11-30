@@ -703,14 +703,9 @@ getScopePersistenceFactors(
     // necessary.
     auto resolution_points =
         persistent_buffer_resolution_points[persistent_buffer_i];
-    std::cout << "\nbuffer: " << persistent_buffer->toString() << std::endl;
-    for (auto tv : resolution_points) {
-      std::cout << "resolution_points: " << tv->toString() << std::endl;
-    }
     for (auto val : DependencyCheck::getAllValsBetween(
              {persistent_buffer},
              {resolution_points.begin(), resolution_points.end()})) {
-      std::cout << "getAllValsBetween: " << val->toString() << std::endl;
       // Persistent normalization kernels imply that all persistent buffers
       // have the same dimensionality. Assume if a persistent buffer is
       // consumed by another we can alias and reuse the memory.
@@ -881,14 +876,14 @@ PersistentBufferSizeReturn persistentBufferSize(
   }
 
   // Buffers involved in projected to inputs
-  std::vector<bool> projected_inputs_mask(all_buffers.size(), true);
+  std::vector<bool> projected_mask(all_buffers.size(), true);
   for (auto buffer_i : c10::irange(persistent_buffers.size())) {
     auto buffer = persistent_buffers[buffer_i];
     // Not a projectable buffer, or an input of a projectable buffer
     if (std::find(
             projectable_buffers.begin(), projectable_buffers.end(), buffer) !=
         projectable_buffers.end()) {
-      projected_inputs_mask[buffer_i] = false;
+      projected_mask[buffer_i] = false;
     }
   }
 
@@ -929,28 +924,15 @@ PersistentBufferSizeReturn persistentBufferSize(
   // do both without and with projection
   int64_t max_persistence_size = 0;
   int64_t max_proj_persistence_size = 0;
-  fusion->printMath();
-  for (auto tv : all_buffers) {
-    std::cout << "all_buffers, tv= " << tv->toString() << std::endl;
-  }
   for (const auto& entry : scoped_persistence_factor) {
     auto active_buffers = entry.second;
     auto persistent_buffer_size = masked_dot_product(
         persistent_mask, active_buffers, persistent_buffer_sizes, all_buffers);
-    std::cout << "\nentry = " << entry.first->toString() << std::endl;
-    for (auto i : c10::irange(active_buffers.size())) {
-      std::cout << "buffer= " << all_buffers[i]->toString()
-                << ", active?= " << static_cast<bool>(active_buffers[i])
-                << std::endl;
-    }
     max_persistence_size =
         std::max(max_persistence_size, persistent_buffer_size);
 
     auto projected_buffer_size = masked_dot_product(
-        projected_inputs_mask,
-        active_buffers,
-        persistent_buffer_sizes,
-        all_buffers);
+        projected_mask, active_buffers, persistent_buffer_sizes, all_buffers);
     max_proj_persistence_size =
         std::max(max_proj_persistence_size, projected_buffer_size);
   }
