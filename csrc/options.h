@@ -60,7 +60,6 @@ enum class DebugDumpOption {
   Ptx, //! Dump compiled PTX
   BankConflictInfo, //! Dump bank confliction info
   SyncMap, //! RAW dependency info
-  LowerNameOnly, //! Print all passes' names as they're run in GpuLower::lower
   LowerVerbose, //! Print all passes' transform in GpuLower::lower
   ExprSimplification, //! Print all passes' transform in simplifyExpr
   ExprSort, //! Print merging decisions on expression sorting
