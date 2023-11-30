@@ -633,7 +633,7 @@ TEST_F(AliasTest, DuplicatedInputs) {
 
   // duplicated input is not allowed
   EXPECT_THAT(
-      []() {
+      [&]() {
         fusion->addInput(in);
       },
       testing::ThrowsMessage<nvfuser::nvfError>(

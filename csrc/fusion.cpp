@@ -243,7 +243,7 @@ void Fusion::addInput(Val* input) {
   }
 
   NVF_CHECK(
-      std::find(inputs_.begin(), inputs_.end(), input) == inputs_.end(),
+      !input->isFusionInput(),
       "Val: ",
       input->toString(),
       " is already registered as input, duplicated inputs is not allowed");
