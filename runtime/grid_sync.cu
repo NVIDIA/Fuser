@@ -207,7 +207,7 @@ __device__ void blockSerializeWait(int64_t* semaphore) {
       index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
 
   if (PERSISTENT || block_idx_in_segment > 0) {
-    semaphoreWait<PERSISTENT>(semaphore, block_idx_in_segment);
+    semaphoreWait(semaphore, block_idx_in_segment);
   }
 }
 
