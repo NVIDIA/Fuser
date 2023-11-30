@@ -1490,7 +1490,6 @@ void IndexLowering::handle(const MmaOp* mma) {
     // smem.
     auto base_addr =
         IrBuilder::tensorBaseAddressExpr(mma->inB()->as<TensorView>());
-    auto layout = *mma->layout();
     int stride_bytes = /*8x8 items each core matrix*/ 64 * /*bytes per item*/ 2;
     int leading_bytes = /*8x8 items each core matrix*/ 64 *
         /*number of core matrices*/ (getN(mma->macro()) / 8) *
