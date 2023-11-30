@@ -337,18 +337,21 @@ TEST_P(Hopper, SS) {
     case MmaLayout::TT:
       // [M, K, N]
       tv0b = broadcast(tv0, {false, false, true});
+      tv0b->reorder({{-1, -3}});
       tv1b = broadcast(tv1, {true, false, false});
       axes = 1;
       break;
     case MmaLayout::TN:
       // [M, N, K]
       tv0b = broadcast(tv0, {false, true, false});
+      tv0b->reorder({{-2, -3}});
       tv1b = broadcast(tv1, {true, false, false});
       axes = 2;
       break;
     case MmaLayout::NT:
       // [K, M, N]
       tv0b = broadcast(tv0, {false, false, true});
+      tv0b->reorder({{-1, -3}});
       tv1b = broadcast(tv1, {false, true, false});
       axes = 0;
       break;
@@ -356,6 +359,7 @@ TEST_P(Hopper, SS) {
       // [N, K, M]
       tv0b = broadcast(tv0, {true, false, false});
       tv1b = broadcast(tv1, {false, false, true});
+      tv1b->reorder({{-1, -3}});
       axes = 1;
       break;
     default:
