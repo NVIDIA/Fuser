@@ -102,7 +102,7 @@ class IrBuilder {
 
   // Get tensor base address, for gmem tensor, it is something like
   // `T1.data`. For smem tensor, it is something like `toSmem(T1)`.
-  static Val* tensorBaseAddressExpr(TensorView* tv);
+  static Val* baseAddressExpr(TensorView* tv);
 
   // Construct an array of values, or nested arrays of values.
   template <typename T>
