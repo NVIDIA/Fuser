@@ -406,14 +406,16 @@ std::string ExprGroup::toString() const {
   os << " ca_ids {";
   for (size_t i = 0; i < payload()->ca_domains.size(); i++) {
     os << payload()->ca_domains[i];
-    if (i + 1 != payload()->ca_domains.size())
+    if (i + 1 != payload()->ca_domains.size()) {
       os << ", ";
+    }
   }
   os << "} pa_ids {";
   for (size_t i = 0; i < payload()->pa_domains.size(); i++) {
     os << payload()->pa_domains[i];
-    if (i + 1 != payload()->pa_domains.size())
+    if (i + 1 != payload()->pa_domains.size()) {
       os << ", ";
+    }
   }
   os << "}";
   os << "\nExprs {\n";
