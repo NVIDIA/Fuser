@@ -1480,6 +1480,7 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
     } else if (
         (inp_id->isBroadcast() ||
          // special patch for Symbolic IterDomain with a static size-1 extent
+         // See Issue: https://github.com/NVIDIA/Fuser/pull/1393
          (inp_id->isSymbolic() && inp_id->extent()->isConstInt() &&
           inp_id->extent()->evaluate() == 1)) &&
         (!expanded_size_int.hasValue() || expanded_size_int != 1)) {
