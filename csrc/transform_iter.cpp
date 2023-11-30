@@ -287,8 +287,9 @@ void ReplayTransformations::runReplay() {
   // Populate leaf_vec_ in a deterministic manner. This is deterministic
   // because size_t in leaf_ids is filled based on operation order.
   std::set<std::pair<IterDomain*, size_t>, id_int_lt> ordered_set;
-  for (auto entry : leaf_ids_)
+  for (auto entry : leaf_ids_) {
     ordered_set.emplace(entry);
+  }
 
   leaf_vec_.clear();
   leaf_vec_.resize(ordered_set.size());
@@ -925,8 +926,9 @@ BestEffortReplay BestEffortReplay::replayCasP(
     bool skip_consumer_swizzle,
     bool skip_producer_swizzle,
     bool skip_resize) {
-  if (producer_compute_at_axis < 0)
+  if (producer_compute_at_axis < 0) {
     producer_compute_at_axis += (int)producer->nDims() + 1;
+  }
 
   NVF_ERROR(
       producer_compute_at_axis >= 0 &&
@@ -991,8 +993,9 @@ BestEffortReplay BestEffortReplay::replayPasC(
     bool skip_producer_swizzle,
     bool skip_consumer_swizzle,
     bool skip_resize) {
-  if (consumer_compute_at_axis < 0)
+  if (consumer_compute_at_axis < 0) {
     consumer_compute_at_axis += (int)consumer->nDims() + 1;
+  }
   NVF_ERROR(
       consumer_compute_at_axis >= 0 &&
           (unsigned int)consumer_compute_at_axis <= consumer->nDims(),
