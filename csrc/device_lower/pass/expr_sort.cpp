@@ -1716,12 +1716,12 @@ std::vector<Expr*> ExprSegmentationSorter::getExprs() const {
   std::vector<Expr*> remaining_exprs; // Tensor expressions or scalar
                                       // expressions that has tensor dependency.
   for (auto& group : groups_) {
-    std::vector<Expr*>* active_exprs = &scalar_exprs_without_tv_dep;
-    for (auto expr : group->exprs()) {
-      if (!lower_utils::isScalarExpr(expr)) {
-        active_exprs = &remaining_exprs;
+    for (Expr* expr : group->exprs()) {
+      if (lower_utils::isScalarExpr(expr)) {
+        scalar_exprs_without_tv_dep.push_back(expr);
+      } else {
+        remaining_exprs.push_back(expr);
       }
-      active_exprs->emplace_back(expr);
     }
   }
   scalar_exprs_without_tv_dep.insert(
