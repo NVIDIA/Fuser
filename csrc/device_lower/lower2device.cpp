@@ -268,7 +268,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
           // printed in verbose mode of lowering. The function must take a
           // const std::vector<Expr*>& and return a std::vector<Expr*>.
           {{"LoopNestGenerator", LoopNestGenerator::loweredExprs},
-           {"unarySetOpInserter", unarySetOpInserter},
+           {"loadStoreOpInserter", loadStoreOpInserter},
            {"insertAllocations", insertAllocations},
            {"insertRawThreadSynchronization", insertRawThreadSynchronization},
            {"reuseMemoryAllocations", reuseMemoryAllocations},
@@ -494,9 +494,7 @@ void GpuLower::analysis(Fusion* fusion) {
   dumpExprsIfEnabled(fusion_->exprs(), "build doubleBufferInfo", true);
 
   compute_at_map_->allocateIndexVariables();
-  dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables", true);
-  // Run our passes keeping the lowered expressions and forwarding
-  // them
+  dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
 }
 
 kir::Kernel* GpuLower::kernel() const {

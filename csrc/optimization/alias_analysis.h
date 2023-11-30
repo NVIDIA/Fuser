@@ -24,6 +24,10 @@ struct Layout {
 class AliasAnalysisResult {
  public:
   AliasAnalysisResult() = default;
+  AliasAnalysisResult(const AliasAnalysisResult&) = delete;
+  AliasAnalysisResult& operator=(const AliasAnalysisResult&) = delete;
+  AliasAnalysisResult(AliasAnalysisResult&&) = default;
+  AliasAnalysisResult& operator=(AliasAnalysisResult&&) = default;
 
   // Returns itself if `alias` doesn't alias anything.
   const Val* findRoot(const Val* alias) const;
@@ -34,15 +38,7 @@ class AliasAnalysisResult {
 
   // Marks `source` as the immediate aliasing source of `alias` and sets the
   // preferred layout.
-  void add(
-      const TensorView* alias,
-      const TensorView* source,
-      const Layout& layout);
-
-  AliasAnalysisResult(const AliasAnalysisResult&) = delete;
-  AliasAnalysisResult& operator=(const AliasAnalysisResult&) = delete;
-  AliasAnalysisResult(AliasAnalysisResult&&) = default;
-  AliasAnalysisResult& operator=(AliasAnalysisResult&&) = default;
+  void add(const TensorView* alias, const TensorView* source, Layout&& layout);
 
  private:
   // Maps aliases (e.g. the output of a View) to their direct sources (e.g. the
@@ -55,9 +51,16 @@ class AliasAnalysisResult {
 };
 
 // Finds aliases of the fusion inputs. The analysis should be conservative --
-// when the analysis says B is an alias of input A,
+// when the analysis says B is an alias of input A and that B's layout
+// (allocation domain and contiguity) is compatible with the preferred layout,
 // `ExpressionEvaluator::evaluate(B)` should produce an `at::Tensor` that's an
 // alias of the `at::Tensor` bound to A.
+//
+// Currently, for implementation convenience, AliasAnalysis ignores allocation
+// domains of non-fusion-input TensorViews. It produces preferred layouts for
+// these TensorViews and expects the user to resolve any incompatibility.
+// MarkAliasPass, its only user at this moment, marks an output as an alias only
+// when its allocation domain is empty. I'm happy to revisit this contract.
 AliasAnalysisResult findAliases(Fusion* fusion);
 
 } // namespace nvfuser::optimization

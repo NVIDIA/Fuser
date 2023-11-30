@@ -67,6 +67,20 @@ std::string FullOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+std::vector<PolymorphicValue> FullOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  std::vector<int64_t> shape;
+  for (auto i : c10::irange(inputs.size() - 1)) {
+    shape.push_back((int)inputs.at(i));
+  }
+  DataType dtype = getFillValue()->getDataType().value();
+  const auto options =
+      at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype));
+  using namespace PolymorphicValue_functions;
+  return {at::full(shape, toScalar(inputs.back()), options)};
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(FullOp)
 
 SelectOp::SelectOp(
@@ -210,7 +224,11 @@ std::vector<PolymorphicValue> TorchGatherOp::evaluate(
   const auto& input = inputs.at(0).as<at::Tensor>();
   const auto& index = inputs.at(1).as<at::Tensor>();
   auto dimension = dim();
-  return {at::gather(input, dimension, index)};
+  if (exactSizes()) {
+    return {at::take_along_dim(input, index, dimension)};
+  } else {
+    return {at::gather(input, dimension, index)};
+  }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(TorchGatherOp)
@@ -294,6 +312,31 @@ std::string IotaOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+std::vector<PolymorphicValue> IotaOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto options =
+      at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype()));
+  int64_t length = (int64_t)inputs.at(0);
+
+  if (isIntegralType(dtype())) {
+    int64_t start = (int64_t)inputs.at(1);
+    int64_t step = (int64_t)inputs.at(2);
+    int64_t end = start + step * length;
+    return {at::arange(start, end, step, options)};
+  } else if (isFloatingPointType(dtype())) {
+    double start = (double)inputs.at(1);
+    double step = (double)inputs.at(2);
+    // Due to rounding error, it can be hard to guarantee the size of
+    // the output of arange to be exactly length, so we generate a
+    // larger tensor and truncate it to length.
+    double end = start + step * ((double)length + 1);
+    return {at::arange(start, end, step, options).narrow(0, 0, length)};
+  } else {
+    NVF_ERROR(false, "Unsupported dtype in IotaOp evaluator: ", dtype());
+  }
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(IotaOp)
 
 EyeOp::EyeOp(IrBuilderPasskey passkey, Val* out, DataType dtype)
@@ -320,6 +363,19 @@ std::string EyeOp::toString(int indent_size) const {
 
 std::string EyeOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+std::vector<PolymorphicValue> EyeOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto options =
+      at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype()));
+  int64_t nrows = (int64_t)inputs.at(0);
+  if (inputs.size() > 1) {
+    int64_t ncols = (int64_t)inputs.at(1);
+    return {at::eye(nrows, ncols, options)};
+  } else {
+    return {at::eye(nrows, options)};
+  }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(EyeOp)
@@ -373,6 +429,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::ToUnsignedSmemAddr:
       return {(int64_t)(unsigned)in};
       break;
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring:
+      return {in};
+      break;
     case UnaryOpType::Dereference:
       if (*out()->getDataType() == DataType::Float) {
         return {PolymorphicValue((double)*(float*)in)};
@@ -380,6 +439,52 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
         NVF_ERROR(
             false, "dtype not supported in evaluator: ", *out()->getDataType());
       }
+      break;
+    case UnaryOpType::Sigmoid:
+      return {in.as<at::Tensor>().sigmoid()};
+      break;
+    case UnaryOpType::Tanh:
+      return {in.as<at::Tensor>().tanh()};
+      break;
+    case UnaryOpType::Relu:
+      return {at::relu(in.as<at::Tensor>())};
+      break;
+    case UnaryOpType::Gelu:
+      return {at::gelu(in.as<at::Tensor>())};
+      break;
+    case UnaryOpType::Exp:
+      return {at::exp(in.as<at::Tensor>())};
+      break;
+    case UnaryOpType::Sin:
+      return {in.as<at::Tensor>().sin()};
+      break;
+    case UnaryOpType::Cos:
+      return {in.as<at::Tensor>().cos()};
+      break;
+    case UnaryOpType::BitCast:
+      NVF_CHECK(
+          dataTypeSize(input(0)->dtype()) == dataTypeSize(out()->dtype()),
+          "BitCast only works for types of the same size");
+      if (isComplexType(input(0)->dtype()) &&
+          std::holds_alternative<ArrayType>(out()->dtype().type)) {
+        // view_as_real case.
+        auto vec_type = std::get<ArrayType>(out()->dtype().type);
+        auto inp_scalar_type = getTypeFromComplexType(input(0)->dtype());
+        NVF_CHECK(
+            *vec_type.type == inp_scalar_type,
+            "Output type must be the same as the scalar type of the complex input.");
+        NVF_CHECK(
+            vec_type.size == 2,
+            "Expected output to be array of size 2, found array of size ",
+            vec_type.size);
+        return {in.as<at::Tensor>()};
+      } else {
+        return {in.as<at::Tensor>().view(data_type_to_aten(out()->dtype()))};
+      }
+      break;
+    case UnaryOpType::Rsqrt:
+      return {in.as<at::Tensor>().rsqrt()};
+      break;
     default:
       NVF_CHECK(
           false,
@@ -1791,7 +1896,7 @@ struct MmaOpDetails {
   //  and output
   AxesData batch_axes;
   // A placeholder for mma input layout
-  std::optional<MmaOptions::MmaLayout> input_layout = std::nullopt;
+  std::optional<MmaLayout> input_layout = std::nullopt;
 };
 
 // A helper structure with pieces of information about TensorView
@@ -1823,7 +1928,7 @@ TensorViewDetails getDetailsFor(const std::vector<IterDomain*>& dims) {
   return details;
 }
 
-MmaOptions::MmaLayout getInputLayout(
+MmaLayout getInputLayout(
     const TensorViewDetails& in_a,
     const TensorViewDetails& in_b,
     const MmaOp::AxesData& m_axes,
@@ -1837,7 +1942,7 @@ MmaOptions::MmaLayout getInputLayout(
       (k_axes.front() < in_a.bcasts.front()) &&
       (in_b.bcasts.front() < k_axes.front()) &&
       (in_b.bcasts.front() < n_axes.front())) {
-    return MmaOptions::MmaLayout::TT;
+    return MmaLayout::TT;
   }
   // TN layout (b - broadcast, r - reduction):
   // A = [M, b, K]
@@ -1847,7 +1952,7 @@ MmaOptions::MmaLayout getInputLayout(
       (in_a.bcasts.front() < k_axes.front()) &&
       (in_b.bcasts.front() < n_axes.front()) &&
       (in_b.bcasts.front() < k_axes.front())) {
-    return MmaOptions::MmaLayout::TN;
+    return MmaLayout::TN;
   }
   // NT layout (b - broadcast, r - reduction):
   // A = [K, M, b]
@@ -1857,7 +1962,7 @@ MmaOptions::MmaLayout getInputLayout(
       (m_axes.front() < in_a.bcasts.front()) &&
       (k_axes.front() < in_b.bcasts.front()) &&
       (in_b.bcasts.front() < n_axes.front())) {
-    return MmaOptions::MmaLayout::NT;
+    return MmaLayout::NT;
   }
   // NN layout (b - broadcast, r - reduction):
   // A = [b, K, M]
@@ -1866,7 +1971,7 @@ MmaOptions::MmaLayout getInputLayout(
   if ((in_a.bcasts.front() < k_axes.front()) &&
       (k_axes.front() < m_axes.front()) && (n_axes.front() < k_axes.front()) &&
       (k_axes.front() < in_b.bcasts.front())) {
-    return MmaOptions::MmaLayout::NN;
+    return MmaLayout::NN;
   }
 
   NVF_ERROR(false, "Unsupported input layout");
@@ -2044,7 +2149,7 @@ MmaOp::MmaOp(
   // ATTR_POS_INIT
   addAttribute(init);
   // ATTR_POS_MACRO
-  addDataAttribute(MmaOptions::MacroType::NoMMA);
+  addDataAttribute(MmaMacro::NoMMA);
   // ATTR_POS_M_AXES
   addDataAttribute(AxesData{});
   // ATTR_POS_N_AXES
@@ -2078,10 +2183,10 @@ MmaOp::MmaOp(
     Val* in_a,
     Val* in_b,
     Val* init,
-    const MmaOptions::MacroType& macro,
+    const MmaMacro& macro,
     const MmaLayoutOpt& input_layout)
     : MmaOp(passkey, out, in_a, in_b, init) {
-  attribute<MmaOptions::MacroType>(ATTR_POS_MACRO) = macro;
+  attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
 
   const auto input_layout_ = attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
   if (input_layout_.has_value()) {
@@ -2110,13 +2215,9 @@ std::string MmaOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-void MmaOp::configureOptions(MmaOptions options) {
-  MmaOptions::MacroType& macro =
-      attribute<MmaOptions::MacroType>(ATTR_POS_MACRO);
-  NVF_ERROR(
-      options.macro != MmaOptions::MacroType::NoMMA,
-      "Un-configured mma type from options.");
-  macro = options.macro;
+void MmaOp::setMacro(MmaMacro macro) {
+  NVF_ERROR(macro != MmaMacro::NoMMA, "Unspecified mma type");
+  attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
@@ -2149,6 +2250,17 @@ std::string ExpandOp::toString(int indent_size) const {
 
 std::string ExpandOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> ExpandOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  std::vector<int64_t> expanded_size;
+  for (auto i : c10::irange(1, inputs.size())) {
+    expanded_size.push_back((int64_t)inputs.at(i));
+  }
+  return {at::expand_copy(in, expanded_size)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)
@@ -2298,6 +2410,13 @@ std::string ViewAsScalar::toString(int indent_size) const {
 
 std::string ViewAsScalar::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> ViewAsScalar::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const at::Tensor& in = inputs.at(0).as<at::Tensor>();
+  return {at::view_as_real(in)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ViewAsScalar)
@@ -2725,7 +2844,10 @@ std::vector<IterDomain*> IterDomain::clone(
 // domains is enforced by predicates. Note that since only root
 // domains have valid start and stop, it's not possible to contiguous
 // predication.
-IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
+IterDomain* IterDomain::merge(
+    IterDomain* outer,
+    IterDomain* inner,
+    bool rfactor_domain) {
   NVF_CHECK(
       outer->isReduction() == inner->isReduction(),
       "Merging IterDomains requires that their iteration types match. ",
@@ -2786,6 +2908,7 @@ IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
           .parallel_type(outer->getParallelType())
           .expanded_extent(expanded_extent)
           .iter_type(itype)
+          .is_rfactor_domain(rfactor_domain)
           .build();
 
   IrBuilder::create<Merge>(outer->container(), merged_id, outer, inner);
@@ -2801,7 +2924,8 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
     Val* factor,
     bool inner_split,
     Val* start_offset,
-    Val* stop_offset) {
+    Val* stop_offset,
+    bool rfactor_domain) {
   NVF_CHECK(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
@@ -2829,6 +2953,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
                                                      : nullptr)
           .parallel_type(in->getParallelType())
           .iter_type(in->getIterType())
+          .is_rfactor_domain(rfactor_domain)
           .build();
 
   // inner loop IterDomain
@@ -2840,6 +2965,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
                                                       : nullptr)
           .parallel_type(in->getParallelType())
           .iter_type(in->getIterType())
+          .is_rfactor_domain(rfactor_domain)
           .build();
 
   IrBuilder::create<Split>(
@@ -2858,10 +2984,12 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
     IterDomain* in,
     Val* factor,
     bool inner_split,
-    bool trim_out_of_bounds) {
+    bool trim_out_of_bounds,
+    bool rfactor_domain) {
   auto start_offset = trim_out_of_bounds ? in->start() : nullptr;
   auto stop_offset = trim_out_of_bounds ? in->stopOffset() : nullptr;
-  return IterDomain::split(in, factor, inner_split, start_offset, stop_offset);
+  return IterDomain::split(
+      in, factor, inner_split, start_offset, stop_offset, rfactor_domain);
 }
 
 std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
@@ -2996,7 +3124,11 @@ IterDomain* IterDomain::resize(
   }
 
   auto resized_id =
-      IterDomainBuilder(in->container()->zeroVal(), resized_id_size)
+      IterDomainBuilder(
+          in->container()->zeroVal(),
+          // Set immediate constant size of 1 if resize produces broadcast
+          iter_type == IterType::Broadcast ? in->fusion()->oneVal()
+                                           : resized_id_size)
           .is_rfactor_domain(mark_as_rfactor)
           .iter_type(iter_type)
           .build();

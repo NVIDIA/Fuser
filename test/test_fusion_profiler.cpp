@@ -21,7 +21,21 @@
 
 namespace nvfuser {
 
-class FusionProfilerTest : public NVFuserTest {};
+class FusionProfilerTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    saved_ = ProfilerOptionsGuard::getCurOptions();
+  }
+
+  void TearDown() override {
+    ProfilerOptionsGuard::getCurOptions() = saved_;
+    NVFuserTest::TearDown();
+  }
+
+ private:
+  Options<ProfilerOption> saved_;
+};
 
 // RUN CMD: bin/nvfuser_tests --gtest_filter="*Profile1Segment*"
 TEST_F(FusionProfilerTest, Profile1Segment) {

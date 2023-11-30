@@ -70,7 +70,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv);
 //!   This class is used to implement the thread swizzle format
 //!     required for the mma macros, cf. PTX ISA 9.7.13.4.
 //!
-//!   The mma instructions (Volta through Ampere) require specific
+//!   The mma instructions (Volta and later arch) require specific
 //!     thread mapping within a warp for both the mma inputs and
 //!     mma outputs. All mma swizzle patterns seen so far turned out
 //!     to be affine, so we could use the normal scheduler interface
@@ -89,7 +89,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv);
 //!     as follows:
 //!
 //!   Step 1. Before scheduling, the mma op needs to be configured with a macro
-//!   type, either manually or inferred (eg. Volta_16_16_4).
+//!   type, either manually or inferred (eg. Ampere_16_8_8).
 //!
 //!   Step 2. Scheduler can tile the outer dimensions based on any heuristics,
 //!   i.e. the CTA tiling, warp tiling, splitK etc.
@@ -100,7 +100,7 @@ void canonicalizeMmaTvOrdering(TensorView* tv);
 //!    tensordomain (see [Operand Layout Convention] for exact definition).
 //!
 //!    For example before calling WarpMmaSwizzler, the domain could look like:
-//!    [TileM, TileN, TileK, Im(16), In(16), Rk(4)], to use Volta_16_16_4.
+//!    [TileM, TileN, TileK, Im(16), In(8), Rk(8)], to use Ampere_16_8_8.
 //!    The rightmost 3 iterdomains need to be the innermost component of their
 //!    corresponding root id, similar to vectorization except this requirement
 //!    applies to all 3 rightmost dims.
@@ -160,54 +160,35 @@ class WarpMmaSwizzler {
   //! Applies the output mma swizzling to the given tv, should be used
   //!  on mma output or tv's involved in epilog fusion, i.e. bias.
   //! The rightmost iterdomains must follow the m,n,k convention before calling.
-  static void scheduleMmaWarpOutput(TensorView* tv, MmaOptions options);
+  static void scheduleMmaWarpOutput(TensorView* tv);
 
-  //! Applies the input mma swizzling to the given tv, should be used
-  //!  on mma input or tv's involved in any fusion before mma, but after smem
-  //!  read.
+  //! Applies the input mma swizzling to the given tv as its allocation domain,
+  //! should be used on mma input or tv's involved in any fusion before mma, but
+  //! after smem read.
   //! The rightmost iterdomains must follow the m,n,k convention before calling.
-  static void scheduleOperandRead(
-      TensorView* tv,
-      MmaOptions options = MmaOptions());
+  static void scheduleOperandRead(TensorView* tv, MmaOperand operand);
 
- private:
-  //! Operand swizzle implementations for Volta mma.
-  static void scheduleVoltaOperandRead(TensorView* tv, MmaOptions options);
-
-  //! Accumulator swizzle implementations for Volta mma.
-  static void scheduleVoltaM16N16K4Fp32Output(
-      TensorView* tv,
-      const MmaOptions& options);
-
-  //! Operand swizzle implementations for Turing and Ampere mma.
-  static void scheduleTuringOperandRead(TensorView* tv, MmaOptions options);
-
-  //! Accumulator swizzle implementation for Turing and Ampere mma.
-  static void scheduleTuringM16N8K16MmaWarpOutput(
-      TensorView* tv,
-      const MmaOptions& options);
-
-  //! Accumulator swizzle implementation for emulated 16x16x16 mma tile
-  //!  that enables using ldmatrix.x4.
-  //! Note:
-  //!   Keeping both this option and the ldmatrix.x2 variant above for
-  //! now for wider scheduler exploration space. Eventually both of
-  //! these can be unified with a single affine utility.
-  static void scheduleTuringM16N16K16MmaWarpOutput(
-      TensorView* tv,
-      const MmaOptions& options);
-
-  //! Utility to lock the transformed dimensions from further transforms.
-  static void setWarpMapped(TensorView* tv, int number_of_dims);
+  //! Note [schedule of ldmatrix]
+  //! If you look at the doc of ldmatrix and mma for Turing and Ampere:
+  //! https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-fragment-mma-16816-float
+  //! https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-instructions-ldmatrix
+  //! you will find that, the memory layout of the output of ldmatrix, which
+  //! matches with the input layout of MMA instruction, mismatch with the index
+  //! that each thread uses to call ldmatrix. In nvFuser, we schedule the
+  //! allocation domain of the ldmatrix output and mma inputs to be consistent
+  //! with the memory layout of the output of ldmatrix, and we schedule the
+  //! leaf domain of the ldmatrix output to be consistent with the index that
+  //! each thread uses to call ldmatrix. This function is used to schedule the
+  //! leaf domain of the ldmatrix output. The allocation domain of the ldmatrix
+  //! output and mma inputs are scheduled in scheduleOperandRead, which must be
+  //! called before this function.
+  static void scheduleLdMatrix(TensorView* tv, MmaOperand operand);
 };
 
 void checkDimSize(
     TensorView* tv,
     std::vector<int> axis,
     std::vector<int> expect);
-
-// Returns if the loopnest is initializing for an mma op.
-bool isMmaInitLoop(const kir::ForLoop* loop);
 
 //! A constant with minimum number of fusion inputs that could be MMA inputs.
 //!  TODO: update for square matmuls where both inputs are the same tensor
@@ -254,7 +235,7 @@ class DataWrapperOpt {
   }
 };
 
-using MatmulProblemLayoutOpt = DataWrapperOpt<MmaOptions::MmaLayout>;
+using MatmulProblemLayoutOpt = DataWrapperOpt<MmaLayout>;
 using ProblemIterDomainsOpt = DataWrapperOpt<ProblemIterDomains>;
 using RolesMapOpt = DataWrapperOpt<RolesMap>;
 
@@ -270,11 +251,11 @@ using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 //! - matmul layout which contains information about transposition of matmul
 //!  inputs, it is based on the order of key domains (M,N K) in fusion input
 //!  tensors,
-//! - mma layout, some architectures (e.g. Volta) support all combination of
+//! - mma layout, some architectures (e.g. Hopper) support all combination of
 //!  transposition of inputs in mma instructions, while other (e.g. Turing,
 //!  Ampere) the only supported transposition is TN which means that mma
 //!  instruction first input is transposed, the second input is non-transposed.
-MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion);
+MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion);
 
 //! Returns wrapped collection of IterDomains that can be used to get
 //!  problem shape with runtime info.

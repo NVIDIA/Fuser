@@ -31,13 +31,13 @@ bool State::operator!=(const State& other) const {
 
 // Generalized printing of State
 std::ostream& operator<<(std::ostream& os, const State& state) {
-  if (state.stype == serde::StateType_Scalar) {
+  if (state.stype == serde::StateType::Scalar) {
     os << "S";
-  } else if (state.stype == serde::StateType_Tensor) {
+  } else if (state.stype == serde::StateType::Tensor) {
     os << "T";
-  } else if (state.stype == serde::StateType_Vector) {
+  } else if (state.stype == serde::StateType::Vector) {
     os << "V";
-  } else if (state.stype == serde::StateType_None) {
+  } else if (state.stype == serde::StateType::None) {
     os << "None";
   } else {
     NVF_ERROR(false, "Unsupported StateType");

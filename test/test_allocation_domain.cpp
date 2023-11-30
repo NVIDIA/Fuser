@@ -24,6 +24,8 @@ namespace nvfuser {
 
 class AllocationDomainTest : public NVFuserTest {};
 
+using ::testing::ElementsAre;
+
 // A global->shared->global copy kernel, shared memory allocated transposed to
 // avoid bank conflict.
 TEST_F(AllocationDomainTest, TransposedIntermediate) {
@@ -59,7 +61,7 @@ TEST_F(AllocationDomainTest, TransposedIntermediate) {
   FusionExecutor fe;
   fe.compileFusion(fusion_ptr.get(), {t0});
   auto cg_outputs = fe.runFusion({t0});
-  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // A global->global copy kernel converting NCHW memory format into NHWC, with a
@@ -103,7 +105,7 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d) {
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
-  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // A global->global copy kernel converting NCHW memory format into NHWC, with a
@@ -144,7 +146,7 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC1d) {
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
-  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // A global->global copy kernel converting NCHW memory format into NHWC, with a
@@ -186,7 +188,7 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC2d) {
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
-  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Reshape and transpose a 3d tensor into an NHWC tensor with a 3d allocation
@@ -358,7 +360,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d) {
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
-  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // A global->global copy kernel where both inputs are NHWC memory format. The
@@ -419,7 +421,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d) {
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
-  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // A global->global copy kernel where both inputs are NHWC memory format. The
@@ -475,7 +477,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d) {
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
-  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // A global->global copy kernel where both inputs are NHWC memory format. The
@@ -536,7 +538,7 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d) {
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
-  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // A global->global copy kernel where both inputs are NHWC memory format. The
@@ -604,7 +606,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d) {
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
-  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Similar to NHWC4d_To_NHWC4d, but does a cacheBefore
@@ -671,7 +673,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheBefore) {
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
-  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Similar to NHWC2d_To_NHWC2d, but does a cacheBefore
@@ -748,7 +750,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheBefore) {
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
-  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Similar to NHWC4d_To_NHWC4d, but does a cacheAfter
@@ -815,7 +817,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheAfter) {
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
-  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // NOT similar to NHWC2d_To_NHWC2d, because cacheAfter requires the
@@ -886,7 +888,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheAfter) {
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
-  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Similar to NHWC4d_To_NHWC4d, but does a cacheFork
@@ -960,7 +962,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheFork) {
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
-  testValidate(&fusion, cg_outputs, {t0}, {t0, t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Similar to NHWC2d_To_NHWC2d, but does a cacheFork
@@ -1050,7 +1052,7 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork) {
 
   ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
 
-  testValidate(&fusion, cg_outputs, {t0}, {t0, t0}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(AllocationDomainTest, VectorizationIssue902) {
@@ -1139,7 +1141,7 @@ TEST_F(NVFuserTest, AllocationDomainContiguityIssue1021) {
   auto outputs = fec.runFusionWithInputs({t0});
 
   auto t1 = t0.add(5.0);
-  testValidate(fusion, outputs, {t0}, {t1}, __LINE__, __FILE__);
+  testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, AllocationDomainContiguityForBroadcast) {
@@ -1165,7 +1167,7 @@ TEST_F(NVFuserTest, AllocationDomainContiguityForBroadcast) {
   auto outputs = fec.runFusionWithInputs({t0});
 
   auto t1 = t0.add(5.0);
-  testValidate(fusion, outputs, {t0}, {t1}, __LINE__, __FILE__);
+  testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, AllocationDomainContiguityForExplicitBroadcast) {
@@ -1192,7 +1194,7 @@ TEST_F(NVFuserTest, AllocationDomainContiguityForExplicitBroadcast) {
   auto outputs = fec.runFusionWithInputs({t0});
 
   auto t1 = t0.add(5.0);
-  testValidate(fusion, outputs, {t0}, {t1}, __LINE__, __FILE__);
+  testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Test that allocation domain can be used to vectorize overlapping tensors,
@@ -1246,6 +1248,64 @@ TEST_F(AllocationDomainTest, VectorizeOverlappingTensor) {
   auto cg_outputs = fe.runFusion({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(AllocationDomainTest, Issue1290_ContiguityWasMissing) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = TensorViewBuilder()
+                       .ndims(2)
+                       .dtype(DataType::Float)
+                       .contiguity({false, true})
+                       .shape({-1, -1})
+                       .build();
+  fusion->addInput(in);
+  TensorView* out1 = permute(in, {1, 0});
+  fusion->addOutput(out1);
+  TensorView* out2 = add(out1, fusion->oneVal());
+  fusion->addOutput(out2);
+
+  at::Tensor in_tensor = at::randn({2 * 4}).cuda().as_strided({2, 3}, {4, 1});
+
+  FusionExecutorCache fec(std::move(fusion));
+  fec.runFusionWithInputs({in_tensor});
+
+  // The initial issue was detected in the pointwise scheduler, so I added these
+  // checks to make sure it's a valid regression test. The transpose scheduler
+  // could accept this but decided not to because of a small problem size.
+  const std::vector<SegmentedGroup*>& groups =
+      fec.getMostRecentKernelRuntime()->fusionSegments()->groups();
+  ASSERT_EQ(groups.size(), 1);
+  SegmentedGroup* group = groups[0];
+  EXPECT_EQ(group->heuristic(), ScheduleHeuristic::PointWise);
+}
+
+TEST_F(AllocationDomainTest, Issue1290_ReplayCasPFailedDueToDifferentRanks) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* out = sum(in, {1});
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  out->setAllocationDomain({out->axis(0), out->axis(1)}, true);
+  out->cacheBefore();
+
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {in_tensor});
+  at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
+  EXPECT_THAT(out_tensor.sizes(), ElementsAre(2));
+}
+
+TEST_F(AllocationDomainTest, TrivialStrideOrderTensorViewBuilder) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* tv0 = TensorViewBuilder().ndims(2).strideOrder({0, 1}).build();
+  EXPECT_TRUE(tv0->hasAllocation());
+  tv0 = TensorViewBuilder().ndims(2).strideOrder({1, 0}).build();
+  EXPECT_TRUE(!tv0->hasAllocation());
 }
 
 } // namespace nvfuser

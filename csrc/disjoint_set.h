@@ -86,7 +86,7 @@ class VectorOfUniqueEntries {
     return false;
   }
 
-  // Returns if any node was added
+  // Returns true if any node was added
   bool pushBack(const VectorOfUniqueEntries<T, Hash>& other) {
     return pushBack(other.vector());
   }
