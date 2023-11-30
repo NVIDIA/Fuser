@@ -1191,12 +1191,7 @@ TEST_F(GpuViewTest, FusionReshapeVectorize) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-  // This test allocates about 1GB of memory, so in order to avoid an OOM during
-  // this test, we manually clear the allocator after it's reached a certain
-  // threshold.
-  maybeClearAllocator();
-
-  at::Tensor input = at::randn({256, 1024, 1024}, options);
+  at::Tensor input = at::randn({256, 256, 256}, options);
 
   auto lparams = schedulePointwise(&fusion, {input});
 
