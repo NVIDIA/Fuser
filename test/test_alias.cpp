@@ -384,7 +384,7 @@ TEST_F(AliasTest, DuplicateOutputs) {
   // Verify output values.
   testValidate(
       fec.fusion(),
-      {expected_out_tensor, expected_out_tensor},
+      out_tensors,
       {in_tensor},
       __LINE__,
       __FILE__);
@@ -531,7 +531,7 @@ TEST_F(AliasTest, DuplicateOutputsSegmentedFusion) {
   // Verify output values.
   testValidate(
       fec.fusion(),
-      {intermediate_tensor, intermediate_tensor, out_tensor, out_tensor},
+      out_tensors,
       {in_tensor},
       __LINE__,
       __FILE__);
@@ -588,6 +588,7 @@ TEST_F(AliasTest, Set_NoAliasForIncompatibleLayout) {
   EXPECT_FALSE(out_tensor.is_alias_of(in_tensor));
 }
 
+// Verifying that duplicated outputs are properly alised
 TEST_F(AliasTest, DuplicatedOutputs) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -605,8 +606,6 @@ TEST_F(AliasTest, DuplicatedOutputs) {
 
   FusionExecutorCache fec(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
-  auto inc_5_tensor = in_tensor.add(5.0);
-  auto inc_1_tensor = in_tensor.add(1.0);
 
   std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 4);
@@ -619,20 +618,22 @@ TEST_F(AliasTest, DuplicatedOutputs) {
   // Verify output values.
   testValidate(
       fec.fusion(),
-      {inc_5_tensor, inc_5_tensor, inc_1_tensor, inc_5_tensor},
+      out_tensors,
       {in_tensor},
       __LINE__,
       __FILE__);
 }
 
+// test verifying that duplicated input is not allowed in nvfuser
 TEST_F(AliasTest, DuplicatedInputs) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  fusion->addInput(in);
+
+  // duplicated input is not allowed
   EXPECT_THAT(
       []() {
-        auto fusion = std::make_unique<Fusion>();
-        FusionGuard fg(fusion.get());
-
-        TensorView* in = makeContigConcreteTensor({2, 3, 5});
-        fusion->addInput(in);
         fusion->addInput(in);
       },
       testing::ThrowsMessage<nvfuser::nvfError>(
