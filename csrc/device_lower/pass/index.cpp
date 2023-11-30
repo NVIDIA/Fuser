@@ -1459,18 +1459,11 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto base_addr =
         IrBuilder::tensorBaseAddressExpr(mma->inA()->as<TensorView>());
     auto layout = *mma->layout();
-    int leading_bytes = 0;
     int stride_bytes =
         /*8x8 items each core matrix*/ 64 * /*bytes per item*/ 2;
-    if (layout == MmaLayout::TT || layout == MmaLayout::TN) {
-      leading_bytes = /*8x8 items each core matrix*/ 64 *
-          /*number of core matrices*/ (getM(mma->macro()) / 8) *
-          /*bytes per item*/ 2;
-    } else {
-      leading_bytes = /*8x8 items each core matrix*/ 64 *
-          /*number of core matrices*/ (getK(mma->macro()) / 8) *
-          /*bytes per item*/ 2;
-    }
+    int leading_bytes = /*8x8 items each core matrix*/ 64 *
+        /*number of core matrices*/ (getM(mma->macro()) / 8) *
+        /*bytes per item*/ 2;
     auto matrix_desc = constructMatrixDescriptor(
         base_addr,
         IrBuilder::create<Val>(leading_bytes, DataType::UInt),

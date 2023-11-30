@@ -830,12 +830,12 @@ void WarpMmaSwizzler::scheduleOperandRead(
     if (transpose) {
       tv->reorder({{-2, -1}});
     }
-    // [M, K]
+    // [K, M]
     tv->split(-2, 8);
     tv->split(-1, 8);
-    // [Mo, M8, Ko, K8]
+    // [Ko, K8, Mo, M8]
     tv->reorder({{-2, -3}});
-    // [Mo, Ko, M8, K8]
+    // [Ko, Mo, K8, M8]
     tv->setAllocationDomain(tv->getLeafDomain(), true);
   } else if (swizzle == MmaInputSmemSwizzle::B128) {
     NVF_ERROR(false, "Not implemented yet");
