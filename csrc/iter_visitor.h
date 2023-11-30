@@ -364,10 +364,8 @@ class InputsOf : public IterVisitor {
   void dispatch(Val* v) final;
 
  public:
-  static std::vector<Val*> output(Fusion* fusion, Val* output_);
-  static std::vector<Val*> outputs(
-      Fusion* fusion,
-      const std::vector<Val*>& outputs_);
+  static std::vector<Val*> output(Val* output_);
+  static std::vector<Val*> outputs(const std::vector<Val*>& outputs_);
 };
 
 //! This is a generic traversal class that is used to modify a Fusion graph by

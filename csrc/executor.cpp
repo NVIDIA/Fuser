@@ -275,7 +275,7 @@ void FusionExecutor::compileFusion(
       }
       output_extents.emplace_back(extent);
     }
-    auto dependencies = InputsOf::outputs(fusion, output_extents);
+    auto dependencies = InputsOf::outputs(output_extents);
     if (std::any_of(dependencies.begin(), dependencies.end(), [](Val* val) {
           return val->isFusionInput();
         })) {

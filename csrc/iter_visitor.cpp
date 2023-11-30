@@ -945,13 +945,11 @@ void InputsOf::dispatch(Val* v) {
   }
 }
 
-std::vector<Val*> InputsOf::output(Fusion* fusion, Val* output_) {
-  return outputs(fusion, {output_});
+std::vector<Val*> InputsOf::output(Val* output_) {
+  return outputs({output_});
 }
 
-std::vector<Val*> InputsOf::outputs(
-    Fusion* fusion,
-    const std::vector<Val*>& outputs_) {
+std::vector<Val*> InputsOf::outputs(const std::vector<Val*>& outputs_) {
   InputsOf io;
   io.traverseTo(outputs_, false);
   return io.ordered_inputs;

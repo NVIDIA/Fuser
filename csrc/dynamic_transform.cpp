@@ -147,7 +147,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   //! Process vector of leaf dynamic values by finding inputs and recording the
   //! result into info_
   void finalizeDynamicVals() {
-    const auto inputs = InputsOf::outputs(info_.fusion(), leaf_dynamic_vals_);
+    const auto inputs = InputsOf::outputs(leaf_dynamic_vals_);
     info_.root_dynamic_vals_.insert(inputs.begin(), inputs.end());
 
     // initial_info_ provides a set of Vals that are used for concretization.
