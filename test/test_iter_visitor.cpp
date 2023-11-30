@@ -112,6 +112,9 @@ TEST_F(IterVisitorTest, NonTerminatingOutput) {
   fusion.addOutput(c);
   fusion.addOutput(e);
 
+  // Even though `c` is a non-terminating output, `d` and `e` should still be
+  // considered in between. This is because `StmtSort::getExprsBetween`
+  // traverses from `to` along use-def chains until it hits `from`.
   EXPECT_THAT(StmtSort::getExprsBetween({a}, {c, e}), IsSupersetOf({d->definition(), e->definition()}));
 }
 
