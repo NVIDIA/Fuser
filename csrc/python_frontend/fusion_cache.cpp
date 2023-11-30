@@ -733,11 +733,9 @@ void FusionCache::deserialize(std::string filename) {
   if (!isOptionDisabled(DisableOption::ParallelSerde)) {
     // Wait until all fusion executor caches are deserialized
     getThreadPool()->waitWorkComplete();
-    /*
     NVF_ERROR(
         !detect_exception_in_thread_pool,
         "Detected exception while deserializing fusions in parallel.");
-    */
   }
 }
 
