@@ -9423,41 +9423,69 @@ TEST_F(NVFuserTest, ProjectPersistentBufferMultiScopes) {
   DataType input_dtype = DataType::Float;
   auto tv0 = makeContigTensor(2, input_dtype);
   auto tv1 = makeContigTensor(2, input_dtype);
+  auto tv2 = makeContigTensor(2, input_dtype);
+
   fusion->addInput(tv0);
   fusion->addInput(tv1);
+  fusion->addInput(tv2);
 
-  auto tv2 = add(tv0, tv0);
-  auto tv3 = sum(tv2, {1});
-  auto tv4 = broadcast(tv3, {false, true});
-  auto tv5 = add(tv2, tv4);
+  auto tv3 = add(tv0, tv0);
+  auto tv4 = sum(tv3, {1});
+  auto tv5 = broadcast(tv4, {false, true});
+  auto tv6 = add(tv3, tv5);
 
-  auto tv6 = add(tv2, tv2);
-  auto tv7 = sum(tv6, {1});
-  auto tv8 = broadcast(tv7, {false, true});
-  auto tv9 = add(tv6, tv8);
+  auto tv7 = add(tv3, tv3);
+  auto tv8 = sum(tv7, {1});
+  auto tv9 = broadcast(tv8, {false, true});
+  auto tv10 = add(tv7, tv9);
 
-  auto tv10 = add(tv2, tv1);
-  auto tv11 = mul(tv10, tv10);
-  auto tv12 = sum(tv11, {1});
-  auto tv13 = broadcast(tv12, {false, true});
-  auto tv14 = add(tv11, tv13);
+  auto tv11 = add(tv0, tv1);
+  auto tv12 = mul(tv11, tv11);
+  auto tv13 = sum(tv12, {1});
+  auto tv14 = broadcast(tv13, {false, true});
+  auto tv15 = add(tv12, tv14);
 
-  fusion->addOutput(tv5);
-  fusion->addOutput(tv9);
-  fusion->addOutput(tv14);
+  auto tv16 = add(tv12, tv2);
+  auto tv17 = mul(tv16, tv16);
+  auto tv18 = sum(tv17, {1});
+  auto tv19 = broadcast(tv18, {false, true});
+  auto tv20 = add(tv17, tv19);
+
+  fusion->addOutput(tv6);
+  fusion->addOutput(tv10);
+  fusion->addOutput(tv15);
+  fusion->addOutput(tv20);
 
   auto options = at::TensorOptions()
                      .dtype(data_type_to_aten(input_dtype))
                      .device(at::kCUDA, 0);
   auto t0 = at::randn({batch_size, hidden_size}, options);
   auto t1 = at::randn({batch_size, hidden_size}, options);
-  std::vector<c10::IValue> inputs{t0, t1};
+  auto t2 = at::randn({batch_size, hidden_size}, options);
+  std::vector<c10::IValue> inputs{t0, t1, t2};
 
-  // When calculate tv9, the active persistent tv is tv2, tv6 is
-  // projected to tv2. When calculate tv14, the active persistent tvs are tv2
-  // and tv11. So the max persistent buffer size depends on tv2 and tv11. If
-  // project to inputs, thare are also two fp32 tvs, so shouldn't project to
-  // inputs.
+  // The persistent buffers in this fusion are: tv3, tv7, tv12, and tv17. Note
+  // that tv7 can be projected back to its producer, tv3. When calculating the
+  // total size of persistent buffers ([persistent_buffer_size]), it's important
+  // to consider the active scopes of these buffers. Simply subtracting the
+  // buffer size of tv7 from the total may lead to an overestimation. This is
+  // because there are two distinct scopes in this computation: (1) During the
+  // calculation of tv10, the active persistent buffers are tv3 and tv7. (2) For
+  // the calculation of tv20, the active persistent buffers are tv12 and tv17.
+  // So the buffer size should come from these 2 persistent tvs rather than 3.
+  auto persistent_info = scheduler_utils::persistentBuffers(fusion);
+  SchedulerRuntimeInfo runtime_info(fusion, inputs);
+  auto persistent_buffer_size =
+      persistentBufferSize(fusion, runtime_info, persistent_info);
+  auto calculated_size = persistent_buffer_size.persistent_buffer_size;
+  auto expected_size =
+      static_cast<int64_t>(hidden_size * 2 * dataTypeSize(input_dtype));
+  NVF_CHECK(
+      calculated_size == expected_size,
+      "Buffer size calculation failure. Expected size: ",
+      expected_size,
+      ". Actual: ",
+      calculated_size);
   auto persistent_params = getInnerPersistentHeuristics(fusion, inputs);
   NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
   NVF_CHECK(
