@@ -272,6 +272,14 @@ TEST_P(Hopper, RS) {
   tv1b->setMemoryType(MemoryType::Shared);
   tv1b->applyMmaSwizzle(swizzle, transpose_b);
 
+  // The schedule of tv1b does not matter (as long as its allocation domain is
+  // correct), we just naively parallelize it so the test runs faster.
+  tv1b->merge(0);
+  tv1b->merge(0);
+  tv1b->merge(0);
+  tv1b->split(0, 128);
+  tv1b->axis(1)->parallelize(ParallelType::TIDx);
+
   if (!transpose_b) {
     // [M, K, N] -> [M, N, K]
     tv2c->reorder({{-1, -2}});
