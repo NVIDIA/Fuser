@@ -42,8 +42,7 @@ TEST_F(ExternalSrcExample, Reduction_CUDA) {
   buffer << cuda_src.rdbuf();
   std::string cuda_src_str = buffer.str();
 
-  fe.compileRtc(
-      cuda_src_str, "CudaCodeGen::kernel1", true, PrimDataType::Int32);
+  fe.compileRtc(cuda_src_str, "kernel1", true, PrimDataType::Int32);
 
   // The following is a sample launch pattern of the compiled
   // kernel. It must be adapted for each particular source file.
@@ -114,11 +113,10 @@ TEST_F(ExternalSrcExample, Matmul_CUDA) {
   buffer << cuda_src.rdbuf();
   std::string cuda_src_str = buffer.str();
 
-  fe.compileRtc(
-      cuda_src_str, "CudaCodeGen::kernel1", true, PrimDataType::Int32);
+  fe.compileRtc(cuda_src_str, "kernel1", true, PrimDataType::Int32);
 
   int M = 2048, N = 3456, K = 2048;
-  MmaOptions::MmaLayout layout = MmaOptions::MmaLayout::TN;
+  MmaLayout layout = MmaLayout::TN;
   auto inputs = matmulAtInput(M, N, K, layout);
   auto at_output = atMatmul(inputs.first, inputs.second, layout).to(at::kFloat);
 

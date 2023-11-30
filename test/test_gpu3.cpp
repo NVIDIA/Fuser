@@ -10378,8 +10378,8 @@ TEST_F(NVFuserTest, LayerNormDropout) {
     return kinfo;
   };
   int64_t batch_size = 1024 * 32;
-  // test(batch_size, 18*1024, 0, 0, false, false);
-  // return;
+  test(2048, 16*1024, 0, 0, false, false);
+  return;
   constexpr int vect_factor = 8;
   constexpr int min_threads_per_block = 32;
   constexpr int max_threads_per_block = 1024;

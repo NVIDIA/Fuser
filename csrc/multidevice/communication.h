@@ -10,6 +10,8 @@
 
 #include <multidevice/communicator.h>
 #include <multidevice/multidevice.h>
+#include <torch/csrc/distributed/c10d/Types.hpp>
+#include <type.h>
 
 namespace nvfuser {
 
@@ -22,6 +24,7 @@ struct CommParams {
   std::vector<at::Tensor> src_bufs;
   std::vector<at::Tensor> dst_bufs;
   Team team; // should not have duplicate
+  c10d::ReduceOp::RedOpType redOp = c10d::ReduceOp::RedOpType::UNUSED;
 };
 
 /*
@@ -64,7 +67,9 @@ class Communication {
 
   // Triggers the execution of the communication. This is a non-blocking call.
   // The communication can be posted multiple times
-  virtual c10::intrusive_ptr<c10d::Work> post(Communicator& comm) = 0;
+  virtual c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) = 0;
 
  protected:
   // argument "name" is only used for printing
@@ -95,7 +100,9 @@ Requirements:
 class Broadcast : public Communication {
  public:
   Broadcast(CommParams params);
-  c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
 /*
@@ -112,7 +119,9 @@ Requirements:
 class Gather : public Communication {
  public:
   Gather(CommParams params);
-  c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
 /*
@@ -127,7 +136,9 @@ Requirements:
 class Allgather : public Communication {
  public:
   Allgather(CommParams params);
-  c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
 /*
@@ -143,7 +154,56 @@ Requirements:
 class Scatter : public Communication {
  public:
   Scatter(CommParams params);
-  c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
+};
+
+/*
+Reduce the src buffers to the root's dst buffer.
+
+Requirements:
+  - the root is set and belongs to the team
+  - the root has one src buffers and one dst buffer
+  - non-roots have one src buffer and no dst buffer
+  - all buffers have the same size
+*/
+class Reduce : public Communication {
+ public:
+  Reduce(CommParams params);
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
+};
+
+/*
+Reduce the src buffers to the dst buffer.
+
+Requirements:
+  - all devices have one src buffer and one dst buffer
+  - all buffers have the same size
+*/
+class Allreduce : public Communication {
+ public:
+  Allreduce(CommParams params);
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
+};
+
+/*
+Reduce all the src buffers and shard the result to the dst buffers.
+
+Requirements:
+  - all devices have <team_size> src buffer and one dst buffer
+  - all buffers have the same size
+*/
+class ReduceScatter : public Communication {
+ public:
+  ReduceScatter(CommParams params);
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
 /*
@@ -164,7 +224,9 @@ buffer
 class SendRecv : public Communication {
  public:
   SendRecv(CommParams params);
-  c10::intrusive_ptr<c10d::Work> post(Communicator& comm) override;
+  c10::intrusive_ptr<c10d::Work> post(
+      Communicator& comm,
+      std::optional<CommunicatorBackend> backend = std::nullopt) override;
 };
 
 } // namespace nvfuser

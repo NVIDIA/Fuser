@@ -205,8 +205,27 @@ void Fusion::removeVal(Val* val) {
     removeExpr(orig);
   }
 
-  for (Expr* use : unordered_uses(val)) {
-    removeExpr(use);
+  // We previously first looped over val->uses() and removed them all from the
+  // Fusion. This seems correct at first glance, but it is incomplete since
+  // `val->uses()` actually only gives all live uses. When there is dead code in
+  // the Fusion that includes some uses of a val that is to be removed, we can
+  // wind up with an expression that holds an invalid pointer to the removed
+  // value in its inputs(). In https://github.com/NVIDIA/Fuser/issues/1270 this
+  // caused a segfault when the fusion was cloned since that will clone not only
+  // live objects but also these dangerous dangling dead ones.
+  std::vector<Expr*> exprs_to_remove;
+  for (Expr* e : exprs_) {
+    if (!inContainer(e)) {
+      continue;
+    }
+    if (std::find(e->inputs().begin(), e->inputs().end(), val) !=
+        e->inputs().end()) {
+      // Avoid removing until after we've looped through exprs_
+      exprs_to_remove.push_back(e);
+    }
+  }
+  for (auto e : exprs_to_remove) {
+    removeExpr(e);
   }
   IrContainer::removeVal(val);
 }
@@ -315,14 +334,14 @@ std::vector<Expr*> Fusion::exprs() {
 
 namespace {
 
-bool allOutputsArePointerCasts(Fusion* fusion) {
+bool allOutputsArePointerArithmetics(Fusion* fusion) {
   for (Val* out : fusion->outputs()) {
     const auto& [in, info] = fusion->getOutputAlias(out);
     if (in == nullptr) {
       return false;
     }
     NVF_ERROR(info != nullptr);
-    if (info->type != AliasType::PointerCast) {
+    if (info->type != AliasType::PointerArithmetic) {
       return false;
     }
   }
@@ -336,7 +355,7 @@ bool Fusion::isNoOp() {
     return true;
   }
 
-  if (allOutputsArePointerCasts(this)) {
+  if (allOutputsArePointerArithmetics(this)) {
     return true;
   }
 
@@ -797,7 +816,7 @@ void Fusion::aliasOutputToInput(Val* output, Val* input, const AliasType type) {
   }
 }
 
-std::pair<Val*, const AliasInfo*> Fusion::getOutputAlias(Val* output) {
+std::pair<Val*, const AliasInfo*> Fusion::getOutputAlias(Val* output) const {
   if (auto search = io_alias_.find(output); search != io_alias_.end()) {
     const std::pair<Val*, AliasInfo>& in_val_and_info = search->second;
     return {in_val_and_info.first, &in_val_and_info.second};

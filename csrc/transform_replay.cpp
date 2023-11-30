@@ -517,48 +517,17 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayPasC(
     }
   }
 
-  if (!opt.replay_allocation) {
-    TensorDomain* replayed = IrBuilder::create<TensorDomain>(
-        producer->container(),
-        producer->getRootDomain(),
-        producer->getRFactorDomain(),
-        producer->getAllocationDomain(),
-        new_IDs,
-        producer->domain()->contiguity());
-    return {replayed, producer_pos};
-  }
+  NVF_ERROR(
+      !opt.replay_allocation,
+      "replayAllocation is not implemented yet for TransformReplay::replayPasC");
 
   TensorDomain* replayed = IrBuilder::create<TensorDomain>(
       producer->container(),
       producer->getRootDomain(),
       producer->getRFactorDomain(),
-      std::vector<IterDomain*>{},
+      producer->getAllocationDomain(),
       new_IDs,
       producer->domain()->contiguity());
-
-  if (consumer->hasAllocation()) {
-    auto replay_PasC = BestEffortReplay(
-        new_IDs,
-        consumer->getLeafDomain(),
-        root_map.mapConsumerToProducer(consumer->domain(), replayed));
-    const auto& c2p_map = replay_PasC.getReplay();
-    std::vector<IterDomain*> new_allocation_domain;
-    new_allocation_domain.reserve(consumer->getAllocationDomain().size());
-    for (auto id : consumer->getAllocationDomain()) {
-      auto it = c2p_map.find(id);
-      NVF_CHECK(
-          it != c2p_map.end(),
-          "Unable to replayPasC: can not map ",
-          id->toString(),
-          " in the allocation domain of consumer tensor ",
-          consumer->toString(),
-          " to producer tensor ",
-          producer->toString());
-      new_allocation_domain.emplace_back(it->second);
-    }
-    replayed->setAllocationDomain(std::move(new_allocation_domain), true);
-  }
-
   return {replayed, producer_pos};
 }
 
@@ -572,8 +541,9 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
 
   // If this is a reduction operation, we may call transform_replay on the same
   // tensor view. When this happens, just return thet target view.
-  if (consumer == producer)
+  if (consumer == producer) {
     return {consumer->domain(), consumer->nDims()};
+  }
 
   if (producer_pos < 0) {
     producer_pos += (int64_t)producer->nDims() + 1;
@@ -801,12 +771,18 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
     return {replayed, consumer_pos};
   }
 
+  NVF_ERROR(
+      consumer->definition()->isA<LoadStoreOp>() && !consumer->hasRFactor(),
+      "TransformReplay::replayCasP currently replays allocation only for Set. "
+      "Other ops (e.g. `consumer = broadcast(producer)`) can break. "
+      "See https://github.com/NVIDIA/Fuser/pull/1291#discussion_r1391999007 for details.");
+
   TensorDomain* replayed = IrBuilder::create<TensorDomain>(
       consumer->container(),
       consumer->getRootDomain(),
       consumer->getRFactorDomain(),
-      std::vector<IterDomain*>{},
-      new_IDs,
+      /*allocation=*/std::vector<IterDomain*>{},
+      /*leaf=*/new_IDs,
       consumer->domain()->contiguity());
 
   if (producer->hasAllocation()) {
@@ -815,21 +791,24 @@ std::pair<TensorDomain*, size_t> TransformReplay::replayCasP(
         producer->getLeafDomain(),
         root_map.mapProducerToConsumer(producer->domain(), replayed));
     const auto& p2c_map = replay_CasP.getReplay();
+
+    auto producer_rank = producer->getAllocationDomain().size();
     std::vector<IterDomain*> new_allocation_domain;
-    new_allocation_domain.reserve(producer->getAllocationDomain().size());
-    for (auto id : producer->getAllocationDomain()) {
-      auto it = p2c_map.find(id);
-      NVF_CHECK(
-          it != p2c_map.end(),
-          "Unable to replayCasP: can not map ",
-          id->toString(),
-          " in the allocation domain of producer tensor ",
-          producer->toString(),
-          " to consumer tensor ",
-          consumer->toString());
-      new_allocation_domain.emplace_back(it->second);
+    new_allocation_domain.reserve(producer_rank);
+    std::vector<std::optional<bool>> new_contiguity;
+    new_contiguity.reserve(producer_rank);
+
+    for (auto i : c10::irange(producer_rank)) {
+      IterDomain* id = producer->getAllocationDomain()[i];
+      // We won't find reduction IterDomains in the map. See
+      // AllocationDomainTest.CacheBefore.
+      if (auto it = p2c_map.find(id); it != p2c_map.end()) {
+        new_allocation_domain.push_back(it->second);
+        new_contiguity.push_back(producer->getContiguity()[i]);
+      }
     }
-    replayed->setAllocationDomain(std::move(new_allocation_domain), true);
+    replayed->setAllocationDomain(
+        std::move(new_allocation_domain), std::move(new_contiguity));
   }
   return {replayed, consumer_pos};
 }

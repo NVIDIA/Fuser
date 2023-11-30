@@ -53,7 +53,7 @@ class IrTransformPrinter : public IrPrinter {
 
   void handle(Fusion* f) override;
 
-  void printTransforms(TensorView* tv);
+  void printTransforms(const TensorView* tv);
 };
 
 } // namespace nvfuser

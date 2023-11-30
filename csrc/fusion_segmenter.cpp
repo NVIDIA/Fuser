@@ -883,7 +883,7 @@ std::vector<SegmentedEdge*> SegmentedFusion::castInputOutputToLowerPrecision(
   //
   // To avoid this discrepancy, when this is done with virtual merged
   // groups, bundle all edges to the merged groups and process them
-  // together. This way, only one instane of the cast-back expr should
+  // together. This way, only one instance of the cast-back expr should
   // be inserted.
   //
   // Note that this analysis and replacement would be much simpler if we
@@ -1554,7 +1554,9 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
     }
   }
 
-  for (auto out : getAllOutputs(sg)) {
+  // note, we would want to keep output consistent and not artificially drop
+  // duplicates.
+  for (auto out : sg->output_vals) {
     fusion_segment->addOutput(complete_to_segment_map.clone(out));
   }
 
@@ -3500,7 +3502,7 @@ void SegmentCandidateFinder::forwardInputs() {
       // output's further uses
       const auto& output_uses = expr->output(0)->uses();
 
-      if (output_uses.size() == 1) {
+      if (output_uses.size() == 1 && output_uses[0]->isA<UnaryOp>()) {
         // If there is a single use, visit it to try and extend the chain of
         // unaryOps
         to_visit.emplace_back(output_uses.at(0));

@@ -109,11 +109,8 @@ def test_softmax_fwd_benchmark(
         softmax_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype), reduction_axis)
 
     if not disable_validation:
-        nvf_output = fd.execute(inputs)
         eager_output = torch.nn.functional.softmax(inputs[0], dim=reduction_axis)
-        assert torch.allclose(
-            nvf_output[0], eager_output, rtol=1e-3, atol=1e-3
-        ), f"{torch.max(nvf_output[0] - eager_output)}"
+        fd.validate(inputs, [eager_output])
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
@@ -143,11 +140,7 @@ def test_softmax_bwd_benchmark(
     if not disable_validation:
         eager_output = torch.nn.functional.softmax(inputs[0], dim=reduction_axis)
         eager_output.backward(inputs[1])
-
-        nvf_output = fd.execute([eager_output, inputs[1]])
-        assert torch.allclose(
-            nvf_output[0], inputs[0].grad, rtol=1e-3, atol=1e-3
-        ), f"{torch.max(nvf_output[0] - inputs[0].grad)}"
+        fd.validate([eager_output, inputs[1]], [inputs[0].grad])
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)

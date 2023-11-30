@@ -68,7 +68,7 @@ TEST_F(NVFuserTest, FusionDefinition_CUDA) {
           {fd.recordingState(t0()), fd.recordingState(s1())},
           {fd.recordingState(t2())},
           "ops.add",
-          serde::RecordType_Binary_TV_VAL,
+          serde::RecordType::Binary_TV_VAL,
           static_cast<TensorView* (*)(TensorView*, Val*)>(add)));
       SUCCEED();
     } catch (const std::exception& e) {
@@ -77,7 +77,7 @@ TEST_F(NVFuserTest, FusionDefinition_CUDA) {
 
     try {
       fd.defineRecord(new OutputRecord<TensorView>(
-          {fd.recordingState(t2())}, serde::RecordType_OutputTv));
+          {fd.recordingState(t2())}, serde::RecordType::OutputTv));
       SUCCEED();
     } catch (const std::exception& e) {
       FAIL() << "Unexpected assert during Output Record creation! " << e.what();
@@ -85,7 +85,7 @@ TEST_F(NVFuserTest, FusionDefinition_CUDA) {
 
     try {
       fd.defineRecord(new OutputRecord<Val>(
-          {fd.recordingState(s1())}, serde::RecordType_OutputVal));
+          {fd.recordingState(s1())}, serde::RecordType::OutputVal));
       FAIL() << "Expected an assert for too many records!";
     } catch (...) {
       SUCCEED();
@@ -148,7 +148,7 @@ TEST_F(NVFuserTest, FusionDefinition_CUDA) {
           {fd.recordingState(t0()), fd.recordingState(s1())},
           {fd.recordingState(t2())},
           "ops.add",
-          serde::RecordType_Binary_TV_VAL,
+          serde::RecordType::Binary_TV_VAL,
           static_cast<TensorView* (*)(TensorView*, Val*)>(add)));
       SUCCEED();
     } catch (const std::exception& e) {
@@ -157,7 +157,7 @@ TEST_F(NVFuserTest, FusionDefinition_CUDA) {
 
     try {
       fd.defineRecord(new OutputRecord<TensorView>(
-          {fd.recordingState(t2())}, serde::RecordType_OutputTv));
+          {fd.recordingState(t2())}, serde::RecordType::OutputTv));
       SUCCEED();
     } catch (const std::exception& e) {
       FAIL() << "Unexpected assert during Output Record creation! " << e.what();

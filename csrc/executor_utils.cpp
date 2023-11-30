@@ -50,7 +50,6 @@
 #include <nvfuser_resources/memory.h>
 #include <nvfuser_resources/random_numbers.h>
 #include <nvfuser_resources/tensor.h>
-#include <nvfuser_resources/tensorcore.h>
 #include <nvfuser_resources/tuple.h>
 #include <nvfuser_resources/type_traits.h>
 #include <nvfuser_resources/warp.h>
@@ -99,7 +98,6 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::broadcast_cu;
   ss << nvfuser_resources::welford_cu;
   ss << nvfuser_resources::warp_cu;
-  ss << nvfuser_resources::tensorcore_cu;
   ss << nvfuser_resources::memory_cu;
   ss << nvfuser_resources::fused_welford_helper_cu;
   ss << nvfuser_resources::fused_reduction_cu;
@@ -758,10 +756,10 @@ std::vector<char> compileNvrtcProgramToCubin(const nvrtcProgram& program) {
 // Returns the name of the dumped file.
 std::string dumpCompiledCodeToFile(
     const std::vector<char>& code,
-    const int64_t fusion_id,
+    const std::string& id,
     const std::string& suffix) {
   std::stringstream file_name;
-  file_name << "__tmp_kernel" << fusion_id << suffix;
+  file_name << "__tmp_kernel_" << id << suffix;
   debug() << "PRINTING: " << file_name.str() << std::endl;
   std::ofstream out(file_name.str());
   NVF_ERROR(out.is_open());
@@ -970,6 +968,10 @@ void fillCompileOptions(
     std::optional<int64_t> opt_block_size) {
   nvrtc_compile_driver.setOption("--std=c++17");
 
+  // Suppress warnings for functions that are defined but unused, since we have
+  // many unused functions in the preamble.
+  nvrtc_compile_driver.setOption("--diag-suppress=177");
+
   // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
   // which gives better backwards compatibility to work on older driver,
   // (since older driver doesn't necessarily recognize PTX emitted by new
@@ -1096,10 +1098,10 @@ int warnRegisterSpill(const std::string& compile_log) {
 
 void createNvrtcProgram(
     nvrtcProgram& program,
-    int64_t id,
+    const std::string& id,
     const std::string& full_src_code) {
   std::stringstream ss;
-  ss << "__tmp_kernel" << id << ".cu";
+  ss << "__tmp_kernel_" << id << ".cu";
   std::string name = ss.str();
   FUSER_PERF_SCOPE("executor_utils::NvrtcCreateProgram");
   NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
@@ -1110,7 +1112,7 @@ void createNvrtcProgram(
 std::unique_ptr<CompiledKernel> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
-    const int64_t id,
+    const std::string& id,
     const bool compile_to_sass,
     NvrtcCompileDriver& nvrtc_compile) {
   std::stringstream log;
@@ -1165,7 +1167,7 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& full_src_code,
     const std::string& func_name,
-    int64_t id,
+    const std::string& id,
     const CompileParams& compile_params,
     std::optional<int64_t> opt_block_size) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");

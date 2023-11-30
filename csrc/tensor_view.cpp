@@ -255,6 +255,10 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       compute_with_pos_(src->compute_with_pos_),
       promote_reuse_(src->promote_reuse_) {}
 
+void TensorView::printTransforms() const {
+  IrTransformPrinter(std::cout).printTransforms(this);
+}
+
 // sets cpu_scalar_ value, which is special handling for CPU based zero-dim
 // tensors (i.e. CPU Tensors that only have one value). This is only used if
 // on an input value, otherwise ignored. This is important as special handling
@@ -1386,6 +1390,9 @@ void TensorView::applyMmaSwizzle(MmaOptions options) {
     case MmaOptions::Operand::A:
     case MmaOptions::Operand::B:
       mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, options);
+      if (ir_utils::isLdMatrixOp(definition())) {
+        mma_utils::WarpMmaSwizzler::scheduleLdMatrix(this, options);
+      }
       break;
     default:
       NVF_ERROR(false, "unknown operand flag");
