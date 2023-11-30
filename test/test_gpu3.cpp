@@ -8123,8 +8123,8 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
   const float kEps = 1e-5;
   const int batch_size = 2048 * 8;
   const int hidden_size = 20480;
+  DataType dtype = DataType::Half;
   {
-    DataType dtype = DataType::Half;
     auto tv0 = makeContigTensor(1, dtype);
     auto tv1 = makeContigTensor(2, dtype);
     auto tv2 = makeContigTensor(1, dtype);
@@ -8206,16 +8206,20 @@ TEST_F(NVFuserTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
     outputs.emplace_back(t33);
   }
 
-  auto persistent_buffer_info1 = scheduler_utils::persistentBuffers(fusion);
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
   NVF_CHECK(
-      persistent_buffer_info1.persistent_buffers.size() == 2,
+      persistent_buffer_info.persistent_buffers.size() == 2,
       "Before project to other buffers, should have two persistent buffers!");
 
-  reduction_scheduler_utils::projectPersistentBuffers(fusion, false);
-  auto persistent_buffer_info2 = scheduler_utils::persistentBuffers(fusion);
+  // The buffer size should only count 1 buffer because the other one is
+  // projected to its producer.
+  SchedulerRuntimeInfo runtime_info(fusion, inputs);
+  auto persistent_buffer_size =
+      persistentBufferSize(fusion, runtime_info, persistent_buffer_info);
   NVF_CHECK(
-      persistent_buffer_info2.persistent_buffers.size() == 1,
-      "After project to other buffers, should have one persistent buffer!");
+      persistent_buffer_size.persistent_buffer_size ==
+          hidden_size * dataTypeSize(dtype),
+      "Persistent buffer size is not correct!");
 
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto cg_outputs = fec.runFusionWithInputs(inputs);
@@ -9408,6 +9412,91 @@ TEST_F(NVFuserTest, LoweringHook) {
   EXPECT_TRUE(executed);
 }
 
+TEST_F(NVFuserTest, ProjectPersistentBufferMultiScopes) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int batch_size = 2048;
+  const int hidden_size = 10240;
+  DataType input_dtype = DataType::Float;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  auto tv1 = makeContigTensor(2, input_dtype);
+  auto tv2 = makeContigTensor(2, input_dtype);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  auto tv3 = add(tv0, tv0);
+  auto tv4 = sum(tv3, {1});
+  auto tv5 = broadcast(tv4, {false, true});
+  auto tv6 = add(tv3, tv5);
+
+  auto tv7 = add(tv3, tv3);
+  auto tv8 = sum(tv7, {1});
+  auto tv9 = broadcast(tv8, {false, true});
+  auto tv10 = add(tv7, tv9);
+
+  auto tv11 = add(tv0, tv1);
+  auto tv12 = mul(tv11, tv11);
+  auto tv13 = sum(tv12, {1});
+  auto tv14 = broadcast(tv13, {false, true});
+  auto tv15 = add(tv12, tv14);
+
+  auto tv16 = add(tv12, tv2);
+  auto tv17 = mul(tv16, tv16);
+  auto tv18 = sum(tv17, {1});
+  auto tv19 = broadcast(tv18, {false, true});
+  auto tv20 = add(tv17, tv19);
+
+  fusion->addOutput(tv6);
+  fusion->addOutput(tv10);
+  fusion->addOutput(tv15);
+  fusion->addOutput(tv20);
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({batch_size, hidden_size}, options);
+  auto t1 = at::randn({batch_size, hidden_size}, options);
+  auto t2 = at::randn({batch_size, hidden_size}, options);
+  std::vector<c10::IValue> inputs{t0, t1, t2};
+
+  // The persistent buffers in this fusion are: tv3, tv7, tv12, and tv17. Note
+  // that tv7 can be projected back to its producer, tv3. When calculating the
+  // total size of persistent buffers ([persistent_buffer_size]), it's important
+  // to consider the active scopes of these buffers. Simply subtracting the
+  // buffer size of tv7 from the max buffer size may lead to an underestimation.
+  // This is because there are two distinct scopes in this computation: (1)
+  // During the calculation of tv10, the active persistent buffers are tv3 and
+  // tv7. (2) For the calculation of tv20, the active persistent buffers are
+  // tv12 and tv17. The max buffer size is based on tv12 and tv17. There is no
+  // projectable buffer needs to be deducted in this scope.
+  auto persistent_info = scheduler_utils::persistentBuffers(fusion);
+  SchedulerRuntimeInfo runtime_info(fusion, inputs);
+  auto persistent_buffer_size =
+      persistentBufferSize(fusion, runtime_info, persistent_info);
+  auto calculated_size = persistent_buffer_size.persistent_buffer_size;
+  auto expected_size =
+      static_cast<int64_t>(hidden_size * 2 * dataTypeSize(input_dtype));
+  NVF_CHECK(
+      calculated_size == expected_size,
+      "Buffer size calculation failure. Expected size: ",
+      expected_size,
+      ". Actual: ",
+      calculated_size);
+  auto persistent_params = getInnerPersistentHeuristics(fusion, inputs);
+  NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
+  NVF_CHECK(
+      !persistent_params->project_persistent_buffers,
+      "Shouldn't project persistent buffers to inputs!");
+
+  scheduleInnerPersistentKernel(fusion, *persistent_params);
+  FusionExecutor fe;
+  fe.compileFusion(fusion, inputs);
+  auto cg_outputs = fe.runFusion(inputs);
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
