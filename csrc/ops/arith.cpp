@@ -1478,13 +1478,16 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
       // already done when constructing out_id_builder.
       out_id_builder.extent(inp_id->extent());
     } else if (
-        inp_id->isBroadcast() &&
+        (inp_id->isBroadcast() ||
+         (inp_id->isSymbolic() && inp_id->extent()->evaluate() == 1)) &&
         (!expanded_size_int.hasValue() || expanded_size_int != 1)) {
       // When input id is a broadcast, expand the extent to the given
       // size, which can be concrete or symbolic.
       expanded = true;
       auto expanded_extent = maybeCastOp(DataType::Index, expanded_sizes[i]);
       out_id_builder.expanded_extent(expanded_extent);
+      // need to mark iter type as Broadcast for Symbolic input domains
+      out_id_builder.iter_type(IterType::Broadcast);
       maybe_expanded_sizes[i] = expanded_extent;
     } else if (!inp_id->extent()->isConstInt()) {
       // Input id is non-broadcast and its extent is symbolic. Promote
@@ -1492,17 +1495,6 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
       // Note that expansion to 1 just means its extent becomes 1 and
       // does not mean the ID becomes a broadcast.
       out_id_builder.extent(maybeCastOp(DataType::Index, expanded_sizes[i]));
-    } else if (
-        inp_id->isSymbolic() && inp_id->extent()->evaluate() == 1 &&
-        (!expanded_size_int.hasValue() || expanded_size_int != 1)) {
-      // When input id is a symbolic broadcast, expand the extent to the given
-      // size, which can be concrete or symbolic.
-      // Also update the broadcast flag
-      expanded = true;
-      auto expanded_extent = maybeCastOp(DataType::Index, expanded_sizes[i]);
-      out_id_builder.expanded_extent(expanded_extent);
-      out_id_builder.iter_type(IterType::Broadcast);
-      maybe_expanded_sizes[i] = expanded_extent;
     } else {
       // Input id is non-expand and its extent is concrete. Nothing
       // to expand, but the input and expanded sizes should match if
