@@ -428,13 +428,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyReduction_CUDA) {
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);
 
-  testValidate(
-      preseg_fusion,
-      outputs,
-      aten_inputs,
-      {at::sum(at0, {0})},
-      __LINE__,
-      __FILE__);
+  testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // In this test, a reduction over a non-empty axis occurs first, followed by a
@@ -467,13 +461,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyReductionWithNonReduction_CUDA) {
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);
 
-  testValidate(
-      preseg_fusion,
-      outputs,
-      aten_inputs,
-      {at::sum(at::sum(at0, 1), 0)},
-      __LINE__,
-      __FILE__);
+  testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test that we replace empty Welford with full
@@ -565,13 +553,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyCat_CUDA) {
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);
 
-  testValidate(
-      preseg_fusion,
-      outputs,
-      aten_inputs,
-      {at::cat({at1, at2}, 0), at1},
-      __LINE__,
-      __FILE__);
+  testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test that we replace empty tensors in pad properly
@@ -609,13 +591,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyPad_CUDA) {
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);
 
-  testValidate(
-      preseg_fusion,
-      outputs,
-      aten_inputs,
-      {at::pad(at0, {1, 1}, "constant", 3.14)},
-      __LINE__,
-      __FILE__);
+  testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test that we replace empty tensors in matmuls properly
@@ -660,13 +636,7 @@ TEST_F(NVFuserTest, FusionRemoveEmptyMatmul_CUDA) {
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);
 
-  testValidate(
-      preseg_fusion,
-      outputs,
-      aten_inputs,
-      {at::zeros({16, 8}, options)},
-      __LINE__,
-      __FILE__);
+  testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser::optimization

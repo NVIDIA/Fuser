@@ -50,7 +50,6 @@
 #include <nvfuser_resources/memory.h>
 #include <nvfuser_resources/random_numbers.h>
 #include <nvfuser_resources/tensor.h>
-#include <nvfuser_resources/tensorcore.h>
 #include <nvfuser_resources/tuple.h>
 #include <nvfuser_resources/type_traits.h>
 #include <nvfuser_resources/warp.h>
@@ -99,7 +98,6 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::broadcast_cu;
   ss << nvfuser_resources::welford_cu;
   ss << nvfuser_resources::warp_cu;
-  ss << nvfuser_resources::tensorcore_cu;
   ss << nvfuser_resources::memory_cu;
   ss << nvfuser_resources::fused_welford_helper_cu;
   ss << nvfuser_resources::fused_reduction_cu;
@@ -969,6 +967,10 @@ void fillCompileOptions(
     const CompileParams& compile_params,
     std::optional<int64_t> opt_block_size) {
   nvrtc_compile_driver.setOption("--std=c++17");
+
+  // Suppress warnings for functions that are defined but unused, since we have
+  // many unused functions in the preamble.
+  nvrtc_compile_driver.setOption("--diag-suppress=177");
 
   // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
   // which gives better backwards compatibility to work on older driver,

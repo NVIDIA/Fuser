@@ -24,8 +24,6 @@ __device__ inline unsigned toSmem(const void* raw_ptr) {
 
 namespace Turing {
 
-namespace util {
-
 // LdMatrix has .x1, .x2 and .x4 options, currently we actively use .x2 and
 //  .x4. In .x2 option. the the address register of upper half warp (lane 16-31)
 //  are un-used but on Turing [sm75,sm80) architecture these un-used addresses
@@ -42,8 +40,8 @@ namespace util {
 //    hardware.
 //  The alignment requirement is lifted on sm80+,
 //    so this function is a no-op on Ampere or above.
-__device__ inline void adjustPartialLdMatrixAddrInTuring(
-    unsigned& addr_in_byte) {
+__device__ inline unsigned adjustPartialLdMatrixAddrInTuring(
+    unsigned addr_in_byte) {
   const unsigned thread_id = threadIdx.x;
   // Upper half warp has 8 bytes offset from aligned in .x2 option
   //  of ldmatrix. Currently no support for .x1 so assume always
@@ -57,120 +55,12 @@ __device__ inline void adjustPartialLdMatrixAddrInTuring(
     // mask out the bits where adjust_mask has 1.
     addr_in_byte &= (~mask_out);
   }
-}
-
-} // namespace util
-
-// Load Matrix (per warp instruction) is to take data from SMEM to Local Memory.
-//   Automatically handles vectorized loads/stores in the MMA operation.
-//   Loads 8x8 matrix into a warp. Thread 0-7 provide the ptr that is the start
-//   of each row. All other threads can simply point to something valid
-//   (including 0).
-// The x2 modifier on the instruction will actually load 2x8 rows to make a
-// 16x8,
-//   then thread 0-15 will specify the start of each row.
-// Finally is an x4 modifier producing a 32x8 using addrs from 0-31 in each
-// warp.
-
-__device__ inline void ldMatrix(Array<uint32_t, 2, 1>& out, unsigned addr) {
-#if (__CUDA_ARCH__ < 800)
-  util::adjustPartialLdMatrixAddrInTuring(addr);
-#endif
-  asm volatile("ldmatrix.sync.aligned.x2.m8n8.shared.b16 {%0,%1}, [%2];"
-               : "=r"(out[0]), "=r"(out[1])
-               : "r"(addr));
-}
-
-// Same as previous, 8x8 matrix is vectorized loaded, then scattered (to perform
-// transpose) so threads will hold 2 values down a column (instead of the
-// previous instruction that's across a row).
-__device__ inline void ldMatrixT(Array<uint32_t, 2, 1>& out, unsigned addr) {
-#if (__CUDA_ARCH__ < 800)
-  util::adjustPartialLdMatrixAddrInTuring(addr);
-#endif
-  asm volatile("ldmatrix.sync.aligned.x2.trans.m8n8.shared.b16 {%0,%1}, [%2];"
-               : "=r"(out[0]), "=r"(out[1])
-               : "r"(addr));
-}
-
-__device__ inline void ldMatrix(Array<uint32_t, 4, 1>& out, unsigned addr) {
-  asm volatile("ldmatrix.sync.aligned.x4.m8n8.shared.b16 {%0,%1,%2,%3}, [%4];"
-               : "=r"(out[0]), "=r"(out[1]), "=r"(out[2]), "=r"(out[3])
-               : "r"(addr));
-}
-
-__device__ inline void ldMatrixT(Array<uint32_t, 4, 1>& out, unsigned addr) {
-  asm volatile(
-      "ldmatrix.sync.aligned.x4.trans.m8n8.shared.b16 {%0,%1,%2,%3}, [%4];"
-      : "=r"(out[0]), "=r"(out[1]), "=r"(out[2]), "=r"(out[3])
-      : "r"(addr));
+  return addr_in_byte;
 }
 
 } // namespace Turing
 
 #endif // Arch 75
-
-#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800))
-
-namespace Ampere {
-
-// MMA instruction wrappers (sm_80+):
-
-// Global to SMEM load that is asynchronous,
-// not guaranteed to be completed until cpAsyncBarrier() is called.
-// if predicate is set to false, then gmem_ptr won't be read and smem_addr will
-// be zero-initialized gmem_ptr must be `sizeof(dtype) * len` aligned
-template <typename dtype, int len>
-__device__ inline void cpAsyncCa(
-    unsigned smem_addr,
-    void const* gmem_ptr,
-    bool predicate) {
-  constexpr int byte_size = sizeof(dtype) * len;
-
-  static_assert(
-      byte_size == 4 || byte_size == 8 || byte_size == 16,
-      "cp_async : unsupported byte size");
-
-  asm volatile(
-      "{\n"
-      "  .reg .pred p;\n"
-      "  setp.eq.b32 p, %3, 0;\n"
-      "  cp.async.ca.shared.global [%0], [%1], %2, p;\n"
-      "}\n" ::"r"(smem_addr),
-      "l"(gmem_ptr),
-      "n"(byte_size),
-      "r"((int)predicate));
-}
-
-// Global to SMEM load that is asynchronous,
-//  The cache global variant, i.e. skip L1 caching.
-// more details see:
-// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#cache-operators
-// not guaranteed to be completed until cpAsyncBarrier() is called.
-// if predicate is set to false, then gmem_ptr won't be read and smem_addr will
-// be zero-initialized gmem_ptr must be 16B aligned
-template <typename dtype, int len>
-__device__ inline void cpAsyncCg(
-    unsigned smem_addr,
-    void const* gmem_ptr,
-    bool predicate) {
-  constexpr int byte_size = sizeof(dtype) * len;
-
-  static_assert(byte_size == 16, "cp_async : unsupported byte size");
-
-  asm volatile(
-      "{\n"
-      "  .reg .pred p;\n"
-      "  setp.eq.b32 p, %2, 0;\n"
-      "  cp.async.cg.shared.global [%0], [%1], 16, p;\n"
-      "}\n" ::"r"(smem_addr),
-      "l"(gmem_ptr),
-      "r"((int)predicate));
-}
-
-} // namespace Ampere
-
-#endif // Arch 80
 
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
 
@@ -283,18 +173,6 @@ struct CpAsyncBulkTensorTileS2GIndex {
   const TensorMap* descriptor;
   Array<int32_t, dim> crds;
 };
-
-__device__ inline void cpAsyncBulkS2GCommit() {
-  asm volatile("cp.async.bulk.commit_group;");
-}
-
-template <int keep_stages>
-__device__ inline void cpAsyncBulkS2GPartialReadBarrier() {
-  asm volatile("cp.async.bulk.wait_group.read %0;"
-               :
-               : "n"(keep_stages)
-               : "memory");
-}
 
 __device__ inline void cpAsyncBulkTensorTileS2G(
     const CpAsyncBulkTensorTileS2GIndex<1>& dest,

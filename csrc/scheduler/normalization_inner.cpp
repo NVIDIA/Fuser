@@ -184,12 +184,16 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
     const int64_t n_tensor_inputs,
     const int64_t max_input_dtype_size,
     const int64_t max_persistent_buffer_size,
-    const size_t max_vectorize_factor) {
+    const size_t max_vectorize_factor,
+    const bool project_to_input,
+    const PrimDataType index_type) {
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   auto rparams = std::make_shared<ReductionParams>();
   rparams->shared_mem_persistent_buffer = true;
   rparams->persistent_kernel = true;
   rparams->fastest_dim = true;
+  rparams->project_persistent_buffers = project_to_input;
+  rparams->cparams.index_type = index_type;
   // Inner reduction domain
   // This heuristic is only used for cases with large total_reduction_numel.
   // e.g. layer_norm with hidden size larger than 64K for fp16 or 32K for fp32.
@@ -251,7 +255,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const int64_t n_tensor_inputs,
     const int64_t max_input_dtype_size,
     const int64_t max_persistent_buffer_size,
-    const size_t vectorize_factor) {
+    const size_t vectorize_factor,
+    const bool project_to_input,
+    const PrimDataType index_type) {
   if (max_persistent_buffer_size > scheduler_utils::register_file_size) {
     // use shared memory for persistent buffer
     return innerPersistentHeuristicSharedMemory(
@@ -261,7 +267,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         (int64_t)n_tensor_inputs,
         (int64_t)max_input_dtype_size,
         max_persistent_buffer_size,
-        vectorize_factor);
+        vectorize_factor,
+        project_to_input,
+        index_type);
   }
 
   // Set some targets for parallelization
@@ -710,6 +718,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   rparams->cparams.maxrregcount = (int)nvrtc_register_per_thread;
   rparams->persistent_kernel = true;
   rparams->fastest_dim = true;
+  rparams->project_persistent_buffers = project_to_input;
+  rparams->cparams.index_type = index_type;
 
   // Inner reduction domain
   rparams->cross_block_inner_reduction = true;
@@ -805,9 +815,9 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
       prop.n_tensor_inputs,
       prop.max_dtype_size,
       prop.max_persistent_buffer_size,
-      prop.vectorize_factor);
-  rparams->project_persistent_buffers = prop.project_persistent_buffers;
-  rparams->cparams.index_type = runtime_info.getIndexType();
+      prop.vectorize_factor,
+      prop.project_persistent_buffers,
+      prop.index_type);
   return rparams;
 }
 

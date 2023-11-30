@@ -338,6 +338,7 @@ bool needFloatSuffix(UnaryOpType t) {
     case UnaryOpType::IsReal:
     case UnaryOpType::Print:
     case UnaryOpType::ToUnsignedSmemAddr:
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring:
       return false;
     default:
       return true;
@@ -456,6 +457,8 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "std::imag";
     case UnaryOpType::ToUnsignedSmemAddr:
       return "toSmem";
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring:
+      return "Turing::adjustPartialLdMatrixAddrInTuring";
     default:
       NVF_ERROR(false, "No string found for unary op type.");
   }
@@ -765,6 +768,8 @@ static const char* id_map_mode_type2string(IdMappingMode t) {
       return "permissive";
     case IdMappingMode::PERMISSIVE_RESIZE:
       return "permissive_resize";
+    case IdMappingMode::INNERMOST:
+      return "innermost";
     default:
       // Don't try to print t as it would recursively call this function
       NVF_ERROR(false, "Unexpected IdMappingMode Type.");

@@ -49,7 +49,9 @@ class MultiDeviceTest : public NVFuserTest {
   bool do_barrier_at_test;
 };
 
-class CommunicationTest : public MultiDeviceTest {
+class CommunicationTest
+    : public MultiDeviceTest,
+      public ::testing::WithParamInterface<CommunicatorBackend> {
  protected:
   void SetUp() override;
   void validate(at::Tensor obtained, at::Tensor expected);
@@ -57,6 +59,8 @@ class CommunicationTest : public MultiDeviceTest {
   static constexpr DeviceIdxType root = 0;
   static constexpr int tensor_size = 1024;
   static constexpr int number_of_repetitions = 8;
+  static constexpr c10d::ReduceOp::RedOpType red_op =
+      c10d::ReduceOp::RedOpType::SUM;
   CommParams params;
   std::vector<DeviceIdxType> all_ranks;
 };
@@ -73,7 +77,7 @@ class PipelineTest : public MultiDeviceTest {
 //(first stage's mesh, second stage's mesh, is first stage sharded, is second
 // stage sharded)
 using PipelineTestTwoStagesParams =
-    std::tuple<DeviceMesh, DeviceMesh, bool, bool>;
+    std::tuple<CommunicatorBackend, DeviceMesh, DeviceMesh, bool, bool>;
 class PipelineTestTwoStages
     : public PipelineTest,
       public ::testing::WithParamInterface<PipelineTestTwoStagesParams> {
