@@ -270,7 +270,7 @@ TEST_P(Hopper, RS) {
   tv0b->axis(1)->parallelize(ParallelType::TIDx);
 
   tv1b->setMemoryType(MemoryType::Shared);
-  tv1b->applyMmaSwizzle(swizzle);
+  tv1b->applyMmaSwizzle(swizzle, transpose_b);
 
   if (!transpose_b) {
     // [M, K, N] -> [M, N, K]
@@ -402,9 +402,9 @@ TEST_P(Hopper, SS) {
   auto tv2c = tv2->cacheBefore();
 
   tv0b->setMemoryType(MemoryType::Shared);
-  tv0b->applyMmaSwizzle(swizzle);
+  tv0b->applyMmaSwizzle(swizzle, transpose_a);
   tv1b->setMemoryType(MemoryType::Shared);
-  tv1b->applyMmaSwizzle(swizzle);
+  tv1b->applyMmaSwizzle(swizzle, transpose_b);
 
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
