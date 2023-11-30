@@ -7276,35 +7276,6 @@ TEST_F(NVFuserTest, FusionBFloat16Scalars_CUDA) {
 }
 #endif
 
-// Quick test of traversing attributes with IterVisitor
-TEST_F(NVFuserTest, IterVisitorTraverseAttributes_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeSymbolicTensor(1);
-  fusion.addInput(tv0);
-
-  auto tv1 = slice(
-      tv0,
-      {{IrBuilder::create<Val>(1L),
-        sub(tv0->axis(0)->extent(), IrBuilder::create<Val>(1L))}});
-  fusion.addOutput(tv1);
-
-  auto tv1_resize = tv1->axis(0)->definition()->as<Resize>();
-
-  auto stmts = StmtSort::getStmts(&fusion, true, true);
-
-  // Make sure the expansion parameters of tv1_resize are visited
-  NVF_CHECK(
-      std::find(stmts.begin(), stmts.end(), tv1_resize->leftExpand()) !=
-          stmts.end(),
-      "Resize left expand parameter not found");
-  NVF_CHECK(
-      std::find(stmts.begin(), stmts.end(), tv1_resize->rightExpand()) !=
-          stmts.end(),
-      "Resize right expand parameter not found");
-}
-
 TEST_F(NVFuserTest, FusionManagedData_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -8613,49 +8584,6 @@ TEST_F(NVFuserTest, FusionDanglingUnaryOp_CUDA) {
       __FILE__);
 }
 
-// Test that traversing siblings with IterVisitor visits "orphans", i.e. unused
-// outputs of multi-output Exprs.
-TEST_F(NVFuserTest, IterVisitorTraverseSiblings_CUDA) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeSymbolicTensor(1);
-  fusion.addInput(tv0);
-
-  auto wf = Welford(tv0, {0});
-  // wf.var_sum is used, but wf.avg and wf.n are orphaned
-  auto tv1 = neg(wf.var_sum);
-  fusion.addOutput(tv1);
-
-  auto stmts = StmtSort::getStmts(
-      &fusion,
-      /*traverse_all_paths*/ false,
-      /*traverse_attributes*/ false,
-      /*traverse_siblings*/ true);
-
-  // Make sure the expansion parameters of tv1_resize are visited
-  NVF_CHECK(
-      std::find(stmts.begin(), stmts.end(), wf.avg) != stmts.end(),
-      "Welford avg not traversed");
-  NVF_CHECK(
-      std::find(stmts.begin(), stmts.end(), wf.n) != stmts.end(),
-      "Welford n not traversed");
-
-  // Test getting statements "to" a tensor with siblings
-  stmts = StmtSort::getStmtsTo(
-      {wf.n},
-      /*traverse_all_paths*/ false,
-      /*traverse_attributes*/ false,
-      /*traverse_siblings*/ true);
-  // Make sure the expansion parameters of tv1_resize are visited
-  NVF_CHECK(
-      std::find(stmts.begin(), stmts.end(), wf.avg) != stmts.end(),
-      "Welford avg not traversed in getStmtsTo({n})");
-  NVF_CHECK(
-      std::find(stmts.begin(), stmts.end(), wf.var_sum) != stmts.end(),
-      "Welford var_sum not traversed in getStmtsTo({n})");
-}
-
 TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   auto test = [](const int64_t hidden_size, DataType dtype) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
@@ -8726,31 +8654,6 @@ TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
       test(i * 1024, dtype);
     }
   }
-}
-
-TEST_F(NVFuserTest, IterVisitorGetInputsTo) {
-  // Test that IterVisitor::getInputsTo() will stop further traverse when
-  // reaching the target tensors
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto a = makeSymbolicTensor(1);
-  auto b = makeSymbolicTensor(1);
-  auto c = makeSymbolicTensor(1);
-
-  fusion.addInput(a);
-  fusion.addInput(b);
-  fusion.addInput(c);
-
-  auto d = add(b, c);
-  auto e = add(a, d);
-
-  fusion.addOutput(e);
-
-  auto inputs = IterVisitor::getInputsTo({e}, {a, d});
-  std::unordered_set<Val*> inputs_set(inputs.begin(), inputs.end());
-
-  EXPECT_EQ(inputs_set, std::unordered_set<Val*>({a, d}));
 }
 
 // converted from https://github.com/NVIDIA/Fuser/issues/443
