@@ -2970,19 +2970,18 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << call << ";\n";
   }
 
-  void handle(const kir::SerialReductionPostSync* sync) final {
+  void handle(const kir::SerialReductionPreSync* sync) final {
     // Use a custom synchronization method if enabled
     bool bidx = sync->syncDims().get(ParallelType::BIDx);
     bool bidy = sync->syncDims().get(ParallelType::BIDy);
     bool bidz = sync->syncDims().get(ParallelType::BIDz);
     bool persistent = false;
+    NVF_ERROR(
+        isAligned(),
+        "Serialization of blocks requires syncing in non-divergent threads");
 
     ArgumentBuilder sync_call_template_parms;
-    sync_call_template_parms.arg(bidx)
-        .arg(bidy)
-        .arg(bidz)
-        .arg(persistent)
-        .arg(isAligned());
+    sync_call_template_parms.arg(bidx).arg(bidy).arg(bidz).arg(persistent);
 
     auto sync_idx = genCall(
         "index_utils::maskedOffset",
@@ -2990,13 +2989,47 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         ArgumentBuilder().arg("blockIdx").arg("gridDim"));
 
     ArgumentBuilder sync_call_args;
-    sync_call_args.arg(genVariableName(sync->syncBuffer()))
+    sync_call_args.arg("&")
+        .append(genVariableName(sync->syncBuffer()))
         .append("[")
         .append(sync_idx)
         .append("]");
 
     auto sync_call = genCall(
-        "grid_sync::serialGridReductionPostSync",
+        "grid_sync::blockSerializeWait",
+        sync_call_template_parms,
+        sync_call_args);
+
+    indent() << sync_call << ";\n";
+  }
+
+  void handle(const kir::SerialReductionPostSync* sync) final {
+    // Use a custom synchronization method if enabled
+    bool bidx = sync->syncDims().get(ParallelType::BIDx);
+    bool bidy = sync->syncDims().get(ParallelType::BIDy);
+    bool bidz = sync->syncDims().get(ParallelType::BIDz);
+    bool persistent = false;
+    NVF_ERROR(
+        isAligned(),
+        "Serialization of blocks requires syncing in non-divergent threads");
+
+    ArgumentBuilder sync_call_template_parms;
+    sync_call_template_parms.arg(bidx).arg(bidy).arg(bidz).arg(persistent);
+
+    auto sync_idx = genCall(
+        "index_utils::maskedOffset",
+        ArgumentBuilder().arg(!bidx).arg(!bidy).arg(!bidz),
+        ArgumentBuilder().arg("blockIdx").arg("gridDim"));
+
+    ArgumentBuilder sync_call_args;
+    sync_call_args.arg("&")
+        .append(genVariableName(sync->syncBuffer()))
+        .append("[")
+        .append(sync_idx)
+        .append("]");
+
+    auto sync_call = genCall(
+        "grid_sync::blockSerializeRelease",
         sync_call_template_parms,
         sync_call_args);
 

@@ -53,17 +53,20 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
 
   // Schedule grid reduction directly on last axis. Split unreduced axis to
   // generate a loop nest. Each thread needs to do 8 grid reductions.
-  // [ {16384}, {i0} ] -> [ iBIDx{8}, iBIDy{8}, iS{4}, iS{2}, iTIDx{32},
-  // rBIDz{i0} ]
+  //   [ {16384}, {i0} ]
+  // becomes
+  //   [ iBIDx{8}, iBIDy{8}, iS{4}, iS{2}, iTIDx{32}, rBIDz{i0} ]
   tv0->cacheAfter();
   auto tv3 = tv1->cacheBefore();
 
+  tv3->split(0, 32);
   tv3->split(0, 2);
   tv3->split(0, 4);
-  tv3->split(0, 4);
+  tv3->split(0, 8);
   tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(1)->parallelize(ParallelType::BIDy);
   tv3->axis(-2)->parallelize(ParallelType::TIDx);
-  tv3->axis(-1)->parallelize(ParallelType::BIDy);
+  tv3->axis(-1)->parallelize(ParallelType::BIDz);
 
   TransformPropagator propagator(tv3);
   MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
@@ -84,20 +87,33 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
     // There should be a work buffer and a sync buffer allocated
     ASSERT_EQ(global_allocations.size(), 2);
     // auto orig_work_buf_alloc = global_allocations.at(0);
-    auto sync_buf = global_allocations.at(1)->buffer();
 
     // TODO:
     // - insert syncs and modify node to enable serial reduction codegen
     // - set allocation size to be same as output of reduction op
     // - swap GridReduction node with one having isSerial() == true
-    // - insert SerialReduction{Pre,Post}Sync nodes before and after main loop
 
     // There should be a single top-level ForLoop. Find its position and check
     // that there is only one.
+    size_t top_level_loop_pos = -1;
+    for (size_t i : c10::irange(top_level_exprs.size())) {
+      Expr* expr = top_level_exprs.at(i);
+      if (expr->isA<kir::ForLoop>()) {
+        ASSERT_EQ(top_level_loop_pos, -1);
+        top_level_loop_pos = i;
+      }
+    }
+
+    auto sync_buf = global_allocations.at(1)->buffer();
+
+    top_level_exprs.insert(
+        top_level_exprs.end() - 1,
+        IrBuilder::create<kir::SerialReductionPreSync>(
+            ParallelTypeBitmap(ParallelType::BIDz),
+            sync_buf));
 
     top_level_exprs.push_back(IrBuilder::create<kir::SerialReductionPostSync>(
-        /*sync_dims=*/ParallelTypeBitmap(ParallelType::BIDy),
-        /*sync_buffer=*/sync_buf));
+        ParallelTypeBitmap(ParallelType::BIDz), sync_buf));
   });
   fe.compileFusion(fusion);
 
