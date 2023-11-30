@@ -382,12 +382,7 @@ TEST_F(AliasTest, DuplicateOutputs) {
 
   at::Tensor expected_out_tensor = in_tensor.add(3.141);
   // Verify output values.
-  testValidate(
-      fec.fusion(),
-      out_tensors,
-      {in_tensor},
-      __LINE__,
-      __FILE__);
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
 TEST_F(AliasTest, SliceToSizeOne_Issue1353) {
@@ -529,12 +524,7 @@ TEST_F(AliasTest, DuplicateOutputsSegmentedFusion) {
   at::Tensor intermediate_tensor = in_tensor.add(3.141);
   at::Tensor out_tensor = intermediate_tensor.mul(2.0);
   // Verify output values.
-  testValidate(
-      fec.fusion(),
-      out_tensors,
-      {in_tensor},
-      __LINE__,
-      __FILE__);
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
 TEST_F(AliasTest, NotAllOutputsAlias) {
@@ -589,7 +579,7 @@ TEST_F(AliasTest, Set_NoAliasForIncompatibleLayout) {
 }
 
 // Verifying that duplicated outputs are properly alised
-TEST_F(AliasTest, DuplicatedOutputs) {
+TEST_F(AliasTest, DuplicateOutputsComplex) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -616,16 +606,11 @@ TEST_F(AliasTest, DuplicatedOutputs) {
   EXPECT_TRUE(out_tensors[0].is_alias_of(out_tensors[3]));
 
   // Verify output values.
-  testValidate(
-      fec.fusion(),
-      out_tensors,
-      {in_tensor},
-      __LINE__,
-      __FILE__);
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
 // test verifying that duplicated input is not allowed in nvfuser
-TEST_F(AliasTest, DuplicatedInputs) {
+TEST_F(AliasTest, DuplicateInputs) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* in = makeContigConcreteTensor({2, 3, 5});
@@ -633,9 +618,7 @@ TEST_F(AliasTest, DuplicatedInputs) {
 
   // duplicated input is not allowed
   EXPECT_THAT(
-      [&]() {
-        fusion->addInput(in);
-      },
+      [&]() { fusion->addInput(in); },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("duplicated inputs is not allowed")));
 }
