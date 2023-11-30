@@ -375,7 +375,7 @@ bool Fusion::isNoOp() {
 }
 
 std::vector<Val*> Fusion::inputsOf(Val* val) {
-  return InputsOf::output(this, val);
+  return InputsOf::output(val);
 }
 
 void Fusion::validateInputs() {
@@ -528,7 +528,7 @@ void Fusion::printMath(bool from_outputs_only) {
         leaf_vals.push_back(val);
       }
     }
-    exprs_for_print = StmtSort::getExprsTo(this, leaf_vals);
+    exprs_for_print = StmtSort::getExprsTo(leaf_vals);
   }
 
   debug() << "\n%kernel_math {\n";
@@ -649,7 +649,7 @@ std::vector<Val*> Fusion::usedMathVals() {
   // there can be vals that are created inside a fusion without using
   // anything from inputs. See, for example, tv0 in the
   // FusionOuterSplit test.
-  const auto inputs = InputsOf::outputs(this, outputs());
+  const auto inputs = InputsOf::outputs(outputs());
   auto used_math_vals = DependencyCheck::getAllValsBetween(
       {inputs.begin(), inputs.end()}, outputs());
   // When an expre has multiple outputs and only some of them are

@@ -122,8 +122,7 @@ bool isSerialBroadcastResolution(
   //  traverse across view boundaries as we do in indexing. This
   //  should not result in false aliasing but may miss safe aliasing
   //  opportunities.
-  auto serial_loop_roots =
-      InputsOf::outputs(FusionGuard::getCurFusion(), serial_loop_concrete_ids);
+  auto serial_loop_roots = InputsOf::outputs(serial_loop_concrete_ids);
 
   // Collect exact concrete id's in producer's root domain
   std::unordered_set<IterDomain*> producer_exact_concrete_root_ids;
