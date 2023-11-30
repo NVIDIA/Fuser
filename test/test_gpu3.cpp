@@ -9468,11 +9468,12 @@ TEST_F(NVFuserTest, ProjectPersistentBufferMultiScopes) {
   // that tv7 can be projected back to its producer, tv3. When calculating the
   // total size of persistent buffers ([persistent_buffer_size]), it's important
   // to consider the active scopes of these buffers. Simply subtracting the
-  // buffer size of tv7 from the total may lead to an overestimation. This is
-  // because there are two distinct scopes in this computation: (1) During the
-  // calculation of tv10, the active persistent buffers are tv3 and tv7. (2) For
-  // the calculation of tv20, the active persistent buffers are tv12 and tv17.
-  // So the buffer size should come from these 2 persistent tvs rather than 3.
+  // buffer size of tv7 from the max buffer size may lead to an underestimation.
+  // This is because there are two distinct scopes in this computation: (1)
+  // During the calculation of tv10, the active persistent buffers are tv3 and
+  // tv7. (2) For the calculation of tv20, the active persistent buffers are
+  // tv12 and tv17. The max buffer size is based on tv12 and tv17. There is no
+  // projectable buffer needs to be deducted in this scope.
   auto persistent_info = scheduler_utils::persistentBuffers(fusion);
   SchedulerRuntimeInfo runtime_info(fusion, inputs);
   auto persistent_buffer_size =
