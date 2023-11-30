@@ -1459,18 +1459,22 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto base_addr =
         IrBuilder::tensorBaseAddressExpr(mma->inA()->as<TensorView>());
     auto layout = *mma->layout();
-    int inner_size_bytes = 0;
+    int stride_bytes = 0;
+    int leading_bytes =
+        /*8x8 items each core matrix*/ 64 * /*bytes per item*/ 2;
     if (layout == MmaLayout::TT || layout == MmaLayout::TN) {
-      inner_size_bytes = getK(mma->macro()) * /*bytes per item*/ 2;
+      stride_bytes = /*8x8 items each core matrix*/ 64 *
+          /*number of core matrices*/ (getK(mma->macro()) / 8) *
+          /*bytes per item*/ 2;
     } else {
-      inner_size_bytes = getM(mma->macro()) * /*bytes per item*/ 2;
+      stride_bytes = /*8x8 items each core matrix*/ 64 *
+          /*number of core matrices*/ (getM(mma->macro()) / 8) *
+          /*bytes per item*/ 2;
     }
-    auto inner_size_val =
-        IrBuilder::create<Val>(inner_size_bytes, DataType::UInt);
     auto matrix_desc = constructMatrixDescriptor(
         base_addr,
-        IrBuilder::create<Val>(0, DataType::UInt),
-        inner_size_val,
+        IrBuilder::create<Val>(leading_bytes, DataType::UInt),
+        IrBuilder::create<Val>(stride_bytes, DataType::UInt),
         IrBuilder::create<Val>(0, DataType::UInt),
         MmaInputSmemSwizzle::None);
     a = IrBuilder::create<kir::TensorIndex>(
@@ -1488,13 +1492,15 @@ void IndexLowering::handle(const MmaOp* mma) {
         IrBuilder::tensorBaseAddressExpr(mma->inB()->as<TensorView>());
     auto layout = *mma->layout();
     int leading_bytes = 0;
-    int stride_bytes = 0;
+    int stride_bytes = /*8x8 items each core matrix*/ 64 * /*bytes per item*/ 2;
     if (layout == MmaLayout::TT || layout == MmaLayout::NT) {
-      leading_bytes = 8 * /*bytes per item*/ 2;
-      stride_bytes = getN(mma->macro()) * /*bytes per item*/ 2;
+      leading_bytes = /*8x8 items each core matrix*/ 64 *
+          /*number of core matrices*/ (getN(mma->macro()) / 8) *
+          /*bytes per item*/ 2;
     } else {
-      leading_bytes = 8 * /*bytes per item*/ 2;
-      stride_bytes = getK(mma->macro()) * /*bytes per item*/ 2;
+      leading_bytes = /*8x8 items each core matrix*/ 64 *
+          /*number of core matrices*/ (getK(mma->macro()) / 8) *
+          /*bytes per item*/ 2;
     }
     auto matrix_desc = constructMatrixDescriptor(
         base_addr,
