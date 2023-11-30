@@ -36,6 +36,7 @@ namespace nvfuser {
 using SerialGridReductionTest = NVFuserTest;
 
 // Test that we are able to generate code for a serial reduction
+// TODO: remove this test once lowering of serial grid reductions is implemented
 TEST_F(SerialGridReductionTest, CodegenNodes) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
@@ -83,15 +84,39 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
         const_cast<std::vector<Expr*>&>(kernel->topLevelExprs());
     kir::KernelSummary& summary =
         const_cast<kir::KernelSummary&>(kernel->summary());
-    std::vector<const nvfuser::kir::Allocate*>& global_allocations =
+    std::vector<const kir::Allocate*>& global_allocations =
         summary.global_allocations;
     // There should be a work buffer and a sync buffer allocated
     ASSERT_EQ(global_allocations.size(), 2);
-    // auto orig_work_buf_alloc = global_allocations.at(0);
+
+    // Create new TensorView and Allocate
+    auto output = kernel->outputs().at(0)->as<TensorView>();
+    Val* i0 = output->getRootDomain().at(0)->extent();
+    auto new_work_buf =
+        TensorViewBuilder().shape(std::vector<Val*>{i0}).build();
+    new_work_buf->setMemoryType(MemoryType::Global);
+    auto new_work_buf_alloc = IrBuilder::create<kir::Allocate>(
+        new_work_buf, MemoryType::Global, std::vector<Val*>{i0});
+    auto orig_work_buf_alloc = global_allocations[0];
+    global_allocations[0] = new_work_buf_alloc;
+    // replace work buf alloc expr in top_level_exprs
+    for (auto i : c10::irange(top_level_exprs.size())) {
+      if (top_level_exprs[i] == orig_work_buf_alloc) {
+        top_level_exprs[i] = new_work_buf_alloc;
+      }
+    }
+    // replace work buf in kernel->parameters()
+    std::vector<Val*>& params =
+        const_cast<std::vector<Val*>&>(kernel->parameters());
+    for (auto i : c10::irange(params.size())) {
+      if (params[i] == orig_work_buf_alloc->buffer()) {
+        params[i] = new_work_buf;
+      }
+    }
 
     // TODO:
-    // - codegen serial GridReduction
     // - set allocation size to be same as output of reduction op
+    // - codegen serial GridReduction
 
     // There should be a single top-level ForLoop. Find its position and check
     // that there is only one.
@@ -134,7 +159,7 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
         old_grop->init(),
         old_grop->out(),
         old_grop->in(),
-        old_grop->reduction_buffer(),
+        new_work_buf_alloc,
         old_grop->sync_buffer(),
         old_grop->entrance_index(),
         old_grop->entrances(),
