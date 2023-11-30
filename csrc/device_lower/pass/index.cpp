@@ -1497,7 +1497,7 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto matrix_desc = constructMatrixDescriptor(
         base_addr,
         IrBuilder::create<Val>(leading_bytes, DataType::UInt),
-        IrBuilder::create<Val>(stride_bytes, DataType::UInt);
+        IrBuilder::create<Val>(stride_bytes, DataType::UInt),
         IrBuilder::create<Val>(0, DataType::UInt),
         MatrixDescSwizzle::None);
     b = IrBuilder::create<kir::TensorIndex>(
