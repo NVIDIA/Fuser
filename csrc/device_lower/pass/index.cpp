@@ -1428,7 +1428,7 @@ static Val* constructMatrixDescriptor(
     Val* leading_dim_byte_offset,
     Val* stride_dim_byte_offset,
     Val* matrix_base_offset,
-    MatrixDescSwizzle swizzle) {
+    MmaInputSmemSwizzle swizzle) {
   auto or0 = matrixDescriptorEncode(start_address);
   auto or1 = IrBuilder::lShiftExpr(
       matrixDescriptorEncode(leading_dim_byte_offset),
@@ -1448,6 +1448,8 @@ static Val* constructMatrixDescriptor(
       or4);
 }
 
+// Reference for smem strides:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#strides
 void IndexLowering::handle(const MmaOp* mma) {
   Val* a = nullptr;
   Val* b = nullptr;
@@ -1470,7 +1472,7 @@ void IndexLowering::handle(const MmaOp* mma) {
         IrBuilder::create<Val>(0, DataType::UInt),
         inner_size_val,
         IrBuilder::create<Val>(0, DataType::UInt),
-        MatrixDescSwizzle::None);
+        MmaInputSmemSwizzle::None);
     a = IrBuilder::create<kir::TensorIndex>(
         mma->inA()->as<TensorView>(),
         GpuLower::current()->commonScalarMap().hoistScalar(
@@ -1499,7 +1501,7 @@ void IndexLowering::handle(const MmaOp* mma) {
         IrBuilder::create<Val>(leading_bytes, DataType::UInt),
         IrBuilder::create<Val>(stride_bytes, DataType::UInt),
         IrBuilder::create<Val>(0, DataType::UInt),
-        MatrixDescSwizzle::None);
+        MmaInputSmemSwizzle::None);
     b = IrBuilder::create<kir::TensorIndex>(
         mma->inB()->as<TensorView>(),
         GpuLower::current()->commonScalarMap().hoistScalar(

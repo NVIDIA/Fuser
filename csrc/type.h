@@ -1005,17 +1005,4 @@ constexpr auto toUnderlying(E e) noexcept {
   return static_cast<std::underlying_type_t<E>>(e);
 }
 
-// Warning: The values of the enum class must match the matrix descriptor as
-// specified in:
-// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-matrix-descriptor
-// Do not edit the values of the enum class unless you know what you are doing.
-enum class MatrixDescSwizzle {
-  None = 0,
-  B128 = 1,
-  B64 = 2,
-  B32 = 3,
-};
-
-std::ostream& operator<<(std::ostream& os, MatrixDescSwizzle swizzle);
-
 } // namespace nvfuser

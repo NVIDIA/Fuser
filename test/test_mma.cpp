@@ -164,14 +164,39 @@ INSTANTIATE_TEST_SUITE_P(
         all_mma_layouts),
     testName);
 
-class Hopper : public MmaTest {
- protected:
-  void SetUp() override {
-    MmaTest::SetUp();
+using HopperMmaTestParams =
+    std::tuple<MmaMacro, PrimDataType, MmaLayout, MmaInputSmemSwizzle>;
 
-    // if (cudaArchGuardShouldSkip(9, 0)) {
-    //   GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
-    // }
+class Hopper : public NVFuserFixtureParamTest<HopperMmaTestParams> {
+ protected:
+  MmaLayout layout;
+  MmaMacro macro;
+  PrimDataType dtype;
+  MmaInputSmemSwizzle swizzle;
+
+  void SetUp() override {
+    macro = std::get<0>(GetParam());
+    dtype = std::get<1>(GetParam());
+    layout = std::get<2>(GetParam());
+    swizzle = std::get<3>(GetParam());
+
+    if (cudaArchGuardShouldSkip(9, 0)) {
+      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    }
+
+    if (swizzle == MmaInputSmemSwizzle::B128) {
+      GTEST_SKIP() << "128B swizzle not supported yet";
+    }
+
+    if (swizzle == MmaInputSmemSwizzle::B64) {
+      GTEST_SKIP() << "64B swizzle not supported yet";
+    }
+
+    if (swizzle == MmaInputSmemSwizzle::B32) {
+      GTEST_SKIP() << "32B swizzle not supported yet";
+    }
+
+    NVFuserTest::SetUp();
   }
 };
 
@@ -245,6 +270,7 @@ TEST_P(Hopper, RS) {
   tv0b->axis(1)->parallelize(ParallelType::TIDx);
 
   tv1b->setMemoryType(MemoryType::Shared);
+  tv1b->applyMmaSwizzle(swizzle);
 
   if (!transpose_b) {
     // [M, K, N] -> [M, N, K]
@@ -257,7 +283,7 @@ TEST_P(Hopper, RS) {
   auto inputs = matmulAtInput(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  //debug
+  // debug
   inputs.first.zero_();
   for (auto i : c10::irange(16)) {
     inputs.first[i][i] = 1.0f;
@@ -376,7 +402,9 @@ TEST_P(Hopper, SS) {
   auto tv2c = tv2->cacheBefore();
 
   tv0b->setMemoryType(MemoryType::Shared);
+  tv0b->applyMmaSwizzle(swizzle);
   tv1b->setMemoryType(MemoryType::Shared);
+  tv1b->applyMmaSwizzle(swizzle);
 
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
@@ -397,6 +425,24 @@ TEST_P(Hopper, SS) {
       {tref},
       __LINE__,
       __FILE__);
+}
+
+auto all_smem_swizzle_modes = testing::Values(
+    MmaInputSmemSwizzle::None,
+    MmaInputSmemSwizzle::B128,
+    MmaInputSmemSwizzle::B64,
+    MmaInputSmemSwizzle::B32);
+
+std::string testNameHopper(
+    const testing::TestParamInfo<HopperMmaTestParams>& info) {
+  std::ostringstream os;
+  auto macro = std::get<0>(info.param);
+  auto dtype = std::get<1>(info.param);
+  auto layout = std::get<2>(info.param);
+  auto swizzle = std::get<3>(info.param);
+  os << getM(macro) << "_" << getN(macro) << "_" << getK(macro) << "_"
+     << toString(layout) << "_" << toString(swizzle) << dtype;
+  return os.str();
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -437,7 +483,8 @@ INSTANTIATE_TEST_SUITE_P(
             MmaMacro::Hopper_64_248_16,
             MmaMacro::Hopper_64_256_16),
         all_dtypes,
-        all_mma_layouts),
-    testName);
+        all_mma_layouts,
+        all_smem_swizzle_modes),
+    testNameHopper);
 
 } // namespace nvfuser

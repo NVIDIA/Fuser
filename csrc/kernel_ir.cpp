@@ -1587,7 +1587,7 @@ EncodeTensorMapTiled::EncodeTensorMapTiled(
     Val* box_dim,
     Val* element_strides,
     tma::TensorMapInterleave interleave,
-    MatrixDescSwizzle swizzle,
+    MmaInputSmemSwizzle swizzle,
     tma::TensorMapL2Promotion l2_promotion,
     tma::TensorMapFloatOOBFill oob_fill)
     : Expr(passkey) {
@@ -1641,7 +1641,7 @@ std::string EncodeTensorMapTiled::toString(int indent_size) const {
                           << ", element_strides="
                           << elementStrides()->toString()
                           << ", interleave=" << interleave()
-                          << ", swizzle=" << swizzle()
+                          << ", swizzle=" << nvfuser::toString(swizzle())
                           << ", l2_promotion=" << l2Promotion()
                           << ", oob_fill=" << oobFill() << ")\n";
   return ss.str();
@@ -1655,7 +1655,8 @@ std::string EncodeTensorMapTiled::toInlineString(int indent_size) const {
      << ", global_strides=" << globalStrides()->toInlineString()
      << ", box_dim=" << boxDim()->toInlineString()
      << ", element_strides=" << elementStrides()->toInlineString()
-     << ", interleave=" << interleave() << ", swizzle=" << swizzle()
+     << ", interleave=" << interleave()
+     << ", swizzle=" << nvfuser::toString(swizzle())
      << ", l2_promotion=" << l2Promotion() << ", oob_fill=" << oobFill() << ")";
   return ss.str();
 }

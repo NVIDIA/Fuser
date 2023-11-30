@@ -248,7 +248,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
         inputs.push_back(IrBuilder::create<Val>(0, DataType::Int32));
       }
     }
-    // tnspB: if not K-major, then needs transpose 
+    // tnspB: if not K-major, then needs transpose
     if (layout == MmaLayout::TN || layout == MmaLayout::NN) {
       inputs.push_back(IrBuilder::create<Val>(1, DataType::Int32));
     } else {

@@ -10,6 +10,7 @@
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <ir/base_nodes.h>
+#include <mma_type.h>
 #include <parallel_type_bitmap.h>
 #include <tma.h>
 #include <type.h>
@@ -1394,7 +1395,7 @@ class EncodeTensorMapTiled : public Expr {
       Val* box_dim,
       Val* element_strides,
       tma::TensorMapInterleave interleave,
-      MatrixDescSwizzle swizzle,
+      MmaInputSmemSwizzle swizzle,
       tma::TensorMapL2Promotion l2_promotion,
       tma::TensorMapFloatOOBFill oob_fill);
 
@@ -1439,8 +1440,8 @@ class EncodeTensorMapTiled : public Expr {
     return attribute<tma::TensorMapInterleave>(2);
   }
 
-  const MatrixDescSwizzle& swizzle() const {
-    return attribute<MatrixDescSwizzle>(3);
+  const MmaInputSmemSwizzle& swizzle() const {
+    return attribute<MmaInputSmemSwizzle>(3);
   }
 
   const tma::TensorMapL2Promotion& l2Promotion() const {

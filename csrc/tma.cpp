@@ -58,15 +58,15 @@ inline CUtensorMapInterleave getCUtensorMapInterleave(
   }
 }
 
-inline CUtensorMapSwizzle getCUtensorMapSwizzle(MatrixDescSwizzle swizzle) {
+inline CUtensorMapSwizzle getCUtensorMapSwizzle(MmaInputSmemSwizzle swizzle) {
   switch (swizzle) {
-    case MatrixDescSwizzle::None:
+    case MmaInputSmemSwizzle::None:
       return CU_TENSOR_MAP_SWIZZLE_NONE;
-    case MatrixDescSwizzle::B32:
+    case MmaInputSmemSwizzle::B32:
       return CU_TENSOR_MAP_SWIZZLE_32B;
-    case MatrixDescSwizzle::B64:
+    case MmaInputSmemSwizzle::B64:
       return CU_TENSOR_MAP_SWIZZLE_64B;
-    case MatrixDescSwizzle::B128:
+    case MmaInputSmemSwizzle::B128:
       return CU_TENSOR_MAP_SWIZZLE_128B;
     default:
       NVF_ERROR(false, "Unknown tensor map swizzle type!");
@@ -174,7 +174,7 @@ Val* encodeTensorMapTiled(
     Val* box_dim,
     Val* element_strides,
     TensorMapInterleave interleave,
-    MatrixDescSwizzle swizzle,
+    MmaInputSmemSwizzle swizzle,
     TensorMapL2Promotion l2_promotion,
     TensorMapFloatOOBFill oob_fill) {
   auto output = IrBuilder::create<Val>(

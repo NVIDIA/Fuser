@@ -821,6 +821,30 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOperand operand) {
   }
 }
 
+// Reference:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-swizzling-modes
+void WarpMmaSwizzler::scheduleOperandRead(
+    TensorView* tv,
+    MmaInputSmemSwizzle swizzle) {
+  if (swizzle == MmaInputSmemSwizzle::None) {
+    // [M, K]
+    tv->split(-2, 8);
+    tv->split(-1, 8);
+    // [Mo, M8, Ko, K8]
+    tv->reorder({{-2, -3}});
+    // [Mo, Ko, M8, K8]
+    tv->setAllocationDomain(tv->getLeafDomain(), true);
+  } else if (swizzle == MmaInputSmemSwizzle::B128) {
+    NVF_ERROR(false, "Not implemented yet");
+  } else if (swizzle == MmaInputSmemSwizzle::B64) {
+    NVF_ERROR(false, "Not implemented yet");
+  } else if (swizzle == MmaInputSmemSwizzle::B32) {
+    NVF_ERROR(false, "Not implemented yet");
+  } else {
+    NVF_ERROR(false, "Unsupported smem swizzle");
+  }
+}
+
 void WarpMmaSwizzler::scheduleMmaWarpOutput(TensorView* tv) {
   // This function works for all mma ops, regardless of the architecture. The
   // Hopper one is the most general one. For earlier architectures, we will have

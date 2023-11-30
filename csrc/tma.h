@@ -10,6 +10,7 @@
 
 #include <ostream>
 
+#include <mma_type.h>
 #include <type.h>
 
 // Note: [TMA support in nvFuser]
@@ -88,7 +89,6 @@ enum class TensorMapL2Promotion { NoL2Promotion, B64, B128, B256 };
 enum class TensorMapFloatOOBFill { NoOOBFill, NaN_Request_Zero_FMA };
 
 std::ostream& operator<<(std::ostream& os, TensorMapInterleave interleave);
-std::ostream& operator<<(std::ostream& os, MatrixDescSwizzle swizzle);
 std::ostream& operator<<(std::ostream& os, TensorMapL2Promotion l2_promotion);
 std::ostream& operator<<(std::ostream& os, TensorMapFloatOOBFill oob_fill);
 
@@ -116,7 +116,7 @@ Val* encodeTensorMapTiled(
     Val* box_dim,
     Val* element_strides,
     TensorMapInterleave interleave,
-    MatrixDescSwizzle swizzle,
+    MmaInputSmemSwizzle swizzle,
     TensorMapL2Promotion l2_promotion,
     TensorMapFloatOOBFill oob_fill);
 

@@ -1426,25 +1426,4 @@ int max_digits10(DataType dtype) {
   }
 }
 
-std::ostream& operator<<(std::ostream& os, MatrixDescSwizzle swizzle) {
-  switch (swizzle) {
-    case MatrixDescSwizzle::None:
-      os << "NoSwizzle";
-      break;
-    case MatrixDescSwizzle::B32:
-      os << "32B";
-      break;
-    case MatrixDescSwizzle::B64:
-      os << "64B";
-      break;
-    case MatrixDescSwizzle::B128:
-      os << "128B";
-      break;
-    default:
-      NVF_CHECK(false, "Unknown tensor map swizzle type!");
-      break;
-  }
-  return os;
-}
-
 } // namespace nvfuser
