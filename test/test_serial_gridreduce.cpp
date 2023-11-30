@@ -13,6 +13,7 @@
 #include <inlining.h>
 #include <ir/utils.h>
 #include <kernel_cache.h>
+#include <kernel_ir.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
@@ -89,9 +90,8 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
     // auto orig_work_buf_alloc = global_allocations.at(0);
 
     // TODO:
-    // - insert syncs and modify node to enable serial reduction codegen
+    // - codegen serial GridReduction
     // - set allocation size to be same as output of reduction op
-    // - swap GridReduction node with one having isSerial() == true
 
     // There should be a single top-level ForLoop. Find its position and check
     // that there is only one.
@@ -104,13 +104,54 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
       }
     }
 
+    // This is a poor approximation of a traversal that would appear in a
+    // lowering pass to both set the isSerial() flag on grid reductions and
+    // insert wait/release syncs.
+    kir::Scope& scope = top_level_exprs.at(top_level_loop_pos)
+                            ->as<kir::ForLoop>()
+                            ->body()
+                            .at(0)
+                            ->as<kir::ForLoop>()
+                            ->body() // BIDy
+                            .at(0)
+                            ->as<kir::ForLoop>()
+                            ->body() // i131
+                            .exprs()
+                            .back()
+                            ->as<kir::ForLoop>()
+                            ->body() // i130
+                            .exprs()
+                            .back()
+                            ->as<kir::ForLoop>()
+                            ->body() // TIDx
+                            .at(2)
+                            ->as<kir::ForLoop>()
+                            ->body(); // BIDz
+    // Now scope holds inner scope. Replace the grid reduction there
+    auto old_grop = scope.at(3)->as<kir::GridReduction>();
+    auto new_grop = IrBuilder::create<kir::GridReduction>(
+        old_grop->getReductionOpType(),
+        old_grop->init(),
+        old_grop->out(),
+        old_grop->in(),
+        old_grop->reduction_buffer(),
+        old_grop->sync_buffer(),
+        old_grop->entrance_index(),
+        old_grop->entrances(),
+        old_grop->isAllreduce(),
+        /*is_serial=*/true);
+    new_grop = new_grop->withPredicate(old_grop->predicate())
+                   ->as<kir::GridReduction>();
+    new_grop = new_grop->withWritePredicate(old_grop->writePredicate())
+                   ->as<kir::GridReduction>();
+    scope.at(3) = new_grop;
+
     auto sync_buf = global_allocations.at(1)->buffer();
 
     top_level_exprs.insert(
         top_level_exprs.end() - 1,
         IrBuilder::create<kir::SerialReductionPreSync>(
-            ParallelTypeBitmap(ParallelType::BIDz),
-            sync_buf));
+            ParallelTypeBitmap(ParallelType::BIDz), sync_buf));
 
     top_level_exprs.push_back(IrBuilder::create<kir::SerialReductionPostSync>(
         ParallelTypeBitmap(ParallelType::BIDz), sync_buf));
