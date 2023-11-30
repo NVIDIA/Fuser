@@ -33,7 +33,7 @@ from nvfuser import (
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
 # Turn on default serialization upon program exit
-# enable_automatic_serialization()
+enable_automatic_serialization()
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 

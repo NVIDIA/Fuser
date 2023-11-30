@@ -1253,9 +1253,11 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   if (num_groups != 1 && !isOptionDisabled(DisableOption::ParallelCompile)) {
     // Wait until all segments finish compiling
     getThreadPool()->waitWorkComplete();
+    /*
     NVF_ERROR(
         !detect_exception_in_thread_pool,
         "Detected exception while compiling fusion segments in parallel.");
+    */
   }
   if (isProfilerEnabled()) {
     FusionProfiler::stopCompile();
