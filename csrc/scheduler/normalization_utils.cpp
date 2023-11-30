@@ -832,7 +832,7 @@ bool projectBufferToInputs(
   const auto& projectable_buffers =
       persistent_buffer_info.projectable_persistent_buffers;
   auto all_inputs = ir_utils::inputTvsOf(projectable_buffers);
-  const auto all_exprs = DependencyCheck::getAllExprsBetween(
+  const auto all_exprs = StmtSort::getExprsBetween(
       {all_inputs.begin(), all_inputs.end()},
       {projectable_buffers.begin(), projectable_buffers.end()});
   for (auto expr : all_exprs) {
