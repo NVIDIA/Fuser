@@ -858,6 +858,7 @@ class ValidateDomainEquivalence : private IterVisitor {
               derived_domain.end(),
               [&](auto id) {
                 return id->getIterType() == IterType::Symbolic ||
+                    id->getIterType() == IterType::Broadcast ||
                     frontier_.count(id);
               }),
           "Invalid derived domain. Initial domain: ",

@@ -119,13 +119,9 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
 
   auto root_domain = ops::newOutputDomain({inp_tv}, inp_tv->dtype());
 
-  // Create placeholder rfactor domain for ViewOp. Note it's not connected with
-  // the root domain. ViewOp omits the static broadcast dimensions, which is
-  // handled by a follow up BroadcastOp using `static_broadcast_axes`
-  std::vector<IterDomain*> view_rfactor_domain;
-  view_rfactor_domain.reserve(new_sizes.size());
-  std::vector<bool> static_broadcast_axes(new_sizes.size(), false);
-  bool found_static_broadcast = false;
+  // Create placeholder rfactor domain. Note it's not connected with the root
+  // domain.
+  std::vector<IterDomain*> rfactor_domain(new_sizes.size(), nullptr);
   bool found_neg_one = false;
   for (const auto i : c10::irange(new_sizes.size())) {
     auto new_size = new_sizes.at(i);
@@ -154,36 +150,28 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
       new_size = div(numel, other_new_numel);
       new_size = simplifyExpr(new_size);
     } else if (new_size->isConstScalar() && new_size->evaluate() == 1) {
-      // we need to skip broadcast in `ViewOp`. Mark the broadcast and flag
-      // found_static_broadcast
-      found_static_broadcast = true;
-      static_broadcast_axes.at(i) = true;
-      continue;
+      iter_type = IterType::Broadcast;
     }
     if (new_size->dtype() != DataType::Index) {
       new_size = castOp(DataType::Index, new_size);
     }
     auto rf_id =
         IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), new_size)
-            .iter_type(IterType::Symbolic)
+            .iter_type(iter_type)
             .is_rfactor_domain(true)
             .build();
-    view_rfactor_domain.push_back(rf_id);
+    rfactor_domain.at(i) = rf_id;
   }
 
   auto out_tv = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           root_domain,
-          view_rfactor_domain,
-          view_rfactor_domain,
-          TensorDomain::getContiguityFilledWith(view_rfactor_domain, true)),
+          rfactor_domain,
+          rfactor_domain,
+          TensorDomain::getContiguityFilledWith(rfactor_domain, true)),
       inp_tv->dtype());
 
   IrBuilder::create<ViewOp>(inp_tv->container(), out_tv, inp_tv);
-
-  if (found_static_broadcast) {
-    out_tv = broadcast(out_tv, static_broadcast_axes);
-  }
 
   return out_tv;
 }
