@@ -10,11 +10,13 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
+#include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <scheduler/utils.h>
 #include <test/utils.h>
 #include <test/validator.h>
 #include <utils.h>
@@ -412,6 +414,92 @@ TEST_F(SmemReuseTest, MultiplePromoteReuse) {
     }
     // High water mark has C stacked on top of B
     EXPECT_EQ(smem_usage, alignInt((H + 2) * 4) + (H + 1) * 4);
+  }
+}
+
+// Test that intervals with "skipped" positions in alias analysis are not
+// ignored This can happen when we require a sync immediately between two
+// https://github.com/NVIDIA/Fuser/pull/1381
+TEST_F(SmemReuseTest, SkippedSyncInterval) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  int64_t D = 5;
+  int64_t H = 6;
+  int64_t W = 7;
+
+  auto tv0 = full(
+      {
+          IrBuilder::create<Val>(D),
+          IrBuilder::create<Val>(H),
+          IrBuilder::create<Val>(W),
+      },
+      fusion->oneVal(),
+      DataType::Float);
+  tv0->setMemoryType(MemoryType::Shared);
+
+  auto tv1 = neg(tv0); // generate a loop nest, which is the last use of tv0
+
+  // Write to tv2 in adjacent loop nest. Pad so we can't do inner aliasing.
+  auto tv2 = pad(tv1, {fusion->zeroVal(), fusion->oneVal()});
+  tv2->setMemoryType(MemoryType::Shared);
+
+  auto tv3 = set(tv2); // third loop nest writes to global output
+
+  fusion->addOutput(tv3);
+
+  // By parallelizing the first loop, we remove its appearance in the kernel.
+  //
+  //   6  FOR threadIdx.x in ithreadIdx.x3{5}:
+  //   7    FOR i85 in iS4{6}:
+  //   8      FOR i86 in iS5{7}:
+  //   9        T0_s[ ithreadIdx.x0{5}, iS1{6}, iS2{7} ] ca_pos( 3 )
+  //      = full({5, 6, 7}, ( (float)(1) ));
+  //   10        T1_l[ ithreadIdx.x3{5}, iS4{6}, iS5{7} ] produce_pos( 3 )
+  //      = -T0_s[ ithreadIdx.x0{5}, iS1{6}, iS2{7} ] ca_pos( 3 );
+  //   14  FOR threadIdx.x in ithreadIdx.x6{5}:
+  //   15    FOR i81 in iS7{6}:
+  //   16      FOR i82 in iS9{8}rf:
+  //   17        T2_s[ ithreadIdx.x6{5}, iS7{6}, iS9{8}rf ]
+  //      = pad( T1_l[ ithreadIdx.x3{5}, iS4{6}, iS5{7} ] produce_pos( 3 ), {0,
+  //      0, 0, 0, 0, 1} )
+  //   21  FOR threadIdx.x in ithreadIdx.x10{5}:
+  //   22    FOR i83 in iS11{6}:
+  //   23      FOR i84 in iS12{8}:
+  //   24        T3_g[ ithreadIdx.x10{5}, iS11{6}, iS12{8} ]
+  //      = Set( T2_s[ ithreadIdx.x6{5}, iS7{6}, iS9{8}rf ], cache_op=Streaming
+  //      )
+  //
+  // Parallelized loops still occupy a "position" in the expression list; i.e.
+  // the ENDFOR of the ithreadIdx.x3{5} loop is at position 13 (not shown).
+  // Lifetimes are computed with respect to for loops that appear in the
+  // kernel, so we will wind up with a gap between the end of outer lifetime of
+  // tv0, which now ends at the end of the H loop, and the beginning of the H
+  // loop for tv2, since there are separate parallelized D loops for the two.
+  // That is, the outer lifetimes of smem allocations here are
+  //
+  //   T0_s:  [7, 12]
+  //   T2_s:  [15, 26]
+  //
+  // Promoting reuse means we will insert a sync in (12, 15) which is partially
+  // hidden since 12 is an inner ENDFOR position.
+
+  tv1->axis(0)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv1);
+
+  std::vector<TensorView*> inlinedtvs = {tv0};
+  inlineMost(inlinedtvs);
+
+  tv0->promoteReuse();
+
+  GpuLower gpulw(fusion.get());
+
+  ExpressionEvaluator ee;
+  for (auto alloc : gpulw.run()->summary().dynamic_smem_allocations) {
+    EXPECT_NE(alloc->address(), nullptr);
+    auto addr = ee.evaluate(alloc->address()).as<int64_t>();
+    // Both smem allocs should be placed at 0, indicating successful reuse
+    EXPECT_EQ(addr, 0);
   }
 }
 
