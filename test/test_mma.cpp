@@ -423,14 +423,14 @@ TEST_P(Hopper, SS) {
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
   // debug
-  inputs.second.zero_();
-  int i, j;
-  std::cin >> i >> j;
-  inputs.second[i][j] = 1;
-  for (auto i : c10::irange(inputs.first.numel())) {
-    inputs.first.view({-1})[i] = 1000 + i;
-  }
-  std::cout << "A:\n" << inputs.first << std::endl;
+  // inputs.second.zero_();
+  // int i, j;
+  // std::cin >> i >> j;
+  // inputs.second[i][j] = 1;
+  // for (auto i : c10::irange(inputs.first.numel())) {
+  //   inputs.first.view({-1})[i] = 1000 + i;
+  // }
+  // std::cout << "A:\n" << inputs.first << std::endl;
 
   FusionExecutor fe;
   fe.compileFusion(
@@ -438,8 +438,8 @@ TEST_P(Hopper, SS) {
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-  std::cout << "tref:\n" << tref << std::endl;
-  std::cout << "result:\n" << cg_outputs.front() << std::endl;
+  // std::cout << "tref:\n" << tref << std::endl;
+  // std::cout << "result:\n" << cg_outputs.front() << std::endl;
   testValidate(
       &fusion,
       cg_outputs,
