@@ -825,7 +825,8 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOperand operand) {
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-swizzling-modes
 void WarpMmaSwizzler::scheduleOperandRead(
     TensorView* tv,
-    MmaInputSmemSwizzle swizzle, bool transpose) {
+    MmaInputSmemSwizzle swizzle,
+    bool transpose) {
   if (swizzle == MmaInputSmemSwizzle::None) {
     if (transpose) {
       tv->reorder({{-2, -1}});
