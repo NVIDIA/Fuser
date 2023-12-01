@@ -171,10 +171,10 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
 
     top_level_exprs.insert(
         top_level_exprs.end() - 1,
-        IrBuilder::create<kir::SerialReductionPreSync>(
+        IrBuilder::create<kir::BlockSerializeWait>(
             ParallelTypeBitmap(ParallelType::BIDz), sync_buf));
 
-    top_level_exprs.push_back(IrBuilder::create<kir::SerialReductionPostSync>(
+    top_level_exprs.push_back(IrBuilder::create<kir::BlockSerializeRelease>(
         ParallelTypeBitmap(ParallelType::BIDz), sync_buf));
   });
   fe.compileFusion(fusion);
