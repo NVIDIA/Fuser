@@ -9461,6 +9461,61 @@ TEST_F(NVFuserTest, ProjectPersistentBufferMultiScopes) {
   fe.compileFusion(fusion, inputs);
   auto cg_outputs = fe.runFusion(inputs);
 }
+
+TEST_F(NVFuserTest, ProjectPersistentBufferToInputsAndBroadcastTvs) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int batch_size = 128;
+  const int hidden_size = 256;
+  DataType input_dtype = DataType::Half;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = add(tv1, tv1);
+  auto tv3 = sum(tv2, {1});
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = div(tv2, tv4);
+
+  auto tv6 = add(tv5, tv5);
+  auto tv7 = sum(tv6, {1});
+  auto tv8 = broadcast(tv7, {false, true});
+  auto tv9 = div(tv6, tv8);
+
+  auto tv10 = add(tv9, tv9);
+  auto tv11 = sum(tv10, {1});
+  auto tv12 = broadcast(tv11, {false, true});
+  auto tv13 = div(tv10, tv12);
+
+  fusion->addOutput(tv5);
+  fusion->addOutput(tv9);
+  fusion->addOutput(tv13);
+
+  // persistent_buffers: T2_l[ iS4{i0}, iS5{i2} ]
+  // persistent_buffers: T6_l[ iS12{i0}, iS13{i2} ]
+  // vals_project_to: T4_l[ iS8{i0}, bS9{1} ]
+  // persistent_buffers: T10_l[ iS20{i0}, iS21{i2} ]
+  // vals_project_to: T4_l[ iS8{i0}, bS9{1} ]
+  // vals_project_to: T8_l[ iS16{i0}, bS17{1} ]
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({batch_size, hidden_size}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  auto persistent_params = getInnerPersistentHeuristics(fusion, inputs);
+  NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
+  NVF_CHECK(
+      persistent_params->project_persistent_buffers,
+      "Should project persistent buffers to inputs!");
+
+  scheduleInnerPersistentKernel(fusion, *persistent_params);
+  FusionExecutor fe;
+  fe.compileFusion(fusion, inputs);
+  auto cg_outputs = fe.runFusion(inputs);
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

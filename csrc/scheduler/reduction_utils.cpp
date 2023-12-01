@@ -725,8 +725,10 @@ class PersistentBufferProjector {
     if (project_to_inputs_) {
       // Iterate through projected buffers, tracking which index it corresponds
       // too since there's a resolution point entry for every buffer.
+      fusion_->printMath();
       for (auto buffer_i : c10::irange(persistent_buffers.size())) {
         auto buffer = persistent_buffers[buffer_i];
+        std::cout << "persistent_buffers: " << buffer->toString() << std::endl;
         if (std::find(
                 projectable_persistent_buffers.begin(),
                 projectable_persistent_buffers.end(),
@@ -740,6 +742,7 @@ class PersistentBufferProjector {
           if (auto tv = dynamic_cast<TensorView*>(val)) {
             if (tv->hasBroadcast()) {
               vals_project_to.push_back(val);
+              std::cout << "vals_project_to: " << val->toString() << std::endl;
             }
           }
         }
