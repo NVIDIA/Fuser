@@ -353,6 +353,7 @@ TEST_P(Hopper, SS) {
       tv0b = broadcast(tv0, {false, false, true});
       tv0b->reorder({{-1, -3}});
       tv1b = broadcast(tv1, {false, true, false});
+      tv1b->reorder({{-2, -3}});
       axes = 0;
       break;
     case MmaLayout::NN:
