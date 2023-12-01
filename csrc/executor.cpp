@@ -984,6 +984,8 @@ std::vector<at::Tensor> allocateOutputs(
 
   for (const auto output_idx : c10::irange(output_info.size())) {
     Val* out = kernel->outputs()[output_idx];
+    // TODO: remove the else block and outputs_map when output aliasing is
+    // handled properly
     auto iter = outputs_map.find(out);
     if (iter == outputs_map.end()) {
       auto [aliased_in, alias_info] = kernel->getOutputAlias(out);
