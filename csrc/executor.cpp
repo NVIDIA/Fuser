@@ -979,26 +979,38 @@ std::vector<at::Tensor> allocateOutputs(
 
   std::vector<at::Tensor> outputs;
   outputs.reserve(output_info.size());
+
+  std::unordered_map<Val*, at::Tensor> outputs_map;
+
   for (const auto output_idx : c10::irange(output_info.size())) {
     Val* out = kernel->outputs()[output_idx];
-    auto [aliased_in, alias_info] = kernel->getOutputAlias(out);
-    at::Tensor aliased_in_tensor;
-    if (aliased_in != nullptr) {
-      const PolymorphicValue& aliased_in_val =
-          *inputs[IndexOfFusionInput(aliased_in, kernel)];
-      NVF_ERROR(
-          aliased_in_val.is<at::Tensor>(),
-          "Alias io only supports tensor. Found ",
-          PolymorphicValue_functions::toString(aliased_in_val));
-      aliased_in_tensor = aliased_in_val.as<at::Tensor>();
+    // TODO: remove the else block and outputs_map when output aliasing is
+    // handled properly
+    auto iter = outputs_map.find(out);
+    if (iter == outputs_map.end()) {
+      auto [aliased_in, alias_info] = kernel->getOutputAlias(out);
+      at::Tensor aliased_in_tensor;
+      if (aliased_in != nullptr) {
+        const PolymorphicValue& aliased_in_val =
+            *inputs[IndexOfFusionInput(aliased_in, kernel)];
+        NVF_ERROR(
+            aliased_in_val.is<at::Tensor>(),
+            "Alias io only supports tensor. Found ",
+            PolymorphicValue_functions::toString(aliased_in_val));
+        aliased_in_tensor = aliased_in_val.as<at::Tensor>();
+      }
+      auto output = allocateOutput(
+          output_info[output_idx],
+          aliased_in,
+          alias_info,
+          aliased_in_tensor,
+          device,
+          ee);
+      outputs_map[out] = output;
+      outputs.push_back(output);
+    } else {
+      outputs.push_back(iter->second);
     }
-    outputs.push_back(allocateOutput(
-        output_info[output_idx],
-        aliased_in,
-        alias_info,
-        aliased_in_tensor,
-        device,
-        ee));
   }
   return outputs;
 }
