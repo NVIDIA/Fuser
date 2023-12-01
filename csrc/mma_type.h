@@ -243,11 +243,23 @@ int getInputBRegisterSize(MmaMacro macro);
 // Unpack MMA op shape
 GemmTile getMmaOpShape(MmaMacro macro);
 
+// Warning: The values of the enum class must match the matrix descriptor as
+// specified in:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-matrix-descriptor
+// Do not edit the values of the enum class unless you know what you are doing.
+enum class MmaInputSmemSwizzle {
+  None = 0,
+  B128 = 1,
+  B64 = 2,
+  B32 = 3,
+};
+
 // MMA stringify utils
 std::string toString(MmaLayout input_layout);
 std::string toString(const GemmTile& tile);
 std::string toString(const MatMulTileOptions& opts);
 std::string toString(MmaMacro macro);
+std::string toString(MmaInputSmemSwizzle swizzle);
 
 // MMA hash utils
 size_t hash(MmaMacro macro);
