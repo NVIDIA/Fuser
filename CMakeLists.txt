@@ -431,6 +431,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_no_op.cpp
     ${NVFUSER_ROOT}/test/test_linked_hash_map.cpp
     ${NVFUSER_ROOT}/test/test_pointwise.cpp
+    ${NVFUSER_ROOT}/test/test_id_model.cpp
   )
 
   # We don't link CUPTI for MSVC

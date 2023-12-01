@@ -134,14 +134,14 @@ Expr* IdModel::idDef(IterDomain* id) const {
 
 namespace {
 
-// Returns the first pair of id's in ids detected to match eachother on the
-// permissive map of the ID graph. TODO: what this is really looking for is if
+// Returns the first pair of id's in ids detected to match each other on the
+// exact ID graph. TODO: what this is really looking for is if
 // there's any overlapping between the iter domains in the provided set.
 //
 // i.e. if we have:
-// tv0 = arange(6).view({3, 2})
+// tv0 = arange(6).reshape({3, 2})
 // tv1 = tv0[3, 2].t()
-// tv2 = tv0[3, 2].view({2, 3})
+// tv2 = tv0[3, 2].reshape({2, 3})
 // tv3 = tv1 + tv2
 //
 // Then we can see this overlap in the tv3 expression as:
@@ -165,7 +165,12 @@ namespace {
 // will assume tv2 can be trivially inlined/parallelized. Instead we'd need to
 // take into consideration the effective communication going on here, so that
 // we pull multiple values of tv0 to compute tv3.
-c10::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
+//
+// Note, however, that the above example is not detectable at this
+// moment as the self mapping is partial through reshape. The analysis
+// below would need to be extended to consider producer and consumers
+// of domains as well rather than just root, rfactor and leaf domains.
+std::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
     const std::vector<IterDomain*>& ids,
     const IdModel& id_graph,
     IdMappingMode mode) {
@@ -181,14 +186,14 @@ c10::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
     }
   }
 
-  return {};
+  return std::nullopt;
 }
 
 // It is assumed that for any tensor represented by a list of domains,
 // those domains should never be mapped with each other. It may be
 // possible to lift this assumption, but it's unclear if it could
 // matter in practice.
-c10::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
+std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
 findFirstSelfMapping(
     const std::vector<TensorView*>& all_tvs,
     const IdModel& id_graph) {
@@ -236,7 +241,7 @@ findFirstSelfMapping(
           "Leaf");
     }
   }
-  return c10::nullopt;
+  return std::nullopt;
 }
 
 } // namespace
