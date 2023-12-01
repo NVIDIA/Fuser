@@ -400,7 +400,7 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
 
   // Initialize output iter domains in the graphs
   for (auto mode : initialized_modes) {
-    idGraph(mode).disjointExprSets().initializeSet(replay);
+    idGraph(mode).registerExpr(replay);
     auto replay_group = idGraph(mode).toGroup(replay);
 
     // Initialize output ids in map
@@ -533,10 +533,10 @@ Expr* IdModel::addExprWithReplacement(
   for (auto mode : initialized_modes) {
     auto& graph = idGraph(mode);
 
-    graph.disjointExprSets().initializeSet(replay);
+    graph.registerExpr(replay);
     auto replay_group = graph.toGroup(replay);
 
-    // Initialize any non-existant input ids, update existing ones
+    // Initialize any non-existent input ids, update existing ones
     for (auto inp_id : ir_utils::filterByType<IterDomain>(replay->inputs())) {
       if (!graph.disjointValSets().mappingExists(inp_id)) {
         // inp_id is not initialized in the map, initialize it
@@ -548,7 +548,7 @@ Expr* IdModel::addExprWithReplacement(
       }
     }
 
-    // Initialize any non-existant output ids, update existing ones
+    // Initialize any non-existent output ids, update existing ones
     for (auto out_id : ir_utils::filterByType<IterDomain>(replay->outputs())) {
       if (!graph.disjointValSets().mappingExists(out_id)) {
         // out_id is not initialized in the map, initialize it
