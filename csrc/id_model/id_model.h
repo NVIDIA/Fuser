@@ -94,7 +94,10 @@ class IdModel : public PolymorphicBase {
   // Same as the above constructor with fusion->exprs() excpet fusion may have
   // some dangling inputs/outputs that are expected to have IterDomain entries
   // even though there's no possible connections from them.
-  IdModel(Fusion* fusion, bool allow_self_mapping = false);
+  IdModel(
+      Fusion* fusion,
+      bool allow_self_mapping = false,
+      bool validate = false);
 
   // Returns iter domain graph of provided mode.
   const ValGraph& idGraph(IdMappingMode mode) const;
@@ -176,7 +179,8 @@ class IdModel : public PolymorphicBase {
   // the Fusion that don't have expressions associated with them.
   void build(
       const std::vector<Expr*>& exprs,
-      const std::vector<TensorView*>& additional_tvs);
+      const std::vector<TensorView*>& additional_tvs,
+      bool validate = false);
 
   // ======= START Iteration domain build process in order called =======
 
@@ -191,7 +195,7 @@ class IdModel : public PolymorphicBase {
 
   // Fills disjoint_ids_[IdMappingMode::EXACT] for relationships between inputs
   // and first output of expr
-  void buildExactMap(const std::vector<Expr*>& exprs);
+  void buildExactGraph(const std::vector<Expr*>& exprs);
 
   // Fills disjoint_ids_[IdMappingMode::ALMOSTEXACT]. Initialize AlmostExact as
   // Exact entries, then map anything that's either merged with a size-1 or

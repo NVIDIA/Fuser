@@ -9,6 +9,7 @@
 #include <id_model/to_string.h>
 #include <id_model/transform_replay.h>
 #include <id_model/utils.h>
+#include <id_model/validation_utils.h>
 #include <id_model/visitor.h>
 
 #include <device_lower/analysis/trivial_broadcast.h>
@@ -54,7 +55,7 @@ IdModel::IdModel(
 IdModel::IdModel(const std::vector<Expr*>& exprs, bool allow_self_mapping)
     : IdModel(exprs, {}, allow_self_mapping) {}
 
-IdModel::IdModel(Fusion* fusion, bool allow_self_mapping) {
+IdModel::IdModel(Fusion* fusion, bool allow_self_mapping, bool validate) {
   std::vector<TensorView*> inputs_and_outputs;
   {
     auto inp_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
@@ -67,7 +68,7 @@ IdModel::IdModel(Fusion* fusion, bool allow_self_mapping) {
         inputs_and_outputs.begin(), out_tvs.begin(), out_tvs.end());
   }
 
-  build(fusion->exprs(), inputs_and_outputs);
+  build(fusion->exprs(), inputs_and_outputs, validate);
 
   if (!allow_self_mapping) {
     assertNoSelfMapping();
@@ -641,7 +642,7 @@ ValGraph IdModel::initializeIdGraph(bool propagate_through_exprs) {
   return id_graph;
 }
 
-void IdModel::buildExactMap(const std::vector<Expr*>& exprs) {
+void IdModel::buildExactGraph(const std::vector<Expr*>& exprs) {
   for (auto expr : exprs) {
     TensorView* c_tv = ir_utils::getTvOutput(expr);
 
@@ -938,7 +939,8 @@ StatefulLoweringInfo buildInfo(
 
 void IdModel::build(
     const std::vector<Expr*>& exprs,
-    const std::vector<TensorView*>& additional_tvs) {
+    const std::vector<TensorView*>& additional_tvs,
+    bool validate) {
   // Initialize the required sets as if a permissive relationship is never
   // found, then querying an empty permissive map will fail later.
   // Initialize disjoint sets
@@ -977,7 +979,16 @@ void IdModel::build(
   // expressions.
   idGraph(IdMappingMode::EXACT) = initializeIdGraph();
 
-  buildExactMap(tv_exprs);
+  buildExactGraph(tv_exprs);
+
+  if (validate) {
+    IdModelValidator::checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
+  }
+
+  if (getenv("EXACT_ONLY")) {
+    return;
+  }
+
   buildAlmostExactMap();
   buildPermissiveMap(tv_exprs);
 
