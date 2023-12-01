@@ -172,8 +172,9 @@ class FusionDefinition(_C._FusionDefinition):
                             f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
                         )
                     else:
+                        upper_bound = 2 if i.dtype == torch.bool else 10
                         msg += (
-                            f"    torch.randint(0, 10, ({sz},), dtype={i.dtype}, device='{i.device}')"
+                            f"    torch.randint(0, {upper_bound}, ({sz},), dtype={i.dtype}, device='{i.device}')"
                             f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
                         )
                 else:
