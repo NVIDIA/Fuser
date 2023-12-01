@@ -32,9 +32,9 @@ TEST_F(IdModelTest, DetectSelfMapping) {
   fusion.addOutput(tv2);
 
   EXPECT_THAT(
-      [&]() {  IdModel id_model(&fusion); },
+      [&]() { IdModel id_model(&fusion); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("!hasSelfMapping")));
 }
 
-} // nvfuser
+} // namespace nvfuser
