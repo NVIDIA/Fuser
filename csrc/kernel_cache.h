@@ -97,6 +97,15 @@ class FusionKernelRuntime {
       int64_t concrete_id = 0,
       int64_t runtime_id = 0);
 
+  explicit FusionKernelRuntime(
+      std::unique_ptr<Fusion> fusion,
+      const KernelArgumentHolder& inputs,
+      const serde::FusionKernelRuntime* buffer,
+      std::optional<PrimDataType> forced_index_type = std::nullopt,
+      int64_t fusion_id = 0,
+      int64_t concrete_id = 0,
+      int64_t runtime_id = 0);
+
   //! Type notations within FusionKernelRuntime Context
   using HashType = size_t;
   using SchedulerEntryPtr = std::unique_ptr<SchedulerEntry>;

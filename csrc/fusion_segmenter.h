@@ -71,6 +71,13 @@ class SegmentedGroup {
       : is_fusion_input_(is_fusion_input),
         segmented_fusion_(segmented_fusion) {}
 
+  //! Serialize SegmentedGroup using flatbuffers
+  flatbuffers::Offset<serde::SegmentedGroup> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize SegmentedGroup using flatbuffers
+  void deserialize(const serde::SegmentedGroup* buffer);
+
   //! Checks if this group takes original fusion's input
   bool isInputGroup() {
     return !input_vals.empty();
@@ -392,9 +399,24 @@ class SegmentedFusion {
   //! Same as validate but only enabled when NDEBUG is undefined
   void validateIfDebug(bool require_disjoint = true) const;
 
+  //! Serialize SegmentedFusion using flatbuffers
+  flatbuffers::Offset<serde::SegmentedFusion> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize SegmentedFusion using flatbuffers
+  void deserialize(const serde::SegmentedFusion* buffer);
+
  private:
   void validateDAG() const;
   void validateDisjoint() const;
+
+  //! Serialize SegmentedEdge using flatbuffers
+  flatbuffers::Offset<serde::SegmentedEdge> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const nvfuser::SegmentedEdge& edge) const;
+
+  //! Deserialize SegmentedEdge using flatbuffers
+  nvfuser::SegmentedEdge deserialize(const serde::SegmentedEdge* buffer);
 
  private:
   //! Unique name for segmented fusion

@@ -28,6 +28,17 @@ using GroupSet = VectorOfUniqueEntries<SegmentedGroup*>;
 
 } // namespace
 
+flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
+    flatbuffers::FlatBufferBuilder& builder) const {
+  // TODO Implement
+  return 0;
+}
+
+void SegmentedGroup::deserialize(const serde::SegmentedGroup* buffer) {
+  NVF_ERROR(buffer != nullptr, "serde::SegmentedGroup is nullptr.");
+  // TODO Implement
+}
+
 std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::getNeighborGroups() {
   std::vector<NeighborGroup> neighbors;
   for (auto inp : producer_edges) {
@@ -322,6 +333,32 @@ SegmentedFusion::SegmentedFusion(std::unique_ptr<Fusion> fusion)
       impl_(this),
       complete_fusion_(std::move(fusion)) {
   annotateFP16IntermediateTensors();
+}
+
+flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
+    flatbuffers::FlatBufferBuilder& builder) const {
+  // TODO Implement
+  return 0;
+}
+
+void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
+  NVF_ERROR(buffer != nullptr, "serde::SegmentedFusion is nullptr.");
+  // TODO Implement
+}
+
+flatbuffers::Offset<serde::SegmentedEdge> SegmentedFusion::serialize(
+    flatbuffers::FlatBufferBuilder& builder,
+    const nvfuser::SegmentedEdge& edge) const {
+  // TODO Implement
+  return 0;
+}
+
+nvfuser::SegmentedEdge SegmentedFusion::deserialize(
+    const serde::SegmentedEdge* buffer) {
+  NVF_ERROR(buffer != nullptr, "serde::SegmentedEdge is nullptr.");
+  // TODO Implement
+  SegmentedEdge edge(nullptr, nullptr, nullptr);
+  return edge;
 }
 
 SegmentedGroup* SegmentedFusion::Impl::makeGroup() {

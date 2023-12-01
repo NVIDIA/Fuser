@@ -903,14 +903,11 @@ void FusionExecutorCache::deserialize(
       device_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
           std::move(conc_fusion),
           args,
+          runtime,
           std::nullopt,
           fusion_id_,
           fb_device_runtimes->concrete_id(),
           device_runtimes.size()));
-
-      // 3. For FusionKernelRuntime, we have a separate deserialize function
-      // to create the FusionExecutor objects.
-      device_runtimes.back()->deserialize(runtime);
 
       all_runtimes.emplace_back(device_runtimes.back().get());
     }
@@ -985,6 +982,72 @@ FusionKernelRuntime::FusionKernelRuntime(
   prepareRuntimeOrder();
 }
 
+FusionKernelRuntime::FusionKernelRuntime(
+    std::unique_ptr<Fusion> fusion,
+    const KernelArgumentHolder& args,
+    const serde::FusionKernelRuntime* buffer,
+    std::optional<PrimDataType> forced_index_type,
+    int64_t fusion_id,
+    int64_t concrete_id,
+    int64_t runtime_id)
+    : fusion_id_{fusion_id},
+      concrete_id_{concrete_id},
+      runtime_id_{runtime_id} {
+  FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
+  NVF_ERROR(buffer != nullptr, "serde::FusionKernelRuntime is nullptr.");
+
+  NVF_ERROR(
+      !fusion->hasDynamicTransform(),
+      "Fusion must be concretized before constructing FusionKernelRuntime");
+
+  // Store metadata copy of arguments for serialization
+  std::transform(
+      args.cbegin(),
+      args.cend(),
+      args_metadata_.getBackInserter(),
+      convertMetadataArg);
+
+  optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
+      fusion.get());
+
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
+    debug() << "Fusion IR after pre-segmenter optimization passes:"
+            << std::endl;
+    fusion->printMath();
+  }
+
+  all_tvs_ = ir_utils::allTvs(fusion.get());
+
+  // Run segmentation on the copied fusion
+  SchedulerRuntimeInfo runtime_info(
+      fusion.get(), args, nullptr, all_tvs_, forced_index_type);
+
+  // Initialize the evaluator simplifer
+  precomputed_values_ = std::make_unique<PrecomputedValues>(fusion.get());
+
+  segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
+  segmented_fusion_->deserialize(buffer->segmented_fusion());
+
+  heuristics_ = segmented_fusion_->makeInitialHeuristics(args, runtime_info);
+
+  executors_ = std::vector<FusionExecutor>(segmented_fusion_->groups().size());
+  if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
+    segmented_fusion_->print();
+  }
+
+  // Even if we go through the segmented path we may still end up
+  //  with a segmented fusion with one group. This case still
+  //  counts as un-segmented.
+  is_segmented_ = segmented_fusion_->groups().size() > 1;
+
+  // Pre-compute the executor order so that the run time path
+  //  would go directly to kernel launch.
+  prepareRuntimeOrder();
+
+  // Restore State from Flatbuffers
+  deserialize(buffer);
+}
+
 flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See table definition for FusionKernelRuntime in serde/fusion_cache.fbs
@@ -996,13 +1059,19 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
     executors_fb.push_back(executor.serialize(builder));
   }
 
+  flatbuffers::Offset<serde::SegmentedFusion> segmented_fusion_fb = 0;
+  if (segmented_fusion_) {
+    segmented_fusion_fb = segmented_fusion_->serialize(builder);
+  }
+
   return serde::CreateFusionKernelRuntimeDirect(
       builder,
       fusion_id_,
       concrete_id_,
       runtime_id_,
       args_metadata_.serialize(builder),
-      &executors_fb);
+      &executors_fb,
+      segmented_fusion_fb);
 }
 
 void FusionKernelRuntime::deserialize(
