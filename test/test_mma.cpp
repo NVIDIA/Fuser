@@ -417,9 +417,9 @@ TEST_P(Hopper, SS) {
 
   // debug
   inputs.second.zero_();
-  for (auto i : c10::irange(std::min(getK(macro), getN(macro)))) {
-    inputs.second[i][i] = 1;
-  }
+  int i, j;
+  std::cin >> i >> j;
+  inputs.second[i][j] = 1;
   for (auto i : c10::irange(inputs.first.numel())) {
     inputs.first.view({-1})[i] = 1000 + i;
   }
