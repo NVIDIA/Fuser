@@ -691,7 +691,7 @@ void FusionCache::deserialize(std::string filename) {
     state_queue.pop_front();
   }
 
-  bool detect_exception_in_thread_pool = false;
+  std::atomic<bool> detect_exception_in_thread_pool{false};
   // Deserialize terminal_nodes field in the FusionCache table
   for (auto idx : c10::irange(fusions_.size())) {
     auto node_idx = fusion_cache_buffer->terminal_nodes()->Get(idx);
@@ -712,7 +712,7 @@ void FusionCache::deserialize(std::string filename) {
           // Set flag inside lambda so we can throw an exception after thread
           // pool completes its work.
           std::cout << e.what() << std::endl;
-          detect_exception_in_thread_pool = true;
+          detect_exception_in_thread_pool.store(true);
         }
       });
     } else {
@@ -726,7 +726,7 @@ void FusionCache::deserialize(std::string filename) {
     // Wait until all fusion executor caches are deserialized
     getThreadPool()->waitWorkComplete();
     NVF_ERROR(
-        !detect_exception_in_thread_pool,
+        !detect_exception_in_thread_pool.load(),
         "Detected exception while deserializing fusions in parallel.");
   }
 }

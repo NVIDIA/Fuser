@@ -1198,7 +1198,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     FusionProfiler::startCompile();
   }
 
-  bool detect_exception_in_thread_pool = false;
+  std::atomic<bool> detect_exception_in_thread_pool{false};
   for (int64_t group_id = 0; group_id < num_groups; ++group_id) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
 
@@ -1234,7 +1234,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
           // Set flag inside lambda so we can throw an exception after thread
           // pool completes its work.
           std::cout << e.what() << std::endl;
-          detect_exception_in_thread_pool = true;
+          detect_exception_in_thread_pool.store(true);
         }
       });
     }
@@ -1254,7 +1254,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     // Wait until all segments finish compiling
     getThreadPool()->waitWorkComplete();
     NVF_ERROR(
-        !detect_exception_in_thread_pool,
+        !detect_exception_in_thread_pool.load(),
         "Detected exception while compiling fusion segments in parallel.");
   }
   if (isProfilerEnabled()) {
