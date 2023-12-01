@@ -409,6 +409,10 @@ TEST_P(Hopper, SS) {
   tv1b->setMemoryType(MemoryType::Shared);
   tv1b->applyMmaSwizzle(swizzle, transpose_b);
 
+  // TODO: why?
+  auto alloc = tv1b->getAllocationDomain();
+  std::swap(alloc[alloc.size() - 1], alloc[alloc.size() - 2]);
+
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
