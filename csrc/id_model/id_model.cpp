@@ -753,7 +753,7 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
       }
     }
   }
-  idGraph(IdMappingMode::PERMISSIVE).mapThroughLoopSwizzles();
+  mapThroughLoopSwizzles(idGraph(IdMappingMode::PERMISSIVE));
 }
 
 void IdModel::buildAlmostExactMap() {

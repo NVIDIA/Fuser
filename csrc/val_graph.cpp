@@ -175,6 +175,16 @@ ExprGroups ValGraph::allDefinitionsOf(const ValGroups& of) const {
   return visited;
 }
 
+bool ValGraph::hasDefinitions(const ValGroup& val_group) const {
+  NVF_ERROR(val_group);
+  return unique_definitions_.find(val_group) != unique_definitions_.end();
+}
+
+bool ValGraph::hasUses(const ValGroup& val_group) const {
+  NVF_ERROR(val_group);
+  return unique_uses_.find(val_group) != unique_uses_.end();
+}
+
 ExprGroups ValGraph::getExprsBetween(const ValGroups& from, const ValGroups& to)
     const {
   ExprGroups all_uses_of_from = allUsesOf(from);
@@ -481,11 +491,6 @@ std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> ValGraph::buildMapBetween(
   return buildMapBetween(from.vector(), to.vector());
 }
 
-bool ValGraph::hasUses(const ValGroup& id_group) const {
-  NVF_ERROR(id_group);
-  return unique_uses_.find(id_group) != unique_uses_.end();
-}
-
 std::string ValGraph::toString() const {
   std::stringstream ss;
   ss << "IdGraph { \n";
@@ -568,7 +573,7 @@ void ValGraph::initializeVal(
     Val* val,
     const VectorOfUniqueEntries<Expr*>& definitions,
     const VectorOfUniqueEntries<Expr*>& uses) {
-  const ValGroup& id_disjoint_set =
+  const ValGroup& val_disjoint_set =
       disjointValSets().initializeSet(val).first->second;
 
   ExprGroups def_groups;
@@ -579,7 +584,7 @@ void ValGraph::initializeVal(
   }
   // TODO-NM: def_groups can be empty. Should it be still mapped?
   // TODO-NM: Can this be overwritten?
-  NVF_ERROR(unique_definitions_.emplace(id_disjoint_set, def_groups).second);
+  NVF_ERROR(unique_definitions_.emplace(val_disjoint_set, def_groups).second);
 
   ExprGroups use_groups;
   for (auto use : uses) {
@@ -589,38 +594,45 @@ void ValGraph::initializeVal(
   }
   // TODO-NM: use_groups can be empty. Should it be still mapped?
   // TODO-NM: Can this be overwritten?
-  NVF_ERROR(unique_uses_.emplace(id_disjoint_set, use_groups).second);
+  NVF_ERROR(unique_uses_.emplace(val_disjoint_set, use_groups).second);
+}
+
+void ValGraph::initializeVal(Val* val) {
+  VectorOfUniqueEntries<Expr*> defs;
+  if (val->definition()) {
+    defs.pushBack(val->definition());
+  }
+  VectorOfUniqueEntries<Expr*> uses;
+  for (Expr* use : val->uses()) {
+    uses.pushBack(use);
+  }
+  initializeVal(val, defs, uses);
 }
 
 bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
-  if (!transformAtributesMatch(first, second)) {
+  NVF_ERROR(first);
+  NVF_ERROR(second);
+
+  if (!first->sameOp(second)) {
     return false;
   }
 
-  auto first_ids =
-      ir_utils::filterByType<Val>(forward ? first->inputs() : first->outputs())
-          .vector();
-
-  auto second_ids = ir_utils::filterByType<Val>(
-                        forward ? second->inputs() : second->outputs())
-                        .vector();
+  std::vector<Val*> first_vals = forward ? first->inputs() : first->outputs();
+  std::vector<Val*> second_vals =
+      forward ? second->inputs() : second->outputs();
 
   NVF_ERROR(
-      first_ids.size() == second_ids.size(),
+      first_vals.size() == second_vals.size(),
       "Expected number of ",
       (forward ? "inputs" : "outputs"),
       " to match for\n",
       first->toString(),
       second->toString());
 
-  // TODO-MN: Is this equivalent as
-  // inputGroups(toGroup(expr0)) == inputGroups(toGroup(expr1)) ?
-  {
-    for (const auto i : c10::irange(first_ids.size())) {
-      if (!disjointValSets().permissiveAreMapped(
-              first_ids.at(i), second_ids.at(i))) {
-        return false;
-      }
+  for (const auto i : c10::irange(first_vals.size())) {
+    if (!disjointValSets().permissiveAreMapped(
+            first_vals.at(i), second_vals.at(i))) {
+      return false;
     }
   }
 
@@ -654,19 +666,6 @@ bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
   // TODO: For now we're using same as, however we could know what val's are
   // exactly the same given the exact map. We might want to pipe that
   // information through to here.
-
-  // TODO-NM: Should this be transformAtributesMatch?
-  if (first->isA<Resize>()) {
-    if (!first->as<Resize>()->leftExpand()->sameAs(
-            second->as<Resize>()->leftExpand())) {
-      return false;
-    }
-
-    if (!first->as<Resize>()->rightExpand()->sameAs(
-            second->as<Resize>()->rightExpand())) {
-      return false;
-    }
-  }
 
   return true;
 }
@@ -756,18 +755,31 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
 }
 
 void ValGraph::maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward) {
+  // By default, expressions are mapped only when everything is
+  // matched, i.e., inputs, outputs and attributes are all mapped or
+  // equal. When the propagation is allowed, as long as the inputs are
+  // mapped and the attributes are equal, we propagate the mappings to
+  // the outputs and the expressions.
+  // In either case, it should be always true that when two
+  // expressions are mapped, their inputs and outputs are also mapped,
+  // respectively, and vice versa.
+
   if (!exprsMap(expr0, expr1, forward)) {
     return;
   }
 
-  // Expr inputs are mapped. If propagate_exprs_ is true, map the
-  // exprs and outputs
+  // Expr inputs are mapped. If propagate_through_exprs_ is true, map the
+  // exprs and outputs. If not, map the exprs only when both inputs
+  // and outputs are mapped. Since exprsMap makes sure inputs or
+  // outputs are mapped, only outputs or inputs need to be checked
   if (propagate_through_exprs_) {
     mapExprs(expr0, expr1);
     mapThroughExpr(expr0, expr1, forward);
   } else if (
-      inputGroups(toGroup(expr0)) == inputGroups(toGroup(expr1)) &&
-      outputGroups(toGroup(expr0)) == outputGroups(toGroup(expr1))) {
+      (forward &&
+       outputGroups(toGroup(expr0)) == outputGroups(toGroup(expr1))) ||
+      (!forward &&
+       inputGroups(toGroup(expr0)) == inputGroups(toGroup(expr1)))) {
     mapExprs(expr0, expr1);
   }
 }
@@ -847,26 +859,6 @@ bool ValGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
   }
 
   return true;
-}
-
-void ValGraph::mapThroughLoopSwizzles() {
-  std::vector<Swizzle2D*> all_swizzles;
-
-  for (const auto& expr_set : disjointExprSets().disjointSets()) {
-    auto swizzles_in_expr_set = ir_utils::filterByType<Swizzle2D>(
-        expr_set->vector().begin(), expr_set->vector().end());
-    all_swizzles.insert(
-        all_swizzles.end(),
-        swizzles_in_expr_set.begin(),
-        swizzles_in_expr_set.end());
-  }
-
-  for (auto swizzle : all_swizzles) {
-    if (swizzle->swizzleMode() == SwizzleMode::Loop) {
-      mapVals(swizzle->inX(), swizzle->outX());
-      mapVals(swizzle->inY(), swizzle->outY());
-    }
-  }
 }
 
 void ValGraph::mapThroughTrivialExprs() {

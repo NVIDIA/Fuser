@@ -127,8 +127,8 @@ class ValGraph {
   ExprGroups allDefinitionsOf(const ValGroups& of) const;
 
   //! Returns the pointer to expressions associated with the
-  //! definitions of the provided ValGroup. Nullptr is returned
-  //! otherwise.
+  //! definitions of the provided ValGroup. Nullptr is returned otherwise.
+  //!
   //! The returned pointer is to a vector of vector of expressions. The
   //! inner vector is proven to be equivalent. The
   //! outer vector are expression groups that are not equivalent, but
@@ -138,6 +138,10 @@ class ValGraph {
   //! Same as getDefinitions but for uses instead of
   //! definitions
   const ExprGroups* getUses(const ValGroup& val_group) const;
+
+  bool hasDefinitions(const ValGroup& val_group) const;
+
+  bool hasUses(const ValGroup& val_group) const;
 
   // Return sorted expressions to go from the provided IterDomains in from to
   // the provided IterDomains in to with provided mode. Minimal expressions to
@@ -157,8 +161,6 @@ class ValGraph {
       const VectorOfUniqueEntries<Val*>& from,
       const VectorOfUniqueEntries<Val*>& to) const;
 
-  bool hasUses(const ValGroup& id_group) const;
-
   std::string toString() const;
 
   // Checks if the expression is a trivial operation where an input is simply an
@@ -168,22 +170,22 @@ class ValGraph {
   // Returns if all atributes of the ID transforms first and second are the same
   static bool transformAtributesMatch(Expr* first, Expr* second);
 
-  // Initializes entries for the provided IterDomain in the IterDomainGraphs
+  // Initializes entries for the provided Val with its definitions and
+  // uses.
   void initializeVal(
       Val* val,
       const VectorOfUniqueEntries<Expr*>& definitions,
       const VectorOfUniqueEntries<Expr*>& uses);
 
-  // Returns if first and second are expressions through which the provided
-  // id_map have matching inputs (if forward), or outputs (if not forward).
-  // Returning true means the expressions are "the same", in terms they modify
-  // matching original extents, by the same amount.
-  bool exprsMap(
-      Expr* first,
-      Expr* second,
-      bool forward
-      // , std::vector<IterDomain*> second_input_or_output_override
-  ) const;
+  // Same as the above exept val->definition() and val->uses() are
+  // used
+  void initializeVal(Val* val);
+
+  // Returns true if first and second are expressions through which
+  // this ValGraph has matching inputs (if forward), or outputs (if not
+  // forward). Returning true means the expressions are "the same", in terms
+  // they modify matching original inputs by the same amount.
+  bool exprsMap(Expr* first, Expr* second, bool forward) const;
 
  public:
   void addUniqueUses(const ValGroup& id_group, const ExprGroup& uses) {
@@ -205,10 +207,6 @@ class ValGraph {
   // when the forward parameter is true. This should
   // be the only call in ValGraph to mapThroughExpr.
   void maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward);
-
-  // Map through loop swizzles, as input/output IterDomains are exact, only the
-  // order they're traversed differs.
-  void mapThroughLoopSwizzles();
 
   // Maps iter domain pairs returned by calling that return mappings from
   // IdGraph::isTrivialExpr on every expression in the graph.
@@ -232,49 +230,42 @@ class ValGraph {
   }
 
  private:
-  // Map expr0 and expr1 with eachother, update unique_definitions_ unique_uses_
+  // Map expr0 and expr1 with each other, update unique_definitions_
+  // unique_uses_
   // TODO: Make this variant hidden?
   void mapExprs(Expr* expr0, Expr* expr1);
 
-  // Checks if expr's are considered "the same" where sameness inputs and
-  // outputs in the same position across expressions map with  provided
-  // MappingMode. If the expressions are determined the same then
+  // Checks if expr's are considered "the same" where sameness is
+  // defined as inputs and outputs in the same position across
+  // expressions are mapped. If the expressions are determined the
+  // same then
+  //
   // if forward
   //   will map outputs
   // else
   //   will map inputs
-  // in the provided mode.
-  // Returns if expressions were mapped through.
   //
+  // Returns true if expressions were mapped through.
   bool mapThroughExpr(Expr* first, Expr* second, bool forward);
 
  private:
   // If propagate_through_exprs_ = false, then mapThroughExpr will not be called
-  // as a consequence of calling mapIds. As well as mapThroughExpr will not be
+  // as a consequence of calling mapVals. As well as mapThroughExpr will not be
   // called (again) as a result of calling mapThroughExpr.
   //
-  // Note: For the second sentence of above... mapThroughExpr can call mapIds
-  // which could in return call mapThoughExpr again, but propagate_exprs_ as
-  // mentioned above prevents that from happening.
+  // Note: For the second sentence of above... mapThroughExpr can call mapVals
+  // which could in return call mapThoughExpr again, but
+  // propagate_through_exprs_ as mentioned above prevents that from happening.
   bool propagate_through_exprs_ = true;
 
-  // Keeps a disjoint set entry for all IterDomain for all mapping mode types.
-  //
-  // Using an array here might be nice, but it seems hard to use an enum as an
-  // array key
-  // https://stackoverflow.com/questions/2102582/how-can-i-count-the-items-in-an-enum
+  // Keeps a disjoint set entry for all Vals.
   DisjointSets<Val*> disjoint_vals_;
 
-  // Keeps a disjoint set entry for all Expressions for all mapping mode types.
+  // Keeps a disjoint set entry for all Exprs.
   DisjointSets<Expr*> disjoint_exprs_;
 
   // Definitions of ValGroup. There can be multiple definitions due to
   // replays.
-  // TODO-NM: ValGroup by a new definition ExprGroup would not be used
-  // by existing uses. Does it make sense to represent uses and defs
-  // this way? In other words, there is a traversal path from a
-  // definition ExprGroup to an ValGroup and its use ExprGroup, but
-  // that does't guarantee the path actually exist
   std::unordered_map<ValGroup, ExprGroups> unique_definitions_;
 
   std::unordered_map<ValGroup, ExprGroups> unique_uses_;
