@@ -1506,10 +1506,22 @@ void ExprSegmentationSorter::sort() {
   // Need this for initialization of the DAG that is processed
   std::unordered_map<Expr*, ExprGroup*> expr2group;
 
-  // Not putting the exprs between allKnownVals() and fusion inputs here
+  // We don't need to generate code that's only for alias outputs. They will be
+  // computed by ExpressionEvaluator.
+  std::vector<Val*> non_alias_outs;
+  non_alias_outs.reserve(fusion_->outputs().size());
+  std::copy_if(
+      fusion_->outputs().begin(),
+      fusion_->outputs().end(),
+      std::back_inserter(non_alias_outs),
+      [this](Val* out) {
+        return fusion_->getOutputAlias(out).first == nullptr;
+      });
+
+  // Not putting the exprs between fusion inputs and allKnownVals() here
   // because they are computed using the expr evaluator.
   auto all_exprs = StmtSort::getExprsBetween(
-      GpuLower::current()->allKnownVals(), fusion_->getTerminatingOutputs());
+      GpuLower::current()->allKnownVals(), non_alias_outs);
 
   // Figure out all the values used as inputs to the expressions we're sorting
   // (to find terminating expressions). There could be branches of expressions
