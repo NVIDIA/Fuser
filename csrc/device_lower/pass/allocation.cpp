@@ -218,7 +218,7 @@ class AllocationInserter : public kir::ExprMutator {
         [](IterDomain* dom) { return dom->as<Val>(); });
 
     // Get all exprs involved in generating the allocation IDs
-    auto exprs = StmtSort::getExprsTo(tv->fusion(), start_vals);
+    auto exprs = StmtSort::getExprsTo(start_vals);
 
     // Get the halo extent if found
     auto getExtent = [this](IterDomain* id) {

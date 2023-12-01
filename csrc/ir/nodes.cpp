@@ -429,6 +429,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::ToUnsignedSmemAddr:
       return {(int64_t)(unsigned)in};
       break;
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring:
+      return {in};
+      break;
     case UnaryOpType::Dereference:
       if (*out()->getDataType() == DataType::Float) {
         return {PolymorphicValue((double)*(float*)in)};
@@ -454,6 +457,33 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       break;
     case UnaryOpType::Sin:
       return {in.as<at::Tensor>().sin()};
+      break;
+    case UnaryOpType::Cos:
+      return {in.as<at::Tensor>().cos()};
+      break;
+    case UnaryOpType::BitCast:
+      NVF_CHECK(
+          dataTypeSize(input(0)->dtype()) == dataTypeSize(out()->dtype()),
+          "BitCast only works for types of the same size");
+      if (isComplexType(input(0)->dtype()) &&
+          std::holds_alternative<ArrayType>(out()->dtype().type)) {
+        // view_as_real case.
+        auto vec_type = std::get<ArrayType>(out()->dtype().type);
+        auto inp_scalar_type = getTypeFromComplexType(input(0)->dtype());
+        NVF_CHECK(
+            *vec_type.type == inp_scalar_type,
+            "Output type must be the same as the scalar type of the complex input.");
+        NVF_CHECK(
+            vec_type.size == 2,
+            "Expected output to be array of size 2, found array of size ",
+            vec_type.size);
+        return {in.as<at::Tensor>()};
+      } else {
+        return {in.as<at::Tensor>().view(data_type_to_aten(out()->dtype()))};
+      }
+      break;
+    case UnaryOpType::Rsqrt:
+      return {in.as<at::Tensor>().rsqrt()};
       break;
     default:
       NVF_CHECK(
@@ -594,6 +624,12 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       break;
     case BinaryOpType::Gcd:
       return {gcd(lhs, rhs)};
+      break;
+    case BinaryOpType::Lshift:
+      return {lhs << rhs};
+      break;
+    case BinaryOpType::Rshift:
+      return {lhs >> rhs};
       break;
     default:
       NVF_CHECK(
@@ -1866,7 +1902,7 @@ struct MmaOpDetails {
   //  and output
   AxesData batch_axes;
   // A placeholder for mma input layout
-  std::optional<MmaOptions::MmaLayout> input_layout = std::nullopt;
+  std::optional<MmaLayout> input_layout = std::nullopt;
 };
 
 // A helper structure with pieces of information about TensorView
@@ -1898,7 +1934,7 @@ TensorViewDetails getDetailsFor(const std::vector<IterDomain*>& dims) {
   return details;
 }
 
-MmaOptions::MmaLayout getInputLayout(
+MmaLayout getInputLayout(
     const TensorViewDetails& in_a,
     const TensorViewDetails& in_b,
     const MmaOp::AxesData& m_axes,
@@ -1912,7 +1948,7 @@ MmaOptions::MmaLayout getInputLayout(
       (k_axes.front() < in_a.bcasts.front()) &&
       (in_b.bcasts.front() < k_axes.front()) &&
       (in_b.bcasts.front() < n_axes.front())) {
-    return MmaOptions::MmaLayout::TT;
+    return MmaLayout::TT;
   }
   // TN layout (b - broadcast, r - reduction):
   // A = [M, b, K]
@@ -1922,7 +1958,7 @@ MmaOptions::MmaLayout getInputLayout(
       (in_a.bcasts.front() < k_axes.front()) &&
       (in_b.bcasts.front() < n_axes.front()) &&
       (in_b.bcasts.front() < k_axes.front())) {
-    return MmaOptions::MmaLayout::TN;
+    return MmaLayout::TN;
   }
   // NT layout (b - broadcast, r - reduction):
   // A = [K, M, b]
@@ -1932,7 +1968,7 @@ MmaOptions::MmaLayout getInputLayout(
       (m_axes.front() < in_a.bcasts.front()) &&
       (k_axes.front() < in_b.bcasts.front()) &&
       (in_b.bcasts.front() < n_axes.front())) {
-    return MmaOptions::MmaLayout::NT;
+    return MmaLayout::NT;
   }
   // NN layout (b - broadcast, r - reduction):
   // A = [b, K, M]
@@ -1941,7 +1977,7 @@ MmaOptions::MmaLayout getInputLayout(
   if ((in_a.bcasts.front() < k_axes.front()) &&
       (k_axes.front() < m_axes.front()) && (n_axes.front() < k_axes.front()) &&
       (k_axes.front() < in_b.bcasts.front())) {
-    return MmaOptions::MmaLayout::NN;
+    return MmaLayout::NN;
   }
 
   NVF_ERROR(false, "Unsupported input layout");
@@ -2119,7 +2155,7 @@ MmaOp::MmaOp(
   // ATTR_POS_INIT
   addAttribute(init);
   // ATTR_POS_MACRO
-  addDataAttribute(MmaOptions::MacroType::NoMMA);
+  addDataAttribute(MmaMacro::NoMMA);
   // ATTR_POS_M_AXES
   addDataAttribute(AxesData{});
   // ATTR_POS_N_AXES
@@ -2153,10 +2189,10 @@ MmaOp::MmaOp(
     Val* in_a,
     Val* in_b,
     Val* init,
-    const MmaOptions::MacroType& macro,
+    const MmaMacro& macro,
     const MmaLayoutOpt& input_layout)
     : MmaOp(passkey, out, in_a, in_b, init) {
-  attribute<MmaOptions::MacroType>(ATTR_POS_MACRO) = macro;
+  attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
 
   const auto input_layout_ = attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
   if (input_layout_.has_value()) {
@@ -2185,13 +2221,9 @@ std::string MmaOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-void MmaOp::configureOptions(MmaOptions options) {
-  MmaOptions::MacroType& macro =
-      attribute<MmaOptions::MacroType>(ATTR_POS_MACRO);
-  NVF_ERROR(
-      options.macro != MmaOptions::MacroType::NoMMA,
-      "Un-configured mma type from options.");
-  macro = options.macro;
+void MmaOp::setMacro(MmaMacro macro) {
+  NVF_ERROR(macro != MmaMacro::NoMMA, "Unspecified mma type");
+  attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
@@ -2384,6 +2416,13 @@ std::string ViewAsScalar::toString(int indent_size) const {
 
 std::string ViewAsScalar::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> ViewAsScalar::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const at::Tensor& in = inputs.at(0).as<at::Tensor>();
+  return {at::view_as_real(in)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ViewAsScalar)
@@ -2989,7 +3028,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
       !in_x->isReduction() && !in_y->isReduction(),
       "swizzled reduction not yet supported");
 
-  for (auto input : InputsOf::outputs(in_x->fusion(), {in_x, in_y})) {
+  for (auto input : InputsOf::outputs({in_x, in_y})) {
     NVF_CHECK(
         !input->as<IterDomain>()->isBroadcast(),
         "swizzling broadcast axes not yet supported");

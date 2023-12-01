@@ -149,7 +149,7 @@ void AliasFinder::handle(const ViewOp* view) {
   // Replay `Expr`s from `out`'s root to `out`'s rfactor on `out`'s root.
   // Stop when an `Expr` requires a data copy; otherwise generate the allocation
   // order of `out`'s rfactor domain and the corresponding contiguity flags.
-  for (Expr* transform : DependencyCheck::getAllExprsBetween(
+  for (Expr* transform : StmtSort::getExprsBetween(
            {out_root.begin(), out_root.end()},
            {out_rfactor.begin(), out_rfactor.end()})) {
     if (Split* split = dynamic_cast<Split*>(transform)) {
@@ -191,14 +191,10 @@ void AliasFinder::handle(const ViewOp* view) {
 }
 
 void AliasFinder::handle(const LoadStoreOp* permute) {
-  TensorView* out = dynamic_cast<TensorView*>(permute->out());
-  if (!out->hasRFactor()) {
-    // Not a permute. It's actually an easier case to propagate aliases. I'm
-    // too lazy.
+  TensorView* in = dynamic_cast<TensorView*>(permute->in());
+  if (in == nullptr) {
     return;
   }
-
-  TensorView* in = permute->in()->as<TensorView>();
   // Look at the preferred layout not `in`'s current layout.
   Layout in_layout = analysis_.preferredLayout(in);
   if (!ir_utils::computePermutation(
@@ -208,6 +204,7 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
     return;
   }
 
+  TensorView* out = permute->out()->as<TensorView>();
   // Compute `out`'s preferred allocation domain for aliasing.
   //
   // For example,
@@ -295,17 +292,15 @@ void AliasFinder::handle(const SliceOp* slice) {
   for (auto i = static_cast<int64_t>(out_rank) - 1; i >= 0; i--) {
     if (out_layout.allocation_domain[i]->isBroadcast()) {
       out_layout.contiguity[i] = std::nullopt;
-      continue;
-    }
-
-    if (next_non_broadcast_is_non_contiguous) {
+    } else if (next_non_broadcast_is_non_contiguous) {
       out_layout.contiguity[i] = false;
       next_non_broadcast_is_non_contiguous = false;
     } else {
       out_layout.contiguity[i] = in_layout.contiguity[i];
     }
 
-    std::vector<Expr*> dependencies = DependencyCheck::getAllExprsBetween(
+    // A broadcast dimension can be a slicing product as well.
+    std::vector<Expr*> dependencies = StmtSort::getExprsBetween(
         {out_root.begin(), out_root.end()}, {out_layout.allocation_domain[i]});
     if (std::find_if(
             dependencies.begin(), dependencies.end(), [](const Expr* expr) {

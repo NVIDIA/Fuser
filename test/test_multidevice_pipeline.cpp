@@ -136,6 +136,9 @@ TEST_F(PipelineTest, Pipeline) {
   validate();
 }
 
+auto all_backends =
+    ::testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc);
+
 DeviceMesh mesh0({0});
 DeviceMesh mesh1({1});
 DeviceMesh mesh2({0, 1, 2, 3});
@@ -149,6 +152,7 @@ INSTANTIATE_TEST_SUITE_P(
     Gather,
     PipelineTestTwoStages,
     ::testing::Combine(
+        all_backends,
         all_meshes,
         all_meshes,
         ::testing::Values(true),
@@ -158,6 +162,7 @@ INSTANTIATE_TEST_SUITE_P(
     Scatter,
     PipelineTestTwoStages,
     ::testing::Combine(
+        all_backends,
         all_meshes,
         all_meshes,
         ::testing::Values(false),
@@ -167,6 +172,7 @@ INSTANTIATE_TEST_SUITE_P(
     Bcast,
     PipelineTestTwoStages,
     ::testing::Combine(
+        all_backends,
         all_meshes,
         all_meshes,
         ::testing::Values(false),
@@ -176,6 +182,7 @@ INSTANTIATE_TEST_SUITE_P(
     Bcast_sharded,
     PipelineTestTwoStages,
     ::testing::Combine(
+        all_backends,
         ::testing::Values(mesh3),
         ::testing::Values(mesh4),
         ::testing::Values(true),

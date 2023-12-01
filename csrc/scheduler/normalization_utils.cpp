@@ -928,7 +928,8 @@ PersistentKernelProperties getPersistentKernelProperties(
       .n_tensor_inputs = n_tensor_inputs,
       .max_dtype_size = max_dtype_size,
       .vectorize_factor = vectorize_factor,
-      .project_persistent_buffers = project_persistent_buffers};
+      .project_persistent_buffers = project_persistent_buffers,
+      .index_type = runtime_info.getIndexType()};
 }
 
 bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
