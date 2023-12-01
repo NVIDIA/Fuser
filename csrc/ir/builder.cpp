@@ -172,6 +172,14 @@ Val* IrBuilder::bitwiseOrExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::BitwiseOr, lhs, rhs);
 }
 
+Val* IrBuilder::lShiftExpr(Val* lhs, Val* rhs) {
+  return newArithmeticExpr(BinaryOpType::Lshift, lhs, rhs);
+}
+
+Val* IrBuilder::rShiftExpr(Val* lhs, Val* rhs) {
+  return newArithmeticExpr(BinaryOpType::Rshift, lhs, rhs);
+}
+
 Val* IrBuilder::eqExpr(Val* lhs, Val* rhs) {
   return newLogicExpr(BinaryOpType::Eq, lhs, rhs);
 }
