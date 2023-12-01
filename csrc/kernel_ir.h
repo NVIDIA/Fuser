@@ -43,8 +43,8 @@ class MBarrierInvalidate;
 class MBarrierArrive;
 class MBarrierArriveExpectTx;
 class MBarrierWait;
-class SerialReductionPreSync;
-class SerialReductionPostSync;
+class BlockSerializeWait;
+class BlockSerializeRelease;
 class CpAsyncWait;
 class CpAsyncCommit;
 class CpAsyncBulkS2GWait;
@@ -522,14 +522,14 @@ class MBarrierWait final : public Expr {
 
 // For all but first block in each reduction segment, first thread waits for
 // sync flag to indicate it is our turn to proceed (sync flag is incremented by
-// SerialReductionPostSync). Then block sync. This has the effect of
+// BlockSerializeRelease). Then block sync. This has the effect of
 // serializing blocks in each reduction segment. This is a block syncing
 // operation.
-class SerialReductionPreSync final : public Expr {
+class BlockSerializeWait final : public Expr {
  public:
   using Expr::Expr;
 
-  explicit SerialReductionPreSync(
+  explicit BlockSerializeWait(
       IrBuilderPasskey passkey,
       ParallelTypeBitmap sync_dims,
       Val* sync_buffer);
@@ -537,7 +537,7 @@ class SerialReductionPreSync final : public Expr {
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "SerialReductionPreSync";
+    return "BlockSerializeWait";
   }
 
   std::string toString(int indent_size = 0) const override;
@@ -557,11 +557,11 @@ class SerialReductionPreSync final : public Expr {
 // in each segment. This has the effect of serializing blocks in each reduction
 // segment. This is a block syncing operation for all blocks except the last
 // block in each segment.
-class SerialReductionPostSync final : public Expr {
+class BlockSerializeRelease final : public Expr {
  public:
   using Expr::Expr;
 
-  explicit SerialReductionPostSync(
+  explicit BlockSerializeRelease(
       IrBuilderPasskey passkey,
       ParallelTypeBitmap sync_dims,
       Val* sync_buffer);
@@ -569,7 +569,7 @@ class SerialReductionPostSync final : public Expr {
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "SerialReductionPostSync";
+    return "BlockSerializeRelease";
   }
 
   std::string toString(int indent_size = 0) const override;

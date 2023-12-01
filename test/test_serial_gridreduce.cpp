@@ -114,10 +114,6 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
       }
     }
 
-    // TODO:
-    // - set allocation size to be same as output of reduction op
-    // - codegen serial GridReduction
-
     // There should be a single top-level ForLoop. Find its position and check
     // that there is only one.
     size_t top_level_loop_pos = -1;
@@ -164,7 +160,7 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
         old_grop->entrance_index(),
         old_grop->entrances(),
         old_grop->isAllreduce(),
-        /*is_serial=*/true);
+        true);
     new_grop = new_grop->withPredicate(old_grop->predicate())
                    ->as<kir::GridReduction>();
     new_grop = new_grop->withWritePredicate(old_grop->writePredicate())
@@ -186,6 +182,8 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
   auto input = at::randn(
       {16384, 256}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
   auto outputs = fe.runFusion({input});
+
+  std::cout << outputs.at(0)[0] << std::endl;
 
   testValidate(fusion, outputs, {input}, __LINE__, __FILE__);
 }

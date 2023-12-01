@@ -272,12 +272,12 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::MBarrierWait>());
     return;
   }
-  if (expr->isStrictlyA<kir::SerialReductionPreSync>()) {
-    ptr(handler)->handle(expr->as<kir::SerialReductionPreSync>());
+  if (expr->isStrictlyA<kir::BlockSerializeWait>()) {
+    ptr(handler)->handle(expr->as<kir::BlockSerializeWait>());
     return;
   }
-  if (expr->isStrictlyA<kir::SerialReductionPostSync>()) {
-    ptr(handler)->handle(expr->as<kir::SerialReductionPostSync>());
+  if (expr->isStrictlyA<kir::BlockSerializeRelease>()) {
+    ptr(handler)->handle(expr->as<kir::BlockSerializeRelease>());
     return;
   }
   if (expr->isStrictlyA<kir::CpAsyncWait>()) {
@@ -596,12 +596,12 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<kir::MBarrierWait>());
     return;
   }
-  if (expr->isStrictlyA<kir::SerialReductionPreSync>()) {
-    ptr(handler)->handle(expr->as<kir::SerialReductionPreSync>());
+  if (expr->isStrictlyA<kir::BlockSerializeWait>()) {
+    ptr(handler)->handle(expr->as<kir::BlockSerializeWait>());
     return;
   }
-  if (expr->isStrictlyA<kir::SerialReductionPostSync>()) {
-    ptr(handler)->handle(expr->as<kir::SerialReductionPostSync>());
+  if (expr->isStrictlyA<kir::BlockSerializeRelease>()) {
+    ptr(handler)->handle(expr->as<kir::BlockSerializeRelease>());
     return;
   }
   if (expr->isStrictlyA<kir::CpAsyncWait>()) {
@@ -1012,10 +1012,10 @@ void OptOutConstDispatch::handle(const kir::MBarrierArriveExpectTx* stmt) {
 void OptOutConstDispatch::handle(const kir::MBarrierWait* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const kir::SerialReductionPreSync* stmt) {
+void OptOutConstDispatch::handle(const kir::BlockSerializeWait* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const kir::SerialReductionPostSync* stmt) {
+void OptOutConstDispatch::handle(const kir::BlockSerializeRelease* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const kir::CpAsyncWait* stmt) {
@@ -1251,10 +1251,10 @@ void OptOutDispatch::handle(kir::MBarrierArriveExpectTx* stmt) {
 void OptOutDispatch::handle(kir::MBarrierWait* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(kir::SerialReductionPreSync* stmt) {
+void OptOutDispatch::handle(kir::BlockSerializeWait* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(kir::SerialReductionPostSync* stmt) {
+void OptOutDispatch::handle(kir::BlockSerializeRelease* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::CpAsyncWait* stmt) {

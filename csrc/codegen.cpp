@@ -1646,63 +1646,44 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     const auto work_buffer =
         grop->reduction_buffer()->buffer()->as<TensorView>();
-    const auto sync_buffer = grop->sync_buffer()->buffer()->as<TensorView>();
 
-    const auto reduction_name = genFusedReductionName(out->view());
+    indent() << "// serial reduction\n";
 
-    // template <bool Aligned, typename Func, typename... Types>
-    // __device__ __inline__ void reduce(
-    //   RefTuple<Types...> out,
-    //   const LocalTuple<Types...>& inp,
-    //   VolatilePtrTuple<Types...> global_work_buffer,
-    //   int64_t* global_sync_buffer, // Allocated as product of all
-    //                                // non-participating Grid dimension
-    //   PtrTuple<Types...> shared_buf,
-    //   bool read_pred, // Prevent reading from out of bounds memory
-    //   bool write_pred, // Prevent from writing out of bounds
-    //   const LocalTuple<Types...>& init_val,
-    //   Func reduction_op);
-
-    ArgumentBuilder template_args;
-    template_args.arg(isAligned());
-
-    ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
-    // out
-    func_args.arg(genCall("RefTuple", data_type, gen(grop->out())));
-    // inp
-    func_args.arg(genCall("ConstRefTuple", data_type, gen(grop->in())));
-    // global_work_buffer
-    func_args.arg(genCall(
-        "VolatilePtrTuple",
-        data_type,
-        "&" + genVariableName(work_buffer) + "[0]"));
-    // global_sync_buffer
-    func_args.arg("&").append(genVariableName(sync_buffer)).append("[0]");
-    // shared_buf
-    func_args.arg(genCall(
-        "PtrTuple",
-        data_type,
-        genCall("static_cast", ptrType(data_type), "shared_mem")));
-    // read and write predicates
-    NVF_ERROR(grop->predicate() != nullptr && grop->predicate()->hasValue());
-    const auto read_pred = genInline(grop->predicate());
-    auto write_pred = read_pred;
-    if (grop->writePredicate() != nullptr) {
-      NVF_ERROR(grop->writePredicate()->hasValue());
-      write_pred = genInline(grop->writePredicate());
-    }
-    func_args.arg(read_pred).arg(write_pred);
-    // init_val
-    func_args.arg(genCall("LocalTuple", data_type, genInline(grop->init())));
-    // reduction_op
-    func_args.arg(genReductionOp(op_type, out->dtype()));
-
-    addProfileArguments(func_args, grop);
-
-    // indent() << genCall(reduction_name + ".reduce", template_args, func_args)
-    //<< ";\n";
-
-    indent() << "// SERIAL REDUCTION GOES HERE;\n";
+    // Load from global
+    ArgumentBuilder template_args_load;
+    template_args_load.arg(data_type)
+        .arg("1")
+        .arg("true")
+        .arg("CacheOp::")
+        .append(CacheOp::Global);
+    ArgumentBuilder func_args_load;
+    func_args_load.arg("&")
+        .append(gen(out))
+        .arg("&")
+        .append(gen(work_buffer))
+        .append("[")
+        .append("i11 + i15")
+        .append("]");
+    indent() << genCall("loadGlobalToLocal", template_args_load, func_args_load)
+             << ";\n";
+    // Add contribution
+    indent() << gen(out) << " = "
+             << genBinaryOp(op_type, data_type, gen(out), gen(grop->in()))
+             << ";\n";
+    // Store to global
+    ArgumentBuilder template_args_store;
+    template_args_store.arg(data_type).arg("1").arg("true").arg("false");
+    ArgumentBuilder func_args_store;
+    func_args_store.arg("&")
+        .append(gen(work_buffer))
+        .append("[")
+        .append("i11 + i15")
+        .append("]")
+        .arg("&")
+        .append(gen(out));
+    indent() << genCall(
+                    "loadGenericVolatile", template_args_store, func_args_store)
+             << ";\n";
   }
 
   void generateGridAllreduce(const kir::GridReduction* grop) {
@@ -3044,7 +3025,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << call << ";\n";
   }
 
-  void handle(const kir::SerialReductionPreSync* sync) final {
+  void handle(const kir::BlockSerializeWait* sync) final {
     // Use a custom synchronization method if enabled
     bool bidx = sync->syncDims().get(ParallelType::BIDx);
     bool bidy = sync->syncDims().get(ParallelType::BIDy);
@@ -3077,7 +3058,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << sync_call << ";\n";
   }
 
-  void handle(const kir::SerialReductionPostSync* sync) final {
+  void handle(const kir::BlockSerializeRelease* sync) final {
     // Use a custom synchronization method if enabled
     bool bidx = sync->syncDims().get(ParallelType::BIDx);
     bool bidy = sync->syncDims().get(ParallelType::BIDy);

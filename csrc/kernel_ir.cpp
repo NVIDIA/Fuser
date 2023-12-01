@@ -551,7 +551,7 @@ std::string MBarrierWait::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierWait)
 
-SerialReductionPreSync::SerialReductionPreSync(
+BlockSerializeWait::BlockSerializeWait(
     IrBuilderPasskey passkey,
     ParallelTypeBitmap sync_dims,
     Val* sync_buffer)
@@ -561,20 +561,20 @@ SerialReductionPreSync::SerialReductionPreSync(
   addAttribute(sync_buffer);
 }
 
-std::string SerialReductionPreSync::toString(int indent_size) const {
+std::string BlockSerializeWait::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "SERIALREDUCTIONPRESYNC(" << syncDims().toString()
                           << ", " << syncBuffer()->toString() << ")\n";
   return ss.str();
 }
 
-std::string SerialReductionPreSync::toInlineString(int indent_size) const {
+std::string BlockSerializeWait::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Serial reduction pre sync can not be printed inline");
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(SerialReductionPreSync)
+NVFUSER_DEFINE_CLONE_AND_CREATE(BlockSerializeWait)
 
-SerialReductionPostSync::SerialReductionPostSync(
+BlockSerializeRelease::BlockSerializeRelease(
     IrBuilderPasskey passkey,
     ParallelTypeBitmap sync_dims,
     Val* sync_buffer)
@@ -584,18 +584,18 @@ SerialReductionPostSync::SerialReductionPostSync(
   addAttribute(sync_buffer);
 }
 
-std::string SerialReductionPostSync::toString(int indent_size) const {
+std::string BlockSerializeRelease::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "SERIALREDUCTIONPOSTSYNC(" << syncDims().toString()
                           << ", " << syncBuffer()->toString() << ")\n";
   return ss.str();
 }
 
-std::string SerialReductionPostSync::toInlineString(int indent_size) const {
+std::string BlockSerializeRelease::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Serial reduction post sync can not be printed inline");
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(SerialReductionPostSync)
+NVFUSER_DEFINE_CLONE_AND_CREATE(BlockSerializeRelease)
 
 CpAsyncWait::CpAsyncWait(IrBuilderPasskey passkey, int64_t keep_stages)
     : Expr(passkey) {
