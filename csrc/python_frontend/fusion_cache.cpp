@@ -96,53 +96,45 @@ const serde::FusionCache* verifyFusionCache(const BinaryBuffer& buffer) {
 
   // Check flatbuffer integrity
   flatbuffers::Verifier v(buffer.data(), buffer.size());
-  if (!fusion_cache_buffer->Verify(v)) {
-    NVF_CHECK(false, "Failed to verify the integrity of FusionCache buffer.");
-    return nullptr;
-  }
+  NVF_CHECK(
+      fusion_cache_buffer->Verify(v),
+      "Failed to verify the integrity of FusionCache buffer.");
 
   // Check schema version
-  if (!serde::FusionCacheBufferHasIdentifier(buffer.data())) {
-    NVF_CHECK(
-        false, "Failed to verify the schema version of the FusionCache buffer");
-    return nullptr;
-  }
+  NVF_CHECK(
+      serde::FusionCacheBufferHasIdentifier(buffer.data()),
+      "Failed to verify the schema version of the FusionCache buffer");
 
   // Check device major and minor versions
   auto device_prop = at::cuda::getCurrentDeviceProperties();
-  if (device_prop->major != fusion_cache_buffer->device_major() ||
-      device_prop->minor != fusion_cache_buffer->device_minor()) {
-    NVF_CHECK(
-        false,
-        "Expected cuda version ",
-        device_prop->major,
-        ".",
-        device_prop->minor,
-        " but flatbuffer has cuda version ",
-        fusion_cache_buffer->device_major(),
-        ".",
-        fusion_cache_buffer->device_minor());
-    return nullptr;
-  }
+  NVF_CHECK(
+      device_prop->major == fusion_cache_buffer->device_major() &&
+          device_prop->minor == fusion_cache_buffer->device_minor(),
+      false,
+      "Expected cuda version ",
+      device_prop->major,
+      ".",
+      device_prop->minor,
+      " but flatbuffer has cuda version ",
+      fusion_cache_buffer->device_major(),
+      ".",
+      fusion_cache_buffer->device_minor());
 
   // Check cuda installation
   int cuda_major = 0;
   int cuda_minor = 0;
   NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&cuda_major, &cuda_minor));
-  if (cuda_major != fusion_cache_buffer->cuda_major() ||
-      cuda_minor != fusion_cache_buffer->cuda_minor()) {
-    NVF_CHECK(
-        false,
-        "Expected cuda version ",
-        cuda_major,
-        ".",
-        cuda_minor,
-        " but flatbuffer has cuda version ",
-        fusion_cache_buffer->cuda_major(),
-        ".",
-        fusion_cache_buffer->cuda_minor());
-    return nullptr;
-  }
+  NVF_CHECK(
+      cuda_major == fusion_cache_buffer->cuda_major() &&
+          cuda_minor == fusion_cache_buffer->cuda_minor(),
+      "Expected cuda version ",
+      cuda_major,
+      ".",
+      cuda_minor,
+      " but flatbuffer has cuda version ",
+      fusion_cache_buffer->cuda_major(),
+      ".",
+      fusion_cache_buffer->cuda_minor());
 
   return fusion_cache_buffer;
 }
