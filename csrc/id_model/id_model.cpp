@@ -22,8 +22,36 @@
 
 #include <tuple>
 #include <typeinfo>
+#include <utility>
 
 namespace nvfuser {
+
+namespace {
+
+// Map through loop swizzles, as input/output IterDomains are exact, only the
+// order they're traversed differs.
+void mapThroughLoopSwizzles(ValGraph& graph) {
+  std::vector<Swizzle2D*> all_swizzles;
+
+  for (const auto& expr_set :
+       std::as_const(graph).disjointExprSets().disjointSets()) {
+    auto swizzles_in_expr_set = ir_utils::filterByType<Swizzle2D>(
+        expr_set->vector().begin(), expr_set->vector().end());
+    all_swizzles.insert(
+        all_swizzles.end(),
+        swizzles_in_expr_set.begin(),
+        swizzles_in_expr_set.end());
+  }
+
+  for (auto swizzle : all_swizzles) {
+    if (swizzle->swizzleMode() == SwizzleMode::Loop) {
+      graph.mapVals(swizzle->inX(), swizzle->outX());
+      graph.mapVals(swizzle->inY(), swizzle->outY());
+    }
+  }
+}
+
+} // namespace
 
 void IdModel::assertNoSelfMapping() {
   if (hasSelfMapping()) {
@@ -52,9 +80,6 @@ IdModel::IdModel(
   }
 }
 
-IdModel::IdModel(const std::vector<Expr*>& exprs, bool allow_self_mapping)
-    : IdModel(exprs, {}, allow_self_mapping) {}
-
 IdModel::IdModel(Fusion* fusion, bool allow_self_mapping, bool validate) {
   std::vector<TensorView*> inputs_and_outputs;
   {
@@ -65,7 +90,7 @@ IdModel::IdModel(Fusion* fusion, bool allow_self_mapping, bool validate) {
   {
     auto out_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
     inputs_and_outputs.insert(
-        inputs_and_outputs.begin(), out_tvs.begin(), out_tvs.end());
+        inputs_and_outputs.end(), out_tvs.begin(), out_tvs.end());
   }
 
   build(fusion->exprs(), inputs_and_outputs, validate);
@@ -77,7 +102,11 @@ IdModel::IdModel(Fusion* fusion, bool allow_self_mapping, bool validate) {
 
 const ValGraph& IdModel::idGraph(IdMappingMode mode) const {
   auto graph_it = id_graphs_.find(mode);
-  NVF_ERROR(graph_it != id_graphs_.end());
+  NVF_ERROR(
+      graph_it != id_graphs_.end(),
+      "Failed to find an IdGraph with the ",
+      mode,
+      " mode");
   return graph_it->second;
 }
 
@@ -214,14 +243,14 @@ findFirstSelfMapping(
 
 void IdModel::buildIterDomainDefinitionsAndUses(
     const std::vector<TensorView*>& all_tvs) {
-  for (auto tv : all_tvs) {
+  for (const auto tv : all_tvs) {
     VectorOfUniqueEntries<IterDomain*> root_domain_ids{
         tv->getRootDomain().begin(), tv->getRootDomain().end()};
 
-    auto all_ids = ir_utils::allIDsOf(tv);
+    std::vector<IterDomain*> all_ids = ir_utils::allIDsOf(tv);
 
-    // Check is this domain is a consumer of a view-like operation
-    bool view_like_domain = tv->domain()->hasViewLikeRFactor();
+    // Check if this domain is a consumer of a view-like operation
+    const bool view_like_domain = tv->domain()->hasViewLikeRFactor();
 
     for (auto id : all_ids) {
       // Check if this id is a view like rfactor id
@@ -237,64 +266,47 @@ void IdModel::buildIterDomainDefinitionsAndUses(
       }
 
       if (id_definitions_.find(id) == id_definitions_.end()) {
-        id_definitions_[id] = {};
+        id_definitions_.emplace(id, VectorOfUniqueEntries<Expr*>{});
       }
 
       if (id_uses_.find(id) == id_uses_.end()) {
-        id_uses_[id] = {};
+        id_uses_.emplace(id, VectorOfUniqueEntries<Expr*>{});
       }
 
-      auto def = id->definition();
+      Expr* def = id->definition();
 
       if (def == nullptr || root_domain_ids.has(id)) {
         continue;
       }
 
-      if (id_definitions_.find(id) == id_definitions_.end()) {
-        id_definitions_[id] = {};
-      }
-      id_definitions_.at(id).pushBack(def);
+      id_definitions_[id].pushBack(def);
 
       auto inp_ids = ir_utils::filterByType<IterDomain>(def->inputs());
       for (auto inp_id : inp_ids) {
-        if (id_uses_.find(inp_id) == id_uses_.end()) {
-          id_uses_[inp_id] = {};
-        }
-        id_uses_.at(inp_id).pushBack(def);
+        id_uses_[inp_id].pushBack(def);
       }
     }
   }
 }
 
 std::string IdModel::toString() const {
-  // Figure out which graphs are already initialized to make sure we add the new
-  // expression to them.
-  std::vector<IdMappingMode> initialized_modes;
+  std::stringstream ss;
+  ss << "IterDomainGraphs { \n";
+  // Only print initialized graphs
   for (auto mode : kIdMappingModes) {
     auto graph_it = id_graphs_.find(mode);
     if (graph_it == id_graphs_.end()) {
       continue;
     }
 
-    auto& graph = graph_it->second;
-    if (graph.disjointValSets().disjointSetMap().empty()) {
-      continue;
-    }
-
-    initialized_modes.push_back(mode);
-  }
-
-  std::stringstream ss;
-  ss << "IterDomainGraphs { \n";
-  for (auto mode : initialized_modes) {
-    std::stringstream ss;
+    // graph may be empty, but then just print it as an empty graph,
+    // which might be useful for debugging
     ss << "  IdGraph " << mode << "{ \n";
     ss << "  Disjoint Ids:\n"
        << idGroupsString(idGraph(mode), 2)
        << "\n  Disjoint Expression groups:\n"
        << exprGroupsString(idGraph(mode), 2) << std::endl;
     ss << "   } IdGraph\n" << std::endl;
-    return ss.str();
   }
   ss << " } IterDomainGraphs\n" << std::endl;
   return ss.str();
@@ -342,7 +354,7 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
       id_uses_[new_inputs.back()];
       for (auto mode : initialized_modes) {
         idGraph(mode).initializeVal(new_inputs.back(), {}, {});
-        idGraph(mode).mapIds(new_inputs.back(), tmp_input);
+        idGraph(mode).mapVals(new_inputs.back(), tmp_input);
       }
     }
   }
@@ -408,9 +420,8 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
     // Gather all use expressions from inputs
     VectorOfUniqueEntries<Expr*> representative_uses;
     for (IterDomain* inp : new_inputs) {
-      auto uses_pair = graph.getUses(graph.toGroup(inp));
-      if (uses_pair.second) {
-        for (const ExprGroup& use_group : uses_pair.first) {
+      if (const ExprGroups* uses = graph.getUses(graph.toGroup(inp)); uses) {
+        for (const ExprGroup& use_group : *uses) {
           representative_uses.pushBack(use_group->front());
         }
       }
@@ -557,9 +568,8 @@ Expr* IdModel::addExprWithReplacement(
     // Forward
     VectorOfUniqueEntries<Expr*> representative_uses;
     for (auto in : ir_utils::filterByType<IterDomain>(replay->inputs())) {
-      auto uses_pair = graph.getUses(graph.toGroup(in));
-      if (uses_pair.second) {
-        for (const ExprGroup& use_group : uses_pair.first) {
+      if (const ExprGroups* uses = graph.getUses(graph.toGroup(in)); uses) {
+        for (const ExprGroup& use_group : *uses) {
           if (use_group == replay_group) {
             continue;
           }
@@ -575,9 +585,9 @@ Expr* IdModel::addExprWithReplacement(
     // Backwards
     VectorOfUniqueEntries<Expr*> representative_defs;
     for (auto out : ir_utils::filterByType<IterDomain>(replay->outputs())) {
-      auto defs_pair = graph.getDefinitions(graph.toGroup(out));
-      if (defs_pair.second) {
-        for (const ExprGroup& def_group : defs_pair.first) {
+      if (auto definition = graph.getDefinitions(graph.toGroup(out));
+          definition) {
+        for (const ExprGroup& def_group : *definition) {
           if (def_group == replay_group) {
             continue;
           }
@@ -620,7 +630,7 @@ IterDomain* IdModel::cloneIterDomain(IterDomain* id) {
 
   for (auto mode : initialized_modes) {
     idGraph(mode).initializeVal(id_copy, {}, {});
-    idGraph(mode).mapIds(id, id_copy);
+    idGraph(mode).mapVals(id, id_copy);
   }
 
   return id_copy;
@@ -666,7 +676,7 @@ void IdModel::buildExactGraph(const std::vector<Expr*>& exprs) {
       for (auto domain_i : c10::irange(c_tv->getRootDomain().size())) {
         auto c_id = c_tv->getRootDomain()[domain_i];
         auto o_id = other_tv_output->getRootDomain()[domain_i];
-        idGraph(IdMappingMode::EXACT).mapIds(o_id, c_id);
+        idGraph(IdMappingMode::EXACT).mapVals(o_id, c_id);
       }
     }
 
@@ -682,11 +692,12 @@ void IdModel::buildExactGraph(const std::vector<Expr*>& exprs) {
 
       for (auto c_id : getSortedKeys(exact_c2p_root_map, Statement::lessThan)) {
         auto p_id = exact_c2p_root_map.at(c_id);
-        idGraph(IdMappingMode::EXACT).mapIds(c_id, p_id);
+        idGraph(IdMappingMode::EXACT).mapVals(c_id, p_id);
       }
     }
 
-    idGraph(IdMappingMode::EXACT).mapThroughLoopSwizzles();
+    // TODO: Revisit if we really should map domains in the exact map
+    mapThroughLoopSwizzles(idGraph(IdMappingMode::EXACT));
   }
 }
 
@@ -713,32 +724,32 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
 
       ForwardingInfo permissive_forwarding(p_tv, c_tv);
       for (auto entry : permissive_forwarding.producer_forwarding_map) {
-        idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry.second);
+        idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
       }
 
       // TODO: Should this just get rolled up in the forwarding map now?
       for (const auto& entry : permissive_forwarding.producer_compliment_map) {
         for (auto entry_2 : entry.second) {
-          idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry_2);
+          idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry_2);
         }
       }
 
       for (auto entry : permissive_forwarding.consumer_forwarding_map) {
-        idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry.second);
+        idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
       }
 
       // TODO: Should this just get rolled up in the forwarding map now?
       // TODO: Why should IDs be mapped to their compliments? Is this right?
       for (const auto& entry : permissive_forwarding.consumer_compliment_map) {
         for (auto entry_2 : entry.second) {
-          idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry_2);
+          idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry_2);
         }
       }
 
       auto permissive_c2p_root_map = PairwiseRootDomainMap(p_tv, c_tv);
 
       for (auto entry : permissive_c2p_root_map.mapConsumerToProducer()) {
-        idGraph(IdMappingMode::PERMISSIVE).mapIds(entry.first, entry.second);
+        idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
       }
     }
   }
@@ -957,14 +968,9 @@ void IdModel::build(
       });
 
   auto all_tvs = ir_utils::allTvsOfExprs(tv_exprs);
-  if (!additional_tvs.empty()) {
-    std::unordered_set<TensorView*> all_added_tvs(
-        all_tvs.begin(), all_tvs.end());
-    for (auto additional_tv : additional_tvs) {
-      if (all_added_tvs.find(additional_tv) == all_added_tvs.end()) {
-        all_tvs.pushBack(additional_tv);
-      }
-    }
+
+  for (auto additional_tv : additional_tvs) {
+    all_tvs.pushBack(additional_tv);
   }
 
   if (all_tvs.empty()) {
@@ -1100,7 +1106,7 @@ ValGraph IdModel::buildIntersection(
         // id0 and id1 map in group0. If they also map in the group1,
         // add the mapping to the inersection.
         if (graph1.disjointValSets().strictAreMapped(id0, id1)) {
-          intersection.mapIds(id0, id1);
+          intersection.mapVals(id0, id1);
         }
       }
     }
@@ -1120,7 +1126,7 @@ void IdModel::initializeLoopMap(StatefulLoweringInfo& info) {
     if (entry_it != info.p2c_ca_permissive_maps.end()) {
       const VectorOfUniqueEntries<Val*>& c_ids = entry_it->second;
       for (Val* c_id : c_ids) {
-        idGraph(IdMappingMode::LOOP).mapIds(p_id, c_id);
+        idGraph(IdMappingMode::LOOP).mapVals(p_id, c_id);
       }
     }
   }
@@ -1337,8 +1343,9 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlinePromotions(
     ExprGroups non_promoted_input_uses;
     for (const ValGroup& iel_group :
          promoted_input_groups.computeIntersect(input_groups)) {
-      non_promoted_input_uses.pushBack(
-          intersection_exact_loop_graph.getUniqueUses(iel_group));
+      const ExprGroups* uses = intersection_exact_loop_graph.getUses(iel_group);
+      NVF_ERROR(uses);
+      non_promoted_input_uses.pushBack(*uses);
     }
 
     Expr* replay = nullptr;
@@ -1390,7 +1397,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlinePromotions(
       iel_promotion_map[out_groups[i]] = replay_out_ids[i];
       // Explicitly map loop map since expr propagation doesn't happen
       if (replayed) {
-        idGraph(IdMappingMode::LOOP).mapIds(replay_out_ids[i], ref_out_ids[i]);
+        idGraph(IdMappingMode::LOOP).mapVals(replay_out_ids[i], ref_out_ids[i]);
       }
     }
   }
@@ -1441,7 +1448,9 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
   for (const ValGroup& id_group :
        exact_graph.disjointValSets().disjointSets()) {
     // Initialize inputs
-    if (exact_graph.getUniqueDefinitions(id_group).empty()) {
+    const ExprGroups* id_group_defs = exact_graph.getDefinitions(id_group);
+    NVF_ERROR(id_group_defs);
+    if (id_group_defs->empty()) {
       covered_ids[id_group] = {id_group};
     }
 
@@ -1739,7 +1748,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
           intersection_exact_loop_graph.toGroup(inp_id);
       promoted_input_groups.push_back(inp_exact_group);
       promoted_input_uses.pushBack(
-          intersection_exact_loop_graph.getUniqueUses(inp_exact_group));
+          *intersection_exact_loop_graph.getUses(inp_exact_group));
     }
 
     // Check every use to see if it matches
@@ -1815,7 +1824,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
           // If we built new iter domains because we generated a new expression,
           // link the outputs in the loop graph.
           idGraph(IdMappingMode::LOOP)
-              .mapIds(replay_out_ids[i], ref_out_ids[i]);
+              .mapVals(replay_out_ids[i], ref_out_ids[i]);
         }
       }
     }

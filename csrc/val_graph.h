@@ -16,6 +16,39 @@
 
 namespace nvfuser {
 
+// ValGraph is a DAG of Vals and Exprs connected by their input and
+// output dependencies. Each graph node is a collection of
+// either Vals or Exprs that are grouped together through mapVals and
+// mapExprs, respectively.
+//
+// The primary use case of ValGraph is for representing groupings and
+// dependencies of iteration domains. For example, given a fusion as
+// shown below:
+//
+// T1 = set(T0);
+// T2 = set(T1);
+//
+// T0: root [I0, I1], leaf [I0, I1]
+// T1: root [I2, I3], leaf [I2*I3/4, 4]
+// T2: root [I4, I5], leaf [I4*I5/4, 4]
+//
+// The Exact ValGraph consists of ValGroups of:
+//
+// - {I0, I2, I4}
+// - {I1, I3, I5}
+// - {I2*I3, I4*I5}
+// - {I2*I3/4, I4*I5/4}
+// - {4, 4}
+//
+// and ExprGroups of:
+//
+// - {merge of I2 and I3, merge of I4 and I5}
+// - {split of I2*I3, split of I4*I5}
+//
+// ValGraph can be used with any Val types, however, it's currenty
+// only tested with IterDomain. Some of the routines might need to be
+// extended for other Val types.
+
 using ValGroup = std::shared_ptr<VectorOfUniqueEntries<Val*>>;
 using ValGroups = VectorOfUniqueEntries<ValGroup>;
 using ExprGroup = std::shared_ptr<VectorOfUniqueEntries<Expr*>>;
@@ -34,7 +67,7 @@ class ValGraph {
   ValGraph(bool propagate_through_exprs)
       : propagate_through_exprs_(propagate_through_exprs) {}
 
-  // Returns the disjoint IterDomain set.
+  // Returns the disjoint val set.
   const DisjointSets<Val*>& disjointValSets() const {
     return disjoint_vals_;
   }
@@ -55,14 +88,14 @@ class ValGraph {
   // Return if there's a group entry in the graph for this expr
   bool hasGroup(Expr* expr) const;
 
-  // Return if there's a group entry in the graph for this id
-  bool hasGroup(Val* id) const;
+  // Return if there's a group entry in the graph for this val
+  bool hasGroup(Val* val) const;
 
   // Convert expr to its exprGroup, assert that it exists.
   const ExprGroup& toGroup(Expr* expr) const;
 
-  // Convert iter domain to its ValGroup, assert that it exists.
-  const ValGroup& toGroup(Val* id) const;
+  // Convert Val to its ValGroup, assert that it exists.
+  const ValGroup& toGroup(Val* val) const;
 
   // Convert unique vector of expressions to unique vector of its groups
   ExprGroups toGroups(const VectorOfUniqueEntries<Expr*>& exprs) const;
@@ -79,19 +112,32 @@ class ValGraph {
     return val_groups;
   }
 
-  // Return output/input iter domain groups of provided expr
-  // Note that the same IdGroup can show up multiple times, so the
+  // Return output/input Val groups of provided expr
+  // Note that the same ValGroup can show up multiple times, so the
   // output type cannot be VectorOfUniqueEntries
   std::vector<ValGroup> outputGroups(const ExprGroup& expr) const;
   std::vector<ValGroup> inputGroups(const ExprGroup& expr) const;
 
-  // Recursively traverses uses of the ValGroups in 'of' and returns all
-  // ExprGroups that have a use in their definition of provided of ValGroups.
+  // Recursively traverses uses of the IdGroups in 'of' and returns all
+  // ExprGroups that have a use in their definition of provided of IdGroups.
   ExprGroups allUsesOf(const ValGroups& of) const;
 
-  // Recursively traverses definitions of the ValGroups in 'of' and returns all
-  // ExprGroups used in this history of defining the 'of' ValGroups.
+  // Recursively traverses definitions of the IdGroups in 'of' and returns all
+  // ExprGroups used in this history of defining the 'of' IdGroups.
   ExprGroups allDefinitionsOf(const ValGroups& of) const;
+
+  //! Returns the pointer to expressions associated with the
+  //! definitions of the provided ValGroup. Nullptr is returned
+  //! otherwise.
+  //! The returned pointer is to a vector of vector of expressions. The
+  //! inner vector is proven to be equivalent. The
+  //! outer vector are expression groups that are not equivalent, but
+  //! produce one of the ValGroups within the same disjoint Val set.
+  const ExprGroups* getDefinitions(const ValGroup& val_group) const;
+
+  //! Same as getDefinitions but for uses instead of
+  //! definitions
+  const ExprGroups* getUses(const ValGroup& val_group) const;
 
   // Return sorted expressions to go from the provided IterDomains in from to
   // the provided IterDomains in to with provided mode. Minimal expressions to
@@ -110,28 +156,6 @@ class ValGraph {
   std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> buildMapBetween(
       const VectorOfUniqueEntries<Val*>& from,
       const VectorOfUniqueEntries<Val*>& to) const;
-
-  //! Returns
-  //!   (1) The expressions associated with the definitions of the provided
-  //!     IterDomain group in the provided mapping mode (if it exists).
-  //!   (2) If there is a definitions entry of the provided IterDomain group in
-  //!     the provided mapping mode.
-  //! First entry in the returned pair is a vector of vector of expressions. The
-  //! inner vector is proven to be equivalent based on the provided mode. The
-  //! outer vector are expression groups that are not equivalent based on the
-  //! provided mode, but produce one of the IterDomains within the same disjoint
-  //! Iter Domain set based on the provided mode.
-  //!
-  //! TODO-NM: ExprGroups is a real container. Consider returning a reference
-  std::pair<ExprGroups, bool> getDefinitions(const ValGroup& id_group) const;
-
-  //! Same as iterDomainGroupDefinitions but for uses instead of
-  //! definitions
-  //!
-  //! TODO-NM: ExprGroups is a real container. Consider returning a
-  //! reference
-  //! TODO-NM: Rename to getMaybeUses. See getUses
-  std::pair<ExprGroups, bool> getUses(const ValGroup& id_group) const;
 
   bool hasUses(const ValGroup& id_group) const;
 
@@ -161,14 +185,6 @@ class ValGraph {
       // , std::vector<IterDomain*> second_input_or_output_override
   ) const;
 
-  // Returns entry in unique_definitions_ for provided group in provided mode,
-  // otherwise errors if no entry is found.
-  const ExprGroups& getUniqueDefinitions(const ValGroup& group) const;
-
-  // Returns entry in unique_uses_ for provided group in provided mode,
-  // otherwise errors if no entry is found.
-  const ExprGroups& getUniqueUses(const ValGroup& group) const;
-
  public:
   void addUniqueUses(const ValGroup& id_group, const ExprGroup& uses) {
     unique_uses_.at(id_group).pushBack(uses);
@@ -178,13 +194,16 @@ class ValGraph {
     unique_definitions_.at(id_group).pushBack(defs);
   }
 
-  // Set id0 and id1 to mapped in disjointIdsSet[mode], attempt to propagate
-  // new mapping through id0/id1 definitions/uses.
-  void mapIds(Val* id0, Val* id1);
+  // Set val0 and val1 to mapped in this graph, attempt to propagate
+  // new mapping through val0/val1 definitions/uses.
+  void mapVals(Val* val0, Val* val1);
 
   // Checks if expr0 and expr1 should map together, maps them together, and if
-  // expression propagation is on, propagates mapping through them. This should
-  // be the only call in IdGraph to mapThroughExpr
+  // expression propagation is on, propagates mapping through
+  // them. The forward parameter determines the direction of the
+  // propagation. The expressions are mapped if the inputs are mapped
+  // when the forward parameter is true. This should
+  // be the only call in ValGraph to mapThroughExpr.
   void maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward);
 
   // Map through loop swizzles, as input/output IterDomains are exact, only the

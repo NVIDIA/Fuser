@@ -15,11 +15,12 @@
 
 namespace nvfuser {
 
-std::string toString(const std::vector<Val*>& id_group, int indent_size = 0);
+std::string toString(const std::vector<Val*>& val_group, int indent_size = 0);
 
 std::string toString(
     const std::vector<IterDomain*>& id_group,
     int indent_size = 0);
+
 std::string toString(
     const ValGroup& id_group,
     int indent_size = 0,

@@ -27,7 +27,7 @@ namespace {
 struct StatefulLoweringInfo;
 } // namespace
 
-// A collection of IterDomainGraphs that are built from a fusion or series of
+// A collection of ValGraphs that are built from a fusion or series of
 // expressions. These graphs are related, but have some distinct features based
 // on the IdMappingMode.
 //
@@ -63,6 +63,9 @@ struct StatefulLoweringInfo;
 // producer's broadcast is inlined (in total or partially). Then the producer's
 // iter domain will be "promoted" to the size of the consumers iter domain.
 //
+// IdMappingMode::EXACT
+//   Don't map any broadcast axes to non-broadcast axes
+//   Do not forward through any broadcast IDs
 // IdMappingMode::LOOP
 //   Forward broadcast axes in replay
 //   Denotes groups of IterDomains that are considered promoted to a common iter
@@ -72,9 +75,6 @@ struct StatefulLoweringInfo;
 //   Map all iteration domains
 //   Always contain root mappings (otherwise they could have been forwarded in
 //   broadcast)
-// IdMappingMode::EXACT
-//   Don't map any broadcast axes to non-broadcast axes
-//   Do not forward through any broadcast IDs
 // IdMappingMode::AlmostExact
 //   Forward through broadcast axes, but not through to a non-broadcast axis
 //     i.e. id{b1*i0}, id{i0} are mapped
@@ -86,10 +86,8 @@ class IdModel : public PolymorphicBase {
  public:
   IdModel(
       const std::vector<Expr*>& exprs,
-      const std::vector<TensorView*>& additional_tvs,
+      const std::vector<TensorView*>& additional_tvs = {},
       bool allow_self_mapping = false);
-
-  IdModel(const std::vector<Expr*>& exprs, bool allow_self_mapping = false);
 
   // Same as the above constructor with fusion->exprs() excpet fusion may have
   // some dangling inputs/outputs that are expected to have IterDomain entries

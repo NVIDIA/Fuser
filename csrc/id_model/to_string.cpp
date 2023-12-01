@@ -53,16 +53,9 @@ std::string toString(const std::vector<Val*>& id_group, int indent_size) {
 std::string toString(
     const std::vector<IterDomain*>& id_group,
     int indent_size) {
-  std::vector<unsigned int> names;
-  names.reserve(id_group.size());
-  for (auto id : id_group) {
-    names.push_back(id->name());
-  }
-  std::sort(names.begin(), names.end());
-
-  std::stringstream ss;
-  ss << indent(indent_size) << "{" << names << "}";
-  return ss.str();
+  std::vector<Val*> val_group;
+  std::copy(id_group.begin(), id_group.end(), std::back_inserter(val_group));
+  return toString(val_group, indent_size);
 }
 
 std::string toString(const ValGroup& id_group, int indent_size, bool with_ptr) {
@@ -313,32 +306,30 @@ std::string definitionsString(
     const ValGraph& id_graph,
     int indent_size,
     bool with_ptr) {
-  ExprGroups defs;
+  ExprGroups all_defs;
   for (const ValGroup& id_group : id_graph.disjointValSets().disjointSets()) {
-    auto definition_pair = id_graph.getDefinitions(id_group);
-    if (definition_pair.second) {
-      for (const ExprGroup& expr_group : definition_pair.first) {
-        defs.pushBack(expr_group);
+    if (auto definition = id_graph.getDefinitions(id_group); definition) {
+      for (const ExprGroup& expr_group : *definition) {
+        all_defs.pushBack(expr_group);
       }
     }
   }
-  return toString(id_graph, defs, indent_size, with_ptr);
+  return toString(id_graph, all_defs, indent_size, with_ptr);
 }
 
 std::string usesString(
     const ValGraph& id_graph,
     int indent_size,
     bool with_ptr) {
-  ExprGroups uses;
+  ExprGroups all_uses;
   for (const ValGroup& id_group : id_graph.disjointValSets().disjointSets()) {
-    auto definition_pair = id_graph.getUses(id_group);
-    if (definition_pair.second) {
-      for (const ExprGroup& expr_group : definition_pair.first) {
-        uses.pushBack(expr_group);
+    if (const ExprGroups* uses = id_graph.getUses(id_group); uses) {
+      for (const ExprGroup& expr_group : *uses) {
+        all_uses.pushBack(expr_group);
       }
     }
   }
-  return toString(id_graph, uses, indent_size, with_ptr);
+  return toString(id_graph, all_uses, indent_size, with_ptr);
 }
 
 } // namespace nvfuser
