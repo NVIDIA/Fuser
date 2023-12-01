@@ -3630,7 +3630,6 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
       // traverse from root to rfactor and inspect all Expr attrs and outputs
       std::vector<Val*> all_vals;
       for (const auto id_expr : StmtSort::getExprsBetween(
-               tv->fusion(),
                {tv->getRootDomain().begin(), tv->getRootDomain().end()},
                {tv->getMaybeRFactorDomain().begin(),
                 tv->getMaybeRFactorDomain().end()})) {
