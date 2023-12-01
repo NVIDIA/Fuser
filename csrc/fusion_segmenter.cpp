@@ -2207,12 +2207,7 @@ std::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
 }
 
 void SegmentedGroup::resetExprList() {
-  auto input_group_vec = getAllInputs(this);
-  std::unordered_set<Val*> input_group_set(
-      input_group_vec.begin(), input_group_vec.end());
-  auto expr_set =
-      DependencyCheck::getAllExprsBetween(input_group_set, getAllOutputs(this));
-  exprs_ = std::vector<Expr*>(expr_set.begin(), expr_set.end());
+  exprs_ = StmtSort::getExprsBetween(getAllInputs(this), getAllOutputs(this));
 }
 
 // Custom merge node passes:
@@ -3703,7 +3698,7 @@ void SegmentCandidateFinder::resolveInputsInGroup(SegmentedGroup* group) {
   group->input_vals = IterVisitor::getInputsTo(group->inputs());
 
   // Grab all expressions needed to produce to_visit
-  auto input_exprs = StmtSort::getExprsTo(completeFusion(), to_visit);
+  auto input_exprs = StmtSort::getExprsTo(to_visit);
 
   // Insert those expressions at the beginning of the group
   group->exprs_.insert(
@@ -3963,7 +3958,7 @@ class ForceHalfAnnotation : public IterVisitor {
                val->getDataType().value() == DataType::BFloat16);
         });
 
-    annotation.traverseTo(fusion, fp16_outputs);
+    annotation.traverseTo(fp16_outputs);
     return annotation.force_fp16_tv_set_;
   }
 

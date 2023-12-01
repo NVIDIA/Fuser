@@ -333,22 +333,6 @@ Val* getProducerIndexWithPartialSplit(
       SimplifyingIrBuilder::create<Val>(diff->evaluate(), DataType::Index));
 }
 
-Val* getTensorBaseAddress(TensorView* tv) {
-  auto metadata = IrBuilder::metadataExpr(tv);
-  switch (auto memtype = tv->getMemoryType()) {
-    case MemoryType::Global:
-      return IrBuilder::getAttrExpr(metadata, "data");
-    case MemoryType::Shared: {
-      auto output = IrBuilder::create<Val>(DataType::SMemAddress);
-      IrBuilder::create<UnaryOp>(
-          UnaryOpType::ToUnsignedSmemAddr, output, metadata);
-      return output;
-    }
-    default:
-      NVF_CHECK(false, "Unsupported memory type ", memtype);
-  }
-}
-
 } // namespace
 
 bool IndexCompute::hasUnswitchedDependentDomains(IterDomain* id) const {
@@ -928,7 +912,7 @@ void IndexCompute::updateIndexMapFromPermissiveMap(const Expr* id_expr) {
 
 void IndexCompute::run() {
   const std::vector<Val*> domain_vals(td_->leaf().begin(), td_->leaf().end());
-  traverseTo(td_->fusion(), domain_vals, false);
+  traverseTo(domain_vals, false);
 }
 
 IterDomain* IndexCompute::maybeGetExactMapConcreteID(IterDomain* id) const {
@@ -1035,7 +1019,7 @@ class UpdateLeafIndices : public IterVisitor {
         extent_map_(std::move(extent_map)) {
     const std::vector<Val*> domain_vals(td_->leaf().begin(), td_->leaf().end());
 
-    traverseTo(td_->fusion(), domain_vals, false);
+    traverseTo(domain_vals, false);
   }
 
   const std::unordered_map<IterDomain*, Val*>& indexMap() const {
@@ -2353,7 +2337,7 @@ Val* Index::getProducerStridedIndices(
   FUSER_PERF_SCOPE("GpuLower::Lower::Index::getProducerStridedIndices");
   if (producer->domain()->noReductions().empty()) {
     if (generate_pointer) {
-      return getTensorBaseAddress(producer);
+      return IrBuilder::baseAddressExpr(producer);
     } else {
       return GpuLower::current()->kernel()->zeroVal();
     }
@@ -2364,7 +2348,7 @@ Val* Index::getProducerStridedIndices(
         producer, consumer, loops, rotated_loops, override_index));
     if (generate_pointer) {
       return SimplifyingIrBuilder::addExpr(
-          getTensorBaseAddress(producer), index);
+          IrBuilder::baseAddressExpr(producer), index);
     } else {
       return index;
     }
@@ -2376,7 +2360,8 @@ Val* Index::getProducerStridedIndices(
           index,
           IrBuilder::create<Val>(
               dataTypeSize(*producer->getDataType()), *index->getDataType()));
-      return IrBuilder::addExpr(getTensorBaseAddress(producer), index_bytes);
+      return IrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(producer), index_bytes);
     } else {
       return index;
     }
@@ -2422,7 +2407,7 @@ Val* Index::getConsumerStridedIndices(
   FUSER_PERF_SCOPE("GpuLower::Lower::Index::getConsumerStridedIndices");
   if (consumer->domain()->noReductions().empty()) {
     if (generate_pointer) {
-      return getTensorBaseAddress(consumer);
+      return IrBuilder::baseAddressExpr(consumer);
     } else {
       return GpuLower::current()->kernel()->zeroVal();
     }
@@ -2433,7 +2418,7 @@ Val* Index::getConsumerStridedIndices(
         consumer, loops, rotated_loops, override_index));
     if (generate_pointer) {
       return SimplifyingIrBuilder::addExpr(
-          getTensorBaseAddress(consumer), index);
+          IrBuilder::baseAddressExpr(consumer), index);
     } else {
       return index;
     }
@@ -2445,7 +2430,8 @@ Val* Index::getConsumerStridedIndices(
           index,
           IrBuilder::create<Val>(
               dataTypeSize(*consumer->getDataType()), *index->getDataType()));
-      return IrBuilder::addExpr(getTensorBaseAddress(consumer), index_bytes);
+      return IrBuilder::addExpr(
+          IrBuilder::baseAddressExpr(consumer), index_bytes);
     } else {
       return index;
     }
