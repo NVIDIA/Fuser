@@ -1457,7 +1457,7 @@ void IndexLowering::handle(const MmaOp* mma) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
     auto base_addr =
-        IrBuilder::tensorBaseAddressExpr(mma->inA()->as<TensorView>());
+        IrBuilder::baseAddressExpr(mma->inA()->as<TensorView>());
     int stride_bytes =
         /*8x8 items each core matrix*/ 64 * /*bytes per item*/ 2;
     int leading_bytes = /*8x8 items each core matrix*/ 64 *
@@ -1481,7 +1481,7 @@ void IndexLowering::handle(const MmaOp* mma) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
     auto base_addr =
-        IrBuilder::tensorBaseAddressExpr(mma->inB()->as<TensorView>());
+        IrBuilder::baseAddressExpr(mma->inB()->as<TensorView>());
     int stride_bytes = /*8x8 items each core matrix*/ 64 * /*bytes per item*/ 2;
     int leading_bytes = /*8x8 items each core matrix*/ 64 *
         /*number of core matrices*/ (getN(mma->macro()) / 8) *
