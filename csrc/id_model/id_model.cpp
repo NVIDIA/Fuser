@@ -49,13 +49,34 @@ void mapThroughLoopSwizzles(ValGraph& graph) {
 
 } // namespace
 
-IdModel::IdModel(
-    const std::vector<Expr*>& exprs,
-    const std::vector<TensorView*>& additional_tvs) {
-  build(exprs, additional_tvs);
+void IdModel::assertNoSelfMapping() {
+  if (hasSelfMapping()) {
+    NVF_ERROR(
+        !hasSelfMapping(),
+        "Unsupported domain mapping detected in ",
+        std::get<0>(*self_mapping_info_)->toString(),
+        ". ",
+        std::get<3>(*self_mapping_info_),
+        " domains, ",
+        std::get<1>(*self_mapping_info_)->toString(),
+        " and ",
+        std::get<2>(*self_mapping_info_)->toString(),
+        ", are mapped with each other.");
+  }
 }
 
-IdModel::IdModel(Fusion* fusion) {
+IdModel::IdModel(
+    const std::vector<Expr*>& exprs,
+    const std::vector<TensorView*>& additional_tvs,
+    bool allow_self_mapping) {
+  build(exprs, additional_tvs);
+
+  if (!allow_self_mapping) {
+    assertNoSelfMapping();
+  }
+}
+
+IdModel::IdModel(Fusion* fusion, bool allow_self_mapping) {
   std::vector<TensorView*> inputs_and_outputs;
   {
     auto inp_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
@@ -69,6 +90,10 @@ IdModel::IdModel(Fusion* fusion) {
   }
 
   build(fusion->exprs(), inputs_and_outputs);
+
+  if (!allow_self_mapping) {
+    assertNoSelfMapping();
+  }
 }
 
 const ValGraph& IdModel::idGraph(IdMappingMode mode) const {
@@ -86,6 +111,120 @@ ValGraph& IdModel::idGraph(IdMappingMode mode) {
   NVF_ERROR(graph_it != id_graphs_.end());
   return graph_it->second;
 }
+
+namespace {
+
+// Returns the first pair of id's in ids detected to match each other on the
+// exact ID graph. TODO: what this is really looking for is if
+// there's any overlapping between the iter domains in the provided set.
+//
+// i.e. if we have:
+// tv0 = arange(6).reshape({3, 2})
+// tv1 = tv0[3, 2].t()
+// tv2 = tv0[3, 2].reshape({2, 3})
+// tv3 = tv1 + tv2
+//
+// Then we can see this overlap in the tv3 expression as:
+//
+// tv0 = { {0, 1, 2},
+//         {3, 4, 5} }
+//
+// tv1 = { {0, 3},
+//         {1, 4},
+//         {2, 5} }
+//
+// tv2 = { {0, 1},
+//         {2, 3},
+//         {4, 5} }
+//
+// The elements in tv1 {3, 1, 4, 2}, map respectively to the elements in tv2
+// {1, 2, 3, 4}. The reason this is so important is it means that generating
+// tv3 is no longer a trivially parallelizable problem (if we include the dag
+// all the way to tv0). So tv0's axes cannot be inlined across both the tv0
+// and tv1 path. This breaks some assumptions we have today in schedulers that
+// will assume tv2 can be trivially inlined/parallelized. Instead we'd need to
+// take into consideration the effective communication going on here, so that
+// we pull multiple values of tv0 to compute tv3.
+//
+// Note, however, that the above example is not detectable at this
+// moment as the self mapping is partial through reshape. The analysis
+// below would need to be extended to consider producer and consumers
+// of domains as well rather than just root, rfactor and leaf domains.
+std::optional<std::pair<IterDomain*, IterDomain*>> detectMappablePair(
+    const std::vector<IterDomain*>& ids,
+    const IdModel& id_graph,
+    IdMappingMode mode) {
+  for (auto id1 : ids) {
+    for (auto id2 : ids) {
+      if (id1 == id2) {
+        continue;
+      }
+      if (id_graph.idGraph(mode).disjointValSets().permissiveAreMapped(
+              id1, id2)) {
+        return std::make_pair(id1, id2);
+      }
+    }
+  }
+
+  return std::nullopt;
+}
+
+// It is assumed that for any tensor represented by a list of domains,
+// those domains should never be mapped with each other. It may be
+// possible to lift this assumption, but it's unclear if it could
+// matter in practice.
+std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
+findFirstSelfMapping(
+    const std::vector<TensorView*>& all_tvs,
+    const IdModel& id_graph) {
+  for (auto tv : all_tvs) {
+    // For each tensor, make sure root, rfactor and leaf domains
+    // should not include domains that are mapped with another domain
+    // in the same set of domains. This may be overly conservative,
+    // and it maybe enough to check the root domains.
+
+    // Root domains
+    auto self_mappped_root_pair =
+        detectMappablePair(tv->getRootDomain(), id_graph, IdMappingMode::EXACT);
+    if (self_mappped_root_pair.has_value()) {
+      return std::make_tuple(
+          tv,
+          self_mappped_root_pair->first,
+          self_mappped_root_pair->second,
+          "Root");
+    }
+
+    // Rfactor domains
+    if (tv->hasRFactor()) {
+      auto self_mappped_rf_pair = detectMappablePair(
+          tv->getRFactorDomain(), id_graph, IdMappingMode::EXACT);
+      if (self_mappped_rf_pair.has_value()) {
+        return std::make_tuple(
+            tv,
+            self_mappped_rf_pair->first,
+            self_mappped_rf_pair->second,
+            "RFactor");
+      }
+    }
+
+    // Leaf domains
+    // TODO: Exact map isn't quite right here, it should be based on the index
+    // map. However, it should also be impossible for index map to generate a
+    // case like this.
+    auto self_mappped_leaf_pair = detectMappablePair(
+        tv->domain()->leaf(), id_graph, IdMappingMode::EXACT);
+    if (self_mappped_leaf_pair.has_value()) {
+      return std::make_tuple(
+          tv,
+          self_mappped_leaf_pair->first,
+          self_mappped_leaf_pair->second,
+          "Leaf");
+    }
+  }
+  return std::nullopt;
+}
+
+} // namespace
 
 void IdModel::buildIterDomainDefinitionsAndUses(
     const std::vector<TensorView*>& all_tvs) {
@@ -260,6 +399,10 @@ void IdModel::build(
   idGraph(IdMappingMode::EXACT) = initializeIdGraph();
 
   buildExactGraph(tv_exprs);
+
+  // Make sure there's no self mapping in TensorView's during lowering
+  // that would invalidate lowering assumptions.
+  self_mapping_info_ = findFirstSelfMapping(all_tvs.vector(), *this);
 }
 
 } // namespace nvfuser
