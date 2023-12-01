@@ -1647,43 +1647,17 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto work_buffer =
         grop->reduction_buffer()->buffer()->as<TensorView>();
 
-    indent() << "// serial reduction\n";
-
-    // Load from global
-    ArgumentBuilder template_args_load;
-    template_args_load.arg(data_type)
-        .arg("1")
-        .arg("true")
-        .arg("CacheOp::")
-        .append(CacheOp::Global);
-    ArgumentBuilder func_args_load;
-    func_args_load.arg("&")
-        .append(gen(out))
-        .arg("&")
-        .append(gen(work_buffer))
-        .append("[")
-        .append("i11 + i15")
-        .append("]");
-    indent() << genCall("loadGlobalToLocal", template_args_load, func_args_load)
-             << ";\n";
-    // Add contribution
-    indent() << gen(out) << " = "
-             << genBinaryOp(op_type, data_type, gen(out), gen(grop->in()))
-             << ";\n";
-    // Store to global
-    ArgumentBuilder template_args_store;
-    template_args_store.arg(data_type).arg("1").arg("true").arg("false");
-    ArgumentBuilder func_args_store;
-    func_args_store.arg("&")
-        .append(gen(work_buffer))
-        .append("[")
-        .append("i11 + i15")
-        .append("]")
-        .arg("&")
-        .append(gen(out));
-    indent() << genCall(
-                    "loadGenericVolatile", template_args_store, func_args_store)
-             << ";\n";
+    ArgumentBuilder func_args;
+    func_args.arg(gen(out));
+    func_args.arg(gen(grop->in()));
+    func_args.arg(gen(grop->init()));
+    func_args.arg(gen(work_buffer)).append("[").append("i11 + i15").append("]");
+    func_args.arg(genReductionOp(op_type, out->dtype()));
+    func_args.arg("blockIdx.z == 0");
+    func_args.arg("blockIdx.z == gridDim.z - 1");
+    func_args.arg(true);
+    func_args.arg(true);
+    indent() << genCall("reduction::serialGridReduce", func_args) << ";\n";
   }
 
   void generateGridAllreduce(const kir::GridReduction* grop) {

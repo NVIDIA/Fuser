@@ -623,4 +623,30 @@ __device__ void gridReduceGroup(
 }
 #endif // NVFUSER_PROFILE_KERNEL
 
+template <typename T, typename Func>
+__device__ void serialGridReduce(
+    T& out,
+    T in,
+    T init_val,
+    volatile T& work_buf_element,
+    Func reduction_op,
+    bool first_block,
+    bool last_block,
+    bool read_pred,
+    bool write_pred) {
+  if (read_pred) {
+    out = in;
+    if (!first_block) {
+      // asm volatile("ld.global.cg.f32 %0, [%1];\n" : "=f"(out) :
+      // "l"(work_buf_element));
+      reduction_op(out, work_buf_element);
+    }
+  }
+  if (write_pred && !last_block) {
+    // asm volatile("st.global.cg.f32 [%0], %1;\n" : : "l"(work_buf_element),
+    // "f"(out));
+    work_buf_element = out;
+  }
+}
+
 } // namespace reduction
