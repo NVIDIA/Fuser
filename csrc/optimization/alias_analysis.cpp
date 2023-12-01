@@ -149,7 +149,7 @@ void AliasFinder::handle(const ViewOp* view) {
   // Replay `Expr`s from `out`'s root to `out`'s rfactor on `out`'s root.
   // Stop when an `Expr` requires a data copy; otherwise generate the allocation
   // order of `out`'s rfactor domain and the corresponding contiguity flags.
-  for (Expr* transform : DependencyCheck::getAllExprsBetween(
+  for (Expr* transform : StmtSort::getExprsBetween(
            {out_root.begin(), out_root.end()},
            {out_rfactor.begin(), out_rfactor.end()})) {
     if (Split* split = dynamic_cast<Split*>(transform)) {
@@ -300,7 +300,7 @@ void AliasFinder::handle(const SliceOp* slice) {
     }
 
     // A broadcast dimension can be a slicing product as well.
-    std::vector<Expr*> dependencies = DependencyCheck::getAllExprsBetween(
+    std::vector<Expr*> dependencies = StmtSort::getExprsBetween(
         {out_root.begin(), out_root.end()}, {out_layout.allocation_domain[i]});
     if (std::find_if(
             dependencies.begin(), dependencies.end(), [](const Expr* expr) {

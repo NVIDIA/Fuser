@@ -382,12 +382,7 @@ TEST_F(AliasTest, DuplicateOutputs) {
 
   at::Tensor expected_out_tensor = in_tensor.add(3.141);
   // Verify output values.
-  testValidate(
-      fec.fusion(),
-      {expected_out_tensor, expected_out_tensor},
-      {in_tensor},
-      __LINE__,
-      __FILE__);
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
 TEST_F(AliasTest, SliceToSizeOne_Issue1353) {
@@ -529,12 +524,7 @@ TEST_F(AliasTest, DuplicateOutputsSegmentedFusion) {
   at::Tensor intermediate_tensor = in_tensor.add(3.141);
   at::Tensor out_tensor = intermediate_tensor.mul(2.0);
   // Verify output values.
-  testValidate(
-      fec.fusion(),
-      {intermediate_tensor, intermediate_tensor, out_tensor, out_tensor},
-      {in_tensor},
-      __LINE__,
-      __FILE__);
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
 TEST_F(AliasTest, NotAllOutputsAlias) {
@@ -586,6 +576,51 @@ TEST_F(AliasTest, Set_NoAliasForIncompatibleLayout) {
 
   // Verify `out_tensor` is not an alias of `in_tensor`.
   EXPECT_FALSE(out_tensor.is_alias_of(in_tensor));
+}
+
+// Verifying that duplicated outputs are properly alised
+TEST_F(AliasTest, DuplicateOutputsComplex) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  fusion->addInput(in);
+  TensorView* out = add(in, IrBuilder::create<Val>(5.0));
+  fusion->addOutput(out);
+  // duplicated output
+  fusion->addOutput(out);
+  TensorView* out1 = add(in, IrBuilder::create<Val>(1.0));
+  fusion->addOutput(out1);
+  // duplicated output
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
+
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  ASSERT_EQ(out_tensors.size(), 4);
+
+  // Verify aliases among outputs.
+  EXPECT_TRUE(out_tensors[0].is_alias_of(out_tensors[1]));
+  EXPECT_FALSE(out_tensors[0].is_alias_of(out_tensors[2]));
+  EXPECT_TRUE(out_tensors[0].is_alias_of(out_tensors[3]));
+
+  // Verify output values.
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+}
+
+// test verifying that duplicated input is not allowed in nvfuser
+TEST_F(AliasTest, DuplicateInputs) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  fusion->addInput(in);
+
+  // duplicated input is not allowed
+  EXPECT_THAT(
+      [&]() { fusion->addInput(in); },
+      testing::ThrowsMessage<nvfuser::nvfError>(
+          testing::HasSubstr("duplicated inputs is not allowed")));
 }
 
 } // namespace nvfuser

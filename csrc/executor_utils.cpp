@@ -979,9 +979,13 @@ void fillCompileOptions(
   // Meanwhile, for forward compatibility (future device with
   // `unsupported_arch==True`), since SASS are not necessarily compatible,
   // we fallback to PTX instead.
-  const std::string compute = std::string("--gpu-architecture=") +
+  std::string compute = std::string("--gpu-architecture=") +
       (compile_to_sass ? "sm_" : "compute_") + std::to_string(major) +
       std::to_string(minor);
+  if (major == 9) {
+    // Hopper MMAs require 90a instead of 90
+    compute += "a";
+  }
   nvrtc_compile_driver.setOption(compute);
 
   nvrtc_compile_driver.setOption("-default-device");
