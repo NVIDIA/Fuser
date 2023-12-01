@@ -725,27 +725,34 @@ class PersistentBufferProjector {
     if (project_to_inputs_) {
       // Iterate through projected buffers, tracking which index it corresponds
       // too since there's a resolution point entry for every buffer.
-      fusion_->printMath();
       for (auto buffer_i : c10::irange(persistent_buffers.size())) {
         auto buffer = persistent_buffers[buffer_i];
-        std::cout << "persistent_buffers: " << buffer->toString() << std::endl;
         if (std::find(
                 projectable_persistent_buffers.begin(),
                 projectable_persistent_buffers.end(),
                 buffer) == projectable_persistent_buffers.end()) {
           continue;
         }
+        // when project to inputs, if the buffer depends on reduction tvs,
+        // additional reduction is required to re-calculate the buffer.
+        // Consider the following fusion where f() is a trivial op.
+        // t1 = f(t0); t2 = sum(t1); t3 = broadcast(t2); t4 = add(t1, t3);
+        // t5 = f(t4); t6 = sum(t5); t7 = broadcast(t6); t8 = add(t5, t7);
+        // In this case t0 is input, t1 and t5 are persistent buffers.
+        // Re-calculation of t1 from t0 is trivial, just f(t0).
+        // Re-calculation of t5 from t0 needs t0->t1->t2->t3->t4->t5 where
+        // t1->t2 is a reduction, which is considered very expensive and should
+        // be avoided. Since t3 is a broadcast tv, all the persitent batches are
+        // sharing the same value. It can be considered as a `free` persistent
+        // buffer. So, t5 can be re-calculated directly from t3, this skips all
+        // the calculations from input t0 to t3 and the additional reduciton is
+        // avoided.
         std::vector<Val*> vals_project_to = fusion_->inputs();
-        auto dep_vals = DependencyCheck::getAllValsBetween(
+        const auto& dep_vals = DependencyCheck::getAllValsBetween(
             {reduction_tvs.begin(), reduction_tvs.end()}, {buffer});
-        for (auto val : dep_vals) {
-          if (auto tv = dynamic_cast<TensorView*>(val)) {
-            if (tv->hasBroadcast()) {
-              vals_project_to.push_back(val);
-              std::cout << "vals_project_to: " << val->toString() << std::endl;
-            }
-          }
-        }
+        const auto& broadcast_tvs = scheduler_utils::getBroadcastTvs(dep_vals);
+        vals_project_to.insert(
+            vals_project_to.end(), broadcast_tvs.begin(), broadcast_tvs.end());
         projectToInputOrImmediatePersistentProducer(
             (int)buffer_i, vals_project_to);
       }

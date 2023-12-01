@@ -202,6 +202,9 @@ bool canProjectToPersistentProducer(
     const std::vector<TensorView*>& producers,
     const std::unordered_set<TensorView*>& persistent_buffer_set);
 
+// Returns all broadcast tvs.
+std::vector<TensorView*> getBroadcastTvs(const std::vector<Val*>& tvs);
+
 struct ReductionTvProperties {
   // How many elements in tensor view are there to reduce.
   int64_t total_reduction_numel = 1;

@@ -9468,7 +9468,7 @@ TEST_F(NVFuserTest, ProjectPersistentBufferToInputsAndBroadcastTvs) {
   FusionGuard fg(fusion);
 
   const int batch_size = 128;
-  const int hidden_size = 256;
+  const int hidden_size = 10240;
   DataType input_dtype = DataType::Half;
   auto tv0 = makeContigTensor(2, input_dtype);
   fusion->addInput(tv0);
@@ -9492,12 +9492,11 @@ TEST_F(NVFuserTest, ProjectPersistentBufferToInputsAndBroadcastTvs) {
   fusion->addOutput(tv9);
   fusion->addOutput(tv13);
 
-  // persistent_buffers: T2_l[ iS4{i0}, iS5{i2} ]
-  // persistent_buffers: T6_l[ iS12{i0}, iS13{i2} ]
-  // vals_project_to: T4_l[ iS8{i0}, bS9{1} ]
-  // persistent_buffers: T10_l[ iS20{i0}, iS21{i2} ]
-  // vals_project_to: T4_l[ iS8{i0}, bS9{1} ]
-  // vals_project_to: T8_l[ iS16{i0}, bS17{1} ]
+  // The persistent buffers in this fusion are: tv2, tv6, and tv10.
+  // tv2 is projected to input.
+  // tv6 is projected to input and tv4 which is a broadcast tv.
+  // tv10 is projected to input, tv4 and tv8 which are broadcast tvs.
+  // The only actual persisent buffer is the cached input.
 
   auto options = at::TensorOptions()
                      .dtype(data_type_to_aten(input_dtype))
