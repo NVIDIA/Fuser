@@ -405,6 +405,38 @@ void SegmentedFusion::Impl::cleanUnused() {
       edges_.end());
 }
 
+//! Return mapping from SegmentedGroup to integer id
+const std::unordered_map<SegmentedGroup*, int64_t> SegmentedFusion::Impl::
+    deterministic_group_map() const {
+  using GroupPtr = std::unique_ptr<SegmentedGroup>;
+  std::unordered_map<SegmentedGroup*, int64_t> group_map;
+  int64_t count = 0;
+  std::transform(
+      groups_.begin(),
+      groups_.end(),
+      std::inserter(group_map, group_map.end()),
+      [&count](const GroupPtr& group_up) {
+        return std::make_pair(group_up.get(), count++);
+      });
+  return group_map;
+}
+
+//! Return mapping from SegmentedEdge to integer id
+const std::unordered_map<SegmentedEdge*, int64_t> SegmentedFusion::Impl::
+    deterministic_edge_map() const {
+  using EdgePtr = std::unique_ptr<SegmentedEdge>;
+  std::unordered_map<SegmentedEdge*, int64_t> edge_map;
+  int64_t count = 0;
+  std::transform(
+      edges_.begin(),
+      edges_.end(),
+      std::inserter(edge_map, edge_map.end()),
+      [&count](const EdgePtr& edge_up) {
+        return std::make_pair(edge_up.get(), count++);
+      });
+  return edge_map;
+}
+
 SegmentedGroup* SegmentedFusion::newGroup() {
   SegmentedGroup* g = impl_.makeGroup();
   groups_.push_back(g);
