@@ -9149,10 +9149,11 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation4_CUDA) {
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
 
+  // T1 and T2 are persistent buffers, but T2 can be projected to T1.
+  // So, the actual buffer size is just the size to save T1.
   NVF_ERROR(
       persistent_buffer_size.persistent_buffer_size ==
-      static_cast<int64_t>(
-          aten_t0.size(1) * dataTypeSize(DataType::Float) * 2));
+      static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Float)));
 
   NVF_ERROR(
       persistent_buffer_size.projected_persistent_buffer_size ==
