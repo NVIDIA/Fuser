@@ -273,7 +273,7 @@ Val* IrBuilder::metadataExpr(TensorView* tv) {
   return tv->fusion()->metadataOf(tv);
 }
 
-Val* IrBuilder::tensorBaseAddressExpr(TensorView* tv) {
+Val* IrBuilder::baseAddressExpr(TensorView* tv) {
   auto metadata = metadataExpr(tv);
   switch (auto memtype = tv->getMemoryType()) {
     case MemoryType::Global:

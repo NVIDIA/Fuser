@@ -2337,7 +2337,7 @@ Val* Index::getProducerStridedIndices(
   FUSER_PERF_SCOPE("GpuLower::Lower::Index::getProducerStridedIndices");
   if (producer->domain()->noReductions().empty()) {
     if (generate_pointer) {
-      return IrBuilder::tensorBaseAddressExpr(producer);
+      return IrBuilder::baseAddressExpr(producer);
     } else {
       return GpuLower::current()->kernel()->zeroVal();
     }
@@ -2348,7 +2348,7 @@ Val* Index::getProducerStridedIndices(
         producer, consumer, loops, rotated_loops, override_index));
     if (generate_pointer) {
       return SimplifyingIrBuilder::addExpr(
-          IrBuilder::tensorBaseAddressExpr(producer), index);
+          IrBuilder::baseAddressExpr(producer), index);
     } else {
       return index;
     }
@@ -2361,7 +2361,7 @@ Val* Index::getProducerStridedIndices(
           IrBuilder::create<Val>(
               dataTypeSize(*producer->getDataType()), *index->getDataType()));
       return IrBuilder::addExpr(
-          IrBuilder::tensorBaseAddressExpr(producer), index_bytes);
+          IrBuilder::baseAddressExpr(producer), index_bytes);
     } else {
       return index;
     }
@@ -2407,7 +2407,7 @@ Val* Index::getConsumerStridedIndices(
   FUSER_PERF_SCOPE("GpuLower::Lower::Index::getConsumerStridedIndices");
   if (consumer->domain()->noReductions().empty()) {
     if (generate_pointer) {
-      return IrBuilder::tensorBaseAddressExpr(consumer);
+      return IrBuilder::baseAddressExpr(consumer);
     } else {
       return GpuLower::current()->kernel()->zeroVal();
     }
@@ -2418,7 +2418,7 @@ Val* Index::getConsumerStridedIndices(
         consumer, loops, rotated_loops, override_index));
     if (generate_pointer) {
       return SimplifyingIrBuilder::addExpr(
-          IrBuilder::tensorBaseAddressExpr(consumer), index);
+          IrBuilder::baseAddressExpr(consumer), index);
     } else {
       return index;
     }
@@ -2431,7 +2431,7 @@ Val* Index::getConsumerStridedIndices(
           IrBuilder::create<Val>(
               dataTypeSize(*consumer->getDataType()), *index->getDataType()));
       return IrBuilder::addExpr(
-          IrBuilder::tensorBaseAddressExpr(consumer), index_bytes);
+          IrBuilder::baseAddressExpr(consumer), index_bytes);
     } else {
       return index;
     }
