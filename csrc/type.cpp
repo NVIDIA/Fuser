@@ -338,6 +338,7 @@ bool needFloatSuffix(UnaryOpType t) {
     case UnaryOpType::IsReal:
     case UnaryOpType::Print:
     case UnaryOpType::ToUnsignedSmemAddr:
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring:
       return false;
     default:
       return true;
@@ -456,6 +457,8 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "std::imag";
     case UnaryOpType::ToUnsignedSmemAddr:
       return "toSmem";
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring:
+      return "Turing::adjustPartialLdMatrixAddrInTuring";
     default:
       NVF_ERROR(false, "No string found for unary op type.");
   }
@@ -838,8 +841,10 @@ constexpr unsigned int supported_switch_pair(PrimDataType t1, PrimDataType t2) {
   return ((unsigned int)t1 << _WORD_SHIFT) + (unsigned int)t2;
 }
 
-static const char* supported_casts2string(
-    const std::pair<DataType, DataType>& t) {
+static const char* supported_casts2string(std::pair<DataType, DataType> t) {
+  if (t.first == DataType::SMemAddress) {
+    t.first = DataType::UInt32;
+  }
   switch (supported_switch_pair(
       std::get<PrimDataType>(t.first.type),
       std::get<PrimDataType>(t.second.type))) {

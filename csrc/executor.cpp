@@ -171,7 +171,7 @@ std::string FusionExecutor::getStructuredCode(
   if (isDebugDumpEnabled(DebugDumpOption::CudaToFile) ||
       isDebugDumpEnabled(DebugDumpOption::DebugInfo)) {
     std::stringstream file_name;
-    file_name << "__tmp_kernel" << getGlobalFusionCount() << ".cu";
+    file_name << "__tmp_kernel_" << kernel_id_ << ".cu";
     debug() << "PRINTING: " << file_name.str() << std::endl;
     std::ofstream out(file_name.str());
     out << code << std::endl;
@@ -275,7 +275,7 @@ void FusionExecutor::compileFusion(
       }
       output_extents.emplace_back(extent);
     }
-    auto dependencies = InputsOf::outputs(fusion, output_extents);
+    auto dependencies = InputsOf::outputs(output_extents);
     if (std::any_of(dependencies.begin(), dependencies.end(), [](Val* val) {
           return val->isFusionInput();
         })) {
@@ -607,7 +607,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
 
 class ForwardTraverseFromAllocToRFactor {
   at::Tensor tensor_;
-  TensorView* tv_;
   ExpressionEvaluator& ee_;
   std::list<IterDomain*>& frontier_;
 
@@ -725,18 +724,15 @@ class ForwardTraverseFromAllocToRFactor {
  public:
   ForwardTraverseFromAllocToRFactor(
       at::Tensor tensor,
-      TensorView* tv,
       ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
-      : tensor_(std::move(tensor)), tv_(tv), ee_(ee), frontier_(frontier) {}
+      : tensor_(std::move(tensor)), ee_(ee), frontier_(frontier) {}
 
   at::Tensor run(
       const std::vector<IterDomain*>& rfactor,
       const std::vector<IterDomain*>& alloc) {
     auto forward_exprs = StmtSort::getExprsBetween(
-        tv_->fusion(),
-        {alloc.begin(), alloc.end()},
-        {rfactor.begin(), rfactor.end()});
+        {alloc.begin(), alloc.end()}, {rfactor.begin(), rfactor.end()});
     for (auto expr : forward_exprs) {
       handle(expr);
     }
@@ -748,7 +744,6 @@ class ForwardTraverseFromAllocToRFactor {
 // transformations.
 class BackwardTraverseFromAllocToRFactor {
   at::Tensor tensor_;
-  TensorView* tv_;
   ExpressionEvaluator& ee_;
   std::list<IterDomain*>& frontier_;
 
@@ -853,18 +848,15 @@ class BackwardTraverseFromAllocToRFactor {
  public:
   BackwardTraverseFromAllocToRFactor(
       at::Tensor tensor,
-      TensorView* tv,
       ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
-      : tensor_(std::move(tensor)), tv_(tv), ee_(ee), frontier_(frontier) {}
+      : tensor_(std::move(tensor)), ee_(ee), frontier_(frontier) {}
 
   at::Tensor run(
       const std::vector<IterDomain*>& rfactor,
       const std::vector<IterDomain*>& alloc) {
     auto backward_exprs = StmtSort::getExprsBetween(
-        tv_->fusion(),
-        {rfactor.begin(), rfactor.end()},
-        {alloc.begin(), alloc.end()});
+        {rfactor.begin(), rfactor.end()}, {alloc.begin(), alloc.end()});
     std::reverse(backward_exprs.begin(), backward_exprs.end());
     for (auto expr : backward_exprs) {
       handle(expr);
@@ -894,9 +886,9 @@ at::Tensor transformOutputFromAllocationToRFactor(
   // forward and a backward traverse.
   std::list<IterDomain*> frontier(alloc.begin(), alloc.end());
   NVF_ERROR(tensor.dim() == (int64_t)frontier.size());
-  tensor = ForwardTraverseFromAllocToRFactor(tensor, tv, ee, frontier)
+  tensor = ForwardTraverseFromAllocToRFactor(tensor, ee, frontier)
                .run(rfactor, alloc);
-  tensor = BackwardTraverseFromAllocToRFactor(tensor, tv, ee, frontier)
+  tensor = BackwardTraverseFromAllocToRFactor(tensor, ee, frontier)
                .run(rfactor, alloc);
   NVF_ERROR(frontier.size() == rfactor.size());
   // Now that all affine transformations are handled, and frontiers should
@@ -922,46 +914,33 @@ int64_t IndexOfFusionInput(const Val* in, const Fusion* fusion) {
 }
 
 // Returns the at::Tensor allocated for `out_info`.
-//
-// TODO: clean up the API so we explicitly pass in the input alias. This way, we
-// can remove `args` and `kernel`, which unnecessary expose information of
-// unrelated arguments.
 at::Tensor allocateOutput(
     const FusionExecutor::GlobalBufferInfo& out_info,
-    const KernelArgumentHolder& args,
+    Val* aliased_in,
+    const AliasInfo* alias_info,
+    const at::Tensor& aliased_in_tensor,
     const c10::Device& device,
-    const kir::Kernel* kernel,
     ExpressionEvaluator& ee) {
   TensorView* out_tv = out_info.tv;
 
-  auto alias_it = kernel->ioAlias().find(out_tv);
   // Note: aliased output is not returned as output. But we still need it
   // for kernel execution, so would need to push them to args
-  if (alias_it != kernel->ioAlias().end()) {
-    const auto aliased_in_index =
-        IndexOfFusionInput(alias_it->second.first, kernel);
-    const PolymorphicValue& in_val = *args[aliased_in_index];
-    NVF_ERROR(
-        in_val.is<at::Tensor>(),
-        "Alias io only supports tensor. Found ",
-        PolymorphicValue_functions::toString(in_val));
-    at::Tensor in_tensor = in_val.as<at::Tensor>();
-
-    switch (alias_it->second.second.type) {
+  if (aliased_in != nullptr) {
+    switch (alias_info->type) {
       case AliasType::InplaceUpdate:
-        // Unlike for `AliasType::PointerCast`, don't use
+        // Unlike for `AliasType::PointerArithmetic`, don't use
         // ExpressionEvaluator to compute the output tensor. This is because
         // the output tensor may hold different data from the input, e.g., an
         // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
         // would trigger non-trivial host computation.
-        return in_tensor;
+        return aliased_in_tensor;
 
-      case AliasType::PointerCast:
-        auto* in_tv = kernel->inputs()[aliased_in_index]->as<TensorView>();
-        ee.bind(in_tv, in_tensor);
+      case AliasType::PointerArithmetic:
+        auto* in_tv = aliased_in->as<TensorView>();
+        ee.bind(in_tv, aliased_in_tensor);
         at::Tensor out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
         NVF_ERROR(
-            in_tensor.data_ptr() == out_tensor.data_ptr(),
+            out_tensor.is_alias_of(aliased_in_tensor),
             "ExpressionEvaluator failed to evaluate ",
             out_tv->toString(),
             " as an alias of ",
@@ -1000,9 +979,38 @@ std::vector<at::Tensor> allocateOutputs(
 
   std::vector<at::Tensor> outputs;
   outputs.reserve(output_info.size());
+
+  std::unordered_map<Val*, at::Tensor> outputs_map;
+
   for (const auto output_idx : c10::irange(output_info.size())) {
-    outputs.push_back(
-        allocateOutput(output_info[output_idx], inputs, device, kernel, ee));
+    Val* out = kernel->outputs()[output_idx];
+    // TODO: remove the else block and outputs_map when output aliasing is
+    // handled properly
+    auto iter = outputs_map.find(out);
+    if (iter == outputs_map.end()) {
+      auto [aliased_in, alias_info] = kernel->getOutputAlias(out);
+      at::Tensor aliased_in_tensor;
+      if (aliased_in != nullptr) {
+        const PolymorphicValue& aliased_in_val =
+            *inputs[IndexOfFusionInput(aliased_in, kernel)];
+        NVF_ERROR(
+            aliased_in_val.is<at::Tensor>(),
+            "Alias io only supports tensor. Found ",
+            PolymorphicValue_functions::toString(aliased_in_val));
+        aliased_in_tensor = aliased_in_val.as<at::Tensor>();
+      }
+      auto output = allocateOutput(
+          output_info[output_idx],
+          aliased_in,
+          alias_info,
+          aliased_in_tensor,
+          device,
+          ee);
+      outputs_map[out] = output;
+      outputs.push_back(output);
+    } else {
+      outputs.push_back(iter->second);
+    }
   }
   return outputs;
 }

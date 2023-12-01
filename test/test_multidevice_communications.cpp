@@ -16,7 +16,7 @@
 
 namespace nvfuser {
 
-TEST_F(CommunicationTest, Communication_Gather) {
+TEST_P(CommunicationTest, Communication_Gather) {
   params.root = root;
   params.team = all_ranks;
   params.src_bufs = {at::empty(tensor_size, tensor_options)};
@@ -33,7 +33,7 @@ TEST_F(CommunicationTest, Communication_Gather) {
         at::arange(tensor_size, tensor_options) +
         (communicator->deviceId() + 1) * j);
 
-    auto work = communication.post(*communicator);
+    auto work = communication.post(*communicator, GetParam());
     work->wait();
 
     if (communicator->deviceId() == root) {
@@ -46,7 +46,7 @@ TEST_F(CommunicationTest, Communication_Gather) {
   }
 }
 
-TEST_F(CommunicationTest, Communication_Allgather) {
+TEST_P(CommunicationTest, Communication_Allgather) {
   params.team = all_ranks;
   params.src_bufs = {
       at::empty(tensor_size, tensor_options) * communicator->deviceId()};
@@ -61,7 +61,7 @@ TEST_F(CommunicationTest, Communication_Allgather) {
         at::arange(tensor_size, tensor_options) +
         (communicator->deviceId() + 1) * j);
 
-    auto work = communication.post(*communicator);
+    auto work = communication.post(*communicator, GetParam());
     work->wait();
 
     for (int i : c10::irange(communicator->size())) {
@@ -72,7 +72,7 @@ TEST_F(CommunicationTest, Communication_Allgather) {
   }
 }
 
-TEST_F(CommunicationTest, Communication_Scatter) {
+TEST_P(CommunicationTest, Communication_Scatter) {
   params.root = root;
   params.team = all_ranks;
   if (communicator->deviceId() == root) {
@@ -91,7 +91,7 @@ TEST_F(CommunicationTest, Communication_Scatter) {
           at::arange(tensor_size, tensor_options) + (i + 1) * j);
     }
 
-    auto work = communication.post(*communicator);
+    auto work = communication.post(*communicator, GetParam());
     work->wait();
 
     auto obtained = params.dst_bufs.at(0);
@@ -101,7 +101,7 @@ TEST_F(CommunicationTest, Communication_Scatter) {
   }
 }
 
-TEST_F(CommunicationTest, Communication_Broadcast) {
+TEST_P(CommunicationTest, Communication_Broadcast) {
   params.root = root;
   params.team = all_ranks;
   if (communicator->deviceId() == root) {
@@ -117,7 +117,7 @@ TEST_F(CommunicationTest, Communication_Broadcast) {
       params.src_bufs.at(0).copy_(at::arange(tensor_size, tensor_options) + j);
     }
 
-    auto work = communication.post(*communicator);
+    auto work = communication.post(*communicator, GetParam());
     if (communicator->size() > 1) {
       work->wait();
     }
@@ -128,7 +128,7 @@ TEST_F(CommunicationTest, Communication_Broadcast) {
   }
 }
 
-TEST_F(CommunicationTest, Communication_SendRecv) {
+TEST_P(CommunicationTest, Communication_SendRecv) {
   DeviceIdxType sender = 0;
   DeviceIdxType receiver = 1;
   if (communicator->deviceId() > 1) { // only devices 0 and 1 participate
@@ -150,7 +150,7 @@ TEST_F(CommunicationTest, Communication_SendRecv) {
       params.src_bufs.at(0).copy_(at::arange(tensor_size, tensor_options) + j);
     }
 
-    auto work = communication.post(*communicator);
+    auto work = communication.post(*communicator, GetParam());
     work->wait();
 
     if (communicator->deviceId() == receiver) {
@@ -161,7 +161,7 @@ TEST_F(CommunicationTest, Communication_SendRecv) {
   }
 }
 
-TEST_F(CommunicationTest, Communication_SendRecvToSelf) {
+TEST_P(CommunicationTest, Communication_SendRecvToSelf) {
   DeviceIdxType sender = 0;
   if (communicator->deviceId() > 0) { // only device 0 participates
     return;
@@ -177,7 +177,7 @@ TEST_F(CommunicationTest, Communication_SendRecvToSelf) {
     resetDstBuffers();
     params.src_bufs.at(0).copy_(at::arange(tensor_size, tensor_options) + j);
 
-    communication.post(*communicator);
+    communication.post(*communicator, GetParam());
 
     auto obtained = params.dst_bufs.at(0);
     auto ref = at::arange(tensor_size, tensor_options) + j;
@@ -185,7 +185,7 @@ TEST_F(CommunicationTest, Communication_SendRecvToSelf) {
   }
 }
 
-TEST_F(CommunicationTest, Communication_Reduce) {
+TEST_P(CommunicationTest, Communication_Reduce) {
   params.redOp = red_op;
   params.root = root;
   params.team = all_ranks;
@@ -201,7 +201,7 @@ TEST_F(CommunicationTest, Communication_Reduce) {
         at::arange(tensor_size, tensor_options) +
         (communicator->deviceId() + 1) * j);
 
-    auto work = communication.post(*communicator);
+    auto work = communication.post(*communicator, GetParam());
     work->wait();
 
     if (communicator->deviceId() == root) {
@@ -214,7 +214,7 @@ TEST_F(CommunicationTest, Communication_Reduce) {
   }
 }
 
-TEST_F(CommunicationTest, Communication_Allreduce) {
+TEST_P(CommunicationTest, Communication_Allreduce) {
   params.redOp = red_op;
   params.team = all_ranks;
   params.src_bufs = {at::empty(tensor_size, tensor_options)};
@@ -227,7 +227,7 @@ TEST_F(CommunicationTest, Communication_Allreduce) {
         at::arange(tensor_size, tensor_options) +
         (communicator->deviceId() + 1) * j);
 
-    auto work = communication.post(*communicator);
+    auto work = communication.post(*communicator, GetParam());
     work->wait();
 
     auto obtained = params.dst_bufs.at(0);
@@ -238,7 +238,7 @@ TEST_F(CommunicationTest, Communication_Allreduce) {
   }
 }
 
-TEST_F(CommunicationTest, Communication_ReduceScatter) {
+TEST_P(CommunicationTest, Communication_ReduceScatter) {
   params.redOp = red_op;
   params.root = root;
   params.team = all_ranks;
@@ -256,7 +256,7 @@ TEST_F(CommunicationTest, Communication_ReduceScatter) {
           (communicator->deviceId() + 1) * (i + j));
     }
 
-    auto work = communication.post(*communicator);
+    auto work = communication.post(*communicator, GetParam());
     work->wait();
 
     auto obtained = params.dst_bufs.at(0);
@@ -266,6 +266,13 @@ TEST_F(CommunicationTest, Communication_ReduceScatter) {
     validate(obtained, ref);
   }
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    CommunicatorBackend,
+    CommunicationTest,
+    ::testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc)
+
+);
 
 } // namespace nvfuser
 

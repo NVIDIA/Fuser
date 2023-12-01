@@ -1294,7 +1294,8 @@ TensorView* reductionOp(
   for (unsigned int axis : uint_axes) {
     auto id = tv_root[axis];
     is_trivial_reduction[axis] = id->isBroadcast() &&
-        !id->hasExpandedExtent() && id->extent()->isOneInt();
+        !id->hasExpandedExtent() && id->extent()->isConstInt() &&
+        id->extent()->evaluate().as<int64_t>() == 1;
     if (!is_trivial_reduction[axis]) {
       reduction_axes.push_back((int)axis + offset);
     } else if (!keep_dim) {
@@ -1477,13 +1478,19 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
       // already done when constructing out_id_builder.
       out_id_builder.extent(inp_id->extent());
     } else if (
-        inp_id->isBroadcast() &&
+        (inp_id->isBroadcast() ||
+         // special patch for Symbolic IterDomain with a static size-1 extent
+         // See Issue: https://github.com/NVIDIA/Fuser/pull/1393
+         (inp_id->isSymbolic() && inp_id->extent()->isConstInt() &&
+          inp_id->extent()->evaluate() == 1)) &&
         (!expanded_size_int.hasValue() || expanded_size_int != 1)) {
       // When input id is a broadcast, expand the extent to the given
       // size, which can be concrete or symbolic.
       expanded = true;
       auto expanded_extent = maybeCastOp(DataType::Index, expanded_sizes[i]);
       out_id_builder.expanded_extent(expanded_extent);
+      // need to mark iter type as Broadcast for Symbolic input domains
+      out_id_builder.iter_type(IterType::Broadcast);
       maybe_expanded_sizes[i] = expanded_extent;
     } else if (!inp_id->extent()->isConstInt()) {
       // Input id is non-broadcast and its extent is symbolic. Promote
