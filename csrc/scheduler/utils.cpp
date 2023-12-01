@@ -1088,7 +1088,7 @@ IterDomain* projectIdToRoot(
     return reference_id;
   }
 
-  auto replay_exprs = StmtSort::getExprsTo(tv->fusion(), {reference_id});
+  auto replay_exprs = StmtSort::getExprsTo({reference_id});
   if (replay_exprs.empty()) {
     return reference_id;
   }
@@ -1154,9 +1154,7 @@ IterDomain* projectIdToRFactor(
   }
 
   auto replay_exprs = StmtSort::getExprsTo(
-      tv->fusion(),
-      {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()},
-      false);
+      {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()}, false);
   if (replay_exprs.empty()) {
     return reference_id;
   }
@@ -1831,7 +1829,6 @@ DisjointSets<IterDomain*> disjointRFactorSets(Fusion* fusion) {
   // rfactor domains they should be considered "contaminated".
   for (auto tv : ir_utils::allTvs(fusion)) {
     for (auto expr : StmtSort::getExprsTo(
-             fusion,
              {tv->getMaybeRFactorDomain().begin(),
               tv->getMaybeRFactorDomain().end()})) {
       if (expr->isA<Merge>()) {
@@ -1882,7 +1879,7 @@ bool breakIsDisjoint(std::vector<int> group_ids, int pos) {
 std::unordered_map<int, int> domainReorderAsRfactorMap(TensorView* tv) {
   FusionGuard fg(tv->fusion());
   auto transform_exprs = StmtSort::getExprsTo(
-      tv->fusion(), {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
+      {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
   // simply update this vector of id's as progressing through the transformation
   // expressions. We'll always insert the result of split in the location of the
   // input, and insert the merge result in the position of the inner dimension.
@@ -1965,7 +1962,6 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
   // rfactor domains they should be considered "contaminated".
   for (auto tv : ir_utils::allTvs(fusion)) {
     for (auto expr : StmtSort::getExprsBetween(
-             fusion,
              {tv->getRootDomain().begin(), tv->getRootDomain().end()},
              {tv->getMaybeRFactorDomain().begin(),
               tv->getMaybeRFactorDomain().end()})) {
