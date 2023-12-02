@@ -829,9 +829,14 @@ void WarpMmaSwizzler::scheduleOperandRead(
     bool transpose) {
   if (swizzle == MmaInputSmemSwizzle::None) {
     if (transpose) {
+      // Note: for the no-swizzle case, imm-trans-a and imm-trans-b are ignored
+      // by the wgmma instruction. So we have to make sure the allocation domain
+      // has the same order as expected by the hardware.
       tv->reorder({{-2, -1}});
     }
-    // [K, M]
+    // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
+    // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
+    // memory. [K, M]
     tv->split(-2, 8);
     tv->split(-1, 8);
     // [Ko, K8, Mo, M8]
