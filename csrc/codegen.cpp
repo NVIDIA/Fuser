@@ -1659,12 +1659,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       block_flags.arg(parallel_reduction);
     }
 
-    std::string idx_in_segment = enCall(
+    std::string idx_in_segment = genCall(
         "index_utils::maskedOffset",
         block_flags,
         ArgumentBuilder().arg("blockIdx").arg("gridDim"));
-    std::string segment_size =
- nCall(
+    std::string segment_size = genCall(
         "index_utils::maskedSize",
         block_flags,
         ArgumentBuilder().arg("gridDim"));
@@ -3181,4 +3180,3 @@ std::string generateCudaKernel(
 
 } // namespace codegen
 } // namespace nvfuser
-  
