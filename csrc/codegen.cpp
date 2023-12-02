@@ -1647,6 +1647,28 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto work_buffer =
         grop->reduction_buffer()->buffer()->as<TensorView>();
 
+    const auto par_domains =
+        ir_utils::getParallelDomains(ir_utils::getTvOutput(grop));
+    ArgumentBuilder block_flags;
+
+    for (const ParallelType pt :
+         {ParallelType::BIDx, ParallelType::BIDy, ParallelType::BIDz}) {
+      const bool parallel_reduction =
+          par_domains.find(pt) != par_domains.end() &&
+          par_domains.at(pt)->isReduction();
+      block_flags.arg(parallel_reduction);
+    }
+
+    std::string idx_in_segment = enCall(
+        "index_utils::maskedOffset",
+        block_flags,
+        ArgumentBuilder().arg("blockIdx").arg("gridDim"));
+    std::string segment_size =
+ nCall(
+        "index_utils::maskedSize",
+        block_flags,
+        ArgumentBuilder().arg("gridDim"));
+
     ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
     func_args.arg(gen(out));
     func_args.arg(gen(grop->in()));
@@ -1654,9 +1676,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // TODO: don't hardcode index! Set up TensorIndex as work_buffer
     func_args.arg(gen(work_buffer)).append("[").append("i11 + i15").append("]");
     func_args.arg(genReductionOp(op_type, out->dtype()));
-    // TODO: actual expressions for is_first_step and is_last_step
-    func_args.arg("blockIdx.z == 0");
-    func_args.arg("blockIdx.z == gridDim.z - 1");
+
+    // Whether this is the first or last step
+    func_args.arg(idx_in_segment).append(" == 0");
+    func_args.arg(idx_in_segment).append(" == ").append(segment_size);
+    // TODO: can we hoist the first and last step predicates? We might need to
+    // attach them to grop in order to do that
+
     // read and write predicates
     NVF_ERROR(grop->predicate() != nullptr && grop->predicate()->hasValue());
     const auto read_pred = genInline(grop->predicate());
@@ -1667,6 +1693,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else {
       func_args.arg(read_pred);
     }
+
     indent() << "reduction::serialReductionStep(\n";
     indent() << kTab << func_args << ");\n";
   }
@@ -3154,3 +3181,4 @@ std::string generateCudaKernel(
 
 } // namespace codegen
 } // namespace nvfuser
+  
