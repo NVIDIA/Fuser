@@ -1647,17 +1647,28 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto work_buffer =
         grop->reduction_buffer()->buffer()->as<TensorView>();
 
-    ArgumentBuilder func_args;
+    ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
     func_args.arg(gen(out));
     func_args.arg(gen(grop->in()));
     func_args.arg(gen(grop->init()));
+    // TODO: don't hardcode index! Set up TensorIndex as work_buffer
     func_args.arg(gen(work_buffer)).append("[").append("i11 + i15").append("]");
     func_args.arg(genReductionOp(op_type, out->dtype()));
+    // TODO: actual expressions for is_first_step and is_last_step
     func_args.arg("blockIdx.z == 0");
     func_args.arg("blockIdx.z == gridDim.z - 1");
-    func_args.arg(true);
-    func_args.arg(true);
-    indent() << genCall("reduction::serialGridReduce", func_args) << ";\n";
+    // read and write predicates
+    NVF_ERROR(grop->predicate() != nullptr && grop->predicate()->hasValue());
+    const auto read_pred = genInline(grop->predicate());
+    func_args.arg(read_pred);
+    if (grop->writePredicate() != nullptr) {
+      NVF_ERROR(grop->writePredicate()->hasValue());
+      func_args.arg(genInline(grop->writePredicate()));
+    } else {
+      func_args.arg(read_pred);
+    }
+    indent() << "reduction::serialReductionStep(\n";
+    indent() << kTab << func_args << ");\n";
   }
 
   void generateGridAllreduce(const kir::GridReduction* grop) {
