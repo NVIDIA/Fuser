@@ -81,8 +81,6 @@ TEST_P(MmaTest, SingleTile) {
   auto tv0b = broadcast(tv0, {false, true, false});
   auto tv1b = broadcast(tv1, {true, false, false});
 
-  // Leaving both sets of mma inputs for volta outside
-  //  currently since they need to be swizzled.
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
 
   fusion.addOutput(tv2);
@@ -241,8 +239,6 @@ TEST_P(Hopper, RS) {
   }
   auto tv1b = broadcast(tv1, {true, false, false});
 
-  // Leaving both sets of mma inputs for volta outside
-  //  currently since they need to be swizzled.
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {axes});
 
   fusion.addOutput(tv2);
@@ -367,8 +363,6 @@ TEST_P(Hopper, SS) {
       NVF_ERROR("Invalid layout");
   }
 
-  // Leaving both sets of mma inputs for volta outside
-  //  currently since they need to be swizzled.
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {axes});
 
   switch (layout) {
@@ -409,8 +403,9 @@ TEST_P(Hopper, SS) {
   tv1b->setMemoryType(MemoryType::Shared);
   tv1b->applyMmaSwizzle(swizzle, transpose_b);
 
-  // TODO: why?
   if (transpose_a) {
+    // TODO: Why do we need to transpose B if A is transposed? I don't really
+    // understand why, but empirically it works...
     auto alloc = tv1b->getAllocationDomain();
     std::swap(alloc[alloc.size() - 1], alloc[alloc.size() - 2]);
     tv1b->setAllocationDomain(alloc, true);
@@ -422,24 +417,12 @@ TEST_P(Hopper, SS) {
   auto inputs = matmulAtInput(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  // debug
-  // inputs.second.zero_();
-  // int i, j;
-  // std::cin >> i >> j;
-  // inputs.second[i][j] = 1;
-  // for (auto i : c10::irange(inputs.first.numel())) {
-  //   inputs.first.view({-1})[i] = 1000 + i;
-  // }
-  // std::cout << "A:\n" << inputs.first << std::endl;
-
   FusionExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-  // std::cout << "tref:\n" << tref << std::endl;
-  // std::cout << "result:\n" << cg_outputs.front() << std::endl;
   testValidate(
       &fusion,
       cg_outputs,
