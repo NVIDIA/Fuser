@@ -198,6 +198,16 @@ class Hopper : public NVFuserFixtureParamTest<HopperMmaTestParams> {
   }
 };
 
+// For smem mma input tensors, the schedule does not matter, we just naively
+// parallelize it so the test runs faster.
+void naivelyParallelize(TensorView* tv) {
+  while (tv->nDims() > 1) {
+    tv->merge(0);
+  }
+  tv->split(0, 128);
+  tv->axis(1)->parallelize(ParallelType::TIDx);
+}
+
 TEST_P(Hopper, RS) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -268,13 +278,7 @@ TEST_P(Hopper, RS) {
   tv1b->setMemoryType(MemoryType::Shared);
   tv1b->applyMmaSwizzle(swizzle, transpose_b);
 
-  // The schedule of tv1b does not matter (as long as its allocation domain is
-  // correct), we just naively parallelize it so the test runs faster.
-  tv1b->merge(0);
-  tv1b->merge(0);
-  tv1b->merge(0);
-  tv1b->split(0, 128);
-  tv1b->axis(1)->parallelize(ParallelType::TIDx);
+  naivelyParallelize(tv1b);
 
   if (!transpose_b) {
     // [M, K, N] -> [M, N, K]
@@ -410,6 +414,9 @@ TEST_P(Hopper, SS) {
     std::swap(alloc[alloc.size() - 1], alloc[alloc.size() - 2]);
     tv1b->setAllocationDomain(alloc, true);
   }
+
+  naivelyParallelize(tv0b);
+  naivelyParallelize(tv1b);
 
   tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
   tv2->applyMmaSwizzle(MmaOperand::Accumulator);
