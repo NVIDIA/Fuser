@@ -183,8 +183,6 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
       {16384, 256}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
   auto outputs = fe.runFusion({input});
 
-  std::cout << outputs.at(0)[0] << std::endl;
-
   testValidate(fusion, outputs, {input}, __LINE__, __FILE__);
 }
 
