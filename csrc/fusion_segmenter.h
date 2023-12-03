@@ -475,6 +475,14 @@ class SegmentedFusion {
   std::unordered_map<SegmentedGroup*, std::unique_ptr<HeuristicSummary>>
       heuristic_summary_cache_;
 
+  //! The number of values in fusion after constructing segmented fusion.
+  //! Used for checking state during deserialization.
+  size_t initial_vals_size_;
+
+  //! The number of expressions in fusion after constructing segmented fusion.
+  //! Used for checking state during deserialization.
+  size_t initial_exprs_size_;
+
   // TODO: this class needs cleanup
  protected:
   friend class SegmentCandidateFinder;

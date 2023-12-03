@@ -389,6 +389,8 @@ table SegmentedGroup {
 // The SegmentedFusion represents a segmented fusion graph that owns the segmented groups.
 table SegmentedFusion {
   segmented_fusion_name: ulong;
+  num_vals: ulong;
+  num_exprs: ulong;
   edges: [SegmentedEdge];
   groups: [SegmentedGroup];
   force_fp16_tv_set: [long];

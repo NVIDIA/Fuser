@@ -448,6 +448,8 @@ SegmentedFusion::SegmentedFusion(std::unique_ptr<Fusion> fusion)
     : segmented_fusion_name_{segmentedFusionName()},
       impl_(this),
       complete_fusion_(std::move(fusion)) {
+  initial_vals_size_ = complete_fusion_->vals().size();
+  initial_exprs_size_ = complete_fusion_->exprs().size();
   annotateFP16IntermediateTensors();
 }
 
@@ -484,6 +486,8 @@ flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
   return serde::CreateSegmentedFusionDirect(
       builder,
       segmented_fusion_name_,
+      initial_vals_size_,
+      initial_exprs_size_,
       &edges_fb,
       &groups_fb,
       &force_fp16_tv_fb,
@@ -495,6 +499,20 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
 
   const std::deque<Val*>& vals = complete_fusion_->deterministic_vals();
   const std::deque<Expr*>& exprs = complete_fusion_->deterministic_exprs();
+  NVF_ERROR(
+      complete_fusion_->vals().size() == buffer->num_vals(),
+      "The complete fusion has ",
+      vals.size(),
+      " values while serialization expected ",
+      buffer->num_vals(),
+      " values.");
+  NVF_ERROR(
+      complete_fusion_->exprs().size() == buffer->num_exprs(),
+      "The complete fusion has ",
+      exprs.size(),
+      " expressions while serialization expected ",
+      buffer->num_exprs(),
+      " expressions.");
 
   segmented_fusion_name_ = buffer->segmented_fusion_name();
 

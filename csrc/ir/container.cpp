@@ -52,12 +52,20 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
   to->clear();
   IrCloner ir_cloner(to);
 
+  // Copy values in deterministic order
+  // deterministic_vals can contain special values like one_val_, zero_val_, etc
+  // that are not registered in the container.
   for (auto val : from->deterministic_vals()) {
-    to->vals_.insert(ir_cloner.clone(val));
+    if (from->vals().count(val) > 0) {
+      to->vals_.insert(ir_cloner.clone(val));
+    }
   }
 
+  // Copy expressions in deterministic order
   for (auto expr : from->deterministic_exprs()) {
-    to->exprs_.insert(ir_cloner.clone(expr));
+    if (from->unordered_exprs().count(expr) > 0) {
+      to->exprs_.insert(ir_cloner.clone(expr));
+    }
   }
 
   to->val_type_name_map_ = from->val_type_name_map_;
