@@ -75,7 +75,9 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
         ir_utils::checkCycle(fusion.get()).size() == 6,
         "cycle of size 6 should be detected in fusion");
     EXPECT_THAT(
-        [&]() { StmtSort::getStmtsBetween({}, fusion->outputs()); },
+        [&]() {
+          StmtSort::getStmtsBetween(fusion.get(), {}, fusion->outputs());
+        },
         ::testing::ThrowsMessage<nvfuser::nvfError>(
             ::testing::HasSubstr("cycle detected")));
   }
@@ -113,7 +115,7 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
     to.push_back(tv1);
     // cycle should be detected, since dead branch is in our check path
     EXPECT_THAT(
-        [&]() { StmtSort::getStmtsBetween({}, to); },
+        [&]() { StmtSort::getStmtsBetween(fusion.get(), {}, to); },
         ::testing::ThrowsMessage<nvfuser::nvfError>(
             ::testing::HasSubstr("cycle detected")));
 

@@ -820,7 +820,7 @@ TensorView* TensorView::swizzle(
   // Disable unsupported use cases at the current step.
   //  Currently do not support reducing or broadcasting
   //   swizzled dimensions.
-  auto all_inputs = InputsOf::outputs({axis(x), axis(y)});
+  auto all_inputs = InputsOf::outputs(fusion(), {axis(x), axis(y)});
   for (auto id : ir_utils::filterByType<IterDomain>(all_inputs)) {
     NVF_ERROR(
         !id->isBroadcast() && !id->isReduction(),

@@ -38,7 +38,7 @@ std::unordered_set<Split*> getAllDivisibleSplits(
     // Take the view transformations and add all the splits. Those splits are
     // the only divisible splits.
     auto view_exprs =
-        StmtSort::getExprsTo({rfactor_dom.begin(), rfactor_dom.end()});
+        StmtSort::getExprsTo(fusion, {rfactor_dom.begin(), rfactor_dom.end()});
     auto split_exprs = ir_utils::filterByType<Split>(view_exprs);
     all_divisible_splits.insert(split_exprs.begin(), split_exprs.end());
   }

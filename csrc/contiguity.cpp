@@ -39,7 +39,9 @@ OrderedIdInformation::OrderedIdInformation(
   // consistently_ordered_ids_, id_to_alloc_ids_, and
   // exclusively_consumes_allocs_ for all the IDs
   auto exprs = StmtSort::getExprsBetween(
-      {alloc_domain.begin(), alloc_domain.end()}, {ids.begin(), ids.end()});
+      ids[0]->fusion(),
+      {alloc_domain.begin(), alloc_domain.end()},
+      {ids.begin(), ids.end()});
 
   for (auto expr : exprs) {
     OptInDispatch::dispatch(expr);
@@ -384,7 +386,9 @@ NonDivisibleSplitDependencies::NonDivisibleSplitDependencies(
     return;
   }
   auto transforms = StmtSort::getExprsBetween(
-      {alloc_domain.begin(), alloc_domain.end()}, {ids.begin(), ids.end()});
+      ids[0]->fusion(),
+      {alloc_domain.begin(), alloc_domain.end()},
+      {ids.begin(), ids.end()});
   for (auto transform : transforms) {
     auto inp_ids = ir_utils::filterByType<IterDomain>(transform->inputs());
     for (auto inp_id : inp_ids) {
@@ -541,7 +545,9 @@ void ContigIDs::build(const std::vector<IterDomain*>& ids) {
 
   if (!contig_ids_.empty()) {
     auto exprs = StmtSort::getExprsBetween(
-        {alloc_domain_.begin(), alloc_domain_.end()}, {ids.begin(), ids.end()});
+        ids.at(0)->fusion(),
+        {alloc_domain_.begin(), alloc_domain_.end()},
+        {ids.begin(), ids.end()});
     for (auto expr : exprs) {
       if (auto resize = dynamic_cast<Resize*>(expr)) {
         resize_deps_.insert(resize->out());

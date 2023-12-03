@@ -282,7 +282,7 @@ class PipelinePrinter : public IterVisitor {
     string_ << "}\n";
 
     string_ << "Pipeline's Traversal inputs --> outputs {\n";
-    traverseTo(pipeline_->outputs());
+    traverseTo(pipeline_, pipeline_->outputs());
     string_ << "}\n";
 
     string_ << "Pipeline's outputs:{\n";
