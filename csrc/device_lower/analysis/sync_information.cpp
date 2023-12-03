@@ -106,7 +106,6 @@ struct ProducerConsumerIndexingInfoCache {
       const auto& consumer_leaf_ids_shared_with_producer =
           getConsumerLeafIDsSharedWithProducer();
       consumer_root_ids_shared_with_producer_ = InputsOf::outputs(
-          producer_tv_->fusion(),
           {consumer_leaf_ids_shared_with_producer.begin(),
            consumer_leaf_ids_shared_with_producer.end()});
     }
@@ -261,10 +260,9 @@ bool useSameIndex(
   // consumer_id. The goal of the analysis below is to find out if all
   // of the root IDs are indexed in the same way between the producer
   // and consumer tensors.
-  auto consumer_root_ids = InputsOf::output(consumer_id->fusion(), consumer_id);
+  auto consumer_root_ids = InputsOf::output(consumer_id);
 
   auto producer_root_vals = StmtSort::getStmtsBetween(
-      producer_id->fusion(),
       {producer_tv->getMaybeRFactorDomain().begin(),
        producer_tv->getMaybeRFactorDomain().end()},
       {producer_id});

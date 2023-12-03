@@ -275,7 +275,7 @@ void FusionExecutor::compileFusion(
       }
       output_extents.emplace_back(extent);
     }
-    auto dependencies = InputsOf::outputs(fusion, output_extents);
+    auto dependencies = InputsOf::outputs(output_extents);
     if (std::any_of(dependencies.begin(), dependencies.end(), [](Val* val) {
           return val->isFusionInput();
         })) {
@@ -607,7 +607,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
 
 class ForwardTraverseFromAllocToRFactor {
   at::Tensor tensor_;
-  TensorView* tv_;
   ExpressionEvaluator& ee_;
   std::list<IterDomain*>& frontier_;
 
@@ -725,18 +724,15 @@ class ForwardTraverseFromAllocToRFactor {
  public:
   ForwardTraverseFromAllocToRFactor(
       at::Tensor tensor,
-      TensorView* tv,
       ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
-      : tensor_(std::move(tensor)), tv_(tv), ee_(ee), frontier_(frontier) {}
+      : tensor_(std::move(tensor)), ee_(ee), frontier_(frontier) {}
 
   at::Tensor run(
       const std::vector<IterDomain*>& rfactor,
       const std::vector<IterDomain*>& alloc) {
     auto forward_exprs = StmtSort::getExprsBetween(
-        tv_->fusion(),
-        {alloc.begin(), alloc.end()},
-        {rfactor.begin(), rfactor.end()});
+        {alloc.begin(), alloc.end()}, {rfactor.begin(), rfactor.end()});
     for (auto expr : forward_exprs) {
       handle(expr);
     }
@@ -748,7 +744,6 @@ class ForwardTraverseFromAllocToRFactor {
 // transformations.
 class BackwardTraverseFromAllocToRFactor {
   at::Tensor tensor_;
-  TensorView* tv_;
   ExpressionEvaluator& ee_;
   std::list<IterDomain*>& frontier_;
 
@@ -853,18 +848,15 @@ class BackwardTraverseFromAllocToRFactor {
  public:
   BackwardTraverseFromAllocToRFactor(
       at::Tensor tensor,
-      TensorView* tv,
       ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
-      : tensor_(std::move(tensor)), tv_(tv), ee_(ee), frontier_(frontier) {}
+      : tensor_(std::move(tensor)), ee_(ee), frontier_(frontier) {}
 
   at::Tensor run(
       const std::vector<IterDomain*>& rfactor,
       const std::vector<IterDomain*>& alloc) {
     auto backward_exprs = StmtSort::getExprsBetween(
-        tv_->fusion(),
-        {rfactor.begin(), rfactor.end()},
-        {alloc.begin(), alloc.end()});
+        {rfactor.begin(), rfactor.end()}, {alloc.begin(), alloc.end()});
     std::reverse(backward_exprs.begin(), backward_exprs.end());
     for (auto expr : backward_exprs) {
       handle(expr);
@@ -894,9 +886,9 @@ at::Tensor transformOutputFromAllocationToRFactor(
   // forward and a backward traverse.
   std::list<IterDomain*> frontier(alloc.begin(), alloc.end());
   NVF_ERROR(tensor.dim() == (int64_t)frontier.size());
-  tensor = ForwardTraverseFromAllocToRFactor(tensor, tv, ee, frontier)
+  tensor = ForwardTraverseFromAllocToRFactor(tensor, ee, frontier)
                .run(rfactor, alloc);
-  tensor = BackwardTraverseFromAllocToRFactor(tensor, tv, ee, frontier)
+  tensor = BackwardTraverseFromAllocToRFactor(tensor, ee, frontier)
                .run(rfactor, alloc);
   NVF_ERROR(frontier.size() == rfactor.size());
   // Now that all affine transformations are handled, and frontiers should

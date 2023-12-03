@@ -912,7 +912,7 @@ void IndexCompute::updateIndexMapFromPermissiveMap(const Expr* id_expr) {
 
 void IndexCompute::run() {
   const std::vector<Val*> domain_vals(td_->leaf().begin(), td_->leaf().end());
-  traverseTo(td_->fusion(), domain_vals, false);
+  traverseTo(domain_vals, false);
 }
 
 IterDomain* IndexCompute::maybeGetExactMapConcreteID(IterDomain* id) const {
@@ -1019,7 +1019,7 @@ class UpdateLeafIndices : public IterVisitor {
         extent_map_(std::move(extent_map)) {
     const std::vector<Val*> domain_vals(td_->leaf().begin(), td_->leaf().end());
 
-    traverseTo(td_->fusion(), domain_vals, false);
+    traverseTo(domain_vals, false);
   }
 
   const std::unordered_map<IterDomain*, Val*>& indexMap() const {

@@ -67,7 +67,6 @@ TEST_F(IterVisitorTest, IterVisitorTraverseSiblings) {
 
   // Test getting statements "to" a tensor with siblings
   stmts = StmtSort::getStmtsTo(
-      &fusion,
       {wf.n},
       /*traverse_all_paths=*/false,
       /*traverse_attributes=*/false,
@@ -116,8 +115,7 @@ TEST_F(IterVisitorTest, NonTerminatingOutput) {
   // Even though `c` is a non-terminating output, `d` and `e` should still be
   // considered in between. This is because `StmtSort::getExprsBetween`
   // traverses from `to` along use-def chains until it hits `from`.
-  EXPECT_THAT(StmtSort::getExprsBetween(&fusion, {a}, {c, e}),
-              IsSupersetOf({d->definition(), e->definition()}));
+  EXPECT_THAT(StmtSort::getExprsBetween({a}, {c, e}), IsSupersetOf({d->definition(), e->definition()}));
 }
 
 } // namespace nvfuser
