@@ -375,10 +375,10 @@ table SegmentedGroup {
   consumer_edges: [long];
   input_vals: [long];
   output_vals: [long];
-  group_id: long;
+  group_id: int;
   heuristic: long;
   exprs: [long];
-  level: long;
+  level: int;
   visited: bool;
   merge_with_segmented_group: long;
   merge_through_segmented_edge: long;

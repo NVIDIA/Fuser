@@ -73,10 +73,19 @@ class SegmentedGroup {
 
   //! Serialize SegmentedGroup using flatbuffers
   flatbuffers::Offset<serde::SegmentedGroup> serialize(
-      flatbuffers::FlatBufferBuilder& builder) const;
+      flatbuffers::FlatBufferBuilder& builder,
+      const std::unordered_map<Val*, int64_t>& vals_map,
+      const std::unordered_map<Expr*, int64_t>& exprs_map,
+      const std::unordered_map<SegmentedGroup*, int64_t>& groups_map,
+      const std::unordered_map<SegmentedEdge*, int64_t>& edges_map) const;
 
   //! Deserialize SegmentedGroup using flatbuffers
-  void deserialize(const serde::SegmentedGroup* buffer);
+  void deserialize(
+      const serde::SegmentedGroup* buffer,
+      const std::deque<Val*>& vals,
+      const std::deque<Expr*>& exprs,
+      const std::vector<SegmentedGroup*>& groups,
+      const std::vector<SegmentedEdge*>& edges);
 
   //! Checks if this group takes original fusion's input
   bool isInputGroup() {
@@ -413,10 +422,14 @@ class SegmentedFusion {
   //! Serialize SegmentedEdge using flatbuffers
   flatbuffers::Offset<serde::SegmentedEdge> serialize(
       flatbuffers::FlatBufferBuilder& builder,
-      const nvfuser::SegmentedEdge& edge) const;
+      const nvfuser::SegmentedEdge* edge,
+      const std::unordered_map<Val*, int64_t>& vals_map,
+      const std::unordered_map<SegmentedGroup*, int64_t>& groups_map) const;
 
   //! Deserialize SegmentedEdge using flatbuffers
-  nvfuser::SegmentedEdge deserialize(const serde::SegmentedEdge* buffer);
+  nvfuser::SegmentedEdge deserialize(
+      const serde::SegmentedEdge* buffer,
+      const std::deque<Val*>& vals);
 
  private:
   //! Unique name for segmented fusion
@@ -436,9 +449,9 @@ class SegmentedFusion {
     SegmentedGroup* makeFusionInputGroup();
     SegmentedEdge* makeEdge(SegmentedGroup* from, SegmentedGroup* to, Val* val);
     void cleanUnused();
-    const std::unordered_map<SegmentedGroup*, int64_t> deterministic_group_map()
+    const std::unordered_map<SegmentedGroup*, int64_t> deterministic_groups_map()
         const;
-    const std::unordered_map<SegmentedEdge*, int64_t> deterministic_edge_map()
+    const std::unordered_map<SegmentedEdge*, int64_t> deterministic_edges_map()
         const;
 
    private:
