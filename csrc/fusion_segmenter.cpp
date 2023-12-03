@@ -74,6 +74,16 @@ flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
         return exprs_map.at(v);
       });
 
+  auto merge_with_segmented_group = -1;
+  if (merge_with_ != nullptr) {
+    merge_with_segmented_group = groups_map.at(merge_with_);
+  }
+
+  auto merge_through_segmented_edge = -1;
+  if (merge_with_ != nullptr) {
+    merge_through_segmented_edge = edges_map.at(merge_through_);
+  }
+
   return serde::CreateSegmentedGroupDirect(
       builder,
       &producer_edges_fb,
@@ -85,8 +95,8 @@ flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
       &exprs_fb,
       level_,
       visited_,
-      groups_map.at(merge_with_),
-      edges_map.at(merge_through_),
+      merge_with_segmented_group,
+      merge_through_segmented_edge,
       merged_,
       is_fusion_input_);
 }
@@ -131,8 +141,15 @@ void SegmentedGroup::deserialize(
   level_ = buffer->level();
   visited_ = buffer->visited();
 
-  merge_with_ = groups.at(buffer->merge_with_segmented_group());
-  merge_through_ = edges.at(buffer->merge_through_segmented_edge());
+  // -1 corresponds with a nullptr value
+  if (buffer->merge_with_segmented_group() != -1) {
+    merge_with_ = groups.at(buffer->merge_with_segmented_group());
+  }
+
+  // -1 corresponds with a nullptr value
+  if (buffer->merge_through_segmented_edge() != -1) {
+    merge_through_ = edges.at(buffer->merge_through_segmented_edge());
+  }
 
   merged_ = buffer->merged();
   is_fusion_input_ = buffer->merged();
