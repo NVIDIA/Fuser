@@ -13,6 +13,7 @@
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
+#include <iter_visitor.h>
 #include <kernel.h>
 #include <utils.h>
 

@@ -1509,9 +1509,7 @@ void ExprSegmentationSorter::sort() {
   // Not putting the exprs between allKnownVals() and fusion inputs here
   // because they are computed using the expr evaluator.
   auto all_exprs = StmtSort::getExprsBetween(
-      fusion_,
-      GpuLower::current()->allKnownVals(),
-      fusion_->getTerminatingOutputs());
+      GpuLower::current()->allKnownVals(), fusion_->getTerminatingOutputs());
 
   // Figure out all the values used as inputs to the expressions we're sorting
   // (to find terminating expressions). There could be branches of expressions
