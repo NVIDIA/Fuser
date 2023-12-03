@@ -1025,6 +1025,10 @@ FusionKernelRuntime::FusionKernelRuntime(
   // Initialize the evaluator simplifer
   precomputed_values_ = std::make_unique<PrecomputedValues>(fusion.get());
 
+  auto has_welford_ops = ir_utils::hasOpsOfType<WelfordOp>(fusion.get());
+  if (has_welford_ops) {
+    SegmentCandidateFinder::translateWelfordInFusion(fusion.get(), args);
+  }
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
   segmented_fusion_->deserialize(buffer->segmented_fusion());
 
