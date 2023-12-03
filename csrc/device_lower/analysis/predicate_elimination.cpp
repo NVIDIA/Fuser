@@ -516,7 +516,7 @@ class PredicateChcker : public IterVisitor {
   // provided.
   bool predicateNonDivisibleRootDomains(Expr* expr) const {
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      const auto all_exprs = DependencyCheck::getAllExprsBetween(
+      const auto all_exprs = StmtSort::getExprsBetween(
           {output->getMaybeRFactorDomain().begin(),
            output->getMaybeRFactorDomain().end()},
           {output->getLeafDomain().begin(), output->getLeafDomain().end()});

@@ -324,7 +324,7 @@ class VectorizeValidator : public OptInDispatch {
       IterDomain* v_id,
       TensorView* tv,
       std::string name) {
-    auto replay_exprs = DependencyCheck::getAllExprsBetween(
+    auto replay_exprs = StmtSort::getExprsBetween(
         {tv->getMaybeAllocationDomain().begin(),
          tv->getMaybeAllocationDomain().end()},
         {v_id});

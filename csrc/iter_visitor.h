@@ -268,12 +268,6 @@ class DependencyCheck {
       const std::unordered_set<Val*>& dependencies,
       const std::vector<Val*>& of);
 
-  // Returns all dependent exprs that exist between
-  //  the provided vals
-  static std::vector<Expr*> getAllExprsBetween(
-      const std::unordered_set<Val*>& dependencies,
-      const std::vector<Val*>& of);
-
   // Return registered outputs of the fusion that are a dependency of any val of
   static std::unordered_set<Val*> getAllOutputsOf(
       const std::unordered_set<Val*>& of);

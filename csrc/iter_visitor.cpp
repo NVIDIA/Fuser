@@ -617,17 +617,6 @@ struct Dependencies : public IterVisitor {
     Dependencies deps(dependencies, of);
     return deps.vals_;
   }
-
-  static std::vector<Expr*> getAllExprs(
-      const std::unordered_set<Val*>& dependencies,
-      const std::vector<Val*>& of) {
-    if (of.empty()) {
-      return {};
-    }
-
-    Dependencies deps(dependencies, of);
-    return deps.exprs_;
-  }
 };
 
 // Looks for and returns all output values with dependencies on `of`.
@@ -845,12 +834,6 @@ std::vector<Val*> DependencyCheck::getAllValsBetween(
     const std::unordered_set<Val*>& dependencies,
     const std::vector<Val*>& of) {
   return Dependencies::getAllVals(dependencies, of);
-}
-
-std::vector<Expr*> DependencyCheck::getAllExprsBetween(
-    const std::unordered_set<Val*>& dependencies,
-    const std::vector<Val*>& of) {
-  return Dependencies::getAllExprs(dependencies, of);
 }
 
 std::unordered_set<Val*> DependencyCheck::getAllOutputsOf(
