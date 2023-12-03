@@ -52,11 +52,11 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
   to->clear();
   IrCloner ir_cloner(to);
 
-  for (auto val : from->vals_) {
+  for (auto val : from->deterministic_vals()) {
     to->vals_.insert(ir_cloner.clone(val));
   }
 
-  for (auto expr : from->exprs_) {
+  for (auto expr : from->deterministic_exprs()) {
     to->exprs_.insert(ir_cloner.clone(expr));
   }
 
