@@ -74,12 +74,12 @@ flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
         return exprs_map.at(v);
       });
 
-  auto merge_with_segmented_group = -1;
+  int64_t merge_with_segmented_group = -1;
   if (merge_with_ != nullptr) {
     merge_with_segmented_group = groups_map.at(merge_with_);
   }
 
-  auto merge_through_segmented_edge = -1;
+  int64_t merge_through_segmented_edge = -1;
   if (merge_with_ != nullptr) {
     merge_through_segmented_edge = edges_map.at(merge_through_);
   }
@@ -441,15 +441,16 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
   single_group->setHeuristic(heuristic);
   single_group->setID(0);
 
+  segmented_fusion_ptr->finalize();
   return segmented_fusion_ptr;
 }
 
 SegmentedFusion::SegmentedFusion(std::unique_ptr<Fusion> fusion)
     : segmented_fusion_name_{segmentedFusionName()},
       impl_(this),
-      complete_fusion_(std::move(fusion)) {
-  initial_vals_size_ = complete_fusion_->vals().size();
-  initial_exprs_size_ = complete_fusion_->exprs().size();
+      complete_fusion_(std::move(fusion)),
+      initial_vals_size_{0},
+      initial_exprs_size_{0} {
   annotateFP16IntermediateTensors();
 }
 
@@ -499,7 +500,6 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
 
   const std::deque<Val*>& vals = complete_fusion_->deterministic_vals();
   const std::deque<Expr*>& exprs = complete_fusion_->deterministic_exprs();
-  /*
   NVF_ERROR(
       complete_fusion_->vals().size() == buffer->num_vals(),
       "The complete fusion has ",
@@ -514,7 +514,6 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
       " expressions while serialization expected ",
       buffer->num_exprs(),
       " expressions.");
-  */
 
   segmented_fusion_name_ = buffer->segmented_fusion_name();
 
@@ -550,6 +549,8 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
 
   force_half_precision_type_ =
       DataType(static_cast<PrimDataType>(buffer->force_half_precision_type()));
+
+  finalize();
 }
 
 flatbuffers::Offset<serde::SegmentedEdge> SegmentedFusion::serialize(
@@ -1119,6 +1120,11 @@ TensorView* castIntermediateValueInCompleteFusion(
 void SegmentedFusion::finalize() {
   impl_.cleanUnused();
   castInputOutputToLowerPrecision(edges());
+
+  // Log the number of values and expressions. It is used as a sanity check
+  // during serialization.
+  initial_vals_size_ = complete_fusion_->vals().size();
+  initial_exprs_size_ = complete_fusion_->exprs().size();
 }
 
 //! Lower FP precision of inputs and outputs specified by the given

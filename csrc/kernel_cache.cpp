@@ -1025,8 +1025,26 @@ FusionKernelRuntime::FusionKernelRuntime(
   // Initialize the evaluator simplifer
   precomputed_values_ = std::make_unique<PrecomputedValues>(fusion.get());
 
+  // convert Welford to two-pass if option is enabled and the original heuristic
+  // is persistent
+  auto is_persistent_heuristic = [](ScheduleHeuristic heuristic) {
+    return heuristic == ScheduleHeuristic::InnerPersistent ||
+        heuristic == ScheduleHeuristic::OuterPersistent ||
+        heuristic == ScheduleHeuristic::InnerOuterPersistent;
+  };
+
+  const auto& segmented_groups = buffer->segmented_fusion()->groups();
+  std::vector<ScheduleHeuristic> heuristics;
+  heuristics.reserve(segmented_groups->size());
+  for (auto idx : c10::irange(segmented_groups->size())) {
+    heuristics.push_back(static_cast<ScheduleHeuristic>(
+        segmented_groups->Get(idx)->heuristic()));
+  }
+  bool has_persistent_heuristic = std::any_of(
+      heuristics.begin(), heuristics.end(), is_persistent_heuristic);
+
   auto has_welford_ops = ir_utils::hasOpsOfType<WelfordOp>(fusion.get());
-  if (has_welford_ops) {
+  if (has_welford_ops && has_persistent_heuristic) {
     SegmentCandidateFinder::translateWelfordInFusion(fusion.get(), args);
   }
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
