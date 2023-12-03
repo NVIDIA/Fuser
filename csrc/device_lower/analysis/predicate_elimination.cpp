@@ -863,7 +863,7 @@ class PredicateChcker : public IterVisitor {
 } // namespace
 
 PredicateElimination::PredicateElimination(Fusion* fusion) {
-  traverseTo(fusion, fusion->outputs());
+  traverseTo(fusion->outputs());
 }
 
 bool PredicateElimination::needsPredicate(Expr* expr) const {
