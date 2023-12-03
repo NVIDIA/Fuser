@@ -460,7 +460,7 @@ class ValReplacementMutator : private OptOutMutator {
     // typically not used by anything else. If we don't grab that count, then it
     // would be a tensorview that doesn't get updated extents. Therefore, first
     // grab all leaves towards outputs and grab stmts from there.
-    auto stmts = StmtSort::getStmtsTo(allLeafOuts(fusion), true, true);
+    auto stmts = StmtSort::getStmtsTo(fusion, allLeafOuts(fusion), true, true);
 
     // Some fusions, such as standalone rand_like, can have disconnected DAG, so
     // we need some mechanism to make sure our replacement set is as complete as
@@ -478,7 +478,7 @@ class ValReplacementMutator : private OptOutMutator {
         more.emplace_back(v);
       }
     }
-    auto more_stmts = StmtSort::getStmtsTo(more, true, true);
+    auto more_stmts = StmtSort::getStmtsTo(fusion, more, true, true);
     more_stmts.insert(more_stmts.end(), stmts.begin(), stmts.end());
 
     for (auto stmt : more_stmts) {
@@ -797,6 +797,7 @@ bool hasResizedRfactor(const TensorView* tv) {
     return false;
   }
   auto root_to_rf_exprs = StmtSort::getExprsBetween(
+      tv->fusion(),
       {tv->getRootDomain().begin(), tv->getRootDomain().end()},
       {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()});
   return std::any_of(
@@ -839,6 +840,7 @@ class ValidateDomainEquivalence : private IterVisitor {
         toDelimitedString(derived_domain));
 
     traverseBetween(
+        initial_domain.at(0)->fusion(),
         {initial_domain.begin(), initial_domain.end()},
         {derived_domain.begin(), derived_domain.end()});
 

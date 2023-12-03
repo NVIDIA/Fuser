@@ -406,16 +406,14 @@ std::string ExprGroup::toString() const {
   os << " ca_ids {";
   for (size_t i = 0; i < payload()->ca_domains.size(); i++) {
     os << payload()->ca_domains[i];
-    if (i + 1 != payload()->ca_domains.size()) {
+    if (i + 1 != payload()->ca_domains.size())
       os << ", ";
-    }
   }
   os << "} pa_ids {";
   for (size_t i = 0; i < payload()->pa_domains.size(); i++) {
     os << payload()->pa_domains[i];
-    if (i + 1 != payload()->pa_domains.size()) {
+    if (i + 1 != payload()->pa_domains.size())
       os << ", ";
-    }
   }
   os << "}";
   os << "\nExprs {\n";
@@ -1509,7 +1507,9 @@ void ExprSegmentationSorter::sort() {
   // Not putting the exprs between allKnownVals() and fusion inputs here
   // because they are computed using the expr evaluator.
   auto all_exprs = StmtSort::getExprsBetween(
-      GpuLower::current()->allKnownVals(), fusion_->getTerminatingOutputs());
+      fusion_,
+      GpuLower::current()->allKnownVals(),
+      fusion_->getTerminatingOutputs());
 
   // Figure out all the values used as inputs to the expressions we're sorting
   // (to find terminating expressions). There could be branches of expressions

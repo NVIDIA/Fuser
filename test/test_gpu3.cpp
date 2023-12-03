@@ -6026,7 +6026,7 @@ TEST_F(NVFuserTest, FusionPropagateVectorizePredicate_CUDA) {
         // Make sure the index of the inner loop isn't used in the predicate
         NVF_ERROR(!for_loops_.empty());
         auto loop_index = for_loops_.back()->index();
-        auto cond_inputs = InputsOf::output(cond);
+        auto cond_inputs = InputsOf::output(cond->fusion(), cond);
         auto index_it =
             std::find(cond_inputs.begin(), cond_inputs.end(), loop_index);
         auto vec_factor_it =

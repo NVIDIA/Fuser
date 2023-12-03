@@ -358,7 +358,7 @@ void HaloInfo::setHaloWidth(IterDomain* id, int halo_width) {
 
 // Propagate extent information from root axes to descendants
 void HaloInfo::build(TensorDomain* td) {
-  auto exprs = StmtSort::getExprsBetween(
+  auto exprs = DependencyCheck::getAllExprsBetween(
       {td->maybeRFactor().begin(), td->maybeRFactor().end()},
       {td->leaf().begin(), td->leaf().end()});
 

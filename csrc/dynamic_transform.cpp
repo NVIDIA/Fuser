@@ -90,7 +90,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
         !fusion->isA<kir::Kernel>(),
         "Invalid container. Kernel container not allowed.\n");
 
-    traverseTo(fusion->getTerminatingOutputs(), false, false);
+    traverseTo(fusion, fusion->getTerminatingOutputs(), false, false);
 
     finalizeDynamicVals();
 
@@ -147,7 +147,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   //! Process vector of leaf dynamic values by finding inputs and recording the
   //! result into info_
   void finalizeDynamicVals() {
-    const auto inputs = InputsOf::outputs(leaf_dynamic_vals_);
+    const auto inputs = InputsOf::outputs(info_.fusion(), leaf_dynamic_vals_);
     info_.root_dynamic_vals_.insert(inputs.begin(), inputs.end());
 
     // initial_info_ provides a set of Vals that are used for concretization.
@@ -621,6 +621,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
     // Note that it is assumed that theres's no further expression
     // beyond the rfactor domain as asserted above
     auto all_id_exprs = StmtSort::getExprsBetween(
+        tv->fusion(),
         {tv->getRootDomain().begin(), tv->getRootDomain().end()},
         {tv->getMaybeRFactorDomain().begin(),
          tv->getMaybeRFactorDomain().end()});

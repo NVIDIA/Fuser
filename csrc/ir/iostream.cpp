@@ -13,7 +13,6 @@
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
-#include <iter_visitor.h>
 #include <kernel.h>
 #include <utils.h>
 
@@ -103,7 +102,7 @@ void IrTransformPrinter::printTransforms(const TensorView* tv) {
   if (tv->hasRFactor()) {
     const auto& rfactor_domain = tv->getRFactorDomain();
 
-    const auto all_exp = StmtSort::getExprsBetween(
+    const auto all_exp = DependencyCheck::getAllExprsBetween(
         {root_domain.begin(), root_domain.end()},
         {rfactor_domain.begin(), rfactor_domain.end()});
 
@@ -118,7 +117,7 @@ void IrTransformPrinter::printTransforms(const TensorView* tv) {
 
   const auto& from = tv->getMaybeRFactorDomain();
   const auto& leaf = tv->getLeafDomain();
-  const auto all_exp = StmtSort::getExprsBetween(
+  const auto all_exp = DependencyCheck::getAllExprsBetween(
       {from.begin(), from.end()}, {leaf.begin(), leaf.end()});
 
   for (const auto exp : all_exp) {

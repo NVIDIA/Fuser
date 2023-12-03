@@ -106,7 +106,9 @@ class ForwardTraverseFromRFactorToAlloc {
       const std::vector<IterDomain*>& rfactor,
       const std::vector<IterDomain*>& alloc) {
     auto forward_exprs = StmtSort::getExprsBetween(
-        {rfactor.begin(), rfactor.end()}, {alloc.begin(), alloc.end()});
+        tv->fusion(),
+        {rfactor.begin(), rfactor.end()},
+        {alloc.begin(), alloc.end()});
     for (auto expr : forward_exprs) {
       handle(expr);
     }
@@ -199,7 +201,9 @@ class BackwardTraverseFromRFactorToAlloc {
       const std::vector<IterDomain*>& rfactor,
       const std::vector<IterDomain*>& alloc) {
     auto backward_exprs = StmtSort::getExprsBetween(
-        {alloc.begin(), alloc.end()}, {rfactor.begin(), rfactor.end()});
+        tv->fusion(),
+        {alloc.begin(), alloc.end()},
+        {rfactor.begin(), rfactor.end()});
     std::reverse(backward_exprs.begin(), backward_exprs.end());
     for (auto expr : backward_exprs) {
       handle(expr);

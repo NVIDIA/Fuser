@@ -104,7 +104,8 @@ class EliminateDeadBroadcastAndAllocate {
           // Also find any TVs used in index expressions.
           // These expressions will likely not be in the Expr tree we are
           // provided, so we need to traverse to find them.
-          auto all_index_roots = InputsOf::outputs({ti->index()});
+          auto all_index_roots =
+              InputsOf::outputs(FusionGuard::getCurFusion(), {ti->index()});
           auto index_root_tis =
               ir_utils::filterByType<kir::TensorIndex>(all_index_roots);
           for (auto rootti : index_root_tis) {

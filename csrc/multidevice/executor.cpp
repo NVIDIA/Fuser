@@ -116,7 +116,7 @@ std::vector<at::Tensor> PipelineExecutor::runWithInput(
   }
 
   // Run through the stages to launch kernel
-  traverseTo(runtime_.pipeline_->outputs());
+  traverseTo(runtime_.pipeline_, runtime_.pipeline_->outputs());
 
   // Collect global outputs from context
   std::vector<at::Tensor> outputs;

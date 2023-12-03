@@ -142,7 +142,7 @@ struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
     // propagation travelling across view op. Note this is a conservative check,
     // since view does NOT necessarily always introduce incoherent transform
     // that would break the propagation.
-    auto chain_exprs = StmtSort::getExprsBetween({from}, {to});
+    auto chain_exprs = StmtSort::getExprsBetween(from->fusion(), {from}, {to});
     if (!ir_utils::filterByType<ViewOp>(chain_exprs).empty()) {
       should_reject = true;
     };
@@ -239,7 +239,9 @@ class DomainMap : public pointwise_utils::DomainMap {
         " in tensor ",
         tv);
     auto replay_exprs = StmtSort::getExprsBetween(
-        {mapped_id}, {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
+        tv->fusion(),
+        {mapped_id},
+        {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
     // Project the root id to leaf id. Similar to projectIdToRFactor.
     for (auto expr : replay_exprs) {
       if (expr->isA<Split>()) {

@@ -644,6 +644,7 @@ TEST_F(SwizzleTest, TransformPropagatorSkipSwizzleOnTarget) {
   MaxRootDomainInfoSpanningTree(tv0).traverse(&propagator);
 
   auto exprs = StmtSort::getExprsBetween(
+      tv1->fusion(),
       {tv1->getRootDomain().begin(), tv1->getRootDomain().end()},
       {tv1->getLeafDomain().begin(), tv1->getLeafDomain().end()});
   EXPECT_TRUE(std::any_of(exprs.begin(), exprs.end(), [](Expr* expr) {
