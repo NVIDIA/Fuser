@@ -395,8 +395,8 @@ TEST_F(PipelineTest, Overlap) {
 
   //instead of using "slice/cat" it would be nicer to split the dimension and use "select/stack", but "stack" is not implemented in nvFuser at the moment
 
-  stage0.addRange(fusion.get(), from_stage0, to_stage0);
-  stage1.addRange(fusion.get(), from_stage1, to_stage1);
+  stage0.addRange(from_stage0, to_stage0);
+  stage1.addRange(from_stage1, to_stage1);
   std::vector<DeviceIdxType> devices(number_of_devices);
   std::iota(devices.begin(), devices.end(), 0);
   stage0.mesh = devices;

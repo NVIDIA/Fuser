@@ -86,7 +86,7 @@ class PipelineStageDescriptor final {
     }
   }
 
-  void addRange(Fusion* fusion,
+  void addRange(
       const std::unordered_set<Val*>& from,
       const std::vector<Val*>& to);
 

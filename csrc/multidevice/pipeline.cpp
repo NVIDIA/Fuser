@@ -30,11 +30,11 @@ public:
 
 }
 
-void PipelineStageDescriptor::addRange(Fusion* fusion,
+void PipelineStageDescriptor::addRange(
   const std::unordered_set<Val*>& from,
   const std::vector<Val*>& to) {
     ValRangeAdder val_adder;
-    val_adder.traverseBetween(fusion, from, to);
+    val_adder.traverseBetween(from, to);
     addVal(val_adder.vals);
 }
 
