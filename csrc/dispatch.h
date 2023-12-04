@@ -121,10 +121,18 @@ class Predicate;
 class TensorIndex;
 
 class Allocate;
+class Asm;
 class BlockSync;
 class GridSync;
+class MBarrierInit;
+class MBarrierInvalidate;
+class MBarrierArrive;
+class MBarrierArriveExpectTx;
+class MBarrierWait;
 class CpAsyncWait;
 class CpAsyncCommit;
+class CpAsyncBulkS2GWait;
+class CpAsyncBulkS2GCommit;
 class ForLoop;
 class IfThenElse;
 class GridReduction;
@@ -207,10 +215,18 @@ class OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const ViewOp* stmt);
 
   virtual void handle(const kir::Allocate*);
+  virtual void handle(const kir::Asm*);
   virtual void handle(const kir::BlockSync*);
   virtual void handle(const kir::GridSync*);
+  virtual void handle(const kir::MBarrierInit*);
+  virtual void handle(const kir::MBarrierInvalidate*);
+  virtual void handle(const kir::MBarrierArrive*);
+  virtual void handle(const kir::MBarrierArriveExpectTx*);
+  virtual void handle(const kir::MBarrierWait*);
   virtual void handle(const kir::CpAsyncWait*);
   virtual void handle(const kir::CpAsyncCommit*);
+  virtual void handle(const kir::CpAsyncBulkS2GWait*);
+  virtual void handle(const kir::CpAsyncBulkS2GCommit*);
   virtual void handle(const kir::InitMagicZero*);
   virtual void handle(const kir::UpdateMagicZero*);
   virtual void handle(const kir::ForLoop*);
@@ -293,10 +309,18 @@ class OptOutDispatch : public PolymorphicBase {
   virtual void handle(ViewOp* stmt);
 
   virtual void handle(kir::Allocate* stmt);
+  virtual void handle(kir::Asm* stmt);
   virtual void handle(kir::BlockSync* stmt);
   virtual void handle(kir::GridSync* stmt);
+  virtual void handle(kir::MBarrierInit* stmt);
+  virtual void handle(kir::MBarrierInvalidate* stmt);
+  virtual void handle(kir::MBarrierArrive* stmt);
+  virtual void handle(kir::MBarrierArriveExpectTx* stmt);
+  virtual void handle(kir::MBarrierWait* stmt);
   virtual void handle(kir::CpAsyncWait* stmt);
   virtual void handle(kir::CpAsyncCommit* stmt);
+  virtual void handle(kir::CpAsyncBulkS2GWait* stmt);
+  virtual void handle(kir::CpAsyncBulkS2GCommit* stmt);
   virtual void handle(kir::InitMagicZero* stmt);
   virtual void handle(kir::UpdateMagicZero* stmt);
   virtual void handle(kir::ForLoop* stmt);

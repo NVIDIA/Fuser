@@ -255,6 +255,10 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       compute_with_pos_(src->compute_with_pos_),
       promote_reuse_(src->promote_reuse_) {}
 
+void TensorView::printTransforms() const {
+  IrTransformPrinter(std::cout).printTransforms(this);
+}
+
 // sets cpu_scalar_ value, which is special handling for CPU based zero-dim
 // tensors (i.e. CPU Tensors that only have one value). This is only used if
 // on an input value, otherwise ignored. This is important as special handling
@@ -268,8 +272,9 @@ void TensorView::setCpuScalar(bool is_cpu_scalar) {
 
 IterDomain* TensorView::axis(int pos) const {
   NVF_ERROR(nDims() > 0, "Tried to access an axis in a 0-dim TensorView");
-  if (pos < 0)
+  if (pos < 0) {
     pos += (int)domain()->nDims();
+  }
   NVF_CHECK(
       pos >= 0 && (unsigned int)pos < domain()->nDims(),
       "Tried to access position ",
@@ -631,8 +636,9 @@ TensorView* TensorView::split(
       "Tensor: ",
       toString());
 
-  if (axis_ < 0)
+  if (axis_ < 0) {
     axis_ += (int)domain()->nDims();
+  }
 
   NVF_ERROR(
       axis_ >= 0,
@@ -692,11 +698,13 @@ TensorView* TensorView::split(
 TensorView* TensorView::merge(int axis_o, int axis_i) {
   NVF_ERROR(nDims() > 0, "Tried to do merge on a 0-dim TensorView");
 
-  if (axis_o < 0)
+  if (axis_o < 0) {
     axis_o += (int)domain()->nDims();
+  }
 
-  if (axis_i < 0)
+  if (axis_i < 0) {
     axis_i += (int)domain()->nDims();
+  }
 
   NVF_CHECK(
       axis_o >= (int)getMaxComputePosition() &&
@@ -812,7 +820,7 @@ TensorView* TensorView::swizzle(
   // Disable unsupported use cases at the current step.
   //  Currently do not support reducing or broadcasting
   //   swizzled dimensions.
-  auto all_inputs = InputsOf::outputs(fusion(), {axis(x), axis(y)});
+  auto all_inputs = InputsOf::outputs({axis(x), axis(y)});
   for (auto id : ir_utils::filterByType<IterDomain>(all_inputs)) {
     NVF_ERROR(
         !id->isBroadcast() && !id->isReduction(),
@@ -837,8 +845,8 @@ TensorView* TensorView::swizzle(
         x_id->extent()->isConstInt() && y_id->extent()->isConstInt(),
         "Only constant iterdomains supported on given swizzle type");
 
-    int in_x_size = (int)x_id->extent()->evaluateInt();
-    int in_y_size = (int)y_id->extent()->evaluateInt();
+    int in_x_size = (int)x_id->extent()->evaluate();
+    int in_y_size = (int)y_id->extent()->evaluate();
 
     // Check size constraints based on swizzle type
     if (swizzle_type == Swizzle2DType::XOR ||
@@ -924,7 +932,7 @@ TensorView* TensorView::rFactor(const std::vector<int>& axes) {
         this_mma->inA(),
         this_mma->inB(),
         this_mma->init(),
-        this_mma->options(),
+        this_mma->macro(),
         this_mma->layout());
 
     // Remaining reduction that can be scheduled cross
@@ -1371,14 +1379,20 @@ bool TensorView::isEmptyTensor() const {
       });
 }
 
-void TensorView::applyMmaSwizzle(MmaOptions options) {
-  switch (options.operand) {
-    case MmaOptions::Operand::Accumulator:
-      mma_utils::WarpMmaSwizzler::scheduleMmaWarpOutput(this, options);
+void TensorView::applyMmaSwizzle(MmaOperand operand) {
+  switch (operand) {
+    case MmaOperand::Accumulator:
+      mma_utils::WarpMmaSwizzler::scheduleMmaWarpOutput(this);
+      if (definition()->isA<MmaOp>()) {
+        setAllocationDomain(getLeafDomain(), true);
+      }
       break;
-    case MmaOptions::Operand::A:
-    case MmaOptions::Operand::B:
-      mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, options);
+    case MmaOperand::A:
+    case MmaOperand::B:
+      mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, operand);
+      if (ir_utils::isLdMatrixOp(definition())) {
+        mma_utils::WarpMmaSwizzler::scheduleLdMatrix(this, operand);
+      }
       break;
     default:
       NVF_ERROR(false, "unknown operand flag");
@@ -1469,6 +1483,31 @@ TensorViewBuilder& TensorViewBuilder::shape(std::vector<Val*> shape) {
   return *this;
 }
 
+TensorViewBuilder& TensorViewBuilder::strideOrder(
+    std::vector<int64_t> stride_order) {
+  NVF_CHECK(stride_order_.empty(), "Attempting to reset stride_order");
+  if (!stride_order.empty()) {
+    NVF_CHECK(ndims_ == 0 || ndims_ == stride_order.size());
+    ndims_ = stride_order.size();
+  }
+
+  // TODO: this shouldn't be necessary. For details see issue
+  // https://github.com/NVIDIA/Fuser/issues/1399
+  //
+  // skip stride_order if its alloc_domain is in the same order as with rfactor
+  // domain. We don't need this and we should be able to just use stride_order_,
+  // but currently alloc_domain support isn't ideal and could prevent
+  // vectorization. Adding this workaround to restore performance.
+  if (std::adjacent_find(
+          stride_order.begin(), stride_order.end(), [](int64_t l, int64_t r) {
+            return l <= r;
+          }) != stride_order.end()) {
+    // stride_order is not in descending order, we cannot skip it.
+    stride_order_ = std::move(stride_order);
+  }
+  return *this;
+}
+
 TensorViewBuilder& TensorViewBuilder::expanded(std::vector<bool> expanded) {
   NVF_CHECK(expanded_.empty(), "Attempting to reset expanded shape");
   if (!expanded.empty()) {
@@ -1509,7 +1548,7 @@ TensorView* TensorViewBuilder::build() const {
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, shape_.at(i));
     }
     IterDomainBuilder builder(FusionGuard::getCurFusion()->zeroVal(), extent);
-    if (extent->isConstScalar() && extent->evaluateInt() == 1) {
+    if (extent->isConstScalar() && extent->evaluate() == 1) {
       builder.iter_type(IterType::Broadcast);
     }
     if (expanded_extent != nullptr) {
@@ -1522,13 +1561,6 @@ TensorView* TensorViewBuilder::build() const {
       contiguity_.empty() || contiguity_.size() == domain.size(),
       "The size of contiguity must equal to the number of non-broadcasting IterDomains");
 
-  for (auto i : c10::irange(contiguity_.size())) {
-    NVF_CHECK(
-        domain.at(i)->isBroadcast() != contiguity_.at(i).has_value(),
-        "The contiguity of a broadcast dimension must be None. "
-        "The contiguity of a non-broadcast dimension must be true/false");
-  }
-
   if (uniform_contiguity_.has_value()) {
     NVF_ERROR(
         contiguity_.empty(),
@@ -1537,13 +1569,15 @@ TensorView* TensorViewBuilder::build() const {
     return IrBuilder::create<TensorView>(
         IrBuilder::create<TensorDomain>(
             domain,
+            stride_order_,
             TensorDomain::getContiguityFilledWith(
                 domain, *uniform_contiguity_)),
         dtype_);
   } else {
     // Create the final TensorView
     return IrBuilder::create<TensorView>(
-        IrBuilder::create<TensorDomain>(domain, contiguity_), dtype_);
+        IrBuilder::create<TensorDomain>(domain, stride_order_, contiguity_),
+        dtype_);
   }
 }
 

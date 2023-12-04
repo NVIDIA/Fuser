@@ -31,13 +31,13 @@ bool State::operator!=(const State& other) const {
 
 // Generalized printing of State
 std::ostream& operator<<(std::ostream& os, const State& state) {
-  if (state.stype == serde::StateType_Scalar) {
+  if (state.stype == serde::StateType::Scalar) {
     os << "S";
-  } else if (state.stype == serde::StateType_Tensor) {
+  } else if (state.stype == serde::StateType::Tensor) {
     os << "T";
-  } else if (state.stype == serde::StateType_Vector) {
+  } else if (state.stype == serde::StateType::Vector) {
     os << "V";
-  } else if (state.stype == serde::StateType_None) {
+  } else if (state.stype == serde::StateType::None) {
     os << "None";
   } else {
     NVF_ERROR(false, "Unsupported StateType");
@@ -119,7 +119,7 @@ Val* FusionState::getFusionState(size_t index) const {
   return ret[0];
 }
 
-std::vector<Val*> FusionState::getFusionStateVector(size_t index) const {
+const std::vector<Val*>& FusionState::getFusionStateVector(size_t index) const {
   return fusion_state_.at(index);
 }
 
@@ -161,7 +161,9 @@ void FusionState::addOutput(
 
 void FusionState::aliasOutputToInput(Val* output, Val* input) {
   NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
-  fusion_->aliasOutputToInput(output, input);
+  // We haven't exposed AliasType to Python API. For now, use
+  // InplaceUpdate to preserve the old behavior.
+  fusion_->aliasOutputToInput(output, input, AliasType::InplaceUpdate);
 }
 
 } // namespace nvfuser::python_frontend

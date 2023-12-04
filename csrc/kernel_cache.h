@@ -92,7 +92,10 @@ class FusionKernelRuntime {
   explicit FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      std::optional<PrimDataType> forced_index_type = std::nullopt);
+      std::optional<PrimDataType> forced_index_type = std::nullopt,
+      int64_t fusion_id = 0,
+      int64_t concrete_id = 0,
+      int64_t runtime_id = 0);
 
   //! Type notations within FusionKernelRuntime Context
   using HashType = size_t;
@@ -297,6 +300,16 @@ class FusionKernelRuntime {
 
   std::mutex mutex_;
 
+  // ID of fusion in python frontend fusion cache, which maps to a single
+  // FusionExecutorCache.
+  int64_t fusion_id_ = -1;
+
+  // ID of concretized fusion in FusionExecutorCache
+  int64_t concrete_id_ = -1;
+
+  // ID of FusionKernelRuntime given (device, concrete_info) key
+  int64_t runtime_id_ = -1;
+
   // The heuristics and executor for most recent kernel launch
   ExecutorLog most_recent_executor_log_;
 };
@@ -329,7 +342,7 @@ class InputsIdLookup : public NonCopyable {
   //! Encode each input sets to with an unique id;
   //! The returned data structure also indicates whether eviction has happened
   //! within the lookup cache. This is needed because lookup shortcut is also
-  //! cached in nested `GraphCache`, `FusionExecutorCache` and `FusionExecutor`.
+  //! cached in nested `FusionExecutorCache` and `FusionExecutor`.
   //! see [ Note -- Post-definition cache implementation ] and [ Note -- 2 level
   //! cache implementation ].
   //!
@@ -490,7 +503,9 @@ class FusionExecutorCache {
   //! create new fusion executor cache at a given device to handle kernel
   //! generation of dynamic sizes
   //! fusion executor is taking the ownership of `fusion`
-  explicit FusionExecutorCache(std::unique_ptr<Fusion> fusion);
+  explicit FusionExecutorCache(
+      std::unique_ptr<Fusion> fusion,
+      int64_t fusion_id = 0);
 
   //! Execute fusion graph with given inputs, create `FusionExecutor` as needed
   //! Note this function also handles permutation & input update outside of
@@ -643,7 +658,7 @@ class FusionExecutorCache {
       flatbuffers::FlatBufferBuilder& builder) const;
 
   //! Deserialize Fusion Executor Cache using flatbuffers
-  void deserialize(const serde::FusionExecutorCache* buffer);
+  void deserialize(const serde::FusionExecutorCache* buffer, int64_t fusion_id);
 
   //! Allocate the outputs of the Fusion given inputs
   //! TODO: re-implement
@@ -697,6 +712,13 @@ class FusionExecutorCache {
       cached_initial_info_;
   std::vector<std::unique_ptr<DynamicTransformConcretizationInfo>>
       cached_conc_info_;
+  //! Map each pair of device_id and concretization info to an integer id
+  std::unordered_map<
+      std::pair<int8_t, const DynamicTransformConcretizationInfo*>,
+      int64_t,
+      PairPointerHash,
+      PairPointerEquals>
+      conc_info_id_map_;
 
   //! Logging state for most recent compilation
   bool profiling_ = false;
@@ -717,57 +739,10 @@ class FusionExecutorCache {
 
   //! Initial concretization info
   std::optional<DynamicTransformInitialInfo> initial_info_ = std::nullopt;
-};
 
-//! [ Note -- 2 level cache implementation ]
-//!
-//! Compiling PyTorch IR requires an addition translation to Fusion IR, which is
-//! cached using `GraphCache`.
-//!
-//! 2 level hierarchically nested cache is to handle the code generation and
-//! execution of a given PyTorch IR graph that is unique in its computational
-//! graph (see note on unique computational graph down).
-//!
-//! The nested cache structures are:
-//!     a. GraphCache
-//!        - GraphCache translates PyTorch IR into Fusion IR and pass it to a
-//!          `FusionExecutorCache`;
-//!        - GraphCache assumes all inputs to comply with profiling information,
-//!          mostly tensor size & contiguity (see note on unique computational
-//!          graph). The assumption is assured at runtime by
-//!          `prim::CudaFusionGuard`;
-//!     b. FusionExecutorCache
-//!        - has a single `Fusion`, FusionExecutorCache handles kernel schedule
-//!          and passed scheduled tensor to `FusionExecutor` to generate code;
-//!        - create `FusionExecutor` instances to handle heuristics from dynamic
-//!          shape (varying tensor sizes);
-//!        - create `FusionExecutor` instances to handle different devices;
-//!        - holds input cache `InputsIdLookup`, which allow cache on heuristics
-//!          and launch parameters to reduce latency.
-//!
-class GraphCache {
- public:
-  //! TODO: we should probably change shared_ptr to unique_ptr, as we want to
-  //!       claim the ownership of the computational graph.
-  //! create GraphCache on a given graph;
-  //! We extract global stride index order and translate PyTorch JIT IR to
-  //! Fusion IR.
-  explicit GraphCache(const std::shared_ptr<torch::jit::Graph>& graph);
-
-  //! execute graph with given inputs
-  std::vector<at::Tensor> runGraphWithInputs(
-      const at::ArrayRef<c10::IValue>& inputs);
-
- private:
-  //! construct FusionExecutorCache
-  void createFusion(const std::shared_ptr<torch::jit::Graph>& graph);
-
- private:
-  //! FusionExecutorCache that performs schedule and kernel execution;
-  std::unique_ptr<FusionExecutorCache> fusion_executor_cache_;
-
-  //! num of outputs
-  size_t num_of_outputs_ = 0;
+  // ID of fusion in python frontend fusion cache, which maps to a single
+  // FusionExecutorCache.
+  int64_t fusion_id_ = -1;
 };
 
 } // namespace nvfuser

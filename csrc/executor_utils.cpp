@@ -46,10 +46,10 @@
 #include <nvfuser_resources/grid_sync.h>
 #include <nvfuser_resources/helpers.h>
 #include <nvfuser_resources/index_utils.h>
+#include <nvfuser_resources/mbarrier.h>
 #include <nvfuser_resources/memory.h>
 #include <nvfuser_resources/random_numbers.h>
 #include <nvfuser_resources/tensor.h>
-#include <nvfuser_resources/tensorcore.h>
 #include <nvfuser_resources/tuple.h>
 #include <nvfuser_resources/type_traits.h>
 #include <nvfuser_resources/warp.h>
@@ -89,6 +89,7 @@ std::string kernelPreamble() {
     ss << nvfuser_resources::block_sync_default_cu;
   }
   ss << nvfuser_resources::grid_sync_cu;
+  ss << nvfuser_resources::mbarrier_cu;
 
   // Communication classes
   ss << nvfuser_resources::block_reduction_cu;
@@ -97,7 +98,6 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::broadcast_cu;
   ss << nvfuser_resources::welford_cu;
   ss << nvfuser_resources::warp_cu;
-  ss << nvfuser_resources::tensorcore_cu;
   ss << nvfuser_resources::memory_cu;
   ss << nvfuser_resources::fused_welford_helper_cu;
   ss << nvfuser_resources::fused_reduction_cu;
@@ -722,6 +722,9 @@ ExpressionEvaluator bindInputs(
   ExpressionEvaluator expr_eval;
   const auto& inputs = kernel->inputs();
   for (const auto i : c10::irange(inputs.size())) {
+    // NOTE: we bind all inputs here, including at::Tensors. This means that
+    // expr_eval will create a PolymorphicValue containing *args[i], which means
+    // that at::Tensor's lifetime will be at least as long as that of expr_eval.
     expr_eval.bind(inputs[i], *args[i], true);
   }
 
@@ -753,10 +756,10 @@ std::vector<char> compileNvrtcProgramToCubin(const nvrtcProgram& program) {
 // Returns the name of the dumped file.
 std::string dumpCompiledCodeToFile(
     const std::vector<char>& code,
-    const int64_t fusion_id,
+    const std::string& id,
     const std::string& suffix) {
   std::stringstream file_name;
-  file_name << "__tmp_kernel" << fusion_id << suffix;
+  file_name << "__tmp_kernel_" << id << suffix;
   debug() << "PRINTING: " << file_name.str() << std::endl;
   std::ofstream out(file_name.str());
   NVF_ERROR(out.is_open());
@@ -965,6 +968,10 @@ void fillCompileOptions(
     std::optional<int64_t> opt_block_size) {
   nvrtc_compile_driver.setOption("--std=c++17");
 
+  // Suppress warnings for functions that are defined but unused, since we have
+  // many unused functions in the preamble.
+  nvrtc_compile_driver.setOption("--diag-suppress=177");
+
   // CUDA 11.1 allows going directly to SASS (sm_) instead of PTX (compute_)
   // which gives better backwards compatibility to work on older driver,
   // (since older driver doesn't necessarily recognize PTX emitted by new
@@ -972,9 +979,13 @@ void fillCompileOptions(
   // Meanwhile, for forward compatibility (future device with
   // `unsupported_arch==True`), since SASS are not necessarily compatible,
   // we fallback to PTX instead.
-  const std::string compute = std::string("--gpu-architecture=") +
+  std::string compute = std::string("--gpu-architecture=") +
       (compile_to_sass ? "sm_" : "compute_") + std::to_string(major) +
       std::to_string(minor);
+  if (major == 9) {
+    // Hopper MMAs require 90a instead of 90
+    compute += "a";
+  }
   nvrtc_compile_driver.setOption(compute);
 
   nvrtc_compile_driver.setOption("-default-device");
@@ -1090,10 +1101,10 @@ void warnRegisterSpill(const std::string& compile_log) {
 
 void createNvrtcProgram(
     nvrtcProgram& program,
-    int64_t id,
+    const std::string& id,
     const std::string& full_src_code) {
   std::stringstream ss;
-  ss << "__tmp_kernel" << id << ".cu";
+  ss << "__tmp_kernel_" << id << ".cu";
   std::string name = ss.str();
   FUSER_PERF_SCOPE("executor_utils::NvrtcCreateProgram");
   NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
@@ -1101,10 +1112,10 @@ void createNvrtcProgram(
 }
 
 // Compile the given source code with the NVRTC compiler driver.
-CompiledKernel compileSource(
+std::unique_ptr<CompiledKernel> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
-    const int64_t id,
+    const std::string& id,
     const bool compile_to_sass,
     NvrtcCompileDriver& nvrtc_compile) {
   std::stringstream log;
@@ -1120,26 +1131,26 @@ CompiledKernel compileSource(
   NVFUSER_NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
   log << nvrtc_compile.invoke(program, full_src_code) << std::endl;
 
-  CompiledKernel compiled_kernel;
+  auto compiled_kernel = std::make_unique<CompiledKernel>();
   const char* lowered_kernel_name = nullptr;
   NVFUSER_NVRTC_SAFE_CALL(
       nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
-  compiled_kernel.kernel_name = lowered_kernel_name;
-  compiled_kernel.compile_log = log.str();
+  compiled_kernel->kernel_name = lowered_kernel_name;
+  compiled_kernel->compile_log = log.str();
 
   if (compile_to_sass) {
-    compiled_kernel.cubin = compileNvrtcProgramToCubin(program);
+    compiled_kernel->cubin = compileNvrtcProgramToCubin(program);
     if (isDebugDumpEnabled(DebugDumpOption::Cubin)) {
-      compiled_kernel.cubin_filename =
-          dumpCompiledCodeToFile(compiled_kernel.cubin, id, ".cubin");
+      compiled_kernel->cubin_filename =
+          dumpCompiledCodeToFile(compiled_kernel->cubin, id, ".cubin");
     }
   }
 
   if (!compile_to_sass || isDebugDumpEnabled(DebugDumpOption::Ptx)) {
-    compiled_kernel.ptx = compileNvrtcProgramToPtx(program);
+    compiled_kernel->ptx = compileNvrtcProgramToPtx(program);
     if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
-      compiled_kernel.ptx_filename =
-          dumpCompiledCodeToFile(compiled_kernel.ptx, id, ".ptx");
+      compiled_kernel->ptx_filename =
+          dumpCompiledCodeToFile(compiled_kernel->ptx, id, ".ptx");
     }
   }
 
@@ -1148,12 +1159,18 @@ CompiledKernel compileSource(
 
 } // namespace
 
+CompiledKernel::~CompiledKernel() {
+  if (module != nullptr) {
+    NVFUSER_CUDA_SAFE_CALL(cuModuleUnload(module));
+  }
+}
+
 // Compile the source if no existing compiled binary is found in KernelDB
-CompiledKernel getCompiledKernel(
+std::unique_ptr<CompiledKernel> getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& full_src_code,
     const std::string& func_name,
-    int64_t id,
+    const std::string& id,
     const CompileParams& compile_params,
     std::optional<int64_t> opt_block_size) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
@@ -1211,7 +1228,7 @@ CompiledKernel getCompiledKernel(
     }
   }
 
-  CompiledKernel compiled_kernel;
+  auto compiled_kernel = std::make_unique<CompiledKernel>();
   const auto compile_args =
       toDelimitedString(nvrtc_compile_driver.options(), " ");
 
@@ -1223,52 +1240,53 @@ CompiledKernel getCompiledKernel(
         kernel_db.query(
             kernel_code.value(),
             compile_args,
-            compiled_kernel.kernel_name,
-            (compile_to_sass ? compiled_kernel.cubin : compiled_kernel.ptx)))) {
+            compiled_kernel->kernel_name,
+            (compile_to_sass ? compiled_kernel->cubin
+                             : compiled_kernel->ptx)))) {
     compiled_kernel = compileSource(
         full_src_code, func_name, id, compile_to_sass, nvrtc_compile_driver);
-    log << compiled_kernel.compile_log << std::endl;
+    log << compiled_kernel->compile_log << std::endl;
     if (use_kernel_db) {
       auto result = kernel_db.write(
           kernel_code.value(),
           compile_args,
-          compiled_kernel.kernel_name,
-          (compile_to_sass ? compiled_kernel.cubin : compiled_kernel.ptx));
+          compiled_kernel->kernel_name,
+          (compile_to_sass ? compiled_kernel->cubin : compiled_kernel->ptx));
       if (!result) {
         TORCH_WARN(
             "kernel_db was unable to write kernel: ",
-            compiled_kernel.kernel_name);
+            compiled_kernel->kernel_name);
       }
     }
   }
 
   log << module_load_driver.invoke(
-             compiled_kernel.module,
-             (compile_to_sass ? compiled_kernel.cubin.data()
-                              : compiled_kernel.ptx.data()))
+             compiled_kernel->module,
+             (compile_to_sass ? compiled_kernel->cubin.data()
+                              : compiled_kernel->ptx.data()))
       << std::endl;
-  compiled_kernel.compile_log = log.str();
-  compiled_kernel.compile_args = compile_args;
+  compiled_kernel->compile_log = log.str();
+  compiled_kernel->compile_args = compile_args;
 
   if (isOptionEnabled(EnableOption::WarnRegisterSpill) ||
       compile_params.enable_ptxas_verbose) {
-    warnRegisterSpill(compiled_kernel.compile_log);
+    warnRegisterSpill(compiled_kernel->compile_log);
   }
 
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
-      &(compiled_kernel.function),
-      compiled_kernel.module,
-      compiled_kernel.kernel_name.c_str()));
+      &(compiled_kernel->function),
+      compiled_kernel->module,
+      compiled_kernel->kernel_name.c_str()));
 
   // Store block size used to generate compile arguments
   if (opt_block_size.has_value()) {
-    compiled_kernel.block_size = opt_block_size.value();
+    compiled_kernel->block_size = opt_block_size.value();
   }
 
   return compiled_kernel;
 }
 
-CompiledKernel getCompiledKernel(
+std::unique_ptr<CompiledKernel> getCompiledKernel(
     const serde::CudaKernel* buffer,
     const CompileParams& compile_params) {
   FUSER_PERF_SCOPE("executor_utils::serde_NVRTC");
@@ -1276,27 +1294,27 @@ CompiledKernel getCompiledKernel(
   NVF_ERROR(buffer != nullptr, "serde::CudaKernel is nullptr.");
 
   // Deserialize flatbuffer into CompiledKernel
-  CompiledKernel compiled_kernel;
-  compiled_kernel.kernel_name = buffer->kernel_name()->str();
-  compiled_kernel.compile_args = buffer->compile_args()->str();
-  compiled_kernel.block_size = buffer->block_size();
+  auto compiled_kernel = std::make_unique<CompiledKernel>();
+  compiled_kernel->kernel_name = buffer->kernel_name()->str();
+  compiled_kernel->compile_args = buffer->compile_args()->str();
+  compiled_kernel->block_size = buffer->block_size();
 
   if (buffer->cubin() != nullptr) {
-    compiled_kernel.cubin.reserve(buffer->cubin()->size());
+    compiled_kernel->cubin.reserve(buffer->cubin()->size());
     std::copy(
         buffer->cubin()->begin(),
         buffer->cubin()->end(),
-        std::back_inserter(compiled_kernel.cubin));
-    compiled_kernel.cubin_filename = buffer->cubin_filename()->str();
+        std::back_inserter(compiled_kernel->cubin));
+    compiled_kernel->cubin_filename = buffer->cubin_filename()->str();
   }
 
   if (buffer->ptx() != nullptr) {
-    compiled_kernel.ptx.reserve(buffer->ptx()->size());
+    compiled_kernel->ptx.reserve(buffer->ptx()->size());
     std::copy(
         buffer->ptx()->begin(),
         buffer->ptx()->end(),
-        std::back_inserter(compiled_kernel.ptx));
-    compiled_kernel.ptx_filename = buffer->ptx_filename()->str();
+        std::back_inserter(compiled_kernel->ptx));
+    compiled_kernel->ptx_filename = buffer->ptx_filename()->str();
   }
 
   at::cuda::jit::initializeCudaContext();
@@ -1324,8 +1342,8 @@ CompiledKernel getCompiledKernel(
   queryTargetGPUVersion(prop, major, minor, compile_to_sass);
 
   std::optional<int64_t> opt_block_size;
-  if (compiled_kernel.block_size >= -1) {
-    opt_block_size = compiled_kernel.block_size;
+  if (compiled_kernel->block_size >= -1) {
+    opt_block_size = compiled_kernel->block_size;
   }
 
   fillCompileOptions(
@@ -1340,33 +1358,33 @@ CompiledKernel getCompiledKernel(
   const auto latest_compile_args =
       toDelimitedString(nvrtc_compile_driver.options(), " ");
   NVF_ERROR(
-      latest_compile_args == compiled_kernel.compile_args,
+      latest_compile_args == compiled_kernel->compile_args,
       "The compile arguments for the serialized cuda kernel does not ",
       "match the latest generated compile args.\t",
       latest_compile_args,
       "\t",
-      compiled_kernel.compile_args);
+      compiled_kernel->compile_args);
 
   NVF_ERROR(
-      !compile_to_sass || !compiled_kernel.cubin.empty(),
+      !compile_to_sass || !compiled_kernel->cubin.empty(),
       "Expected compiled cubin after deserializing CompiledKernel.");
 
   NVF_ERROR(
-      compile_to_sass || !compiled_kernel.ptx.empty(),
+      compile_to_sass || !compiled_kernel->ptx.empty(),
       "Expected compiled ptx after deserializing CompiledKernel.");
 
   std::stringstream log;
   log << module_load_driver.invoke(
-             compiled_kernel.module,
-             (compile_to_sass ? compiled_kernel.cubin.data()
-                              : compiled_kernel.ptx.data()))
+             compiled_kernel->module,
+             (compile_to_sass ? compiled_kernel->cubin.data()
+                              : compiled_kernel->ptx.data()))
       << std::endl;
-  compiled_kernel.compile_log = log.str();
+  compiled_kernel->compile_log = log.str();
 
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(
-      &(compiled_kernel.function),
-      compiled_kernel.module,
-      compiled_kernel.kernel_name.c_str()));
+      &(compiled_kernel->function),
+      compiled_kernel->module,
+      compiled_kernel->kernel_name.c_str()));
 
   return compiled_kernel;
 }
@@ -1421,8 +1439,6 @@ ExecutorCompileTimeEntry<EntryClass>::ExecutorCompileTimeEntry(
 template class ExecutorCompileTimeEntry<ParallelBindingIterDomains>;
 template class ExecutorCompileTimeEntry<ParallelIterExtentMap>;
 template class ExecutorCompileTimeEntry<VectorizedTensorValidation>;
-template class ExecutorCompileTimeEntry<InputAliasIndices>;
-template class ExecutorCompileTimeEntry<OutputAliasIndices>;
 
 } // namespace caching
 

@@ -218,7 +218,7 @@ class AllocationInserter : public kir::ExprMutator {
         [](IterDomain* dom) { return dom->as<Val>(); });
 
     // Get all exprs involved in generating the allocation IDs
-    auto exprs = StmtSort::getExprsTo(tv->fusion(), start_vals);
+    auto exprs = StmtSort::getExprsTo(start_vals);
 
     // Get the halo extent if found
     auto getExtent = [this](IterDomain* id) {
@@ -447,7 +447,7 @@ class AllocationInserter : public kir::ExprMutator {
       return;
     }
 
-    // // Found where the allocation needs to be inserted
+    // Found where the allocation needs to be inserted
 
     for (const auto i : c10::irange(expr->outputs().size())) {
       auto out = expr->output(i);
@@ -545,6 +545,31 @@ class AllocationInserter : public kir::ExprMutator {
             : &allocation.init_for_loop->body();
         registerInsertBefore(allocation.init_place_before, init_expr, scope);
       }
+    }
+
+    // Allocate mbarrier for cp.async.bulk, note that this is only a temporary
+    // solution, we should remove this after we have a better way to handle
+    // synchronizations for cp.async.bulk.
+    if (ir_utils::isCpAsyncBulkLoad(expr)) {
+      // create and allocate a memory barrier
+      TensorView* mbarrier = TensorViewBuilder()
+                                 .shape(std::vector<int64_t>{})
+                                 .dtype(DataType::UInt)
+                                 .contiguity(true)
+                                 .build();
+      mbarrier->setMemoryType(MemoryType::Shared);
+      auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
+          mbarrier, expr->container()->oneVal(DataType::UInt32));
+      auto mbarrier_inval =
+          IrBuilder::create<kir::MBarrierInvalidate>(mbarrier);
+
+      kir::Allocate* mbarrier_alloc =
+          IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
+      kir::Scope* expr_scope = scope_.empty() ? nullptr : scope_.back();
+      registerInsertBefore(expr, mbarrier_alloc, expr_scope);
+      registerInsertBefore(expr, mbarrier_init, expr_scope);
+      registerInsertAfter(expr, mbarrier_inval, expr_scope);
+      GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
     }
   }
 

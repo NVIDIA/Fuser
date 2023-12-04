@@ -240,6 +240,10 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::Allocate>());
     return;
   }
+  if (expr->isStrictlyA<kir::Asm>()) {
+    ptr(handler)->handle(expr->as<kir::Asm>());
+    return;
+  }
   if (expr->isStrictlyA<kir::BlockSync>()) {
     ptr(handler)->handle(expr->as<kir::BlockSync>());
     return;
@@ -248,12 +252,40 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::GridSync>());
     return;
   }
+  if (expr->isStrictlyA<kir::MBarrierInit>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierInit>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierInvalidate>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierInvalidate>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierArrive>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierArrive>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierArriveExpectTx>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierArriveExpectTx>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierWait>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierWait>());
+    return;
+  }
   if (expr->isStrictlyA<kir::CpAsyncWait>()) {
     ptr(handler)->handle(expr->as<kir::CpAsyncWait>());
     return;
   }
   if (expr->isStrictlyA<kir::CpAsyncCommit>()) {
     ptr(handler)->handle(expr->as<kir::CpAsyncCommit>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::CpAsyncBulkS2GWait>()) {
+    ptr(handler)->handle(expr->as<kir::CpAsyncBulkS2GWait>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::CpAsyncBulkS2GCommit>()) {
+    ptr(handler)->handle(expr->as<kir::CpAsyncBulkS2GCommit>());
     return;
   }
   if (expr->isStrictlyA<kir::InitMagicZero>()) {
@@ -524,6 +556,10 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<kir::Allocate>());
     return;
   }
+  if (expr->isStrictlyA<kir::Asm>()) {
+    ptr(handler)->handle(expr->as<kir::Asm>());
+    return;
+  }
   if (expr->isStrictlyA<kir::BlockSync>()) {
     ptr(handler)->handle(expr->as<kir::BlockSync>());
     return;
@@ -532,12 +568,40 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<kir::GridSync>());
     return;
   }
+  if (expr->isStrictlyA<kir::MBarrierInit>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierInit>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierInvalidate>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierInvalidate>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierArrive>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierArrive>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierArriveExpectTx>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierArriveExpectTx>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::MBarrierWait>()) {
+    ptr(handler)->handle(expr->as<kir::MBarrierWait>());
+    return;
+  }
   if (expr->isStrictlyA<kir::CpAsyncWait>()) {
     ptr(handler)->handle(expr->as<kir::CpAsyncWait>());
     return;
   }
   if (expr->isStrictlyA<kir::CpAsyncCommit>()) {
     ptr(handler)->handle(expr->as<kir::CpAsyncCommit>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::CpAsyncBulkS2GWait>()) {
+    ptr(handler)->handle(expr->as<kir::CpAsyncBulkS2GWait>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::CpAsyncBulkS2GCommit>()) {
+    ptr(handler)->handle(expr->as<kir::CpAsyncBulkS2GCommit>());
     return;
   }
   if (expr->isStrictlyA<kir::InitMagicZero>()) {
@@ -908,16 +972,40 @@ void OptOutConstDispatch::handle(const ViewOp* stmt) {
 void OptOutConstDispatch::handle(const kir::Allocate* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const kir::Asm* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const kir::BlockSync* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const kir::GridSync* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const kir::MBarrierInit* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::MBarrierInvalidate* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::MBarrierArrive* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::MBarrierArriveExpectTx* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::MBarrierWait* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const kir::CpAsyncWait* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const kir::CpAsyncCommit* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::CpAsyncBulkS2GWait* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::CpAsyncBulkS2GCommit* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const kir::InitMagicZero* stmt) {
@@ -1117,16 +1205,40 @@ void OptOutDispatch::handle(ViewOp* stmt) {
 void OptOutDispatch::handle(kir::Allocate* stmt) {
   unhandled(stmt);
 }
+void OptOutDispatch::handle(kir::Asm* stmt) {
+  unhandled(stmt);
+}
 void OptOutDispatch::handle(kir::BlockSync* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::GridSync* stmt) {
   unhandled(stmt);
 }
+void OptOutDispatch::handle(kir::MBarrierInit* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::MBarrierInvalidate* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::MBarrierArrive* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::MBarrierArriveExpectTx* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::MBarrierWait* stmt) {
+  unhandled(stmt);
+}
 void OptOutDispatch::handle(kir::CpAsyncWait* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::CpAsyncCommit* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::CpAsyncBulkS2GWait* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::CpAsyncBulkS2GCommit* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::InitMagicZero* stmt) {

@@ -23,21 +23,21 @@ TransposeScheduler::TransposeScheduler(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicSummary* data_cache)
-    : SchedulerEntry(ScheduleHeuristic::Transpose) {
+    : SchedulerEntry(heuristicType()) {
   computeHeuristics(fusion, runtime_info, data_cache);
 }
 
 bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
   // Check that inputs of all select/gather-like ops are fusion inputs
   if (registry_utils::rejectScheduleForMemoryPromotion(
-          fusion, ScheduleHeuristic::Transpose)) {
+          fusion, heuristicType())) {
     return false;
   }
 
   // Fusions handled by transpose scheduler cannot have MmaOp.
   if (ir_utils::hasOpsOfType<MmaOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Transpose, "no support for mma ops.");
+        heuristicType(), "no support for mma ops.");
     return false;
   }
 
@@ -46,7 +46,7 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
         select->input(0)->as<TensorView>()->getMaybeAllocationDomain());
     if (select->getIndexedID() == inner[inner.size() - 1]) {
       scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Transpose,
+          heuristicType(),
           "SelectOp on inner dim is not supported by transpose scheduler yet."
           "In transpose scheduler, we want to leave the select dim alone, instead of creating a tile for it.");
       return false;
@@ -57,7 +57,7 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
         idx_sel->input(0)->as<TensorView>()->getMaybeAllocationDomain());
     if (idx_sel->getIndexedID() == inner[inner.size() - 1]) {
       scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Transpose,
+          heuristicType(),
           "IndexSelectOp on inner dim is not supported by transpose scheduler yet."
           "In transpose scheduler, we want to leave the select dim alone, instead of creating a tile for it.");
       return false;
@@ -68,7 +68,7 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
         torch_gather->input(0)->as<TensorView>()->getMaybeAllocationDomain());
     if (torch_gather->getIndexedID() == inner[inner.size() - 1]) {
       scheduler_debug_utils::canScheduleRejectReason(
-          ScheduleHeuristic::Transpose,
+          heuristicType(),
           "TorchGatherOp on inner dim is not supported by transpose scheduler yet."
           "In transpose scheduler, we want to leave the select dim alone, instead of creating a tile for it.");
       return false;
@@ -77,20 +77,19 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
 
   if (!hasAtLeastTwoValidGroups(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Transpose,
-        "cannot find two mismatching inner most dimensions");
+        heuristicType(), "cannot find two mismatching inner most dimensions");
     return false;
   }
 
   if (ir_utils::hasAnyReductionOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Transpose, "no support for reduction ops");
+        heuristicType(), "no support for reduction ops");
     return false;
   }
 
   if (registry_utils::hasNonUniqueBcast(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Transpose,
+        heuristicType(),
         "Broadcasting dimension might be broadcasting to multiple sizes.");
     return false;
   }
@@ -107,8 +106,7 @@ bool TransposeScheduler::canScheduleRunTime(
   auto reason =
       getTransposeRuntimeRejectReason(fusion, data_cache, runtime_info);
   if (!reason.empty()) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        ScheduleHeuristic::Transpose, reason);
+    scheduler_debug_utils::canScheduleRejectReason(heuristicType(), reason);
     return false;
   }
   return true;
@@ -144,7 +142,7 @@ struct TransposeViewPropagator : public MaxInfoSpanningTree::Propagator {
     // propagation travelling across view op. Note this is a conservative check,
     // since view does NOT necessarily always introduce incoherent transform
     // that would break the propagation.
-    auto chain_exprs = StmtSort::getExprsBetween(from->fusion(), {from}, {to});
+    auto chain_exprs = StmtSort::getExprsBetween({from}, {to});
     if (!ir_utils::filterByType<ViewOp>(chain_exprs).empty()) {
       should_reject = true;
     };
@@ -241,9 +239,7 @@ class DomainMap : public pointwise_utils::DomainMap {
         " in tensor ",
         tv);
     auto replay_exprs = StmtSort::getExprsBetween(
-        tv->fusion(),
-        {mapped_id},
-        {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
+        {mapped_id}, {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
     // Project the root id to leaf id. Similar to projectIdToRFactor.
     for (auto expr : replay_exprs) {
       if (expr->isA<Split>()) {

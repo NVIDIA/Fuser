@@ -153,16 +153,20 @@ class PredicateAnalyzer : public OptOutDispatch {
   // axis. Otherwise, we can't skip predication as it might cause
   // out-bound accesses with the producer tensor
   void handle(Split* split) override {
-    auto factor = split->factor()->getInt();
-    if (!factor.has_value()) {
+    auto factor = split->factor()->value();
+    if (!factor.is<int64_t>()) {
       needs_predicate_ = true;
+      return;
+    }
+
+    if (factor == 1) {
+      // Trivial splits cannot cause out-of-bounds
       return;
     }
 
     auto in_extent = split->in()->extent();
 
-    if (!in_extent->isConstInt() ||
-        ((in_extent->evaluateInt() % factor.value()) != 0)) {
+    if (!in_extent->isConstInt() || ((in_extent->evaluate() % factor) != 0)) {
       needs_predicate_ = true;
       return;
     }
@@ -217,7 +221,8 @@ class PredicateChcker : public IterVisitor {
         predicateMisalignedVectorize(expr) || predicateShift(expr) ||
         needs_predicate_smem_access || predicateProducerConsumerPair(expr) ||
         predicateNonDivisibleRootDomains(expr) ||
-        predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr);
+        predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||
+        predicateRNGOp(expr);
 
     // A cp.async op would need a predicate for either the global
     //  input or its shared mem output, or both.
@@ -243,6 +248,11 @@ class PredicateChcker : public IterVisitor {
 
   // All "predicateXYZ" functions return true if an expr needs to be
   // predicated.
+
+  // Always predicate rng ops as they are expensive.
+  bool predicateRNGOp(Expr* expr) const {
+    return expr->isA<RNGOp>();
+  }
 
   // Always predicate integer division and related ops as we don't
   // know what values are in the out-of-bound region and they may
@@ -431,17 +441,17 @@ class PredicateChcker : public IterVisitor {
           id->getParallelType() == ParallelType::Unswitch) {
         return true;
       }
+    }
 
-      // TODO: （Enable in a follow up)
-      //  This cannot yet be removed since smem initialization needs to be
-      //  handled specially, e.g. as in smem_reduce test. Will be able to
-      //  lift this one once the generic pred removal pass with fusion
-      //  traversal is ready.
-      auto consumer_def = consumer->definition();
-      if (ir_utils::isReductionOp(consumer_def)) {
-        if (producer->getMemoryType() == MemoryType::Shared) {
-          return true;
-        }
+    // TODO: (Enable in a follow up)
+    //  This cannot yet be removed since smem initialization needs to be
+    //  handled specially, e.g. as in smem_reduce test. Will be able to
+    //  lift this one once the generic pred removal pass with fusion
+    //  traversal is ready.
+    auto consumer_def = consumer->definition();
+    if (ir_utils::isReductionOp(consumer_def)) {
+      if (producer->getMemoryType() == MemoryType::Shared) {
+        return true;
       }
     }
 
@@ -853,7 +863,7 @@ class PredicateChcker : public IterVisitor {
 } // namespace
 
 PredicateElimination::PredicateElimination(Fusion* fusion) {
-  traverseTo(fusion, fusion->outputs());
+  traverseTo(fusion->outputs());
 }
 
 bool PredicateElimination::needsPredicate(Expr* expr) const {

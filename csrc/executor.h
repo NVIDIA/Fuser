@@ -15,10 +15,14 @@
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
+#include <scheduler/heuristic_types.h>
 #include <serde/fusion_cache_generated.h>
 #include <utils.h>
+#include <atomic>
 
 #include <c10/core/DeviceType.h>
+
+#include <functional>
 
 namespace nvfuser {
 
@@ -47,7 +51,10 @@ class FusionExecutor : public NonCopyable {
       Fusion* fusion,
       const std::string& code,
       const std::string& name,
-      int id,
+      int64_t fusion_id,
+      int64_t concrete_id,
+      int64_t runtime_id,
+      int64_t group_id,
       CompileOptions options = CompileOptions());
 
   //! This function is useful for parallel compilation of segmented fusions.
@@ -68,7 +75,12 @@ class FusionExecutor : public NonCopyable {
       Fusion* fusion,
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
-      CompileParams compile_params);
+      CompileParams compile_params,
+      ScheduleHeuristic heuristic = ScheduleHeuristic::None,
+      int64_t fusion_id = 0,
+      int64_t concrete_id = 0,
+      int64_t runtime_id = 0,
+      int64_t group_id = 0);
 
   // TODO: merge it with the overload above.
   //! This API is merely here so we don't have to go back and update all cpp
@@ -81,6 +93,24 @@ class FusionExecutor : public NonCopyable {
     KernelArgumentHolder args =
         KernelArgumentHolder::createKernelArgumentHolder(inputs);
     compileFusion(fusion, args, launch_constraints, compile_params);
+  }
+
+  //! Used by user defined schedules in python frontend
+  void compileFusion(
+      Fusion* fusion,
+      const at::ArrayRef<c10::IValue>& inputs,
+      int64_t fusion_id,
+      int64_t concrete_id) {
+    KernelArgumentHolder args =
+        KernelArgumentHolder::createKernelArgumentHolder(inputs);
+    compileFusion(
+        fusion,
+        args,
+        LaunchParams(),
+        CompileParams(),
+        ScheduleHeuristic::None,
+        fusion_id,
+        concrete_id);
   }
 
   std::vector<at::Tensor> runFusion(
@@ -111,10 +141,19 @@ class FusionExecutor : public NonCopyable {
     return runFusion(inputs, {}, launch_constraints, compile_params, opt_code);
   }
 
+  // Register a post-lowering hooks that are called to modify the kernel after
+  // lowering. The main use case is for unit tests to modify the kernel.
+  void registerPostLoweringHook(std::function<void(kir::Kernel*)> hook) {
+    post_lowering_hooks_.push_back(std::move(hook));
+  }
+
   // function to query whether a `FusionExecutor` has a compiled kernel to
   // execute
   bool isCompiled() const {
-    return fusion_id_ != -1 && lowered_ && compiled_kernel_.function != nullptr;
+    if (compiled_kernel_ != nullptr) {
+      NVF_ERROR(compiled_kernel_->function != nullptr);
+    }
+    return validKernelId() && lowered_ && compiled_kernel_ != nullptr;
   };
 
   void evictCache(size_t cache_id) {
@@ -130,8 +169,6 @@ class FusionExecutor : public NonCopyable {
   struct ExecutorEntry {
     bool init = false;
     LaunchParams launch_params;
-    // Aliased output and input mappings
-    std::vector<std::pair<int, int>> output_to_input_aliases;
     std::vector<GlobalBufferInfo> outputs;
     // Temporary work buffers and intemediate global-memory tensors
     std::vector<GlobalBufferInfo> intermediates;
@@ -168,13 +205,20 @@ class FusionExecutor : public NonCopyable {
     return measure_kernel_time_ ? kernel_time_ms_ : 0;
   }
 
+  //! Returns the input bytes accessed for a kernel
+  //! \note It is important to sample the args struct prior to adding the
+  // 1    output to the args struct
+  int64_t inputBytesProcessed(const KernelArgumentHolder& args);
+  //! Returns the output bytes accessed for a kernel
+  int64_t outputBytesProcessed(const std::vector<at::Tensor>& outputs);
+
   //! Returns the number of bytes processed last kernel execution
   int64_t bytesProcessed() const {
     int64_t bytes_processed = 0;
-    for (auto bp : bytes_processed_per_input_) {
+    for (auto bp : bytesInputsProcessed()) {
       bytes_processed += bp;
     }
-    for (auto bp : bytes_processed_per_output_) {
+    for (auto bp : bytesOutputsProcessed()) {
       bytes_processed += bp;
     }
     return bytes_processed;
@@ -182,12 +226,18 @@ class FusionExecutor : public NonCopyable {
 
   //! Get a vector of bytes processed across all kernel inputs
   const std::vector<int64_t>& bytesInputsProcessed() const {
-    return bytes_processed_per_input_;
+    NVF_CHECK(
+        bytes_processed_per_input_.has_value(),
+        "bytes_processed_per_input_ is not defined!");
+    return bytes_processed_per_input_.value();
   }
 
   //! Get a vector of bytes processed across all kernel outputs
   const std::vector<int64_t>& bytesOutputsProcessed() const {
-    return bytes_processed_per_output_;
+    NVF_CHECK(
+        bytes_processed_per_output_.has_value(),
+        "bytes_processed_per_output_ is not defined!");
+    return bytes_processed_per_output_.value();
   }
 
   //! Returns the launch parameters from the last kernel execution
@@ -210,28 +260,68 @@ class FusionExecutor : public NonCopyable {
 
   //! Returns a const reference to the latest compiled kernel.
   const executor_utils::CompiledKernel& compiledKernel() const {
-    return compiled_kernel_;
+    return *compiled_kernel_;
   }
 
   //! Returns the disassembled latest compiled binary
   std::string disassembledBinary(const std::string& nvdisasm_args = "") const {
     return executor_utils::disassembleBinary(
-        compiled_kernel_.cubin, nvdisasm_args);
+        compiled_kernel_->cubin, nvdisasm_args);
   }
 
   //! Returns the disassembled latest compiled binary
   std::string disassembledKernelSASS() const {
     return executor_utils::disassembleBinary(
-        compiled_kernel_.cubin, "-fun 1 -c");
+        compiled_kernel_->cubin, "-fun 1 -c");
   }
 
-  std::string getCanonicalKernelName() const {
-    return kernelNamespace() + "::" + kernelName();
+  static void setGlobalFusionCount(int64_t new_fusion_count) {
+    global_fusion_count_.store(new_fusion_count);
+  }
+
+  static int64_t getGlobalFusionCount() {
+    return global_fusion_count_.load();
+  }
+
+  bool validKernelId() const {
+    return !kernel_id_.empty();
+  }
+
+  void createKernelId(
+      ScheduleHeuristic heuristic = ScheduleHeuristic::None,
+      int64_t fusion_id = 0,
+      int64_t concrete_id = 0,
+      int64_t runtime_id = 0,
+      int64_t group_id = 0) {
+    NVF_ERROR(fusion_id > -1, "Invalid fusion_id.");
+    NVF_ERROR(concrete_id > -1, "Invalid concrete_id.");
+    NVF_ERROR(runtime_id > -1, "Invalid runtime_id.");
+    NVF_ERROR(group_id > -1, "Invalid group_id");
+
+    heuristic_ = heuristic;
+    fusion_id_ = fusion_id;
+    concrete_id_ = concrete_id;
+    runtime_id_ = runtime_id;
+    group_id_ = group_id;
+    ++global_fusion_count_;
+
+    std::stringstream ss;
+    if (isOptionEnabled(EnableOption::StaticFusionCount)) {
+      ss << global_fusion_count_.load();
+    } else {
+      ss << toString(heuristic_);
+      ss << "_f" << fusion_id_;
+      ss << "_c" << concrete_id_;
+      ss << "_r" << runtime_id_;
+      ss << "_g" << group_id_;
+    }
+    kernel_id_ = ss.str();
   }
 
   std::string kernelName() const {
+    NVF_ERROR(!kernel_id_.empty(), "Invalid kernel name for fusion executor.");
     std::stringstream ss;
-    ss << "kernel" << fusion_id_;
+    ss << "nvfuser_" << kernel_id_;
     return ss.str();
   }
 
@@ -266,13 +356,20 @@ class FusionExecutor : public NonCopyable {
   void deserialize(
       const serde::FusionExecutor* buffer,
       Fusion* fusion,
-      CompileParams compile_params);
+      CompileParams compile_params,
+      ScheduleHeuristic heuristic,
+      int64_t fusion_id,
+      int64_t concrete_id,
+      int64_t runtime_id,
+      int64_t group_id);
+
+  //! Used in distributed setting where we only want to
+  //!  allocate output space and receive output data from
+  //!  a different rank instead of computing them.
+  std::vector<at::Tensor> allocOutputSpace(
+      const at::ArrayRef<c10::IValue>& inputs);
 
  private:
-  static std::string kernelNamespace() {
-    return "CudaCodeGen";
-  }
-
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
       ExpressionEvaluator& expr_eval,
@@ -298,7 +395,6 @@ class FusionExecutor : public NonCopyable {
   std::vector<GlobalBufferInfo> getOutputBufferInfo(
       const KernelArgumentHolder& args,
       ExpressionEvaluator& expr_eval,
-      const std::vector<std::pair<int, int>>& input_to_output_aliases,
       DataType index_dtype);
 
   void setUsedTVs();
@@ -394,14 +490,31 @@ class FusionExecutor : public NonCopyable {
   const int64_t max_static_smem_ = 48 << 10;
 
   int64_t warp_size_ = 0;
-  executor_utils::CompiledKernel compiled_kernel_;
+  std::unique_ptr<executor_utils::CompiledKernel> compiled_kernel_;
 
   // TensorViews actually used in the kernel.
   std::vector<TensorView*> used_tvs_;
 
-  // Counter to be used for kernel name.
+  // ID of fusion in python frontend fusion cache, which maps to a single
+  // FusionExecutorCache.
   int64_t fusion_id_ = -1;
-  static int64_t fusion_id_counter_;
+
+  // ID of (device, concrete_info) key in FusionExecutorCache
+  int64_t concrete_id_ = -1;
+
+  // ID of FusionKernelRuntime given (device, concrete_info) key
+  int64_t runtime_id_ = -1;
+
+  // ID of segment in FusionKernelRuntime
+  int64_t group_id_ = -1;
+
+  inline static std::atomic<int64_t> global_fusion_count_;
+
+  // Scheduling Heuristic for this Fusion
+  ScheduleHeuristic heuristic_ = ScheduleHeuristic::None;
+
+  // Kernel name for fusion executor
+  std::string kernel_id_;
 
   std::unique_ptr<GpuLower> lowered_;
   // Copy of lowered_->kernel()
@@ -437,10 +550,11 @@ class FusionExecutor : public NonCopyable {
   float kernel_time_ms_ = 0;
 
   // Profiling support: last kernel bytes processed in each input
-  std::vector<int64_t> bytes_processed_per_input_;
+  std::optional<std::vector<int64_t>> bytes_processed_per_input_ = std::nullopt;
 
   // Profiling support: last kernel bytes processed in each output
-  std::vector<int64_t> bytes_processed_per_output_;
+  std::optional<std::vector<int64_t>> bytes_processed_per_output_ =
+      std::nullopt;
 
   // Profiling support: the last launch param used
   LaunchParams launch_params_;
@@ -453,6 +567,10 @@ class FusionExecutor : public NonCopyable {
 
   // Profiling support: kept copy of the cuda kernel
   std::string kernel_code_;
+
+  // Post-lowering hooks that are called to modify the kernel after lowering.
+  // The main use case is for unit tests to modify the kernel.
+  std::vector<std::function<void(kir::Kernel*)>> post_lowering_hooks_;
 };
 
 } // namespace nvfuser

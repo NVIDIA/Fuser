@@ -403,7 +403,8 @@ inline bool maybeClearAllocator(int64_t max_bytes = ((int64_t)1 << 32)) {
     auto device_stats = allocator->getDeviceStats(0);
     // allocated_bytes[] holds multiple statistics but the first is sum across
     // both small and large blocks
-    if (device_stats.reserved_bytes[0].current > max_bytes) {
+    if (uint64_t(device_stats.reserved_bytes[0].current) >
+        uint64_t(max_bytes)) {
       allocator->emptyCache();
       return true;
     }
@@ -449,8 +450,44 @@ class NVFuserTest : public ::testing::Test {
                 << test_info->test_suite_name() << "." << test_info->name()
                 << "'" << std::endl;
     }
+
+    // Make sure capturing of stdout is stopped
+    ensureStopCaptureStdout();
   }
+
+  // Start capturing of stdout if not already started
+  void captureStdout() {
+    if (!capturing_) {
+      testing::internal::CaptureStdout();
+      capturing_ = true;
+    }
+  }
+
+  // Stop capturing of stdout if being captured
+  void ensureStopCaptureStdout() {
+    if (capturing_) {
+      testing::internal::GetCapturedStdout();
+      capturing_ = false;
+    }
+  }
+
+  // Get capturing stdout
+  std::string getCapturedStdout() {
+    NVF_ERROR(capturing_, "Not captured");
+    auto str = testing::internal::GetCapturedStdout();
+    capturing_ = false;
+    return str;
+  }
+
+ private:
+  bool capturing_ = false;
 };
+
+// Fixture with param class must be uniquely identified, i.e., can't be in an
+// anonymous namespace
+template <typename tParam>
+class NVFuserFixtureParamTest : public NVFuserTest,
+                                public ::testing::WithParamInterface<tParam> {};
 
 // assert that the given fusion lowers to the given CUDA kernel
 void assertCUDAKernel(Fusion* fusion, const std::string& expected_kernel);
@@ -545,20 +582,17 @@ inline bool cudaArchGuardShouldSkip(
     COMPILE_FUSION;                                                          \
   }
 
-// util to track support matmul operand layout.
-using MatmulLayout = MmaOptions::MmaLayout;
-
-static constexpr std::array<MatmulLayout, 4> kAllSupportedMatmulLayout = {
-    MatmulLayout::TT,
-    MatmulLayout::NT,
-    MatmulLayout::TN,
-    MatmulLayout::NN};
+static constexpr std::array<MmaLayout, 4> kAllSupportedMmaLayout = {
+    MmaLayout::TT,
+    MmaLayout::NT,
+    MmaLayout::TN,
+    MmaLayout::NN};
 
 // Generic interface to get matmul op with the given layout.
 TensorView* matmul(
     TensorView* a,
     TensorView* b,
-    MatmulLayout layout,
+    MmaLayout layout,
     bool turing_or_later // TODO: This is a temporary solution. Remove this!
 );
 
@@ -569,20 +603,20 @@ TensorView* matmul(
 TensorView* splitkLikeBatchedMatmul(
     TensorView* a,
     TensorView* b,
-    MatmulLayout layout);
+    MmaLayout layout);
 
 // Utility to generate matmul input tensors based on given layout
-at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout);
+at::Tensor atMatmul(at::Tensor a, at::Tensor b, MmaLayout layout);
 
 // Utility to generate matmul input tensors based on given layout
-at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout);
+at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MmaLayout layout);
 
 // Utility to generate inputs based on given layout
 std::pair<at::Tensor, at::Tensor> matmulAtInput(
     int M,
     int N,
     int K,
-    MatmulLayout layout,
+    MmaLayout layout,
     c10::ScalarType dtype = at::kHalf);
 
 // Labels to describe tensor position in matmul:
@@ -595,7 +629,7 @@ enum class TensorMatmulPos { A, B, C, D, Bias };
 // Utility to generate buffers based on given problem, layout and tensor
 //  position in matmul with support for matmul and strided batch matmul
 at::Tensor matmulAtInput(
-    const MatmulLayout layout,
+    const MmaLayout layout,
     const TensorMatmulPos tensor,
     const c10::ScalarType dtype,
     const int M,
@@ -631,4 +665,8 @@ TensorView* biasEpilogue(TensorView* tensor, TensorView* bias);
 // Utility to generate tensor with bias applied on the input tensor,
 // to be used to caldulate reference data
 at::Tensor atBiasEpilogue(const at::Tensor& tensor, const at::Tensor& bias);
+
+// Get the number of SMs on the current device
+int getNumSMs();
+
 } // namespace nvfuser

@@ -152,9 +152,6 @@ class PipelineBuilder final {
         // then add the newly created PipelineVal as an input of the pipeline
         if (isGlobalInput(val)) {
           pipeline_->addInput(p_val);
-          NVF_ERROR(
-              stage_desc.mesh.size() == 1,
-              "A global input must belong to a stage which mesh is of size 1");
         } else {
           // if the Val is a stage input but not a global input, it must be
           // defined by a "Set" operation
@@ -264,6 +261,16 @@ std::unique_ptr<Fusion> Pipeline::stageToFusion(PipelineStage*& stage) const {
   return fusion_copy;
 }
 
+int64_t Pipeline::requestedNumberOfDevices() const {
+  std::set<DeviceIdxType> device_indices;
+  for (auto& stage_desc : descriptor().stage_descriptors) {
+    for (auto d_id : stage_desc.mesh.vector()) {
+      device_indices.insert(d_id);
+    }
+  }
+  return static_cast<int64_t>(device_indices.size());
+}
+
 // Printer for Pipeline
 class PipelinePrinter : public IterVisitor {
  public:
@@ -275,7 +282,7 @@ class PipelinePrinter : public IterVisitor {
     string_ << "}\n";
 
     string_ << "Pipeline's Traversal inputs --> outputs {\n";
-    traverseTo(pipeline_, pipeline_->outputs());
+    traverseTo(pipeline_->outputs());
     string_ << "}\n";
 
     string_ << "Pipeline's outputs:{\n";

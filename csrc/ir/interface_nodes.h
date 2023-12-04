@@ -120,6 +120,8 @@ class TensorView : public Val {
 
   std::string toInlineString(int indent_size = 0) const override;
 
+  void printTransforms() const;
+
   TensorDomain* domain() const {
     return domain_;
   }
@@ -133,7 +135,7 @@ class TensorView : public Val {
         TensorDomain::getContiguityFilledWith(getMaybeRFactorDomain(), contig));
   }
 
-  const std::vector<std::optional<bool>>& getContiguity() {
+  const std::vector<std::optional<bool>>& getContiguity() const {
     return domain()->contiguity();
   }
 
@@ -414,7 +416,7 @@ class TensorView : public Val {
   //!  MmaOp, or any tv's that are involved in prolog/epilog fusions and need to
   //!  have a matching thread swizzle with the mma operand/result.
   //! More detail on usage see [WarpMmaSwizzler] in scheduler/mma_utils.h .
-  void applyMmaSwizzle(MmaOptions options);
+  void applyMmaSwizzle(MmaOperand operand);
 
   //! Returns if this tensor view has swizzle operator on its tensor domain.
   //!  This is the temporary flag for indicating that the new swizzle
@@ -629,6 +631,9 @@ class TensorViewBuilder {
   //! Set if a dimension is expanded
   TensorViewBuilder& expanded(std::vector<bool> expanded);
 
+  //! Set the permutation from allocation domain on root domain
+  TensorViewBuilder& strideOrder(std::vector<int64_t> stride_order);
+
   //! Creates a new TensorView with the specified options
   TensorView* build() const;
 
@@ -649,6 +654,8 @@ class TensorViewBuilder {
   std::optional<bool> uniform_contiguity_ = std::nullopt;
 
   std::vector<Val*> shape_;
+
+  std::vector<int64_t> stride_order_;
   std::vector<bool> expanded_;
 };
 

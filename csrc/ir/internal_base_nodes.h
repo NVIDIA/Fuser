@@ -32,7 +32,7 @@ struct AnalyzeViewResult;
 
 // Convenience utility to initialize IterDomain's without having to sort through
 // all the default values. Intended to be used with
-// IterDomain::IterDomain(IrBuilderPasskey IterDomainBuildArgs)
+// IterDomain::IterDomain(IrBuilderPasskey, IterDomainBuilder).
 class IterDomainBuilder {
  public:
   // Match legacy constructor
@@ -86,8 +86,8 @@ class IterDomain : public Val {
  public:
   IterDomain(IrBuilderPasskey, const IterDomainBuilder& args);
 
-  // Legacy constructor, TODO: should start moving to use IterDomainBuildArgs
-  // constructor Same as the above but can set the offset of the stop point
+  // Legacy constructor, TODO: should start moving to use the IterDomainBuilder
+  // constructor. Same as the above but can set the offset of the stop point.
   IterDomain(
       IrBuilderPasskey,
       Val* start,
@@ -120,16 +120,24 @@ class IterDomain : public Val {
   static std::vector<IterDomain*> clone(
       const std::vector<IterDomain*>& domains);
 
-  static IterDomain* merge(IterDomain* outer, IterDomain* inner);
+  //! When `rfactor_domain` is true, also set the `is_rfactor_domain_` flag of
+  //! the result IterDomain.
+  static IterDomain* merge(
+      IterDomain* outer,
+      IterDomain* inner,
+      bool rfactor_domain = false);
 
   //! start_offset and stop_offset defines partial split. Only root
   //! domains are allowed to have non-zero start and stop offsets.
+  //! When `rfactor_domain` is true, also set the `is_rfactor_domain_` flag of
+  //! both result IterDomains.
   static std::pair<IterDomain*, IterDomain*> split(
       IterDomain* in,
       Val* factor,
       bool inner_split,
       Val* start_offset = nullptr,
-      Val* stop_offset = nullptr);
+      Val* stop_offset = nullptr,
+      bool rfactor_domain = false);
 
   //! trim_out_of_bounds controls how the values outside start and stop
   //! positions are treated. The option is only valid with root
@@ -141,7 +149,8 @@ class IterDomain : public Val {
       IterDomain* in,
       Val* factor,
       bool inner_split,
-      bool trim_out_of_bounds);
+      bool trim_out_of_bounds,
+      bool rfactor_domain = false);
 
   //! Resize an IterDomain by expanding both the left and right sides
   //! by given widths. The resulting IterDomain has an extent of
@@ -227,6 +236,10 @@ class IterDomain : public Val {
   //! Return if this iter domain is either mapped to a block or grid dimension
   bool isThread() const {
     return (isBlockDim() || isThreadDim());
+  }
+
+  bool isDeviceDim() const {
+    return isParallelTypeDeviceDim(getParallelType());
   }
 
   void parallelize(ParallelType t);
@@ -440,6 +453,14 @@ class TensorDomain : public Val {
       std::vector<IterDomain*> root_domain,
       std::vector<std::optional<bool>> contiguity = {});
 
+  // See notes [ Note stride order and contiguity vector ] in
+  // python_bindings.cpp
+  TensorDomain(
+      IrBuilderPasskey,
+      std::vector<IterDomain*> root_domain,
+      std::vector<int64_t> stride_order,
+      std::vector<std::optional<bool>> contiguity = {});
+
   TensorDomain(
       IrBuilderPasskey,
       std::vector<IterDomain*> root_domain,
@@ -482,8 +503,10 @@ class TensorDomain : public Val {
       const std::vector<IterDomain*>& lhs,
       const std::vector<IterDomain*>& rhs);
 
+  // When `leaf_only` is false, prints also the root, rfactor and allocation
+  // domain if not empty.
+  std::string toString(int indent_size, bool leaf_only) const;
   std::string toString(int indent_size = 0) const override;
-
   std::string toInlineString(int indent_size = 0) const override;
 
   // Note: [Contiguity]
@@ -502,16 +525,7 @@ class TensorDomain : public Val {
   void setContiguity(const std::vector<std::optional<bool>>& contig);
 
   std::string getContiguityString() const {
-    std::stringstream ss;
-    bool first = true;
-    for (auto b : contiguity()) {
-      if (!first) {
-        ss << " ";
-      }
-      first = false;
-      ss << (b.has_value() ? (*b ? "t" : "f") : "n");
-    }
-    return ss.str();
+    return toDelimitedString(contiguity(), /*delim=*/" ");
   }
 
   bool hasReduction() const {
@@ -552,18 +566,25 @@ class TensorDomain : public Val {
     return no_bcast_domain_;
   }
 
+  // The input logical domain. The root domain of a consumer should equal the
+  // rfactor domain of its producer ignoring reduction dimensions.
   const std::vector<IterDomain*>& root() const {
     return root_domain_;
   };
 
+  // The output logical domain. If empty, the same as the root domain.
+  // See also the helper function `maybeRFactor`.
   const std::vector<IterDomain*>& rfactor() const {
     return rfactor_domain_;
   };
 
+  // The allocation domain. This describes how data is stored in memory in
+  // outer-to-inner order.
   const std::vector<IterDomain*>& allocation() const {
     return allocation_domain_;
   }
 
+  // The loop domain after scheduling. This defines loop nests and loop indices.
   const std::vector<IterDomain*>& leaf() const {
     return leaf_domain_;
   }

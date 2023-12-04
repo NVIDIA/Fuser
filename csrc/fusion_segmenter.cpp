@@ -883,7 +883,7 @@ std::vector<SegmentedEdge*> SegmentedFusion::castInputOutputToLowerPrecision(
   //
   // To avoid this discrepancy, when this is done with virtual merged
   // groups, bundle all edges to the merged groups and process them
-  // together. This way, only one instane of the cast-back expr should
+  // together. This way, only one instance of the cast-back expr should
   // be inserted.
   //
   // Note that this analysis and replacement would be much simpler if we
@@ -1487,8 +1487,37 @@ void convertInputRfactorsToRoots(Fusion* fusion) {
     }
 
     NVF_ERROR(new_root_domain.size() == tv->domain()->contiguity().size());
-    auto new_td = IrBuilder::create<TensorDomain>(
-        new_root_domain, tv->domain()->contiguity());
+    TensorDomain* new_td = nullptr;
+
+    if (tv->domain()->hasAllocation()) {
+      // we need to reorder the root domain into allocation domain consistently
+      // with the mapping from the old TensorView rfactor domain to its
+      // allocation domain
+      const auto& alloc = tv->getAllocationDomain();
+      NVF_ERROR(
+          alloc.size() == rfactor.size(),
+          "size between rfactor and alloc doesn't match");
+      const auto rank = alloc.size();
+      std::vector<int64_t> stride_order(rank, -1);
+      for (auto i : c10::irange(rank)) {
+        bool found_match = false;
+        for (auto j : c10::irange(rank)) {
+          if (alloc[i] == rfactor[j]) {
+            stride_order[j] = static_cast<int64_t>(rank - 1 - i);
+            found_match = true;
+            break;
+          }
+        }
+        NVF_ERROR(
+            found_match,
+            "cannot match IterDomain between allocation domain to rfactor domain");
+      }
+      new_td = IrBuilder::create<TensorDomain>(
+          new_root_domain, stride_order, tv->domain()->contiguity());
+    } else {
+      new_td = IrBuilder::create<TensorDomain>(
+          new_root_domain, tv->domain()->contiguity());
+    }
     replacement_map.emplace(tv->domain(), new_td);
   }
 
@@ -1525,7 +1554,9 @@ std::unique_ptr<Fusion> SegmentedFusion::makeFusion(SegmentedGroup* sg) {
     }
   }
 
-  for (auto out : getAllOutputs(sg)) {
+  // note, we would want to keep output consistent and not artificially drop
+  // duplicates.
+  for (auto out : sg->output_vals) {
     fusion_segment->addOutput(complete_to_segment_map.clone(out));
   }
 
@@ -3451,36 +3482,40 @@ void SegmentCandidateFinder::forwardInputs() {
   // treated as complete fusion inputs.
   VectorOfUniqueEntries<Val*> forwarded_inputs;
   {
-    std::deque<Expr*> to_visit;
+    std::deque<UnaryOp*> to_visit;
     for (auto inp : completeFusion()->inputs()) {
+      // Add all uses of input if all of those uses are UnaryOps
+      // If any of these ops are not UnaryOps then we
       if (std::all_of(inp->uses().begin(), inp->uses().end(), [](Expr* expr) {
             return expr->isA<UnaryOp>();
           })) {
-        to_visit.insert(to_visit.end(), inp->uses().begin(), inp->uses().end());
+        for (auto use : inp->uses()) {
+          to_visit.push_back(use->as<UnaryOp>());
+        }
       }
     }
 
     while (!to_visit.empty()) {
-      auto expr = to_visit.front();
+      UnaryOp* uop = to_visit.front();
       to_visit.pop_front();
-      if (!expr->isA<UnaryOp>() || expr->output(0)->isFusionOutput()) {
+      if (uop->out()->isFusionOutput()) {
         continue;
       }
 
-      // expr is a unary op so there is a single output. Here we look at that
+      // uop is a UnaryOp so there is a single output. Here we look at that
       // output's further uses
-      const auto& output_uses = expr->output(0)->uses();
+      const auto& output_uses = uop->out()->uses();
 
-      if (output_uses.size() == 1) {
-        // If there is a single use, visit it to try and extend the chain of
-        // unaryOps
-        to_visit.emplace_back(output_uses.at(0));
+      if (output_uses.size() == 1 && output_uses[0]->isA<UnaryOp>()) {
+        // If there is a single use which is also a UnaryOp, visit it to try
+        // and extend the chain of unaryOps
+        to_visit.emplace_back(output_uses[0]->as<UnaryOp>());
       } else {
-        // If there are either no more uses, or more than one use, we cannot
-        // extend the chain of unary Ops. In either case, finalize this chain by
-        // saving the expr and its output.
-        excluded_inp_unary_exprs_.pushBack(expr);
-        forwarded_inputs.pushBack(expr->output(0));
+        // If there are either no more uses, more than one use, or one use that
+        // is not a UnaryOp, then we cannot extend the chain of unary Ops. In
+        // these cases we finalize this chain by saving the uop and its output.
+        excluded_inp_unary_exprs_.pushBack(uop);
+        forwarded_inputs.pushBack(uop->out());
       }
     }
   }
@@ -3668,7 +3703,7 @@ void SegmentCandidateFinder::resolveInputsInGroup(SegmentedGroup* group) {
   group->input_vals = IterVisitor::getInputsTo(group->inputs());
 
   // Grab all expressions needed to produce to_visit
-  auto input_exprs = StmtSort::getExprsTo(completeFusion(), to_visit);
+  auto input_exprs = StmtSort::getExprsTo(to_visit);
 
   // Insert those expressions at the beginning of the group
   group->exprs_.insert(
@@ -3928,7 +3963,7 @@ class ForceHalfAnnotation : public IterVisitor {
                val->getDataType().value() == DataType::BFloat16);
         });
 
-    annotation.traverseTo(fusion, fp16_outputs);
+    annotation.traverseTo(fp16_outputs);
     return annotation.force_fp16_tv_set_;
   }
 

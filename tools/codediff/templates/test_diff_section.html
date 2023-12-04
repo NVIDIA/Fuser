@@ -1,0 +1,138 @@
+{#-
+SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+All rights reserved.
+SPDX-License-Identifier: BSD-3-Clause
+-#}
+{%- if is_benchmark -%}
+    <h3>Benchmark Runtimes</h3>
+    {% include 'benchmark_plot.html' %}
+{%- endif -%}
+<h3>
+    {{ testorbench }} Diffs
+    <button onclick="toggleAllDiffs()">Toggle All</button>
+</h3>
+{#- initialize loop_vars for holding multiple loops' info -#}
+{%- set loop_vars = namespace(total_diffs=0, warned=False) %}
+{%- for test_diff in test_diffs -%}
+    {%- if loop_vars.total_diffs >= max_diffs -%}
+        {%- if not loop_vars.warned -%}
+            <b>WARNING: Only showing {{ max_diffs }} out of {{ total_num_diffs }}
+                total modified kernels. To show more kernels pass a higher value in
+                the <code>--html-max-diffs</code> argument to
+                <code>tools/diff_report.py</code>.</b>
+            {%- set loop_vars.warned = True -%}
+        {%- endif -%}
+    {%- else -%}
+        <span id="test_{{ loop.index }}" class="test_name">{{ loop.index }}: <b>{{ test_diff.testname }}</b></span>
+        {% if is_benchmark %}
+            {% if test_diff.test1.benchmark_result is not none and test_diff.test2.benchmark_result is not none -%}
+                {%- set t1 = test_diff.test1.benchmark_result.gpu_time | float -%}
+                {%- set t2 = test_diff.test2.benchmark_result.gpu_time | float -%}
+                {{ t1 }} {{ test_diff.test1.benchmark_result.gpu_time_unit }} &#8594;
+                <span class="benchmark_{{ 'improved' if t2 < t1 else 'regressed' }}">{{ t2 }}
+                    {{ test_diff.test2.benchmark_result.gpu_time_unit }}
+                    ({%- if t2 > t1 -%}+{%- endif -%}
+                {{ '%.1f' | format(((t2 / t1) - 1) * 100) }}%)</span>
+            {%- endif -%}
+        {% else %}
+            {% if not test_diff.test1.passed or not test_diff.test2.passed -%}
+                {{"SUCCESS" if test_diff.test1.passed else "FAILED"}} &#8594;
+                <span class="test_{{ 'passed' if test_diff.test2.passed else 'failed' }}">{{"SUCCESS" if test_diff.test2.passed else "FAILED"}}</span>
+            {%- endif -%}
+        {% endif %}
+        <br>
+        {% set outer_index = loop.index %}
+        {% for kernel_diff in test_diff.kernel_diffs %}
+            {% if loop_vars.total_diffs == max_diffs + 1 %}
+                <br>
+                <b>WARNING: Only showing {{ max_diffs }} out of {{ total_num_diffs }}
+                    total modified kernels. To show more kernels pass a higher value in
+                    the <code>--html-max-diffs</code> argument to
+                    <code>tools/diff_report.py</code>.</b>
+                <br>
+                {%- set loop_vars.warned = True -%}
+            {% elif loop_vars.total_diffs < max_diffs %}
+                &nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ kernel_diff.kernel_num }}</span>
+                {% if kernel_diff.kernel1.ptx is not none and kernel_diff.kernel2.ptx is not none %}
+                    <button disabled="true"
+                            id="cudabutton_{{ outer_index }}_{{ loop.index }}"
+                            {% if kernel_diff.diff|length > 0 %}class="differing"{% endif %}
+                            onclick="switchToCUDA({{ outer_index }}, {{ loop.index }})">CUDA</button>
+                    <button id="ptxbutton_{{ outer_index }}_{{ loop.index }}"
+                            {% if kernel_diff.ptx_diff|length > 0 %}class="differing"{% endif %}
+                            onclick="switchToPTX({{ outer_index }}, {{ loop.index }})">PTX</button>
+                    &nbsp;&nbsp;
+                {% endif %}
+                <button id="oldcodebutton_{{ outer_index }}_{{ loop.index }}"
+                        onclick="toggleOldCode({{ outer_index }}, {{ loop.index }})">
+                    <i>{{ run1.name }}</i>
+                </button>
+            </span>
+            <button id="diffbutton_{{ outer_index }}_{{ loop.index }}"
+                    style="width: 60pt"
+                    onclick="toggleDiff({{ outer_index }}, {{ loop.index }})">Diff</button>
+        </span>
+        <button id="newcodebutton_{{ outer_index }}_{{ loop.index }}"
+                onclick="toggleNewCode({{ outer_index }}, {{ loop.index }})">
+            <i>{{ run2.name }}</i>
+        </button>
+    </span>
+    <span class="hljs-deletion"
+          style="width: 32pt;
+                 text-align: right;
+                 display: inline-block">{{ ('-' + (kernel_diff.removed_lines|string)) if kernel_diff.removed_lines != 0 else '' }}</span>
+    <span class="hljs-addition"
+          style="width: 32pt;
+                 text-align: left;
+                 display: inline-block">{{ ('+' + (kernel_diff.new_lines|string)) if kernel_diff.new_lines != 0 else '' }}</span>
+    {%- macro meta_diff(name, old, new) -%}
+        {{ name }}: {{ old }}
+        {%- if new < old -%}
+            &#8594; <span class="kernelstat_decreased">{{ new }}</span>
+        {%- elif new != old -%}
+            &#8594; <span class="kernelstat_increased">{{ new }}</span>
+        {%- endif %}
+    {%- endmacro -%}
+    {{ meta_diff('index type', kernel_diff.kernel1.index_type, kernel_diff.kernel2.index_type) }}
+    {{ meta_diff('registers', kernel_diff.kernel1.registers, kernel_diff.kernel2.registers) }}
+    {{ meta_diff('gmem', kernel_diff.kernel1.gmem_bytes, kernel_diff.kernel2.gmem_bytes) }}
+    {{ meta_diff('static smem', kernel_diff.kernel1.smem_bytes, kernel_diff.kernel2.smem_bytes) }}
+    {{ meta_diff('stack frame', kernel_diff.kernel1.stack_frame_bytes, kernel_diff.kernel2.stack_frame_bytes) }}
+    {{ meta_diff('spill stores', kernel_diff.kernel1.spill_store_bytes, kernel_diff.kernel2.spill_store_bytes) }}
+    {{ meta_diff('spill loads', kernel_diff.kernel1.spill_load_bytes, kernel_diff.kernel2.spill_load_bytes) }}
+    {% if kernel_diff.kernel1.cmem_bank_bytes is not none and kernel_diff.kernel2.cmem_bank_bytes is not none %}
+        {% for cmem_bank in range([kernel_diff.kernel1.cmem_bank_bytes|length, kernel_diff.kernel2.cmem_bank_bytes|length] | max) %}
+            {% set cmem1 = kernel_diff.kernel1.cmem_bank_bytes[cmem_bank] if cmem_bank < kernel_diff.kernel1.cmem_bank_bytes|length else 0 %}
+            {% set cmem2 = kernel_diff.kernel2.cmem_bank_bytes[cmem_bank] if cmem_bank < kernel_diff.kernel2.cmem_bank_bytes|length else 0 %}
+            {{ meta_diff('cmem[' + (cmem_bank|string) + ']', cmem1, cmem2) }}
+        {% endfor %}
+    {% endif %}
+    {%- if kernel_diff.kernel1.launch_params is not none and kernel_diff.kernel2.launch_params is not none -%}
+        {{ meta_diff('dyn smem', kernel_diff.kernel1.launch_params.dynamic_smem_bytes, kernel_diff.kernel2.launch_params.dynamic_smem_bytes) }}
+    {%- endif -%}
+    <br>
+    <div id="oldcode_{{ outer_index }}_{{ loop.index }}" style="display:none">
+        <pre><code class="language-cpp">{{ kernel_diff.kernel1.code|e }}</code></pre>
+    </div>
+    <div id="newcode_{{ outer_index }}_{{ loop.index }}" style="display:none">
+        <pre><code class="language-cpp">{{ kernel_diff.kernel2.code|e }}</code></pre>
+    </div>
+    <div id="diff_{{ outer_index }}_{{ loop.index }}" style="display:none">
+        <pre><code class="language-diff">{{ kernel_diff.diff|e }}</code></pre>
+    </div>
+    {#{% if kernel_diff.kernel1.ptx is not none and kernel_diff.kernel2.ptx is not none %}#}
+    <div id="oldptx_{{ outer_index }}_{{ loop.index }}" style="display:none">
+        <pre><code class="language-cpp">{{ kernel_diff.kernel1.ptx|e }}</code></pre>
+    </div>
+    <div id="newptx_{{ outer_index }}_{{ loop.index }}" style="display:none">
+        <pre><code class="language-cpp">{{ kernel_diff.kernel2.ptx|e }}</code></pre>
+    </div>
+    <div id="ptxdiff_{{ outer_index }}_{{ loop.index }}" style="display:none">
+        <pre><code class="language-diff">{{ kernel_diff.ptx_diff|e }}</code></pre>
+    </div>
+{%- endif -%}
+{%- set loop_vars.total_diffs = loop_vars.total_diffs + 1 -%}
+{%- endfor -%}
+<br>
+{%- endif -%}
+{%- endfor -%}

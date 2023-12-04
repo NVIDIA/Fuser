@@ -70,8 +70,6 @@ class DynamicTransformConcretizationInfo;
 //! allows it to be accessed anywhere through FusionGuard::getCurFusion()
 class FusionGuard {
  public:
-  Fusion* prev_fusion;
-
   //! Set the active fusion so it can be manipulated.
   explicit FusionGuard(Fusion* fusion);
 
@@ -79,6 +77,29 @@ class FusionGuard {
 
   static Fusion* getCurFusion();
   static void setCurFusion(Fusion* fusion);
+
+ private:
+  Fusion* prev_fusion_;
+
+  static thread_local Fusion* active_fusion_;
+};
+
+// Set the enum base to `int` so it can be safely serialized as a part of
+// serde::InputOutputAlias.
+enum class AliasType : int {
+  // For example, the tensor storing BatchNorm's running mean. The output EMA is
+  // updated in place.
+  InplaceUpdate,
+  // For example, the output of a ViewOp is merely a pointer arithmetic of the
+  // input.  In this case, we use `ExpressionEvaluator` (instead of a kernel) to
+  // cheaply compute the output tensor.
+  PointerArithmetic,
+};
+
+struct AliasInfo {
+  AliasType type;
+  // Whether integration should hide the output from users.
+  bool hide_output;
 };
 
 //! Fusion is mutable but unique. Nodes cannot be copied in any way from one
@@ -135,10 +156,11 @@ class Fusion : public IrContainer {
   void validateInputs();
 
   //! Print this fusion to an output stream
-  std::ostream& print(std::ostream& os, bool include_tensor_transforms = true);
+  std::ostream& print(std::ostream& os, bool include_tensor_transforms = true)
+      const;
 
   //! Print to default debugging output stream
-  std::ostream& print() {
+  std::ostream& print() const {
     return print(debug());
   }
 
@@ -198,13 +220,13 @@ class Fusion : public IrContainer {
   //! Run fusion segmentation algorithm to create a segmented fusion
   std::unique_ptr<SegmentedFusion> segment(const KernelArgumentHolder& args);
 
-  const auto& inputs() const {
+  const std::vector<Val*>& inputs() const {
     return inputs_;
   }
 
   std::vector<Val*> inputsAndCreated();
 
-  const auto& outputs() const {
+  const std::vector<Val*>& outputs() const {
     return outputs_;
   }
 
@@ -217,16 +239,12 @@ class Fusion : public IrContainer {
   // normalization.
   // TODO: alias should be made aware to segmentation, so we'll always include
   // the input tensor to the section where output is produced.
-  void aliasOutputToInput(Val* output, Val* input);
+  void aliasOutputToInput(Val* output, Val* input, AliasType type);
 
-  //! Return the aliased input of a given output or nullptr if not aliased
-  Val* getOutputAlias(Val* output);
-
-  //! Get indices of aliased outputs
-  std::unordered_set<int> getIndicesOfAliasedOutputs() const;
-
-  //! Get alias mappings from fusion outputs to inputs
-  std::vector<std::pair<int, int>> getOutputToInputAliasIndices() const;
+  //! Returns the aliased input of a given output along with an `AliasInfo`
+  //! describing how they alias. Returns <nullptr,nullptr> when `output` is not
+  //! aliased.
+  std::pair<Val*, const AliasInfo*> getOutputAlias(Val* output) const;
 
   // mark input at index to be permuted by permutation
   void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
@@ -256,10 +274,6 @@ class Fusion : public IrContainer {
 
   bool isUpdatingTVUseInfo() {
     return is_during_update_uses_;
-  }
-
-  const auto& ioAlias() const {
-    return io_alias_;
   }
 
   // NOTE: [Fusion managed data]
@@ -451,7 +465,7 @@ class Fusion : public IrContainer {
   std::vector<Val*> outputs_;
 
   // io alias pointing from output to input
-  std::unordered_map<Val*, Val*> io_alias_;
+  std::unordered_map<Val*, std::pair<Val*, AliasInfo>> io_alias_;
 
   // See Note [ Permutation support in nvfuser ]
   // map from indices of input tensor to permutation

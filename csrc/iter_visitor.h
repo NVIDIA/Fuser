@@ -99,7 +99,6 @@ class IterVisitor : public OptOutDispatch {
   //! active multi-output expressions, even if those Expr outputs are not used
   //! in paths to Fusion outputs.
   void traverseTo(
-      Fusion* fusion,
       const std::vector<Val*>& to,
       bool traverse_all_paths = false,
       bool traverse_into_members = false,
@@ -126,7 +125,6 @@ class IterVisitor : public OptOutDispatch {
   //! active multi-output expressions, even if those Expr outputs are not used
   //! in paths to Fusion outputs.
   void traverseBetween(
-      Fusion* fusion,
       const std::unordered_set<Val*>& from,
       const std::vector<Val*>& to,
       bool traverse_all_paths = false,
@@ -238,10 +236,7 @@ class BackwardVisitor : public OptOutDispatch {
   // traverseAllPaths = false only call handle on each Statement* once
   // traverseAllPaths = true traverses all paths from nodes in from to inputs.
   //   Handle on a Statement* for every path from "from" nodes, to inputs.
-  void traverseTo(
-      Fusion* fusion,
-      const std::vector<Val*>& from,
-      bool traverseAllPaths = false);
+  void traverseTo(const std::vector<Val*>& from, bool traverseAllPaths = false);
 
   bool must_cover_all_expr_outputs_ = true;
 };
@@ -313,7 +308,6 @@ class StmtSort : public IterVisitor {
 
   // Returns ordered Statements required to produce 'to', including 'to'.
   static std::vector<Statement*> getStmtsTo(
-      Fusion* fusion,
       const std::vector<Val*>& to,
       bool traverse_members = false,
       bool traverse_attributes = false,
@@ -337,7 +331,6 @@ class StmtSort : public IterVisitor {
   // If traverse_members it will also extract all member nodes in the sorted
   // expr list in the fusion. i.e. all expressions on IterDomains, extents, etc
   static std::vector<Statement*> getStmtsBetween(
-      Fusion* fusion,
       const std::vector<Val*>& from,
       const std::vector<Val*>& to,
       bool traverse_members = false,
@@ -353,7 +346,6 @@ class StmtSort : public IterVisitor {
 
   // Same as getStmts version but filters to only return the Expr*s
   static std::vector<Expr*> getExprsTo(
-      Fusion* fusion,
       const std::vector<Val*>& to,
       bool traverse_members = false,
       bool traverse_attributes = false,
@@ -361,7 +353,6 @@ class StmtSort : public IterVisitor {
 
   // Same as getStmts version but filters to only return the Expr*s
   static std::vector<Expr*> getExprsBetween(
-      Fusion* fusion,
       const std::vector<Val*>& from,
       const std::vector<Val*>& to,
       bool traverse_members = false,
@@ -379,10 +370,8 @@ class InputsOf : public IterVisitor {
   void dispatch(Val* v) final;
 
  public:
-  static std::vector<Val*> output(Fusion* fusion, Val* output_);
-  static std::vector<Val*> outputs(
-      Fusion* fusion,
-      const std::vector<Val*>& outputs_);
+  static std::vector<Val*> output(Val* output_);
+  static std::vector<Val*> outputs(const std::vector<Val*>& outputs_);
 };
 
 //! This is a generic traversal class that is used to modify a Fusion graph by
@@ -462,6 +451,14 @@ class DeadCodeRemover : BackwardVisitor {
 
   //! Check whether all uses have been marked dead
   inline bool allUsesDead(Val* val) const {
+    auto fu_it = future_uses_.find(val);
+    if (fu_it != future_uses_.end() && !fu_it->second.empty()) {
+      // Regardless of whether current uses are marked dead, this appears in a
+      // replacement expression, so it has a future live use and we should keep
+      // it.
+      return false;
+    }
+
     return std::all_of(val->uses().begin(), val->uses().end(), [&](Expr* use) {
       return isDead(use);
     });
@@ -480,6 +477,21 @@ class DeadCodeRemover : BackwardVisitor {
   //! Mark a single Statement as being alive.
   inline void markLive(Statement* stmt) {
     live_statements_.insert(stmt);
+    if (auto e = dynamic_cast<Expr*>(stmt)) {
+      // Check if this expression is already in uses() for each of its inputs
+      // and if not, record it in future_uses_
+      for (Val* inp : e->inputs()) {
+        if (std::find(inp->uses().begin(), inp->uses().end(), e) ==
+            inp->uses().end()) {
+          auto fu_it = future_uses_.find(inp);
+          if (fu_it == future_uses_.end()) {
+            future_uses_.emplace(inp, std::unordered_set<Expr*>({e}));
+          } else {
+            fu_it->second.insert(e);
+          }
+        }
+      }
+    }
   }
 
   //! Ensure that a Statement and its upstream Statements are alive. If it is an
@@ -529,6 +541,13 @@ class DeadCodeRemover : BackwardVisitor {
   //! them separately here.
   std::vector<Val*> vals_to_remove_;
   std::vector<Expr*> exprs_to_remove_;
+
+  //! This holds additional _future_ uses of each val. val->uses() only returns
+  //! currently live uses, so until we have finalized all replacements, new uses
+  //! will not appear there. The mapping below gets populated whenever we mark
+  //! an expression as live, if that expression is not already in inp->uses()
+  //! for any of its inputs.
+  std::unordered_map<Val*, std::unordered_set<Expr*>> future_uses_;
 };
 
 } // namespace nvfuser

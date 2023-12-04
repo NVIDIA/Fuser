@@ -77,21 +77,21 @@ TensorView* tryStaticReshape(
     const std::vector<Val*>& new_sizes) {
   std::vector<int64_t> inp_sizes(inp_dom.size());
   for (const auto i : c10::irange(inp_dom.size())) {
-    auto id = inp_dom.at(i);
-    auto id_size = id->extent()->getInt();
-    if (!id_size.has_value()) {
+    IterDomain* id = inp_dom[i];
+    Val* id_size = id->getMaybeExpandedExtent();
+    if (!id_size->isConstInt()) {
       return nullptr;
     }
-    inp_sizes.at(i) = id_size.value();
+    inp_sizes[i] = id_size->evaluate().as<int64_t>();
   }
 
   std::vector<int64_t> out_sizes(new_sizes.size());
   for (const auto i : c10::irange(new_sizes.size())) {
-    auto id_size = new_sizes.at(i)->getInt();
-    if (!id_size.has_value()) {
+    Val* id_size = new_sizes[i];
+    if (!id_size->isConstInt()) {
       return nullptr;
     }
-    out_sizes.at(i) = id_size.value();
+    out_sizes[i] = id_size->evaluate().as<int64_t>();
   }
 
   // Both inputs are outputs are static. Just use the static version
@@ -125,7 +125,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
   bool found_neg_one = false;
   for (const auto i : c10::irange(new_sizes.size())) {
     auto new_size = new_sizes.at(i);
-    if (new_size->isConstScalar() && new_size->evaluateInt() == -1) {
+    if (new_size->isConstScalar() && new_size->evaluate() == -1) {
       // It is usually safe to use the provided scalars as the output shapes.
       // However, if -1 is provided for some position, it will not correspond to
       // the actual extent in that position.
@@ -226,7 +226,7 @@ TensorView* squeeze(TensorView* x, const std::vector<bool>& to_squeeze) {
         NVF_CHECK(
             !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
         NVF_CHECK(
-            id->extent()->isConstScalar() && id->extent()->evaluateInt() == 1,
+            id->extent()->isConstScalar() && id->extent()->evaluate() == 1,
             "Can not squeeze dimension(s) with size != 1.");
       }
     } else {
@@ -800,6 +800,30 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
 
   IrBuilder::create<SliceOp>(out, inp, normalized_ranges);
   return out;
+}
+
+TensorView* slice(
+    TensorView* inp,
+    const std::vector<int64_t>& starts,
+    const std::vector<int64_t>& stops) {
+  std::vector<int64_t> steps(starts.size(), 1);
+  return slice(inp, starts, stops, steps);
+}
+
+TensorView* slice(
+    TensorView* inp,
+    const std::vector<int64_t>& starts,
+    const std::vector<int64_t>& stops,
+    const std::vector<int64_t>& steps) {
+  std::vector<Slice> slices;
+  slices.reserve(starts.size());
+  for (size_t i = 0; i < starts.size(); i++) {
+    slices.push_back(
+        {IrBuilder::create<Val>(starts[i]),
+         IrBuilder::create<Val>(stops[i]),
+         IrBuilder::create<Val>(steps[i])});
+  }
+  return slice(inp, slices);
 }
 
 } // namespace nvfuser

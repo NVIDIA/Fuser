@@ -75,6 +75,8 @@ enum class PrimDataType {
   // Integral types
   Int,
   Int32,
+  UInt,
+  UInt32,
   Index,
   // Boolean types
   Bool,
@@ -178,6 +180,8 @@ struct DataType {
   static constexpr PrimDataType Int = PrimDataType::Int;
   static constexpr PrimDataType Index = PrimDataType::Index;
   static constexpr PrimDataType Int32 = PrimDataType::Int32;
+  static constexpr PrimDataType UInt = PrimDataType::UInt;
+  static constexpr PrimDataType UInt32 = PrimDataType::UInt32;
   static constexpr PrimDataType Bool = PrimDataType::Bool;
   static constexpr PrimDataType BFloat16 = PrimDataType::BFloat16;
   static constexpr PrimDataType ComplexFloat = PrimDataType::ComplexFloat;
@@ -258,6 +262,8 @@ inline bool isIntegralType(DataType dtype) {
             case DataType::Index:
             case DataType::Int:
             case DataType::Int32:
+            case DataType::UInt:
+            case DataType::UInt32:
               return true;
             default:
               return false;
@@ -336,29 +342,16 @@ struct IsPrimitiveNativeType : std::false_type {};
   template <>                                                  \
   struct IsPrimitiveNativeType<native_type> : std::true_type {}
 
-#define DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(                 \
-    data_type, at_type, native_type)                             \
-  template <>                                                    \
-  struct DataTypeToNativeType<data_type> {                       \
-    using type = native_type;                                    \
-  };                                                             \
-  template <>                                                    \
-  struct DataTypeToAtenType<data_type> {                         \
-    static constexpr at::ScalarType type = at_type;              \
-  };                                                             \
-  template <>                                                    \
-  struct NativeTypeToDataType<native_type> {                     \
-    static constexpr PrimDataType type = data_type;              \
-  };                                                             \
-  template <>                                                    \
-  struct IsPrimitiveNativeType<native_type> : std::true_type {}; \
-  template <>                                                    \
-  struct AtenTypeToDataType<at_type> {                           \
-    static constexpr PrimDataType type = data_type;              \
-  };                                                             \
-  template <>                                                    \
-  struct AtenTypeToNativeType<at_type> {                         \
-    using type = native_type;                                    \
+#define DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(          \
+    data_type, at_type, native_type)                      \
+  DEFINE_DATATYPE_TO_NATIVE_TYPE(data_type, native_type); \
+  template <>                                             \
+  struct AtenTypeToDataType<at_type> {                    \
+    static constexpr PrimDataType type = data_type;       \
+  };                                                      \
+  template <>                                             \
+  struct AtenTypeToNativeType<at_type> {                  \
+    using type = native_type;                             \
   }
 
 DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
@@ -385,6 +378,8 @@ DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::Int32,
     at::ScalarType::Int,
     int);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::UInt, uint64_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::UInt32, uint32_t);
 DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::Bool,
     at::ScalarType::Bool,
@@ -517,6 +512,10 @@ inline bool hasCompatibleDataType(
 int max_digits10(DataType dtype);
 
 enum class UnaryOpType {
+  Cast,
+  BitCast,
+  RefCast,
+
   Abs,
   Acos,
   Acosh,
@@ -525,7 +524,6 @@ enum class UnaryOpType {
   Asinh,
   Atan,
   Atanh,
-  Cast,
   Ceil,
   Cos,
   Cosh,
@@ -547,7 +545,6 @@ enum class UnaryOpType {
   Log10,
   Log1p,
   Log2,
-  BitCast,
   Neg,
   Real,
   Reciprocal,
@@ -579,7 +576,8 @@ enum class UnaryOpType {
   IsReal,
 
   // Special unary ops
-  ToUnsignedSmemAddr
+  ToUnsignedSmemAddr,
+  AdjustPartialLdMatrixAddrInTuring
 };
 
 // TODO: Order of this list is important as it affects type promotion. it's not
@@ -650,6 +648,7 @@ bool isLogicalOp(const BinaryOpType bopt);
 enum class TernaryOpType { Clamp, Lerp, Threshold, Where };
 
 enum class ParallelType {
+  DIDx,
   BIDz,
   BIDy,
   BIDx,
@@ -893,6 +892,7 @@ std::ostream& operator<<(std::ostream&, const Swizzle2DType&);
 std::ostream& operator<<(std::ostream&, const SwizzleMode&);
 std::ostream& operator<<(std::ostream&, const KernelIndexMode&);
 std::ostream& operator<<(std::ostream&, const CacheOp&);
+std::ostream& operator<<(std::ostream& os, const std::optional<bool>&);
 
 std::string stringifyThreadSize(const ParallelType);
 std::string stringifyThread(const ParallelType);
@@ -905,6 +905,8 @@ bool isParallelTypeThreadDim(ParallelType);
 bool isParallelTypeBlockDim(ParallelType);
 // Returns if parallel type is a grid or block parallelization dimension
 bool isParallelTypeThread(ParallelType);
+// Returns if parallel type is DIDx
+bool isParallelTypeDeviceDim(ParallelType);
 
 bool isParallelTypeVectorize(ParallelType);
 
@@ -938,8 +940,12 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
       NVF_ERROR(
           false, "The actual type of Index is only known at compile time.");
     case DataType::Int:
-      return sizeof(uint64_t);
+      return sizeof(int64_t);
     case DataType::Int32:
+      return sizeof(int32_t);
+    case DataType::UInt:
+      return sizeof(uint64_t);
+    case DataType::UInt32:
       return sizeof(uint32_t);
     case DataType::SMemAddress:
       return sizeof(unsigned);
@@ -989,6 +995,14 @@ inline PolymorphicValue castToDtype(
     });
   }
   return value;
+}
+
+// Converts an enum to its underlying type.
+// It corresponds with std::to_underlying introduced in c++23
+// https://en.cppreference.com/w/cpp/utility/to_underlying
+template <typename E>
+constexpr auto toUnderlying(E e) noexcept {
+  return static_cast<std::underlying_type_t<E>>(e);
 }
 
 } // namespace nvfuser

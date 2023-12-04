@@ -40,10 +40,8 @@
 #include <transform_rfactor.h>
 #include <utils.h>
 
-#include <parser.h>
 #include <torch/csrc/jit/api/function_impl.h>
 #include <torch/csrc/jit/codegen/cuda/interface.h>
-#include <torch/csrc/jit/ir/irparser.h>
 #include <torch/torch.h>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -92,12 +90,16 @@ TEST_F(NVFuserTest, FusionIrGraphGenerator_CUDA) {
 
   fusion.addOutput(tv6);
 
-  tv4->axis(2)->parallelize(ParallelType::BIDy);
+  tv5->reorder({{-1, 0}});
   tv6->merge(0);
   tv6->split(0, 4);
+  TransformPropagatorWithCheck propagator(tv6);
+  MaxRootDomainInfoSpanningTree(tv6).traverse(&propagator);
+
+  tv4->axis(2)->parallelize(ParallelType::BIDy);
   tv6->axis(0)->parallelize(ParallelType::BIDx);
-  tv5->reorder({{-1, 0}});
-  tv2->computeAt(tv6, 1);
+
+  inlineMost();
 
   // Another checkpoint with more node types
   NVF_CHECK(!IrGraphGenerator::toGraphviz(
@@ -151,12 +153,14 @@ TEST_F(NVFuserTest, FusionClear_CUDA) {
     fusion.addOutput(tv3);
 
     tv3->split(0, 4);
-    tv0->computeAt(tv3, 1);
-    tv1->computeAt(tv3, 1);
+    TransformPropagatorWithCheck propagator(tv3);
+    MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
 
     tv3->axis(0)->parallelize(ParallelType::BIDx);
     tv2->axis(1)->parallelize(ParallelType::Unroll);
     tv3->axis(-1)->parallelize(ParallelType::TIDx);
+
+    inlineMost();
   }
 
   // 2. Clear the IR
@@ -190,9 +194,12 @@ TEST_F(NVFuserTest, FusionClear_CUDA) {
     // tv3 [i2, i1, i0outer, i0inner{4}]
     tv3->reorder({{2, 0}, {3, 1}, {0, 3}});
     // tv3 [i0outer, i0inner{4}, i1, i2]
-    tv0->computeAt(tv3, -1);
-    tv1->computeAt(tv3, -1);
+    TransformPropagatorWithCheck propagator(tv3);
+    MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+
     tv3->axis(1)->parallelize(ParallelType::BIDx);
+
+    inlineMost();
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -229,12 +236,13 @@ TEST_F(NVFuserTest, FusionCopy_CUDA) {
     tv3->reorder({{0, 2}, {2, 0}});
     tv3->split(-1, 4);
     tv3->reorder({{2, 0}, {3, 1}, {0, 3}});
-
-    tv0->computeAt(tv3, -1);
-    tv1->computeAt(tv3, -1);
+    TransformPropagatorWithCheck propagator(tv3);
+    MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
 
     tv3->axis(0)->parallelize(ParallelType::BIDx);
     tv3->axis(-1)->parallelize(ParallelType::TIDx);
+
+    inlineMost();
   }
 
   // Test copy before lowering
@@ -303,12 +311,13 @@ TEST_F(NVFuserTest, FusionMove_CUDA) {
     tv3->reorder({{0, 2}, {2, 0}});
     tv3->split(-1, 4);
     tv3->reorder({{2, 0}, {3, 1}, {0, 3}});
-
-    tv0->computeAt(tv3, -1);
-    tv1->computeAt(tv3, -1);
+    TransformPropagatorWithCheck propagator(tv3);
+    MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
 
     tv3->axis(0)->parallelize(ParallelType::BIDx);
     tv3->axis(-1)->parallelize(ParallelType::TIDx);
+
+    inlineMost();
   }
 
   std::stringstream original_ir;
@@ -341,6 +350,7 @@ TEST_F(NVFuserTest, FusionMove_CUDA) {
 
   // Lower the fusion IR
   GpuLower lower(&another_fusion);
+  lower.run();
 
   std::stringstream lowered_ir;
   lowered_ir << another_fusion;
@@ -484,13 +494,13 @@ TEST_F(NVFuserTest, FusionTopoSort_CUDA) {
   // e1: v4     =   add(v3, v2)
   // e2: v5     =   add(v2, v4)
   // e3: v6     =   add(v5, v5)
-  Val* v0 = IrBuilder::create<Val>(DataType::Double);
-  Val* v1 = IrBuilder::create<Val>(DataType::Double);
-  Val* v2 = IrBuilder::create<Val>(DataType::Double);
-  Val* v3 = IrBuilder::create<Val>(DataType::Double);
-  Val* v4 = IrBuilder::create<Val>(DataType::Double);
-  Val* v5 = IrBuilder::create<Val>(DataType::Double);
-  Val* v6 = IrBuilder::create<Val>(DataType::Double);
+  Val* v0 = makeContigTensor(0, DataType::Double);
+  Val* v1 = makeContigTensor(0, DataType::Double);
+  Val* v2 = makeContigTensor(0, DataType::Double);
+  Val* v3 = makeContigTensor(0, DataType::Double);
+  Val* v4 = makeContigTensor(0, DataType::Double);
+  Val* v5 = makeContigTensor(0, DataType::Double);
+  Val* v6 = makeContigTensor(0, DataType::Double);
 
   std::vector<Val*> inputs = {v0, v1};
   for (auto val : inputs) {
@@ -845,82 +855,6 @@ TEST_F(NVFuserTest, FusionDependency_CUDA) {
   NVF_CHECK(dep_chain.empty());
 }
 
-TEST_F(NVFuserTest, FusionParser_CUDA) {
-  // This test may not pass if using a custom block sync as there may
-  // be additional calls. Skip the test as it's not specifically
-  // relevant with block synchronizatin.
-  if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
-    return;
-  }
-  auto g = std::make_shared<torch::jit::Graph>();
-  const auto graph0_string = R"IR(
-    graph(%0 : Float(2, strides=[1]),
-          %1 : Float(2, strides=[1])):
-      %c0 : Float(2, strides=[1]) = aten::mul(%0, %1)
-      %d0 : Float(2, strides=[1]) = aten::mul(%c0, %0)
-      return (%d0))IR";
-  parseIR(graph0_string, g.get());
-
-  // strides are not yet supported in the irparser.
-  for (auto val : g->block()->inputs()) {
-    if (val->isCompleteTensor())
-      val->setType(val->type()->castRaw<at::TensorType>()->contiguous());
-  }
-  for (auto node : g->block()->nodes()) {
-    for (auto val : node->outputs()) {
-      if (val->isCompleteTensor())
-        val->setType(val->type()->castRaw<at::TensorType>()->contiguous());
-    }
-  }
-
-  auto fusion = parseJitIR(g);
-  FusionGuard fg(fusion.get());
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  // Avoid vectorization here as those kernels can't be lowered twice at the
-  // moment
-  at::Tensor input1 = at::randn({16}, options);
-  at::Tensor input2 = at::randn({16}, options);
-  auto lparams = schedulePointwise(fusion.get(), {input1, input2});
-
-  // CONSIDER:
-  // 1. this can be moved to a dedicated "golden" file
-  // 2. use a fuzzy compare (ignore non-significant whitespaces for example)
-  const std::string expected_kernel = R"(
-__global__ void CUDAGeneratedKernel(Tensor<float, 1, 1> T0, Tensor<float, 1, 1> T1, Tensor<float, 1, 1> T3) {
-  nvfuser_index_t i0;
-  i0 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  if ((i0 < T0.logical_size[0])) {
-    float T5[1];
-    T5[0] = 0;
-    T5[0]
-       = T1[i0];
-    float T4[1];
-    T4[0] = 0;
-    T4[0]
-       = T0[i0];
-    float T2[1];
-    T2[0]
-      = T4[0]
-      * T5[0];
-    float T6[1];
-    T6[0]
-      = T2[0]
-      * T4[0];
-    T3[i0]
-       = T6[0];
-  }
-}
-)";
-
-  assertCUDAKernel(fusion.get(), expected_kernel);
-
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {input1, input2}, lparams);
-  auto outputs = fe.runFusion({input1, input2}, lparams);
-  at::Tensor output_ref = input1 * input2 * input1;
-  NVF_CHECK(output_ref.equal(outputs[0]));
-}
-
 TEST_F(NVFuserTest, FusionOuterSplit_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -946,8 +880,10 @@ TEST_F(NVFuserTest, FusionOuterSplit_CUDA) {
   //[I0*I1*I2o{4}o, I0*I1*I2o{4}i{2}, I2i]
   tv2->reorder({{0, 1}, {1, 0}});
   // I0*I1*I2o{4}i{2}, [I0*I1*I2o{4}o, I2i]
+  TransformPropagatorWithCheck propagator(tv2);
+  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
 
-  tv0->computeAt(tv2, -1);
+  inlineMost();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -986,8 +922,10 @@ TEST_F(NVFuserTest, FusionCodeGen_CUDA) {
   //[I0o, I0i{4}*I1, I2o, I2i{2}]
   tv2 = tv2->reorder({{0, 1}, {1, 0}, {3, 2}});
   //[I0i{4}*I1, I0o, I2i{2}, I2o]
+  TransformPropagatorWithCheck propagator(tv2);
+  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
 
-  tv0->computeAt(tv2, -1);
+  inlineMost();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -1022,12 +960,13 @@ TEST_F(NVFuserTest, FusionCodeGen2_CUDA) {
   //[I2, I1, I0o, I0i{4}]
   tv3->reorder({{2, 0}, {3, 1}, {0, 3}});
   // I0o, I0i{4}, I1, I2]
-
-  tv0->computeAt(tv3, -1);
-  tv1->computeAt(tv3, -1);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
+
+  inlineMost();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -1074,16 +1013,15 @@ TEST_F(NVFuserTest, FusionSimplePWise_CUDA) {
   // Split by n_threads
   tv3->split(0, 128);
   tv3->split(0, 4);
-
-  // For all inputs, computeAt the output inline, temporaries should be squeezed
-  // between them
-  tv0->computeAt(tv3, -1);
-  tv1->computeAt(tv3, -1);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   // Parallelize TV3
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(-2)->parallelize(ParallelType::Unroll);
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
+
+  inlineMost();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -1132,16 +1070,15 @@ TEST_F(NVFuserTest, FusionSimplePWiseDtypeComplex_CUDA) {
   // Split by n_threads
   tv3->split(0, 128);
   tv3->split(0, 4);
-
-  // For all inputs, computeAt the output inline, temporaries should be squeezed
-  // between them
-  tv0->computeAt(tv3, -1);
-  tv1->computeAt(tv3, -1);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   // Parallelize TV3
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(-2)->parallelize(ParallelType::Unroll);
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
+
+  inlineMost();
 
   auto options =
       at::TensorOptions().dtype(at::kComplexFloat).device(at::kCUDA, 0);
@@ -1183,11 +1120,8 @@ TEST_F(NVFuserTest, FusionExecKernel_CUDA) {
   tv3->merge(0);
   tv3->split(0, 128);
   tv3->split(0, 4);
-
-  // For all inputs, computeAt the output inline, temporaries should be squeezed
-  // between them
-  tv0->computeAt(tv3, 1);
-  tv1->computeAt(tv3, 1);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   // Parallelize TV3
   tv3->axis(0)->parallelize(ParallelType::BIDx);
@@ -1195,6 +1129,8 @@ TEST_F(NVFuserTest, FusionExecKernel_CUDA) {
   tv3->axis(1)->parallelize(ParallelType::Unroll);
   tv2->axis(-1)->parallelize(ParallelType::TIDx);
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
+
+  inlineMost();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -1734,6 +1670,7 @@ TEST_F(NVFuserTest, FusionComputeAtMultiConsumers_CUDA) {
   }
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
 
   NVF_CHECK(tv1->getComputeAtPosition() == 1);
   NVF_CHECK(
@@ -6969,6 +6906,7 @@ TEST_F(NVFuserTest, FusionSmemBlockGemm_CUDA) {
 
   // Make sure BIDx is makred as exact (see issue #1119)
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(gpulw.parallelDimensionMap().isExact(ParallelType::BIDx));
 
   constexpr int M = 154, K = 45, N = 1524;

@@ -387,10 +387,13 @@ class RotateLoop : kir::ExprMutator {
 
 } // namespace
 
-std::vector<Expr*> rotateLoops(
-    const std::vector<Expr*>& exprs,
-    const LoopRotationParam& params) {
-  return RotateLoop::run(exprs, params);
+std::vector<Expr*> rotateLoops(const std::vector<Expr*>& exprs) {
+  auto fusion = GpuLower::current()->kernel();
+  if (!fusion->hasManaged("loop_rotation")) {
+    return exprs;
+  }
+  return RotateLoop::run(
+      exprs, fusion->getManaged<LoopRotationParam>("loop_rotation"));
 }
 
 } // namespace nvfuser

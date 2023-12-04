@@ -10,6 +10,7 @@
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <ir/base_nodes.h>
+#include <mma_type.h>
 #include <parallel_type_bitmap.h>
 #include <tma.h>
 #include <type.h>
@@ -35,10 +36,18 @@ class TensorIndex;
 
 // Expressions
 class Allocate;
+class Asm;
 class BlockSync;
 class GridSync;
+class MBarrierInit;
+class MBarrierInvalidate;
+class MBarrierArrive;
+class MBarrierArriveExpectTx;
+class MBarrierWait;
 class CpAsyncWait;
 class CpAsyncCommit;
+class CpAsyncBulkS2GWait;
+class CpAsyncBulkS2GCommit;
 class InitMagicZero;
 class UpdateMagicZero;
 class ForLoop;
@@ -115,7 +124,8 @@ class Predicate final : public Val {
   }
 
   bool isTrivial() const {
-    return isConst() && value_->getBool() == true;
+    return isConst() && value_->value().is<bool>() &&
+        value_->value().as<bool>();
   }
 
  private:
@@ -138,7 +148,11 @@ class Predicate final : public Val {
 
 class TensorIndex final : public Val {
  public:
-  TensorIndex(IrBuilderPasskey, const TensorView* view, Val* index);
+  TensorIndex(
+      IrBuilderPasskey,
+      const TensorView* view,
+      Val* index,
+      DataType dtype = DataType::Null);
 
   Val* index() const {
     return index_;
@@ -156,6 +170,79 @@ class TensorIndex final : public Val {
  private:
   const TensorView* view_ = nullptr;
   Val* index_ = nullptr;
+};
+
+// In theory, we should just put this struct into class Asm, but unfortunately,
+// due to compiler bug, we can not do that:
+// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=88165
+struct AsmOptions {
+  bool volatile_ = false;
+  bool memory = false;
+};
+
+class Asm final : public Expr {
+ public:
+  using Options = AsmOptions;
+
+  using Expr::Expr;
+
+  explicit Asm(
+      IrBuilderPasskey passkey,
+      const std::string& code,
+      const std::vector<Val*>& outputs,
+      const std::vector<Val*>& inputs,
+      const Options& options = Options());
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "Asm";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  const std::string& code() const {
+    return attribute<std::string>(0);
+  }
+
+  const Options& options() const {
+    return attribute<Options>(1);
+  }
+
+  Options& options() {
+    return attribute<Options>(1);
+  }
+
+  bool volatile_() const {
+    return options().volatile_;
+  }
+
+  bool& volatile_() {
+    return options().volatile_;
+  }
+
+  bool memory() const {
+    return options().memory;
+  }
+
+  bool& memory() {
+    return options().memory;
+  }
+
+  bool hasBooleanInput() const {
+    for (auto input : inputs()) {
+      if (input->dtype() == DataType::Bool) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  std::vector<std::pair<std::string, Val*>> constraintsAndOutputs() const;
+  std::vector<std::pair<std::string, Val*>> constraintsAndInputs() const;
+
+  std::string parameters() const;
 };
 
 //! Allocate is a lower level Node that describes a buffer of memory that
@@ -306,6 +393,132 @@ class GridSync final : public Expr {
   }
 };
 
+class MBarrierInit final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierInit(
+      IrBuilderPasskey passkey,
+      Val* mbarrier,
+      Val* thread_count);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierInit";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+
+  Val* threadCount() const {
+    return input(1);
+  }
+};
+
+class MBarrierInvalidate final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierInvalidate(IrBuilderPasskey passkey, Val* mbarrier);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierInvalidate";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+};
+
+class MBarrierArrive final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierArrive(IrBuilderPasskey passkey, Val* state, Val* mbarrier);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierArrive";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* state() const {
+    return output(0);
+  }
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+};
+
+// IR node for: mbarrier.arrive.expect_tx
+// This is usually used to specify the number of bytes that will be
+// transferred for cp.async and cp.async.bulk, so that future mbarrier.wait
+// can wait for the completion of the transfer.
+class MBarrierArriveExpectTx final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierArriveExpectTx(
+      IrBuilderPasskey passkey,
+      Val* state,
+      Val* mbarrier,
+      Val* tx_count);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierArriveExpectTx";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* state() const {
+    return output(0);
+  }
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+
+  Val* txCount() const {
+    return input(1);
+  }
+};
+
+class MBarrierWait final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierWait(IrBuilderPasskey passkey, Val* mbarrier, Val* state);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierWait";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+
+  Val* state() const {
+    return input(1);
+  }
+};
+
 // CpAsyncWait represents wait intrinsics for cp.async
 class CpAsyncWait final : public Expr {
  public:
@@ -342,6 +555,44 @@ class CpAsyncCommit final : public Expr {
 
   const char* getOpString() const override {
     return "CpAsyncCommit";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+};
+
+class CpAsyncBulkS2GWait final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit CpAsyncBulkS2GWait(
+      IrBuilderPasskey passkey,
+      int64_t keep_stages = 0);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "CpAsyncBulkS2GWait";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  int64_t keepStages() const {
+    return attribute<int64_t>(0);
+  }
+};
+
+class CpAsyncBulkS2GCommit final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit CpAsyncBulkS2GCommit(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "CpAsyncBulkS2GCommit";
   }
 
   std::string toString(int indent_size = 0) const override;
@@ -1142,7 +1393,7 @@ class EncodeTensorMapTiled : public Expr {
       Val* box_dim,
       Val* element_strides,
       tma::TensorMapInterleave interleave,
-      tma::TensorMapSwizzle swizzle,
+      MmaInputSmemSwizzle swizzle,
       tma::TensorMapL2Promotion l2_promotion,
       tma::TensorMapFloatOOBFill oob_fill);
 
@@ -1187,8 +1438,8 @@ class EncodeTensorMapTiled : public Expr {
     return attribute<tma::TensorMapInterleave>(2);
   }
 
-  const tma::TensorMapSwizzle& swizzle() const {
-    return attribute<tma::TensorMapSwizzle>(3);
+  const MmaInputSmemSwizzle& swizzle() const {
+    return attribute<MmaInputSmemSwizzle>(3);
   }
 
   const tma::TensorMapL2Promotion& l2Promotion() const {

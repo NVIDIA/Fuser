@@ -26,9 +26,9 @@
 
 namespace nvfuser {
 
-class MemoryTest
-    : public NVFuserTest,
-      public testing::WithParamInterface<std::tuple<CacheOp, std::string>> {
+using MemoryTestParams = std::tuple<CacheOp, std::string>;
+
+class MemoryTest : public NVFuserFixtureParamTest<MemoryTestParams> {
  protected:
   void expectMatchCount(
       const std::string& text,
@@ -107,7 +107,7 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_tuple(CacheOp::AllLevels, "ca"),
         std::make_tuple(CacheOp::Global, "cg"),
         std::make_tuple(CacheOp::Streaming, "cs")),
-    [](const testing::TestParamInfo<std::tuple<CacheOp, std::string>>& info) {
+    [](const testing::TestParamInfo<MemoryTestParams>& info) {
       std::ostringstream os;
       os << std::get<0>(info.param);
       return os.str();
@@ -180,6 +180,136 @@ class TMATest : public NVFuserTest {
     NVFuserTest::SetUp();
   }
 };
+
+TEST_F(TMATest, LoadCompleteTensor1D) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv1->axis(0)->parallelize(ParallelType::Bulk);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({32}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMATest, LoadCompleteTensor2D) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv1->axis(0)->parallelize(ParallelType::Bulk);
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 4}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMATest, LoadCompleteTensor3D) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(3);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv1->axis(0)->parallelize(ParallelType::Bulk);
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  tv1->axis(2)->parallelize(ParallelType::Bulk);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 4, 4}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMATest, LoadCompleteTensor4D) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(4);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv1->axis(0)->parallelize(ParallelType::Bulk);
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  tv1->axis(2)->parallelize(ParallelType::Bulk);
+  tv1->axis(3)->parallelize(ParallelType::Bulk);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 4, 4, 4}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMATest, LoadCompleteTensor5D) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(5);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  tv1->axis(0)->parallelize(ParallelType::Bulk);
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+  tv1->axis(2)->parallelize(ParallelType::Bulk);
+  tv1->axis(3)->parallelize(ParallelType::Bulk);
+  tv1->axis(4)->parallelize(ParallelType::Bulk);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 4, 4, 4, 4}, options);
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, {}, {DataType::Int32});
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
 
 TEST_F(TMATest, StoreCompleteTensor1D) {
   Fusion fusion;
@@ -341,5 +471,116 @@ TEST_F(TMATest, DisableIndexHoisting) {
   auto cg_outputs = fe.runFusion({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
+
+using LdMatrixTestParam = std::tuple<MmaMacro, MmaOperand>;
+
+class LdMatrixTest : public NVFuserFixtureParamTest<LdMatrixTestParam> {
+ protected:
+  void SetUp() override {
+    // requires Turing or newer
+    if (cudaArchGuardShouldSkip(7, 5)) {
+      GTEST_SKIP() << "skipping tests on pre-Turing GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
+
+TEST_P(LdMatrixTest, Regular) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto macro = std::get<0>(GetParam());
+  auto operand = std::get<1>(GetParam());
+
+  bool is_a = operand == MmaOperand::A;
+
+  int size1 = (is_a ? getM(macro) : getN(macro));
+
+  auto tv0 = makeConcreteTensor({size1, getK(macro)}, DataType::Half);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  tv1->setMemoryType(MemoryType::Shared);
+  auto tv2 = set(tv1);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdMatrix);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  tv2->applyMmaSwizzle(operand);
+  tv3->applyMmaSwizzle(operand);
+
+  tv3->merge(0);
+  if (is_a) {
+    tv3->merge(0);
+  }
+  tv3->axis(0)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn({size1, getK(macro)}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, LaunchParams(), matmul_cparams);
+  auto cg_outputs = fe.runFusion({t0});
+
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_P(LdMatrixTest, Transpose) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto macro = std::get<0>(GetParam());
+  auto operand = std::get<1>(GetParam());
+
+  bool is_a = operand == MmaOperand::A;
+
+  int size2 = (is_a ? getM(macro) : getN(macro));
+
+  auto tv0 = makeConcreteTensor({getK(macro), size2}, DataType::Half);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  tv1->setMemoryType(MemoryType::Shared);
+  auto tv2 = transpose(tv1, 0, 1);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::LdMatrixTranspose);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  tv2->applyMmaSwizzle(operand);
+  tv3->applyMmaSwizzle(operand);
+
+  tv3->merge(0);
+  if (is_a) {
+    tv3->merge(0);
+  }
+  tv3->axis(0)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn({getK(macro), size2}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(&fusion, {t0}, LaunchParams(), matmul_cparams);
+  auto cg_outputs = fe.runFusion({t0});
+
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    CopyUsingLdMatrix,
+    LdMatrixTest,
+    testing::Values(
+        std::make_tuple(MmaMacro::Turing_16_8_8, MmaOperand::A),
+        std::make_tuple(MmaMacro::Turing_16_8_16, MmaOperand::A),
+        std::make_tuple(MmaMacro::Turing_16_8_8, MmaOperand::B),
+        std::make_tuple(MmaMacro::Turing_16_8_16, MmaOperand::B),
+        std::make_tuple(MmaMacro::Turing_16_16_16, MmaOperand::B),
+        std::make_tuple(MmaMacro::Hopper_64_8_16, MmaOperand::A)),
+    [](const testing::TestParamInfo<LdMatrixTestParam>& info) {
+      std::ostringstream os;
+      auto macro = std::get<0>(info.param);
+      bool is_a = std::get<1>(info.param) == MmaOperand::A;
+      os << (is_a ? "A" : "B") << "_" << (is_a ? getM(macro) : getN(macro))
+         << "x" << getK(macro);
+      return os.str();
+    });
 
 } // namespace nvfuser

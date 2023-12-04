@@ -122,6 +122,16 @@ Val* IrBuilder::maybeCastExpr(DataType dtype, Val* val) {
   return result;
 }
 
+Val* IrBuilder::maybeRefCastExpr(DataType dtype, Val* val) {
+  NVF_CHECK(val != nullptr, "val is a nullptr in bitCastExpr.");
+  if (val->dtype() == dtype) {
+    return val;
+  }
+  auto result = create<Val>(dtype);
+  IrBuilder::create<UnaryOp>(UnaryOpType::RefCast, result, val);
+  return result;
+}
+
 Val* IrBuilder::addressExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in addressExpr.");
   auto result = create<Val>(
@@ -160,6 +170,14 @@ Val* IrBuilder::bitwiseAndExpr(Val* lhs, Val* rhs) {
 
 Val* IrBuilder::bitwiseOrExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::BitwiseOr, lhs, rhs);
+}
+
+Val* IrBuilder::lShiftExpr(Val* lhs, Val* rhs) {
+  return newArithmeticExpr(BinaryOpType::Lshift, lhs, rhs);
+}
+
+Val* IrBuilder::rShiftExpr(Val* lhs, Val* rhs) {
+  return newArithmeticExpr(BinaryOpType::Rshift, lhs, rhs);
 }
 
 Val* IrBuilder::eqExpr(Val* lhs, Val* rhs) {
@@ -253,6 +271,21 @@ Val* IrBuilder::reverseArrayExpr(Val* array) {
 
 Val* IrBuilder::metadataExpr(TensorView* tv) {
   return tv->fusion()->metadataOf(tv);
+}
+
+Val* IrBuilder::baseAddressExpr(TensorView* tv) {
+  auto metadata = metadataExpr(tv);
+  switch (auto memtype = tv->getMemoryType()) {
+    case MemoryType::Global:
+      return getAttrExpr(metadata, "data");
+    case MemoryType::Shared: {
+      auto output = create<Val>(DataType::SMemAddress);
+      create<UnaryOp>(UnaryOpType::ToUnsignedSmemAddr, output, metadata);
+      return output;
+    }
+    default:
+      NVF_CHECK(false, "Unsupported memory type ", memtype);
+  }
 }
 
 Val* SimplifyingIrBuilder::negExpr(Val* val) {
@@ -711,7 +744,7 @@ Val* SimplifyingIrBuilder::whereExpr(Val* pred, Val* lhs, Val* rhs) {
     return lhs; // return value is independent of predicate
   }
   if (pred->isConstScalar() && pred->isABool()) {
-    if (pred->evaluateBool()) {
+    if (pred->evaluate()) {
       return lhs;
     } else {
       return rhs;

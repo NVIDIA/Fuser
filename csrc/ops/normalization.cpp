@@ -558,17 +558,20 @@ ForwardNormResult batch_norm(
             "Input running stats must have dtype defined");
         auto cast_output = castOp(*rm_dtype, aliased_output);
 
-        fusion->aliasOutputToInput(cast_output, input_to_cast);
+        fusion->aliasOutputToInput(
+            cast_output, input_to_cast, AliasType::InplaceUpdate);
       };
 
       if (running_mean->isFusionInput()) {
-        fusion->aliasOutputToInput(new_mean_hat, running_mean);
+        fusion->aliasOutputToInput(
+            new_mean_hat, running_mean, AliasType::InplaceUpdate);
       } else {
         cast_to_input_dtype(running_mean, new_mean_hat);
       }
 
       if (running_var->isFusionInput()) {
-        fusion->aliasOutputToInput(new_var_hat, running_var);
+        fusion->aliasOutputToInput(
+            new_var_hat, running_var, AliasType::InplaceUpdate);
       } else {
         cast_to_input_dtype(running_var, new_var_hat);
       }
@@ -805,8 +808,8 @@ ForwardNormResult instance_norm(
         new_mean_channels_only =
             castOp(running_mean->getDataType().value(), new_mean_channels_only);
       }
-      // fusion->addOutput(new_mean_channels_only);
-      fusion->aliasOutputToInput(new_mean_channels_only, running_mean);
+      fusion->aliasOutputToInput(
+          new_mean_channels_only, running_mean, AliasType::InplaceUpdate);
 
       auto num_feature_decrement = sub(N, x->container()->oneVal(N->dtype()));
       auto unbiased_var =
@@ -824,8 +827,8 @@ ForwardNormResult instance_norm(
         new_var_channels_only =
             castOp(running_var->getDataType().value(), new_var_channels_only);
       }
-      // fusion->addOutput(new_var_channels_only);
-      fusion->aliasOutputToInput(new_var_channels_only, running_var);
+      fusion->aliasOutputToInput(
+          new_var_channels_only, running_var, AliasType::InplaceUpdate);
     }
 
     mean = welford_out.avg;

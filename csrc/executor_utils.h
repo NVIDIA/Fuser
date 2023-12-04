@@ -13,7 +13,6 @@
 #include <c10/core/DeviceType.h>
 #include <c10/util/Exception.h>
 
-#include <cuda.h>
 #include <cuda_runtime.h>
 
 #include <torch/csrc/jit/ir/ir.h>
@@ -44,7 +43,11 @@ std::string disassembleBinary(
     const std::vector<char>& cubin,
     const std::string& nvdisasm_args);
 
-struct CompiledKernel {
+// I'm not happy with CompiledKernel being a struct exposing all the fields.
+// This could be refactored.
+struct CompiledKernel : public NonCopyable {
+  ~CompiledKernel();
+
   CUmodule module = nullptr;
   CUfunction function = nullptr;
   std::string compile_log;
@@ -58,16 +61,16 @@ struct CompiledKernel {
 };
 
 // Returns executable function and the ptxas log from compilation
-CompiledKernel getCompiledKernel(
+std::unique_ptr<CompiledKernel> getCompiledKernel(
     std::optional<std::reference_wrapper<const std::string>> kernel_code,
     const std::string& code,
     const std::string& func_name,
-    int64_t id,
+    const std::string& id,
     const CompileParams& compile_params = CompileParams(),
     std::optional<int64_t> opt_block_size = std::nullopt);
 
 // Returns executable function using flatbuffer object
-CompiledKernel getCompiledKernel(
+std::unique_ptr<CompiledKernel> getCompiledKernel(
     const serde::CudaKernel* buffer,
     const CompileParams& compile_params);
 
@@ -141,26 +144,6 @@ class VectorizedTensorValidation {
   using DataType = VectorizedTensorInfo;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::VECTORIZED_TENSOR_VALIDATION;
-};
-
-//! Compile-time info to be cached in each FusionExecutor:
-//!  InputAliasIndices
-//!    Stores position info of aliased input tensors
-class InputAliasIndices {
- public:
-  using DataType = std::vector<std::pair<int, int>>;
-  static const CompileTimeEntryType EntryType =
-      CompileTimeEntryType::INPUT_ALIAS_INDICES;
-};
-
-//! Compile-time info to be cached in each FusionExecutor:
-//!  OutputAliasIndices
-//!    Stores position info of aliased output tensors
-class OutputAliasIndices {
- public:
-  using DataType = std::unordered_set<int>;
-  static const CompileTimeEntryType EntryType =
-      CompileTimeEntryType::OUTPUT_ALIAS_INDICES;
 };
 
 //! Base abstract class for unified storage in `ExecutorCompileTimeInfoCache`,

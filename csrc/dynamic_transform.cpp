@@ -90,7 +90,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
         !fusion->isA<kir::Kernel>(),
         "Invalid container. Kernel container not allowed.\n");
 
-    traverseTo(fusion, fusion->getTerminatingOutputs(), false, false);
+    traverseTo(fusion->getTerminatingOutputs(), false, false);
 
     finalizeDynamicVals();
 
@@ -126,9 +126,10 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   //! Detect possibly empty TensorViews and dynamic IterDomain transforms
   void handle(TensorView* tv) override {
     const auto& rfd = tv->getMaybeRFactorDomain();
+    ExpressionEvaluator ee;
     for (auto id : rfd) {
       if (!id->getMaybeExpandedExtent()->isConstScalar() ||
-          id->getMaybeExpandedExtent()->evaluateInt() == 0) {
+          id->getMaybeExpandedExtent()->evaluate() == 0) {
         info_.maybe_zero_extents_set_.insert(id->getMaybeExpandedExtent());
         leaf_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
       }
@@ -146,7 +147,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   //! Process vector of leaf dynamic values by finding inputs and recording the
   //! result into info_
   void finalizeDynamicVals() {
-    const auto inputs = InputsOf::outputs(info_.fusion(), leaf_dynamic_vals_);
+    const auto inputs = InputsOf::outputs(leaf_dynamic_vals_);
     info_.root_dynamic_vals_.insert(inputs.begin(), inputs.end());
 
     // initial_info_ provides a set of Vals that are used for concretization.
@@ -305,7 +306,7 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
         "Found non-dynamic Resize in initial concretization info: ",
         op->toString());
 
-    auto extent_val = expr_eval->evaluate(out_id->extent());
+    auto extent_val = expr_eval->evaluate(out_id->getMaybeExpandedExtent());
     NVF_ERROR(
         extent_val.hasValue(),
         "Cannot evaluate the extent of a resized domain: ",
@@ -620,7 +621,6 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
     // Note that it is assumed that theres's no further expression
     // beyond the rfactor domain as asserted above
     auto all_id_exprs = StmtSort::getExprsBetween(
-        tv->fusion(),
         {tv->getRootDomain().begin(), tv->getRootDomain().end()},
         {tv->getMaybeRFactorDomain().begin(),
          tv->getMaybeRFactorDomain().end()});
@@ -749,9 +749,12 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
 
   std::vector<IterDomain*> root_dom = updateIdVec(td->root());
   std::vector<IterDomain*> rfactor_dom = td->hasRFactor()
-      ? updateIdVec(td->maybeRFactor())
+      ? updateIdVec(td->rfactor())
       : std::vector<IterDomain*>();
-  std::vector<IterDomain*> domain = updateIdVec(td->leaf());
+  std::vector<IterDomain*> leaf_domain = updateIdVec(td->leaf());
+  std::vector<IterDomain*> alloc_dom = td->hasAllocation()
+      ? updateIdVec(td->allocation())
+      : std::vector<IterDomain*>();
 
   if (!mutated) {
     return;
@@ -760,8 +763,16 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   // Update the contiguity vector. Drop the contig val if mutated to broadcast
   auto contig = td->contiguity();
 
-  for (const auto i : c10::irange(td->maybeRFactor().size())) {
-    auto original_id = td->maybeRFactor().at(i);
+  const auto& new_maybe_alloc = td->hasAllocation() ? alloc_dom
+      : td->hasRFactor()                            ? rfactor_dom
+                                                    : root_dom;
+  const auto& original_alloc = td->maybeAllocation();
+  NVF_ERROR(
+      new_maybe_alloc.size() == original_alloc.size(),
+      "rank of allocation domain shouldn't change in concretization");
+
+  for (const auto i : c10::irange(original_alloc.size())) {
+    auto original_id = original_alloc.at(i);
     if (original_id->getIterType() != IterType::Symbolic) {
       continue;
     }
@@ -771,7 +782,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
         "Unexpected to have a non-contig symbolic domain: ",
         original_id->toString());
 
-    auto updated_id = td->hasRFactor() ? rfactor_dom.at(i) : root_dom.at(i);
+    auto updated_id = new_maybe_alloc.at(i);
 
     // If the concretized ID is a broadcast domain, drop the contig val
     if (updated_id->isBroadcast()) {
@@ -780,7 +791,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   }
 
   Val* mutated_val = IrBuilder::create<TensorDomain>(
-      td->container(), root_dom, rfactor_dom, domain, contig);
+      td->container(), root_dom, rfactor_dom, alloc_dom, leaf_domain, contig);
   registerConcretization(td, mutated_val);
 }
 
@@ -824,12 +835,21 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
     std::optional<IterType> id_type;
 
+    bool found = false;
     for (const auto& c2p : c2p_maps) {
       auto p_it = c2p.find(root_id);
-      NVF_ERROR(
-          p_it != c2p.end(),
-          "No input ID found to map with output ID: ",
-          root_id->toString());
+      // In some cases, we can exact map to one producer, but not to another.
+      // This is the case for index_select, for example, whose first input is
+      // the tensor to look up values in and whose second input gives the
+      // indices to use for the lookup. In the selected dimension, the first
+      // input will not exact map to the output, but the second input will.
+      // Here we just require at least one input to map to root_id so that we
+      // can propagate an IterType.
+      // See https://github.com/NVIDIA/Fuser/issues/1192 for an example
+      if (p_it == c2p.end()) {
+        continue;
+      }
+      found = true;
       auto input_id = p_it->second;
       NVF_ERROR(
           input_id == maybeMutated(input_id),
@@ -850,6 +870,10 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
         id_type = input_id->getIterType();
       }
     }
+    NVF_ERROR(
+        found,
+        "No input ID found to map with output ID: ",
+        root_id->toString());
 
     NVF_ERROR(
         id_type.has_value(),
@@ -892,6 +916,9 @@ size_t DynamicTransformConcretizationInfo::hash() const {
   size_t hash = 0;
   for (const auto& [tv, view_result] : getReshapeTransforms()) {
     hashCombine(hash, view_result.hash());
+  }
+  for (const auto& extent_idx : getEmptyExtents()) {
+    hashCombine(hash, (size_t)extent_idx);
   }
   for (const auto& [id, iter_type] : getResizeIterTypes()) {
     hashCombine(hash, (size_t)iter_type);
