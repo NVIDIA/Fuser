@@ -210,7 +210,7 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
   // For example,
   //
   // in: rfactor=[i0,i1,i2], allocation=[i2,i0,i1]
-  // out = permute(in, {2, 0, 1})
+  // out = permute(in, {1, 0, 2})
   // out: root=[i3,i4,i5], rfactor=[i4,i3,i5]
   //
   // `out`'s preferred allocation domain is [i5,i3,i4]. This allocation domain
