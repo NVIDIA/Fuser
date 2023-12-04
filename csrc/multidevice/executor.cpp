@@ -67,16 +67,6 @@ void PipelineExecutor::handle(PipelineStage* stage) {
   for (auto output_idx : c10::irange(outputs.size())) {
     val_to_IValue_[stage->outputs().at(output_idx)->as<PipelineVal>()->getOriginalVal()] = outputs.at(output_idx);
   }
-  // if (!runtime_.comm_.deviceId())
-  //   std::cout << "stage "
-  //             << stage->toString()
-  //             << " with "
-  //             << stage->outputs().size()
-  //             << "  outputs\n"
-  //             << stage->outputs().at(0)->as<PipelineVal>()->getOriginalVal()->toString()
-  //             << "\nwith value\n"
-  //             << outputs.at(0)
-  //             << std::endl;
 }
 
 void PipelineExecutor::handle(PipelineCommunication* c) {
