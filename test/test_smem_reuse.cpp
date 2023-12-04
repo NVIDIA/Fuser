@@ -450,25 +450,33 @@ TEST_F(SmemReuseTest, SkippedSyncInterval) {
 
   // By parallelizing the first loop, we remove its appearance in the kernel.
   //
-  //   6  FOR threadIdx.x in ithreadIdx.x3{5}:
-  //   7    FOR i85 in iS4{6}:
-  //   8      FOR i86 in iS5{7}:
-  //   9        T0_s[ ithreadIdx.x0{5}, iS1{6}, iS2{7} ] ca_pos( 3 )
-  //      = full({5, 6, 7}, ( (float)(1) ));
+  //   6   FOR threadIdx.x in ithreadIdx.x3{5}:
+  //   7     FOR i85 in iS4{6}:
+  //   8       FOR i86 in iS5{7}:
+  //   9         T0_s[ ithreadIdx.x0{5}, iS1{6}, iS2{7} ] ca_pos( 3 )
+  //               = full({5, 6, 7}, ( (float)(1) ));
   //   10        T1_l[ ithreadIdx.x3{5}, iS4{6}, iS5{7} ] produce_pos( 3 )
-  //      = -T0_s[ ithreadIdx.x0{5}, iS1{6}, iS2{7} ] ca_pos( 3 );
+  //               = -T0_s[ ithreadIdx.x0{5}, iS1{6}, iS2{7} ] ca_pos( 3 );
+  //   11      ENDFOR i86
+  //   12    ENDFOR i85
+  //   13  ENDFOR threadIdx.x
   //   14  FOR threadIdx.x in ithreadIdx.x6{5}:
   //   15    FOR i81 in iS7{6}:
   //   16      FOR i82 in iS9{8}rf:
   //   17        T2_s[ ithreadIdx.x6{5}, iS7{6}, iS9{8}rf ]
   //      = pad( T1_l[ ithreadIdx.x3{5}, iS4{6}, iS5{7} ] produce_pos( 3 ), {0,
   //      0, 0, 0, 0, 1} )
+  //   18      ENDFOR i82
+  //   19    ENDFOR i81
+  //   20  ENDFOR threadIdx.x
   //   21  FOR threadIdx.x in ithreadIdx.x10{5}:
   //   22    FOR i83 in iS11{6}:
   //   23      FOR i84 in iS12{8}:
   //   24        T3_g[ ithreadIdx.x10{5}, iS11{6}, iS12{8} ]
-  //      = Set( T2_s[ ithreadIdx.x6{5}, iS7{6}, iS9{8}rf ], cache_op=Streaming
-  //      )
+  //      = Set( T2_s[ ithreadIdx.x6{5}, iS7{6}, iS9{8}rf ], cache_op=Streaming)
+  //   25      ENDFOR i84
+  //   26    ENDFOR i83
+  //   27  ENDFOR threadIdx.x
   //
   // Parallelized loops still occupy a "position" in the expression list; i.e.
   // the ENDFOR of the ithreadIdx.x3{5} loop is at position 13 (not shown).
