@@ -90,7 +90,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
         !fusion->isA<kir::Kernel>(),
         "Invalid container. Kernel container not allowed.\n");
 
-    traverseTo(fusion, fusion->getTerminatingOutputs(), false, false);
+    traverseTo(fusion->getTerminatingOutputs(), false, false);
 
     finalizeDynamicVals();
 
@@ -147,7 +147,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   //! Process vector of leaf dynamic values by finding inputs and recording the
   //! result into info_
   void finalizeDynamicVals() {
-    const auto inputs = InputsOf::outputs(info_.fusion(), leaf_dynamic_vals_);
+    const auto inputs = InputsOf::outputs(leaf_dynamic_vals_);
     info_.root_dynamic_vals_.insert(inputs.begin(), inputs.end());
 
     // initial_info_ provides a set of Vals that are used for concretization.
@@ -621,7 +621,6 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
     // Note that it is assumed that theres's no further expression
     // beyond the rfactor domain as asserted above
     auto all_id_exprs = StmtSort::getExprsBetween(
-        tv->fusion(),
         {tv->getRootDomain().begin(), tv->getRootDomain().end()},
         {tv->getMaybeRFactorDomain().begin(),
          tv->getMaybeRFactorDomain().end()});
@@ -750,11 +749,11 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
 
   std::vector<IterDomain*> root_dom = updateIdVec(td->root());
   std::vector<IterDomain*> rfactor_dom = td->hasRFactor()
-      ? updateIdVec(td->maybeRFactor())
+      ? updateIdVec(td->rfactor())
       : std::vector<IterDomain*>();
-  std::vector<IterDomain*> domain = updateIdVec(td->leaf());
+  std::vector<IterDomain*> leaf_domain = updateIdVec(td->leaf());
   std::vector<IterDomain*> alloc_dom = td->hasAllocation()
-      ? updateIdVec(td->maybeAllocation())
+      ? updateIdVec(td->allocation())
       : std::vector<IterDomain*>();
 
   if (!mutated) {
@@ -764,12 +763,12 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   // Update the contiguity vector. Drop the contig val if mutated to broadcast
   auto contig = td->contiguity();
 
-  const auto& new_alloc = td->hasAllocation() ? alloc_dom
-      : td->hasRFactor()                      ? rfactor_dom
-                                              : root_dom;
+  const auto& new_maybe_alloc = td->hasAllocation() ? alloc_dom
+      : td->hasRFactor()                            ? rfactor_dom
+                                                    : root_dom;
   const auto& original_alloc = td->maybeAllocation();
   NVF_ERROR(
-      new_alloc.size() == original_alloc.size(),
+      new_maybe_alloc.size() == original_alloc.size(),
       "rank of allocation domain shouldn't change in concretization");
 
   for (const auto i : c10::irange(original_alloc.size())) {
@@ -783,7 +782,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
         "Unexpected to have a non-contig symbolic domain: ",
         original_id->toString());
 
-    auto updated_id = new_alloc.at(i);
+    auto updated_id = new_maybe_alloc.at(i);
 
     // If the concretized ID is a broadcast domain, drop the contig val
     if (updated_id->isBroadcast()) {
@@ -792,7 +791,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   }
 
   Val* mutated_val = IrBuilder::create<TensorDomain>(
-      td->container(), root_dom, rfactor_dom, alloc_dom, domain, contig);
+      td->container(), root_dom, rfactor_dom, alloc_dom, leaf_domain, contig);
   registerConcretization(td, mutated_val);
 }
 

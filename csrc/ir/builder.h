@@ -62,6 +62,7 @@ class IrBuilder {
   static Val* absExpr(Val* val);
   static Val* setExpr(Val* val);
   static Val* maybeCastExpr(DataType dtype, Val* val);
+  static Val* maybeRefCastExpr(DataType dtype, Val* val);
   static Val* addressExpr(Val* val);
   static NamedScalar* setExprNamedScalar(const std::string& name, Val* val);
   static NamedScalar* addressExprNamedScalar(const std::string& name, Val* val);
@@ -71,6 +72,8 @@ class IrBuilder {
   static Val* logicalOrExpr(Val* lhs, Val* rhs);
   static Val* bitwiseAndExpr(Val* lhs, Val* rhs);
   static Val* bitwiseOrExpr(Val* lhs, Val* rhs);
+  static Val* lShiftExpr(Val* lhs, Val* rhs);
+  static Val* rShiftExpr(Val* lhs, Val* rhs);
   static Val* eqExpr(Val* lhs, Val* rhs);
   static Val* neExpr(Val* lhs, Val* rhs);
   static Val* gtExpr(Val* lhs, Val* rhs);
@@ -98,6 +101,10 @@ class IrBuilder {
 
   // Get tensor metadata
   static Val* metadataExpr(TensorView* tv);
+
+  // Get tensor base address, for gmem tensor, it is something like
+  // `T1.data`. For smem tensor, it is something like `toSmem(T1)`.
+  static Val* baseAddressExpr(TensorView* tv);
 
   // Construct an array of values, or nested arrays of values.
   template <typename T>

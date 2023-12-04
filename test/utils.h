@@ -583,20 +583,17 @@ inline bool cudaArchGuardShouldSkip(
     COMPILE_FUSION;                                                          \
   }
 
-// util to track support matmul operand layout.
-using MatmulLayout = MmaOptions::MmaLayout;
-
-static constexpr std::array<MatmulLayout, 4> kAllSupportedMatmulLayout = {
-    MatmulLayout::TT,
-    MatmulLayout::NT,
-    MatmulLayout::TN,
-    MatmulLayout::NN};
+static constexpr std::array<MmaLayout, 4> kAllSupportedMmaLayout = {
+    MmaLayout::TT,
+    MmaLayout::NT,
+    MmaLayout::TN,
+    MmaLayout::NN};
 
 // Generic interface to get matmul op with the given layout.
 TensorView* matmul(
     TensorView* a,
     TensorView* b,
-    MatmulLayout layout,
+    MmaLayout layout,
     bool turing_or_later // TODO: This is a temporary solution. Remove this!
 );
 
@@ -607,20 +604,20 @@ TensorView* matmul(
 TensorView* splitkLikeBatchedMatmul(
     TensorView* a,
     TensorView* b,
-    MatmulLayout layout);
+    MmaLayout layout);
 
 // Utility to generate matmul input tensors based on given layout
-at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout);
+at::Tensor atMatmul(at::Tensor a, at::Tensor b, MmaLayout layout);
 
 // Utility to generate matmul input tensors based on given layout
-at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout);
+at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MmaLayout layout);
 
 // Utility to generate inputs based on given layout
 std::pair<at::Tensor, at::Tensor> matmulAtInput(
     int M,
     int N,
     int K,
-    MatmulLayout layout,
+    MmaLayout layout,
     c10::ScalarType dtype = at::kHalf);
 
 // Labels to describe tensor position in matmul:
@@ -633,7 +630,7 @@ enum class TensorMatmulPos { A, B, C, D, Bias };
 // Utility to generate buffers based on given problem, layout and tensor
 //  position in matmul with support for matmul and strided batch matmul
 at::Tensor matmulAtInput(
-    const MatmulLayout layout,
+    const MmaLayout layout,
     const TensorMatmulPos tensor,
     const c10::ScalarType dtype,
     const int M,

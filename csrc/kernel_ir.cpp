@@ -255,6 +255,9 @@ DataType getTypeOrIndexType(Val* value) {
 
 const char* getPTXConstraints(Val* value) {
   DataType dt = getTypeOrIndexType(value);
+  if (dt == DataType::Bool) {
+    return "r";
+  }
   if (auto ti = dynamic_cast<kir::TensorIndex*>(value)) {
     // If the index type is a pointer type, then we directly uses the pointer in
     // the generated code, instead of generating something like T0[i]. For this
@@ -315,14 +318,17 @@ std::vector<std::pair<std::string, Val*>> Asm::constraintsAndInputs() const {
 
 std::string Asm::parameters() const {
   int64_t counter = 0;
+  int64_t bool_counter = 0;
   std::stringstream ss;
-  auto gen = [&counter, &ss](Val* v) {
+  auto gen = [&counter, &bool_counter, &ss](Val* v) {
     DataType dtype = getTypeOrIndexType(v);
     if (counter > 0) {
       ss << ", ";
     }
     if (isPointerType(dtype)) {
       ss << "[%" << counter++ << "]";
+    } else if (dtype == DataType::Bool) {
+      ss << "p" << bool_counter++;
     } else if (std::holds_alternative<PrimDataType>(dtype.type)) {
       ss << "%" << counter++;
     } else if (std::holds_alternative<ArrayType>(dtype.type)) {
@@ -335,6 +341,8 @@ std::string Asm::parameters() const {
         ss << "%" << counter++;
       }
       ss << "}";
+    } else {
+      NVF_ERROR(false, "Unsupported data type ", dtype);
     }
   };
   for (auto out : outputs()) {
@@ -1571,7 +1579,7 @@ EncodeTensorMapTiled::EncodeTensorMapTiled(
     Val* box_dim,
     Val* element_strides,
     tma::TensorMapInterleave interleave,
-    tma::TensorMapSwizzle swizzle,
+    MmaInputSmemSwizzle swizzle,
     tma::TensorMapL2Promotion l2_promotion,
     tma::TensorMapFloatOOBFill oob_fill)
     : Expr(passkey) {
@@ -1625,7 +1633,7 @@ std::string EncodeTensorMapTiled::toString(int indent_size) const {
                           << ", element_strides="
                           << elementStrides()->toString()
                           << ", interleave=" << interleave()
-                          << ", swizzle=" << swizzle()
+                          << ", swizzle=" << nvfuser::toString(swizzle())
                           << ", l2_promotion=" << l2Promotion()
                           << ", oob_fill=" << oobFill() << ")\n";
   return ss.str();
@@ -1639,7 +1647,8 @@ std::string EncodeTensorMapTiled::toInlineString(int indent_size) const {
      << ", global_strides=" << globalStrides()->toInlineString()
      << ", box_dim=" << boxDim()->toInlineString()
      << ", element_strides=" << elementStrides()->toInlineString()
-     << ", interleave=" << interleave() << ", swizzle=" << swizzle()
+     << ", interleave=" << interleave()
+     << ", swizzle=" << nvfuser::toString(swizzle())
      << ", l2_promotion=" << l2Promotion() << ", oob_fill=" << oobFill() << ")";
   return ss.str();
 }

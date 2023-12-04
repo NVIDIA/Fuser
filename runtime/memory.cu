@@ -40,8 +40,8 @@ namespace Turing {
 //    hardware.
 //  The alignment requirement is lifted on sm80+,
 //    so this function is a no-op on Ampere or above.
-__device__ inline void adjustPartialLdMatrixAddrInTuring(
-    unsigned& addr_in_byte) {
+__device__ inline unsigned adjustPartialLdMatrixAddrInTuring(
+    unsigned addr_in_byte) {
   const unsigned thread_id = threadIdx.x;
   // Upper half warp has 8 bytes offset from aligned in .x2 option
   //  of ldmatrix. Currently no support for .x1 so assume always
@@ -55,73 +55,12 @@ __device__ inline void adjustPartialLdMatrixAddrInTuring(
     // mask out the bits where adjust_mask has 1.
     addr_in_byte &= (~mask_out);
   }
+  return addr_in_byte;
 }
 
 } // namespace Turing
 
 #endif // Arch 75
-
-#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800))
-
-namespace Ampere {
-
-// MMA instruction wrappers (sm_80+):
-
-// Global to SMEM load that is asynchronous,
-// not guaranteed to be completed until cpAsyncBarrier() is called.
-// if predicate is set to false, then gmem_ptr won't be read and smem_addr will
-// be zero-initialized gmem_ptr must be `sizeof(dtype) * len` aligned
-template <typename dtype, int len>
-__device__ inline void cpAsyncCa(
-    unsigned smem_addr,
-    void const* gmem_ptr,
-    bool predicate) {
-  constexpr int byte_size = sizeof(dtype) * len;
-
-  static_assert(
-      byte_size == 4 || byte_size == 8 || byte_size == 16,
-      "cp_async : unsupported byte size");
-
-  asm volatile(
-      "{\n"
-      "  .reg .pred p;\n"
-      "  setp.eq.b32 p, %3, 0;\n"
-      "  cp.async.ca.shared.global [%0], [%1], %2, p;\n"
-      "}\n" ::"r"(smem_addr),
-      "l"(gmem_ptr),
-      "n"(byte_size),
-      "r"((int)predicate));
-}
-
-// Global to SMEM load that is asynchronous,
-//  The cache global variant, i.e. skip L1 caching.
-// more details see:
-// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#cache-operators
-// not guaranteed to be completed until cpAsyncBarrier() is called.
-// if predicate is set to false, then gmem_ptr won't be read and smem_addr will
-// be zero-initialized gmem_ptr must be 16B aligned
-template <typename dtype, int len>
-__device__ inline void cpAsyncCg(
-    unsigned smem_addr,
-    void const* gmem_ptr,
-    bool predicate) {
-  constexpr int byte_size = sizeof(dtype) * len;
-
-  static_assert(byte_size == 16, "cp_async : unsupported byte size");
-
-  asm volatile(
-      "{\n"
-      "  .reg .pred p;\n"
-      "  setp.eq.b32 p, %2, 0;\n"
-      "  cp.async.cg.shared.global [%0], [%1], 16, p;\n"
-      "}\n" ::"r"(smem_addr),
-      "l"(gmem_ptr),
-      "r"((int)predicate));
-}
-
-} // namespace Ampere
-
-#endif // Arch 80
 
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
 
