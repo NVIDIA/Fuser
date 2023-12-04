@@ -1644,9 +1644,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto data_type = grop->out()->dtype();
     const auto op_type = grop->getReductionOpType();
 
-    const auto work_buffer =
-        grop->reduction_buffer()->buffer()->as<TensorView>();
-
     const auto par_domains =
         ir_utils::getParallelDomains(ir_utils::getTvOutput(grop));
     ArgumentBuilder block_flags;
@@ -1672,15 +1669,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(gen(out));
     func_args.arg(gen(grop->in()));
     func_args.arg(gen(grop->init()));
-    // TODO: don't hardcode index! Set up TensorIndex as work_buffer
-    func_args.arg(gen(work_buffer)).append("[").append("i11 + i15").append("]");
+    func_args.arg(gen(grop->serialReductionTensor()));
     func_args.arg(genReductionOp(op_type, out->dtype()));
 
     // Whether this is the first or last step
     func_args.arg(idx_in_segment).append(" == 0");
     func_args.arg(idx_in_segment).append(" == ").append(segment_size);
     // TODO: can we hoist the first and last step predicates? We might need to
-    // attach them to grop in order to do that
+    // attach them to grop in order to do that?
 
     // read and write predicates
     NVF_ERROR(grop->predicate() != nullptr && grop->predicate()->hasValue());

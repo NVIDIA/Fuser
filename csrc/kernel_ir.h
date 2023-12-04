@@ -981,7 +981,7 @@ class GridReduction final : public ReductionOp {
       Val* entrance_index,
       Val* entrances,
       bool is_allreduce = false,
-      bool is_serial = false);
+      TensorIndex* serial_reduction_tensor = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1021,8 +1021,12 @@ class GridReduction final : public ReductionOp {
     return attribute<ParallelTypeBitmap>(num_reduction_op_attr + 4);
   }
 
+  TensorIndex* serialReductionTensor() const {
+    return dynamic_cast<TensorIndex*>(attributeVal(num_reduction_op_attr + 5));
+  }
+
   bool isSerial() const {
-    return attribute<bool>(num_reduction_op_attr + 5);
+    return serialReductionTensor() != nullptr;
   }
 
   GridReduction* withThreadPredicate(

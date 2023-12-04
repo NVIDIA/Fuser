@@ -1107,7 +1107,7 @@ GridReduction::GridReduction(
     Val* entrance_index,
     Val* entrances,
     bool is_allreduce,
-    bool is_serial)
+    TensorIndex* serial_reduction_tensor)
     : ReductionOp(passkey, reduction_op_type, init, out, in, is_allreduce) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
@@ -1122,7 +1122,7 @@ GridReduction::GridReduction(
   addAttribute(entrance_index);
   addAttribute(entrances);
   addDataAttribute(ParallelTypeBitmap{});
-  addDataAttribute(is_serial);
+  addAttribute(serial_reduction_tensor);
 }
 
 std::string GridReduction::toString(int indent_size) const {
@@ -1157,6 +1157,11 @@ std::string GridReduction::toString(int indent_size) const {
                           << (isAllreduce() ? "true" : "false") << " )\n";
   indent(ss, indent_size) << "serial reduction = "
                           << (isSerial() ? "true" : "false") << " )\n";
+  if (isSerial()) {
+    indent(ss, indent_size)
+        << "serial reduction tensor = " << serialReductionTensor()->toString()
+        << " )\n";
+  }
   return ss.str();
 }
 
