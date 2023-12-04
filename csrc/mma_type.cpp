@@ -12,21 +12,7 @@
 
 namespace nvfuser {
 
-MmaBuilder::MmaBuilder(MmaOptions::MacroType macro) {
-  option_.macro = macro;
-}
-
-MmaBuilder& MmaBuilder::operand(MmaOptions::Operand a_or_b) {
-  option_.operand = a_or_b;
-  return *this;
-}
-
-// TODO: validate op config
-MmaOptions MmaBuilder::build() const {
-  return option_;
-}
-
-GemmTile getMmaOpShape(MmaOptions::MacroType macro) {
+GemmTile getMmaOpShape(MmaMacro macro) {
   return {getM(macro), getN(macro), getK(macro)};
 }
 
@@ -87,6 +73,22 @@ std::string toString(MmaMacro macro) {
   }
   ss << "_" << underlying.m << "_" << underlying.n << "_" << underlying.k;
   return ss.str();
+}
+
+std::string toString(MmaInputSmemSwizzle swizzle) {
+  switch (swizzle) {
+    case MmaInputSmemSwizzle::None:
+      return "NoSwizzle";
+    case MmaInputSmemSwizzle::B32:
+      return "32B";
+    case MmaInputSmemSwizzle::B64:
+      return "64B";
+    case MmaInputSmemSwizzle::B128:
+      return "128B";
+    default:
+      NVF_CHECK(false, "Unknown tensor map swizzle type!");
+      break;
+  }
 }
 
 size_t hash(MmaMacro macro) {

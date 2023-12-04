@@ -1397,6 +1397,10 @@ class MmaOp : public Expr {
     return nvfuser::isAmpere(macro());
   }
 
+  bool isHopper() const {
+    return nvfuser::isHopper(macro());
+  }
+
   void setMacro(MmaMacro options);
 
   auto layout() const {

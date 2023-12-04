@@ -160,13 +160,13 @@ class WarpMmaSwizzler {
   //! Applies the output mma swizzling to the given tv, should be used
   //!  on mma output or tv's involved in epilog fusion, i.e. bias.
   //! The rightmost iterdomains must follow the m,n,k convention before calling.
-  static void scheduleMmaWarpOutput(TensorView* tv, MmaOptions options);
+  static void scheduleMmaWarpOutput(TensorView* tv);
 
   //! Applies the input mma swizzling to the given tv as its allocation domain,
   //! should be used on mma input or tv's involved in any fusion before mma, but
   //! after smem read.
   //! The rightmost iterdomains must follow the m,n,k convention before calling.
-  static void scheduleOperandRead(TensorView* tv, MmaOptions options);
+  static void scheduleOperandRead(TensorView* tv, MmaOperand operand);
 
   //! Note [schedule of ldmatrix]
   //! If you look at the doc of ldmatrix and mma for Turing and Ampere:
@@ -182,7 +182,7 @@ class WarpMmaSwizzler {
   //! leaf domain of the ldmatrix output. The allocation domain of the ldmatrix
   //! output and mma inputs are scheduled in scheduleOperandRead, which must be
   //! called before this function.
-  static void scheduleLdMatrix(TensorView* tv, MmaOptions options);
+  static void scheduleLdMatrix(TensorView* tv, MmaOperand operand);
 };
 
 void checkDimSize(

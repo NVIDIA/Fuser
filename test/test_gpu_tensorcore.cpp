@@ -446,10 +446,6 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
   gemm_tile2.instruction_tile = GemmTile(16, 8, 16);
   gemm_tile2.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder1 = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
-
-  auto mma_builder2 = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
-
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       2 == mma_ops.size(),
@@ -535,21 +531,19 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
 
   // Schedule gemm 2 mma input
   // ---------------------------------------------------------------------------
-  tv3cr->applyMmaSwizzle(mma_builder2.operand(MmaOptions::Operand::A).build());
+  tv3cr->applyMmaSwizzle(MmaOperand::A);
 
   // [... Mi, Ni, Ki] want [Ni, Mi, Ki]
   tv3b->reorder({{-2, -3}, {-3, -2}});
-  tv3b->applyMmaSwizzle(mma_builder2.operand(MmaOptions::Operand::A).build());
+  tv3b->applyMmaSwizzle(MmaOperand::A);
 
-  tv2cr->applyMmaSwizzle(mma_builder2.operand(MmaOptions::Operand::B).build());
-  tv2b->applyMmaSwizzle(mma_builder2.operand(MmaOptions::Operand::B).build());
+  tv2cr->applyMmaSwizzle(MmaOperand::B);
+  tv2b->applyMmaSwizzle(MmaOperand::B);
 
   // Schedule mma output
   // ---------------------------------------------------------------------------
-  tv4c->applyMmaSwizzle(
-      mma_builder2.operand(MmaOptions::Operand::Accumulator).build());
-  tv4->applyMmaSwizzle(
-      mma_builder2.operand(MmaOptions::Operand::Accumulator).build());
+  tv4c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv4->applyMmaSwizzle(MmaOperand::Accumulator);
 
   // Schedule gemm 1:
   // ------------------------------------------------------------------
@@ -600,24 +594,20 @@ TEST_F(NVFuserTest, FusionMatmulMatmulAmpere_CUDA) {
 
   // Schedule mma input
   // ---------------------------------------------------------------------------
-  tv0cr->applyMmaSwizzle(mma_builder1.operand(MmaOptions::Operand::A).build());
+  tv0cr->applyMmaSwizzle(MmaOperand::A);
   // [... Mi, Ni, Ki] want [Ni, Mi, Ki]
   tv0b->reorder({{-2, -3}, {-3, -2}});
-  tv0b->applyMmaSwizzle(mma_builder1.operand(MmaOptions::Operand::A).build());
+  tv0b->applyMmaSwizzle(MmaOperand::A);
 
-  tv1cr->applyMmaSwizzle(mma_builder1.operand(MmaOptions::Operand::B).build());
-  tv1b->applyMmaSwizzle(mma_builder1.operand(MmaOptions::Operand::B).build());
+  tv1cr->applyMmaSwizzle(MmaOperand::B);
+  tv1b->applyMmaSwizzle(MmaOperand::B);
 
   // Schedule mma output
   // ---------------------------------------------------------------------------
-  tv3c->applyMmaSwizzle(
-      mma_builder1.operand(MmaOptions::Operand::Accumulator).build());
-  tv3cw->applyMmaSwizzle(
-      mma_builder1.operand(MmaOptions::Operand::Accumulator).build());
-  tv3h->applyMmaSwizzle(
-      mma_builder1.operand(MmaOptions::Operand::Accumulator).build());
-  tv3->applyMmaSwizzle(
-      mma_builder1.operand(MmaOptions::Operand::Accumulator).build());
+  tv3c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv3cw->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv3h->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv3->applyMmaSwizzle(MmaOperand::Accumulator);
   tv3cw->setMemoryType(MemoryType::Shared);
 
   // Parallelize
@@ -740,10 +730,6 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
   // Using Ampere mma macro
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder1 = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
-
-  auto mma_builder2 = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
-
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       2 == mma_ops.size(),
@@ -831,20 +817,18 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
 
   // Schedule gemm 2 mma input
   // ---------------------------------------------------------------------------
-  tv3cr->applyMmaSwizzle(mma_builder2.operand(MmaOptions::Operand::A).build());
+  tv3cr->applyMmaSwizzle(MmaOperand::A);
   // [... Mi, Ni, Ki] want [Ni, Mi, Ki]
   tv3b->reorder({{-2, -3}, {-3, -2}});
-  tv3b->applyMmaSwizzle(mma_builder2.operand(MmaOptions::Operand::A).build());
+  tv3b->applyMmaSwizzle(MmaOperand::A);
 
-  tv2cr->applyMmaSwizzle(mma_builder2.operand(MmaOptions::Operand::B).build());
-  tv2b->applyMmaSwizzle(mma_builder2.operand(MmaOptions::Operand::B).build());
+  tv2cr->applyMmaSwizzle(MmaOperand::B);
+  tv2b->applyMmaSwizzle(MmaOperand::B);
 
   // Schedule mma output
   // ---------------------------------------------------------------------------
-  tv4c->applyMmaSwizzle(
-      mma_builder2.operand(MmaOptions::Operand::Accumulator).build());
-  tv4->applyMmaSwizzle(
-      mma_builder2.operand(MmaOptions::Operand::Accumulator).build());
+  tv4c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv4->applyMmaSwizzle(MmaOperand::Accumulator);
 
   // Schedule gemm 1:
   // ------------------------------------------------------------------
@@ -903,24 +887,19 @@ TEST_F(NVFuserTest, FusionMatmulSoftmaxMatmulAmpere_CUDA) {
 
   // Schedule mma input
   // ---------------------------------------------------------------------------
-  tv0cr->applyMmaSwizzle(mma_builder1.operand(MmaOptions::Operand::A).build());
+  tv0cr->applyMmaSwizzle(MmaOperand::A);
   // [... Mi, Ni, Ki] want [Ni, Mi, Ki]
   tv0b->reorder({{-2, -3}, {-3, -2}});
-  tv0b->applyMmaSwizzle(mma_builder1.operand(MmaOptions::Operand::A).build());
+  tv0b->applyMmaSwizzle(MmaOperand::A);
 
-  tv1cr->applyMmaSwizzle(mma_builder1.operand(MmaOptions::Operand::B).build());
-  tv1b->applyMmaSwizzle(mma_builder1.operand(MmaOptions::Operand::B).build());
+  tv1cr->applyMmaSwizzle(MmaOperand::B);
+  tv1b->applyMmaSwizzle(MmaOperand::B);
 
   // // Schedule mma output
   // //
   // ---------------------------------------------------------------------------
-  tv3c->applyMmaSwizzle(
-      mma_builder1.operand(MmaOptions::Operand::Accumulator).build());
-  tv3->applyMmaSwizzle(
-      mma_builder1.operand(MmaOptions::Operand::Accumulator).build());
-
-  // mma_utils::WarpMmaSwizzler::scheduleMmaWarpOutput(tv3ccw,
-  // mma_builder1.build());
+  tv3c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv3->applyMmaSwizzle(MmaOperand::Accumulator);
 
   // Put tv3 result in smem
   tv3->setMemoryType(MemoryType::Shared);
@@ -1107,8 +1086,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
-
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
@@ -1172,20 +1149,18 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNcpAsync_CUDA) {
   tv1cw->setMemoryType(MemoryType::Shared);
   // Schedule mma input
   // ---------------------------------------------------------------------------
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv0cr->applyMmaSwizzle(MmaOperand::A);
   // [... Mi, Ni, Ki]
   tv0b->reorder({{-2, -3}, {-3, -2}});
-  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv0b->applyMmaSwizzle(MmaOperand::A);
 
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv1cr->applyMmaSwizzle(MmaOperand::B);
+  tv1b->applyMmaSwizzle(MmaOperand::B);
 
   // Schedule mma output
   // ---------------------------------------------------------------------------
-  tv2c->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-  tv2->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
   // Parallelize
   //  0   1  2  3   4   5  6  7  8  9  10
@@ -1246,8 +1221,6 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
-
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -1333,21 +1306,19 @@ TEST_F(NVFuserTest, FusionAmpereStridedBatchedMatmulTN_CUDA) {
   tv1cw->setMemoryType(MemoryType::Shared);
   // Schedule mma input
   // ---------------------------------------------------------------------------
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv0cr->applyMmaSwizzle(MmaOperand::A);
 
   // [... Mi, Ni, Ki] want [Ni, Mi, Ki]
   tv0b->reorder({{-2, -3}, {-3, -2}});
-  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv0b->applyMmaSwizzle(MmaOperand::A);
 
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv1cr->applyMmaSwizzle(MmaOperand::B);
+  tv1b->applyMmaSwizzle(MmaOperand::B);
 
   // Schedule mma output
   // ---------------------------------------------------------------------------
-  tv2c->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-  tv2->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
   // Parallelize
   //  0   1  2  3   4   5  6  7   8  9  10
@@ -1424,8 +1395,6 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
   gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Ampere_16_8_16);
-
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
@@ -1496,21 +1465,19 @@ TEST_F(NVFuserTest, FusionAmpereViewMatmulTN_CUDA) {
   tv1cw->setMemoryType(MemoryType::Shared);
   // Schedule mma input
   // ---------------------------------------------------------------------------
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv0cr->applyMmaSwizzle(MmaOperand::A);
 
   // [... Mi, Ni, Ki] want [Ni, Mi, Ki]
   tv0b->reorder({{-2, -3}, {-3, -2}});
-  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv0b->applyMmaSwizzle(MmaOperand::A);
 
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv1cr->applyMmaSwizzle(MmaOperand::B);
+  tv1b->applyMmaSwizzle(MmaOperand::B);
 
   // Schedule mma output
   // ---------------------------------------------------------------------------
-  tv2c->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-  tv2->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
   // Inline the reshape op with the shared mem write minus
   //  the vectorization axes for now.
@@ -1574,8 +1541,6 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
   // [M,N,K]
   auto tv0b = broadcast(tv0, {false, true, false});
   auto tv1b = broadcast(tv1, {true, false, false});
-
-  auto mma_builder = MmaBuilder(MmaOptions::MacroType::Turing_16_8_16);
 
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
 
@@ -1678,20 +1643,18 @@ TEST_F(NVFuserTest, FusionAmpereMatmulTNSwizzled_CUDA) {
 
   tv1cw->setMemoryType(MemoryType::Shared);
   // Schedule mma input
-  tv0cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv0cr->applyMmaSwizzle(MmaOperand::A);
 
   // [... Mi, Ni, Ki]
   tv0b->reorder({{-2, -3}, {-3, -2}});
-  tv0b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::A).build());
+  tv0b->applyMmaSwizzle(MmaOperand::A);
 
-  tv1cr->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
-  tv1b->applyMmaSwizzle(mma_builder.operand(MmaOptions::Operand::B).build());
+  tv1cr->applyMmaSwizzle(MmaOperand::B);
+  tv1b->applyMmaSwizzle(MmaOperand::B);
 
   // Schedule mma output
-  tv2c->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
-  tv2->applyMmaSwizzle(
-      mma_builder.operand(MmaOptions::Operand::Accumulator).build());
+  tv2c->applyMmaSwizzle(MmaOperand::Accumulator);
+  tv2->applyMmaSwizzle(MmaOperand::Accumulator);
 
   // Parallelize
   //  0   1  2  3   4   5  6   7  8  9  10

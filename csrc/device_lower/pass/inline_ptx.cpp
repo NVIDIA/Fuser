@@ -27,7 +27,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
             "cp.async.commit_group",
             std::vector<Val*>{},
             std::vector<Val*>{},
-            kir::Asm::Options{true}));
+            kir::Asm::Options{/*volatile=*/true}));
   }
 
   void handle(kir::CpAsyncWait* wait) override {
@@ -38,13 +38,13 @@ class LowerToInlinePtx : public kir::ExprMutator {
           "cp.async.wait_group",
           std::vector<Val*>{},
           std::vector<Val*>{IrBuilder::create<Val>(stages)},
-          kir::Asm::Options{true});
+          kir::Asm::Options{/*volatile=*/true});
     } else {
       replace = IrBuilder::create<kir::Asm>(
           "cp.async.wait_all",
           std::vector<Val*>{},
           std::vector<Val*>{},
-          kir::Asm::Options{true});
+          kir::Asm::Options{/*volatile=*/true});
     }
 
     registerReplace(wait, replace);
@@ -57,7 +57,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
             "cp.async.bulk.commit_group",
             std::vector<Val*>{},
             std::vector<Val*>{},
-            kir::Asm::Options{true}));
+            kir::Asm::Options{/*volatile=*/true}));
   }
 
   void handle(kir::CpAsyncBulkS2GWait* wait) override {
@@ -68,7 +68,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
             "cp.async.bulk.wait_group.read",
             std::vector<Val*>{},
             std::vector<Val*>{IrBuilder::create<Val>(stages)},
-            kir::Asm::Options{true, true}));
+            kir::Asm::Options{/*volatile=*/true, /*memory=*/true}));
   }
 
   void handle(LoadStoreOp* ldst) override {
@@ -87,7 +87,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
               ss.str(),
               std::vector<Val*>{ldst->out()},
               std::vector<Val*>{ldst->in()},
-              kir::Asm::Options{true}));
+              kir::Asm::Options{/*volatile=*/true}));
       return;
     } else if (ir_utils::isCpAsyncOp(ldst)) {
       auto out_tv = ldst->out()->as<kir::TensorIndex>()->view();
@@ -113,11 +113,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
                   ldst->in(),
                   IrBuilder::create<Val>(vec_size),
                   ldst->predicate()},
-              kir::Asm::Options{true}));
+              kir::Asm::Options{/*volatile=*/true}));
     }
   }
 
-  void handle(MmaOp* mma) override {
+  void handleTuringOrAmpereMma(MmaOp* mma) {
     // Constants definitions based on MMA PTX instruction documentation:
     // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#multiply-and-accumulate-instruction-mma
     const int m = 16;
@@ -185,6 +185,20 @@ class LowerToInlinePtx : public kir::ExprMutator {
       }
     }
     registerRemove(mma);
+  }
+
+  void handleHopperMma(MmaOp* mma) {
+    NVF_ERROR(false, "Hopper MMA not supported yet");
+  }
+
+  void handle(MmaOp* mma) override {
+    if (mma->isTuring() || mma->isAmpere()) {
+      handleTuringOrAmpereMma(mma);
+    } else if (mma->isHopper()) {
+      handleHopperMma(mma);
+    } else {
+      NVF_ERROR(false, "Unsupported MMA architecture");
+    }
   }
 };
 

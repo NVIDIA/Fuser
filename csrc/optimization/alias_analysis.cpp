@@ -191,14 +191,10 @@ void AliasFinder::handle(const ViewOp* view) {
 }
 
 void AliasFinder::handle(const LoadStoreOp* permute) {
-  TensorView* out = dynamic_cast<TensorView*>(permute->out());
-  if (!out->hasRFactor()) {
-    // Not a permute. It's actually an easier case to propagate aliases. I'm
-    // too lazy.
+  TensorView* in = dynamic_cast<TensorView*>(permute->in());
+  if (in == nullptr) {
     return;
   }
-
-  TensorView* in = permute->in()->as<TensorView>();
   // Look at the preferred layout not `in`'s current layout.
   Layout in_layout = analysis_.preferredLayout(in);
   if (!ir_utils::computePermutation(
@@ -208,6 +204,7 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
     return;
   }
 
+  TensorView* out = permute->out()->as<TensorView>();
   // Compute `out`'s preferred allocation domain for aliasing.
   //
   // For example,
