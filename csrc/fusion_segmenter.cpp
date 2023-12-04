@@ -26,6 +26,20 @@ namespace {
 
 using GroupSet = VectorOfUniqueEntries<SegmentedGroup*>;
 
+template <template <typename> class ContainerT, typename T>
+std::vector<int64_t> convertPointerToInteger(
+    const ContainerT<T*>& container,
+    const std::unordered_map<T*, int64_t>& map) {
+  std::vector<int64_t> result;
+  result.reserve(container.size());
+  std::transform(
+      container.begin(),
+      container.end(),
+      std::back_inserter(result),
+      [&](T* pointer) { return map.at(pointer); });
+  return result;
+}
+
 } // namespace
 
 flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
@@ -35,45 +49,19 @@ flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
     const std::unordered_map<SegmentedGroup*, int64_t>& groups_map,
     const std::unordered_map<SegmentedEdge*, int64_t>& edges_map) const {
   FUSER_PERF_SCOPE("SegmentedGroup::serialize");
-  // TODO Replace with template function
-  std::vector<int64_t> producer_edges_fb;
-  producer_edges_fb.reserve(producer_edges.size());
-  std::transform(
-      producer_edges.begin(),
-      producer_edges.end(),
-      std::back_inserter(producer_edges_fb),
-      [&](SegmentedEdge* se) { return edges_map.at(se); });
+  std::vector<int64_t> producer_edges_fb =
+      convertPointerToInteger(producer_edges, edges_map);
 
-  std::vector<int64_t> consumer_edges_fb;
-  consumer_edges_fb.reserve(consumer_edges.size());
-  std::transform(
-      consumer_edges.begin(),
-      consumer_edges.end(),
-      std::back_inserter(consumer_edges_fb),
-      [&](SegmentedEdge* se) { return edges_map.at(se); });
+  std::vector<int64_t> consumer_edges_fb =
+      convertPointerToInteger(consumer_edges, edges_map);
 
-  std::vector<int64_t> input_vals_fb;
-  input_vals_fb.reserve(input_vals.size());
-  std::transform(
-      input_vals.begin(),
-      input_vals.end(),
-      std::back_inserter(input_vals_fb),
-      [&](Val* v) { return vals_map.at(v); });
+  std::vector<int64_t> input_vals_fb =
+      convertPointerToInteger(input_vals, vals_map);
 
-  std::vector<int64_t> output_vals_fb;
-  output_vals_fb.reserve(output_vals.size());
-  std::transform(
-      output_vals.begin(),
-      output_vals.end(),
-      std::back_inserter(output_vals_fb),
-      [&](Val* v) { return vals_map.at(v); });
+  std::vector<int64_t> output_vals_fb =
+      convertPointerToInteger(output_vals, vals_map);
 
-  std::vector<int64_t> exprs_fb;
-  output_vals_fb.reserve(exprs_.size());
-  std::transform(
-      exprs_.begin(), exprs_.end(), std::back_inserter(exprs_fb), [&](Expr* v) {
-        return exprs_map.at(v);
-      });
+  std::vector<int64_t> exprs_fb = convertPointerToInteger(exprs_, exprs_map);
 
   int64_t merge_with_segmented_group = -1;
   if (merge_with_ != nullptr) {
