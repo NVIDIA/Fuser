@@ -625,6 +625,12 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
     case BinaryOpType::Gcd:
       return {gcd(lhs, rhs)};
       break;
+    case BinaryOpType::Lshift:
+      return {lhs << rhs};
+      break;
+    case BinaryOpType::Rshift:
+      return {lhs >> rhs};
+      break;
     default:
       NVF_CHECK(
           false,
@@ -3020,7 +3026,7 @@ std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
       !in_x->isReduction() && !in_y->isReduction(),
       "swizzled reduction not yet supported");
 
-  for (auto input : InputsOf::outputs(in_x->fusion(), {in_x, in_y})) {
+  for (auto input : InputsOf::outputs({in_x, in_y})) {
     NVF_CHECK(
         !input->as<IterDomain>()->isBroadcast(),
         "swizzling broadcast axes not yet supported");

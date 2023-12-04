@@ -3703,7 +3703,7 @@ void SegmentCandidateFinder::resolveInputsInGroup(SegmentedGroup* group) {
   group->input_vals = IterVisitor::getInputsTo(group->inputs());
 
   // Grab all expressions needed to produce to_visit
-  auto input_exprs = StmtSort::getExprsTo(completeFusion(), to_visit);
+  auto input_exprs = StmtSort::getExprsTo(to_visit);
 
   // Insert those expressions at the beginning of the group
   group->exprs_.insert(
@@ -3963,7 +3963,7 @@ class ForceHalfAnnotation : public IterVisitor {
                val->getDataType().value() == DataType::BFloat16);
         });
 
-    annotation.traverseTo(fusion, fp16_outputs);
+    annotation.traverseTo(fp16_outputs);
     return annotation.force_fp16_tv_set_;
   }
 

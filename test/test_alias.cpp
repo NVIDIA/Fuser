@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
+#include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <optimization/alias_analysis.h>
@@ -21,10 +22,12 @@
 namespace nvfuser {
 
 using testing::_;
+using testing::ContainsRegex;
 using testing::Each;
 using testing::ElementsAre;
 using testing::IsEmpty;
 using testing::IsTrue;
+using testing::Not;
 using testing::Optional;
 using testing::Pair;
 
@@ -382,12 +385,7 @@ TEST_F(AliasTest, DuplicateOutputs) {
 
   at::Tensor expected_out_tensor = in_tensor.add(3.141);
   // Verify output values.
-  testValidate(
-      fec.fusion(),
-      {expected_out_tensor, expected_out_tensor},
-      {in_tensor},
-      __LINE__,
-      __FILE__);
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
 TEST_F(AliasTest, SliceToSizeOne_Issue1353) {
@@ -529,13 +527,30 @@ TEST_F(AliasTest, DuplicateOutputsSegmentedFusion) {
   at::Tensor intermediate_tensor = in_tensor.add(3.141);
   at::Tensor out_tensor = intermediate_tensor.mul(2.0);
   // Verify output values.
-  testValidate(
-      fec.fusion(),
-      {intermediate_tensor, intermediate_tensor, out_tensor, out_tensor},
-      {in_tensor},
-      __LINE__,
-      __FILE__);
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
+
+namespace {
+
+const FusionExecutor& mostRecentExecutor(const FusionExecutorCache& fec) {
+  const std::vector<FusionExecutor>& executors =
+      fec.getMostRecentKernelRuntime()->executors();
+  return executors.back();
+}
+
+void expectKernelDoesNotStoreToOutput(
+    const FusionExecutor& executor,
+    const int64_t out_index) {
+  // Get the variable name from the `kir::Kernel` not the input fusion, because
+  // they are not always the same.
+  std::string var_name =
+      ir_utils::varName(executor.kernel()->outputs()[out_index]);
+  EXPECT_THAT(
+      executor.kernelString(), Not(ContainsRegex(R"(\b)" + var_name + R"(\[)")))
+      << "The generated CUDA kernel shouldn't store data to `" << var_name
+      << "`:" << executor.kernelString();
+}
+} // namespace
 
 TEST_F(AliasTest, NotAllOutputsAlias) {
   auto fusion = std::make_unique<Fusion>();
@@ -554,16 +569,35 @@ TEST_F(AliasTest, NotAllOutputsAlias) {
 
   // As a known limitation, nvFuser still generates code to copy data from `in`
   // to `slice_out` despite the fact that `slice_out` is an alias.
-  testValidate(
-      fec.fusion(),
-      out_tensors,
-      {in_tensor},
-      {in_tensor.slice(/*dim=*/1, /*start=*/0, /*end=*/2), in_tensor + 1.f},
-      __LINE__,
-      __FILE__);
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   at::Tensor slice_out_tensor = out_tensors[0];
   EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
+
+  expectKernelDoesNotStoreToOutput(mostRecentExecutor(fec), /*out_index=*/0);
+}
+
+TEST_F(AliasTest, AliasOutputBeforeNonAliasOutput) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* slice_out = slice(in, {0, 0}, {2, 2});
+  TensorView* add_out = add(slice_out, slice_out);
+  fusion->addInput(in);
+  fusion->addOutput(slice_out);
+  fusion->addOutput(add_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  at::Tensor slice_out_tensor = out_tensors[0];
+  EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
+
+  expectKernelDoesNotStoreToOutput(mostRecentExecutor(fec), /*out_index=*/0);
 }
 
 TEST_F(AliasTest, Set_NoAliasForIncompatibleLayout) {
@@ -586,6 +620,51 @@ TEST_F(AliasTest, Set_NoAliasForIncompatibleLayout) {
 
   // Verify `out_tensor` is not an alias of `in_tensor`.
   EXPECT_FALSE(out_tensor.is_alias_of(in_tensor));
+}
+
+// Verifying that duplicated outputs are properly alised
+TEST_F(AliasTest, DuplicateOutputsComplex) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  fusion->addInput(in);
+  TensorView* out = add(in, IrBuilder::create<Val>(5.0));
+  fusion->addOutput(out);
+  // duplicated output
+  fusion->addOutput(out);
+  TensorView* out1 = add(in, IrBuilder::create<Val>(1.0));
+  fusion->addOutput(out1);
+  // duplicated output
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
+
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  ASSERT_EQ(out_tensors.size(), 4);
+
+  // Verify aliases among outputs.
+  EXPECT_TRUE(out_tensors[0].is_alias_of(out_tensors[1]));
+  EXPECT_FALSE(out_tensors[0].is_alias_of(out_tensors[2]));
+  EXPECT_TRUE(out_tensors[0].is_alias_of(out_tensors[3]));
+
+  // Verify output values.
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+}
+
+// test verifying that duplicated input is not allowed in nvfuser
+TEST_F(AliasTest, DuplicateInputs) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  fusion->addInput(in);
+
+  // duplicated input is not allowed
+  EXPECT_THAT(
+      [&]() { fusion->addInput(in); },
+      testing::ThrowsMessage<nvfuser::nvfError>(
+          testing::HasSubstr("duplicated inputs is not allowed")));
 }
 
 } // namespace nvfuser

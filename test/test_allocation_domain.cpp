@@ -1299,4 +1299,17 @@ TEST_F(AllocationDomainTest, Issue1290_ReplayCasPFailedDueToDifferentRanks) {
   EXPECT_THAT(out_tensor.sizes(), ElementsAre(2));
 }
 
+// This test is meant to verify that trivial stride order is dropped by
+// TensorViewBuilder. See issue: https://github.com/NVIDIA/Fuser/issues/1399
+TEST_F(AllocationDomainTest, TrivialStrideOrderTensorViewBuilder) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* tv0 = TensorViewBuilder().ndims(2).strideOrder({0, 1}).build();
+  EXPECT_TRUE(tv0->hasAllocation());
+  // trivial stride order would be dropped by TensorViewbuilder
+  tv0 = TensorViewBuilder().ndims(2).strideOrder({1, 0}).build();
+  // confirming that stride order is dropped and allocation domain is empty
+  EXPECT_TRUE(!tv0->hasAllocation());
+}
+
 } // namespace nvfuser

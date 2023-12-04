@@ -377,9 +377,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
   // empty backward exprs, vice versa.
 
   auto backward_exprs = StmtSort::getExprsBetween(
-      frontier.front()->fusion(),
-      {to.begin(), to.end()},
-      {frontier.begin(), frontier.end()});
+      {to.begin(), to.end()}, {frontier.begin(), frontier.end()});
 
   // Mapping from rfactor to root, reverse expressions
   std::reverse(backward_exprs.begin(), backward_exprs.end());
@@ -407,9 +405,7 @@ std::vector<IterDomain*> ContiguousInnerDimensionsMapper::projectId(
   }
 
   auto forward_exprs = StmtSort::getExprsBetween(
-      frontier.front()->fusion(),
-      {frontier.begin(), frontier.end()},
-      {to.begin(), to.end()});
+      {frontier.begin(), frontier.end()}, {to.begin(), to.end()});
 
   // Map forward through transforms since we're going from root to rfactor
   for (auto* expr : forward_exprs) {
