@@ -383,10 +383,6 @@ class FusionExecutor : public NonCopyable {
       const at::ArrayRef<c10::IValue>& inputs);
 
  private:
-  static std::string kernelNamespace() {
-    return "CudaCodeGen";
-  }
-
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
       ExpressionEvaluator& expr_eval,
