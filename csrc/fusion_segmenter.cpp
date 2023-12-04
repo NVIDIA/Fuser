@@ -2495,7 +2495,12 @@ std::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
 }
 
 void SegmentedGroup::resetExprList() {
-  exprs_ = StmtSort::getExprsBetween(getAllInputs(this), getAllOutputs(this));
+  auto input_group_vec = getAllInputs(this);
+  std::unordered_set<Val*> input_group_set(
+      input_group_vec.begin(), input_group_vec.end());
+  auto expr_set =
+      DependencyCheck::getAllExprsBetween(input_group_set, getAllOutputs(this));
+  exprs_ = std::vector<Expr*>(expr_set.begin(), expr_set.end());
 }
 
 // Custom merge node passes:
