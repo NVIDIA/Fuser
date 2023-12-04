@@ -872,7 +872,7 @@ bool SchedulerTopologyChecker::hasGatherToBroadcastBeforeReduction(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs) {
   std::vector<Val*> reduction_inputs;
-  const auto all_exprs = StmtSort::getExprsBetween(
+  const auto all_exprs = DependencyCheck::getAllExprsBetween(
       {fusion->inputs().begin(), fusion->inputs().end()},
       {reduction_tvs.begin(), reduction_tvs.end()});
 
