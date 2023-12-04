@@ -51,12 +51,13 @@ class IdModel : public PolymorphicBase {
  public:
   IdModel(
       const std::vector<Expr*>& exprs,
-      const std::vector<TensorView*>& additional_tvs = {});
+      const std::vector<TensorView*>& additional_tvs = {},
+      bool allow_self_mapping = false);
 
   // Same as the above constructor with fusion->exprs() excpet fusion may have
   // some dangling inputs/outputs that are expected to have IterDomain entries
   // even though there's no possible connections from them.
-  IdModel(Fusion* fusion);
+  IdModel(Fusion* fusion, bool allow_self_mapping = false);
 
   // Returns iter domain graph of provided mode.
   const ValGraph& idGraph(IdMappingMode mode) const;
@@ -65,6 +66,15 @@ class IdModel : public PolymorphicBase {
   // TODO: Seems a bit unfortunate that this isn't IterDomain local information.
   const std::unordered_set<IterDomain*>& viewRfactorIds() const {
     return view_rfactor_ids_;
+  }
+
+  // Returns if a self mapping was detected that would invalidate assumptions of
+  // the overall lowering system.
+  //
+  // TODO: Can we make this more of an alias analysis?
+  // Ref: https://github.com/csarofeen/pytorch/pull/1954#discussion_r961940498
+  bool hasSelfMapping() const {
+    return self_mapping_info_.has_value();
   }
 
   std::string toString() const;
@@ -93,6 +103,9 @@ class IdModel : public PolymorphicBase {
   // and first output of expr
   void buildExactGraph(const std::vector<Expr*>& exprs);
 
+  // Errors if self mapping occurs
+  void assertNoSelfMapping();
+
   // Keeps ValGraphs containing all IterDomains for all mapping mode types.
   //
   // Using an array here might be nice, but it seems hard to use an enum as an
@@ -111,6 +124,10 @@ class IdModel : public PolymorphicBase {
   // transformations before a tensor view's root domain. There can be
   // multiple definitions due to replays.
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<Expr*>> id_definitions_;
+
+  // Debug information to hold if a self mapping in a TensorView is found.
+  std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
+      self_mapping_info_ = std::nullopt;
 
   std::unordered_set<IterDomain*> view_rfactor_ids_;
 };
