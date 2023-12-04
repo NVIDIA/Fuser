@@ -747,8 +747,8 @@ class PersistentBufferProjector {
       // After project T2 to its producers, we have:
       // Tz = add(f(f(T1)),broadcast(sum(T3)));
       // Ty = add(f(T1), broadcast(sum(T2)));
-      // The only left persistent buffer is T1.
-      // Also see test case ProjectToPersistentProducers.
+      // At last, the only persistent buffer is T1.
+      // For a solid case, see NVFuserTest.ChainProjectionToPersistentProducer.
       std::vector<int> visiting_order(persistent_buffers.size());
       std::iota(visiting_order.begin(), visiting_order.end(), 0);
       std::sort(

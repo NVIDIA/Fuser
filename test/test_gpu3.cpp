@@ -9399,6 +9399,96 @@ TEST_F(NVFuserTest, ProjectPersistentBufferMultiScopes) {
   fe.compileFusion(fusion, inputs);
   auto cg_outputs = fe.runFusion(inputs);
 }
+
+TEST_F(NVFuserTest, ChainProjectionToPersistentProducer) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int batch_size = 2048;
+  const int hidden_size = 10240;
+  DataType input_dtype = DataType::Half;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  auto tv1 = makeContigTensor(2, input_dtype);
+  auto tv2 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  auto tv3 = castOp(DataType::Float, tv0);
+  auto tv4 = castOp(DataType::Float, tv1);
+  auto tv5 = castOp(DataType::Float, tv2);
+
+  // tv7 is persistent
+  auto tv6 = add(tv3, tv4);
+  auto tv7 = add(tv6, tv5);
+  auto tv8 = sum(tv7, {1});
+  auto tv9 = broadcast(tv8, {false, true});
+  auto tv10 = add(tv7, tv9);
+
+  // tv11 is persistent, and can be projected to tv7
+  auto tv11 = add(tv7, tv7);
+  auto tv12 = sum(tv11, {1});
+  auto tv13 = broadcast(tv12, {false, true});
+  auto tv14 = add(tv11, tv13);
+
+  // tv15 is persistent, and can be projected to tv11
+  auto tv15 = add(tv11, tv11);
+  auto tv16 = sum(tv15, {1});
+  auto tv17 = broadcast(tv16, {false, true});
+  auto tv18 = add(tv17, tv15);
+
+  fusion->addOutput(tv10);
+  fusion->addOutput(tv14);
+  fusion->addOutput(tv18);
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({batch_size, hidden_size}, options);
+  auto t1 = at::randn({batch_size, hidden_size}, options);
+  auto t2 = at::randn({batch_size, hidden_size}, options);
+  std::vector<c10::IValue> inputs{t0, t1, t2};
+  auto t3 = t0.to(at::kFloat) + t1.to(at::kFloat) + t2.to(at::kFloat);
+  auto t4 = at::sum(t3, {1}, true);
+  auto t5 = t3 + t4;
+  auto t6 = t3 + t3;
+  auto t7 = at::sum(t6, {1}, true);
+  auto t8 = t6 + t7;
+  auto t9 = t6 + t6;
+  auto t10 = at::sum(t9, {1}, true);
+  auto t11 = t9 + t10;
+
+  // There are 3 persistent buffers: tv7, tv11, and tv15.
+  // The PersistentBufferProjector should firstly project
+  // tv15 to tv11, then project tv11 to tv7.
+  // After projection, tv7 is the only buffer.
+  auto persistent_info = scheduler_utils::persistentBuffers(fusion);
+  SchedulerRuntimeInfo runtime_info(fusion, inputs);
+  auto persistent_buffer_size =
+      persistentBufferSize(fusion, runtime_info, persistent_info);
+  auto calculated_size = persistent_buffer_size.persistent_buffer_size;
+  auto expected_size =
+      static_cast<int64_t>(hidden_size * dataTypeSize(DataType::Float));
+  NVF_CHECK(
+      calculated_size == expected_size,
+      "Buffer size calculation failure. Expected size: ",
+      expected_size,
+      ". Actual: ",
+      calculated_size);
+
+  // If project to inputs, there are 3 fp16 tvs, which is larger than 1 fp32.
+  // So, shouldn't project to inputs.
+  auto persistent_params = getInnerPersistentHeuristics(fusion, inputs);
+  NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
+  NVF_CHECK(
+      !persistent_params->project_persistent_buffers,
+      "Shouldn't project persistent buffers to inputs!");
+  scheduleInnerPersistentKernel(fusion, *persistent_params);
+  FusionExecutor fe;
+  fe.compileFusion(fusion, inputs);
+  auto cg_outputs = fe.runFusion(inputs);
+  testValidate(fusion, cg_outputs, inputs, {t5, t8, t11}, __LINE__, __FILE__);
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
