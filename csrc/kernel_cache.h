@@ -92,15 +92,7 @@ class FusionKernelRuntime {
   explicit FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      std::optional<PrimDataType> forced_index_type = std::nullopt,
-      int64_t fusion_id = 0,
-      int64_t concrete_id = 0,
-      int64_t runtime_id = 0);
-
-  explicit FusionKernelRuntime(
-      std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder& inputs,
-      const serde::FusionKernelRuntime* buffer,
+      const serde::FusionKernelRuntime* serde_buffer = nullptr,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,

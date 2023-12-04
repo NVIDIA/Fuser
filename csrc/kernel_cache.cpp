@@ -751,6 +751,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
         std::move(conc_fusion),
         args,
+        nullptr /* serde_buffer */,
         forced_index_type,
         fusion_id_,
         conc_info_id_map_.at(config),
@@ -872,7 +873,7 @@ void FusionExecutorCache::deserialize(
     auto& device_runtimes = kernel_runtimes_.try_emplace(config).first->second;
     conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
 
-    for (auto runtime : *fb_device_runtimes->runtimes()) {
+    for (auto fb_fusion_kernel_runtime : *fb_device_runtimes->runtimes()) {
       auto conc_fusion = std::make_unique<Fusion>(*fusion_);
       FusionGuard fg(conc_fusion.get());
 
@@ -893,7 +894,7 @@ void FusionExecutorCache::deserialize(
 
       // 1. Deserialize arguments for this FusionKernelRuntime
       KernelArgumentHolder args;
-      args.deserialize(runtime->args());
+      args.deserialize(fb_fusion_kernel_runtime->args());
 
       NVF_ERROR(
           (int8_t)fb_device_runtimes->device_id() == args.getDeviceIndex(),
@@ -903,7 +904,7 @@ void FusionExecutorCache::deserialize(
       device_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
           std::move(conc_fusion),
           args,
-          runtime,
+          fb_fusion_kernel_runtime,
           std::nullopt,
           fusion_id_,
           fb_device_runtimes->concrete_id(),
@@ -924,6 +925,7 @@ void FusionExecutorCache::deserialize(
 FusionKernelRuntime::FusionKernelRuntime(
     std::unique_ptr<Fusion> fusion,
     const KernelArgumentHolder& args,
+    const serde::FusionKernelRuntime* serde_buffer,
     std::optional<PrimDataType> forced_index_type,
     int64_t fusion_id,
     int64_t concrete_id,
@@ -962,93 +964,37 @@ FusionKernelRuntime::FusionKernelRuntime(
   // Initialize the evaluator simplifer
   precomputed_values_ = std::make_unique<PrecomputedValues>(fusion.get());
 
-  segmented_fusion_ =
-      SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
+  if (serde_buffer == nullptr) {
+    // Default compilation path applies segmentation before scheduling and
+    // compiling the fusion.
+    segmented_fusion_ =
+        SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
+  } else {
+    // Serialization path that generates segmented fusion from flatbuffers.
+    const auto& segmented_groups = serde_buffer->segmented_fusion()->groups();
+    std::vector<ScheduleHeuristic> heuristics;
+    heuristics.reserve(segmented_groups->size());
+    for (auto idx : c10::irange(segmented_groups->size())) {
+      heuristics.push_back(static_cast<ScheduleHeuristic>(
+          segmented_groups->Get(idx)->heuristic()));
+    }
+    // Convert Welford to two-pass if option is enabled and the original
+    // heuristic is persistent
+    auto is_persistent_heuristic = [](ScheduleHeuristic heuristic) {
+      return heuristic == ScheduleHeuristic::InnerPersistent ||
+          heuristic == ScheduleHeuristic::OuterPersistent ||
+          heuristic == ScheduleHeuristic::InnerOuterPersistent;
+    };
+    bool has_persistent_heuristic = std::any_of(
+        heuristics.begin(), heuristics.end(), is_persistent_heuristic);
 
-  heuristics_ = segmented_fusion_->makeInitialHeuristics(args, runtime_info);
-
-  executors_ = std::vector<FusionExecutor>(segmented_fusion_->groups().size());
-  if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-    segmented_fusion_->print();
+    auto has_welford_ops = ir_utils::hasOpsOfType<WelfordOp>(fusion.get());
+    if (has_welford_ops && has_persistent_heuristic) {
+      SegmentCandidateFinder::translateWelfordInFusion(fusion.get(), args);
+    }
+    segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
+    segmented_fusion_->deserialize(serde_buffer->segmented_fusion());
   }
-
-  // Even if we go through the segmented path we may still end up
-  //  with a segmented fusion with one group. This case still
-  //  counts as un-segmented.
-  is_segmented_ = segmented_fusion_->groups().size() > 1;
-
-  // Pre-compute the executor order so that the run time path
-  //  would go directly to kernel launch.
-  prepareRuntimeOrder();
-}
-
-FusionKernelRuntime::FusionKernelRuntime(
-    std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder& args,
-    const serde::FusionKernelRuntime* buffer,
-    std::optional<PrimDataType> forced_index_type,
-    int64_t fusion_id,
-    int64_t concrete_id,
-    int64_t runtime_id)
-    : fusion_id_{fusion_id},
-      concrete_id_{concrete_id},
-      runtime_id_{runtime_id} {
-  FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
-  NVF_ERROR(buffer != nullptr, "serde::FusionKernelRuntime is nullptr.");
-
-  NVF_ERROR(
-      !fusion->hasDynamicTransform(),
-      "Fusion must be concretized before constructing FusionKernelRuntime");
-
-  // Store metadata copy of arguments for serialization
-  std::transform(
-      args.cbegin(),
-      args.cend(),
-      args_metadata_.getBackInserter(),
-      convertMetadataArg);
-
-  optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
-      fusion.get());
-
-  if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
-    debug() << "Fusion IR after pre-segmenter optimization passes:"
-            << std::endl;
-    fusion->printMath();
-  }
-
-  all_tvs_ = ir_utils::allTvs(fusion.get());
-
-  // Run segmentation on the copied fusion
-  SchedulerRuntimeInfo runtime_info(
-      fusion.get(), args, nullptr, all_tvs_, forced_index_type);
-
-  // Initialize the evaluator simplifer
-  precomputed_values_ = std::make_unique<PrecomputedValues>(fusion.get());
-
-  // convert Welford to two-pass if option is enabled and the original heuristic
-  // is persistent
-  auto is_persistent_heuristic = [](ScheduleHeuristic heuristic) {
-    return heuristic == ScheduleHeuristic::InnerPersistent ||
-        heuristic == ScheduleHeuristic::OuterPersistent ||
-        heuristic == ScheduleHeuristic::InnerOuterPersistent;
-  };
-
-  const auto& segmented_groups = buffer->segmented_fusion()->groups();
-  std::vector<ScheduleHeuristic> heuristics;
-  heuristics.reserve(segmented_groups->size());
-  for (auto idx : c10::irange(segmented_groups->size())) {
-    heuristics.push_back(static_cast<ScheduleHeuristic>(
-        segmented_groups->Get(idx)->heuristic()));
-  }
-  bool has_persistent_heuristic = std::any_of(
-      heuristics.begin(), heuristics.end(), is_persistent_heuristic);
-
-  auto has_welford_ops = ir_utils::hasOpsOfType<WelfordOp>(fusion.get());
-  if (has_welford_ops && has_persistent_heuristic) {
-    SegmentCandidateFinder::translateWelfordInFusion(fusion.get(), args);
-  }
-  segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
-  segmented_fusion_->deserialize(buffer->segmented_fusion());
 
   heuristics_ = segmented_fusion_->makeInitialHeuristics(args, runtime_info);
 
@@ -1067,7 +1013,9 @@ FusionKernelRuntime::FusionKernelRuntime(
   prepareRuntimeOrder();
 
   // Restore State from Flatbuffers
-  deserialize(buffer);
+  if (serde_buffer != nullptr) {
+    deserialize(serde_buffer);
+  }
 }
 
 flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
