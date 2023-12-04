@@ -34,6 +34,7 @@ flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
     const std::unordered_map<Expr*, int64_t>& exprs_map,
     const std::unordered_map<SegmentedGroup*, int64_t>& groups_map,
     const std::unordered_map<SegmentedEdge*, int64_t>& edges_map) const {
+  FUSER_PERF_SCOPE("SegmentedGroup::serialize");
   // TODO Replace with template function
   std::vector<int64_t> producer_edges_fb;
   producer_edges_fb.reserve(producer_edges.size());
@@ -107,6 +108,7 @@ void SegmentedGroup::deserialize(
     const std::deque<Expr*>& exprs,
     const std::vector<SegmentedGroup*>& groups,
     const std::vector<SegmentedEdge*>& edges) {
+  FUSER_PERF_SCOPE("SegmentedGroup::deserialize");
   NVF_ERROR(buffer != nullptr, "serde::SegmentedGroup is nullptr.");
 
   producer_edges.reserve(buffer->producer_edges()->size());
@@ -456,6 +458,7 @@ SegmentedFusion::SegmentedFusion(std::unique_ptr<Fusion> fusion)
 
 flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
+  FUSER_PERF_SCOPE("SegmentedFusion::serialize");
   const std::unordered_map<Val*, int64_t>& vals_map =
       completeFusion()->deterministic_vals_map();
   const std::unordered_map<Expr*, int64_t>& exprs_map =
@@ -496,6 +499,7 @@ flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
 }
 
 void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
+  FUSER_PERF_SCOPE("SegmentedFusion::deserialize");
   NVF_ERROR(buffer != nullptr, "serde::SegmentedFusion is nullptr.");
 
   const std::deque<Val*>& vals = complete_fusion_->deterministic_vals();
@@ -558,6 +562,7 @@ flatbuffers::Offset<serde::SegmentedEdge> SegmentedFusion::serialize(
     const nvfuser::SegmentedEdge* edge,
     const std::unordered_map<Val*, int64_t>& vals_map,
     const std::unordered_map<SegmentedGroup*, int64_t>& groups_map) const {
+  FUSER_PERF_SCOPE("SegmentedEdge::serialize");
   return serde::CreateSegmentedEdge(
       builder,
       groups_map.at(edge->from),
@@ -568,6 +573,7 @@ flatbuffers::Offset<serde::SegmentedEdge> SegmentedFusion::serialize(
 nvfuser::SegmentedEdge SegmentedFusion::deserialize(
     const serde::SegmentedEdge* buffer,
     const std::deque<Val*>& vals) {
+  FUSER_PERF_SCOPE("SegmentedEdge::deserialize");
   NVF_ERROR(buffer != nullptr, "serde::SegmentedEdge is nullptr.");
   return {
       groups_.at(buffer->from_segmented_group()),
@@ -2495,12 +2501,7 @@ std::optional<std::unique_ptr<SchedulerEntry>> SegmentedGroup::
 }
 
 void SegmentedGroup::resetExprList() {
-  auto input_group_vec = getAllInputs(this);
-  std::unordered_set<Val*> input_group_set(
-      input_group_vec.begin(), input_group_vec.end());
-  auto expr_set =
-      DependencyCheck::getAllExprsBetween(input_group_set, getAllOutputs(this));
-  exprs_ = std::vector<Expr*>(expr_set.begin(), expr_set.end());
+  exprs_ = StmtSort::getExprsBetween(getAllInputs(this), getAllOutputs(this));
 }
 
 // Custom merge node passes:
