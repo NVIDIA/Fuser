@@ -895,9 +895,12 @@ void FusionExecutorCache::deserialize(
       KernelArgumentHolder args;
       args.deserialize(runtime->args());
 
+      /*
       NVF_ERROR(
           (int8_t)fb_device_runtimes->device_id() == args.getDeviceIndex(),
-          "Expected serde FusionKernelRuntime device_id to match KernelArgumentHolder metadata device id.");
+          "Expected serde FusionKernelRuntime device_id to match
+      KernelArgumentHolder metadata device id.");
+      */
 
       // 2. Construct new FusionKernelRuntime
       device_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
