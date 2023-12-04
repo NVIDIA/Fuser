@@ -422,6 +422,7 @@ TensorView* MatrixMultiplication(TensorView* a, TensorView* b) {
 }
 
 TEST_F(PipelineTest, matmul_summa) {
+  // use NMK for matrix dimensions instead (by convention)
   if (communicator->deviceId()) {
     return;
   }
