@@ -26,6 +26,8 @@ namespace {
 
 using GroupSet = VectorOfUniqueEntries<SegmentedGroup*>;
 
+// This helper function converts pointer values into a one-to-one integer id.
+// It is used during serialization to define the container's state.
 template <typename ContainerT, typename T>
 std::vector<int64_t> convertPointerToInteger(
     const ContainerT& container,
@@ -63,11 +65,13 @@ flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
 
   std::vector<int64_t> exprs_fb = convertPointerToInteger(exprs_, exprs_map);
 
+  // -1 corresponds with a nullptr value
   int64_t merge_with_segmented_group = -1;
   if (merge_with_ != nullptr) {
     merge_with_segmented_group = groups_map.at(merge_with_);
   }
 
+  // -1 corresponds with a nullptr value
   int64_t merge_through_segmented_edge = -1;
   if (merge_with_ != nullptr) {
     merge_through_segmented_edge = edges_map.at(merge_through_);
@@ -431,6 +435,8 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
   single_group->setHeuristic(heuristic);
   single_group->setID(0);
 
+  // Used to log the number of values and expressions in the fusion for
+  // serialization sanity check.
   segmented_fusion_ptr->finalize();
   return segmented_fusion_ptr;
 }
