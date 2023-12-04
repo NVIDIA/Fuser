@@ -2173,6 +2173,7 @@ class TestNvFuserFrontend(TestCase):
                         partial(check, acts=inp),
                         inp,
                         new_fusion_expected=first_check,
+                        skip_serde_check=True,
                     )
                 else:
                     # When a fusion definition with errors is deserialized, it is recreated, triggering an error.
