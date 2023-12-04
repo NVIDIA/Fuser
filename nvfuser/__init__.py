@@ -6,7 +6,7 @@ import logging
 import os
 import re
 import sys
-from typing import Optional, Union  # noqa: F401
+from typing import Optional, Union, List  # noqa: F401
 
 import torch
 
@@ -134,7 +134,7 @@ class FusionDefinition(_C._FusionDefinition):
             )
             msg += (
                 f"Here's a script to reproduce the error:\n"
-                "```\n"
+                "```python\n"
                 "import torch\n"
                 "from nvfuser import FusionDefinition, DataType\n"
                 f"{self}"
@@ -158,8 +158,9 @@ class FusionDefinition(_C._FusionDefinition):
                             f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
                         )
                     else:
+                        upper_bound = 2 if i.dtype == torch.bool else 10
                         msg += (
-                            f"    torch.randint(0, 10, ({sz},), dtype={i.dtype}, device='{i.device}')"
+                            f"    torch.randint(0, {upper_bound}, ({sz},), dtype={i.dtype}, device='{i.device}')"
                             f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
                         )
                 else:
@@ -302,6 +303,49 @@ class FusionDefinition(_C._FusionDefinition):
         return self._scheduled_fusion_ir_for(
             inputs, tensor_transforms, override_user_schedule
         )
+
+    def validate(
+        self,
+        inputs: List[torch.Tensor],
+        reference_outputs: List[torch.Tensor],
+        kwargs=None,
+    ):
+        """
+        Validates the fusion outputs against the provided reference outputs, using variable tolerances determined based on datatype and reduction size.
+
+        Inputs:
+            inputs: A list of inputs expected by the fusion definition
+            reference_outputs: A list of reference outputs to validate against
+        """
+        fusion_outputs = self.execute(inputs)
+        assert len(fusion_outputs) == len(
+            reference_outputs
+        ), f"Expected {len(fusion_outputs)} reference outputs for validation."
+
+        tolerance_values = self.getValTolerances(inputs)
+        assert len(tolerance_values) == len(
+            fusion_outputs
+        ), f"Missing tolerance values, expected {len(fusion_outputs)}, got {len(tolerance_values)}"
+
+        for inx, fusion_output in enumerate(fusion_outputs):
+            atol, rtol = tolerance_values[inx]
+            reference_output = reference_outputs[inx]
+
+            assert (
+                reference_output.shape == fusion_output.shape
+            ), "Mismatch in reference and fusion output dimensions"
+            if torch.is_floating_point(fusion_output) or torch.is_complex(
+                fusion_output
+            ):
+                assert torch.allclose(
+                    fusion_output, reference_output, atol=atol, rtol=rtol
+                ), f"Max error: {torch.abs(torch.max(fusion_output - reference_output))}, \
+                    Absolute tolerance: {atol}, Relative tolerance: {rtol}"
+
+            else:
+                assert torch.equal(
+                    fusion_output, reference_output
+                ), "Mismatch in reference and fusion output values, datatype is not float/complex."
 
 
 from .nvfuser_version import __version__

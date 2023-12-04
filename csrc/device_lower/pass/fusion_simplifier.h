@@ -17,7 +17,7 @@
 
 namespace nvfuser {
 
-// Transpose, Shift, Gather, and View Ops with Unary Set Ops
-std::vector<Expr*> unarySetOpInserter(const std::vector<Expr*>& exprs);
+// Transpose, Shift, Gather, and View Ops with LoadStoreOps
+std::vector<Expr*> loadStoreOpInserter(const std::vector<Expr*>& exprs);
 
 } // namespace nvfuser

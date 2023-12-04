@@ -52,6 +52,9 @@ class FullOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* getFillValue() const {
     return inputs().back();
@@ -237,6 +240,9 @@ class IotaOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   DataType dtype() const {
     return *start()->getDataType();
@@ -287,6 +293,9 @@ class EyeOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   DataType dtype() const {
     return attribute<DataType>(0);
@@ -1325,7 +1334,7 @@ class GroupedWelfordOp : public Expr {
 class MmaOp : public Expr {
  public:
   using AxesData = std::vector<int64_t>;
-  using MmaLayoutOpt = std::optional<MmaOptions::MmaLayout>;
+  using MmaLayoutOpt = std::optional<MmaLayout>;
   using Expr::Expr;
 
   MmaOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* init);
@@ -1336,7 +1345,7 @@ class MmaOp : public Expr {
       Val* in_a,
       Val* in_b,
       Val* init,
-      const MmaOptions::MacroType& options,
+      const MmaMacro& options,
       const MmaLayoutOpt& input_layout);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
@@ -1365,10 +1374,34 @@ class MmaOp : public Expr {
   }
 
   const auto& macro() const {
-    return attribute<MmaOptions::MacroType>(ATTR_POS_MACRO);
+    return attribute<MmaMacro>(ATTR_POS_MACRO);
   }
 
-  void configureOptions(MmaOptions options);
+  int m() const {
+    return getM(macro());
+  }
+
+  int n() const {
+    return getN(macro());
+  }
+
+  int k() const {
+    return getK(macro());
+  }
+
+  bool isTuring() const {
+    return nvfuser::isTuring(macro());
+  }
+
+  bool isAmpere() const {
+    return nvfuser::isAmpere(macro());
+  }
+
+  bool isHopper() const {
+    return nvfuser::isHopper(macro());
+  }
+
+  void setMacro(MmaMacro options);
 
   auto layout() const {
     return attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
@@ -1434,6 +1467,10 @@ class ExpandOp : public Expr {
   std::vector<Val*> expanded_extents() const {
     return {inputs().begin() + 1, inputs().end()};
   }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 };
 
 //! Shift
@@ -1550,6 +1587,9 @@ class ViewAsScalar : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
     return output(0);
@@ -2067,12 +2107,12 @@ class SliceOp : public Expr {
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
-  Val* out() const {
-    return output(0);
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
   }
 
-  Val* in() const {
-    return input(0);
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
   }
 
   std::vector<Slice> getRanges() const;

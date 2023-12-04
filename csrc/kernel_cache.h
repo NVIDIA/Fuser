@@ -92,7 +92,10 @@ class FusionKernelRuntime {
   explicit FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      std::optional<PrimDataType> forced_index_type = std::nullopt);
+      std::optional<PrimDataType> forced_index_type = std::nullopt,
+      int64_t fusion_id = 0,
+      int64_t concrete_id = 0,
+      int64_t runtime_id = 0);
 
   //! Type notations within FusionKernelRuntime Context
   using HashType = size_t;
@@ -297,6 +300,16 @@ class FusionKernelRuntime {
 
   std::mutex mutex_;
 
+  // ID of fusion in python frontend fusion cache, which maps to a single
+  // FusionExecutorCache.
+  int64_t fusion_id_ = -1;
+
+  // ID of concretized fusion in FusionExecutorCache
+  int64_t concrete_id_ = -1;
+
+  // ID of FusionKernelRuntime given (device, concrete_info) key
+  int64_t runtime_id_ = -1;
+
   // The heuristics and executor for most recent kernel launch
   ExecutorLog most_recent_executor_log_;
 };
@@ -490,7 +503,9 @@ class FusionExecutorCache {
   //! create new fusion executor cache at a given device to handle kernel
   //! generation of dynamic sizes
   //! fusion executor is taking the ownership of `fusion`
-  explicit FusionExecutorCache(std::unique_ptr<Fusion> fusion);
+  explicit FusionExecutorCache(
+      std::unique_ptr<Fusion> fusion,
+      int64_t fusion_id = 0);
 
   //! Execute fusion graph with given inputs, create `FusionExecutor` as needed
   //! Note this function also handles permutation & input update outside of
@@ -643,7 +658,7 @@ class FusionExecutorCache {
       flatbuffers::FlatBufferBuilder& builder) const;
 
   //! Deserialize Fusion Executor Cache using flatbuffers
-  void deserialize(const serde::FusionExecutorCache* buffer);
+  void deserialize(const serde::FusionExecutorCache* buffer, int64_t fusion_id);
 
   //! Allocate the outputs of the Fusion given inputs
   //! TODO: re-implement
@@ -697,6 +712,13 @@ class FusionExecutorCache {
       cached_initial_info_;
   std::vector<std::unique_ptr<DynamicTransformConcretizationInfo>>
       cached_conc_info_;
+  //! Map each pair of device_id and concretization info to an integer id
+  std::unordered_map<
+      std::pair<int8_t, const DynamicTransformConcretizationInfo*>,
+      int64_t,
+      PairPointerHash,
+      PairPointerEquals>
+      conc_info_id_map_;
 
   //! Logging state for most recent compilation
   bool profiling_ = false;
@@ -717,6 +739,10 @@ class FusionExecutorCache {
 
   //! Initial concretization info
   std::optional<DynamicTransformInitialInfo> initial_info_ = std::nullopt;
+
+  // ID of fusion in python frontend fusion cache, which maps to a single
+  // FusionExecutorCache.
+  int64_t fusion_id_ = -1;
 };
 
 } // namespace nvfuser

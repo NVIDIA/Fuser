@@ -39,8 +39,6 @@
 
 namespace nvfuser {
 
-int64_t FusionExecutor::fusion_id_counter_ = 0;
-
 bool fill_allocation_with_nan_ = false;
 
 bool shouldFillAllocationWithNan() {
@@ -157,9 +155,9 @@ std::string FusionExecutor::getStructuredCode(
   // generating cuda code;
   std::string code = "";
   code += includeStdComplex();
-  code += std::string("namespace ") + FusionExecutor::kernelNamespace() +
-      " {\n" + defineTypes() + defineIndexType(index_type) +
-      executor_utils::kernelPreamble() + kernel_str + "}\n";
+  code += std::string("namespace {\n") + defineTypes() +
+      defineIndexType(index_type) + executor_utils::kernelPreamble() +
+      kernel_str + "}\n";
 
   if (isDebugDumpEnabled(DebugDumpOption::CudaKernel)) {
     debug() << "\n======= Codegen output for kernel: " << kernelName()
@@ -173,7 +171,7 @@ std::string FusionExecutor::getStructuredCode(
   if (isDebugDumpEnabled(DebugDumpOption::CudaToFile) ||
       isDebugDumpEnabled(DebugDumpOption::DebugInfo)) {
     std::stringstream file_name;
-    file_name << "__tmp_kernel" << fusion_id_ << ".cu";
+    file_name << "__tmp_kernel_" << kernel_id_ << ".cu";
     debug() << "PRINTING: " << file_name.str() << std::endl;
     std::ofstream out(file_name.str());
     out << code << std::endl;
@@ -192,7 +190,10 @@ void FusionExecutor::debugCompileFusionFromStr(
     Fusion* fusion,
     const std::string& code,
     const std::string& name,
-    int id,
+    int64_t fusion_id,
+    int64_t concrete_id,
+    int64_t runtime_id,
+    int64_t group_id,
     CompileOptions options) {
   options_ = options;
 
@@ -211,10 +212,11 @@ void FusionExecutor::debugCompileFusionFromStr(
   }
 
   lowered_ = std::make_unique<GpuLower>(fusion);
+  lowered_->run();
   const auto kernel = lowered_->kernel();
   fusion_ = lowered_->kernel();
-
-  fusion_id_ = id;
+  createKernelId(
+      ScheduleHeuristic::None, fusion_id, concrete_id, runtime_id, group_id);
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
@@ -235,15 +237,20 @@ void FusionExecutor::debugCompileFusionFromStr(
   }
 
   compiled_kernel_ =
-      executor_utils::getCompiledKernel(std::nullopt, code, name, fusion_id_);
-  NVF_ERROR(fusion_id_ > 0, "assign a fusion_id_ <= 0 is not accepted.");
+      executor_utils::getCompiledKernel(std::nullopt, code, name, kernel_id_);
+  NVF_ERROR(validKernelId(), "Invalid kernel id for FusionExecutor.");
 }
 
 void FusionExecutor::compileFusion(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
-    CompileParams compile_params) {
+    CompileParams compile_params,
+    ScheduleHeuristic heuristic,
+    int64_t fusion_id,
+    int64_t concrete_id,
+    int64_t runtime_id,
+    int64_t group_id) {
   FUSER_PERF_SCOPE("FusionExecutor::compileFusion");
 
   NVF_ERROR(
@@ -268,7 +275,7 @@ void FusionExecutor::compileFusion(
       }
       output_extents.emplace_back(extent);
     }
-    auto dependencies = InputsOf::outputs(fusion, output_extents);
+    auto dependencies = InputsOf::outputs(output_extents);
     if (std::any_of(dependencies.begin(), dependencies.end(), [](Val* val) {
           return val->isFusionInput();
         })) {
@@ -321,14 +328,14 @@ void FusionExecutor::compileFusion(
   warp_size_ = properties->warpSize;
 
   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
+  lowered_->run();
 
   const auto kernel = lowered_->kernel();
   for (const auto& hook : post_lowering_hooks_) {
     hook(kernel);
   }
   fusion_ = lowered_->kernel()->as<Fusion>();
-
-  fusion_id_ = ++fusion_id_counter_;
+  createKernelId(heuristic, fusion_id, concrete_id, runtime_id, group_id);
   setUsedTVs();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
@@ -362,7 +369,11 @@ void FusionExecutor::compileFusion(
   // If the loaded external source code is empty, revert to the default codegen.
   // The external_structured_code is moved to structured_code and explicitly
   // cleared to avoid use-after-move scenarios.
-  auto structured_code = getStructuredCodeFromExternalFiles(fusion_id_);
+  // Note: we index these with getGlobalFusionCount() instead of fusion_id_ in
+  // order to match the numbering of files output with
+  // NVFUSER_DUMP=cuda_to_file
+  auto structured_code =
+      getStructuredCodeFromExternalFiles(getGlobalFusionCount());
   if (structured_code.empty()) {
     structured_code = getStructuredCode();
   }
@@ -418,11 +429,11 @@ void FusionExecutor::compileFusion(
   compiled_kernel_ = executor_utils::getCompiledKernel(
       kernel_code_,
       structured_code,
-      getCanonicalKernelName(),
-      fusion_id_,
+      kernelName(),
+      kernel_id_,
       compile_params,
       block_size);
-  NVF_ERROR(fusion_id_ > 0, "failed to assign a fusion_id_ after compilation.");
+  NVF_ERROR(validKernelId(), "Invalid kernel id for FusionExecutor.");
 
   // These should be nullopt at this point, but reset just in case
   resetCompiledKernelProperties();
@@ -596,7 +607,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
 
 class ForwardTraverseFromAllocToRFactor {
   at::Tensor tensor_;
-  TensorView* tv_;
   ExpressionEvaluator& ee_;
   std::list<IterDomain*>& frontier_;
 
@@ -714,18 +724,15 @@ class ForwardTraverseFromAllocToRFactor {
  public:
   ForwardTraverseFromAllocToRFactor(
       at::Tensor tensor,
-      TensorView* tv,
       ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
-      : tensor_(std::move(tensor)), tv_(tv), ee_(ee), frontier_(frontier) {}
+      : tensor_(std::move(tensor)), ee_(ee), frontier_(frontier) {}
 
   at::Tensor run(
       const std::vector<IterDomain*>& rfactor,
       const std::vector<IterDomain*>& alloc) {
     auto forward_exprs = StmtSort::getExprsBetween(
-        tv_->fusion(),
-        {alloc.begin(), alloc.end()},
-        {rfactor.begin(), rfactor.end()});
+        {alloc.begin(), alloc.end()}, {rfactor.begin(), rfactor.end()});
     for (auto expr : forward_exprs) {
       handle(expr);
     }
@@ -737,7 +744,6 @@ class ForwardTraverseFromAllocToRFactor {
 // transformations.
 class BackwardTraverseFromAllocToRFactor {
   at::Tensor tensor_;
-  TensorView* tv_;
   ExpressionEvaluator& ee_;
   std::list<IterDomain*>& frontier_;
 
@@ -842,18 +848,15 @@ class BackwardTraverseFromAllocToRFactor {
  public:
   BackwardTraverseFromAllocToRFactor(
       at::Tensor tensor,
-      TensorView* tv,
       ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
-      : tensor_(std::move(tensor)), tv_(tv), ee_(ee), frontier_(frontier) {}
+      : tensor_(std::move(tensor)), ee_(ee), frontier_(frontier) {}
 
   at::Tensor run(
       const std::vector<IterDomain*>& rfactor,
       const std::vector<IterDomain*>& alloc) {
     auto backward_exprs = StmtSort::getExprsBetween(
-        tv_->fusion(),
-        {rfactor.begin(), rfactor.end()},
-        {alloc.begin(), alloc.end()});
+        {rfactor.begin(), rfactor.end()}, {alloc.begin(), alloc.end()});
     std::reverse(backward_exprs.begin(), backward_exprs.end());
     for (auto expr : backward_exprs) {
       handle(expr);
@@ -883,9 +886,9 @@ at::Tensor transformOutputFromAllocationToRFactor(
   // forward and a backward traverse.
   std::list<IterDomain*> frontier(alloc.begin(), alloc.end());
   NVF_ERROR(tensor.dim() == (int64_t)frontier.size());
-  tensor = ForwardTraverseFromAllocToRFactor(tensor, tv, ee, frontier)
+  tensor = ForwardTraverseFromAllocToRFactor(tensor, ee, frontier)
                .run(rfactor, alloc);
-  tensor = BackwardTraverseFromAllocToRFactor(tensor, tv, ee, frontier)
+  tensor = BackwardTraverseFromAllocToRFactor(tensor, ee, frontier)
                .run(rfactor, alloc);
   NVF_ERROR(frontier.size() == rfactor.size());
   // Now that all affine transformations are handled, and frontiers should
@@ -911,50 +914,38 @@ int64_t IndexOfFusionInput(const Val* in, const Fusion* fusion) {
 }
 
 // Returns the at::Tensor allocated for `out_info`.
-//
-// TODO: clean up the API so we explicitly pass in the input alias. This way, we
-// can remove `args` and `kernel`, which unnecessary expose information of
-// unrelated arguments.
 at::Tensor allocateOutput(
     const FusionExecutor::GlobalBufferInfo& out_info,
-    const KernelArgumentHolder& args,
+    Val* aliased_in,
+    const AliasInfo* alias_info,
+    const at::Tensor& aliased_in_tensor,
     const c10::Device& device,
-    const kir::Kernel* kernel,
     ExpressionEvaluator& ee) {
   TensorView* out_tv = out_info.tv;
 
-  auto alias_it = kernel->ioAlias().find(out_tv);
   // Note: aliased output is not returned as output. But we still need it
   // for kernel execution, so would need to push them to args
-  if (alias_it != kernel->ioAlias().end()) {
-    const auto aliased_in_index =
-        IndexOfFusionInput(alias_it->second.first, kernel);
-    const PolymorphicValue& in_val = *args[aliased_in_index];
-    NVF_ERROR(
-        in_val.is<at::Tensor>(),
-        "Alias io only supports tensor. Found ",
-        PolymorphicValue_functions::toString(in_val));
-    at::Tensor in_tensor = in_val.as<at::Tensor>();
-
-    switch (alias_it->second.second.type) {
+  if (aliased_in != nullptr) {
+    switch (alias_info->type) {
       case AliasType::InplaceUpdate:
-        // Unlike for `AliasType::PointerCast`, don't use
+        // Unlike for `AliasType::PointerArithmetic`, don't use
         // ExpressionEvaluator to compute the output tensor. This is because
         // the output tensor may hold different data from the input, e.g., an
         // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
         // would trigger non-trivial host computation.
-        return in_tensor;
+        return aliased_in_tensor;
 
-      case AliasType::PointerCast:
-        auto* in_tv = kernel->inputs()[aliased_in_index]->as<TensorView>();
-        ee.bind(in_tv, in_tensor);
+      case AliasType::PointerArithmetic:
+        auto* in_tv = aliased_in->as<TensorView>();
+        ee.bind(in_tv, aliased_in_tensor);
         at::Tensor out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
         NVF_ERROR(
-            in_tensor.data_ptr() == out_tensor.data_ptr(),
+            out_tensor.is_alias_of(aliased_in_tensor),
             "ExpressionEvaluator failed to evaluate ",
             out_tv->toString(),
             " as an alias of ",
             in_tv->toString());
+        inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
         return out_tensor;
     }
   }
@@ -988,9 +979,38 @@ std::vector<at::Tensor> allocateOutputs(
 
   std::vector<at::Tensor> outputs;
   outputs.reserve(output_info.size());
+
+  std::unordered_map<Val*, at::Tensor> outputs_map;
+
   for (const auto output_idx : c10::irange(output_info.size())) {
-    outputs.push_back(
-        allocateOutput(output_info[output_idx], inputs, device, kernel, ee));
+    Val* out = kernel->outputs()[output_idx];
+    // TODO: remove the else block and outputs_map when output aliasing is
+    // handled properly
+    auto iter = outputs_map.find(out);
+    if (iter == outputs_map.end()) {
+      auto [aliased_in, alias_info] = kernel->getOutputAlias(out);
+      at::Tensor aliased_in_tensor;
+      if (aliased_in != nullptr) {
+        const PolymorphicValue& aliased_in_val =
+            *inputs[IndexOfFusionInput(aliased_in, kernel)];
+        NVF_ERROR(
+            aliased_in_val.is<at::Tensor>(),
+            "Alias io only supports tensor. Found ",
+            PolymorphicValue_functions::toString(aliased_in_val));
+        aliased_in_tensor = aliased_in_val.as<at::Tensor>();
+      }
+      auto output = allocateOutput(
+          output_info[output_idx],
+          aliased_in,
+          alias_info,
+          aliased_in_tensor,
+          device,
+          ee);
+      outputs_map[out] = output;
+      outputs.push_back(output);
+    } else {
+      outputs.push_back(iter->second);
+    }
   }
   return outputs;
 }
@@ -1495,8 +1515,8 @@ void FusionExecutor::recompileKernel(
   compiled_kernel_ = executor_utils::getCompiledKernel(
       kernel_code_,
       structured_code,
-      getCanonicalKernelName(),
-      fusion_id_,
+      kernelName(),
+      kernel_id_,
       new_compile_params,
       block_size_high_water_mark_);
 
@@ -1583,7 +1603,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     std::vector<at::Tensor> outputs) {
   FUSER_PERF_SCOPE("FusionExecutor::runFusion");
   NVF_ERROR(isCompiled());
-  NVF_ERROR(fusion_id_ > 0, "Cannot run fusion, it was not compiled.");
+  NVF_ERROR(validKernelId(), "Invalid kernel id for FusionExecutor.");
   NVF_ERROR(
       !args.getCacheId().has_value() || outputs.empty(),
       "short cut input cache is not compatible with pre-allocated output");
@@ -1814,7 +1834,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         double gb_per_s =
             ((double)bytesProcessed() / ((double)kernel_time_ms_ / 1000)) /
             (double)1.0e9;
-        debug() << "kernel" << fusion_id_ << " run in " << kernel_time_ms_
+        debug() << "kernel" << kernel_id_ << " run in " << kernel_time_ms_
                 << " ms, achieved: " << gb_per_s << " GB/s" << std::endl;
       }
     }
@@ -1881,16 +1901,17 @@ void FusionExecutor::compileRtc(
       index_type == PrimDataType::Int || index_type == PrimDataType::Int32 ||
           "Invalid index type: ",
       index_type);
+
+  createKernelId();
+
   std::string scode;
   if (!structured) {
     scode = getStructuredCode(code, index_type);
   } else {
     scode = code;
   }
-  fusion_id_ = 1;
-
   compiled_kernel_ =
-      executor_utils::getCompiledKernel(std::nullopt, scode, name, fusion_id_);
+      executor_utils::getCompiledKernel(std::nullopt, scode, name, kernel_id_);
 }
 
 float FusionExecutor::runRtc(
@@ -1978,12 +1999,15 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       block_size_high_water_mark_,
       maxrregcount_high_water_mark_,
       warp_size_,
+      toUnderlying(heuristic_),
       fusion_id_,
-      fusion_id_counter_,
+      concrete_id_,
+      runtime_id_,
+      group_id_,
       kernel_code_.c_str(),
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
-      serde::mapToSerdeDtype(kernel()->indexType()),
+      toUnderlying(kernel()->indexType()),
       serialize(builder, *compiled_kernel_));
 }
 
@@ -2092,7 +2116,7 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
       tv_position,
       &data.sizes,
       &data.strides,
-      serde::mapToSerdeDtype(data.type),
+      nvfuser::toUnderlying(data.type),
       data.zero_init,
       data.is_profile_buffer,
       is_fusion_output);
@@ -2101,18 +2125,34 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
 void FusionExecutor::deserialize(
     const serde::FusionExecutor* buffer,
     Fusion* fusion,
-    CompileParams compile_params) {
+    CompileParams compile_params,
+    ScheduleHeuristic heuristic,
+    int64_t fusion_id,
+    int64_t concrete_id,
+    int64_t runtime_id,
+    int64_t group_id) {
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
 
   NVF_ERROR(buffer != nullptr, "serde::FusionExecutor is nullptr.");
+  NVF_ERROR(
+      fusion_id == buffer->fusion_id(),
+      "Expected given fusion_id to match serde fusion_id.");
+  NVF_ERROR(
+      concrete_id == buffer->concrete_id(),
+      "Expected given concrete_id to match serde concrete_id.");
+  NVF_ERROR(
+      runtime_id == buffer->runtime_id(),
+      "Expected given runtime_id to match serde runtime_id.");
+  NVF_ERROR(
+      group_id == buffer->group_id(),
+      "Expected given group_id to match serde group_id.");
+  NVF_ERROR(toUnderlying(heuristic) == buffer->heuristic());
 
   // Initialize internal fields
   device_smem_limit_ = buffer->device_smem_limit();
   block_size_high_water_mark_ = buffer->block_size_high_water_mark();
   maxrregcount_high_water_mark_ = buffer->maxrregcount_high_water_mark();
   warp_size_ = buffer->warp_size();
-  fusion_id_ = buffer->fusion_id();
-  fusion_id_counter_ = buffer->fusion_id_counter();
   kernel_code_ = buffer->kernel_code()->str();
 
   // KernelDB query checks kernel_code string and compile_params before
@@ -2122,9 +2162,16 @@ void FusionExecutor::deserialize(
 
   // Get lowered fusion
   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
+  lowered_->run();
 
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
   fusion_ = lowered_->kernel()->as<Fusion>();
+  createKernelId(
+      heuristic,
+      buffer->fusion_id(),
+      buffer->concrete_id(),
+      buffer->runtime_id(),
+      buffer->group_id());
   setUsedTVs();
 
   // GlobalBufferInfo requires lowered kernel before deserialization
@@ -2193,7 +2240,7 @@ FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
     info.strides.emplace_back(dim_stride);
   }
 
-  info.type = mapToAtenDtype(buffer->dtype());
+  info.type = serde::mapToAtenDtype(buffer->dtype());
   info.zero_init = buffer->zero_init();
   info.is_profile_buffer = buffer->is_profile_buffer();
   return info;

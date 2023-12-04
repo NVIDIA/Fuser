@@ -319,6 +319,9 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
   if (a.is<std::complex<double>>()) {
     return std::abs(a.as<std::complex<double>>());
   }
+  if (a.is<at::Tensor>()) {
+    return a.as<at::Tensor>().abs();
+  }
   NVF_ERROR(
       false, "PolymorphicValue abs not implemented for ", a.type().name());
 }
@@ -371,6 +374,15 @@ inline PolymorphicValue toTensor(
   }
   NVF_ERROR(
       false, "PolymorphicValue toTensor not implemented for ", x.type().name());
+}
+
+// Convert PolymorphicValue to c10::Scalar.
+inline c10::Scalar toScalar(const PolymorphicValue& x) {
+  if (x.is<std::complex<double>>()) {
+    return (c10::complex<double>)x.as<std::complex<double>>();
+  } else {
+    return (c10::Scalar)x;
+  }
 }
 
 } // namespace PolymorphicValue_functions

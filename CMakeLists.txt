@@ -14,7 +14,13 @@ option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
 option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
 
 if(NOT NVFUSER_CPP_STANDARD)
-  set(NVFUSER_CPP_STANDARD 17)
+  set(NVFUSER_CPP_STANDARD 20)
+endif()
+
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.4)
+        message(FATAL_ERROR "GCC < 11.4 has compiler bugs and can not compile nvFuser.")
+    endif()
 endif()
 
 string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
@@ -31,12 +37,10 @@ set(ATEN_CUDA_ROOT "${TORCH_INSTALL_PREFIX}/include/ATen")
 string(APPEND CMAKE_CXX_FLAGS " ${TORCH_CXX_FLAGS}")
 include(cmake/FlatBuffers.cmake)
 
-if(BUILD_NVFUSER_BENCHMARK)
-  include(cmake/Dependencies.cmake)
-endif()
+include(cmake/Dependencies.cmake)
 
 # set CUDA_ARCH for cu tests.
-if(EXISTS ${TORCH_CUDA_ARCH_LIST})
+if(TORCH_CUDA_ARCH_LIST)
   set(ARCH_FLAGS)
   cuda_select_nvcc_arch_flags(ARCH_FLAGS ${TORCH_CUDA_ARCH_LIST})
   list(APPEND CUDA_NVCC_FLAGS ${ARCH_FLAGS})
@@ -47,7 +51,7 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 
 # TODO: fix MSVC
 if(NOT MSVC)
-  find_library(LIBCUPTI libcupti.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
+  find_library(LIBCUPTI libcupti.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/extras/CUPTI/lib64/ ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
   find_library(LIBNVTOOLSEXT libnvToolsExt.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
 endif()
 
@@ -77,6 +81,9 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/executor_utils.cpp
   ${NVFUSER_SRCS_DIR}/fusion.cpp
   ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/to_string.cpp
+  ${NVFUSER_SRCS_DIR}/id_model/validation_utils.cpp
   ${NVFUSER_SRCS_DIR}/index_compute.cpp
   ${NVFUSER_SRCS_DIR}/instrumentation.cpp
   ${NVFUSER_SRCS_DIR}/ir/base_nodes.cpp
@@ -129,11 +136,13 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/multidevice/allocator.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communication.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communicator.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/device_mesh.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/executor.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/lower_communication.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/pipeline.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/pipeline_ir.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/runtime.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/utils.cpp
   ${NVFUSER_SRCS_DIR}/mutator.cpp
   ${NVFUSER_SRCS_DIR}/non_divisible_split.cpp
   ${NVFUSER_SRCS_DIR}/ops/alias.cpp
@@ -190,6 +199,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/optimization/mark_alias.cpp
   ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/optimization/remove_empty.cpp
+  ${NVFUSER_SRCS_DIR}/val_graph.cpp
 )
 
 # We don't link CUPTI for MSVC
@@ -210,46 +220,48 @@ endif()
 
 set(NVFUSER_CODEGEN ${PROJECT_NAME}_codegen)
 add_library(${NVFUSER_CODEGEN} SHARED ${NVFUSER_SRCS})
-target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Wall -Wno-unused-function)
-target_compile_options(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
 
 if(NOT MSVC)
-  target_compile_options(${NVFUSER_CODEGEN} PRIVATE -Werror)
+  target_compile_options(${NVFUSER_CODEGEN} PRIVATE
+    -Wall -Wno-unused-function
+    -Werror
+  )
 endif()
 
-# NB: This must be target_compile_definitions, not target_compile_options,
-# as the latter is not respected by nvcc
 target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
-
-# Link flatbuffers for serialization support
-target_link_libraries(${NVFUSER_CODEGEN} PRIVATE flatbuffers)
-
-# For kernel_db, linking STL Filesystem Library for backward compatability with C++14
-target_link_libraries(${NVFUSER_CODEGEN} PRIVATE stdc++fs)
-target_link_libraries(${NVFUSER_CODEGEN} PRIVATE dynamic_type)
-target_link_libraries(${NVFUSER_CODEGEN} PRIVATE ${CUDA_NVRTC_LIB} ${LIBNVTOOLSEXT} ${LIBCUPTI})
-target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${CUDA_INCLUDE_DIRS})
-
-# TODO: we should guard the include of gloo
-target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${PROJECT_SOURCE_DIR}/third_party/gloo)
+target_include_directories(${NVFUSER_CODEGEN} SYSTEM PRIVATE
+  ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
+  ${CMAKE_SOURCE_DIR}/third_party/gloo # TODO: guard this on usage
+  ${CUDA_TOOLKIT_ROOT_DIR}/extras/CUPTI/include
+  ${CUDA_INCLUDE_DIRS}
+)
 target_include_directories(${NVFUSER_CODEGEN} PUBLIC
   "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
 )
 set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
 
+# Ensure we don't link against libcuda; we'll dlopen it ourselves.
+list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
+target_link_libraries(${NVFUSER_CODEGEN} PRIVATE
+  flatbuffers
+  stdc++fs  # for compatibility with C++14
+  dynamic_type
+  ${CUDA_NVRTC_LIB}
+  ${LIBNVTOOLSEXT}
+  ${LIBCUPTI}
+  ${TORCH_LIBRARIES}
+  dl
+)
+
 if(NVFUSER_BUILD_WITH_ASAN)
   add_compile_options(-fsanitize=address)
   add_link_options(-fsanitize=address)
 endif()
 
-list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
-
-target_link_libraries(${NVFUSER_CODEGEN} PRIVATE torch ${TORCH_LIBRARIES} dl)
-
 # this is to find pip installed nvrtc/nvtx .so
 set_target_properties(${NVFUSER_CODEGEN} PROPERTIES INSTALL_RPATH
-  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib:$ORIGIN/../../torch/lib")
+  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib")
 install(TARGETS ${NVFUSER_CODEGEN} EXPORT NvfuserTargets DESTINATION lib)
 
 # We are keeping fusion_cache_generated.h for the submodule build because flatc is unavailable.
@@ -259,7 +271,7 @@ add_custom_command(
   DEPENDS
   ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
   DEPENDS flatc
-  COMMAND ${CMAKE_CURRENT_BINARY_DIR}/third_party/flatbuffers/flatc --gen-object-api -o ${NVFUSER_ROOT}/csrc/serde/ -c -b ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
+  COMMAND ${CMAKE_CURRENT_BINARY_DIR}/third_party/flatbuffers/flatc --scoped-enums -o ${NVFUSER_ROOT}/csrc/serde/ -c -b ${NVFUSER_ROOT}/csrc/serde/fusion_cache.fbs
   COMMENT "Generating fusion_cache_generated header from fusion_cache.fbs"
   VERBATIM
 )
@@ -312,6 +324,9 @@ if(BUILD_PYTHON)
   set(NVFUSER "${PROJECT_NAME}")
   add_library(${NVFUSER} MODULE ${NVFUSER_PYTHON_SRCS})
   set_property(TARGET ${NVFUSER} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
+  target_include_directories(${NVFUSER} SYSTEM PRIVATE
+    ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
+  )
 
   # setup python API version
   add_custom_command(
@@ -337,6 +352,7 @@ if(BUILD_PYTHON)
   target_compile_definitions(${NVFUSER} PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
 
   if(NOT MSVC)
+    target_compile_options(${NVFUSER} PRIVATE -Wall -Wno-unused-function)
     target_compile_options(${NVFUSER} PRIVATE -Werror)
     set_target_properties(${NVFUSER} PROPERTIES SUFFIX ".so")
   else()
@@ -348,13 +364,12 @@ if(BUILD_PYTHON)
 
   target_compile_definitions(${NVFUSER} PRIVATE EXTENSION_NAME=_C)
 
-  target_compile_options(${NVFUSER} PRIVATE -Wall -Wno-unused-function)
   target_link_libraries(${NVFUSER} PRIVATE ${TORCH_LIBRARIES})
   target_link_libraries(${NVFUSER} PRIVATE "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so")
   target_link_libraries(${NVFUSER} PRIVATE dynamic_type)
   target_link_libraries(${NVFUSER} PRIVATE pybind11::pybind11)
   set_target_properties(${NVFUSER} PROPERTIES INSTALL_RPATH
-    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib:$ORIGIN/../torch/lib")
+    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib")
   install(TARGETS ${NVFUSER} DESTINATION lib)
 
 endif()
@@ -396,6 +411,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/test/test_mbarrier.cpp
     ${NVFUSER_ROOT}/test/test_memory.cpp
+    ${NVFUSER_ROOT}/test/test_mma.cpp
     ${NVFUSER_ROOT}/test/test_gpu_view.cpp
     ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
     ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
@@ -412,6 +428,9 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_alias.cpp
     ${NVFUSER_ROOT}/test/test_scalar_hoisting.cpp
     ${NVFUSER_ROOT}/test/test_no_op.cpp
+    ${NVFUSER_ROOT}/test/test_linked_hash_map.cpp
+    ${NVFUSER_ROOT}/test/test_pointwise.cpp
+    ${NVFUSER_ROOT}/test/test_iter_visitor.cpp
   )
 
   # We don't link CUPTI for MSVC
@@ -435,18 +454,22 @@ if(BUILD_TEST)
   # CUDA 11 does not support C++20, so hard code C++17 here
   set_property(TARGET ${NVFUSER_TESTS_KERNELS} PROPERTY CXX_STANDARD 17)
   target_link_libraries(${NVFUSER_TESTS_KERNELS} PRIVATE torch ${TORCH_LIBRARIES} ${NVFUSER_CODEGEN})
+  target_include_directories(${NVFUSER_TESTS_KERNELS} PRIVATE "${NVFUSER_ROOT}")
 
   add_executable(${NVFUSER_TESTS} ${JIT_TEST_SRCS})
   set_property(TARGET ${NVFUSER_TESTS} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
   target_compile_definitions(${NVFUSER_TESTS} PRIVATE USE_GTEST)
-  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} ${NVFUSER_TESTS_KERNELS} dynamic_type gtest_main gmock_main flatbuffers)
   target_include_directories(${NVFUSER_TESTS} PRIVATE "${NVFUSER_ROOT}")
-
-  target_compile_options(${NVFUSER_TESTS} PRIVATE -Wall -Wno-unused-function)
-  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${TORCH_LIBRARIES})
+  target_include_directories(${NVFUSER_TESTS} SYSTEM PRIVATE
+    ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include
+    ${CMAKE_SOURCE_DIR}/third_party/googletest/googlemock/include
+  )
+  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} ${NVFUSER_TESTS_KERNELS} dynamic_type GTest::gtest_main GTest::gmock_main flatbuffers ${TORCH_LIBRARIES})
 
   if(NOT MSVC)
-    set_property(SOURCE ${JIT_TEST_SRCS} APPEND PROPERTY COMPILE_OPTIONS "-Werror")
+    target_compile_options(${NVFUSER_TESTS} PRIVATE
+      -Wall -Wno-unused-function -Werror
+    )
   endif()
 endif()
 
@@ -492,17 +515,26 @@ if(BUILD_NVFUSER_BENCHMARK)
   add_executable(${NVFUSER_BENCHMARK} ${BENCHMARK_SRCS})
   set_property(TARGET ${NVFUSER_BENCHMARK} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
 
-  target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Wall -Wno-unused-function)
-  target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE dynamic_type)
-  target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE ${TORCH_LIBRARIES})
-  target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE benchmark::benchmark)
+  target_include_directories(${NVFUSER_BENCHMARK} SYSTEM PRIVATE
+    ${CMAKE_SOURCE_DIR}/third_party/benchmark/include
+    ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
+    ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include
+  )
+  target_include_directories(${NVFUSER_BENCHMARK} PUBLIC ${NVFUSER_ROOT})
+  target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE
+    dynamic_type
+    ${TORCH_LIBRARIES}
+    benchmark::benchmark
+    ${NVFUSER_CODEGEN}
+  )
+  add_dependencies(${NVFUSER_BENCHMARK} flatc build_flatbuffer_config)
 
   if(NOT MSVC)
-    target_compile_options(${NVFUSER_BENCHMARK} PRIVATE -Werror -Wno-deprecated-copy)
+    target_compile_options(${NVFUSER_BENCHMARK} PRIVATE
+      -Wall -Wno-unused-function
+      -Werror -Wno-deprecated-copy
+    )
   endif()
-
-  target_link_libraries(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_CODEGEN})
-  target_include_directories(${NVFUSER_BENCHMARK} PRIVATE ${NVFUSER_ROOT})
 endif()
 
 # --- generate runtime files
@@ -533,7 +565,6 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/memory.cu
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu
-  ${NVFUSER_ROOT}/runtime/tensorcore.cu
   ${NVFUSER_ROOT}/runtime/tuple.cu
   ${NVFUSER_ROOT}/runtime/type_traits.cu
   ${NVFUSER_ROOT}/runtime/warp.cu
@@ -576,6 +607,7 @@ message(STATUS "******** Nvfuser configuration summary ********")
 message(STATUS "  UCC_FOUND: ${UCC_FOUND}")
 message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}")
 message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
+message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
 
 if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   message(STATUS "    UCC_HOME: $ENV{UCC_HOME}")

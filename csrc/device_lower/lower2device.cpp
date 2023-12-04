@@ -33,6 +33,8 @@
 #include <device_lower/validation.h>
 #include <expr_simplifier.h>
 #include <fusion.h>
+#include <id_model/id_model.h>
+#include <id_model/validation_utils.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -254,20 +256,85 @@ void dumpExprsIfEnabled(
   }
 }
 
-void GpuLower::lower(Fusion* fusion) {
+GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
+    : passes_(
+          // Passes will be executed in the order they are added here
+          // Each pass is a pair of (name, function), where the name will be
+          // printed in verbose mode of lowering. The function must take a
+          // const std::vector<Expr*>& and return a std::vector<Expr*>.
+          {{"LoopNestGenerator", LoopNestGenerator::loweredExprs},
+           {"loadStoreOpInserter", loadStoreOpInserter},
+           {"insertAllocations", insertAllocations},
+           {"insertRawThreadSynchronization", insertRawThreadSynchronization},
+           {"reuseMemoryAllocations", reuseMemoryAllocations},
+           {"insertWarThreadSynchronization", insertWarThreadSynchronization},
+           {"DoubleBufferPass", DoubleBufferPass::run},
+           {"rotateLoops", rotateLoops},
+           {"UnrollPass", UnrollPass::runPass},
+           {"processMisalignedVectorization", processMisalignedVectorization},
+           {"IndexLowering", IndexLowering::getIndexedExprs},
+           {"fuseWarpReduce", fuseWarpReduce},
+           {"generateConditionalFromPredicate",
+            generateConditionalFromPredicate},
+           {"vectorizeWelford", vectorizeWelford},
+           {"allocateCommonScalars", allocateCommonScalars},
+           {"insertMagicZero", insertMagicZero},
+           {"KIRCleaner", KIRCleaner::cleanUp},
+           {"instrumentKernel", instrumentKernel},
+           {"lowerToInlinePtx", lowerToInlinePtx}}),
+      cparams_(cparams) {
+  analysis(fusion);
+}
+
+namespace {
+struct LowerGuard {
+  LowerGuard(GpuLower* gpu_lower) {
+    active_gpu_lower = gpu_lower;
+  }
+  ~LowerGuard() {
+    active_gpu_lower = nullptr;
+  }
+};
+
+} // namespace
+
+kir::Kernel* GpuLower::run() {
+  FusionGuard fg(fusion_);
+  LowerGuard lower_guard(this);
+  // Reorder expressions for loop-nest generation respecting computeAt
+  // relationships
+  auto exprs_lowered = reorderExprsForComputeAt();
+  dumpExprsIfEnabled(exprs_lowered, "reorderExprsForComputeAt");
+
+  commonScalarMap().initialize(exprs_lowered);
+
+  // For RNG ops whose seed and offset are not yet set, grab the seed and offset
+  // from the host and assign them to the ops.
+  // This must be after expr sort, because we do not want the generated
+  // computation of offset and seed to be considered as part of fusion
+  // definition
+  assignRNGOffset(fusion_);
+
+  for (auto [name, pass] : passes()) {
+    exprs_lowered = pass(exprs_lowered);
+    dumpExprsIfEnabled(exprs_lowered, name);
+  }
+
+  // We now have the lowered expressions, finalize the kernel IR. This function
+  // will also copy over some relevant information for code generation from
+  // GpuLower.
+  kernel_->finalize(exprs_lowered);
+
+  return kernel_.get();
+}
+
+void GpuLower::analysis(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::lower");
   NVF_ERROR(fusion != nullptr);
   NVF_ERROR(
       active_gpu_lower == nullptr, "Nested lowering passes are not supported");
 
-  struct LowerGuard {
-    LowerGuard(GpuLower* gpu_lower) {
-      active_gpu_lower = gpu_lower;
-    }
-    ~LowerGuard() {
-      active_gpu_lower = nullptr;
-    }
-  } lower_guard(this);
+  LowerGuard lower_guard(this);
 
   // Use int64 by default as the kernel index type
   if (!cparams_.index_type.has_value()) {
@@ -310,6 +377,17 @@ void GpuLower::lower(Fusion* fusion) {
   // of mappings Permissive, Exact, and Loop, see compute_at_map.h/cpp for more
   // information.
   compute_at_map_ = std::make_shared<ComputeAtMap>(fusion_);
+
+  // Transitory testing of IdModel if enabled. No existing
+  // functionality should be affected. New IterDomains may be created,
+  // so it is expected that generated code may use diffrent variable
+  // names
+  if (isOptionEnabled(EnableOption::IdModel)) {
+    IdModel id_model(fusion_);
+    // Only the exact graph is genereated at this moment
+    IdModelValidator::checkExactGraphEquivalence(
+        id_model.idGraph(IdMappingMode::EXACT));
+  }
 
   resolveComputeWith(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");
@@ -408,122 +486,6 @@ void GpuLower::lower(Fusion* fusion) {
 
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
-  // Run our passes keeping the lowered expressions and forwarding
-  // them
-
-  // Reorder expressions for loop-nest generation respecting computeAt
-  // relationships
-  const auto exprs_sorted = reorderExprsForComputeAt();
-  dumpExprsIfEnabled(exprs_sorted, "reorderExprsForComputeAt");
-
-  commonScalarMap().initialize(exprs_sorted);
-
-  // For RNG ops whose seed and offset are not yet set, grab the seed and offset
-  // from the host and assign them to the ops.
-  // This must be after expr sort, because we do not want the generated
-  // computation of offset and seed to be considered as part of fusion
-  // definition
-  assignRNGOffset(fusion_);
-
-  // Generate loop-nests and place each expression at its
-  // corresponding loop
-  const auto exprs_lowered = LoopNestGenerator::loweredExprs(exprs_sorted);
-  dumpExprsIfEnabled(exprs_lowered, "LoopNestGenerator");
-
-  // Replace squeezes, Transpose, Shift, Gather, and View ops with
-  // unary ops since they're not separately processed in lowering.
-  const auto exprs_unary_replaced = unarySetOpInserter(exprs_lowered);
-  dumpExprsIfEnabled(exprs_unary_replaced, "unarySetOpInserter");
-
-  // Insert allocations
-  const auto exprs_alloced = insertAllocations(exprs_unary_replaced);
-  dumpExprsIfEnabled(exprs_alloced, "insertAllocations");
-
-  // Insert read after write smem syncs
-  const auto exprs_raw_sync = insertRawThreadSynchronization(exprs_alloced);
-  dumpExprsIfEnabled(exprs_raw_sync, "insertRawThreadSynchronization");
-
-  // Reuse memory locations
-  const auto exprs_reuse_mem = reuseMemoryAllocations(exprs_raw_sync);
-  dumpExprsIfEnabled(exprs_reuse_mem, "reuseMemoryAllocations");
-
-  // Insert SyncThreads at end of for-loop to avoid WAR race condition
-  const auto exprs_war_sync = insertWarThreadSynchronization(exprs_reuse_mem);
-  dumpExprsIfEnabled(exprs_war_sync, "insertWarThreadSynchronization");
-
-  const auto exprs_double_buffered = DoubleBufferPass::run(exprs_war_sync);
-  dumpExprsIfEnabled(exprs_double_buffered, "DoubleBufferPass");
-
-  const auto exprs_loop_rotated = fusion_->hasManaged("loop_rotation")
-      ? rotateLoops(
-            exprs_double_buffered,
-            fusion_->getManaged<LoopRotationParam>("loop_rotation"))
-      : exprs_double_buffered;
-  dumpExprsIfEnabled(exprs_loop_rotated, "rotateLoops");
-
-  // This pass inserts predicates as well as branches in the code. Up until now
-  // the code is explicitly single shot for loop based. Need to be careful in
-  // later passes when doing any kind of insertions in loop nest structure as
-  // insertions could be on if then or else instead of directly on a for loop.
-  const auto exprs_unrolled_loops =
-      UnrollPass::runPass(fusion_, exprs_loop_rotated);
-  dumpExprsIfEnabled(exprs_unrolled_loops, "UnrollPass");
-
-  const auto exprs_unrolled_mv_loops =
-      processMisalignedVectorization(exprs_unrolled_loops);
-  dumpExprsIfEnabled(exprs_unrolled_mv_loops, "processMisalignedVectorization");
-
-  const auto exprs_indexed_loops =
-      IndexLowering::getIndexedExprs(exprs_unrolled_mv_loops);
-  dumpExprsIfEnabled(exprs_indexed_loops, "IndexLowering");
-
-  // TODO: It seems this type of optimization would be far easier to implement
-  // on fusion ir than kernel ir. We should likely refactor this to at least run
-  // before allocation insertion.
-  const auto exprs_with_fused_broadcast = fuseWarpReduce(exprs_indexed_loops);
-  dumpExprsIfEnabled(exprs_with_fused_broadcast, "fuseWarpReduce");
-
-  const auto exprs_conditional_loops =
-      generateConditionalFromPredicate(exprs_with_fused_broadcast);
-  dumpExprsIfEnabled(
-      exprs_conditional_loops, "generateConditionalFromPredicate");
-
-  std::vector<Expr*> exprs_welford_vectorized;
-  if (!isOptionDisabled(DisableOption::WelfordVectorization)) {
-    exprs_welford_vectorized = vectorizeWelford(exprs_conditional_loops);
-    dumpExprsIfEnabled(exprs_welford_vectorized, "vectorizeWelford");
-  } else {
-    exprs_welford_vectorized = exprs_conditional_loops;
-  }
-
-  const auto exprs_common_index_allocated =
-      allocateCommonScalars(exprs_welford_vectorized);
-  dumpExprsIfEnabled(exprs_common_index_allocated, "allocateCommonScalars");
-
-  std::vector<Expr*> exprs_register_adjusted;
-  if (isNvFuserZeroEnabled()) {
-    // Insert fake zero updates to make sure nvrtc doesn't blow out register use
-    // on index and predicate reuse
-    exprs_register_adjusted = insertMagicZero(exprs_common_index_allocated);
-    dumpExprsIfEnabled(exprs_register_adjusted, "insertMagicZero");
-  } else {
-    exprs_register_adjusted = exprs_common_index_allocated;
-  }
-
-  const auto exprs_cleaned_up_loops =
-      KIRCleaner::cleanUp(exprs_register_adjusted);
-  dumpExprsIfEnabled(exprs_cleaned_up_loops, "KIRCleaner");
-
-  const auto exprs_instrumented = instrumentKernel(exprs_cleaned_up_loops);
-  dumpExprsIfEnabled(exprs_instrumented, "instrumentKernel");
-
-  const auto exprs_inlined_ptx = lowerToInlinePtx(exprs_instrumented);
-  dumpExprsIfEnabled(exprs_inlined_ptx, "lowerToInlinePtx");
-
-  // We now have the lowered expressions, finalize the kernel IR. This function
-  // will also copy over some relevant information for code generation from
-  // GpuLower.
-  kernel_->finalize(exprs_inlined_ptx);
 }
 
 kir::Kernel* GpuLower::kernel() const {
