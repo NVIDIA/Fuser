@@ -937,19 +937,6 @@ PersistentBufferSizeReturn persistentBufferSize(
         std::max(max_proj_persistence_size, projected_buffer_size);
   }
 
-  // reduce max_persistence_size if a persistent buffer can be projected to
-  // other persistent tvs.
-  std::unordered_set<TensorView*> persistent_buffer_set(
-      persistent_buffers.begin(), persistent_buffers.end());
-  for (auto buffer_i : c10::irange(persistent_buffers.size())) {
-    auto buffer = persistent_buffers[buffer_i];
-    const auto& producers = ir_utils::producerTvsOf(buffer);
-    if (canProjectToPersistentProducer(
-            buffer, producers, persistent_buffer_set)) {
-      max_persistence_size -= persistent_buffer_sizes[buffer_i];
-    }
-  }
-
   PersistentBufferSizeReturn persistent_buffer_size;
   persistent_buffer_size.persistent_buffer_size = max_persistence_size;
   persistent_buffer_size.projected_persistent_buffer_size =
