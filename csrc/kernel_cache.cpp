@@ -971,22 +971,18 @@ FusionKernelRuntime::FusionKernelRuntime(
         SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
   } else {
     // Serialization path that generates segmented fusion from flatbuffers.
-    const auto& segmented_groups = serde_buffer->segmented_fusion()->groups();
-    std::vector<ScheduleHeuristic> heuristics;
-    heuristics.reserve(segmented_groups->size());
-    for (auto idx : c10::irange(segmented_groups->size())) {
-      heuristics.push_back(static_cast<ScheduleHeuristic>(
-          segmented_groups->Get(idx)->heuristic()));
-    }
     // Convert Welford to two-pass if option is enabled and the original
     // heuristic is persistent
-    auto is_persistent_heuristic = [](ScheduleHeuristic heuristic) {
-      return heuristic == ScheduleHeuristic::InnerPersistent ||
-          heuristic == ScheduleHeuristic::OuterPersistent ||
-          heuristic == ScheduleHeuristic::InnerOuterPersistent;
-    };
+    const auto& segmented_groups = serde_buffer->segmented_fusion()->groups();
     bool has_persistent_heuristic = std::any_of(
-        heuristics.begin(), heuristics.end(), is_persistent_heuristic);
+        segmented_groups->begin(),
+        segmented_groups->end(),
+        [](const serde::SegmentedGroup* sg) {
+          auto heuristic = static_cast<ScheduleHeuristic>(sg->heuristic());
+          return heuristic == ScheduleHeuristic::InnerPersistent ||
+              heuristic == ScheduleHeuristic::OuterPersistent ||
+              heuristic == ScheduleHeuristic::InnerOuterPersistent;
+        });
 
     auto has_welford_ops = ir_utils::hasOpsOfType<WelfordOp>(fusion.get());
     if (has_welford_ops && has_persistent_heuristic) {
