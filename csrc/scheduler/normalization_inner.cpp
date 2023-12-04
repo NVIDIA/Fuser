@@ -708,6 +708,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
           blocks_per_sm_estimated * threads_per_block);
     }
   }
+
   // Will be used once supporting inter-block persistence
   int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
   int64_t gdimy = LaunchParams::UNINITIALIZED_VAL;
@@ -760,13 +761,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     rparams->unroll_factor_outer_reduction = outer_reduction_unroll_factor;
   }
 
-  // If there are more than 1 persistent batches, needs special
-  // inline to separate data loading and calculation, see multiReductionInliner.
-  if (std::getenv("TEST_INLINE") && rparams->batches_per_block_inner_reduction > 1) {
-    std::cout << "maybe_special_inline_cached_inputs = true" << std::endl;
-    rparams->maybe_special_inline_cached_inputs = true;
-  }
-
   rparams->lparams = LaunchParams(
       gdimx,
       gdimy,
@@ -786,10 +780,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
             << "vectorize_factor: " << vectorize_factor << "\n"
             << "n_tensor_inputs: " << n_tensor_inputs << "\n"
             << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-            << "nvrtc_register_per_thread: " << nvrtc_register_per_thread
-            << "\n"
-            << "maybe_special_inline_cached_inputs: "
-            << rparams->maybe_special_inline_cached_inputs << "\n"
             << "max_persistent_buffer_size: " << max_persistent_buffer_size
             << "\n"
             << "max_multi_reduction_factor: " << max_multi_reduction_factor

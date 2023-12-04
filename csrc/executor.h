@@ -209,10 +209,13 @@ class FusionExecutor : public NonCopyable {
   float getKernelOccupancy() const {
     return kernel_occupancy_;
   }
+
   void setKernelOccupancy(float occupancy) {
     kernel_occupancy_ = occupancy;
   }
-  float getKernelRegisterSpills() const {
+
+  //! get register spills (load + store) of the compiled kernel
+  int getKernelRegisterSpills() const {
     return compiled_kernel_->register_spills;
   }
   //! Returns the input bytes accessed for a kernel

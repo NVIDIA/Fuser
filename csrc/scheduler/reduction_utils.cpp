@@ -351,36 +351,6 @@ bool isGridAllreduce(TensorView* reduction_tv) {
   return false;
 }
 
-namespace {
-// Returns true if all the cached input tvs or their consumers are persistent.
-bool checkCachedInputAndConsumer(
-    Fusion* fusion,
-    const std::vector<TensorView*>& cached_inputs) {
-  const auto& buffers =
-      scheduler_utils::persistentBuffers(fusion).persistent_buffers;
-  auto is_persistent_buffer = [&buffers](TensorView* tv) {
-    return std::find(buffers.begin(), buffers.end(), tv) != buffers.end();
-  };
-  for (auto tv : cached_inputs) {
-    if (is_persistent_buffer(tv)) {
-      continue;
-    }
-    const auto& consumers = ir_utils::consumerTvsOf(tv);
-    if (std::all_of(
-            consumers.begin(),
-            consumers.end(),
-            [&is_persistent_buffer](TensorView* tv) {
-              return is_persistent_buffer(tv);
-            })) {
-      continue;
-    }
-    return false;
-  }
-  return true;
-}
-
-} // namespace
-
 void multiReductionInliner(
     Fusion* fusion,
     TensorView* reduction_tv,
@@ -388,7 +358,6 @@ void multiReductionInliner(
     const bool unroll,
     const bool vectorize,
     const bool is_outer_grid_persistence,
-    const bool maybe_special_inline_cached_inputs,
     std::vector<TensorView*> reduction_tvs,
     std::vector<TensorView*> cached_inputs,
     std::vector<std::pair<TensorView*, TensorView*>> cached_outputs,
@@ -416,37 +385,8 @@ void multiReductionInliner(
     fusion->removeOutput(output);
   }
 
-  // This special inline for cached_inputs is used when
-  // `maybe_special_inline_cached_inputs` is true and all the cached input tvs
-  // or their consumers are persistent. It seperates data loading and
-  // computation without inrcreasing requested registers and showed performance
-  // increase, see SoftmaxNotInlineDataLoad.
-  bool is_special_inline_cached_input = maybe_special_inline_cached_inputs;
-      // checkCachedInputAndConsumer(fusion, cached_inputs)
-  if (is_special_inline_cached_input) {
-    inlineMost(ir_utils::allTvsExcept(
-        fusion, {cached_inputs.begin(), cached_inputs.end()}));
-    // The inner persistent tvs are scheduled as [..., persistent batch,
-    // unswitch, vect/unroll], inline them before [persistent batch].
-    for (auto tv : cached_inputs) {
-      int64_t tailing_static_dims = 0;
-      for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
-        if (tv->axis(i)->extent()->isConstInt()) {
-          tailing_static_dims++;
-        } else {
-          break;
-        }
-      }
-      auto producer = ir_utils::getSoleProducerTv(tv);
-      inlineSelectedAt(
-          {tv},
-          producer,
-          (int64_t)producer->nDims() - tailing_static_dims,
-          true);
-    }
-  } else {
-    inlineMost();
-  }
+  // Inline the schedule
+  inlineMost();
 }
 
 void propagateTransformation(
@@ -745,9 +685,9 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
       continue;
     }
 
-    // We always want an rfactor axis because our inlining logic expects it.
-    // If there's no parallelization to split out, just rfactor everything but
-    // the unswitch dim.
+    // We always want an rfactor axis because our inlining logic expects it. If
+    // there's no parallelization to split out, just rfactor everything but the
+    // unswitch dim.
     if (!(id->getParallelType() == ParallelType::Unswitch &&
           id->extent()->isOneInt())) {
       rfactor_axes_no_unswitch.emplace_back(axis_i);
@@ -782,9 +722,8 @@ class PersistentBufferProjector {
 
   const std::vector<TensorView*>& project() {
     if (project_to_inputs_) {
-      // Iterate through projected buffers, tracking which index it
-      // corresponds too since there's a resolution point entry for every
-      // buffer.
+      // Iterate through projected buffers, tracking which index it corresponds
+      // too since there's a resolution point entry for every buffer.
       for (auto buffer_i : c10::irange(persistent_buffers.size())) {
         auto buffer = persistent_buffers[buffer_i];
         if (std::find(
@@ -828,11 +767,11 @@ class PersistentBufferProjector {
   // get all uses of the persistent buffer
   std::vector<Val*> getPersistentUseOfBuffer(int buffer_i) {
     std::vector<Val*> persistent_use_of_buffer;
-    // Go through the resolution points one by one. Resolution points are
-    // points in which the reduction branch meets the residual branch. These
-    // are points where the persitent buffer may no longer be needed (one
-    // point could be after another, and the buffer would be needed until the
-    // last resolution points)
+    // Go through the resolution points one by one. Resolution points are points
+    // in which the reduction branch meets the residual branch. These are points
+    // where the persitent buffer may no longer be needed (one point could be
+    // after another, and the buffer would be needed until the last resolution
+    // points)
     auto buffer = persistent_buffers[buffer_i];
     auto resolution_points = persistent_buffer_resolution_points[buffer_i];
     for (auto resolution_point : resolution_points) {

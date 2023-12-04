@@ -1258,7 +1258,6 @@ void schedulePersistentKernel(
       unroll,
       vectorize,
       is_outer_grid_persistence,
-      rparams.maybe_special_inline_cached_inputs,
       reduction_tvs,
       cached_inputs,
       cached_outputs,

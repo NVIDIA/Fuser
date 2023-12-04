@@ -109,9 +109,6 @@ class ReductionParams : public HeuristicParams {
   // Use computeWith to persistent buffers
   bool compute_persistent_buffer_with_first_consumer = false;
 
-  // Inline all tvs
-  bool maybe_special_inline_cached_inputs = false;
-
   bool static_bdimx = false;
   bool static_bdimy = false;
 

@@ -503,7 +503,6 @@ if(BUILD_NVFUSER_BENCHMARK)
     ${NVFUSER_ROOT}/benchmark/shape_inference.cpp
     ${NVFUSER_ROOT}/benchmark/softmax_backward.cpp
     ${NVFUSER_ROOT}/benchmark/softmax_dropout.cpp
-    ${NVFUSER_ROOT}/benchmark/softmax_fused.cpp
     ${NVFUSER_ROOT}/benchmark/softmax.cpp
     ${NVFUSER_ROOT}/benchmark/timm.cpp
     ${NVFUSER_ROOT}/benchmark/transpose.cpp
