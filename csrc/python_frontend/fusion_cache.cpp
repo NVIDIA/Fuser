@@ -249,7 +249,16 @@ FusionCache* FusionCache::get(
             << "Warning: Failed to deserialize common workspace.\t"
             << "A new workspace will be saved upon program exit after deleting incompatible workspace."
             << std::endl;
-        std::cout << deserialize_exception.what() << std::endl;
+
+        // Hide exception message because it should be resolved by saving a new
+        // workspace.
+        if (!isOptionDisabled(DisableOption::ParallelSerde)) {
+          std::cout
+              << "Use NVFUSER_DISABLE=parallel_serde to print exception message."
+              << std::endl;
+        } else {
+          std::cout << deserialize_exception.what() << std::endl;
+        }
 
         // Delete incompatible workspace
         std::error_code remove_ec;
@@ -711,7 +720,6 @@ void FusionCache::deserialize(std::string filename) {
         } catch (const std::exception& e) {
           // Set flag inside lambda so we can throw an exception after thread
           // pool completes its work.
-          std::cout << e.what() << std::endl;
           detect_exception_in_thread_pool.store(true);
         }
       });
@@ -727,7 +735,8 @@ void FusionCache::deserialize(std::string filename) {
     getThreadPool()->waitWorkComplete();
     NVF_ERROR(
         !detect_exception_in_thread_pool.load(),
-        "Detected exception while deserializing fusions in parallel.");
+        "Detected exception while deserializing fusions in parallel.\n",
+        "Use NVFUSER_DISABLE=parallel_serde to print exception message.");
   }
 }
 

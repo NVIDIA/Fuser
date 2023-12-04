@@ -895,13 +895,6 @@ void FusionExecutorCache::deserialize(
       KernelArgumentHolder args;
       args.deserialize(runtime->args());
 
-      /*
-      NVF_ERROR(
-          (int8_t)fb_device_runtimes->device_id() == args.getDeviceIndex(),
-          "Expected serde FusionKernelRuntime device_id to match
-      KernelArgumentHolder metadata device id.");
-      */
-
       // 2. Construct new FusionKernelRuntime
       device_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
           std::move(conc_fusion),
@@ -1236,7 +1229,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         } catch (const std::exception& e) {
           // Set flag inside lambda so we can throw an exception after thread
           // pool completes its work.
-          std::cout << e.what() << std::endl;
           detect_exception_in_thread_pool.store(true);
         }
       });
@@ -1258,7 +1250,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     getThreadPool()->waitWorkComplete();
     NVF_ERROR(
         !detect_exception_in_thread_pool.load(),
-        "Detected exception while compiling fusion segments in parallel.");
+        "Detected exception while compiling fusion segments in parallel.\n",
+        "Use NVFUSER_DISABLE=parallel_compile to print exception message.");
   }
   if (isProfilerEnabled()) {
     FusionProfiler::stopCompile();
