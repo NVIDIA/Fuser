@@ -596,7 +596,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         project_to_input,
         index_type);
   }
-  if (std::getenv("TEST_HEURISTICS")) {
+  if (std::getenv("TEST_NEW")) {
     if (total_reduction_numel == inner_most_dimension_numel) {
       return innerPersistentHeuristic2D(
           total_reduction_numel,
