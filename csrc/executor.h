@@ -387,8 +387,6 @@ class FusionExecutor : public NonCopyable {
     return "CudaCodeGen";
   }
 
-  float kernel_occupancy_ = -1.0f;
-
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
       ExpressionEvaluator& expr_eval,
@@ -567,6 +565,10 @@ class FusionExecutor : public NonCopyable {
   // Profiling support: the last kernel execution time, if measure_kernel_time_
   // is true
   float kernel_time_ms_ = 0;
+
+  // Heuristic tuning support: the last kernel occupancy, if
+  // DebugDumpOption::Occupancy is true
+  float kernel_occupancy_ = -1.0f;
 
   // Profiling support: last kernel bytes processed in each input
   std::optional<std::vector<int64_t>> bytes_processed_per_input_ = std::nullopt;
