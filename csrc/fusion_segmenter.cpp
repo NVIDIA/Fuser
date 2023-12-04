@@ -26,9 +26,9 @@ namespace {
 
 using GroupSet = VectorOfUniqueEntries<SegmentedGroup*>;
 
-template <template <typename> class ContainerT, typename T>
+template <typename ContainerT, typename T>
 std::vector<int64_t> convertPointerToInteger(
-    const ContainerT<T*>& container,
+    const ContainerT& container,
     const std::unordered_map<T*, int64_t>& map) {
   std::vector<int64_t> result;
   result.reserve(container.size());
