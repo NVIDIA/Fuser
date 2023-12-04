@@ -34,6 +34,8 @@ using RankType = DeviceIdxType;
 // Supported backends. TODO: gloo untested
 enum class CommunicatorBackend { nccl, ucc, gloo };
 
+std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb);
+
 #ifdef USE_C10D_NCCL
 constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::nccl;
 #else
