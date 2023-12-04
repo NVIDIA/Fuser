@@ -79,7 +79,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     FusionExecutor fe;
     fe.compileFusion(&fusion, {t0});
     auto cg_outputs = fe.runFusion({t0});
-    testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
   }
 }
 
@@ -172,7 +172,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     FusionExecutor fe;
     fe.compileFusion(&fusion, {t0});
     auto cg_outputs = fe.runFusion({t0});
-    testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
   }
 }
 
@@ -281,7 +281,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     FusionExecutor fe;
     fe.compileFusion(&fusion, {t0});
     auto cg_outputs = fe.runFusion({t0});
-    testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
   }
 }
 
@@ -392,7 +392,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     FusionExecutor fe;
     fe.compileFusion(&fusion, {t0});
     auto cg_outputs = fe.runFusion({t0});
-    testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
   }
 }
 
@@ -529,7 +529,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     FusionExecutor fe;
     fe.compileFusion(&fusion, {t0});
     auto cg_outputs = fe.runFusion({t0});
-    testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
   }
 }
 
@@ -578,9 +578,22 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     i3 = toSmem(T4) + (12LL * i1);
     bool b4;
     b4 = (i1 + nvfuser_zero) < T0.logical_size[0LL];
+    bool b5;
+    b5 = !b4;
     #pragma unroll
-    for(nvfuser_index_t i5 = 0; i5 < 3LL; ++i5) {
-      Ampere::cpAsyncCa<float, 1>((i3 + (4LL * i5)), (ptr2 + (T0.alloc_stride[1LL] * (i5 + nvfuser_zero))), b4);
+    for(nvfuser_index_t i6 = 0; i6 < 3LL; ++i6) {
+      asm volatile(
+        "{\n"
+        "  .reg .pred p0; \n"
+        "  setp.ne.b32 p0, %3, 0;\n"
+        "  cp.async.ca.shared.global [%0], [%1], %2, p0;\n"
+        "}\n"
+        :
+        :"r"((uint32_t)((i3 + (4LL * i6)))),
+         "l"((ptr2 + (T0.alloc_stride[1LL] * (i6 + nvfuser_zero)))),
+         "n"(4LL),
+         "r"((uint32_t)(b5))
+      );
     }
     asm volatile("cp.async.commit_group;\n");
   }
@@ -590,45 +603,58 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   T1[0LL]
      = T4[0LL];
   #pragma unroll 1
-  for(nvfuser_index_t i6 = 0; i6 < T0.logical_size[0LL]; ++i6) {
-    float* ptr7;
-    ptr7 = ptr0 + (T0.alloc_stride[0LL] * i6);
-    nvfuser_index_t i8;
-    i8 = 4LL + i6;
-    unsigned i9;
-    i9 = toSmem(T4) + (12LL * (i8 % 5LL));
-    nvfuser_index_t i10;
-    i10 = 1LL + (3LL * (i6 % 5LL));
+  for(nvfuser_index_t i7 = 0; i7 < T0.logical_size[0LL]; ++i7) {
+    float* ptr8;
+    ptr8 = ptr0 + (T0.alloc_stride[0LL] * i7);
+    nvfuser_index_t i9;
+    i9 = 4LL + i7;
+    unsigned i10;
+    i10 = toSmem(T4) + (12LL * (i9 % 5LL));
     nvfuser_index_t i11;
-    i11 = 3LL * i6;
-    bool b12;
-    b12 = i8 < T0.logical_size[0LL];
+    i11 = 1LL + (3LL * (i7 % 5LL));
+    nvfuser_index_t i12;
+    i12 = 3LL * i7;
+    bool b13;
+    b13 = i9 < T0.logical_size[0LL];
+    bool b14;
+    b14 = !b13;
     #pragma unroll
-    for(nvfuser_index_t i5 = 0; i5 < 3LL; ++i5) {
-      Ampere::cpAsyncCa<float, 1>((i9 + (4LL * i5)), (ptr7 + (T0.alloc_stride[1LL] * (i5 + nvfuser_zero))), b12);
+    for(nvfuser_index_t i6 = 0; i6 < 3LL; ++i6) {
+      asm volatile(
+        "{\n"
+        "  .reg .pred p0; \n"
+        "  setp.ne.b32 p0, %3, 0;\n"
+        "  cp.async.ca.shared.global [%0], [%1], %2, p0;\n"
+        "}\n"
+        :
+        :"r"((uint32_t)((i10 + (4LL * i6)))),
+         "l"((ptr8 + (T0.alloc_stride[1LL] * (i6 + nvfuser_zero)))),
+         "n"(4LL),
+         "r"((uint32_t)(b14))
+      );
     }
     NVFUSER_UPDATE_MAGIC_ZERO;
     asm volatile("cp.async.commit_group;\n");
     #pragma unroll
-    for(nvfuser_index_t i13 = 0; i13 < 2LL; ++i13) {
-      T1[((1LL + i13) % 2LL)]
-         = T4[(i10 + i13)];
+    for(nvfuser_index_t i15 = 0; i15 < 2LL; ++i15) {
+      T1[((1LL + i15) % 2LL)]
+         = T4[(i11 + i15)];
       float T2[1LL];
       T2[0LL]
-         = T1[(i13 % 2LL)];
-      T3[(i11 + (i13 + nvfuser_zero))]
+         = T1[(i15 % 2LL)];
+      T3[(i12 + (i15 + nvfuser_zero))]
          = T2[0LL];
     }
     NVFUSER_UPDATE_MAGIC_ZERO;
     float T2[1LL];
     T2[0LL]
        = T1[0LL];
-    T3[(2LL + i11)]
+    T3[(2LL + i12)]
        = T2[0LL];
     NVFUSER_UPDATE_MAGIC_ZERO;
     asm volatile("cp.async.wait_group %0;\n"::"n"(3LL));
     T1[0LL]
-       = T4[(3LL * ((1LL + i6) % 5LL))];
+       = T4[(3LL * ((1LL + i7) % 5LL))];
   }
 }
 )";
@@ -640,7 +666,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
     FusionExecutor fe;
     fe.compileFusion(&fusion, {t0});
     auto cg_outputs = fe.runFusion({t0});
-    testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
   }
 }
 } // namespace nvfuser

@@ -275,7 +275,8 @@ class ReductionParams : public HeuristicParams {
       ss << "\ncomputeWith persistent buffers";
     }
 
-    ss << "\n" << lparams.toString() << "\n";
+    ss << "\n" << lparams.toString();
+    ss << cparams.toString() << "\n";
     ss << "====================================\n";
     return ss.str();
   }

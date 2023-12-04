@@ -512,6 +512,10 @@ inline bool hasCompatibleDataType(
 int max_digits10(DataType dtype);
 
 enum class UnaryOpType {
+  Cast,
+  BitCast,
+  RefCast,
+
   Abs,
   Acos,
   Acosh,
@@ -520,7 +524,6 @@ enum class UnaryOpType {
   Asinh,
   Atan,
   Atanh,
-  Cast,
   Ceil,
   Cos,
   Cosh,
@@ -542,7 +545,6 @@ enum class UnaryOpType {
   Log10,
   Log1p,
   Log2,
-  BitCast,
   Neg,
   Real,
   Reciprocal,
@@ -574,7 +576,8 @@ enum class UnaryOpType {
   IsReal,
 
   // Special unary ops
-  ToUnsignedSmemAddr
+  ToUnsignedSmemAddr,
+  AdjustPartialLdMatrixAddrInTuring
 };
 
 // TODO: Order of this list is important as it affects type promotion. it's not

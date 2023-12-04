@@ -10,6 +10,7 @@
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <ir/base_nodes.h>
+#include <mma_type.h>
 #include <parallel_type_bitmap.h>
 #include <tma.h>
 #include <type.h>
@@ -229,8 +230,19 @@ class Asm final : public Expr {
     return options().memory;
   }
 
+  bool hasBooleanInput() const {
+    for (auto input : inputs()) {
+      if (input->dtype() == DataType::Bool) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   std::vector<std::pair<std::string, Val*>> constraintsAndOutputs() const;
   std::vector<std::pair<std::string, Val*>> constraintsAndInputs() const;
+
+  std::string parameters() const;
 };
 
 //! Allocate is a lower level Node that describes a buffer of memory that
@@ -1381,7 +1393,7 @@ class EncodeTensorMapTiled : public Expr {
       Val* box_dim,
       Val* element_strides,
       tma::TensorMapInterleave interleave,
-      tma::TensorMapSwizzle swizzle,
+      MmaInputSmemSwizzle swizzle,
       tma::TensorMapL2Promotion l2_promotion,
       tma::TensorMapFloatOOBFill oob_fill);
 
@@ -1426,8 +1438,8 @@ class EncodeTensorMapTiled : public Expr {
     return attribute<tma::TensorMapInterleave>(2);
   }
 
-  const tma::TensorMapSwizzle& swizzle() const {
-    return attribute<tma::TensorMapSwizzle>(3);
+  const MmaInputSmemSwizzle& swizzle() const {
+    return attribute<MmaInputSmemSwizzle>(3);
   }
 
   const tma::TensorMapL2Promotion& l2Promotion() const {

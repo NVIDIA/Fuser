@@ -115,8 +115,6 @@ Tensor broadcast_in_dim_fn(
     std::vector<int64_t>& broadcast_dims) {
   FUSER_PERF_SCOPE("Operators.broadcast_in_dim");
   FusionDefinition* fd = op.fusion_definition;
-  NVF_CHECK(!fd->completed(), "Attempting to add to a completed definition!");
-
   NVF_CHECK(op.validUse(), "Attempting to add to a completed definition!");
   Vector output_shape = ShapeAsVector(generic_output_shape, *fd);
   NVF_CHECK(
@@ -129,6 +127,23 @@ Tensor broadcast_in_dim_fn(
       {fd->recordingState(output())},
       output_shape.size,
       broadcast_dims));
+  return output;
+}
+
+template <class ShapeType>
+Tensor full_op_fn(
+    FusionDefinition::Operators& self,
+    ShapeType generic_output_shape,
+    Scalar fill_value,
+    PrimDataType dtype) {
+  NVF_CHECK(self.validUse(), "Attempting to add to a completed definition!");
+  FusionDefinition* fd = self.fusion_definition;
+  Vector output_shape = ShapeAsVector(generic_output_shape, *fd);
+  Tensor output = fd->defineTensor(output_shape.size);
+  fd->defineRecord(new FullOpRecord(
+      {fd->recordingState(output_shape()), fd->recordingState(fill_value())},
+      {fd->recordingState(output())},
+      dtype));
   return output;
 }
 
@@ -256,29 +271,43 @@ std::vector<std::optional<bool>> computeContiguity(
 // `stride order` vector corresponds to the order for each logical domain in
 //     physical memory; For any 0 <= i < n , we know the dimension i has the
 //     stride_order[i]-th smallest stride.
+//     An exception to this are implicit broadcast dimensions, i.e. dimensions
+//     with `stride == 0`, where we would maintain their semantical position
 // `contiguity` vector to whether or not indexing could be collaped
 //     corresponding to each physical domain;
 //
 // e.g. Given size and stride as follow:
-//   sizes   = [2, 1, 3, 1, 4, 3]
-//   strides = [12, 4, 4, 4, 1, 0]
-// we would compute stride order as: [5, 4, 3, 2, 1, 0]. Since the original
-// stride is in descending order. Note that there's more than one way to define
-// a stride order when we have equal strides. In the context of index
-// collapsing, how we resolve that shouldn't matter, hence we just go with
-// preserving their original order. Similarly, we compute contiguity as: [True,
-// None, True, None, True, None], Since the physical order is the same as the
-// logical order, this one is trivial to compute.
+//   sizes   = [2, 2, 2, 2]
+//   strides = [8, 4, 2, 1]
+// Obviously the stride order as: [3, 2, 1, 0] for row-major order, i.e. stride
+// in descending order and contiguity flag will be [True, True, True, True]
 //
 // e.g. Given size and stride as follow:
-//   sizes   = [2, 3, 1, 5, 4]
-//   strides = [28, 4, 14, 0, 1]
-// stride_order would be: [4, 2, 3, 0, 1], marking the order of strides in the
-// vector. Meanwhile, contiguity would be computed on the physical domain, i.e.
-// on sorted sizes & strides.
-//   sorted_size    = [2, 1, 3, 4, 5]
-//   sorted_strides = [28, 14, 4, 1, 0]
-//   contiguity would be: [False, None, True, True, None]
+//   sizes   = [2, 1, 3, 1, 4]
+//   strides = [24, 4, 8, 4, 2]
+// Note that there are a few explicit broadcast dimensions, dimensions with size
+// == 1 and stride != 0. The stride for explicit broadcast dimensions
+// participates in stride order computation. The reason is that, frameworks
+// could assign meaningful stride to an explicit broadcast dimensions to hint
+// memory format, which could be used to deduce the desired output memory
+// format. We use stable sort to break tie when two dimension has equal stride,
+// i.e. try to preserve their semantical order. Hence, we would compute stride
+// order as: [4, 2, 3, 1, 0]. In the context of index, collapsing, how we
+// resolve that shouldn't matter. With sorted sizes & strides:
+//   sorted_size    = [2, 3, 1, 1, 4]
+//   sorted_strides = [24, 8, 4, 4, 2]
+// Here, we compute contiguity as: [True, True, None, None, False]
+//
+// e.g. Given size and stride as follow:
+//   sizes   = [2, 2, 2, 2]
+//   strides = [8, 4, 0, 2]
+// The stride of implicit broadcast dimensions, dimensions with stride == 0,
+// does not participate in stride order computation and preserves their
+// semantical position in stride order. The logic behind this is so that we
+// would not unnecessarily introduce permutated alloc_domain for a naive
+// unsqueeze/expanded operation when it doesn't improve indexing. For the given
+// example, computed stride_order would be: [3, 2, 1, 0] and contiguity would
+// be: [True, True, None, False]
 //
 // This function returns a pair of <contiguity, stride_order>
 std::pair<std::vector<std::optional<bool>>, std::vector<int64_t>>
@@ -287,18 +316,38 @@ computeTensorDescriptor(
     const std::vector<int64_t>& strides) {
   NVF_CHECK(
       sizes.size() == strides.size(),
-      "compute_tensor_descriptor: Sizes and strides must have the same number of dimensions");
-  std::vector<DimInfo> dim_info_vec;
+      "compute_tensor_descriptor: "
+      "Sizes and strides must have the same number of dimensions");
+  std::vector<DimInfo> non_broadcast_dim_info_vec;
+  std::vector<DimInfo> stride_zero_dims;
   for (auto i : c10::irange(sizes.size())) {
-    // NOTE: not supporting negative stride yet.
-    NVF_CHECK(strides[i] >= 0, "negative stride on tensor is not supported");
-    dim_info_vec.emplace_back(DimInfo{(int64_t)i, sizes[i], strides[i]});
+    // NOTE: not supporting negative stride yet, but we can probably allow it on
+    // broadcast dims
+    NVF_CHECK(
+        strides[i] >= 0,
+        "negative stride on tensor is not supported: strides[",
+        i,
+        "]=",
+        strides[i]);
+    DimInfo dim_info{(int64_t)i, sizes[i], strides[i]};
+    if (strides[i] != 0) {
+      non_broadcast_dim_info_vec.push_back(dim_info);
+    } else {
+      stride_zero_dims.push_back(dim_info);
+    }
   }
-  // sort by stride
-  std::sort(
-      dim_info_vec.begin(),
-      dim_info_vec.end(),
+  // sort non-broadcast dimensions by stride
+  std::stable_sort(
+      non_broadcast_dim_info_vec.begin(),
+      non_broadcast_dim_info_vec.end(),
       [](const auto& l, const auto& r) { return l.stride > r.stride; });
+
+  // combine dimensions while preserving the semantical position of broadcast
+  // dimensions
+  for (const auto& dim_info : stride_zero_dims) {
+    non_broadcast_dim_info_vec.insert(
+        non_broadcast_dim_info_vec.begin() + dim_info.index, dim_info);
+  }
 
   // Dimensions are marked contiguous by inspecting the current dimension and
   // one to the right towards the inner dimension while skipping over broadcast
@@ -307,31 +356,34 @@ computeTensorDescriptor(
   // dimension to it's right and needs to have stride equal to 1 in order to be
   // marked contiguous.
   for (int64_t i = 0; i < (int64_t)sizes.size();) {
-    dim_info_vec[i].stride_order = (int64_t)sizes.size() - 1 - i;
-    if (!dim_info_vec[i].isBroadcast()) {
+    non_broadcast_dim_info_vec[i].stride_order = (int64_t)sizes.size() - 1 - i;
+    if (!non_broadcast_dim_info_vec[i].isBroadcast()) {
       auto l = i++;
       int64_t expected = 1;
       for (; i < (int64_t)sizes.size(); i++) {
-        dim_info_vec[i].stride_order = (int64_t)sizes.size() - 1 - i;
-        if (!dim_info_vec[i].isBroadcast()) {
-          expected = dim_info_vec[i].stride * dim_info_vec[i].size;
+        non_broadcast_dim_info_vec[i].stride_order =
+            (int64_t)sizes.size() - 1 - i;
+        if (!non_broadcast_dim_info_vec[i].isBroadcast()) {
+          expected = non_broadcast_dim_info_vec[i].stride *
+              non_broadcast_dim_info_vec[i].size;
           break;
         }
       }
-      dim_info_vec[l].contiguity = (dim_info_vec[l].stride == expected);
+      non_broadcast_dim_info_vec[l].contiguity =
+          (non_broadcast_dim_info_vec[l].stride == expected);
     } else {
       i++;
     }
   }
 
   std::vector<int64_t> stride_order_vec(sizes.size(), -1);
-  for (const auto& dim_info : dim_info_vec) {
+  for (const auto& dim_info : non_broadcast_dim_info_vec) {
     stride_order_vec[dim_info.index] = dim_info.stride_order;
   }
   std::vector<std::optional<bool>> contiguity_vec;
   std::transform(
-      dim_info_vec.begin(),
-      dim_info_vec.end(),
+      non_broadcast_dim_info_vec.begin(),
+      non_broadcast_dim_info_vec.end(),
       std::back_inserter(contiguity_vec),
       [](const DimInfo& val) { return val.contiguity; });
 
@@ -356,6 +408,7 @@ void initNvFuserPythonBindings(PyObject* module) {
 
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
+  nvfuser.def("serialize", serialize);
 
   //! Binding the FusionCache that holds a cache of Fusions
   //! This is only bound to provide an interface to get the number of fusions
@@ -366,10 +419,14 @@ void initNvFuserPythonBindings(PyObject* module) {
           "get",
           &FusionCache::get,
           py::arg("max_fusions") = int(8192),
+          py::arg("load_from_default_workspace") = true,
           py::return_value_policy::reference)
       .def("num_fusions", &FusionCache::numFusions)
       .def_static(
-          "reset", &FusionCache::reset, py::return_value_policy::reference)
+          "reset",
+          &FusionCache::reset,
+          py::arg("load_from_default_workspace") = false,
+          py::return_value_policy::reference)
       .def(
           "serialize",
           [](FusionCache& self, std::string filename) {
@@ -380,7 +437,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def(
           "deserialize",
           [](FusionCache& self, std::string filename) {
-            FUSER_PERF_SCOPE("FusionCache.serialize (string)");
+            FUSER_PERF_SCOPE("FusionCache.deserialize (string)");
             self.deserialize(filename);
           },
           py::arg("filename"))
@@ -2025,6 +2082,19 @@ void initNvFuserPythonBindings(PyObject* module) {
 #undef NVFUSER_PYTHON_BINDING_RANDOM_DIST_OP
 #undef NVFUSER_RANDOM_DIST_OP_HELPER
 
+#define NVFUSER_FULL_OP_HELPER(vec_type, ...) \
+  nvf_ops.def(                                \
+      "full",                                 \
+      full_op_fn<vec_type>,                   \
+      py::arg("shape"),                       \
+      py::arg("fill_value"),                  \
+      py::arg("dtype"),                       \
+      py::return_value_policy::reference);
+
+  // NOTE: The second argument is a dummy to satisfy the macro
+  NVFUSER_ALL_VECTOR_TYPES(NVFUSER_FULL_OP_HELPER, false)
+#undef NVFUSER_FULL_OP_HELPER
+
   nvf_ops.def(
       "batch_norm",
       [](FusionDefinition::Operators& self,
@@ -2567,27 +2637,6 @@ void initNvFuserPythonBindings(PyObject* module) {
       reshape_fn<py::tuple>,
       py::arg("arg"),
       py::arg("new_shape"),
-      py::return_value_policy::reference);
-  nvf_ops.def(
-      "full",
-      [](FusionDefinition::Operators& self,
-         std::vector<int64_t>& shape,
-         Scalar fill_value,
-         PrimDataType dtype) -> Tensor {
-        NVF_CHECK(
-            self.validUse(), "Attempting to add to a completed definition!");
-        FusionDefinition* fd = self.fusion_definition;
-        Tensor output = fd->defineTensor(shape.size());
-        fd->defineRecord(new FullOpRecord(
-            {fd->recordingState(fill_value())},
-            {fd->recordingState(output())},
-            std::move(shape),
-            dtype));
-        return output;
-      },
-      py::arg("shape"),
-      py::arg("fill_value"),
-      py::arg("dtype"),
       py::return_value_policy::reference);
   nvf_ops.def(
       "iota",

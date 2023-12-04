@@ -185,6 +185,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     const int64_t max_input_dtype_size,
     const int64_t max_persistent_buffer_size,
     const size_t max_vectorize_factor,
+    const bool project_to_input,
+    const PrimDataType index_type,
     const bool has_rng_ops) {
   // Some facts:
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
@@ -388,7 +390,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // if occupancy is lower than 50%, search for [persistent_val] for higher
   // occupancy. The code in this if block increased bandwidth for
   // bias_dropout_add_layer_norm around 18 to 20K by 5%.
-  if (is_vectorization && rng_and_nondivisible && warps_per_sm < target_min_warps_per_sm) {
+  if (is_vectorization && rng_and_nondivisible &&
+      warps_per_sm < target_min_warps_per_sm) {
     for (auto p = persistent_min + 1; p <= persistent_max; p++) {
       auto
           [bdimx_val_tmp,
@@ -454,6 +457,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   rparams->cparams.maxrregcount = (int)nvrtc_register_per_thread;
   rparams->persistent_kernel = true;
   rparams->fastest_dim = true;
+  rparams->project_persistent_buffers = project_to_input;
+  rparams->cparams.index_type = index_type;
   rparams->cross_block_inner_reduction = true;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
   rparams->pad_inner_reduction_to_warp = (bdimx_val % dev_prop->warpSize == 0);
@@ -503,12 +508,16 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristicSharedMemory(
     const int64_t n_tensor_inputs,
     const int64_t max_input_dtype_size,
     const int64_t max_persistent_buffer_size,
-    const size_t max_vectorize_factor) {
+    const size_t max_vectorize_factor,
+    const bool project_to_input,
+    const PrimDataType index_type) {
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   auto rparams = std::make_shared<ReductionParams>();
   rparams->shared_mem_persistent_buffer = true;
   rparams->persistent_kernel = true;
   rparams->fastest_dim = true;
+  rparams->project_persistent_buffers = project_to_input;
+  rparams->cparams.index_type = index_type;
   // Inner reduction domain
   // This heuristic is only used for cases with large total_reduction_numel.
   // e.g. layer_norm with hidden size larger than 64K for fp16 or 32K for fp32.
@@ -571,6 +580,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const int64_t max_input_dtype_size,
     const int64_t max_persistent_buffer_size,
     const size_t vectorize_factor,
+    const bool project_to_input,
+    const PrimDataType index_type,
     const bool has_rng_op) {
   if (max_persistent_buffer_size > scheduler_utils::register_file_size) {
     // use shared memory for persistent buffer
@@ -581,7 +592,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
         (int64_t)n_tensor_inputs,
         (int64_t)max_input_dtype_size,
         max_persistent_buffer_size,
-        vectorize_factor);
+        vectorize_factor,
+        project_to_input,
+        index_type);
   }
   if (std::getenv("TEST_HEURISTICS")) {
     if (total_reduction_numel == inner_most_dimension_numel) {
@@ -592,6 +605,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
           (int64_t)max_input_dtype_size,
           max_persistent_buffer_size,
           vectorize_factor,
+          project_to_input,
+          index_type,
           has_rng_op);
     }
   }
@@ -1041,6 +1056,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
   rparams->cparams.maxrregcount = (int)nvrtc_register_per_thread;
   rparams->persistent_kernel = true;
   rparams->fastest_dim = true;
+  rparams->project_persistent_buffers = project_to_input;
+  rparams->cparams.index_type = index_type;
 
   // Inner reduction domain
   rparams->cross_block_inner_reduction = true;
@@ -1139,16 +1156,9 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
       prop.max_dtype_size,
       prop.max_persistent_buffer_size,
       prop.vectorize_factor,
+      prop.project_persistent_buffers,
+      prop.index_type,
       has_rng_op);
-  rparams->project_persistent_buffers = prop.project_persistent_buffers;
-  rparams->cparams.index_type = runtime_info.getIndexType();
-  // If there are more than 1 persistent batches, needs special
-  // inline to separate data loading and calculation, see multiReductionInliner.
-  if (std::getenv("TEST_INLINE") &&
-      rparams->batches_per_block_inner_reduction > 1) {
-    std::cout << "maybe_special_inline_cached_inputs = true" << std::endl;
-    rparams->maybe_special_inline_cached_inputs = true;
-  }
   return rparams;
 }
 
