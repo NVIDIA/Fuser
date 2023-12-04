@@ -68,7 +68,8 @@ class AliasAnalysisResult {
  private:
   // Walks up `alias_to_source_` to find the root of the chain. Returns itself
   // if `alias` doesn't alias anything.
-  Val* findRoot(Val* alias) const;
+  // FIXME: comment
+  TensorView* findRoot(TensorView* alias) const;
 
   // Maps aliases (e.g. the output of a View) to their direct sources (e.g. the
   // input of the same View). Also stores the preferred output layout for the

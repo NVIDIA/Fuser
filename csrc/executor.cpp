@@ -926,6 +926,11 @@ at::Tensor allocateOutput(
   }
 
   if (aliased_in != nullptr) {
+    NVF_ERROR(
+        aliased_in->isFusionInput() || aliased_in->isFusionOutput(),
+        "Otherwise, `ee.evaluate` ",
+        aliased_in->toInlineString(),
+        " would involve GPU computation.");
     const PolymorphicValue& aliased_in_val = ee.evaluate(aliased_in);
     NVF_ERROR(
         aliased_in_val.is<at::Tensor>(),
@@ -982,21 +987,37 @@ std::vector<at::Tensor> allocateOutputs(
     ExpressionEvaluator& ee) {
   FUSER_PERF_SCOPE("allocateOutputs");
 
-  std::vector<at::Tensor> outputs;
-  outputs.reserve(output_info.size());
+  const int64_t num_outs = output_info.size();
 
-  for (const auto output_idx : c10::irange(output_info.size())) {
-    Val* out = kernel->outputs()[output_idx];
-    auto [aliased_in, alias_info] = kernel->getOutputAlias(out);
-    auto out_tensor = allocateOutput(
-        output_info[output_idx], aliased_in, alias_info, device, ee);
-    // Bind `out_tensor` so duplicated outputs map to the same tensor.
-    ee.bind(out, out_tensor);
-    outputs.push_back(out_tensor);
+  std::vector<std::pair<int64_t, Val*>> sorted_outs;
+  sorted_outs.reserve(num_outs);
+  for (const auto out_index : c10::irange(num_outs)) {
+    sorted_outs.emplace_back(out_index, kernel->outputs()[out_index]);
   }
-  return outputs;
-}
+  std::sort(
+      sorted_outs.begin(),
+      sorted_outs.end(),
+      [kernel](
+          const std::pair<int64_t, Val*>& out_i,
+          const std::pair<int64_t, Val*>& out_j) {
+        return kernel->getOutputAlias(out_i.second).first == nullptr &&
+            kernel->getOutputAlias(out_j.second).first != nullptr;
+      });
 
+  std::vector<at::Tensor> out_tensors(num_outs);
+  for (const auto& [out_index, out] : sorted_outs) {
+    auto [aliased_in, alias_info] = kernel->getOutputAlias(out);
+    at::Tensor out_tensor = allocateOutput(
+        output_info[out_index], aliased_in, alias_info, device, ee);
+    // Bind `out_tensor` so
+    // 1. duplicated outputs map to the same tensor,
+    // 2. an output that aliases another output can be evaluated via
+    // ExpressionEvaluator cheaply.
+    ee.bind(out, out_tensor);
+    out_tensors[out_index] = out_tensor;
+  }
+  return out_tensors;
+}
 } // namespace
 
 int64_t FusionExecutor::computeSharedMemory(

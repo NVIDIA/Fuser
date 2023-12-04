@@ -819,4 +819,28 @@ TEST_F(AliasTest, TrivialInputForwarding_ScalarTensor) {
   testValidate(fec.fusion(), cg_outputs2, {t0}, __LINE__, __FILE__);
 }
 
+TEST_F(AliasTest, OutputAliasesAnotherOutput) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  TensorView* add_out = add(in, in);
+  TensorView* reshape_out = reshape(add_out, {2, 3, 5}, {6, 5});
+  TensorView* permute_out = permute(reshape_out, {1, 0});
+
+  fusion->addInput(in);
+  fusion->addOutput(reshape_out);
+  fusion->addOutput(permute_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  ASSERT_EQ(out_tensors.size(), 2);
+  at::Tensor reshape_out_tensor = out_tensors[0];
+  at::Tensor permute_out_tensor = out_tensors[1];
+  EXPECT_TRUE(permute_out_tensor.is_alias_of(reshape_out_tensor));
+}
+
 } // namespace nvfuser

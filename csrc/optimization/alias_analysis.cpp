@@ -351,16 +351,15 @@ void AliasAnalysisResult::add(
       i->second.first->toString());
 }
 
-Val* AliasAnalysisResult::findRoot(Val* alias) const {
-  TensorView* root = dynamic_cast<TensorView*>(alias);
+TensorView* AliasAnalysisResult::findRoot(TensorView* alias) const {
+  TensorView* root = alias;
+  do {
+    const auto i = alias_to_source_.find(root);
+    root = (i == alias_to_source_.end() ? nullptr : i->second.first);
+  } while (root != nullptr && !root->isFusionInput() &&
+           !root->isFusionOutput());
   if (root == nullptr) {
     return alias;
-  }
-
-  // This can be made faster by path compression at the cost of losing
-  // the potentially useful immediate sources. Go simple for now.
-  while (alias_to_source_.count(root)) {
-    root = alias_to_source_.at(root).first;
   }
   return root;
 }
