@@ -192,6 +192,16 @@ void SegmentedGroup::finalize() {
 
   std::unordered_set<Val*> input_set(input_vals.begin(), input_vals.end());
 
+  for (auto i : input_vals) {
+    if (auto tv = dynamic_cast<TensorView*>(i)) {
+      // We do not need to add scalars which are the extents of already-added
+      // input TensorViews
+      for (auto id : tv->getMaybeRFactorDomain()) {
+        input_set.insert(id->getMaybeExpandedExtent());
+      }
+    }
+  }
+
   for (auto expr : exprs_) {
     for (auto i : expr->inputs()) {
       if (i->isIntegralScalar() && i->definition() == nullptr &&
@@ -3645,7 +3655,7 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
             id_expr->outputs().begin(),
             id_expr->outputs().end());
         for (const auto attr : id_expr->attributes()) {
-          if (attr->isVal()) {
+          if (attr && attr->isVal()) {
             all_vals.push_back(attr->asVal());
           }
         }
