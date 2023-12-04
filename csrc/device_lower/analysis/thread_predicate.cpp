@@ -620,14 +620,14 @@ class ConcretizedBroadcastRedundantWriteRemover {
 
   // Find all the root domains that are merged to the leaf domain.
   // e.g. Root: [I1,B2,B3] -> Leaf: [I1*B2*B3]
-  std::vector<IterDomain*> getRootDomainsMergedToLeaf(IterDomain* id) {
+  std::vector<IterDomain*> getRootDomainsMergedToLeaf(IterDomain* ld) {
     std::vector<IterDomain*> merged_root_domains;
     std::vector<int> index_root_domain;
     std::vector<IterDomain*> intermediate_domains = root_domain_;
-    auto all_exp = StmtSort::getExprsBetween(
-        {root_domain_.begin(), root_domain_.end()}, {id});
-    for (Expr* expr : all_exp) {
-      if (auto* merge = dynamic_cast<Merge*>(expr)) {
+    auto all_exp = DependencyCheck::getAllExprsBetween(
+        {root_domain_.begin(), root_domain_.end()}, {ld});
+    for (auto expr : all_exp) {
+      if (auto merge = dynamic_cast<Merge*>(expr)) {
         auto outer_iter =
             std::find(root_domain_.begin(), root_domain_.end(), merge->outer());
         auto inner_iter =
