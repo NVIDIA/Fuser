@@ -58,6 +58,7 @@ struct CompiledKernel : public NonCopyable {
   std::string kernel_name;
   std::string compile_args;
   long block_size = -1;
+  int register_spills = -1;
 };
 
 // Returns executable function and the ptxas log from compilation
