@@ -15,6 +15,7 @@
 #include <ir/internal_base_nodes.h>
 #include <ir/internal_nodes.h>
 #include <mma_type.h>
+#include <multidevice/device_mesh.h>
 #include <type.h>
 
 #include <torch/csrc/jit/ir/ir.h>
@@ -529,6 +530,19 @@ class TensorView : public Val {
     return promote_reuse_;
   }
 
+  void setDeviceMesh(DeviceMesh* mesh) {
+    mesh_ = mesh;
+  }
+
+  DeviceMesh* getDeviceMesh() const {
+    NVF_ERROR(mesh_, "DeviceMesh is not initialized");
+    return mesh_;
+  }
+
+  bool hasDeviceMesh() const {
+    return mesh_;
+  }
+
  protected:
   void setDomain(TensorDomain* td) {
     domain_ = td;
@@ -600,6 +614,8 @@ class TensorView : public Val {
   //! current tensor. This will then allow us to safely reuse the memory
   //! allocated to this tensor.
   bool promote_reuse_ = false;
+
+  DeviceMesh* mesh_ = nullptr;
 };
 
 //! A simple TensorView builder
