@@ -74,7 +74,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeSimple) {
     fusion.addOutput(tv3);
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    at::Tensor input = at::randn({256, 1024, 1024}, options);
+    at::Tensor input = at::randn({1, 2, 4}, options);
 
     auto lparams = scheduleTranspose(&fusion, {input});
 
@@ -82,7 +82,9 @@ TEST_F(TransposeTest, FusionScheduleTransposeSimple) {
     fe.compileFusion(&fusion, {input}, lparams);
     auto outputs = fe.runFusion({input}, lparams);
 
-    testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+    auto tv_ref = input.sin().transpose(1, 2).cos();
+
+    testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
   }
 }
 
@@ -110,7 +112,9 @@ TEST_F(TransposeTest, FusionScheduleTransposeSinTransposeCos) {
     fe.compileFusion(&fusion, {input}, lparams);
     auto outputs = fe.runFusion({input}, lparams);
 
-    testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+    auto tv_ref = input.transpose(0, 2).sin().transpose(1, 2).cos();
+
+    testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
   }
 }
 
@@ -171,7 +175,11 @@ TEST_F(TransposeTest, FusionScheduleTransposeMultipleOutput) {
     fe.compileFusion(&fusion, {input}, lparams);
     auto outputs = fe.runFusion({input}, lparams);
 
-    testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+    auto tv_ref1 = input.sin().transpose(0, 2);
+    auto tv_ref2 = input.cos().transpose(0, 2);
+
+    testValidate(
+        &fusion, outputs, {input}, {tv_ref1, tv_ref2}, __LINE__, __FILE__);
   }
 }
 
