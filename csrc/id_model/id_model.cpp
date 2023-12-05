@@ -761,10 +761,73 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
   mapThroughLoopSwizzles(idGraph(IdMappingMode::PERMISSIVE));
 }
 
+namespace {
+
+// Checks if the expression is a trivial operation where an input is simply an
+// output of the transformation. Returns the mapped iter domains if found.
+std::vector<std::vector<Val*>> isTrivialExpr(Expr* expr) {
+  std::vector<std::vector<Val*>> mapped_ids;
+  if (auto merge = dynamic_cast<Merge*>(expr)) {
+    if (merge->inner()->extent()->isOneInt()) {
+      mapped_ids.push_back({merge->outer(), merge->out()});
+    }
+    if (merge->outer()->extent()->isOneInt()) {
+      mapped_ids.push_back({merge->inner(), merge->out()});
+    }
+  } else if (auto split = dynamic_cast<Split*>(expr)) {
+    if (split->factor()->isOneInt() && split->startOffset()->isZeroInt() &&
+        split->stopOffset()->isZeroInt()) {
+      if (split->innerSplit()) {
+        mapped_ids.push_back({split->in(), split->outer()});
+      } else {
+        mapped_ids.push_back({split->in(), split->inner()});
+      }
+    }
+  } else if (auto swizzle = dynamic_cast<Swizzle2D*>(expr)) {
+    if (swizzle->swizzleType() == Swizzle2DType::NoSwizzle ||
+        swizzle->swizzleMode() == SwizzleMode::NoSwizzle) {
+      mapped_ids.push_back({swizzle->inX(), swizzle->outX()});
+      mapped_ids.push_back({swizzle->inY(), swizzle->outY()});
+    }
+  }
+  return mapped_ids;
+}
+
+} // namespace
+
 void IdModel::buildAlmostExactMap() {
   // Build almost exact map by forwarding through broadcast axes
   idGraph(IdMappingMode::ALMOSTEXACT) = idGraph(IdMappingMode::EXACT);
-  idGraph(IdMappingMode::ALMOSTEXACT).mapThroughTrivialExprs();
+
+  auto& almost_exact_graph = idGraph(IdMappingMode::ALMOSTEXACT);
+
+  // Maps iter domain pairs returned by calling that return mappings from
+  // isTrivialExpr on every expression in the graph.
+
+  // Grab all expressions
+  std::vector<Expr*> exprs;
+
+  for (const auto& expr_group :
+       almost_exact_graph.disjointExprSets().disjointSets()) {
+    for (auto expr : *expr_group) {
+      exprs.push_back(expr);
+    }
+  }
+
+  for (auto expr : exprs) {
+    // If not trivial continue
+    auto mapped_ids = isTrivialExpr(expr);
+    if (mapped_ids.empty()) {
+      continue;
+    }
+
+    // Map through trivial expressions
+    for (auto mapped_id_group : mapped_ids) {
+      for (auto id : mapped_id_group) {
+        almost_exact_graph.mapVals(mapped_id_group.front(), id);
+      }
+    }
+  }
 }
 
 // TODO: Reenable after reenabling parallel propagation.

@@ -155,10 +155,6 @@ class ValGraph {
 
   std::string toString() const;
 
-  // Checks if the expression is a trivial operation where an input is simply an
-  // output of the transformation. Returns the mapped iter domains if found.
-  static std::vector<std::vector<Val*>> isTrivialExpr(Expr* expr);
-
   // Returns if all atributes of the ID transforms first and second are the same
   static bool transformAtributesMatch(Expr* first, Expr* second);
 
@@ -204,10 +200,6 @@ class ValGraph {
   // when the forward parameter is true. This should
   // be the only call in ValGraph to mapThroughExpr.
   void maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward);
-
-  // Maps iter domain pairs returned by calling that return mappings from
-  // IdGraph::isTrivialExpr on every expression in the graph.
-  void mapThroughTrivialExprs();
 
   // Removes expressions from unique_definitions_ and unique_uses_ that return
   // mappings from IdGraph::isTrivialExpr
