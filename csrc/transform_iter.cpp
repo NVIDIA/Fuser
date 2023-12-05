@@ -257,7 +257,7 @@ void ReplayTransformations::runReplay() {
   // Switch outDomain to a vector to start the traversal
   std::vector<Val*> traversal_vals(
       target_domain_.begin(), target_domain_.end());
-  traverseTo(traversal_vals[0]->fusion(), traversal_vals);
+  traverseTo(traversal_vals);
 
   if (error_on_failure_) {
     NVF_ERROR(
@@ -321,9 +321,8 @@ BestEffortReplay::BestEffortReplay(
   }
 
   // Grab expr history of iter domains in target_domain
-  std::vector<Expr*> target_exprs = StmtSort::getExprsTo(
-      FusionGuard::getCurFusion(),
-      std::vector<Val*>(target_domain.begin(), target_domain.end()));
+  std::vector<Expr*> target_exprs =
+      StmtSort::getExprsTo({target_domain.begin(), target_domain.end()});
 
   // If we check how an IterDomain was generated, it should only use an
   // IterDomain in an expression once. We pull a map from the input
@@ -332,9 +331,8 @@ BestEffortReplay::BestEffortReplay(
   // replay_domain map.
 
   // Map replay domain's IterDomains to the Exprs they're used in
-  std::vector<Expr*> replay_exprs = StmtSort::getExprsTo(
-      FusionGuard::getCurFusion(),
-      std::vector<Val*>(replay_domain.begin(), replay_domain.end()));
+  std::vector<Expr*> replay_exprs =
+      StmtSort::getExprsTo({replay_domain.begin(), replay_domain.end()});
 
   // Track which id's in replay have to be replayed to guarantee rfactor
   // transformations. The iteration domains in the rfactor axes don't have
@@ -870,8 +868,8 @@ void BestEffortReplay::addComplimentLeafIDs(
   }
 
   // Grab all exprs used to make the forwarded compliments
-  auto compliment_exprs = StmtSort::getExprsTo(
-      FusionGuard::getCurFusion(), {compliments.begin(), compliments.end()});
+  auto compliment_exprs =
+      StmtSort::getExprsTo({compliments.begin(), compliments.end()});
 
   // Figure out if there are any leaves in compliment_exprs that aren't
   // the forwarded id

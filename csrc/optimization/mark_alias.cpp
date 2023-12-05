@@ -15,6 +15,11 @@ namespace nvfuser::optimization {
 
 void MarkAliasPass::runPass(Fusion* fusion) {
   const AliasAnalysisResult alias_analysis = findAliases(fusion);
+  if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+    debug() << "Alias analysis result:" << std::endl;
+    debug() << alias_analysis.toString(/*indent_size=*/1) << std::endl;
+  }
+
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
     // Lazy move: we could check compatibility and only give up when

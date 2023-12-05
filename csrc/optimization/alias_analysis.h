@@ -40,6 +40,8 @@ class AliasAnalysisResult {
   // preferred layout.
   void add(const TensorView* alias, const TensorView* source, Layout&& layout);
 
+  std::string toString(int indent_size) const;
+
  private:
   // Maps aliases (e.g. the output of a View) to their direct sources (e.g. the
   // input of the same View). Also stores the preferred output layout for the
