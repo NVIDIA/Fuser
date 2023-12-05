@@ -39,8 +39,9 @@ using SerialGridReductionTest = NVFuserTest;
 // TODO: remove this test once lowering of serial grid reductions is implemented
 TEST_F(SerialGridReductionTest, CodegenNodes) {
   for (bool serial : {true, false}) {
-    for (int64_t num_warps : {1, 2, 4, 8, 16}) {
-      for (int64_t B : {1, 2, 4, 8, 16}) {
+    for (int64_t num_warps : {1, 2, 4, 8, 16, 32}) {
+      // B is size of inner serial loop
+      for (int64_t B : {1, 2, 4, 8, 16, 32}) {
         std::cout << "serial=" << serial << " num_warps=" << num_warps
                   << " B=" << B << std::endl;
         std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
@@ -49,8 +50,8 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
 
         int64_t blocks_x = 8;
         int64_t blocks_y = 8;
-        int64_t blocks_z = 256;
-        int64_t A = 4;
+        int64_t blocks_z = 5;
+        int64_t A = 4; // Size of outer serial loop
         int64_t H = blocks_z;
         int64_t W = A * B * blocks_x * blocks_y * num_warps * 32;
 
@@ -66,31 +67,28 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
         auto tv1 = sum(tv0, {0});
         fusion->addOutput(tv1);
 
-        // Schedule grid reduction directly on last axis. Split unreduced axis
-        // to generate a loop nest. Each thread needs to do 8 grid reductions.
-        //   [ {H}, {W} ]
-        // becomes
-        //   [ rBIDz{blocks_z}, iBIDx{blocks_x}, iBIDy{blocks_y}, iS{A}, iS{B},
-        //   iTIDy{num_warps},
-        //        iTIDx{32} ]
+        // Start with
+        //   [ rS{H}, iS{W} ]
+        // We are grid reducing the H dimension and we want to coalesce
+        // accesses in the W dimension. So we first reorder to
+        //   [ iS{W}, rS{H} ]
+        // then schedule as
+        //   [ iBIDx{blocks_x}, iBIDy{blocks_y}, iS{A}, iS{B}, iTIDy{num_warps},
+        //   iTIDx{32}, rBIDz{blocks_z} ]
         tv0->cacheAfter();
         auto tv3 = tv1->cacheBefore();
 
-        tv3->reorder(
-            {{
-                 1,
-                 0,
-             },
-             {0, 1}});
-        tv3->split(0, 32);
-        tv3->split(0, num_warps);
-        tv3->split(0, B);
-        tv3->split(0, A);
+        tv3->reorder({{1, 0}, {0, 1}}); // blocks_x*blocks_y*A*B*num_warps*32, H
+        tv3->split(0, 32); // blocks_x*blocks_y*A*B*num_warps, 32, H
+        tv3->split(0, num_warps); // blocks_x*blocks_y*A*B, num_warps, 32, H
+        tv3->split(0, B); // blocks_x*blocks_y*A, B, num_warps, 32, H
+        tv3->split(0, A); // blocks_x*blocks_y, A, B, num_warps, 32, H
+        tv3->split(0, blocks_y); // blocks_x, blocks_y, A, B, num_warps, 32, H
         tv3->axis(0)->parallelize(ParallelType::BIDx);
         tv3->axis(1)->parallelize(ParallelType::BIDy);
-        tv3->axis(-3)->parallelize(ParallelType::TIDy);
-        tv3->axis(-2)->parallelize(ParallelType::TIDx);
-        tv3->axis(-1)->parallelize(ParallelType::BIDz);
+        tv3->axis(4)->parallelize(ParallelType::TIDy);
+        tv3->axis(5)->parallelize(ParallelType::TIDx);
+        tv3->axis(6)->parallelize(ParallelType::BIDz);
 
         TransformPropagator propagator(tv3);
         MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
@@ -128,17 +126,21 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
             // reductions and insert wait/release syncs.
             kir::Scope& tidx_scope = top_level_exprs.at(top_level_loop_pos)
                                          ->as<kir::ForLoop>()
-                                         ->body()
+                                         ->body() // BIDx
                                          .at(0)
                                          ->as<kir::ForLoop>()
                                          ->body() // BIDy
                                          .at(0)
                                          ->as<kir::ForLoop>()
-                                         ->body() // i131
+                                         ->body() // A
                                          .exprs()
                                          .back()
                                          ->as<kir::ForLoop>()
-                                         ->body() // i130
+                                         ->body() // B
+                                         .exprs()
+                                         .back()
+                                         ->as<kir::ForLoop>()
+                                         ->body() // TIDy
                                          .exprs()
                                          .back()
                                          ->as<kir::ForLoop>()
@@ -221,22 +223,7 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
             {H, W}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
         auto outputs = fe.runFusion({input});
 
-        ValidationConstants tolerance_overwrite;
-        for (auto& tol : tolerance_overwrite.sum_tolerances_float) {
-          // We are doing serial, as opposed to parallelized hierarchical,
-          // reductions. So we expect a bit of precision loss. Here we loosen
-          // the tolerances to account for this.
-          tol[1] *= 2.0;
-        }
-        testValidate(
-            fusion,
-            outputs,
-            {input},
-            __LINE__,
-            __FILE__,
-            "",
-            LaunchParams(),
-            tolerance_overwrite);
+        testValidate(fusion, outputs, {input}, __LINE__, __FILE__);
       }
     }
   }
