@@ -298,7 +298,7 @@ struct LowerGuard {
 
 } // namespace
 
-kir::Kernel* GpuLower::dryRun() {
+kir::Kernel* GpuLower::run(bool skip_passes) {
   FusionGuard fg(fusion_);
   LowerGuard lower_guard(this);
   // Reorder expressions for loop-nest generation respecting computeAt
@@ -315,35 +315,17 @@ kir::Kernel* GpuLower::dryRun() {
   // definition
   assignRNGOffset(fusion_);
 
-  return kernel_.get();
-}
+  if (!skip_passes) {
+    for (auto [name, pass] : passes()) {
+      exprs_lowered = pass(exprs_lowered);
+      dumpExprsIfEnabled(exprs_lowered, name);
+    }
 
-kir::Kernel* GpuLower::run() {
-  FusionGuard fg(fusion_);
-  LowerGuard lower_guard(this);
-  // Reorder expressions for loop-nest generation respecting computeAt
-  // relationships
-  auto exprs_lowered = reorderExprsForComputeAt();
-  dumpExprsIfEnabled(exprs_lowered, "reorderExprsForComputeAt");
-
-  commonScalarMap().initialize(exprs_lowered);
-
-  // For RNG ops whose seed and offset are not yet set, grab the seed and offset
-  // from the host and assign them to the ops.
-  // This must be after expr sort, because we do not want the generated
-  // computation of offset and seed to be considered as part of fusion
-  // definition
-  assignRNGOffset(fusion_);
-
-  for (auto [name, pass] : passes()) {
-    exprs_lowered = pass(exprs_lowered);
-    dumpExprsIfEnabled(exprs_lowered, name);
+    // We now have the lowered expressions, finalize the kernel IR. This function
+    // will also copy over some relevant information for code generation from
+    // GpuLower.
+    kernel_->finalize(exprs_lowered);
   }
-
-  // We now have the lowered expressions, finalize the kernel IR. This function
-  // will also copy over some relevant information for code generation from
-  // GpuLower.
-  kernel_->finalize(exprs_lowered);
 
   return kernel_.get();
 }

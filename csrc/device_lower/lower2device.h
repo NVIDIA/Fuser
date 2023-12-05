@@ -77,8 +77,9 @@ class GpuLower : public NonCopyable {
   kir::Kernel* dryRun();
 
   //! Actually run the lowering by executing the passes in the order given by
-  //! passes_
-  kir::Kernel* run();
+  //! passes_. The skip_passes options is used during deserialization to
+  //! generate RNG seed and offset.
+  kir::Kernel* run(bool skip_passes = false);
 
   const PrimDataType& indexType() const {
     return cparams_.index_type.value();

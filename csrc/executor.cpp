@@ -2242,10 +2242,10 @@ void FusionExecutor::deserialize(
   compile_params.index_type = serde::mapToNvfuserDtype(buffer->index_type());
   compile_params.maxrregcount = maxrregcount_high_water_mark_;
 
-  // Get lowered fusion and then dry run to get RNG seed and offset
+  // Get lowered fusion and then run without any passes to get RNG seed and
+  // offset
   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
-  // TODO only dry run if there are RNG operations in fusion.
-  lowered_->dryRun();
+  lowered_->run(true /* skip_passes */);
 
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
   fusion_ = lowered_->kernel()->as<Fusion>();
