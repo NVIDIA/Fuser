@@ -719,7 +719,6 @@ ForwardingInfo::ForwardingInfo(
   // now forward those to include all id's in active_tv comprised of only axes
   // not in the inactive tensor.
   auto active_tv_history = StmtSort::getExprsTo(
-      FusionGuard::getCurFusion(),
       std::vector<Val*>(
           active_tv->domain()->leaf().begin(),
           active_tv->domain()->leaf().end()));

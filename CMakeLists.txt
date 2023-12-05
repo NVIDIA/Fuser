@@ -81,18 +81,11 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/executor_utils.cpp
   ${NVFUSER_SRCS_DIR}/fusion.cpp
   ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
-<<<<<<< HEAD
   ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
   ${NVFUSER_SRCS_DIR}/id_model/to_string.cpp
   ${NVFUSER_SRCS_DIR}/id_model/transform_replay.cpp
   ${NVFUSER_SRCS_DIR}/id_model/validation_utils.cpp
   ${NVFUSER_SRCS_DIR}/id_model/visitor.cpp
-||||||| b33fcf9b
-=======
-  ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
-  ${NVFUSER_SRCS_DIR}/id_model/to_string.cpp
-  ${NVFUSER_SRCS_DIR}/id_model/validation_utils.cpp
->>>>>>> main
   ${NVFUSER_SRCS_DIR}/index_compute.cpp
   ${NVFUSER_SRCS_DIR}/instrumentation.cpp
   ${NVFUSER_SRCS_DIR}/ir/base_nodes.cpp

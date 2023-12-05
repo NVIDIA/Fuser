@@ -33,13 +33,7 @@
 #include <device_lower/validation.h>
 #include <expr_simplifier.h>
 #include <fusion.h>
-<<<<<<< HEAD
 #include <id_model/id_model.h>
-||||||| b33fcf9b
-=======
-#include <id_model/id_model.h>
-#include <id_model/validation_utils.h>
->>>>>>> main
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
