@@ -1674,7 +1674,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // Whether this is the first or last step
     func_args.arg(idx_in_segment).append(" == 0");
-    func_args.arg(idx_in_segment).append(" == ").append(segment_size);
+    func_args.arg(idx_in_segment)
+        .append(" == ")
+        .append(segment_size)
+        .append(" - 1");
     // TODO: can we hoist the first and last step predicates? We might need to
     // attach them to grop in order to do that?
 
