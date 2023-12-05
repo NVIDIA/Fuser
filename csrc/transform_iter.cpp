@@ -257,7 +257,7 @@ void ReplayTransformations::runReplay() {
   // Switch outDomain to a vector to start the traversal
   std::vector<Val*> traversal_vals(
       target_domain_.begin(), target_domain_.end());
-  traverseTo(traversal_vals[0]->fusion(), traversal_vals);
+  traverseTo(traversal_vals);
 
   if (error_on_failure_) {
     NVF_ERROR(
@@ -321,9 +321,8 @@ BestEffortReplay::BestEffortReplay(
   }
 
   // Grab expr history of iter domains in target_domain
-  std::vector<Expr*> target_exprs = StmtSort::getExprsTo(
-      FusionGuard::getCurFusion(),
-      std::vector<Val*>(target_domain.begin(), target_domain.end()));
+  std::vector<Expr*> target_exprs =
+      StmtSort::getExprsTo({target_domain.begin(), target_domain.end()});
 
   // If we check how an IterDomain was generated, it should only use an
   // IterDomain in an expression once. We pull a map from the input
@@ -332,9 +331,8 @@ BestEffortReplay::BestEffortReplay(
   // replay_domain map.
 
   // Map replay domain's IterDomains to the Exprs they're used in
-  std::vector<Expr*> replay_exprs = StmtSort::getExprsTo(
-      FusionGuard::getCurFusion(),
-      std::vector<Val*>(replay_domain.begin(), replay_domain.end()));
+  std::vector<Expr*> replay_exprs =
+      StmtSort::getExprsTo({replay_domain.begin(), replay_domain.end()});
 
   // Track which id's in replay have to be replayed to guarantee rfactor
   // transformations. The iteration domains in the rfactor axes don't have
@@ -720,11 +718,8 @@ ForwardingInfo::ForwardingInfo(
   // We have root axes in active_tv that don't exist in the inactive tensor,
   // now forward those to include all id's in active_tv comprised of only axes
   // not in the inactive tensor.
-  auto active_tv_history = StmtSort::getExprsTo(
-      FusionGuard::getCurFusion(),
-      std::vector<Val*>(
-          active_tv->domain()->leaf().begin(),
-          active_tv->domain()->leaf().end()));
+  auto active_tv_history = StmtSort::getExprsTo(std::vector<Val*>(
+      active_tv->domain()->leaf().begin(), active_tv->domain()->leaf().end()));
 
   auto isInForwardIdSet = [&forwarded_ids](IterDomain* input_id) {
     return forwarded_ids.count(input_id) > 0;
@@ -870,8 +865,8 @@ void BestEffortReplay::addComplimentLeafIDs(
   }
 
   // Grab all exprs used to make the forwarded compliments
-  auto compliment_exprs = StmtSort::getExprsTo(
-      FusionGuard::getCurFusion(), {compliments.begin(), compliments.end()});
+  auto compliment_exprs =
+      StmtSort::getExprsTo({compliments.begin(), compliments.end()});
 
   // Figure out if there are any leaves in compliment_exprs that aren't
   // the forwarded id
