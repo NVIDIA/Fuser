@@ -155,7 +155,8 @@ class PipelineBuilder final {
         } else {
           // if the Val is a stage input but not a global input, it must be
           // defined by a "Set" operation
-          NVF_ERROR(isLowerableToCommunication(val->definition()),
+          NVF_ERROR(
+              isLowerableToCommunication(val->definition()),
               "A Val that is the input of a stage must be defined by a LoadStoreOp expression of type Set"
               " or a Reduction but here the definition is " +
                   val->definition()->toString());

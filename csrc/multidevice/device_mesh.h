@@ -40,8 +40,8 @@ class DeviceMesh final {
     return std::find(vector_.begin(), vector_.end(), device) != vector_.end();
   }
 
-  bool operator== (const DeviceMesh& other) const {
-    return vector() == other.vector(); 
+  bool operator==(const DeviceMesh& other) const {
+    return vector() == other.vector();
   }
 
  private:

@@ -191,7 +191,6 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(true),
         ::testing::Values(true)));
 
-
 TEST_F(PipelineTest, Pipeline_Reduce) {
   const std::vector<int64_t> input_shape = {4, 3, 1, 2};
 
@@ -219,7 +218,8 @@ TEST_F(PipelineTest, Pipeline_Reduce) {
 
   pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
 
-  inputs = {at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
+  inputs = {
+      at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
 
   validate();
 }
@@ -251,7 +251,8 @@ TEST_F(PipelineTest, Pipeline_ReduceToExternalRoot) {
 
   pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
 
-  inputs = {at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
+  inputs = {
+      at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
 
   validate();
 }
@@ -282,7 +283,8 @@ TEST_F(PipelineTest, Pipeline_Allreduce) {
 
   pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
 
-  inputs = {at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
+  inputs = {
+      at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
 
   validate();
 }
@@ -301,7 +303,8 @@ TEST_F(PipelineTest, Pipeline_ReduceScatter) {
 
   tv0->axis(0)->parallelize(ParallelType::DIDx);
   tv1->axis(0)->parallelize(ParallelType::DIDx);
-  tv2->axis(1)->parallelize(ParallelType::DIDx); //axis(0) is the "reduce" axis from previous tensor
+  tv2->axis(1)->parallelize(
+      ParallelType::DIDx); // axis(0) is the "reduce" axis from previous tensor
   tv3->axis(0)->parallelize(ParallelType::DIDx);
 
   PipelineStageDescriptor stage0(false), stage1(false);
@@ -316,20 +319,22 @@ TEST_F(PipelineTest, Pipeline_ReduceScatter) {
 
   pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
 
-  inputs = {at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
+  inputs = {
+      at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
 
   validate();
 }
 
-
 TEST_F(PipelineTest, Overlap) {
   // In this example we demonstrate how we can apply the optimization
-  // described in 
-  // Overlap Communication with Dependent Computation via Decomposition in Large Deep Learning Models (acm.org)
+  // described in
+  // Overlap Communication with Dependent Computation via Decomposition in Large
+  // Deep Learning Models (acm.org)
   // https://dl.acm.org/doi/pdf/10.1145/3567955.3567959
-  // We simplify the setting as much as possible by considering a multi-device Pipeline with
-  // a simple "Gather" followed by a dependent compute. The paper suggest to slice those
-  // two operation and to interleave them to achieve better overlap. Consider the following Pipeline:
+  // We simplify the setting as much as possible by considering a multi-device
+  // Pipeline with a simple "Gather" followed by a dependent compute. The paper
+  // suggest to slice those two operation and to interleave them to achieve
+  // better overlap. Consider the following Pipeline:
 
   // /* Stage 0 */
   // TensorView* tv0 = makeContigTensor(3);
@@ -354,7 +359,8 @@ TEST_F(PipelineTest, Overlap) {
   constexpr int64_t number_of_slices = 4;
   constexpr int64_t extent_of_axis2 = 1024;
   constexpr int64_t extent_of_slice = extent_of_axis2 / number_of_slices;
-  const std::vector<int64_t> input_extents = {number_of_devices, 7, extent_of_axis2, 3};
+  const std::vector<int64_t> input_extents = {
+      number_of_devices, 7, extent_of_axis2, 3};
   assert(!(extent_of_axis2 % number_of_slices)); // for simplicity
 
   FusionGuard fg(fusion.get());
@@ -373,10 +379,10 @@ TEST_F(PipelineTest, Overlap) {
 
   TensorView *tv1x, *tv2x, *tv3x;
   std::vector<TensorView*> tv3_slices;
-  std::vector<Slice> slices {3};
+  std::vector<Slice> slices{3};
   for (int i = 0; i < number_of_slices; i++) {
     slices.at(2).start = IrBuilder::create<Val>(i * extent_of_slice);
-    slices.at(2).stop = IrBuilder::create<Val>((i+1) * extent_of_slice);
+    slices.at(2).stop = IrBuilder::create<Val>((i + 1) * extent_of_slice);
     tv1x = slice(tv1, slices);
     tv1x->axis(0)->parallelize(ParallelType::DIDx);
     to_stage0.push_back(tv1x);
@@ -390,7 +396,8 @@ TEST_F(PipelineTest, Overlap) {
   fusion->addOutput(tv3);
   to_stage1.push_back(tv3);
 
-  //instead of using "slice/cat" it would be nicer to split the dimension and use "select/stack", but "stack" is not implemented in nvFuser at the moment
+  // instead of using "slice/cat" it would be nicer to split the dimension and
+  // use "select/stack", but "stack" is not implemented in nvFuser at the moment
 
   stage0.addRange(from_stage0, to_stage0);
   stage1.addRange(from_stage1, to_stage1);
@@ -399,12 +406,13 @@ TEST_F(PipelineTest, Overlap) {
   stage0.mesh = devices;
   stage1.mesh = {0};
 
-  PipelineDescriptor descriptor {
+  PipelineDescriptor descriptor{
       .stage_descriptors{std::move(stage0), std::move(stage1)}};
 
   pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
 
-  inputs = {at::ones(input_extents, tensor_options) * (communicator->deviceId() + 1)};
+  inputs = {
+      at::ones(input_extents, tensor_options) * (communicator->deviceId() + 1)};
 
   validate();
 }
@@ -437,8 +445,8 @@ TEST_F(PipelineTest, matmul_summa) {
   //   3 4 5 ]
   constexpr int64_t N = 2;
   constexpr int64_t M = 3;
-  DeviceMesh mesh ({0,1,2,3,4,5});
-  mesh.reshape({N,M});
+  DeviceMesh mesh({0, 1, 2, 3, 4, 5});
+  mesh.reshape({N, M});
 
   auto fusion = std::make_unique<Fusion>();
   auto fg = std::make_unique<FusionGuard>(fusion.get());
@@ -497,20 +505,19 @@ TEST_F(PipelineTest, matmul_summa) {
 
   fusion->print();
 
-  inputs = {at::randn(a_extents, tensor_options), at::randn(b_extents, tensor_options)};
+  inputs = {
+      at::randn(a_extents, tensor_options),
+      at::randn(b_extents, tensor_options)};
 
   FusionExecutor fe;
   fe.compileFusion(fusion.get(), inputs);
   auto ref_outputs = fe.runFusion(inputs);
 
-  std::cout
-  << "a (concrete inputs): \n" << inputs.at(0)
-  << "\nb (concrete inputs): \n" << inputs.at(1)
-  << std::endl;
-  for (auto t: c10::irange(ref_outputs.size())) {
-    std::cout
-    << "\noutput " << t <<":\n"
-    << ref_outputs.at(t);
+  std::cout << "a (concrete inputs): \n"
+            << inputs.at(0) << "\nb (concrete inputs): \n"
+            << inputs.at(1) << std::endl;
+  for (auto t : c10::irange(ref_outputs.size())) {
+    std::cout << "\noutput " << t << ":\n" << ref_outputs.at(t);
   }
   std::cout << std::endl;
 }
