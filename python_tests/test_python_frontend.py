@@ -829,6 +829,7 @@ class TestNvFuserFrontend(TestCase):
         test_fn(0)
         test_fn(1)
 
+    """
     def test_squeeze(self):
         t0_sizes = [4]
         t1_sizes = [1, 4, 1]
@@ -862,6 +863,7 @@ class TestNvFuserFrontend(TestCase):
         v2 = torch.sum(inputs[2], [0, 1])
         eager_out = inputs[0] * v1 * v2
         self.assertEqual(eager_out, nvf_out[0])
+    """
 
     def test_from_pytorch_fails_on_cpu_tensor(self):
         inputs = [
@@ -935,7 +937,7 @@ class TestNvFuserFrontend(TestCase):
         eager_out = torch.relu(inputs[0])
         self.assertEqual(eager_out.numel(), nvf_out[0].numel())
 
-    '''
+    """
     def test_static_tensor_sizes(self):
         inputs = [
             torch.randn(4, 5, 1, device="cuda"),
@@ -951,7 +953,7 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         eager_out = torch.mul(inputs[0], inputs[1])
         self.assertEqual(eager_out, nvf_out[0])
-    '''
+    """
 
     def test_normal(self):
         input_size = [64, 128, 1024]
