@@ -197,10 +197,19 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // cuda-c-best-practices-guide.
   const int64_t min_threads_per_block =
       n_waves_max > 1l ? 4l * dev_prop->warpSize : dev_prop->maxThreadsPerBlock;
+  // limit to half of maxThreadsPerBlock to avoid the use of small persistent
+  // size, otherwise will use 4 at 17K.
+  const int64_t max_threads_per_block = has_rng_ops
+      ? dev_prop->maxThreadsPerBlock
+      : dev_prop->maxThreadsPerBlock / 2;
   // (2) target 50% occupancy based on experiments
   const int64_t target_min_warps_per_sm = n_waves_max > 1l ? 32l : 1l;
   // (2) hint for max persistent size based on experiments.
   const int64_t persistent_experiment_max = (has_rng_ops ? 4l : 5l);
+  // when may do multi reductions per block, mrpb.
+  const int64_t mrpb_threshold = has_rng_ops ? 1024l : 3072l;
+  const int64_t optimal_mrpb_threads_per_block = 128l;
+
   // (3) hint for register usage based on experiments
   auto getRegisterPerThread = [](int64_t buffer_per_thread) {
     return 24l +
@@ -255,9 +264,11 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // [persistent_min,persistent_experiment_max], prioritize a val divisible by
   // [warps_after_vect], can't be smaller than [persistent_min] to avoid bdimx
   // larger than maxThreadsPerBlock.
-
   int64_t bdimx_min = std::min((int64_t)after_vect, min_threads_per_block);
-  int64_t bdimx_max = dev_prop->maxThreadsPerBlock;
+  int64_t bdimx_max = max_threads_per_block;
+  if (total_reduction_numel <= mrpb_threshold) {
+    bdimx_min = std::min(bdimx_min, (int64_t)dev_prop->warpSize);
+  }
   int64_t persistent_min = ceilDiv(after_vect, bdimx_max);
   int64_t persistent_max = std::max(persistent_experiment_max, persistent_min);
   int64_t persistent_val = after_vect / bdimx_min;
@@ -313,11 +324,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
 
     // (4) iteration dim, set [bdimy]
     int64_t bdimy_val = 1l;
-    if (bdimx_val < min_threads_per_block) {
-      // If we don't have enough threads, let's do multiple reductions per
-      // block. Multiple reductions per block shows better performance than
-      // unroll iterations. Still keep vectorization as it is important for
-      // performance since V100. Compute maximum number of reductions we could
+    if (total_reduction_numel < mrpb_threshold) {
+      // Compute maximum number of reductions we could
       // do in the same kernel based on persistent buffer size. Bounded by the
       // wave count for utilization of SMs.
       const int64_t max_multi_reduction_factor = std::min(
@@ -325,8 +333,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
               scheduler_utils::register_file_size, max_persistent_buffer_size),
           n_waves_max);
       bdimy_val = std::min(
-          scheduler_utils::safeDiv(min_threads_per_block, bdimx_val),
+          scheduler_utils::safeDiv(optimal_mrpb_threads_per_block, bdimx_val),
           max_multi_reduction_factor);
+      std::cout << "bdimy_val= " << bdimy_val << std::endl;
     }
     // (5) set register usage to achieve 50% occupancy (32 warps per sm).
     // To achieve 50% occupancy, we need to set register per thread to
