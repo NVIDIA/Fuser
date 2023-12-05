@@ -566,13 +566,33 @@ TEST_F(AliasTest, NotAllOutputsAlias) {
   FusionExecutorCache fec(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
   std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
-
-  // As a known limitation, nvFuser still generates code to copy data from `in`
-  // to `slice_out` despite the fact that `slice_out` is an alias.
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   at::Tensor slice_out_tensor = out_tensors[0];
   EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
+
+  expectKernelDoesNotStoreToOutput(mostRecentExecutor(fec), /*out_index=*/0);
+}
+
+TEST_F(AliasTest, Issue1452) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Large enough to trigger vectorization.
+  TensorView* in = makeContigConcreteTensor({1024, 1024});
+  TensorView* set_out = set(in);
+  TensorView* add_out = add(in, fusion->oneVal());
+  fusion->addInput(in);
+  fusion->addOutput(set_out);
+  fusion->addOutput(add_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({1024, 1024}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  at::Tensor set_out_tensor = out_tensors[0];
+  EXPECT_TRUE(set_out_tensor.is_alias_of(in_tensor));
 
   expectKernelDoesNotStoreToOutput(mostRecentExecutor(fec), /*out_index=*/0);
 }
