@@ -922,8 +922,6 @@ at::Tensor allocateOutput(
     ExpressionEvaluator& ee) {
   TensorView* out_tv = out_info.tv;
 
-  // Note: aliased output is not returned as output. But we still need it
-  // for kernel execution, so would need to push them to args
   if (aliased_in != nullptr) {
     const PolymorphicValue& aliased_in_val = ee.evaluate(aliased_in);
     NVF_ERROR(
