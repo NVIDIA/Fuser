@@ -133,9 +133,9 @@ std::vector<at::Tensor> PipelineExecutor::runWithInput(
   // Collect global outputs from context
   std::vector<at::Tensor> outputs;
   for (auto output_val : runtime_.pipeline_->originalFusion()->outputs()) {
-    auto output = (val_to_IValue_.find(output_val) != val_to_IValue_.end()) ? 
-      val_to_IValue_.at(output_val).toTensor()
-      : at::Tensor();
+    auto output = (val_to_IValue_.find(output_val) != val_to_IValue_.end())
+        ? val_to_IValue_.at(output_val).toTensor()
+        : at::Tensor();
     outputs.push_back(output);
   }
 

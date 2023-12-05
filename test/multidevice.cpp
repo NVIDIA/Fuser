@@ -148,7 +148,7 @@ void SendToTester(
     at::Tensor send_buf, recv_buf;
     auto sender = mesh.vector().at(0);
     if (communicator->deviceId() == sender ||
-         communicator->deviceId() == tester) {
+        communicator->deviceId() == tester) {
       if (communicator->deviceId() == sender) {
         send_buf = tensor;
       }
@@ -174,7 +174,6 @@ void testValidateMultidevice(
     bool validate = true,
     bool set_mem_type_to_global = true,
     bool auto_schedule = false) {
-
   // gathering all the inputs at tester
   std::vector<c10::IValue> unsharded_inputs;
   for (auto i : c10::irange(inputs.size())) {
@@ -188,11 +187,12 @@ void testValidateMultidevice(
         communicator);
   }
 
-  // allocate output buffers for the tester 
+  // allocate output buffers for the tester
   std::vector<at::Tensor> unsharded_outputs;
   if (communicator->deviceId() == tester) {
     std::unique_ptr<Fusion> fusion_copy = std::make_unique<Fusion>();
-    auto original_to_copy_cloner = Fusion::copy(fusion_ptr.get(), fusion_copy.get());
+    auto original_to_copy_cloner =
+        Fusion::copy(fusion_ptr.get(), fusion_copy.get());
 
     for (auto tv : ir_utils::filterByType<TensorView>(fusion_copy->vals())) {
       unshardTv(tv);
