@@ -590,8 +590,6 @@ class Expr : public Statement {
   //! through the graph during concretization.
   virtual void checkConcretization(Val* old_val, Val* new_val) const;
 
-  bool isResharding() const;
-
  protected:
   // TODO: Protect based on being in kernel container
   void setPredicate(kir::Predicate* predicate);
