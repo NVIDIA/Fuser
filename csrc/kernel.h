@@ -175,16 +175,7 @@ class Kernel final : public Fusion {
   // we do something like generate an initialization statement for a reduction
   // TV, we may want to continue to do fusion like analysis on the original
   // expression.
-  // TODO: Assert index type is int or int32
-  Kernel(Fusion* fusion, PrimDataType index_type = PrimDataType::Int)
-      : Fusion(*fusion), index_type_(index_type) {
-    // Index type must be resolved to either int32 or int64
-    NVF_ERROR(
-        index_type_ == PrimDataType::Int ||
-            index_type_ == PrimDataType::Int32 || "Invalid index type: ",
-        index_type_);
-  }
-
+  Kernel(Fusion* fusion, PrimDataType index_type = PrimDataType::Int);
   Kernel() = delete;
 
   // No move or copy semantics

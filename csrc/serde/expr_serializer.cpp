@@ -264,8 +264,8 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
   void handle(const nvfuser::IterDomain* id) override {
     NVF_ERROR(id->definition() == nullptr);
     auto fb_id = serializeIterDomain(id);
-    auto fb_inst = CreateInstruction(
-        builder_, serde::InstructionData_IterDomain, fb_id.Union());
+    auto fb_inst =
+        CreateInstruction(builder_, InstructionData::IterDomain, fb_id.Union());
     instructions_fb_.push_back(fb_inst);
     operation_stack_.emplace(derived_values_.front(), operation_stack_.size());
     derived_values_.pop_front();
@@ -322,20 +322,20 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
     auto sv_fb =
         CreateSymbolicDirect(builder_, val->name(), val->toString().c_str());
     return CreateInstruction(
-        builder_, serde::InstructionData_Symbolic, sv_fb.Union());
+        builder_, InstructionData::Symbolic, sv_fb.Union());
   }
 
   flatbuffers::Offset<Instruction> serializeBinaryOp(
       const nvfuser::BinaryOp* bop) {
     auto bop_fb = CreateBinaryOpDirect(
         builder_,
-        mapToSerdeBinaryOp(bop->getBinaryOpType()),
+        nvfuser::toUnderlying(bop->getBinaryOpType()),
         retrieve(operation_stack_, bop->inputs().front()),
         retrieve(operation_stack_, bop->inputs().back()),
         (int64_t)operation_stack_.size(),
         bop->toString().c_str());
     return CreateInstruction(
-        builder_, serde::InstructionData_BinaryOp, bop_fb.Union());
+        builder_, InstructionData::BinaryOp, bop_fb.Union());
   }
 
   flatbuffers::Offset<Instruction> serializeGetAttr(
@@ -346,7 +346,7 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
         builder_.CreateString(attr->attr()),
         (int64_t)operation_stack_.size());
     return CreateInstruction(
-        builder_, serde::InstructionData_GetAttr, attr_fb.Union());
+        builder_, InstructionData::GetAttr, attr_fb.Union());
   }
 
   flatbuffers::Offset<Instruction> serializeGetItem(
@@ -357,7 +357,7 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
         retrieve(operation_stack_, item->index()),
         (int64_t)operation_stack_.size());
     return CreateInstruction(
-        builder_, serde::InstructionData_GetItem, item_fb.Union());
+        builder_, InstructionData::GetItem, item_fb.Union());
   }
 
   flatbuffers::Offset<Instruction> serializeGetMetaData(
@@ -367,7 +367,7 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
         retrieve(operation_stack_, metadata->in()),
         (int64_t)operation_stack_.size());
     return CreateInstruction(
-        builder_, serde::InstructionData_GetMetaData, metadata_fb.Union());
+        builder_, InstructionData::GetMetaData, metadata_fb.Union());
   }
 
   flatbuffers::Offset<IterDomain> serializeIterDomain(
@@ -417,7 +417,7 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
         retrieve(operation_stack_, merge->outer()),
         (int64_t)operation_stack_.size());
     return CreateInstruction(
-        builder_, serde::InstructionData_Merge, merge_fb.Union());
+        builder_, InstructionData::Merge, merge_fb.Union());
   }
 
   std::array<flatbuffers::Offset<Instruction>, 3> serializeResize(
@@ -430,8 +430,8 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
         retrieve(operation_stack_, resize->leftExpand()),
         retrieve(operation_stack_, resize->rightExpand()),
         (int64_t)operation_stack_.size());
-    auto resize_inst = CreateInstruction(
-        builder_, serde::InstructionData_Resize, resize_fb.Union());
+    auto resize_inst =
+        CreateInstruction(builder_, InstructionData::Resize, resize_fb.Union());
     return {left_expand_inst, right_expand_inst, resize_inst};
   }
 
@@ -444,8 +444,8 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
         retrieve(operation_stack_, split->factor()),
         (int64_t)operation_stack_.size(),
         (int64_t)operation_stack_.size() + 1);
-    auto split_inst = CreateInstruction(
-        builder_, serde::InstructionData_Split, split_fb.Union());
+    auto split_inst =
+        CreateInstruction(builder_, InstructionData::Split, split_fb.Union());
     return {factor_inst, split_inst};
   }
 
@@ -460,23 +460,24 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
         (int64_t)operation_stack_.size(),
         (int64_t)operation_stack_.size() + 1);
     return CreateInstruction(
-        builder_, serde::InstructionData_Swizzle2D, swizzle_fb.Union());
+        builder_, InstructionData::Swizzle2D, swizzle_fb.Union());
   }
 
   flatbuffers::Offset<Instruction> serializeUnaryOp(
       const nvfuser::UnaryOp* uop) {
-    DataType dtype = (uop->getUnaryOpType() == nvfuser::UnaryOpType::Cast)
-        ? mapToSerdeDtype(uop->out()->getDataType().value())
-        : serde::DataType_None;
+    int64_t dtype = (uop->getUnaryOpType() == nvfuser::UnaryOpType::Cast)
+        ? nvfuser::toUnderlying(
+              std::get<PrimDataType>(uop->out()->getDataType().value().type))
+        : -1;
     auto uop_fb = CreateUnaryOpDirect(
         builder_,
-        mapToSerdeUnaryOp(uop->getUnaryOpType()),
+        nvfuser::toUnderlying(uop->getUnaryOpType()),
         dtype,
         retrieve(operation_stack_, uop->inputs().front()),
         (int64_t)operation_stack_.size(),
         uop->toString().c_str());
     return CreateInstruction(
-        builder_, serde::InstructionData_UnaryOp, uop_fb.Union());
+        builder_, InstructionData::UnaryOp, uop_fb.Union());
   }
 
  private:
@@ -513,8 +514,8 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::
         val->name(),
         val->toString().c_str(),
         (int64_t)operation_stack_.size());
-    auto inst = CreateInstruction(
-        builder, serde::InstructionData_Symbolic, sv_fb.Union());
+    auto inst =
+        CreateInstruction(builder, InstructionData::Symbolic, sv_fb.Union());
     instructions_fb.push_back(inst);
     operation_stack_.emplace(val, operation_stack_.size());
   }
@@ -522,8 +523,8 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::
   for (const auto& ns : sorted_values.named_scalar_values) {
     auto ns_fb = CreateNamedScalarDirect(
         builder, ns->name().c_str(), (int64_t)operation_stack_.size());
-    auto inst = CreateInstruction(
-        builder, serde::InstructionData_NamedScalar, ns_fb.Union());
+    auto inst =
+        CreateInstruction(builder, InstructionData::NamedScalar, ns_fb.Union());
     instructions_fb.push_back(inst);
     operation_stack_.emplace(ns, operation_stack_.size());
   }
@@ -534,8 +535,8 @@ flatbuffers::Offset<NaiveValueGenerator> ExpressionSerializer::
         int_val->evaluate(),
         nvfuser::DataType::Int,
         (int64_t)operation_stack_.size());
-    auto inst = CreateInstruction(
-        builder, serde::InstructionData_Scalar, val_fb.Union());
+    auto inst =
+        CreateInstruction(builder, InstructionData::Scalar, val_fb.Union());
     instructions_fb.push_back(inst);
     operation_stack_.emplace(int_val, operation_stack_.size());
   }
@@ -595,7 +596,8 @@ flatbuffers::Offset<SymbolicTensor> ExpressionSerializer::serialize(
   auto leaf_domain_fb = serialize(builder, tv->getLeafDomain());
 
   SymbolicTensorBuilder tensor_builder(builder);
-  tensor_builder.add_dtype(mapToSerdeDtype(tv->getDataType().value()));
+  tensor_builder.add_dtype(
+      toUnderlying(std::get<PrimDataType>(tv->getDataType().value().type)));
   tensor_builder.add_root(root_domain_fb);
   tensor_builder.add_rfactor(rfactor_domain_fb);
   tensor_builder.add_allocate(allocation_domain_fb);

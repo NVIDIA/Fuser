@@ -158,7 +158,7 @@ TEST_F(NVFuserTest, FusionComputeWith1_CUDA) {
 
   // Lowering should resolve the computeWith
   GpuLower gpulw(&fusion);
-  checkComputeWith(gpulw.kernel(), tv1, tv1->nDims(), {tv2});
+  checkComputeWith(gpulw.run(), tv1, tv1->nDims(), {tv2});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -168,9 +168,7 @@ TEST_F(NVFuserTest, FusionComputeWith1_CUDA) {
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
-  auto ref = t0.sum({1}).unsqueeze(-1) + t0;
-
-  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // StoreAt with 1D softmax
@@ -216,7 +214,7 @@ TEST_F(NVFuserTest, FusionComputeWith2_CUDA) {
   // Lowering should automatcially pick the first consumer of the
   // computed-with tensor as its target
   checkComputeWith(
-      gpulw.kernel(), input_tv0_cache, input_tv0_cache->nDims(), {exp_tv1});
+      gpulw.run(), input_tv0_cache, input_tv0_cache->nDims(), {exp_tv1});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({dimx}, options);
@@ -257,7 +255,7 @@ TEST_F(NVFuserTest, FusionComputeWith3_CUDA) {
   tv1->computeWith(-2);
 
   GpuLower gpulw(&fusion);
-  checkComputeWith(gpulw.kernel(), tv1, 2, {tv2});
+  checkComputeWith(gpulw.run(), tv1, 2, {tv2});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -267,9 +265,7 @@ TEST_F(NVFuserTest, FusionComputeWith3_CUDA) {
   fe.compileFusion(&fusion, {t0});
   auto cg_outputs = fe.runFusion({t0});
 
-  auto ref = t0.unsqueeze(0);
-
-  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Compute a tensor that has siblings with a consumer. All of the
@@ -302,8 +298,9 @@ TEST_F(NVFuserTest, FusionComputeWith4_CUDA) {
   scheduler_utils::parallelizeAllLike(tv2);
 
   GpuLower gpulw(&fusion);
+  auto kernel = gpulw.run();
   for (auto welford_out_tv : {tvs.avg, tvs.var_sum, tvs.n}) {
-    checkComputeWith(gpulw.kernel(), welford_out_tv, 3, {tv2});
+    checkComputeWith(kernel, welford_out_tv, 3, {tv2});
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -345,7 +342,7 @@ TEST_F(NVFuserTest, FusionComputeWith5_CUDA) {
   scheduler_utils::parallelizeAllLike(tv1);
 
   GpuLower gpulw(&fusion);
-  checkComputeWith(gpulw.kernel(), tv1, 3, {tvs.avg, tvs.var_sum, tvs.n});
+  checkComputeWith(gpulw.run(), tv1, 3, {tvs.avg, tvs.var_sum, tvs.n});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -449,7 +446,7 @@ TEST_F(NVFuserTest, FusionComputeWith6_CUDA) {
   // The innermost ID is vectorized, so the computeWith position
   // should be -2. The compute-with tensor should be the first
   // consumer of tv1, i.e., tv2 not tv5.
-  checkComputeWith(gpulw.kernel(), tv1, tv1->nDims() - 1, {tv2});
+  checkComputeWith(gpulw.run(), tv1, tv1->nDims() - 1, {tv2});
 
   auto options_half = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
 

@@ -23,7 +23,7 @@ void ExpressionBuilder::registerAllParsers() {
     auto bop = buildBinaryOp(data);
     operation_stack_.push_back(bop);
   };
-  registerParser(InstructionData_BinaryOp, deserializeBinaryOp);
+  registerParser(InstructionData::BinaryOp, deserializeBinaryOp);
 
   auto deserializeGetAttr = [&](const serde::Instruction* buffer) {
     auto data = buffer->data_as_GetAttr();
@@ -35,7 +35,7 @@ void ExpressionBuilder::registerAllParsers() {
         IrBuilder::getAttrExpr(retrieve(data->struct_()), data->attr()->str());
     operation_stack_.push_back(expr);
   };
-  registerParser(InstructionData_GetAttr, deserializeGetAttr);
+  registerParser(InstructionData::GetAttr, deserializeGetAttr);
 
   auto deserializeGetItem = [&](const serde::Instruction* buffer) {
     auto data = buffer->data_as_GetItem();
@@ -47,7 +47,7 @@ void ExpressionBuilder::registerAllParsers() {
         retrieve(data->array()), retrieve(data->index()));
     operation_stack_.push_back(item);
   };
-  registerParser(InstructionData_GetItem, deserializeGetItem);
+  registerParser(InstructionData::GetItem, deserializeGetItem);
 
   auto deserializeGetMetaData = [&](const serde::Instruction* buffer) {
     auto data = buffer->data_as_GetMetaData();
@@ -58,7 +58,7 @@ void ExpressionBuilder::registerAllParsers() {
     auto metadata = kernel_->metadataOf(retrieve(data->in()));
     operation_stack_.push_back(metadata);
   };
-  registerParser(InstructionData_GetMetaData, deserializeGetMetaData);
+  registerParser(InstructionData::GetMetaData, deserializeGetMetaData);
 
   auto deserializeIterDomain = [&](const serde::Instruction* buffer) {
     auto data = buffer->data_as_IterDomain();
@@ -69,7 +69,7 @@ void ExpressionBuilder::registerAllParsers() {
     auto id = buildIterDomain(data);
     operation_stack_.push_back(id);
   };
-  registerParser(InstructionData_IterDomain, deserializeIterDomain);
+  registerParser(InstructionData::IterDomain, deserializeIterDomain);
 
   auto deserializeMerge = [&](const serde::Instruction* buffer) {
     auto data = buffer->data_as_Merge();
@@ -86,7 +86,7 @@ void ExpressionBuilder::registerAllParsers() {
         inner->as<nvfuser::IterDomain>(), outer->as<nvfuser::IterDomain>());
     operation_stack_.push_back(merged_id);
   };
-  registerParser(InstructionData_Merge, deserializeMerge);
+  registerParser(InstructionData::Merge, deserializeMerge);
 
   auto deserializeNamedScalar = [&](const serde::Instruction* buffer) {
     auto data = buffer->data_as_NamedScalar();
@@ -98,7 +98,7 @@ void ExpressionBuilder::registerAllParsers() {
         data->name()->str(), nvfuser::DataType::Index);
     operation_stack_.push_back(named_scalar);
   };
-  registerParser(InstructionData_NamedScalar, deserializeNamedScalar);
+  registerParser(InstructionData::NamedScalar, deserializeNamedScalar);
 
   auto deserializeResize = [&](const serde::Instruction* buffer) {
     auto data = buffer->data_as_Resize();
@@ -121,7 +121,7 @@ void ExpressionBuilder::registerAllParsers() {
         false /* mark_as_rfactor */);
     operation_stack_.push_back(resize);
   };
-  registerParser(InstructionData_Resize, deserializeResize);
+  registerParser(InstructionData::Resize, deserializeResize);
 
   auto deserializeScalar = [&](const serde::Instruction* buffer) {
     auto data = buffer->data_as_Scalar();
@@ -133,7 +133,7 @@ void ExpressionBuilder::registerAllParsers() {
         data->long_value(), nvfuser::DataType::Index);
     operation_stack_.push_back(int_val);
   };
-  registerParser(InstructionData_Scalar, deserializeScalar);
+  registerParser(InstructionData::Scalar, deserializeScalar);
 
   auto deserializeSplit = [&](const serde::Instruction* buffer) {
     auto data = buffer->data_as_Split();
@@ -152,7 +152,7 @@ void ExpressionBuilder::registerAllParsers() {
     operation_stack_.push_back(split_ids.first);
     operation_stack_.push_back(split_ids.second);
   };
-  registerParser(InstructionData_Split, deserializeSplit);
+  registerParser(InstructionData::Split, deserializeSplit);
 
   auto deserializeSwizzle2D = [&](const serde::Instruction* buffer) {
     auto data = buffer->data_as_Swizzle2D();
@@ -173,14 +173,14 @@ void ExpressionBuilder::registerAllParsers() {
     operation_stack_.push_back(swizzle_ids.first);
     operation_stack_.push_back(swizzle_ids.second);
   };
-  registerParser(InstructionData_Swizzle2D, deserializeSwizzle2D);
+  registerParser(InstructionData::Swizzle2D, deserializeSwizzle2D);
 
   auto deserializeSymbolic = [&](const serde::Instruction* buffer) {
     auto data = buffer->data_as_Symbolic();
     NVF_ERROR(data != nullptr, "serde::Symbolic is nullptr.")
     NVF_ERROR(data->out() < (int64_t)operation_stack_.size());
   };
-  registerParser(InstructionData_Symbolic, deserializeSymbolic);
+  registerParser(InstructionData::Symbolic, deserializeSymbolic);
 
   auto deserializeUnaryOp = [&](const serde::Instruction* buffer) {
     auto data = buffer->data_as_UnaryOp();
@@ -191,7 +191,7 @@ void ExpressionBuilder::registerAllParsers() {
     auto uop = buildUnaryOp(data);
     operation_stack_.push_back(uop);
   };
-  registerParser(InstructionData_UnaryOp, deserializeUnaryOp);
+  registerParser(InstructionData::UnaryOp, deserializeUnaryOp);
 }
 
 void ExpressionBuilder::deserialize(const NaiveValueGenerator* buffer) {
@@ -204,11 +204,11 @@ void ExpressionBuilder::deserialize(const NaiveValueGenerator* buffer) {
 
 Val* ExpressionBuilder::buildUnaryOp(const UnaryOp* buffer) {
   NVF_ERROR(buffer != nullptr, "serde::UnaryOp is nullptr.")
-  switch (buffer->unary_type()) {
-    case serde::UnaryOpType_Cast:
+  switch (static_cast<nvfuser::UnaryOpType>(buffer->unary_type())) {
+    case nvfuser::UnaryOpType::Cast:
       return castOp(
           mapToDtypeStruct(buffer->data_type()), retrieve(buffer->src0()));
-    case serde::UnaryOpType_Neg:
+    case nvfuser::UnaryOpType::Neg:
       return neg(retrieve(buffer->src0()));
     default:
       NVF_ERROR(false, "Unsupported binary operation.\t");
@@ -218,18 +218,18 @@ Val* ExpressionBuilder::buildUnaryOp(const UnaryOp* buffer) {
 
 Val* ExpressionBuilder::buildBinaryOp(const BinaryOp* buffer) {
   NVF_ERROR(buffer != nullptr, "serde::BinaryOp is nullptr.")
-  switch (buffer->binary_type()) {
-    case serde::BinaryOpType_Add:
+  switch (static_cast<nvfuser::BinaryOpType>(buffer->binary_type())) {
+    case nvfuser::BinaryOpType::Add:
       return add(retrieve(buffer->src0()), retrieve(buffer->src1()));
-    case serde::BinaryOpType_CeilDiv:
+    case nvfuser::BinaryOpType::CeilDiv:
       return ceilDiv(retrieve(buffer->src0()), retrieve(buffer->src1()));
-    case serde::BinaryOpType_Div:
+    case nvfuser::BinaryOpType::Div:
       return div(retrieve(buffer->src0()), retrieve(buffer->src1()));
-    case serde::BinaryOpType_Mod:
+    case nvfuser::BinaryOpType::Mod:
       return mod(retrieve(buffer->src0()), retrieve(buffer->src1()));
-    case serde::BinaryOpType_Mul:
+    case nvfuser::BinaryOpType::Mul:
       return mul(retrieve(buffer->src0()), retrieve(buffer->src1()));
-    case serde::BinaryOpType_Sub:
+    case nvfuser::BinaryOpType::Sub:
       return sub(retrieve(buffer->src0()), retrieve(buffer->src1()));
     default:
       NVF_ERROR(false, "Unsupported binary operation.\t");

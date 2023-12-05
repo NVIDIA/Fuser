@@ -319,6 +319,29 @@ void Expr::checkConcretization(Val* old_val, Val* new_val) const {
       "Concretization must not change ValType");
 }
 
+bool Expr::sameOp(const Expr* other) const {
+  if (this == other) {
+    return true;
+  }
+  if (other == nullptr) {
+    return false;
+  }
+  if (typeid(*this) != typeid(*other)) {
+    return false;
+  }
+  if (inputs().size() != other->inputs().size() ||
+      outputs().size() != other->outputs().size() ||
+      attributes().size() != other->attributes().size()) {
+    return false;
+  }
+  for (const auto i : c10::irange(attributes().size())) {
+    if (!attribute(i)->sameAs(other->attribute(i))) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool Expr::sameAs(const Statement* other) const {
   if (this == other) {
     return true;
@@ -327,21 +350,11 @@ bool Expr::sameAs(const Statement* other) const {
     return false;
   }
   const Expr* other_expr = other->as<Expr>();
-  if (typeid(*this) != typeid(*other_expr)) {
-    return false;
-  }
-  if (inputs().size() != other_expr->inputs().size() ||
-      outputs().size() != other_expr->outputs().size() ||
-      attributes().size() != other_expr->attributes().size()) {
+  if (!sameOp(other_expr)) {
     return false;
   }
   for (const auto i : c10::irange(inputs().size())) {
     if (!input(i)->sameAs(other_expr->input(i))) {
-      return false;
-    }
-  }
-  for (const auto i : c10::irange(attributes().size())) {
-    if (!attribute(i)->sameAs(other_expr->attribute(i))) {
       return false;
     }
   }

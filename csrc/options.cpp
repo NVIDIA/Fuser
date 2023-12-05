@@ -130,6 +130,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"occupancy", DebugDumpOption::Occupancy},
       {"parallel_dimensions", DebugDumpOption::ParallelDimensions},
       {"perf_debug_verbose", DebugDumpOption::PerfDebugVerbose},
+      {"pre_segmenter_logging", DebugDumpOption::PreSegmenterLogging},
       {"ptx", DebugDumpOption::Ptx},
       {"ptxas_verbose", DebugDumpOption::PrintPtxasLog},
       {"python_definition", DebugDumpOption::PythonDefinition},
@@ -149,9 +150,11 @@ template <>
 std::unordered_map<EnableOption, std::vector<std::string>> Options<
     EnableOption>::getOptionsFromEnv() {
   const std::unordered_map<std::string, EnableOption> available_options = {
+      {"id_model", EnableOption::IdModel},
       {"kernel_db", EnableOption::KernelDb},
       {"kernel_profile", EnableOption::KernelProfile},
       {"memory_promotion", EnableOption::MemoryPromotion},
+      {"static_fusion_count", EnableOption::StaticFusionCount},
       {"warn_register_spill", EnableOption::WarnRegisterSpill}};
 
   return parseEnvOptions("ENABLE", available_options);

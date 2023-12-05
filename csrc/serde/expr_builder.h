@@ -26,7 +26,8 @@ class ExpressionBuilder : public Factory<serde::Instruction, void> {
 
  public:
   ExpressionBuilder(kir::Kernel* kernel)
-      : Factory((serde::InstructionData_MAX + 1)), kernel_(kernel) {
+      : Factory((nvfuser::toUnderlying(InstructionData::MAX) + 1)),
+        kernel_(kernel) {
     registerAllParsers();
     operation_stack_ = gatherSymbolicValues(kernel_);
   }

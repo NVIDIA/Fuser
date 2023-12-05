@@ -13,29 +13,14 @@
 
 namespace nvfuser::serde {
 
-//! A function to map the nvfuser UnaryOp type to the corresponding serde type
-serde::UnaryOpType mapToSerdeUnaryOp(nvfuser::UnaryOpType);
-
-//! A function to map the nvfuser BinaryOp type to the corresponding serde type
-serde::BinaryOpType mapToSerdeBinaryOp(nvfuser::BinaryOpType);
-
-//! A function to map the nvfuser prim datatype to the corresponding serde dtype
-serde::DataType mapToSerdeDtype(PrimDataType t);
-
-//! A function to map the nvfuser datatype to the corresponding serde dtype
-serde::DataType mapToSerdeDtype(nvfuser::DataType t);
-
-//! A function to map the aten dtype to the corresponding serde dtype
-serde::DataType mapToSerdeDtype(at::ScalarType t);
-
 //! A function to map the serde dtype to its corresponding nvfuser prim dtype
-PrimDataType mapToNvfuserDtype(serde::DataType t);
+PrimDataType mapToNvfuserDtype(long data_type);
 
 //! A function to map the serde dtype to its corresponding nvfuser datatype
-nvfuser::DataType mapToDtypeStruct(serde::DataType t);
+nvfuser::DataType mapToDtypeStruct(long data_type);
 
 //! A function to map the serde dtype to its corresponding aten dtype
-at::ScalarType mapToAtenDtype(serde::DataType t);
+at::ScalarType mapToAtenDtype(long data_type);
 
 template <typename T>
 std::vector<T> parseVector(const flatbuffers::Vector<T>* fb_vector) {

@@ -517,6 +517,10 @@ inline bool hasCompatibleDataType(
 int max_digits10(DataType dtype);
 
 enum class UnaryOpType {
+  Cast,
+  BitCast,
+  RefCast,
+
   Abs,
   Acos,
   Acosh,
@@ -525,7 +529,6 @@ enum class UnaryOpType {
   Asinh,
   Atan,
   Atanh,
-  Cast,
   Ceil,
   Cos,
   Cosh,
@@ -547,7 +550,6 @@ enum class UnaryOpType {
   Log10,
   Log1p,
   Log2,
-  BitCast,
   Neg,
   Real,
   Reciprocal,
@@ -579,7 +581,8 @@ enum class UnaryOpType {
   IsReal,
 
   // Special unary ops
-  ToUnsignedSmemAddr
+  ToUnsignedSmemAddr,
+  AdjustPartialLdMatrixAddrInTuring
 };
 
 // TODO: Order of this list is important as it affects type promotion. it's not
@@ -894,6 +897,7 @@ std::ostream& operator<<(std::ostream&, const Swizzle2DType&);
 std::ostream& operator<<(std::ostream&, const SwizzleMode&);
 std::ostream& operator<<(std::ostream&, const KernelIndexMode&);
 std::ostream& operator<<(std::ostream&, const CacheOp&);
+std::ostream& operator<<(std::ostream& os, const std::optional<bool>&);
 
 std::string stringifyThreadSize(const ParallelType);
 std::string stringifyThread(const ParallelType);
@@ -998,7 +1002,9 @@ inline PolymorphicValue castToDtype(
   return value;
 }
 
-// Convert an enum to its underlying type.
+// Converts an enum to its underlying type.
+// It corresponds with std::to_underlying introduced in c++23
+// https://en.cppreference.com/w/cpp/utility/to_underlying
 template <typename E>
 constexpr auto toUnderlying(E e) noexcept {
   return static_cast<std::underlying_type_t<E>>(e);

@@ -90,12 +90,16 @@ TEST_F(NVFuserTest, FusionIrGraphGenerator_CUDA) {
 
   fusion.addOutput(tv6);
 
-  tv4->axis(2)->parallelize(ParallelType::BIDy);
+  tv5->reorder({{-1, 0}});
   tv6->merge(0);
   tv6->split(0, 4);
+  TransformPropagatorWithCheck propagator(tv6);
+  MaxRootDomainInfoSpanningTree(tv6).traverse(&propagator);
+
+  tv4->axis(2)->parallelize(ParallelType::BIDy);
   tv6->axis(0)->parallelize(ParallelType::BIDx);
-  tv5->reorder({{-1, 0}});
-  tv2->computeAt(tv6, 1);
+
+  inlineMost();
 
   // Another checkpoint with more node types
   NVF_CHECK(!IrGraphGenerator::toGraphviz(
@@ -149,12 +153,14 @@ TEST_F(NVFuserTest, FusionClear_CUDA) {
     fusion.addOutput(tv3);
 
     tv3->split(0, 4);
-    tv0->computeAt(tv3, 1);
-    tv1->computeAt(tv3, 1);
+    TransformPropagatorWithCheck propagator(tv3);
+    MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
 
     tv3->axis(0)->parallelize(ParallelType::BIDx);
     tv2->axis(1)->parallelize(ParallelType::Unroll);
     tv3->axis(-1)->parallelize(ParallelType::TIDx);
+
+    inlineMost();
   }
 
   // 2. Clear the IR
@@ -188,9 +194,12 @@ TEST_F(NVFuserTest, FusionClear_CUDA) {
     // tv3 [i2, i1, i0outer, i0inner{4}]
     tv3->reorder({{2, 0}, {3, 1}, {0, 3}});
     // tv3 [i0outer, i0inner{4}, i1, i2]
-    tv0->computeAt(tv3, -1);
-    tv1->computeAt(tv3, -1);
+    TransformPropagatorWithCheck propagator(tv3);
+    MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
+
     tv3->axis(1)->parallelize(ParallelType::BIDx);
+
+    inlineMost();
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -227,12 +236,13 @@ TEST_F(NVFuserTest, FusionCopy_CUDA) {
     tv3->reorder({{0, 2}, {2, 0}});
     tv3->split(-1, 4);
     tv3->reorder({{2, 0}, {3, 1}, {0, 3}});
-
-    tv0->computeAt(tv3, -1);
-    tv1->computeAt(tv3, -1);
+    TransformPropagatorWithCheck propagator(tv3);
+    MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
 
     tv3->axis(0)->parallelize(ParallelType::BIDx);
     tv3->axis(-1)->parallelize(ParallelType::TIDx);
+
+    inlineMost();
   }
 
   // Test copy before lowering
@@ -301,12 +311,13 @@ TEST_F(NVFuserTest, FusionMove_CUDA) {
     tv3->reorder({{0, 2}, {2, 0}});
     tv3->split(-1, 4);
     tv3->reorder({{2, 0}, {3, 1}, {0, 3}});
-
-    tv0->computeAt(tv3, -1);
-    tv1->computeAt(tv3, -1);
+    TransformPropagatorWithCheck propagator(tv3);
+    MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
 
     tv3->axis(0)->parallelize(ParallelType::BIDx);
     tv3->axis(-1)->parallelize(ParallelType::TIDx);
+
+    inlineMost();
   }
 
   std::stringstream original_ir;
@@ -339,6 +350,7 @@ TEST_F(NVFuserTest, FusionMove_CUDA) {
 
   // Lower the fusion IR
   GpuLower lower(&another_fusion);
+  lower.run();
 
   std::stringstream lowered_ir;
   lowered_ir << another_fusion;
@@ -868,8 +880,10 @@ TEST_F(NVFuserTest, FusionOuterSplit_CUDA) {
   //[I0*I1*I2o{4}o, I0*I1*I2o{4}i{2}, I2i]
   tv2->reorder({{0, 1}, {1, 0}});
   // I0*I1*I2o{4}i{2}, [I0*I1*I2o{4}o, I2i]
+  TransformPropagatorWithCheck propagator(tv2);
+  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
 
-  tv0->computeAt(tv2, -1);
+  inlineMost();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -908,8 +922,10 @@ TEST_F(NVFuserTest, FusionCodeGen_CUDA) {
   //[I0o, I0i{4}*I1, I2o, I2i{2}]
   tv2 = tv2->reorder({{0, 1}, {1, 0}, {3, 2}});
   //[I0i{4}*I1, I0o, I2i{2}, I2o]
+  TransformPropagatorWithCheck propagator(tv2);
+  MaxRootDomainInfoSpanningTree(tv2).traverse(&propagator);
 
-  tv0->computeAt(tv2, -1);
+  inlineMost();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -944,12 +960,13 @@ TEST_F(NVFuserTest, FusionCodeGen2_CUDA) {
   //[I2, I1, I0o, I0i{4}]
   tv3->reorder({{2, 0}, {3, 1}, {0, 3}});
   // I0o, I0i{4}, I1, I2]
-
-  tv0->computeAt(tv3, -1);
-  tv1->computeAt(tv3, -1);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
+
+  inlineMost();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -996,16 +1013,15 @@ TEST_F(NVFuserTest, FusionSimplePWise_CUDA) {
   // Split by n_threads
   tv3->split(0, 128);
   tv3->split(0, 4);
-
-  // For all inputs, computeAt the output inline, temporaries should be squeezed
-  // between them
-  tv0->computeAt(tv3, -1);
-  tv1->computeAt(tv3, -1);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   // Parallelize TV3
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(-2)->parallelize(ParallelType::Unroll);
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
+
+  inlineMost();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -1054,16 +1070,15 @@ TEST_F(NVFuserTest, FusionSimplePWiseDtypeComplex_CUDA) {
   // Split by n_threads
   tv3->split(0, 128);
   tv3->split(0, 4);
-
-  // For all inputs, computeAt the output inline, temporaries should be squeezed
-  // between them
-  tv0->computeAt(tv3, -1);
-  tv1->computeAt(tv3, -1);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   // Parallelize TV3
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(-2)->parallelize(ParallelType::Unroll);
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
+
+  inlineMost();
 
   auto options =
       at::TensorOptions().dtype(at::kComplexFloat).device(at::kCUDA, 0);
@@ -1105,11 +1120,8 @@ TEST_F(NVFuserTest, FusionExecKernel_CUDA) {
   tv3->merge(0);
   tv3->split(0, 128);
   tv3->split(0, 4);
-
-  // For all inputs, computeAt the output inline, temporaries should be squeezed
-  // between them
-  tv0->computeAt(tv3, 1);
-  tv1->computeAt(tv3, 1);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
 
   // Parallelize TV3
   tv3->axis(0)->parallelize(ParallelType::BIDx);
@@ -1117,6 +1129,8 @@ TEST_F(NVFuserTest, FusionExecKernel_CUDA) {
   tv3->axis(1)->parallelize(ParallelType::Unroll);
   tv2->axis(-1)->parallelize(ParallelType::TIDx);
   tv3->axis(-1)->parallelize(ParallelType::TIDx);
+
+  inlineMost();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -1656,6 +1670,7 @@ TEST_F(NVFuserTest, FusionComputeAtMultiConsumers_CUDA) {
   }
 
   GpuLower gpulw(&fusion);
+  gpulw.run();
 
   NVF_CHECK(tv1->getComputeAtPosition() == 1);
   NVF_CHECK(
@@ -6891,6 +6906,7 @@ TEST_F(NVFuserTest, FusionSmemBlockGemm_CUDA) {
 
   // Make sure BIDx is makred as exact (see issue #1119)
   GpuLower gpulw(&fusion);
+  gpulw.run();
   NVF_CHECK(gpulw.parallelDimensionMap().isExact(ParallelType::BIDx));
 
   constexpr int M = 154, K = 45, N = 1524;

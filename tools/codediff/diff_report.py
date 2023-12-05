@@ -119,8 +119,11 @@ class CompiledKernel:
         # Example input:
         #
         #   ptxas info    : 307 bytes gmem
-        #   ptxas info    : Compiling entry function '_ZN11CudaCodeGen7kernel1ENS_6TensorIfLi2ELi2EEES1_S1_' for 'sm_86'
-        #   ptxas info    : Function properties for _ZN11CudaCodeGen7kernel1ENS_6TensorIfLi2ELi2EEES1_S1_
+        #   ptxas info    : Compiling entry function
+        #   '_ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_'
+        #   for 'sm_86'
+        #   ptxas info    : Function properties for
+        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_
         #   ptxas         .     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
         #   ptxas info    : Used 203 registers, 16 bytes smem, 472 bytes cmem[0], 8 bytes cmem[2]
         #
@@ -542,7 +545,7 @@ class TestRun:
                     # we set nvfuser_index_t in the preamble. We ignore that change for the purposes of this diff
                     if line[:8] == "typedef " and line[-17:] == " nvfuser_index_t;":
                         line = "typedef int nvfuser_index_t; // NOTE: index type hard-coded as int for display only"
-                    if re.search(r"void kernel\d+\b", line) is not None:
+                    if re.search(r"void (nvfuser|kernel)_?\d+\b", line) is not None:
                         # we arrived at the kernel definition
                         break
                     if first:
@@ -576,7 +579,8 @@ class TestRun:
                         kern.index_type = m.groups()[0]
                 if not strip_preamble or i >= self.preamble_size_lines:
                     # replace kernel934 with kernel1 to facilitate diffing
-                    kern.code += re.sub(r"\bkernel\d+\b", "kernelN", line)
+                    # also match kernel_43 to handle new-style naming with static fusion count
+                    kern.code += re.sub(r"\bnvfuser_\d+\b", "nvfuser_N", line)
         kern.code = kern.code.rstrip()
         if strip_preamble and kern.code[-1] == "}":
             # trailing curly brace is close of namespace. This will clean it up so that we have just the kernel
@@ -634,16 +638,33 @@ class TestDiff:
 
 
 def sanitize_ptx_lines(lines: list[str]) -> list[str]:
-    """Remove comments and translate kernel38 to kernelN"""
+    """Remove comments and remove kernel id"""
     sanitary_lines = []
     for l in lines:
         # Replace mangled kernel names like
-        #   _ZN11CudaCodeGen10kernel1271ENS_6TensorIfLi2ELi2EEENS0_IfLi3ELi3EEES2_
+        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_
+        # or
+        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_4_cu_8995cef2_3255329nvfuser_4ENS_6TensorIfLi2ELi2EEES1_S1_
         # with
-        #   _ZN11CudaCodeGen7kernelNENS_6TensorIfLi2ELi2EEENS0_IfLi3ELi3EEES2_
-        l = re.sub(r"CudaCodeGen\d+kernel\d+ENS", "CudaCodeGen7kernelNENS", l)
+        #   _ZN11kernelscope6kernelENS_6TensorIfLi2ELi2EEES1_S1_
 
-        # Remove comments. This is important for
+        # demangle first two parts after _ZN and replace with "kernelscope" and "kernel"
+        m = re.match(r"^(?P<prefix>^.*\b_Z?ZN)(?P<scopenamelen>\d+)_", l)
+        if m is not None:
+            d = m.groupdict()
+            scopenamelen = int(d["scopenamelen"])
+            # demangle second part in remainder after scope name
+            remainder = l[(len(d["prefix"]) + len(d["scopenamelen"]) + scopenamelen) :]
+            mrem = re.match(r"^(?P<varnamelen>\d+)", remainder)
+            if mrem is not None:
+                drem = mrem.groupdict()
+                varnamelen = int(drem["varnamelen"])
+                remainder = (
+                    "6kernel" + remainder[len(drem["varnamelen"]) + varnamelen :]
+                )
+            l = d["prefix"] + "11kernelscope" + remainder
+
+        # Remove comments. This fixes mismatches in PTX "callseq" comments, which appear to be non-repeatable.
         l = re.sub(r"//.*$", "", l)
         sanitary_lines.append(l)
     return sanitary_lines
@@ -852,7 +873,10 @@ if __name__ == "__main__":
     )
     parser.add_argument("--html", action="store_true", help="Write HTML file?")
     parser.add_argument(
-        "--hide-diffs", action="store_true", help="Print diffs to STDOUT?"
+        "--hide-diffs",
+        "--no-print-diff",
+        action="store_true",
+        help="Print diffs to STDOUT?",
     )
     parser.add_argument(
         "--kernel-inclusion-criterion",

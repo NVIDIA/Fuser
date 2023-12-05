@@ -280,6 +280,7 @@ TEST_F(ExprEvalTest, PostLower) {
 
   // Lower
   GpuLower gpulw(&fusion);
+  gpulw.run();
 
   // 1. Create an evaluation context
   ExpressionEvaluator evaluator;

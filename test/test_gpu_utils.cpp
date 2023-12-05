@@ -985,7 +985,7 @@ TEST_F(VectorizeHelperTest, SpanningTree_CUDA) {
         }
         auto fusion_inps = fusion.inputs();
         for (auto inp : fusion_inps) {
-          fusion.removeOutput(inp);
+          fusion.removeInput(inp);
         }
       }
 
@@ -1077,7 +1077,7 @@ TEST_F(NVFuserTest, FusionSASSDumpError_CUDA) {
           ::testing::HasSubstr("I am fake")));
 
   auto cg_outputs = fe.runFusion({t0});
-  testValidate(fe.kernel(), cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+  testValidate(fe.kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

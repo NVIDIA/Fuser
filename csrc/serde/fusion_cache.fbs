@@ -13,21 +13,6 @@ file_identifier "NV00";
 // =====================================================================================
 // Enum definitions
 
-// Datatype enum represents the data type of a Tensor, Scalar, or Function.
-enum DataType: int {
-    None = 0,
-    Double,
-    Float,
-    Half,
-    Index,
-    Int,
-    Int32,
-    Bool,
-    BFloat16,
-    ComplexFloat,
-    ComplexDouble,
-}
-
 // The StateType enum indicates whether the state object is a Scalar or Tensor.
 enum StateType: int {
     None = 0,
@@ -85,12 +70,12 @@ enum RecordType: int {
     Ternary_Alpha_VAL_VAL_TV,
     Ternary_Alpha_TV_VAL_VAL,
     Ternary_Alpha_VAL_TV_VAL,
+    NormalDistOp,
     OutputTv,
     OutputVal,
     PadOp,
     PermuteOp,
     StrideOrderOp,
-    RandomOp,
     ReductionMax,
     ReductionMin,
     ReductionProd,
@@ -104,25 +89,10 @@ enum RecordType: int {
     Start,
     Tensor,
     TensorSizes,
+    UniformDistOp,
     VarianceOp,
     VarianceMeanOp,
     Vector,
-}
-
-enum UnaryOpType: int {
-  None = 0,
-  Cast,
-  Neg,
-}
-
-enum BinaryOpType: int {
-  None = 0,
-  Add,
-  CeilDiv,
-  Div,
-  Mod,
-  Mul,
-  Sub,
 }
 
 enum IterType: int {
@@ -157,7 +127,6 @@ union RecordData {
   Scalar,
   Size,
   Tensor,
-  TensorCreation,
   TensorCreationSymbolic,
   Vector,
 }
@@ -198,9 +167,9 @@ struct State {
 
 // Data for Scalar
 table Scalar {
-  dtype: DataType;
+  dtype: long;
   has_value: bool;
-  value_type: DataType;
+  value_type: long;
   bool_value: bool;
   long_value: long;
   double_value: double;
@@ -214,7 +183,7 @@ table Scalar {
 // Tables for NaiveValueGenerator and AllocateBuffer used in FusionExecutor.
 
 table BinaryOp {
-  binary_type: BinaryOpType;
+  binary_type: long;
   src0: long;
   src1: long;
   out: long;
@@ -296,8 +265,8 @@ table Symbolic {
 }
 
 table UnaryOp {
-  unary_type: UnaryOpType;
-  data_type: DataType;
+  unary_type: long;
+  data_type: long;
   src0: long;
   out: long;
   name: string;
@@ -314,7 +283,7 @@ table NaiveValueGenerator {
 
 // Table represents nvfuser::TensorView
 table SymbolicTensor {
-  dtype: DataType;
+  dtype: long;
   root: [long];
   rfactor: [long];
   allocate: [long];
@@ -341,10 +310,10 @@ table ScalarCpu {
 // However, only a metadata tensor is returned upon deserialization.
 // The ptr parameter is used to determine vectorization during scheduling.
 table TensorArg {
-  ptr: ulong;
-  sizes: [long];
-  strides: [long];
-  dtype: DataType;
+  ptr : ulong;
+  sizes : [long];
+  strides : [long];
+  dtype: long;
 }
 
 // This table corresponds with a given PolymorphicValue object.
@@ -386,13 +355,13 @@ table LaunchParams {
 // For output tensors, we use its position in the fusion outputs.
 // For intermediate tensors, we use its position in the KernelSummary global_allocations.
 table GlobalBufferInfo {
-  tv: long = -1;
-  sizes: [long];
-  strides: [long];
-  dtype: DataType;
-  zero_init: bool;
-  is_profile_buffer: bool;
-  is_fusion_output: bool;
+  tv : long = -1;
+  sizes : [long];
+  strides : [long];
+  dtype : long;
+  zero_init : bool;
+  is_profile_buffer : bool;
+  is_fusion_output : bool;
 }
 
 // This table describes the cached ExecutorEntry for a kernel.
@@ -430,7 +399,7 @@ table BroadcastInDim {
 
 // Data for CastOpRecord, ScalarRecord, and IotaOpRecord
 table Dtype {
-  dtype: DataType;
+  dtype: long;
 }
 
 // Data for TorchGatherOpRecord, TakeAlongAxisOpRecord, and IndexSelectOpRecord
@@ -464,7 +433,7 @@ table Dims {
 table Reduction {
   axes: [int];
   keep_dim: bool;
-  dtype: DataType;
+  dtype: long;
 }
 
 // Data for SizeOpRecord
@@ -490,27 +459,19 @@ table Tensor {
   sizes: [long];
   contiguity: [Contiguity];
   stride_order: [long];
-  dtype: DataType;
+  dtype: long;
   is_cpu: bool;
 }
 
-// Data for FullOpRecord
-// The shape is defined with constant numbers.
-table TensorCreation {
-  shape: [long];
-  dtype: DataType;
-}
-
-// Data for RandomOpRecord
+// Data for RandomDistOpRecord
 // The shape is symbolic.
 table TensorCreationSymbolic {
-  shape: [State];
-  dtype: DataType;
+  dtype: long;
 }
 
 // Data for Vector
 table Vector {
-  dtype: DataType;
+  dtype: long;
 }
 
 // =====================================================================================
@@ -527,7 +488,7 @@ table KernelSummary {
   has_block_welford: bool;
   has_grid_welford: bool;
   has_outer_grouped_grid_welford: bool;
-  largest_smem_data_type: DataType;
+  largest_smem_data_type: long;
   outer_grouped_grid_welford_largest_smem_size: int = 0;
   generator: NaiveValueGenerator;
   global_allocations: [AllocateBuffer];
@@ -555,13 +516,16 @@ table FusionExecutor {
   block_size_high_water_mark: long;
   maxrregcount_high_water_mark: long;
   warp_size: long;
+  heuristic: long;
   fusion_id: long;
-  fusion_id_counter : long;
-  kernel_code : string;
-  executor_entry_lookup_keys : [ulong];
-  executor_entry_lookup_values : [ExecutorEntry];
+  concrete_id: long;
+  runtime_id: long;
+  group_id: long;
+  kernel_code: string;
+  executor_entry_lookup_keys: [ulong];
+  executor_entry_lookup_values: [ExecutorEntry];
   // Is this kernel being compiled with int32 or int64 indexing?
-  index_type : DataType;
+  index_type : long;
   summary: KernelSummary;
   compiled_kernel: CudaKernel;
 }
@@ -571,6 +535,9 @@ table FusionExecutor {
 // Each fusion segment is given a FusionExecutor.
 // The unscheduled fusion is defined by traversing Trie in FusionCache.
 table FusionKernelRuntime {
+  fusion_id: long;
+  concrete_id: long;
+  runtime_id: long;
   args: KernelArgumentHolder;
   executors: [FusionExecutor];
 }
@@ -594,7 +561,8 @@ table InputsIdLookup {
 
 // This table represents a key-value pair in the kernel_runtimes map in FusionExecutorCache.
 table KernelRuntimeState {
-  device_id: ulong;
+  device_id: long;
+  concrete_id: long;
   has_dynamic_transform_info: bool;
   runtimes: [FusionKernelRuntime];
 }
@@ -602,6 +570,7 @@ table KernelRuntimeState {
 // This table describes the FusionExecutorCache.
 // The unscheduled fusion is defined by traversing Trie in FusionCache.
 table FusionExecutorCache {
+  fusion_id: long;
   inputs_cache: InputsIdLookup;
 
   // This field represents a map<<size_t, DynamicTransformConcretizationInfo>, vector<FusionKernelRuntime>>.
@@ -646,6 +615,12 @@ table FusionCache {
   structure: [TrieNode];
   terminal_nodes: [ulong];
   auto_gen_schedules: [FusionExecutorCache];
+  // static fusion executor counter
+  global_fusion_count: long;
+  device_major: long;
+  device_minor: long;
+  cuda_major: long;
+  cuda_minor: long;
 }
 
 root_type FusionCache;
