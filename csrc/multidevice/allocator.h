@@ -15,11 +15,10 @@
 namespace nvfuser {
 
 // Allocate only the necessary tensors in a pipeline, given a device index and
-// concrete inputs. returns a map to associate the allocated buffer with the
-// corresponding symbolic Val. The allocations correspond to either global
-// outputs or intermediate tensors that will be received from an inter-device
-// communicated and will be used as a subsequent stage's input.
-// TODO: remove systematic allocation of global outputs
+// concrete inputs. returns a map associating the allocated buffer with the
+// corresponding symbolic Val. The allocations correspond to intermediate
+// tensors that will be received from an inter-device communication and will be
+// used as a subsequent stage's input.
 std::unordered_map<Val*, c10::IValue> allocatePipelineIntermediateBuffers(
     Pipeline* pipeline,
     DeviceIdxType my_device_index,

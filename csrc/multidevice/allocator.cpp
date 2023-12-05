@@ -17,7 +17,7 @@ namespace nvfuser {
 namespace {
 
 // fully copy a fusion and replace the original outputs by the one specified as
-// arguments returns a tuple composed of a pointer to the copied fusion and a
+// arguments. Returns a tuple composed of a pointer to the copied fusion and a
 // "copy to original" Val map
 std::pair<std::unique_ptr<Fusion>, std::unordered_map<Val*, Val*>>
 copyFusionAndChangeOutputs(Fusion* fusion, std::unordered_set<Val*> outputs) {
