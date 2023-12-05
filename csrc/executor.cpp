@@ -916,15 +916,22 @@ int64_t IndexOfFusionInput(const Val* in, const Fusion* fusion) {
 // Returns the at::Tensor allocated for `out_info`.
 at::Tensor allocateOutput(
     const FusionExecutor::GlobalBufferInfo& out_info,
+    Val* aliased_in,
     const AliasInfo* alias_info,
-    const at::Tensor& aliased_in_tensor,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
   TensorView* out_tv = out_info.tv;
 
   // Note: aliased output is not returned as output. But we still need it
   // for kernel execution, so would need to push them to args
-  if (alias_info != nullptr) {
+  if (aliased_in != nullptr) {
+    const PolymorphicValue& aliased_in_val = ee.evaluate(aliased_in);
+    NVF_ERROR(
+        aliased_in_val.is<at::Tensor>(),
+        "Alias io only supports tensor. Found ",
+        PolymorphicValue_functions::toString(aliased_in_val));
+    auto aliased_in_tensor = aliased_in_val.as<at::Tensor>();
+
     switch (alias_info->type) {
       case AliasType::InplaceUpdate:
         // Unlike for `AliasType::PointerArithmetic`, don't use
@@ -940,7 +947,8 @@ at::Tensor allocateOutput(
             out_tensor.is_alias_of(aliased_in_tensor),
             "ExpressionEvaluator failed to evaluate ",
             out_tv->toString(),
-            " as an alias of `aliased_in_tensor`.")
+            " as an alias of ",
+            aliased_in->toString());
         inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
         return out_tensor;
     }
@@ -985,18 +993,8 @@ std::vector<at::Tensor> allocateOutputs(
     auto iter = outputs_map.find(out);
     if (iter == outputs_map.end()) {
       auto [aliased_in, alias_info] = kernel->getOutputAlias(out);
-      at::Tensor aliased_in_tensor;
-      if (aliased_in != nullptr) {
-        const PolymorphicValue& aliased_in_val =
-            *inputs[IndexOfFusionInput(aliased_in, kernel)];
-        NVF_ERROR(
-            aliased_in_val.is<at::Tensor>(),
-            "Alias io only supports tensor. Found ",
-            PolymorphicValue_functions::toString(aliased_in_val));
-        aliased_in_tensor = aliased_in_val.as<at::Tensor>();
-      }
       auto output = allocateOutput(
-          output_info[output_idx], alias_info, aliased_in_tensor, device, ee);
+          output_info[output_idx], aliased_in, alias_info, device, ee);
       outputs_map[out] = output;
       outputs.push_back(output);
     } else {
