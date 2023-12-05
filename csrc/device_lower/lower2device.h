@@ -73,6 +73,9 @@ class GpuLower : public NonCopyable {
   //! Query if lowering is in progress
   static bool hasCurrent();
 
+  //! Partially lower without executing any passes
+  kir::Kernel* dryRun();
+
   //! Actually run the lowering by executing the passes in the order given by
   //! passes_
   kir::Kernel* run();
