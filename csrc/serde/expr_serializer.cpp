@@ -402,8 +402,8 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
             : -1,
         retrieve(operation_stack_, id->stopOffset()),
         (int64_t)operation_stack_.size(),
-        castEnumToUnderlyingType(id->getParallelType()),
-        castEnumToUnderlyingType(id->getIterType()),
+        nvfuser::toUnderlying(id->getParallelType()),
+        nvfuser::toUnderlying(id->getIterType()),
         id->isRFactorProduct(),
         id->hasPaddingToMultipleOfWarp(),
         id->getMaybeSizeAfterPadding().value_or(0),
@@ -455,8 +455,8 @@ class DerivedExpressionSerializer final : private OptInConstDispatch {
         builder_,
         retrieve(operation_stack_, swizzle->inX()),
         retrieve(operation_stack_, swizzle->inY()),
-        castEnumToUnderlyingType(swizzle->swizzleType()),
-        castEnumToUnderlyingType(swizzle->swizzleMode()),
+        nvfuser::toUnderlying(swizzle->swizzleType()),
+        nvfuser::toUnderlying(swizzle->swizzleMode()),
         (int64_t)operation_stack_.size(),
         (int64_t)operation_stack_.size() + 1);
     return CreateInstruction(
