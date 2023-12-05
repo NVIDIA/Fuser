@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 #include <exceptions.h>
-#include <kernel.h>
 #include <serde/fusion_cache_generated.h>
 #include <type.h>
 

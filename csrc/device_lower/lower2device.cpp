@@ -321,9 +321,9 @@ kir::Kernel* GpuLower::run(bool skip_passes) {
       dumpExprsIfEnabled(exprs_lowered, name);
     }
 
-    // We now have the lowered expressions, finalize the kernel IR. This function
-    // will also copy over some relevant information for code generation from
-    // GpuLower.
+    // We now have the lowered expressions, finalize the kernel IR. This
+    // function will also copy over some relevant information for code
+    // generation from GpuLower.
     kernel_->finalize(exprs_lowered);
   }
 

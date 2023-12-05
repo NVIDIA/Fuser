@@ -73,9 +73,6 @@ class GpuLower : public NonCopyable {
   //! Query if lowering is in progress
   static bool hasCurrent();
 
-  //! Partially lower without executing any passes
-  kir::Kernel* dryRun();
-
   //! Actually run the lowering by executing the passes in the order given by
   //! passes_. The skip_passes options is used during deserialization to
   //! generate RNG seed and offset.
@@ -235,7 +232,6 @@ class GpuLower : public NonCopyable {
   }
 
  private:
-  void fastAlias(Fusion* fusion);
   void analysis(Fusion* fusion);
 
   // Goes through the parallelized iterdomains of the used TVs and find
