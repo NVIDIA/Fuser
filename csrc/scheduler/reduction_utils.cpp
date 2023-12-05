@@ -722,54 +722,9 @@ class PersistentBufferProjector {
 
   const std::vector<TensorView*>& project() {
     if (project_to_inputs_) {
-      // Iterate through projected buffers, tracking which index it corresponds
-      // too since there's a resolution point entry for every buffer.
-      for (auto buffer_i : c10::irange(persistent_buffers.size())) {
-        auto buffer = persistent_buffers[buffer_i];
-        if (std::find(
-                projectable_persistent_buffers.begin(),
-                projectable_persistent_buffers.end(),
-                buffer) == projectable_persistent_buffers.end()) {
-          continue;
-        }
-        projectToInputOrImmediatePersistentProducer(
-            (int)buffer_i, fusion_->inputs());
-      }
+      projectToInputs();
     } else {
-      // visit consumer before producer. e.g.
-      // T1 = f(T0); Tx = add(T1, broadcast(sum(T1)));
-      // T2 = f(T1); Ty = add(T2, broadcast(sum(T2)));
-      // T3 = f(T2); Tz = add(T3, broadcast(sum(T3)));
-      // T1, T2, T3 are persistent buffers.
-      // The visiting order should be [T3, T2, T1].
-      // After project T3 to its producers, we have:
-      // Tz = add(f(T2),broadcast(sum(T3)));
-      // After project T2 to its producers, we have:
-      // Tz = add(f(f(T1)),broadcast(sum(T3)));
-      // Ty = add(f(T1), broadcast(sum(T2)));
-      // At last, the only persistent buffer is T1.
-      // For a solid case, see NVFuserTest.ChainProjectionToPersistentProducer.
-      std::vector<int> visiting_order(persistent_buffers.size());
-      std::iota(visiting_order.begin(), visiting_order.end(), 0);
-      std::sort(
-          visiting_order.begin(), visiting_order.end(), [this](int a, int b) {
-            return !DependencyCheck::isDependencyOf(
-                persistent_buffers[a], persistent_buffers[b]);
-          });
-
-      // try to project buffer to its producers
-      std::unordered_set<TensorView*> persistent_buffer_set(
-          persistent_buffers.begin(), persistent_buffers.end());
-      for (auto buffer_i : visiting_order) {
-        auto buffer = persistent_buffers[buffer_i];
-        const auto& producers = ir_utils::producerTvsOf(buffer);
-        if (scheduler_utils::canProjectToPersistentProducer(
-                buffer, producers, persistent_buffer_set)) {
-          projectToInputOrImmediatePersistentProducer(
-              (int)buffer_i,
-              std::vector<Val*>(producers.begin(), producers.end()));
-        }
-      }
+      projectToProducers();
     }
     return dummy_outputs_;
   }
@@ -783,6 +738,59 @@ class PersistentBufferProjector {
   const std::vector<TensorView*>& projectable_persistent_buffers;
   std::vector<TensorView*> dummy_outputs_;
   const bool project_to_inputs_;
+
+  void projectToInputs() {
+    // Iterate through projected buffers, tracking which index it corresponds
+    // too since there's a resolution point entry for every buffer.
+    for (auto buffer_i : c10::irange(persistent_buffers.size())) {
+      auto buffer = persistent_buffers[buffer_i];
+      if (std::find(
+              projectable_persistent_buffers.begin(),
+              projectable_persistent_buffers.end(),
+              buffer) == projectable_persistent_buffers.end()) {
+        continue;
+      }
+      projectToInputOrImmediatePersistentProducer(
+          (int)buffer_i, fusion_->inputs());
+    }
+  }
+
+  void projectToProducers() {
+    // visit consumer before producer. e.g.
+    // T1 = f(T0); Tx = add(T1, broadcast(sum(T1)));
+    // T2 = f(T1); Ty = add(T2, broadcast(sum(T2)));
+    // T3 = f(T2); Tz = add(T3, broadcast(sum(T3)));
+    // T1, T2, T3 are persistent buffers.
+    // The visiting order should be [T3, T2, T1].
+    // After project T3 to its producers, we have:
+    // Tz = add(f(T2),broadcast(sum(T3)));
+    // After project T2 to its producers, we have:
+    // Tz = add(f(f(T1)),broadcast(sum(T3)));
+    // Ty = add(f(T1), broadcast(sum(T2)));
+    // At last, the only persistent buffer is T1.
+    // For a solid case, see NVFuserTest.ChainProjectionToPersistentProducer.
+    std::vector<int> visiting_order(persistent_buffers.size());
+    std::iota(visiting_order.begin(), visiting_order.end(), 0);
+    std::stable_sort(
+        visiting_order.begin(), visiting_order.end(), [this](int a, int b) {
+          return !DependencyCheck::isDependencyOf(
+              persistent_buffers[a], persistent_buffers[b]);
+        });
+
+    // try to project buffer to its producers
+    std::unordered_set<TensorView*> persistent_buffer_set(
+        persistent_buffers.begin(), persistent_buffers.end());
+    for (auto buffer_i : visiting_order) {
+      auto buffer = persistent_buffers[buffer_i];
+      const auto& producers = ir_utils::producerTvsOf(buffer);
+      if (scheduler_utils::canProjectToPersistentProducer(
+              buffer, producers, persistent_buffer_set)) {
+        projectToInputOrImmediatePersistentProducer(
+            (int)buffer_i,
+            std::vector<Val*>(producers.begin(), producers.end()));
+      }
+    }
+  }
 
   // get all uses of the persistent buffer
   std::vector<Val*> getPersistentUseOfBuffer(int buffer_i) {
