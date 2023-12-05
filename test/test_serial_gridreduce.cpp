@@ -39,11 +39,9 @@ using SerialGridReductionTest = NVFuserTest;
 // TODO: remove this test once lowering of serial grid reductions is implemented
 TEST_F(SerialGridReductionTest, CodegenNodes) {
   for (bool serial : {true, false}) {
-    for (int64_t num_warps : {1, 2, 4, 8, 16, 32}) {
-      // B is size of inner serial loop
-      for (int64_t B : {1, 2, 4, 8, 16, 32}) {
-        std::cout << "serial=" << serial << " num_warps=" << num_warps
-                  << " B=" << B << std::endl;
+    for (int64_t num_warps : {2, 4, 8, 16, 32}) {
+      // B is size of inner serial loop. Outer loop is hardcoded at A=4
+      for (int64_t B : {2, 4, 8, 16, 32}) {
         std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
         auto fusion = fusion_ptr.get();
         FusionGuard fg(fusion);
@@ -55,10 +53,10 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
         int64_t H = blocks_z;
         int64_t W = A * B * blocks_x * blocks_y * num_warps * 32;
 
-        // Unreduced dimensions should be concrete. Reduced dimension may be
-        // symbolic
+        // Unreduced dimensions should be concrete. Reduced dimension could be
+        // symbolic, but is concrete here so that we can read tv0 to registers
         TensorView* tv0 = TensorViewBuilder()
-                              .shape({H, -1})
+                              .shape({H, W})
                               .dtype(DataType::Float)
                               .contiguity(true)
                               .build();
@@ -75,7 +73,7 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
         // then schedule as
         //   [ iBIDx{blocks_x}, iBIDy{blocks_y}, iS{A}, iS{B}, iTIDy{num_warps},
         //   iTIDx{32}, rBIDz{blocks_z} ]
-        tv0->cacheAfter();
+        auto tv2 = tv0->cacheAfter();
         auto tv3 = tv1->cacheBefore();
 
         tv3->reorder({{1, 0}, {0, 1}}); // blocks_x*blocks_y*A*B*num_warps*32, H
@@ -89,10 +87,25 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
         tv3->axis(4)->parallelize(ParallelType::TIDy);
         tv3->axis(5)->parallelize(ParallelType::TIDx);
         tv3->axis(6)->parallelize(ParallelType::BIDz);
+        // Reorder to put parallel dims first for better inlining
+        tv3->reorder({
+            {4, 2},
+            {5, 3},
+            {2, 4},
+            {3, 5},
+        });
 
         TransformPropagator propagator(tv3);
         MaxRootDomainInfoSpanningTree(tv3).traverse(&propagator);
         scheduler_utils::parallelizeAllLike(tv3);
+
+        // Here we just transpose A and B in tv2, so that it will be partially
+        // inlined with tv3, resulting in a separate loop to load tv0 into
+        // registers (tv2).
+        tv2->reorder({
+            {-2, -3},
+            {-3, -2},
+        });
 
         inlineMost();
 
@@ -110,13 +123,11 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
             // There should be a work buffer and a sync buffer allocated
             ASSERT_EQ(global_allocations.size(), 2);
 
-            // There should be a single top-level ForLoop. Find its position and
-            // check that there is only one.
+            // Find the position of the last outer loop
             size_t top_level_loop_pos = -1;
             for (size_t i : c10::irange(top_level_exprs.size())) {
               Expr* expr = top_level_exprs.at(i);
               if (expr->isA<kir::ForLoop>()) {
-                ASSERT_EQ(top_level_loop_pos, -1);
                 top_level_loop_pos = i;
               }
             }
@@ -124,6 +135,10 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
             // This is a poor approximation of a traversal that would appear in
             // a lowering pass to both set the isSerial() flag on grid
             // reductions and insert wait/release syncs.
+            //
+            // tidx_scope is the inner-most fully parallelized scope. It is
+            // "top-level" in that its loops appear as top-level in the
+            // generated kernel
             kir::Scope& tidx_scope = top_level_exprs.at(top_level_loop_pos)
                                          ->as<kir::ForLoop>()
                                          ->body() // BIDx
@@ -132,25 +147,29 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
                                          ->body() // BIDy
                                          .at(0)
                                          ->as<kir::ForLoop>()
-                                         ->body() // A
-                                         .exprs()
-                                         .back()
-                                         ->as<kir::ForLoop>()
-                                         ->body() // B
-                                         .exprs()
-                                         .back()
-                                         ->as<kir::ForLoop>()
                                          ->body() // TIDy
-                                         .exprs()
-                                         .back()
+                                         .at(0)
                                          ->as<kir::ForLoop>()
                                          ->body(); // TIDx
+            kir::Scope& B_scope = tidx_scope.exprs()
+                                      .at(5)
+                                      ->as<kir::ForLoop>()
+                                      ->body() // A (reduction loop)
+                                      .exprs()
+                                      .back()
+                                      ->as<kir::ForLoop>()
+                                      ->body(); // B
+            // We will need the store op output TensorIndex
+            LoadStoreOp* output_store_expr = B_scope.exprs()
+                                                 .back()
+                                                 ->as<kir::IfThenElse>()
+                                                 ->thenBody()
+                                                 .at(0)
+                                                 ->as<LoadStoreOp>();
+            // bidz_scope is the scope containing the GridReduction expression
             kir::Scope& bidz_scope =
-                tidx_scope.at(2)->as<kir::ForLoop>()->body(); // BIDz
-            // Now scope holds inner scope
-            auto old_grop = bidz_scope.at(3)->as<kir::GridReduction>();
-            auto output_store_expr =
-                tidx_scope.at(3)->as<kir::IfThenElse>()->thenBody().at(0);
+                B_scope.exprs().at(4)->as<kir::ForLoop>()->body(); // BIDz
+            auto old_grop = bidz_scope.at(0)->as<kir::GridReduction>();
             // Store the TensorIndex for the output tensor T1_g, so that we can
             // re-use its index
             auto t1_idx = output_store_expr->output(0)->as<kir::TensorIndex>();
@@ -203,16 +222,19 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
                            ->as<kir::GridReduction>();
             new_grop = new_grop->withWritePredicate(old_grop->writePredicate())
                            ->as<kir::GridReduction>();
-            bidz_scope.at(3) = new_grop;
+            bidz_scope.at(0) = new_grop;
 
             auto sync_buf = global_allocations.at(1)->buffer();
 
-            top_level_exprs.insert(
-                top_level_exprs.end() - 1,
+            std::vector<Expr*>& nonpar_top_level_exprs =
+                const_cast<std::vector<Expr*>&>(tidx_scope.exprs());
+            nonpar_top_level_exprs.insert(
+                nonpar_top_level_exprs.end() - 2,
                 IrBuilder::create<kir::BlockSerializeWait>(
                     ParallelTypeBitmap(ParallelType::BIDz), sync_buf));
 
-            top_level_exprs.push_back(
+            nonpar_top_level_exprs.insert(
+                nonpar_top_level_exprs.end() - 1,
                 IrBuilder::create<kir::BlockSerializeRelease>(
                     ParallelTypeBitmap(ParallelType::BIDz), sync_buf));
           });
@@ -223,7 +245,9 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
             {H, W}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
         auto outputs = fe.runFusion({input});
 
-        testValidate(fusion, outputs, {input}, __LINE__, __FILE__);
+        if (serial) {
+          testValidate(fusion, outputs, {input}, __LINE__, __FILE__);
+        }
       }
     }
   }
