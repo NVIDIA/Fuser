@@ -74,7 +74,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeSimple) {
     fusion.addOutput(tv3);
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    at::Tensor input = at::randn({1, 2, 4}, options);
+    at::Tensor input = at::randn({256, 1024, 1024}, options);
 
     auto lparams = scheduleTranspose(&fusion, {input});
 
