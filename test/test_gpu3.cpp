@@ -9549,7 +9549,7 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
     }
     return kinfo;
   };
-  int64_t batch_size = 1024 * 32;
+  int64_t batch_size = 1024 * 2;
   // test(2048, 16 * 1024, 0, 0, false, false);
   // return;
   constexpr int vect_factor = 8;

@@ -207,9 +207,10 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // (2) hint for max persistent size based on experiments.
   const int64_t persistent_experiment_max = (has_rng_ops ? 4l : 5l);
   // when may do multi reductions per block, mrpb.
-  const int64_t mrpb_threshold = has_rng_ops ? 1024l : 3072l;
+  // Ideally, reduction_numel_threshold depends on n_waves_max.
+  const int64_t mrpb_reduction_numel_threshold = has_rng_ops ? 1024l : 2048l;
   const int64_t optimal_mrpb_threads_per_block = 128l;
-
+  const int64_t mrpb_wave_threshold = 4l;
   // (3) hint for register usage based on experiments
   auto getRegisterPerThread = [](int64_t buffer_per_thread) {
     return 24l +
@@ -225,9 +226,37 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
 
   // How the heuristic works?
   // The reduction dim is parallelized by [bdimx], [persistent], and
-  // [vectorization]. The iteration dim is parallelized by [gdimx], (may also
-  // needs [bdimy] and [gdimy]) For reduction dim, set [vectorization] to
-  // largest possible value, then set [persistent] based on the two assumptions,
+  // [vectorization].
+  // The iteration dim is parallelized by [bdimy], [gdimx]
+  // For reduction dim, we need to parallel [reduction_element] using  [bdimx],
+  // [persistent], and [vectorization].
+  // (1) set [vectorization] to largest value, get [after_vect]
+  // (2) set [persistent] using the following step:
+  //     (2.1) set [bdimx_min] and [bdimx_max]
+  //     (2.2) calculate [persistent_min] and [persistent_max] using [bdimx_min]
+  //           and [bdimx_max].
+  //     (2.3) init [persistent] to [persistent_max]
+  //     (2.4) adjust [persistent] to a value divisible by [warps_after_vect].
+  //           if no disible value, use the one generating smallest tailing.
+  //           if has rng op, the adjust is shifting [persistent] by -1, -2,
+  //           -3, 1 to prefer small persistent size. 
+  //           if doesn't have rng op, the adjust is shifting [persistent]
+  //           by 1, 2, 3, -1 to prefer larger persistent size.
+  // (X) if has rng and [persistent_val] is not divisible,
+  //      use [persistent_min] to reduce workload of each thread.
+  // (3) calculate [bdimx] based on [persistent] and [after_vect].
+  // (4) calculate [bdimy] for multi-reducitons per block.
+  // (5) calculate [nvrtc_register_per_thread] to achieve 50% occupancy
+  //     (5.1) estimate register usage by assume 24 registers for overhead.
+  //     (5.2) can reduce register usage by 8 from estimated value.
+  //     (5.3) calculate [occupancy] and [blocks per sm]
+  // (X) if has rng and [persistent_val] is not divisible, and [occupancy]
+  //     is lower than 50%, increase [persistent] for higher occupancy.
+  //     Needs iterate over steps (3) to (5).
+  // (6) if [blocks per sm] == 1, increase [persistent] for higher
+  //      occupancy. Needs iterate over steps (3) to (5).
+  // (7) calculate [gdimx] and [gdimy] based on [bdimy]
+
   // what left is put into [bdimx]. For iteration dim, set [bdimy] based on
   // assumption-1, and [gdimx] and [gdimy] are what left. At last, adjust
   // register usage to achieve 50% occupancy.
@@ -266,7 +295,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // larger than maxThreadsPerBlock.
   int64_t bdimx_min = std::min((int64_t)after_vect, min_threads_per_block);
   int64_t bdimx_max = max_threads_per_block;
-  if (total_reduction_numel <= mrpb_threshold) {
+  if (total_reduction_numel < mrpb_reduction_numel_threshold &&
+      n_waves_max > mrpb_wave_threshold) {
     bdimx_min = std::min(bdimx_min, (int64_t)dev_prop->warpSize);
   }
   int64_t persistent_min = ceilDiv(after_vect, bdimx_max);
@@ -324,7 +354,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
 
     // (4) iteration dim, set [bdimy]
     int64_t bdimy_val = 1l;
-    if (total_reduction_numel < mrpb_threshold) {
+    if (total_reduction_numel < mrpb_reduction_numel_threshold) {
       // Compute maximum number of reductions we could
       // do in the same kernel based on persistent buffer size. Bounded by the
       // wave count for utilization of SMs.
