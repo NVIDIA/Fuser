@@ -1785,6 +1785,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       const int hw_max_warps =
           prop->maxThreadsPerMultiProcessor / prop->warpSize;
       const float occupancy = (float)warps_per_sm / (float)hw_max_warps * 100.f;
+      setKernelOccupancy(occupancy);
       std::ostringstream oss;
       oss << std::fixed << std::setprecision(2) << occupancy << "%";
       debug() << "blocks_per_sm= " << blocks_per_sm
