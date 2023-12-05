@@ -420,9 +420,9 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
 
   // Stores whether the I/O has its first axis parallelized on Didx
   const bool is_input_sharded =
-      input_tv->isSharded() && sender_mesh.vector().size() > 1;
+      isSharded(input_tv) && sender_mesh.vector().size() > 1;
   const bool is_output_sharded =
-      output_tv->isSharded() && receiver_mesh.vector().size() > 1;
+      isSharded(output_tv) && receiver_mesh.vector().size() > 1;
 
   auto original_expr = output_tv->definition();
   NVF_ERROR(isLowerableToCommunication(original_expr), "Lowering expression ",
