@@ -10,6 +10,7 @@
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
+#include <multidevice/lower_communication.h>
 #include <multidevice/pipeline.h>
 #include <multidevice/pipeline_ir.h>
 
