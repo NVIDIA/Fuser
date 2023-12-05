@@ -85,7 +85,7 @@ std::unordered_map<Val*, c10::IValue> allocatePipelineIntermediateBuffers(
   }
 
   // We copy the original fusion and set the outputs to be the tensors to be
-  // allocated This way we can directly use FusionExecutor::allocOutputSpace
+  // allocated. This way we can directly use FusionExecutor::allocOutputSpace
   auto [fusion_copy, copy_to_original_map] =
       copyFusionAndChangeOutputs(pipeline->originalFusion(), vals_to_allocate);
   if (fusion_copy->outputs().empty()) {
