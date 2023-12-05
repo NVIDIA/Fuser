@@ -937,7 +937,6 @@ class TestNvFuserFrontend(TestCase):
         eager_out = torch.relu(inputs[0])
         self.assertEqual(eager_out.numel(), nvf_out[0].numel())
 
-    """
     def test_static_tensor_sizes(self):
         inputs = [
             torch.randn(4, 5, 1, device="cuda"),
@@ -953,7 +952,6 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         eager_out = torch.mul(inputs[0], inputs[1])
         self.assertEqual(eager_out, nvf_out[0])
-    """
 
     def test_normal(self):
         input_size = [64, 128, 1024]
