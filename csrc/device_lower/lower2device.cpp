@@ -298,6 +298,26 @@ struct LowerGuard {
 
 } // namespace
 
+kir::Kernel* GpuLower::dryRun() {
+  FusionGuard fg(fusion_);
+  LowerGuard lower_guard(this);
+  // Reorder expressions for loop-nest generation respecting computeAt
+  // relationships
+  auto exprs_lowered = reorderExprsForComputeAt();
+  dumpExprsIfEnabled(exprs_lowered, "reorderExprsForComputeAt");
+
+  commonScalarMap().initialize(exprs_lowered);
+
+  // For RNG ops whose seed and offset are not yet set, grab the seed and offset
+  // from the host and assign them to the ops.
+  // This must be after expr sort, because we do not want the generated
+  // computation of offset and seed to be considered as part of fusion
+  // definition
+  assignRNGOffset(fusion_);
+
+  return kernel_.get();
+}
+
 kir::Kernel* GpuLower::run() {
   FusionGuard fg(fusion_);
   LowerGuard lower_guard(this);
