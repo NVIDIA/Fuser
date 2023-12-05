@@ -359,6 +359,17 @@ Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
   return {tv->getMaybeAllocationDomain(), tv->getContiguity()};
 }
 
+std::string AliasAnalysisResult::toString(const int indent_size) const {
+  std::stringstream ss;
+  for (const auto& [alias, source_and_layout] : alias_to_source_) {
+    const auto& [source, layout] = source_and_layout;
+    indent(ss, indent_size)
+        << alias->toString() << " is an alias of " << source->toString()
+        << " if its layout is " << layout.toString() << std::endl;
+  }
+  return ss.str();
+}
+
 AliasAnalysisResult findAliases(Fusion* fusion) {
   AliasAnalysisResult analysis;
   AliasFinder finder(analysis);
