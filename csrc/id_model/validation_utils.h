@@ -37,10 +37,11 @@ class IdModelValidator {
   static void checkExactGraphEquivalence(const IdModel& id_model);
 
  private:
-  static void fullyPropagateMappings(Fusion* fusion, ComputeAtMap& ca_map,
-                                     DisjointSets<IterDomain*>& id_sets);
-  static void fullyPropagateMappings2(Fusion* fusion, ComputeAtMap& ca_map,
-                                      DisjointSets<IterDomain*>& id_sets);
+  // Propagate mappings in a ComputeAtMap as is done in IdModel
+  static void fullyPropagateMappings(
+      Fusion* fusion,
+      ComputeAtMap& ca_map,
+      DisjointSets<IterDomain*>& id_sets);
 };
 
 } // namespace nvfuser
