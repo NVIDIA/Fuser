@@ -28,6 +28,8 @@ namespace fs = std::filesystem;
 namespace nvfuser::python_frontend {
 
 namespace {
+using BinaryBuffer = std::vector<uint8_t>;
+
 // Generate temporary file for this FusionCacheBuffer
 std::string getSerdeTmpFile() {
 #ifdef _WIN32
@@ -70,7 +72,6 @@ fs::path getSerdeFilePath(const std::string& file_name) {
   return kernel_db_path / file_name;
 }
 
-using BinaryBuffer = std::vector<uint8_t>;
 BinaryBuffer openFusionCache(std::string filename) {
   FUSER_PERF_SCOPE("Flatbuffers::openFusionCache");
   auto file_handle = std::fopen(filename.c_str(), "rb");
@@ -89,62 +90,51 @@ BinaryBuffer openFusionCache(std::string filename) {
 }
 
 // This check function only throws errors if strict flag is enabled.
-const serde::FusionCache* verifyFusionCache(
-    const BinaryBuffer& buffer,
-    bool strict) {
+const serde::FusionCache* verifyFusionCache(const BinaryBuffer& buffer) {
   FUSER_PERF_SCOPE("Flatbuffers::verifyFusionCache");
   auto fusion_cache_buffer = serde::GetFusionCache(buffer.data());
 
   // Check flatbuffer integrity
   flatbuffers::Verifier v(buffer.data(), buffer.size());
-  if (!fusion_cache_buffer->Verify(v)) {
-    NVF_CHECK(!strict, "Failed to verify the integrity of FusionCache buffer.");
-    return nullptr;
-  }
+  NVF_CHECK(
+      fusion_cache_buffer->Verify(v),
+      "Failed to verify the integrity of FusionCache buffer.");
 
   // Check schema version
-  if (!serde::FusionCacheBufferHasIdentifier(buffer.data())) {
-    NVF_CHECK(
-        !strict,
-        "Failed to verify the schema version of the FusionCache buffer");
-    return nullptr;
-  }
+  NVF_CHECK(
+      serde::FusionCacheBufferHasIdentifier(buffer.data()),
+      "Failed to verify the schema version of the FusionCache buffer");
 
   // Check device major and minor versions
   auto device_prop = at::cuda::getCurrentDeviceProperties();
-  if (device_prop->major != fusion_cache_buffer->device_major() ||
-      device_prop->minor != fusion_cache_buffer->device_minor()) {
-    NVF_CHECK(
-        !strict,
-        "Expected cuda version ",
-        device_prop->major,
-        ".",
-        device_prop->minor,
-        " but flatbuffer has cuda version ",
-        fusion_cache_buffer->device_major(),
-        ".",
-        fusion_cache_buffer->device_minor());
-    return nullptr;
-  }
+  NVF_CHECK(
+      device_prop->major == fusion_cache_buffer->device_major() &&
+          device_prop->minor == fusion_cache_buffer->device_minor(),
+      false,
+      "Expected cuda version ",
+      device_prop->major,
+      ".",
+      device_prop->minor,
+      " but flatbuffer has cuda version ",
+      fusion_cache_buffer->device_major(),
+      ".",
+      fusion_cache_buffer->device_minor());
 
   // Check cuda installation
   int cuda_major = 0;
   int cuda_minor = 0;
   NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&cuda_major, &cuda_minor));
-  if (cuda_major != fusion_cache_buffer->cuda_major() ||
-      cuda_minor != fusion_cache_buffer->cuda_minor()) {
-    NVF_CHECK(
-        !strict,
-        "Expected cuda version ",
-        cuda_major,
-        ".",
-        cuda_minor,
-        " but flatbuffer has cuda version ",
-        fusion_cache_buffer->cuda_major(),
-        ".",
-        fusion_cache_buffer->cuda_minor());
-    return nullptr;
-  }
+  NVF_CHECK(
+      cuda_major == fusion_cache_buffer->cuda_major() &&
+          cuda_minor == fusion_cache_buffer->cuda_minor(),
+      "Expected cuda version ",
+      cuda_major,
+      ".",
+      cuda_minor,
+      " but flatbuffer has cuda version ",
+      fusion_cache_buffer->cuda_major(),
+      ".",
+      fusion_cache_buffer->cuda_minor());
 
   return fusion_cache_buffer;
 }
@@ -244,7 +234,45 @@ FusionCache* FusionCache::get(
   FUSER_PERF_SCOPE("FusionCache::get");
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ == nullptr) {
-    singleton_ = new FusionCache(max_fusions, load_from_default_workspace);
+    singleton_ = new FusionCache(max_fusions);
+
+    // Deserialize cache hierarchy from common workspace automatically
+    auto file_path = getSerdeFilePath(getSerdeFile()).native();
+    if (load_from_default_workspace && fs::exists(file_path)) {
+      try {
+        singleton_->deserialize(file_path);
+      } catch (const std::exception& deserialize_exception) {
+        // The saved workspace can become out-of-date between nvfuser updates.
+        // Send warning and delete the incompatible workspace.
+        // A new workspace will be saved upon program exit.
+        std::cout
+            << "Warning: Failed to deserialize common workspace.\t"
+            << "A new workspace will be saved upon program exit after deleting incompatible workspace."
+            << std::endl;
+
+        // Hide exception message because it should be resolved by saving a new
+        // workspace.
+        if (!isOptionDisabled(DisableOption::ParallelSerde)) {
+          std::cout
+              << "Use NVFUSER_DISABLE=parallel_serde to print exception message."
+              << std::endl;
+        } else {
+          std::cout << deserialize_exception.what() << std::endl;
+        }
+
+        // Delete incompatible workspace
+        std::error_code remove_ec;
+        fs::remove(file_path, remove_ec);
+        if (remove_ec) {
+          std::cout << "Failed to delete common workspace. Exception:\t"
+                    << remove_ec.message() << std::endl;
+        }
+
+        // Reset FusionCache if there is an issue with the current workspace.
+        delete singleton_;
+        singleton_ = new FusionCache(max_fusions);
+      }
+    }
   }
   NVF_CHECK(
       max_fusions >= singleton_->fusions_.size(),
@@ -315,16 +343,16 @@ void FusionCache::stats(std::ostream& os) const {
   }
 }
 
-void FusionCache::reset(bool load_from_default_workspace) {
+void FusionCache::reset() {
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ != nullptr) {
     auto max_fusions = singleton_->max_fusions_;
     delete singleton_;
-    singleton_ = new FusionCache(max_fusions, load_from_default_workspace);
+    singleton_ = new FusionCache(max_fusions);
   }
 }
 
-FusionCache::FusionCache(size_t max_fusions, bool load_from_default_workspace)
+FusionCache::FusionCache(size_t max_fusions)
     : max_fusions_(max_fusions),
       root_(nullptr),
       fusions_(),
@@ -332,27 +360,6 @@ FusionCache::FusionCache(size_t max_fusions, bool load_from_default_workspace)
       user_def_input_encodings_() {
   RecordFunctor* start = new StartRecord();
   root_ = std::make_unique<TrieNode>(start);
-
-  // Deserialize cache hierarchy from common workspace automatically
-  auto file_path = getSerdeFilePath(getSerdeFile()).native();
-  if (load_from_default_workspace && fs::exists(file_path)) {
-    const BinaryBuffer& buffer = openFusionCache(file_path);
-    const serde::FusionCache* fc =
-        verifyFusionCache(buffer, false /* strict */);
-    // The saved workspace can become out-of-date between nvfuser updates.
-    if (fc != nullptr) {
-      // Only deserialize if the current binary is valid.
-      deserialize(buffer, fc);
-    } else {
-      try {
-        fs::remove(file_path);
-        std::cout << "Delete incompatible workspace." << std::endl;
-      } catch (const std::exception& e) {
-        std::cout << "Failed to delete workspace. Exception:\t" << e.what()
-                  << std::endl;
-      }
-    }
-  }
 }
 
 // In order to keep queries fast, this method does not lock.
@@ -591,14 +598,8 @@ void FusionCache::deserialize(std::string filename) {
       fusions_.empty(),
       "Deserialization is prohibited if FusionCache is already populated.");
   const BinaryBuffer& buffer = openFusionCache(filename);
-  const serde::FusionCache* fusion_cache_buffer =
-      verifyFusionCache(buffer, true /* strict */);
-  deserialize(buffer, fusion_cache_buffer);
-}
+  const serde::FusionCache* fusion_cache_buffer = verifyFusionCache(buffer);
 
-void FusionCache::deserialize(
-    const BinaryBuffer& buffer,
-    const serde::FusionCache* fusion_cache_buffer) {
   // See table definition for FusionCache in serde/fusion_cache.fbs
   FUSER_PERF_SCOPE("FusionCache::deserialize");
   NVF_CHECK(fusion_cache_buffer != nullptr, "Fusion Cache buffer is invalid.");
@@ -699,6 +700,7 @@ void FusionCache::deserialize(
     state_queue.pop_front();
   }
 
+  std::atomic<bool> detect_exception_in_thread_pool{false};
   // Deserialize terminal_nodes field in the FusionCache table
   for (auto idx : c10::irange(fusions_.size())) {
     auto node_idx = fusion_cache_buffer->terminal_nodes()->Get(idx);
@@ -710,10 +712,16 @@ void FusionCache::deserialize(
 
     if (!isOptionDisabled(DisableOption::ParallelSerde)) {
       // Parallelize the deserialization of each FusionExecutorCache.
-      getThreadPool()->run([=]() {
+      getThreadPool()->run([=, &detect_exception_in_thread_pool]() {
         FUSER_PERF_SCOPE("FusionCache::deserializeFusionParallel");
-        fusion_schedule->auto_gen_schedules->deserialize(
-            fb_fec_node, (int64_t)trie_node->fusion_id);
+        try {
+          fusion_schedule->auto_gen_schedules->deserialize(
+              fb_fec_node, (int64_t)trie_node->fusion_id);
+        } catch (const std::exception& e) {
+          // Set flag inside lambda so we can throw an exception after thread
+          // pool completes its work.
+          detect_exception_in_thread_pool.store(true);
+        }
       });
     } else {
       FUSER_PERF_SCOPE("FusionCache::deserializeFusionSerial");
@@ -725,6 +733,10 @@ void FusionCache::deserialize(
   if (!isOptionDisabled(DisableOption::ParallelSerde)) {
     // Wait until all fusion executor caches are deserialized
     getThreadPool()->waitWorkComplete();
+    NVF_ERROR(
+        !detect_exception_in_thread_pool.load(),
+        "Detected exception while deserializing fusions in parallel.\n",
+        "Use NVFUSER_DISABLE=parallel_serde to print exception message.");
   }
 }
 
