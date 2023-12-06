@@ -499,14 +499,14 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
   const std::deque<Val*>& vals = complete_fusion_->deterministic_vals();
   const std::deque<Expr*>& exprs = complete_fusion_->deterministic_exprs();
   NVF_ERROR(
-      complete_fusion_->vals().size() == buffer->num_vals(),
+      complete_fusion_->vals().size() <= buffer->num_vals(),
       "The complete fusion has ",
       vals.size(),
       " values while serialization expected ",
       buffer->num_vals(),
       " values.");
   NVF_ERROR(
-      complete_fusion_->exprs().size() == buffer->num_exprs(),
+      complete_fusion_->exprs().size() <= buffer->num_exprs(),
       "The complete fusion has ",
       exprs.size(),
       " expressions while serialization expected ",
