@@ -432,6 +432,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_iter_visitor.cpp
     ${NVFUSER_ROOT}/test/test_id_model.cpp
     ${NVFUSER_ROOT}/test/test_double_buffering.cpp
+    ${NVFUSER_ROOT}/test/test_segmentation.cpp
   )
 
   # We don't link CUPTI for MSVC
