@@ -683,7 +683,11 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // each pair of device ID and
   auto config = std::make_pair(args.getDeviceIndex(), conc_info);
   auto& kernel_runtimes = kernel_runtimes_.try_emplace(config).first->second;
-  conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
+  auto result =
+      conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
+  if (result.second) {
+    deterministic_conc_info_.emplace_back(config);
+  }
 
   // Check for re-use hit case
   //  a kernel runtime is re-usable if all the compiled
@@ -781,7 +785,8 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
       fb_kernel_runtimes;
   fb_kernel_runtimes.reserve(kernel_runtimes_.size());
 
-  for (auto&& [config, device_runtimes] : kernel_runtimes_) {
+  for (const auto& config : deterministic_conc_info_) {
+    const auto& device_runtimes = kernel_runtimes_.at(config);
     std::vector<flatbuffers::Offset<serde::FusionKernelRuntime>>
         fb_device_runtimes;
     fb_device_runtimes.reserve(device_runtimes.size());
@@ -1011,11 +1016,9 @@ void FusionKernelRuntime::deserialize(
   NVF_ERROR(
       fusion_id_ == buffer->fusion_id(),
       "Expected FusionKernelRuntime fusion_id to match serde fusion_id.");
-  //! TODO Replace unordered_map with deterministic order based on
-  //! conc_info_id_map_
-  // NVF_ERROR(
-  //    concrete_id_ == buffer->concrete_id(),
-  //    "Expected FusionKernelRuntime concrete_id to match serde concrete_id.");
+  NVF_ERROR(
+      concrete_id_ == buffer->concrete_id(),
+      "Expected FusionKernelRuntime concrete_id to match serde concrete_id.");
   NVF_ERROR(
       runtime_id_ == buffer->runtime_id(),
       "Expected FusionKernelRuntime runtime_id to match serde runtime_id.");
