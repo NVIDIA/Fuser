@@ -1436,8 +1436,6 @@ std::string ComputeAtMap::toString() const {
      << idGraphNodesToString(*this, IdMappingMode::PERMISSIVE);
   ss << "Permissive-Resize map:\n"
      << idGraphNodesToString(*this, IdMappingMode::PERMISSIVE_RESIZE);
-  ss << "Innermost map:\n"
-     << idGraphNodesToString(*this, IdMappingMode::INNERMOST);
   ss << "Consumer maps:\n";
   for (auto key : getSortedKeys(id_graph_.consumers(), Statement::lessThan)) {
     auto consumers = id_graph_.consumers().at(key);
