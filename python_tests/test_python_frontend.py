@@ -28,20 +28,11 @@ from nvfuser import (
     version,
     compute_contiguity,
     compute_tensor_descriptor,
-    enable_automatic_serialization,
 )
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
-
-# Turn on default serialization upon program exit
-enable_automatic_serialization()
-
-# Automatically load common workplace
-fc = FusionCache.get()
-# Clear FusionCache because the tests expect a new fusion to be generated.
-FusionCache.reset()
 
 
 def is_pre_volta():
@@ -56,6 +47,17 @@ def is_pre_ampere():
         return False
     prop = torch.cuda.get_device_properties(torch.cuda.current_device())
     return prop.major < 8
+
+
+def setUpModule():
+    from nvfuser import enable_automatic_serialization
+
+    # Turn on default serialization upon program exit
+    enable_automatic_serialization()
+    # Automatically load common workplace
+    fc = FusionCache.get()
+    # Clear FusionCache because the tests expect a new fusion to be generated.
+    FusionCache.reset()
 
 
 def serde_check(test_fn: Callable):
