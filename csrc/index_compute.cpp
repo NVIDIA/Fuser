@@ -2385,9 +2385,10 @@ kir::TensorIndex* Index::getProducerIndex(
       override_index,
       generate_pointer);
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
-  if (ir_utils::isLdMatrixOp(consumer->definition())) {
+  if (ir_utils::isLdMatrixOp(consumer->definition()) &&
+      at::cuda::getCurrentDeviceProperties()->major < 8) {
     auto items_per_thread = std::get<ArrayType>(as_type.type).size;
-    if (at::cuda::getCurrentDeviceProperties()->major < 8) {
+    if (items_per_thread != 4) {
       // For Turing, unused indices for ldmatrix needs to be aligned, although
       // they are not used.
       auto orig_index = index;
@@ -2399,7 +2400,7 @@ kir::TensorIndex* Index::getProducerIndex(
         op = UnaryOpType::AdjustPartialLdMatrixAddrInTuring16;
       } else {
         NVF_ERROR(
-            items_per_thread == 4,
+            false,
             "Unexpected output type for ldmatrix, expect unsigned array of size 1, 2, or 4, get ",
             as_type);
       }
