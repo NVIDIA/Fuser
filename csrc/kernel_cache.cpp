@@ -875,7 +875,11 @@ void FusionExecutorCache::deserialize(
     auto config =
         std::make_pair((int8_t)fb_device_runtimes->device_id(), conc_info);
     auto& device_runtimes = kernel_runtimes_.try_emplace(config).first->second;
-    conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
+    auto result =
+        conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
+    if (result.second) {
+      deterministic_conc_info_.emplace_back(config);
+    }
 
     for (auto runtime : *fb_device_runtimes->runtimes()) {
       auto conc_fusion = std::make_unique<Fusion>(*fusion_);
