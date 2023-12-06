@@ -683,7 +683,11 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // each pair of device ID and
   auto config = std::make_pair(args.getDeviceIndex(), conc_info);
   auto& kernel_runtimes = kernel_runtimes_.try_emplace(config).first->second;
-  conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
+  auto result =
+      conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
+  if (result.second) {
+    deterministic_conc_info_.emplace_back(config);
+  }
 
   // Check for re-use hit case
   //  a kernel runtime is re-usable if all the compiled
@@ -781,7 +785,8 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
       fb_kernel_runtimes;
   fb_kernel_runtimes.reserve(kernel_runtimes_.size());
 
-  for (auto&& [config, device_runtimes] : kernel_runtimes_) {
+  for (const auto& config : deterministic_conc_info_) {
+    const auto& device_runtimes = kernel_runtimes_.at(config);
     std::vector<flatbuffers::Offset<serde::FusionKernelRuntime>>
         fb_device_runtimes;
     fb_device_runtimes.reserve(device_runtimes.size());
@@ -870,7 +875,11 @@ void FusionExecutorCache::deserialize(
     auto config =
         std::make_pair((int8_t)fb_device_runtimes->device_id(), conc_info);
     auto& device_runtimes = kernel_runtimes_.try_emplace(config).first->second;
-    conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
+    auto result =
+        conc_info_id_map_.try_emplace(config, conc_info_id_map_.size() + 1);
+    if (result.second) {
+      deterministic_conc_info_.emplace_back(config);
+    }
 
     for (auto runtime : *fb_device_runtimes->runtimes()) {
       auto conc_fusion = std::make_unique<Fusion>(*fusion_);
@@ -897,7 +906,11 @@ void FusionExecutorCache::deserialize(
 
       NVF_ERROR(
           (int8_t)fb_device_runtimes->device_id() == args.getDeviceIndex(),
-          "Expected serde FusionKernelRuntime device_id to match KernelArgumentHolder metadata device id.");
+          "Expected serde FusionKernelRuntime device_id ",
+          ((int64_t)fb_device_runtimes->device_id()),
+          " to match KernelArgumentHolder metadata device id ",
+          ((int64_t)args.getDeviceIndex()),
+          ".");
 
       // 2. Construct new FusionKernelRuntime
       device_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
@@ -946,6 +959,7 @@ FusionKernelRuntime::FusionKernelRuntime(
       args.cend(),
       args_metadata_.getBackInserter(),
       convertMetadataArg);
+  args_metadata_.setDeviceIndex(args.getDeviceIndex());
 
   optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
       fusion.get());
@@ -1197,6 +1211,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   if (isProfilerEnabled()) {
     FusionProfiler::startCompile();
   }
+
+  std::atomic<bool> detect_exception_in_thread_pool{false};
   for (int64_t group_id = 0; group_id < num_groups; ++group_id) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
 
@@ -1218,11 +1234,21 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       compileKernel(group_runtime_inputs, group_to_run);
     } else {
       // launch compileKernel thread here
-      getThreadPool()->run([this, args, group_runtime_inputs, group_to_run]() {
+      getThreadPool()->run([this,
+                            args,
+                            group_runtime_inputs,
+                            group_to_run,
+                            &detect_exception_in_thread_pool]() {
         FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
-        c10::cuda::CUDAGuard dg(args.getDeviceIndex());
-        c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
-        compileKernel(group_runtime_inputs, group_to_run);
+        try {
+          c10::cuda::CUDAGuard dg(args.getDeviceIndex());
+          c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
+          compileKernel(group_runtime_inputs, group_to_run);
+        } catch (const std::exception& e) {
+          // Set flag inside lambda so we can throw an exception after thread
+          // pool completes its work.
+          detect_exception_in_thread_pool.store(true);
+        }
       });
     }
 
@@ -1238,8 +1264,12 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   }
 
   if (num_groups != 1 && !isOptionDisabled(DisableOption::ParallelCompile)) {
-    // wait until all segments finish compiling
+    // Wait until all segments finish compiling
     getThreadPool()->waitWorkComplete();
+    NVF_ERROR(
+        !detect_exception_in_thread_pool.load(),
+        "Detected exception while compiling fusion segments in parallel.\n",
+        "Use NVFUSER_DISABLE=parallel_compile to print exception message.");
   }
   if (isProfilerEnabled()) {
     FusionProfiler::stopCompile();
