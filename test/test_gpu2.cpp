@@ -9026,7 +9026,6 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation3_CUDA) {
   auto tv13 = add(tv12, tv11);
 
   fusion.addOutput(tv13);
-
   auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
 
   auto isTvWithinVec = [](std::vector<TensorView*>& vec, TensorView* tv) {
