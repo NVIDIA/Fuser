@@ -376,13 +376,6 @@ void validateAlignedVectorizeExtents(
     return;
   }
 
-  NVF_ERROR(
-      !info.contig_alloc_ids.empty(),
-      "No root ID found for vectorization with ",
-      info.consumer_tv->toString(),
-      " and ",
-      info.producer_tv->toString());
-
   // TODO: Rewrite validation of the vectorized dimension
   // int64_t vectorized_merged_domain_extent = 1;
   for (auto id : info.contig_alloc_ids) {
