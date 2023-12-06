@@ -8,14 +8,25 @@
 #include <compute_at_map.h>
 #include <id_model/to_string.h>
 #include <id_model/validation_utils.h>
+#include <ir/utils.h>
+#include <utils.h>
 
 #include <sstream>
 
 namespace nvfuser {
 
+IdModelValidator::IdModelValidator(Fusion* fusion) : ca_map_(fusion) {
+  for (auto tv : ir_utils::allTvs(fusion)) {
+    for (auto id : ir_utils::allIDsOf(tv)) {
+      if (id->definition() && id->definition()->isA<Swizzle2D>()) {
+        has_swizzle_ = true;
+        break;
+      }
+    }
+  }
+}
+
 void IdModelValidator::fullyPropagateMappings(
-    Fusion* fusion,
-    ComputeAtMap& ca_map,
     DisjointSets<IterDomain*>& id_sets) {
   // This algorithm seems terriblly inefficient but shuldn't matter as
   // this is just for transitory validations
@@ -142,31 +153,18 @@ void compareDisjointSets(
 
 } // namespace
 
-void IdModelValidator::checkExactGraphEquivalence(const IdModel& id_model) {
-  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+void IdModelValidator::checkExactGraphEquivalence(const ValGraph& exact_graph) {
+  if (has_swizzle_) {
+    // Ignoring a fusion with swizzle
+    return;
+  }
 
   // Empty graph
   if (exact_graph.disjointValSets().disjointSets().empty()) {
     return;
   }
 
-  auto all_exprs = exact_graph.disjointExprSets().getAllElements();
-  if (std::find_if(all_exprs.begin(), all_exprs.end(), [](Expr* expr) {
-        return expr->isA<Swizzle2D>();
-      }) != all_exprs.end()) {
-    // Ignoring a fusion with swizzle
-    return;
-  }
-
-  Fusion* fusion = exact_graph.disjointValSets()
-                       .disjointSets()
-                       .at(0)
-                       ->vector()
-                       .at(0)
-                       ->fusion();
-  ComputeAtMap ca_map(fusion);
-
-  DisjointSets<IterDomain*>& ca_map_exact_sets = ca_map.id_graph_.exact_nodes_;
+  DisjointSets<IterDomain*> ca_map_sets = ca_map_.id_graph_.exact_nodes_;
 
   // IdModel propagates mappings forward and backward more
   // consistently, which is not the case with ComputeAt. To compare
@@ -174,18 +172,28 @@ void IdModelValidator::checkExactGraphEquivalence(const IdModel& id_model) {
   // propagation. This might potentially hide some subtle differences
   // between the two mappings, but I think this is still a reasonable
   // way to validate IdModel
-  fullyPropagateMappings(fusion, ca_map, ca_map_exact_sets);
+  fullyPropagateMappings(ca_map_sets);
 
-  const DisjointSets<Val*>& id_model_exact_sets = exact_graph.disjointValSets();
+  compareDisjointSets(ca_map_sets, exact_graph.disjointValSets());
+}
 
-  // Similarly, update the almost exact CA map for the comparison
-  compareDisjointSets(ca_map_exact_sets, id_model_exact_sets);
+void IdModelValidator::checkAlmostExactGraphEquivalence(
+    const ValGraph& almost_exact_graph) {
+  if (has_swizzle_) {
+    // Ignoring a fusion with swizzle
+    return;
+  }
 
-  fullyPropagateMappings(fusion, ca_map, ca_map.id_graph_.almost_exact_nodes_);
+  // Empty graph
+  if (almost_exact_graph.disjointValSets().disjointSets().empty()) {
+    return;
+  }
 
-  compareDisjointSets(
-      ca_map.id_graph_.almost_exact_nodes_,
-      id_model.idGraph(IdMappingMode::ALMOSTEXACT).disjointValSets());
+  DisjointSets<IterDomain*> ca_map_sets = ca_map_.id_graph_.almost_exact_nodes_;
+
+  fullyPropagateMappings(ca_map_sets);
+
+  compareDisjointSets(ca_map_sets, almost_exact_graph.disjointValSets());
 }
 
 } // namespace nvfuser

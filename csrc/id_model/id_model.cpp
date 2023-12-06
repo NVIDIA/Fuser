@@ -20,6 +20,7 @@
 #include <root_domain_map.h>
 #include <transform_iter.h>
 
+#include <memory>
 #include <tuple>
 #include <typeinfo>
 #include <utility>
@@ -824,12 +825,6 @@ void IdModel::buildAlmostExactMap() {
     // Map through trivial expressions
     for (auto mapped_id_group : mapped_ids) {
       for (auto id : mapped_id_group) {
-#if 0
-        std::cerr << "IdModel: almost exact map: "
-                  << mapped_id_group.front()->name()
-                  << ", " << id->name()
-                  << std::endl;
-#endif
         almost_exact_graph.mapVals(mapped_id_group.front(), id);
       }
     }
@@ -1051,6 +1046,16 @@ void IdModel::build(
     return;
   }
 
+  std::unique_ptr<IdModelValidator> validator;
+
+  // A ComputeAtMap will be built inside the constructor of
+  // IdModelValidator, which may fail for some fusions that are not
+  // supported currently (but work with IdModel). Make sure the
+  // validator is only created when it is indeed requested
+  if (validate) {
+    validator = std::make_unique<IdModelValidator>(all_tvs.front()->fusion());
+  }
+
   FusionGuard fg(all_tvs.front()->fusion());
   // Add uses and definitions to all iter domains.
   buildIterDomainDefinitionsAndUses(all_tvs.vector());
@@ -1060,10 +1065,14 @@ void IdModel::build(
   idGraph(IdMappingMode::EXACT) = initializeIdGraph();
 
   buildExactGraph(tv_exprs);
-  buildAlmostExactMap();
-
   if (validate) {
-    IdModelValidator::checkExactGraphEquivalence(*this);
+    validator->checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
+  }
+
+  buildAlmostExactMap();
+  if (validate) {
+    validator->checkAlmostExactGraphEquivalence(
+        idGraph(IdMappingMode::ALMOSTEXACT));
   }
 
   buildPermissiveMap(tv_exprs);
