@@ -2387,7 +2387,7 @@ kir::TensorIndex* Index::getProducerIndex(
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
   if (ir_utils::isLdMatrixOp(consumer->definition()) &&
       at::cuda::getCurrentDeviceProperties()->major < 8) {
-    auto items_per_thread = std::get<ArrayType>(as_type.type).size;
+    auto items_per_thread = ir_utils::getVectorizeSize(consumer);
     if (items_per_thread != 4) {
       // For Turing, unused indices for ldmatrix needs to be aligned, although
       // they are not used.
