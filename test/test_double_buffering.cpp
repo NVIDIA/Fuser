@@ -16,7 +16,7 @@ namespace {
 class DoubleBufferingTest : public NVFuserTest {};
 } // anonymous namespace
 
-TEST_F(DoubleBufferingTest, FusionDoubleBuffering1) {
+TEST_F(DoubleBufferingTest, DoubleBuffering1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -55,7 +55,7 @@ TEST_F(DoubleBufferingTest, FusionDoubleBuffering1) {
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(DoubleBufferingTest, FusionDoubleBuffering2) {
+TEST_F(DoubleBufferingTest, DoubleBuffering2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -92,7 +92,7 @@ TEST_F(DoubleBufferingTest, FusionDoubleBuffering2) {
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(DoubleBufferingTest, FusionDoubleBuffering3) {
+TEST_F(DoubleBufferingTest, DoubleBuffering3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -139,7 +139,7 @@ TEST_F(DoubleBufferingTest, FusionDoubleBuffering3) {
 }
 
 // Double buffering smem to local and unswitch
-TEST_F(DoubleBufferingTest, FusionDoubleBuffering4) {
+TEST_F(DoubleBufferingTest, DoubleBuffering4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -181,7 +181,7 @@ TEST_F(DoubleBufferingTest, FusionDoubleBuffering4) {
 }
 
 // Double buffering gmem to shared and unswitch
-TEST_F(DoubleBufferingTest, FusionDoubleBuffering5) {
+TEST_F(DoubleBufferingTest, DoubleBuffering5) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -222,7 +222,7 @@ TEST_F(DoubleBufferingTest, FusionDoubleBuffering5) {
 }
 
 // Double buffering smem to local and unroll
-TEST_F(DoubleBufferingTest, FusionDoubleBuffering6) {
+TEST_F(DoubleBufferingTest, DoubleBuffering6) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -264,7 +264,7 @@ TEST_F(DoubleBufferingTest, FusionDoubleBuffering6) {
 }
 
 // Double buffering and vectorize
-TEST_F(DoubleBufferingTest, FusionDoubleBuffering7) {
+TEST_F(DoubleBufferingTest, DoubleBuffering7) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -301,7 +301,7 @@ TEST_F(DoubleBufferingTest, FusionDoubleBuffering7) {
 }
 
 // Multiple tensors to double-buffer
-TEST_F(DoubleBufferingTest, FusionDoubleBuffering8) {
+TEST_F(DoubleBufferingTest, DoubleBuffering8) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -343,7 +343,7 @@ TEST_F(DoubleBufferingTest, FusionDoubleBuffering8) {
 }
 
 // Nested double buffering from gmem to smem and smem to register
-TEST_F(DoubleBufferingTest, FusionDoubleBuffering9) {
+TEST_F(DoubleBufferingTest, DoubleBuffering9) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -385,7 +385,7 @@ TEST_F(DoubleBufferingTest, FusionDoubleBuffering9) {
 }
 
 // FusionSmemBlockGemmCache + double buffering at both smem and local
-TEST_F(DoubleBufferingTest, FusionSmemBlockGemmCacheDoubleBuffer) {
+TEST_F(DoubleBufferingTest, SmemBlockGemmCacheDoubleBuffer) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -476,7 +476,7 @@ TEST_F(DoubleBufferingTest, FusionSmemBlockGemmCacheDoubleBuffer) {
 }
 
 // Vectorized reset test for double buffered registers
-TEST_F(DoubleBufferingTest, FusionDoubleBufferVector) {
+TEST_F(DoubleBufferingTest, DoubleBufferVector) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -520,7 +520,7 @@ TEST_F(DoubleBufferingTest, FusionDoubleBufferVector) {
 // Simple test of async copy primitive: double buffered
 //   Double buffer case 1, both block sync and async wait
 //  are needed.
-TEST_F(DoubleBufferingTest, FusionDoubleBufferCpAsync1) {
+TEST_F(DoubleBufferingTest, DoubleBufferCpAsync1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -574,7 +574,7 @@ TEST_F(DoubleBufferingTest, FusionDoubleBufferCpAsync1) {
 
 // Simple test of async copy primitive: double buffered
 //   Double buffer case 2, only async wait is needed
-TEST_F(DoubleBufferingTest, FusionDoubleBufferCpAsync2) {
+TEST_F(DoubleBufferingTest, DoubleBufferCpAsync2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -628,7 +628,7 @@ TEST_F(DoubleBufferingTest, FusionDoubleBufferCpAsync2) {
 // Simple test for double buffer in shared mem,
 //  where we should not insert redundant syncs when
 //  they are not needed.
-TEST_F(DoubleBufferingTest, FusionDoubleBufferNoSync) {
+TEST_F(DoubleBufferingTest, DoubleBufferNoSync) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
