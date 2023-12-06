@@ -149,7 +149,7 @@ void AliasFinder::handle(const ViewOp* view) {
   // Replay `Expr`s from `out`'s root to `out`'s rfactor on `out`'s root.
   // Stop when an `Expr` requires a data copy; otherwise generate the allocation
   // order of `out`'s rfactor domain and the corresponding contiguity flags.
-  for (Expr* transform : StmtSort::getExprsBetween(
+  for (Expr* transform : DependencyCheck::getAllExprsBetween(
            {out_root.begin(), out_root.end()},
            {out_rfactor.begin(), out_rfactor.end()})) {
     if (Split* split = dynamic_cast<Split*>(transform)) {
@@ -210,7 +210,7 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
   // For example,
   //
   // in: rfactor=[i0,i1,i2], allocation=[i2,i0,i1]
-  // out = permute(in, {2, 0, 1})
+  // out = permute(in, {1, 0, 2})
   // out: root=[i3,i4,i5], rfactor=[i4,i3,i5]
   //
   // `out`'s preferred allocation domain is [i5,i3,i4]. This allocation domain
@@ -300,7 +300,7 @@ void AliasFinder::handle(const SliceOp* slice) {
     }
 
     // A broadcast dimension can be a slicing product as well.
-    std::vector<Expr*> dependencies = StmtSort::getExprsBetween(
+    std::vector<Expr*> dependencies = DependencyCheck::getAllExprsBetween(
         {out_root.begin(), out_root.end()}, {out_layout.allocation_domain[i]});
     if (std::find_if(
             dependencies.begin(), dependencies.end(), [](const Expr* expr) {
@@ -357,6 +357,17 @@ Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
     return i->second.second;
   }
   return {tv->getMaybeAllocationDomain(), tv->getContiguity()};
+}
+
+std::string AliasAnalysisResult::toString(const int indent_size) const {
+  std::stringstream ss;
+  for (const auto& [alias, source_and_layout] : alias_to_source_) {
+    const auto& [source, layout] = source_and_layout;
+    indent(ss, indent_size)
+        << alias->toString() << " is an alias of " << source->toString()
+        << " if its layout is " << layout.toString() << std::endl;
+  }
+  return ss.str();
 }
 
 AliasAnalysisResult findAliases(Fusion* fusion) {
