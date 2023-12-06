@@ -304,6 +304,63 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     bool smem_b_reuse_guaranteed = false,
     bool ignore_occupancy_drop = false);
 
+struct MulSumAsMmaProps {
+  MulSumAsMmaProps(
+      BinaryOp* m,
+      ReductionOp* r,
+      TensorView* at = nullptr,
+      TensorView* bt = nullptr,
+      TensorView* out_t = nullptr,
+      BroadcastOp* bc_a = nullptr,
+      BroadcastOp* bc_b = nullptr)
+      : mop(m),
+        redop(r),
+        a(at),
+        b(bt),
+        out(out_t),
+        bcast_a(bc_a),
+        bcast_b(bc_b){};
+
+  BinaryOp* mop;
+  ReductionOp* redop;
+  TensorView* a;
+  TensorView* b;
+  TensorView* out;
+  BroadcastOp* bcast_a;
+  BroadcastOp* bcast_b;
+};
+
+//! Go through the fusion IR to find combinations of mul-sum
+//! which can be replaced with a mma op. This class operates
+//! in two phases. It can go through the graph and find the mul-sum
+//! pairs which can be replaced by a mma op. This phase returns a vector
+//! of properties of the mma op (MulSumAsMmaProps) which would replace the
+//! the mul-sum pair. It then exposes a function to replace with mma ops.
+class CombineMulSum : public IterVisitor {
+ public:
+  CombineMulSum(Fusion* fusion) : IterVisitor(), fusion_(fusion){};
+
+  //! Goes through the fusion to find mul-sum pairs.
+  //! If user sets the caching flags and properties have been previously
+  //! computed, then just return cached results.
+  std::vector<MulSumAsMmaProps> generateMulSumCanidates(
+      bool use_cached_results = false);
+
+  //! Replaces the candidate mul-sum pairs with mma ops.
+  //! Please not this will run generateMulSumCandidates again.
+  void replaceWithMmaOp();
+
+ protected:
+  void handle(ReductionOp* stmt) override;
+
+ private:
+  Fusion* fusion_;
+  //! This is the list of mul-sum pairs and the properties
+  //! of the mma op which can replace it. This is only populated
+  //! if the mul-sum pair is a valid replacement candidate.
+  std::vector<MulSumAsMmaProps> mul_sum_props_ = {};
+};
+
 } // namespace mma_utils
 
 } // namespace nvfuser
