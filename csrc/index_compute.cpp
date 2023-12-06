@@ -2386,13 +2386,24 @@ kir::TensorIndex* Index::getProducerIndex(
       generate_pointer);
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
   if (ir_utils::isLdMatrixOp(consumer->definition())) {
+    auto items_per_thread = std::get<ArrayType>(as_type.type).size;
     if (at::cuda::getCurrentDeviceProperties()->major < 8) {
       // For Turing, unused indices for ldmatrix needs to be aligned, although
       // they are not used.
       auto orig_index = index;
       index = IrBuilder::create<Val>(index->dtype());
-      IrBuilder::create<UnaryOp>(
-          UnaryOpType::AdjustPartialLdMatrixAddrInTuring, index, orig_index);
+      UnaryOpType op;
+      if (items_per_thread == 1) {
+        op = UnaryOpType::AdjustPartialLdMatrixAddrInTuring8;
+      } else if (items_per_thread == 2) {
+        op = UnaryOpType::AdjustPartialLdMatrixAddrInTuring16;
+      } else {
+        NVF_ERROR(
+            items_per_thread == 4,
+            "Unexpected output type for ldmatrix, expect unsigned array of size 1, 2, or 4, get ",
+            as_type);
+      }
+      IrBuilder::create<UnaryOp>(op, index, orig_index);
     }
   }
   return IrBuilder::create<kir::TensorIndex>(producer, index, as_type);

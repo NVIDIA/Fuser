@@ -40,20 +40,12 @@ namespace Turing {
 //    hardware.
 //  The alignment requirement is lifted on sm80+,
 //    so this function is a no-op on Ampere or above.
+template<unsigned num_valid_addresses>
 __device__ inline unsigned adjustPartialLdMatrixAddrInTuring(
     unsigned addr_in_byte) {
-  const unsigned thread_id = threadIdx.x;
-  // Upper half warp has 8 bytes offset from aligned in .x2 option
-  //  of ldmatrix. Currently no support for .x1 so assume always
-  //  adjust by half warp.
-  constexpr unsigned half_warp = 16;
-  // Need to adjust to 16 byte alignment, mask out un-aligned component.
-  constexpr unsigned mask_out = 16 - 1;
-  // Adjust only in upper half warp.
-  // use bit math to reduce strength
-  if (thread_id & half_warp) {
-    // mask out the bits where adjust_mask has 1.
-    addr_in_byte &= (~mask_out);
+  const unsigned lane = threadIdx.x % 32;
+  if (lane > num_valid_addresses) {
+    return 0;
   }
   return addr_in_byte;
 }
