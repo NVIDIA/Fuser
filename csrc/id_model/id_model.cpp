@@ -20,6 +20,7 @@
 #include <root_domain_map.h>
 #include <transform_iter.h>
 
+#include <memory>
 #include <tuple>
 #include <typeinfo>
 #include <utility>
@@ -761,10 +762,75 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
   mapThroughLoopSwizzles(idGraph(IdMappingMode::PERMISSIVE));
 }
 
+namespace {
+
+// Checks if the expression is a trivial operation where an input is simply an
+// output of the transformation. Returns the mapped iter domains if found.
+std::vector<std::vector<Val*>> isTrivialExpr(Expr* expr) {
+  std::vector<std::vector<Val*>> mapped_ids;
+  if (auto merge = dynamic_cast<Merge*>(expr)) {
+    if (merge->inner()->extent()->isOneInt()) {
+      mapped_ids.push_back({merge->outer(), merge->out()});
+    }
+    if (merge->outer()->extent()->isOneInt()) {
+      mapped_ids.push_back({merge->inner(), merge->out()});
+    }
+  } else if (auto split = dynamic_cast<Split*>(expr)) {
+    if (split->factor()->isOneInt() && split->startOffset()->isZeroInt() &&
+        split->stopOffset()->isZeroInt()) {
+      if (split->innerSplit()) {
+        mapped_ids.push_back({split->in(), split->outer()});
+      } else {
+        mapped_ids.push_back({split->in(), split->inner()});
+      }
+    }
+  } else if (auto swizzle = dynamic_cast<Swizzle2D*>(expr)) {
+    if (swizzle->swizzleType() == Swizzle2DType::NoSwizzle ||
+        swizzle->swizzleMode() == SwizzleMode::NoSwizzle) {
+      mapped_ids.push_back({swizzle->inX(), swizzle->outX()});
+      mapped_ids.push_back({swizzle->inY(), swizzle->outY()});
+    }
+  }
+  return mapped_ids;
+}
+
+} // namespace
+
 void IdModel::buildAlmostExactMap() {
   // Build almost exact map by forwarding through broadcast axes
   idGraph(IdMappingMode::ALMOSTEXACT) = idGraph(IdMappingMode::EXACT);
-  idGraph(IdMappingMode::ALMOSTEXACT).mapThroughTrivialExprs();
+
+  auto& almost_exact_graph = idGraph(IdMappingMode::ALMOSTEXACT);
+
+  // Maps iter domain pairs returned by calling that return mappings from
+  // isTrivialExpr on every expression in the graph.
+
+  // Don't traverse the graph and at the same time add more mappings
+  // as the traversal would be invalidated
+  std::vector<std::pair<Val*, Val*>> ids_to_map;
+
+  for (const auto& expr_group :
+       almost_exact_graph.disjointExprSets().disjointSets()) {
+    for (auto expr : *expr_group) {
+      // If not trivial continue
+      auto mapped_ids = isTrivialExpr(expr);
+      if (mapped_ids.empty()) {
+        continue;
+      }
+
+      // Map through trivial expressions
+      for (auto mapped_id_group : mapped_ids) {
+        for (auto id : mapped_id_group) {
+          // almost_exact_graph.mapVals(mapped_id_group.front(), id);
+          ids_to_map.emplace_back(mapped_id_group.front(), id);
+        }
+      }
+    }
+  }
+
+  for (const auto& [id1, id2] : ids_to_map) {
+    almost_exact_graph.mapVals(id1, id2);
+  }
 }
 
 // TODO: Reenable after reenabling parallel propagation.
@@ -982,6 +1048,16 @@ void IdModel::build(
     return;
   }
 
+  std::unique_ptr<IdModelValidator> validator;
+
+  // A ComputeAtMap will be built inside the constructor of
+  // IdModelValidator, which may fail for some fusions that are not
+  // supported currently (but work with IdModel). Make sure the
+  // validator is only created when it is indeed requested
+  if (validate) {
+    validator = std::make_unique<IdModelValidator>(all_tvs.front()->fusion());
+  }
+
   FusionGuard fg(all_tvs.front()->fusion());
   // Add uses and definitions to all iter domains.
   buildIterDomainDefinitionsAndUses(all_tvs.vector());
@@ -991,16 +1067,16 @@ void IdModel::build(
   idGraph(IdMappingMode::EXACT) = initializeIdGraph();
 
   buildExactGraph(tv_exprs);
-
   if (validate) {
-    IdModelValidator::checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
-  }
-
-  if (getenv("EXACT_ONLY")) {
-    return;
+    validator->checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
   }
 
   buildAlmostExactMap();
+  if (validate) {
+    validator->checkAlmostExactGraphEquivalence(
+        idGraph(IdMappingMode::ALMOSTEXACT));
+  }
+
   buildPermissiveMap(tv_exprs);
 
   // Permissive graph needs the trivial exprs from the almost exact graph to

@@ -501,34 +501,6 @@ std::string ValGraph::toString() const {
   return ss.str();
 }
 
-std::vector<std::vector<Val*>> ValGraph::isTrivialExpr(Expr* expr) {
-  std::vector<std::vector<Val*>> mapped_ids;
-  if (auto merge = dynamic_cast<Merge*>(expr)) {
-    if (merge->inner()->extent()->isOneInt()) {
-      mapped_ids.push_back({merge->outer(), merge->out()});
-    }
-    if (merge->outer()->extent()->isOneInt()) {
-      mapped_ids.push_back({merge->inner(), merge->out()});
-    }
-  } else if (auto split = dynamic_cast<Split*>(expr)) {
-    if (split->factor()->isOneInt() && split->startOffset()->isZeroInt() &&
-        split->stopOffset()->isZeroInt()) {
-      if (split->innerSplit()) {
-        mapped_ids.push_back({split->in(), split->outer()});
-      } else {
-        mapped_ids.push_back({split->in(), split->inner()});
-      }
-    }
-  } else if (auto swizzle = dynamic_cast<Swizzle2D*>(expr)) {
-    if (swizzle->swizzleType() == Swizzle2DType::NoSwizzle ||
-        swizzle->swizzleMode() == SwizzleMode::NoSwizzle) {
-      mapped_ids.push_back({swizzle->inX(), swizzle->outX()});
-      mapped_ids.push_back({swizzle->inY(), swizzle->outY()});
-    }
-  }
-  return mapped_ids;
-}
-
 bool ValGraph::transformAtributesMatch(Expr* first, Expr* second) {
   if (first == nullptr || second == nullptr) {
     return false;
@@ -867,32 +839,6 @@ bool ValGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
   }
 
   return true;
-}
-
-void ValGraph::mapThroughTrivialExprs() {
-  // Grab all expressions
-  std::vector<Expr*> exprs;
-
-  for (const auto& expr_group : disjointExprSets().disjointSets()) {
-    for (auto expr : *expr_group) {
-      exprs.push_back(expr);
-    }
-  }
-
-  for (auto expr : exprs) {
-    // If not trivial continue
-    auto mapped_ids = ValGraph::isTrivialExpr(expr);
-    if (mapped_ids.empty()) {
-      continue;
-    }
-
-    // Map through trivial expressions
-    for (auto mapped_id_group : mapped_ids) {
-      for (auto id : mapped_id_group) {
-        mapVals(mapped_id_group.front(), id);
-      }
-    }
-  }
 }
 
 void ValGraph::removeTrivialExprs() {
