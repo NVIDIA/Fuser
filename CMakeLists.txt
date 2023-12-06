@@ -382,7 +382,6 @@ if(BUILD_TEST)
     ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_open.cpp
     ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_query.cpp
     ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_write.cpp
-    ${NVFUSER_ROOT}/test/main.cpp
     ${NVFUSER_ROOT}/test/multidevice.cpp
     ${NVFUSER_ROOT}/test/utils.cpp
     ${NVFUSER_ROOT}/test/test_allocation_domain.cpp
