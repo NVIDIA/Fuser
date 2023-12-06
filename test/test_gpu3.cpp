@@ -9315,67 +9315,6 @@ TEST_F(NVFuserTest, LoweringHook) {
   EXPECT_TRUE(executed);
 }
 
-TEST_F(NVFuserTest, SoftmaxProjectToInput) {
-  auto test_softmax = [](int batch, int feature, DataType dtype) {
-    Fusion fusion;
-    FusionGuard fg(&fusion);
-
-    const int kReductionAxis = 1;
-    std::vector<int64_t> input_shape{batch, feature};
-    TensorView* input = makeContigTensor(input_shape.size(), dtype);
-    fusion.addInput(input);
-    if (dtype == DataType::Half) {
-      input = castOp(DataType::Float, input);
-    }
-    auto output = softmax(input, kReductionAxis);
-    if (dtype == DataType::Half) {
-      output = castOp(DataType::Half, output);
-    }
-    fusion.addOutput(output);
-
-    // There should be 2 projectable persistent buffers.
-    auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
-    auto& projectable = persistent_buffer_info.projectable_persistent_buffers;
-    NVF_ERROR(projectable.size() == 2);
-
-    auto options = at::TensorOptions()
-                       .dtype(data_type_to_aten(dtype))
-                       .device(at::kCUDA, 0);
-    at::Tensor aten_input = at::randn(input_shape, options);
-    auto aten_output =
-        at::_softmax(aten_input.to(at::kDouble), kReductionAxis, false);
-
-    auto reduction_params = getInnerPersistentHeuristics(&fusion, {aten_input});
-    NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-    bool should_project_to_input = feature * dataTypeSize(DataType::Float) >
-        scheduler_utils::small_buffer_size_threshold;
-    NVF_CHECK(
-        reduction_params->project_persistent_buffers == should_project_to_input,
-        should_project_to_input ? "Should project to inputs!"
-                                : "Shouldn't project to inputs!");
-    scheduleInnerPersistentKernel(&fusion, *reduction_params);
-    auto lparams = reduction_params->lparams;
-    nvfuser::FusionExecutor fe;
-    fe.compileFusion(&fusion, {aten_input}, lparams);
-    auto cg_outputs = fe.runFusion({aten_input}, lparams);
-
-    testValidate(
-        &fusion,
-        cg_outputs,
-        {aten_input},
-        {aten_output},
-        __LINE__,
-        __FILE__,
-        "",
-        lparams);
-  };
-  const int batch = 2048;
-  std::vector<int> features = {4096, 10240};
-  for (auto feature : features) {
-    test_softmax(batch, feature, DataType::Half);
-  }
-}
-
 TEST_F(NVFuserTest, ProjectPersistentBufferMultiScopes) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
@@ -9466,9 +9405,10 @@ TEST_F(NVFuserTest, ChainProjectionToPersistentProducer) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  const int batch_size = 128;
+  const int batch_size = 2048;
   const int hidden_size = 10240;
   DataType input_dtype = DataType::Half;
+  auto tv0 = makeContigTensor(2, input_dtype);
   auto tv1 = makeContigTensor(2, input_dtype);
   auto tv2 = makeContigTensor(2, input_dtype);
   fusion->addInput(tv0);
@@ -9503,6 +9443,7 @@ TEST_F(NVFuserTest, ChainProjectionToPersistentProducer) {
 
   auto options = at::TensorOptions()
                      .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
   auto t0 = at::randn({batch_size, hidden_size}, options);
   auto t1 = at::randn({batch_size, hidden_size}, options);
   auto t2 = at::randn({batch_size, hidden_size}, options);
@@ -9547,6 +9488,67 @@ TEST_F(NVFuserTest, ChainProjectionToPersistentProducer) {
   fe.compileFusion(fusion, inputs);
   auto cg_outputs = fe.runFusion(inputs);
   testValidate(fusion, cg_outputs, inputs, {t5, t8, t11}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, SoftmaxProjectToInput) {
+  auto test_softmax = [](int batch, int feature, DataType dtype) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    const int kReductionAxis = 1;
+    std::vector<int64_t> input_shape{batch, feature};
+    TensorView* input = makeContigTensor(input_shape.size(), dtype);
+    fusion.addInput(input);
+    if (dtype == DataType::Half) {
+      input = castOp(DataType::Float, input);
+    }
+    auto output = softmax(input, kReductionAxis);
+    if (dtype == DataType::Half) {
+      output = castOp(DataType::Half, output);
+    }
+    fusion.addOutput(output);
+
+    // There should be 2 projectable persistent buffers.
+    auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
+    auto& projectable = persistent_buffer_info.projectable_persistent_buffers;
+    NVF_ERROR(projectable.size() == 2);
+
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
+    at::Tensor aten_input = at::randn(input_shape, options);
+    auto aten_output =
+        at::_softmax(aten_input.to(at::kDouble), kReductionAxis, false);
+
+    auto reduction_params = getInnerPersistentHeuristics(&fusion, {aten_input});
+    NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
+    bool should_project_to_input = feature * dataTypeSize(DataType::Float) >
+        scheduler_utils::small_buffer_size_threshold;
+    NVF_CHECK(
+        reduction_params->project_persistent_buffers == should_project_to_input,
+        should_project_to_input ? "Should project to inputs!"
+                                : "Shouldn't project to inputs!");
+    scheduleInnerPersistentKernel(&fusion, *reduction_params);
+    auto lparams = reduction_params->lparams;
+    nvfuser::FusionExecutor fe;
+    fe.compileFusion(&fusion, {aten_input}, lparams);
+    auto cg_outputs = fe.runFusion({aten_input}, lparams);
+
+    testValidate(
+        &fusion,
+        cg_outputs,
+        {aten_input},
+        {aten_output},
+        __LINE__,
+        __FILE__,
+        "",
+        lparams);
+  };
+  const int batch = 2048;
+  std::vector<int> features = {4096, 10240};
+  for (auto feature : features) {
+    test_softmax(batch, feature, DataType::Half);
+  }
 }
 
 TEST_F(NVFuserTest, ProjectPersistentBufferToInputsAndBroadcastTvs) {
