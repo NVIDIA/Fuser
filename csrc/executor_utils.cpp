@@ -369,6 +369,13 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
 void validateAlignedVectorizeExtents(
     const VectorizedSetInfo& info,
     ExpressionEvaluator& expr_eval) {
+  if (info.contig_alloc_ids.empty()) {
+    // This happens when device lowering removes the `Expr` that computes
+    // `info.consumer_tv` because it's merely an alias.
+    // `getTensorIndexFromIdGraph` captures only remaining `Expr`s.
+    return;
+  }
+
   NVF_ERROR(
       !info.contig_alloc_ids.empty(),
       "No root ID found for vectorization with ",
@@ -583,13 +590,6 @@ void validateAlignedVectorizedTensors(
     const std::vector<at::Tensor>& outputs,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval) {
-  auto tensor_vectorization_validation_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::VectorizedTensorValidation>(
-          data_cache, [kernel]() {
-            return executor_utils::getVectorizedTensorValidationInfo(kernel);
-          });
-
   // Verify extents of aligned vectorized tensors
   for (const auto& vec_info : kernel->summary().vectorized_set_info) {
     if (vec_info.vectorized_leaf_id->getParallelType() ==
@@ -600,6 +600,12 @@ void validateAlignedVectorizedTensors(
 
   // Validate input and output tensors with aligend
   // vectorization.
+  auto tensor_vectorization_validation_entry =
+      executor_utils::caching::ExecutorCompileTimeEntry<
+          executor_utils::caching::VectorizedTensorValidation>(
+          data_cache, [kernel]() {
+            return executor_utils::getVectorizedTensorValidationInfo(kernel);
+          });
   for (auto pos : tensor_vectorization_validation_entry.get()
                       .aligned_vectorized_inp_tensor_pos) {
     auto tv = kernel->inputs().at(pos)->as<TensorView>();
