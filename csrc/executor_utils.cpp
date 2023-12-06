@@ -979,9 +979,13 @@ void fillCompileOptions(
   // Meanwhile, for forward compatibility (future device with
   // `unsupported_arch==True`), since SASS are not necessarily compatible,
   // we fallback to PTX instead.
-  const std::string compute = std::string("--gpu-architecture=") +
+  std::string compute = std::string("--gpu-architecture=") +
       (compile_to_sass ? "sm_" : "compute_") + std::to_string(major) +
       std::to_string(minor);
+  if (major == 9) {
+    // Hopper MMAs require 90a instead of 90
+    compute += "a";
+  }
   nvrtc_compile_driver.setOption(compute);
 
   nvrtc_compile_driver.setOption("-default-device");
@@ -1058,7 +1062,7 @@ void fillCompileOptions(
 }
 
 // Dump ptxas output if register spill is detected
-void warnRegisterSpill(const std::string& compile_log) {
+int warnRegisterSpill(const std::string& compile_log) {
   auto getRegisterSpillInfo = [](const std::string& log, const char* subStr) {
     auto it_end =
         std::search(log.begin(), log.end(), subStr, subStr + strlen(subStr)) -
@@ -1093,6 +1097,7 @@ void warnRegisterSpill(const std::string& compile_log) {
       load_count > allowed_spill) {
     debug() << "WARNING: Register spill detected\n" << compile_log << std::endl;
   }
+  return store_count + load_count;
 }
 
 void createNvrtcProgram(
@@ -1266,7 +1271,8 @@ std::unique_ptr<CompiledKernel> getCompiledKernel(
 
   if (isOptionEnabled(EnableOption::WarnRegisterSpill) ||
       compile_params.enable_ptxas_verbose) {
-    warnRegisterSpill(compiled_kernel->compile_log);
+    compiled_kernel->register_spills =
+        warnRegisterSpill(compiled_kernel->compile_log);
   }
 
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(

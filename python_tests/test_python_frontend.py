@@ -2811,6 +2811,49 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(nvf_out[0], t24)
         self.assertEqual(nvf_out[1], t11)
 
+    # This tests squeeze of dynamic input is handled properly
+    def test_issue1273(self):
+        inputs = [
+            torch.randn((4,), dtype=torch.float32, device="cuda:0").as_strided(
+                (2, 2), (2, 1)
+            ),
+            1e-05,
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            S1 = fd.define_scalar(None, dtype=DataType.Double)
+            T7 = fd.ops.reshape(T0, new_shape=[2, 1, 2])
+            T8, T9 = fd.ops.var_mean(T7, axes=[2], correction=0, keepdim=False)
+            T14 = fd.ops.broadcast_in_dim(T8, shape=[2, 1, 1], broadcast_dims=[0, 1])
+            T19 = fd.ops.broadcast_in_dim(T9, shape=[2, 1, 1], broadcast_dims=[0, 1])
+            T20 = fd.ops.add(T14, S1)
+            T21 = fd.ops.rsqrt(T20)
+            T26 = fd.ops.broadcast_in_dim(
+                T19, shape=[2, 1, 2], broadcast_dims=[0, 1, 2]
+            )
+            T27 = fd.ops.sub(T7, T26)
+            T32 = fd.ops.broadcast_in_dim(
+                T21, shape=[2, 1, 2], broadcast_dims=[0, 1, 2]
+            )
+            T33 = fd.ops.mul(T27, T32)
+            T37 = fd.ops.reshape(T33, new_shape=[2, 2])
+            fd.add_output(T37)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        t7 = inputs[0].reshape((2, 1, 2))
+        t8 = t7.var(dim=2, unbiased=False)
+        t9 = t7.mean(dim=2)
+        t27 = t7 - t9.unsqueeze(-1).expand((2, 1, 2))
+        t32 = torch.rsqrt(inputs[1] + t8.unsqueeze(-1)).expand((2, 1, 2))
+        torch_ref = (t27 * t32).reshape((2, 2))
+        self.assertEqual(nvf_out[0], torch_ref)
+
     # See https://github.com/NVIDIA/Fuser/issues/1246
     def test_issue1246(self):
         inputs = [
@@ -2886,6 +2929,62 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(nvf_out[0], t16)
         self.assertEqual(nvf_out[1], t16)  # T16 == T20
         self.assertEqual(nvf_out[2], t31)
+
+    def test_issue1393(self):
+        inputs = [
+            torch.randn((5,), dtype=torch.float16, device="cuda:0").as_strided(
+                (3, 4, 5), (0, 0, 1)
+            ),
+            torch.randn((3,), dtype=torch.float16, device="cuda:0").as_strided(
+                (3, 4), (1, 0)
+            ),
+            torch.randn((4,), dtype=torch.float16, device="cuda:0").as_strided(
+                (3, 4), (0, 1)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[None, None, True],
+                dtype=DataType.Half,
+                is_cpu=False,
+            )
+            T1 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[True, None],
+                dtype=DataType.Half,
+                is_cpu=False,
+            )
+            T2 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[None, True],
+                dtype=DataType.Half,
+                is_cpu=False,
+            )
+            T3 = fd.ops.cast(T1, dtype=DataType.Float)
+            T4 = fd.ops.cast(T2, dtype=DataType.Float)
+            T5 = fd.ops.mul(T3, T4)
+            T6 = fd.ops.cast(T5, dtype=DataType.Half)
+            S7 = fd.define_scalar(3, dtype=DataType.Int)
+            S8 = fd.define_scalar(4, dtype=DataType.Int)
+            S9 = fd.define_scalar(1, dtype=DataType.Int)
+            V10 = fd.define_vector([S7, S8, S9], dtype=DataType.Int)
+            T11 = fd.ops.reshape(T6, new_shape=V10)
+            S12 = fd.define_scalar(3, dtype=DataType.Int)
+            S13 = fd.define_scalar(4, dtype=DataType.Int)
+            S14 = fd.define_scalar(5, dtype=DataType.Int)
+            V15 = fd.define_vector([S12, S13, S14], dtype=DataType.Int)
+            T16 = fd.ops.broadcast_in_dim(T11, shape=V15, broadcast_dims=[0, 1, 2])
+            T17 = fd.ops.cast(T16, dtype=DataType.Float)
+            T18 = fd.ops.cast(T0, dtype=DataType.Float)
+            T19 = fd.ops.mul(T17, T18)
+            T20 = fd.ops.cast(T19, dtype=DataType.Half)
+            fd.add_output(T20)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        torch_ref = inputs[0] * (inputs[1] * inputs[2]).unsqueeze(-1)
+        self.assertEqual(nvf_out[0], torch_ref)
 
 
 if __name__ == "__main__":
