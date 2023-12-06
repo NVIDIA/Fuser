@@ -2388,21 +2388,21 @@ kir::TensorIndex* Index::getProducerIndex(
   if (ir_utils::isLdMatrixOp(consumer->definition()) &&
       at::cuda::getCurrentDeviceProperties()->major < 8) {
     auto items_per_thread = ir_utils::getVectorizeSize(consumer);
-    if (items_per_thread != 4) {
+    if (items_per_thread != 8) {
       // For Turing, unused indices for ldmatrix needs to be aligned, although
       // they are not used.
       auto orig_index = index;
       index = IrBuilder::create<Val>(index->dtype());
       UnaryOpType op = UnaryOpType::Print;
-      if (items_per_thread == 1) {
+      if (items_per_thread == 2) {
         op = UnaryOpType::AdjustPartialLdMatrixAddrInTuring8;
-      } else if (items_per_thread == 2) {
+      } else if (items_per_thread == 4) {
         op = UnaryOpType::AdjustPartialLdMatrixAddrInTuring16;
       } else {
         NVF_ERROR(
             false,
-            "Unexpected output type for ldmatrix, expect unsigned array of size 1, 2, or 4, get ",
-            as_type);
+            "Unexpected output vectorizaiton for ldmatrix, expect 2, 4, or 8, get ",
+            items_per_thread);
       }
       IrBuilder::create<UnaryOp>(op, index, orig_index);
     }
