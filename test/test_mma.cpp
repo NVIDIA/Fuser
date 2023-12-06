@@ -117,13 +117,7 @@ TEST_P(MmaTest, SingleTile) {
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-  testValidate(
-      &fusion,
-      cg_outputs,
-      {inputs.first, inputs.second},
-      {tref},
-      __LINE__,
-      __FILE__);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
 auto all_mma_layouts =
@@ -430,13 +424,7 @@ TEST_P(Hopper, SS) {
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-  testValidate(
-      &fusion,
-      cg_outputs,
-      {inputs.first, inputs.second},
-      {tref},
-      __LINE__,
-      __FILE__);
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
 auto all_smem_swizzle_modes = testing::Values(
