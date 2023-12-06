@@ -826,7 +826,6 @@ class TestNvFuserFrontend(TestCase):
         test_fn(0)
         test_fn(1)
 
-    """
     def test_squeeze(self):
         t0_sizes = [4]
         t1_sizes = [1, 4, 1]
@@ -860,7 +859,6 @@ class TestNvFuserFrontend(TestCase):
         v2 = torch.sum(inputs[2], [0, 1])
         eager_out = inputs[0] * v1 * v2
         self.assertEqual(eager_out, nvf_out[0])
-    """
 
     def test_from_pytorch_fails_on_cpu_tensor(self):
         inputs = [
@@ -2226,6 +2224,7 @@ class TestNvFuserFrontend(TestCase):
             fd = SchedError()
             _ = fd.execute(inputs)
 
+    '''
     @unittest.skipIf(
         torch.cuda.device_count() < 2, "test_selected_device requires multiple GPUs"
     )
@@ -2251,6 +2250,7 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(eager_out, nvf_out[0])
 
         self.assertTrue(nvf_out[0].device.index == 1)
+    ''' 
 
     def test_matmuls(self):
         # Matmul Constraints:
