@@ -44,7 +44,7 @@ template <unsigned num_valid_addresses>
 __device__ inline unsigned adjustPartialLdMatrixAddrInTuring(
     unsigned addr_in_byte) {
   const unsigned lane = threadIdx.x % 32;
-  if (lane > num_valid_addresses) {
+  if (lane >= num_valid_addresses) {
     return 0;
   }
   return addr_in_byte;
