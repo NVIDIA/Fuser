@@ -805,29 +805,31 @@ void IdModel::buildAlmostExactMap() {
   // Maps iter domain pairs returned by calling that return mappings from
   // isTrivialExpr on every expression in the graph.
 
-  // Grab all expressions
-  std::vector<Expr*> exprs;
+  // Don't traverse the graph and at the same time add more mappings
+  // as the traversal would be invalidated
+  std::vector<std::pair<Val*, Val*>> ids_to_map;
 
   for (const auto& expr_group :
        almost_exact_graph.disjointExprSets().disjointSets()) {
     for (auto expr : *expr_group) {
-      exprs.push_back(expr);
+      // If not trivial continue
+      auto mapped_ids = isTrivialExpr(expr);
+      if (mapped_ids.empty()) {
+        continue;
+      }
+
+      // Map through trivial expressions
+      for (auto mapped_id_group : mapped_ids) {
+        for (auto id : mapped_id_group) {
+          // almost_exact_graph.mapVals(mapped_id_group.front(), id);
+          ids_to_map.emplace_back(mapped_id_group.front(), id);
+        }
+      }
     }
   }
 
-  for (auto expr : exprs) {
-    // If not trivial continue
-    auto mapped_ids = isTrivialExpr(expr);
-    if (mapped_ids.empty()) {
-      continue;
-    }
-
-    // Map through trivial expressions
-    for (auto mapped_id_group : mapped_ids) {
-      for (auto id : mapped_id_group) {
-        almost_exact_graph.mapVals(mapped_id_group.front(), id);
-      }
-    }
+  for (const auto& [id1, id2] : ids_to_map) {
+    almost_exact_graph.mapVals(id1, id2);
   }
 }
 
