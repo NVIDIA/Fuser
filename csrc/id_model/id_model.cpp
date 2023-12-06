@@ -824,6 +824,12 @@ void IdModel::buildAlmostExactMap() {
     // Map through trivial expressions
     for (auto mapped_id_group : mapped_ids) {
       for (auto id : mapped_id_group) {
+#if 0
+        std::cerr << "IdModel: almost exact map: "
+                  << mapped_id_group.front()->name()
+                  << ", " << id->name()
+                  << std::endl;
+#endif
         almost_exact_graph.mapVals(mapped_id_group.front(), id);
       }
     }
@@ -1054,16 +1060,12 @@ void IdModel::build(
   idGraph(IdMappingMode::EXACT) = initializeIdGraph();
 
   buildExactGraph(tv_exprs);
+  buildAlmostExactMap();
 
   if (validate) {
-    IdModelValidator::checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
+    IdModelValidator::checkExactGraphEquivalence(*this);
   }
 
-  if (getenv("EXACT_ONLY")) {
-    return;
-  }
-
-  buildAlmostExactMap();
   buildPermissiveMap(tv_exprs);
 
   // Permissive graph needs the trivial exprs from the almost exact graph to

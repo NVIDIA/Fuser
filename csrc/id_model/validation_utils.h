@@ -34,7 +34,13 @@ class IdModelValidator {
   // swizzle is used we give up validating the exact graph. The second
   // difference is whether mappings are propagated, which can be
   // accounted for by updating the ComputeAtMap as is done in IdModel.
-  static void checkExactGraphEquivalence(const ValGraph& exact_graph);
+  static void checkExactGraphEquivalence(const IdModel& id_model);
+
+ private:
+  static void fullyPropagateMappings(Fusion* fusion, ComputeAtMap& ca_map,
+                                     DisjointSets<IterDomain*>& id_sets);
+  static void fullyPropagateMappings2(Fusion* fusion, ComputeAtMap& ca_map,
+                                      DisjointSets<IterDomain*>& id_sets);
 };
 
 } // namespace nvfuser
