@@ -210,7 +210,7 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
   // For example,
   //
   // in: rfactor=[i0,i1,i2], allocation=[i2,i0,i1]
-  // out = permute(in, {2, 0, 1})
+  // out = permute(in, {1, 0, 2})
   // out: root=[i3,i4,i5], rfactor=[i4,i3,i5]
   //
   // `out`'s preferred allocation domain is [i5,i3,i4]. This allocation domain
@@ -357,6 +357,17 @@ Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
     return i->second.second;
   }
   return {tv->getMaybeAllocationDomain(), tv->getContiguity()};
+}
+
+std::string AliasAnalysisResult::toString(const int indent_size) const {
+  std::stringstream ss;
+  for (const auto& [alias, source_and_layout] : alias_to_source_) {
+    const auto& [source, layout] = source_and_layout;
+    indent(ss, indent_size)
+        << alias->toString() << " is an alias of " << source->toString()
+        << " if its layout is " << layout.toString() << std::endl;
+  }
+  return ss.str();
 }
 
 AliasAnalysisResult findAliases(Fusion* fusion) {
