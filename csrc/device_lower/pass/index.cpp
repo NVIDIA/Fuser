@@ -611,6 +611,128 @@ void IndexLowering::handleBlockReduction(
   GpuLower::current()->propagateExprInfo(rop, back());
 }
 
+bool IndexLowering::handleSerialGridReduction(
+    const ReductionOp* rop,
+    Val* out,
+    Val* in) {
+  // We inspect the loop nest up to the point after which all outer loops are
+  // parallelized. This corresponds to the outer-most loop in the generated
+  // kernel code.
+  //
+  // Conditions for using serial grid reduction:
+  //  - All reduction dimensions are either unparallelized or parallelized as
+  //    BID, not TID or serial. Block and warp reductions could be allowed in
+  //    the future, but the current focus is on cases where all threads are
+  //    doing separate reductions simultaneously.
+  //  - rop is not an allreduce. Note that we could implement serial allreduce
+  //    but it would require inserting a separate grid sync after this outer
+  //    loop.
+  //  - There are no global loads (i.e. producer TVs in global memory) anywhere
+  //    in the loop nest. The reason for this restriction is that loads
+  //    introduce data dependencies which wind up serializing sequences of
+  //    loads/stores that can be disadvantageous. Consider that a non-serial
+  //    (default) gridReduce that is inlined with some producer global read
+  //    will enable all blocks to participate in the read in parallel, since
+  //    only the last block of the reduction segment is serialized, and only
+  //    for the reduction itself. In a serial reduction the entire loop is
+  //    serialized, meaning we will not allow all blocks to perform those reads
+  //    in parallel, which can be inefficient.
+  //    Global stores, on the other hand, are fine as they do not cause this
+  //    excessive serialization.
+  //    Note that in addition to global loads, we should also avoid inlining
+  //    expensive computation into these blocks, since as stated above the
+  //    whole block will be serialized. That should be left to the automatic
+  //    schedulers in cases where serial reductions will be used.
+  //  - There are no other reductions in this loop nest that are TID or BID
+  //    parallelized, unless they also satisfy the conditions above and their
+  //    reduction pattern matches this one. Otherwise our syncs will be
+  //    mismatched, and there is no good way to handle that yet.
+  // TODO: implement the conditions above
+  bool is_serial_reduce_candidate = std::none_of(
+      out_domain->leaf().begin(), out_domain->leaf().end(), [](IterDomain* id) {
+        return id->isReduction() &&
+            (id->isThreadDim() || !id->isParallelized());
+      });
+  if (is_serial_reduce_candidate) {
+    std::cout << "WARNING: Found serial grid reduce candidate: "
+              << rop->toString();
+  }
+  return false;
+
+  // If we do a grid reduction we can't have a reduction axis that is not bound
+  // to a grid or block dim.
+  NVF_ERROR(
+      std::none_of(
+          out_domain->leaf().begin(),
+          out_domain->leaf().end(),
+          [](IterDomain* id) {
+            return !id->isThread() && id->isReduction() &&
+                !id->extent()->isOneInt();
+          }),
+      "Found a reduction stage that has both a non-parallelized ",
+      "reduction and a grid reduction. This is not supported, ",
+      "please use rfactor to do the serialized reduction first, ",
+      "then the grid reduction. ",
+      rop->toString());
+
+  const bool is_persistent = rop->isAllreduce();
+  if (is_persistent) {
+    // TODO: enable persistent serial grid reduce yet
+    return false;
+  }
+
+  // TODO: allocate global work buffer TensorIndex
+  // The output index should look just like the reduction output, and be
+  // scheduled the same, except it should have no reduction axes.
+  // TODO: it might be simpler to just include reduction axes instead of
+  // stripping them here.
+
+  // auto work_buffer_index = IrBuilder::create<TensorIndex>(
+  //   work_buffer,
+  //   lowerSrcIndex(out, work_buffer));
+
+  auto sync_buffer_size =
+      getGridSyncBufferSize(out_domain, for_loops_, is_persistent);
+  auto sync_buffer = allocateUniqueBuffer(
+      sync_buffer_size, DataType::Int, true, out_tv, sync_buffer_map_);
+
+  // The thread predicate for GridReduction needs to be set
+  // separately from the main predicate. Do not combine them like
+  // other expressions.
+  const auto& thread_pred =
+      GpuLower::current()->threadPredMap().getPredicatedParallelTypes(out_tv);
+
+  auto serial_grid_reduction = IrBuilder::create<kir::GridReduction>(
+      rop->getReductionOpType(),
+      rop->init(),
+      out,
+      in,
+      work_buffer,
+      sync_buffer,
+      entrance_ind,
+      n_entrances,
+      is_persistent);
+
+  serial_grid_reduction =
+      serial_grid_reduction->withThreadPredicate(thread_pred);
+
+  if (rop->predicate()) {
+    serial_grid_reduction =
+        serial_grid_reduction->withPredicate(rop->predicate())
+            ->as<kir::GridReduction>();
+  }
+  if (rop->writePredicate()) {
+    serial_grid_reduction =
+        serial_grid_reduction->withWritePredicate(rop->writePredicate())
+            ->as<kir::GridReduction>();
+  }
+
+  pushBack(serial_grid_reduction);
+  GpuLower::current()->propagateExprInfo(rop, back());
+
+  // TODO: insert syncs here? or need to do in a separate pass afterward?
+}
+
 void IndexLowering::handleGridReduction(
     const ReductionOp* rop,
     Val* out,
@@ -619,6 +741,10 @@ void IndexLowering::handleGridReduction(
   const auto out_domain = out_tv->domain();
 
   NVF_ERROR(out_domain->hasGridReduction());
+
+  if (handleSerialGridReduction(rop, out, in)) {
+    return;
+  }
 
   // If we do a grid reduction we can't have a reduction axis that is not bound
   // to a grid or block dim.
