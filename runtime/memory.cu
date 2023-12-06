@@ -40,7 +40,7 @@ namespace Turing {
 //    hardware.
 //  The alignment requirement is lifted on sm80+,
 //    so this function is a no-op on Ampere or above.
-template<unsigned num_valid_addresses>
+template <unsigned num_valid_addresses>
 __device__ inline unsigned adjustPartialLdMatrixAddrInTuring(
     unsigned addr_in_byte) {
   const unsigned lane = threadIdx.x % 32;
