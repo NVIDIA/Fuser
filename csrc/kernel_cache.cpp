@@ -942,6 +942,7 @@ FusionKernelRuntime::FusionKernelRuntime(
       args.cend(),
       args_metadata_.getBackInserter(),
       convertMetadataArg);
+  args_metadata_.setDeviceIndex(args.getDeviceIndex());
 
   optimization::OptimizationPass<optimization::PreSegmenter>::runPass(
       fusion.get());
@@ -1010,9 +1011,11 @@ void FusionKernelRuntime::deserialize(
   NVF_ERROR(
       fusion_id_ == buffer->fusion_id(),
       "Expected FusionKernelRuntime fusion_id to match serde fusion_id.");
-  NVF_ERROR(
-      concrete_id_ == buffer->concrete_id(),
-      "Expected FusionKernelRuntime concrete_id to match serde concrete_id.");
+  //! TODO Replace unordered_map with deterministic order based on
+  //! conc_info_id_map_
+  // NVF_ERROR(
+  //    concrete_id_ == buffer->concrete_id(),
+  //    "Expected FusionKernelRuntime concrete_id to match serde concrete_id.");
   NVF_ERROR(
       runtime_id_ == buffer->runtime_id(),
       "Expected FusionKernelRuntime runtime_id to match serde runtime_id.");

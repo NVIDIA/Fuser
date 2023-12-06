@@ -2224,7 +2224,6 @@ class TestNvFuserFrontend(TestCase):
             fd = SchedError()
             _ = fd.execute(inputs)
 
-    '''
     @unittest.skipIf(
         torch.cuda.device_count() < 2, "test_selected_device requires multiple GPUs"
     )
@@ -2250,7 +2249,6 @@ class TestNvFuserFrontend(TestCase):
         self.assertEqual(eager_out, nvf_out[0])
 
         self.assertTrue(nvf_out[0].device.index == 1)
-    ''' 
 
     def test_matmuls(self):
         # Matmul Constraints:

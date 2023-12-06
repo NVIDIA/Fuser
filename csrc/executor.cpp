@@ -2138,9 +2138,11 @@ void FusionExecutor::deserialize(
   NVF_ERROR(
       fusion_id == buffer->fusion_id(),
       "Expected given fusion_id to match serde fusion_id.");
-  NVF_ERROR(
-      concrete_id == buffer->concrete_id(),
-      "Expected given concrete_id to match serde concrete_id.");
+  //! TODO Replace unordered_map with deterministic order based on
+  //! conc_info_id_map_
+  // NVF_ERROR(
+  //    concrete_id == buffer->concrete_id(),
+  //    "Expected given concrete_id to match serde concrete_id.");
   NVF_ERROR(
       runtime_id == buffer->runtime_id(),
       "Expected given runtime_id to match serde runtime_id.");
