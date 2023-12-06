@@ -2393,7 +2393,7 @@ kir::TensorIndex* Index::getProducerIndex(
       // they are not used.
       auto orig_index = index;
       index = IrBuilder::create<Val>(index->dtype());
-      UnaryOpType op;
+      UnaryOpType op == UnaryOpType::Print;
       if (items_per_thread == 1) {
         op = UnaryOpType::AdjustPartialLdMatrixAddrInTuring8;
       } else if (items_per_thread == 2) {
