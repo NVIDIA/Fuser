@@ -561,7 +561,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     // projecatable.
     const auto& dep_vals = DependencyCheck::getAllValsBetween(
         {reduction_tvs.begin(), reduction_tvs.end()}, {persistent_buffer});
-    if (dep_vals.empty() || getBroadcastTvs(dep_vals).size()) {
+    if (dep_vals.empty() || getBroadcastTvs(dep_vals).empty()) {
       persistent_buffer_info.projectable_persistent_buffers.push_back(
           persistent_buffer);
     }
