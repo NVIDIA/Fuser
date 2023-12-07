@@ -8727,8 +8727,10 @@ TEST_F(NVFuserTest, SoftmaxProjectToInput) {
 
     auto reduction_params = getInnerPersistentHeuristics(&fusion, {aten_input});
     NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
-    bool should_project_to_input = feature * dataTypeSize(DataType::Float) >
-        scheduler_utils::small_buffer_size_threshold;
+    // 24576 is the threshold to project to inputs. see deriviation in
+    // projectBufferToInputs()
+    bool should_project_to_input =
+        feature * dataTypeSize(DataType::Float) > 24576l;
     NVF_CHECK(
         reduction_params->project_persistent_buffers == should_project_to_input,
         should_project_to_input ? "Should project to inputs!"
@@ -8750,7 +8752,7 @@ TEST_F(NVFuserTest, SoftmaxProjectToInput) {
         lparams);
   };
   const int batch = 2048;
-  std::vector<int> features = {4096, 10240};
+  std::vector<int> features = {6 * 1024, 10240};
   for (auto feature : features) {
     test_softmax(batch, feature, DataType::Half);
   }

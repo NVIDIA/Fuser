@@ -845,9 +845,27 @@ bool projectBufferToInputs(
     return true;
   }
 
-  // For cases with expensive ops, don't project if buffer size is 'small',
-  if (persistent_buffer_size_info.persistent_buffer_size <=
-      scheduler_utils::small_buffer_size_threshold) {
+  // check if the non-projected persistent buffer is small enough,
+  // i.e., not affecting the occupancy, projecting back to the inputs
+  // isn't buying us anything.
+  // Assumptions:
+  // (1) 50% occupancy, which is 1024 active threads per SM.
+  // (2) 128 threads per block.
+  // (3) 24 registers per thread for overhead.
+  // (4) 8 extra register per thread allowing register spills.
+  // The derived [buffer_per_block] is 48*128*4 = 24KB.
+  constexpr int64_t active_threads_per_sm = 1024l;
+  constexpr int64_t threads_per_block = 128l;
+  constexpr int64_t overhead_register_per_thread = 24l;
+  constexpr int64_t extra_register_allowing_spills = 8l;
+  constexpr int64_t total_register_per_thread =
+      scheduler_utils::register_file_size_full /
+      scheduler_utils::bytes_per_register / active_threads_per_sm;
+  constexpr int64_t buffer_register_per_thread = total_register_per_thread -
+      overhead_register_per_thread + extra_register_allowing_spills;
+  constexpr int64_t buffer_per_block = threads_per_block *
+      buffer_register_per_thread * scheduler_utils::bytes_per_register;
+  if (persistent_buffer_size_info.persistent_buffer_size <= buffer_per_block) {
     return false;
   }
 
