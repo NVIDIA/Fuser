@@ -414,13 +414,6 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_double_buffering.cpp
 )
 
-# We don't link CUPTI for MSVC
-if(NOT MSVC)
-  list(APPEND JIT_TEST_SRCS
-    ${NVFUSER_ROOT}/test/test_fusion_profiler.cpp
-  )
-endif()
-
 if(BUILD_TEST)
   set(RNG_TEST_KERNELS "${NVFUSER_TESTS}_kernels")
   add_library(${RNG_TEST_KERNELS} SHARED ${NVFUSER_ROOT}/test/rng_kernels.cu)
@@ -486,6 +479,11 @@ if(BUILD_TEST)
       ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp
     )
     add_test(test_python_frontend "${PY_FRONTEND_TEST_SRCS}" "")
+  endif()
+
+  # We don't link CUPTI for MSVC
+  if(NOT MSVC)
+    add_test(test_profiler "${NVFUSER_ROOT}/test/test_fusion_profiler.cpp" "")
   endif()
 endif()
 
