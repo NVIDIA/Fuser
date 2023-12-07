@@ -27,19 +27,19 @@ using namespace at::indexing;
 
 TEST_F(NVFuserTest, Pipeline_CUDA) {
   // Fusion definition
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   TensorView* tv0 = makeContigTensor(2);
-  fusion.addInput(tv0);
+  fusion->addInput(tv0);
   TensorView* tv1 = sum(tv0, {0});
 
   TensorView* tv2 = set(tv1);
   TensorView* tv3 = sum(tv2, {0});
-  fusion.addOutput(tv3);
+  fusion->addOutput(tv3);
 
   TensorView* tv4 = makeContigTensor(3);
-  fusion.addInput(tv4);
+  fusion->addInput(tv4);
   TensorView* tv5 = sum(tv4, {0});
 
   TensorView* tv6 = set(tv5);
@@ -52,7 +52,7 @@ TEST_F(NVFuserTest, Pipeline_CUDA) {
 
   TensorView* tv12 = set(tv7);
   TensorView* tv13 = sum(tv12, {0});
-  fusion.addOutput(tv13);
+  fusion->addOutput(tv13);
 
   TensorView* tv14 = set(tv8);
   TensorView* tv15 = set(tv11);
@@ -60,7 +60,7 @@ TEST_F(NVFuserTest, Pipeline_CUDA) {
   TensorView* tv17 = add(tv14, tv15);
   TensorView* tv18 = add(tv17, tv16);
   TensorView* tv19 = sum(tv18, {0});
-  fusion.addOutput(tv19);
+  fusion->addOutput(tv19);
 
   // Pipeline scheduling
   PipelineStageDescriptor stage0, stage1, stage2, stage3, stage4, stage5,
@@ -76,7 +76,7 @@ TEST_F(NVFuserTest, Pipeline_CUDA) {
   PipelineDescriptor descriptor{.stage_descriptors{
       stage0, stage1, stage2, stage3, stage4, stage5, stage6}}; // the order
                                                                 // doesnt matter
-  Pipeline pipeline(&fusion, std::move(descriptor));
+  Pipeline pipeline(std::move(fusion), std::move(descriptor));
 
   // Validation
   std::string obtained_string = pipeline.toString();
@@ -207,8 +207,8 @@ TEST_F(NVFuserTest, Pipeline_CUDA) {
 
 
 TEST_F(NVFuserTest, ReshardingDetection) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   DeviceMesh mesh0,mesh1, mesh2;
   mesh0 = {0,1};
@@ -216,7 +216,7 @@ TEST_F(NVFuserTest, ReshardingDetection) {
   mesh2 = {0,1,2};
 
   TensorView* tv0 = makeContigTensor(3);
-  fusion.addInput(tv0);
+  fusion->addInput(tv0);
   tv0->setDeviceMesh(&mesh0);
 
   TensorView* tv1 = set(tv0);
@@ -310,32 +310,32 @@ TEST_F(NVFuserTest, ReshardingDetection) {
   TensorView* tv26 = add(tv5, tv6); // resharding
   tv26->setDeviceMesh(&mesh2);
 
-  fusion.addOutput(tv1);
-  fusion.addOutput(tv2);
-  fusion.addOutput(tv3);
-  fusion.addOutput(tv4);
-  fusion.addOutput(tv5);
-  fusion.addOutput(tv6);
-  fusion.addOutput(tv7);
-  fusion.addOutput(tv8);
-  fusion.addOutput(tv9);
-  fusion.addOutput(tv10);
-  fusion.addOutput(tv11);
-  fusion.addOutput(tv12);
-  fusion.addOutput(tv13);
-  fusion.addOutput(tv14);
-  fusion.addOutput(tv15);
-  fusion.addOutput(tv16);
-  fusion.addOutput(tv17);
-  fusion.addOutput(tv18);
-  fusion.addOutput(tv19);
-  fusion.addOutput(tv20);
-  fusion.addOutput(tv21);
-  fusion.addOutput(tv22);
-  fusion.addOutput(tv23);
-  fusion.addOutput(tv24);
-  fusion.addOutput(tv25);
-  fusion.addOutput(tv26);
+  fusion->addOutput(tv1);
+  fusion->addOutput(tv2);
+  fusion->addOutput(tv3);
+  fusion->addOutput(tv4);
+  fusion->addOutput(tv5);
+  fusion->addOutput(tv6);
+  fusion->addOutput(tv7);
+  fusion->addOutput(tv8);
+  fusion->addOutput(tv9);
+  fusion->addOutput(tv10);
+  fusion->addOutput(tv11);
+  fusion->addOutput(tv12);
+  fusion->addOutput(tv13);
+  fusion->addOutput(tv14);
+  fusion->addOutput(tv15);
+  fusion->addOutput(tv16);
+  fusion->addOutput(tv17);
+  fusion->addOutput(tv18);
+  fusion->addOutput(tv19);
+  fusion->addOutput(tv20);
+  fusion->addOutput(tv21);
+  fusion->addOutput(tv22);
+  fusion->addOutput(tv23);
+  fusion->addOutput(tv24);
+  fusion->addOutput(tv25);
+  fusion->addOutput(tv26);
 
   GTEST_EXPECT_TRUE(!ir_utils::isResharding(tv1->definition()));
   GTEST_EXPECT_TRUE(ir_utils::isResharding(tv2->definition()));
@@ -411,9 +411,9 @@ protected:
     // checks that the segments are disjoints and that the graph of segment is acyclic
     segmented_fusion->validate();
 
-    auto pipeline_desc = segmentedFusionToPipelineDescriptor(segmented_fusion.get());
-    Pipeline pipeline(segmented_fusion->completeFusion(), pipeline_desc);
-    std::cout << "Pipeline:\n" << pipeline.toString() << std::endl;
+    // auto pipeline_desc = segmentedFusionToPipelineDescriptor(segmented_fusion.get());
+    // Pipeline pipeline(segmented_fusion->completeFusion(), pipeline_desc);
+    // std::cout << "Pipeline:\n" << pipeline.toString() << std::endl;
   }
 
   std::unique_ptr<Fusion> fusion;
@@ -537,9 +537,9 @@ TEST_F(NVFuserTest, pipelineSegmentation) {
                       group->exprs().end(),
                       [](auto expr) { return ir_utils::isResharding(expr);}));
   }
-  auto pipeline_desc = segmentedFusionToPipelineDescriptor(segmented_fusion.get());
-  Pipeline pipeline(segmented_fusion->completeFusion(), pipeline_desc);
-  std::cout << "Pipeline:\n" << pipeline.toString() << std::endl;
+  // auto pipeline_desc = segmentedFusionToPipelineDescriptor(segmented_fusion.get());
+  // Pipeline pipeline(segmented_fusion->completeFusion(), pipeline_desc);
+  // std::cout << "Pipeline:\n" << pipeline.toString() << std::endl;
 }
 
 } // namespace nvfuser

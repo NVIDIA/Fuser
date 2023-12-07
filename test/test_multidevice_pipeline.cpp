@@ -127,7 +127,7 @@ TEST_F(PipelineTest, Pipeline) {
       std::move(stage3),
       std::move(stage4)}}; // the order doesn't matter
 
-  pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
+  pipeline = std::make_unique<Pipeline>(std::move(fusion), std::move(descriptor));
 
   // Create input tensors.
   // Note: each process is binded to a different GPU
@@ -220,7 +220,7 @@ TEST_F(PipelineTest, Pipeline_Reduce) {
   PipelineDescriptor descriptor{
       .stage_descriptors{std::move(stage0), std::move(stage1)}};
 
-  pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
+  pipeline = std::make_unique<Pipeline>(std::move(fusion), std::move(descriptor));
 
   inputs = {at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
 
@@ -252,7 +252,7 @@ TEST_F(PipelineTest, Pipeline_ReduceToExternalRoot) {
   PipelineDescriptor descriptor{
       .stage_descriptors{std::move(stage0), std::move(stage1)}};
 
-  pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
+  pipeline = std::make_unique<Pipeline>(std::move(fusion), std::move(descriptor));
 
   inputs = {at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
 
@@ -283,7 +283,7 @@ TEST_F(PipelineTest, Pipeline_Allreduce) {
   PipelineDescriptor descriptor{
       .stage_descriptors{std::move(stage0), std::move(stage1)}};
 
-  pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
+  pipeline = std::make_unique<Pipeline>(std::move(fusion), std::move(descriptor));
 
   inputs = {at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
 
@@ -317,7 +317,7 @@ TEST_F(PipelineTest, Pipeline_ReduceScatter) {
   PipelineDescriptor descriptor{
       .stage_descriptors{std::move(stage0), std::move(stage1)}};
 
-  pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
+  pipeline = std::make_unique<Pipeline>(std::move(fusion), std::move(descriptor));
 
   inputs = {at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
 
@@ -405,7 +405,7 @@ TEST_F(PipelineTest, Overlap) {
   PipelineDescriptor descriptor {
       .stage_descriptors{std::move(stage0), std::move(stage1)}};
 
-  pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
+  pipeline = std::make_unique<Pipeline>(std::move(fusion), std::move(descriptor));
 
   inputs = {at::ones(input_extents, tensor_options) * (communicator->deviceId() + 1)};
 

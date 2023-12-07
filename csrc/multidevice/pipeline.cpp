@@ -290,7 +290,9 @@ PipelineDescriptor segmentedFusionToPipelineDescriptor(SegmentedFusion* sf) {
   return ret;
 }
 
-Pipeline::Pipeline(std::unique_ptr<Fusion> fusion) {
+Pipeline::Pipeline(std::unique_ptr<Fusion> fusion, PipelineDescriptor descriptor)
+    : descriptor_(std::move(descriptor)) {
+
   SegmentCandidateFinderOptions options {
     .run_translate_welford = false,
     .run_combine_reductions = false,
@@ -300,20 +302,9 @@ Pipeline::Pipeline(std::unique_ptr<Fusion> fusion) {
   };
 
   sf_ = SegmentCandidateFinder::segment(std::move(fusion), options);
-  Pipeline(fusion.get(), segmentedFusionToPipelineDescriptor(sf_.get()));
-}
-
-Pipeline::Pipeline(Fusion* fusion, PipelineDescriptor descriptor)
-    : original_fusion_(fusion), descriptor_(std::move(descriptor)) {
-
-  //to remove later
-  for (auto stage: descriptor_.stage_descriptors) {
-    for (auto val: stage.vals()) {
-      val->as<TensorView>()->setDeviceMesh(&stage.mesh);
-    }
-  }
-
+  original_fusion_ = sf_->completeFusion();
   PipelineBuilder{this};
+
 }
 
 std::unique_ptr<Fusion> Pipeline::stageToFusion(PipelineStage*& stage) const {

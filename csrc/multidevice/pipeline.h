@@ -123,9 +123,9 @@ PipelineCommunications as edges.
 */
 class Pipeline : public Fusion {
  public:
-  Pipeline(Fusion* fusion, PipelineDescriptor descriptor);
+  Pipeline(std::unique_ptr<Fusion> fusion, PipelineDescriptor descriptor);
 
-  Pipeline(std::unique_ptr<Fusion> fusion);
+  // Pipeline(std::unique_ptr<Fusion> fusion);
 
   std::string toString();
 
