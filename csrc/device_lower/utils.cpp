@@ -656,7 +656,7 @@ namespace lower_utils {
 bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
   if (expr->isA<kir::BlockSync>() || expr->isA<kir::GridSync>() ||
       expr->isA<kir::BlockSerializeWait>() ||
-      expr - isA<kir::BlockSerializeRelease>()) {
+      expr->isA<kir::BlockSerializeRelease>()) {
     return true;
   }
 
