@@ -386,7 +386,6 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_gpu3.cpp
   ${NVFUSER_ROOT}/test/test_gpu_compute_with.cpp
   ${NVFUSER_ROOT}/test/test_expr_simplifier.cpp
-  ${NVFUSER_ROOT}/test/test_external_src.cpp
   ${NVFUSER_ROOT}/test/test_swizzle.cpp
   ${NVFUSER_ROOT}/test/test_tensor_factories.cpp
   ${NVFUSER_ROOT}/test/test_gpu_fused_reduction.cpp
@@ -394,14 +393,9 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_loop_rotation.cpp
   ${NVFUSER_ROOT}/test/test_gpu_shift.cpp
   ${NVFUSER_ROOT}/test/test_resize.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
   ${NVFUSER_ROOT}/test/test_polymorphic_value.cpp
-  ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
-  ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
   ${NVFUSER_ROOT}/test/test_mbarrier.cpp
   ${NVFUSER_ROOT}/test/test_memory.cpp
-  ${NVFUSER_ROOT}/test/test_mma.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_view.cpp
   ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
   ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
   ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
@@ -410,7 +404,6 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_optimization_pass.cpp
   ${NVFUSER_ROOT}/test/test_pipeline.cpp
   ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
-  ${NVFUSER_ROOT}/test/test_tutorial.cpp
   ${NVFUSER_ROOT}/test/test_alias.cpp
   ${NVFUSER_ROOT}/test/test_scalar_hoisting.cpp
   ${NVFUSER_ROOT}/test/test_no_op.cpp
@@ -426,13 +419,6 @@ if(NOT MSVC)
   list(APPEND JIT_TEST_SRCS
     ${NVFUSER_ROOT}/test/test_fusion_profiler.cpp
   )
-endif()
-
-if(BUILD_PYTHON)
-  list(APPEND JIT_TEST_SRCS
-    ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_definition.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_cache.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp)
 endif()
 
 if(BUILD_TEST)
@@ -476,6 +462,31 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_multidevice_communications.cpp
   )
   add_test(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
+
+  add_test(test_view "${NVFUSER_ROOT}/test/test_gpu_view.cpp" "")
+
+  set(MATMUL_TEST_SRCS)
+  list(APPEND MATMUL_TEST_SRCS
+    ${NVFUSER_ROOT}/test/test_mma.cpp
+    ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
+    ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
+    ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
+  )
+  add_test(test_matmul "${MATMUL_TEST_SRCS}" "")
+
+  add_test(test_external_src "${NVFUSER_ROOT}/test/test_external_src.cpp" "")
+
+  add_test(tutorial "${NVFUSER_ROOT}/test/test_tutorial.cpp" "")
+
+  if(BUILD_PYTHON)
+    set(PY_FRONTEND_TEST_SRCS)
+    list(APPEND PY_FRONTEND_TEST_SRCS
+      ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_definition.cpp
+      ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_cache.cpp
+      ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp
+    )
+    add_test(test_python_frontend "${PY_FRONTEND_TEST_SRCS}" "")
+  endif()
 endif()
 
 # -- build benchmark
