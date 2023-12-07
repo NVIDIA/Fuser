@@ -577,7 +577,8 @@ enum class UnaryOpType {
 
   // Special unary ops
   ToUnsignedSmemAddr,
-  AdjustPartialLdMatrixAddrInTuring
+  AdjustPartialLdMatrixAddrInTuring8,
+  AdjustPartialLdMatrixAddrInTuring16
 };
 
 // TODO: Order of this list is important as it affects type promotion. it's not
