@@ -191,9 +191,10 @@ class PipelineBuilder final {
         } else if (val->isA<TensorView>()) {
           // if the TensorView is a stage input but not a global input, it must be
           // defined by a "Set" operation
-          NVF_ERROR(isLowerableToCommunication(val->definition()),
-              "A Val that is the input of a stage must be defined by a LoadStoreOp expression of type Set"
-              " or a Reduction but here the definition is " +
+          NVF_ERROR(isLowerableToCommunication(val->definition())
+                    || !ir_utils::isResharding(val->definition()),
+              "A Val that is the input of a stage must be non-resharding or directly lowerable to a communication,"
+              " but here the definition is " +
                   val->definition()->toString());
         }
       }
@@ -235,6 +236,9 @@ class PipelineBuilder final {
         std::vector<Val*> ins, outs;
         auto val = p_val->as<PipelineVal>()->getOriginalVal();
         if (isGlobalInput(val)) {
+          continue;
+        }
+        if (!ir_utils::isResharding(val->definition())) {
           continue;
         }
         outs.push_back(p_val);

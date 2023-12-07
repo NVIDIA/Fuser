@@ -15,6 +15,8 @@
 #include <multidevice/pipeline.h>
 #include <ops/all_ops.h>
 #include <test/utils.h>
+#include <fusion_segmenter.h>
+#include <executor_kernel_arg.h>
 
 #include <algorithm>
 #include <iostream>
@@ -363,6 +365,40 @@ TEST_F(NVFuserTest, ReshardingDetection) {
   GTEST_EXPECT_TRUE(ir_utils::isResharding(tv26->definition()));
 }
 
+PipelineDescriptor segmentedFusionToPipelineDescriptor(SegmentedFusion* sf) {
+  std::set<Val*> vals;
+  for (auto val: ir_utils::filterByType<TensorView>(sf->completeFusion()->vals())) {
+    if (val->isA<TensorView>()){
+      vals.insert(val);
+    }
+  }
+  PipelineDescriptor ret;
+  for (auto group: sf->groups()) {
+    if (group->exprs().empty() || ir_utils::isResharding(group->exprs().at(0))) {
+      continue;
+    }
+    std::vector<Val*> vals_to_add;
+    for (auto expr: group->exprs()) {
+      for (auto io : {expr->inputs(), expr->outputs()}){
+        for (auto val: io){
+          if (vals.find(val) != vals.end()) {
+            vals_to_add.push_back(val);
+            vals.erase(val);
+          }
+        }
+      }
+    }
+    PipelineStageDescriptor stage;
+    stage.addVal(vals_to_add);
+    ret.stage_descriptors.push_back(std::move(stage));
+  }
+  for (auto val: vals) {
+    PipelineStageDescriptor stage;
+    stage.addVal({val});
+    ret.stage_descriptors.push_back(std::move(stage));
+  }
+  return ret;
+}
 
 using automaticSetInsertionTestParams =
     std::tuple<
@@ -385,6 +421,34 @@ protected:
     for (auto expr: fusion->exprs()) {
       GTEST_EXPECT_TRUE(!ir_utils::isResharding(expr) || isLowerableToCommunication(expr)) << "on expr=" << expr;
     }
+
+    SegmentCandidateFinderOptions options {
+      .run_translate_welford = false,
+      .run_combine_reductions = false,
+      .run_herrmann_merge = true,
+      .run_final_merge = true,
+      .only_segment_resharding_exprs = true
+    };
+
+    auto segmented_fusion =
+        SegmentCandidateFinder::segment(std::move(fusion), options);
+    std::cout << toString(segmented_fusion.get()) << std::endl;
+
+    for (auto group: segmented_fusion->groups()) {
+      GTEST_EXPECT_TRUE(
+        std::all_of(group->exprs().begin(),
+                    group->exprs().end(),
+                    [](auto expr) { return ir_utils::isResharding(expr);})
+        || std::none_of(group->exprs().begin(),
+                        group->exprs().end(),
+                        [](auto expr) { return ir_utils::isResharding(expr);}));
+    }
+    // checks that the segments are disjoints and that the graph of segment is acyclic
+    segmented_fusion->validate();
+
+    auto pipeline_desc = segmentedFusionToPipelineDescriptor(segmented_fusion.get());
+    Pipeline pipeline(segmented_fusion->completeFusion(), pipeline_desc);
+    std::cout << "Pipeline:\n" << pipeline.toString() << std::endl;
   }
 
   std::unique_ptr<Fusion> fusion;
@@ -465,6 +529,52 @@ TEST_F(NVFuserTest, 2DMesh) {
   mesh.reshape({2,3});
   tv0->setDeviceMesh(&mesh);
   std::cout << tv0 << std::endl;
+}
+
+TEST_F(NVFuserTest, pipelineSegmentation) {
+  auto fusion = std::make_unique<Fusion>();
+  auto fg = std::make_unique<FusionGuard>(fusion.get());
+
+  auto tv0 = makeContigTensor(3);
+  fusion->addInput(tv0);
+  TensorView* tv1 = sum(tv0, {0});
+  TensorView* tv2 = set(tv1);
+  TensorView* tv3 = sum(tv2, {0});
+  fusion->addOutput(tv3);
+
+  DeviceMesh mesh0({0});
+  DeviceMesh mesh1({0, 1, 2, 3});
+  tv0->setDeviceMesh(&mesh0);
+  tv1->setDeviceMesh(&mesh0);
+  tv2->setDeviceMesh(&mesh1);
+  tv3->setDeviceMesh(&mesh1);
+
+  // KernelArgumentHolder inputs;
+  SegmentCandidateFinderOptions options {
+    .run_translate_welford = false,
+    .run_combine_reductions = false,
+    .run_herrmann_merge = true,
+    .run_final_merge = true,
+    .only_segment_resharding_exprs = true
+  };
+
+  // auto fusion_copy = std::make_unique<Fusion>(*fusion);
+  auto segmented_fusion =
+      SegmentCandidateFinder::segment(std::move(fusion), options);
+  std::cout << toString(segmented_fusion.get()) << std::endl;
+
+  for (auto group: segmented_fusion->groups()) {
+    GTEST_EXPECT_TRUE(
+      std::all_of(group->exprs().begin(),
+                  group->exprs().end(),
+                  [](auto expr) { return ir_utils::isResharding(expr);})
+      || std::none_of(group->exprs().begin(),
+                      group->exprs().end(),
+                      [](auto expr) { return ir_utils::isResharding(expr);}));
+  }
+  auto pipeline_desc = segmentedFusionToPipelineDescriptor(segmented_fusion.get());
+  Pipeline pipeline(segmented_fusion->completeFusion(), pipeline_desc);
+  std::cout << "Pipeline:\n" << pipeline.toString() << std::endl;
 }
 
 } // namespace nvfuser
