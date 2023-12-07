@@ -430,61 +430,6 @@ list(APPEND JIT_TEST_SRCS
 # We don't link CUPTI for MSVC
 if(NOT MSVC)
   list(APPEND JIT_TEST_SRCS
-    ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_open.cpp
-    ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_query.cpp
-    ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_write.cpp
-    ${NVFUSER_ROOT}/test/main.cpp
-    ${NVFUSER_ROOT}/test/multidevice.cpp
-    ${NVFUSER_ROOT}/test/utils.cpp
-    ${NVFUSER_ROOT}/test/test_allocation_domain.cpp
-    ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
-    ${NVFUSER_ROOT}/test/test_evaluator.cpp
-    ${NVFUSER_ROOT}/test/test_exceptions.cpp
-    ${NVFUSER_ROOT}/test/test_expr_sort.cpp
-    ${NVFUSER_ROOT}/test/test_gather.cpp
-    ${NVFUSER_ROOT}/test/test_gpu1.cpp
-    ${NVFUSER_ROOT}/test/test_gpu2.cpp
-    ${NVFUSER_ROOT}/test/test_gpu3.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_compute_with.cpp
-    ${NVFUSER_ROOT}/test/test_expr_simplifier.cpp
-    ${NVFUSER_ROOT}/test/test_external_src.cpp
-    ${NVFUSER_ROOT}/test/test_swizzle.cpp
-    ${NVFUSER_ROOT}/test/test_tensor_factories.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_fused_reduction.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_outer_reduction.cpp
-    ${NVFUSER_ROOT}/test/test_loop_rotation.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_shift.cpp
-    ${NVFUSER_ROOT}/test/test_resize.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
-    ${NVFUSER_ROOT}/test/test_polymorphic_value.cpp
-    ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
-    ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
-    ${NVFUSER_ROOT}/test/test_mbarrier.cpp
-    ${NVFUSER_ROOT}/test/test_memory.cpp
-    ${NVFUSER_ROOT}/test/test_mma.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_view.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
-    ${NVFUSER_ROOT}/test/test_multidevice_pipeline.cpp
-    ${NVFUSER_ROOT}/test/test_multidevice_communications.cpp
-    ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
-    ${NVFUSER_ROOT}/test/test_combine_mul_sum.cpp
-    ${NVFUSER_ROOT}/test/test_optimization_pass.cpp
-    ${NVFUSER_ROOT}/test/test_pipeline.cpp
-    ${NVFUSER_ROOT}/test/test_rng.cpp
-    ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
-    ${NVFUSER_ROOT}/test/test_tutorial.cpp
-    ${NVFUSER_ROOT}/test/test_alias.cpp
-    ${NVFUSER_ROOT}/test/test_scalar_hoisting.cpp
-    ${NVFUSER_ROOT}/test/test_no_op.cpp
-    ${NVFUSER_ROOT}/test/test_linked_hash_map.cpp
-    ${NVFUSER_ROOT}/test/test_pointwise.cpp
-    ${NVFUSER_ROOT}/test/test_iter_visitor.cpp
-    ${NVFUSER_ROOT}/test/test_id_model.cpp
-    ${NVFUSER_ROOT}/test/test_double_buffering.cpp
-    ${NVFUSER_ROOT}/test/test_segmentation.cpp
     ${NVFUSER_ROOT}/test/test_fusion_profiler.cpp
   )
 endif()
@@ -507,30 +452,26 @@ if(BUILD_TEST)
 endif()
 
 function(add_test, TEST_NAME, TEST_SRC, ADDITIONAL_LINK)
-  # -- build tests
-  if(BUILD_TEST)
-    # nvfuser test sources
-    set(NVFUSER_TESTS "${PROJECT_NAME}_tests")
+  add_executable(${TEST_NAME} ${TEST_SRC})
+  set_property(TARGET ${TEST_NAME} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
+  target_compile_definitions(${TEST_NAME} PRIVATE USE_GTEST)
+  target_include_directories(${TEST_NAME} PRIVATE "${NVFUSER_ROOT}")
+  target_include_directories(${TEST_NAME} SYSTEM PRIVATE
+    ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include
+    ${CMAKE_SOURCE_DIR}/third_party/googletest/googlemock/include
+  )
+  target_link_libraries(${TEST_NAME} PRIVATE ${NVFUSER_CODEGEN} ${ADDITIONAL_LINK} dynamic_type GTest::gtest_main GTest::gmock_main flatbuffers ${TORCH_LIBRARIES})
 
-    add_executable(${TEST_NAME} ${TEST_SRC})
-    set_property(TARGET ${TEST_NAME} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
-    target_compile_definitions(${TEST_NAME} PRIVATE USE_GTEST)
-    target_include_directories(${TEST_NAME} PRIVATE "${NVFUSER_ROOT}")
-    target_include_directories(${TEST_NAME} SYSTEM PRIVATE
-      ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include
-      ${CMAKE_SOURCE_DIR}/third_party/googletest/googlemock/include
+  if(NOT MSVC)
+    target_compile_options(${TEST_NAME} PRIVATE
+      -Wall -Wno-unused-function -Werror
     )
-    target_link_libraries(${TEST_NAME} PRIVATE ${NVFUSER_CODEGEN} ${ADDITIONAL_LINK} dynamic_type GTest::gtest_main GTest::gmock_main flatbuffers ${TORCH_LIBRARIES})
-
-    if(NOT MSVC)
-      target_compile_options(${TEST_NAME} PRIVATE
-        -Wall -Wno-unused-function -Werror
-      )
-    endif()
   endif()
 endfunction()
 
-add_test()
+if(BUILD_TEST)
+  add_test("${PROJECT_NAME}_tests" , ${JIT_TEST_SRCS}, ${NVFUSER_TESTS_KERNELS})
+endif()
 
 # -- build benchmark
 if(BUILD_NVFUSER_BENCHMARK)
