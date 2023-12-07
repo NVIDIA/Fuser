@@ -571,7 +571,7 @@ BlockSerializeWait::BlockSerializeWait(
 
 std::string BlockSerializeWait::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "SERIALREDUCTIONPRESYNC(" << syncDims().toString()
+  indent(ss, indent_size) << "BLOCKSERIALIZEWAIT(" << syncDims().toString()
                           << ", " << syncBuffer()->toString() << ")\n";
   return ss.str();
 }
@@ -594,7 +594,7 @@ BlockSerializeRelease::BlockSerializeRelease(
 
 std::string BlockSerializeRelease::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "SERIALREDUCTIONPOSTSYNC(" << syncDims().toString()
+  indent(ss, indent_size) << "BLOCKSERIALIZERELEASE(" << syncDims().toString()
                           << ", " << syncBuffer()->toString() << ")\n";
   return ss.str();
 }
