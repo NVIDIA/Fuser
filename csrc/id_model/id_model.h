@@ -103,6 +103,11 @@ class IdModel : public PolymorphicBase {
   // and first output of expr
   void buildExactGraph(const std::vector<Expr*>& exprs);
 
+  // Fills disjoint_ids_[IdMappingMode::ALMOSTEXACT]. Initialize AlmostExact as
+  // Exact entries, then map anything that's either merged with a size-1 or
+  // split by a size-1 dimension.
+  void buildAlmostExactMap();
+
   // Errors if self mapping occurs
   void assertNoSelfMapping();
 
