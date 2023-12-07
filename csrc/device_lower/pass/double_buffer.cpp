@@ -514,8 +514,8 @@ class DoubleBufferInserter : private kir::ExprMutator {
         auto stage_depth =
             GpuLower::current()->doubleBufferInfo().getStageDepthFor(
                 double_buffer_loop->iter_domain());
-        auto cp_async_wait =
-            IrBuilder::create<kir::AsyncWait>(AsyncOpType::CpAsync, stage_depth - 2);
+        auto cp_async_wait = IrBuilder::create<kir::AsyncWait>(
+            AsyncOpType::CpAsync, stage_depth - 2);
         prologue_loop->body().push_back(
             IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsync));
         registerInsertBefore(double_buffer_loop, cp_async_wait);
@@ -615,8 +615,10 @@ class DoubleBufferInserter : private kir::ExprMutator {
     //  would resolve this dependency on pass ordering.
     auto stage_depth = GpuLower::current()->doubleBufferInfo().getStageDepthFor(
         main_loop->iter_domain());
-    auto cp_async_commit = IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsync);
-    auto cp_async_wait = IrBuilder::create<kir::AsyncWait>(AsyncOpType::CpAsync, stage_depth - 2);
+    auto cp_async_commit =
+        IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsync);
+    auto cp_async_wait = IrBuilder::create<kir::AsyncWait>(
+        AsyncOpType::CpAsync, stage_depth - 2);
 
     // Find the last double buffer load in the main loop, and insert
     // cp.async.commit after it.
