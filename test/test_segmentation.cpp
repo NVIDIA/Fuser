@@ -14,6 +14,7 @@
 #include <test/validator.h>
 
 namespace nvfuser {
+
 using SegmentationTest = NVFuserTest;
 
 TEST_F(SegmentationTest, Issue1284_Repro1) {
