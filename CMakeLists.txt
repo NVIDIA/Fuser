@@ -375,7 +375,6 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_open.cpp
   ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_query.cpp
   ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_write.cpp
-  ${NVFUSER_ROOT}/test/multidevice.cpp
   ${NVFUSER_ROOT}/test/test_allocation_domain.cpp
   ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
   ${NVFUSER_ROOT}/test/test_evaluator.cpp
@@ -407,12 +406,9 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
   ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
   ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
-  ${NVFUSER_ROOT}/test/test_multidevice_pipeline.cpp
-  ${NVFUSER_ROOT}/test/test_multidevice_communications.cpp
   ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
   ${NVFUSER_ROOT}/test/test_optimization_pass.cpp
   ${NVFUSER_ROOT}/test/test_pipeline.cpp
-  ${NVFUSER_ROOT}/test/test_rng.cpp
   ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
   ${NVFUSER_ROOT}/test/test_tutorial.cpp
   ${NVFUSER_ROOT}/test/test_alias.cpp
@@ -440,13 +436,13 @@ if(BUILD_PYTHON)
 endif()
 
 if(BUILD_TEST)
-  set(NVFUSER_TESTS_KERNELS "${NVFUSER_TESTS}_kernels")
-  add_library(${NVFUSER_TESTS_KERNELS} SHARED ${NVFUSER_ROOT}/test/rng_kernels.cu)
+  set(RNG_TEST_KERNELS "${NVFUSER_TESTS}_kernels")
+  add_library(${RNG_TEST_KERNELS} SHARED ${NVFUSER_ROOT}/test/rng_kernels.cu)
 
   # CUDA 11 does not support C++20, so hard code C++17 here
-  set_property(TARGET ${NVFUSER_TESTS_KERNELS} PROPERTY CXX_STANDARD 17)
-  target_link_libraries(${NVFUSER_TESTS_KERNELS} PRIVATE torch ${TORCH_LIBRARIES} ${NVFUSER_CODEGEN})
-  target_include_directories(${NVFUSER_TESTS_KERNELS} PRIVATE "${NVFUSER_ROOT}")
+  set_property(TARGET ${RNG_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
+  target_link_libraries(${RNG_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES} ${NVFUSER_CODEGEN})
+  target_include_directories(${RNG_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
 endif()
 
 function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
@@ -469,7 +465,17 @@ function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
 endfunction()
 
 if(BUILD_TEST)
-  add_test(${PROJECT_NAME}_tests "${JIT_TEST_SRCS}" ${NVFUSER_TESTS_KERNELS})
+  add_test(${PROJECT_NAME}_tests "${JIT_TEST_SRCS}" "")
+
+  add_test(test_rng, ${NVFUSER_ROOT}/test/test_rng.cpp ${RNG_TEST_KERNELS})
+
+  set(MULTIDEVICE_TEST_SRCS)
+  list(APPEND MULTIDEVICE_TEST_SRCS
+    ${NVFUSER_ROOT}/test/multidevice.cpp
+    ${NVFUSER_ROOT}/test/test_multidevice_pipeline.cpp
+    ${NVFUSER_ROOT}/test/test_multidevice_communications.cpp
+  )
+  add_test(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
 endif()
 
 # -- build benchmark
