@@ -3040,13 +3040,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     bool bidx = sync->syncDims().get(ParallelType::BIDx);
     bool bidy = sync->syncDims().get(ParallelType::BIDy);
     bool bidz = sync->syncDims().get(ParallelType::BIDz);
-    bool persistent = false;
     NVF_ERROR(
         isAligned(),
         "Serialization of blocks requires syncing in non-divergent threads");
 
     ArgumentBuilder sync_call_template_parms;
-    sync_call_template_parms.arg(bidx).arg(bidy).arg(bidz).arg(persistent);
+    sync_call_template_parms.arg(bidx).arg(bidy).arg(bidz);
 
     auto sync_idx = genCall(
         "index_utils::maskedOffset",
@@ -3073,13 +3072,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     bool bidx = sync->syncDims().get(ParallelType::BIDx);
     bool bidy = sync->syncDims().get(ParallelType::BIDy);
     bool bidz = sync->syncDims().get(ParallelType::BIDz);
-    bool persistent = false;
     NVF_ERROR(
         isAligned(),
         "Serialization of blocks requires syncing in non-divergent threads");
 
     ArgumentBuilder sync_call_template_parms;
-    sync_call_template_parms.arg(bidx).arg(bidy).arg(bidz).arg(persistent);
+    sync_call_template_parms.arg(bidx).arg(bidy).arg(bidz);
 
     auto sync_idx = genCall(
         "index_utils::maskedOffset",

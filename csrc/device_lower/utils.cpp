@@ -655,10 +655,8 @@ namespace lower_utils {
 
 bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
   if (expr->isA<kir::BlockSync>() || expr->isA<kir::GridSync>() ||
-      // Note that for serial reductions, we always sync before but we do not
-      // sync after the loop nest for the last block in each segment, so
-      // kir::BlockSerializeRelease is not included here
-      expr->isA<kir::BlockSerializeWait>()) {
+      expr->isA<kir::BlockSerializeWait>() ||
+      expr - isA<kir::BlockSerializeRelease>()) {
     return true;
   }
 

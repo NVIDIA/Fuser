@@ -195,17 +195,15 @@ __device__ void semaphoreWait(int64_t* semaphore, int64_t trigger_value) {
 
 // Serialize blocks in segments indicated by the [XYZ]_BLOCK template arguments.
 // This should be called at the beginning of the section to be serialized.
-// The PERSISTENT parameter indicates whether first block needs to wait
-// (PERSISTENT==true) or if it can proceed assuming the semaphore is
-// initialized to zero.
-template <bool X_BLOCK, bool Y_BLOCK, bool Z_BLOCK, bool PERSISTENT>
+// Assumes semaphore is initialized to zero
+template <bool X_BLOCK, bool Y_BLOCK, bool Z_BLOCK>
 __device__ void blockSerializeWait(int64_t* semaphore) {
   int segment_size =
       index_utils::maskedSize<X_BLOCK, Y_BLOCK, Z_BLOCK>(gridDim);
   int block_idx_in_segment =
       index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
 
-  if (PERSISTENT || block_idx_in_segment > 0) {
+  if (block_idx_in_segment > 0) {
     semaphoreWait(semaphore, block_idx_in_segment);
   }
   __syncthreads();
@@ -213,7 +211,9 @@ __device__ void blockSerializeWait(int64_t* semaphore) {
 
 // Serialize blocks in segments indicated by the [XYZ]_BLOCK template arguments.
 // This should be called at the end of the section to be serialized.
-template <bool X_BLOCK, bool Y_BLOCK, bool Z_BLOCK, bool PERSISTENT>
+// This function always cleans up the semaphore; i.e. the last block writes the
+// value 0 to the semaphore when complete.
+template <bool X_BLOCK, bool Y_BLOCK, bool Z_BLOCK>
 __device__ void blockSerializeRelease(int64_t* semaphore) {
   int segment_size =
       index_utils::maskedSize<X_BLOCK, Y_BLOCK, Z_BLOCK>(gridDim);
@@ -221,15 +221,8 @@ __device__ void blockSerializeRelease(int64_t* semaphore) {
       index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
   bool last_block = block_idx_in_segment == segment_size - 1;
 
-  if (last_block) {
-    if (PERSISTENT) {
-      __syncthreads();
-      semaphoreRelease(semaphore, 0);
-    }
-  } else {
-    __syncthreads();
-    semaphoreRelease(semaphore, block_idx_in_segment + 1);
-  }
+  __syncthreads();
+  semaphoreRelease(semaphore, last_block ? 0 : block_idx_in_segment + 1);
 }
 
 } // namespace grid_sync
