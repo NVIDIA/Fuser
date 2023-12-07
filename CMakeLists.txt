@@ -375,9 +375,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_open.cpp
   ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_query.cpp
   ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_write.cpp
-  ${NVFUSER_ROOT}/test/main.cpp
   ${NVFUSER_ROOT}/test/multidevice.cpp
-  ${NVFUSER_ROOT}/test/utils.cpp
   ${NVFUSER_ROOT}/test/test_allocation_domain.cpp
   ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
   ${NVFUSER_ROOT}/test/test_evaluator.cpp
@@ -452,6 +450,7 @@ if(BUILD_TEST)
 endif()
 
 function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
+  list(APPEND TEST_SRC ${NVFUSER_ROOT}/test/utils.cpp)
   add_executable(${TEST_NAME} ${TEST_SRC})
   set_property(TARGET ${TEST_NAME} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
   target_compile_definitions(${TEST_NAME} PRIVATE USE_GTEST)
