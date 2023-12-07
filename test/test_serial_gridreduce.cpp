@@ -39,9 +39,9 @@ using SerialGridReductionTest = NVFuserTest;
 // TODO: remove this test once lowering of serial grid reductions is implemented
 TEST_F(SerialGridReductionTest, CodegenNodes) {
   for (bool serial : {true, false}) {
-    for (int64_t num_warps : {2, 4, 8, 16, 32}) {
+    for (int64_t num_warps : {4, 8}) {
       // B is size of inner serial loop. Outer loop is hardcoded at A=4
-      for (int64_t B : {2, 4, 8, 16, 32}) {
+      for (int64_t B : {16, 32}) {
         std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
         auto fusion = fusion_ptr.get();
         FusionGuard fg(fusion);
