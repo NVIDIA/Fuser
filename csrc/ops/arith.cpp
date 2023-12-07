@@ -53,9 +53,6 @@ Val* castOp(DataType dtype, Val* v1) {
 }
 
 Val* maybeCastOp(DataType dtype, Val* v1) {
-  if (v1->isScalar()) {
-    return SimplifyingIrBuilder::maybeCastExpr(dtype, v1);
-  }
   if (v1->dtype() != dtype) {
     return castOp(dtype, v1);
   }

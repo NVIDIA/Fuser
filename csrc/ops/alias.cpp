@@ -149,7 +149,9 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
       new_size = div(numel, other_new_numel);
       new_size = simplifyExpr(new_size);
     }
-    new_size = SimplifyingIrBuilder::maybeCastExpr(DataType::Index, new_size);
+    if (new_size->dtype() != DataType::Index) {
+      new_size = castOp(DataType::Index, new_size);
+    }
     auto rf_id =
         IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), new_size)
             .iter_type(IterType::Symbolic)
