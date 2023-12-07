@@ -306,7 +306,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     int64_t persistent_new = persistent_val;
     for (auto x : mayChangePersistentValBy) {
       auto persistent_tmp = persistent_val + x;
-      if (persistent_tmp < persistent_min) {
+      if (persistent_tmp < persistent_min || persistent_tmp > persistent_max) {
         continue;
       }
       auto tailing_tmp =
