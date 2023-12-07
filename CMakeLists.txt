@@ -243,7 +243,6 @@ set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STAND
 list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE
   flatbuffers
-  stdc++fs # for compatibility with C++14
   dynamic_type
   ${CUDA_NVRTC_LIB}
   ${LIBNVTOOLSEXT}
