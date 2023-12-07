@@ -457,8 +457,8 @@ function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
   target_compile_definitions(${TEST_NAME} PRIVATE USE_GTEST)
   target_include_directories(${TEST_NAME} PRIVATE "${NVFUSER_ROOT}")
   target_include_directories(${TEST_NAME} SYSTEM PRIVATE
-    ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include
-    ${CMAKE_SOURCE_DIR}/third_party/googletest/googlemock/include
+    ${NVFUSER_ROOT}/third_party/googletest/googletest/include
+    ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
   )
   target_link_libraries(${TEST_NAME} PRIVATE ${NVFUSER_CODEGEN} ${ADDITIONAL_LINK} dynamic_type GTest::gtest_main GTest::gmock_main flatbuffers ${TORCH_LIBRARIES})
 
