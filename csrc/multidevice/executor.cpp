@@ -116,8 +116,8 @@ std::vector<at::Tensor> PipelineExecutor::runWithInput(
 
   // Collect global outputs from context
   std::vector<at::Tensor> outputs;
-  for (auto output_val : runtime_.pipeline_->outputs()) {
-    outputs.push_back(val_to_IValue_.at(output_val->as<PipelineVal>()->getOriginalVal()).toTensor());
+  for (auto output_val : runtime_.pipeline_->sf_->outputs()) {
+    outputs.push_back(val_to_IValue_.at(output_val).toTensor());
   }
 
   return outputs;
