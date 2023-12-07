@@ -191,12 +191,11 @@ __device__ void semaphoreWait(int64_t* semaphore, int64_t trigger_value) {
   while (status != trigger_value) {
     status = semaphoreFetch(semaphore);
   }
-  __syncthreads();
 }
 
 // Serialize blocks in segments indicated by the [XYZ]_BLOCK template arguments.
 // This should be called at the beginning of the section to be serialized.
-// Persistent parameter indicates whether first block needs to wait
+// The PERSISTENT parameter indicates whether first block needs to wait
 // (PERSISTENT==true) or if it can proceed assuming the semaphore is
 // initialized to zero.
 template <bool X_BLOCK, bool Y_BLOCK, bool Z_BLOCK, bool PERSISTENT>
@@ -209,6 +208,7 @@ __device__ void blockSerializeWait(int64_t* semaphore) {
   if (PERSISTENT || block_idx_in_segment > 0) {
     semaphoreWait(semaphore, block_idx_in_segment);
   }
+  __syncthreads();
 }
 
 // Serialize blocks in segments indicated by the [XYZ]_BLOCK template arguments.
@@ -223,9 +223,11 @@ __device__ void blockSerializeRelease(int64_t* semaphore) {
 
   if (last_block) {
     if (PERSISTENT) {
+      __syncthreads();
       semaphoreRelease(semaphore, 0);
     }
   } else {
+    __syncthreads();
     semaphoreRelease(semaphore, block_idx_in_segment + 1);
   }
 }

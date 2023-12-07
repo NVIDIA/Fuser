@@ -637,12 +637,13 @@ __device__ void serialReductionStep(
     bool last_step,
     bool read_pred,
     bool write_pred) {
-  out = init;
   if (read_pred) {
     out = in;
     if (!first_step) {
       reduction_op(out, work);
     }
+  } else {
+    out = init;
   }
   if (write_pred && !last_step) {
     work = out;
