@@ -124,6 +124,15 @@ void ExpressionEvaluator::bind_(
         ", but got a tensor of rank ",
         t.dim());
     for (auto i : c10::irange(t.dim())) {
+      if (rfactor_domain[i]->hasExpandedExtent()) {
+        // If this axis is expanded in the Fusion, we could bind either an
+        // expanded input, or a broadcast input that has size 1 and stride 1.
+        // In the latter case, we cannot determine the expanded size so we
+        // should leave it unbound.
+        if (t.size(i) == 1 and t.stride(i) != 0) {
+          continue;
+        }
+      }
       bind_(
           rfactor_domain[i]->getMaybeExpandedExtent(),
           t.size(i),
