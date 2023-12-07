@@ -585,7 +585,11 @@ std::string AsyncWait::toInlineString(int indent_size) const {
 const char* AsyncWait::ptx() const {
   switch (asyncOpType()) {
     case AsyncOpType::CpAsync:
-      return "cp.async.wait_group";
+      if (keepStages() == 0) {
+        return "cp.async.wait_all";
+      } else {
+        return "cp.async.wait_group";
+      }
     case AsyncOpType::CpAsyncBulk:
       return "cp.async.bulk.wait_group.read";
     case AsyncOpType::WgMma:
@@ -609,9 +613,7 @@ bool AsyncWait::memory() const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(AsyncWait)
 
-AsyncCommit::AsyncCommit(
-    IrBuilderPasskey passkey,
-    AsyncOpType async_op_type)
+AsyncCommit::AsyncCommit(IrBuilderPasskey passkey, AsyncOpType async_op_type)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(

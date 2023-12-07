@@ -31,13 +31,26 @@ class LowerToInlinePtx : public kir::ExprMutator {
   }
 
   void handle(kir::AsyncWait* wait) override {
-    registerReplace(
-        wait,
-        IrBuilder::create<kir::Asm>(
-            wait->ptx(),
-            std::vector<Val*>{},
-            std::vector<Val*>{IrBuilder::create<Val>(wait->keepStages())},
-            kir::Asm::Options{/*volatile=*/true, /*memory=*/wait->memory()}));
+    if (wait->asyncOpType() == AsyncOpType::CpAsync &&
+        wait->keepStages() == 0) {
+      // cp.async uses wait_all for zero keep stages, other instructions uses a
+      // unified interface for all keep stages.
+      registerReplace(
+          wait,
+          IrBuilder::create<kir::Asm>(
+              wait->ptx(),
+              std::vector<Val*>{},
+              std::vector<Val*>{},
+              kir::Asm::Options{/*volatile=*/true}));
+    } else {
+      registerReplace(
+          wait,
+          IrBuilder::create<kir::Asm>(
+              wait->ptx(),
+              std::vector<Val*>{},
+              std::vector<Val*>{IrBuilder::create<Val>(wait->keepStages())},
+              kir::Asm::Options{/*volatile=*/true, /*memory=*/wait->memory()}));
+    }
   }
 
   void handle(LoadStoreOp* ldst) override {
