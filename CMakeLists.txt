@@ -244,7 +244,6 @@ set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STAND
 list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE
   flatbuffers
-  stdc++fs  # for compatibility with C++14
   dynamic_type
   ${CUDA_NVRTC_LIB}
   ${LIBNVTOOLSEXT}
@@ -382,7 +381,6 @@ if(BUILD_TEST)
     ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_open.cpp
     ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_query.cpp
     ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_write.cpp
-    ${NVFUSER_ROOT}/test/main.cpp
     ${NVFUSER_ROOT}/test/multidevice.cpp
     ${NVFUSER_ROOT}/test/utils.cpp
     ${NVFUSER_ROOT}/test/test_allocation_domain.cpp
@@ -419,6 +417,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/test/test_multidevice_communications.cpp
     ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
+    ${NVFUSER_ROOT}/test/test_combine_mul_sum.cpp
     ${NVFUSER_ROOT}/test/test_optimization_pass.cpp
     ${NVFUSER_ROOT}/test/test_pipeline.cpp
     ${NVFUSER_ROOT}/test/test_rng.cpp
@@ -432,6 +431,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_iter_visitor.cpp
     ${NVFUSER_ROOT}/test/test_id_model.cpp
     ${NVFUSER_ROOT}/test/test_double_buffering.cpp
+    ${NVFUSER_ROOT}/test/test_segmentation.cpp
   )
 
   # We don't link CUPTI for MSVC
