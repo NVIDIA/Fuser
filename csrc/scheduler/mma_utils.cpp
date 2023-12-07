@@ -821,6 +821,39 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOperand operand) {
   }
 }
 
+// Reference:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-swizzling-modes
+void WarpMmaSwizzler::scheduleOperandRead(
+    TensorView* tv,
+    MmaInputSmemSwizzle swizzle,
+    bool transpose) {
+  if (swizzle == MmaInputSmemSwizzle::None) {
+    if (transpose) {
+      // Note: for the no-swizzle case, imm-trans-a and imm-trans-b are ignored
+      // by the wgmma instruction. So we have to make sure the allocation domain
+      // has the same order as expected by the hardware.
+      tv->reorder({{-2, -1}});
+    }
+    // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
+    // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
+    // memory. [K, M]
+    tv->split(-2, 8);
+    tv->split(-1, 8);
+    // [Ko, K8, Mo, M8]
+    tv->reorder({{-2, -3}});
+    // [Ko, Mo, K8, M8]
+    tv->setAllocationDomain(tv->getLeafDomain(), true);
+  } else if (swizzle == MmaInputSmemSwizzle::B128) {
+    NVF_ERROR(false, "Not implemented yet");
+  } else if (swizzle == MmaInputSmemSwizzle::B64) {
+    NVF_ERROR(false, "Not implemented yet");
+  } else if (swizzle == MmaInputSmemSwizzle::B32) {
+    NVF_ERROR(false, "Not implemented yet");
+  } else {
+    NVF_ERROR(false, "Unsupported smem swizzle");
+  }
+}
+
 void WarpMmaSwizzler::scheduleMmaWarpOutput(TensorView* tv) {
   // This function works for all mma ops, regardless of the architecture. The
   // Hopper one is the most general one. For earlier architectures, we will have
@@ -1227,6 +1260,163 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
   findOutputRolesByDomains(deps_map, roles_map);
 
   return roles_map;
+}
+
+namespace {
+
+void addMMAOp(Fusion* fusion_, std::vector<MulSumAsMmaProps>& props) {
+  auto* init = IrBuilder::create<Val>(0.0);
+  for (auto prop : props) {
+    IrBuilder::create<MmaOp>(prop.out, prop.a, prop.b, init);
+  }
+}
+
+// Check the val (in) is the output of broadcast.
+// Then check the output of the broadcast is 3D (4D for bmm).
+bool hasValidBroadcastOp(TensorView* bcast_out) {
+  // First check the tensorsview is 3D (4D)
+  // and has one broadcast dim.
+  auto dims = bcast_out->domain()->nDims();
+  if (!((dims == 3 || dims == 4) &&
+        bcast_out->domain()->noBroadcasts().size() == dims - 1)) {
+    return false;
+  }
+
+  // Check if the definition is a broadcast op.
+  if (dynamic_cast<BroadcastOp*>(bcast_out->definition())) {
+    return true;
+  }
+
+  return false;
+}
+
+// This function checks if the mul-sum can be replace with a mma op. The checks
+// are:
+// 1. The inputs to the muls are broadcast ops.
+// 2. The broadcasts have 2D or 3D(bmm) inputs.
+// 3. The broadcasts only broadcast one dim and the dims are different for the 2
+// muls.
+// 4. There is a single reduction dim, and that dim that is not either of the
+// broadcast dims.
+bool broadcastsAreValid(
+    TensorView* left,
+    TensorView* right,
+    unsigned int reduction_axis) {
+  if (!(hasValidBroadcastOp(left) && hasValidBroadcastOp(right))) {
+    return false;
+  }
+
+  auto bcast_l = dynamic_cast<BroadcastOp*>(left->definition());
+  auto bcast_r = dynamic_cast<BroadcastOp*>(right->definition());
+
+  // Ensure that only one dim is getting broadcast.
+  auto bcastFlags_l = bcast_l->getBroadcastDimFlags();
+  auto bcastFlags_r = bcast_r->getBroadcastDimFlags();
+  auto count_l = std::count(bcastFlags_l.begin(), bcastFlags_l.end(), true);
+  auto count_r = std::count(bcastFlags_r.begin(), bcastFlags_r.end(), true);
+  if ((count_l != 1) || (count_l != count_r)) {
+    return false;
+  }
+
+  // Also ensure that it's not the same dim for the two muls. that's
+  // getting broadcast.
+  auto idx_l = std::find(bcastFlags_l.begin(), bcastFlags_l.end(), true) -
+      bcastFlags_l.begin();
+  auto idx_r = std::find(bcastFlags_r.begin(), bcastFlags_r.end(), true) -
+      bcastFlags_r.begin();
+  if (idx_l == idx_r) {
+    return false;
+  }
+
+  // Also ensure that the reduction dim is not either of the broadcast dim.
+  if (reduction_axis == idx_l || reduction_axis == idx_r) {
+    return false;
+  }
+
+  // Check different dimensions are the broadcast dims.
+  return true;
+}
+
+// If the tensorview is a output of a cast operation, then
+// return the input to the cast operation, else return the tensorview.
+TensorView* getTensorviewPriorToCast(TensorView* in) {
+  if (auto uCastOp = dynamic_cast<UnaryOp*>(in->definition());
+      uCastOp && uCastOp->getUnaryOpType() == UnaryOpType::Cast) {
+    return static_cast<TensorView*>(uCastOp->in());
+  }
+  return in;
+}
+
+// Check if the Mul-Sum pair represents a matmul. If so, add the properties
+// of the mma op which can be a tentatice substitue. This checks that the output
+// of sum has on reduction axis, and the inputs to mul are valid broadcasts.
+std::optional<MulSumAsMmaProps> getMulSumInsOutsBcasts(
+    BinaryOp* mop,
+    ReductionOp* redop) {
+  auto a = getTensorviewPriorToCast(static_cast<TensorView*>(mop->lhs()));
+  auto b = getTensorviewPriorToCast(static_cast<TensorView*>(mop->rhs()));
+
+  // Get the dimension of the reduction in the output. If not present, bail.
+  // Also ensure there is only only reduction axis.
+  auto red_axis = static_cast<TensorView*>(redop->out())->getReductionAxis();
+  auto num_reduction_dims =
+      static_cast<TensorView*>(redop->out())->domain()->nDims() -
+      static_cast<TensorView*>(redop->out())->domain()->noReductions().size();
+  if (!red_axis.has_value() || num_reduction_dims > 1) {
+    return std::nullopt;
+  }
+
+  if (broadcastsAreValid(a, b, *red_axis)) {
+    return MulSumAsMmaProps(
+        mop,
+        redop,
+        a,
+        b,
+        static_cast<TensorView*>(redop->output(0)),
+        dynamic_cast<BroadcastOp*>(a->definition()),
+        dynamic_cast<BroadcastOp*>(b->definition()));
+  }
+  return std::nullopt;
+}
+} // namespace
+
+void CombineMulSum::handle(ReductionOp* stmt) {
+  // Check if operation is a sum.
+  if (stmt->getReductionOpType() == BinaryOpType::Add) {
+    auto* inputOfSum = stmt->in();
+    if (inputOfSum != nullptr) {
+      auto* expr = inputOfSum->definition();
+      // Then check if the prodcer of the sum is a mul.
+      if (auto bOp = dynamic_cast<BinaryOp*>(expr)) {
+        // If it'a mul followed by a sum, put this in a list.
+        if (bOp->getBinaryOpType() == BinaryOpType::Mul) {
+          // If the Mul-Sum is a valid representation of a matmul,
+          // then get the properties of the replacement Mma op.
+          auto props = getMulSumInsOutsBcasts(bOp, stmt);
+          if (props.has_value()) {
+            mul_sum_props_.push_back(*props);
+          }
+        }
+      }
+    }
+  }
+};
+
+std::vector<MulSumAsMmaProps> CombineMulSum::generateMulSumCanidates(
+    bool use_cached_results) {
+  if (use_cached_results && !mul_sum_props_.empty()) {
+    return mul_sum_props_;
+  }
+  traverse(fusion_);
+  return mul_sum_props_;
+}
+
+void CombineMulSum::replaceWithMmaOp() {
+  // Recreate the mul-sum pairs since someone
+  // may run this function more than once.
+  generateMulSumCanidates();
+  addMMAOp(fusion_, mul_sum_props_);
+  return;
 }
 
 } // namespace mma_utils
