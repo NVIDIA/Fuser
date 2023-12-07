@@ -762,9 +762,9 @@ class PersistentBufferProjector {
       // t1->t2 is a reduction, which is considered very expensive and should
       // be avoided. Since t3 is a broadcast tv, all the persitent batches are
       // sharing the same value. It can be considered as a `free` persistent
-      // buffer. So, t5 can be re-calculated directly from t3, this skips all
-      // the calculations from input t0 to t3 and the additional reduciton is
-      // avoided.
+      // buffer. So, t5 can be re-calculated directly from t3, this skips the
+      // reduciton and broadcast from input t0 to t3. The broadcast here is not
+      // just a local register copy but involves an inter-thread communication.
       std::vector<Val*> vals_project_to = fusion_->inputs();
       const auto& dep_vals = DependencyCheck::getAllValsBetween(
           {reduction_tvs.begin(), reduction_tvs.end()}, {buffer});
