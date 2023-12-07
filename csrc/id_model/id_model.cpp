@@ -366,7 +366,7 @@ namespace {
 
 // Checks if the expression is a trivial operation where an input is simply an
 // output of the transformation. Returns the mapped iter domains if found.
-std::vector<std::vector<Val*>> isTrivialExpr(Expr* expr) {
+std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
   std::vector<std::vector<Val*>> mapped_ids;
   if (auto merge = dynamic_cast<Merge*>(expr)) {
     if (merge->inner()->extent()->isOneInt()) {
@@ -413,7 +413,7 @@ void IdModel::buildAlmostExactMap() {
        almost_exact_graph.disjointExprSets().disjointSets()) {
     for (auto expr : *expr_group) {
       // If not trivial continue
-      auto mapped_ids = isTrivialExpr(expr);
+      auto mapped_ids = getTriviallyMappedIds(expr);
       if (mapped_ids.empty()) {
         continue;
       }
