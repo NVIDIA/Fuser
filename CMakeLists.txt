@@ -467,7 +467,7 @@ endfunction()
 if(BUILD_TEST)
   add_test(${PROJECT_NAME}_tests "${JIT_TEST_SRCS}" "")
 
-  add_test(test_rng, ${NVFUSER_ROOT}/test/test_rng.cpp ${RNG_TEST_KERNELS})
+  add_test(test_rng ${NVFUSER_ROOT}/test/test_rng.cpp ${RNG_TEST_KERNELS})
 
   set(MULTIDEVICE_TEST_SRCS)
   list(APPEND MULTIDEVICE_TEST_SRCS
