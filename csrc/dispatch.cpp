@@ -272,20 +272,12 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::MBarrierWait>());
     return;
   }
-  if (expr->isStrictlyA<kir::CpAsyncWait>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncWait>());
+  if (expr->isStrictlyA<kir::AsyncWait>()) {
+    ptr(handler)->handle(expr->as<kir::AsyncWait>());
     return;
   }
-  if (expr->isStrictlyA<kir::CpAsyncCommit>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncCommit>());
-    return;
-  }
-  if (expr->isStrictlyA<kir::CpAsyncBulkS2GWait>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncBulkS2GWait>());
-    return;
-  }
-  if (expr->isStrictlyA<kir::CpAsyncBulkS2GCommit>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncBulkS2GCommit>());
+  if (expr->isStrictlyA<kir::AsyncCommit>()) {
+    ptr(handler)->handle(expr->as<kir::AsyncCommit>());
     return;
   }
   if (expr->isStrictlyA<kir::InitMagicZero>()) {
@@ -588,20 +580,12 @@ void Expr::constDispatch(T handler, const Expr* expr) {
     ptr(handler)->handle(expr->as<kir::MBarrierWait>());
     return;
   }
-  if (expr->isStrictlyA<kir::CpAsyncWait>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncWait>());
+  if (expr->isStrictlyA<kir::AsyncWait>()) {
+    ptr(handler)->handle(expr->as<kir::AsyncWait>());
     return;
   }
-  if (expr->isStrictlyA<kir::CpAsyncCommit>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncCommit>());
-    return;
-  }
-  if (expr->isStrictlyA<kir::CpAsyncBulkS2GWait>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncBulkS2GWait>());
-    return;
-  }
-  if (expr->isStrictlyA<kir::CpAsyncBulkS2GCommit>()) {
-    ptr(handler)->handle(expr->as<kir::CpAsyncBulkS2GCommit>());
+  if (expr->isStrictlyA<kir::AsyncCommit>()) {
+    ptr(handler)->handle(expr->as<kir::AsyncCommit>());
     return;
   }
   if (expr->isStrictlyA<kir::InitMagicZero>()) {
@@ -996,16 +980,10 @@ void OptOutConstDispatch::handle(const kir::MBarrierArriveExpectTx* stmt) {
 void OptOutConstDispatch::handle(const kir::MBarrierWait* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const kir::CpAsyncWait* stmt) {
+void OptOutConstDispatch::handle(const kir::AsyncWait* stmt) {
   unhandled(stmt);
 }
-void OptOutConstDispatch::handle(const kir::CpAsyncCommit* stmt) {
-  unhandled(stmt);
-}
-void OptOutConstDispatch::handle(const kir::CpAsyncBulkS2GWait* stmt) {
-  unhandled(stmt);
-}
-void OptOutConstDispatch::handle(const kir::CpAsyncBulkS2GCommit* stmt) {
+void OptOutConstDispatch::handle(const kir::AsyncCommit* stmt) {
   unhandled(stmt);
 }
 void OptOutConstDispatch::handle(const kir::InitMagicZero* stmt) {
@@ -1229,16 +1207,10 @@ void OptOutDispatch::handle(kir::MBarrierArriveExpectTx* stmt) {
 void OptOutDispatch::handle(kir::MBarrierWait* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(kir::CpAsyncWait* stmt) {
+void OptOutDispatch::handle(kir::AsyncWait* stmt) {
   unhandled(stmt);
 }
-void OptOutDispatch::handle(kir::CpAsyncCommit* stmt) {
-  unhandled(stmt);
-}
-void OptOutDispatch::handle(kir::CpAsyncBulkS2GWait* stmt) {
-  unhandled(stmt);
-}
-void OptOutDispatch::handle(kir::CpAsyncBulkS2GCommit* stmt) {
+void OptOutDispatch::handle(kir::AsyncCommit* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::InitMagicZero* stmt) {
