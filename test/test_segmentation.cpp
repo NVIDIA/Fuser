@@ -4,6 +4,7 @@
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
+// clang-format on
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -12,8 +13,8 @@
 #include <test/utils.h>
 #include <test/validator.h>
 
-
 namespace nvfuser {
+
 using SegmentationTest = NVFuserTest;
 
 TEST_F(SegmentationTest, Issue1284_Repro1) {
@@ -102,7 +103,6 @@ TEST_F(SegmentationTest, Issue1284_Repro2) {
       __FILE__);
 }
 
-
 // Test forced segmentation hint
 TEST_F(SegmentationTest, SegmenterHint) {
   auto fusion = std::make_unique<Fusion>();
@@ -144,6 +144,5 @@ TEST_F(SegmentationTest, SegmenterHint) {
   testValidate(
       executor_cache.fusion(), outputs, {at_x}, {ref_out}, __LINE__, __FILE__);
 }
-
 
 } // namespace nvfuser
