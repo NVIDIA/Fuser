@@ -27,6 +27,7 @@ run_test './bin/test_matmul'
 run_test './bin/test_external_src'
 run_test './bin/tutorial'
 run_test './bin/test_python_frontend'
+run_test './bin/test_profiler'
 
 run_test 'pytest python_tests/pytest_ops.py'
 run_test 'python python_tests/test_python_frontend.py'
