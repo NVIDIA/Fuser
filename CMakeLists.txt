@@ -467,10 +467,12 @@ function(add_test, TEST_NAME, TEST_SRC, ADDITIONAL_LINK)
       -Wall -Wno-unused-function -Werror
     )
   endif()
+
+  message(WARNING "fdsfsadfsafa")
 endfunction()
 
 if(BUILD_TEST)
-  add_test("${PROJECT_NAME}_tests" , ${JIT_TEST_SRCS}, ${NVFUSER_TESTS_KERNELS})
+  add_test(${PROJECT_NAME}_tests, ${JIT_TEST_SRCS}, ${NVFUSER_TESTS_KERNELS})
 endif()
 
 # -- build benchmark
