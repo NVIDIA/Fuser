@@ -163,7 +163,7 @@ __device__ int64_t semaphoreFetch(int64_t* semaphore) {
   return state;
 }
 
-// Sync block then et semaphore to new_value
+// Sync block then set semaphore to new_value
 __device__ void semaphoreRelease(int64_t* semaphore, int64_t new_value) {
   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 700
@@ -178,7 +178,7 @@ __device__ void semaphoreRelease(int64_t* semaphore, int64_t new_value) {
   }
 }
 
-// Block waits until fetched semaphore value matches trigger
+// First thread waits until fetched semaphore value matches trigger
 __device__ void semaphoreWait(int64_t* semaphore, int64_t trigger_value) {
   int64_t status = -1;
   // Cutlass uses a loop like this, and has a facility where any thread can
@@ -188,8 +188,11 @@ __device__ void semaphoreWait(int64_t* semaphore, int64_t trigger_value) {
   // while (__syncthreads_and(status != trigger_value)) {
   // As soon as any thread in the block observes the trigger then it is
   // safe to proceed
-  while (status != trigger_value) {
-    status = semaphoreFetch(semaphore);
+  // Instead, we simply use the first thread in the block to do busy waiting.
+  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+    while (status != trigger_value) {
+      status = semaphoreFetch(semaphore);
+    }
   }
 }
 
