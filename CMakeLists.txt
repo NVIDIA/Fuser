@@ -484,10 +484,6 @@ if(BUILD_TEST)
   if(NOT MSVC)
     add_test(test_profiler "${NVFUSER_ROOT}/test/test_fusion_profiler.cpp" "")
   endif()
-endfunction()
-
-if(BUILD_TEST)
-  add_test(${PROJECT_NAME}_tests "${JIT_TEST_SRCS}" ${NVFUSER_TESTS_KERNELS})
 endif()
 
 # -- build benchmark
