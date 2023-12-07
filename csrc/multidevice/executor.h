@@ -40,10 +40,14 @@ class PipelineExecutor : public IterVisitor {
   // Returns whether the current process should run the stage
   bool shouldRun(PipelineStage* stage);
 
+  // Returns whether the current process should run the stage
+  bool shouldRun(SegmentedGroup* stage);
+
   // Stores concrete computed values,
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
 
   // Stores FusionExecutor(Cache) for each PipelineStage
+  std::unordered_map<SegmentedGroup*, std::unique_ptr<FusionExecutor>> fe_sg_;
   std::unordered_map<PipelineStage*, std::unique_ptr<FusionExecutor>> fe_;
   std::unordered_map<PipelineStage*, std::unique_ptr<FusionExecutorCache>> fec_;
   // Stores the resulting Communications after lowering each
@@ -53,8 +57,16 @@ class PipelineExecutor : public IterVisitor {
       std::vector<std::shared_ptr<Communication>>>
       communications_;
 
+  std::unordered_map<
+      SegmentedGroup*,
+      std::vector<std::shared_ptr<Communication>>>
+      communications_sg_;
+
   // Cache results of shouldRun method
   std::unordered_map<PipelineStage*, bool> should_run_;
+
+  // Cache results of shouldRun method
+  std::unordered_map<SegmentedGroup*, bool> should_run_sg_;
 
   // MultiDeviceRuntime to be executed
   MultiDeviceRuntime& runtime_;

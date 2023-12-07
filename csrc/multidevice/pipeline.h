@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 #include <disjoint_set.h>
+#include <fusion_segmenter.h>
 #include <exceptions.h>
 #include <fusion.h>
 #include <ir/base_nodes.h>
@@ -124,6 +125,8 @@ class Pipeline : public Fusion {
  public:
   Pipeline(Fusion* fusion, PipelineDescriptor descriptor);
 
+  Pipeline(std::unique_ptr<Fusion> fusion);
+
   std::string toString();
 
   const auto& descriptor() const {
@@ -144,6 +147,7 @@ class Pipeline : public Fusion {
   // stage's device mesh in the pipeline
   int64_t requestedNumberOfDevices() const;
 
+  std::unique_ptr<SegmentedFusion> sf_ = nullptr;
  private:
   // utility class called at instantiation
   friend class PipelineBuilder;
@@ -151,5 +155,7 @@ class Pipeline : public Fusion {
   Fusion* original_fusion_ = nullptr;
   PipelineDescriptor descriptor_;
 };
+
+PipelineDescriptor segmentedFusionToPipelineDescriptor(SegmentedFusion* sf);
 
 } // namespace nvfuser

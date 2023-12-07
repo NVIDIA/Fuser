@@ -255,8 +255,64 @@ class PipelineBuilder final {
   }
 };
 
+PipelineDescriptor segmentedFusionToPipelineDescriptor(SegmentedFusion* sf) {
+  std::set<Val*> vals;
+  for (auto val: ir_utils::filterByType<TensorView>(sf->completeFusion()->vals())) {
+    if (val->isA<TensorView>()){
+      vals.insert(val);
+    }
+  }
+  PipelineDescriptor ret;
+  for (auto group: sf->groups()) {
+    if (group->exprs().empty() || ir_utils::isResharding(group->exprs().at(0))) {
+      continue;
+    }
+    std::vector<Val*> vals_to_add;
+    for (auto expr: group->exprs()) {
+      for (auto io : {expr->inputs(), expr->outputs()}){
+        for (auto val: io){
+          if (vals.find(val) != vals.end()) {
+            vals_to_add.push_back(val);
+            vals.erase(val);
+          }
+        }
+      }
+    }
+    PipelineStageDescriptor stage;
+    stage.addVal(vals_to_add);
+    ret.stage_descriptors.push_back(std::move(stage));
+  }
+  for (auto val: vals) {
+    PipelineStageDescriptor stage;
+    stage.addVal({val});
+    ret.stage_descriptors.push_back(std::move(stage));
+  }
+  return ret;
+}
+
+Pipeline::Pipeline(std::unique_ptr<Fusion> fusion) {
+  SegmentCandidateFinderOptions options {
+    .run_translate_welford = false,
+    .run_combine_reductions = false,
+    .run_herrmann_merge = true,
+    .run_final_merge = true,
+    .only_segment_resharding_exprs = true
+  };
+
+  sf_ = SegmentCandidateFinder::segment(std::move(fusion), options);
+  Pipeline(fusion.get(), segmentedFusionToPipelineDescriptor(sf_.get()));
+}
+
 Pipeline::Pipeline(Fusion* fusion, PipelineDescriptor descriptor)
     : original_fusion_(fusion), descriptor_(std::move(descriptor)) {
+
+  //to remove later
+  for (auto stage: descriptor_.stage_descriptors) {
+    for (auto val: stage.vals()) {
+      val->as<TensorView>()->setDeviceMesh(&stage.mesh);
+    }
+  }
+
   PipelineBuilder{this};
 }
 
