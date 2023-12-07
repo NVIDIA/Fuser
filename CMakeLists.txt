@@ -451,7 +451,7 @@ if(BUILD_TEST)
   target_include_directories(${NVFUSER_TESTS_KERNELS} PRIVATE "${NVFUSER_ROOT}")
 endif()
 
-function(add_test, TEST_NAME, TEST_SRC, ADDITIONAL_LINK)
+function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
   add_executable(${TEST_NAME} ${TEST_SRC})
   set_property(TARGET ${TEST_NAME} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
   target_compile_definitions(${TEST_NAME} PRIVATE USE_GTEST)
@@ -472,7 +472,7 @@ function(add_test, TEST_NAME, TEST_SRC, ADDITIONAL_LINK)
 endfunction()
 
 if(BUILD_TEST)
-  add_test(${PROJECT_NAME}_tests, ${JIT_TEST_SRCS}, ${NVFUSER_TESTS_KERNELS})
+  add_test(${PROJECT_NAME}_tests ${JIT_TEST_SRCS} ${NVFUSER_TESTS_KERNELS})
 endif()
 
 # -- build benchmark
