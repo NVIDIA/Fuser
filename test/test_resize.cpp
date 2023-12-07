@@ -3116,6 +3116,7 @@ TEST_F(NVFuserTest, dynamicReshapeIssue1393) {
 }
 
 // Test that we can slice a trivially expanded tensor to size 1 then squeeze
+// See https://github.com/NVIDIA/Fuser/issues/963
 TEST_F(ResizeTest, SqueezeSlicedExpand) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
