@@ -238,6 +238,7 @@ target_include_directories(${NVFUSER_CODEGEN} PUBLIC
   "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
 )
+set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD_REQUIRED ON)
 set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
 
 # Ensure we don't link against libcuda; we'll dlopen it ourselves.
