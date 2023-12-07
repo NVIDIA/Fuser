@@ -124,28 +124,10 @@ void ExpressionEvaluator::bind_(
         ", but got a tensor of rank ",
         t.dim());
     for (auto i : c10::irange(t.dim())) {
-      auto id = rfactor_domain[i];
-      if (id->hasExpandedExtent()) {
-        // Verify that t is also expanded
-        NVF_ERROR(
-            t.size(i) == 1 || t.stride(i) == 0,
-            "IterDomain ",
-            id->toString(),
-            " in TensorView ",
-            tv->toString(),
-            " has expanded extent but input tensor has size ",
-            t.size(i),
-            " and stride ",
-            t.stride(i),
-            " in dimension ",
-            i);
-        bind_(
-            rfactor_domain[i]->getMaybeExpandedExtent(),
-            t.size(i),
-            evaluate_validate);
-      } else {
-        bind_(rfactor_domain[i]->extent(), t.size(i), evaluate_validate);
-      }
+      bind_(
+          rfactor_domain[i]->getMaybeExpandedExtent(),
+          t.size(i),
+          evaluate_validate);
     }
   }
   if (value->isA<NamedScalar>()) {
