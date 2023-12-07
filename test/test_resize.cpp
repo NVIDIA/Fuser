@@ -3115,4 +3115,49 @@ TEST_F(NVFuserTest, dynamicReshapeIssue1393) {
   testValidate(fusion, outputs, {t0, t1}, {ref}, __LINE__, __FILE__);
 }
 
+// Test that we can slice a trivially expanded tensor to size 1 then squeeze
+TEST_F(ResizeTest, SqueezeSlicedExpand) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  std::vector<int64_t> shape0({9, 5});
+
+  // dynamic input shape
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+
+  // Note these are Int instead of Index. They will be cast to Index when used
+  // as extents.
+  auto s0 = IrBuilder::create<Val>(9L);
+  auto s1 = IrBuilder::create<Val>(5L);
+
+  // The expand op will create a LoadStoreOp with these values as output
+  // extents. This effectively creates a static shape TV from a dynamic shape
+  // TV.
+  auto tv1 = expand(tv0, {s0, s1});
+
+  auto s2 = IrBuilder::create<Val>(2L);
+  auto s3 = IrBuilder::create<Val>(3L);
+  auto tv2 =
+      slice(tv1, {{nullptr, nullptr, nullptr}, {s2, s3, fusion->oneVal()}});
+  std::vector<bool> squeeze_dims({false, true});
+
+  auto tv3 = squeeze(tv2, squeeze_dims);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn(shape0, options);
+  std::vector<c10::IValue> aten_inputs({t0});
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+  auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
+
+  auto ref = at::squeeze(at::slice(t0, 1, 2, 3), 1);
+
+  testValidate(
+      fec.fusion(), cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
