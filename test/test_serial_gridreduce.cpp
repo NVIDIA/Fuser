@@ -41,7 +41,10 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
   for (bool serial : {true, false}) {
     for (int64_t num_warps : {4, 8}) {
       // B is size of inner serial loop. Outer loop is hardcoded at A=4
-      for (int64_t B : {16, 32}) {
+      // Here we set B to a small value of 8 instead of 32 (i.e. 128 elements
+      // per thread), so that the non-serial compilation does not take too
+      // long.
+      for (int64_t B : {8}) {
         std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
         auto fusion = fusion_ptr.get();
         FusionGuard fg(fusion);
