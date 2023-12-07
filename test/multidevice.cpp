@@ -349,7 +349,7 @@ void PipelineTestTwoStages::SetUp() {
       at::ones(input_sizes, tensor_options) *
       communicator->deviceId()};
 
-  if (!communicator->deviceId()) {
+  if (!communicator->deviceId() && debug_print) {
     std::cout << pipeline->toString()
       << toString(pipeline->sf_.get())
       << std::endl;

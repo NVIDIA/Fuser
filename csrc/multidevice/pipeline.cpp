@@ -304,7 +304,6 @@ Pipeline::Pipeline(std::unique_ptr<Fusion> fusion, PipelineDescriptor descriptor
   sf_ = SegmentCandidateFinder::segment(std::move(fusion), options);
   original_fusion_ = sf_->completeFusion();
   PipelineBuilder{this};
-
 }
 
 std::unique_ptr<Fusion> Pipeline::stageToFusion(PipelineStage*& stage) const {
