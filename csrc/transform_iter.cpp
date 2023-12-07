@@ -670,6 +670,12 @@ int BestEffortReplay::findFirstMismatchedID(
 ForwardingInfo::ForwardingInfo(
     const TensorView* producer,
     const TensorView* consumer) {
+  // No forwarding unless this is broadcast or squeeze
+  if (!dynamic_cast<BroadcastOp*>(consumer->definition()) &&
+      !dynamic_cast<SqueezeOp*>(consumer->definition())) {
+    return;
+  }
+
   // Active indicates the TV that has axes the other TV does not. For
   // broadcast this is the consumer squeeze the producer.
   //
@@ -747,24 +753,27 @@ ForwardingInfo::ForwardingInfo(
       // For the sake of BestEffortReplay we can forward the input mapping
       //   to both the active and inactive tensor to the output of the
       //   expression
-      std::vector<IterDomain*> forwarded_ids_vec;
-      std::vector<IterDomain*> compliment_ids;
+      IterDomain* forwarded_id = nullptr;
+      IterDomain* compliment_id = nullptr;
 
       for (auto input_id : input_ids) {
         if (!isInForwardIdSet(input_id)) {
-          forwarded_ids_vec.emplace_back(input_id);
+          NVF_ERROR(forwarded_id == nullptr);
+          forwarded_id = input_id;
           active_forwarding_map->emplace(
               std::make_pair(input_id, merge_expr->out()));
         } else {
-          compliment_ids.push_back(input_id);
+          NVF_ERROR(compliment_id == nullptr);
+          compliment_id = input_id;
         }
       }
 
+      NVF_ERROR(forwarded_id != nullptr);
+      NVF_ERROR(compliment_id != nullptr);
+
       // Set up compliment map
-      for (auto forwarded_id : forwarded_ids_vec) {
-        active_compliment_map->emplace(
-            std::make_pair(forwarded_id, compliment_ids));
-      }
+      active_compliment_map->emplace(
+          forwarded_id, std::vector<IterDomain*>{compliment_id});
     }
   }
 }

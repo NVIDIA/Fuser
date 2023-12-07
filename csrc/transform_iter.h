@@ -171,6 +171,9 @@ class ReplayTransformations : public IterVisitor {
 // nodes we may have after the forwarding process is finished. Leaf nodes are
 // only important for replayCasP, so look there to see how this is done. Forward
 // map is used for replayCasP and replayPasC.
+//
+// The producer forwarding map is filled when producer broadcast
+// domains are squeezed.
 class ForwardingInfo {
  public:
   // Map IterDomain* axes that can safely be forwarded to their output.
