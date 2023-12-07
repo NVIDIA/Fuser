@@ -1210,8 +1210,7 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAt1_CUDA) {
   fe.compileFusion(&fusion, {aten_input});
   fe.runFusion({aten_input}, cg_outputs);
 
-  testValidate(
-      &fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionAdvancedComputeAt2_CUDA) {
@@ -1319,8 +1318,7 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAt3_CUDA) {
   fe.compileFusion(&fusion, aten_inputs);
   fe.runFusion(aten_inputs, {cg_output});
 
-  testValidate(
-      &fusion, {cg_output}, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, {cg_output}, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionAdvancedComputeAt4_CUDA) {
@@ -1384,8 +1382,7 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAt4_CUDA) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionAdvancedComputeAt5_CUDA) {
@@ -1421,8 +1418,7 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAt5_CUDA) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionAdvancedComputeAt6_CUDA) {
@@ -1457,8 +1453,7 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAt6_CUDA) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionAdvancedComputeAt7_CUDA) {
@@ -1519,8 +1514,7 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAt7_CUDA) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionAdvancedComputeAt8_CUDA) {
@@ -1576,8 +1570,7 @@ TEST_F(NVFuserTest, FusionAdvancedComputeAt8_CUDA) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionComputeAtMultiConsumers_CUDA) {
@@ -1646,8 +1639,7 @@ TEST_F(NVFuserTest, FusionComputeAtMultiConsumers_CUDA) {
   fe.compileFusion(&fusion, {aten_input});
   fe.runFusion({aten_input}, cg_outputs);
 
-  testValidate(
-      &fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
 }
 
 // Similar to ComputeAtMultiConsumers, but with a common consumer.
@@ -1717,8 +1709,7 @@ TEST_F(NVFuserTest, FusionComputeAtCommonConsumer1_CUDA) {
   fe.compileFusion(&fusion, {aten_input});
   fe.runFusion({aten_input}, cg_outputs);
 
-  testValidate(
-      &fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionComputeAtCommonConsumer2_CUDA) {
@@ -1793,8 +1784,7 @@ TEST_F(NVFuserTest, FusionComputeAtCommonConsumer2_CUDA) {
   fe.compileFusion(&fusion, {aten_input});
   fe.runFusion({aten_input}, {cg_output});
 
-  testValidate(
-      &fusion, {cg_output}, {aten_input}, __LINE__, __FILE__);
+  testValidate(&fusion, {cg_output}, {aten_input}, __LINE__, __FILE__);
 }
 
 // Similar to the above common consumer test but adds an additional
@@ -1875,8 +1865,7 @@ TEST_F(NVFuserTest, FusionComputeAtCommonConsumer3_CUDA) {
   fe.compileFusion(&fusion, {aten_input});
   fe.runFusion({aten_input}, cg_outputs);
 
-  testValidate(
-      &fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
 }
 
 // Similar to ComputeAtCommonConsumer1 but with an addtiona ltensor
@@ -1940,8 +1929,7 @@ TEST_F(NVFuserTest, FusionComputeAtNoCommonConsumer_CUDA) {
   fe.compileFusion(&fusion, {aten_input});
   fe.runFusion({aten_input}, cg_outputs);
 
-  testValidate(
-      &fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
 }
 
 namespace {
@@ -2726,8 +2714,7 @@ TEST_F(NVFuserTest, FusionScalarInputs_CUDA) {
   fe.compileFusion(&fusion, aten_inputs);
   fe.runFusion(aten_inputs, {cg_output});
 
-  testValidate(
-      &fusion, {cg_output}, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, {cg_output}, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionLoopUnroll_CUDA) {
@@ -4053,8 +4040,7 @@ TEST_F(NVFuserTest, FusionBranches_CUDA) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionSimpleBCast1_CUDA) {
@@ -4101,8 +4087,7 @@ TEST_F(NVFuserTest, FusionSimpleBCast1_CUDA) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionSimpleBCast2_CUDA) {
@@ -4154,8 +4139,7 @@ TEST_F(NVFuserTest, FusionSimpleBCast2_CUDA) {
   fe.compileFusion(&fusion, aten_inputs);
   fe.runFusion(aten_inputs, {cg_output});
 
-  testValidate(
-      &fusion, {cg_output}, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, {cg_output}, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionSimpleBCast3_CUDA) {
@@ -4197,8 +4181,7 @@ TEST_F(NVFuserTest, FusionSimpleBCast3_CUDA) {
   fe.compileFusion(&fusion, aten_inputs);
   fe.runFusion(aten_inputs, {cg_output});
 
-  testValidate(
-      &fusion, {cg_output}, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, {cg_output}, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionSimpleBCast4_CUDA) {
@@ -4243,8 +4226,7 @@ TEST_F(NVFuserTest, FusionSimpleBCast4_CUDA) {
   fe.compileFusion(&fusion, aten_inputs);
   fe.runFusion(aten_inputs, {cg_output});
 
-  testValidate(
-      &fusion, {cg_output}, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, {cg_output}, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionSimpleBCast5_CUDA) {
@@ -4284,8 +4266,7 @@ TEST_F(NVFuserTest, FusionSimpleBCast5_CUDA) {
   fe.compileFusion(&fusion, aten_inputs);
   fe.runFusion(aten_inputs, {cg_output});
 
-  testValidate(
-      &fusion, {cg_output}, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, {cg_output}, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionComplexBCast1_CUDA) {
@@ -4337,8 +4318,7 @@ TEST_F(NVFuserTest, FusionComplexBCast1_CUDA) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionComplexBCast2_CUDA) {
@@ -4382,8 +4362,7 @@ TEST_F(NVFuserTest, FusionComplexBCast2_CUDA) {
   fe.compileFusion(&fusion, {t0, t4});
   auto cg_outputs = fe.runFusion({t0, t4});
 
-  testValidate(
-      &fusion, {cg_outputs}, {t0, t4}, __LINE__, __FILE__);
+  testValidate(&fusion, {cg_outputs}, {t0, t4}, __LINE__, __FILE__);
 }
 
 // Test a simple Gemm but also play around with fusion executor features
@@ -5478,8 +5457,7 @@ TEST_F(NVFuserTest, FusionComputeAtExprOrder1_CUDA) {
     fe.compileFusion(&fusion, {aten_input});
     auto cg_outputs = fe.runFusion({aten_input});
 
-    testValidate(
-        &fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
   }
 }
 
@@ -5510,8 +5488,7 @@ TEST_F(NVFuserTest, FusionComputeAtExprOrder2_CUDA) {
   fe.compileFusion(&fusion, {aten_input});
   fe.runFusion({aten_input}, {cg_output});
 
-  testValidate(
-      &fusion, {cg_output}, {aten_input}, __LINE__, __FILE__);
+  testValidate(&fusion, {cg_output}, {aten_input}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionComputeAtExprOrder3_CUDA) {
@@ -5541,8 +5518,7 @@ TEST_F(NVFuserTest, FusionComputeAtExprOrder3_CUDA) {
   fe.compileFusion(&fusion, {aten_input});
   auto cg_outputs = fe.runFusion({aten_input});
 
-  testValidate(
-      &fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionZeroDimComputeAt_CUDA) {
@@ -5565,8 +5541,7 @@ TEST_F(NVFuserTest, FusionZeroDimComputeAt_CUDA) {
   fe.compileFusion(&fusion, {aten_input});
   auto cg_outputs = fe.runFusion({aten_input});
 
-  testValidate(
-      &fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionZeroDimBroadcast_CUDA) {
@@ -5601,8 +5576,7 @@ TEST_F(NVFuserTest, FusionZeroDimBroadcast_CUDA) {
   fe.compileFusion(&fusion, aten_inputs);
   fe.runFusion(aten_inputs, {cg_output});
 
-  testValidate(
-      &fusion, {cg_output}, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, {cg_output}, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionZeroDimReduction_CUDA) {
@@ -5713,8 +5687,7 @@ TEST_F(NVFuserTest, FusionOutputBroadcast_CUDA) {
   fe.compileFusion(&fusion, {aten_input});
   auto cg_outputs = fe.runFusion({aten_input});
 
-  testValidate(
-      &fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionReductionKeepDimBasic_CUDA) {
@@ -5737,8 +5710,7 @@ TEST_F(NVFuserTest, FusionReductionKeepDimBasic_CUDA) {
   fe.compileFusion(&fusion, {aten_input});
   auto cg_outputs = fe.runFusion({aten_input});
 
-  testValidate(
-      &fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionReductionKeepDimScheduler_CUDA) {
@@ -5827,8 +5799,7 @@ TEST_F(NVFuserTest, FusionSumTo_CUDA) {
       cg_outputs[0].dim() == static_cast<int64_t>(sum_to_shape.size()),
       "sum_to not keeping the final dimension");
 
-  testValidate(
-      &fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionSumToNoop_CUDA) {
@@ -5870,8 +5841,7 @@ TEST_F(NVFuserTest, FusionSumToNoop_CUDA) {
       cg_outputs[0].dim() == static_cast<int64_t>(sum_to_shape.size()),
       "sum_to not keeping the final dimension");
 
-  testValidate(
-      &fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionReductionScheduler_CUDA) {
@@ -5972,13 +5942,7 @@ TEST_F(NVFuserTest, FusionReductionWithTrivialReduction_CUDA) {
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto cg_outputs = executor_cache.runFusionWithInputs({aten_input});
 
-    testValidate(
-        &fusion,
-        cg_outputs,
-        {aten_input},
-        __LINE__,
-        __FILE__,
-        "");
+    testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__, "");
   }
 }
 
@@ -6337,8 +6301,7 @@ TEST_F(NVFuserTest, FusionCacheBefore_CUDA) {
   fe.compileFusion(&fusion, {aten_input});
   auto cg_outputs = fe.runFusion({aten_input});
 
-  testValidate(
-      &fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionCacheAfter_CUDA) {
@@ -6374,8 +6337,7 @@ TEST_F(NVFuserTest, FusionCacheAfter_CUDA) {
   fe.compileFusion(&fusion, {aten_input});
   auto cg_outputs = fe.runFusion({aten_input});
 
-  testValidate(
-      &fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionCacheFork_CUDA) {
@@ -6417,12 +6379,7 @@ TEST_F(NVFuserTest, FusionCacheFork_CUDA) {
   fe.compileFusion(&fusion, {aten_input});
   auto cg_outputs = fe.runFusion({aten_input});
 
-  testValidate(
-      &fusion,
-      cg_outputs,
-      {aten_input},
-      __LINE__,
-      __FILE__);
+  testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionCacheIndirect_CUDA) {
@@ -6469,8 +6426,7 @@ TEST_F(NVFuserTest, FusionCacheIndirect_CUDA) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionCacheBcast_CUDA) {
@@ -6526,8 +6482,7 @@ TEST_F(NVFuserTest, FusionCacheBcast_CUDA) {
   fe.compileFusion(&fusion, aten_inputs);
   auto cg_outputs = fe.runFusion(aten_inputs);
 
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionCacheMultiConsumer_CUDA) {
@@ -6564,12 +6519,7 @@ TEST_F(NVFuserTest, FusionCacheMultiConsumer_CUDA) {
   fe.compileFusion(&fusion, {aten_input});
   auto cg_outputs = fe.runFusion({aten_input});
 
-  testValidate(
-      &fusion,
-      cg_outputs,
-      {aten_input},
-      __LINE__,
-      __FILE__);
+  testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionSmem_CUDA) {
@@ -6621,8 +6571,7 @@ TEST_F(NVFuserTest, FusionSmem_CUDA) {
   fe.compileFusion(&fusion, {t0, t1});
   auto cg_outputs = fe.runFusion({t0, t1});
 
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 
   NVF_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 0);
 }
@@ -7097,13 +7046,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
       aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight, aten_bias};
   auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
 
-
-  testValidate(
-      &fusion,
-      cg_outputs,
-      aten_inputs,
-      __LINE__,
-      __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormBackward_CUDA) {
@@ -7169,12 +7112,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormBackward_CUDA) {
       -1,
       true);
 
-  testValidate(
-      &fusion,
-      cg_outputs,
-      aten_inputs,
-      __LINE__,
-      __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
@@ -8179,13 +8117,7 @@ TEST_F(NVFuserTest, FusionSmemDynamicPwiseMulSymbolicArgWAR_CUDA) {
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
   testValidate(
-      &fusion,
-      cg_outputs,
-      aten_inputs,
-      __LINE__,
-      __FILE__,
-      "",
-      lparams);
+      &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__, "", lparams);
 
   NVF_CHECK(fe.kernel()->summary().war_hazard_syncs_count == 1);
 }
