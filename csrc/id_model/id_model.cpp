@@ -7,6 +7,7 @@
 // clang-format on
 #include <id_model/id_model.h>
 #include <id_model/to_string.h>
+#include <id_model/validation_utils.h>
 
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <device_lower/lower2device.h>
@@ -16,6 +17,7 @@
 #include <root_domain_map.h>
 #include <transform_iter.h>
 
+#include <memory>
 #include <tuple>
 #include <typeinfo>
 #include <utility>
@@ -74,7 +76,7 @@ IdModel::IdModel(
   }
 }
 
-IdModel::IdModel(Fusion* fusion, bool allow_self_mapping) {
+IdModel::IdModel(Fusion* fusion, bool allow_self_mapping, bool validate) {
   std::vector<TensorView*> inputs_and_outputs;
   {
     auto inp_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
@@ -87,7 +89,7 @@ IdModel::IdModel(Fusion* fusion, bool allow_self_mapping) {
         inputs_and_outputs.end(), out_tvs.begin(), out_tvs.end());
   }
 
-  build(fusion->exprs(), inputs_and_outputs);
+  build(fusion->exprs(), inputs_and_outputs, validate);
 
   if (!allow_self_mapping) {
     assertNoSelfMapping();
@@ -433,7 +435,8 @@ void IdModel::buildAlmostExactMap() {
 
 void IdModel::build(
     const std::vector<Expr*>& exprs,
-    const std::vector<TensorView*>& additional_tvs) {
+    const std::vector<TensorView*>& additional_tvs,
+    bool validate) {
   // Initialize the required sets as if a permissive relationship is never
   // found, then querying an empty permissive map will fail later.
   // Initialize disjoint sets
@@ -459,6 +462,16 @@ void IdModel::build(
     return;
   }
 
+  std::unique_ptr<IdModelValidator> validator;
+
+  // A ComputeAtMap will be built inside the constructor of
+  // IdModelValidator, which may fail for some fusions that are not
+  // supported currently (but work with IdModel). Make sure the
+  // validator is only created when it is indeed requested
+  if (validate) {
+    validator = std::make_unique<IdModelValidator>(all_tvs.front()->fusion());
+  }
+
   FusionGuard fg(all_tvs.front()->fusion());
   // Add uses and definitions to all iter domains.
   buildIterDomainDefinitionsAndUses(all_tvs.vector());
@@ -468,8 +481,15 @@ void IdModel::build(
   idGraph(IdMappingMode::EXACT) = initializeIdGraph();
 
   buildExactGraph(tv_exprs);
+  if (validate) {
+    validator->checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
+  }
 
   buildAlmostExactMap();
+  if (validate) {
+    validator->checkAlmostExactGraphEquivalence(
+        idGraph(IdMappingMode::ALMOSTEXACT));
+  }
 
   // Make sure there's no self mapping in TensorView's during lowering
   // that would invalidate lowering assumptions.
