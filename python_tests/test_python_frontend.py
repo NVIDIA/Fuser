@@ -28,14 +28,9 @@ from nvfuser import (
     version,
     compute_contiguity,
     compute_tensor_descriptor,
-    serialize as nv_serialize,
 )
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
-# Test automatic serialization to common workplace
-import atexit
-
-atexit.register(nv_serialize)
 
 RUN_NVFUSER = RUN_CUDA and not TEST_WITH_ROCM
 
@@ -52,6 +47,17 @@ def is_pre_ampere():
         return False
     prop = torch.cuda.get_device_properties(torch.cuda.current_device())
     return prop.major < 8
+
+
+def setUpModule():
+    from nvfuser import enable_automatic_serialization
+
+    # Turn on default serialization upon program exit
+    enable_automatic_serialization()
+    # Automatically load common workplace
+    fc = FusionCache.get()
+    # Clear FusionCache because the tests expect a new fusion to be generated.
+    FusionCache.reset()
 
 
 def serde_check(test_fn: Callable):
@@ -2172,7 +2178,9 @@ class TestNvFuserFrontend(TestCase):
                     # First check is here on legel fusions since the second time
                     # through they should already be cached
                     out = self.exec_nvfuser(
-                        partial(check, acts=inp), inp, new_fusion_expected=first_check
+                        partial(check, acts=inp),
+                        inp,
+                        new_fusion_expected=first_check,
                     )
                 else:
                     # When a fusion definition with errors is deserialized, it is recreated, triggering an error.
