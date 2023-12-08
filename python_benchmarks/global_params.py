@@ -47,10 +47,12 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
 
     for dim in dims:
         if dim == 2:
-            batch_range = [2**i for i in range(4, 15)] # {16, 16384}
+            batch_range = [2**i for i in range(4, 15)]  # {16, 16384}
             # max_hidden_size = 4 * d_model_max (max hidden size in feedforward layers)
-            hidden_range = (np.arange(D_MODEL_MIN, 4*D_MODEL_MAX+1, 64)) # (768, 4*18432)
-            inputs.extend([(i, j) for i in batch_range for j in hidden_range])  
+            hidden_range = np.arange(
+                D_MODEL_MIN, 4 * D_MODEL_MAX + 1, 64
+            )  # (768, 4*18432)
+            inputs.extend([(i, j) for i in batch_range for j in hidden_range])
         elif dim == 3:
             dim_range = [2**i for i in range(1, 10)]
             inputs.extend(
@@ -58,35 +60,48 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
             )
         elif dim == 4:
             # TODO: Add spatial_dim = 2.
-            batch_range = [2**i for i in range(6, 10)]  # {64, 512}
-            channel_range = [2**i for i in range(5, 8)]  # {32, 128}
-            spatial_range = [2**i for i in range(2, 7)]  # {4, 64}
+            input_ranges = []
 
-            inputs.extend(
-                [
-                    (i, j, k, l)
-                    for i in batch_range
-                    for j in channel_range
-                    for k in spatial_range
-                    for l in spatial_range
-                ]
-            )
+            batch_range = [2**i for i in range(1, 10)]  # {2, 512}
+            channel_range = [2**i for i in range(1, 8)]  # {2, 128}
+            spatial_range = [2**i for i in range(2, 7)]  # {4, 64}
+            input_ranges.append((batch_range, channel_range, spatial_range))
 
             batch_range = [2**i for i in range(1, 7)]  # {2, 64}
             channel_range = [2**i for i in range(1, 6)]  # {2, 32}
-            spatial_range = [2**i for i in range(2, 9)]  # {4, 256}
+            spatial_range = [128, 256]
+            input_ranges.append((batch_range, channel_range, spatial_range))
+
+            # Resnet/ResNext sizes
+            batch_range = [2**i for i in range(5, 9)]  # {32, 256}
+            channel_range = [2**i for i in range(6, 9)]  # {64, 256}
+            spatial_range = [7 * 2**i for i in range(5)]  # {7, 112}
+            input_ranges.append((batch_range, channel_range, spatial_range))
+
+            for batch_range, channel_range, spatial_range in input_ranges:
+                inputs.extend(
+                    [
+                        (N, C, HW, HW)
+                        for N in batch_range
+                        for C in channel_range
+                        for HW in spatial_range
+                    ]
+                )
 
             inputs.extend(
                 [
-                    (i, j, k, l)
-                    for i in batch_range
-                    for j in channel_range
-                    for k in spatial_range
-                    for l in spatial_range
+                    (N, C, HW, HW)
+                    for N in [128, 256]
+                    for (C, HW) in [
+                        (512, 7),
+                        (512, 14),
+                        (512, 28),
+                        (1024, 7),
+                        (1024, 14),
+                        (2048, 7),
+                    ]
                 ]
             )
-
-        # TODO: Add ResNet/ResNext sizes.
 
         else:
             raise NotImplementedError(
