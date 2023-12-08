@@ -117,5 +117,3 @@ if DEVICE_PROPERTIES["gpu_compute_capability_major"] >= 8:
 
 # Datatypes that will be promoted to Datatype.Float in Fusion Definitions
 PROMOTE_DTYPES = [DataType.BFloat16, DataType.Half]
-
-generate_input_sizes(dims=3)
