@@ -363,9 +363,9 @@ std::string AliasAnalysisResult::toString(const int indent_size) const {
   std::stringstream ss;
   for (const auto& [alias, source_and_layout] : alias_to_source_) {
     const auto& [source, layout] = source_and_layout;
-    indent(ss, indent_size)
-        << alias->toString() << " is an alias of " << source->toString()
-        << " if its layout is " << layout.toString() << std::endl;
+    indent(ss, indent_size) << ir_utils::varName(alias) << " is an alias of "
+                            << ir_utils::varName(source) << " if its layout is "
+                            << layout.toString() << std::endl;
   }
   return ss.str();
 }

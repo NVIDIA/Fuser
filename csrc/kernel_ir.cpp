@@ -96,7 +96,9 @@ TensorIndex::TensorIndex(
       "IR type only valid for Kernel container.");
   NVF_ERROR(
       isPointerType(index->dtype()) || index->dtype() == DataType::Index ||
-          isStructType(index->dtype()),
+          isStructType(index->dtype()) ||
+          index->dtype() ==
+              DataType::UInt /*For matrix descriptor for hopper MMA*/,
       "Cannot index with a value other than an int/pointer/struct.");
 }
 
@@ -295,8 +297,14 @@ const char* getPTXConstraints(Val* value) {
 
 std::vector<std::pair<std::string, Val*>> Asm::constraintsAndOutputs() const {
   std::vector<std::pair<std::string, Val*>> result;
-  std::string prefix = "=";
-  for (auto out : outputs()) {
+  for (auto i : c10::irange((int64_t)(outputs().size()))) {
+    std::string prefix;
+    if (options().readable_outputs.count(i) > 0) {
+      prefix = "+";
+    } else {
+      prefix = "=";
+    }
+    auto out = output(i);
     NVF_ERROR(!out->isConst());
     result.emplace_back(prefix + getPTXConstraints(out), out);
   }
@@ -551,88 +559,105 @@ std::string MBarrierWait::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierWait)
 
-CpAsyncWait::CpAsyncWait(IrBuilderPasskey passkey, int64_t keep_stages)
-    : Expr(passkey) {
-  NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
-      "IR type only valid for Kernel container.");
-  addDataAttribute(keep_stages);
-}
-
-std::string CpAsyncWait::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << "CpAsyncWait(" << keepStages() << ")\n";
-  return ss.str();
-}
-
-std::string CpAsyncWait::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "CpAsyncWait can not be printed inline");
-}
-
-NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncWait)
-
-CpAsyncCommit::CpAsyncCommit(IrBuilderPasskey passkey) : Expr(passkey) {
-  NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
-      "IR type only valid for Kernel container.");
-}
-
-std::string CpAsyncCommit::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << "CpAsyncCommit()\n";
-  return ss.str();
-}
-
-std::string CpAsyncCommit::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "CpAsyncCommit can not be printed inline");
-}
-
-NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncCommit)
-
-CpAsyncBulkS2GWait::CpAsyncBulkS2GWait(
+AsyncWait::AsyncWait(
     IrBuilderPasskey passkey,
+    AsyncOpType async_op_type,
     int64_t keep_stages)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
+  addDataAttribute(async_op_type);
   addDataAttribute(keep_stages);
 }
 
-std::string CpAsyncBulkS2GWait::toString(int indent_size) const {
+std::string AsyncWait::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "CpAsyncBulkS2GWait(" << keepStages() << ")\n";
+  indent(ss, indent_size) << ptx() << " " << keepStages() << "\n";
   return ss.str();
 }
 
-std::string CpAsyncBulkS2GWait::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "CpAsyncBulkS2GWait can not be printed inline");
+std::string AsyncWait::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "AsyncWait can not be printed inline");
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncBulkS2GWait)
+const char* AsyncWait::ptx() const {
+  switch (asyncOpType()) {
+    case AsyncOpType::CpAsync:
+      if (keepStages() == 0) {
+        return "cp.async.wait_all";
+      } else {
+        return "cp.async.wait_group";
+      }
+    case AsyncOpType::CpAsyncBulk:
+      return "cp.async.bulk.wait_group.read";
+    case AsyncOpType::WgMma:
+      return "wgmma.wait_group.sync.aligned";
+    default:
+      NVF_ERROR(false, "Unsupported async op type.");
+  }
+}
 
-CpAsyncBulkS2GCommit::CpAsyncBulkS2GCommit(IrBuilderPasskey passkey)
+bool AsyncWait::memory() const {
+  switch (asyncOpType()) {
+    case AsyncOpType::CpAsync:
+      return false;
+    case AsyncOpType::CpAsyncBulk:
+    case AsyncOpType::WgMma:
+      return true;
+    default:
+      NVF_ERROR(false, "Unsupported async op type.");
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(AsyncWait)
+
+AsyncCommit::AsyncCommit(IrBuilderPasskey passkey, AsyncOpType async_op_type)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
+  addDataAttribute(async_op_type);
 }
 
-std::string CpAsyncBulkS2GCommit::toString(int indent_size) const {
+std::string AsyncCommit::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "CpAsyncBulkS2GCommit()\n";
+  indent(ss, indent_size) << ptx() << ";\n";
   return ss.str();
 }
 
-std::string CpAsyncBulkS2GCommit::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "CpAsyncBulkS2GCommit can not be printed inline");
+std::string AsyncCommit::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "AsyncCommit can not be printed inline");
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(CpAsyncBulkS2GCommit)
+const char* AsyncCommit::ptx() const {
+  switch (asyncOpType()) {
+    case AsyncOpType::CpAsync:
+      return "cp.async.commit_group";
+    case AsyncOpType::CpAsyncBulk:
+      return "cp.async.bulk.commit_group";
+    case AsyncOpType::WgMma:
+      return "wgmma.commit_group.sync.aligned";
+    default:
+      NVF_ERROR(false, "Unsupported async op type.");
+  }
+}
+
+bool AsyncCommit::memory() const {
+  switch (asyncOpType()) {
+    case AsyncOpType::CpAsync:
+    case AsyncOpType::CpAsyncBulk:
+      return false;
+    case AsyncOpType::WgMma:
+      return true;
+    default:
+      NVF_ERROR(false, "Unsupported async op type.");
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(AsyncCommit)
 
 InitMagicZero::InitMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);

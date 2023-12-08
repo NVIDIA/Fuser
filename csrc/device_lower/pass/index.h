@@ -80,10 +80,8 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const kir::GridSync*) final;
   void handle(const kir::MBarrierInit*) final;
   void handle(const kir::MBarrierInvalidate*) final;
-  void handle(const kir::CpAsyncWait*) final;
-  void handle(const kir::CpAsyncCommit*) final;
-  void handle(const kir::CpAsyncBulkS2GWait*) final;
-  void handle(const kir::CpAsyncBulkS2GCommit*) final;
+  void handle(const kir::AsyncWait*) final;
+  void handle(const kir::AsyncCommit*) final;
 
   void generate(const std::vector<Expr*>& exprs);
 
