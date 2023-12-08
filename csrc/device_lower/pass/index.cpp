@@ -611,7 +611,7 @@ void IndexLowering::handleBlockReduction(
   GpuLower::current()->propagateExprInfo(rop, back());
 }
 
-bool IndexLowering::handleSerialGridReduction(
+void IndexLowering::handleSerialGridReduction(
     const ReductionOp* rop,
     Val* out,
     Val* in) {
@@ -648,6 +648,14 @@ bool IndexLowering::handleSerialGridReduction(
   //    reduction pattern matches this one. Otherwise our syncs will be
   //    mismatched, and there is no good way to handle that yet.
   // TODO: implement the conditions above
+  // TODO: Move this comment above to the lowering pass where it's implemented
+
+   TODO: uncomment once this function works again by associating a temporary T
+  // nsorIndex
+  /*
+  const auto out_tv = out->as<kir::TensorIndex>()->view();
+  const auto out_domain = out_tv->domain();
+
   bool is_serial_reduce_candidate = std::none_of(
       out_domain->leaf().begin(), out_domain->leaf().end(), [](IterDomain* id) {
         return id->isReduction() &&
@@ -729,22 +737,22 @@ bool IndexLowering::handleSerialGridReduction(
 
   pushBack(serial_grid_reduction);
   GpuLower::current()->propagateExprInfo(rop, back());
-
-  // TODO: insert syncs here? or need to do in a separate pass afterward?
+  */
 }
 
 void IndexLowering::handleGridReduction(
     const ReductionOp* rop,
     Val* out,
     Val* in) {
+  if (rop->serialGridReductionRequested()) {
+    handleSerialGridReduction(rop, out, in);
+    return;
+  }
+
   const auto out_tv = out->as<kir::TensorIndex>()->view();
   const auto out_domain = out_tv->domain();
 
   NVF_ERROR(out_domain->hasGridReduction());
-
-  if (handleSerialGridReduction(rop, out, in)) {
-    return;
-  }
 
   // If we do a grid reduction we can't have a reduction axis that is not bound
   // to a grid or block dim.
@@ -1927,3 +1935,4 @@ void IndexLowering::handle(const CatOp* cat) {
 }
 
 } // namespace nvfuser
+  
