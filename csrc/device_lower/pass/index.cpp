@@ -650,9 +650,8 @@ void IndexLowering::handleSerialGridReduction(
   // TODO: implement the conditions above
   // TODO: Move this comment above to the lowering pass where it's implemented
 
-TODO:
-  uncomment once this function works again by associating a temporary T
-  // nsorIndex
+  // TODO: uncomment once this function works again by associating a temporary
+  // TensorIndex
   /*
   const auto out_tv = out->as<kir::TensorIndex>()->view();
   const auto out_domain = out_tv->domain();
@@ -1936,4 +1935,3 @@ void IndexLowering::handle(const CatOp* cat) {
 }
 
 } // namespace nvfuser
-  
