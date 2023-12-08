@@ -74,7 +74,7 @@ flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
 
   // -1 corresponds with a nullptr value
   int64_t merge_through_segmented_edge = -1;
-  if (merge_with_ != nullptr) {
+  if (merge_through_ != nullptr) {
     merge_through_segmented_edge = edges_map.at(merge_through_);
   }
 
@@ -147,7 +147,7 @@ void SegmentedGroup::deserialize(
   }
 
   merged_ = buffer->merged();
-  is_fusion_input_ = buffer->merged();
+  is_fusion_input_ = buffer->is_fusion_input();
 }
 
 std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::getNeighborGroups() {
@@ -575,6 +575,9 @@ nvfuser::SegmentedEdge SegmentedFusion::deserialize(
     const std::deque<Val*>& vals) {
   FUSER_PERF_SCOPE("SegmentedEdge::deserialize");
   NVF_ERROR(buffer != nullptr, "serde::SegmentedEdge is nullptr.");
+  NVF_ERROR(
+      !groups_.empty(),
+      "Expected SegmentedGroup to be populated before deserializing SegmentedEdge.");
   return {
       groups_.at(buffer->from_segmented_group()),
       groups_.at(buffer->to_segmented_group()),
@@ -626,7 +629,7 @@ void SegmentedFusion::Impl::cleanUnused() {
 }
 
 //! Return mapping from SegmentedGroup to integer id
-const std::unordered_map<SegmentedGroup*, int64_t> SegmentedFusion::Impl::
+std::unordered_map<SegmentedGroup*, int64_t> SegmentedFusion::Impl::
     deterministic_groups_map() const {
   using GroupPtr = std::unique_ptr<SegmentedGroup>;
   std::unordered_map<SegmentedGroup*, int64_t> group_map;
@@ -642,7 +645,7 @@ const std::unordered_map<SegmentedGroup*, int64_t> SegmentedFusion::Impl::
 }
 
 //! Return mapping from SegmentedEdge to integer id
-const std::unordered_map<SegmentedEdge*, int64_t> SegmentedFusion::Impl::
+std::unordered_map<SegmentedEdge*, int64_t> SegmentedFusion::Impl::
     deterministic_edges_map() const {
   using EdgePtr = std::unique_ptr<SegmentedEdge>;
   std::unordered_map<SegmentedEdge*, int64_t> edge_map;
