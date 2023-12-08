@@ -8,7 +8,7 @@ namespace nvfuser.serde;
 
 // This indicates the flatbuffer compatibility. The number will bump up when a
 // breaking change is applied to the schema.
-file_identifier "NV00";
+file_identifier "NV01";
 
 // =====================================================================================
 // Enum definitions

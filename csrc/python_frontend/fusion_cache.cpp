@@ -577,7 +577,7 @@ void FusionCache::serialize(std::string filename) const {
       device_prop->minor,
       cuda_major,
       cuda_minor);
-  builder.Finish(fusion_cache, "NV00" /* file_identifier */);
+  builder.Finish(fusion_cache, /*file_identifier=*/"NV01");
 
   // 6. Write flatbuffer binary to file
   auto fb = builder.GetBufferSpan();
