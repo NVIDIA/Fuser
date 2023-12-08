@@ -941,6 +941,9 @@ class GroupedReductionOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   //! Number of expressions grouped horizontally. It does not reflect
   //! iteration grouping.
