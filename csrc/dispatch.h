@@ -129,6 +129,8 @@ class MBarrierInvalidate;
 class MBarrierArrive;
 class MBarrierArriveExpectTx;
 class MBarrierWait;
+class BlockSerializeWait;
+class BlockSerializeRelease;
 class AsyncWait;
 class AsyncCommit;
 class ForLoop;
@@ -221,6 +223,8 @@ class OptOutConstDispatch : public PolymorphicBase {
   virtual void handle(const kir::MBarrierArrive*);
   virtual void handle(const kir::MBarrierArriveExpectTx*);
   virtual void handle(const kir::MBarrierWait*);
+  virtual void handle(const kir::BlockSerializeWait*);
+  virtual void handle(const kir::BlockSerializeRelease*);
   virtual void handle(const kir::AsyncWait*);
   virtual void handle(const kir::AsyncCommit*);
   virtual void handle(const kir::InitMagicZero*);
@@ -313,6 +317,8 @@ class OptOutDispatch : public PolymorphicBase {
   virtual void handle(kir::MBarrierArrive* stmt);
   virtual void handle(kir::MBarrierArriveExpectTx* stmt);
   virtual void handle(kir::MBarrierWait* stmt);
+  virtual void handle(kir::BlockSerializeWait* stmt);
+  virtual void handle(kir::BlockSerializeRelease* stmt);
   virtual void handle(kir::AsyncWait* stmt);
   virtual void handle(kir::AsyncCommit* stmt);
   virtual void handle(kir::InitMagicZero* stmt);

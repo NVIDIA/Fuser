@@ -559,6 +559,52 @@ std::string MBarrierWait::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierWait)
 
+BlockSerializeWait::BlockSerializeWait(
+    IrBuilderPasskey passkey,
+    ParallelTypeBitmap sync_dims,
+    Val* sync_buffer)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  addDataAttribute(sync_dims);
+  addAttribute(sync_buffer);
+}
+
+std::string BlockSerializeWait::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "BLOCKSERIALIZEWAIT(" << syncDims().toString()
+                          << ", " << syncBuffer()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string BlockSerializeWait::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Serial reduction pre sync can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(BlockSerializeWait)
+
+BlockSerializeRelease::BlockSerializeRelease(
+    IrBuilderPasskey passkey,
+    ParallelTypeBitmap sync_dims,
+    Val* sync_buffer)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  addDataAttribute(sync_dims);
+  addAttribute(sync_buffer);
+}
+
+std::string BlockSerializeRelease::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "BLOCKSERIALIZERELEASE(" << syncDims().toString()
+                          << ", " << syncBuffer()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string BlockSerializeRelease::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Serial reduction post sync can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(BlockSerializeRelease)
+
 AsyncWait::AsyncWait(
     IrBuilderPasskey passkey,
     AsyncOpType async_op_type,
@@ -1085,7 +1131,8 @@ GridReduction::GridReduction(
     Allocate* sync_buffer,
     Val* entrance_index,
     Val* entrances,
-    bool is_allreduce)
+    bool is_allreduce,
+    TensorIndex* serial_reduction_tensor)
     : ReductionOp(passkey, reduction_op_type, init, out, in, is_allreduce) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
@@ -1100,6 +1147,7 @@ GridReduction::GridReduction(
   addAttribute(entrance_index);
   addAttribute(entrances);
   addDataAttribute(ParallelTypeBitmap{});
+  addAttribute(serial_reduction_tensor);
 }
 
 std::string GridReduction::toString(int indent_size) const {
@@ -1132,6 +1180,13 @@ std::string GridReduction::toString(int indent_size) const {
                           << threadPredicate().toString() << ",\n";
   indent(ss, indent_size) << "allreduce = "
                           << (isAllreduce() ? "true" : "false") << " )\n";
+  indent(ss, indent_size) << "serial reduction = "
+                          << (isSerial() ? "true" : "false") << " )\n";
+  if (isSerial()) {
+    indent(ss, indent_size)
+        << "serial reduction tensor = " << serialReductionTensor()->toString()
+        << " )\n";
+  }
   return ss.str();
 }
 

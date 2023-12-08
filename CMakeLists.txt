@@ -403,6 +403,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
   ${NVFUSER_ROOT}/test/test_optimization_pass.cpp
   ${NVFUSER_ROOT}/test/test_pipeline.cpp
+  ${NVFUSER_ROOT}/test/test_serial_gridreduce.cpp
   ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
   ${NVFUSER_ROOT}/test/test_alias.cpp
   ${NVFUSER_ROOT}/test/test_scalar_hoisting.cpp

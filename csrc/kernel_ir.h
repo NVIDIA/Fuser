@@ -45,6 +45,8 @@ class MBarrierInvalidate;
 class MBarrierArrive;
 class MBarrierArriveExpectTx;
 class MBarrierWait;
+class BlockSerializeWait;
+class BlockSerializeRelease;
 class AsyncWait;
 class AsyncCommit;
 class InitMagicZero;
@@ -519,6 +521,69 @@ class MBarrierWait final : public Expr {
   }
 };
 
+// For all but first block in each reduction segment, first thread waits for
+// sync flag to indicate it is our turn to proceed (sync flag is incremented by
+// BlockSerializeRelease). Then block sync. This has the effect of
+// serializing blocks in each reduction segment. This is a block syncing
+// operation.
+class BlockSerializeWait final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit BlockSerializeWait(
+      IrBuilderPasskey passkey,
+      ParallelTypeBitmap sync_dims,
+      Val* sync_buffer);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "BlockSerializeWait";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  ParallelTypeBitmap syncDims() const {
+    return attribute<ParallelTypeBitmap>(0);
+  }
+
+  Val* syncBuffer() const {
+    return attributeVal(1);
+  }
+};
+
+// This first performs a block sync. For all but last block in the reduction
+// segment, first thread then writes the next segment ID to the sync flag. When
+// used with BlockSerializeWait, this has the effect of serializing blocks in
+// order each reduction segment.
+class BlockSerializeRelease final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit BlockSerializeRelease(
+      IrBuilderPasskey passkey,
+      ParallelTypeBitmap sync_dims,
+      Val* sync_buffer);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "BlockSerializeRelease";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  ParallelTypeBitmap syncDims() const {
+    return attribute<ParallelTypeBitmap>(0);
+  }
+
+  Val* syncBuffer() const {
+    return attributeVal(1);
+  }
+};
+
 // AsyncWait represents wait intrinsics for cp.async, cp.async.bulk and
 // wgmma.mma_async
 class AsyncWait final : public Expr {
@@ -898,7 +963,8 @@ class GridReduction final : public ReductionOp {
       Allocate* sync_buffer,
       Val* entrance_index,
       Val* entrances,
-      bool is_allreduce = false);
+      bool is_allreduce = false,
+      TensorIndex* serial_reduction_tensor = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -936,6 +1002,14 @@ class GridReduction final : public ReductionOp {
 
   ParallelTypeBitmap& threadPredicate() {
     return attribute<ParallelTypeBitmap>(num_reduction_op_attr + 4);
+  }
+
+  TensorIndex* serialReductionTensor() const {
+    return dynamic_cast<TensorIndex*>(attributeVal(num_reduction_op_attr + 5));
+  }
+
+  bool isSerial() const {
+    return serialReductionTensor() != nullptr;
   }
 
   GridReduction* withThreadPredicate(
