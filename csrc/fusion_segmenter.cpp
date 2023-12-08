@@ -46,8 +46,8 @@ std::vector<int64_t> convertPointerToInteger(
 
 flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
     flatbuffers::FlatBufferBuilder& builder,
-    const std::unordered_map<Val*, int64_t>& vals_map,
-    const std::unordered_map<Expr*, int64_t>& exprs_map,
+    const std::unordered_map<Val*, int64_t>& vals_to_id_map,
+    const std::unordered_map<Expr*, int64_t>& exprs_to_id_map,
     const std::unordered_map<SegmentedGroup*, int64_t>& groups_map,
     const std::unordered_map<SegmentedEdge*, int64_t>& edges_map) const {
   FUSER_PERF_SCOPE("SegmentedGroup::serialize");
@@ -58,12 +58,13 @@ flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
       convertPointerToInteger(consumer_edges, edges_map);
 
   std::vector<int64_t> input_vals_fb =
-      convertPointerToInteger(input_vals, vals_map);
+      convertPointerToInteger(input_vals, vals_to_id_map);
 
   std::vector<int64_t> output_vals_fb =
-      convertPointerToInteger(output_vals, vals_map);
+      convertPointerToInteger(output_vals, vals_to_id_map);
 
-  std::vector<int64_t> exprs_fb = convertPointerToInteger(exprs_, exprs_map);
+  std::vector<int64_t> exprs_fb =
+      convertPointerToInteger(exprs_, exprs_to_id_map);
 
   // -1 corresponds with a nullptr value
   int64_t merge_with_segmented_group = -1;
@@ -455,9 +456,9 @@ SegmentedFusion::SegmentedFusion(std::unique_ptr<Fusion> fusion)
 flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   FUSER_PERF_SCOPE("SegmentedFusion::serialize");
-  const std::unordered_map<Val*, int64_t>& vals_map =
+  const std::unordered_map<Val*, int64_t>& vals_to_id_map =
       completeFusion()->deterministic_vals_map();
-  const std::unordered_map<Expr*, int64_t>& exprs_map =
+  const std::unordered_map<Expr*, int64_t>& exprs_to_id_map =
       completeFusion()->deterministic_exprs_map();
   const std::unordered_map<SegmentedGroup*, int64_t>& groups_map =
       impl_.deterministic_groups_map();
@@ -467,20 +468,20 @@ flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
   std::vector<flatbuffers::Offset<serde::SegmentedEdge>> edges_fb;
   edges_fb.reserve(edges_.size());
   for (auto se : edges_) {
-    edges_fb.push_back(serialize(builder, se, vals_map, groups_map));
+    edges_fb.push_back(serialize(builder, se, vals_to_id_map, groups_map));
   }
 
   std::vector<flatbuffers::Offset<serde::SegmentedGroup>> groups_fb;
   groups_fb.reserve(groups_.size());
   for (auto sg : groups_) {
-    groups_fb.push_back(
-        sg->serialize(builder, vals_map, exprs_map, groups_map, edges_map));
+    groups_fb.push_back(sg->serialize(
+        builder, vals_to_id_map, exprs_to_id_map, groups_map, edges_map));
   }
 
   std::vector<int64_t> force_fp16_tv_fb;
   force_fp16_tv_fb.reserve(force_fp16_tv_set_.size());
   for (auto tv : force_fp16_tv_set_) {
-    force_fp16_tv_fb.push_back(vals_map.at(tv));
+    force_fp16_tv_fb.push_back(vals_to_id_map.at(tv));
   }
 
   return serde::CreateSegmentedFusionDirect(
@@ -559,14 +560,14 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
 flatbuffers::Offset<serde::SegmentedEdge> SegmentedFusion::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::SegmentedEdge* edge,
-    const std::unordered_map<Val*, int64_t>& vals_map,
+    const std::unordered_map<Val*, int64_t>& vals_to_id_map,
     const std::unordered_map<SegmentedGroup*, int64_t>& groups_map) const {
   FUSER_PERF_SCOPE("SegmentedEdge::serialize");
   return serde::CreateSegmentedEdge(
       builder,
       groups_map.at(edge->from),
       groups_map.at(edge->to),
-      vals_map.at(edge->val));
+      vals_to_id_map.at(edge->val));
 }
 
 nvfuser::SegmentedEdge SegmentedFusion::deserialize(
