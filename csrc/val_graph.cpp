@@ -776,8 +776,10 @@ void ValGraph::mapExprs(Expr* expr0, Expr* expr1) {
     return;
   }
 
-  const ExprGroup& expr0_orig_group = toGroup(expr0);
-  const ExprGroup& expr1_orig_group = toGroup(expr1);
+  // Note that non-reference copies are required here as they may be
+  // removed by mapEntries
+  const ExprGroup expr0_orig_group = toGroup(expr0);
+  const ExprGroup expr1_orig_group = toGroup(expr1);
 
   disjoint_exprs_.mapEntries(expr0, expr1);
 
