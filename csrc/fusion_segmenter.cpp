@@ -498,6 +498,9 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
   FUSER_PERF_SCOPE("SegmentedFusion::deserialize");
   NVF_ERROR(buffer != nullptr, "serde::SegmentedFusion is nullptr.");
 
+  // NOTE SchedulerEntry::proposeHeuristics can add values and expressions to
+  // the fusion. We relax the constraints here because we already know the
+  // proposed scheduler for each segmented group.
   const std::deque<Val*>& vals = complete_fusion_->deterministic_vals();
   const std::deque<Expr*>& exprs = complete_fusion_->deterministic_exprs();
   NVF_ERROR(
