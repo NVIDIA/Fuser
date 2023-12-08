@@ -467,13 +467,13 @@ flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
 
   std::vector<flatbuffers::Offset<serde::SegmentedEdge>> edges_fb;
   edges_fb.reserve(edges_.size());
-  for (auto se : edges_) {
+  for (SegmentedEdge* se : edges_) {
     edges_fb.push_back(serialize(builder, se, vals_to_id_map, groups_map));
   }
 
   std::vector<flatbuffers::Offset<serde::SegmentedGroup>> groups_fb;
   groups_fb.reserve(groups_.size());
-  for (auto sg : groups_) {
+  for (SegmentedGroup* sg : groups_) {
     groups_fb.push_back(sg->serialize(
         builder, vals_to_id_map, exprs_to_id_map, groups_map, edges_map));
   }

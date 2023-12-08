@@ -87,6 +87,11 @@ struct PairPointerEquals {
 //!  and one for segmented/multi-kernel fusion.
 //! Conceptually this is a generalization of FusionExecutor that supports both
 //!  single-kernel and multi-kernel caching/compiling/launching
+//!
+//! When serde_buffer argument is a nullptr, we run the
+//! SegmentCandidateFinder::segment pass in the constructor and compile the
+//! fusions. When serde_buffer exists, we deserialize the segmented_fusion_ and
+//! executors_ objects from the flatbuffer binary.
 class FusionKernelRuntime {
  public:
   explicit FusionKernelRuntime(

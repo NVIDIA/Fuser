@@ -755,7 +755,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
         std::move(conc_fusion),
         args,
-        nullptr /* serde_buffer */,
+        /*serde_buffer=*/nullptr,
         forced_index_type,
         fusion_id_,
         conc_info_id_map_.at(config),
@@ -1022,7 +1022,10 @@ FusionKernelRuntime::FusionKernelRuntime(
   //  would go directly to kernel launch.
   prepareRuntimeOrder();
 
-  // Restore State from Flatbuffers
+  // This second deserialization step creates and compiles the FusionExecutor
+  // objects, which occurs after all the previous steps. All information is
+  // stored together in the serde_buffer object, but it deserialized in pieces
+  // to follow the order of operations in FusionKernelRuntime.
   if (serde_buffer != nullptr) {
     deserialize(serde_buffer);
   }
