@@ -47,10 +47,8 @@ class MBarrierArriveExpectTx;
 class MBarrierWait;
 class BlockSerializeWait;
 class BlockSerializeRelease;
-class CpAsyncWait;
-class CpAsyncCommit;
-class CpAsyncBulkS2GWait;
-class CpAsyncBulkS2GCommit;
+class AsyncWait;
+class AsyncCommit;
 class InitMagicZero;
 class UpdateMagicZero;
 class ForLoop;
@@ -586,84 +584,67 @@ class BlockSerializeRelease final : public Expr {
   }
 };
 
-// CpAsyncWait represents wait intrinsics for cp.async
-class CpAsyncWait final : public Expr {
+// AsyncWait represents wait intrinsics for cp.async, cp.async.bulk and
+// wgmma.mma_async
+class AsyncWait final : public Expr {
  public:
   using Expr::Expr;
 
-  explicit CpAsyncWait(IrBuilderPasskey passkey, int64_t keep_stages = 0);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    return "CpAsyncWait";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  //! Returns the remaining number of stages that are not synchronized
-  //!  after this op.
-  int64_t keepStages() const {
-    return attribute<int64_t>(0);
-  }
-};
-
-// CpAsyncCommit represents commit intrinsics for cp.async
-//  A commit intrinsic communicates delimiter of transaction groups
-// to the async load hardware. Example usage see [Cicular buffer].
-class CpAsyncCommit final : public Expr {
- public:
-  using Expr::Expr;
-
-  explicit CpAsyncCommit(IrBuilderPasskey passkey);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    return "CpAsyncCommit";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-};
-
-class CpAsyncBulkS2GWait final : public Expr {
- public:
-  using Expr::Expr;
-
-  explicit CpAsyncBulkS2GWait(
+  explicit AsyncWait(
       IrBuilderPasskey passkey,
+      AsyncOpType async_op_type,
       int64_t keep_stages = 0);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "CpAsyncBulkS2GWait";
+    return "AsyncWait";
   }
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
+  const char* ptx() const;
+  bool memory() const;
+
+  AsyncOpType asyncOpType() const {
+    return attribute<AsyncOpType>(0);
+  }
+
+  //! Returns the remaining number of stages that are not synchronized
+  //!  after this op.
   int64_t keepStages() const {
-    return attribute<int64_t>(0);
+    return attribute<int64_t>(1);
   }
 };
 
-class CpAsyncBulkS2GCommit final : public Expr {
+// AsyncCommit represents commit intrinsics for cp.async
+//  A commit intrinsic communicates delimiter of transaction groups
+// to the async load hardware. Example usage see [Cicular buffer].
+class AsyncCommit final : public Expr {
  public:
   using Expr::Expr;
 
-  explicit CpAsyncBulkS2GCommit(IrBuilderPasskey passkey);
+  explicit AsyncCommit(IrBuilderPasskey passkey, AsyncOpType async_op_type);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "CpAsyncBulkS2GCommit";
+    return "AsyncCommit";
   }
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+
+  const char* ptx() const;
+
+  //! Returns if the corresponding PTX needs a `:memory` in the end, this value
+  //! will be used to set AsmOptions::memory when lowering to inline PTX.
+  bool memory() const;
+
+  AsyncOpType asyncOpType() const {
+    return attribute<AsyncOpType>(0);
+  }
 };
 
 // Simply prints "DEFINE_MAGIC_ZERO" in the code in accordance with magic_zero
