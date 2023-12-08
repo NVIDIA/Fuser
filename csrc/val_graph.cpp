@@ -22,35 +22,32 @@ ValGraph::ValGraph(const ValGraph& other)
       disjoint_exprs_(other.disjoint_exprs_),
       unique_definitions_(),
       unique_uses_() {
-  for (const auto& [orig_id_group, orig_expr_groups] :
+  for (const auto& [orig_val_group, orig_expr_groups] :
        other.unique_definitions_) {
-    auto new_id_group = toGroup(orig_id_group->front());
+    auto new_val_group = toGroup(orig_val_group->front());
 
     ExprGroups new_expr_groups;
     for (const ExprGroup& orig_expr_group : orig_expr_groups) {
       new_expr_groups.pushBack(toGroup(orig_expr_group->front()));
     }
 
-    unique_definitions_[new_id_group] = new_expr_groups;
+    unique_definitions_[new_val_group] = new_expr_groups;
   }
 
-  for (const auto& [orig_id_group, orig_expr_groups] : other.unique_uses_) {
-    auto new_id_group = toGroup(orig_id_group->front());
+  for (const auto& [orig_val_group, orig_expr_groups] : other.unique_uses_) {
+    auto new_val_group = toGroup(orig_val_group->front());
 
     ExprGroups new_expr_groups;
     for (const ExprGroup& orig_expr_group : orig_expr_groups) {
       new_expr_groups.pushBack(toGroup(orig_expr_group->front()));
     }
 
-    unique_uses_[new_id_group] = new_expr_groups;
+    NVF_ERROR(
+        unique_uses_.emplace(new_val_group, std::move(new_expr_groups)).second);
   }
 }
 
 ValGraph& ValGraph::operator=(const ValGraph& other) {
-  disjoint_vals_.clear();
-  disjoint_exprs_.clear();
-  unique_definitions_.clear();
-  unique_uses_.clear();
   ValGraph copy(other);
   std::swap(*this, copy);
   return *this;
@@ -61,9 +58,9 @@ bool ValGraph::hasGroup(Expr* expr) const {
   return disjoint_exprs_.mappingExists(expr);
 }
 
-// Return if there's a group entry in the graph for this id
-bool ValGraph::hasGroup(Val* id) const {
-  return disjoint_vals_.mappingExists(id);
+// Return if there's a group entry in the graph for this val
+bool ValGraph::hasGroup(Val* val) const {
+  return disjoint_vals_.mappingExists(val);
 }
 
 const ExprGroup& ValGraph::toGroup(Expr* expr) const {
@@ -75,12 +72,12 @@ const ExprGroup& ValGraph::toGroup(Expr* expr) const {
   return disjoint_set_it->second;
 }
 
-const ValGroup& ValGraph::toGroup(Val* id) const {
-  auto disjoint_set_it = disjoint_vals_.disjointSetMap().find(id);
+const ValGroup& ValGraph::toGroup(Val* val) const {
+  auto disjoint_set_it = disjoint_vals_.disjointSetMap().find(val);
   NVF_ERROR(
       disjoint_set_it != disjoint_vals_.disjointSetMap().end(),
       "\nId group could not be found in graph associated with: ",
-      id->toString(),
+      val->toString(),
       "\n");
   return disjoint_set_it->second;
 }
@@ -93,35 +90,36 @@ ExprGroups ValGraph::toGroups(const VectorOfUniqueEntries<Expr*>& exprs) const {
   return expr_groups;
 }
 
-ValGroups ValGraph::toGroups(const VectorOfUniqueEntries<Val*>& ids) const {
-  ValGroups id_groups;
-  for (auto id : ids) {
-    id_groups.pushBack(toGroup(id));
+ValGroups ValGraph::toGroups(const VectorOfUniqueEntries<Val*>& vals) const {
+  ValGroups val_groups;
+  for (auto val : vals) {
+    val_groups.pushBack(toGroup(val));
   }
-  return id_groups;
+  return val_groups;
 }
 
 std::vector<ValGroup> ValGraph::outputGroups(const ExprGroup& expr) const {
   std::vector<ValGroup> output_groups;
-  for (auto id_output : ir_utils::filterByType<Val>(expr->front()->outputs())) {
-    output_groups.push_back(toGroup(id_output));
+  for (auto output : expr->front()->outputs()) {
+    output_groups.push_back(toGroup(output));
   }
   return output_groups;
 }
 
 std::vector<ValGroup> ValGraph::inputGroups(const ExprGroup& expr) const {
   std::vector<ValGroup> input_groups;
-  for (auto id_input : ir_utils::filterByType<Val>(expr->front()->inputs())) {
-    input_groups.push_back(toGroup(id_input));
+  for (auto input : expr->front()->inputs()) {
+    input_groups.push_back(toGroup(input));
   }
   return input_groups;
 }
 
 ExprGroups ValGraph::allUsesOf(const ValGroups& of) const {
   DequeOfExprGroup to_visit;
-  for (const ValGroup& of_id_group : of) {
-    if (const ExprGroups* uses = getUses(of_id_group); uses) {
-      to_visit.insert(to_visit.end(), uses->begin(), uses->end());
+  for (const ValGroup& of_val_group : of) {
+    if (const ExprGroups* group_uses = getUses(of_val_group);
+        group_uses != nullptr) {
+      to_visit.insert(to_visit.end(), group_uses->begin(), group_uses->end());
     }
   }
 
@@ -130,9 +128,10 @@ ExprGroups ValGraph::allUsesOf(const ValGroups& of) const {
     ExprGroup current_expr = to_visit.front();
     to_visit.pop_front();
     visited.emplace(current_expr);
-    for (const ValGroup& output_id : outputGroups(current_expr)) {
-      if (const ExprGroups* uses = getUses(output_id); uses) {
-        for (const ExprGroup& group_use : *uses) {
+    for (const ValGroup& output_group : outputGroups(current_expr)) {
+      if (const ExprGroups* group_uses = getUses(output_group);
+          group_uses != nullptr) {
+        for (const ExprGroup& group_use : *group_uses) {
           if (visited.count(group_use)) {
             continue;
           }
@@ -555,8 +554,10 @@ void ValGraph::initializeVal(
     def_groups.pushBack(expr_set);
   }
   // TODO-NM: def_groups can be empty. Should it be still mapped?
-  // TODO-NM: Can this be overwritten?
-  NVF_ERROR(unique_definitions_.emplace(val_disjoint_set, def_groups).second);
+  NVF_ERROR(
+      unique_definitions_.emplace(val_disjoint_set, def_groups).second,
+      "Multiple defining groups for ",
+      nvfuser::toString(val_disjoint_set));
 
   ExprGroups use_groups;
   for (auto use : uses) {
@@ -565,8 +566,10 @@ void ValGraph::initializeVal(
     use_groups.pushBack(expr_set);
   }
   // TODO-NM: use_groups can be empty. Should it be still mapped?
-  // TODO-NM: Can this be overwritten?
-  NVF_ERROR(unique_uses_.emplace(val_disjoint_set, use_groups).second);
+  NVF_ERROR(
+      unique_uses_.emplace(val_disjoint_set, use_groups).second,
+      "Multiple use groups for ",
+      nvfuser::toString(val_disjoint_set));
 }
 
 void ValGraph::initializeVal(Val* val) {
@@ -773,18 +776,18 @@ void ValGraph::mapExprs(Expr* expr0, Expr* expr1) {
     return;
   }
 
-  ExprGroup expr0_orig_group = toGroup(expr0);
-  ExprGroup expr1_orig_group = toGroup(expr1);
+  const ExprGroup& expr0_orig_group = toGroup(expr0);
+  const ExprGroup& expr1_orig_group = toGroup(expr1);
 
   disjoint_exprs_.mapEntries(expr0, expr1);
 
-  auto expr_new_group = toGroup(expr0);
+  const ExprGroup& expr_new_group = toGroup(expr0);
 
   // Update unique uses of producers
   ValGroups producers;
   for (auto expr : std::vector<Expr*>{expr0, expr1}) {
-    for (auto input_id : ir_utils::filterByType<Val>(expr->inputs())) {
-      producers.pushBack(toGroup(input_id));
+    for (auto input : expr->inputs()) {
+      producers.pushBack(toGroup(input));
     }
   }
 
@@ -797,8 +800,8 @@ void ValGraph::mapExprs(Expr* expr0, Expr* expr1) {
   // Update unique definitinos of consumers
   ValGroups consumers;
   for (auto expr : std::vector<Expr*>{expr0, expr1}) {
-    for (auto output_id : ir_utils::filterByType<Val>(expr->outputs())) {
-      consumers.pushBack(toGroup(output_id));
+    for (auto output : expr->outputs()) {
+      consumers.pushBack(toGroup(output));
     }
   }
 
@@ -822,12 +825,9 @@ bool ValGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
       propagate_through_exprs_,
       "Asked to propagate expression mappings on a graph that has propagate_exprs_ disabled.");
 
-  auto first_ids =
-      ir_utils::filterByType<Val>(forward ? first->outputs() : first->inputs())
-          .vector();
-  auto second_ids = ir_utils::filterByType<Val>(
-                        forward ? second->outputs() : second->inputs())
-                        .vector();
+  const auto& first_ids = forward ? first->outputs() : first->inputs();
+  const auto& second_ids = forward ? second->outputs() : second->inputs();
+
   NVF_ERROR(
       first_ids.size() == second_ids.size(),
       "This should be unreachable, if transformation expressions match, their number of inputs and outputs should as well.\n However found:\n",
