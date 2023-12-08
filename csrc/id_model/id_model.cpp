@@ -825,7 +825,6 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
       }
     }
   }
-  mapThroughLoopSwizzles(idGraph(IdMappingMode::PERMISSIVE));
 }
 
 // TODO: Reenable after reenabling parallel propagation.
