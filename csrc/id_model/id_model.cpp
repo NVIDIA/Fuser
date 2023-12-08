@@ -794,11 +794,6 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
     auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
 
     for (auto p_tv : tv_inputs) {
-      auto p_ids_vec = ir_utils::allIDsOf(p_tv);
-      auto c_ids_vec = ir_utils::allIDsOf(c_tv);
-      std::unordered_set<IterDomain*> p_ids(p_ids_vec.begin(), p_ids_vec.end());
-      std::unordered_set<IterDomain*> c_ids(c_ids_vec.begin(), c_ids_vec.end());
-
       ForwardingInfo permissive_forwarding(p_tv, c_tv);
       for (auto entry : permissive_forwarding.producer_forwarding_map) {
         idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
