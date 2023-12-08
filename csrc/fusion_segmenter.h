@@ -449,9 +449,8 @@ class SegmentedFusion {
     SegmentedGroup* makeFusionInputGroup();
     SegmentedEdge* makeEdge(SegmentedGroup* from, SegmentedGroup* to, Val* val);
     void cleanUnused();
-    std::unordered_map<SegmentedGroup*, int64_t> deterministic_groups_map()
-        const;
-    std::unordered_map<SegmentedEdge*, int64_t> deterministic_edges_map() const;
+    std::unordered_map<SegmentedGroup*, int64_t> groups_map() const;
+    std::unordered_map<SegmentedEdge*, int64_t> edges_map() const;
 
    private:
     using GroupPtr = std::unique_ptr<SegmentedGroup>;

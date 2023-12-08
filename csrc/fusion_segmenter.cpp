@@ -461,9 +461,9 @@ flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
   const std::unordered_map<Expr*, int64_t>& exprs_to_id_map =
       completeFusion()->deterministic_exprs_map();
   const std::unordered_map<SegmentedGroup*, int64_t>& groups_map =
-      impl_.deterministic_groups_map();
+      impl_.groups_map();
   const std::unordered_map<SegmentedEdge*, int64_t>& edges_map =
-      impl_.deterministic_edges_map();
+      impl_.edges_map();
 
   std::vector<flatbuffers::Offset<serde::SegmentedEdge>> edges_fb;
   edges_fb.reserve(edges_.size());
@@ -629,8 +629,8 @@ void SegmentedFusion::Impl::cleanUnused() {
 }
 
 //! Return mapping from SegmentedGroup to integer id
-std::unordered_map<SegmentedGroup*, int64_t> SegmentedFusion::Impl::
-    deterministic_groups_map() const {
+std::unordered_map<SegmentedGroup*, int64_t> SegmentedFusion::Impl::groups_map()
+    const {
   using GroupPtr = std::unique_ptr<SegmentedGroup>;
   std::unordered_map<SegmentedGroup*, int64_t> group_map;
   int64_t count = 0;
@@ -645,8 +645,8 @@ std::unordered_map<SegmentedGroup*, int64_t> SegmentedFusion::Impl::
 }
 
 //! Return mapping from SegmentedEdge to integer id
-std::unordered_map<SegmentedEdge*, int64_t> SegmentedFusion::Impl::
-    deterministic_edges_map() const {
+std::unordered_map<SegmentedEdge*, int64_t> SegmentedFusion::Impl::edges_map()
+    const {
   using EdgePtr = std::unique_ptr<SegmentedEdge>;
   std::unordered_map<SegmentedEdge*, int64_t> edge_map;
   int64_t count = 0;
