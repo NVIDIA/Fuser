@@ -948,7 +948,7 @@ class IfThenElse final : public Expr {
 //! This node provides FusionExecutor the information it needs to allocate the
 //! reduction and sync buffers.
 class GridReduction final : public ReductionOp {
-  static constexpr int num_reduction_op_attr = 3;
+  static constexpr int num_reduction_op_attr = 4;
 
  public:
   using ReductionOp::ReductionOp;
