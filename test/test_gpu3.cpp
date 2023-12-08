@@ -8729,8 +8729,8 @@ TEST_F(NVFuserTest, Reduction3DWithBroadcast) {
   // error in getReductionSize() which finds the rfactor tensorview which has a
   // partial sum over a dimension whose size is a block dim.
   auto ref = at::sum(t0, {2, 0});
-  ASSERT_TRUE(at::allclose(ref, cg_outputs.at(0)));
-  //testValidate(fusion, cg_outputs, inputs, __LINE__, __FILE__);
+  EXPECT_TRUE(at::allclose(ref, cg_outputs.at(0)));
+  // testValidate(fusion, cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
