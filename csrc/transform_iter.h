@@ -213,15 +213,6 @@ class ForwardingInfo {
  * Note: See ForwardingInfo in transform_iter.cpp for more information on
  * forwarding.
  *
- * Side note potentially for the future: In theory we could actually disconnect
- * T4's view from it's rfactor domain. This would allow rfactor domains to be
- * "reversible". The way this would have to be implemented is that there just
- * needs to be a path of transformations from a tensors leaf domains, to its
- * root domains, and its rfactor domain. It shouldn't really matter if those
- * connections are forward or backward through transformations. The only thing
- * that really matters is they're connected. This is left for future work as it
- * could have significant impact on other parts of the system like how loops are
- * generated and expressions are sorted.
  * Motivation:
  *
  * Consider the following program:
@@ -242,6 +233,16 @@ class ForwardingInfo {
  * transformations (from T4's root domain to T4's rfactor domain), T4 cannot be
  * replayed like T0 on those domains as they would generate incorrect code in
  * the system today.
+ *
+ * Side note potentially for the future: In theory we could actually disconnect
+ * T4's view from it's rfactor domain. This would allow rfactor domains to be
+ * "reversible". The way this would have to be implemented is that there just
+ * needs to be a path of transformations from a tensors leaf domains, to its
+ * root domains, and its rfactor domain. It shouldn't really matter if those
+ * connections are forward or backward through transformations. The only thing
+ * that really matters is they're connected. This is left for future work as it
+ * could have significant impact on other parts of the system like how loops are
+ * generated and expressions are sorted.
  *
  * T0 doesn't have this constraint if we want to replay T0 as T4, so this is
  * directional based on rfactor. Therefore to replay T0 transformations onto T4

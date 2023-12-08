@@ -705,7 +705,7 @@ ForwardingInfo::ForwardingInfo(
         TensorDomain::noReductions(producer->getMaybeRFactorDomain());
     active_tv = producer;
   } else {
-    return;
+    NVF_ERROR(false, "Should not be reachable");
   }
 
   NVF_ERROR(active_root_dom.size() == active_dim_flags->size());
