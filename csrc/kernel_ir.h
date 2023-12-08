@@ -572,6 +572,9 @@ class AsyncCommit final : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   const char* ptx() const;
+
+  //! Returns if the corresponding PTX needs a `:memory` in the end, this value
+  //! will be used to set AsmOptions::memory when lowering to inline PTX.
   bool memory() const;
 
   AsyncOpType asyncOpType() const {

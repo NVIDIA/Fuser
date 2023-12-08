@@ -1008,7 +1008,4 @@ constexpr auto toUnderlying(E e) noexcept {
 
 enum class AsyncOpType { CpAsync, CpAsyncBulk, WgMma };
 
-const char* getAsyncOpCommitPTX(AsyncOpType op_type);
-const char* getAsyncOpWaitPTX(AsyncOpType op_type);
-
 } // namespace nvfuser
