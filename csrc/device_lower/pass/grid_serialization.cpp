@@ -42,8 +42,7 @@ class GridSerializationSyncInserter : kir::ExprMutator {
 
   //! Determine whether a ForLoop is a top-level (in generated kernel) loop
   //! before handling.
-  void handle(kir::ForLoop* loop) final {
-  }
+  void handle(kir::ForLoop* loop) final {}
 
  private:
   //! Which Expr* is the current top-level containing the current Expr in the
@@ -73,7 +72,7 @@ class GridSerializationSyncInserter : kir::ExprMutator {
   //! will likely be run before any IfThenElse are placed in the kernel anyway.
   Expr* cur_top_level_expr_ = nullptr;
 
-  //! If a serial grid reduction is found for the current expr, 
+  //! If a serial grid reduction is found for the current expr,
   std::optional<std::tuple<bool, bool, bool>> current_expr_sync_pattern_ =
       std::nullopt;
 };
