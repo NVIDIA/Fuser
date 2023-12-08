@@ -785,7 +785,7 @@ bool supportInlinePredicate(Expr* expr) {
 bool isScalarExpr(Expr* expr) {
   if (expr->inputs().empty() || expr->outputs().empty()) {
     // For expressions that does not have input/output, they are usually lowered
-    // expressions like CpAsyncWait. We don't consider these as scalar
+    // expressions like AsyncWait. We don't consider these as scalar
     // expressions.
     return false;
   }

@@ -1349,9 +1349,11 @@ void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
           ->withPredicate(ldst->predicate());
   pushBack(new_ldst);
   GpuLower::current()->propagateExprInfo(ldst, back());
-  pushBack(IrBuilder::create<kir::CpAsyncBulkS2GCommit>());
   // Waits on all the prior bulk async-groups to complete.
-  pushBack(IrBuilder::create<kir::CpAsyncBulkS2GWait>(0));
+  // TODO: we should not insert sync here. We should move this to
+  // insertRawThreadSynchronization or insertWarThreadSynchronization.
+  pushBack(IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsyncBulk));
+  pushBack(IrBuilder::create<kir::AsyncWait>(AsyncOpType::CpAsyncBulk, 0));
 }
 
 static DataType getMmaInputAType(MmaMacro macro) {
@@ -1504,6 +1506,13 @@ void IndexLowering::handle(const MmaOp* mma) {
       out, a, b, mma->init(), mma->macro(), mma->layout());
   pushBack(mma_indexed);
   GpuLower::current()->propagateExprInfo(mma, back());
+  if (mma->isHopper()) {
+    // Waits on all the prior bulk async-groups to complete.
+    // TODO: we should not insert sync here. We should move this to
+    // insertRawThreadSynchronization or insertWarThreadSynchronization.
+    pushBack(IrBuilder::create<kir::AsyncCommit>(AsyncOpType::WgMma));
+    pushBack(IrBuilder::create<kir::AsyncWait>(AsyncOpType::WgMma, 0));
+  }
 }
 
 void IndexLowering::handle(const BroadcastOp* bop) {
@@ -1575,24 +1584,14 @@ void IndexLowering::handle(const kir::GridSync* sync) {
   pushBack(const_cast<kir::GridSync*>(sync)); // NOLINT
 }
 
-void IndexLowering::handle(const kir::CpAsyncWait* wait) {
+void IndexLowering::handle(const kir::AsyncWait* wait) {
   // TODO(kir): remove the need for const_cast
-  pushBack(const_cast<kir::CpAsyncWait*>(wait)); // NOLINT
+  pushBack(const_cast<kir::AsyncWait*>(wait)); // NOLINT
 }
 
-void IndexLowering::handle(const kir::CpAsyncCommit* commit) {
+void IndexLowering::handle(const kir::AsyncCommit* commit) {
   // TODO(kir): remove the need for const_cast
-  pushBack(const_cast<kir::CpAsyncCommit*>(commit)); // NOLINT
-}
-
-void IndexLowering::handle(const kir::CpAsyncBulkS2GWait* wait) {
-  // TODO(kir): remove the need for const_cast
-  pushBack(const_cast<kir::CpAsyncBulkS2GWait*>(wait)); // NOLINT
-}
-
-void IndexLowering::handle(const kir::CpAsyncBulkS2GCommit* commit) {
-  // TODO(kir): remove the need for const_cast
-  pushBack(const_cast<kir::CpAsyncBulkS2GCommit*>(commit)); // NOLINT
+  pushBack(const_cast<kir::AsyncCommit*>(commit)); // NOLINT
 }
 
 void IndexLowering::generate(const std::vector<Expr*>& exprs) {
