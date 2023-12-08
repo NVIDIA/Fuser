@@ -122,7 +122,7 @@ class IndexLowering : private OptOutConstDispatch {
   void handleGridReduction(const ReductionOp* rop, Val* out, Val* in);
   //! Called by handleGridReduction, this returns true if rop is lowered as a
   //! serial grid reduction.
-  bool handleSerialGridReduction(const ReductionOp* rop, Val* out, Val* in);
+  void handleSerialGridReduction(const ReductionOp* rop, Val* out, Val* in);
 
   void handleBlockReduction(
       const GroupedReductionOp* rop,
