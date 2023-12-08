@@ -147,10 +147,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeMultipleInput) {
   fe.compileFusion(&fusion, {input0, input1}, lparams);
   auto outputs = fe.runFusion({input0, input1}, lparams);
 
-  auto tv_ref = (input0.transpose(0, 2) + input1.transpose(0, 2)).sin();
-
-  testValidate(
-      &fusion, outputs, {input0, input1}, {tv_ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
 // t0->sin->transpose->t5
@@ -217,16 +214,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeMultipleInputOutput) {
   fe.compileFusion(&fusion, {input0, input1}, lparams);
   auto outputs = fe.runFusion({input0, input1}, lparams);
 
-  auto tv_ref1 = input0.transpose(0, 2).sin();
-  auto tv_ref2 = (input0 + input1).cos();
-
-  testValidate(
-      &fusion,
-      outputs,
-      {input0, input1},
-      {tv_ref1, tv_ref2},
-      __LINE__,
-      __FILE__);
+  testValidate(&fusion, outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
 /*
@@ -256,11 +244,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeMatchingSkipConnection) {
   fe.compileFusion(&fusion, {input}, lparams);
   auto outputs = fe.runFusion({input}, lparams);
 
-  auto tv_ref1 = input.transpose(0, 2).transpose(0, 2) + input;
-  auto tv_ref2 = input.transpose(0, 2).sin();
-
-  testValidate(
-      &fusion, outputs, {input}, {tv_ref1, tv_ref2}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }
 
 // x->transpose--add->z
@@ -288,10 +272,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeBroadcast) {
   fe.compileFusion(&fusion, {input0, input1}, lparams);
   auto outputs = fe.runFusion({input0, input1}, lparams);
 
-  auto tv_ref = input0.transpose(1, 2) + input1.unsqueeze(2);
-
-  testValidate(
-      &fusion, outputs, {input0, input1}, {tv_ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
 // x->broadcast--add->z
@@ -347,10 +328,7 @@ TEST_F(TransposeTest, FusionScheduleBroadcastOnly) {
       fe.compileFusion(&fusion, {input0, input1}, lparams);
       auto outputs = fe.runFusion({input0, input1}, lparams);
 
-      auto tv_ref = input0 + input1;
-
-      testValidate(
-          &fusion, outputs, {input0, input1}, {tv_ref}, __LINE__, __FILE__);
+      testValidate(&fusion, outputs, {input0, input1}, __LINE__, __FILE__);
     }
   }
 }
@@ -420,24 +398,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeComplexDAG1) {
   fe.compileFusion(&fusion, {input0, input1, input2}, lparams);
   auto outputs = fe.runFusion({input0, input1, input2}, lparams);
 
-  auto t3 = input0.transpose(1, 2);
-  auto t4 = input1.transpose(0, 1);
-  auto t5 = input1.sigmoid();
-  auto t6 = input2 + t3;
-  auto t7 = t5.transpose(0, 2);
-  auto t8 = t4 + input0;
-  auto t9 = t8.relu();
-  auto t10 = t6.sin();
-  auto t11 = t6.transpose(0, 1);
-  auto t12 = t7 + t11;
-
-  testValidate(
-      &fusion,
-      outputs,
-      {input0, input1, input2},
-      {t9, t10, t12},
-      __LINE__,
-      __FILE__);
+  testValidate(&fusion, outputs, {input0, input1, input2}, __LINE__, __FILE__);
 }
 
 // mermaid graph:
@@ -618,24 +579,7 @@ TEST_F(TransposeTest, FusionManualScheduleTransposeComplexDAG1) {
   fe.compileFusion(&fusion, {input0, input1, input2});
   auto outputs = fe.runFusion({input0, input1, input2});
 
-  auto t3 = input0.transpose(1, 2);
-  auto t4 = input1.transpose(0, 1);
-  auto t5 = input1.sigmoid();
-  auto t6 = input2 + t3;
-  auto t7 = t5.transpose(0, 2);
-  auto t8 = t4 + input0;
-  auto t9 = t8.relu();
-  auto t10 = t6.sin();
-  auto t11 = t6.transpose(0, 1);
-  auto t12 = t7 + t11;
-
-  testValidate(
-      &fusion,
-      outputs,
-      {input0, input1, input2},
-      {t9, t10, t12},
-      __LINE__,
-      __FILE__);
+  testValidate(&fusion, outputs, {input0, input1, input2}, __LINE__, __FILE__);
 }
 
 // x->view->y
@@ -673,10 +617,7 @@ TEST_F(TransposeTest, FusionTransposeSelfMapping) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
-  auto ref = t0.transpose(0, 1) + t0;
-
-  testValidate(
-      executor_cache.fusion(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 #if 0
@@ -736,13 +677,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeMissingDim) {
   fe.compileFusion(&fusion, {input0, input1, input2}, lparams);
   auto outputs = fe.runFusion({input0, input1, input2}, lparams);
 
-  auto t3 = input2.unsqueeze(0).unsqueeze(-1);
-  auto t4 = input0 - t3;
-  auto t5 = t4 * input1;
-  auto t6 = at::relu(t5);
-
-  testValidate(
-      &fusion, outputs, {input0, input1, input2}, {t6}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {input0, input1, input2}, __LINE__, __FILE__);
 }
 
 // x->sin->transpose->cos->y
@@ -766,9 +701,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmall) {
   fe.compileFusion(&fusion, {input}, lparams);
   auto outputs = fe.runFusion({input}, lparams);
 
-  auto tv_ref = input.sin().transpose(1, 2).cos();
-
-  testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }
 
 // x->sin->transpose->cos->y
@@ -792,9 +725,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize1) {
   fe.compileFusion(&fusion, {input}, lparams);
   auto outputs = fe.runFusion({input}, lparams);
 
-  auto tv_ref = input.sin().transpose(1, 2).cos();
-
-  testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }
 
 // x->sin->transpose->cos->y
@@ -818,9 +749,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize2) {
   fe.compileFusion(&fusion, {input}, lparams);
   auto outputs = fe.runFusion({input}, lparams);
 
-  auto tv_ref = input.sin().transpose(0, 2).cos();
-
-  testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }
 
 // x->sin->transpose->cos->y
@@ -844,9 +773,7 @@ TEST_F(TransposeTest, FusionScheduleTransposeSmallInnerSize3) {
   fe.compileFusion(&fusion, {input}, lparams);
   auto outputs = fe.runFusion({input}, lparams);
 
-  auto tv_ref = input.sin().transpose(4, 7).cos();
-
-  testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }
 
 // x->sin->transpose->cos->y
@@ -874,9 +801,7 @@ TEST_F(TransposeTest, FusionScheduleTranspose2DSmallInnerSize) {
     fe.compileFusion(&fusion, {input}, lparams);
     auto outputs = fe.runFusion({input}, lparams);
 
-    auto tv_ref = input.sin().transpose(0, 1).cos();
-
-    testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
+    testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
   }
 }
 
@@ -1114,9 +1039,7 @@ TEST_F(TransposeTest, FusionTransposeBankConflict9) {
   fe.compileFusion(&fusion);
   auto outputs = fe.runFusion({input});
 
-  auto tv_ref = input.transpose(0, 1);
-
-  testValidate(&fusion, outputs, {input}, {tv_ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
 }
 
 // small transpose dimension with merge and split. See issue #667
@@ -1256,15 +1179,8 @@ TEST_F(TransposeTest, ReshapePermuteTransposeScheduler) {
       "Unexpected heuristic: ",
       heuristic);
 
-  auto at_out = t0.reshape({8, 1024, 16, 64}).transpose(1, 2).transpose(2, 3);
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {at_out},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(
@@ -1305,16 +1221,8 @@ TEST_F(
       "Unexpected heuristic: ",
       heuristic);
 
-  auto at_out = t0.reshape({8, 1024, 16, 64}).transpose(1, 2).transpose(2, 3);
-  auto at_out_add = t0.add(1.0);
-
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      {at_out, at_out_add},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test reshape with small transpose dimension
@@ -1337,9 +1245,6 @@ TEST_F(TransposeTest, FusionReshapeSmallTransposeDimensionSchedule) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   at::Tensor t0 = at::randn({x, y, z, w}, options);
-  auto t1 = at::native::view(t0, {x, y * z, w});
-
-  auto t2 = t1.transpose(0, 2);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   // Collect the heuristic params
@@ -1352,7 +1257,7 @@ TEST_F(TransposeTest, FusionReshapeSmallTransposeDimensionSchedule) {
   NVF_CHECK(executor_cache.getMostRecentExecutorInfo()
                 .params->isA<PointwiseParams>());
 
-  testValidate(&fusion, cg_outputs, {t0}, {t1, t2}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(TransposeTest, ViewTransposeMergedInnermostOnGroupTwo) {

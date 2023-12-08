@@ -96,7 +96,9 @@ TensorIndex::TensorIndex(
       "IR type only valid for Kernel container.");
   NVF_ERROR(
       isPointerType(index->dtype()) || index->dtype() == DataType::Index ||
-          isStructType(index->dtype()),
+          isStructType(index->dtype()) ||
+          index->dtype() ==
+              DataType::UInt /*For matrix descriptor for hopper MMA*/,
       "Cannot index with a value other than an int/pointer/struct.");
 }
 
@@ -295,8 +297,14 @@ const char* getPTXConstraints(Val* value) {
 
 std::vector<std::pair<std::string, Val*>> Asm::constraintsAndOutputs() const {
   std::vector<std::pair<std::string, Val*>> result;
-  std::string prefix = "=";
-  for (auto out : outputs()) {
+  for (auto i : c10::irange((int64_t)(outputs().size()))) {
+    std::string prefix;
+    if (options().readable_outputs.count(i) > 0) {
+      prefix = "+";
+    } else {
+      prefix = "=";
+    }
+    auto out = output(i);
     NVF_ERROR(!out->isConst());
     result.emplace_back(prefix + getPTXConstraints(out), out);
   }

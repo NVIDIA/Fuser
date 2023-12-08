@@ -28,7 +28,7 @@ IdModelValidator::IdModelValidator(Fusion* fusion) : ca_map_(fusion) {
 
 void IdModelValidator::fullyPropagateMappings(
     DisjointSets<IterDomain*>& id_sets) {
-  // This algorithm seems terriblly inefficient but shuldn't matter as
+  // This algorithm seems terriblly inefficient but shouldn't matter as
   // this is just for transitory validations
   while (true) {
     // Grab all pairs of domains to map
@@ -36,7 +36,7 @@ void IdModelValidator::fullyPropagateMappings(
     for (const auto& set : id_sets.disjointSets()) {
       // Propagate both forward and backward
       for (bool is_forward : {true, false}) {
-        // Grab all use exprs of this ID set
+        // Grab all use/definition exprs of this ID set
         std::vector<Expr*> all_exprs;
         for (auto id : *set) {
           // In the case of forward propagation, the uses() exprs may

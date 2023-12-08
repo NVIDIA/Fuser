@@ -92,6 +92,9 @@ class IdModel : public PolymorphicBase {
   // Same as the above constructor with fusion->exprs() excpet fusion may have
   // some dangling inputs/outputs that are expected to have IterDomain entries
   // even though there's no possible connections from them.
+  //
+  // The validate parameter is a temporary option during the
+  // transition from the current ComputeAtMap.
   IdModel(
       Fusion* fusion,
       bool allow_self_mapping = false,
