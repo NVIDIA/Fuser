@@ -150,7 +150,7 @@ __device__ void sync(
   block_sync::sync<Aligned>();
 }
 
-// Non-blocking function to acquire the semaphore value in each calling thread
+// Non-blocking function to read the semaphore value in each calling thread
 __device__ int64_t semaphoreFetch(int64_t* semaphore) {
   int64_t state;
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 700
@@ -163,7 +163,7 @@ __device__ int64_t semaphoreFetch(int64_t* semaphore) {
   return state;
 }
 
-// Sync block then set semaphore to new_value
+// Non-blocking function to set semaphore to new_value
 __device__ void semaphoreRelease(int64_t* semaphore, int64_t new_value) {
   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 700
@@ -198,7 +198,8 @@ __device__ void semaphoreWait(int64_t* semaphore, int64_t trigger_value) {
 
 // Serialize blocks in segments indicated by the [XYZ]_BLOCK template arguments.
 // This should be called at the beginning of the section to be serialized.
-// Assumes semaphore is initialized to zero
+// Assumes semaphore is initialized to zero. This function always synchronizes
+// the thread block.
 template <bool X_BLOCK, bool Y_BLOCK, bool Z_BLOCK>
 __device__ void blockSerializeWait(int64_t* semaphore) {
   int segment_size =
@@ -215,7 +216,8 @@ __device__ void blockSerializeWait(int64_t* semaphore) {
 // Serialize blocks in segments indicated by the [XYZ]_BLOCK template arguments.
 // This should be called at the end of the section to be serialized.
 // This function always cleans up the semaphore; i.e. the last block writes the
-// value 0 to the semaphore when complete.
+// value 0 to the semaphore when complete. This function always synchronizes
+// the thread block.
 template <bool X_BLOCK, bool Y_BLOCK, bool Z_BLOCK>
 __device__ void blockSerializeRelease(int64_t* semaphore) {
   int segment_size =

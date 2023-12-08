@@ -555,11 +555,10 @@ class BlockSerializeWait final : public Expr {
   }
 };
 
-// For all but last block in the reduction segment, first thread writes the
-// next segment ID to the sync flag. Then block sync except for the last block
-// in each segment. This has the effect of serializing blocks in each reduction
-// segment. This is a block syncing operation for all blocks except the last
-// block in each segment.
+// This first performs a block sync. For all but last block in the reduction
+// segment, first thread then writes the next segment ID to the sync flag. When
+// used with BlockSerializeWait, this has the effect of serializing blocks in
+// order each reduction segment.
 class BlockSerializeRelease final : public Expr {
  public:
   using Expr::Expr;
