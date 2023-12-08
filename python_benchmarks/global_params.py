@@ -9,12 +9,15 @@ import numpy as np
 # Input sequence length
 SEQ_LENGTH_MIN = 1024
 SEQ_LENGTH_MAX = 16384
-SEQ_LENGTH = [1024, 2048, 4096, 16384]
-# Embedding size: d_model, d_ff = 4*d_model
+# Maximum sequence lengths in LLMs.
+SEQ_LENGTHS = [1024, 2048, 4096, 16384]
+
+# Embedding size: d_model, d_ff = 4 * d_model
 D_MODEL_MIN = 768
 D_MODEL_MAX = 18432
+
 # Actual d_model sizes seen in models.
-D_MODEL = [
+D_MODEL_SIZES = [
     768,
     1024,
     1280,
@@ -30,7 +33,6 @@ D_MODEL = [
     12288,
     18432,
 ]
-D_FF = [4 * i for i in D_MODEL]
 
 # Number of heads: n_head
 N_HEAD_MIN = 12
@@ -44,20 +46,15 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
         dims = [dims]
 
     for dim in dims:
-        # TODO: Add sizes < 16 and > 1048576.
         if dim == 2:
-            range_outer = [2**i for i in range(4, 9)]  # {16, 256}
-            range_inner = [32 * 1024 * 2**i for i in range(6)]  # {32768, 1048576}
-            inputs.extend([(i, j) for i in range_outer for j in range_inner])
-            inputs.extend([(j, i) for i in range_outer for j in range_inner])
+            batch_range = [2**i for i in range(4, 15)] # {16, 16384}
+            # max_hidden_size = 4 * d_model_max (max hidden size in feedforward layers)
+            hidden_range = (np.arange(D_MODEL_MIN, 4*D_MODEL_MAX+1, 64)) # (768, 4*18432)
+            inputs.extend([(i, j) for i in batch_range for j in hidden_range])  
         elif dim == 3:
-            # Limiting batch size to avoid OOM
-            batch_range = [16]
-            # Note: The granularity for sequence length and embedding size will vary for weekly vs nightly CI runs.
-            embd_range = np.concatenate((D_MODEL, D_FF))
-
+            dim_range = [2**i for i in range(1, 10)]
             inputs.extend(
-                [(i, j, k) for i in batch_range for j in SEQ_LENGTH for k in embd_range]
+                [(i, j, k) for i in dim_range for j in dim_range for k in dim_range]
             )
         elif dim == 4:
             # TODO: Add spatial_dim = 2.
