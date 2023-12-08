@@ -153,28 +153,22 @@ __device__ void sync(
 // Non-blocking function to read the semaphore value in each calling thread
 __device__ int64_t semaphoreFetch(int64_t* semaphore) {
   int64_t state;
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 700
+  // NOTE: acquire/release operations require sm_70 or higher
+  // https://docs.nvidia.com/cuda/archive/12.3.0/parallel-thread-execution/index.html#scopes-and-applicability
   asm volatile("ld.global.acquire.gpu.b64 %0, [%1];\n"
                : "=l"(state)
                : "l"(semaphore));
-#else
-  asm volatile("ld.global.cg.b64 %0, [%1];\n" : "=l"(state) : "l"(semaphore));
-#endif
   return state;
 }
 
 // Non-blocking function to set semaphore to new_value
 __device__ void semaphoreRelease(int64_t* semaphore, int64_t new_value) {
   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 700
+    // NOTE: acquire/release operations require sm_70 or higher
+    // https://docs.nvidia.com/cuda/archive/12.3.0/parallel-thread-execution/index.html#scopes-and-applicability
     asm volatile("st.global.release.gpu.b64 [%0], %1;\n"
                  :
                  : "l"(semaphore), "l"(new_value));
-#else
-    asm volatile("st.global.cg.b64 [%0], %1;\n"
-                 :
-                 : "l"(semaphore), "l"(new_value));
-#endif
   }
 }
 
