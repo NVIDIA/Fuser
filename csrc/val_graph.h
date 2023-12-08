@@ -178,14 +178,6 @@ class ValGraph {
   // Returns true if expressions were mapped through.
   bool mapThroughExpr(Expr* first, Expr* second, bool forward);
 
-  DisjointSets<Val*>& disjointValSets() {
-    return disjoint_vals_;
-  }
-
-  DisjointSets<Expr*>& disjointExprSets() {
-    return disjoint_exprs_;
-  }
-
  private:
   // If propagate_through_exprs_ = false, then mapThroughExpr will not be called
   // as a consequence of calling mapVals. As well as mapThroughExpr will not be
