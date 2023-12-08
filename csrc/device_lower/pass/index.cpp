@@ -650,7 +650,8 @@ void IndexLowering::handleSerialGridReduction(
   // TODO: implement the conditions above
   // TODO: Move this comment above to the lowering pass where it's implemented
 
-   TODO: uncomment once this function works again by associating a temporary T
+TODO:
+  uncomment once this function works again by associating a temporary T
   // nsorIndex
   /*
   const auto out_tv = out->as<kir::TensorIndex>()->view();
