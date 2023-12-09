@@ -31,14 +31,35 @@ using GroupSet = VectorOfUniqueEntries<SegmentedGroup*>;
 template <typename ContainerT, typename T>
 std::vector<int64_t> convertPointerToInteger(
     const ContainerT& container,
-    const std::unordered_map<T*, int64_t>& map) {
+    const std::unordered_map<T, int64_t>& map) {
   std::vector<int64_t> result;
   result.reserve(container.size());
   std::transform(
       container.begin(),
       container.end(),
       std::back_inserter(result),
-      [&](T* pointer) { return map.at(pointer); });
+      [&](T pointer) { return map.at(pointer); });
+  return result;
+}
+
+template <
+    typename T,
+    typename AllocT,
+    typename K,
+    template <class, class>
+    class ContainerT,
+    template <class>
+    class ContainerK>
+std::vector<T> convertIntegerToPointer(
+    const ContainerT<T, AllocT>& all_pointers,
+    const ContainerK<K>* indicies) {
+  std::vector<T> result;
+  result.reserve(indicies->size());
+  std::transform(
+      indicies->begin(),
+      indicies->end(),
+      std::back_inserter(result),
+      [&](int64_t index) { return all_pointers.at(index); });
   return result;
 }
 
@@ -104,34 +125,19 @@ void SegmentedGroup::deserialize(
   FUSER_PERF_SCOPE("SegmentedGroup::deserialize");
   NVF_ERROR(buffer != nullptr, "serde::SegmentedGroup is nullptr.");
 
-  producer_edges.reserve(buffer->producer_edges()->size());
-  for (auto idx : *buffer->producer_edges()) {
-    producer_edges.push_back(edges.at(idx));
-  }
+  producer_edges = convertIntegerToPointer(edges, buffer->producer_edges());
 
-  consumer_edges.reserve(buffer->consumer_edges()->size());
-  for (auto idx : *buffer->consumer_edges()) {
-    consumer_edges.push_back(edges.at(idx));
-  }
+  consumer_edges = convertIntegerToPointer(edges, buffer->consumer_edges());
 
-  input_vals.reserve(buffer->input_vals()->size());
-  for (auto idx : *buffer->input_vals()) {
-    input_vals.push_back(vals.at(idx));
-  }
+  input_vals = convertIntegerToPointer(vals, buffer->input_vals());
 
-  output_vals.reserve(buffer->output_vals()->size());
-  for (auto idx : *buffer->output_vals()) {
-    output_vals.push_back(vals.at(idx));
-  }
+  output_vals = convertIntegerToPointer(vals, buffer->output_vals());
 
   group_id_ = buffer->group_id();
 
   heuristic_ = static_cast<ScheduleHeuristic>(buffer->heuristic());
 
-  exprs_.reserve(buffer->exprs()->size());
-  for (auto idx : *buffer->exprs()) {
-    exprs_.push_back(exprs.at(idx));
-  }
+  exprs_ = convertIntegerToPointer(exprs, buffer->exprs());
 
   level_ = buffer->level();
   visited_ = buffer->visited();
