@@ -159,9 +159,9 @@ INSTANTIATE_TEST_SUITE_P(
 class HopperBase : public NVFuserTest {
  protected:
   void SetUp() override {
-    if (cudaArchGuardShouldSkip(9, 0)) {
-      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
-    }
+    // if (cudaArchGuardShouldSkip(9, 0)) {
+    //   GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    // }
     NVFuserTest::SetUp();
   }
 };
@@ -241,10 +241,6 @@ class HopperRS : public HopperBase,
 
     if (swizzle_b == MmaInputSmemSwizzle::B64) {
       GTEST_SKIP() << "64B swizzle not supported yet";
-    }
-
-    if (swizzle_b == MmaInputSmemSwizzle::B32) {
-      GTEST_SKIP() << "32B swizzle not supported yet";
     }
   }
 };
