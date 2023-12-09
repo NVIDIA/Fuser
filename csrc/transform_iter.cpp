@@ -18,7 +18,8 @@ namespace nvfuser {
 
 // Transform dispatch
 void ReplayTransformations::dispatch(Expr* e) {
-  auto is_supported_expr = e->isOneOf<Split, Merge, Swizzle2D, Resize>();
+  auto is_supported_expr =
+      e->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>();
   NVF_ERROR(
       is_supported_expr, "Invalid expr type found in transform traversal.");
   IterVisitor::dispatch(e);
@@ -129,6 +130,53 @@ void ReplayTransformations::handle(Merge* m) {
 
   // Update our ID map with the replayed output
   id_map_[m->out()] = out;
+}
+
+void ReplayTransformations::handle(Swizzle* swizzle) {
+  // Grab our input to the split node
+  auto id_in_x = swizzle->inX();
+  auto id_in_y = swizzle->inY();
+
+  // Make sure we have a corresponding entry in our map pointing to the ID we're
+  // going to replay the swizzle on
+  auto it_x = id_map_.find(id_in_x);
+  auto it_y = id_map_.find(id_in_y);
+
+  if (it_x == id_map_.end() || it_y == id_map_.end()) {
+    if (error_on_failure_) {
+      NVF_ERROR(false, "Transform traversal failed, dependencies not met.");
+    } else {
+      return;
+    }
+  }
+
+  auto mapped_x = it_x->second;
+  auto mapped_y = it_y->second;
+
+  // Make sure this ID is a leaf ID (meaning it has no uses we generated)
+  NVF_ERROR(
+      leaf_ids_.find(mapped_x) != leaf_ids_.end() &&
+          leaf_ids_.find(mapped_y) != leaf_ids_.end(),
+      "Transform traversal failed, modified a node but it was not a leaf node.");
+
+  auto outs = std::make_pair(mapped_x, mapped_y);
+
+  if (replay_swizzle_) {
+    // Replay the swizzle onto mapped
+    outs = IterDomain::swizzle(swizzle->swizzleType(), mapped_x, mapped_y);
+
+    // Remove mapped from the leaf IDs
+    leaf_ids_.erase(mapped_x);
+    leaf_ids_.erase(mapped_y);
+  }
+
+  // Add outputs to leaf IDs
+  leaf_ids_[outs.first] = newCounter();
+  leaf_ids_[outs.second] = newCounter();
+
+  // Update our ID map to include these outputs
+  id_map_[swizzle->outX()] = outs.first;
+  id_map_[swizzle->outY()] = outs.second;
 }
 
 void ReplayTransformations::handle(Swizzle2D* swizzle_2d) {
