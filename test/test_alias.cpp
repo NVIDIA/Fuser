@@ -46,7 +46,7 @@ TEST_F(AliasAnalysisTest, View_SymbolicTensor) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
+  EXPECT_EQ(alias_analysis.getAliasedInput(out), in);
 }
 
 TEST_F(AliasAnalysisTest, ChainOfViews) {
@@ -65,7 +65,7 @@ TEST_F(AliasAnalysisTest, ChainOfViews) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
+  EXPECT_EQ(alias_analysis.getAliasedInput(out), in);
 }
 
 TEST_F(AliasAnalysisTest, View_Contiguous) {
@@ -82,7 +82,7 @@ TEST_F(AliasAnalysisTest, View_Contiguous) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
+  EXPECT_EQ(alias_analysis.getAliasedInput(out), in);
   optimization::Layout preferred_layout = alias_analysis.preferredLayout(out);
   EXPECT_THAT(
       preferred_layout.allocation_domain,
@@ -108,7 +108,7 @@ TEST_F(AliasAnalysisTest, View_MergeNonContiguous) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), nullptr);
+  EXPECT_EQ(alias_analysis.getAliasedInput(out), nullptr);
 }
 
 TEST_F(AliasAnalysisTest, Set) {
@@ -124,7 +124,7 @@ TEST_F(AliasAnalysisTest, Set) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
+  EXPECT_EQ(alias_analysis.getAliasedInput(out), in);
 
   const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
   EXPECT_THAT(
@@ -145,7 +145,7 @@ TEST_F(AliasAnalysisTest, Permute) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
+  EXPECT_EQ(alias_analysis.getAliasedInput(out), in);
 
   const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
   EXPECT_THAT(
@@ -174,7 +174,7 @@ TEST_F(AliasAnalysisTest, View_SplitExpandedBroadcast) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), nullptr);
+  EXPECT_EQ(alias_analysis.getAliasedInput(out), nullptr);
 }
 
 TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
@@ -194,7 +194,7 @@ TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
+  EXPECT_EQ(alias_analysis.getAliasedInput(out), in);
 
   // Verify the last dimension isn't expanded physically.
   FusionExecutor fe;
@@ -223,7 +223,7 @@ TEST_F(AliasAnalysisTest, View_MergeExpandedBroadcast) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), nullptr);
+  EXPECT_EQ(alias_analysis.getAliasedInput(out), nullptr);
 }
 
 TEST_F(AliasAnalysisTest, TrivialSlice) {
@@ -238,7 +238,7 @@ TEST_F(AliasAnalysisTest, TrivialSlice) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
+  EXPECT_EQ(alias_analysis.getAliasedInput(out), in);
 }
 
 TEST_F(AliasAnalysisTest, MergeTriviallySlicedDimensions) {
@@ -253,7 +253,7 @@ TEST_F(AliasAnalysisTest, MergeTriviallySlicedDimensions) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), in);
+  EXPECT_EQ(alias_analysis.getAliasedInput(out), in);
 }
 
 TEST_F(AliasAnalysisTest, MergeSlicedDimensions) {
@@ -268,7 +268,7 @@ TEST_F(AliasAnalysisTest, MergeSlicedDimensions) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getRoot(out), nullptr);
+  EXPECT_EQ(alias_analysis.getAliasedInput(out), nullptr);
 }
 
 using AliasTest = NVFuserTest;

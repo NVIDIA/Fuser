@@ -22,7 +22,7 @@ void MarkAliasPass::runPass(Fusion* fusion) {
 
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    const Val* in = analysis.getRoot(out);
+    const Val* in = analysis.getAliasedInput(out);
     if (in == nullptr) {
       continue;
     }

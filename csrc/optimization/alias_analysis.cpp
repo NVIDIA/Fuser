@@ -365,7 +365,7 @@ const Val* AliasAnalysisResult::findRoot(const Val* alias) const {
   return root;
 }
 
-const TensorView* AliasAnalysisResult::getRoot(
+const TensorView* AliasAnalysisResult::getAliasedInput(
     const TensorView* fusion_out) const {
   const auto i = out_to_root_.find(fusion_out);
   return i == out_to_root_.end() ? nullptr : i->second;
