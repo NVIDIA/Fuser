@@ -21,6 +21,17 @@ struct Layout {
   std::string toString(int indent_size = 0) const;
 };
 
+// Holds aliases found in a fusion. The expected user flow is
+//
+// ```
+// AliasAnalysisResult analysis;
+// analysis.add(...);
+// ...
+// analysis.add(...);
+// analysis.finalize(fusion);
+//
+// // The user can now call const methods to retrieve information.
+// ```
 class AliasAnalysisResult {
  public:
   AliasAnalysisResult() = default;
@@ -29,20 +40,25 @@ class AliasAnalysisResult {
   AliasAnalysisResult(AliasAnalysisResult&&) = default;
   AliasAnalysisResult& operator=(AliasAnalysisResult&&) = default;
 
-  // Returns itself if `alias` doesn't alias anything.
-  const Val* findRoot(const Val* alias) const;
+  // Marks `source` as the immediate aliasing source of `alias` and sets the
+  // preferred layout.
+  void add(const TensorView* alias, const TensorView* source, Layout&& layout);
+
+  void finalize(Fusion* fusion);
 
   // Returns the preferred layout. If `alias` is not in `preferred_layout_`,
   // returns the `TensorView`'s initial layout.
   Layout preferredLayout(const Val* alias) const;
 
-  // Marks `source` as the immediate aliasing source of `alias` and sets the
-  // preferred layout.
-  void add(const TensorView* alias, const TensorView* source, Layout&& layout);
-
   std::string toString(int indent_size) const;
 
+  const TensorView* getRoot(const TensorView* fusion_out) const;
+
  private:
+  // Walks up `alias_to_source_` to find the root of the chain. Returns itself
+  // if `alias` doesn't alias anything.
+  const Val* findRoot(const Val* alias) const;
+
   // Maps aliases (e.g. the output of a View) to their direct sources (e.g. the
   // input of the same View). Also stores the preferred output layout for the
   // alias. Consider path compression, a common optimization used in
@@ -50,6 +66,9 @@ class AliasAnalysisResult {
   // alias.
   std::unordered_map<const TensorView*, std::pair<const TensorView*, Layout>>
       alias_to_source_;
+
+  // Maps fusion outputs to their aliased fusion inputs.
+  std::unordered_map<const TensorView*, const TensorView*> out_to_root_;
 };
 
 // Finds aliases of the fusion inputs. The analysis should be conservative --
