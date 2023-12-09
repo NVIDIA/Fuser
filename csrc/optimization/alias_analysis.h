@@ -52,6 +52,8 @@ class AliasAnalysisResult {
 
   std::string toString(int indent_size) const;
 
+  // Gets the root of the aliasing chain of a fusion output. Returns nullptr
+  // when `fusion_out` is not a fusion output or does not alias a fusion input.
   const TensorView* getRoot(const TensorView* fusion_out) const;
 
  private:
@@ -67,7 +69,7 @@ class AliasAnalysisResult {
   std::unordered_map<const TensorView*, std::pair<const TensorView*, Layout>>
       alias_to_source_;
 
-  // Maps fusion outputs to their aliased fusion inputs.
+  // Maps a fusion output to the root of its aliasing chain.
   std::unordered_map<const TensorView*, const TensorView*> out_to_root_;
 };
 
