@@ -19,6 +19,7 @@ struct Layout {
   std::vector<std::optional<bool>> contiguity;
 
   std::string toString(int indent_size = 0) const;
+  bool isCompatibleWith(const Layout& other) const;
 };
 
 // Holds aliases found in a fusion. The expected user flow is

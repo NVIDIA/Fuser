@@ -374,15 +374,15 @@ const TensorView* AliasAnalysisResult::getAliasedInput(
 void AliasAnalysisResult::finalize(Fusion* fusion) {
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    // Lazy move: we could check compatibility and only give up when
-    // the allocation domain is incompatible with what we prefer for
-    // aliasing.
-    if (out->hasAllocation()) {
+    const Val* in = findRoot(out);
+    if (!in->isFusionInput()) {
       continue;
     }
 
-    const Val* in = findRoot(out);
-    if (!in->isFusionInput()) {
+    const Layout preferred_layout = preferredLayout(out);
+    if (out->hasAllocation() &&
+        !preferred_layout.isCompatibleWith(
+            {out->getAllocationDomain(), out->getContiguity()})) {
       continue;
     }
 
@@ -450,6 +450,12 @@ std::string Layout::toString(const int indent_size) const {
                           << toDelimitedString(contiguity, /*delim=*/" ")
                           << "]>";
   return ss.str();
+}
+
+bool Layout::isCompatibleWith(const Layout& other) const {
+  // Most basic for now.
+  return allocation_domain == other.allocation_domain &&
+      contiguity == other.contiguity;
 }
 
 } // namespace nvfuser::optimization
