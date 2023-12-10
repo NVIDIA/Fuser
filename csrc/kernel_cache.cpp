@@ -755,6 +755,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
         std::move(conc_fusion),
         args,
+        /*serde_buffer=*/nullptr,
         forced_index_type,
         fusion_id_,
         conc_info_id_map_.at(config),
@@ -881,7 +882,7 @@ void FusionExecutorCache::deserialize(
       deterministic_conc_info_.emplace_back(config);
     }
 
-    for (auto runtime : *fb_device_runtimes->runtimes()) {
+    for (auto fb_fusion_kernel_runtime : *fb_device_runtimes->runtimes()) {
       auto conc_fusion = std::make_unique<Fusion>(*fusion_);
       FusionGuard fg(conc_fusion.get());
 
@@ -902,7 +903,7 @@ void FusionExecutorCache::deserialize(
 
       // 1. Deserialize arguments for this FusionKernelRuntime
       KernelArgumentHolder args;
-      args.deserialize(runtime->args());
+      args.deserialize(fb_fusion_kernel_runtime->args());
 
       NVF_ERROR(
           (int8_t)fb_device_runtimes->device_id() == args.getDeviceIndex(),
@@ -916,6 +917,7 @@ void FusionExecutorCache::deserialize(
       device_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
           std::move(conc_fusion),
           args,
+          fb_fusion_kernel_runtime,
           std::nullopt,
           fusion_id_,
           fb_device_runtimes->concrete_id(),
@@ -923,7 +925,7 @@ void FusionExecutorCache::deserialize(
 
       // 3. For FusionKernelRuntime, we have a separate deserialize function
       // to create the FusionExecutor objects.
-      device_runtimes.back()->deserialize(runtime);
+      device_runtimes.back()->deserialize(fb_fusion_kernel_runtime);
 
       all_runtimes.emplace_back(device_runtimes.back().get());
     }
@@ -940,6 +942,7 @@ void FusionExecutorCache::deserialize(
 FusionKernelRuntime::FusionKernelRuntime(
     std::unique_ptr<Fusion> fusion,
     const KernelArgumentHolder& args,
+    const serde::FusionKernelRuntime* serde_buffer,
     std::optional<PrimDataType> forced_index_type,
     int64_t fusion_id,
     int64_t concrete_id,
@@ -979,8 +982,34 @@ FusionKernelRuntime::FusionKernelRuntime(
   // Initialize the evaluator simplifer
   precomputed_values_ = std::make_unique<PrecomputedValues>(fusion.get());
 
-  segmented_fusion_ =
-      SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
+  if (serde_buffer == nullptr) {
+    // Default compilation path applies segmentation before scheduling and
+    // compiling the fusion.
+    segmented_fusion_ =
+        SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
+  } else {
+    // Serialization path that generates segmented fusion from flatbuffers.
+    // Convert Welford to two-pass if option is enabled and the original
+    // heuristic is persistent
+    const flatbuffers::Vector<flatbuffers::Offset<serde::SegmentedGroup>>*
+        segmented_groups = serde_buffer->segmented_fusion()->groups();
+    bool has_persistent_heuristic = std::any_of(
+        segmented_groups->begin(),
+        segmented_groups->end(),
+        [](const serde::SegmentedGroup* sg) {
+          auto heuristic = static_cast<ScheduleHeuristic>(sg->heuristic());
+          return heuristic == ScheduleHeuristic::InnerPersistent ||
+              heuristic == ScheduleHeuristic::OuterPersistent ||
+              heuristic == ScheduleHeuristic::InnerOuterPersistent;
+        });
+
+    bool has_welford_ops = ir_utils::hasOpsOfType<WelfordOp>(fusion.get());
+    if (has_welford_ops && has_persistent_heuristic) {
+      SegmentCandidateFinder::translateWelfordInFusion(fusion.get(), args);
+    }
+    segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
+    segmented_fusion_->deserialize(serde_buffer->segmented_fusion());
+  }
 
   heuristics_ = segmented_fusion_->makeInitialHeuristics(args, runtime_info);
 
@@ -1010,13 +1039,19 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
     executors_fb.push_back(executor.serialize(builder));
   }
 
+  flatbuffers::Offset<serde::SegmentedFusion> segmented_fusion_fb = 0;
+  if (segmented_fusion_) {
+    segmented_fusion_fb = segmented_fusion_->serialize(builder);
+  }
+
   return serde::CreateFusionKernelRuntimeDirect(
       builder,
       fusion_id_,
       concrete_id_,
       runtime_id_,
       args_metadata_.serialize(builder),
-      &executors_fb);
+      &executors_fb,
+      segmented_fusion_fb);
 }
 
 void FusionKernelRuntime::deserialize(

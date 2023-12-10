@@ -246,7 +246,7 @@ FusionCache* FusionCache::get(
         // Send warning and delete the incompatible workspace.
         // A new workspace will be saved upon program exit.
         std::cout
-            << "Warning: Failed to deserialize common workspace.\t"
+            << "Warning: Failed to deserialize common workspace.\n"
             << "A new workspace will be saved upon program exit after deleting incompatible workspace."
             << std::endl;
 
@@ -577,7 +577,7 @@ void FusionCache::serialize(std::string filename) const {
       device_prop->minor,
       cuda_major,
       cuda_minor);
-  builder.Finish(fusion_cache, "NV00" /* file_identifier */);
+  builder.Finish(fusion_cache, /*file_identifier=*/"NV01");
 
   // 6. Write flatbuffer binary to file
   auto fb = builder.GetBufferSpan();
