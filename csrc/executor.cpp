@@ -2027,7 +2027,8 @@ flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
     uint8_t* ptx_ptr = nullptr;
     fb_ptx = builder.CreateUninitializedVector(
         compiled_kernel->ptx.size(), &ptx_ptr);
-    std::copy(compiled_kernel->ptx.begin(), compiled_kernel->ptx.end(), ptx_ptr);
+    std::copy(
+        compiled_kernel->ptx.begin(), compiled_kernel->ptx.end(), ptx_ptr);
     fb_ptx_filename = builder.CreateString(compiled_kernel->ptx_filename);
   }
 
