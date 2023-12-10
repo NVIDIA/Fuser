@@ -26,39 +26,20 @@ namespace {
 
 using GroupSet = VectorOfUniqueEntries<SegmentedGroup*>;
 
-// This helper function converts pointer values into a one-to-one integer id.
-// It is used during serialization to define the container's state.
-template <typename T, typename AllocT, template <class, class> class ContainerT>
-std::vector<int64_t> convertPointerToInteger(
-    const ContainerT<T*, AllocT>& container,
-    const std::unordered_map<T*, int64_t>& map) {
-  std::vector<int64_t> result;
-  result.reserve(container.size());
+// This helper function converts selected keys to their corresponding values.
+// During serialization, we map pointers to an integer. For deserialization, we
+// reverse the mapping from integers to pointers.
+template <typename K, typename V, typename ContainerV, typename ContainerK>
+std::vector<V> convertContainer(
+    const ContainerV& all_values,
+    const ContainerK& selected_keys) {
+  std::vector<V> result;
+  result.reserve(selected_keys.size());
   std::transform(
-      container.begin(),
-      container.end(),
+      selected_keys.begin(),
+      selected_keys.end(),
       std::back_inserter(result),
-      [&](T* pointer) { return map.at(pointer); });
-  return result;
-}
-
-template <
-    typename T,
-    typename AllocT,
-    template <class, class>
-    class ContainerT,
-    template <class>
-    class ContainerK>
-std::vector<T*> convertIntegerToPointer(
-    const ContainerT<T*, AllocT>& all_pointers,
-    const ContainerK<int64_t>* indicies) {
-  std::vector<T*> result;
-  result.reserve(indicies->size());
-  std::transform(
-      indicies->begin(),
-      indicies->end(),
-      std::back_inserter(result),
-      [&](int64_t index) { return all_pointers.at(index); });
+      [&](K key) { return all_values.at(key); });
   return result;
 }
 
@@ -72,19 +53,19 @@ flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
     const std::unordered_map<SegmentedEdge*, int64_t>& edges_map) const {
   FUSER_PERF_SCOPE("SegmentedGroup::serialize");
   std::vector<int64_t> producer_edges_fb =
-      convertPointerToInteger(producer_edges, edges_map);
+      convertContainer<SegmentedEdge*, int64_t>(edges_map, producer_edges);
 
   std::vector<int64_t> consumer_edges_fb =
-      convertPointerToInteger(consumer_edges, edges_map);
+      convertContainer<SegmentedEdge*, int64_t>(edges_map, consumer_edges);
 
   std::vector<int64_t> input_vals_fb =
-      convertPointerToInteger(input_vals, vals_to_id_map);
+      convertContainer<Val*, int64_t>(vals_to_id_map, input_vals);
 
   std::vector<int64_t> output_vals_fb =
-      convertPointerToInteger(output_vals, vals_to_id_map);
+      convertContainer<Val*, int64_t>(vals_to_id_map, output_vals);
 
   std::vector<int64_t> exprs_fb =
-      convertPointerToInteger(exprs_, exprs_to_id_map);
+      convertContainer<Expr*, int64_t>(exprs_to_id_map, exprs_);
 
   // -1 corresponds with a nullptr value
   int64_t merge_with_segmented_group = -1;
@@ -124,19 +105,21 @@ void SegmentedGroup::deserialize(
   FUSER_PERF_SCOPE("SegmentedGroup::deserialize");
   NVF_ERROR(buffer != nullptr, "serde::SegmentedGroup is nullptr.");
 
-  producer_edges = convertIntegerToPointer(edges, buffer->producer_edges());
+  producer_edges = convertContainer<int64_t, SegmentedEdge*>(
+      edges, *buffer->producer_edges());
 
-  consumer_edges = convertIntegerToPointer(edges, buffer->consumer_edges());
+  consumer_edges = convertContainer<int64_t, SegmentedEdge*>(
+      edges, *buffer->consumer_edges());
 
-  input_vals = convertIntegerToPointer(vals, buffer->input_vals());
+  input_vals = convertContainer<int64_t, Val*>(vals, *buffer->input_vals());
 
-  output_vals = convertIntegerToPointer(vals, buffer->output_vals());
+  output_vals = convertContainer<int64_t, Val*>(vals, *buffer->output_vals());
 
   group_id_ = buffer->group_id();
 
   heuristic_ = static_cast<ScheduleHeuristic>(buffer->heuristic());
 
-  exprs_ = convertIntegerToPointer(exprs, buffer->exprs());
+  exprs_ = convertContainer<int64_t, Expr*>(exprs, *buffer->exprs());
 
   level_ = buffer->level();
   visited_ = buffer->visited();
