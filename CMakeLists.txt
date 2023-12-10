@@ -413,6 +413,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_iter_visitor.cpp
   ${NVFUSER_ROOT}/test/test_id_model.cpp
   ${NVFUSER_ROOT}/test/test_double_buffering.cpp
+  ${NVFUSER_ROOT}/test/test_segmentation.cpp
 )
 
 if(BUILD_TEST)
