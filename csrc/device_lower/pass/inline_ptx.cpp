@@ -20,55 +20,37 @@ class LowerToInlinePtx : public kir::ExprMutator {
  protected:
   using ExprMutator::handle;
 
-  void handle(kir::CpAsyncCommit* commit) override {
+  void handle(kir::AsyncCommit* commit) override {
     registerReplace(
         commit,
         IrBuilder::create<kir::Asm>(
-            "cp.async.commit_group",
+            commit->ptx(),
             std::vector<Val*>{},
             std::vector<Val*>{},
             kir::Asm::Options{/*volatile=*/true}));
   }
 
-  void handle(kir::CpAsyncWait* wait) override {
-    auto stages = wait->keepStages();
-    Expr* replace = nullptr;
-    if (stages > 0) {
-      replace = IrBuilder::create<kir::Asm>(
-          "cp.async.wait_group",
-          std::vector<Val*>{},
-          std::vector<Val*>{IrBuilder::create<Val>(stages)},
-          kir::Asm::Options{/*volatile=*/true});
+  void handle(kir::AsyncWait* wait) override {
+    if (wait->asyncOpType() == AsyncOpType::CpAsync &&
+        wait->keepStages() == 0) {
+      // cp.async uses wait_all for zero keep stages, other instructions uses a
+      // unified interface for all keep stages.
+      registerReplace(
+          wait,
+          IrBuilder::create<kir::Asm>(
+              wait->ptx(),
+              std::vector<Val*>{},
+              std::vector<Val*>{},
+              kir::Asm::Options{/*volatile=*/true}));
     } else {
-      replace = IrBuilder::create<kir::Asm>(
-          "cp.async.wait_all",
-          std::vector<Val*>{},
-          std::vector<Val*>{},
-          kir::Asm::Options{/*volatile=*/true});
+      registerReplace(
+          wait,
+          IrBuilder::create<kir::Asm>(
+              wait->ptx(),
+              std::vector<Val*>{},
+              std::vector<Val*>{IrBuilder::create<Val>(wait->keepStages())},
+              kir::Asm::Options{/*volatile=*/true, /*memory=*/wait->memory()}));
     }
-
-    registerReplace(wait, replace);
-  }
-
-  void handle(kir::CpAsyncBulkS2GCommit* commit) override {
-    registerReplace(
-        commit,
-        IrBuilder::create<kir::Asm>(
-            "cp.async.bulk.commit_group",
-            std::vector<Val*>{},
-            std::vector<Val*>{},
-            kir::Asm::Options{/*volatile=*/true}));
-  }
-
-  void handle(kir::CpAsyncBulkS2GWait* wait) override {
-    auto stages = wait->keepStages();
-    registerReplace(
-        wait,
-        IrBuilder::create<kir::Asm>(
-            "cp.async.bulk.wait_group.read",
-            std::vector<Val*>{},
-            std::vector<Val*>{IrBuilder::create<Val>(stages)},
-            kir::Asm::Options{/*volatile=*/true, /*memory=*/true}));
   }
 
   void handle(LoadStoreOp* ldst) override {
@@ -264,25 +246,6 @@ class LowerToInlinePtx : public kir::ExprMutator {
                 /*volatile=*/true,
                 /*memory=*/false,
                 /*readable_outputs=*/{0}}));
-
-    // Wait for the MMA to finish
-    // TODO: we should not insert sync here. We should keep the lowerToInlinePtx
-    // pass only do simple translations, instead of inserting syncs. This will
-    // be fixed in a future PR.
-    registerInsertBefore(
-        mma,
-        IrBuilder::create<kir::Asm>(
-            "wgmma.commit_group.sync.aligned",
-            std::vector<Val*>{},
-            std::vector<Val*>{},
-            kir::Asm::Options{/*volatile=*/true, /*memory=*/true}));
-    registerInsertBefore(
-        mma,
-        IrBuilder::create<kir::Asm>(
-            "wgmma.wait_group.sync.aligned",
-            std::vector<Val*>{},
-            std::vector<Val*>{IrBuilder::create<Val>(0)},
-            kir::Asm::Options{/*volatile=*/true, /*memory=*/true}));
     registerRemove(mma);
   }
 

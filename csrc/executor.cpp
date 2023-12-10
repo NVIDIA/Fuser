@@ -974,7 +974,6 @@ at::Tensor allocateOutput(
 std::vector<at::Tensor> allocateOutputs(
     const kir::Kernel* kernel,
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
-    const KernelArgumentHolder& inputs,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
   FUSER_PERF_SCOPE("allocateOutputs");
@@ -1257,8 +1256,7 @@ std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
   auto output_info =
       getOutputBufferInfo(kernel_inputs, expr_eval, kernel()->indexType());
 
-  return allocateOutputs(
-      kernel(), output_info, kernel_inputs, options_.device, expr_eval);
+  return allocateOutputs(kernel(), output_info, options_.device, expr_eval);
 }
 
 std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
@@ -1658,7 +1656,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // only allocate outputs when not given
   if (outputs.empty()) {
     outputs = allocateOutputs(
-        kernel(), executor_entry->outputs, args, options_.device, expr_eval);
+        kernel(), executor_entry->outputs, options_.device, expr_eval);
   } else {
     // TODO: Use validateKernelOutputs
     NVF_ERROR(
