@@ -246,7 +246,7 @@ FusionCache* FusionCache::get(
         // Send warning and delete the incompatible workspace.
         // A new workspace will be saved upon program exit.
         std::cout
-            << "Warning: Failed to deserialize common workspace.\t"
+            << "Warning: Failed to deserialize common workspace.\n"
             << "A new workspace will be saved upon program exit after deleting incompatible workspace."
             << std::endl;
 
