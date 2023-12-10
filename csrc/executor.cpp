@@ -21,6 +21,8 @@
 #include <kernel_ir.h>
 #include <options.h>
 #include <polymorphic_value.h>
+#include <serde/expr_builder.h>
+#include <serde/expr_serializer.h>
 #include <serde/utils.h>
 #include <tensor_metadata.h>
 #include <utils.h>
@@ -215,6 +217,8 @@ void FusionExecutor::debugCompileFusionFromStr(
   lowered_->run();
   const auto kernel = lowered_->kernel();
   fusion_ = lowered_->kernel();
+  kernel_summary_ = kernel->summary();
+
   createKernelId(
       ScheduleHeuristic::None, fusion_id, concrete_id, runtime_id, group_id);
   setUsedTVs();
@@ -223,13 +227,11 @@ void FusionExecutor::debugCompileFusionFromStr(
     kernel->print();
   }
 
-  const auto& kernel_summary = kernel->summary();
-
-  if (!kernel_summary.static_smem_allocations.empty()) {
+  if (!kernel_summary_.static_smem_allocations.empty()) {
     ExpressionEvaluator static_evaluator;
     const auto static_smem_size = computeSharedMemory(
         static_evaluator,
-        kernel_summary.static_smem_allocations,
+        kernel_summary_.static_smem_allocations,
         kernel->indexType());
     NVF_ERROR(
         static_smem_size < max_static_smem_,
@@ -335,6 +337,8 @@ void FusionExecutor::compileFusion(
     hook(kernel);
   }
   fusion_ = lowered_->kernel()->as<Fusion>();
+  kernel_summary_ = kernel->summary();
+
   createKernelId(heuristic, fusion_id, concrete_id, runtime_id, group_id);
   setUsedTVs();
 
@@ -378,26 +382,24 @@ void FusionExecutor::compileFusion(
     structured_code = getStructuredCode();
   }
 
-  const auto& kernel_summary = kernel->summary();
-
   // We currently shouldn't allocate any more shared mem
   //  tensors statically but could keep this path if
   //  needed in later development.
-  if (!kernel_summary.static_smem_allocations.empty()) {
+  if (!kernel_summary_.static_smem_allocations.empty()) {
     ExpressionEvaluator static_evaluator;
     const auto static_smem_size = computeSharedMemory(
         static_evaluator,
-        kernel_summary.static_smem_allocations,
+        kernel_summary_.static_smem_allocations,
         kernel->indexType());
     NVF_ERROR(
         static_smem_size < max_static_smem_,
         "The static shared memory allocation is larger than available memory.");
   }
 
-  if (kernel_summary.has_dynamic_local_memory_allocations) {
+  if (kernel_summary_.has_dynamic_local_memory_allocations) {
     std::stringstream ss;
     ss << "Allocations must be based on constant integers for local memory. However, found: ";
-    for (auto alloc : kernel_summary.dynamic_lmem_allocations) {
+    for (auto alloc : kernel_summary_.dynamic_lmem_allocations) {
       ss << alloc->buffer()->toString() << ", ";
     }
     ss << " have dynamic allocations but are placed in local memory.";
@@ -1157,41 +1159,41 @@ LaunchParams FusionExecutor::computeLaunchParams(
     expr_eval.precomputedValues()->evaluate();
   }
 
-  const auto kernel = lowered_->kernel();
-  const auto& kernel_summary = kernel->summary();
-
   // Calculate Dynamic Shared Memory Size
   // Add workspace for reduction and broadcast
   int64_t reduction_broadcast_workspace = 0;
-  const bool has_workspace = kernel_summary.has_block_reductions ||
-      kernel_summary.has_grid_reductions ||
-      kernel_summary.has_block_broadcasts || kernel_summary.has_grid_broadcasts;
+  const bool has_workspace = kernel_summary_.has_block_reductions ||
+      kernel_summary_.has_grid_reductions ||
+      kernel_summary_.has_block_broadcasts ||
+      kernel_summary_.has_grid_broadcasts;
   if (has_workspace &&
-      kernel_summary.largest_smem_data_type != DataType::Null) {
+      kernel_summary_.largest_smem_data_type != DataType::Null) {
     // Not using nThreads here since it does not handle uninitialized value
 
     // TODO: here is an optimization opportunity since welford uses int64_t for
     // N while the data type is not neccessarily double. But it may need more
     // work on the alignment
     const int welford_factor =
-        kernel_summary.has_block_welford || kernel_summary.has_grid_welford ? 3
-                                                                            : 1;
+        kernel_summary_.has_block_welford || kernel_summary_.has_grid_welford
+        ? 3
+        : 1;
     reduction_broadcast_workspace =
         (int64_t)dataTypeSize(
-            kernel_summary.largest_smem_data_type, index_type) *
+            kernel_summary_.largest_smem_data_type, index_type) *
         welford_factor * launch_params.bdimx() * launch_params.bdimy() *
         launch_params.bdimz();
 
-    if (kernel_summary.has_outer_grouped_grid_welford) {
+    if (kernel_summary_.has_outer_grouped_grid_welford) {
       reduction_broadcast_workspace = std::max(
           reduction_broadcast_workspace,
-          (int64_t)kernel_summary.outer_grouped_grid_welford_largest_smem_size);
+          (int64_t)
+              kernel_summary_.outer_grouped_grid_welford_largest_smem_size);
     }
   }
 
   const auto dynamic_smem_size = computeSharedMemory(
       expr_eval,
-      kernel_summary.dynamic_smem_allocations,
+      kernel_summary_.dynamic_smem_allocations,
       index_type,
       reduction_broadcast_workspace);
 
@@ -1217,9 +1219,8 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
   std::vector<GlobalBufferInfo> global_buffers;
 
   const auto kernel = lowered_->kernel();
-  const auto& kernel_summary = kernel->summary();
 
-  for (auto alloc : kernel_summary.global_allocations) {
+  for (auto alloc : kernel_summary_.global_allocations) {
     NVF_ERROR(
         alloc->buffer()->isA<TensorView>(),
         "Cannot allocate global buffers that are not tensors.");
@@ -1507,7 +1508,7 @@ void FusionExecutor::recompileKernel(
 
   resetCompiledKernelProperties();
 
-  if (kernel()->summary().has_cooperative_grid_reduction) {
+  if (kernel_summary_.has_cooperative_grid_reduction) {
     // We need to increase shared memory before kernel launch, but also before
     // calling into `validateCooperativeLaunch`!
     // So we need to do it there before calling into the validation, to avoid
@@ -1579,6 +1580,31 @@ int64_t FusionExecutor::ensureAvailableDynamicSmemSize(
 void FusionExecutor::resetCompiledKernelProperties() {
   available_dynamic_smem_size_.reset();
   static_smem_size_.reset();
+}
+
+std::vector<Val*> FusionExecutor::getKernelArguments() const {
+  std::vector<Val*> result;
+
+  // Inputs, RNG seed and RNG offset are stored in allKnownVals
+  for (auto val : lowered_->allKnownVals()) {
+    result.emplace_back(val);
+  }
+
+  for (auto val : kernel()->outputs()) {
+    result.emplace_back(val);
+  }
+
+  for (auto alloc : kernel_summary_.global_allocations) {
+    if (alloc->buffer()->isA<TensorView>()) {
+      auto tv = alloc->buffer()->as<TensorView>();
+      if (tv->isFusionOutput()) {
+        continue;
+      }
+      result.emplace_back(tv);
+    }
+  }
+
+  return result;
 }
 
 std::vector<at::Tensor> FusionExecutor::runFusion(
@@ -1703,7 +1729,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       args.push(intermediate_buffer);
       intermediates.push_back(intermediate_buffer);
       expr_eval.bind(
-          kernel()->summary().global_allocations.at(i)->buffer(),
+          kernel_summary_.global_allocations.at(i)->buffer(),
           *args[inputs.size() + outputs.size() + i]);
       if (buf_info.is_profile_buffer) {
         profile_buffer = intermediate_buffer;
@@ -1711,11 +1737,12 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     }
   }
 
+  auto kernel_parameters = getKernelArguments();
   std::vector<std::vector<std::byte>> arg_buffers;
   {
     FUSER_PERF_SCOPE("ExecutorRunFusion::GetArgsBuffers");
-    arg_buffers.reserve(kernel()->parameters().size());
-    for (auto v : kernel()->parameters()) {
+    arg_buffers.reserve(kernel_parameters.size());
+    for (auto v : getKernelArguments()) {
       arg_buffers.emplace_back(
           getKernelArgument(expr_eval, v, kernel()->indexType()));
     }
@@ -1782,7 +1809,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
       timer.start();
     }
 
-    if (!kernel()->summary().has_cooperative_grid_reduction) {
+    if (!kernel_summary_.has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
           compiled_kernel_->function,
@@ -1968,6 +1995,7 @@ float FusionExecutor::runRtc(
 flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
+  FUSER_PERF_SCOPE("Serialize::FusionExecutor");
   using fb_executor_entry = flatbuffers::Offset<serde::ExecutorEntry>;
 
   // Separate unordered_map for executor_entry_lookup into key and value
@@ -1994,12 +2022,14 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
       toUnderlying(kernel()->indexType()),
+      serialize(builder, kernel_summary_),
       serialize(builder, *compiled_kernel_));
 }
 
 flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const executor_utils::CompiledKernel& compiled_kernel) const {
+  FUSER_PERF_SCOPE("Serialize::CompiledKernel");
   NVF_ERROR(
       !compiled_kernel.cubin.empty() || !compiled_kernel.ptx.empty(),
       "Expected compiled cuda kernel before serializing FusionExecutor.");
@@ -2043,6 +2073,7 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const ExecutorEntry& data) const {
   // See table definition for ExecutorEntry in serde/fusion_cache.fbs
+  FUSER_PERF_SCOPE("Serialize::ExecutorEntry");
 
   // Serialize GlobalBufferInfo for outputs.
   // We map the output TensorView pointer to its corresponding position in
@@ -2071,14 +2102,12 @@ flatbuffers::Offset<serde::ExecutorEntry> FusionExecutor::serialize(
       return a->buffer() == buffer_tv;
     };
     auto tv_iter = std::find_if(
-        kernel()->summary().global_allocations.cbegin(),
-        kernel()->summary().global_allocations.cend(),
+        kernel_summary_.global_allocations.cbegin(),
+        kernel_summary_.global_allocations.cend(),
         match_tv_predicate);
-    auto tv_position =
-        (tv_iter == kernel()->summary().global_allocations.cend())
+    auto tv_position = (tv_iter == kernel_summary_.global_allocations.cend())
         ? -1
-        : std::distance(
-              kernel()->summary().global_allocations.cbegin(), tv_iter);
+        : std::distance(kernel_summary_.global_allocations.cbegin(), tv_iter);
     intermediates_fb.push_back(
         serialize(builder, buffer, tv_position, false /* is_fusion_output */));
   }
@@ -2097,6 +2126,7 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
     int64_t tv_position,
     bool is_fusion_output) const {
   // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
+  FUSER_PERF_SCOPE("Serialize::GlobalBufferInfo");
   return serde::CreateGlobalBufferInfoDirect(
       builder,
       tv_position,
@@ -2106,6 +2136,57 @@ flatbuffers::Offset<serde::GlobalBufferInfo> FusionExecutor::serialize(
       data.zero_init,
       data.is_profile_buffer,
       is_fusion_output);
+}
+
+flatbuffers::Offset<serde::KernelSummary> FusionExecutor::serialize(
+    flatbuffers::FlatBufferBuilder& builder,
+    const kir::KernelSummary& summary) const {
+  // See table definition for KernelSummary in serde/fusion_cache.fbs
+  FUSER_PERF_SCOPE("Serialize::KernelSummary");
+
+  std::vector<const kir::Allocate*> all_allocations;
+  all_allocations.insert(
+      all_allocations.end(),
+      kernel_summary_.global_allocations.begin(),
+      kernel_summary_.global_allocations.end());
+  all_allocations.insert(
+      all_allocations.end(),
+      kernel_summary_.dynamic_smem_allocations.begin(),
+      kernel_summary_.dynamic_smem_allocations.end());
+  all_allocations.insert(
+      all_allocations.end(),
+      kernel_summary_.static_smem_allocations.begin(),
+      kernel_summary_.static_smem_allocations.end());
+
+  serde::ExpressionSerializer es(kernel());
+  auto fb_value_generator =
+      es.serializeNaiveValueGenerator(builder, all_allocations);
+  auto fb_global_allocations =
+      es.serializeAllocations(builder, kernel_summary_.global_allocations);
+  auto fb_dynamic_smem_allocations = es.serializeAllocations(
+      builder, kernel_summary_.dynamic_smem_allocations);
+  auto fb_static_smem_allocations =
+      es.serializeAllocations(builder, kernel_summary_.static_smem_allocations);
+
+  return serde::CreateKernelSummaryDirect(
+      builder,
+      summary.has_cooperative_grid_reduction,
+      summary.has_dynamic_local_memory_allocations,
+      summary.has_block_reductions,
+      summary.has_grid_reductions,
+      summary.has_block_broadcasts,
+      summary.has_grid_broadcasts,
+      summary.has_block_welford,
+      summary.has_grid_welford,
+      summary.has_outer_grouped_grid_welford,
+      toUnderlying(std::get<PrimDataType>(summary.largest_smem_data_type.type)),
+      summary.outer_grouped_grid_welford_largest_smem_size,
+      fb_value_generator,
+      (fb_global_allocations.empty()) ? nullptr : &fb_global_allocations,
+      (fb_dynamic_smem_allocations.empty()) ? nullptr
+                                            : &fb_dynamic_smem_allocations,
+      (fb_static_smem_allocations.empty()) ? nullptr
+                                           : &fb_static_smem_allocations);
 }
 
 void FusionExecutor::deserialize(
@@ -2118,6 +2199,7 @@ void FusionExecutor::deserialize(
     int64_t runtime_id,
     int64_t group_id) {
   // See table definition for FusionExecutor in serde/fusion_cache.fbs
+  FUSER_PERF_SCOPE("deserialize::FusionExecutor");
 
   NVF_ERROR(buffer != nullptr, "serde::FusionExecutor is nullptr.");
   NVF_ERROR(
@@ -2146,9 +2228,10 @@ void FusionExecutor::deserialize(
   compile_params.index_type = serde::mapToNvfuserDtype(buffer->index_type());
   compile_params.maxrregcount = maxrregcount_high_water_mark_;
 
-  // Get lowered fusion
+  // Get lowered fusion and then run without any passes to get RNG seed and
+  // offset
   lowered_ = std::make_unique<GpuLower>(fusion, compile_params);
-  lowered_->run();
+  lowered_->run(true /* skip_passes */);
 
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"
   fusion_ = lowered_->kernel()->as<Fusion>();
@@ -2160,7 +2243,11 @@ void FusionExecutor::deserialize(
       buffer->group_id());
   setUsedTVs();
 
-  // GlobalBufferInfo requires lowered kernel before deserialization
+  kernel_summary_ = lowered_->kernel()->summary();
+  deserialize(buffer->summary());
+
+  // GlobalBufferInfo requires lowered kernel and kernel summary before
+  // deserialization
   for (auto idx : c10::irange(buffer->executor_entry_lookup_keys()->size())) {
     executor_entry_lookup_.emplace(
         buffer->executor_entry_lookup_keys()->Get(idx),
@@ -2176,6 +2263,7 @@ void FusionExecutor::deserialize(
 FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
     const serde::ExecutorEntry* buffer) {
   // See table definition for ExecutorEntry in serde/fusion_cache.fbs
+  FUSER_PERF_SCOPE("deserialize::ExecutorEntry");
 
   NVF_ERROR(buffer != nullptr, "serde::ExecutorEntry is nullptr.");
 
@@ -2199,8 +2287,11 @@ FusionExecutor::ExecutorEntry FusionExecutor::deserialize(
 FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
     const serde::GlobalBufferInfo* buffer) {
   // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
+  FUSER_PERF_SCOPE("deserialize::GlobalBufferInfo");
 
   NVF_ERROR(buffer != nullptr, "serde::GlobalBufferInfo is nullptr.");
+  NVF_ERROR(
+      buffer->tv() != -1, "Serialization failed to encode buffer tv position.");
 
   NVF_ERROR(
       buffer->tv() != -1, "Serialization failed to encode buffer tv position.");
@@ -2213,7 +2304,7 @@ FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
     NVF_ERROR(out_val != nullptr);
     info.tv = dynamic_cast<TensorView*>(out_val);
   } else {
-    auto out_val = kernel()->summary().global_allocations.at(buffer->tv());
+    auto out_val = kernel_summary_.global_allocations.at(buffer->tv());
     NVF_ERROR(out_val != nullptr);
     info.tv = dynamic_cast<TensorView*>(out_val->buffer());
   }
@@ -2230,6 +2321,49 @@ FusionExecutor::GlobalBufferInfo FusionExecutor::deserialize(
   info.zero_init = buffer->zero_init();
   info.is_profile_buffer = buffer->is_profile_buffer();
   return info;
+}
+
+void FusionExecutor::deserialize(const serde::KernelSummary* buffer) {
+  // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
+  FUSER_PERF_SCOPE("deserialize::KernelSummary");
+
+  NVF_ERROR(buffer != nullptr, "serde::KernelSummary is nullptr.");
+  NVF_ERROR(lowered_ != nullptr);
+
+  kernel_summary_.has_cooperative_grid_reduction =
+      buffer->has_cooperative_grid_reduction();
+  kernel_summary_.has_block_broadcasts = buffer->has_block_broadcasts();
+  kernel_summary_.has_grid_broadcasts = buffer->has_grid_broadcasts();
+  kernel_summary_.has_block_reductions = buffer->has_block_broadcasts();
+  kernel_summary_.has_grid_reductions = buffer->has_grid_reductions();
+  kernel_summary_.has_block_welford = buffer->has_block_welford();
+  kernel_summary_.has_grid_welford = buffer->has_grid_welford();
+  kernel_summary_.has_outer_grouped_grid_welford =
+      buffer->has_outer_grouped_grid_welford();
+  kernel_summary_.outer_grouped_grid_welford_largest_smem_size =
+      buffer->outer_grouped_grid_welford_largest_smem_size();
+  kernel_summary_.largest_smem_data_type =
+      serde::mapToNvfuserDtype(buffer->largest_smem_data_type());
+
+  if (buffer->generator() != nullptr) {
+    serde::ExpressionBuilder es(lowered_->kernel());
+    es.deserialize(buffer->generator());
+
+    if (buffer->global_allocations() != nullptr) {
+      kernel_summary_.global_allocations =
+          es.deserialize(buffer->global_allocations());
+    }
+
+    if (buffer->dynamic_smem_allocations() != nullptr) {
+      kernel_summary_.dynamic_smem_allocations =
+          es.deserialize(buffer->dynamic_smem_allocations());
+    }
+
+    if (buffer->static_smem_allocations() != nullptr) {
+      kernel_summary_.static_smem_allocations =
+          es.deserialize(buffer->static_smem_allocations());
+    }
+  }
 }
 
 } // namespace nvfuser

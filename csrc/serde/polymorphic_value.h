@@ -46,6 +46,7 @@ flatbuffers::Offset<Scalar> serializeScalarCpu(
 flatbuffers::Offset<Scalar> serializeScalar(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::PolymorphicValue& v,
-    nvfuser::DataType t);
+    nvfuser::DataType t,
+    int64_t out = -1);
 
 } // namespace nvfuser::serde

@@ -188,6 +188,8 @@ class Kernel final : public Fusion {
   //! run analysis passes to build a KernelSummary.
   void finalize(std::vector<Expr*> top_level_exprs);
 
+  void generateSummary();
+
   const std::vector<Expr*>& topLevelExprs() const {
     return top_level_exprs_;
   }

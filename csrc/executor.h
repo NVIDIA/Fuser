@@ -467,6 +467,14 @@ class FusionExecutor : public NonCopyable {
   //! Deserialize GlobalBufferInfo using flatbuffers
   GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);
 
+  //! Serialize KernelSummary using flatbuffers
+  flatbuffers::Offset<serde::KernelSummary> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const kir::KernelSummary& summary) const;
+
+  //! Deserialize KernelSummary using flatbuffers
+  void deserialize(const serde::KernelSummary* buffer);
+
   //! Get the current dynamic shared memory size
   int64_t getAvailableDynamicSmemSize();
 
@@ -484,6 +492,8 @@ class FusionExecutor : public NonCopyable {
 
   //! Clear the cached properties of the compiled kernel
   void resetCompiledKernelProperties();
+
+  std::vector<Val*> getKernelArguments() const;
 
  private:
   CompileOptions options_;
@@ -535,6 +545,7 @@ class FusionExecutor : public NonCopyable {
   std::unique_ptr<GpuLower> lowered_;
   // Copy of lowered_->kernel()
   Fusion* fusion_ = nullptr;
+  kir::KernelSummary kernel_summary_;
 
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.

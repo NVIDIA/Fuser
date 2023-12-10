@@ -297,7 +297,7 @@ struct LowerGuard {
 
 } // namespace
 
-kir::Kernel* GpuLower::run() {
+kir::Kernel* GpuLower::run(bool skip_passes) {
   FusionGuard fg(fusion_);
   LowerGuard lower_guard(this);
   // Reorder expressions for loop-nest generation respecting computeAt
@@ -314,15 +314,17 @@ kir::Kernel* GpuLower::run() {
   // definition
   assignRNGOffset(fusion_);
 
-  for (auto [name, pass] : passes()) {
-    exprs_lowered = pass(exprs_lowered);
-    dumpExprsIfEnabled(exprs_lowered, name);
-  }
+  if (!skip_passes) {
+    for (auto [name, pass] : passes()) {
+      exprs_lowered = pass(exprs_lowered);
+      dumpExprsIfEnabled(exprs_lowered, name);
+    }
 
-  // We now have the lowered expressions, finalize the kernel IR. This function
-  // will also copy over some relevant information for code generation from
-  // GpuLower.
-  kernel_->finalize(exprs_lowered);
+    // We now have the lowered expressions, finalize the kernel IR. This
+    // function will also copy over some relevant information for code
+    // generation from GpuLower.
+    kernel_->finalize(exprs_lowered);
+  }
 
   return kernel_.get();
 }
@@ -482,6 +484,9 @@ void GpuLower::analysis(Fusion* fusion) {
 
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
+
+  // Generate kernel summary
+  kernel_->generateSummary();
 }
 
 kir::Kernel* GpuLower::kernel() const {

@@ -9,7 +9,7 @@
 #include <ops/composite.h>
 #include <python_frontend/fusion_record.h>
 #include <serde/fusion_cache_generated.h>
-#include <serde/fusion_record_serde.h>
+#include <serde/fusion_record.h>
 #include <functional>
 
 namespace nvfuser::serde {
