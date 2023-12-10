@@ -923,6 +923,10 @@ void FusionExecutorCache::deserialize(
           fb_device_runtimes->concrete_id(),
           device_runtimes.size()));
 
+      // 3. For FusionKernelRuntime, we have a separate deserialize function
+      // to create the FusionExecutor objects.
+      device_runtimes.back()->deserialize(fb_fusion_kernel_runtime);
+
       all_runtimes.emplace_back(device_runtimes.back().get());
     }
   }
@@ -987,7 +991,8 @@ FusionKernelRuntime::FusionKernelRuntime(
     // Serialization path that generates segmented fusion from flatbuffers.
     // Convert Welford to two-pass if option is enabled and the original
     // heuristic is persistent
-    const auto& segmented_groups = serde_buffer->segmented_fusion()->groups();
+    const flatbuffers::Vector<flatbuffers::Offset<serde::SegmentedGroup>>*
+        segmented_groups = serde_buffer->segmented_fusion()->groups();
     bool has_persistent_heuristic = std::any_of(
         segmented_groups->begin(),
         segmented_groups->end(),
@@ -998,7 +1003,7 @@ FusionKernelRuntime::FusionKernelRuntime(
               heuristic == ScheduleHeuristic::InnerOuterPersistent;
         });
 
-    auto has_welford_ops = ir_utils::hasOpsOfType<WelfordOp>(fusion.get());
+    bool has_welford_ops = ir_utils::hasOpsOfType<WelfordOp>(fusion.get());
     if (has_welford_ops && has_persistent_heuristic) {
       SegmentCandidateFinder::translateWelfordInFusion(fusion.get(), args);
     }
@@ -1021,14 +1026,6 @@ FusionKernelRuntime::FusionKernelRuntime(
   // Pre-compute the executor order so that the run time path
   //  would go directly to kernel launch.
   prepareRuntimeOrder();
-
-  // This second deserialization step creates and compiles the FusionExecutor
-  // objects, which occurs after all the previous steps. All information is
-  // stored together in the serde_buffer object, but it deserialized in pieces
-  // to follow the order of operations in FusionKernelRuntime.
-  if (serde_buffer != nullptr) {
-    deserialize(serde_buffer);
-  }
 }
 
 flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
