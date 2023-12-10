@@ -213,6 +213,9 @@ if(BUILD_PYTHON)
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_definition.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
     ${NVFUSER_SRCS_DIR}/serde/fusion_record_serde.cpp
+    ${NVFUSER_SRCS_DIR}/serde/expr_builder.cpp
+    ${NVFUSER_SRCS_DIR}/serde/expr_serializer.cpp
+    ${NVFUSER_SRCS_DIR}/serde/expr_utils.cpp
   )
 endif()
 

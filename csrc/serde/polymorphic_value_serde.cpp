@@ -176,9 +176,11 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
 flatbuffers::Offset<Scalar> serializeScalar(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::PolymorphicValue& v,
-    nvfuser::DataType t) {
+    nvfuser::DataType t,
+    int64_t out) {
   ScalarBuilder builder_(builder);
   builder_.add_dtype(toUnderlying(std::get<PrimDataType>(t.type)));
+  builder_.add_out(out);
   if (v.is<std::monostate>()) {
     builder_.add_has_value(false);
     return builder_.Finish();

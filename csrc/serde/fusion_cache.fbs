@@ -15,18 +15,18 @@ file_identifier "NV00";
 
 // The StateType enum indicates whether the state object is a Scalar or Tensor.
 enum StateType: int {
-    Tensor = 0,
+    None = 0,
     Scalar,
     Vector,
-    None,
+    Tensor,
 }
 
 // The Contiguity enum shows whether a tensor dimension is contiguous
 // with the dimension to its right.
 enum Contiguity: int {
-    Strided = 0,
+    None = 0,
     Contiguous,
-    None,
+    Strided,
 }
 
 // Each RecordFunctor is assigned a RecordType for the hash function.
@@ -95,6 +95,17 @@ enum RecordType: int {
     Vector,
 }
 
+enum IterType: int {
+  Iteration = 0,
+  Reduction,
+  Broadcast,
+  Gather,
+  Stride,
+  GatherScatter,
+  VectorComponent,
+  Symbolic,
+}
+
 // =====================================================================================
 // Union definitions
 
@@ -127,6 +138,23 @@ union PolymorphicValueData {
   TensorArg,
 }
 
+// The Instruction union holds the attribute information for each Instruction in NaiveValueGenerator.
+union InstructionData {
+  BinaryOp,
+  GetAttr,
+  GetItem,
+  GetMetaData,
+  IterDomain,
+  Merge,
+  NamedScalar,
+  Resize,
+  Scalar,
+  Split,
+  Swizzle2D,
+  Symbolic,
+  UnaryOp,
+}
+
 // =====================================================================================
 // Basic data tables
 
@@ -147,6 +175,126 @@ table Scalar {
   double_value: double;
   real_value: double;
   imag_value: double;
+  out: long;
+}
+
+//
+// =====================================================================================
+// Tables for NaiveValueGenerator and AllocateBuffer used in FusionExecutor.
+
+table BinaryOp {
+  binary_type: long;
+  src0: long;
+  src1: long;
+  out: long;
+  name: string;
+}
+
+table GetAttr {
+  struct: long;
+  attr: string;
+  out: long;
+}
+
+table GetItem {
+  array: long;
+  index: long;
+  out: long;
+}
+
+table GetMetaData {
+  in: long;
+  out: long;
+}
+
+// The extent maps to an instruction in the NaiveValueGenerator.
+table IterDomain {
+  start: long;
+  extent: long;
+  expanded_extent: long;
+  stop_offset: long;
+  out: long;
+  parallel_type: int;
+  iter_type: int;
+  is_rfactor_domain: bool;
+  is_padded_dimension: bool;
+  padded_to_size: long;
+  is_mma_swizzled: bool;
+}
+
+table Merge {
+  inner: long;
+  outer: long;
+  out: long;
+}
+
+table NamedScalar {
+  name: string;
+  out: long;
+}
+
+table Resize {
+  in: long;
+  left_expansion: long;
+  right_expansion: long;
+  out: long;
+}
+
+table Split {
+  in: long;
+  factor: long;
+  inner: long;
+  outer: long;
+  inner_split: bool;
+  trim_out_of_bounds: bool;
+}
+
+table Swizzle2D {
+  in_x: long;
+  in_y: long;
+  swizzle_type: long;
+  swizzle_mode: long;
+  out_x: long;
+  out_y: long;
+}
+
+table Symbolic {
+  src0: long;
+  name: string;
+  out: long;
+}
+
+table UnaryOp {
+  unary_type: long;
+  data_type: long;
+  src0: long;
+  out: long;
+  name: string;
+}
+
+table Instruction {
+  data: InstructionData;
+}
+
+// NaiveValueGenerator creates Fusion IR values
+table NaiveValueGenerator {
+  instructions: [Instruction];
+}
+
+// Table represents nvfuser::TensorView
+table SymbolicTensor {
+  dtype: long;
+  root: [long];
+  rfactor: [long];
+  allocate: [long];
+  leaf: [long];
+}
+
+// Table represents kir::Allocate node
+table AllocateBuffer {
+  tv: SymbolicTensor;
+  shape: [long];
+  zero_init: bool;
 }
 
 // =====================================================================================
