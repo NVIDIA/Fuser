@@ -28,32 +28,31 @@ using GroupSet = VectorOfUniqueEntries<SegmentedGroup*>;
 
 // This helper function converts pointer values into a one-to-one integer id.
 // It is used during serialization to define the container's state.
-template <typename ContainerT, typename T>
+template <typename T, typename AllocT, template <class, class> class ContainerT>
 std::vector<int64_t> convertPointerToInteger(
-    const ContainerT& container,
-    const std::unordered_map<T, int64_t>& map) {
+    const ContainerT<T*, AllocT>& container,
+    const std::unordered_map<T*, int64_t>& map) {
   std::vector<int64_t> result;
   result.reserve(container.size());
   std::transform(
       container.begin(),
       container.end(),
       std::back_inserter(result),
-      [&](T pointer) { return map.at(pointer); });
+      [&](T* pointer) { return map.at(pointer); });
   return result;
 }
 
 template <
     typename T,
     typename AllocT,
-    typename K,
     template <class, class>
     class ContainerT,
     template <class>
     class ContainerK>
-std::vector<T> convertIntegerToPointer(
-    const ContainerT<T, AllocT>& all_pointers,
-    const ContainerK<K>* indicies) {
-  std::vector<T> result;
+std::vector<T*> convertIntegerToPointer(
+    const ContainerT<T*, AllocT>& all_pointers,
+    const ContainerK<int64_t>* indicies) {
+  std::vector<T*> result;
   result.reserve(indicies->size());
   std::transform(
       indicies->begin(),
