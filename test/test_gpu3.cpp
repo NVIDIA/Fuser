@@ -8732,6 +8732,7 @@ TEST_F(NVFuserTest, Reduction3DWithBroadcast) {
       unsched_fusion_ptr.get(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
+// Test the persistent buffers in softmax are projected back to inputs.
 TEST_F(NVFuserTest, SoftmaxProjectToInput) {
   auto test_softmax = [](int batch, int feature, DataType dtype) {
     Fusion fusion;
@@ -8795,6 +8796,7 @@ TEST_F(NVFuserTest, SoftmaxProjectToInput) {
   }
 }
 
+// Test projection to inputs when there are three persistent buffers.
 TEST_F(NVFuserTest, ProjectPersistentBufferToInputsAndBroadcastTvs) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
