@@ -1728,6 +1728,16 @@ void IndexLowering::handle(const kir::AsyncCommit* commit) {
   pushBack(const_cast<kir::AsyncCommit*>(commit)); // NOLINT
 }
 
+void IndexLowering::handle(const kir::BlockSerializeWait* sync) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::BlockSerializeWait*>(sync)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::BlockSerializeRelease* sync) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::BlockSerializeRelease*>(sync)); // NOLINT
+}
+
 void IndexLowering::generate(const std::vector<Expr*>& exprs) {
   for (auto expr : exprs) {
     OptOutConstDispatch::dispatch(expr);

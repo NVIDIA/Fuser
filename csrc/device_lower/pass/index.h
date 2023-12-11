@@ -82,6 +82,8 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const kir::MBarrierInvalidate*) final;
   void handle(const kir::AsyncWait*) final;
   void handle(const kir::AsyncCommit*) final;
+  void handle(const kir::BlockSerializeWait*) final;
+  void handle(const kir::BlockSerializeRelease*) final;
 
   void generate(const std::vector<Expr*>& exprs);
 
