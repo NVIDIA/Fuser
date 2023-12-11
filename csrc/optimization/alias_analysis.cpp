@@ -150,10 +150,12 @@ void AliasFinder::handle(const ViewOp* view) {
 
   // TODO(#1174): preserve expanded extents in `out_root` so we don't have to
   // look for expanded extents in `in_rfactor`.
-  auto try_map_to_in_rfactor = [&out_root_to_in_rfactor](IterDomain* id) {
-    const auto i = out_root_to_in_rfactor.find(id);
-    return i == out_root_to_in_rfactor.end() ? id : i->second;
-  };
+  auto map_or_identity =
+      [](const std::unordered_map<IterDomain*, IterDomain*>& map,
+         IterDomain* id) {
+        const auto i = map.find(id);
+        return i == map.end() ? id : i->second;
+      };
 
   // Replay `Expr`s from `out`'s root to `out`'s rfactor on `out`'s root.
   // Stop when an `Expr` requires a data copy; otherwise generate the allocation
@@ -162,7 +164,8 @@ void AliasFinder::handle(const ViewOp* view) {
            {out_root.begin(), out_root.end()},
            {out_rfactor.begin(), out_rfactor.end()})) {
     if (Split* split = dynamic_cast<Split*>(transform)) {
-      IterDomain* split_in = try_map_to_in_rfactor(split->in());
+      IterDomain* split_in =
+          map_or_identity(out_root_to_in_rfactor, split->in());
       const auto [contiguity, split_i] =
           allocation_to_contiguity.erase(split_in);
       auto [outer_contiguity, inner_contiguity] = splitContiguity(contiguity);
@@ -171,8 +174,10 @@ void AliasFinder::handle(const ViewOp* view) {
       allocation_to_contiguity.insert(
           split_i, split->inner(), inner_contiguity);
     } else if (Merge* merge = dynamic_cast<Merge*>(transform)) {
-      IterDomain* merge_inner = try_map_to_in_rfactor(merge->inner());
-      IterDomain* merge_outer = try_map_to_in_rfactor(merge->outer());
+      IterDomain* merge_inner =
+          map_or_identity(out_root_to_in_rfactor, merge->inner());
+      IterDomain* merge_outer =
+          map_or_identity(out_root_to_in_rfactor, merge->outer());
       const auto [outer_contiguity, inner_i] =
           allocation_to_contiguity.erase(merge_outer);
       if (inner_i == allocation_to_contiguity.end() ||
@@ -194,14 +199,10 @@ void AliasFinder::handle(const ViewOp* view) {
     }
   }
 
-  auto try_map_to_out_root = [&in_rfactor_to_out_root](IterDomain* id) {
-    const auto i = in_rfactor_to_out_root.find(id);
-    return i == in_rfactor_to_out_root.end() ? id : i->second;
-  };
-
   Layout out_layout;
   for (const auto& [allocation_id, contiguity] : allocation_to_contiguity) {
-    out_layout.allocation_domain.push_back(try_map_to_out_root(allocation_id));
+    out_layout.allocation_domain.push_back(
+        map_or_identity(in_rfactor_to_out_root, allocation_id));
     out_layout.contiguity.push_back(contiguity);
   }
   analysis_.add(out, in, std::move(out_layout));
@@ -341,7 +342,8 @@ void AliasAnalysisResult::add(
       alias, std::make_pair(source, std::move(layout)));
   NVF_ERROR(
       inserted,
-      "The current implementation of alias analysis shouldn't find two sources for an alias. However, it's trying to make ",
+      "The current implementation of alias analysis shouldn't find two "
+      "sources for an alias. However, it's trying to make ",
       alias->toString(),
       " an alias of ",
       source->toString(),
