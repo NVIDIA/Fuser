@@ -13,6 +13,7 @@
 #include <inlining.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <optimization/optimize_layout.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
@@ -39,7 +40,25 @@ TensorView* transposeMaybeInplace(
 
 } // namespace
 
-class TransposeTest : public NVFuserTest {};
+class TransposeTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    previously_enabled_ = optimization::OptimizeLayoutPass::getEnabled();
+    // For convenience, disable OptimizeLayoutPass. Many tests in this file run
+    // a fusion that consists of `transpose` only. OptimizeLayoutPass would turn
+    // those fusions into a no-op, skipping the transpose scheduler.
+    optimization::OptimizeLayoutPass::setEnabled(false);
+  }
+
+  void TearDown() override {
+    optimization::OptimizeLayoutPass::setEnabled(previously_enabled_);
+    NVFuserTest::TearDown();
+  }
+
+ private:
+  bool previously_enabled_ = false;
+};
 
 // x->sin->transpose->cos->y
 TEST_F(TransposeTest, FusionScheduleTransposeSimple) {

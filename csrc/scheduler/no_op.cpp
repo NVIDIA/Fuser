@@ -30,8 +30,8 @@ NoOpScheduler::NoOpScheduler(
 
 namespace {
 bool allOutputsArePointerArithmetics(Fusion* fusion) {
-  const optimization::AliasAnalysisResult analysis =
-      optimization::findAliases(fusion);
+  const optimization::AliasAnalysisResult analysis = optimization::findAliases(
+      fusion, /*can_override_empty_allocation_domain=*/false);
   auto out_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
   return std::all_of(
       out_tvs.begin(), out_tvs.end(), [&analysis](TensorView* out) {

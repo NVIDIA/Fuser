@@ -22,7 +22,9 @@ struct Layout {
 
   // Returns whether this layout is compliant with `required`. This is
   // uni-directional. For example, `contiguity=[t,t]` is compliant with
-  // `contiguity=[f,f]` but not vice versa.
+  // `contiguity=[f,f]` but not vice versa. As a special case,
+  // an empty `required.allocation` indicates no requirements, i.e., the method
+  // always returns true.
   bool isCompliantWith(const Layout& required) const;
 };
 
@@ -33,7 +35,7 @@ struct Layout {
 // analysis.add(...);
 // ...
 // analysis.add(...);
-// analysis.finalize(fusion);
+// analysis.finalize(fusion, ...);
 //
 // // The user can now call const methods to retrieve information.
 // ```
@@ -49,7 +51,7 @@ class AliasAnalysisResult {
   // preferred layout.
   void add(const TensorView* alias, const TensorView* source, Layout&& layout);
 
-  void finalize(Fusion* fusion);
+  void finalize(Fusion* fusion, bool can_override_empty_allocation_domain);
 
   // Returns the preferred layout. If `alias` is not in `preferred_layout_`,
   // returns the `TensorView`'s initial layout.
@@ -83,12 +85,8 @@ class AliasAnalysisResult {
 // is compliant with the required layout, `ExpressionEvaluator::evaluate(B)`
 // should produce an `at::Tensor` that's an alias of the `at::Tensor` bound to
 // A.
-//
-// Currently, for implementation convenience, AliasAnalysis ignores allocation
-// domains of non-fusion-input TensorViews. It produces preferred layouts for
-// these TensorViews and expects the user to resolve any incompatibility.
-// MarkAliasPass, its only user at this moment, marks an output as an alias only
-// when its allocation domain is empty. I'm happy to revisit this contract.
-AliasAnalysisResult findAliases(Fusion* fusion);
+AliasAnalysisResult findAliases(
+    Fusion* fusion,
+    bool can_override_empty_allocation_domain = true);
 
 } // namespace nvfuser::optimization

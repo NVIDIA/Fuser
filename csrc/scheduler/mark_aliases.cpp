@@ -27,8 +27,8 @@ void markAliases(Fusion* fusion) {
 
   // TODO(wujingyue): as a cleanup, move alias analysis out of
   // csrc/optimization.
-  const optimization::AliasAnalysisResult analysis =
-      optimization::findAliases(fusion);
+  const optimization::AliasAnalysisResult analysis = optimization::findAliases(
+      fusion, /*can_override_empty_allocation_domain=*/false);
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerVerbose)) {
     vlog("Alias analysis result:\n", analysis.toString(/*indent_size=*/1));
   }
@@ -50,26 +50,6 @@ void markAliases(Fusion* fusion) {
         ir_utils::varName(out),
         " as an alias of ",
         ir_utils::varName(in));
-
-    // We already checked it's compatible; no need to change.
-    if (out->hasAllocation()) {
-      continue;
-    }
-
-    // When `out` is a scalar, `out->setAllocationDomain` triggers a corner case
-    // that crashes `validateDomainEquivalence`.
-    if (out->isZeroDim()) {
-      continue;
-    }
-
-    const optimization::Layout preferred_layout = analysis.preferredLayout(out);
-    out->setAllocationDomain(
-        preferred_layout.allocation_domain, preferred_layout.contiguity);
-    vlog(
-        "Set the layout of ",
-        ir_utils::varName(out),
-        " to ",
-        preferred_layout.toString());
   }
 }
 

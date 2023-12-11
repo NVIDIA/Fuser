@@ -371,7 +371,21 @@ const TensorView* AliasAnalysisResult::getAliasedInput(
   return i == out_to_root_.end() ? nullptr : i->second;
 }
 
-void AliasAnalysisResult::finalize(Fusion* fusion) {
+namespace {
+bool okToRelayout(
+    const TensorView* out,
+    const Layout& new_layout,
+    const bool can_override_empty_allocation_domain) {
+  const std::vector<IterDomain*> out_allocation =
+      (can_override_empty_allocation_domain ? out->getAllocationDomain()
+                                            : out->getMaybeAllocationDomain());
+  return new_layout.isCompliantWith({out_allocation, out->getContiguity()});
+}
+} // namespace
+
+void AliasAnalysisResult::finalize(
+    Fusion* fusion,
+    const bool can_override_empty_allocation_domain) {
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
     const Val* in = findRoot(out);
@@ -380,9 +394,8 @@ void AliasAnalysisResult::finalize(Fusion* fusion) {
     }
 
     const Layout preferred_layout = preferredLayout(out);
-    if (out->hasAllocation() &&
-        !preferred_layout.isCompliantWith(
-            {out->getAllocationDomain(), out->getContiguity()})) {
+    if (!okToRelayout(
+            out, preferred_layout, can_override_empty_allocation_domain)) {
       continue;
     }
 
@@ -426,7 +439,9 @@ std::string AliasAnalysisResult::toString(const int indent_size) const {
   return ss.str();
 }
 
-AliasAnalysisResult findAliases(Fusion* fusion) {
+AliasAnalysisResult findAliases(
+    Fusion* fusion,
+    const bool can_override_empty_allocation_domain) {
   AliasAnalysisResult analysis;
   AliasFinder finder(analysis);
   // Fusion::exprs() computes and returns topological order.
@@ -438,7 +453,7 @@ AliasAnalysisResult findAliases(Fusion* fusion) {
     // results).
     finder.dispatch(expr);
   }
-  analysis.finalize(fusion);
+  analysis.finalize(fusion, can_override_empty_allocation_domain);
   return analysis;
 }
 
@@ -464,6 +479,10 @@ bool contiguityIsCompliant(
 } // namespace
 
 bool Layout::isCompliantWith(const Layout& required) const {
+  if (required.allocation_domain.empty()) {
+    return true;
+  }
+
   if (allocation_domain != required.allocation_domain) {
     // This can be relaxed by allowing broadcast dimensions to be ordered
     // differently.
