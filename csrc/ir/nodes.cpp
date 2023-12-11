@@ -1538,6 +1538,7 @@ std::vector<PolymorphicValue> GroupedReductionOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   std::vector<PolymorphicValue> grouped_reduction_out;
+  grouped_reduction_out.reserve(numHorizontallyGroupedExprs());
   for (const auto i : c10::irange(numHorizontallyGroupedExprs())) {
     const auto& input_i = inputs.at(i).as<at::Tensor>();
     const auto out_i = output(i)->as<TensorView>();
@@ -1554,10 +1555,10 @@ std::vector<PolymorphicValue> GroupedReductionOp::evaluate(
     }
     switch (getReductionOpType(i)) {
       case BinaryOpType::Add:
-        grouped_reduction_out.push_back(at::sum(input_i, reduction_axes));
+        grouped_reduction_out.emplace_back(at::sum(input_i, reduction_axes));
         break;
       case BinaryOpType::Max:
-        grouped_reduction_out.push_back(at::amax(input_i, reduction_axes));
+        grouped_reduction_out.emplace_back(at::amax(input_i, reduction_axes));
         break;
       default:
         NVF_CHECK(
