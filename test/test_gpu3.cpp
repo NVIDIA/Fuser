@@ -8703,6 +8703,35 @@ TEST_F(NVFuserTest, Reduction3DWithBroadcast) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
+  auto tv0 = TensorViewBuilder()
+                 .dtype(DataType::Double)
+                 .contiguity({true, true, true, std::nullopt})
+                 .shape({-1, -1, -1, 1})
+                 .build();
+  fusion->addInput(tv0);
+  auto tv1 = sum(tv0, {2, 0});
+  fusion->addOutput(tv1);
+
+  // Copy unscheduled fusion for later use in validation
+  auto unsched_fusion_ptr = std::make_unique<Fusion>(*fusion);
+
+  auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
+  auto t0 = at::randn({8, 7, 5, 1}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  std::shared_ptr<ReductionParams> reduction_params =
+      getReductionHeuristics(fusion, inputs);
+  NVF_CHECK(reduction_params, "Reduction heuristic failed!");
+  scheduleReduction(fusion, *reduction_params);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion, inputs, reduction_params->lparams);
+  auto cg_outputs = fe.runFusion(inputs, reduction_params->lparams);
+
+  testValidate(
+      unsched_fusion_ptr.get(), cg_outputs, inputs, __LINE__, __FILE__);
+}
+
 TEST_F(NVFuserTest, SoftmaxProjectToInput) {
   auto test_softmax = [](int batch, int feature, DataType dtype) {
     Fusion fusion;
@@ -8766,42 +8795,6 @@ TEST_F(NVFuserTest, SoftmaxProjectToInput) {
   }
 }
 
-TEST_F(NVFuserTest, Reduction3DWithBroadcast ) {
-// Test that 3D reductions with broadcasts as the inner-most non-reduction
-// dimension are successfully scheduled.
-// See https://github.com/NVIDIA/Fuser/issues/1471
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
-  auto tv0 = TensorViewBuilder()
-                 .dtype(DataType::Double)
-                 .contiguity({true, true, true, std::nullopt})
-                 .shape({-1, -1, -1, 1})
-                 .build();
-  fusion->addInput(tv0);
-  auto tv1 = sum(tv0, {2, 0});
-  fusion->addOutput(tv1);
-
-  // Copy unscheduled fusion for later use in validation
-  auto unsched_fusion_ptr = std::make_unique<Fusion>(*fusion);
-
-  auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
-  auto t0 = at::randn({8, 7, 5, 1}, options);
-  std::vector<c10::IValue> inputs({t0});
-
-  std::shared_ptr<ReductionParams> reduction_params =
-      getReductionHeuristics(fusion, inputs);
-  NVF_CHECK(reduction_params, "Reduction heuristic failed!");
-  scheduleReduction(fusion, *reduction_params);
-
-  FusionExecutor fe;
-  fe.compileFusion(fusion, inputs, reduction_params->lparams);
-  auto cg_outputs = fe.runFusion(inputs, reduction_params->lparams);
-
-  testValidate(
-      unsched_fusion_ptr.get(), cg_outputs, inputs, __LINE__, __FILE__);
-}
-
 TEST_F(NVFuserTest, ProjectPersistentBufferToInputsAndBroadcastTvs) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
@@ -8837,7 +8830,6 @@ TEST_F(NVFuserTest, ProjectPersistentBufferToInputsAndBroadcastTvs) {
   // tv6 is projected to input and tv4 which is a broadcast tv.
   // tv10 is projected to input, tv4 and tv8 which are broadcast tvs.
   // The only actual persisent buffer is the cached input.
-
   auto options = at::TensorOptions()
                      .dtype(data_type_to_aten(input_dtype))
                      .device(at::kCUDA, 0);
