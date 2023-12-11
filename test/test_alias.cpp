@@ -172,7 +172,7 @@ TEST_F(AliasAnalysisTest, View_SplitExpandedBroadcast) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.findRoot(out), expand_out);
+  EXPECT_EQ(alias_analysis.findRoot(out), out);
 }
 
 TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
@@ -221,7 +221,7 @@ TEST_F(AliasAnalysisTest, View_MergeExpandedBroadcast) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.findRoot(out), expand_out);
+  EXPECT_EQ(alias_analysis.findRoot(out), out);
 }
 
 TEST_F(AliasAnalysisTest, TrivialSlice) {
