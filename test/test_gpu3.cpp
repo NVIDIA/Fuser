@@ -8634,8 +8634,6 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
                  int64_t feature,
                  int persistent_batch_size,
                  int blocks_per_sm,
-                 bool project_to_input,
-                 bool decouple_dataload,
                  bool isBenchmark = true) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     auto fusion = fusion_ptr.get();
@@ -8704,7 +8702,6 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
     if (persistent_batch_size > 0 && blocks_per_sm > 0) {
       persistent_params->batches_per_block_inner_reduction =
           persistent_batch_size;
-      persistent_params->maybe_special_inline_cached_inputs = decouple_dataload;
       warps_per_block =
           ceilDiv(ceilDiv(feature / 8, persistent_batch_size), 32);
       cparams.maxrregcount = getRegPerThreadGivenThreadsPerSM(
@@ -8721,9 +8718,7 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
     kinfo.threads_per_block = warps_per_block * 32;
     kinfo.persistent_batch_size =
         persistent_params->batches_per_block_inner_reduction;
-    kinfo.project_to_input = project_to_input;
     kinfo.max_register = cparams.maxrregcount;
-    kinfo.decouple_dataload = decouple_dataload;
     if (isBenchmark) {
       fe.setMeasureKernelTimeFlag(true);
       auto read_write_bytes = fe.bytesProcessed();
@@ -8780,7 +8775,7 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
   for (auto feature : features) {
     std::vector<kernelInfo> results;
     ASSERT_TRUE(feature % vect_factor == 0);
-    results.emplace_back(test(batch_size, feature, 0, 0, false, false));
+    results.emplace_back(test(batch_size, feature, 0, 0));
     // auto min_batch_size = ceilDiv(feature / vect_factor, max_threads_per_block);
     // auto max_batch_size = std::min(
     //     (int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
@@ -8834,7 +8829,7 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
     }
     std::ostringstream fname;
     fname << "/hhome/benchmarks/layernorm_heuristics/" << hostname
-          << "_dropout_layernorm_new_" << batch_size << "_" << feature << ".txt";
+          << "_dropout_layernorm_new1211_" << batch_size << "_" << feature << ".txt";
     std::ofstream file(fname.str());
     if (file.is_open()) {
       for (auto& info : results) {
@@ -8874,8 +8869,6 @@ TEST_F(NVFuserTest, LayerNorm) {
                  int64_t feature,
                  int persistent_batch_size,
                  int blocks_per_sm,
-                 bool project_to_input,
-                 bool decouple_dataload,
                  bool isBenchmark = true) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
     auto fusion = fusion_ptr.get();
@@ -8922,7 +8915,6 @@ TEST_F(NVFuserTest, LayerNorm) {
     if (persistent_batch_size > 0 && blocks_per_sm > 0) {
       persistent_params->batches_per_block_inner_reduction =
           persistent_batch_size;
-      persistent_params->maybe_special_inline_cached_inputs = decouple_dataload;
       warps_per_block =
           ceilDiv(ceilDiv(feature / 8, persistent_batch_size), 32);
       cparams.maxrregcount = getRegPerThreadGivenThreadsPerSM(
@@ -8939,9 +8931,7 @@ TEST_F(NVFuserTest, LayerNorm) {
     kinfo.threads_per_block = warps_per_block * 32;
     kinfo.persistent_batch_size =
         persistent_params->batches_per_block_inner_reduction;
-    kinfo.project_to_input = project_to_input;
     kinfo.max_register = cparams.maxrregcount;
-    kinfo.decouple_dataload = decouple_dataload;
     if (isBenchmark) {
       fe.setMeasureKernelTimeFlag(true);
       auto read_write_bytes = fe.bytesProcessed();
@@ -8993,13 +8983,13 @@ TEST_F(NVFuserTest, LayerNorm) {
       8192,
       12288,
       18432};
-  for (int i = 1024; i <= 20480; i += 1024) {
+  for (int i = 1024; i <= 32*1024; i += 1024) {
     features.insert(i);
   }
   for (auto feature : features) {
     std::vector<kernelInfo> results;
     ASSERT_TRUE(feature % vect_factor == 0);
-    results.emplace_back(test(batch_size, feature, 0, 0, false, false));
+    results.emplace_back(test(batch_size, feature, 0, 0));
     // auto min_batch_size = ceilDiv(feature / vect_factor, max_threads_per_block);
     // auto max_batch_size = std::min(
     //     (int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
@@ -9052,8 +9042,10 @@ TEST_F(NVFuserTest, LayerNorm) {
       return;
     }
     std::ostringstream fname;
-    fname << "/hhome/benchmarks/layernorm_heuristics/" << hostname
-          << "_layernorm_new_" << batch_size << "_" << feature << ".txt";
+    // fname << "/hhome/benchmarks/layernorm_heuristics/" << hostname
+    //       << "_layernorm_new1211_" << batch_size << "_" << feature << ".txt";
+    fname << "/opt/tmp/layernorm_heuristics/" << hostname
+          << "_layernorm_new1211_" << batch_size << "_" << feature << ".txt";          
     std::ofstream file(fname.str());
     if (file.is_open()) {
       for (auto& info : results) {
