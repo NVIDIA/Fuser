@@ -108,6 +108,7 @@ class GridSerializationSyncInserter : kir::ExprMutator {
         true);
     auto wait = IrBuilder::create<kir::BlockSerializeWait>(
         cur_expr_sync_pattern_.value(), alloc->buffer());
+    registerInsertBefore(cur_top_level_expr_, alloc);
     registerInsertBefore(cur_top_level_expr_, wait);
     auto release = IrBuilder::create<kir::BlockSerializeRelease>(
         cur_expr_sync_pattern_.value(), alloc->buffer());
