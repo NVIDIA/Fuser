@@ -8963,8 +8963,8 @@ TEST_F(NVFuserTest, LayerNorm) {
   };
   int64_t batch_size = 1024 * 32;
 
-  // test(batch_size, 1600, 0, 0, false, false);
-  // return;
+  test(batch_size, 17*1024, 0, 0);
+  return;
   constexpr int vect_factor = 8;
   // constexpr int min_threads_per_block = 32;
   // constexpr int max_threads_per_block = 1024;
