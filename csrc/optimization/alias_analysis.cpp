@@ -354,7 +354,7 @@ void AliasAnalysisResult::add(
 const Val* AliasAnalysisResult::findRoot(const Val* alias) const {
   const TensorView* root = dynamic_cast<const TensorView*>(alias);
   if (root == nullptr) {
-    return nullptr;
+    return alias;
   }
 
   // This can be made faster by path compression at the cost of losing
@@ -363,6 +363,31 @@ const Val* AliasAnalysisResult::findRoot(const Val* alias) const {
     root = alias_to_source_.at(root).first;
   }
   return root;
+}
+
+const TensorView* AliasAnalysisResult::getAliasedInput(
+    const TensorView* fusion_out) const {
+  const auto i = out_to_root_.find(fusion_out);
+  return i == out_to_root_.end() ? nullptr : i->second;
+}
+
+void AliasAnalysisResult::finalize(Fusion* fusion) {
+  for (TensorView* out :
+       ir_utils::filterByType<TensorView>(fusion->outputs())) {
+    // Lazy move: we could check compatibility and only give up when
+    // the allocation domain is incompatible with what we prefer for
+    // aliasing.
+    if (out->hasAllocation()) {
+      continue;
+    }
+
+    const Val* in = findRoot(out);
+    if (!in->isFusionInput()) {
+      continue;
+    }
+
+    out_to_root_[out] = in->as<TensorView>();
+  }
 }
 
 Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
@@ -380,11 +405,23 @@ Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
 
 std::string AliasAnalysisResult::toString(const int indent_size) const {
   std::stringstream ss;
+  indent(ss, indent_size) << "All aliases:"
+                          << (alias_to_source_.empty() ? " <empty>" : "")
+                          << std::endl;
   for (const auto& [alias, source_and_layout] : alias_to_source_) {
     const auto& [source, layout] = source_and_layout;
-    indent(ss, indent_size) << ir_utils::varName(alias) << " is an alias of "
-                            << ir_utils::varName(source) << " if its layout is "
-                            << layout.toString() << std::endl;
+    indent(ss, indent_size + 1)
+        << ir_utils::varName(alias) << " is an alias of "
+        << ir_utils::varName(source) << " if its layout is "
+        << layout.toString() << std::endl;
+  }
+  indent(ss, indent_size) << "Output aliases only:"
+                          << (out_to_root_.empty() ? " <empty>" : "")
+                          << std::endl;
+  for (const auto& [out, root] : out_to_root_) {
+    indent(ss, indent_size + 1)
+        << ir_utils::varName(out) << " is a transitive alias of "
+        << ir_utils::varName(root) << std::endl;
   }
   return ss.str();
 }
@@ -401,6 +438,7 @@ AliasAnalysisResult findAliases(Fusion* fusion) {
     // results).
     finder.dispatch(expr);
   }
+  analysis.finalize(fusion);
   return analysis;
 }
 

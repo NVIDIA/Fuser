@@ -14,28 +14,16 @@
 namespace nvfuser::optimization {
 
 void MarkAliasPass::runPass(Fusion* fusion) {
-  const AliasAnalysisResult alias_analysis = findAliases(fusion);
+  const AliasAnalysisResult analysis = findAliases(fusion);
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
     debug() << "Alias analysis result:" << std::endl;
-    debug() << alias_analysis.toString(/*indent_size=*/1) << std::endl;
+    debug() << analysis.toString(/*indent_size=*/1) << std::endl;
   }
 
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    // Lazy move: we could check compatibility and only give up when
-    // the allocation domain is incompatible with what we prefer for
-    // aliasing.
-    if (out->hasAllocation()) {
-      if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-        debug() << "MarkAliasPass skipped " << out->toString()
-                << " because it already has an allocation domain:" << std::endl
-                << out->domain()->toString(1, /*leaf_only=*/false) << std::endl;
-      }
-      continue;
-    }
-
-    const Val* in = alias_analysis.findRoot(out);
-    if (!in->isFusionInput()) {
+    const Val* in = analysis.getAliasedInput(out);
+    if (in == nullptr) {
       continue;
     }
 
@@ -55,7 +43,7 @@ void MarkAliasPass::runPass(Fusion* fusion) {
       continue;
     }
 
-    const Layout out_layout = alias_analysis.preferredLayout(out);
+    const Layout out_layout = analysis.preferredLayout(out);
     if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
       debug() << "MarkAliasPass changed the layout of " << out->toString()
               << std::endl;
