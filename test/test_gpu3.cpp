@@ -8712,6 +8712,9 @@ TEST_F(NVFuserTest, Reduction3DWithBroadcast) {
   auto tv1 = sum(tv0, {2, 0});
   fusion->addOutput(tv1);
 
+  // Copy unscheduled fusion for later use in validation
+  auto unsched_fusion_ptr = std::make_unique<Fusion>(*fusion);
+
   auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
   auto t0 = at::randn({8, 7, 5, 1}, options);
   std::vector<c10::IValue> inputs({t0});
@@ -8725,12 +8728,8 @@ TEST_F(NVFuserTest, Reduction3DWithBroadcast) {
   fe.compileFusion(fusion, inputs, reduction_params->lparams);
   auto cg_outputs = fe.runFusion(inputs, reduction_params->lparams);
 
-  // NOTE: here we manually compute a reference tensor. This is to avoid an
-  // error in getReductionSize() which finds the rfactor tensorview which has a
-  // partial sum over a dimension whose size is a block dim.
-  auto ref = at::sum(t0, {2, 0});
-  EXPECT_TRUE(at::allclose(ref, cg_outputs.at(0)));
-  // testValidate(fusion, cg_outputs, inputs, __LINE__, __FILE__);
+  testValidate(
+      unsched_fusion_ptr.get(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
