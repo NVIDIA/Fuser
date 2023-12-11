@@ -20,7 +20,7 @@ bool isLowerableToCommunication(Expr* expr);
 // device_index.
 std::vector<std::shared_ptr<Communication>> lowerCommunication(
     DeviceIdxType device_index,
-    PipelineCommunication* c,
+    Expr* c,
     at::Tensor input_tensor,
     at::Tensor output_tensor);
 } // namespace nvfuser

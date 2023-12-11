@@ -400,23 +400,21 @@ TODO:
 */
 std::vector<std::shared_ptr<Communication>> lowerCommunication(
     DeviceIdxType my_device_index,
-    PipelineCommunication* c,
+    Expr* c,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   std::vector<std::shared_ptr<Communication>> comms;
-  NVF_ERROR(c->in()->as<PipelineVal>()->getOriginalVal()->isA<TensorView>()
-    && c->out()->as<PipelineVal>()->getOriginalVal()->isA<TensorView>(),
+  NVF_ERROR(c->inputs().size() == 1
+            && c->inputs().at(0)->isA<TensorView>()
+            && c->outputs().size() == 1
+            && c->outputs().at(0)->isA<TensorView>(),
     "I/O must be TensorViews");
-  TensorView* input_tv =
-      c->in()->as<PipelineVal>()->getOriginalVal()->as<TensorView>();
-  TensorView* output_tv =
-      c->out()->as<PipelineVal>()->getOriginalVal()->as<TensorView>();
+  TensorView* input_tv = c->inputs().at(0)->as<TensorView>();
+  TensorView* output_tv = c->outputs().at(0)->as<TensorView>();
   at::Tensor dummy;
 
-  const auto& sender_mesh =
-      c->in()->as<PipelineVal>()->getStage()->descriptor()->mesh;
-  const auto& receiver_mesh =
-      c->out()->as<PipelineVal>()->getStage()->descriptor()->mesh;
+  const auto& sender_mesh = *input_tv->getDeviceMesh();
+  const auto& receiver_mesh = *output_tv->getDeviceMesh();
 
   // Stores whether the I/O has its first axis parallelized on Didx
   const bool is_input_sharded =

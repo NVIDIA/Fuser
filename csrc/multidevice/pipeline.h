@@ -148,6 +148,8 @@ class Pipeline : public Fusion {
   int64_t requestedNumberOfDevices() const;
 
   std::unique_ptr<SegmentedFusion> sf_ = nullptr;
+  std::map<SegmentedGroup*, bool> is_resharding;
+  // std::map<SegmentedGroup*, bool> auto_schedule;
  private:
   // utility class called at instantiation
   friend class PipelineBuilder;

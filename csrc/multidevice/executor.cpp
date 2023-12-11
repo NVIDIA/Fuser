@@ -14,80 +14,97 @@
 
 namespace nvfuser {
 
-bool PipelineExecutor::shouldRun(PipelineStage* stage) {
-  if (should_run_.find(stage) == should_run_.end()) {
+bool PipelineExecutor::shouldRun(SegmentedGroup* group) {
+  if (should_run_.find(group) == should_run_.end()) {
+    NVF_ERROR(!group->exprs().empty()
+              && !group->exprs().at(0)->outputs().empty()
+              && group->exprs().at(0)->outputs().at(0)->isA<TensorView>()
+              && group->exprs().at(0)->outputs().at(0)->as<TensorView>()->hasDeviceMesh());
     should_run_.emplace(
-        stage, stage->descriptor()->mesh.has(runtime_.comm_.deviceId()));
+        group, group->exprs().at(0)->outputs().at(0)->as<TensorView>()->getDeviceMesh()->has(runtime_.comm_.deviceId()));
   }
-  return should_run_[stage];
+  return should_run_[group];
 }
 
-void PipelineExecutor::handle(PipelineStage* stage) {
-  if (!shouldRun(stage)) {
+void PipelineExecutor::executeKernel(SegmentedGroup* group) {
+  if (!shouldRun(group)) {
     return;
   }
-  // get the IValues corresponding to the stage's input
-  std::vector<c10::IValue> stage_input_IValues;
-  for (auto& input : stage->inputs()) {
-    auto input_val = input->as<PipelineVal>()->getOriginalVal();
-    NVF_ERROR(val_to_IValue_.find(input_val) != val_to_IValue_.end(), "Device ", runtime_.comm_.deviceId(), " has no buffer associated with Val ", input_val, " for handling stage ", stage);
-    NVF_ERROR(val_to_IValue_.at(input_val).isTensor());
-    stage_input_IValues.push_back(val_to_IValue_.at(input_val));
+  // get the IValues corresponding to the group's input
+  std::vector<c10::IValue> group_input_IValues;
+  for (auto& input : group->inputs()) {
+    NVF_ERROR(val_to_IValue_.find(input) != val_to_IValue_.end(), "Device ", runtime_.comm_.deviceId(), " has no buffer associated with Val ", input, " for handling group ", toString(group));
+    NVF_ERROR(val_to_IValue_.at(input).isTensor());
+    group_input_IValues.push_back(val_to_IValue_.at(input));
   }
 
   std::vector<at::Tensor> outputs;
 
-  // Compile the stage and either execute it or allocate output buffers
-  // if the stage is configured to be autoscheduled, use FusionExecutorCache,
-  // otherwise use FusionExecutor
-  if (stage->descriptor()->auto_schedule) {
-    // Check if the executor has been cached. If not, create and cache it
-    if (fec_.find(stage) == fec_.end()) {
-      fec_.emplace(
-          stage,
-          std::make_unique<FusionExecutorCache>(
-              runtime_.pipeline_->stageToFusion(stage)));
-    }
-    // Run the stage to get concrete outputs or placeholders
-    outputs = fec_[stage]->runFusionWithInputs(stage_input_IValues);
-
-  } else {
-    // Check if the executor has been cached. If not, create and cache it
-    if (fe_.find(stage) == fe_.end()) {
-      fe_.emplace(stage, std::make_unique<FusionExecutor>());
-      fe_[stage]->compileFusion(
-          runtime_.pipeline_->stageToFusion(stage).get(), stage_input_IValues);
-    }
-    // Run the stage to get concrete outputs or placeholders
-    // TODO: deal with aliases I/O. For example if the stage is empty, i.e., Inputs=Outputs, we need to handle them anyway
-    outputs = fe_[stage]->runFusion(stage_input_IValues);
+  // Compile the group and execute it with FusionExecutor
+  // Check if the executor has been cached. If not, create and cache it
+  if (fe_.find(group) == fe_.end()) {
+    fe_.emplace(group, std::make_unique<FusionExecutor>());
+    fusions_.emplace(group, runtime_.pipeline_->sf_->makeFusion(group));
+    fe_[group]->compileFusion(fusions_.at(group).get(), group_input_IValues);
   }
+  // TODO: deal with aliases I/O. For example if the stage is empty, i.e., Inputs=Outputs, we need to handle them anyway
+  outputs = fe_[group]->runFusion(group_input_IValues);
 
-  // Store the outputs or placeholders in the context
+  // std::cout << "RANK " << runtime_.comm_.deviceId()
+  //           << " handling KERNEL group " << toString(group)
+  //           << "\n with inputs:{\n";
+  // for (auto i: c10::irange(group_input_IValues.size())) {
+  //   std::cout << " val: " << group->inputs()[i] << "\nIval: " << group_input_IValues[i] << "\n";
+  // }
+  // std::cout << "}\nAnd outputs:{\n";
+  // for (auto i: c10::irange(outputs.size())) {
+  //   std::cout << " val: " << group->outputs()[i] << "\nIval: " << outputs[i] << "\n";
+  // }
+  // std::cout << "}" << std::endl;
+
+  // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
-    val_to_IValue_[stage->outputs().at(output_idx)->as<PipelineVal>()->getOriginalVal()] = outputs.at(output_idx);
+    val_to_IValue_[group->outputs().at(output_idx)] = outputs.at(output_idx);
   }
 }
 
-void PipelineExecutor::handle(PipelineCommunication* c) {
-  auto input_val = c->in()->as<PipelineVal>()->getOriginalVal();
-  auto output_val = c->out()->as<PipelineVal>()->getOriginalVal();
+void PipelineExecutor::executeCommunication(SegmentedGroup* group) {
+  NVF_ERROR(group->exprs().size() == 1, "Communication segments must contain only one Expr");
+  auto expr = group->exprs().at(0);
+  NVF_ERROR(expr->inputs().size() == 1, "Communication must have exactly one input");
+  NVF_ERROR(expr->outputs().size() == 1, "Communication must have exactly one output");
+  auto input_val = expr->inputs().at(0);
+  auto output_val = expr->outputs().at(0);
   at::Tensor input_tensor, output_tensor;
   if (val_to_IValue_.find(input_val) != val_to_IValue_.end()) {
     input_tensor = val_to_IValue_.at(input_val).toTensor();
+    // std::cout << input_val << " FOUND!, value: " << input_tensor;
+  } else {
+    // std::cout << input_val << " NOT FOUND!";
   }
   if (val_to_IValue_.find(output_val) != val_to_IValue_.end()) {
     output_tensor = val_to_IValue_.at(output_val).toTensor();
+    // std::cout << output_val << " FOUND!, value: " << output_tensor;
+  } else {
+    // std::cout << output_val << " NOT FOUND!";
   }
 
+  // std::cout << "RANK " << runtime_.comm_.deviceId()
+  //           << " handling COMMUNICATION group " << toString(group)
+  //           << "\n with input:{\n"
+  //           << " val: " << expr->inputs()[0] << "\nIval: " << input_tensor << "\n"
+  //           << "}\nAnd outputs:{\n"
+  //           << " val: " << expr->outputs()[0] << "\nIval: " << output_tensor << "\n"
+  //           << std::endl;
+
   // Lower the Communication into a vector of Communications
-  if (communications_.find(c) == communications_.end()) { // check if cached
+  if (communications_.find(group) == communications_.end()) { // check if cached
     communications_.emplace(
-        c,
+        group,
         lowerCommunication(
-            runtime_.comm_.deviceId(), c, input_tensor, output_tensor));
+            runtime_.comm_.deviceId(), expr, input_tensor, output_tensor));
   }
-  auto& communications = communications_[c];
+  auto& communications = communications_[group];
 
   // post and wait communications
   for (auto& communication : communications) {
@@ -112,7 +129,17 @@ std::vector<at::Tensor> PipelineExecutor::runWithInput(
   }
 
   // Run through the stages to launch kernel
-  traverseTo(runtime_.pipeline_->outputs());
+  // traverseTo(runtime_.pipeline_->outputs());
+  prepareRuntimeOrder(runtime_.pipeline_->sf_.get(), workspace_);
+  for (auto group: workspace_.group_run_order) {
+
+    if (!runtime_.pipeline_->is_resharding.at(group)) {
+      executeKernel(group);
+    } else {
+      executeCommunication(group);
+    }
+  }
+
 
   // Collect global outputs from context
   std::vector<at::Tensor> outputs;

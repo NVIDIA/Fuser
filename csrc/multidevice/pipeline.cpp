@@ -302,6 +302,17 @@ Pipeline::Pipeline(std::unique_ptr<Fusion> fusion, PipelineDescriptor descriptor
   };
 
   sf_ = SegmentCandidateFinder::segment(std::move(fusion), options);
+  
+  for (auto group: sf_->groups()){
+    if (std::none_of(group->exprs().begin(),
+        group->exprs().end(),
+        [](auto expr) { return ir_utils::isResharding(expr);})) {
+      is_resharding[group] = false;
+    } else {
+      NVF_ERROR(group->exprs().size() == 1, "Communications cannot be fused");
+      is_resharding[group] = true;
+    }
+  }
   original_fusion_ = sf_->completeFusion();
   PipelineBuilder{this};
 }

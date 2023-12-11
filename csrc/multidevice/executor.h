@@ -23,53 +23,38 @@ namespace nvfuser {
 class PipelineExecutor : public IterVisitor {
  public:
   explicit PipelineExecutor(MultiDeviceRuntime& runtime)
-      : IterVisitor(), runtime_(runtime) {}
+      : runtime_(runtime) {}
 
   // Run the Pipelined Fusion with the given global inputs
   std::vector<at::Tensor> runWithInput(const std::vector<c10::IValue>& inputs);
 
  private:
-  // Implement the execution of exprs of the Pipeline
-  // Each PipelineStage will be compiled and executed on a GPU
-  // Each PipelineCommunication will invoke the communicator's process group
-  // to perform the communication
-  using IterVisitor::handle;
-  void handle(PipelineStage* pipelineStage) override;
-  void handle(PipelineCommunication* sr) override;
-
-  // Returns whether the current process should run the stage
-  bool shouldRun(PipelineStage* stage);
-
   // Returns whether the current process should run the stage
   bool shouldRun(SegmentedGroup* stage);
+  void executeKernel(SegmentedGroup* group);
+  void executeCommunication(SegmentedGroup* group);
+
 
   // Stores concrete computed values,
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
 
   // Stores FusionExecutor(Cache) for each PipelineStage
-  std::unordered_map<SegmentedGroup*, std::unique_ptr<FusionExecutor>> fe_sg_;
-  std::unordered_map<PipelineStage*, std::unique_ptr<FusionExecutor>> fe_;
-  std::unordered_map<PipelineStage*, std::unique_ptr<FusionExecutorCache>> fec_;
+  std::unordered_map<SegmentedGroup*, std::unique_ptr<FusionExecutor>> fe_;
+  std::unordered_map<SegmentedGroup*, std::unique_ptr<Fusion>> fusions_;
   // Stores the resulting Communications after lowering each
   // PipelineCommunication
   std::unordered_map<
-      PipelineCommunication*,
+      SegmentedGroup*,
       std::vector<std::shared_ptr<Communication>>>
       communications_;
 
-  std::unordered_map<
-      SegmentedGroup*,
-      std::vector<std::shared_ptr<Communication>>>
-      communications_sg_;
-
   // Cache results of shouldRun method
-  std::unordered_map<PipelineStage*, bool> should_run_;
-
-  // Cache results of shouldRun method
-  std::unordered_map<SegmentedGroup*, bool> should_run_sg_;
+  std::unordered_map<SegmentedGroup*, bool> should_run_;
 
   // MultiDeviceRuntime to be executed
   MultiDeviceRuntime& runtime_;
+
+  RuntimeWorkSpace workspace_;
 };
 
 } // namespace nvfuser
