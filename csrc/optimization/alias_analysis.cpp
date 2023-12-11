@@ -392,10 +392,10 @@ void AliasAnalysisResult::finalize(Fusion* fusion) {
 
 Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
   const TensorView* tv = dynamic_cast<const TensorView*>(v);
-  NVF_CHECK(
+  NVF_ERROR(
       tv != nullptr,
       "`v` is expected to be a TensorView. Found: ",
-      v->toString());
+      v == nullptr ? "<null>" : v->toString());
 
   if (auto i = alias_to_source_.find(tv); i != alias_to_source_.end()) {
     return i->second.second;
