@@ -8963,8 +8963,8 @@ TEST_F(NVFuserTest, LayerNorm) {
   };
   int64_t batch_size = 1024 * 32;
 
-  test(batch_size, 17*1024, 0, 0);
-  return;
+  // test(batch_size, 17*1024, 0, 0);
+  // return;
   constexpr int vect_factor = 8;
   // constexpr int min_threads_per_block = 32;
   // constexpr int max_threads_per_block = 1024;
@@ -9045,7 +9045,7 @@ TEST_F(NVFuserTest, LayerNorm) {
     // fname << "/hhome/benchmarks/layernorm_heuristics/" << hostname
     //       << "_layernorm_new1211_" << batch_size << "_" << feature << ".txt";
     fname << "/opt/tmp/layernorm_heuristics/" << hostname
-          << "_layernorm_new1211_" << batch_size << "_" << feature << ".txt";          
+          << "_layernorm_main1211_" << batch_size << "_" << feature << ".txt";          
     std::ofstream file(fname.str());
     if (file.is_open()) {
       for (auto& info : results) {
