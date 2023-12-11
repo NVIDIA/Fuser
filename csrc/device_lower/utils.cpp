@@ -635,7 +635,7 @@ std::vector<Expr*> replaceInputsInExpr(
 std::vector<Expr*> getAllSwizzlesBetween(
     std::vector<IterDomain*> from,
     std::vector<IterDomain*> to) {
-  auto all_expr = StmtSort::getExprsBetween(
+  auto all_expr = DependencyCheck::getAllExprsBetween(
       {from.begin(), from.end()}, {to.begin(), to.end()});
 
   std::vector<Expr*> all_swizzles;
@@ -654,11 +654,20 @@ std::vector<Expr*> getAllSwizzlesBetween(
 namespace lower_utils {
 
 bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
-  if (expr->isA<kir::BlockSync>() || expr->isA<kir::GridSync>()) {
+  if (expr->isA<kir::BlockSync>() || expr->isA<kir::GridSync>() ||
+      expr->isA<kir::BlockSerializeWait>() ||
+      expr->isA<kir::BlockSerializeRelease>()) {
     return true;
   }
 
   if (!ir_utils::isTvOp(expr)) {
+    return false;
+  }
+
+  if (auto gr = dynamic_cast<const kir::GridReduction*>(expr);
+      gr && gr->isSerial()) {
+    // Serial GridReductions do not have a block sync. Instead, they sync in
+    // separate nodes surrounding their loop nest.
     return false;
   }
 
@@ -785,7 +794,7 @@ bool supportInlinePredicate(Expr* expr) {
 bool isScalarExpr(Expr* expr) {
   if (expr->inputs().empty() || expr->outputs().empty()) {
     // For expressions that does not have input/output, they are usually lowered
-    // expressions like CpAsyncWait. We don't consider these as scalar
+    // expressions like AsyncWait. We don't consider these as scalar
     // expressions.
     return false;
   }

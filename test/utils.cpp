@@ -268,11 +268,12 @@ Container parse(const std::string& nvdisasm_output) {
 TensorView* matmulTuringOrLater(
     TensorView* a,
     TensorView* b,
-    MmaLayout layout) {
+    MmaLayout layout,
+    bool as_mul_sum) {
   NVF_CHECK(a->nDims() == b->nDims());
   NVF_CHECK(a->nDims() == 2 || a->nDims() == 3);
-  TensorView *tv2 = nullptr, *tv0t = nullptr, *tv1t = nullptr, *tv0b = nullptr,
-             *tv1b = nullptr;
+  TensorView *tv3 = nullptr, *tv2 = nullptr, *tv0t = nullptr, *tv1t = nullptr,
+             *tv0b = nullptr, *tv1b = nullptr;
   if (a->nDims() == 3) { // bmm
     switch (layout) {
         // Canonicalize all inputs to [B, M, K] and [B, N, K]
@@ -324,18 +325,23 @@ TensorView* matmulTuringOrLater(
   bcast_dims.at(bcast_dims.size() - 2) = false;
   bcast_dims.at(bcast_dims.size() - 3) = true;
   tv1b = broadcast(tv1t, bcast_dims);
-  tv2 = fusedMultiplySum(tv0b, tv1b, {-1});
-  return tv2;
+  if (as_mul_sum) {
+    tv2 = mul(tv0b, tv1b);
+    tv3 = sum(tv2, {-1});
+    return tv3;
+  }
+  tv3 = fusedMultiplySum(tv0b, tv1b, {-1});
+  return tv3;
 }
 
 TensorView* matmul(
     TensorView* a,
     TensorView* b,
     MmaLayout layout,
-    bool turing_or_later // TODO: This is a temporary solution. Remove this!
-) {
+    bool turing_or_later, // TODO: This is a temporary solution. Remove this!
+    bool as_mul_sum) {
   NVF_ERROR(turing_or_later, "Only Turing or later is supported for now.");
-  return matmulTuringOrLater(a, b, layout);
+  return matmulTuringOrLater(a, b, layout, as_mul_sum);
 }
 
 TensorView* splitkLikeBatchedMatmul(

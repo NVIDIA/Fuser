@@ -17,10 +17,10 @@ if(NOT NVFUSER_CPP_STANDARD)
   set(NVFUSER_CPP_STANDARD 20)
 endif()
 
-if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.4)
-        message(FATAL_ERROR "GCC < 11.4 has compiler bugs and can not compile nvFuser.")
-    endif()
+if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+  if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.4)
+    message(FATAL_ERROR "GCC < 11.4 has compiler bugs and can not compile nvFuser.")
+  endif()
 endif()
 
 string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
@@ -45,7 +45,6 @@ if(TORCH_CUDA_ARCH_LIST)
   cuda_select_nvcc_arch_flags(ARCH_FLAGS ${TORCH_CUDA_ARCH_LIST})
   list(APPEND CUDA_NVCC_FLAGS ${ARCH_FLAGS})
 endif()
-
 
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 
@@ -157,7 +156,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/predicate_compute.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
-  ${NVFUSER_SRCS_DIR}/serde/polymorphic_value_serde.cpp
+  ${NVFUSER_SRCS_DIR}/serde/polymorphic_value.cpp
   ${NVFUSER_SRCS_DIR}/serde/utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/cache_policy_refiner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic_types.cpp
@@ -213,7 +212,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_cache.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_definition.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
-    ${NVFUSER_SRCS_DIR}/serde/fusion_record_serde.cpp
+    ${NVFUSER_SRCS_DIR}/serde/fusion_record.cpp
   )
 endif()
 
@@ -238,13 +237,13 @@ target_include_directories(${NVFUSER_CODEGEN} PUBLIC
   "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
 )
+set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD_REQUIRED ON)
 set_property(TARGET ${NVFUSER_CODEGEN} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
 
 # Ensure we don't link against libcuda; we'll dlopen it ourselves.
 list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
 target_link_libraries(${NVFUSER_CODEGEN} PRIVATE
   flatbuffers
-  stdc++fs  # for compatibility with C++14
   dynamic_type
   ${CUDA_NVRTC_LIB}
   ${LIBNVTOOLSEXT}
@@ -290,7 +289,6 @@ if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
 endif()
 
 add_dependencies(${NVFUSER_CODEGEN} flatc build_flatbuffer_config)
-
 
 # installing nvfuser headers
 install(DIRECTORY "${NVFUSER_SRCS_DIR}/"
@@ -370,105 +368,124 @@ if(BUILD_PYTHON)
   set_target_properties(${NVFUSER} PROPERTIES INSTALL_RPATH
     "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib")
   install(TARGETS ${NVFUSER} DESTINATION lib)
-
 endif()
 
-# -- build tests
+set(JIT_TEST_SRCS)
+list(APPEND JIT_TEST_SRCS
+  ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_open.cpp
+  ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_query.cpp
+  ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_write.cpp
+  ${NVFUSER_ROOT}/test/test_allocation_domain.cpp
+  ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
+  ${NVFUSER_ROOT}/test/test_evaluator.cpp
+  ${NVFUSER_ROOT}/test/test_exceptions.cpp
+  ${NVFUSER_ROOT}/test/test_expr_sort.cpp
+  ${NVFUSER_ROOT}/test/test_gather.cpp
+  ${NVFUSER_ROOT}/test/test_gpu1.cpp
+  ${NVFUSER_ROOT}/test/test_gpu2.cpp
+  ${NVFUSER_ROOT}/test/test_gpu3.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_compute_with.cpp
+  ${NVFUSER_ROOT}/test/test_expr_simplifier.cpp
+  ${NVFUSER_ROOT}/test/test_swizzle.cpp
+  ${NVFUSER_ROOT}/test/test_tensor_factories.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_fused_reduction.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_outer_reduction.cpp
+  ${NVFUSER_ROOT}/test/test_loop_rotation.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_shift.cpp
+  ${NVFUSER_ROOT}/test/test_resize.cpp
+  ${NVFUSER_ROOT}/test/test_polymorphic_value.cpp
+  ${NVFUSER_ROOT}/test/test_mbarrier.cpp
+  ${NVFUSER_ROOT}/test/test_memory.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
+  ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
+  ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
+  ${NVFUSER_ROOT}/test/test_optimization_pass.cpp
+  ${NVFUSER_ROOT}/test/test_pipeline.cpp
+  ${NVFUSER_ROOT}/test/test_serial_gridreduce.cpp
+  ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
+  ${NVFUSER_ROOT}/test/test_alias.cpp
+  ${NVFUSER_ROOT}/test/test_scalar_hoisting.cpp
+  ${NVFUSER_ROOT}/test/test_no_op.cpp
+  ${NVFUSER_ROOT}/test/test_linked_hash_map.cpp
+  ${NVFUSER_ROOT}/test/test_pointwise.cpp
+  ${NVFUSER_ROOT}/test/test_iter_visitor.cpp
+  ${NVFUSER_ROOT}/test/test_id_model.cpp
+  ${NVFUSER_ROOT}/test/test_double_buffering.cpp
+  ${NVFUSER_ROOT}/test/test_segmentation.cpp
+)
+
 if(BUILD_TEST)
-  # nvfuser test sources
-  set(JIT_TEST_SRCS)
-  set(JIT_TEST_CU_SRCS)
-  list(APPEND JIT_TEST_SRCS
-    ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_open.cpp
-    ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_query.cpp
-    ${NVFUSER_SRCS_DIR}/kernel_db/test/test_nvfuser_kernel_db_write.cpp
-    ${NVFUSER_ROOT}/test/main.cpp
+  set(RNG_TEST_KERNELS "${NVFUSER_TESTS}_kernels")
+  add_library(${RNG_TEST_KERNELS} SHARED ${NVFUSER_ROOT}/test/rng_kernels.cu)
+
+  # CUDA 11 does not support C++20, so hard code C++17 here
+  set_property(TARGET ${RNG_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
+  target_link_libraries(${RNG_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES} ${NVFUSER_CODEGEN})
+  target_include_directories(${RNG_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
+endif()
+
+function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
+  list(APPEND TEST_SRC ${NVFUSER_ROOT}/test/utils.cpp)
+  add_executable(${TEST_NAME} ${TEST_SRC})
+  set_property(TARGET ${TEST_NAME} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
+  target_compile_definitions(${TEST_NAME} PRIVATE USE_GTEST)
+  target_include_directories(${TEST_NAME} PRIVATE "${NVFUSER_ROOT}")
+  target_include_directories(${TEST_NAME} SYSTEM PRIVATE
+    ${NVFUSER_ROOT}/third_party/googletest/googletest/include
+    ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
+  )
+  target_link_libraries(${TEST_NAME} PRIVATE ${NVFUSER_CODEGEN} ${ADDITIONAL_LINK} dynamic_type GTest::gtest_main GTest::gmock_main flatbuffers ${TORCH_LIBRARIES})
+
+  if(NOT MSVC)
+    target_compile_options(${TEST_NAME} PRIVATE
+      -Wall -Wno-unused-function -Werror
+    )
+  endif()
+endfunction()
+
+if(BUILD_TEST)
+  add_test(${PROJECT_NAME}_tests "${JIT_TEST_SRCS}" "")
+
+  add_test(test_rng ${NVFUSER_ROOT}/test/test_rng.cpp ${RNG_TEST_KERNELS})
+
+  set(MULTIDEVICE_TEST_SRCS)
+  list(APPEND MULTIDEVICE_TEST_SRCS
     ${NVFUSER_ROOT}/test/multidevice.cpp
-    ${NVFUSER_ROOT}/test/utils.cpp
-    ${NVFUSER_ROOT}/test/test_allocation_domain.cpp
-    ${NVFUSER_ROOT}/test/test_dynamic_transform.cpp
-    ${NVFUSER_ROOT}/test/test_evaluator.cpp
-    ${NVFUSER_ROOT}/test/test_exceptions.cpp
-    ${NVFUSER_ROOT}/test/test_expr_sort.cpp
-    ${NVFUSER_ROOT}/test/test_gather.cpp
-    ${NVFUSER_ROOT}/test/test_gpu1.cpp
-    ${NVFUSER_ROOT}/test/test_gpu2.cpp
-    ${NVFUSER_ROOT}/test/test_gpu3.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_compute_with.cpp
-    ${NVFUSER_ROOT}/test/test_expr_simplifier.cpp
-    ${NVFUSER_ROOT}/test/test_external_src.cpp
-    ${NVFUSER_ROOT}/test/test_swizzle.cpp
-    ${NVFUSER_ROOT}/test/test_tensor_factories.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_fused_reduction.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_outer_reduction.cpp
-    ${NVFUSER_ROOT}/test/test_loop_rotation.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_shift.cpp
-    ${NVFUSER_ROOT}/test/test_resize.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
-    ${NVFUSER_ROOT}/test/test_polymorphic_value.cpp
-    ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
-    ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
-    ${NVFUSER_ROOT}/test/test_mbarrier.cpp
-    ${NVFUSER_ROOT}/test/test_memory.cpp
-    ${NVFUSER_ROOT}/test/test_mma.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_view.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_transpose.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_utils.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_indexing_ops.cpp
-    ${NVFUSER_ROOT}/test/test_gpu_indexing.cpp
     ${NVFUSER_ROOT}/test/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/test/test_multidevice_communications.cpp
-    ${NVFUSER_ROOT}/test/test_combined_inner_outer_reduction.cpp
-    ${NVFUSER_ROOT}/test/test_optimization_pass.cpp
-    ${NVFUSER_ROOT}/test/test_pipeline.cpp
-    ${NVFUSER_ROOT}/test/test_rng.cpp
-    ${NVFUSER_ROOT}/test/test_smem_reuse.cpp
-    ${NVFUSER_ROOT}/test/test_tutorial.cpp
-    ${NVFUSER_ROOT}/test/test_alias.cpp
-    ${NVFUSER_ROOT}/test/test_scalar_hoisting.cpp
-    ${NVFUSER_ROOT}/test/test_no_op.cpp
-    ${NVFUSER_ROOT}/test/test_linked_hash_map.cpp
-    ${NVFUSER_ROOT}/test/test_pointwise.cpp
-    ${NVFUSER_ROOT}/test/test_iter_visitor.cpp
   )
+  add_test(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
+
+  add_test(test_view "${NVFUSER_ROOT}/test/test_gpu_view.cpp" "")
+
+  set(MATMUL_TEST_SRCS)
+  list(APPEND MATMUL_TEST_SRCS
+    ${NVFUSER_ROOT}/test/test_mma.cpp
+    ${NVFUSER_ROOT}/test/test_matmul_sass.cpp
+    ${NVFUSER_ROOT}/test/test_matmul_scheduler.cpp
+    ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
+  )
+  add_test(test_matmul "${MATMUL_TEST_SRCS}" "")
+
+  add_test(test_external_src "${NVFUSER_ROOT}/test/test_external_src.cpp" "")
+
+  add_test(tutorial "${NVFUSER_ROOT}/test/test_tutorial.cpp" "")
+
+  if(BUILD_PYTHON)
+    set(PY_FRONTEND_TEST_SRCS)
+    list(APPEND PY_FRONTEND_TEST_SRCS
+      ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_definition.cpp
+      ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_cache.cpp
+      ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp
+    )
+    add_test(test_python_frontend "${PY_FRONTEND_TEST_SRCS}" "")
+  endif()
 
   # We don't link CUPTI for MSVC
   if(NOT MSVC)
-    list(APPEND JIT_TEST_SRCS
-      ${NVFUSER_ROOT}/test/test_fusion_profiler.cpp
-    )
-  endif()
-
-  if(BUILD_PYTHON)
-    list(APPEND JIT_TEST_SRCS
-      ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_definition.cpp
-      ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_cache.cpp
-      ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp)
-  endif()
-
-  set(NVFUSER_TESTS "${PROJECT_NAME}_tests")
-  set(NVFUSER_TESTS_KERNELS "${NVFUSER_TESTS}_kernels")
-
-  add_library(${NVFUSER_TESTS_KERNELS} SHARED ${NVFUSER_ROOT}/test/rng_kernels.cu)
-  # CUDA 11 does not support C++20, so hard code C++17 here
-  set_property(TARGET ${NVFUSER_TESTS_KERNELS} PROPERTY CXX_STANDARD 17)
-  target_link_libraries(${NVFUSER_TESTS_KERNELS} PRIVATE torch ${TORCH_LIBRARIES} ${NVFUSER_CODEGEN})
-  target_include_directories(${NVFUSER_TESTS_KERNELS} PRIVATE "${NVFUSER_ROOT}")
-
-  add_executable(${NVFUSER_TESTS} ${JIT_TEST_SRCS})
-  set_property(TARGET ${NVFUSER_TESTS} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
-  target_compile_definitions(${NVFUSER_TESTS} PRIVATE USE_GTEST)
-  target_include_directories(${NVFUSER_TESTS} PRIVATE "${NVFUSER_ROOT}")
-  target_include_directories(${NVFUSER_TESTS} SYSTEM PRIVATE
-    ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include
-    ${CMAKE_SOURCE_DIR}/third_party/googletest/googlemock/include
-  )
-  target_link_libraries(${NVFUSER_TESTS} PRIVATE ${NVFUSER_CODEGEN} ${NVFUSER_TESTS_KERNELS} dynamic_type GTest::gtest_main GTest::gmock_main flatbuffers ${TORCH_LIBRARIES})
-
-  if(NOT MSVC)
-    target_compile_options(${NVFUSER_TESTS} PRIVATE
-      -Wall -Wno-unused-function -Werror
-    )
+    add_test(test_profiler "${NVFUSER_ROOT}/test/test_fusion_profiler.cpp" "")
   endif()
 endif()
 

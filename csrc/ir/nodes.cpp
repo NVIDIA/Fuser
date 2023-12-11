@@ -429,7 +429,8 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::ToUnsignedSmemAddr:
       return {(int64_t)(unsigned)in};
       break;
-    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring:
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring8:
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring16:
       return {in};
       break;
     case UnaryOpType::Dereference:
