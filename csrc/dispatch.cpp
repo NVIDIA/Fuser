@@ -272,6 +272,14 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<kir::MBarrierWait>());
     return;
   }
+  if (expr->isStrictlyA<kir::BlockSerializeWait>()) {
+    ptr(handler)->handle(expr->as<kir::BlockSerializeWait>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::BlockSerializeRelease>()) {
+    ptr(handler)->handle(expr->as<kir::BlockSerializeRelease>());
+    return;
+  }
   if (expr->isStrictlyA<kir::AsyncWait>()) {
     ptr(handler)->handle(expr->as<kir::AsyncWait>());
     return;
@@ -578,6 +586,14 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<kir::MBarrierWait>()) {
     ptr(handler)->handle(expr->as<kir::MBarrierWait>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::BlockSerializeWait>()) {
+    ptr(handler)->handle(expr->as<kir::BlockSerializeWait>());
+    return;
+  }
+  if (expr->isStrictlyA<kir::BlockSerializeRelease>()) {
+    ptr(handler)->handle(expr->as<kir::BlockSerializeRelease>());
     return;
   }
   if (expr->isStrictlyA<kir::AsyncWait>()) {
@@ -980,6 +996,12 @@ void OptOutConstDispatch::handle(const kir::MBarrierArriveExpectTx* stmt) {
 void OptOutConstDispatch::handle(const kir::MBarrierWait* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const kir::BlockSerializeWait* stmt) {
+  unhandled(stmt);
+}
+void OptOutConstDispatch::handle(const kir::BlockSerializeRelease* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const kir::AsyncWait* stmt) {
   unhandled(stmt);
 }
@@ -1205,6 +1227,12 @@ void OptOutDispatch::handle(kir::MBarrierArriveExpectTx* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::MBarrierWait* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::BlockSerializeWait* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(kir::BlockSerializeRelease* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(kir::AsyncWait* stmt) {
