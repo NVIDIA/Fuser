@@ -584,8 +584,7 @@ TEST_F(AliasTest, DuplicateOutputsSegmentedFusion) {
 
 namespace {
 
-// Returns the only executor in the most recent runtime. Throws an assertion
-// failure when the most recent runtime launches multiple kernels.
+// Returns the only executor in the most recent runtime.
 const FusionExecutor& onlyExecutorInMostRecentRuntime(
     const FusionExecutorCache& fec) {
   const std::vector<FusionExecutor>& executors =

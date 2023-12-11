@@ -9,6 +9,7 @@
 
 namespace nvfuser::optimization {
 
+// Updates layouts to enable aliases.
 class OptimizeLayoutPass : public OptimizationPass<OptimizeLayoutPass> {
   friend class OptimizationPass<OptimizeLayoutPass>;
 

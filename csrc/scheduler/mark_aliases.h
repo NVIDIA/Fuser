@@ -11,6 +11,9 @@
 
 namespace nvfuser {
 
+// Marks aliases between fusion inputs and outputs. This respects existing
+// allocation domains **even when** they are empty (assuming default order). See
+// [Note on overriding empty allocation domains].
 void markAliases(Fusion* fusion);
 
 } // namespace nvfuser

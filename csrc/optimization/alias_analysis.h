@@ -51,6 +51,8 @@ class AliasAnalysisResult {
   // preferred layout.
   void add(const TensorView* alias, const TensorView* source, Layout&& layout);
 
+  // See `findAliases` for the meaning of
+  // `can_override_empty_allocation_domain`.
   void finalize(Fusion* fusion, bool can_override_empty_allocation_domain);
 
   // Returns the preferred layout. If `alias` is not in `preferred_layout_`,
@@ -85,6 +87,26 @@ class AliasAnalysisResult {
 // is compliant with the required layout, `ExpressionEvaluator::evaluate(B)`
 // should produce an `at::Tensor` that's an alias of the `at::Tensor` bound to
 // A.
+//
+// [Note on overriding empty allocation domains]
+//
+// We can override an empty allocation domain to any layout before segmentation
+// but not after. For example,
+// ```
+// auto in = makeContigConcreteTensor({2, 3});
+// auto slice_out = segment_set(slice(in, {0, 0}, {2, 2}));
+// auto add_out = add(slice_out, slice_out)
+// ```
+// will be split at `slice_out` into two segments. `slice_out`'s contiguity
+// needs to be [f,t] so it can be made an alias. If we were to let a scheduler
+// (thus after segmentation) change its contiguity, we would have to change the
+// input contiguity of the second segment as well. This is possible but hard to
+// implement given the current infrastructure.
+//
+// Therefore, I chose to run alias analysis both before segmentation and in
+// schedulers. The former, used by OptimizeLayoutPass, updates layouts to enable
+// aliases; the latter, used by NoOpScheduler, calls Fusion::aliasOutputToInput
+// to mark aliases.
 AliasAnalysisResult findAliases(
     Fusion* fusion,
     bool can_override_empty_allocation_domain = true);
