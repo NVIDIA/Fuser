@@ -443,7 +443,7 @@ class FusionExecutor : public NonCopyable {
   //! Serialize CompiledKernel using flatbuffers
   flatbuffers::Offset<serde::CudaKernel> serialize(
       flatbuffers::FlatBufferBuilder& builder,
-      const executor_utils::CompiledKernel& kernel) const;
+      const executor_utils::CompiledKernel* kernel) const;
 
   // ExecutorEntry is an internal POD struct for the FusionExecutor class.
   // We define ExecutorEntry's serialize and deserialize as private methods in

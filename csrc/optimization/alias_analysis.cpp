@@ -132,6 +132,8 @@ void AliasFinder::handle(const ViewOp* view) {
 
   std::unordered_map<IterDomain*, IterDomain*> in_rfactor_to_out_root =
       PairwiseRootDomainMap(in, out).mapBroadcast(true).mapProducerToConsumer();
+  std::unordered_map<IterDomain*, IterDomain*> out_root_to_in_rfactor =
+      PairwiseRootDomainMap(in, out).mapBroadcast(true).mapConsumerToProducer();
 
   // Collect the allocation order of `in`'s rfactor domain and thus `out`'s root
   // domain.
@@ -142,9 +144,18 @@ void AliasFinder::handle(const ViewOp* view) {
       // `in_allocation_id` is a reduction product.
       continue;
     }
-    IterDomain* out_root_id = in_rfactor_to_out_root.at(in_allocation_id);
-    allocation_to_contiguity.pushBack(out_root_id, in_layout.contiguity[i]);
+    allocation_to_contiguity.pushBack(
+        in_allocation_id, in_layout.contiguity[i]);
   }
+
+  // TODO(#1174): preserve expanded extents in `out_root` so we don't have to
+  // look for expanded extents in `in_rfactor`.
+  auto map_or_identity =
+      [](const std::unordered_map<IterDomain*, IterDomain*>& map,
+         IterDomain* id) {
+        const auto i = map.find(id);
+        return i == map.end() ? id : i->second;
+      };
 
   // Replay `Expr`s from `out`'s root to `out`'s rfactor on `out`'s root.
   // Stop when an `Expr` requires a data copy; otherwise generate the allocation
@@ -153,25 +164,31 @@ void AliasFinder::handle(const ViewOp* view) {
            {out_root.begin(), out_root.end()},
            {out_rfactor.begin(), out_rfactor.end()})) {
     if (Split* split = dynamic_cast<Split*>(transform)) {
+      IterDomain* split_in =
+          map_or_identity(out_root_to_in_rfactor, split->in());
       const auto [contiguity, split_i] =
-          allocation_to_contiguity.erase(split->in());
+          allocation_to_contiguity.erase(split_in);
       auto [outer_contiguity, inner_contiguity] = splitContiguity(contiguity);
       allocation_to_contiguity.insert(
           split_i, split->outer(), outer_contiguity);
       allocation_to_contiguity.insert(
           split_i, split->inner(), inner_contiguity);
     } else if (Merge* merge = dynamic_cast<Merge*>(transform)) {
+      IterDomain* merge_inner =
+          map_or_identity(out_root_to_in_rfactor, merge->inner());
+      IterDomain* merge_outer =
+          map_or_identity(out_root_to_in_rfactor, merge->outer());
       const auto [outer_contiguity, inner_i] =
-          allocation_to_contiguity.erase(merge->outer());
+          allocation_to_contiguity.erase(merge_outer);
       if (inner_i == allocation_to_contiguity.end() ||
-          inner_i->first != merge->inner()) {
+          inner_i->first != merge_inner) {
         // Outer and inner are not adjacent in allocation order.
         return;
       }
       const auto [inner_contiguity, merge_i] =
-          allocation_to_contiguity.erase(merge->inner());
+          allocation_to_contiguity.erase(merge_inner);
       const auto [mergeable, contiguity] = mergeContiguity(
-          merge->outer(), outer_contiguity, merge->inner(), inner_contiguity);
+          merge_outer, outer_contiguity, merge_inner, inner_contiguity);
       if (!mergeable) {
         return;
       }
@@ -184,7 +201,8 @@ void AliasFinder::handle(const ViewOp* view) {
 
   Layout out_layout;
   for (const auto& [allocation_id, contiguity] : allocation_to_contiguity) {
-    out_layout.allocation_domain.push_back(allocation_id);
+    out_layout.allocation_domain.push_back(
+        map_or_identity(in_rfactor_to_out_root, allocation_id));
     out_layout.contiguity.push_back(contiguity);
   }
   analysis_.add(out, in, std::move(out_layout));
@@ -324,7 +342,8 @@ void AliasAnalysisResult::add(
       alias, std::make_pair(source, std::move(layout)));
   NVF_ERROR(
       inserted,
-      "The current implementation of alias analysis shouldn't find two sources for an alias. However, it's trying to make ",
+      "The current implementation of alias analysis shouldn't find two "
+      "sources for an alias. However, it's trying to make ",
       alias->toString(),
       " an alias of ",
       source->toString(),
@@ -363,9 +382,9 @@ std::string AliasAnalysisResult::toString(const int indent_size) const {
   std::stringstream ss;
   for (const auto& [alias, source_and_layout] : alias_to_source_) {
     const auto& [source, layout] = source_and_layout;
-    indent(ss, indent_size)
-        << alias->toString() << " is an alias of " << source->toString()
-        << " if its layout is " << layout.toString() << std::endl;
+    indent(ss, indent_size) << ir_utils::varName(alias) << " is an alias of "
+                            << ir_utils::varName(source) << " if its layout is "
+                            << layout.toString() << std::endl;
   }
   return ss.str();
 }
