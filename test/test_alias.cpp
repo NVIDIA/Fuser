@@ -749,23 +749,23 @@ TEST_F(AliasTest, AliasInSegment) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  // The second segment is meta-op only and turned into a no-op kernel.
+  // The segment between `permute_in` and `permute_out` is meta-op only and
+  // turned into a no-op kernel.
   TensorView* in = makeContigConcreteTensor({2, 3});
-  TensorView* out = add(in, in);
-  out = segment_set(out);
-  out = permute(out, {1, 0});
+  TensorView* add_out = add(in, in);
+  TensorView* permute_in = segment_set(in);
+  TensorView* permute_out = permute(permute_in, {1, 0});
 
   fusion->addInput(in);
-  fusion->addOutput(out);
+  fusion->addOutput(add_out);
+  fusion->addOutput(permute_out);
 
   FusionExecutorCache fec(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
   std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  validateSegmentation(
-      fec.getMostRecentKernelRuntime(),
-      {ScheduleHeuristic::PointWise, ScheduleHeuristic::NoOp});
+  EXPECT_TRUE(out_tensors[1].is_alias_of(in_tensor));
 }
 
 } // namespace nvfuser
