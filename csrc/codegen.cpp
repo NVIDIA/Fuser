@@ -187,6 +187,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         return "LL";
       case DataType::UInt:
         return "ULL";
+      case DataType::UInt32:
+        return "U";
       case DataType::Index:
         return getLiteralSuffix(kernel_->indexType());
       default:
