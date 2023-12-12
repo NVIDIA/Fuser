@@ -20,55 +20,37 @@ class LowerToInlinePtx : public kir::ExprMutator {
  protected:
   using ExprMutator::handle;
 
-  void handle(kir::CpAsyncCommit* commit) override {
+  void handle(kir::AsyncCommit* commit) override {
     registerReplace(
         commit,
         IrBuilder::create<kir::Asm>(
-            "cp.async.commit_group",
+            commit->ptx(),
             std::vector<Val*>{},
             std::vector<Val*>{},
             kir::Asm::Options{/*volatile=*/true}));
   }
 
-  void handle(kir::CpAsyncWait* wait) override {
-    auto stages = wait->keepStages();
-    Expr* replace = nullptr;
-    if (stages > 0) {
-      replace = IrBuilder::create<kir::Asm>(
-          "cp.async.wait_group",
-          std::vector<Val*>{},
-          std::vector<Val*>{IrBuilder::create<Val>(stages)},
-          kir::Asm::Options{/*volatile=*/true});
+  void handle(kir::AsyncWait* wait) override {
+    if (wait->asyncOpType() == AsyncOpType::CpAsync &&
+        wait->keepStages() == 0) {
+      // cp.async uses wait_all for zero keep stages, other instructions uses a
+      // unified interface for all keep stages.
+      registerReplace(
+          wait,
+          IrBuilder::create<kir::Asm>(
+              wait->ptx(),
+              std::vector<Val*>{},
+              std::vector<Val*>{},
+              kir::Asm::Options{/*volatile=*/true}));
     } else {
-      replace = IrBuilder::create<kir::Asm>(
-          "cp.async.wait_all",
-          std::vector<Val*>{},
-          std::vector<Val*>{},
-          kir::Asm::Options{/*volatile=*/true});
+      registerReplace(
+          wait,
+          IrBuilder::create<kir::Asm>(
+              wait->ptx(),
+              std::vector<Val*>{},
+              std::vector<Val*>{IrBuilder::create<Val>(wait->keepStages())},
+              kir::Asm::Options{/*volatile=*/true, /*memory=*/wait->memory()}));
     }
-
-    registerReplace(wait, replace);
-  }
-
-  void handle(kir::CpAsyncBulkS2GCommit* commit) override {
-    registerReplace(
-        commit,
-        IrBuilder::create<kir::Asm>(
-            "cp.async.bulk.commit_group",
-            std::vector<Val*>{},
-            std::vector<Val*>{},
-            kir::Asm::Options{/*volatile=*/true}));
-  }
-
-  void handle(kir::CpAsyncBulkS2GWait* wait) override {
-    auto stages = wait->keepStages();
-    registerReplace(
-        wait,
-        IrBuilder::create<kir::Asm>(
-            "cp.async.bulk.wait_group.read",
-            std::vector<Val*>{},
-            std::vector<Val*>{IrBuilder::create<Val>(stages)},
-            kir::Asm::Options{/*volatile=*/true, /*memory=*/true}));
   }
 
   void handle(LoadStoreOp* ldst) override {
@@ -188,7 +170,83 @@ class LowerToInlinePtx : public kir::ExprMutator {
   }
 
   void handleHopperMma(MmaOp* mma) {
-    NVF_ERROR(false, "Hopper MMA not supported yet");
+    // Reference:
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-multiply-accumulate-instructions
+
+    // Sync between the generic proxy and the async proxy
+
+    // Reference:
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-async-proxy
+
+    // TODO: we should not insert sync here. We should keep the lowerToInlinePtx
+    // pass only do simple translations, instead of inserting syncs. This will
+    // be fixed in a future PR.
+    registerInsertBefore(
+        mma,
+        IrBuilder::create<kir::Asm>(
+            "wgmma.fence.sync.aligned",
+            std::vector<Val*>{},
+            std::vector<Val*>{},
+            kir::Asm::Options{/*volatile=*/true}));
+    // TODO: is this fence.proxy.async necessary? The above links say we need
+    // it, but seems that CUTLASS is not using it? Wouldn't wgmma.fence itself
+    // make sure registers are available to the async proxy? And would
+    // __syncthreads() make sure smem is available to the async proxy?
+    // Reference:
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-membar-fence
+    registerInsertBefore(
+        mma,
+        IrBuilder::create<kir::Asm>(
+            "fence.proxy.async",
+            std::vector<Val*>{},
+            std::vector<Val*>{},
+            kir::Asm::Options{/*volatile=*/true}));
+
+    // Do MMA
+    std::stringstream inst_ss;
+    inst_ss << "wgmma.mma_async.sync.aligned.m" << mma->m() << "n" << mma->n()
+            << "k" << mma->k() << ".f32";
+    if (mma->inA()->as<kir::TensorIndex>()->view()->getDataType().value() ==
+        DataType::BFloat16) {
+      inst_ss << ".bf16.bf16";
+    } else {
+      inst_ss << ".f16.f16";
+    }
+    bool a_on_smem =
+        mma->inA()->as<kir::TensorIndex>()->view()->getMemoryType() ==
+        MemoryType::Shared;
+    std::vector<Val*> inputs{
+        a_on_smem ? mma->inA()->as<kir::TensorIndex>()->index() : mma->inA(),
+        mma->inB()->as<kir::TensorIndex>()->index(),
+        /*scaleD=*/IrBuilder::create<Val>(true),
+        /*scaleA=*/IrBuilder::create<Val>(1, DataType::Int32),
+        /*scaleB=*/IrBuilder::create<Val>(1, DataType::Int32)};
+    auto layout = *mma->layout();
+    if (a_on_smem) {
+      // tnspA: if not K-major, then needs transpose
+      if (layout == MmaLayout::TT || layout == MmaLayout::TN) {
+        inputs.push_back(IrBuilder::create<Val>(1, DataType::Int32));
+      } else {
+        inputs.push_back(IrBuilder::create<Val>(0, DataType::Int32));
+      }
+    }
+    // tnspB: if not K-major, then needs transpose
+    if (layout == MmaLayout::TN || layout == MmaLayout::NN) {
+      inputs.push_back(IrBuilder::create<Val>(1, DataType::Int32));
+    } else {
+      inputs.push_back(IrBuilder::create<Val>(0, DataType::Int32));
+    }
+    registerInsertBefore(
+        mma,
+        IrBuilder::create<kir::Asm>(
+            inst_ss.str(),
+            std::vector<Val*>{mma->out()},
+            inputs,
+            kir::Asm::Options{
+                /*volatile=*/true,
+                /*memory=*/false,
+                /*readable_outputs=*/{0}}));
+    registerRemove(mma);
   }
 
   void handle(MmaOp* mma) override {

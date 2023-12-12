@@ -729,11 +729,14 @@ class TestDifferences:
 
             compiled_test2 = self.run2.kernel_map[testname]
 
-            if len(compiled_test1.kernels) != len(compiled_test2.kernels):
+            test1_kernel_count = len(compiled_test1.kernels)
+            test2_kernel_count = len(compiled_test2.kernels)
+            minimum_kernel_count = min(test1_kernel_count, test2_kernel_count)
+            if test1_kernel_count != test2_kernel_count:
                 print(
-                    f"WARNING: Test {testname} has different number of kernels "
-                    f"in {self.run1.directory} than in {self.run2.directory}. "
-                    "Not showing diffs for this test.",
+                    f"WARNING: Test {testname} has {test1_kernel_count} kernels "
+                    f"in {self.run1.directory} and {test2_kernel_count} kernels in {self.run2.directory}. "
+                    f"Only showing diffs for the first {minimum_kernel_count} kernels in this test.",
                     file=sys.stderr,
                 )
                 self.test_diffs.append(
@@ -746,7 +749,7 @@ class TestDifferences:
                 )
 
             kernel_diffs = []
-            for kernel_num in range(len(compiled_test1.kernels)):
+            for kernel_num in range(minimum_kernel_count):
                 kern1 = self.run1.get_kernel(testname, kernel_num, strip_preamble=True)
                 kern2 = self.run2.get_kernel(testname, kernel_num, strip_preamble=True)
                 assert kern1.code is not None

@@ -473,7 +473,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       auto last_writes = last_cpasync_writes_.front();
       last_cpasync_writes_.pop_front();
 
-      auto sync_expr = IrBuilder::create<kir::CpAsyncWait>();
+      auto sync_expr = IrBuilder::create<kir::AsyncWait>(AsyncOpType::CpAsync);
       insertSyncExpr(last_writes, expr, sync_expr, nullptr);
     }
 

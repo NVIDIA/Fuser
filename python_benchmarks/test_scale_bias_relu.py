@@ -13,8 +13,8 @@ def sbr_fwd_fusion(
     T0 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False)
     T1 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False)
     T2 = fd.define_tensor(
-        shape=[-1, -1, -1, -1],
-        contiguity=[True, True, True, True],
+        shape=[-1, -1],
+        contiguity=[True, True],
         dtype=dtype,
         is_cpu=False,
     )
@@ -25,10 +25,10 @@ def sbr_fwd_fusion(
         T2 = fd.ops.cast(T2, dtype=DataType.Float)
 
     V7 = T2.shape()
-    T8 = fd.ops.broadcast_in_dim(T1, shape=V7, broadcast_dims=[3])
+    T8 = fd.ops.broadcast_in_dim(T1, shape=V7, broadcast_dims=[1])
     T11 = fd.ops.mul(T2, T8)
 
-    T18 = fd.ops.broadcast_in_dim(T0, shape=V7, broadcast_dims=[3])
+    T18 = fd.ops.broadcast_in_dim(T0, shape=V7, broadcast_dims=[1])
     T20 = fd.ops.add(T11, T18)
 
     if dtype in PROMOTE_DTYPES:
@@ -48,14 +48,14 @@ def sbr_bwd_fusion(
 ):
     T0 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False)
     T1 = fd.define_tensor(
-        shape=[-1, -1, -1, -1],
-        contiguity=[True, True, True, True],
+        shape=[-1, -1],
+        contiguity=[True, True],
         dtype=DataType.Bool,
         is_cpu=False,
     )
     T2 = fd.define_tensor(
-        shape=[-1, -1, -1, -1],
-        contiguity=[True, True, True, True],
+        shape=[-1, -1],
+        contiguity=[True, True],
         dtype=dtype,
         is_cpu=False,
     )
@@ -65,7 +65,7 @@ def sbr_bwd_fusion(
         T2 = fd.ops.cast(T2, dtype=DataType.Float)
 
     V7 = T2.shape()
-    T8 = fd.ops.broadcast_in_dim(T0, shape=V7, broadcast_dims=[3])
+    T8 = fd.ops.broadcast_in_dim(T0, shape=V7, broadcast_dims=[1])
 
     S10 = fd.define_scalar(0.00000, dtype=DataType.Double)
     T11 = fd.ops.where(T1, T2, S10)
@@ -76,7 +76,7 @@ def sbr_bwd_fusion(
     fd.add_output(T15)
 
 
-@pytest.mark.parametrize("size", generate_input_sizes(dims=4))
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_sbr_fwd_benchmark(
     benchmark,
@@ -102,7 +102,7 @@ def test_sbr_fwd_benchmark(
     torch.cuda.empty_cache()
 
 
-@pytest.mark.parametrize("size", generate_input_sizes(dims=4))
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_sbr_bwd_benchmark(
     benchmark,

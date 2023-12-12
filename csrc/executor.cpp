@@ -918,14 +918,18 @@ at::Tensor allocateOutput(
     const FusionExecutor::GlobalBufferInfo& out_info,
     Val* aliased_in,
     const AliasInfo* alias_info,
-    const at::Tensor& aliased_in_tensor,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
   TensorView* out_tv = out_info.tv;
 
-  // Note: aliased output is not returned as output. But we still need it
-  // for kernel execution, so would need to push them to args
   if (aliased_in != nullptr) {
+    const PolymorphicValue& aliased_in_val = ee.evaluate(aliased_in);
+    NVF_ERROR(
+        aliased_in_val.is<at::Tensor>(),
+        "Alias io only supports tensor. Found ",
+        PolymorphicValue_functions::toString(aliased_in_val));
+    auto aliased_in_tensor = aliased_in_val.as<at::Tensor>();
+
     switch (alias_info->type) {
       case AliasType::InplaceUpdate:
         // Unlike for `AliasType::PointerArithmetic`, don't use
@@ -936,15 +940,13 @@ at::Tensor allocateOutput(
         return aliased_in_tensor;
 
       case AliasType::PointerArithmetic:
-        auto* in_tv = aliased_in->as<TensorView>();
-        ee.bind(in_tv, aliased_in_tensor);
         at::Tensor out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
         NVF_ERROR(
             out_tensor.is_alias_of(aliased_in_tensor),
             "ExpressionEvaluator failed to evaluate ",
             out_tv->toString(),
             " as an alias of ",
-            in_tv->toString());
+            aliased_in->toString());
         inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
         return out_tensor;
     }
@@ -972,7 +974,6 @@ at::Tensor allocateOutput(
 std::vector<at::Tensor> allocateOutputs(
     const kir::Kernel* kernel,
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
-    const KernelArgumentHolder& inputs,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
   FUSER_PERF_SCOPE("allocateOutputs");
@@ -989,23 +990,8 @@ std::vector<at::Tensor> allocateOutputs(
     auto iter = outputs_map.find(out);
     if (iter == outputs_map.end()) {
       auto [aliased_in, alias_info] = kernel->getOutputAlias(out);
-      at::Tensor aliased_in_tensor;
-      if (aliased_in != nullptr) {
-        const PolymorphicValue& aliased_in_val =
-            *inputs[IndexOfFusionInput(aliased_in, kernel)];
-        NVF_ERROR(
-            aliased_in_val.is<at::Tensor>(),
-            "Alias io only supports tensor. Found ",
-            PolymorphicValue_functions::toString(aliased_in_val));
-        aliased_in_tensor = aliased_in_val.as<at::Tensor>();
-      }
       auto output = allocateOutput(
-          output_info[output_idx],
-          aliased_in,
-          alias_info,
-          aliased_in_tensor,
-          device,
-          ee);
+          output_info[output_idx], aliased_in, alias_info, device, ee);
       outputs_map[out] = output;
       outputs.push_back(output);
     } else {
@@ -1270,8 +1256,7 @@ std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
   auto output_info =
       getOutputBufferInfo(kernel_inputs, expr_eval, kernel()->indexType());
 
-  return allocateOutputs(
-      kernel(), output_info, kernel_inputs, options_.device, expr_eval);
+  return allocateOutputs(kernel(), output_info, options_.device, expr_eval);
 }
 
 std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
@@ -1671,7 +1656,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // only allocate outputs when not given
   if (outputs.empty()) {
     outputs = allocateOutputs(
-        kernel(), executor_entry->outputs, args, options_.device, expr_eval);
+        kernel(), executor_entry->outputs, options_.device, expr_eval);
   } else {
     // TODO: Use validateKernelOutputs
     NVF_ERROR(
@@ -2009,38 +1994,42 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
       toUnderlying(kernel()->indexType()),
-      serialize(builder, *compiled_kernel_));
+      serialize(builder, compiled_kernel_.get()));
 }
 
 flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
-    const executor_utils::CompiledKernel& compiled_kernel) const {
+    const executor_utils::CompiledKernel* compiled_kernel) const {
   NVF_ERROR(
-      !compiled_kernel.cubin.empty() || !compiled_kernel.ptx.empty(),
+      compiled_kernel_ != nullptr &&
+          (!compiled_kernel->cubin.empty() || !compiled_kernel->ptx.empty()),
       "Expected compiled cuda kernel before serializing FusionExecutor.");
 
-  auto fb_kernel_name = builder.CreateString(compiled_kernel.kernel_name);
-  auto fb_compile_args = builder.CreateString(compiled_kernel.compile_args);
+  auto fb_kernel_name = builder.CreateString(compiled_kernel->kernel_name);
+  auto fb_compile_args = builder.CreateString(compiled_kernel->compile_args);
 
   flatbuffers::Offset<flatbuffers::Vector<uint8_t>> fb_cubin = 0;
   flatbuffers::Offset<flatbuffers::String> fb_cubin_filename = 0;
-  if (!compiled_kernel.cubin.empty()) {
+  if (!compiled_kernel->cubin.empty()) {
     uint8_t* cubin_ptr = nullptr;
     fb_cubin = builder.CreateUninitializedVector(
-        compiled_kernel.cubin.size(), &cubin_ptr);
+        compiled_kernel->cubin.size(), &cubin_ptr);
     std::copy(
-        compiled_kernel.cubin.begin(), compiled_kernel.cubin.end(), cubin_ptr);
-    fb_cubin_filename = builder.CreateString(compiled_kernel.cubin_filename);
+        compiled_kernel->cubin.begin(),
+        compiled_kernel->cubin.end(),
+        cubin_ptr);
+    fb_cubin_filename = builder.CreateString(compiled_kernel->cubin_filename);
   }
 
   flatbuffers::Offset<flatbuffers::Vector<uint8_t>> fb_ptx = 0;
   flatbuffers::Offset<flatbuffers::String> fb_ptx_filename = 0;
-  if (!compiled_kernel.ptx.empty()) {
+  if (!compiled_kernel->ptx.empty()) {
     uint8_t* ptx_ptr = nullptr;
-    fb_ptx =
-        builder.CreateUninitializedVector(compiled_kernel.ptx.size(), &ptx_ptr);
-    std::copy(compiled_kernel.ptx.begin(), compiled_kernel.ptx.end(), ptx_ptr);
-    fb_ptx_filename = builder.CreateString(compiled_kernel.ptx_filename);
+    fb_ptx = builder.CreateUninitializedVector(
+        compiled_kernel->ptx.size(), &ptx_ptr);
+    std::copy(
+        compiled_kernel->ptx.begin(), compiled_kernel->ptx.end(), ptx_ptr);
+    fb_ptx_filename = builder.CreateString(compiled_kernel->ptx_filename);
   }
 
   serde::CudaKernelBuilder ckb(builder);
@@ -2050,7 +2039,7 @@ flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
   ckb.add_ptx_filename(fb_ptx_filename);
   ckb.add_kernel_name(fb_kernel_name);
   ckb.add_compile_args(fb_compile_args);
-  ckb.add_block_size(compiled_kernel.block_size);
+  ckb.add_block_size(compiled_kernel->block_size);
   return ckb.Finish();
 }
 

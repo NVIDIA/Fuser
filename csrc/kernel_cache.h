@@ -87,11 +87,17 @@ struct PairPointerEquals {
 //!  and one for segmented/multi-kernel fusion.
 //! Conceptually this is a generalization of FusionExecutor that supports both
 //!  single-kernel and multi-kernel caching/compiling/launching
+//!
+//! When serde_buffer argument is a nullptr, we run the
+//! SegmentCandidateFinder::segment pass in the constructor and compile the
+//! fusions. When serde_buffer exists, we deserialize the segmented_fusion_ and
+//! executors_ objects from the flatbuffer binary.
 class FusionKernelRuntime {
  public:
   explicit FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
+      const serde::FusionKernelRuntime* serde_buffer = nullptr,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       int64_t fusion_id = 0,
       int64_t concrete_id = 0,
@@ -692,6 +698,9 @@ class FusionExecutorCache {
   //! inputs to unique_id lookup table;
   InputsIdLookup inputs_id_lookup_;
 
+  using ConcreteInfo =
+      std::pair<int8_t, const DynamicTransformConcretizationInfo*>;
+
   //! Holds FusionKernelRuntime for scheduled, static Fusions. The key in this
   //! map is a (device, concretization info) pair. In case fusion_ contains
   //! no dynamic transforms, the second part of the key is null. When a new set
@@ -700,7 +709,7 @@ class FusionExecutorCache {
   //! Fusions. We then check each of these to see if we can re-use any of those
   //! kernels and if not, we create a new one.
   std::unordered_map<
-      std::pair<int8_t, const DynamicTransformConcretizationInfo*>,
+      ConcreteInfo,
       std::vector<std::unique_ptr<FusionKernelRuntime>>,
       PairPointerHash,
       PairPointerEquals>
@@ -713,12 +722,11 @@ class FusionExecutorCache {
   std::vector<std::unique_ptr<DynamicTransformConcretizationInfo>>
       cached_conc_info_;
   //! Map each pair of device_id and concretization info to an integer id
-  std::unordered_map<
-      std::pair<int8_t, const DynamicTransformConcretizationInfo*>,
-      int64_t,
-      PairPointerHash,
-      PairPointerEquals>
+  std::unordered_map<ConcreteInfo, int64_t, PairPointerHash, PairPointerEquals>
       conc_info_id_map_;
+  //! For serialization, track a deterministic order for (device_id and
+  //! concretization info) pair
+  std::vector<ConcreteInfo> deterministic_conc_info_;
 
   //! Logging state for most recent compilation
   bool profiling_ = false;
