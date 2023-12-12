@@ -418,6 +418,7 @@ class TensorView : public Val {
   //!  have a matching thread swizzle with the mma operand/result.
   //! More detail on usage see [WarpMmaSwizzler] in scheduler/mma_utils.h .
   void applyMmaSwizzle(MmaOperand operand);
+  void applyMmaSwizzle(MmaInputSmemSwizzle swizzle, bool transpose);
 
   //! Returns if this tensor view has swizzle operator on its tensor domain.
   //!  This is the temporary flag for indicating that the new swizzle
