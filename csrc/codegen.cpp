@@ -1576,16 +1576,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto data_type = grop->out()->dtype();
     const auto op_type = grop->getReductionOpType();
 
+    if (grop->isSerial()) {
+      generateSerialGridReduction(grop);
+      return;
+    }
+
     NVF_ERROR(grop->reduction_buffer()->buffer()->isA<TensorView>());
     NVF_ERROR(grop->sync_buffer()->buffer()->isA<TensorView>());
     const auto work_buffer =
         grop->reduction_buffer()->buffer()->as<TensorView>();
     const auto sync_buffer = grop->sync_buffer()->buffer()->as<TensorView>();
-
-    if (grop->isSerial()) {
-      generateSerialGridReduction(grop);
-      return;
-    }
 
     if (grop->isAllreduce()) {
       generateGridAllreduce(grop);

@@ -652,20 +652,8 @@ void IndexLowering::handleSerialGridReduction(
 
   // TODO: uncomment once this function works again by associating a temporary
   // TensorIndex
-  /*
   const auto out_tv = out->as<kir::TensorIndex>()->view();
   const auto out_domain = out_tv->domain();
-
-  bool is_serial_reduce_candidate = std::none_of(
-      out_domain->leaf().begin(), out_domain->leaf().end(), [](IterDomain* id) {
-        return id->isReduction() &&
-            (id->isThreadDim() || !id->isParallelized());
-      });
-  if (is_serial_reduce_candidate) {
-    std::cout << "WARNING: Found serial grid reduce candidate: "
-              << rop->toString();
-  }
-  return false;
 
   // If we do a grid reduction we can't have a reduction axis that is not bound
   // to a grid or block dim.
@@ -683,26 +671,31 @@ void IndexLowering::handleSerialGridReduction(
       "then the grid reduction. ",
       rop->toString());
 
-  const bool is_persistent = rop->isAllreduce();
-  if (is_persistent) {
-    // TODO: enable persistent serial grid reduce yet
-    return false;
-  }
+  NVF_ERROR(!rop->isAllreduce(), "Serial grid allReduce is not implemented");
 
-  // TODO: allocate global work buffer TensorIndex
+  // Allocate global work buffer TensorIndex.
   // The output index should look just like the reduction output, and be
   // scheduled the same, except it should have no reduction axes.
-  // TODO: it might be simpler to just include reduction axes instead of
-  // stripping them here.
-
-  // auto work_buffer_index = IrBuilder::create<TensorIndex>(
-  //   work_buffer,
-  //   lowerSrcIndex(out, work_buffer));
-
-  auto sync_buffer_size =
-      getGridSyncBufferSize(out_domain, for_loops_, is_persistent);
-  auto sync_buffer = allocateUniqueBuffer(
-      sync_buffer_size, DataType::Int, true, out_tv, sync_buffer_map_);
+  std::vector<IterDomain*> work_buffer_ids;
+  for (auto id : TensorDomain::noReductions(out_tv->getRootDomain())) {
+    // Clone output root without reductions as work buffer root domain
+    work_buffer_ids.push_back(IterDomainBuilder(id).build());
+  }
+  const auto work_buffer_root_domain =
+      IrBuilder::create<TensorDomain>(work_buffer_ids);
+  const auto work_buffer_tv = IrBuilder::create<TensorView>(
+      work_buffer_root_domain, out_tv->dtype(), MemoryType::Global);
+  // TODO: replay leaf transformations from out_tv on work_buffer_tv
+  auto work_alloc = IrBuilder::create<kir::Allocate>(
+      work_buffer_tv,
+      work_buffer_tv->getMemoryType(),
+      nullptr,
+      /*zero_init=*/false);
+  auto work_buffer_idx = IrBuilder::create<kir::TensorIndex>(
+      work_buffer_tv, out->fusion()->zeroVal(DataType::Index)
+      // lowerSrcIndex(out, work_buffer_tv)
+  );
+  pushBack(work_alloc);
 
   // The thread predicate for GridReduction needs to be set
   // separately from the main predicate. Do not combine them like
@@ -715,11 +708,14 @@ void IndexLowering::handleSerialGridReduction(
       rop->init(),
       out,
       in,
-      work_buffer,
-      sync_buffer,
-      entrance_ind,
-      n_entrances,
-      is_persistent);
+      // skip work_buffer, sync_buffer, entrance_ind, n_entrances for serial
+      // reduction node
+      nullptr,
+      nullptr,
+      nullptr,
+      nullptr,
+      false,
+      work_buffer_idx);
 
   serial_grid_reduction =
       serial_grid_reduction->withThreadPredicate(thread_pred);
@@ -737,7 +733,6 @@ void IndexLowering::handleSerialGridReduction(
 
   pushBack(serial_grid_reduction);
   GpuLower::current()->propagateExprInfo(rop, back());
-  */
 }
 
 void IndexLowering::handleGridReduction(

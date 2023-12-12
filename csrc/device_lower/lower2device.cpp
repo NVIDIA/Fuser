@@ -273,10 +273,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"rotateLoops", rotateLoops},
            {"UnrollPass", UnrollPass::runPass},
            {"processMisalignedVectorization", processMisalignedVectorization},
-           // NOTE: serial GridReduction introduced here. New syncs can be
-           // introduced here which could impact smem reuse
            {"IndexLowering", IndexLowering::getIndexedExprs},
-           // NOTE: global reuse can be analyzed after this point
            {"fuseWarpReduce", fuseWarpReduce},
            {"generateConditionalFromPredicate",
             generateConditionalFromPredicate},
