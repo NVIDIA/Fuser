@@ -1745,7 +1745,7 @@ std::vector<PolymorphicValue> WelfordOp::evaluate(
     }
   }
   const auto [in_var, in_avg] =
-      at::var_mean(in_tensor, reduction_axes, 0, false);
+      at::var_mean(in_tensor, reduction_axes, false, false);
   return {in_avg, in_var * N, N};
 }
 
