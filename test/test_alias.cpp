@@ -299,7 +299,7 @@ TEST_F(AliasTest, View) {
   testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
-TEST_F(AliasTest, View_AliasForCompatibleLayout) {
+TEST_F(AliasTest, View_AliasForSameLayout) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -326,7 +326,31 @@ TEST_F(AliasTest, View_AliasForCompatibleLayout) {
   EXPECT_TRUE(out_tensor.is_alias_of(in_tensor));
 }
 
-TEST_F(AliasTest, View_NoAliasForIncompatibleLayout) {
+TEST_F(AliasTest, View_AliasForCompliantLayout) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const std::vector<int64_t> in_shape({2, 3, 4});
+  const std::vector<int64_t> out_shape({2, 12});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  fusion->addInput(in);
+  TensorView* out = reshape(in, in_shape, out_shape);
+  fusion->addOutput(out);
+
+  out->setAllocationDomain({out->axis(0), out->axis(1)}, {false, false});
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3, 4}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  ASSERT_EQ(out_tensors.size(), 1);
+  at::Tensor out_tensor = out_tensors[0];
+  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_TRUE(out_tensor.is_alias_of(in_tensor));
+}
+
+TEST_F(AliasTest, View_NoAliasForIncompliantLayout) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 

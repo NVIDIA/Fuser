@@ -381,7 +381,7 @@ void AliasAnalysisResult::finalize(Fusion* fusion) {
 
     const Layout preferred_layout = preferredLayout(out);
     if (out->hasAllocation() &&
-        !preferred_layout.isCompatibleWith(
+        !preferred_layout.isCompliantWith(
             {out->getAllocationDomain(), out->getContiguity()})) {
       continue;
     }
@@ -452,10 +452,30 @@ std::string Layout::toString(const int indent_size) const {
   return ss.str();
 }
 
-bool Layout::isCompatibleWith(const Layout& other) const {
-  // Most basic for now.
-  return allocation_domain == other.allocation_domain &&
-      contiguity == other.contiguity;
+namespace {
+bool contiguityIsCompliant(
+    const std::optional<bool>& actual,
+    const std::optional<bool>& required) {
+  if (actual == true && required == false) {
+    return true;
+  }
+  return actual == required;
+}
+} // namespace
+
+bool Layout::isCompliantWith(const Layout& required) const {
+  if (allocation_domain != required.allocation_domain) {
+    // This can be relaxed by allowing broadcast dimensions to be ordered
+    // differently.
+    return false;
+  }
+
+  for (const auto i : c10::irange(allocation_domain.size())) {
+    if (!contiguityIsCompliant(contiguity[i], required.contiguity[i])) {
+      return false;
+    }
+  }
+  return true;
 }
 
 } // namespace nvfuser::optimization
