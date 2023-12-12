@@ -159,9 +159,9 @@ INSTANTIATE_TEST_SUITE_P(
 class HopperBase : public NVFuserTest {
  protected:
   void SetUp() override {
-    if (cudaArchGuardShouldSkip(9, 0)) {
-      GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
-    }
+    // if (cudaArchGuardShouldSkip(9, 0)) {
+    //   GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
+    // }
     NVFuserTest::SetUp();
   }
 };
@@ -241,10 +241,6 @@ class HopperRS : public HopperBase,
 
     if (swizzle_b == MmaInputSmemSwizzle::B64) {
       GTEST_SKIP() << "64B swizzle not supported yet";
-    }
-
-    if (swizzle_b == MmaInputSmemSwizzle::B32) {
-      GTEST_SKIP() << "32B swizzle not supported yet";
     }
   }
 };
@@ -332,13 +328,26 @@ TEST_P(HopperRS, SingleTile) {
   auto inputs = matmulAtInput(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
+  inputs.first.zero_();
+  for (int i = 0; i < 16; ++i) {
+    inputs.first[i][i] = 1;
+  }
+  for (int i = 0; i < inputs.second.size(0); ++i) {
+    for (int j = 0; j < inputs.second.size(1); ++j) {
+      inputs.second[i][j] = i * inputs.second.size(1) + j;
+    }
+  }
+  std::cout << "B:\n" << inputs.second << "\n";
+
   FusionExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
 
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  std::cout << "cg_outputs:\n" << cg_outputs[0] << "\n";
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+  std::cout << "tref:\n" << tref << "\n";
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 

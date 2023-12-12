@@ -842,16 +842,29 @@ void WarpMmaSwizzler::scheduleOperandRead(
     // [Ko, K8, Mo, M8]
     tv->reorder({{-2, -3}});
     // [Ko, Mo, K8, M8]
-    tv->setAllocationDomain(tv->getLeafDomain(), true);
   } else if (swizzle == MmaInputSmemSwizzle::B128) {
     NVF_ERROR(false, "Not implemented yet");
   } else if (swizzle == MmaInputSmemSwizzle::B64) {
     NVF_ERROR(false, "Not implemented yet");
   } else if (swizzle == MmaInputSmemSwizzle::B32) {
-    NVF_ERROR(false, "Not implemented yet");
+    // For example [K, M]
+    tv->split(-2, 8);
+    tv->split(-1, 8);
+    // [Ko, K8, Mo, M8]
+    tv->reorder({{-2, -3}});
+    // [Ko, Mo, K8, M8]
+    tv->merge(-4);
+    // [KMo, K8, M8]
+    tv->split(-3, 2);
+    // [KMoo, KMo2, K8, M8]
+    tv->reorder({{-2, -3}});
+    // [KMoo, K8, KMo2, M8]
+    tv->merge(-3);
+    // [KMoo, KKMo16, M8]
   } else {
     NVF_ERROR(false, "Unsupported smem swizzle");
   }
+  tv->setAllocationDomain(tv->getLeafDomain(), true);
 }
 
 void WarpMmaSwizzler::scheduleMmaWarpOutput(TensorView* tv) {
