@@ -859,6 +859,10 @@ void WarpMmaSwizzler::scheduleOperandRead(
     // [KMoo, KMo2, K8, M8]
     tv->reorder({{-2, -3}});
     // [KMoo, K8, KMo2, M8]
+    tv->split(-3, 4);
+    // [KMoo, K2, K4, KMo2, M8]
+    tv->swizzle(SwizzleType::XOR);
+    tv->merge(-4);
     tv->merge(-3);
     // [KMoo, KKMo16, M8]
   } else {
