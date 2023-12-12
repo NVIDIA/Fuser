@@ -157,7 +157,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/predicate_compute.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
-  ${NVFUSER_SRCS_DIR}/serde/polymorphic_value_serde.cpp
+  ${NVFUSER_SRCS_DIR}/serde/polymorphic_value.cpp
   ${NVFUSER_SRCS_DIR}/serde/utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/cache_policy_refiner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic_types.cpp
@@ -213,7 +213,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_cache.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_definition.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
-    ${NVFUSER_SRCS_DIR}/serde/fusion_record_serde.cpp
+    ${NVFUSER_SRCS_DIR}/serde/fusion_record.cpp
   )
 endif()
 
@@ -414,6 +414,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_iter_visitor.cpp
   ${NVFUSER_ROOT}/test/test_id_model.cpp
   ${NVFUSER_ROOT}/test/test_double_buffering.cpp
+  ${NVFUSER_ROOT}/test/test_segmentation.cpp
 )
 
 if(BUILD_TEST)
