@@ -354,7 +354,7 @@ void AliasAnalysisResult::add(
 const Val* AliasAnalysisResult::findRoot(const Val* alias) const {
   const TensorView* root = dynamic_cast<const TensorView*>(alias);
   if (root == nullptr) {
-    return nullptr;
+    return alias;
   }
 
   // This can be made faster by path compression at the cost of losing
@@ -365,12 +365,37 @@ const Val* AliasAnalysisResult::findRoot(const Val* alias) const {
   return root;
 }
 
+const TensorView* AliasAnalysisResult::getAliasedInput(
+    const TensorView* fusion_out) const {
+  const auto i = out_to_root_.find(fusion_out);
+  return i == out_to_root_.end() ? nullptr : i->second;
+}
+
+void AliasAnalysisResult::finalize(Fusion* fusion) {
+  for (TensorView* out :
+       ir_utils::filterByType<TensorView>(fusion->outputs())) {
+    const Val* in = findRoot(out);
+    if (!in->isFusionInput()) {
+      continue;
+    }
+
+    const Layout preferred_layout = preferredLayout(out);
+    if (out->hasAllocation() &&
+        !preferred_layout.isCompliantWith(
+            {out->getAllocationDomain(), out->getContiguity()})) {
+      continue;
+    }
+
+    out_to_root_[out] = in->as<TensorView>();
+  }
+}
+
 Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
   const TensorView* tv = dynamic_cast<const TensorView*>(v);
-  NVF_CHECK(
+  NVF_ERROR(
       tv != nullptr,
       "`v` is expected to be a TensorView. Found: ",
-      v->toString());
+      v == nullptr ? "<null>" : v->toString());
 
   if (auto i = alias_to_source_.find(tv); i != alias_to_source_.end()) {
     return i->second.second;
@@ -380,11 +405,23 @@ Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
 
 std::string AliasAnalysisResult::toString(const int indent_size) const {
   std::stringstream ss;
+  indent(ss, indent_size) << "All aliases:"
+                          << (alias_to_source_.empty() ? " <empty>" : "")
+                          << std::endl;
   for (const auto& [alias, source_and_layout] : alias_to_source_) {
     const auto& [source, layout] = source_and_layout;
-    indent(ss, indent_size) << ir_utils::varName(alias) << " is an alias of "
-                            << ir_utils::varName(source) << " if its layout is "
-                            << layout.toString() << std::endl;
+    indent(ss, indent_size + 1)
+        << ir_utils::varName(alias) << " is an alias of "
+        << ir_utils::varName(source) << " if its layout is "
+        << layout.toString() << std::endl;
+  }
+  indent(ss, indent_size) << "Output aliases only:"
+                          << (out_to_root_.empty() ? " <empty>" : "")
+                          << std::endl;
+  for (const auto& [out, root] : out_to_root_) {
+    indent(ss, indent_size + 1)
+        << ir_utils::varName(out) << " is a transitive alias of "
+        << ir_utils::varName(root) << std::endl;
   }
   return ss.str();
 }
@@ -401,6 +438,7 @@ AliasAnalysisResult findAliases(Fusion* fusion) {
     // results).
     finder.dispatch(expr);
   }
+  analysis.finalize(fusion);
   return analysis;
 }
 
@@ -412,6 +450,32 @@ std::string Layout::toString(const int indent_size) const {
                           << toDelimitedString(contiguity, /*delim=*/" ")
                           << "]>";
   return ss.str();
+}
+
+namespace {
+bool contiguityIsCompliant(
+    const std::optional<bool>& actual,
+    const std::optional<bool>& required) {
+  if (actual == true && required == false) {
+    return true;
+  }
+  return actual == required;
+}
+} // namespace
+
+bool Layout::isCompliantWith(const Layout& required) const {
+  if (allocation_domain != required.allocation_domain) {
+    // This can be relaxed by allowing broadcast dimensions to be ordered
+    // differently.
+    return false;
+  }
+
+  for (const auto i : c10::irange(allocation_domain.size())) {
+    if (!contiguityIsCompliant(contiguity[i], required.contiguity[i])) {
+      return false;
+    }
+  }
+  return true;
 }
 
 } // namespace nvfuser::optimization
