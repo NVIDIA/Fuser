@@ -267,25 +267,25 @@ NVFUSER_BENCHMARK_DEFINE(
     DataType::Half);
 
 NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp16)
-    // ->RangeMultiplier(2)
+    ->RangeMultiplier(2)
     ->Ranges({{160, 320}, {2, 1024 * 1024}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
 NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp16)
-    // ->RangeMultiplier(2)
+    ->RangeMultiplier(2)
     ->Ranges({{2, 16}, {32768, 64 * 1024 * 1024}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
 NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp16)
-    // ->RangeMultiplier(2)
+    ->RangeMultiplier(2)
     ->Ranges({{32768, 64 * 1024 * 1024}, {2, 16}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
 
 NVFUSER_BENCHMARK_RUN(NvFuserScheduler_LayerNorm_fp16)
-    // ->RangeMultiplier(2)
+    ->RangeMultiplier(2)
     ->Ranges({{128, 1024 * 16}, {128, 1024 * 16}})
     ->Unit(benchmark::kMicrosecond)
     ->UseManualTime();
