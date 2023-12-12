@@ -21,7 +21,6 @@
 #include <iter_visitor.h>
 #include <kernel.h>
 #include <ops/arith.h>
-#include <optimization/alias_analysis.h>
 
 #include <iterator>
 
