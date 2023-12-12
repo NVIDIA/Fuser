@@ -581,8 +581,6 @@ class SegmentCandidateFinder {
 
   bool codeGenSupportedMerge(SegmentedGroup* group1, SegmentedGroup* group2);
 
-  // bool codeGenSupportedMerge(SegmentedGroup* group1, SegmentedGroup::NeighborGroup candidate);
-
   void buildInitialSegments();
 
   void findSegments();
@@ -616,14 +614,12 @@ class SegmentCandidateFinder {
   }
 
   SchedulerRuntimeInfo& runtimeInfo() {
-    NVF_ERROR(
-      runtime_info_.has_value(), "needs runtime info");
+    NVF_ERROR(runtime_info_.has_value(), "needs runtime info");
     return runtime_info_.value();
   }
 
   ExpressionEvaluator& expressionEvaluator() {
-    NVF_ERROR(
-      runtime_info_.has_value(), "needs runtime info");
+    NVF_ERROR(runtime_info_.has_value(), "needs runtime info");
     return runtime_info_->expressionEvaluator();
   }
 

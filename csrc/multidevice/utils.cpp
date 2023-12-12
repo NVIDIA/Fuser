@@ -33,9 +33,10 @@ int64_t requestedNumberOfDevices(Fusion* fusion) {
   std::set<DeviceIdxType> device_indices;
   for (auto tv : ir_utils::filterByType<TensorView>(fusion->vals())) {
     if (tv->hasDeviceMesh()) {
-      std::copy(tv->getDeviceMesh()->vector().begin(),
-                tv->getDeviceMesh()->vector().end(),
-                std::inserter(device_indices, device_indices.begin()));
+      std::copy(
+          tv->getDeviceMesh()->vector().begin(),
+          tv->getDeviceMesh()->vector().end(),
+          std::inserter(device_indices, device_indices.begin()));
     }
   }
   return static_cast<int64_t>(device_indices.size());

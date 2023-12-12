@@ -6,8 +6,8 @@
  */
 // clang-format on
 #ifdef USE_DISTRIBUTED
-#include <ir/all_nodes.h>
 #include <fusion_segmenter.h>
+#include <ir/all_nodes.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <options.h>
@@ -182,7 +182,8 @@ void testValidateMultidevice(
         inputs.at(i).toTensor(),
         unsharded_inputs.at(i).toTensor(),
         tester,
-        runtime.comm(), debug_print);
+        runtime.comm(),
+        debug_print);
   }
 
   // gathering all the outputs at tester
@@ -194,7 +195,8 @@ void testValidateMultidevice(
         outputs.at(i),
         unsharded_outputs.at(i),
         tester,
-        runtime.comm(), debug_print);
+        runtime.comm(),
+        debug_print);
   }
 
   if (runtime.comm()->deviceId() == tester) {
@@ -243,7 +245,13 @@ void testValidateMultidevice(
     }
 
     if (validate) {
-      testValidate(fusion_ptr, unsharded_outputs, unsharded_inputs, ref_outputs, __LINE__, __FILE__);
+      testValidate(
+          fusion_ptr,
+          unsharded_outputs,
+          unsharded_inputs,
+          ref_outputs,
+          __LINE__,
+          __FILE__);
     }
   }
 }
@@ -290,7 +298,8 @@ void PipelineTest::SetUp() {
 }
 
 void PipelineTest::validate() {
-  executeAndValidateMultiDeviceFusion(std::move(fusion), inputs, communicator, debug_print);
+  executeAndValidateMultiDeviceFusion(
+      std::move(fusion), inputs, communicator, debug_print);
 }
 
 void PipelineTestTwoStages::SetUp() {
@@ -331,9 +340,7 @@ void PipelineTestTwoStages::SetUp() {
     tv3->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  inputs = {
-      at::ones(input_sizes, tensor_options) *
-      communicator->deviceId()};
+  inputs = {at::ones(input_sizes, tensor_options) * communicator->deviceId()};
 
   validate();
 }

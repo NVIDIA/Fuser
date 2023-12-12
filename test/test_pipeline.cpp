@@ -7,15 +7,15 @@
 // clang-format on
 #include <gtest/gtest.h>
 
+#include <executor_kernel_arg.h>
 #include <fusion.h>
+#include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/lower_resharding_expr.h>
 #include <ops/all_ops.h>
 #include <test/utils.h>
-#include <fusion_segmenter.h>
-#include <executor_kernel_arg.h>
 
 #include <algorithm>
 #include <iostream>
@@ -24,15 +24,14 @@ namespace nvfuser {
 
 using namespace at::indexing;
 
-
 TEST_F(NVFuserTest, ReshardingDetection) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  DeviceMesh mesh0,mesh1, mesh2;
-  mesh0 = {0,1};
-  mesh1 = {0,2};
-  mesh2 = {0,1,2};
+  DeviceMesh mesh0, mesh1, mesh2;
+  mesh0 = {0, 1};
+  mesh1 = {0, 2};
+  mesh2 = {0, 1, 2};
 
   TensorView* tv0 = makeContigTensor(3);
   fusion->addInput(tv0);
@@ -64,15 +63,15 @@ TEST_F(NVFuserTest, ReshardingDetection) {
   TensorView* tv8 = sum(tv0, {0});
   tv8->setDeviceMesh(&mesh0);
 
-  TensorView* tv9 = sum(tv0, {0}); //resharding, but seems invalid
+  TensorView* tv9 = sum(tv0, {0}); // resharding, but seems invalid
   tv9->setDeviceMesh(&mesh0);
   tv9->axis(0)->parallelize(ParallelType::DIDx);
 
-  TensorView* tv10 = sum(tv0, {0}); //resharding,
+  TensorView* tv10 = sum(tv0, {0}); // resharding,
   tv10->setDeviceMesh(&mesh0);
   tv10->axis(1)->parallelize(ParallelType::DIDx);
 
-  TensorView* tv11 = sum(tv0, {0}); //resharding,
+  TensorView* tv11 = sum(tv0, {0}); // resharding,
   tv11->setDeviceMesh(&mesh1);
 
   TensorView* tv12 = sum(tv5, {0}); // not resharding
@@ -91,10 +90,10 @@ TEST_F(NVFuserTest, ReshardingDetection) {
   TensorView* tv15 = add(tv0, tv1);
   tv15->setDeviceMesh(&mesh0);
 
-  TensorView* tv16 = add(tv0, tv1); //resharding
+  TensorView* tv16 = add(tv0, tv1); // resharding
   tv16->setDeviceMesh(&mesh1);
 
-  TensorView* tv17 = add(tv0, tv1); //resharding
+  TensorView* tv17 = add(tv0, tv1); // resharding
   tv17->setDeviceMesh(&mesh0);
   tv17->axis(0)->parallelize(ParallelType::DIDx);
 
@@ -116,13 +115,13 @@ TEST_F(NVFuserTest, ReshardingDetection) {
   tv22->setDeviceMesh(&mesh2);
   tv22->axis(0)->parallelize(ParallelType::DIDx);
 
-  TensorView* tv23 = sum(tv5, {1}); //resharding
+  TensorView* tv23 = sum(tv5, {1}); // resharding
   tv23->setDeviceMesh(&mesh2);
 
   TensorView* tv24 = sum(tv7, {0});
   tv24->setDeviceMesh(&mesh2);
 
-  TensorView* tv25 = sum(tv7, {0}); //not resharding but invalid
+  TensorView* tv25 = sum(tv7, {0}); // not resharding but invalid
   tv25->setDeviceMesh(&mesh2);
   tv22->axis(0)->parallelize(ParallelType::DIDx);
 
@@ -185,47 +184,44 @@ TEST_F(NVFuserTest, ReshardingDetection) {
 }
 
 using automaticSetInsertionTestParams =
-    std::tuple<
-    DeviceMesh,
-    DeviceMesh,
-    DeviceMesh,
-    bool,
-    bool,
-    bool>;
+    std::tuple<DeviceMesh, DeviceMesh, DeviceMesh, bool, bool, bool>;
 
-class automaticReshardingTest :
-  public NVFuserTest,
-  public ::testing::WithParamInterface<automaticSetInsertionTestParams> {
-protected:
+class automaticReshardingTest
+    : public NVFuserTest,
+      public ::testing::WithParamInterface<automaticSetInsertionTestParams> {
+ protected:
   void SetUp() override {
     fusion = std::make_unique<Fusion>();
     fg = std::make_unique<FusionGuard>(fusion.get());
   }
   void validate() {
-    for (auto expr: fusion->exprs()) {
-      GTEST_EXPECT_TRUE(!ir_utils::isResharding(expr) || isLowerableToCommunication(expr)) << "on expr=" << expr;
+    for (auto expr : fusion->exprs()) {
+      GTEST_EXPECT_TRUE(
+          !ir_utils::isResharding(expr) || isLowerableToCommunication(expr))
+          << "on expr=" << expr;
     }
 
-    SegmentCandidateFinderOptions options {
-      .run_translate_welford = false,
-      .run_combine_reductions = false,
-      .run_herrmann_merge = true,
-      .run_final_merge = true,
-      .only_segment_resharding_exprs = true
-    };
+    SegmentCandidateFinderOptions options{
+        .run_translate_welford = false,
+        .run_combine_reductions = false,
+        .run_herrmann_merge = true,
+        .run_final_merge = true,
+        .only_segment_resharding_exprs = true};
 
     auto segmented_fusion =
         SegmentCandidateFinder::segment(std::move(fusion), options);
 
-    for (auto group: segmented_fusion->groups()) {
+    for (auto group : segmented_fusion->groups()) {
       GTEST_EXPECT_TRUE(
-        std::none_of(group->exprs().begin(),
-                    group->exprs().end(),
-                    [](auto expr) { return ir_utils::isResharding(expr);})
-        || (group->exprs().size() == 1 
-            && ir_utils::isResharding(group->exprs().at(0))));
+          std::none_of(
+              group->exprs().begin(),
+              group->exprs().end(),
+              [](auto expr) { return ir_utils::isResharding(expr); }) ||
+          (group->exprs().size() == 1 &&
+           ir_utils::isResharding(group->exprs().at(0))));
     }
-    // checks that the segments are disjoints and that the graph of segment is acyclic
+    // checks that the segments are disjoints and that the graph of segment is
+    // acyclic
     segmented_fusion->validate();
   }
 
@@ -234,14 +230,13 @@ protected:
 };
 
 TEST_P(automaticReshardingTest, setInsertion) {
-  auto [
-  mesh0,
-  mesh1,
-  mesh2,
-  is_tv0_tv3_tv5_sharded,
-  is_tv1_tv4_sharded,
-  is_tv2_sharded
-  ] = GetParam();
+  auto
+      [mesh0,
+       mesh1,
+       mesh2,
+       is_tv0_tv3_tv5_sharded,
+       is_tv1_tv4_sharded,
+       is_tv2_sharded] = GetParam();
 
   TensorView* tv0 = makeContigTensor(3);
   TensorView* tv1 = unaryOp(UnaryOpType::Exp, tv0);

@@ -361,7 +361,9 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
   return ret;
 }
 
-void prepareRuntimeOrder(SegmentedFusion* segmented_fusion, RuntimeWorkSpace& runtime_workspace) {
+void prepareRuntimeOrder(
+    SegmentedFusion* segmented_fusion,
+    RuntimeWorkSpace& runtime_workspace) {
   // Setup group run order:
   std::unordered_set<Val*> available_input;
 

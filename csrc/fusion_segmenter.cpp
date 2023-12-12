@@ -3250,8 +3250,8 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
       areDirectlyConnected(group1, group2),
       "only support testing immediate producer-consumer groups");
   if (options_.only_segment_resharding_exprs) {
-    for (auto group: {group1, group2}) {
-      for (auto expr: group->exprs()) {
+    for (auto group : {group1, group2}) {
+      for (auto expr : group->exprs()) {
         if (ir_utils::isResharding(expr)) {
           return false;
         }
@@ -3259,9 +3259,9 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
     }
     return true;
   }
-  NVF_ERROR(
-      runtime_info_.has_value(), "needs runtime info");
-  auto h = tryMerge(segmented_fusion_.get(), runtime_info_.value(), group1, group2);
+  NVF_ERROR(runtime_info_.has_value(), "needs runtime info");
+  auto h =
+      tryMerge(segmented_fusion_.get(), runtime_info_.value(), group1, group2);
   return h.has_value();
 }
 
@@ -3291,7 +3291,8 @@ SegmentCandidateFinder::SegmentCandidateFinder(
     const KernelArgumentHolder& inputs,
     SegmentCandidateFinderOptions options)
     : options_(options),
-      runtime_info_(std::make_optional<SchedulerRuntimeInfo>(fusion.get(), inputs)),
+      runtime_info_(
+          std::make_optional<SchedulerRuntimeInfo>(fusion.get(), inputs)),
       runtime_inputs_(std::make_optional<KernelArgumentHolder>(inputs)) {
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
   findSegments();

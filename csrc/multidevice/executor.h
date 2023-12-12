@@ -10,11 +10,11 @@
 
 #include <c10/core/DeviceType.h>
 #include <exceptions.h>
-#include <multidevice/communicator.h>
-#include <multidevice/communication.h>
-#include <multidevice/multidevice.h>
-#include <fusion_segmenter.h>
 #include <fusion.h>
+#include <fusion_segmenter.h>
+#include <multidevice/communication.h>
+#include <multidevice/communicator.h>
+#include <multidevice/multidevice.h>
 
 namespace nvfuser {
 
@@ -44,13 +44,15 @@ class MultiDeviceExecutor {
   std::string validate() const;
 
  private:
-  // execute locally a SegmentedGroup that does not involve inter-device communication
+  // execute locally a SegmentedGroup that does not involve inter-device
+  // communication
   void postKernel(SegmentedGroup* group);
   // execute a SegmentedGroup representing inter-device communication
   void postCommunication(SegmentedGroup* group);
 
   // allocate inter-device communication recv buffers
-  std::unordered_map<Val*, c10::IValue> allocateRecvBuffers(std::vector<c10::IValue> global_inputs_IValues);
+  std::unordered_map<Val*, c10::IValue> allocateRecvBuffers(
+      std::vector<c10::IValue> global_inputs_IValues);
 
   // Stores concrete computed values,
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
