@@ -17,6 +17,7 @@
 #include <ir/cloner.h>
 #include <ir/interface_nodes.h>
 #include <ir/iostream.h>
+#include <ir/printer.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>

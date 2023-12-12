@@ -8,8 +8,6 @@
 #ifdef USE_DISTRIBUTED
 #include <ir/all_nodes.h>
 #include <fusion_segmenter.h>
-#include <multidevice/pipeline_ir.h>
-#include <multidevice/runtime.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <options.h>
@@ -120,20 +118,19 @@ void doSendRecv(
   }
 }
 
-// Send a possibly sharded tensor represented by a PipelineVal
-// to one "tester" device
+// Send a possibly sharded tensor to one "tester" device
 void SendToTester(
-    PipelineVal* pVal,
+    TensorView* tv,
     at::Tensor tensor,
     at::Tensor tester_tensor,
     DeviceIdxType tester,
     Communicator* communicator,
     bool debug_print) {
-  auto& mesh = pVal->getStage()->descriptor()->mesh;
-  if (isSharded(pVal->getOriginalVal()->as<TensorView>())) {
-    for (DeviceIdxType j : c10::irange(mesh.vector().size())) {
+  auto mesh = tv->getDeviceMesh();
+  if (isSharded(tv)) {
+    for (DeviceIdxType j : c10::irange(mesh->vector().size())) {
       at::Tensor send_buf, recv_buf;
-      auto sender = mesh.vector().at(j);
+      auto sender = mesh->vector().at(j);
       if (communicator->deviceId() == sender ||
           communicator->deviceId() == tester) {
         if (communicator->deviceId() == sender) {
@@ -147,7 +144,7 @@ void SendToTester(
     }
   } else {
     at::Tensor send_buf, recv_buf;
-    auto sender = mesh.vector().at(0);
+    auto sender = mesh->vector().at(0);
     if (tester != sender &&
         (communicator->deviceId() == sender ||
          communicator->deviceId() == tester)) {
@@ -169,7 +166,6 @@ void testValidateMultidevice(
     MultiDeviceRuntime& runtime,
     const at::ArrayRef<c10::IValue>& inputs,
     const std::vector<at::Tensor>& outputs,
-    Communicator* communicator,
     bool debug_print,
     DeviceIdxType tester = 0,
     bool validate = true,
@@ -182,11 +178,11 @@ void testValidateMultidevice(
     c10::IValue unsharded_input = inputs.at(i).deepcopy();
     unsharded_inputs.push_back(unsharded_input);
     SendToTester(
-        runtime.pipeline()->inputs().at(i)->as<PipelineVal>(),
+        runtime.pipeline()->inputs().at(i)->as<TensorView>(),
         inputs.at(i).toTensor(),
         unsharded_inputs.at(i).toTensor(),
         tester,
-        communicator, debug_print);
+        runtime.comm(), debug_print);
   }
 
   // gathering all the outputs at tester
@@ -194,14 +190,14 @@ void testValidateMultidevice(
     at::Tensor unsharded_output = at::clone(outputs.at(i));
     unsharded_outputs.push_back(unsharded_output);
     SendToTester(
-        runtime.pipeline()->outputs().at(i)->as<PipelineVal>(),
+        runtime.pipeline()->outputs().at(i)->as<TensorView>(),
         outputs.at(i),
         unsharded_outputs.at(i),
         tester,
-        communicator, debug_print);
+        runtime.comm(), debug_print);
   }
 
-  if (communicator->deviceId() == tester) {
+  if (runtime.dId() == tester) {
     if (debug_print) {
       std::stringstream ss;
       std::string indent = "  ";
@@ -218,7 +214,7 @@ void testValidateMultidevice(
       std::cout << ss.str() << std::endl;
     }
 
-    auto fusion_ptr = runtime.pipeline()->originalFusion();
+    auto fusion_ptr = runtime.fusion();
     for (auto tv : ir_utils::filterByType<TensorView>(fusion_ptr->vals())) {
       unshardTv(tv);
     }
@@ -254,17 +250,16 @@ void testValidateMultidevice(
 
 // Run and validate a pipeline
 // with given (possibly sharded) inputs
-void executeAndValidatePipeline(
-    Pipeline& pipeline,
+void executeAndValidateMultiDeviceFusion(
+    std::unique_ptr<Fusion> fusion,
     std::vector<c10::IValue>& inputs,
     Communicator* communicator,
     bool debug_print) {
   if (debug_print && !communicator->deviceId()) {
-    pipeline.originalFusion()->printKernel();
-    std::cout << pipeline.toString() << std::endl;
+    fusion->printKernel();
   }
 
-  MultiDeviceRuntime runtime(&pipeline, *communicator);
+  MultiDeviceRuntime runtime(std::move(fusion), *communicator);
   auto error_msg = runtime.validate();
   if (error_msg != "") {
     GTEST_SKIP() << error_msg;
@@ -283,7 +278,7 @@ void executeAndValidatePipeline(
     std::cout << ss.str() << std::endl;
   }
 
-  testValidateMultidevice(runtime, inputs, outputs, communicator, debug_print);
+  testValidateMultidevice(runtime, inputs, outputs, debug_print);
 }
 
 } // namespace
@@ -295,7 +290,7 @@ void PipelineTest::SetUp() {
 }
 
 void PipelineTest::validate() {
-  executeAndValidatePipeline(*pipeline, inputs, communicator, debug_print);
+  executeAndValidateMultiDeviceFusion(std::move(fusion), inputs, communicator, debug_print);
 }
 
 void PipelineTestTwoStages::SetUp() {
@@ -323,11 +318,6 @@ void PipelineTestTwoStages::SetUp() {
   fusion->addInput(tv0);
   fusion->addOutput(tv3);
 
-  PipelineStageDescriptor stage0(false), stage1(false);
-  stage0.addVal({tv0, tv1});
-  stage1.addVal({tv2, tv3});
-  stage0.mesh = mesh0;
-  stage1.mesh = mesh1;
   tv0->setDeviceMesh(&mesh0);
   tv1->setDeviceMesh(&mesh0);
   tv2->setDeviceMesh(&mesh1);
@@ -341,19 +331,10 @@ void PipelineTestTwoStages::SetUp() {
     tv3->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  PipelineDescriptor descriptor{
-      .stage_descriptors{std::move(stage0), std::move(stage1)}};
-  pipeline = std::make_unique<Pipeline>(std::move(fusion), std::move(descriptor));
-
   inputs = {
       at::ones(input_sizes, tensor_options) *
       communicator->deviceId()};
 
-  if (!communicator->deviceId() && debug_print) {
-    std::cout << pipeline->toString()
-      << toString(pipeline->sf_.get())
-      << std::endl;
-  }
   validate();
 }
 

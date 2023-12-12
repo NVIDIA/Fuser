@@ -162,10 +162,6 @@ void OptOutMutator::mutate(kir::TensorIndex*) {
   NVF_ERROR(false, "Not implemented yet.");
 }
 
-void OptOutMutator::mutate(PipelineVal*) {
-  NVF_ERROR(false, "Not implemented yet.");
-}
-
 Expr* OptOutMutator::mutateExpr(
     Expr* op,
     bool replace_outputs,

@@ -10,13 +10,12 @@
 
 #include <multidevice/communication.h>
 #include <multidevice/multidevice.h>
-#include <multidevice/pipeline_ir.h>
 
 namespace nvfuser {
 
 bool isLowerableToCommunication(Expr* expr);
 
-// Lower a PipelineCommunication into a series of Communication, given a
+// Lower a resharding Expr into a series of Communication, given a
 // device_index.
 std::vector<std::shared_ptr<Communication>> lowerCommunication(
     DeviceIdxType device_index,

@@ -10,7 +10,6 @@
 #include <ir/interface_nodes.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/lower_communication.h>
-#include <multidevice/pipeline.h>
 #include <ops/all_ops.h>
 #include <multidevice/utils.h>
 

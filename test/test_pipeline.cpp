@@ -12,7 +12,6 @@
 #include <ir/builder.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/lower_resharding_expr.h>
-#include <multidevice/pipeline.h>
 #include <ops/all_ops.h>
 #include <test/utils.h>
 #include <fusion_segmenter.h>
@@ -24,186 +23,6 @@
 namespace nvfuser {
 
 using namespace at::indexing;
-
-TEST_F(NVFuserTest, Pipeline_CUDA) {
-  // Fusion definition
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  TensorView* tv0 = makeContigTensor(2);
-  fusion->addInput(tv0);
-  TensorView* tv1 = sum(tv0, {0});
-
-  TensorView* tv2 = set(tv1);
-  TensorView* tv3 = sum(tv2, {0});
-  fusion->addOutput(tv3);
-
-  TensorView* tv4 = makeContigTensor(3);
-  fusion->addInput(tv4);
-  TensorView* tv5 = sum(tv4, {0});
-
-  TensorView* tv6 = set(tv5);
-  TensorView* tv7 = set(tv6);
-  TensorView* tv8 = sum(tv7, {0});
-
-  TensorView* tv9 = set(tv5);
-  TensorView* tv10 = set(tv9);
-  TensorView* tv11 = sum(tv10, {0});
-
-  TensorView* tv12 = set(tv7);
-  TensorView* tv13 = sum(tv12, {0});
-  fusion->addOutput(tv13);
-
-  TensorView* tv14 = set(tv8);
-  TensorView* tv15 = set(tv11);
-  TensorView* tv16 = set(tv13);
-  TensorView* tv17 = add(tv14, tv15);
-  TensorView* tv18 = add(tv17, tv16);
-  TensorView* tv19 = sum(tv18, {0});
-  fusion->addOutput(tv19);
-
-  // Pipeline scheduling
-  PipelineStageDescriptor stage0, stage1, stage2, stage3, stage4, stage5,
-      stage6;
-  stage0.addVal({tv0, tv1});
-  stage1.addVal({tv2, tv3});
-  stage2.addVal({tv4, tv5});
-  stage3.addVal({tv6, tv7, tv8});
-  stage4.addVal({tv9, tv10, tv11});
-  stage5.addVal({tv12, tv13});
-  stage6.addVal({tv14, tv15, tv16, tv17, tv18, tv19});
-
-  PipelineDescriptor descriptor{.stage_descriptors{
-      stage0, stage1, stage2, stage3, stage4, stage5, stage6}}; // the order
-                                                                // doesnt matter
-  Pipeline pipeline(std::move(fusion), std::move(descriptor));
-
-  // Validation
-  std::string obtained_string = pipeline.toString();
-  std::string ref_string{
-      "Pipeline's inputs{:\n"
-      " PipelineVal representing Val T0_g[ iS0{i0}, iS1{i2} ] on stage " +
-      std::to_string(stage0.unique_id) +
-      "\n"
-      " PipelineVal representing Val T4_g[ iS6{i13}, iS7{i14}, iS8{i15} ] on stage " +
-      std::to_string(stage2.unique_id) +
-      "\n"
-      "}\n"
-      "Pipeline's Traversal inputs --> outputs {\n"
-      "  PipelineStage representing Stage " +
-      std::to_string(stage0.unique_id) +
-      ".Inputs={T0_g[ iS0{i0}, iS1{i2} ], }. Outputs={T1_l[ rS2{i0}, iS3{i2} ], }.\n"
-      "  PipelineVal representing Val T1_l[ rS2{i0}, iS3{i2} ] on stage " +
-      std::to_string(stage0.unique_id) +
-      "\n"
-      "  PipelineCommunication that transfers PipelineVal representing Val T1_l[ rS2{i0}, iS3{i2} ] on stage " +
-      std::to_string(stage0.unique_id) +
-      " to PipelineVal representing Val T2_l[ iS4{i2} ] on stage " +
-      std::to_string(stage1.unique_id) +
-      "\n"
-      "  PipelineVal representing Val T2_l[ iS4{i2} ] on stage " +
-      std::to_string(stage1.unique_id) +
-      "\n"
-      "  PipelineStage representing Stage " +
-      std::to_string(stage1.unique_id) +
-      ".Inputs={T2_l[ iS4{i2} ], }. Outputs={T3_g[ rS5{i2} ], }.\n"
-      "  PipelineStage representing Stage " +
-      std::to_string(stage2.unique_id) +
-      ".Inputs={T4_g[ iS6{i13}, iS7{i14}, iS8{i15} ], }. Outputs={T5_l[ rS9{i13}, iS10{i14}, iS11{i15} ], }.\n"
-      "  PipelineVal representing Val T5_l[ rS9{i13}, iS10{i14}, iS11{i15} ] on stage " +
-      std::to_string(stage2.unique_id) +
-      "\n"
-      "  PipelineCommunication that transfers PipelineVal representing Val T5_l[ rS9{i13}, iS10{i14}, iS11{i15} ] on stage " +
-      std::to_string(stage2.unique_id) +
-      " to PipelineVal representing Val T6_l[ iS12{i14}, iS13{i15} ] on stage " +
-      std::to_string(stage3.unique_id) +
-      "\n"
-      "  PipelineVal representing Val T6_l[ iS12{i14}, iS13{i15} ] on stage " +
-      std::to_string(stage3.unique_id) +
-      "\n"
-      "  PipelineStage representing Stage " +
-      std::to_string(stage3.unique_id) +
-      ".Inputs={T6_l[ iS12{i14}, iS13{i15} ], }. Outputs={T7_l[ iS14{i14}, iS15{i15} ], T8_l[ rS16{i14}, iS17{i15} ], }.\n"
-      "  PipelineVal representing Val T7_l[ iS14{i14}, iS15{i15} ] on stage " +
-      std::to_string(stage3.unique_id) +
-      "\n"
-      "  PipelineCommunication that transfers PipelineVal representing Val T7_l[ iS14{i14}, iS15{i15} ] on stage " +
-      std::to_string(stage3.unique_id) +
-      " to PipelineVal representing Val T12_l[ iS24{i14}, iS25{i15} ] on stage " +
-      std::to_string(stage5.unique_id) +
-      "\n"
-      "  PipelineVal representing Val T12_l[ iS24{i14}, iS25{i15} ] on stage " +
-      std::to_string(stage5.unique_id) +
-      "\n"
-      "  PipelineStage representing Stage " +
-      std::to_string(stage5.unique_id) +
-      ".Inputs={T12_l[ iS24{i14}, iS25{i15} ], }. Outputs={T13_g[ rS26{i14}, iS27{i15} ], }.\n"
-      "  PipelineVal representing Val T8_l[ rS16{i14}, iS17{i15} ] on stage " +
-      std::to_string(stage3.unique_id) +
-      "\n"
-      "  PipelineCommunication that transfers PipelineVal representing Val T8_l[ rS16{i14}, iS17{i15} ] on stage " +
-      std::to_string(stage3.unique_id) +
-      " to PipelineVal representing Val T14_l[ iS28{i15} ] on stage " +
-      std::to_string(stage6.unique_id) +
-      "\n"
-      "  PipelineVal representing Val T14_l[ iS28{i15} ] on stage " +
-      std::to_string(stage6.unique_id) +
-      "\n"
-      "  PipelineCommunication that transfers PipelineVal representing Val T5_l[ rS9{i13}, iS10{i14}, iS11{i15} ] on stage " +
-      std::to_string(stage2.unique_id) +
-      " to PipelineVal representing Val T9_l[ iS18{i14}, iS19{i15} ] on stage " +
-      std::to_string(stage4.unique_id) +
-      "\n"
-      "  PipelineVal representing Val T9_l[ iS18{i14}, iS19{i15} ] on stage " +
-      std::to_string(stage4.unique_id) +
-      "\n"
-      "  PipelineStage representing Stage " +
-      std::to_string(stage4.unique_id) +
-      ".Inputs={T9_l[ iS18{i14}, iS19{i15} ], }. Outputs={T11_l[ rS22{i14}, iS23{i15} ], }.\n"
-      "  PipelineVal representing Val T11_l[ rS22{i14}, iS23{i15} ] on stage " +
-      std::to_string(stage4.unique_id) +
-      "\n"
-      "  PipelineCommunication that transfers PipelineVal representing Val T11_l[ rS22{i14}, iS23{i15} ] on stage " +
-      std::to_string(stage4.unique_id) +
-      " to PipelineVal representing Val T15_l[ iS29{i15} ] on stage " +
-      std::to_string(stage6.unique_id) +
-      "\n"
-      "  PipelineVal representing Val T15_l[ iS29{i15} ] on stage " +
-      std::to_string(stage6.unique_id) +
-      "\n"
-      "  PipelineCommunication that transfers PipelineVal representing Val T13_g[ rS26{i14}, iS27{i15} ] on stage " +
-      std::to_string(stage5.unique_id) +
-      " to PipelineVal representing Val T16_l[ iS30{i15} ] on stage " +
-      std::to_string(stage6.unique_id) +
-      "\n"
-      "  PipelineVal representing Val T16_l[ iS30{i15} ] on stage " +
-      std::to_string(stage6.unique_id) +
-      "\n"
-      "  PipelineStage representing Stage " +
-      std::to_string(stage6.unique_id) +
-      ".Inputs={T14_l[ iS28{i15} ], T15_l[ iS29{i15} ], T16_l[ iS30{i15} ], }. Outputs={T19_g[ rS33{i15} ], }.\n"
-      "}\n"
-      "Pipeline's outputs:{\n"
-      " PipelineVal representing Val T3_g[ rS5{i2} ] on stage " +
-      std::to_string(stage1.unique_id) +
-      "\n"
-      " PipelineVal representing Val T13_g[ rS26{i14}, iS27{i15} ] on stage " +
-      std::to_string(stage5.unique_id) +
-      "\n"
-      " PipelineVal representing Val T19_g[ rS33{i15} ] on stage " +
-      std::to_string(stage6.unique_id) +
-      "\n"
-      "}"};
-
-  // We sort the string so it doesn't depend on the order of the Pipeline's DAG
-  // traversal
-
-  // TODO: we should sort on lines, not on characters
-  std::sort(obtained_string.begin(), obtained_string.end());
-  std::sort(ref_string.begin(), ref_string.end());
-
-  EXPECT_EQ(obtained_string, ref_string);
-}
 
 
 TEST_F(NVFuserTest, ReshardingDetection) {
@@ -410,10 +229,6 @@ protected:
     }
     // checks that the segments are disjoints and that the graph of segment is acyclic
     segmented_fusion->validate();
-
-    // auto pipeline_desc = segmentedFusionToPipelineDescriptor(segmented_fusion.get());
-    // Pipeline pipeline(segmented_fusion->completeFusion(), pipeline_desc);
-    // std::cout << "Pipeline:\n" << pipeline.toString() << std::endl;
   }
 
   std::unique_ptr<Fusion> fusion;
@@ -537,9 +352,6 @@ TEST_F(NVFuserTest, pipelineSegmentation) {
                       group->exprs().end(),
                       [](auto expr) { return ir_utils::isResharding(expr);}));
   }
-  // auto pipeline_desc = segmentedFusionToPipelineDescriptor(segmented_fusion.get());
-  // Pipeline pipeline(segmented_fusion->completeFusion(), pipeline_desc);
-  // std::cout << "Pipeline:\n" << pipeline.toString() << std::endl;
 }
 
 } // namespace nvfuser

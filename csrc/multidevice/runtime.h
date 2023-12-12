@@ -11,8 +11,10 @@
 #include <c10/core/DeviceType.h>
 #include <exceptions.h>
 #include <multidevice/communicator.h>
-#include <multidevice/pipeline.h>
-#include <multidevice/pipeline_ir.h>
+#include <multidevice/communication.h>
+#include <multidevice/multidevice.h>
+#include <fusion_segmenter.h>
+#include <fusion.h>
 
 namespace nvfuser {
 
@@ -24,20 +26,37 @@ namespace nvfuser {
 */
 class MultiDeviceRuntime {
  public:
-  explicit MultiDeviceRuntime(Pipeline* pipeline, Communicator& comm)
-      : pipeline_(pipeline), comm_(comm) {}
+  MultiDeviceRuntime(std::unique_ptr<Fusion> fusion, Communicator& comm);
 
   // Run the multidevice fusion with the given global inputs
-  std::vector<at::Tensor> runWithInput(std::vector<c10::IValue> inputs);
+  std::vector<at::Tensor> runWithInput(const std::vector<c10::IValue>& inputs);
 
   // Returns the Communicator
-  auto& comm() {
-    return comm_;
+  Communicator* comm() const {
+    return &comm_;
+  }
+
+  // Returns the current device index
+  DeviceIdxType dId() const {
+    return comm_.deviceId();
+  }
+
+  // Returns the Fusion
+  auto fusion() const {
+    return pipeline_->completeFusion();
   }
 
   // Returns the Pipeline
   auto pipeline() const {
-    return pipeline_;
+    return pipeline_.get();
+  }
+
+  bool isResharding(SegmentedGroup* group) const {
+    return is_resharding_.at(group);
+  }
+
+  bool shouldRun(SegmentedGroup* group) const {
+    return should_run_.at(group);
   }
 
   // check if the runtime is valid returns an error msg.
@@ -45,12 +64,31 @@ class MultiDeviceRuntime {
   std::string validate() const;
 
  private:
-  friend class PipelineExecutor; // could remove friendship by passing pipeline_
-                                 // and comm_ to PipelineExecutor
-  // test if the runtime is valid and satisfies our assumptions
-
-  Pipeline* pipeline_;
+  std::map<SegmentedGroup*, bool> is_resharding_;
+  std::unique_ptr<SegmentedFusion> pipeline_;
   Communicator& comm_;
+
+  // Returns whether the current process should run the stage
+  void postKernel(SegmentedGroup* group);
+  void postCommunication(SegmentedGroup* group);
+
+  std::unordered_map<Val*, c10::IValue> allocateRecvBuffers(std::vector<c10::IValue> global_inputs_IValues);
+
+  // Stores concrete computed values,
+  std::unordered_map<Val*, c10::IValue> val_to_IValue_;
+
+  // Stores Fusions and FusionExecutors
+  std::unordered_map<SegmentedGroup*, std::unique_ptr<FusionExecutor>> fe_;
+  std::unordered_map<SegmentedGroup*, std::unique_ptr<Fusion>> fusions_;
+  // Stores the resulting Communications after lowering each
+  // resharding segmented group
+  std::unordered_map<
+      SegmentedGroup*,
+      std::vector<std::shared_ptr<Communication>>>
+      communications_;
+
+  // Cache results of shouldRun method
+  std::unordered_map<SegmentedGroup*, bool> should_run_;
 };
 
 } // namespace nvfuser
