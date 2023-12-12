@@ -850,6 +850,8 @@ void WarpMmaSwizzler::scheduleOperandRead(
     // [Ko, K8, Mo, M8]
     tv->reorder({{-2, -3}});
     // [Ko, Mo, K8, M8]
+    // Note: the extent of Mo may not be a multiple of 2, but we still split 2.
+    // If this is the case, effectively we are padding it to a multiple of 2.
     tv->split(-3, 2);
     // [Ko, Moo, Mo2, K8, M8]
     tv->reorder({{-2, -3}});

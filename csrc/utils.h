@@ -64,8 +64,12 @@ int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread);
 bool useFallback();
 
 //! Ceil integer division
-constexpr int64_t ceilDiv(int64_t a, int64_t b) {
-  return (a + b - 1) / b;
+constexpr int64_t ceilDiv(int64_t dividend, int64_t divisor) {
+  return (dividend + divisor - 1) / divisor;
+}
+
+constexpr int64_t roundUpToMultiple(int64_t dividend, int64_t divisor) {
+  return ceilDiv(dividend, divisor) * divisor;
 }
 
 //! Simple mixin for suppressing copy & move operations, ex:
