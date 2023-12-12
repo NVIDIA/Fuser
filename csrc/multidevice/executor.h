@@ -19,16 +19,14 @@
 namespace nvfuser {
 
 /*
-  The MultiDeviceExecutor class gather all what is needed for executing a
-  Pipeline on a multi-device setting. It is instantiated from a Pipeline and a
-  Communicator (a default Communicator is built at initialization if none is
-  provided).
+  The MultiDeviceExecutor executes a Fusion on a multi-device setting.
+  It is instantiated from a Fusion and a Communicator.
 */
 class MultiDeviceExecutor {
  public:
   MultiDeviceExecutor(std::unique_ptr<Fusion> fusion, Communicator& comm);
 
-  // Run the multidevice fusion with the given global inputs
+  // Run the fusion on several devices with the given global inputs
   std::vector<at::Tensor> runWithInput(const std::vector<c10::IValue>& inputs);
 
   // Returns the Communicator
@@ -36,27 +34,9 @@ class MultiDeviceExecutor {
     return &comm_;
   }
 
-  // Returns the current device index
-  DeviceIdxType dId() const {
-    return comm_.deviceId();
-  }
-
   // Returns the Fusion
   auto fusion() const {
     return pipeline_->completeFusion();
-  }
-
-  // Returns the Pipeline
-  auto pipeline() const {
-    return pipeline_.get();
-  }
-
-  bool isResharding(SegmentedGroup* group) const {
-    return is_resharding_.at(group);
-  }
-
-  bool shouldRun(SegmentedGroup* group) const {
-    return should_run_.at(group);
   }
 
   // check if the runtime is valid returns an error msg.
@@ -64,31 +44,36 @@ class MultiDeviceExecutor {
   std::string validate() const;
 
  private:
-  std::unique_ptr<SegmentedFusion> pipeline_;
-  Communicator& comm_;
-
-  // Returns whether the current process should run the stage
+  // execute locally a SegmentedGroup that does not involve inter-device communication
   void postKernel(SegmentedGroup* group);
+  // execute a SegmentedGroup representing inter-device communication
   void postCommunication(SegmentedGroup* group);
 
+  // allocate inter-device communication recv buffers
   std::unordered_map<Val*, c10::IValue> allocateRecvBuffers(std::vector<c10::IValue> global_inputs_IValues);
 
   // Stores concrete computed values,
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
 
-  // Stores Fusions and FusionExecutors
+  // holds the Communicator to be used for execution
+  Communicator& comm_;
+  // holds the fusion after segmentation at the inter-device communications
+  // Each SegmentedGroup represents a pipeline's stage, and can be either
+  // 1) a Fusion which doesn't involve inter-device communication
+  // 2) a Fusion comprised of one Expr, representing inter-device communication
+  std::unique_ptr<SegmentedFusion> pipeline_;
+  // Stores the order in which the pipeline's stage should be executed
+  std::vector<SegmentedGroup*> group_run_order_;
+  // Cache Fusions, FusionExecutors, and Communications
   std::unordered_map<SegmentedGroup*, std::unique_ptr<FusionExecutor>> fe_;
   std::unordered_map<SegmentedGroup*, std::unique_ptr<Fusion>> fusions_;
-  // Stores the resulting Communications after lowering each
-  // resharding segmented group
   std::unordered_map<
       SegmentedGroup*,
       std::vector<std::shared_ptr<Communication>>>
       communications_;
-
-  // indicate whether a SegmentedGroup should be run by the current device
+  // Cache whether a SegmentedGroup should be run by the current device
   std::unordered_map<SegmentedGroup*, bool> should_run_;
-  // indicate whether a SegmentedGroup requires inter-device communication
+  // Cache whether a SegmentedGroup requires inter-device communication
   std::map<SegmentedGroup*, bool> is_resharding_;
 };
 

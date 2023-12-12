@@ -15,9 +15,9 @@
 #include <multidevice/device_mesh.h>
 #include <multidevice/utils.h>
 
-
-
 namespace nvfuser {
+
+namespace {
 
 std::pair<std::unique_ptr<Fusion>, std::unordered_map<Val*, Val*>> copyFusionAndChangeOutputs(Fusion* fusion, std::unordered_set<Val*> outputs) {
     std::unique_ptr<Fusion> fusion_copy = std::make_unique<Fusion>();
@@ -52,21 +52,23 @@ std::pair<std::unique_ptr<Fusion>, std::unordered_map<Val*, Val*>> copyFusionAnd
     return std::make_pair<std::unique_ptr<Fusion>, std::unordered_map<Val*, Val*>>(std::move(fusion_copy), std::move(copy_to_original_map));
 }
 
+} // namespace
+
 //TODO: use native allocator instead.
 std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(std::vector<c10::IValue> global_inputs_IValues) {
     std::unordered_set<Val*> vals_to_allocate;
     std::unordered_set<Val*> vals_to_not_allocate;
-    for (auto group: pipeline()->groups()) {
+    for (auto group: pipeline_->groups()) {
         if (!is_resharding_[group] && should_run_[group]) {
             for (auto input: group->inputs()) {
                 vals_to_allocate.insert(input);
             }
         }
     }
-    for (auto global_output: pipeline()->outputs()) {
+    for (auto global_output: pipeline_->outputs()) {
         vals_to_allocate.insert(global_output);
     }
-    for (auto global_input: pipeline()->inputs()) {
+    for (auto global_input: pipeline_->inputs()) {
         vals_to_not_allocate.insert(global_input);
     }
     for (auto val_to_not_allocate: vals_to_not_allocate){
@@ -102,41 +104,53 @@ MultiDeviceExecutor::MultiDeviceExecutor(std::unique_ptr<Fusion> fusion, Communi
   pipeline_ = SegmentCandidateFinder::segment(std::move(fusion), options);
 
   for (auto group: pipeline_->groups()){
+    // check if the group invovles inter-device communication
     if (std::none_of(group->exprs().begin(),
         group->exprs().end(),
         [](auto expr) { return ir_utils::isResharding(expr);})) {
+      // check if the segmentation is valid
       NVF_ERROR(!group->exprs().empty()
                 && !group->exprs().at(0)->outputs().empty()
                 && group->exprs().at(0)->outputs().at(0)->isA<TensorView>()
-                && group->exprs().at(0)->outputs().at(0)->as<TensorView>()->hasDeviceMesh());
+                && group->exprs().at(0)->outputs().at(0)->as<TensorView>()->hasDeviceMesh(),
+                "invalid segmentation");
+      // set that the group does not involve inter-device comms
       is_resharding_[group] = false;
-      should_run_[group] = group->exprs().at(0)->outputs().at(0)->as<TensorView>()->getDeviceMesh()->has(dId());
+      // store whether the current device should run the group
+      should_run_[group] = group->exprs().at(0)->outputs().at(0)->as<TensorView>()->getDeviceMesh()->has(comm_.deviceId());
     } else {
+      // check that the group is comprised of one resharding expr
       NVF_ERROR(group->exprs().size() == 1, "Communications cannot be fused");
+      // set that the group does represents inter-device comm
       is_resharding_[group] = true;
     }
   }
+  // prepare the order in which to launch the kernels/comms
+  RuntimeWorkSpace workspace;
+  prepareRuntimeOrder(pipeline_.get(), workspace);
+  group_run_order_ = std::move(workspace.group_run_order);
 }
 
 void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
-  if (!shouldRun(group)) {
+  if (!should_run_.at(group)) {
     return;
   }
   // get the IValues corresponding to the group's input
   std::vector<c10::IValue> group_input_IValues;
   for (auto& input : group->inputs()) {
-    NVF_ERROR(val_to_IValue_.find(input) != val_to_IValue_.end(), "Device ", dId(), " has no buffer associated with Val ", input, " for handling group ", toString(group));
+    NVF_ERROR(val_to_IValue_.find(input) != val_to_IValue_.end(), "Device ", comm_.deviceId(), " has no buffer associated with Val ", input, " for handling group ", toString(group));
     NVF_ERROR(val_to_IValue_.at(input).isTensor());
     group_input_IValues.push_back(val_to_IValue_.at(input));
   }
 
+  // placeholder for storing the group's outputs
   std::vector<at::Tensor> outputs;
 
   // Compile the group and execute it with FusionExecutor
   // Check if the executor has been cached. If not, create and cache it
   if (fe_.find(group) == fe_.end()) {
     fe_.emplace(group, std::make_unique<FusionExecutor>());
-    fusions_.emplace(group, pipeline()->makeFusion(group));
+    fusions_.emplace(group, pipeline_->makeFusion(group));
     fe_[group]->compileFusion(fusions_.at(group).get(), group_input_IValues);
   }
   outputs = fe_[group]->runFusion(group_input_IValues);
@@ -167,7 +181,7 @@ void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
     communications_.emplace(
         group,
         lowerCommunication(
-            dId(), expr, input_tensor, output_tensor));
+            comm_.deviceId(), expr, input_tensor, output_tensor));
   }
   auto& communications = communications_[group];
 
@@ -187,22 +201,19 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
 
   // Make sure inputs align at global boundary.
   NVF_ERROR(
-      inputs.size() == pipeline()->inputs().size(),
+      inputs.size() == pipeline_->inputs().size(),
       "Wrong number of inputs");
 
   val_to_IValue_ = allocateRecvBuffers(inputs);
 
   // process input values:
   for (auto input_idx : c10::irange(inputs.size())) {
-    val_to_IValue_[pipeline()->inputs().at(input_idx)] =
+    val_to_IValue_[pipeline_->inputs().at(input_idx)] =
         inputs.at(input_idx);
   }
 
-  // prepare the order in which to launch the kernels/comms
-  RuntimeWorkSpace workspace;
-  prepareRuntimeOrder(pipeline(), workspace);
   // Run through the groups to launch kernels and comms
-  for (auto group: workspace.group_run_order) {
+  for (auto group: group_run_order_) {
     if (!is_resharding_.at(group)) {
       postKernel(group);
     } else {
@@ -210,10 +221,9 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
     }
   }
 
-
   // Collect global outputs from context
   std::vector<at::Tensor> outputs;
-  for (auto output_val : pipeline()->outputs()) {
+  for (auto output_val : pipeline_->outputs()) {
     outputs.push_back(val_to_IValue_.at(output_val).toTensor());
   }
 

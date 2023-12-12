@@ -178,7 +178,7 @@ void testValidateMultidevice(
     c10::IValue unsharded_input = inputs.at(i).deepcopy();
     unsharded_inputs.push_back(unsharded_input);
     SendToTester(
-        runtime.pipeline()->inputs().at(i)->as<TensorView>(),
+        runtime.fusion()->inputs().at(i)->as<TensorView>(),
         inputs.at(i).toTensor(),
         unsharded_inputs.at(i).toTensor(),
         tester,
@@ -190,14 +190,14 @@ void testValidateMultidevice(
     at::Tensor unsharded_output = at::clone(outputs.at(i));
     unsharded_outputs.push_back(unsharded_output);
     SendToTester(
-        runtime.pipeline()->outputs().at(i)->as<TensorView>(),
+        runtime.fusion()->outputs().at(i)->as<TensorView>(),
         outputs.at(i),
         unsharded_outputs.at(i),
         tester,
         runtime.comm(), debug_print);
   }
 
-  if (runtime.dId() == tester) {
+  if (runtime.comm()->deviceId() == tester) {
     if (debug_print) {
       std::stringstream ss;
       std::string indent = "  ";
