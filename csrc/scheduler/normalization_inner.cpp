@@ -222,15 +222,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // target 50% occupancy based on experiments
   const int64_t target_warps_per_sm = 32l;
 
-  // hint for max persistent size based on experiments.
-  const int64_t persistent_experiment_max = (has_rng_ops ? 5l : 8l);
-  const std::vector<int> mayChangePersistentValBy = [&]() -> std::vector<int> {
-    if (has_rng_ops) {
-      return {-1, -2, -3, 1};
-    } else {
-      return {1, 2, 3, -1};
-    }
-  }();
   // when may do multi reductions per block (mrpb)
   // Ideally, reduction_numel_threshold depends on n_waves_max.
   const int64_t mrpb_reduction_numel_threshold = has_rng_ops ? 1024l : 3072l;
@@ -239,6 +230,24 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   const bool may_use_mrpb =
       total_reduction_numel < mrpb_reduction_numel_threshold &&
       n_waves_max > mrpb_wave_threshold;
+
+  // hint for max persistent size based on experiments.
+  const int64_t persistent_experiment_max = [&]() {
+    if (has_rng_ops) {
+      return 5l;
+    } else {
+      // if mrpb, will do single warp reduction, avoid using large persistent
+      // batch, get about 5% speedup at 2560.
+      return may_use_mrpb ? 7l : 10l;
+    }
+  }();
+  const std::vector<int> mayChangePersistentValBy = [&]() -> std::vector<int> {
+    if (has_rng_ops) {
+      return {-1, -2, -3, 1};
+    } else {
+      return {1, 2, 3, -1};
+    }
+  }();
 
   // allows to reduce estimated register usage for higher occupancy.
   constexpr int64_t max_adjust_count = 8;
@@ -390,9 +399,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
                 << ", register_adjust_score: " << register_adjust_score
                 << ", single_warp_reduction_score: "
                 << single_warp_reduction_score << std::endl;
-      if (register_adjust_score > 0) {
+      if (false && register_adjust_score > 0) {
         return true;
-      } else if (register_adjust_score < 0) {
+      } else if (false && register_adjust_score < 0) {
         return false;
       } else {
         if (register_usage > 0) {
@@ -413,9 +422,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
               // score is same, further compare n_waves and persistent_val
               auto this_time_cost = n_waves * persistent_val;
               auto other_time_cost = other.n_waves * other.persistent_val;
-              if (this_time_cost < other_time_cost) {
+              if (false && this_time_cost < other_time_cost) {
                 return true;
-              } else if (this_time_cost > other_time_cost) {
+              } else if (false && this_time_cost > other_time_cost) {
                 return false;
               } else {
                 return persistent_val > other.persistent_val;

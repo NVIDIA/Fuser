@@ -8605,9 +8605,6 @@ TEST_F(NVFuserTest, ProjectPersistentBufferMultiScopes) {
   auto cg_outputs = fe.runFusion(inputs);
 }
 
-
-
-
 TEST_F(NVFuserTest, DropoutLayerNorm) {
   struct kernelInfo {
     float bandwidth;
@@ -8660,7 +8657,8 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
     auto prob = IrBuilder::create<Val>(kDropoutProbability);
     auto scale = IrBuilder::create<Val>(kScale);
     auto dropout_results = dropout(input_0, prob, scale);
-    // auto dropout_fake = [](TensorView* x, Val* prob, Val* scale) -> ForwardDropoutResult{
+    // auto dropout_fake = [](TensorView* x, Val* prob, Val* scale) ->
+    // ForwardDropoutResult{
     //   auto mask = lt(x, prob);
     //   auto apply_mask = mul(x, mask);
     //   auto y = mul(apply_mask, scale);
@@ -8776,8 +8774,8 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
     std::vector<kernelInfo> results;
     ASSERT_TRUE(feature % vect_factor == 0);
     results.emplace_back(test(batch_size, feature, 0, 0));
-    // auto min_batch_size = ceilDiv(feature / vect_factor, max_threads_per_block);
-    // auto max_batch_size = std::min(
+    // auto min_batch_size = ceilDiv(feature / vect_factor,
+    // max_threads_per_block); auto max_batch_size = std::min(
     //     (int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
     // for (auto decouple_data_load : {false}) {
     //   for (auto project_to_input :
@@ -8829,7 +8827,8 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
     }
     std::ostringstream fname;
     fname << "/hhome/benchmarks/layernorm_heuristics/" << hostname
-          << "_dropout_layernorm_new1211_" << batch_size << "_" << feature << ".txt";
+          << "_dropout_layernorm_new1211_" << batch_size << "_" << feature
+          << ".txt";
     std::ofstream file(fname.str());
     if (file.is_open()) {
       for (auto& info : results) {
@@ -8841,7 +8840,6 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
     }
   }
 }
-
 
 TEST_F(NVFuserTest, LayerNorm) {
   struct kernelInfo {
@@ -8892,7 +8890,6 @@ TEST_F(NVFuserTest, LayerNorm) {
     fusion->addOutput(result_output);
     fusion->addOutput(result.mean);
     fusion->addOutput(result.invstd);
-
 
     // inputs
     auto options = at::TensorOptions()
@@ -8961,10 +8958,6 @@ TEST_F(NVFuserTest, LayerNorm) {
     }
     return kinfo;
   };
-  int64_t batch_size = 1024 * 32;
-
-  // test(batch_size, 512, 0, 0);
-  // return;
   constexpr int vect_factor = 8;
   // constexpr int min_threads_per_block = 32;
   // constexpr int max_threads_per_block = 1024;
@@ -8983,79 +8976,83 @@ TEST_F(NVFuserTest, LayerNorm) {
       8192,
       12288,
       18432};
-  for (int i = 1024; i <= 20*1024; i += 1024) {
+  for (int i = 1024; i <= 20 * 1024; i += 1024) {
     features.insert(i);
   }
-  for (auto feature : features) {
-    std::vector<kernelInfo> results;
-    ASSERT_TRUE(feature % vect_factor == 0);
-    results.emplace_back(test(batch_size, feature, 0, 0));
-    // auto min_batch_size = ceilDiv(feature / vect_factor, max_threads_per_block);
-    // auto max_batch_size = std::min(
-    //     (int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
-    // for (auto decouple_data_load : {false}) {
-    //   for (auto project_to_input :
-    //        {false}) { // can't save buffer size, no need to test project.
-    //     for (auto persistent_batch_size = min_batch_size;
-    //          persistent_batch_size <= max_batch_size;
-    //          persistent_batch_size++) {
-    //       // given a persistent_batch_size, warps_per_block is derived from
-    //       // feature size and vector factor of 8.
-    //       auto warps_per_block = ceilDiv(
-    //           ceilDiv(feature / vect_factor, persistent_batch_size), 32);
-    //       // target different blocks_per_sm by adjusting register per thread
-    //       auto max_blocks_per_sm = 64 / warps_per_block;
-    //       for (auto blocks_per_sm = 1; blocks_per_sm <= max_blocks_per_sm;
-    //            blocks_per_sm++) {
-    //         auto res = test(
-    //             batch_size,
-    //             feature,
-    //             persistent_batch_size,
-    //             blocks_per_sm,
-    //             project_to_input,
-    //             decouple_data_load);
-    //         res.speedup = res.bandwidth / (results[0].bandwidth - 1e4);
-    //         results.emplace_back(res);
-    //         res.print();
-    //       }
-    //     }
-    //   }
-    // }
+  // test(batch_size, 512, 0, 0);
+  // return;
+  for (int64_t batch_size : {2048, 1024 * 32}) {
+    for (auto feature : features) {
+      std::vector<kernelInfo> results;
+      ASSERT_TRUE(feature % vect_factor == 0);
+      results.emplace_back(test(batch_size, feature, 0, 0));
+      // auto min_batch_size = ceilDiv(feature / vect_factor,
+      // max_threads_per_block); auto max_batch_size = std::min(
+      //     (int64_t)10, ceilDiv(feature / vect_factor,
+      //     min_threads_per_block));
+      // for (auto decouple_data_load : {false}) {
+      //   for (auto project_to_input :
+      //        {false}) { // can't save buffer size, no need to test project.
+      //     for (auto persistent_batch_size = min_batch_size;
+      //          persistent_batch_size <= max_batch_size;
+      //          persistent_batch_size++) {
+      //       // given a persistent_batch_size, warps_per_block is derived from
+      //       // feature size and vector factor of 8.
+      //       auto warps_per_block = ceilDiv(
+      //           ceilDiv(feature / vect_factor, persistent_batch_size), 32);
+      //       // target different blocks_per_sm by adjusting register per
+      //       thread auto max_blocks_per_sm = 64 / warps_per_block; for (auto
+      //       blocks_per_sm = 1; blocks_per_sm <= max_blocks_per_sm;
+      //            blocks_per_sm++) {
+      //         auto res = test(
+      //             batch_size,
+      //             feature,
+      //             persistent_batch_size,
+      //             blocks_per_sm,
+      //             project_to_input,
+      //             decouple_data_load);
+      //         res.speedup = res.bandwidth / (results[0].bandwidth - 1e4);
+      //         results.emplace_back(res);
+      //         res.print();
+      //       }
+      //     }
+      //   }
+      // }
 
-    std::sort(
-        results.begin(),
-        results.end(),
-        [](const kernelInfo& a, const kernelInfo& b) {
-          return a.bandwidth > b.bandwidth;
-        });
-    std::cout << "\n--- Default and top 10 cases out of tested cases: "
-              << results.size() << std::endl;
-    const int n_print = std::min(11, (int)results.size());
-    for (int i = 0; i < n_print; ++i) {
-      results[i].print();
-    }
-
-    // Open a file in write mode
-    char hostname[HOST_NAME_MAX];
-    if (gethostname(hostname, HOST_NAME_MAX) != 0) {
-      std::cerr << "Failed to get the hostname." << std::endl;
-      return;
-    }
-    std::ostringstream fname;
-    fname << "/opt/pybm/layernorm_heuristics/" << hostname
-          << "_layernorm_new1211_" << batch_size << "_" << feature << ".txt";
-         
-    std::ofstream file(fname.str());
-    if (file.is_open()) {
-      for (auto& info : results) {
-        info.print(file);
+      std::sort(
+          results.begin(),
+          results.end(),
+          [](const kernelInfo& a, const kernelInfo& b) {
+            return a.bandwidth > b.bandwidth;
+          });
+      std::cout << "\n--- Default and top 10 cases out of tested cases: "
+                << results.size() << std::endl;
+      const int n_print = std::min(11, (int)results.size());
+      for (int i = 0; i < n_print; ++i) {
+        results[i].print();
       }
-      file.close(); // Close the file when done
-    } else {
-      std::cerr << "Unable to open file." << std::endl;
+
+      // Open a file in write mode
+      char hostname[HOST_NAME_MAX];
+      if (gethostname(hostname, HOST_NAME_MAX) != 0) {
+        std::cerr << "Failed to get the hostname." << std::endl;
+        return;
+      }
+      std::ostringstream fname;
+      fname << "/opt/pybm/layernorm_heuristics/" << hostname
+            << "_layernorm_new1211_" << batch_size << "_" << feature << ".txt";
+
+      std::ofstream file(fname.str());
+      if (file.is_open()) {
+        for (auto& info : results) {
+          info.print(file);
+        }
+        file.close(); // Close the file when done
+      } else {
+        std::cerr << "Unable to open file." << std::endl;
+      }
     }
   }
-
 }
 
 TEST_F(NVFuserTest, ChainProjectionToPersistentProducer) {
