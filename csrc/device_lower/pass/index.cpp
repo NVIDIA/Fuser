@@ -1450,6 +1450,33 @@ static Val* constructMatrixDescriptor(
       or4);
 }
 
+static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
+  auto exprs = StmtSort::getExprsBetween(
+      {tv->getMaybeRFactorDomain().begin(), tv->getMaybeRFactorDomain().end()},
+      {tv->getAllocationDomain().begin(), tv->getAllocationDomain().end()});
+  for (auto expr : exprs) {
+    if (auto swizzle = dynamic_cast<const Swizzle*>(expr)) {
+      NVF_ERROR(
+          swizzle->swizzleType() == SwizzleType::XOR,
+          "Hopper MmaOp only supports XOR swizzle");
+      auto size = swizzle->inX()->extent()->evaluate().as<int64_t>();
+      switch (size) {
+        case 2:
+          return MmaInputSmemSwizzle::B32;
+        case 4:
+          return MmaInputSmemSwizzle::B64;
+        case 8:
+          return MmaInputSmemSwizzle::B128;
+        default:
+          NVF_ERROR(
+              false,
+              "Hopper MmaOp only supports XOR swizzle with size 1, 2, 4, 8");
+      }
+    }
+  }
+  return MmaInputSmemSwizzle::None;
+}
+
 // Reference for smem strides:
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#strides
 void IndexLowering::handle(const MmaOp* mma) {
@@ -1458,7 +1485,8 @@ void IndexLowering::handle(const MmaOp* mma) {
   if (mma->inA()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
-    auto base_addr = IrBuilder::baseAddressExpr(mma->inA()->as<TensorView>());
+    auto tv = mma->inA()->as<TensorView>();
+    auto base_addr = IrBuilder::baseAddressExpr(tv);
     int stride_bytes =
         /*8x8 items each core matrix*/ 64 * /*bytes per item*/ 2;
     int leading_bytes = /*8x8 items each core matrix*/ 64 *
@@ -1469,9 +1497,9 @@ void IndexLowering::handle(const MmaOp* mma) {
         IrBuilder::create<Val>(leading_bytes, DataType::UInt),
         IrBuilder::create<Val>(stride_bytes, DataType::UInt),
         IrBuilder::create<Val>(0, DataType::UInt),
-        MmaInputSmemSwizzle::None);
+        getSwizzleMode(tv));
     a = IrBuilder::create<kir::TensorIndex>(
-        mma->inA()->as<TensorView>(),
+        tv,
         GpuLower::current()->commonScalarMap().hoistScalar(
             matrix_desc, for_loops_));
   } else {
@@ -1481,7 +1509,8 @@ void IndexLowering::handle(const MmaOp* mma) {
   if (mma->inB()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
-    auto base_addr = IrBuilder::baseAddressExpr(mma->inB()->as<TensorView>());
+    auto tv = mma->inB()->as<TensorView>();
+    auto base_addr = IrBuilder::baseAddressExpr(tv);
     int stride_bytes = /*8x8 items each core matrix*/ 64 * /*bytes per item*/ 2;
     int leading_bytes = /*8x8 items each core matrix*/ 64 *
         /*number of core matrices*/ (getN(mma->macro()) / 8) *
@@ -1491,9 +1520,9 @@ void IndexLowering::handle(const MmaOp* mma) {
         IrBuilder::create<Val>(leading_bytes, DataType::UInt),
         IrBuilder::create<Val>(stride_bytes, DataType::UInt),
         IrBuilder::create<Val>(0, DataType::UInt),
-        MmaInputSmemSwizzle::None);
+        getSwizzleMode(tv));
     b = IrBuilder::create<kir::TensorIndex>(
-        mma->inB()->as<TensorView>(),
+        tv,
         GpuLower::current()->commonScalarMap().hoistScalar(
             matrix_desc, for_loops_));
   } else {
