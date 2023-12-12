@@ -133,16 +133,12 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/validation.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/lower2device.cpp
   ${NVFUSER_SRCS_DIR}/maxinfo_propagator.cpp
-  # ${NVFUSER_SRCS_DIR}/multidevice/allocator.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communication.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communicator.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/device_mesh.cpp
-  # ${NVFUSER_SRCS_DIR}/multidevice/executor.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/executor.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/lower_communication.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/lower_resharding_expr.cpp
-  # ${NVFUSER_SRCS_DIR}/multidevice/pipeline.cpp
-  # ${NVFUSER_SRCS_DIR}/multidevice/pipeline_ir.cpp
-  ${NVFUSER_SRCS_DIR}/multidevice/runtime.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/utils.cpp
   ${NVFUSER_SRCS_DIR}/mutator.cpp
   ${NVFUSER_SRCS_DIR}/non_divisible_split.cpp

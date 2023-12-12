@@ -10,7 +10,7 @@
 #include <device_lower/utils.h>
 #include <fusion_segmenter.h>
 #include <ir/utils.h>
-#include <multidevice/runtime.h>
+#include <multidevice/executor.h>
 #include <multidevice/lower_communication.h>
 #include <multidevice/device_mesh.h>
 #include <multidevice/utils.h>
@@ -53,7 +53,7 @@ std::pair<std::unique_ptr<Fusion>, std::unordered_map<Val*, Val*>> copyFusionAnd
 }
 
 //TODO: use native allocator instead.
-std::unordered_map<Val*, c10::IValue> MultiDeviceRuntime::allocateRecvBuffers(std::vector<c10::IValue> global_inputs_IValues) {
+std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(std::vector<c10::IValue> global_inputs_IValues) {
     std::unordered_set<Val*> vals_to_allocate;
     std::unordered_set<Val*> vals_to_not_allocate;
     for (auto group: pipeline()->groups()) {
@@ -89,7 +89,7 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceRuntime::allocateRecvBuffers(st
     return allocations;
 }
 
-MultiDeviceRuntime::MultiDeviceRuntime(std::unique_ptr<Fusion> fusion, Communicator& comm)
+MultiDeviceExecutor::MultiDeviceExecutor(std::unique_ptr<Fusion> fusion, Communicator& comm)
     : comm_(comm) {
   SegmentCandidateFinderOptions options {
     .run_translate_welford = false,
@@ -118,7 +118,7 @@ MultiDeviceRuntime::MultiDeviceRuntime(std::unique_ptr<Fusion> fusion, Communica
   }
 }
 
-void MultiDeviceRuntime::postKernel(SegmentedGroup* group) {
+void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
   if (!shouldRun(group)) {
     return;
   }
@@ -147,7 +147,7 @@ void MultiDeviceRuntime::postKernel(SegmentedGroup* group) {
   }
 }
 
-void MultiDeviceRuntime::postCommunication(SegmentedGroup* group) {
+void MultiDeviceExecutor::postCommunication(SegmentedGroup* group) {
   NVF_ERROR(group->exprs().size() == 1, "Communication segments must contain only one Expr");
   auto expr = group->exprs().at(0);
   NVF_ERROR(expr->inputs().size() == 1, "Communication must have exactly one input");
@@ -178,7 +178,7 @@ void MultiDeviceRuntime::postCommunication(SegmentedGroup* group) {
   }
 }
 
-std::vector<at::Tensor> MultiDeviceRuntime::runWithInput(
+std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
     const std::vector<c10::IValue>& inputs) {
 
   // make sure the communicator can run the Fusion (e.g. there is enough GPUs, etc)
@@ -220,7 +220,7 @@ std::vector<at::Tensor> MultiDeviceRuntime::runWithInput(
   return outputs;
 }
 
-std::string MultiDeviceRuntime::validate() const {
+std::string MultiDeviceExecutor::validate() const {
   if (!comm_.is_available()) {
     return "distributed configuration required";
   }

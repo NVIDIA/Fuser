@@ -163,7 +163,7 @@ void SendToTester(
 // It compares the given (possibly sharded) output with the result of the Fusion
 // run on a single device with the given (possibly sharded) inputs
 void testValidateMultidevice(
-    MultiDeviceRuntime& runtime,
+    MultiDeviceExecutor& runtime,
     const at::ArrayRef<c10::IValue>& inputs,
     const std::vector<at::Tensor>& outputs,
     bool debug_print,
@@ -259,7 +259,7 @@ void executeAndValidateMultiDeviceFusion(
     fusion->printKernel();
   }
 
-  MultiDeviceRuntime runtime(std::move(fusion), *communicator);
+  MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto error_msg = runtime.validate();
   if (error_msg != "") {
     GTEST_SKIP() << error_msg;

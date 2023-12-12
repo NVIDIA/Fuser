@@ -19,14 +19,14 @@
 namespace nvfuser {
 
 /*
-  The MultiDeviceRuntime class gather all what is needed for executing a
+  The MultiDeviceExecutor class gather all what is needed for executing a
   Pipeline on a multi-device setting. It is instantiated from a Pipeline and a
   Communicator (a default Communicator is built at initialization if none is
   provided).
 */
-class MultiDeviceRuntime {
+class MultiDeviceExecutor {
  public:
-  MultiDeviceRuntime(std::unique_ptr<Fusion> fusion, Communicator& comm);
+  MultiDeviceExecutor(std::unique_ptr<Fusion> fusion, Communicator& comm);
 
   // Run the multidevice fusion with the given global inputs
   std::vector<at::Tensor> runWithInput(const std::vector<c10::IValue>& inputs);
@@ -64,7 +64,6 @@ class MultiDeviceRuntime {
   std::string validate() const;
 
  private:
-  std::map<SegmentedGroup*, bool> is_resharding_;
   std::unique_ptr<SegmentedFusion> pipeline_;
   Communicator& comm_;
 
@@ -87,8 +86,10 @@ class MultiDeviceRuntime {
       std::vector<std::shared_ptr<Communication>>>
       communications_;
 
-  // Cache results of shouldRun method
+  // indicate whether a SegmentedGroup should be run by the current device
   std::unordered_map<SegmentedGroup*, bool> should_run_;
+  // indicate whether a SegmentedGroup requires inter-device communication
+  std::map<SegmentedGroup*, bool> is_resharding_;
 };
 
 } // namespace nvfuser
