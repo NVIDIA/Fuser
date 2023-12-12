@@ -234,14 +234,6 @@ class HopperRS : public HopperBase,
     dtype = std::get<1>(GetParam());
     layout = std::get<2>(GetParam());
     swizzle_b = std::get<3>(GetParam());
-
-    if (swizzle_b == MmaInputSmemSwizzle::B128) {
-      GTEST_SKIP() << "128B swizzle not supported yet";
-    }
-
-    if (swizzle_b == MmaInputSmemSwizzle::B64) {
-      GTEST_SKIP() << "64B swizzle not supported yet";
-    }
   }
 };
 
