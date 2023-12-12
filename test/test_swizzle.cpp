@@ -682,7 +682,7 @@ TEST_F(SwizzleTest, SwizzleInRFactor) {
     for (auto j : c10::irange(t.size(1) / 8)) {
       for (auto ii : c10::irange(8)) {
         for (auto jj : c10::irange(8)) {
-          expect[i * 8 + ii][j * 8 + jj] = t[i * 8 + ii][j * 8 + ii ^ jj];
+          expect[i * 8 + ii][j * 8 + jj] = t[i * 8 + ii][j * 8 + (ii ^ jj)];
         }
       }
     }
