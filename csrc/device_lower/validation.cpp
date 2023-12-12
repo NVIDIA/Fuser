@@ -310,6 +310,14 @@ class VectorizeValidator : public OptInDispatch {
     domains_.insert(r->in());
   }
 
+  void handle(Swizzle* swizzle) final {
+    if (swizzle->outX() == vectorized_id_ || swizzle->inX() == vectorized_id_ ||
+        swizzle->outY() == vectorized_id_ || swizzle->inY() == vectorized_id_) {
+      // Do not (yet) allow vectorization across any swizzled id.
+      is_valid = false;
+    }
+  }
+
   void handle(Swizzle2D* swizzle) final {
     if (swizzle->outX() == vectorized_id_ || swizzle->inX() == vectorized_id_ ||
         swizzle->outY() == vectorized_id_ || swizzle->inY() == vectorized_id_) {

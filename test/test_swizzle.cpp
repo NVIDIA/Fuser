@@ -651,4 +651,43 @@ TEST_F(SwizzleTest, TransformPropagatorSkipSwizzleOnTarget) {
   }));
 }
 
+TEST_F(SwizzleTest, SwizzleInRFactor) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = set(tv0);
+  tv1->split(1, 8);
+  tv1->split(0, 8);
+  tv1->reorder({{2, 1}});
+  tv1->swizzle(SwizzleType::XOR, 2, 3);
+  tv1->reorder({{2, 1}});
+  tv1->merge(0);
+  tv1->merge(1);
+  tv1->commitLeafToRFactor();
+  fusion->addOutput(tv1);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t = at::randn({32, 64}, options);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get());
+  auto outputs = fe.runFusion({t});
+
+  auto expect = at::empty_like(t);
+  for (auto i : c10::irange(t.size(0) / 8)) {
+    for (auto j : c10::irange(t.size(1) / 8)) {
+      for (auto ii : c10::irange(8)) {
+        for (auto jj : c10::irange(8)) {
+          expect[i * 8 + ii][j * 8 + jj] = t[i * 8 + ii][j * 8 + ii ^ jj];
+        }
+      }
+    }
+  }
+  testValidate(fusion.get(), outputs, {t}, {expect}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
