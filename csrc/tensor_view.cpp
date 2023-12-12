@@ -234,7 +234,7 @@ std::string TensorView::toString(int indent_size) const {
     ss << " )";
   }
   if (hasDeviceMesh()) {
-    ss << " (" << *getDeviceMesh() << ")";
+    ss << " (" << getDeviceMesh() << ")";
   }
   return ss.str();
 }

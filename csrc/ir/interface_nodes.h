@@ -530,17 +530,17 @@ class TensorView : public Val {
     return promote_reuse_;
   }
 
-  void setDeviceMesh(DeviceMesh* mesh) {
+  void setDeviceMesh(const DeviceMesh& mesh) {
     mesh_ = mesh;
   }
 
-  DeviceMesh* getDeviceMesh() const {
-    NVF_ERROR(mesh_, "DeviceMesh is not initialized");
+  const DeviceMesh& getDeviceMesh() const {
+    NVF_ERROR(hasDeviceMesh(), "DeviceMesh is not initialized");
     return mesh_;
   }
 
   bool hasDeviceMesh() const {
-    return mesh_;
+    return !mesh_.vector().empty();
   }
 
  protected:
@@ -615,7 +615,8 @@ class TensorView : public Val {
   //! allocated to this tensor.
   bool promote_reuse_ = false;
 
-  DeviceMesh* mesh_ = nullptr;
+  // Device Mesh on which the Tensor is sharded
+  DeviceMesh mesh_;
 };
 
 //! A simple TensorView builder
