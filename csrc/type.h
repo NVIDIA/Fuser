@@ -274,6 +274,11 @@ inline bool isIntegralType(DataType dtype) {
       dtype.type);
 }
 
+// Returns if the datatype is an unsigned integer type
+inline bool isUnsignedIntegralType(DataType dtype) {
+  return dtype == DataType::UInt || dtype == DataType::UInt32;
+}
+
 // Returns if the datatype is a pointer type
 inline bool isPointerType(DataType dtype) {
   return std::holds_alternative<PointerType>(dtype.type) ||
@@ -1005,5 +1010,7 @@ template <typename E>
 constexpr auto toUnderlying(E e) noexcept {
   return static_cast<std::underlying_type_t<E>>(e);
 }
+
+enum class AsyncOpType { CpAsync, CpAsyncBulk, WgMma };
 
 } // namespace nvfuser

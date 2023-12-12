@@ -956,7 +956,6 @@ at::Tensor allocateOutput(
 std::vector<at::Tensor> allocateOutputs(
     const kir::Kernel* kernel,
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
-    const KernelArgumentHolder& inputs,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
   FUSER_PERF_SCOPE("allocateOutputs");
@@ -1238,8 +1237,7 @@ std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
   auto output_info =
       getOutputBufferInfo(kernel_inputs, expr_eval, kernel()->indexType());
 
-  return allocateOutputs(
-      kernel(), output_info, kernel_inputs, options_.device, expr_eval);
+  return allocateOutputs(kernel(), output_info, options_.device, expr_eval);
 }
 
 std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
@@ -1639,7 +1637,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // only allocate outputs when not given
   if (outputs.empty()) {
     outputs = allocateOutputs(
-        kernel(), executor_entry->outputs, args, options_.device, expr_eval);
+        kernel(), executor_entry->outputs, options_.device, expr_eval);
   } else {
     // TODO: Use validateKernelOutputs
     NVF_ERROR(
@@ -1993,38 +1991,42 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
       toUnderlying(kernel()->indexType()),
-      serialize(builder, *compiled_kernel_));
+      serialize(builder, compiled_kernel_.get()));
 }
 
 flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
-    const executor_utils::CompiledKernel& compiled_kernel) const {
+    const executor_utils::CompiledKernel* compiled_kernel) const {
   NVF_ERROR(
-      !compiled_kernel.cubin.empty() || !compiled_kernel.ptx.empty(),
+      compiled_kernel_ != nullptr &&
+          (!compiled_kernel->cubin.empty() || !compiled_kernel->ptx.empty()),
       "Expected compiled cuda kernel before serializing FusionExecutor.");
 
-  auto fb_kernel_name = builder.CreateString(compiled_kernel.kernel_name);
-  auto fb_compile_args = builder.CreateString(compiled_kernel.compile_args);
+  auto fb_kernel_name = builder.CreateString(compiled_kernel->kernel_name);
+  auto fb_compile_args = builder.CreateString(compiled_kernel->compile_args);
 
   flatbuffers::Offset<flatbuffers::Vector<uint8_t>> fb_cubin = 0;
   flatbuffers::Offset<flatbuffers::String> fb_cubin_filename = 0;
-  if (!compiled_kernel.cubin.empty()) {
+  if (!compiled_kernel->cubin.empty()) {
     uint8_t* cubin_ptr = nullptr;
     fb_cubin = builder.CreateUninitializedVector(
-        compiled_kernel.cubin.size(), &cubin_ptr);
+        compiled_kernel->cubin.size(), &cubin_ptr);
     std::copy(
-        compiled_kernel.cubin.begin(), compiled_kernel.cubin.end(), cubin_ptr);
-    fb_cubin_filename = builder.CreateString(compiled_kernel.cubin_filename);
+        compiled_kernel->cubin.begin(),
+        compiled_kernel->cubin.end(),
+        cubin_ptr);
+    fb_cubin_filename = builder.CreateString(compiled_kernel->cubin_filename);
   }
 
   flatbuffers::Offset<flatbuffers::Vector<uint8_t>> fb_ptx = 0;
   flatbuffers::Offset<flatbuffers::String> fb_ptx_filename = 0;
-  if (!compiled_kernel.ptx.empty()) {
+  if (!compiled_kernel->ptx.empty()) {
     uint8_t* ptx_ptr = nullptr;
-    fb_ptx =
-        builder.CreateUninitializedVector(compiled_kernel.ptx.size(), &ptx_ptr);
-    std::copy(compiled_kernel.ptx.begin(), compiled_kernel.ptx.end(), ptx_ptr);
-    fb_ptx_filename = builder.CreateString(compiled_kernel.ptx_filename);
+    fb_ptx = builder.CreateUninitializedVector(
+        compiled_kernel->ptx.size(), &ptx_ptr);
+    std::copy(
+        compiled_kernel->ptx.begin(), compiled_kernel->ptx.end(), ptx_ptr);
+    fb_ptx_filename = builder.CreateString(compiled_kernel->ptx_filename);
   }
 
   serde::CudaKernelBuilder ckb(builder);
@@ -2034,7 +2036,7 @@ flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
   ckb.add_ptx_filename(fb_ptx_filename);
   ckb.add_kernel_name(fb_kernel_name);
   ckb.add_compile_args(fb_compile_args);
-  ckb.add_block_size(compiled_kernel.block_size);
+  ckb.add_block_size(compiled_kernel->block_size);
   return ckb.Finish();
 }
 

@@ -34,7 +34,6 @@
 #include <expr_simplifier.h>
 #include <fusion.h>
 #include <id_model/id_model.h>
-#include <id_model/validation_utils.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -383,10 +382,7 @@ void GpuLower::analysis(Fusion* fusion) {
   // so it is expected that generated code may use diffrent variable
   // names
   if (isOptionEnabled(EnableOption::IdModel)) {
-    IdModel id_model(fusion_);
-    // Only the exact graph is genereated at this moment
-    IdModelValidator::checkExactGraphEquivalence(
-        id_model.idGraph(IdMappingMode::EXACT));
+    IdModel id_model(fusion_, false, true);
   }
 
   resolveComputeWith(fusion_);
