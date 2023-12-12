@@ -19,6 +19,11 @@ struct Layout {
   std::vector<std::optional<bool>> contiguity;
 
   std::string toString(int indent_size = 0) const;
+
+  // Returns whether this layout is compliant with `required`. This is
+  // uni-directional. For example, `contiguity=[t,t]` is compliant with
+  // `contiguity=[f,f]` but not vice versa.
+  bool isCompliantWith(const Layout& required) const;
 };
 
 // Holds aliases found in a fusion. The expected user flow is
@@ -74,10 +79,10 @@ class AliasAnalysisResult {
 };
 
 // Finds aliases of the fusion inputs. The analysis should be conservative --
-// when the analysis says B is an alias of input A and that B's layout
-// (allocation domain and contiguity) is compatible with the preferred layout,
-// `ExpressionEvaluator::evaluate(B)` should produce an `at::Tensor` that's an
-// alias of the `at::Tensor` bound to A.
+// when the analysis says B is an alias of input A and that B's preferred layout
+// is compliant with the required layout, `ExpressionEvaluator::evaluate(B)`
+// should produce an `at::Tensor` that's an alias of the `at::Tensor` bound to
+// A.
 //
 // Currently, for implementation convenience, AliasAnalysis ignores allocation
 // domains of non-fusion-input TensorViews. It produces preferred layouts for

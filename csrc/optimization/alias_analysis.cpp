@@ -374,15 +374,15 @@ const TensorView* AliasAnalysisResult::getAliasedInput(
 void AliasAnalysisResult::finalize(Fusion* fusion) {
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    // Lazy move: we could check compatibility and only give up when
-    // the allocation domain is incompatible with what we prefer for
-    // aliasing.
-    if (out->hasAllocation()) {
+    const Val* in = findRoot(out);
+    if (!in->isFusionInput()) {
       continue;
     }
 
-    const Val* in = findRoot(out);
-    if (!in->isFusionInput()) {
+    const Layout preferred_layout = preferredLayout(out);
+    if (out->hasAllocation() &&
+        !preferred_layout.isCompliantWith(
+            {out->getAllocationDomain(), out->getContiguity()})) {
       continue;
     }
 
@@ -392,10 +392,10 @@ void AliasAnalysisResult::finalize(Fusion* fusion) {
 
 Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
   const TensorView* tv = dynamic_cast<const TensorView*>(v);
-  NVF_CHECK(
+  NVF_ERROR(
       tv != nullptr,
       "`v` is expected to be a TensorView. Found: ",
-      v->toString());
+      v == nullptr ? "<null>" : v->toString());
 
   if (auto i = alias_to_source_.find(tv); i != alias_to_source_.end()) {
     return i->second.second;
@@ -450,6 +450,32 @@ std::string Layout::toString(const int indent_size) const {
                           << toDelimitedString(contiguity, /*delim=*/" ")
                           << "]>";
   return ss.str();
+}
+
+namespace {
+bool contiguityIsCompliant(
+    const std::optional<bool>& actual,
+    const std::optional<bool>& required) {
+  if (actual == true && required == false) {
+    return true;
+  }
+  return actual == required;
+}
+} // namespace
+
+bool Layout::isCompliantWith(const Layout& required) const {
+  if (allocation_domain != required.allocation_domain) {
+    // This can be relaxed by allowing broadcast dimensions to be ordered
+    // differently.
+    return false;
+  }
+
+  for (const auto i : c10::irange(allocation_domain.size())) {
+    if (!contiguityIsCompliant(contiguity[i], required.contiguity[i])) {
+      return false;
+    }
+  }
+  return true;
 }
 
 } // namespace nvfuser::optimization

@@ -37,22 +37,24 @@ void MarkAliasPass::runPass(Fusion* fusion) {
               << " as an alias of " << in->toString() << std::endl;
     }
 
+    // We already checked it's compatible; no need to change.
+    if (out->hasAllocation()) {
+      continue;
+    }
+
     // When `out` is a scalar, `out->setAllocationDomain` triggers a corner case
     // that crashes `validateDomainEquivalence`.
     if (out->isZeroDim()) {
       continue;
     }
 
-    const Layout out_layout = analysis.preferredLayout(out);
-    if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-      debug() << "MarkAliasPass changed the layout of " << out->toString()
-              << std::endl;
-      debug() << "  Old TensorDomain:" << std::endl;
-      debug() << out->domain()->toString(4, /*leaf_only=*/false) << std::endl;
-      debug() << "  New layout:" << out_layout.toString() << std::endl;
-    }
+    const Layout preferred_layout = analysis.preferredLayout(out);
     out->setAllocationDomain(
-        out_layout.allocation_domain, out_layout.contiguity);
+        preferred_layout.allocation_domain, preferred_layout.contiguity);
+    if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+      debug() << "MarkAliasPass set the layout of " << out->toString() << " to "
+              << preferred_layout.toString() << std::endl;
+    }
   }
 }
 
