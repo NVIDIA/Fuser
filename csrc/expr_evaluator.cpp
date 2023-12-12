@@ -140,9 +140,7 @@ void ExpressionEvaluator::bind_(
             " in dimension ",
             i);
         bind_(
-            rfactor_domain[i]->getMaybeExpandedExtent(),
-            t.size(i),
-            evaluate_validate);
+            rfactor_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
       } else {
         bind_(rfactor_domain[i]->extent(), t.size(i), evaluate_validate);
       }
