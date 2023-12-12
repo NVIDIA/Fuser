@@ -36,7 +36,7 @@ struct ExecutorLog {
   FusionExecutor* fusion_executor = nullptr;
 };
 
-struct RuntimeWorkSpace { //here 
+struct RuntimeWorkSpace {
   //! Pre-determined order to run the segmented groups
   std::vector<SegmentedGroup*> group_run_order;
 

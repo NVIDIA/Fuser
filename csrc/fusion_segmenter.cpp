@@ -1770,6 +1770,7 @@ SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
       clean_up_edges_.insert(
           disconnected_edges.begin(), disconnected_edges.end());
     }
+
     joined_group->setHeuristic(deriveHeuristic(joined_group));
     // Need to maintain the group dependency data if it has been intialized
     //  by previous merging
