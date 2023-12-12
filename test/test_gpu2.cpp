@@ -2734,8 +2734,7 @@ void testVarMean(at::ScalarType dtype, int correction, bool keepdim) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs({t0});
 
-  testValidate(
-      executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 } // namespace
 
@@ -5651,8 +5650,7 @@ TEST_F(NVFuserTest, FusionBNRepro2_CUDA) {
   std::vector<c10::IValue> aten_inputs = {input1};
   auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
 
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionZeroSizeTensorPW_CUDA) {

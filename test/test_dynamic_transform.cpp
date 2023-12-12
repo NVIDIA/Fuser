@@ -1100,11 +1100,7 @@ TEST_F(NVFuserTest, DynamicTransformIssue418_CUDA) {
   auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(
-      fusion_executor_cache.fusion(),
-      outputs,
-      aten_inputs,
-      __LINE__,
-      __FILE__);
+      fusion_executor_cache.fusion(), outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, Issue249_CUDA) {

@@ -137,12 +137,7 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
     FusionExecutorCache executor_cache(std::move(fusion));
     auto outputs = executor_cache.runFusionWithInputs({t0});
 
-    testValidate(
-        executor_cache.fusion(),
-        outputs,
-        {t0},
-        __LINE__,
-        __FILE__);
+    testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
   }
 }
 
