@@ -137,14 +137,10 @@ TEST_F(NVFuserTest, FusionCyclicGraph_CUDA) {
     FusionExecutorCache executor_cache(std::move(fusion));
     auto outputs = executor_cache.runFusionWithInputs({t0});
 
-    auto at_var_mean = at::var_mean(t0, {1}, correction, keepdim);
-    std::vector<at::Tensor> aten_outputs = {std::get<0>(at_var_mean)};
-
     testValidate(
         executor_cache.fusion(),
         outputs,
         {t0},
-        aten_outputs,
         __LINE__,
         __FILE__);
   }

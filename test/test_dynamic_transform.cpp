@@ -1098,15 +1098,11 @@ TEST_F(NVFuserTest, DynamicTransformIssue418_CUDA) {
   at::Tensor at0 = at::randn({256, 128, 28, 28}, options);
   std::vector<c10::IValue> aten_inputs = {at0, 32};
   auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
-  auto at1 = at0.reshape({256, 4, 32, 28, 28});
-  auto atmean = at1.mean({2, 3, 4}, /*keepdim*/ true);
-  auto atvar = at1.var({2, 3, 4}, /*unbiased*/ true, /*keepdim*/ true);
 
   testValidate(
       fusion_executor_cache.fusion(),
       outputs,
       aten_inputs,
-      {atmean, atvar},
       __LINE__,
       __FILE__);
 }

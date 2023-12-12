@@ -1731,6 +1731,10 @@ std::vector<PolymorphicValue> WelfordOp::evaluate(
   const auto& in_tensor = inputs.at(0).as<at::Tensor>();
   const auto out_tv = out()->as<TensorView>();
 
+  NVF_ERROR(
+      !out_tv->hasRFactor(),
+      "Evaluation for WelfordOp is not supported when output is rFactored.");
+
   int64_t N = 1;
   std::vector<int64_t> reduction_axes;
   for (const auto i : c10::irange(int64_t(out_tv->getRootDomain().size()))) {

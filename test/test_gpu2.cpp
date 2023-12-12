@@ -2734,10 +2734,6 @@ void testVarMean(at::ScalarType dtype, int correction, bool keepdim) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs({t0});
 
-  auto at_var_mean = at::var_mean(t0, {1}, correction, keepdim);
-  std::vector<at::Tensor> aten_outputs = {
-      std::get<0>(at_var_mean), std::get<1>(at_var_mean)};
-
   testValidate(
       executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
@@ -5604,7 +5600,7 @@ TEST_F(NVFuserTest, FusionBNRepro_CUDA) {
   std::vector<at::Tensor> aten_outputs = {at_output, at_mean, at_invstd};
 
   testValidate(
-      &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+      &fusion, cg_outputs, aten_inputs, aten_outputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionBNRepro2_CUDA) {
@@ -5654,15 +5650,6 @@ TEST_F(NVFuserTest, FusionBNRepro2_CUDA) {
   FusionExecutorCache fec(std::move(fusion_ptr));
   std::vector<c10::IValue> aten_inputs = {input1};
   auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
-
-  auto at_results = at::native_batch_norm(
-      input1_ref, r_m, r_v, weight, bias, kTraining, kMomentum, kEps);
-
-  auto at_output = std::get<0>(at_results);
-  auto at_mean = std::get<1>(at_results);
-  auto at_invstd = std::get<2>(at_results);
-
-  std::vector<at::Tensor> aten_outputs = {at_output, at_mean, at_invstd};
 
   testValidate(
       &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
@@ -5782,7 +5769,7 @@ TEST_F(NVFuserTest, FusionZeroSizeTensorNormalization_CUDA) {
       &fusion,
       cg_outputs,
       {input0, input1},
-      // {aten_output2, aten_output3},
+      {aten_output2, aten_output3},
       __LINE__,
       __FILE__,
       "",
