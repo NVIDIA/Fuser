@@ -216,16 +216,14 @@ protected:
 
     auto segmented_fusion =
         SegmentCandidateFinder::segment(std::move(fusion), options);
-    std::cout << toString(segmented_fusion.get()) << std::endl;
 
     for (auto group: segmented_fusion->groups()) {
       GTEST_EXPECT_TRUE(
-        std::all_of(group->exprs().begin(),
+        std::none_of(group->exprs().begin(),
                     group->exprs().end(),
                     [](auto expr) { return ir_utils::isResharding(expr);})
-        || std::none_of(group->exprs().begin(),
-                        group->exprs().end(),
-                        [](auto expr) { return ir_utils::isResharding(expr);}));
+        || (group->exprs().size() == 1 
+            && ir_utils::isResharding(group->exprs().at(0))));
     }
     // checks that the segments are disjoints and that the graph of segment is acyclic
     segmented_fusion->validate();
@@ -282,7 +280,7 @@ TEST_P(automaticReshardingTest, setInsertion) {
 namespace {
 
 DeviceMesh Mesh0({0});
-DeviceMesh Mesh1({1,2});
+DeviceMesh Mesh1({1, 2});
 DeviceMesh Mesh2({0, 1, 2, 3});
 
 } // namespace
@@ -297,61 +295,5 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Bool(),
         ::testing::Bool(),
         ::testing::Bool()));
-
-TEST_F(NVFuserTest, 2DMesh) {
-  auto fusion = std::make_unique<Fusion>();
-  auto fg = std::make_unique<FusionGuard>(fusion.get());
-
-  auto tv0 = makeContigTensor(3);
-  tv0->axis(0)->parallelize(ParallelType::DIDx);
-  tv0->axis(1)->parallelize(ParallelType::DIDy);
-  DeviceMesh mesh ({0,1,2,3,4,5});
-  mesh.reshape({2,3});
-  tv0->setDeviceMesh(&mesh);
-  std::cout << tv0 << std::endl;
-}
-
-TEST_F(NVFuserTest, pipelineSegmentation) {
-  auto fusion = std::make_unique<Fusion>();
-  auto fg = std::make_unique<FusionGuard>(fusion.get());
-
-  auto tv0 = makeContigTensor(3);
-  fusion->addInput(tv0);
-  TensorView* tv1 = sum(tv0, {0});
-  TensorView* tv2 = set(tv1);
-  TensorView* tv3 = sum(tv2, {0});
-  fusion->addOutput(tv3);
-
-  DeviceMesh mesh0({0});
-  DeviceMesh mesh1({0, 1, 2, 3});
-  tv0->setDeviceMesh(&mesh0);
-  tv1->setDeviceMesh(&mesh0);
-  tv2->setDeviceMesh(&mesh1);
-  tv3->setDeviceMesh(&mesh1);
-
-  // KernelArgumentHolder inputs;
-  SegmentCandidateFinderOptions options {
-    .run_translate_welford = false,
-    .run_combine_reductions = false,
-    .run_herrmann_merge = true,
-    .run_final_merge = true,
-    .only_segment_resharding_exprs = true
-  };
-
-  // auto fusion_copy = std::make_unique<Fusion>(*fusion);
-  auto segmented_fusion =
-      SegmentCandidateFinder::segment(std::move(fusion), options);
-  std::cout << toString(segmented_fusion.get()) << std::endl;
-
-  for (auto group: segmented_fusion->groups()) {
-    GTEST_EXPECT_TRUE(
-      std::all_of(group->exprs().begin(),
-                  group->exprs().end(),
-                  [](auto expr) { return ir_utils::isResharding(expr);})
-      || std::none_of(group->exprs().begin(),
-                      group->exprs().end(),
-                      [](auto expr) { return ir_utils::isResharding(expr);}));
-  }
-}
 
 } // namespace nvfuser
