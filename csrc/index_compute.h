@@ -76,6 +76,7 @@ class IndexCompute : public BackwardVisitor {
 
   void handle(Split*) override;
   void handle(Merge*) override;
+  void handle(Swizzle*) override;
   void handle(Swizzle2D*) override;
   void handle(Resize*) override;
 

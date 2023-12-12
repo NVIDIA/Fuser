@@ -1157,6 +1157,21 @@ std::ostream& operator<<(std::ostream& out, const IterType bt) {
   return out << iter_type2string(bt);
 }
 
+std::ostream& operator<<(std::ostream& os, const SwizzleType& swizzle) {
+  switch (swizzle) {
+    case SwizzleType::NoSwizzle:
+      os << "NoSwizzle";
+      break;
+    case SwizzleType::XOR:
+      os << "Xor";
+      break;
+    default:
+      NVF_ERROR(false, "undefined 2D swizzle");
+      break;
+  }
+  return os;
+}
+
 std::ostream& operator<<(std::ostream& os, const Swizzle2DType& swizzle) {
   switch (swizzle) {
     case Swizzle2DType::NoSwizzle:

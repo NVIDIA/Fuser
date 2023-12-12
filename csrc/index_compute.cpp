@@ -657,6 +657,32 @@ void IndexCompute::handle(Merge* merge) {
   }
 }
 
+void IndexCompute::handle(Swizzle* swizzle) {
+  auto out_x_id = maybeGetExactMapConcreteID(swizzle->outX());
+  auto out_y_id = maybeGetExactMapConcreteID(swizzle->outY());
+  auto in_x_id = maybeGetExactMapConcreteID(swizzle->inX());
+  auto in_y_id = maybeGetExactMapConcreteID(swizzle->inY());
+
+  auto out_x_it = index_map_.find(out_x_id);
+  auto out_y_it = index_map_.find(out_y_id);
+
+  if (out_x_it == index_map_.end() || out_y_it == index_map_.end()) {
+    return;
+  }
+
+  const auto out_x_ind = out_x_it->second;
+  const auto out_y_ind = out_y_it->second;
+
+  std::pair<Val*, Val*> swizzled_index = dispatchSwizzle(
+      swizzle->swizzleType(),
+      out_x_ind,
+      out_y_ind,
+      getExtent(out_x_id),
+      getExtent(out_y_id));
+  index_map_[in_x_id] = swizzled_index.first;
+  index_map_[in_y_id] = swizzled_index.second;
+}
+
 void IndexCompute::handle(Swizzle2D* swizzle_2d) {
   auto out_x_id = maybeGetExactMapConcreteID(swizzle_2d->outX());
   auto out_y_id = maybeGetExactMapConcreteID(swizzle_2d->outY());
@@ -732,7 +758,8 @@ void IndexCompute::handle(Resize* resize) {
 }
 
 void IndexCompute::dispatch(Expr* e) {
-  auto is_expected_type = e->isOneOf<Split, Merge, Swizzle2D, Resize>();
+  auto is_expected_type =
+      e->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>();
   NVF_ERROR(
       is_expected_type, "Invalid expr type found in transform traversal.");
   updateUnswitchedDomains(e);
