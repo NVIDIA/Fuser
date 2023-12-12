@@ -2778,8 +2778,12 @@ class TestNvFuserFrontend(TestCase):
     # See https://github.com/NVIDIA/Fuser/pull/1270
     def test_issue1270(self):
         inputs = [
-            torch.randn(5, 0, device="cuda", dtype=torch.bfloat16),
-            torch.randn(5, 0, device="cuda", dtype=torch.bfloat16),
+            torch.randn(0, device="cuda", dtype=torch.bfloat16).as_strided(
+                (5, 0), (1, 0)
+            ),
+            torch.randn(0, device="cuda", dtype=torch.bfloat16).as_strided(
+                (5, 0), (0, 1)
+            ),
         ]
 
         def fusion_func(fd: FusionDefinition) -> None:
