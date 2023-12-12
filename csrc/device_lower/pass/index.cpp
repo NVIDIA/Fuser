@@ -1504,6 +1504,10 @@ void IndexLowering::handle(const MmaOp* mma) {
     int leading_bytes = /*8x8 items each core matrix*/ 64 *
         /*number of core matrices*/ (getN(mma->macro()) / 8) *
         /*bytes per item*/ 2;
+    if (swizzle != MmaInputSmemSwizzle::None) {
+      // TODO: why???!!!
+      std::swap(leading_bytes, stride_bytes);
+    }
     auto matrix_desc = constructMatrixDescriptor(
         base_addr,
         IrBuilder::create<Val>(leading_bytes, DataType::UInt),
