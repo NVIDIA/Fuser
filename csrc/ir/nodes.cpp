@@ -1548,7 +1548,7 @@ std::vector<PolymorphicValue> GroupedReductionOp::evaluate(
         "Evaluation for rFactored reductions is not supported.");
 
     std::vector<int64_t> reduction_axes;
-    for (const auto id : c10::irange(out_tv->getRootDomain().size())) {
+    for (const auto id : c10::irange(int64_t(out_tv->getRootDomain().size()))) {
       auto ax = out_tv->getRootDomain().at(id);
       if (ax->isReduction()) {
         reduction_axes.push_back(id);
