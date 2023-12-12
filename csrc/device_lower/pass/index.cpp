@@ -1497,8 +1497,10 @@ void IndexLowering::handle(const MmaOp* mma) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
     auto tv = mma->inB()->as<TensorView>();
+    auto swizzle = getSwizzleMode(tv);
     auto base_addr = IrBuilder::baseAddressExpr(tv);
-    int stride_bytes = /*8x8 items each core matrix*/ 64 * /*bytes per item*/ 2;
+    int stride_bytes =
+        8 * getBytesFromSwizzle(swizzle); // swizzle period in bytes
     int leading_bytes = /*8x8 items each core matrix*/ 64 *
         /*number of core matrices*/ (getN(mma->macro()) / 8) *
         /*bytes per item*/ 2;
@@ -1507,7 +1509,7 @@ void IndexLowering::handle(const MmaOp* mma) {
         IrBuilder::create<Val>(leading_bytes, DataType::UInt),
         IrBuilder::create<Val>(stride_bytes, DataType::UInt),
         IrBuilder::create<Val>(0, DataType::UInt),
-        getSwizzleMode(tv));
+        swizzle);
     b = IrBuilder::create<kir::TensorIndex>(
         tv,
         GpuLower::current()->commonScalarMap().hoistScalar(
