@@ -1474,9 +1474,9 @@ void IndexLowering::handle(const MmaOp* mma) {
     // smem.
     auto tv = mma->inA()->as<TensorView>();
     auto base_addr = IrBuilder::baseAddressExpr(tv);
-    int stride_bytes =
+    int64_t stride_bytes =
         /*8x8 items each core matrix*/ 64 * /*bytes per item*/ 2;
-    int leading_bytes = /*8x8 items each core matrix*/ 64 *
+    int64_t leading_bytes = /*8x8 items each core matrix*/ 64 *
         /*number of core matrices*/ (getM(mma->macro()) / 8) *
         /*bytes per item*/ 2;
     auto matrix_desc = constructMatrixDescriptor(
@@ -1499,9 +1499,9 @@ void IndexLowering::handle(const MmaOp* mma) {
     auto tv = mma->inB()->as<TensorView>();
     auto swizzle = getSwizzleMode(tv);
     auto base_addr = IrBuilder::baseAddressExpr(tv);
-    int stride_bytes =
+    int64_t stride_bytes =
         8 * getBytesFromSwizzle(swizzle); // swizzle period in bytes
-    int leading_bytes = /*8x8 items each core matrix*/ 64 *
+    int64_t leading_bytes = /*8x8 items each core matrix*/ 64 *
         /*number of core matrices, rounded up to handle padding */
         roundUpToMultiple(getN(mma->macro()) / 8,
                           getBytesFromSwizzle(swizzle) / 16) *
