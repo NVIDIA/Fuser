@@ -850,18 +850,16 @@ void WarpMmaSwizzler::scheduleOperandRead(
     // [Ko, K8, Mo, M8]
     tv->reorder({{-2, -3}});
     // [Ko, Mo, K8, M8]
-    tv->merge(-4);
-    // [KMo, K8, M8]
     tv->split(-3, 2);
-    // [KMoo, KMo2, K8, M8]
+    // [Ko, Moo, Mo2, K8, M8]
     tv->reorder({{-2, -3}});
-    // [KMoo, K8, KMo2, M8]
+    // [Ko, Moo, K8, Mo2, M8]
     tv->split(-3, 4);
-    // [KMoo, K2, K4, KMo2, M8]
+    // [Ko, Moo, K2, K4, Mo2, M8]
     tv->swizzle(SwizzleType::XOR, -4, -2);
     tv->merge(-4);
     tv->merge(-3);
-    // [KMoo, KKMo16, M8]
+    // [Ko, Moo, KKMo16, M8]
   } else {
     NVF_ERROR(false, "Unsupported smem swizzle");
   }
