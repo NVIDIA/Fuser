@@ -1537,28 +1537,29 @@ int GroupedReductionOp::getExprIndexOfOutput(Val* output_val) const {
 std::vector<PolymorphicValue> GroupedReductionOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  const auto num_reductions = numHorizontallyGroupedExprs();
   std::vector<PolymorphicValue> grouped_reduction_out;
-  grouped_reduction_out.reserve(numHorizontallyGroupedExprs());
-  for (const auto i : c10::irange(numHorizontallyGroupedExprs())) {
-    const auto& input_i = inputs.at(i).as<at::Tensor>();
-    const auto out_i = output(i)->as<TensorView>();
+  grouped_reduction_out.reserve(num_reductions);
+  for (const auto i : c10::irange(num_reductions)) {
+    const auto& in_tensor = inputs.at(i).as<at::Tensor>();
+    const auto out_tv = output(i)->as<TensorView>();
     NVF_ERROR(
-        !out_i->hasRFactor(),
+        !out_tv->hasRFactor(),
         "Evaluation for rFactored reductions is not supported.");
 
     std::vector<int64_t> reduction_axes;
-    for (const auto id : c10::irange(int64_t(out_i->getRootDomain().size()))) {
-      auto ax = out_i->getRootDomain().at(id);
+    for (const auto id : c10::irange(out_tv->getRootDomain().size())) {
+      auto ax = out_tv->getRootDomain().at(id);
       if (ax->isReduction()) {
         reduction_axes.push_back(id);
       }
     }
     switch (getReductionOpType(i)) {
       case BinaryOpType::Add:
-        grouped_reduction_out.emplace_back(at::sum(input_i, reduction_axes));
+        grouped_reduction_out.emplace_back(at::sum(in_tensor, reduction_axes));
         break;
       case BinaryOpType::Max:
-        grouped_reduction_out.emplace_back(at::amax(input_i, reduction_axes));
+        grouped_reduction_out.emplace_back(at::amax(in_tensor, reduction_axes));
         break;
       default:
         NVF_CHECK(
