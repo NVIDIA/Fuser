@@ -616,43 +616,6 @@ void IndexLowering::handleSerialGridReduction(
     const ReductionOp* rop,
     Val* out,
     Val* in) {
-  // We inspect the loop nest up to the point after which all outer loops are
-  // parallelized. This corresponds to the outer-most loop in the generated
-  // kernel code.
-  //
-  // Conditions for using serial grid reduction:
-  //  - All reduction dimensions are either unparallelized or parallelized as
-  //    BID, not TID or serial. Block and warp reductions could be allowed in
-  //    the future, but the current focus is on cases where all threads are
-  //    doing separate reductions simultaneously.
-  //  - rop is not an allreduce. Note that we could implement serial allreduce
-  //    but it would require inserting a separate grid sync after this outer
-  //    loop.
-  //  - There are no global loads (i.e. producer TVs in global memory) anywhere
-  //    in the loop nest. The reason for this restriction is that loads
-  //    introduce data dependencies which wind up serializing sequences of
-  //    loads/stores that can be disadvantageous. Consider that a non-serial
-  //    (default) gridReduce that is inlined with some producer global read
-  //    will enable all blocks to participate in the read in parallel, since
-  //    only the last block of the reduction segment is serialized, and only
-  //    for the reduction itself. In a serial reduction the entire loop is
-  //    serialized, meaning we will not allow all blocks to perform those reads
-  //    in parallel, which can be inefficient.
-  //    Global stores, on the other hand, are fine as they do not cause this
-  //    excessive serialization.
-  //    Note that in addition to global loads, we should also avoid inlining
-  //    expensive computation into these blocks, since as stated above the
-  //    whole block will be serialized. That should be left to the automatic
-  //    schedulers in cases where serial reductions will be used.
-  //  - There are no other reductions in this loop nest that are TID or BID
-  //    parallelized, unless they also satisfy the conditions above and their
-  //    reduction pattern matches this one. Otherwise our syncs will be
-  //    mismatched, and there is no good way to handle that yet.
-  // TODO: implement the conditions above
-  // TODO: Move this comment above to the lowering pass where it's implemented
-
-  // TODO: uncomment once this function works again by associating a temporary
-  // TensorIndex
   const auto out_tv = out->as<kir::TensorIndex>()->view();
   const auto out_domain = out_tv->domain();
 
@@ -691,6 +654,7 @@ void IndexLowering::handleSerialGridReduction(
       work_buffer_root_domain, out_tv->domain());
   auto work_buffer_tv = IrBuilder::create<TensorView>(
       new_domain, out_tv->dtype(), MemoryType::Global);
+
   // TODO: expose this in ir_utils instead of hidden in index_compute.cpp
   const auto sumVals = [](const std::vector<Val*> vals) -> Val* {
     Val* result_index = GpuLower::current()->kernel()->zeroVal();

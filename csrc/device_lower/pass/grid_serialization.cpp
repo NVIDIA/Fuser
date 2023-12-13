@@ -20,7 +20,24 @@ namespace nvfuser {
 
 namespace {
 
-//! Insert needed syncs in
+//! Insert needed syncs in order to serialize blocks for serial grid reduction.
+//!
+//! We inspect the loop nest up to the point after which all outer loops are
+//! trivial. This corresponds to the outer-most loop in the generated
+//! kernel code.
+//!
+//! Conditions for using serial grid reduction:
+//!  - All reduction dimensions are either unparallelized or parallelized as
+//!    BID, not TID. Block and warp reductions could be allowed in the future,
+//!    but the current focus is on cases where all threads are doing separate
+//!    reductions simultaneously.
+//!  - rop is not an allreduce. Note that we could implement serial allreduce
+//!    but it would require inserting a separate grid sync after this outer
+//!    loop.
+//!  - There are no other reductions in this loop nest that are TID or BID
+//!    parallelized, unless they also satisfy the conditions above and their
+//!    reduction pattern matches this one. Otherwise our syncs will be
+//!    mismatched, and there is no good way to handle that yet.
 class GridSerializationSyncInserter : kir::ExprMutator {
  public:
   GridSerializationSyncInserter(const std::vector<Expr*>& exprs) {
