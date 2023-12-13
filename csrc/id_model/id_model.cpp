@@ -55,19 +55,17 @@ void mapThroughLoopSwizzles(ValGraph& graph) {
 } // namespace
 
 void IdModel::assertNoSelfMapping() {
-  if (hasSelfMapping()) {
-    NVF_ERROR(
-        !hasSelfMapping(),
-        "Unsupported domain mapping detected in ",
-        std::get<0>(*self_mapping_info_)->toString(),
-        ". ",
-        std::get<3>(*self_mapping_info_),
-        " domains, ",
-        std::get<1>(*self_mapping_info_)->toString(),
-        " and ",
-        std::get<2>(*self_mapping_info_)->toString(),
-        ", are mapped with each other.");
-  }
+  NVF_ERROR(
+      !hasSelfMapping(),
+      "Unsupported domain mapping detected in ",
+      std::get<0>(*self_mapping_info_)->toString(),
+      ". ",
+      std::get<3>(*self_mapping_info_),
+      " domains, ",
+      std::get<1>(*self_mapping_info_)->toString(),
+      " and ",
+      std::get<2>(*self_mapping_info_)->toString(),
+      ", are mapped with each other.");
 }
 
 IdModel::IdModel(
