@@ -392,7 +392,6 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_gpu_fused_reduction.cpp
   ${NVFUSER_ROOT}/test/test_gpu_outer_reduction.cpp
   ${NVFUSER_ROOT}/test/test_loop_rotation.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_shift.cpp
   ${NVFUSER_ROOT}/test/test_resize.cpp
   ${NVFUSER_ROOT}/test/test_polymorphic_value.cpp
   ${NVFUSER_ROOT}/test/test_mbarrier.cpp
@@ -471,6 +470,8 @@ if(BUILD_TEST)
   add_test(test_matmul "${MATMUL_TEST_SRCS}" "")
 
   add_test(test_external_src "${NVFUSER_ROOT}/test/test_external_src.cpp" "")
+
+  add_test(test_shift "${NVFUSER_ROOT}/test/test_shift.cpp" "")
 
   add_test(tutorial "${NVFUSER_ROOT}/test/test_tutorial.cpp" "")
 
