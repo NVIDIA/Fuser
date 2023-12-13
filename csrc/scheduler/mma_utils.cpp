@@ -858,9 +858,6 @@ void WarpMmaSwizzler::scheduleOperandRead(
     tv->split(-3, 8 / swizzle_size);
     // [Ko, Moo, K2, K4, Mo2, M8]
     tv->swizzle(SwizzleType::XOR, -4, -2);
-    tv->merge(-4);
-    tv->merge(-3);
-    // [Ko, Moo, KKMo16, M8]
   }
   tv->setAllocationDomain(tv->getLeafDomain(), true);
 }

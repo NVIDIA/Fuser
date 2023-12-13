@@ -1451,17 +1451,18 @@ static Val* constructMatrixDescriptor(
 }
 
 static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
-  auto n_alloc = tv->getAllocationDomain().size();
-  auto num_core_matrices = tv->getAllocationDomain()
-                               .at(n_alloc - 2)
-                               ->extent()
-                               ->evaluate()
-                               .as<int64_t>() /
-      8;
-  if (num_core_matrices == 1) {
-    return MmaInputSmemSwizzle::None;
+  const auto& alloc_domain = tv->getRootDomain();
+  const auto& leaf_domain = tv->getLeafDomain();
+  auto exprs = StmtSort::getExprsBetween(
+      {alloc_domain.begin(), alloc_domain.end()},
+      {leaf_domain.begin(), leaf_domain.end()});
+  for (auto expr : exprs) {
+    if (auto swizzle = dynamic_cast<const Swizzle*>(expr)) {
+      return getSwizzleFromBytes(
+          swizzle->inX()->extent()->evalutate().as<int64_t>() * 16);
+    }
   }
-  return getSwizzleFromBytes(num_core_matrices * 16);
+  return MmaInputSmemSwizzle::None;
 }
 
 // Reference for smem strides:
