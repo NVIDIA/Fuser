@@ -49,7 +49,7 @@ class AliasAnalysisResult {
 
   // Marks `source` as the immediate aliasing source of `alias` and sets the
   // preferred layout.
-  void add(const TensorView* alias, const TensorView* source, Layout&& layout);
+  void add(const TensorView* alias, TensorView* source, Layout&& layout);
 
   // See `findAliases` for the meaning of
   // `can_override_empty_allocation_domain`.
@@ -63,23 +63,23 @@ class AliasAnalysisResult {
 
   // Gets the aliased fusion input of a fusion output. Returns nullptr
   // when `fusion_out` is not a fusion output or does not alias a fusion input.
-  const TensorView* getAliasedInput(const TensorView* fusion_out) const;
+  TensorView* getAliasedInput(const TensorView* fusion_out) const;
 
  private:
   // Walks up `alias_to_source_` to find the root of the chain. Returns itself
   // if `alias` doesn't alias anything.
-  const Val* findRoot(const Val* alias) const;
+  Val* findRoot(Val* alias) const;
 
   // Maps aliases (e.g. the output of a View) to their direct sources (e.g. the
   // input of the same View). Also stores the preferred output layout for the
   // alias. Consider path compression, a common optimization used in
   // disjoint-set data structure, so it's easy to figure out the root of an
   // alias.
-  std::unordered_map<const TensorView*, std::pair<const TensorView*, Layout>>
+  std::unordered_map<const TensorView*, std::pair<TensorView*, Layout>>
       alias_to_source_;
 
   // Maps a fusion output to its aliased fusion input.
-  std::unordered_map<const TensorView*, const TensorView*> out_to_root_;
+  std::unordered_map<const TensorView*, TensorView*> out_to_root_;
 };
 
 // Finds aliases of the fusion inputs. The analysis should be conservative --

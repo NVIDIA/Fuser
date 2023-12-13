@@ -35,16 +35,12 @@ void markAliases(Fusion* fusion) {
 
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    const Val* in = analysis.getAliasedInput(out);
+    TensorView* in = analysis.getAliasedInput(out);
     if (in == nullptr) {
       continue;
     }
 
-    fusion->aliasOutputToInput(
-        out,
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-        const_cast<Val*>(in),
-        AliasType::PointerArithmetic);
+    fusion->aliasOutputToInput(out, in, AliasType::PointerArithmetic);
     vlog(
         "Marked ",
         ir_utils::varName(out),

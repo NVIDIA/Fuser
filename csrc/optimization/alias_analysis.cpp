@@ -336,7 +336,7 @@ void AliasFinder::handle(const SliceOp* slice) {
 
 void AliasAnalysisResult::add(
     const TensorView* alias,
-    const TensorView* source,
+    TensorView* source,
     Layout&& layout) {
   auto [i, inserted] = alias_to_source_.emplace(
       alias, std::make_pair(source, std::move(layout)));
@@ -351,8 +351,8 @@ void AliasAnalysisResult::add(
       i->second.first->toString());
 }
 
-const Val* AliasAnalysisResult::findRoot(const Val* alias) const {
-  const TensorView* root = dynamic_cast<const TensorView*>(alias);
+Val* AliasAnalysisResult::findRoot(Val* alias) const {
+  TensorView* root = dynamic_cast<TensorView*>(alias);
   if (root == nullptr) {
     return alias;
   }
@@ -365,7 +365,7 @@ const Val* AliasAnalysisResult::findRoot(const Val* alias) const {
   return root;
 }
 
-const TensorView* AliasAnalysisResult::getAliasedInput(
+TensorView* AliasAnalysisResult::getAliasedInput(
     const TensorView* fusion_out) const {
   const auto i = out_to_root_.find(fusion_out);
   return i == out_to_root_.end() ? nullptr : i->second;
@@ -388,7 +388,7 @@ void AliasAnalysisResult::finalize(
     const bool can_override_empty_allocation_domain) {
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    const Val* in = findRoot(out);
+    Val* in = findRoot(out);
     if (!in->isFusionInput()) {
       continue;
     }
