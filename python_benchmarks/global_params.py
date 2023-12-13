@@ -81,18 +81,18 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
             for batch_range, channel_range, spatial_range in input_ranges:
                 inputs.extend(
                     [
-                        (N, C, HW, HW)
-                        for N in batch_range
-                        for C in channel_range
-                        for HW in spatial_range
+                        (n, c, hw, hw)
+                        for n in batch_range
+                        for c in channel_range
+                        for hw in spatial_range
                     ]
                 )
 
             inputs.extend(
                 [
-                    (N, C, HW, HW)
-                    for N in [128, 256]
-                    for (C, HW) in [
+                    (n, c, hw, hw)
+                    for n in [128, 256]
+                    for (c, hw) in [
                         (512, 7),
                         (512, 14),
                         (512, 28),
