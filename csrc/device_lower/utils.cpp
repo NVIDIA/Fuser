@@ -297,7 +297,7 @@ bool isScalarOp(const Expr* expr) {
 }
 
 bool isIterDomainOp(const Expr* expr) {
-  return expr->isOneOf<Split, Merge, Swizzle2D, Resize>();
+  return expr->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>();
 }
 
 std::optional<IterDomain*> getMaybeWarpReductionDim(

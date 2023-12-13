@@ -113,6 +113,7 @@ class PipelineCommunication;
 // Exprs
 class Split;
 class Merge;
+class Swizzle;
 class Swizzle2D;
 class Resize;
 
@@ -206,6 +207,7 @@ class OptOutConstDispatch : public PolymorphicBase {
 
   virtual void handle(const Split* stmt);
   virtual void handle(const Merge* stmt);
+  virtual void handle(const Swizzle* stmt);
   virtual void handle(const Swizzle2D* stmt);
   virtual void handle(const Resize* stmt);
   virtual void handle(const ExpandOp* stmt);
@@ -300,6 +302,7 @@ class OptOutDispatch : public PolymorphicBase {
 
   virtual void handle(Split* stmt);
   virtual void handle(Merge* stmt);
+  virtual void handle(Swizzle* stmt);
   virtual void handle(Swizzle2D* stmt);
   virtual void handle(Resize* stmt);
   virtual void handle(ExpandOp* stmt);
