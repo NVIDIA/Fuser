@@ -237,6 +237,26 @@ class HopperRS : public HopperBase,
   }
 };
 
+void makeIdentity(at::Tensor tensor) {
+  tensor.zero_();
+  for (auto i : c10::irange(tensor.size(0))) {
+    for (auto j : c10::irange(tensor.size(1))) {
+      if (i == j) {
+        tensor[i][j] = 1;
+      }
+    }
+  }
+}
+
+void makeARange(at::Tensor tensor) {
+  tensor.zero_();
+  for (auto i : c10::irange(tensor.size(0))) {
+    for (auto j : c10::irange(tensor.size(1))) {
+      tensor[i][j] = i * tensor.size(1) + j;
+    }
+  }
+}
+
 TEST_P(HopperRS, SingleTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -320,6 +340,9 @@ TEST_P(HopperRS, SingleTile) {
   auto inputs = matmulAtInput(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
+  makeIdentity(inputs.first);
+  makeARange(inputs.second);
+
   FusionExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
@@ -327,6 +350,8 @@ TEST_P(HopperRS, SingleTile) {
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+  std::cout << "output:\n" << cg_outputs[0] << "\n";
+  std::cout << "tref:\n" << tref << "\n";
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
@@ -519,6 +544,8 @@ TEST_P(HopperSS, SingleTile) {
 
   auto inputs = matmulAtInput(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+  makeIdentity(inputs.first);
+  makeARange(inputs.second);
 
   FusionExecutor fe;
   fe.compileFusion(
@@ -526,6 +553,8 @@ TEST_P(HopperSS, SingleTile) {
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+  std::cout << "output:\n" << cg_outputs[0] << "\n";
+  std::cout << "tref:\n" << tref << "\n";
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
