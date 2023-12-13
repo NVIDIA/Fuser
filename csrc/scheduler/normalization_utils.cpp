@@ -819,7 +819,8 @@ bool projectBufferToInputs(
     Fusion* fusion,
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
-        persistent_buffer_size_info) {
+        persistent_buffer_size_info,
+    const bool is_inner_reduction) {
   // don't project if can't reduce buffer size
   if (persistent_buffer_size_info.projected_persistent_buffer_size >=
       persistent_buffer_size_info.persistent_buffer_size) {
@@ -845,28 +846,34 @@ bool projectBufferToInputs(
     return true;
   }
 
-  // check if the non-projected persistent buffer is small enough,
-  // i.e., not affecting the occupancy, projecting back to the inputs
-  // isn't buying us anything.
-  // Assumptions:
-  // (1) 50% occupancy, which is 1024 active threads per SM.
-  // (2) 128 threads per block.
-  // (3) 24 registers per thread for overhead.
-  // (4) 8 extra register per thread allowing register spills.
-  // The derived [buffer_per_block] is 48*128*4 = 24KB.
-  constexpr int64_t active_threads_per_sm = 1024l;
-  constexpr int64_t threads_per_block = 128l;
-  constexpr int64_t overhead_register_per_thread = 24l;
-  constexpr int64_t extra_register_allowing_spills = 8l;
-  constexpr int64_t total_register_per_thread =
-      scheduler_utils::register_file_size_full /
-      scheduler_utils::bytes_per_register / active_threads_per_sm;
-  constexpr int64_t buffer_register_per_thread = total_register_per_thread -
-      overhead_register_per_thread + extra_register_allowing_spills;
-  constexpr int64_t buffer_per_block = threads_per_block *
-      buffer_register_per_thread * scheduler_utils::bytes_per_register;
-  if (persistent_buffer_size_info.persistent_buffer_size <= buffer_per_block) {
-    return false;
+  if (is_inner_reduction) {
+    // check if the non-projected persistent buffer is small enough,
+    // i.e., not affecting the occupancy, projecting back to the inputs
+    // isn't buying us anything.
+    // This check only works for inner persistent as outer persistent and
+    // inner outer persistent usually have large register pressure and always
+    // want to project back to the inputs.
+    // Assumptions:
+    // (1) 50% occupancy, which is 1024 active threads per SM.
+    // (2) 128 threads per block.
+    // (3) 24 registers per thread for overhead.
+    // (4) 8 extra register per thread allowing register spills.
+    // The derived [buffer_per_block] is 48*128*4 = 24KB.
+    constexpr int64_t active_threads_per_sm = 1024l;
+    constexpr int64_t threads_per_block = 128l;
+    constexpr int64_t overhead_register_per_thread = 24l;
+    constexpr int64_t extra_register_allowing_spills = 8l;
+    constexpr int64_t total_register_per_thread =
+        scheduler_utils::register_file_size_full /
+        scheduler_utils::bytes_per_register / active_threads_per_sm;
+    constexpr int64_t buffer_register_per_thread = total_register_per_thread -
+        overhead_register_per_thread + extra_register_allowing_spills;
+    constexpr int64_t buffer_per_block = threads_per_block *
+        buffer_register_per_thread * scheduler_utils::bytes_per_register;
+    if (persistent_buffer_size_info.persistent_buffer_size <=
+        buffer_per_block) {
+      return false;
+    }
   }
 
   return true;
@@ -943,10 +950,12 @@ PersistentKernelProperties getPersistentKernelProperties(
 
   // (6) Project to input when it can reduce buffer size and the gains of
   // reducing buffer size is larger than the pains of recalculations.
-  bool project_persistent_buffers =
-      can_project &&
-      projectBufferToInputs(
-          fusion, persistent_buffer_info, persistent_buffer_size_info);
+  bool is_inner_reduction = (heuristic == ScheduleHeuristic::InnerPersistent);
+  bool project_persistent_buffers = can_project &&
+      projectBufferToInputs(fusion,
+                            persistent_buffer_info,
+                            persistent_buffer_size_info,
+                            is_inner_reduction);
   auto max_persistent_buffer_size = project_persistent_buffers
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;
