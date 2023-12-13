@@ -1459,7 +1459,7 @@ static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
   for (auto expr : exprs) {
     if (auto swizzle = dynamic_cast<const Swizzle*>(expr)) {
       return getSwizzleFromBytes(
-          swizzle->inX()->extent()->evalutate().as<int64_t>() * 16);
+          swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
     }
   }
   return MmaInputSmemSwizzle::None;
