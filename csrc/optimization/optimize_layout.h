@@ -10,6 +10,7 @@
 namespace nvfuser::optimization {
 
 // Updates layouts to enable aliases.
+// TODO(wujingyue): rename.
 class OptimizeLayoutPass : public OptimizationPass<OptimizeLayoutPass> {
   friend class OptimizationPass<OptimizeLayoutPass>;
 

@@ -913,7 +913,8 @@ int64_t IndexOfFusionInput(const Val* in, const Fusion* fusion) {
   return std::distance(fusion->inputs().begin(), i);
 }
 
-// Returns the at::Tensor allocated for `out_info`.
+// Allocate an `at::Tensor` for `out_info` or compute it as an alias.
+// FIXME: rename alias_in to aliased_io.
 at::Tensor allocateOutput(
     const FusionExecutor::GlobalBufferInfo& out_info,
     Val* aliased_in,
@@ -945,6 +946,7 @@ at::Tensor allocateOutput(
         // the output tensor may hold different data from the input, e.g., an
         // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
         // would trigger non-trivial host computation.
+        ee.bind(out_tv, aliased_in_tensor);
         return aliased_in_tensor;
 
       case AliasType::PointerArithmetic:
@@ -970,7 +972,6 @@ at::Tensor allocateOutput(
   if (shouldFillAllocationWithNan()) {
     fillTensorWithNan(alloc_tensor);
   }
-
   if (out_tv->hasAllocation()) {
     alloc_tensor =
         transformOutputFromAllocationToRFactor(alloc_tensor, out_tv, ee);

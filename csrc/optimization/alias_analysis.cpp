@@ -387,8 +387,8 @@ void AliasAnalysisResult::finalize(
     const bool can_override_empty_allocation_domain) {
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    Val* in = findRoot(out);
-    if (!in->isFusionInput()) {
+    TensorView* root = findRoot(out);
+    if (root == out) {
       continue;
     }
 
@@ -398,7 +398,7 @@ void AliasAnalysisResult::finalize(
       continue;
     }
 
-    out_to_root_[out] = in->as<TensorView>();
+    out_to_root_[out] = root;
   }
 }
 

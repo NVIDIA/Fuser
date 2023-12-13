@@ -52,7 +52,7 @@ def nvfuser_fusion_id23(fd : FusionDefinition) -> None :
     S46 = fd.define_scalar(3072, dtype=DataType.Int)
     V47 = fd.define_vector([S45, S46], dtype=DataType.Int)
     T48 = fd.ops.reshape(T40, new_shape=V47)
-    T49 = fd.ops.permute(T48, dims=[1, 0])
+    T49 = fd.ops.permute(T44, dims=[1, 0])
     T50 = fd.ops.sum(T39, axes=[0, 1], keepdim=False, dtype=DataType.Null)
     T51 = fd.ops.cast(T50, dtype=DataType.BFloat16)
     fd.add_output(T44)
@@ -64,9 +64,11 @@ if __name__ == "__main__":
     with FusionDefinition() as fd:
         nvfuser_fusion_id23(fd)
 
-    fd.execute([
+    out0, out1, _ = fd.execute([
         1.0,
         1.0,
         1.0,
         torch.randn([16 * 128, 3072], dtype=torch.bfloat16).cuda(),
         torch.randn([16, 128, 3072], dtype=torch.bfloat16).cuda()])
+    print(out0.data_ptr())
+    print(out1.data_ptr())
