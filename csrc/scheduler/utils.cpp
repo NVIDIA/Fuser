@@ -473,6 +473,19 @@ class PersistentBufferResolution : public IterVisitor {
 
 } // namespace
 
+// Returns all broadcast tvs from the given vector of Vals.
+std::vector<TensorView*> getBroadcastTvs(const std::vector<Val*>& dep_vals) {
+  std::vector<TensorView*> broadcast_tvs;
+  for (auto val : dep_vals) {
+    if (auto tv = dynamic_cast<TensorView*>(val)) {
+      if (tv->hasBroadcast()) {
+        broadcast_tvs.push_back(tv);
+      }
+    }
+  }
+  return broadcast_tvs;
+}
+
 PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   FusionGuard fg(fusion);
   PersistentBufferInfo persistent_buffer_info;
@@ -542,12 +555,13 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     if (persistent_buffer->isFusionInput()) {
       continue;
     }
-    auto dep_vals = DependencyCheck::getAllValsBetween(
+    // If the buffer doesn't depends on reduction tvs or there is a broadcasted
+    // tv between reduction and persistent buffer. The re-calculation of the
+    // persistent buffer doesn't need additional reductions and this buffer is
+    // projecatable.
+    const auto& dep_vals = DependencyCheck::getAllValsBetween(
         {reduction_tvs.begin(), reduction_tvs.end()}, {persistent_buffer});
-
-    // If there's a reduction between a persistent buffer and the inputs, it
-    // can't be projected backwards.
-    if (dep_vals.empty()) {
+    if (dep_vals.empty() || !getBroadcastTvs(dep_vals).empty()) {
       persistent_buffer_info.projectable_persistent_buffers.push_back(
           persistent_buffer);
     }
@@ -958,6 +972,12 @@ std::pair<bool, bool> canonicalDimReduction(
     return {has_iter_axis, has_red_axis};
   } else {
     NVF_ERROR(merge_3d(tv) == 3, "Tried 3D merge, but result is not 3D.");
+    if (tv->axis(1)->isBroadcast()) {
+      NVF_ERROR(
+          !tv->axis(0)->isBroadcast(),
+          "3D reduction with first two merged axes broadcast should be 2D reduction.");
+      tv->reorder({{0, 1}});
+    }
     return {true, true};
   }
 }

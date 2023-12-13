@@ -921,6 +921,9 @@ at::Tensor allocateOutput(
     const c10::Device& device,
     ExpressionEvaluator& ee) {
   TensorView* out_tv = out_info.tv;
+  if (ee.isKnown(out_tv)) {
+    return ee.evaluate(out_tv).as<at::Tensor>();
+  }
 
   if (aliased_in != nullptr) {
     const PolymorphicValue& aliased_in_val = ee.evaluate(aliased_in);
@@ -963,10 +966,11 @@ at::Tensor allocateOutput(
     fillTensorWithNan(alloc_tensor);
   }
 
-  if (!out_tv->hasAllocation()) {
-    return alloc_tensor;
+  if (out_tv->hasAllocation()) {
+    alloc_tensor =
+        transformOutputFromAllocationToRFactor(alloc_tensor, out_tv, ee);
   }
-  return transformOutputFromAllocationToRFactor(alloc_tensor, out_tv, ee);
+  return alloc_tensor;
 }
 
 // Allocate output tensors for a given kernel. Outputs may alias inputs, in
@@ -974,7 +978,6 @@ at::Tensor allocateOutput(
 std::vector<at::Tensor> allocateOutputs(
     const kir::Kernel* kernel,
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
-    const KernelArgumentHolder& inputs,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
   FUSER_PERF_SCOPE("allocateOutputs");
@@ -982,22 +985,14 @@ std::vector<at::Tensor> allocateOutputs(
   std::vector<at::Tensor> outputs;
   outputs.reserve(output_info.size());
 
-  std::unordered_map<Val*, at::Tensor> outputs_map;
-
   for (const auto output_idx : c10::irange(output_info.size())) {
     Val* out = kernel->outputs()[output_idx];
-    // TODO: remove the else block and outputs_map when output aliasing is
-    // handled properly
-    auto iter = outputs_map.find(out);
-    if (iter == outputs_map.end()) {
-      auto [aliased_in, alias_info] = kernel->getOutputAlias(out);
-      auto output = allocateOutput(
-          output_info[output_idx], aliased_in, alias_info, device, ee);
-      outputs_map[out] = output;
-      outputs.push_back(output);
-    } else {
-      outputs.push_back(iter->second);
-    }
+    auto [aliased_in, alias_info] = kernel->getOutputAlias(out);
+    auto out_tensor = allocateOutput(
+        output_info[output_idx], aliased_in, alias_info, device, ee);
+    // Bind `out_tensor` so duplicated outputs map to the same tensor.
+    ee.bind(out, out_tensor);
+    outputs.push_back(out_tensor);
   }
   return outputs;
 }
@@ -1257,8 +1252,7 @@ std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
   auto output_info =
       getOutputBufferInfo(kernel_inputs, expr_eval, kernel()->indexType());
 
-  return allocateOutputs(
-      kernel(), output_info, kernel_inputs, options_.device, expr_eval);
+  return allocateOutputs(kernel(), output_info, options_.device, expr_eval);
 }
 
 std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
@@ -1658,7 +1652,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // only allocate outputs when not given
   if (outputs.empty()) {
     outputs = allocateOutputs(
-        kernel(), executor_entry->outputs, args, options_.device, expr_eval);
+        kernel(), executor_entry->outputs, options_.device, expr_eval);
   } else {
     // TODO: Use validateKernelOutputs
     NVF_ERROR(
@@ -1996,38 +1990,42 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
       toUnderlying(kernel()->indexType()),
-      serialize(builder, *compiled_kernel_));
+      serialize(builder, compiled_kernel_.get()));
 }
 
 flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
-    const executor_utils::CompiledKernel& compiled_kernel) const {
+    const executor_utils::CompiledKernel* compiled_kernel) const {
   NVF_ERROR(
-      !compiled_kernel.cubin.empty() || !compiled_kernel.ptx.empty(),
+      compiled_kernel_ != nullptr &&
+          (!compiled_kernel->cubin.empty() || !compiled_kernel->ptx.empty()),
       "Expected compiled cuda kernel before serializing FusionExecutor.");
 
-  auto fb_kernel_name = builder.CreateString(compiled_kernel.kernel_name);
-  auto fb_compile_args = builder.CreateString(compiled_kernel.compile_args);
+  auto fb_kernel_name = builder.CreateString(compiled_kernel->kernel_name);
+  auto fb_compile_args = builder.CreateString(compiled_kernel->compile_args);
 
   flatbuffers::Offset<flatbuffers::Vector<uint8_t>> fb_cubin = 0;
   flatbuffers::Offset<flatbuffers::String> fb_cubin_filename = 0;
-  if (!compiled_kernel.cubin.empty()) {
+  if (!compiled_kernel->cubin.empty()) {
     uint8_t* cubin_ptr = nullptr;
     fb_cubin = builder.CreateUninitializedVector(
-        compiled_kernel.cubin.size(), &cubin_ptr);
+        compiled_kernel->cubin.size(), &cubin_ptr);
     std::copy(
-        compiled_kernel.cubin.begin(), compiled_kernel.cubin.end(), cubin_ptr);
-    fb_cubin_filename = builder.CreateString(compiled_kernel.cubin_filename);
+        compiled_kernel->cubin.begin(),
+        compiled_kernel->cubin.end(),
+        cubin_ptr);
+    fb_cubin_filename = builder.CreateString(compiled_kernel->cubin_filename);
   }
 
   flatbuffers::Offset<flatbuffers::Vector<uint8_t>> fb_ptx = 0;
   flatbuffers::Offset<flatbuffers::String> fb_ptx_filename = 0;
-  if (!compiled_kernel.ptx.empty()) {
+  if (!compiled_kernel->ptx.empty()) {
     uint8_t* ptx_ptr = nullptr;
-    fb_ptx =
-        builder.CreateUninitializedVector(compiled_kernel.ptx.size(), &ptx_ptr);
-    std::copy(compiled_kernel.ptx.begin(), compiled_kernel.ptx.end(), ptx_ptr);
-    fb_ptx_filename = builder.CreateString(compiled_kernel.ptx_filename);
+    fb_ptx = builder.CreateUninitializedVector(
+        compiled_kernel->ptx.size(), &ptx_ptr);
+    std::copy(
+        compiled_kernel->ptx.begin(), compiled_kernel->ptx.end(), ptx_ptr);
+    fb_ptx_filename = builder.CreateString(compiled_kernel->ptx_filename);
   }
 
   serde::CudaKernelBuilder ckb(builder);
@@ -2037,7 +2035,7 @@ flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
   ckb.add_ptx_filename(fb_ptx_filename);
   ckb.add_kernel_name(fb_kernel_name);
   ckb.add_compile_args(fb_compile_args);
-  ckb.add_block_size(compiled_kernel.block_size);
+  ckb.add_block_size(compiled_kernel->block_size);
   return ckb.Finish();
 }
 

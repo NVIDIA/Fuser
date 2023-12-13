@@ -4283,61 +4283,6 @@ TEST_F(NVFuserTest, FusionInlineAt_CUDA) {
   testValidate(fusion, {out}, {t0}, {t0.sin().cos()}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionTrivialInputForwarding_FusionExecutorCache) {
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
-
-  TensorView* tv0 = makeConcreteTensor({-1, -1});
-  TensorView* tv1 = makeConcreteTensor({-1, -1});
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  // Note: output of add is not used. Kept it here since previously there was an
-  // assertion from sorting in codegen.
-  add(tv1, IrBuilder::create<Val>(3.141));
-  fusion->addOutput(tv0);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({10, 4}, options);
-  at::Tensor t1 = at::randn({10, 4}, options);
-
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs({t0, t1});
-
-  EXPECT_EQ(cg_outputs[0].data_ptr(), t0.data_ptr());
-  testValidate(fusion, cg_outputs, {t0, t1}, {t0}, __LINE__, __FILE__);
-
-  // Second run to ensure cache hit handles trivial forwarding properly
-  NVF_CHECK(fec.isCompiled({t0, t1}));
-  auto cg_outputs2 = fec.runFusionWithInputs({t0, t1});
-  EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
-  testValidate(fusion, cg_outputs2, {t0, t1}, {t0}, __LINE__, __FILE__);
-}
-
-TEST_F(NVFuserTest, FusionTrivialInputForwarding2_FusionExecutorCache) {
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
-
-  TensorView* tv0 = makeSymbolicTensor(0);
-  fusion->addInput(tv0);
-  fusion->addOutput(tv0);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({}, options);
-
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs({t0});
-  EXPECT_EQ(cg_outputs[0].data_ptr(), t0.data_ptr());
-  testValidate(fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
-
-  // Second run to ensure cache hit handles trivial forwarding properly
-  NVF_CHECK(fec.isCompiled({t0}));
-  auto cg_outputs2 = fec.runFusionWithInputs({t0});
-  EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
-  testValidate(fusion, cg_outputs2, {t0}, {t0}, __LINE__, __FILE__);
-}
-
 // Simplified repro of issue #2008
 TEST_F(NVFuserTest, FusionReplayTrivialReductionAndBroadcast2_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -8659,6 +8604,162 @@ TEST_F(NVFuserTest, ChainProjectionToPersistentProducer) {
   auto cg_outputs = fe.runFusion(inputs);
   testValidate(fusion, cg_outputs, inputs, {t5, t8, t11}, __LINE__, __FILE__);
 }
+
+// Test that 3D reductions with broadcasts as the inner-most non-reduction
+// dimension are successfully scheduled.
+// See https://github.com/NVIDIA/Fuser/issues/1471
+TEST_F(NVFuserTest, Reduction3DWithBroadcast) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = TensorViewBuilder()
+                 .dtype(DataType::Double)
+                 .contiguity({true, true, true, std::nullopt})
+                 .shape({-1, -1, -1, 1})
+                 .build();
+  fusion->addInput(tv0);
+  auto tv1 = sum(tv0, {2, 0});
+  fusion->addOutput(tv1);
+
+  // Copy unscheduled fusion for later use in validation
+  auto unsched_fusion_ptr = std::make_unique<Fusion>(*fusion);
+
+  auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
+  auto t0 = at::randn({8, 7, 5, 1}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  std::shared_ptr<ReductionParams> reduction_params =
+      getReductionHeuristics(fusion, inputs);
+  NVF_CHECK(reduction_params, "Reduction heuristic failed!");
+  scheduleReduction(fusion, *reduction_params);
+
+  FusionExecutor fe;
+  fe.compileFusion(fusion, inputs, reduction_params->lparams);
+  auto cg_outputs = fe.runFusion(inputs, reduction_params->lparams);
+
+  testValidate(
+      unsched_fusion_ptr.get(), cg_outputs, inputs, __LINE__, __FILE__);
+}
+
+// Test the persistent buffers in softmax are projected back to inputs.
+TEST_F(NVFuserTest, SoftmaxProjectToInput) {
+  auto test_softmax = [](int batch, int feature, DataType dtype) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    const int kReductionAxis = 1;
+    std::vector<int64_t> input_shape{batch, feature};
+    TensorView* input = makeContigTensor(input_shape.size(), dtype);
+    fusion.addInput(input);
+    if (dtype == DataType::Half) {
+      input = castOp(DataType::Float, input);
+    }
+    auto output = softmax(input, kReductionAxis);
+    if (dtype == DataType::Half) {
+      output = castOp(DataType::Half, output);
+    }
+    fusion.addOutput(output);
+
+    // There should be 2 projectable persistent buffers.
+    auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
+    auto& projectable = persistent_buffer_info.projectable_persistent_buffers;
+    NVF_ERROR(projectable.size() == 2);
+
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype))
+                       .device(at::kCUDA, 0);
+    at::Tensor aten_input = at::randn(input_shape, options);
+    auto aten_output =
+        at::_softmax(aten_input.to(at::kDouble), kReductionAxis, false);
+
+    auto reduction_params = getInnerPersistentHeuristics(&fusion, {aten_input});
+    NVF_CHECK(reduction_params, "Reduction schedule was not generated!");
+    // 24576 is the threshold to project to inputs. see deriviation in
+    // projectBufferToInputs()
+    bool should_project_to_input =
+        feature * dataTypeSize(DataType::Float) > 24576l;
+    NVF_CHECK(
+        reduction_params->project_persistent_buffers == should_project_to_input,
+        should_project_to_input ? "Should project to inputs!"
+                                : "Shouldn't project to inputs!");
+    scheduleInnerPersistentKernel(&fusion, *reduction_params);
+    auto lparams = reduction_params->lparams;
+    nvfuser::FusionExecutor fe;
+    fe.compileFusion(&fusion, {aten_input}, lparams);
+    auto cg_outputs = fe.runFusion({aten_input}, lparams);
+
+    testValidate(
+        &fusion,
+        cg_outputs,
+        {aten_input},
+        {aten_output},
+        __LINE__,
+        __FILE__,
+        "",
+        lparams);
+  };
+  const int batch = 2048;
+  std::vector<int> features = {6 * 1024, 10240};
+  for (auto feature : features) {
+    test_softmax(batch, feature, DataType::Half);
+  }
+}
+
+// Test projection to inputs when there are three persistent buffers.
+TEST_F(NVFuserTest, ProjectPersistentBufferToInputsAndBroadcastTvs) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int batch_size = 128;
+  const int hidden_size = 10240;
+  DataType input_dtype = DataType::Half;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = add(tv1, tv1);
+  auto tv3 = sum(tv2, {1});
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = div(tv2, tv4);
+
+  auto tv6 = add(tv5, tv5);
+  auto tv7 = sum(tv6, {1});
+  auto tv8 = broadcast(tv7, {false, true});
+  auto tv9 = div(tv6, tv8);
+
+  auto tv10 = add(tv9, tv9);
+  auto tv11 = sum(tv10, {1});
+  auto tv12 = broadcast(tv11, {false, true});
+  auto tv13 = div(tv10, tv12);
+
+  fusion->addOutput(tv5);
+  fusion->addOutput(tv9);
+  fusion->addOutput(tv13);
+
+  // The persistent buffers in this fusion are: tv2, tv6, and tv10.
+  // tv2 is projected to input.
+  // tv6 is projected to input and tv4 which is a broadcast tv.
+  // tv10 is projected to input, tv4 and tv8 which are broadcast tvs.
+  // The only actual persisent buffer is the cached input.
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({batch_size, hidden_size}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  auto persistent_params = getInnerPersistentHeuristics(fusion, inputs);
+  NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
+  NVF_CHECK(
+      persistent_params->project_persistent_buffers,
+      "Should project persistent buffers to inputs!");
+
+  scheduleInnerPersistentKernel(fusion, *persistent_params);
+  FusionExecutor fe;
+  fe.compileFusion(fusion, inputs);
+  auto cg_outputs = fe.runFusion(inputs);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

@@ -11,7 +11,7 @@ def gelu_fwd_fusion(
     dtype: DataType,
 ) -> None:
     input = fd.define_tensor(
-        shape=[-1, -1, -1], contiguity=[True, True, True], dtype=dtype, is_cpu=False
+        shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
     )
     bias = fd.define_tensor(shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False)
     if dtype in PROMOTE_DTYPES:
@@ -19,8 +19,8 @@ def gelu_fwd_fusion(
         bias = fd.ops.cast(bias, dtype=DataType.Float)
     S_079 = fd.define_scalar(0.79788456)
     S_004 = fd.define_scalar(0.044715)
-    V1 = fd.define_vector([1, 1, input.size(-1)], dtype=DataType.Int)
-    bias = fd.ops.broadcast_in_dim(bias, shape=V1, broadcast_dims=[2])
+    V1 = fd.define_vector([1, input.size(-1)], dtype=DataType.Int)
+    bias = fd.ops.broadcast_in_dim(bias, shape=V1, broadcast_dims=[1])
     T1 = fd.ops.add(input, bias)
     T2 = fd.ops.mul(S_079, T1)
     T3 = fd.ops.mul(S_004, T1)
@@ -43,10 +43,10 @@ def gelu_bwd_fusion(
     dtype: DataType,
 ) -> None:
     input = fd.define_tensor(
-        shape=[-1, -1, -1], contiguity=[True, True, True], dtype=dtype, is_cpu=False
+        shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
     )
     grad = fd.define_tensor(
-        shape=[-1, -1, -1], contiguity=[True, True, True], dtype=dtype, is_cpu=False
+        shape=[-1, -1], contiguity=[True, True], dtype=dtype, is_cpu=False
     )
     bias = fd.define_tensor(shape=[-1], contiguity=[True], dtype=dtype, is_cpu=False)
     if dtype in PROMOTE_DTYPES:
@@ -56,8 +56,8 @@ def gelu_bwd_fusion(
     S_079 = fd.define_scalar(0.79788456)
     S_004 = fd.define_scalar(0.044715)
     S_010 = fd.define_scalar(0.1070322243)
-    V1 = fd.define_vector([1, 1, input.size(-1)], dtype=DataType.Int)
-    bias = fd.ops.broadcast_in_dim(bias, shape=V1, broadcast_dims=[2])
+    V1 = fd.define_vector([1, input.size(-1)], dtype=DataType.Int)
+    bias = fd.ops.broadcast_in_dim(bias, shape=V1, broadcast_dims=[1])
     T1 = fd.ops.add(input, bias)
     T2 = fd.ops.mul(T1, S_079)
     T3 = fd.ops.mul(T1, S_004)
@@ -85,7 +85,7 @@ def gelu_bwd_fusion(
     fd.add_output(T20)
 
 
-@pytest.mark.parametrize("size", generate_input_sizes(dims=3))
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_gelu_fwd_benchmark(
     benchmark,
@@ -107,7 +107,7 @@ def test_gelu_fwd_benchmark(
     torch.cuda.empty_cache()
 
 
-@pytest.mark.parametrize("size", generate_input_sizes(dims=3))
+@pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_gelu_bwd_benchmark(
     benchmark,

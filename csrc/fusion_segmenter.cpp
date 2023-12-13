@@ -26,7 +26,117 @@ namespace {
 
 using GroupSet = VectorOfUniqueEntries<SegmentedGroup*>;
 
+// This helper function converts selected keys to their corresponding values.
+// During serialization, we map pointers to an integer. For deserialization, we
+// reverse the mapping from integers to pointers.
+template <typename K, typename V, typename ContainerV, typename ContainerK>
+std::vector<V> convertContainer(
+    const ContainerV& all_values,
+    const ContainerK& selected_keys) {
+  std::vector<V> result;
+  result.reserve(selected_keys.size());
+  std::transform(
+      selected_keys.begin(),
+      selected_keys.end(),
+      std::back_inserter(result),
+      [&](K key) { return all_values.at(key); });
+  return result;
+}
+
 } // namespace
+
+flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
+    flatbuffers::FlatBufferBuilder& builder,
+    const std::unordered_map<Val*, int64_t>& vals_to_id_map,
+    const std::unordered_map<Expr*, int64_t>& exprs_to_id_map,
+    const std::unordered_map<SegmentedGroup*, int64_t>& groups_map,
+    const std::unordered_map<SegmentedEdge*, int64_t>& edges_map) const {
+  FUSER_PERF_SCOPE("SegmentedGroup::serialize");
+  std::vector<int64_t> producer_edges_fb =
+      convertContainer<SegmentedEdge*, int64_t>(edges_map, producer_edges);
+
+  std::vector<int64_t> consumer_edges_fb =
+      convertContainer<SegmentedEdge*, int64_t>(edges_map, consumer_edges);
+
+  std::vector<int64_t> input_vals_fb =
+      convertContainer<Val*, int64_t>(vals_to_id_map, input_vals);
+
+  std::vector<int64_t> output_vals_fb =
+      convertContainer<Val*, int64_t>(vals_to_id_map, output_vals);
+
+  std::vector<int64_t> exprs_fb =
+      convertContainer<Expr*, int64_t>(exprs_to_id_map, exprs_);
+
+  // -1 corresponds with a nullptr value
+  int64_t merge_with_segmented_group = -1;
+  if (merge_with_ != nullptr) {
+    merge_with_segmented_group = groups_map.at(merge_with_);
+  }
+
+  // -1 corresponds with a nullptr value
+  int64_t merge_through_segmented_edge = -1;
+  if (merge_through_ != nullptr) {
+    merge_through_segmented_edge = edges_map.at(merge_through_);
+  }
+
+  return serde::CreateSegmentedGroupDirect(
+      builder,
+      &producer_edges_fb,
+      &consumer_edges_fb,
+      &input_vals_fb,
+      &output_vals_fb,
+      group_id_,
+      toUnderlying(heuristic_),
+      &exprs_fb,
+      level_,
+      visited_,
+      merge_with_segmented_group,
+      merge_through_segmented_edge,
+      merged_,
+      is_fusion_input_);
+}
+
+void SegmentedGroup::deserialize(
+    const serde::SegmentedGroup* buffer,
+    const std::deque<Val*>& vals,
+    const std::deque<Expr*>& exprs,
+    const std::vector<SegmentedGroup*>& groups,
+    const std::vector<SegmentedEdge*>& edges) {
+  FUSER_PERF_SCOPE("SegmentedGroup::deserialize");
+  NVF_ERROR(buffer != nullptr, "serde::SegmentedGroup is nullptr.");
+
+  producer_edges = convertContainer<int64_t, SegmentedEdge*>(
+      edges, *buffer->producer_edges());
+
+  consumer_edges = convertContainer<int64_t, SegmentedEdge*>(
+      edges, *buffer->consumer_edges());
+
+  input_vals = convertContainer<int64_t, Val*>(vals, *buffer->input_vals());
+
+  output_vals = convertContainer<int64_t, Val*>(vals, *buffer->output_vals());
+
+  group_id_ = buffer->group_id();
+
+  heuristic_ = static_cast<ScheduleHeuristic>(buffer->heuristic());
+
+  exprs_ = convertContainer<int64_t, Expr*>(exprs, *buffer->exprs());
+
+  level_ = buffer->level();
+  visited_ = buffer->visited();
+
+  // -1 corresponds with a nullptr value
+  if (buffer->merge_with_segmented_group() != -1) {
+    merge_with_ = groups.at(buffer->merge_with_segmented_group());
+  }
+
+  // -1 corresponds with a nullptr value
+  if (buffer->merge_through_segmented_edge() != -1) {
+    merge_through_ = edges.at(buffer->merge_through_segmented_edge());
+  }
+
+  merged_ = buffer->merged();
+  is_fusion_input_ = buffer->is_fusion_input();
+}
 
 std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::getNeighborGroups() {
   std::vector<NeighborGroup> neighbors;
@@ -213,9 +323,9 @@ void SegmentedGroup::finalize() {
       // aliasing currently only supported as output to input
       NVF_ERROR(
           aliased_input->isFusionInput(),
-          "aliased input ",
+          "Aliased input ",
           aliased_input->toString(),
-          " is not found in the complete fusion");
+          " is not found in the complete fusion.");
       if (!input_set.count(aliased_input)) {
         input_set.insert(aliased_input);
         input_vals.push_back(aliased_input);
@@ -316,14 +426,150 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
   single_group->setHeuristic(heuristic);
   single_group->setID(0);
 
+  // Used to log the number of values and expressions in the fusion for
+  // serialization sanity check.
+  segmented_fusion_ptr->finalize();
   return segmented_fusion_ptr;
 }
 
 SegmentedFusion::SegmentedFusion(std::unique_ptr<Fusion> fusion)
     : segmented_fusion_name_{segmentedFusionName()},
       impl_(this),
-      complete_fusion_(std::move(fusion)) {
+      complete_fusion_(std::move(fusion)),
+      initial_vals_size_{0},
+      initial_exprs_size_{0} {
   annotateFP16IntermediateTensors();
+}
+
+flatbuffers::Offset<serde::SegmentedFusion> SegmentedFusion::serialize(
+    flatbuffers::FlatBufferBuilder& builder) const {
+  FUSER_PERF_SCOPE("SegmentedFusion::serialize");
+  const std::unordered_map<Val*, int64_t>& vals_to_id_map =
+      completeFusion()->deterministic_vals_map();
+  const std::unordered_map<Expr*, int64_t>& exprs_to_id_map =
+      completeFusion()->deterministic_exprs_map();
+  const std::unordered_map<SegmentedGroup*, int64_t>& groups_map =
+      impl_.groups_map();
+  const std::unordered_map<SegmentedEdge*, int64_t>& edges_map =
+      impl_.edges_map();
+
+  std::vector<flatbuffers::Offset<serde::SegmentedEdge>> edges_fb;
+  edges_fb.reserve(edges_.size());
+  for (SegmentedEdge* se : edges_) {
+    edges_fb.push_back(serialize(builder, se, vals_to_id_map, groups_map));
+  }
+
+  std::vector<flatbuffers::Offset<serde::SegmentedGroup>> groups_fb;
+  groups_fb.reserve(groups_.size());
+  for (SegmentedGroup* sg : groups_) {
+    groups_fb.push_back(sg->serialize(
+        builder, vals_to_id_map, exprs_to_id_map, groups_map, edges_map));
+  }
+
+  std::vector<int64_t> force_fp16_tv_fb;
+  force_fp16_tv_fb.reserve(force_fp16_tv_set_.size());
+  for (auto tv : force_fp16_tv_set_) {
+    force_fp16_tv_fb.push_back(vals_to_id_map.at(tv));
+  }
+
+  return serde::CreateSegmentedFusionDirect(
+      builder,
+      segmented_fusion_name_,
+      initial_vals_size_,
+      initial_exprs_size_,
+      &edges_fb,
+      &groups_fb,
+      &force_fp16_tv_fb,
+      toUnderlying(std::get<PrimDataType>(force_half_precision_type_.type)));
+}
+
+void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
+  FUSER_PERF_SCOPE("SegmentedFusion::deserialize");
+  NVF_ERROR(buffer != nullptr, "serde::SegmentedFusion is nullptr.");
+
+  // NOTE SchedulerEntry::proposeHeuristics can add values and expressions to
+  // the fusion. We relax the constraints here because we already know the
+  // proposed scheduler for each segmented group.
+  const std::deque<Val*>& vals = complete_fusion_->deterministic_vals();
+  const std::deque<Expr*>& exprs = complete_fusion_->deterministic_exprs();
+  NVF_ERROR(
+      complete_fusion_->vals().size() <= buffer->num_vals(),
+      "The complete fusion has ",
+      vals.size(),
+      " values while serialization expected ",
+      buffer->num_vals(),
+      " values.");
+  NVF_ERROR(
+      complete_fusion_->exprs().size() <= buffer->num_exprs(),
+      "The complete fusion has ",
+      exprs.size(),
+      " expressions while serialization expected ",
+      buffer->num_exprs(),
+      " expressions.");
+
+  segmented_fusion_name_ = buffer->segmented_fusion_name();
+
+  // Construct segmented groups first because they are necessary for the
+  // segmented edge's constructor
+  // NOTE: Use regular for-loop to avoid unused variable ‘idx’ error
+  for (size_t idx = 0; idx < buffer->groups()->size(); ++idx) {
+    newGroup();
+  }
+
+  // Create segmented edges
+  for (auto idx : c10::irange(buffer->edges()->size())) {
+    auto se_fb = buffer->edges()->Get(idx);
+    newEdge(
+        groups_.at(se_fb->from_segmented_group()),
+        groups_.at(se_fb->to_segmented_group()),
+        vals.at(se_fb->val()));
+  }
+
+  // Deserialize segmented groups
+  for (auto idx : c10::irange(buffer->groups()->size())) {
+    auto sg_fb = buffer->groups()->Get(idx);
+    groups_.at(idx)->deserialize(sg_fb, vals, exprs, groups_, edges_);
+  }
+
+  for (auto idx : *buffer->force_fp16_tv_set()) {
+    auto val = vals.at(idx);
+    NVF_CHECK(
+        val->isA<TensorView>(),
+        "Segmented Fusion Deserialization: Expected Val to be a TensorView.");
+    force_fp16_tv_set_.emplace(val->as<TensorView>());
+  }
+
+  force_half_precision_type_ =
+      DataType(static_cast<PrimDataType>(buffer->force_half_precision_type()));
+
+  finalize();
+}
+
+flatbuffers::Offset<serde::SegmentedEdge> SegmentedFusion::serialize(
+    flatbuffers::FlatBufferBuilder& builder,
+    const nvfuser::SegmentedEdge* edge,
+    const std::unordered_map<Val*, int64_t>& vals_to_id_map,
+    const std::unordered_map<SegmentedGroup*, int64_t>& groups_map) const {
+  FUSER_PERF_SCOPE("SegmentedEdge::serialize");
+  return serde::CreateSegmentedEdge(
+      builder,
+      groups_map.at(edge->from),
+      groups_map.at(edge->to),
+      vals_to_id_map.at(edge->val));
+}
+
+nvfuser::SegmentedEdge SegmentedFusion::deserialize(
+    const serde::SegmentedEdge* buffer,
+    const std::deque<Val*>& vals) {
+  FUSER_PERF_SCOPE("SegmentedEdge::deserialize");
+  NVF_ERROR(buffer != nullptr, "serde::SegmentedEdge is nullptr.");
+  NVF_ERROR(
+      !groups_.empty(),
+      "Expected SegmentedGroup to be populated before deserializing SegmentedEdge.");
+  return {
+      groups_.at(buffer->from_segmented_group()),
+      groups_.at(buffer->to_segmented_group()),
+      vals.at(buffer->val())};
 }
 
 SegmentedGroup* SegmentedFusion::Impl::makeGroup() {
@@ -368,6 +614,38 @@ void SegmentedFusion::Impl::cleanUnused() {
           edges_.end(),
           [&e_used](auto& e) { return e_used.count(e.get()) == 0; }),
       edges_.end());
+}
+
+//! Return mapping from SegmentedGroup to integer id
+std::unordered_map<SegmentedGroup*, int64_t> SegmentedFusion::Impl::groups_map()
+    const {
+  using GroupPtr = std::unique_ptr<SegmentedGroup>;
+  std::unordered_map<SegmentedGroup*, int64_t> group_map;
+  int64_t count = 0;
+  std::transform(
+      groups_.begin(),
+      groups_.end(),
+      std::inserter(group_map, group_map.end()),
+      [&count](const GroupPtr& group_up) {
+        return std::make_pair(group_up.get(), count++);
+      });
+  return group_map;
+}
+
+//! Return mapping from SegmentedEdge to integer id
+std::unordered_map<SegmentedEdge*, int64_t> SegmentedFusion::Impl::edges_map()
+    const {
+  using EdgePtr = std::unique_ptr<SegmentedEdge>;
+  std::unordered_map<SegmentedEdge*, int64_t> edge_map;
+  int64_t count = 0;
+  std::transform(
+      edges_.begin(),
+      edges_.end(),
+      std::inserter(edge_map, edge_map.end()),
+      [&count](const EdgePtr& edge_up) {
+        return std::make_pair(edge_up.get(), count++);
+      });
+  return edge_map;
 }
 
 SegmentedGroup* SegmentedFusion::newGroup() {
@@ -839,6 +1117,11 @@ TensorView* castIntermediateValueInCompleteFusion(
 void SegmentedFusion::finalize() {
   impl_.cleanUnused();
   castInputOutputToLowerPrecision(edges());
+
+  // Log the number of values and expressions. It is used as a sanity check
+  // during serialization.
+  initial_vals_size_ = complete_fusion_->vals().size();
+  initial_exprs_size_ = complete_fusion_->exprs().size();
 }
 
 //! Lower FP precision of inputs and outputs specified by the given

@@ -156,38 +156,12 @@ INSTANTIATE_TEST_SUITE_P(
         all_mma_layouts),
     testName);
 
-using HopperMmaTestParams =
-    std::tuple<MmaMacro, PrimDataType, MmaLayout, MmaInputSmemSwizzle>;
-
-class Hopper : public NVFuserFixtureParamTest<HopperMmaTestParams> {
+class HopperBase : public NVFuserTest {
  protected:
-  MmaLayout layout;
-  MmaMacro macro;
-  PrimDataType dtype;
-  MmaInputSmemSwizzle swizzle;
-
   void SetUp() override {
-    macro = std::get<0>(GetParam());
-    dtype = std::get<1>(GetParam());
-    layout = std::get<2>(GetParam());
-    swizzle = std::get<3>(GetParam());
-
     if (cudaArchGuardShouldSkip(9, 0)) {
       GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
     }
-
-    if (swizzle == MmaInputSmemSwizzle::B128) {
-      GTEST_SKIP() << "128B swizzle not supported yet";
-    }
-
-    if (swizzle == MmaInputSmemSwizzle::B64) {
-      GTEST_SKIP() << "64B swizzle not supported yet";
-    }
-
-    if (swizzle == MmaInputSmemSwizzle::B32) {
-      GTEST_SKIP() << "32B swizzle not supported yet";
-    }
-
     NVFuserTest::SetUp();
   }
 };
@@ -202,7 +176,68 @@ void naivelyParallelize(TensorView* tv) {
   tv->axis(1)->parallelize(ParallelType::TIDx);
 }
 
-TEST_P(Hopper, RS) {
+auto all_hopper_macros = testing::Values(
+    MmaMacro::Hopper_64_8_16,
+    MmaMacro::Hopper_64_16_16,
+    MmaMacro::Hopper_64_24_16,
+    MmaMacro::Hopper_64_32_16,
+    MmaMacro::Hopper_64_40_16,
+    MmaMacro::Hopper_64_48_16,
+    MmaMacro::Hopper_64_56_16,
+    MmaMacro::Hopper_64_64_16,
+    MmaMacro::Hopper_64_72_16,
+    MmaMacro::Hopper_64_80_16,
+    MmaMacro::Hopper_64_88_16,
+    MmaMacro::Hopper_64_96_16,
+    MmaMacro::Hopper_64_104_16,
+    MmaMacro::Hopper_64_112_16,
+    MmaMacro::Hopper_64_120_16,
+    MmaMacro::Hopper_64_128_16,
+    MmaMacro::Hopper_64_136_16,
+    MmaMacro::Hopper_64_144_16,
+    MmaMacro::Hopper_64_152_16,
+    MmaMacro::Hopper_64_160_16,
+    MmaMacro::Hopper_64_168_16,
+    MmaMacro::Hopper_64_176_16,
+    MmaMacro::Hopper_64_184_16,
+    MmaMacro::Hopper_64_192_16,
+    MmaMacro::Hopper_64_200_16,
+    MmaMacro::Hopper_64_208_16,
+    MmaMacro::Hopper_64_216_16,
+    MmaMacro::Hopper_64_224_16,
+    MmaMacro::Hopper_64_232_16,
+    MmaMacro::Hopper_64_240_16,
+    MmaMacro::Hopper_64_248_16,
+    MmaMacro::Hopper_64_256_16);
+
+auto all_smem_swizzle_modes = testing::Values(
+    MmaInputSmemSwizzle::None,
+    MmaInputSmemSwizzle::B128,
+    MmaInputSmemSwizzle::B64,
+    MmaInputSmemSwizzle::B32);
+
+using HopperMmaRSTestParams =
+    std::tuple<MmaMacro, PrimDataType, MmaLayout, MmaInputSmemSwizzle>;
+
+class HopperRS : public HopperBase,
+                 public ::testing::WithParamInterface<HopperMmaRSTestParams> {
+ protected:
+  MmaLayout layout;
+  MmaMacro macro;
+  PrimDataType dtype;
+  MmaInputSmemSwizzle swizzle_b;
+
+  void SetUp() override {
+    HopperBase::SetUp();
+
+    macro = std::get<0>(GetParam());
+    dtype = std::get<1>(GetParam());
+    layout = std::get<2>(GetParam());
+    swizzle_b = std::get<3>(GetParam());
+  }
+};
+
+TEST_P(HopperRS, SingleTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -270,7 +305,7 @@ TEST_P(Hopper, RS) {
   tv0b->axis(1)->parallelize(ParallelType::TIDx);
 
   tv1b->setMemoryType(MemoryType::Shared);
-  tv1b->applyMmaSwizzle(swizzle, transpose_b);
+  tv1b->applyMmaSwizzle(swizzle_b, transpose_b);
 
   naivelyParallelize(tv1b);
 
@@ -295,7 +330,80 @@ TEST_P(Hopper, RS) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
-TEST_P(Hopper, SS) {
+std::string testNameHopperRS(
+    const testing::TestParamInfo<HopperMmaRSTestParams>& info) {
+  std::ostringstream os;
+  auto macro = std::get<0>(info.param);
+  auto dtype = std::get<1>(info.param);
+  auto layout = std::get<2>(info.param);
+  auto swizzle_b = std::get<3>(info.param);
+  os << getM(macro) << "_" << getN(macro) << "_" << getK(macro) << "_"
+     << toString(layout) << "_" << toString(swizzle_b) << dtype;
+  return os.str();
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    MmaTest,
+    HopperRS,
+    testing::Combine(
+        all_hopper_macros,
+        all_dtypes,
+        all_mma_layouts,
+        all_smem_swizzle_modes),
+    testNameHopperRS);
+
+using HopperMmaSSTestParams = std::tuple<
+    MmaMacro,
+    PrimDataType,
+    MmaLayout,
+    MmaInputSmemSwizzle,
+    MmaInputSmemSwizzle>;
+
+class HopperSS : public HopperBase,
+                 public ::testing::WithParamInterface<HopperMmaSSTestParams> {
+ protected:
+  MmaLayout layout;
+  MmaMacro macro;
+  PrimDataType dtype;
+  MmaInputSmemSwizzle swizzle_a;
+  MmaInputSmemSwizzle swizzle_b;
+
+  void SetUp() override {
+    HopperBase::SetUp();
+
+    macro = std::get<0>(GetParam());
+    dtype = std::get<1>(GetParam());
+    layout = std::get<2>(GetParam());
+    swizzle_a = std::get<3>(GetParam());
+    swizzle_b = std::get<4>(GetParam());
+
+    if (swizzle_a == MmaInputSmemSwizzle::B128) {
+      GTEST_SKIP() << "128B swizzle not supported yet";
+    }
+
+    if (swizzle_a == MmaInputSmemSwizzle::B64) {
+      GTEST_SKIP() << "64B swizzle not supported yet";
+    }
+
+    if (swizzle_a == MmaInputSmemSwizzle::B32) {
+      GTEST_SKIP() << "32B swizzle not supported yet";
+    }
+
+    if (swizzle_b == MmaInputSmemSwizzle::B128) {
+      GTEST_SKIP() << "128B swizzle not supported yet";
+    }
+
+    if (swizzle_b == MmaInputSmemSwizzle::B64) {
+      GTEST_SKIP() << "64B swizzle not supported yet";
+    }
+
+    if (swizzle_b == MmaInputSmemSwizzle::B32) {
+      GTEST_SKIP() << "32B swizzle not supported yet";
+    }
+  }
+};
+
+TEST_P(HopperSS, SingleTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -391,9 +499,9 @@ TEST_P(Hopper, SS) {
 
   tv0b->setMemoryType(MemoryType::Shared);
   // Hopper tensor core assumes K major, so we are using !transpose_a here.
-  tv0b->applyMmaSwizzle(swizzle, !transpose_a);
+  tv0b->applyMmaSwizzle(swizzle_a, !transpose_a);
   tv1b->setMemoryType(MemoryType::Shared);
-  tv1b->applyMmaSwizzle(swizzle, transpose_b);
+  tv1b->applyMmaSwizzle(swizzle_b, transpose_b);
 
   if (transpose_a) {
     // TODO: Why do we need to transpose B if A is transposed? I don't really
@@ -421,64 +529,29 @@ TEST_P(Hopper, SS) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
-auto all_smem_swizzle_modes = testing::Values(
-    MmaInputSmemSwizzle::None,
-    MmaInputSmemSwizzle::B128,
-    MmaInputSmemSwizzle::B64,
-    MmaInputSmemSwizzle::B32);
-
-std::string testNameHopper(
-    const testing::TestParamInfo<HopperMmaTestParams>& info) {
+std::string testNameHopperSS(
+    const testing::TestParamInfo<HopperMmaSSTestParams>& info) {
   std::ostringstream os;
   auto macro = std::get<0>(info.param);
   auto dtype = std::get<1>(info.param);
   auto layout = std::get<2>(info.param);
-  auto swizzle = std::get<3>(info.param);
+  auto swizzle_a = std::get<3>(info.param);
+  auto swizzle_b = std::get<4>(info.param);
   os << getM(macro) << "_" << getN(macro) << "_" << getK(macro) << "_"
-     << toString(layout) << "_" << toString(swizzle) << dtype;
+     << toString(layout) << "_" << toString(swizzle_a) << "_"
+     << toString(swizzle_b) << dtype;
   return os.str();
 }
 
 INSTANTIATE_TEST_SUITE_P(
     MmaTest,
-    Hopper,
+    HopperSS,
     testing::Combine(
-        testing::Values(
-            MmaMacro::Hopper_64_8_16,
-            MmaMacro::Hopper_64_16_16,
-            MmaMacro::Hopper_64_24_16,
-            MmaMacro::Hopper_64_32_16,
-            MmaMacro::Hopper_64_40_16,
-            MmaMacro::Hopper_64_48_16,
-            MmaMacro::Hopper_64_56_16,
-            MmaMacro::Hopper_64_64_16,
-            MmaMacro::Hopper_64_72_16,
-            MmaMacro::Hopper_64_80_16,
-            MmaMacro::Hopper_64_88_16,
-            MmaMacro::Hopper_64_96_16,
-            MmaMacro::Hopper_64_104_16,
-            MmaMacro::Hopper_64_112_16,
-            MmaMacro::Hopper_64_120_16,
-            MmaMacro::Hopper_64_128_16,
-            MmaMacro::Hopper_64_136_16,
-            MmaMacro::Hopper_64_144_16,
-            MmaMacro::Hopper_64_152_16,
-            MmaMacro::Hopper_64_160_16,
-            MmaMacro::Hopper_64_168_16,
-            MmaMacro::Hopper_64_176_16,
-            MmaMacro::Hopper_64_184_16,
-            MmaMacro::Hopper_64_192_16,
-            MmaMacro::Hopper_64_200_16,
-            MmaMacro::Hopper_64_208_16,
-            MmaMacro::Hopper_64_216_16,
-            MmaMacro::Hopper_64_224_16,
-            MmaMacro::Hopper_64_232_16,
-            MmaMacro::Hopper_64_240_16,
-            MmaMacro::Hopper_64_248_16,
-            MmaMacro::Hopper_64_256_16),
+        all_hopper_macros,
         all_dtypes,
         all_mma_layouts,
+        all_smem_swizzle_modes,
         all_smem_swizzle_modes),
-    testNameHopper);
+    testNameHopperSS);
 
 } // namespace nvfuser
