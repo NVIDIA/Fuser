@@ -847,6 +847,7 @@ void WarpMmaSwizzler::scheduleOperandRead(
     auto swizzle_size = getBytesFromSwizzle(swizzle) / 16;
     if (transpose2) {
       // For example, [K, M]
+      tv->reorder({{-2, -1}});
     } else {
       // For example, [K, M]
       tv->split(-2, 8);
