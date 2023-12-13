@@ -1478,9 +1478,7 @@ void IndexLowering::handle(const MmaOp* mma) {
     int64_t stride_bytes =
         8L * getBytesFromSwizzle(swizzle); // swizzle period in bytes
     int64_t leading_bytes = /*8x8 items each core matrix*/ 64L *
-        /*number of core matrices, rounded up to handle padding */
-        roundUpToMultiple(getM(mma->macro()) / 8L,
-                          getBytesFromSwizzle(swizzle) / 16L) *
+        /*number of core matrices*/ (getM(mma->macro()) / 8L) *
         /*bytes per item*/ 2L;
     if (swizzle != MmaInputSmemSwizzle::None) {
       // TODO: why???!!!
