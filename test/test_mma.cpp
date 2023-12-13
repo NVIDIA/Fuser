@@ -219,24 +219,6 @@ auto all_smem_swizzle_modes = testing::Values(
 using HopperMmaRSTestParams =
     std::tuple<MmaMacro, PrimDataType, MmaLayout, MmaInputSmemSwizzle>;
 
-class HopperRS : public HopperBase,
-                 public ::testing::WithParamInterface<HopperMmaRSTestParams> {
- protected:
-  MmaLayout layout;
-  MmaMacro macro;
-  PrimDataType dtype;
-  MmaInputSmemSwizzle swizzle_b;
-
-  void SetUp() override {
-    HopperBase::SetUp();
-
-    macro = std::get<0>(GetParam());
-    dtype = std::get<1>(GetParam());
-    layout = std::get<2>(GetParam());
-    swizzle_b = std::get<3>(GetParam());
-  }
-};
-
 void makeIdentity(at::Tensor tensor) {
   tensor.zero_();
   for (auto i : c10::irange(tensor.size(0))) {
@@ -256,6 +238,24 @@ void makeARange(at::Tensor tensor) {
     }
   }
 }
+
+class HopperRS : public HopperBase,
+                 public ::testing::WithParamInterface<HopperMmaRSTestParams> {
+ protected:
+  MmaLayout layout;
+  MmaMacro macro;
+  PrimDataType dtype;
+  MmaInputSmemSwizzle swizzle_b;
+
+  void SetUp() override {
+    HopperBase::SetUp();
+
+    macro = std::get<0>(GetParam());
+    dtype = std::get<1>(GetParam());
+    layout = std::get<2>(GetParam());
+    swizzle_b = std::get<3>(GetParam());
+  }
+};
 
 TEST_P(HopperRS, SingleTile) {
   Fusion fusion;
@@ -514,15 +514,7 @@ TEST_P(HopperSS, SingleTile) {
   // Hopper tensor core assumes K major, so we are using !transpose_a here.
   tv0b->applyMmaSwizzle(swizzle_a, !transpose_a);
   tv1b->setMemoryType(MemoryType::Shared);
-  tv1b->applyMmaSwizzle(swizzle_b, transpose_b);
-
-  if (transpose_a) {
-    // TODO: Why do we need to transpose B if A is transposed? I don't really
-    // understand why, but empirically it works...
-    auto alloc = tv1b->getAllocationDomain();
-    std::swap(alloc[alloc.size() - 1], alloc[alloc.size() - 2]);
-    tv1b->setAllocationDomain(alloc, true);
-  }
+  tv1b->applyMmaSwizzle(swizzle_b, transpose_b, transpose_a);
 
   naivelyParallelize(tv0b);
   naivelyParallelize(tv1b);

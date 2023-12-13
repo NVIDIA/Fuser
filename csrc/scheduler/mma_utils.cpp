@@ -826,7 +826,8 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOperand operand) {
 void WarpMmaSwizzler::scheduleOperandRead(
     TensorView* tv,
     MmaInputSmemSwizzle swizzle,
-    bool transpose) {
+    bool transpose,
+    bool transpose2) {
   if (transpose) {
     tv->reorder({{-2, -1}});
   }
@@ -839,6 +840,9 @@ void WarpMmaSwizzler::scheduleOperandRead(
     // [Ko, K8, Mo, M8]
     tv->reorder({{-2, -3}});
     // [Ko, Mo, K8, M8]
+    if (transpose2) {
+      tv->reorder({{-2, -1}});
+    }
   } else {
     auto swizzle_size = getBytesFromSwizzle(swizzle) / 16;
     // For example, [K, M]
