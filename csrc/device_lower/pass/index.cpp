@@ -676,25 +676,33 @@ void IndexLowering::handleSerialGridReduction(
 
   // Allocate global work buffer TensorIndex.
   // The global work buffer will look just like the reduction output, and be
-  // scheduled the same, except it should have no reduction axes, it is not
+  // scheduled the same, including reduction axes, it is not
   // inlined, and it resides in global memory. Since it is not inlined it will
   // use a global index
   std::vector<IterDomain*> work_buffer_ids;
-  for (auto id : TensorDomain::noReductions(out_tv->getRootDomain())) {
+  for (auto id : out_tv->getRootDomain()) {
     // Clone output root without reductions as work buffer root domain
     work_buffer_ids.push_back(IterDomainBuilder(id).build());
   }
-  const auto work_buffer_root_domain =
+  auto work_buffer_root_domain =
       IrBuilder::create<TensorDomain>(work_buffer_ids);
-  auto work_buffer_tv = IrBuilder::create<TensorView>(
-      work_buffer_root_domain, out_tv->dtype(), MemoryType::Global);
   // replay leaf transformations from out_tv on work_buffer_tv
-  const auto new_domain =
-      TransformReplay::replayCasP(out_tv, work_buffer_tv, 0).first;
-  work_buffer_tv = IrBuilder::create<TensorView>(
+  const auto new_domain = TransformReplay::fullSelfReplay(
+      work_buffer_root_domain, out_tv->domain());
+  auto work_buffer_tv = IrBuilder::create<TensorView>(
       new_domain, out_tv->dtype(), MemoryType::Global);
+  // TODO: expose this in ir_utils instead of hidden in index_compute.cpp
+  const auto sumVals = [](const std::vector<Val*> vals) -> Val* {
+    Val* result_index = GpuLower::current()->kernel()->zeroVal();
+    for (auto v : vals) {
+      result_index = SimplifyingIrBuilder::addExpr(result_index, v);
+    }
+    return result_index;
+  };
+  Val* work_buffer_idx_val =
+      sumVals(Index::getGlobalConsumerStridedIndices(out_tv, for_loops_, {}));
   auto work_buffer_idx =
-      Index::getConsumerIndex(work_buffer_tv, for_loops_, {});
+      IrBuilder::create<kir::TensorIndex>(work_buffer_tv, work_buffer_idx_val);
 
   auto work_alloc = IrBuilder::create<kir::Allocate>(
       work_buffer_tv, work_buffer_tv->getMemoryType());
