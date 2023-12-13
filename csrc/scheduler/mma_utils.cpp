@@ -853,18 +853,25 @@ void WarpMmaSwizzler::scheduleOperandRead(
     // [Ko, Mo, K8, M8]
     if (transpose2) {
       tv->reorder({{-2, -1}});
+      tv->reorder({{-4, -3}});
+      tv->split(-2, 8 / swizzle_size);
+      tv->split(-1, 8 / swizzle_size);
+      // For example swizzle_size = 2
+      // [Ko, Mo, K2, K4, M2, M4]
+      tv->swizzle(SwizzleType::XOR, -4, -2);
+    } else {
+      // Note: the extent of Mo may not be a multiple of swizzle_size, but we
+      // still split swizzle_size. If this is the case, effectively we are
+      // padding it to a multiple of swizzle_size.
+      tv->split(-3, swizzle_size);
+      // For example, swizzle_size = 2
+      // [Ko, Moo, Mo2, K8, M8]
+      tv->reorder({{-2, -3}});
+      // [Ko, Moo, K8, Mo2, M8]
+      tv->split(-3, 8 / swizzle_size);
+      // [Ko, Moo, K2, K4, Mo2, M8]
+      tv->swizzle(SwizzleType::XOR, -4, -2);
     }
-    // Note: the extent of Mo may not be a multiple of swizzle_size, but we
-    // still split swizzle_size. If this is the case, effectively we are padding
-    // it to a multiple of swizzle_size.
-    tv->split(-3, swizzle_size);
-    // For example, swizzle_size = 2
-    // [Ko, Moo, Mo2, K8, M8]
-    tv->reorder({{-2, -3}});
-    // [Ko, Moo, K8, Mo2, M8]
-    tv->split(-3, 8 / swizzle_size);
-    // [Ko, Moo, K2, K4, Mo2, M8]
-    tv->swizzle(SwizzleType::XOR, -4, -2);
   }
   tv->setAllocationDomain(tv->getLeafDomain(), true);
 }
