@@ -149,6 +149,8 @@ TEST_F(SegmentationTest, SegmentHintOnNonTerminatingOutput) {
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  // Segment 1: in -> add_out (defined by segment_set)
+  // Segment 2: add_out -> mul_out
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
 }
 
