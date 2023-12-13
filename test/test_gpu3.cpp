@@ -8689,6 +8689,14 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
     std::vector<c10::IValue> aten_inputs(
         {aten_input_0, aten_input_1, aten_weight, aten_bias});
 
+    // welford translate
+    KernelArgumentHolder runtime_inputs =
+        KernelArgumentHolder::createKernelArgumentHolder(
+            {aten_input_0, aten_input_1, aten_weight, aten_bias});
+    bool isTranslated = SegmentCandidateFinder::translateWelfordInFusion(
+        fusion, runtime_inputs);
+    NVF_ERROR(isTranslated);
+
     auto persistent_params = getInnerPersistentHeuristics(fusion, aten_inputs);
     auto lparams = persistent_params->lparams;
     auto cparams = persistent_params->cparams;
@@ -8746,12 +8754,11 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
     }
     return kinfo;
   };
-  int64_t batch_size = 1024 * 2;
   // test(2048, 16 * 1024, 0, 0, false, false);
   // return;
   constexpr int vect_factor = 8;
-  // constexpr int min_threads_per_block = 32;
-  // constexpr int max_threads_per_block = 1024;
+  constexpr int min_threads_per_block = 32;
+  constexpr int max_threads_per_block = 1024;
   std::set<int> features{
       512,
       768,
@@ -8767,76 +8774,69 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
       8192,
       12288,
       18432};
-  for (int i = 1024; i <= 20480; i += 1024) {
+  for (int i = 1024; i <= 32 * 1024; i += 1024) {
     features.insert(i);
   }
-  for (auto feature : features) {
-    std::vector<kernelInfo> results;
-    ASSERT_TRUE(feature % vect_factor == 0);
-    results.emplace_back(test(batch_size, feature, 0, 0));
-    // auto min_batch_size = ceilDiv(feature / vect_factor,
-    // max_threads_per_block); auto max_batch_size = std::min(
-    //     (int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
-    // for (auto decouple_data_load : {false}) {
-    //   for (auto project_to_input :
-    //        {false}) { // can't save buffer size, no need to test project.
-    //     for (auto persistent_batch_size = min_batch_size;
-    //          persistent_batch_size <= max_batch_size;
-    //          persistent_batch_size++) {
-    //       // given a persistent_batch_size, warps_per_block is derived from
-    //       // feature size and vector factor of 8.
-    //       auto warps_per_block = ceilDiv(
-    //           ceilDiv(feature / vect_factor, persistent_batch_size), 32);
-    //       // target different blocks_per_sm by adjusting register per thread
-    //       auto max_blocks_per_sm = 64 / warps_per_block;
-    //       for (auto blocks_per_sm = 1; blocks_per_sm <= max_blocks_per_sm;
-    //            blocks_per_sm++) {
-    //         auto res = test(
-    //             batch_size,
-    //             feature,
-    //             persistent_batch_size,
-    //             blocks_per_sm,
-    //             project_to_input,
-    //             decouple_data_load);
-    //         res.speedup = res.bandwidth / (results[0].bandwidth - 1e4);
-    //         results.emplace_back(res);
-    //         res.print();
-    //       }
-    //     }
-    //   }
-    // }
-
-    std::sort(
-        results.begin(),
-        results.end(),
-        [](const kernelInfo& a, const kernelInfo& b) {
-          return a.bandwidth > b.bandwidth;
-        });
-    std::cout << "\n--- Default and top 10 cases out of tested cases: "
-              << results.size() << std::endl;
-    const int n_print = std::min(11, (int)results.size());
-    for (int i = 0; i < n_print; ++i) {
-      results[i].print();
-    }
-
-    // Open a file in write mode
-    char hostname[HOST_NAME_MAX];
-    if (gethostname(hostname, HOST_NAME_MAX) != 0) {
-      std::cerr << "Failed to get the hostname." << std::endl;
-      return;
-    }
-    std::ostringstream fname;
-    fname << "/hhome/benchmarks/layernorm_heuristics/" << hostname
-          << "_dropout_layernorm_new1211_" << batch_size << "_" << feature
-          << ".txt";
-    std::ofstream file(fname.str());
-    if (file.is_open()) {
-      for (auto& info : results) {
-        info.print(file);
+  for (auto batch_size : {2048, 1024 * 32}) {
+    for (auto feature : features) {
+      std::vector<kernelInfo> results;
+      ASSERT_TRUE(feature % vect_factor == 0);
+      results.emplace_back(test(batch_size, feature, 0, 0));
+      auto min_batch_size =
+          ceilDiv(feature / vect_factor, max_threads_per_block);
+      auto max_batch_size = std::min(
+          (int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
+      for (auto persistent_batch_size = min_batch_size;
+           persistent_batch_size <= max_batch_size;
+           persistent_batch_size++) {
+        // given a persistent_batch_size, warps_per_block is derived from
+        // feature size and vector factor of 8.
+        auto warps_per_block =
+            ceilDiv(ceilDiv(feature / vect_factor, persistent_batch_size), 32);
+        // target different blocks_per_sm by adjusting register per thread
+        auto max_blocks_per_sm = 64 / warps_per_block;
+        for (auto blocks_per_sm = 1; blocks_per_sm <= max_blocks_per_sm;
+             blocks_per_sm++) {
+          auto res =
+              test(batch_size, feature, persistent_batch_size, blocks_per_sm);
+          res.speedup = res.bandwidth / (results[0].bandwidth - 1e4);
+          results.emplace_back(res);
+          res.print();
+        }
       }
-      file.close(); // Close the file when done
-    } else {
-      std::cerr << "Unable to open file." << std::endl;
+
+      std::sort(
+          results.begin(),
+          results.end(),
+          [](const kernelInfo& a, const kernelInfo& b) {
+            return a.bandwidth > b.bandwidth;
+          });
+      std::cout << "\n--- Default and top 10 cases out of tested cases: "
+                << results.size() << std::endl;
+      const int n_print = std::min(11, (int)results.size());
+      for (int i = 0; i < n_print; ++i) {
+        results[i].print();
+      }
+
+      // Open a file in write mode
+      char hostname[HOST_NAME_MAX];
+      if (gethostname(hostname, HOST_NAME_MAX) != 0) {
+        std::cerr << "Failed to get the hostname." << std::endl;
+        return;
+      }
+      std::ostringstream fname;
+      fname << "/benchmarks/layernorm_heuristics/" << hostname
+            << "_dropout_layernorm_twopass_" << batch_size << "_" << feature
+            << ".txt";
+      std::ofstream file(fname.str());
+      if (file.is_open()) {
+        for (auto& info : results) {
+          info.print(file);
+        }
+        file.close(); // Close the file when done
+      } else {
+        std::cerr << "Unable to open file." << std::endl;
+      }
     }
   }
 }
@@ -8901,6 +8901,14 @@ TEST_F(NVFuserTest, LayerNorm) {
     c10::optional<at::Tensor> aten_bias = at::randn({input_shape[1]}, options);
     std::vector<c10::IValue> aten_inputs({aten_input, aten_weight, aten_bias});
 
+    // welford translate
+    KernelArgumentHolder runtime_inputs =
+        KernelArgumentHolder::createKernelArgumentHolder(
+            {aten_input, aten_weight, aten_bias});
+    bool isTranslated = SegmentCandidateFinder::translateWelfordInFusion(
+        fusion, runtime_inputs);
+    NVF_ERROR(isTranslated);
+
     auto persistent_params = getInnerPersistentHeuristics(fusion, aten_inputs);
     auto lparams = persistent_params->lparams;
     auto cparams = persistent_params->cparams;
@@ -8959,8 +8967,8 @@ TEST_F(NVFuserTest, LayerNorm) {
     return kinfo;
   };
   constexpr int vect_factor = 8;
-  // constexpr int min_threads_per_block = 32;
-  // constexpr int max_threads_per_block = 1024;
+  constexpr int min_threads_per_block = 32;
+  constexpr int max_threads_per_block = 1024;
   std::set<int> features{
       512,
       768,
@@ -8976,7 +8984,7 @@ TEST_F(NVFuserTest, LayerNorm) {
       8192,
       12288,
       18432};
-  for (int i = 1024; i <= 20 * 1024; i += 1024) {
+  for (int i = 1024; i <= 32 * 1024; i += 1024) {
     features.insert(i);
   }
   // test(batch_size, 512, 0, 0);
@@ -8986,38 +8994,29 @@ TEST_F(NVFuserTest, LayerNorm) {
       std::vector<kernelInfo> results;
       ASSERT_TRUE(feature % vect_factor == 0);
       results.emplace_back(test(batch_size, feature, 0, 0));
-      // auto min_batch_size = ceilDiv(feature / vect_factor,
-      // max_threads_per_block); auto max_batch_size = std::min(
-      //     (int64_t)10, ceilDiv(feature / vect_factor,
-      //     min_threads_per_block));
-      // for (auto decouple_data_load : {false}) {
-      //   for (auto project_to_input :
-      //        {false}) { // can't save buffer size, no need to test project.
-      //     for (auto persistent_batch_size = min_batch_size;
-      //          persistent_batch_size <= max_batch_size;
-      //          persistent_batch_size++) {
-      //       // given a persistent_batch_size, warps_per_block is derived from
-      //       // feature size and vector factor of 8.
-      //       auto warps_per_block = ceilDiv(
-      //           ceilDiv(feature / vect_factor, persistent_batch_size), 32);
-      //       // target different blocks_per_sm by adjusting register per
-      //       thread auto max_blocks_per_sm = 64 / warps_per_block; for (auto
-      //       blocks_per_sm = 1; blocks_per_sm <= max_blocks_per_sm;
-      //            blocks_per_sm++) {
-      //         auto res = test(
-      //             batch_size,
-      //             feature,
-      //             persistent_batch_size,
-      //             blocks_per_sm,
-      //             project_to_input,
-      //             decouple_data_load);
-      //         res.speedup = res.bandwidth / (results[0].bandwidth - 1e4);
-      //         results.emplace_back(res);
-      //         res.print();
-      //       }
-      //     }
-      //   }
-      // }
+      auto min_batch_size =
+          ceilDiv(feature / vect_factor, max_threads_per_block);
+      auto max_batch_size = std::min(
+          (int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
+      for (auto persistent_batch_size = min_batch_size;
+           persistent_batch_size <= max_batch_size;
+           persistent_batch_size++) {
+        // given a persistent_batch_size, warps_per_block is derived from
+        // feature size and vector factor of 8.
+        auto warps_per_block =
+            ceilDiv(ceilDiv(feature / vect_factor, persistent_batch_size), 32);
+        // target different blocks_per_sm by adjusting register per
+        // thread
+        auto max_blocks_per_sm = 64 / warps_per_block;
+        for (auto blocks_per_sm = 1; blocks_per_sm <= max_blocks_per_sm;
+             blocks_per_sm++) {
+          auto res =
+              test(batch_size, feature, persistent_batch_size, blocks_per_sm);
+          res.speedup = res.bandwidth / (results[0].bandwidth - 1e4);
+          results.emplace_back(res);
+          res.print();
+        }
+      }
 
       std::sort(
           results.begin(),
@@ -9039,8 +9038,8 @@ TEST_F(NVFuserTest, LayerNorm) {
         return;
       }
       std::ostringstream fname;
-      fname << "/opt/pybm/layernorm_heuristics/" << hostname
-            << "_layernorm_new1211_" << batch_size << "_" << feature << ".txt";
+      fname << "/benchmarks/layernorm_heuristics/" << hostname
+            << "_layernorm_twopass_" << batch_size << "_" << feature << ".txt";
 
       std::ofstream file(fname.str());
       if (file.is_open()) {
