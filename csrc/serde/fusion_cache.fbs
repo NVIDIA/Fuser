@@ -95,6 +95,44 @@ enum RecordType: int {
     Vector,
 }
 
+// The ExprType enum maps to the corresponding IR class;
+enum ExprType: int {
+  Full,
+  Iota,
+  Eye,
+  Unary,
+  Binary,
+  Ternary,
+  ArrayConstruct,
+  StructConstruct,
+  GetAttr,
+  GetItem,
+  ReverseArray,
+  GetMetaData,
+  TensorConstruct,
+  Select,
+  IndexSelect,
+  TorchGather,
+  Scatter,
+  RNG,
+  Reduction,
+  GroupedReduction,
+  Welford,
+  GroupedWelford,
+  LoadStore,
+  Mma,
+  Broadcast,
+  Squeeze,
+  Expand,
+  Shift,
+  Gather,
+  ViewAsScalar,
+  View,
+  Cat,
+  Pad,
+  Slice,
+}
+
 // =====================================================================================
 // Union definitions
 
@@ -125,6 +163,15 @@ union PolymorphicValueData {
   Scalar,
   ScalarCpu,
   TensorArg,
+}
+
+// The ValData union holds the attribute information for each Val class.
+union ValData {
+  IterDomain,
+  NamedScalar,
+  PolymorphicValue,
+  TensorDomain,
+  TensorView,
 }
 
 // =====================================================================================
@@ -162,9 +209,9 @@ table ScalarCpu {
 // However, only a metadata tensor is returned upon deserialization.
 // The ptr parameter is used to determine vectorization during scheduling.
 table TensorArg {
-  ptr : ulong;
-  sizes : [long];
-  strides : [long];
+  ptr: ulong;
+  sizes: [long];
+  strides: [long];
   dtype: long;
 }
 
@@ -207,21 +254,21 @@ table LaunchParams {
 // For output tensors, we use its position in the fusion outputs.
 // For intermediate tensors, we use its position in the KernelSummary global_allocations.
 table GlobalBufferInfo {
-  tv : long = -1;
-  sizes : [long];
-  strides : [long];
-  dtype : long;
-  zero_init : bool;
-  is_profile_buffer : bool;
-  is_fusion_output : bool;
+  tv: long = -1;
+  sizes: [long];
+  strides: [long];
+  dtype: long;
+  zero_init: bool;
+  is_profile_buffer: bool;
+  is_fusion_output: bool;
 }
 
 // This table describes the cached ExecutorEntry for a kernel.
 table ExecutorEntry {
-  init : bool;
-  launch_params : LaunchParams;
-  outputs : [GlobalBufferInfo];
-  intermediates : [GlobalBufferInfo];
+  init: bool;
+  launch_params: LaunchParams;
+  outputs: [GlobalBufferInfo];
+  intermediates: [GlobalBufferInfo];
 }
 
 // =====================================================================================
@@ -328,6 +375,154 @@ table Vector {
 // =====================================================================================
 //
 
+table NamedScalar {
+  name: string;
+}
+
+table IterDomain {
+  start_val: long;
+  extent_val: long;
+  expanded_extent_val: long;
+  stop_offset_val: long;
+  parallel_type_enum: long;
+  iter_type_enum: long;
+  is_rfactor_domain: bool;
+  is_padded_dimension: bool;
+  padded_to_size: long;
+  is_mma_swizzled: bool;
+}
+
+table TensorDomain {
+  root_domain: [IterDomain];
+  rfactor_domain: [IterDomain];
+  allocation_domain: [IterDomain];
+  leaf_domain: [IterDomain];
+  contiguity: [Contiguity];
+}
+
+table TensorView {
+  domain: TensorDomain;
+  compute_at_pos: ulong;
+  max_producer_pos_:  ulong;
+  memory_type_enum: long;
+  is_double_buffered: bool;
+  is_circular_buffered: bool;
+  circular_buffer_stage: ulong;
+  cpu_scalar: bool;
+  has_swizzle_op: bool;
+  compute_with_consumers: [long];
+  compute_with_pos: ulong;
+  maybe_max_producer_pos: ulong;
+  promote_reuse: bool;
+}
+
+table Val {
+  dtype_enum: long;
+  is_fusion_input: bool;
+  is_fusion_output: bool;
+  definition_expr: long;
+  uses_expr: [long];
+  evaluator_index: int;
+  data: ValData;
+}
+
+table Expr {
+  type: ExprType;
+  input_vals: [long];
+  output_vals: [long];
+  attributes_vals: [long];
+  data_attributes: [PolymorphicValue];
+}
+
+table IrContainer {
+  vals: [Val];
+  exprs: [Expr];
+  val_type_name_map_keys: long;
+  val_type_name_map_values: ulong;
+  expr_name_counter: ulong;
+  axioms: [long];
+  metadata_keys: [long];
+  metadata_values_lhs: [long];
+  metadata_values_rhs: [long];
+}
+
+table AliasInfo {
+  value: long;
+  alias_type_enum: long;
+  hide_output: bool;
+}
+
+// Map from index of tensor to permutation
+table Permutation {
+  key: int;
+  value: [long];
+}
+
+// Managed Data is not supported
+table Fusion {
+  // Fusion inputs and outputs Val
+  inputs_vals: [long];
+  outputs_vals: [long];
+
+  // I/O alias pointing from output to input
+  io_alias_keys: [long];
+  io_alias_values: [AliasInfo];
+
+  permuted_input_map: [Permutation];
+  permuted_output_map: [Permutation];
+
+  // Records if the current use data in the IR nodes are valid
+  //  the states are either all valid or all invalid
+  all_tv_uses_valid: bool;
+  is_during_update_uses: bool;
+}
+
+// Table represents kir::Allocate node
+table AllocateBuffer {
+  tv: long;
+  shape: [long];
+  zero_init: bool;
+}
+
+// This table stores the KernelSummary value necessary for running compiled fusion.
+table KernelSummary {
+  has_cooperative_grid_reduction: bool;
+  has_dynamic_local_memory_allocations: bool;
+  has_block_reductions: bool;
+  has_grid_reductions: bool;
+  has_block_broadcasts: bool;
+  has_grid_broadcasts: bool;
+  has_block_welford: bool;
+  has_grid_welford: bool;
+  has_outer_grouped_grid_welford: bool;
+  largest_smem_data_type: long;
+  outer_grouped_grid_welford_largest_smem_size: int = 0;
+  global_allocations: [AllocateBuffer];
+  dynamic_smem_allocations: [AllocateBuffer];
+  static_smem_allocations: [AllocateBuffer];
+}
+
+table Kernel {
+  fusion: Fusion;
+  top_level_exprs: [long];
+  summary: KernelSummary;
+
+  // Is this kernel being compiled with int32 or int64 indexing?
+  index_type: long;
+
+  // Parameters of the kernel. The parameters contain the inputs and outputs of
+  // the kernel, intermediate buffers, and special items such as RNG state and
+  // tensor map for TMA support, etc. The parameters are not required to have no
+  // definition. If a parameter has a definition, its definition will be
+  // evaluated before the kernel is executed.
+  parameters: [long];
+
+  // Data members for WarpPaddedParallelInfo
+  is_tidx_padded: bool;
+  is_tidx_single_warp: bool;
+  has_warp_reduction: bool;
+}
+
 // Each CudaKernel represents a single, compiled kernel.
 table CudaKernel {
   kernel_name: string;
@@ -357,7 +552,7 @@ table FusionExecutor {
   executor_entry_lookup_keys: [ulong];
   executor_entry_lookup_values: [ExecutorEntry];
   // Is this kernel being compiled with int32 or int64 indexing?
-  index_type : long;
+  index_type: long;
   compiled_kernel: CudaKernel;
 }
 
