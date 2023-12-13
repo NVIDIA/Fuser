@@ -524,21 +524,6 @@ TEST_P(HopperSS, SingleTile) {
   auto inputs = matmulAtInput(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  inputs.first.zero_();
-  for (auto i : c10::irange(inputs.first.size(0))) {
-    for (auto j : c10::irange(inputs.first.size(1))) {
-      inputs.first[i][j] = i * inputs.first.size(1) + j;
-    }
-  }
-  inputs.second.zero_();
-  for (auto i : c10::irange(inputs.second.size(0))) {
-    for (auto j : c10::irange(inputs.second.size(1))) {
-      if (i == j) {
-        inputs.second[i][j] = 1;
-      }
-    }
-  }
-
   FusionExecutor fe;
   fe.compileFusion(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
