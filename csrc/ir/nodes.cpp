@@ -1729,8 +1729,8 @@ std::vector<PolymorphicValue> WelfordOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   NVF_ERROR(
-      hasInit(),
-      "Evaluation for WelfordOp is not implemented for non-empty initial values.")
+      !hasInit(),
+      "Evaluation for WelfordOp is not implemented for non-empty initial values.");
   const auto& in_tensor = inputs.at(0).as<at::Tensor>();
   const auto out_tv = out()->as<TensorView>();
   NVF_ERROR(
