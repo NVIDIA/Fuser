@@ -739,4 +739,20 @@ TEST_F(AliasTest, DuplicateInputs) {
           testing::HasSubstr("duplicated inputs is not allowed")));
 }
 
+TEST_F(AliasTest, Squeeze) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const std::vector<int64_t> in_shape({2, 3, 1});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  fusion.addInput(in);
+  TensorView* out = squeeze(in, std::vector<bool>({false, false, true}));
+  fusion.addOutput(out);
+
+  optimization::AliasAnalysisResult alias_analysis =
+      optimization::findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.getAliasedInput(out), in);
+}
+
 } // namespace nvfuser

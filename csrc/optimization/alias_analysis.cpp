@@ -38,6 +38,7 @@ class AliasFinder : public OptOutConstDispatch {
   void handle(const ViewOp* view) override;
   void handle(const LoadStoreOp* ldst) override;
   void handle(const SliceOp* slice) override;
+  void handle(const SqueezeOp* squeeze) override;
 
  private:
   AliasAnalysisResult& analysis_;
@@ -329,6 +330,46 @@ void AliasFinder::handle(const SliceOp* slice) {
     }
   }
 
+  analysis_.add(out, in, std::move(out_layout));
+}
+
+void AliasFinder::handle(const SqueezeOp* squeeze) {
+  TensorView* in = dynamic_cast<TensorView*>(squeeze->in());
+  TensorView* out = dynamic_cast<TensorView*>(squeeze->out());
+
+  const std::vector<IterDomain*>& in_rfactor = in->getMaybeRFactorDomain();
+  const std::vector<IterDomain*>& out_root = out->getRootDomain();
+  const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
+
+  std::unordered_map<IterDomain*, IterDomain*> in_rfactor_to_out_root =
+      PairwiseRootDomainMap(in, out).mapBroadcast(true).mapProducerToConsumer();
+
+  const auto out_rank = out_rfactor.size();
+  std::unordered_map<IterDomain*, IterDomain*> out_root_to_rfactor;
+  out_root_to_rfactor.reserve(out_rank);
+  for (auto i : c10::irange(out_rank)) {
+    out_root_to_rfactor[out_root[i]] = out_rfactor[i];
+  }
+
+  Layout in_layout = analysis_.preferredLayout(in);
+  if (!ir_utils::computePermutation(in_rfactor, in_layout.allocation_domain)
+           .has_value()) {
+    // Give up when `in`'s allocation domain is not an rfactor permutation.
+    return;
+  }
+
+  // Inherit the allocation order and contiguity flags from the input.
+  Layout out_layout;
+  for (const auto i : c10::irange(in_layout.allocation_domain.size())) {
+    IterDomain* in_allocation_id = in_layout.allocation_domain[i];
+    if (!in_rfactor_to_out_root.count(in_allocation_id)) {
+      // `in_allocation_id` is a reduction product.
+      continue;
+    }
+    out_layout.allocation_domain.push_back(
+        in_rfactor_to_out_root.at(in_allocation_id));
+    out_layout.contiguity.push_back(in_layout.contiguity[i]);
+  }
   analysis_.add(out, in, std::move(out_layout));
 }
 
