@@ -638,10 +638,10 @@ void IndexLowering::handleSerialGridReduction(
   NVF_ERROR(!rop->isAllreduce(), "Serial grid allReduce is not implemented");
 
   // Allocate global work buffer TensorIndex.
+  //
   // The global work buffer will look just like the reduction output, and be
-  // scheduled the same, including reduction axes, it is not
-  // inlined, and it resides in global memory. Since it is not inlined it will
-  // use a global index
+  // scheduled the same way, including reduction axes. However, it is not
+  // inlined and it resides in global memory.
   std::vector<IterDomain*> work_buffer_ids;
   for (auto id : out_tv->getRootDomain()) {
     // Clone output root without reductions as work buffer root domain
