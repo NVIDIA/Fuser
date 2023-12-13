@@ -663,10 +663,14 @@ void IndexLowering::handleSerialGridReduction(
     }
     return result_index;
   };
+
   Val* work_buffer_idx_val =
       sumVals(Index::getGlobalConsumerStridedIndices(out_tv, for_loops_, {}));
-  auto work_buffer_idx =
-      IrBuilder::create<kir::TensorIndex>(work_buffer_tv, work_buffer_idx_val);
+
+  auto work_buffer_idx = IrBuilder::create<kir::TensorIndex>(
+      work_buffer_tv,
+      GpuLower::current()->commonScalarMap().hoistScalar(
+          work_buffer_idx_val, for_loops_));
 
   auto work_alloc = IrBuilder::create<kir::Allocate>(
       work_buffer_tv, work_buffer_tv->getMemoryType());
