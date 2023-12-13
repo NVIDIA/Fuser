@@ -274,6 +274,11 @@ inline bool isIntegralType(DataType dtype) {
       dtype.type);
 }
 
+// Returns if the datatype is an unsigned integer type
+inline bool isUnsignedIntegralType(DataType dtype) {
+  return dtype == DataType::UInt || dtype == DataType::UInt32;
+}
+
 // Returns if the datatype is a pointer type
 inline bool isPointerType(DataType dtype) {
   return std::holds_alternative<PointerType>(dtype.type) ||
@@ -755,6 +760,7 @@ enum class DoubleBufferLoopStage { NotApplicable, Prolog, Main, Epilog };
 //!
 //!  TODO: unify with existing swizzle logic, currently
 //!    doesn't have the same type.
+enum class SwizzleType { NoSwizzle = 0, XOR };
 enum class Swizzle2DType { NoSwizzle = 0, ZShape, XOR, CyclicShift };
 
 //! Modes of swizzle, see [Note on swizzle mode].
@@ -889,6 +895,7 @@ std::ostream& operator<<(std::ostream&, const IterType);
 std::ostream& operator<<(std::ostream&, const IdMappingMode);
 std::ostream& operator<<(std::ostream&, const LoadStoreOpType);
 std::ostream& operator<<(std::ostream&, const DoubleBufferLoopStage);
+std::ostream& operator<<(std::ostream&, const SwizzleType&);
 std::ostream& operator<<(std::ostream&, const Swizzle2DType&);
 std::ostream& operator<<(std::ostream&, const SwizzleMode&);
 std::ostream& operator<<(std::ostream&, const KernelIndexMode&);
