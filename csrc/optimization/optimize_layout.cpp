@@ -7,7 +7,6 @@
 // clang-format on
 #include <debug.h>
 #include <ir/utils.h>
-#include <ops/alias.h>
 #include <optimization/alias_analysis.h>
 #include <optimization/optimize_layout.h>
 #include <options.h>
@@ -24,18 +23,22 @@ void OptimizeLayoutPass::runPass(Fusion* fusion) {
     debug() << analysis.toString(/*indent_size=*/1) << std::endl;
   }
 
-  std::vector<TensorView*> root_outs;
-  root_outs.reserve(fusion->outputs().size());
+  // Fusion outputs that are (1) aliased by others and (2) not aliases
+  // themselves. We will later add `segment_set` before them so aliases are
+  // separated from non-aliases and more likely to be accepted by the no-op
+  // scheduler.
+  std::vector<TensorView*> aliased_outs;
+  aliased_outs.reserve(fusion->outputs().size());
 
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    TensorView* in = analysis.getAliasedInput(out);
-    if (in == nullptr) {
+    TensorView* aliased_io = analysis.getNearestAliasedIo(out);
+    if (aliased_io == nullptr) {
       continue;
     }
 
-    if (in->isFusionOutput()) {
-      root_outs.push_back(in);
+    if (aliased_io->isFusionOutput()) {
+      aliased_outs.push_back(aliased_io);
     }
 
     // We already checked it's compatible; no need to change.
@@ -58,26 +61,46 @@ void OptimizeLayoutPass::runPass(Fusion* fusion) {
     }
   }
 
-  for (TensorView* root_out : root_outs) {
-    // Rarely, if `root_out` is already defined by `segment_set`, don't replace
-    // it with another `segment_set`.
-    if (LoadStoreOp* def = dynamic_cast<LoadStoreOp*>(root_out->definition())) {
+  for (TensorView* aliased_out : aliased_outs) {
+    // Rarely, if `aliased_out` is already defined by `segment_set`, don't
+    // create another `segment_set`.
+    if (LoadStoreOp* def =
+            dynamic_cast<LoadStoreOp*>(aliased_out->definition())) {
       if (def != nullptr && def->opType() == LoadStoreOpType::SegmenterSet) {
         continue;
       }
     }
 
-    TensorView* new_root_out = segment_set(root_out);
-    if (root_out->hasAllocation()) {
-      new_root_out->setAllocationDomain(
-          root_out->getAllocationDomain(), root_out->getContiguity());
-    }
-    fusion->replaceOutput(root_out, new_root_out);
-    for (Expr* use : root_out->uses()) {
-      if (use != new_root_out->definition()) {
-        ir_utils::replaceValInExprInputs(use, root_out, new_root_out);
-      }
-    }
+    // This is suboptimal in many uncommon cases. My head hurts when thinking
+    // about them, so go simple for now :)
+    //
+    // Legend:
+    //   M* = a meta op defining a **fusion output**
+    //   N/M = a non-meta op defining a **fusion output**
+    //
+    // Case 1:
+    //
+    //   N/M -> N/M
+    //      |
+    //      -->  M
+    //
+    // We should put a `segment_set` on the **edge** from N/M to M, so the two
+    // `N/M`s go to the same kernel.
+    //
+    // Case 2:
+    //
+    //   N/M -> M1 -> M2
+    //           |
+    //           --> N/M
+    //
+    // We should change it to
+    //
+    //   N/M -> M1 -> M2
+    //      |
+    //      --> M1' (non-output copy of M1) -> N/M
+    //
+    // and then put a `segment_set` on N/M->M1.
+    aliased_out->cacheBefore(LoadStoreOpType::SegmenterSet);
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {

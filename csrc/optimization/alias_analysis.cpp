@@ -351,20 +351,18 @@ void AliasAnalysisResult::add(
       i->second.first->toString());
 }
 
-TensorView* AliasAnalysisResult::findRoot(TensorView* alias) const {
-  TensorView* root = alias;
+TensorView* AliasAnalysisResult::findNearestAliasedIo(
+    TensorView* fusion_out) const {
+  TensorView* root = fusion_out;
   do {
     const auto i = alias_to_source_.find(root);
     root = (i == alias_to_source_.end() ? nullptr : i->second.first);
   } while (root != nullptr && !root->isFusionInput() &&
            !root->isFusionOutput());
-  if (root == nullptr) {
-    return alias;
-  }
   return root;
 }
 
-TensorView* AliasAnalysisResult::getAliasedInput(
+TensorView* AliasAnalysisResult::getNearestAliasedIo(
     const TensorView* fusion_out) const {
   const auto i = out_to_root_.find(fusion_out);
   return i == out_to_root_.end() ? nullptr : i->second;
@@ -387,8 +385,8 @@ void AliasAnalysisResult::finalize(
     const bool can_override_empty_allocation_domain) {
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    TensorView* root = findRoot(out);
-    if (root == out) {
+    TensorView* root = findNearestAliasedIo(out);
+    if (root == nullptr) {
       continue;
     }
 

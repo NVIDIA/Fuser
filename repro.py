@@ -2,12 +2,19 @@ import torch
 from nvfuser import FusionDefinition, DataType
 
 
-def nvfuser_fusion_id23(fd : FusionDefinition) -> None :
+def nvfuser_fusion_id23(fd: FusionDefinition) -> None:
     S0 = fd.define_scalar(None, dtype=DataType.Double)
     S1 = fd.define_scalar(None, dtype=DataType.Double)
     S2 = fd.define_scalar(None, dtype=DataType.Double)
-    T3 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
-    T4 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True], dtype=DataType.BFloat16, is_cpu=False)
+    T3 = fd.define_tensor(
+        shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False
+    )
+    T4 = fd.define_tensor(
+        shape=[-1, -1, -1],
+        contiguity=[True, True, True],
+        dtype=DataType.BFloat16,
+        is_cpu=False,
+    )
     T5 = fd.ops.cast(T4, dtype=DataType.Float)
     T6 = fd.ops.mul(T5, T5)
     T7 = fd.ops.mul(T6, T5)
@@ -64,11 +71,14 @@ if __name__ == "__main__":
     with FusionDefinition() as fd:
         nvfuser_fusion_id23(fd)
 
-    out0, out1, _ = fd.execute([
-        1.0,
-        1.0,
-        1.0,
-        torch.randn([16 * 128, 3072], dtype=torch.bfloat16).cuda(),
-        torch.randn([16, 128, 3072], dtype=torch.bfloat16).cuda()])
+    out0, out1, _ = fd.execute(
+        [
+            1.0,
+            1.0,
+            1.0,
+            torch.randn([16 * 128, 3072], dtype=torch.bfloat16).cuda(),
+            torch.randn([16, 128, 3072], dtype=torch.bfloat16).cuda(),
+        ]
+    )
     print(out0.data_ptr())
     print(out1.data_ptr())

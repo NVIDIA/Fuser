@@ -194,19 +194,20 @@ class ArgumentManager {
 
     for (const size_t group_out_i : c10::irange(group_outputs.size())) {
       Val* output = group_outputs[group_out_i];
-      PolymorphicValue group_runtime_output;
-      if constexpr (std::is_pointer_v<
-                        decltype(group_runtime_outputs[group_out_i])>) {
-        group_runtime_output = *group_runtime_outputs[group_out_i];
-      } else {
-        group_runtime_output = group_runtime_outputs[group_out_i];
-      }
       const PolymorphicValue*& runtime_output = tensor_map_[output];
       if (runtime_output != nullptr) {
         // A trivial forwarding output or a dupliated output shares the same
         // `Val*` as another fusion input/output. In those cases, we keep
         // mapping it to the same runtime output.
         continue;
+      }
+
+      PolymorphicValue group_runtime_output;
+      if constexpr (std::is_pointer_v<
+                        decltype(group_runtime_outputs[group_out_i])>) {
+        group_runtime_output = *group_runtime_outputs[group_out_i];
+      } else {
+        group_runtime_output = group_runtime_outputs[group_out_i];
       }
       fusion_args_.push(std::move(group_runtime_output));
       runtime_output = fusion_args_.back();

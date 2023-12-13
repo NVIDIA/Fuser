@@ -46,7 +46,7 @@ TEST_F(AliasAnalysisTest, View_SymbolicTensor) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getAliasedInput(out), in);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 }
 
 TEST_F(AliasAnalysisTest, ChainOfViews) {
@@ -65,7 +65,7 @@ TEST_F(AliasAnalysisTest, ChainOfViews) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getAliasedInput(out), in);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 }
 
 TEST_F(AliasAnalysisTest, View_Contiguous) {
@@ -82,7 +82,7 @@ TEST_F(AliasAnalysisTest, View_Contiguous) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getAliasedInput(out), in);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
   optimization::Layout preferred_layout = alias_analysis.preferredLayout(out);
   EXPECT_THAT(
       preferred_layout.allocation_domain,
@@ -108,7 +108,7 @@ TEST_F(AliasAnalysisTest, View_MergeNonContiguous) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getAliasedInput(out), nullptr);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), nullptr);
 }
 
 TEST_F(AliasAnalysisTest, Set) {
@@ -124,7 +124,7 @@ TEST_F(AliasAnalysisTest, Set) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getAliasedInput(out), in);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 
   const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
   EXPECT_THAT(
@@ -145,7 +145,7 @@ TEST_F(AliasAnalysisTest, Permute) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getAliasedInput(out), in);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 
   const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
   EXPECT_THAT(
@@ -174,7 +174,7 @@ TEST_F(AliasAnalysisTest, View_SplitExpandedBroadcast) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getAliasedInput(out), nullptr);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), nullptr);
 }
 
 TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
@@ -194,7 +194,7 @@ TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getAliasedInput(out), in);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 
   // Verify the last dimension isn't expanded physically.
   FusionExecutor fe;
@@ -223,7 +223,7 @@ TEST_F(AliasAnalysisTest, View_MergeExpandedBroadcast) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getAliasedInput(out), nullptr);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), nullptr);
 }
 
 TEST_F(AliasAnalysisTest, TrivialSlice) {
@@ -238,7 +238,7 @@ TEST_F(AliasAnalysisTest, TrivialSlice) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getAliasedInput(out), in);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 }
 
 TEST_F(AliasAnalysisTest, MergeTriviallySlicedDimensions) {
@@ -253,7 +253,7 @@ TEST_F(AliasAnalysisTest, MergeTriviallySlicedDimensions) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getAliasedInput(out), in);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 }
 
 TEST_F(AliasAnalysisTest, MergeSlicedDimensions) {
@@ -268,7 +268,7 @@ TEST_F(AliasAnalysisTest, MergeSlicedDimensions) {
 
   optimization::AliasAnalysisResult alias_analysis =
       optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.getAliasedInput(out), nullptr);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), nullptr);
 }
 
 using AliasTest = NVFuserTest;
@@ -841,6 +841,39 @@ TEST_F(AliasTest, OutputAliasesAnotherOutput) {
   at::Tensor reshape_out_tensor = out_tensors[0];
   at::Tensor permute_out_tensor = out_tensors[1];
   EXPECT_TRUE(permute_out_tensor.is_alias_of(reshape_out_tensor));
+}
+
+TEST_F(AliasTest, ManyOutputToOutputAliases) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  TensorView* add_out = add(in, in);
+  TensorView* reshape_out = reshape(add_out, {2, 3, 5}, {6, 5});
+  TensorView* permute_out = permute(reshape_out, {1, 0});
+  TensorView* slice_out = slice(reshape_out, {0, 0}, {6, 4});
+
+  fusion->addInput(in);
+  // I intentionally add the output out of order to execise sorting in
+  // `allocateOutputs`.
+  fusion->addOutput(slice_out);
+  fusion->addOutput(permute_out);
+  fusion->addOutput(reshape_out);
+  fusion->addOutput(add_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+  ASSERT_EQ(out_tensors.size(), 4);
+  at::Tensor slice_out_tensor = out_tensors[0];
+  at::Tensor permute_out_tensor = out_tensors[1];
+  at::Tensor reshape_out_tensor = out_tensors[2];
+  at::Tensor add_out_tensor = out_tensors[3];
+
+  EXPECT_EQ(add_out_tensor.data_ptr(), slice_out_tensor.data_ptr());
+  EXPECT_EQ(add_out_tensor.data_ptr(), permute_out_tensor.data_ptr());
+  EXPECT_EQ(add_out_tensor.data_ptr(), reshape_out_tensor.data_ptr());
 }
 
 } // namespace nvfuser
