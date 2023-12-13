@@ -802,7 +802,9 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
       // TODO: Should this just get rolled up in the forwarding map now?
       for (const auto& entry : permissive_forwarding.producer_compliment_map) {
         for (auto entry_2 : entry.second) {
-          idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry_2);
+          if (getenv("COMP")) {
+            idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry_2);
+          }
         }
       }
 
@@ -814,7 +816,9 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
       // TODO: Why should IDs be mapped to their compliments? Is this right?
       for (const auto& entry : permissive_forwarding.consumer_compliment_map) {
         for (auto entry_2 : entry.second) {
-          idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry_2);
+          if (getenv("COMP")) {
+            idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry_2);
+          }
         }
       }
 
