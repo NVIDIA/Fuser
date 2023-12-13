@@ -327,6 +327,7 @@ class TensorView : public Val {
 
   //! Swizzle the rectangular tile defined by the iterdomains corresponding
   //!  to the 2 given indices.
+  TensorView* swizzle(SwizzleType swizzle_type, int x, int y);
   TensorView* swizzle(
       Swizzle2DType swizzle_type,
       int x,
