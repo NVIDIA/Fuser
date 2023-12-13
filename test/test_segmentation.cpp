@@ -44,14 +44,10 @@ TEST_F(SegmentationTest, Issue1284_Repro1) {
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
-  auto t1 = at_in_1 + 2;
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
 
-  auto runtime = fec.getMostRecentKernelRuntime();
-  NVF_ERROR(runtime->isSegmented());
-  NVF_ERROR(runtime->fusionSegments()->groups().size() == 2);
-
-  testValidate(
-      &fusion, outputs, {at_in_0, at_in_1}, {at_in_0, t1}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {at_in_0, at_in_1}, __LINE__, __FILE__);
 }
 
 TEST_F(SegmentationTest, Issue1284_Repro2) {
@@ -87,20 +83,11 @@ TEST_F(SegmentationTest, Issue1284_Repro2) {
   FusionExecutorCache fec(std::move(fusion_ptr));
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
-  auto t0 = at_in_0 + at_in_1;
-  auto t1 = at_in_0 + at_in_2;
-
-  auto runtime = fec.getMostRecentKernelRuntime();
-  NVF_ERROR(runtime->isSegmented());
-  NVF_ERROR(runtime->fusionSegments()->groups().size() == 2);
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
 
   testValidate(
-      &fusion,
-      outputs,
-      {at_in_0, at_in_1, at_in_2},
-      {t0, t1},
-      __LINE__,
-      __FILE__);
+      &fusion, outputs, {at_in_0, at_in_1, at_in_2}, __LINE__, __FILE__);
 }
 
 // Test forced segmentation hint
@@ -122,27 +109,47 @@ TEST_F(SegmentationTest, SegmenterHint) {
   at::Tensor at_x = at::randn(input_shape, options);
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs({at_x});
-  auto ref_out = at_x.clone().relu().neg();
 
-  auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  const std::vector<SegmentedGroup*>& groups =
+      runtime->fusionSegments()->groups();
+  EXPECT_EQ(groups.size(), 2) << "Segmentation hint isn't working as expected";
 
-  NVF_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen");
-  auto groups = optimized_fusion->fusionSegments()->groups();
-  NVF_CHECK(groups.size() == 2, "segmentation hint isn't working as expected");
   // with the hint, segment_set should be grouped with its producer
   // [relu, segment_set], [neg]
   for (auto& group : groups) {
     // we only check the group with a single node
     if (group->exprs().size() == 1) {
       auto relu_expr = group->exprs()[0];
-      NVF_CHECK(
+      EXPECT_TRUE(
           relu_expr->isA<UnaryOp>() &&
-              relu_expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Neg,
-          "segmentation result is not expected");
+          relu_expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Neg)
+          << "segmentation result is not expected";
     }
   }
-  testValidate(
-      executor_cache.fusion(), outputs, {at_x}, {ref_out}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, {at_x}, __LINE__, __FILE__);
+}
+
+TEST_F(SegmentationTest, SegmentHintOnNonTerminatingOutput) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* add_out = add(in, in);
+  add_out = segment_set(add_out);
+  TensorView* mul_out = mul(add_out, add_out);
+
+  fusion->addInput(in);
+  fusion->addOutput(add_out);
+  fusion->addOutput(mul_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
 }
 
 } // namespace nvfuser
