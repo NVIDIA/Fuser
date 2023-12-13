@@ -854,11 +854,11 @@ void WarpMmaSwizzler::scheduleOperandRead(
     if (transpose2) {
       tv->reorder({{-2, -1}, {-4, -3}});
       // [Mo, Ko, M8, K8]
-      tv->split(-2, 8 / swizzle_size);
-      tv->split(-1, 8 / swizzle_size);
+      // tv->split(-2, 8 / swizzle_size);
+      // tv->split(-1, 8 / swizzle_size);
       // For example swizzle_size = 2
       // [Ko, Mo, K2, K4, M2, M4]
-      tv->swizzle(SwizzleType::XOR, -4, -2);
+      // tv->swizzle(SwizzleType::XOR, -4, -2);
     } else {
       // Note: the extent of Mo may not be a multiple of swizzle_size, but we
       // still split swizzle_size. If this is the case, effectively we are
