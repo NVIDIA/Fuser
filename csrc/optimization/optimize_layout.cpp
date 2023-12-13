@@ -22,7 +22,7 @@ void OptimizeLayoutPass::runPass(Fusion* fusion) {
 
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    const TensorView* in = analysis.getAliasedInput(out);
+    TensorView* in = analysis.getAliasedInput(out);
     if (in == nullptr) {
       continue;
     }
