@@ -839,31 +839,28 @@ void WarpMmaSwizzler::scheduleOperandRead(
     // [Ko, K8, Mo, M8]
     tv->reorder({{-2, -3}});
     // [Ko, Mo, K8, M8]
-  } else if (swizzle == MmaInputSmemSwizzle::B128) {
-    NVF_ERROR(false, "Not implemented yet");
-  } else if (swizzle == MmaInputSmemSwizzle::B64) {
-    NVF_ERROR(false, "Not implemented yet");
-  } else if (swizzle == MmaInputSmemSwizzle::B32) {
-    // For example [K, M]
+  } else {
+    auto swizzle_size = getBytesFromSwizzle(swizzle) / 16;
+    // For example, [K, M]
     tv->split(-2, 8);
     tv->split(-1, 8);
     // [Ko, K8, Mo, M8]
     tv->reorder({{-2, -3}});
     // [Ko, Mo, K8, M8]
-    // Note: the extent of Mo may not be a multiple of 2, but we still split 2.
-    // If this is the case, effectively we are padding it to a multiple of 2.
-    tv->split(-3, 2);
+    // Note: the extent of Mo may not be a multiple of swizzle_size, but we
+    // still split swizzle_size. If this is the case, effectively we are padding
+    // it to a multiple of swizzle_size.
+    tv->split(-3, swizzle_size);
+    // For example, swizzle_size = 2
     // [Ko, Moo, Mo2, K8, M8]
     tv->reorder({{-2, -3}});
     // [Ko, Moo, K8, Mo2, M8]
-    tv->split(-3, 4);
+    tv->split(-3, 8 / swizzle_size);
     // [Ko, Moo, K2, K4, Mo2, M8]
     tv->swizzle(SwizzleType::XOR, -4, -2);
     tv->merge(-4);
     tv->merge(-3);
     // [Ko, Moo, KKMo16, M8]
-  } else {
-    NVF_ERROR(false, "Unsupported smem swizzle");
   }
   tv->setAllocationDomain(tv->getLeafDomain(), true);
 }
