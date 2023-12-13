@@ -413,18 +413,6 @@ class HopperSS : public HopperBase,
     if (swizzle_a == MmaInputSmemSwizzle::B32) {
       GTEST_SKIP() << "32B swizzle not supported yet";
     }
-
-    if (swizzle_b == MmaInputSmemSwizzle::B128) {
-      GTEST_SKIP() << "128B swizzle not supported yet";
-    }
-
-    if (swizzle_b == MmaInputSmemSwizzle::B64) {
-      GTEST_SKIP() << "64B swizzle not supported yet";
-    }
-
-    if (swizzle_b == MmaInputSmemSwizzle::B32) {
-      GTEST_SKIP() << "32B swizzle not supported yet";
-    }
   }
 };
 
