@@ -242,10 +242,6 @@ class HopperRS : public HopperBase,
     if (swizzle_b == MmaInputSmemSwizzle::B64) {
       GTEST_SKIP() << "64B swizzle not supported yet";
     }
-
-    if (swizzle_b == MmaInputSmemSwizzle::B32) {
-      GTEST_SKIP() << "32B swizzle not supported yet";
-    }
   }
 };
 
