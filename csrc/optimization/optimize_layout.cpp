@@ -5,9 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <alias_analysis.h>
 #include <debug.h>
 #include <ir/utils.h>
-#include <optimization/alias_analysis.h>
 #include <optimization/optimize_layout.h>
 #include <options.h>
 
@@ -53,7 +53,7 @@ void OptimizeLayoutPass::runPass(Fusion* fusion) {
       continue;
     }
 
-    const optimization::Layout preferred_layout = analysis.preferredLayout(out);
+    const Layout preferred_layout = analysis.preferredLayout(out);
     out->setAllocationDomain(
         preferred_layout.allocation_domain, preferred_layout.contiguity);
     if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {

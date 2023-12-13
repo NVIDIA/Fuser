@@ -8,16 +8,16 @@
 #include <unordered_map>
 #include <vector>
 
+#include <alias_analysis.h>
 #include <dispatch.h>
 #include <fusion.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
 #include <linked_hash_map.h>
-#include <optimization/alias_analysis.h>
 #include <root_domain_map.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser {
 
 namespace {
 
@@ -494,4 +494,4 @@ bool Layout::isCompliantWith(const Layout& required) const {
   return true;
 }
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser

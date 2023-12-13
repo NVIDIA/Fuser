@@ -6,8 +6,8 @@
  */
 // clang-format on
 
+#include <alias_analysis.h>
 #include <ir/utils.h>
-#include <optimization/alias_analysis.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/mark_aliases.h>
 #include <scheduler/no_op.h>
@@ -30,8 +30,8 @@ NoOpScheduler::NoOpScheduler(
 
 namespace {
 bool allOutputsArePointerArithmetics(Fusion* fusion) {
-  const optimization::AliasAnalysisResult analysis = optimization::findAliases(
-      fusion, /*can_override_empty_allocation_domain=*/false);
+  const AliasAnalysisResult analysis =
+      findAliases(fusion, /*can_override_empty_allocation_domain=*/false);
   auto out_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
   return std::all_of(
       out_tvs.begin(), out_tvs.end(), [&analysis](TensorView* out) {
