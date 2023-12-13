@@ -827,13 +827,10 @@ void WarpMmaSwizzler::scheduleOperandRead(
     TensorView* tv,
     MmaInputSmemSwizzle swizzle,
     bool transpose) {
+  if (transpose) {
+    tv->reorder({{-2, -1}});
+  }
   if (swizzle == MmaInputSmemSwizzle::None) {
-    if (transpose) {
-      // Note: for the no-swizzle case, imm-trans-a and imm-trans-b are ignored
-      // by the wgmma instruction. So we have to make sure the allocation domain
-      // has the same order as expected by the hardware.
-      tv->reorder({{-2, -1}});
-    }
     // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
     // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
     // memory. [K, M]
@@ -842,16 +839,30 @@ void WarpMmaSwizzler::scheduleOperandRead(
     // [Ko, K8, Mo, M8]
     tv->reorder({{-2, -3}});
     // [Ko, Mo, K8, M8]
-    tv->setAllocationDomain(tv->getLeafDomain(), true);
-  } else if (swizzle == MmaInputSmemSwizzle::B128) {
-    NVF_ERROR(false, "Not implemented yet");
-  } else if (swizzle == MmaInputSmemSwizzle::B64) {
-    NVF_ERROR(false, "Not implemented yet");
-  } else if (swizzle == MmaInputSmemSwizzle::B32) {
-    NVF_ERROR(false, "Not implemented yet");
   } else {
-    NVF_ERROR(false, "Unsupported smem swizzle");
+    auto swizzle_size = getBytesFromSwizzle(swizzle) / 16;
+    // For example, [K, M]
+    tv->split(-2, 8);
+    tv->split(-1, 8);
+    // [Ko, K8, Mo, M8]
+    tv->reorder({{-2, -3}});
+    // [Ko, Mo, K8, M8]
+    // Note: the extent of Mo may not be a multiple of swizzle_size, but we
+    // still split swizzle_size. If this is the case, effectively we are padding
+    // it to a multiple of swizzle_size.
+    tv->split(-3, swizzle_size);
+    // For example, swizzle_size = 2
+    // [Ko, Moo, Mo2, K8, M8]
+    tv->reorder({{-2, -3}});
+    // [Ko, Moo, K8, Mo2, M8]
+    tv->split(-3, 8 / swizzle_size);
+    // [Ko, Moo, K2, K4, Mo2, M8]
+    tv->swizzle(SwizzleType::XOR, -4, -2);
+    tv->merge(-4);
+    tv->merge(-3);
+    // [Ko, Moo, KKMo16, M8]
   }
+  tv->setAllocationDomain(tv->getLeafDomain(), true);
 }
 
 void WarpMmaSwizzler::scheduleMmaWarpOutput(TensorView* tv) {
