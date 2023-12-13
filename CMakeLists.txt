@@ -446,9 +446,12 @@ function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
 endfunction()
 
 if(BUILD_TEST)
+  set(TEST_BINARIES)
   add_test(${PROJECT_NAME}_tests "${JIT_TEST_SRCS}" "")
+  list(APPEND TEST_BINARIES ${PROJECT_NAME}_tests)
 
   add_test(test_rng ${NVFUSER_ROOT}/test/test_rng.cpp ${RNG_TEST_KERNELS})
+  list(APPEND TEST_BINARIES test_rng)
 
   set(MULTIDEVICE_TEST_SRCS)
   list(APPEND MULTIDEVICE_TEST_SRCS
@@ -457,8 +460,10 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_multidevice_communications.cpp
   )
   add_test(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
+  list(APPEND TEST_BINARIES test_multidevice)
 
   add_test(test_view "${NVFUSER_ROOT}/test/test_gpu_view.cpp" "")
+  list(APPEND TEST_BINARIES test_view)
 
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
@@ -468,12 +473,16 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
   )
   add_test(test_matmul "${MATMUL_TEST_SRCS}" "")
+  list(APPEND TEST_BINARIES test_matmul)
 
   add_test(test_external_src "${NVFUSER_ROOT}/test/test_external_src.cpp" "")
+  list(APPEND TEST_BINARIES test_external_src)
 
   add_test(test_shift "${NVFUSER_ROOT}/test/test_shift.cpp" "")
+  list(APPEND TEST_BINARIES test_shift)
 
   add_test(tutorial "${NVFUSER_ROOT}/test/test_tutorial.cpp" "")
+  list(APPEND TEST_BINARIES tutorial)
 
   if(BUILD_PYTHON)
     set(PY_FRONTEND_TEST_SRCS)
@@ -483,12 +492,16 @@ if(BUILD_TEST)
       ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp
     )
     add_test(test_python_frontend "${PY_FRONTEND_TEST_SRCS}" "")
+    list(APPEND TEST_BINARIES test_python_frontend)
   endif()
 
   # We don't link CUPTI for MSVC
   if(NOT MSVC)
     add_test(test_profiler "${NVFUSER_ROOT}/test/test_fusion_profiler.cpp" "")
+    list(APPEND TEST_BINARIES test_profiler)
   endif()
+
+  add_custom_target(tests DEPENDS ${TEST_BINARIES})
 endif()
 
 # -- build benchmark
