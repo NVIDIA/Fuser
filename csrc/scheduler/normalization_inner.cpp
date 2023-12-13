@@ -224,7 +224,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
 
   // when may do multi reductions per block (mrpb)
   // Ideally, reduction_numel_threshold depends on n_waves_max.
-  const int64_t mrpb_reduction_numel_threshold = has_rng_ops ? 1024l : 3072l;
+  const int64_t mrpb_reduction_numel_threshold = has_rng_ops ? 1024l : 1024l;
   const int64_t optimal_mrpb_threads_per_block = 128l;
   const int64_t mrpb_wave_threshold = 4l;
   const bool may_use_mrpb =
@@ -387,8 +387,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         return 0;
       };
       auto tails_score = -1 * compare(n_threads_tails, other.n_threads_tails);
-      auto register_adjust_score =
-          compare(n_adjusted_register, other.n_adjusted_register);
       auto register_usage = compare(
           warps_per_sm * nvrtc_register_per_thread,
           other.warps_per_sm * other.nvrtc_register_per_thread);
@@ -396,40 +394,24 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
           compare(bdimx_val == warp_size, other.bdimx_val == warp_size);
       std::cout << "tails_score:" << tails_score
                 << ", register_usage: " << register_usage
-                << ", register_adjust_score: " << register_adjust_score
                 << ", single_warp_reduction_score: "
                 << single_warp_reduction_score << std::endl;
-      if (false && register_adjust_score > 0) {
+      if (register_usage > 0) {
         return true;
-      } else if (false && register_adjust_score < 0) {
+      } else if (register_usage < 0) {
         return false;
       } else {
-        if (register_usage > 0) {
+        if (tails_score > 0) {
           return true;
-        } else if (register_usage < 0) {
+        } else if (tails_score < 0) {
           return false;
         } else {
-          if (tails_score > 0) {
+          if (single_warp_reduction_score > 0) {
             return true;
-          } else if (tails_score < 0) {
+          } else if (single_warp_reduction_score < 0) {
             return false;
           } else {
-            if (single_warp_reduction_score > 0) {
-              return true;
-            } else if (single_warp_reduction_score < 0) {
-              return false;
-            } else {
-              // score is same, further compare n_waves and persistent_val
-              auto this_time_cost = n_waves * persistent_val;
-              auto other_time_cost = other.n_waves * other.persistent_val;
-              if (false && this_time_cost < other_time_cost) {
-                return true;
-              } else if (false && this_time_cost > other_time_cost) {
-                return false;
-              } else {
-                return persistent_val > other.persistent_val;
-              }
-            }
+            return persistent_val > other.persistent_val;
           }
         }
       }
