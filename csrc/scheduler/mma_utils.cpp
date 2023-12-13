@@ -851,6 +851,9 @@ void WarpMmaSwizzler::scheduleOperandRead(
     // [Ko, K8, Mo, M8]
     tv->reorder({{-2, -3}});
     // [Ko, Mo, K8, M8]
+    if (transpose2) {
+      tv->reorder({{-2, -1}});
+    }
     // Note: the extent of Mo may not be a multiple of swizzle_size, but we
     // still split swizzle_size. If this is the case, effectively we are padding
     // it to a multiple of swizzle_size.
