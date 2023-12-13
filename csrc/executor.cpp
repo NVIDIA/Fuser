@@ -556,6 +556,25 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
   return {concrete_sizes, strides};
 }
 
+// Infer the shape of an intemediate tensor using kir::Allocate. This
+// is not ideal but still necessary when tensors are expanded with halo
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
+    const TensorView* tv,
+    const kir::Allocate* alloc,
+    ExpressionEvaluator& expr_eval) {
+  // The allocation domain represents the logical allocation domain,
+  // bu its actual allocation size may be different, e.g., for
+  // supporting halo accesses. The actual size is currently computed
+  // when creating the Allocate expr.
+  NVF_ERROR(alloc != nullptr);
+  const auto& symbolic_sizes = alloc->shape();
+  // For intermediate tensors, we just need to allocate a memory chunk
+  // of the specified size. Broadcast expansion does not need to be considered.
+  const auto expand_flags = std::vector<bool>(symbolic_sizes.size(), false);
+
+  return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+}
+
 // Infer the sizes and strides of an output tensor
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     const TensorView* tv,
@@ -1208,7 +1227,20 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     GlobalBufferInfo info;
     info.tv = tv;
     info.zero_init = alloc->zeroInit();
-    std::tie(info.sizes, info.strides) = inferShapeOfOutput(tv, expr_eval);
+    // TODO: Allocation size needs to consider both expanded domains
+    // as well as halo. Currently, allocation of tensors with halo is
+    // only supported by inferShapeOfIntermediate, whereas expanded
+    // domains are only supported by inferShapeOfOutput. Until the
+    // halo support is revisited, use the former for all tensors
+    // unless expanded and the latter otherwise. This assumes there's
+    // no expanded domains with halo, which is fine for now.
+    const auto has_expanded_domains = std::any_of(
+        tv->getMaybeAllocationDomain().begin(),
+        tv->getMaybeAllocationDomain().end(),
+        [](IterDomain* id) { return id->hasExpandedExtent(); });
+    std::tie(info.sizes, info.strides) = has_expanded_domains
+        ? inferShapeOfOutput(tv, expr_eval)
+        : inferShapeOfIntermediate(tv, alloc, expr_eval);
     auto dtype = (tv->dtype() == DataType::Index ? index_type : tv->dtype());
     info.type = data_type_to_aten(dtype);
 
