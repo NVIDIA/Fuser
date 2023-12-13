@@ -1474,6 +1474,7 @@ void IndexLowering::handle(const MmaOp* mma) {
     // smem.
     auto tv = mma->inA()->as<TensorView>();
     auto base_addr = IrBuilder::baseAddressExpr(tv);
+    auto swizzle = getSwizzleMode(tv);
     int64_t stride_bytes =
         8L * getBytesFromSwizzle(swizzle); // swizzle period in bytes
     int64_t leading_bytes = /*8x8 items each core matrix*/ 64L *
