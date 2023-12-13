@@ -15,6 +15,7 @@
 #include <options.h>
 #include <predicate_compute.h>
 #include <transform_iter.h>
+#include <transform_replay.h>
 
 #include <device_lower/pass/index.h>
 
@@ -674,8 +675,10 @@ void IndexLowering::handleSerialGridReduction(
   NVF_ERROR(!rop->isAllreduce(), "Serial grid allReduce is not implemented");
 
   // Allocate global work buffer TensorIndex.
-  // The output index should look just like the reduction output, and be
-  // scheduled the same, except it should have no reduction axes.
+  // The global work buffer will look just like the reduction output, and be
+  // scheduled the same, except it should have no reduction axes, it is not
+  // inlined, and it resides in global memory. Since it is not inlined it will
+  // use a global index
   std::vector<IterDomain*> work_buffer_ids;
   for (auto id : TensorDomain::noReductions(out_tv->getRootDomain())) {
     // Clone output root without reductions as work buffer root domain
@@ -683,18 +686,18 @@ void IndexLowering::handleSerialGridReduction(
   }
   const auto work_buffer_root_domain =
       IrBuilder::create<TensorDomain>(work_buffer_ids);
-  const auto work_buffer_tv = IrBuilder::create<TensorView>(
+  auto work_buffer_tv = IrBuilder::create<TensorView>(
       work_buffer_root_domain, out_tv->dtype(), MemoryType::Global);
-  // TODO: replay leaf transformations from out_tv on work_buffer_tv
+  // replay leaf transformations from out_tv on work_buffer_tv
+  const auto new_domain =
+      TransformReplay::replayCasP(out_tv, work_buffer_tv, 0).first;
+  work_buffer_tv = IrBuilder::create<TensorView>(
+      new_domain, out_tv->dtype(), MemoryType::Global);
+  auto work_buffer_idx =
+      Index::getConsumerIndex(work_buffer_tv, for_loops_, {});
+
   auto work_alloc = IrBuilder::create<kir::Allocate>(
-      work_buffer_tv,
-      work_buffer_tv->getMemoryType(),
-      nullptr,
-      /*zero_init=*/false);
-  auto work_buffer_idx = IrBuilder::create<kir::TensorIndex>(
-      work_buffer_tv, out->fusion()->zeroVal(DataType::Index)
-      // lowerSrcIndex(out, work_buffer_tv)
-  );
+      work_buffer_tv, work_buffer_tv->getMemoryType());
   pushBack(work_alloc);
 
   // The thread predicate for GridReduction needs to be set
