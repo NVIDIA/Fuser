@@ -820,7 +820,8 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
         }
       }
 
-      auto permissive_c2p_root_map = PairwiseRootDomainMap(p_tv, c_tv);
+      auto permissive_c2p_root_map =
+          PairwiseRootDomainMap(p_tv, c_tv).mapBroadcast(true);
 
       for (auto entry : permissive_c2p_root_map.mapConsumerToProducer()) {
         idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
