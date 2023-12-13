@@ -768,4 +768,55 @@ TEST_F(AliasTest, AliasInSegment) {
   EXPECT_TRUE(out_tensors[1].is_alias_of(in_tensor));
 }
 
+TEST_F(AliasTest, TrivialInputForwarding) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeConcreteTensor({-1, -1});
+  TensorView* tv1 = makeConcreteTensor({-1, -1});
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  // Note: output of add is not used. Kept it here since previously there was an
+  // assertion from sorting in codegen.
+  add(tv1, IrBuilder::create<Val>(3.141));
+  fusion->addOutput(tv0);
+
+  at::Tensor t0 = at::randn({10, 4}).cuda();
+  at::Tensor t1 = at::randn({10, 4}).cuda();
+
+  FusionExecutorCache fec(std::move(fusion));
+  std::vector<at::Tensor> cg_outputs = fec.runFusionWithInputs({t0, t1});
+
+  EXPECT_EQ(cg_outputs[0].data_ptr(), t0.data_ptr());
+  testValidate(fec.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+
+  // Second run to ensure cache hit handles trivial forwarding properly
+  NVF_CHECK(fec.isCompiled({t0, t1}));
+  auto cg_outputs2 = fec.runFusionWithInputs({t0, t1});
+  EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
+  testValidate(fec.fusion(), cg_outputs2, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(AliasTest, TrivialInputForwarding_ScalarTensor) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(0);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv0);
+
+  at::Tensor t0 = at::randn({}).cuda();
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto cg_outputs = fec.runFusionWithInputs({t0});
+  EXPECT_EQ(cg_outputs[0].data_ptr(), t0.data_ptr());
+  testValidate(fec.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
+
+  // Second run to ensure cache hit handles trivial forwarding properly
+  NVF_CHECK(fec.isCompiled({t0}));
+  auto cg_outputs2 = fec.runFusionWithInputs({t0});
+  EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
+  testValidate(fec.fusion(), cg_outputs2, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
