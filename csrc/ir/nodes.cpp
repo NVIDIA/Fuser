@@ -1535,6 +1535,45 @@ int GroupedReductionOp::getExprIndexOfOutput(Val* output_val) const {
       false, "Not an output, ", output_val->toString(), ", of ", toString());
 }
 
+std::vector<PolymorphicValue> GroupedReductionOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto num_reductions = numHorizontallyGroupedExprs();
+  std::vector<PolymorphicValue> grouped_reduction_out;
+  grouped_reduction_out.reserve(num_reductions);
+  for (const auto i : c10::irange(num_reductions)) {
+    const auto& in_tensor = inputs.at(i).as<at::Tensor>();
+    const auto out_tv = output(i)->as<TensorView>();
+    NVF_ERROR(
+        !out_tv->hasRFactor(),
+        "Evaluation for rFactored reductions is not supported.");
+
+    std::vector<int64_t> reduction_axes;
+    for (const auto id : c10::irange(int64_t(out_tv->getRootDomain().size()))) {
+      auto ax = out_tv->getRootDomain().at(id);
+      if (ax->isReduction()) {
+        reduction_axes.push_back(id);
+      }
+    }
+    switch (getReductionOpType(i)) {
+      case BinaryOpType::Add:
+        grouped_reduction_out.emplace_back(at::sum(in_tensor, reduction_axes));
+        break;
+      case BinaryOpType::Max:
+        grouped_reduction_out.emplace_back(at::amax(in_tensor, reduction_axes));
+        break;
+      default:
+        NVF_CHECK(
+            false,
+            "Unexpected operator type: ",
+            getReductionOpType(i),
+            " in ",
+            toString());
+    }
+  }
+  return grouped_reduction_out;
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedReductionOp)
 
 std::optional<WelfordTriplet::ValName> WelfordTriplet::getNameOf(

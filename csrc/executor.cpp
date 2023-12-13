@@ -921,6 +921,9 @@ at::Tensor allocateOutput(
     const c10::Device& device,
     ExpressionEvaluator& ee) {
   TensorView* out_tv = out_info.tv;
+  if (ee.isKnown(out_tv)) {
+    return ee.evaluate(out_tv).as<at::Tensor>();
+  }
 
   if (aliased_in != nullptr) {
     const PolymorphicValue& aliased_in_val = ee.evaluate(aliased_in);
@@ -963,10 +966,11 @@ at::Tensor allocateOutput(
     fillTensorWithNan(alloc_tensor);
   }
 
-  if (!out_tv->hasAllocation()) {
-    return alloc_tensor;
+  if (out_tv->hasAllocation()) {
+    alloc_tensor =
+        transformOutputFromAllocationToRFactor(alloc_tensor, out_tv, ee);
   }
-  return transformOutputFromAllocationToRFactor(alloc_tensor, out_tv, ee);
+  return alloc_tensor;
 }
 
 // Allocate output tensors for a given kernel. Outputs may alias inputs, in
@@ -981,22 +985,14 @@ std::vector<at::Tensor> allocateOutputs(
   std::vector<at::Tensor> outputs;
   outputs.reserve(output_info.size());
 
-  std::unordered_map<Val*, at::Tensor> outputs_map;
-
   for (const auto output_idx : c10::irange(output_info.size())) {
     Val* out = kernel->outputs()[output_idx];
-    // TODO: remove the else block and outputs_map when output aliasing is
-    // handled properly
-    auto iter = outputs_map.find(out);
-    if (iter == outputs_map.end()) {
-      auto [aliased_in, alias_info] = kernel->getOutputAlias(out);
-      auto output = allocateOutput(
-          output_info[output_idx], aliased_in, alias_info, device, ee);
-      outputs_map[out] = output;
-      outputs.push_back(output);
-    } else {
-      outputs.push_back(iter->second);
-    }
+    auto [aliased_in, alias_info] = kernel->getOutputAlias(out);
+    auto out_tensor = allocateOutput(
+        output_info[output_idx], aliased_in, alias_info, device, ee);
+    // Bind `out_tensor` so duplicated outputs map to the same tensor.
+    ee.bind(out, out_tensor);
+    outputs.push_back(out_tensor);
   }
   return outputs;
 }
