@@ -196,4 +196,23 @@ void IdModelValidator::checkAlmostExactGraphEquivalence(
   compareDisjointSets(ca_map_sets, almost_exact_graph.disjointValSets());
 }
 
+void IdModelValidator::checkPermissiveGraphEquivalence(
+    const ValGraph& permissive_graph) {
+  if (has_swizzle_) {
+    // Ignoring a fusion with swizzle
+    return;
+  }
+
+  // Empty graph
+  if (permissive_graph.disjointValSets().disjointSets().empty()) {
+    return;
+  }
+
+  DisjointSets<IterDomain*> ca_map_sets = ca_map_.id_graph_.permissive_nodes_;
+
+  fullyPropagateMappings(ca_map_sets);
+
+  compareDisjointSets(ca_map_sets, permissive_graph.disjointValSets());
+}
+
 } // namespace nvfuser

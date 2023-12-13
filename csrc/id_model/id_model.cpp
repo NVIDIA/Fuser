@@ -1072,6 +1072,10 @@ void IdModel::build(
   }
 
   buildPermissiveMap(tv_exprs);
+  if (validate) {
+    validator->checkPermissiveGraphEquivalence(
+        idGraph(IdMappingMode::PERMISSIVE));
+  }
 
   // Permissive graph needs the trivial exprs from the almost exact graph to
   // build correctly. Once built though we can remove the trivial expressions
