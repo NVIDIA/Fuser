@@ -528,8 +528,8 @@ void IdModel::build(
 
   buildPermissiveMap(tv_exprs);
   if (validate) {
-    // validator->checkPermissiveGraphEquivalence(
-    // idGraph(IdMappingMode::PERMISSIVE));
+    validator->checkPermissiveGraphEquivalence(
+        idGraph(IdMappingMode::PERMISSIVE));
   }
 
   // Make sure there's no self mapping in TensorView's during lowering
