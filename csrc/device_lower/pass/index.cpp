@@ -1494,8 +1494,6 @@ void IndexLowering::handle(const MmaOp* mma) {
     a = lowerSrcIndex(
         mma->inA(), mma->out(), {}, false, getMmaInputAType(mma->macro()));
   }
-  // $NVFUSER_DUMP="" ./bin/test_matmul
-  // --gtest_filter=*MmaTest/HopperSS.SingleTile/64_8_16_NT_NoSwizzle_32B__half*
   if (mma->inB()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
