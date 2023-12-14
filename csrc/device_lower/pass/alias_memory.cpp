@@ -2007,7 +2007,7 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
 
   //! Recurse into loop, then process ENDFOR position as a potential last read.
   //! An ENDFOR cannot be a first write.
-  void handle(kir::ForLoop* loop) {
+  void handle(kir::ForLoop* loop) final {
     kir::ExprMutator::handle(loop);
 
     // We might have a last read outer position that is the end of a for loop.
