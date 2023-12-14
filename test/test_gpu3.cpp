@@ -2657,11 +2657,7 @@ TEST_F(NVFuserTest, FusionRepro1713_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      {t0, t1, t2},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionExpand_CUDA) {
@@ -2739,11 +2735,7 @@ TEST_F(NVFuserTest, FusionExpand_CUDA) {
   NVF_ERROR(cg_out.stride(3) == 0);
 
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      {t0, t3, t6, w},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, {t0, t3, t6, w}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionExpandIssue1751_CUDA) {
@@ -2790,8 +2782,7 @@ TEST_F(NVFuserTest, FusionExpandIssue1751_CUDA) {
     NVF_ERROR(cg_out.size(2) == z);
   }
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // TODO: Make sure the kernel uses the expanded concrete size instead
@@ -2824,8 +2815,7 @@ TEST_F(NVFuserTest, FusionExpandToConcrete_CUDA) {
     NVF_ERROR(cg_out.size(1) == y);
   }
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionReproNoncontigBroadcast_CUDA) {
@@ -3018,11 +3008,7 @@ TEST_F(NVFuserTest, FusionIgnoreZeroDimReduction_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Repro of issue #1770
@@ -3400,11 +3386,7 @@ TEST_F(NVFuserTest, FusionIssueRepro1844_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionInsertMagicZero1_CUDA) {
@@ -3511,8 +3493,7 @@ TEST_F(NVFuserTest, FusionExpandReduce_CUDA) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Predicate elimination issue repro:
@@ -3661,8 +3642,7 @@ TEST_F(
   fe.compileFusion(&fusion, aten_inputs, lparams);
   auto cg_outputs = fe.runFusion(aten_inputs, lparams);
 
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionInliningMismatchedDims1_CUDA) {
@@ -3898,8 +3878,7 @@ TEST_F(NVFuserTest, FusionCheckedSymbolicShape_CUDA) {
 
   {
     auto ret1 = matched_add(a, b);
-    testValidate(
-        ret1.first->fusion(), ret1.second, {a, b}, __LINE__, __FILE__);
+    testValidate(ret1.first->fusion(), ret1.second, {a, b}, __LINE__, __FILE__);
   }
 
   {
@@ -3932,8 +3911,7 @@ TEST_F(NVFuserTest, FusionSizeDependentData_CUDA) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({a});
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, {a}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, {a}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionDependencyCheck_CUDA) {
@@ -4001,8 +3979,7 @@ TEST_F(NVFuserTest, FusionScheduleTransposeRepro1_CUDA) {
   fe.compileFusion(&fusion, {input0, input1}, lparams);
   auto outputs = fe.runFusion({input0, input1}, lparams);
 
-  testValidate(
-      &fusion, outputs, {input0, input1}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
 // Repro for issue #1873
@@ -4201,8 +4178,7 @@ TEST_F(NVFuserTest, FusionMappingRelation_CUDA) {
   auto cg_outputs = fe.runFusion({t0, t1});
   auto out = cg_outputs[0];
 
-  testValidate(
-      fusion, {out}, {t0, t1}, __LINE__, __FILE__);
+  testValidate(fusion, {out}, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionInlineAt_CUDA) {
@@ -4787,12 +4763,7 @@ TEST_F(NVFuserTest, FusionHuggingFaceRepro2064_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      {t0},
-      __LINE__,
-      __FILE__,
-      "");
+      executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__, "");
 }
 
 #ifndef USE_ROCM
@@ -6294,12 +6265,7 @@ TEST_F(NVFuserTest, FusionHalfScalars_CUDA) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
-  testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      {t0},
-      __LINE__,
-      __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 #if defined(CUDA_VERSION) && CUDA_VERSION >= 11000
@@ -6324,12 +6290,7 @@ TEST_F(NVFuserTest, FusionBFloat16Scalars_CUDA) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
-  testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      {t0},
-      __LINE__,
-      __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 #endif
 
@@ -6421,8 +6382,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
     }
   }
 
-  testValidate(
-      fec.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
+  testValidate(fec.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
@@ -6479,8 +6439,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
       }
     }
 
-    testValidate(
-        fec.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
+    testValidate(fec.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
   };
 
   // Test case where [B1,I2,I3] is merged to [B1I2I3]
@@ -6566,12 +6525,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {
       auto optimized_fusion = fec.getMostRecentKernelRuntime();
       NVF_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen!");
 
-      testValidate(
-          fec.fusion(),
-          cg_outputs,
-          inputs,
-          __LINE__,
-          __FILE__);
+      testValidate(fec.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
     }
   };
   runTest(true);
@@ -6636,8 +6590,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
     }
   }
 
-  testValidate(
-      fusion_ptr.get(), cg_outputs, inputs, __LINE__, __FILE__);
+  testValidate(fusion_ptr.get(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 // Test case where the merge order is random
@@ -6702,8 +6655,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonNeighbor_CUDA) {
     }
   }
 
-  testValidate(
-      fusion_ptr.get(), cg_outputs, inputs, __LINE__, __FILE__);
+  testValidate(fusion_ptr.get(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 // Test for ir_utils::validateDomainEquivalence. We could consider
@@ -6823,11 +6775,7 @@ TEST_F(NVFuserTest, DoublePrecisionNorm_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      aten_inputs,
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 // Test for void IterDomain::parallelize(ParallelType t)
@@ -6899,8 +6847,7 @@ TEST_F(NVFuserTest, FusionClearGmemBetweenSegments_CUDA) {
   NVF_CHECK(
       args_num[1] == args_num[0] && args_num[2] == args_num[0],
       "unused intermediate args should be deleted");
-  testValidate(
-      executor_cache.fusion(), outputs, {at_x}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, {at_x}, __LINE__, __FILE__);
 }
 
 // Test nan propagation during min/max with floats and doubles
@@ -6934,11 +6881,7 @@ TEST_F(NVFuserTest, FusionMinMaxNanPropagation_CUDA) {
         auto nvf_outputs = executor_cache.runFusionWithInputs(inputs);
 
         testValidate(
-            executor_cache.fusion(),
-            nvf_outputs,
-            inputs,
-            __LINE__,
-            __FILE__);
+            executor_cache.fusion(), nvf_outputs, inputs, __LINE__, __FILE__);
       }
     }
   }
@@ -7266,8 +7209,7 @@ TEST_F(NVFuserTest, IsFinite_CUDA) {
     fe.compileFusion(fusion, {input});
     const auto output = fe.runFusion({input});
 
-    testValidate(
-        fusion, output, {input}, __LINE__, __FILE__);
+    testValidate(fusion, output, {input}, __LINE__, __FILE__);
   }
 }
 
@@ -7324,8 +7266,7 @@ TEST_F(NVFuserTest, Repro413_CUDA) {
       fe.compileFusion(&fusion, {t0}, lparams);
       auto cg_outputs = fe.runFusion({t0}, lparams);
 
-      testValidate(
-          fusion_ptr.get(), cg_outputs, {t0}, __LINE__, __FILE__);
+      testValidate(fusion_ptr.get(), cg_outputs, {t0}, __LINE__, __FILE__);
     }
   }
 }
@@ -7541,12 +7482,7 @@ TEST_F(NVFuserTest, FusionDanglingUnaryOp_CUDA) {
 
   auto cg_outputs = executor_cache.runFusionWithInputs({11});
 
-  testValidate(
-      executor_cache.fusion(),
-      cg_outputs,
-      {11},
-      __LINE__,
-      __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, {11}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
@@ -7812,8 +7748,7 @@ TEST_F(NVFuserTest, VectorizeBackToBackReductions) {
   ASSERT_EQ(rparams->unroll_factor_inner_reduction, 4)
       << "Unexpected vectorization factor";
 
-  testValidate(
-      executor_cache.fusion(), outputs, {at_x}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, {at_x}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, AllInputDtypes) {
