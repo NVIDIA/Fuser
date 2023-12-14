@@ -251,21 +251,22 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     int64_t experiment_min = 1l;
     int64_t experiment_max = 1l;
     if (has_rng_ops) {
-      experiment_max = 8l;
-      // softmax dropout, dont' use batch size of 6 at 6K.
-      // if (total_reduction_numel < 2048l) {
-      //   experiment_min = 1l;
-      //   experiment_max = 2l;
-      // } else if (total_reduction_numel <= 8192l) {
-      //   experiment_min = 2l;
-      //   experiment_max = 2l;
-      // } else if (total_reduction_numel <= 1024l * 18l) {
-      //   experiment_min = 2l;
-      //   experiment_max = 4l;
-      // } else {
-      //   experiment_min = 4l;
-      //   experiment_max = 8l;
-      // }
+      // needs this to help the search. e.g. at 4K, we can use persistent_val of 1, 2, 4.
+      // All values are divisible and lead to same occupancy and fully used all registers.
+      // However, test shows persistent_val = 2.
+      if (total_reduction_numel <= 3072l) {
+        experiment_min = 1l;
+        experiment_max = 1l;
+      } else if (total_reduction_numel <= 6144l) {
+        experiment_min = 1l;
+        experiment_max = 3l;
+      }else if (total_reduction_numel <= 16384l) {
+        experiment_min = 2l;
+        experiment_max = 4l;
+      } else {
+        experiment_min = 4l;
+        experiment_max = 6l;
+      }
     } else {
       if (total_reduction_numel <= 6144l) {
         experiment_max = 5l;
@@ -426,8 +427,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     auto third_priority = occupancy_score;
     if (has_rng_ops) {
       first_priority = tails_score;
-      second_priority = occupancy_score;
-      third_priority = register_usage;
+      second_priority =   register_usage;
+      third_priority = occupancy_score;
     }
     if (first_priority > 0) {
       return true;
@@ -514,19 +515,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       });
 
   // e.g. at 22K, want to use [persistent_val= 5] which is the only size leading
-  // to occupancy >= 50%. persistent_val= 8, bdimx_val= 352, bdimy_val= 1,
-  // nvrtc_register_per_thread= 80, n_waves= 8, n_threads_tails= 0,
-  // warps_per_sm= 22, registers= 56320 persistent_val= 4, bdimx_val= 704,
-  // bdimy_val= 1, nvrtc_register_per_thread= 48, n_waves= 16, n_threads_tails=
-  // 0, warps_per_sm= 22, registers= 33792 persistent_val= 5, bdimx_val= 576,
-  // bdimy_val= 1, nvrtc_register_per_thread= 56, n_waves= 8, n_threads_tails=
-  // 64, warps_per_sm= 36, registers= 64512 persistent_val= 6, bdimx_val= 480,
-  // bdimy_val= 1, nvrtc_register_per_thread= 64, n_waves= 8, n_threads_tails=
-  // 64, warps_per_sm= 30, registers= 61440 persistent_val= 3, bdimx_val= 960,
-  // bdimy_val= 1, nvrtc_register_per_thread= 40, n_waves= 16, n_threads_tails=
-  // 64, warps_per_sm= 30, registers= 38400 persistent_val= 7, bdimx_val= 416,
-  // bdimy_val= 1, nvrtc_register_per_thread= 72, n_waves= 8, n_threads_tails=
-  // 96, warps_per_sm= 26, registers= 59904
+  // to occupancy >= 50%. But it is not a divisible split.
   if (n_items > 1) {
     std::stable_sort(
         all_h_params.begin(), all_h_params.begin() + n_items, isBetterThan);
