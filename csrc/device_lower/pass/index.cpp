@@ -1499,7 +1499,7 @@ void IndexLowering::handle(const MmaOp* mma) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
     auto tv = mma->inB()->as<TensorView>();
-    auto swizzle = MmaInputSmemSwizzle::B32; //getSwizzleMode(tv);
+    auto swizzle = getSwizzleMode(tv);
     auto base_addr = IrBuilder::baseAddressExpr(tv);
     int64_t stride_bytes =
         8L * getBytesFromSwizzle(swizzle); // swizzle period in bytes
