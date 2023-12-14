@@ -265,7 +265,12 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         experiment_max = 8l;
       }
     } else {
-      experiment_max = 12l;
+      if (total_reduction_numel <= 6144l) {
+        experiment_max = 5l;
+      } else {
+        experiment_min = 3l;
+        experiment_max = 10l;
+      }
     }
     return std::make_pair(experiment_max, experiment_min);
   }();
@@ -299,7 +304,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         total_reduction_numel * vectorization_unroll_val * persistent_val_x;
     int64_t estimated_reg_per_thread =
         estimateRegisterPerThread(buffer_per_thread);
-
     int64_t min_reg_per_thread = estimated_reg_per_thread - max_adjust_count;
     int64_t nvrtc_register_per_thread =
         std::max(min_reg_per_thread, target_reg_per_thread);

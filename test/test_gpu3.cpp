@@ -9022,45 +9022,48 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
   for (int i = 1024; i <= 32 * 1024; i += 1024) {
     features.insert(i);
   }
-  for (auto batch_size : {2048, 1024 * 32}) {
+  for (int64_t batch_size : {2048, 1024 * 32}) {
     for (auto feature : features) {
       std::vector<kernelInfo> results;
       ASSERT_TRUE(feature % vect_factor == 0);
       results.emplace_back(test(batch_size, feature, 0, 0));
-      auto min_batch_size =
-          ceilDiv(feature / vect_factor, max_threads_per_block);
-      auto max_batch_size = std::min(
-          (int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
-      for (auto persistent_batch_size = min_batch_size;
-           persistent_batch_size <= max_batch_size;
-           persistent_batch_size++) {
-        // given a persistent_batch_size, warps_per_block is derived from
-        // feature size and vector factor of 8.
-        auto warps_per_block =
-            ceilDiv(ceilDiv(feature / vect_factor, persistent_batch_size), 32);
-        // target different blocks_per_sm by adjusting register per thread
-        auto max_blocks_per_sm = 64 / warps_per_block;
-        for (auto blocks_per_sm = 1; blocks_per_sm <= max_blocks_per_sm;
-             blocks_per_sm++) {
-          auto res =
-              test(batch_size, feature, persistent_batch_size, blocks_per_sm);
-          res.speedup = res.bandwidth / (results[0].bandwidth - 1e4);
-          results.emplace_back(res);
-          res.print();
+      if (!std::getenv("TEST_NEW")) {
+        auto min_batch_size =
+            ceilDiv(feature / vect_factor, max_threads_per_block);
+        auto max_batch_size = std::min(
+            (int64_t)10, ceilDiv(feature / vect_factor, min_threads_per_block));
+        for (auto persistent_batch_size = min_batch_size;
+             persistent_batch_size <= max_batch_size;
+             persistent_batch_size++) {
+          // given a persistent_batch_size, warps_per_block is derived from
+          // feature size and vector factor of 8.
+          auto warps_per_block = ceilDiv(
+              ceilDiv(feature / vect_factor, persistent_batch_size), 32);
+          // target different blocks_per_sm by adjusting register per
+          // thread
+          auto max_blocks_per_sm = 64 / warps_per_block;
+          for (auto blocks_per_sm = 1; blocks_per_sm <= max_blocks_per_sm;
+               blocks_per_sm++) {
+            auto res =
+                test(batch_size, feature, persistent_batch_size, blocks_per_sm);
+            res.speedup = res.bandwidth / (results[0].bandwidth - 1e4);
+            results.emplace_back(res);
+            res.print();
+          }
         }
-      }
 
-      std::sort(
-          results.begin(),
-          results.end(),
-          [](const kernelInfo& a, const kernelInfo& b) {
-            return a.bandwidth > b.bandwidth;
-          });
-      std::cout << "\n--- Default and top 10 cases out of tested cases: "
-                << results.size() << std::endl;
-      const int n_print = std::min(11, (int)results.size());
-      for (int i = 0; i < n_print; ++i) {
-        results[i].print();
+        std::sort(
+            results.begin(),
+            results.end(),
+            [](const kernelInfo& a, const kernelInfo& b) {
+              return a.bandwidth > b.bandwidth;
+            });
+        std::cout << "\n--- Default and top 10 cases out of tested cases: "
+                  << results.size() << std::endl;
+        const int n_print = std::min(11, (int)results.size());
+        for (int i = 0; i < n_print; ++i) {
+          results[i].print();
+        }
       }
 
       // Open a file in write mode
@@ -9070,9 +9073,17 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
         return;
       }
       std::ostringstream fname;
-      fname << "/benchmarks/layernorm_heuristics/" << hostname
-            << "_dropout_layernorm_twopass_" << batch_size << "_" << feature
-            << ".txt";
+
+      if (!std::getenv("TEST_NEW")) {
+        fname << "/benchmarks/layernorm_heuristics/" << hostname
+              << "_dropout_layernorm_twopass_" << batch_size << "_" << feature
+              << ".txt";
+      } else {
+        fname << "/benchmarks/layernorm_heuristics/" << hostname
+              << "_dropout_layernorm_twopass_new_" << batch_size << "_" << feature
+              << ".txt";
+      }
+
       std::ofstream file(fname.str());
       if (file.is_open()) {
         for (auto& info : results) {
@@ -9085,7 +9096,6 @@ TEST_F(NVFuserTest, DropoutLayerNorm) {
     }
   }
 }
-
 TEST_F(NVFuserTest, BFLayerNorm) {
   struct kernelInfo {
     float bandwidth;
@@ -9519,7 +9529,7 @@ TEST_F(NVFuserTest, BFSoftmax) {
   }
 }
 
-TEST_F(NVFuserTest, SoftmaxDropout) {
+TEST_F(NVFuserTest, BFSoftmaxDropout) {
   struct kernelInfo {
     float bandwidth;
     float occupancy;
@@ -9683,6 +9693,7 @@ TEST_F(NVFuserTest, SoftmaxDropout) {
   // return;
   for (int64_t batch_size : {2048, 1024 * 32}) {
     for (auto feature : features) {
+
       std::vector<kernelInfo> results;
       ASSERT_TRUE(feature % vect_factor == 0);
       results.emplace_back(test(batch_size, feature, 0, 0));
