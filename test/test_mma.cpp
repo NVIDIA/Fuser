@@ -60,7 +60,7 @@ void setAsARange(at::Tensor tensor) {
   }
 }
 
-} // namespace debug
+} // namespace debugging
 
 using MmaTestParams = std::tuple<MmaMacro, PrimDataType, MmaLayout>;
 
