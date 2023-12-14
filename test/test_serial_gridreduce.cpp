@@ -40,6 +40,7 @@ using SerialGridReductionTest = NVFuserTest;
 TEST_F(SerialGridReductionTest, CodegenNodes) {
   for (bool serial : {true, false}) {
     for (int64_t num_warps : {4, 8}) {
+    for (int64_t vec_size : {4, 2, 1}) {
       // B is size of inner serial loop. Outer loop is hardcoded at A=4
       // Here we set B to a small value of 8 instead of 32 (i.e. 128 elements
       // per thread), so that the non-serial compilation does not take too
@@ -54,7 +55,7 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
         int64_t blocks_z = 5;
         int64_t A = 4; // Size of outer serial loop
         int64_t H = blocks_z;
-        int64_t W = A * B * blocks_x * blocks_y * num_warps * 32;
+        int64_t W = A * B * blocks_x * blocks_y * num_warps * 32 * vec_size;
 
         // Unreduced dimensions should be concrete. Reduced dimension could be
         // symbolic, but is concrete here so that we can read tv0 to registers
@@ -75,21 +76,23 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
         //   [ iS{W}, rS{H} ]
         // then schedule as
         //   [ iBIDx{blocks_x}, iBIDy{blocks_y}, iS{A}, iS{B}, iTIDy{num_warps},
-        //   iTIDx{32}, rBIDz{blocks_z} ]
+        //   iTIDx{32}, iV{vec_size} rBIDz{blocks_z} ]
         auto tv2 = tv0->cacheAfter();
         auto tv3 = tv1->cacheBefore();
 
-        tv3->reorder({{1, 0}, {0, 1}}); // blocks_x*blocks_y*A*B*num_warps*32, H
-        tv3->split(0, 32); // blocks_x*blocks_y*A*B*num_warps, 32, H
-        tv3->split(0, num_warps); // blocks_x*blocks_y*A*B, num_warps, 32, H
-        tv3->split(0, B); // blocks_x*blocks_y*A, B, num_warps, 32, H
-        tv3->split(0, A); // blocks_x*blocks_y, A, B, num_warps, 32, H
-        tv3->split(0, blocks_y); // blocks_x, blocks_y, A, B, num_warps, 32, H
+        tv3->reorder({{1, 0}, {0, 1}}); // blocks_x*blocks_y*A*B*num_warps*32*vec_size, H
+        tv3->split(0, vec_size); // blocks_x*blocks_y*A*B*num_warps, 32, vec_size, H
+        tv3->split(0, 32); // blocks_x*blocks_y*A*B*num_warps, 32, vec_size, H
+        tv3->split(0, num_warps); // blocks_x*blocks_y*A*B, num_warps, 32, vec_size, H
+        tv3->split(0, B); // blocks_x*blocks_y*A, B, num_warps, 32, vec_size, H
+        tv3->split(0, A); // blocks_x*blocks_y, A, B, num_warps, 32, vec_size, H
+        tv3->split(0, blocks_y); // blocks_x, blocks_y, A, B, num_warps, 32, vec_size, H
         tv3->axis(0)->parallelize(ParallelType::BIDx);
         tv3->axis(1)->parallelize(ParallelType::BIDy);
         tv3->axis(4)->parallelize(ParallelType::TIDy);
         tv3->axis(5)->parallelize(ParallelType::TIDx);
-        tv3->axis(6)->parallelize(ParallelType::BIDz);
+        tv3->axis(6)->parallelize(ParallelType::Vectorize);
+        tv3->axis(7)->parallelize(ParallelType::BIDz);
         // Reorder to put parallel dims first for better inlining
         tv3->reorder({
             {4, 2},
@@ -106,8 +109,8 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
         // inlined with tv3, resulting in a separate loop to load tv0 into
         // registers (tv2).
         tv2->reorder({
-            {-2, -3},
-            {-3, -2},
+            {-3, -4},
+            {-4, -3},
         });
 
         inlineMost();
@@ -165,13 +168,22 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
             // We will need the store op output TensorIndex
             LoadStoreOp* output_store_expr = B_scope.exprs()
                                                  .back()
+                                                 ->as<kir::ForLoop>()  // vectorize loop
+                                                 ->body()
+                                                 .exprs()
+                                                 .back()
                                                  ->as<kir::IfThenElse>()
                                                  ->thenBody()
                                                  .at(0)
                                                  ->as<LoadStoreOp>();
             // bidz_scope is the scope containing the GridReduction expression
             kir::Scope& bidz_scope =
-                B_scope.exprs().at(4)->as<kir::ForLoop>()->body(); // BIDz
+                B_scope.exprs().at(4)->as<kir::ForLoop>() // vectorize loop
+                ->body()
+                .exprs()
+                .back()
+                ->as<kir::ForLoop>()
+                ->body(); // BIDz
             auto old_grop = bidz_scope.at(0)->as<kir::GridReduction>();
             // Store the TensorIndex for the output tensor T1_g, so that we can
             // re-use its index
@@ -252,6 +264,7 @@ TEST_F(SerialGridReductionTest, CodegenNodes) {
           testValidate(fusion, outputs, {input}, __LINE__, __FILE__);
         }
       }
+    }
     }
   }
 }
