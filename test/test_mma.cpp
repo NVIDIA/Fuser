@@ -19,6 +19,49 @@
 
 namespace nvfuser {
 
+namespace debugging {
+
+// Utilities for debugging MMA ops
+
+// Set a tensor as identity, for example
+//  [1, 0, 0]
+//  [0, 1, 0]
+//  [0, 0, 1]
+//  [0, 0, 0]
+//  [0, 0, 0]
+// This is helpful for debugging because mathematically, an identity matrix
+// multiplies any matrix to itself. For example, if you are seeing a wrong
+// result, but you don't know if it's because of the input B's memory format is
+// not scheduled correctly, you can set the input A to identity and print the
+// output. By reading the output, you can tell how the memory layout of input B
+// looks like.
+void setAsIdentity(at::Tensor tensor) {
+  tensor.zero_();
+  for (auto i : c10::irange(tensor.size(0))) {
+    for (auto j : c10::irange(tensor.size(1))) {
+      if (i == j) {
+        tensor[i][j] = 1;
+      }
+    }
+  }
+}
+
+// Set a tensor as a range, for example
+//  [0, 1, 2]
+//  [3, 4, 5]
+//  [6, 7, 8]
+// This makes the tensor easier to read if you print it out.
+void setAsARange(at::Tensor tensor) {
+  tensor.zero_();
+  for (auto i : c10::irange(tensor.size(0))) {
+    for (auto j : c10::irange(tensor.size(1))) {
+      tensor[i][j] = i * tensor.size(1) + j;
+    }
+  }
+}
+
+} // namespace debugging
+
 using MmaTestParams = std::tuple<MmaMacro, PrimDataType, MmaLayout>;
 
 class MmaTest : public NVFuserFixtureParamTest<MmaTestParams> {
@@ -376,18 +419,6 @@ class HopperSS : public HopperBase,
     layout = std::get<2>(GetParam());
     swizzle_a = std::get<3>(GetParam());
     swizzle_b = std::get<4>(GetParam());
-
-    if (swizzle_a == MmaInputSmemSwizzle::B128) {
-      GTEST_SKIP() << "128B swizzle not supported yet";
-    }
-
-    if (swizzle_a == MmaInputSmemSwizzle::B64) {
-      GTEST_SKIP() << "64B swizzle not supported yet";
-    }
-
-    if (swizzle_a == MmaInputSmemSwizzle::B32) {
-      GTEST_SKIP() << "32B swizzle not supported yet";
-    }
   }
 };
 

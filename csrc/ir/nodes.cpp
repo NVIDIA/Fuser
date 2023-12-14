@@ -486,6 +486,12 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::Rsqrt:
       return {in.as<at::Tensor>().rsqrt()};
       break;
+    case UnaryOpType::Real:
+      return {at::real(in.as<at::Tensor>())};
+      break;
+    case UnaryOpType::Imag:
+      return {at::imag(in.as<at::Tensor>())};
+      break;
     default:
       NVF_CHECK(
           false,
@@ -631,6 +637,9 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       break;
     case BinaryOpType::Rshift:
       return {lhs >> rhs};
+      break;
+    case BinaryOpType::Complex:
+      return {at::complex(lhs.as<at::Tensor>(), rhs.as<at::Tensor>())};
       break;
     default:
       NVF_CHECK(
@@ -1753,6 +1762,32 @@ std::string WelfordOp::toString(int indent_size) const {
 
 std::string WelfordOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> WelfordOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(
+      !hasInit(),
+      "Evaluation for WelfordOp is not implemented for non-empty initial values.");
+  const auto& in_tensor = inputs.at(0).as<at::Tensor>();
+  const auto out_tv = out()->as<TensorView>();
+  NVF_ERROR(
+      !out_tv->hasRFactor(),
+      "Evaluation for WelfordOp is not supported when output is rFactored.");
+
+  int64_t N = 1;
+  std::vector<int64_t> reduction_axes;
+  for (const auto i : c10::irange(int64_t(out_tv->getRootDomain().size()))) {
+    auto ax = out_tv->getRootDomain().at(i);
+    if (ax->isReduction()) {
+      reduction_axes.push_back(i);
+      N *= in_tensor.size(i);
+    }
+  }
+  const auto [in_var, in_avg] =
+      at::var_mean(in_tensor, reduction_axes, false, false);
+  return {in_avg, in_var * N, N};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(WelfordOp)
