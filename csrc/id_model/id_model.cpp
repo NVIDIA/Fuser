@@ -433,6 +433,41 @@ void IdModel::buildAlmostExactMap() {
   }
 }
 
+void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
+  // Use the exact map as the starting map rather than the
+  // almost-exact map. Almost exact is useful for index hoisting but
+  // not necessary for permissive and loop maps
+  idGraph(IdMappingMode::PERMISSIVE) = idGraph(IdMappingMode::EXACT);
+
+  for (auto expr : exprs) {
+    // Multiple outputs are already mapped, we can ignore all but the first
+    // consumer given they have to be replayed in the same exact way
+    // Multiple outputs are already mapped, we can ignore all but the first
+    // consumer given they have to be replayed in the same exact way
+    TensorView* c_tv = ir_utils::getTvOutput(expr);
+
+    auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
+
+    for (auto p_tv : tv_inputs) {
+      ForwardingInfo permissive_forwarding(p_tv, c_tv);
+      for (auto entry : permissive_forwarding.producer_forwarding_map) {
+        idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
+      }
+
+      for (auto entry : permissive_forwarding.consumer_forwarding_map) {
+        idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
+      }
+
+      auto permissive_c2p_root_map =
+          PairwiseRootDomainMap(p_tv, c_tv).mapBroadcast(true);
+
+      for (auto entry : permissive_c2p_root_map.mapConsumerToProducer()) {
+        idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
+      }
+    }
+  }
+}
+
 void IdModel::build(
     const std::vector<Expr*>& exprs,
     const std::vector<TensorView*>& additional_tvs,
@@ -489,6 +524,12 @@ void IdModel::build(
   if (validate) {
     validator->checkAlmostExactGraphEquivalence(
         idGraph(IdMappingMode::ALMOSTEXACT));
+  }
+
+  buildPermissiveMap(tv_exprs);
+  if (validate) {
+    // validator->checkPermissiveGraphEquivalence(
+    // idGraph(IdMappingMode::PERMISSIVE));
   }
 
   // Make sure there's no self mapping in TensorView's during lowering

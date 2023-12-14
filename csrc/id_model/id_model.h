@@ -115,6 +115,10 @@ class IdModel : public PolymorphicBase {
   // split by a size-1 dimension.
   void buildAlmostExactMap();
 
+  // Fills disjoint_ids_[IdMappingMode::PERMISSIVE]. Initialize it as
+  // Exact entries, then map through broadcasts
+  void buildPermissiveMap(const std::vector<Expr*>& exprs);
+
   // Errors if self mapping occurs
   void assertNoSelfMapping();
 
