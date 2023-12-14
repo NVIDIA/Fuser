@@ -337,30 +337,8 @@ std::vector<Expr*> Fusion::exprs() {
   return StmtSort::getExprs(this);
 }
 
-namespace {
-
-bool allOutputsArePointerArithmetics(Fusion* fusion) {
-  for (Val* out : fusion->outputs()) {
-    const auto& [in, info] = fusion->getOutputAlias(out);
-    if (in == nullptr) {
-      return false;
-    }
-    NVF_ERROR(info != nullptr);
-    if (info->type != AliasType::PointerArithmetic) {
-      return false;
-    }
-  }
-  return true;
-}
-
-} // namespace
-
 bool Fusion::isNoOp() {
   if (exprs().empty()) {
-    return true;
-  }
-
-  if (allOutputsArePointerArithmetics(this)) {
     return true;
   }
 

@@ -13,7 +13,7 @@
 #include <inlining.h>
 #include <kernel_cache.h>
 #include <ops/all_ops.h>
-#include <optimization/mark_alias.h>
+#include <optimization/optimize_layout.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
@@ -44,15 +44,15 @@ class TransposeTest : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    previously_enabled_ = optimization::MarkAliasPass::getEnabled();
-    // For convenience, disable MarkAliasPass. Many tests in this file run a
-    // fusion that consists of `transpose` only. MarkAliasPass would turn those
-    // fusions into a no-op, skipping the transpose scheduler.
-    optimization::MarkAliasPass::setEnabled(false);
+    previously_enabled_ = optimization::OptimizeLayoutPass::getEnabled();
+    // For convenience, disable OptimizeLayoutPass. Many tests in this file run
+    // a fusion that consists of `transpose` only. OptimizeLayoutPass would turn
+    // those fusions into a no-op, skipping the transpose scheduler.
+    optimization::OptimizeLayoutPass::setEnabled(false);
   }
 
   void TearDown() override {
-    optimization::MarkAliasPass::setEnabled(previously_enabled_);
+    optimization::OptimizeLayoutPass::setEnabled(previously_enabled_);
     NVFuserTest::TearDown();
   }
 
