@@ -47,7 +47,6 @@ class DeviceMesh final {
  private:
   void setDevices(std::vector<DeviceIdxType> devices) {
     vector_ = devices;
-    NVF_ERROR(!devices.empty(), "empty device mesh");
     NVF_ERROR(
         std::unique(vector_.begin(), vector_.end()) == vector_.end(),
         "device mesh has duplicates");
