@@ -219,26 +219,6 @@ auto all_smem_swizzle_modes = testing::Values(
 using HopperMmaRSTestParams =
     std::tuple<MmaMacro, PrimDataType, MmaLayout, MmaInputSmemSwizzle>;
 
-void makeIdentity(at::Tensor tensor) {
-  tensor.zero_();
-  for (auto i : c10::irange(tensor.size(0))) {
-    for (auto j : c10::irange(tensor.size(1))) {
-      if (i == j) {
-        tensor[i][j] = 1;
-      }
-    }
-  }
-}
-
-void makeARange(at::Tensor tensor) {
-  tensor.zero_();
-  for (auto i : c10::irange(tensor.size(0))) {
-    for (auto j : c10::irange(tensor.size(1))) {
-      tensor[i][j] = i * tensor.size(1) + j;
-    }
-  }
-}
-
 class HopperRS : public HopperBase,
                  public ::testing::WithParamInterface<HopperMmaRSTestParams> {
  protected:
