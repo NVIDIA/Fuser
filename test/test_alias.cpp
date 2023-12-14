@@ -849,16 +849,16 @@ TEST_F(AliasTest, ManyAliasesBetweenOutputs) {
 
   TensorView* in = makeContigConcreteTensor({2, 3, 5});
   TensorView* add_out = add(in, in);
-  TensorView* reshape_out = reshape(add_out, {2, 3, 5}, {6, 5});
-  TensorView* permute_out = permute(reshape_out, {1, 0});
-  TensorView* slice_out = slice(reshape_out, {0, 0}, {6, 4});
+  TensorView* permute_out = permute(add_out, {1, 2, 0});
+  TensorView* reshape_out = reshape(permute_out, {3, 5, 2}, {3, 10});
+  TensorView* slice_out = slice(permute_out, {0, 0, 0}, {2, 4, 1});
 
   fusion->addInput(in);
-  // I intentionally add the output out of order to execise sorting in
+  // I intentionally add the output in reverse order to execise sorting in
   // `allocateOutputs`.
   fusion->addOutput(slice_out);
-  fusion->addOutput(permute_out);
   fusion->addOutput(reshape_out);
+  fusion->addOutput(permute_out);
   fusion->addOutput(add_out);
 
   FusionExecutorCache fec(std::move(fusion));
@@ -867,13 +867,13 @@ TEST_F(AliasTest, ManyAliasesBetweenOutputs) {
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
   ASSERT_EQ(out_tensors.size(), 4);
   at::Tensor slice_out_tensor = out_tensors[0];
-  at::Tensor permute_out_tensor = out_tensors[1];
-  at::Tensor reshape_out_tensor = out_tensors[2];
+  at::Tensor reshape_out_tensor = out_tensors[1];
+  at::Tensor permute_out_tensor = out_tensors[2];
   at::Tensor add_out_tensor = out_tensors[3];
 
   EXPECT_EQ(add_out_tensor.data_ptr(), slice_out_tensor.data_ptr());
-  EXPECT_EQ(add_out_tensor.data_ptr(), permute_out_tensor.data_ptr());
   EXPECT_EQ(add_out_tensor.data_ptr(), reshape_out_tensor.data_ptr());
+  EXPECT_EQ(add_out_tensor.data_ptr(), permute_out_tensor.data_ptr());
 
   // Segment 1: in -> add_out
   // Segment 2: add_out -> its output aliases
