@@ -185,6 +185,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         // For 64-bit Unix systems, int is 32-bit, long and long long are 64-bit
         // For 64-bit Windows, int and long are 32-bit, long long are 64-bit
         return "LL";
+      case DataType::UInt:
+        return "ULL";
+      case DataType::UInt32:
+        return "U";
       case DataType::Index:
         return getLiteralSuffix(kernel_->indexType());
       default:
@@ -448,7 +452,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (value.is<bool>()) {
       code_ << (value ? "true" : "false");
     } else if (value.is<int64_t>()) {
-      code_ << value << getLiteralSuffix(dtype);
+      if (isUnsignedIntegralType(dtype)) {
+        code_ << (uint64_t)value << getLiteralSuffix(dtype);
+      } else {
+        code_ << value << getLiteralSuffix(dtype);
+      }
     } else if (value.is<double>()) {
       auto val = value.as<double>();
       // note: default inf/nan doesn't work and should be replaced with macros
@@ -1582,6 +1590,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         grop->reduction_buffer()->buffer()->as<TensorView>();
     const auto sync_buffer = grop->sync_buffer()->buffer()->as<TensorView>();
 
+    if (grop->isSerial()) {
+      generateSerialGridReduction(grop);
+      return;
+    }
+
     if (grop->isAllreduce()) {
       generateGridAllreduce(grop);
       return;
@@ -1629,6 +1642,66 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   std::string genFusedReductionName(const TensorView* reduction_out) {
     return genVariableName(reduction_out) + "_reduction";
+  }
+
+  void generateSerialGridReduction(const kir::GridReduction* grop) {
+    NVF_ERROR(grop->isSerial());
+
+    const auto out = grop->out()->as<kir::TensorIndex>();
+
+    const auto data_type = grop->out()->dtype();
+    const auto op_type = grop->getReductionOpType();
+
+    const auto par_domains =
+        ir_utils::getParallelDomains(ir_utils::getTvOutput(grop));
+    ArgumentBuilder block_flags;
+
+    for (const ParallelType pt :
+         {ParallelType::BIDx, ParallelType::BIDy, ParallelType::BIDz}) {
+      const bool parallel_reduction =
+          par_domains.find(pt) != par_domains.end() &&
+          par_domains.at(pt)->isReduction();
+      block_flags.arg(parallel_reduction);
+    }
+
+    std::string idx_in_segment = genCall(
+        "index_utils::maskedOffset",
+        block_flags,
+        ArgumentBuilder().arg("blockIdx").arg("gridDim"));
+    std::string segment_size = genCall(
+        "index_utils::maskedSize",
+        block_flags,
+        ArgumentBuilder().arg("gridDim"));
+
+    ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
+    func_args.arg(gen(out));
+    func_args.arg(gen(grop->in()));
+    func_args.arg(gen(grop->init()));
+    func_args.arg(gen(grop->serialReductionTensor()));
+    func_args.arg(genReductionOp(op_type, out->dtype()));
+
+    // Whether this is the first or last step
+    func_args.arg(idx_in_segment).append(" == 0");
+    func_args.arg(idx_in_segment)
+        .append(" == ")
+        .append(segment_size)
+        .append(" - 1");
+    // TODO: can we hoist the first and last step predicates? We might need to
+    // attach them to grop in order to do that?
+
+    // read and write predicates
+    NVF_ERROR(grop->predicate() != nullptr && grop->predicate()->hasValue());
+    const auto read_pred = genInline(grop->predicate());
+    func_args.arg(read_pred);
+    if (grop->writePredicate() != nullptr) {
+      NVF_ERROR(grop->writePredicate()->hasValue());
+      func_args.arg(genInline(grop->writePredicate()));
+    } else {
+      func_args.arg(read_pred);
+    }
+
+    indent() << "reduction::serialReductionStep(\n";
+    indent() << kTab << func_args << ");\n";
   }
 
   void generateGridAllreduce(const kir::GridReduction* grop) {
@@ -2968,6 +3041,70 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             .arg(genInline(wait->mbarrier()))
             .arg(genInline(wait->state())));
     indent() << call << ";\n";
+  }
+
+  void handle(const kir::BlockSerializeWait* sync) final {
+    // Use a custom synchronization method if enabled
+    bool bidx = sync->syncDims().get(ParallelType::BIDx);
+    bool bidy = sync->syncDims().get(ParallelType::BIDy);
+    bool bidz = sync->syncDims().get(ParallelType::BIDz);
+    NVF_ERROR(
+        isAligned(),
+        "Serialization of blocks requires syncing in non-divergent threads");
+
+    ArgumentBuilder sync_call_template_parms;
+    sync_call_template_parms.arg(bidx).arg(bidy).arg(bidz);
+
+    auto sync_idx = genCall(
+        "index_utils::maskedOffset",
+        ArgumentBuilder().arg(!bidx).arg(!bidy).arg(!bidz),
+        ArgumentBuilder().arg("blockIdx").arg("gridDim"));
+
+    ArgumentBuilder sync_call_args;
+    sync_call_args.arg("&")
+        .append(genVariableName(sync->syncBuffer()))
+        .append("[")
+        .append(sync_idx)
+        .append("]");
+
+    auto sync_call = genCall(
+        "grid_sync::blockSerializeWait",
+        sync_call_template_parms,
+        sync_call_args);
+
+    indent() << sync_call << ";\n";
+  }
+
+  void handle(const kir::BlockSerializeRelease* sync) final {
+    // Use a custom synchronization method if enabled
+    bool bidx = sync->syncDims().get(ParallelType::BIDx);
+    bool bidy = sync->syncDims().get(ParallelType::BIDy);
+    bool bidz = sync->syncDims().get(ParallelType::BIDz);
+    NVF_ERROR(
+        isAligned(),
+        "Serialization of blocks requires syncing in non-divergent threads");
+
+    ArgumentBuilder sync_call_template_parms;
+    sync_call_template_parms.arg(bidx).arg(bidy).arg(bidz);
+
+    auto sync_idx = genCall(
+        "index_utils::maskedOffset",
+        ArgumentBuilder().arg(!bidx).arg(!bidy).arg(!bidz),
+        ArgumentBuilder().arg("blockIdx").arg("gridDim"));
+
+    ArgumentBuilder sync_call_args;
+    sync_call_args.arg("&")
+        .append(genVariableName(sync->syncBuffer()))
+        .append("[")
+        .append(sync_idx)
+        .append("]");
+
+    auto sync_call = genCall(
+        "grid_sync::blockSerializeRelease",
+        sync_call_template_parms,
+        sync_call_args);
+
+    indent() << sync_call << ";\n";
   }
 
   void handle(const kir::InitMagicZero*) final {

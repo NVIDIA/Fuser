@@ -15,6 +15,7 @@
 #include <ir/internal_base_nodes.h>
 #include <ir/internal_nodes.h>
 #include <mma_type.h>
+#include <multidevice/device_mesh.h>
 #include <type.h>
 
 #include <torch/csrc/jit/ir/ir.h>
@@ -327,6 +328,7 @@ class TensorView : public Val {
 
   //! Swizzle the rectangular tile defined by the iterdomains corresponding
   //!  to the 2 given indices.
+  TensorView* swizzle(SwizzleType swizzle_type, int x, int y);
   TensorView* swizzle(
       Swizzle2DType swizzle_type,
       int x,
@@ -417,6 +419,7 @@ class TensorView : public Val {
   //!  have a matching thread swizzle with the mma operand/result.
   //! More detail on usage see [WarpMmaSwizzler] in scheduler/mma_utils.h .
   void applyMmaSwizzle(MmaOperand operand);
+  void applyMmaSwizzle(MmaInputSmemSwizzle swizzle, bool transpose);
 
   //! Returns if this tensor view has swizzle operator on its tensor domain.
   //!  This is the temporary flag for indicating that the new swizzle
@@ -529,6 +532,19 @@ class TensorView : public Val {
     return promote_reuse_;
   }
 
+  void setDeviceMesh(const DeviceMesh& mesh) {
+    mesh_ = mesh;
+  }
+
+  const DeviceMesh& getDeviceMesh() const {
+    NVF_ERROR(hasDeviceMesh(), "DeviceMesh is not initialized");
+    return mesh_;
+  }
+
+  bool hasDeviceMesh() const {
+    return !mesh_.vector().empty();
+  }
+
  protected:
   void setDomain(TensorDomain* td) {
     domain_ = td;
@@ -600,6 +616,9 @@ class TensorView : public Val {
   //! current tensor. This will then allow us to safely reuse the memory
   //! allocated to this tensor.
   bool promote_reuse_ = false;
+
+  // Device Mesh on which the Tensor is sharded
+  DeviceMesh mesh_;
 };
 
 //! A simple TensorView builder

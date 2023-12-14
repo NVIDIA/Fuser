@@ -2734,12 +2734,7 @@ void testVarMean(at::ScalarType dtype, int correction, bool keepdim) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs({t0});
 
-  auto at_var_mean = at::var_mean(t0, {1}, correction, keepdim);
-  std::vector<at::Tensor> aten_outputs = {
-      std::get<0>(at_var_mean), std::get<1>(at_var_mean)};
-
-  testValidate(
-      executor_cache.fusion(), outputs, {t0}, aten_outputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 } // namespace
 
@@ -5655,17 +5650,7 @@ TEST_F(NVFuserTest, FusionBNRepro2_CUDA) {
   std::vector<c10::IValue> aten_inputs = {input1};
   auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
 
-  auto at_results = at::native_batch_norm(
-      input1_ref, r_m, r_v, weight, bias, kTraining, kMomentum, kEps);
-
-  auto at_output = std::get<0>(at_results);
-  auto at_mean = std::get<1>(at_results);
-  auto at_invstd = std::get<2>(at_results);
-
-  std::vector<at::Tensor> aten_outputs = {at_output, at_mean, at_invstd};
-
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, aten_outputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionZeroSizeTensorPW_CUDA) {
@@ -9026,7 +9011,6 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation3_CUDA) {
   auto tv13 = add(tv12, tv11);
 
   fusion.addOutput(tv13);
-
   auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
 
   auto isTvWithinVec = [](std::vector<TensorView*>& vec, TensorView* tv) {
@@ -9049,12 +9033,11 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation3_CUDA) {
   NVF_ERROR(
       resolution.size() == 2 && resolution[0].size() == 1 &&
       resolution[1].size() == 1);
-  NVF_ERROR(projectable.size() == 1);
-  NVF_ERROR(projectable_inputs.size() == 1);
+  NVF_ERROR(projectable.size() == 2);
+  NVF_ERROR(projectable_inputs.size() == 2);
 
   NVF_ERROR(isTvWithinVec(buffers, tv1) && isTvWithinVec(buffers, tv7));
-  NVF_ERROR(
-      isTvWithinVec(projectable, tv1) && !isTvWithinVec(projectable, tv7));
+  NVF_ERROR(isTvWithinVec(projectable, tv1) && isTvWithinVec(projectable, tv7));
 
   NVF_ERROR(isTvWithinVec(projectable_inputs, tv0));
 
@@ -9081,9 +9064,7 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation3_CUDA) {
           aten_t0.size(1) * dataTypeSize(DataType::Float) * 2));
   NVF_ERROR(
       persistent_buffer_size.projected_persistent_buffer_size ==
-      static_cast<int64_t>(
-          aten_t0.size(1) *
-          (dataTypeSize(DataType::Half) + dataTypeSize(DataType::Float))));
+      static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Half) * 2));
 }
 
 TEST_F(NVFuserTest, FusionPersistentBufferCalculation4_CUDA) {

@@ -19,7 +19,7 @@ namespace nvfuser {
 */
 class DeviceMesh final {
  public:
-  DeviceMesh(std::vector<DeviceIdxType> devices = {0}) {
+  DeviceMesh(std::vector<DeviceIdxType> devices = {}) {
     setDevices(devices);
   }
 

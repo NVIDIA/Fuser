@@ -429,7 +429,8 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::ToUnsignedSmemAddr:
       return {(int64_t)(unsigned)in};
       break;
-    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring:
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring8:
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring16:
       return {in};
       break;
     case UnaryOpType::Dereference:
@@ -484,6 +485,12 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       break;
     case UnaryOpType::Rsqrt:
       return {in.as<at::Tensor>().rsqrt()};
+      break;
+    case UnaryOpType::Real:
+      return {at::real(in.as<at::Tensor>())};
+      break;
+    case UnaryOpType::Imag:
+      return {at::imag(in.as<at::Tensor>())};
       break;
     default:
       NVF_CHECK(
@@ -630,6 +637,9 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       break;
     case BinaryOpType::Rshift:
       return {lhs >> rhs};
+      break;
+    case BinaryOpType::Complex:
+      return {at::complex(lhs.as<at::Tensor>(), rhs.as<at::Tensor>())};
       break;
     default:
       NVF_CHECK(
@@ -1534,6 +1544,45 @@ int GroupedReductionOp::getExprIndexOfOutput(Val* output_val) const {
       false, "Not an output, ", output_val->toString(), ", of ", toString());
 }
 
+std::vector<PolymorphicValue> GroupedReductionOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto num_reductions = numHorizontallyGroupedExprs();
+  std::vector<PolymorphicValue> grouped_reduction_out;
+  grouped_reduction_out.reserve(num_reductions);
+  for (const auto i : c10::irange(num_reductions)) {
+    const auto& in_tensor = inputs.at(i).as<at::Tensor>();
+    const auto out_tv = output(i)->as<TensorView>();
+    NVF_ERROR(
+        !out_tv->hasRFactor(),
+        "Evaluation for rFactored reductions is not supported.");
+
+    std::vector<int64_t> reduction_axes;
+    for (const auto id : c10::irange(int64_t(out_tv->getRootDomain().size()))) {
+      auto ax = out_tv->getRootDomain().at(id);
+      if (ax->isReduction()) {
+        reduction_axes.push_back(id);
+      }
+    }
+    switch (getReductionOpType(i)) {
+      case BinaryOpType::Add:
+        grouped_reduction_out.emplace_back(at::sum(in_tensor, reduction_axes));
+        break;
+      case BinaryOpType::Max:
+        grouped_reduction_out.emplace_back(at::amax(in_tensor, reduction_axes));
+        break;
+      default:
+        NVF_CHECK(
+            false,
+            "Unexpected operator type: ",
+            getReductionOpType(i),
+            " in ",
+            toString());
+    }
+  }
+  return grouped_reduction_out;
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedReductionOp)
 
 std::optional<WelfordTriplet::ValName> WelfordTriplet::getNameOf(
@@ -1713,6 +1762,32 @@ std::string WelfordOp::toString(int indent_size) const {
 
 std::string WelfordOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> WelfordOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(
+      !hasInit(),
+      "Evaluation for WelfordOp is not implemented for non-empty initial values.");
+  const auto& in_tensor = inputs.at(0).as<at::Tensor>();
+  const auto out_tv = out()->as<TensorView>();
+  NVF_ERROR(
+      !out_tv->hasRFactor(),
+      "Evaluation for WelfordOp is not supported when output is rFactored.");
+
+  int64_t N = 1;
+  std::vector<int64_t> reduction_axes;
+  for (const auto i : c10::irange(int64_t(out_tv->getRootDomain().size()))) {
+    auto ax = out_tv->getRootDomain().at(i);
+    if (ax->isReduction()) {
+      reduction_axes.push_back(i);
+      N *= in_tensor.size(i);
+    }
+  }
+  const auto [in_var, in_avg] =
+      at::var_mean(in_tensor, reduction_axes, false, false);
+  return {in_avg, in_var * N, N};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(WelfordOp)
@@ -3013,6 +3088,40 @@ std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
 }
 
 std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
+    SwizzleType swizzle_type,
+    IterDomain* in_x,
+    IterDomain* in_y) {
+  NVF_CHECK(
+      !in_x->extent()->isZeroInt() && !in_y->extent()->isZeroInt(),
+      "Invalid swizzling of a empty dimension.");
+
+  // TODO: reduction check on swizzle:
+  NVF_CHECK(
+      !in_x->isReduction() && !in_y->isReduction(),
+      "swizzled reduction not yet supported");
+
+  for (auto input : InputsOf::outputs({in_x, in_y})) {
+    NVF_CHECK(
+        !input->as<IterDomain>()->isBroadcast(),
+        "swizzling broadcast axes not yet supported");
+  }
+
+  // TODO: gather and shift check on swizzle
+  NVF_ERROR(
+      !in_x->isGather() && !in_y->isGather(),
+      "Swizzled gather not yet supported");
+
+  IterDomain* out_x = IterDomainBuilder(in_x).build();
+
+  IterDomain* out_y = IterDomainBuilder(in_y).build();
+
+  IrBuilder::create<Swizzle>(
+      in_x->container(), out_x, out_y, in_x, in_y, swizzle_type);
+
+  return std::make_pair(out_x, out_y);
+}
+
+std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
     Swizzle2DType swizzle_type,
     IterDomain* in_x,
     IterDomain* in_y,
@@ -3754,6 +3863,35 @@ std::vector<IterDomain*> TensorDomain::orderedAs(
   return reordered_domain;
 }
 
+void TensorDomain::swizzle(SwizzleType swizzle_type, int x, int y) {
+  NVF_ERROR(nDims() > 0, "Tried to do merge on a 0-dim domain");
+
+  NVF_CHECK(
+      x >= 0 && (unsigned int)x < nDims(),
+      "Invalid swizzle detected, either one or both axes are outside of TensorView's range.");
+
+  NVF_CHECK(
+      y >= 0 && (unsigned int)y < nDims(),
+      "Invalid swizzle detected, either one or both axes are outside of TensorView's range.");
+
+  IterDomain* axis_x = axis(x);
+  IterDomain* axis_y = axis(y);
+
+  IterDomain* axis_out_x = nullptr;
+  IterDomain* axis_out_y = nullptr;
+
+  std::tie(axis_out_x, axis_out_y) =
+      IterDomain::swizzle(swizzle_type, axis_x, axis_y);
+
+  leaf_domain_.erase(leaf_domain_.begin() + x);
+  leaf_domain_.insert(leaf_domain_.begin() + x, axis_out_x);
+
+  leaf_domain_.erase(leaf_domain_.begin() + y);
+  leaf_domain_.insert(leaf_domain_.begin() + y, axis_out_y);
+
+  resetDomains();
+}
+
 void TensorDomain::swizzle(
     Swizzle2DType swizzle_type,
     int x,
@@ -4034,6 +4172,41 @@ std::string Merge::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Merge)
+
+Swizzle::Swizzle(
+    IrBuilderPasskey passkey,
+    IterDomain* out_x,
+    IterDomain* out_y,
+    IterDomain* in_x,
+    IterDomain* in_y,
+    SwizzleType swizzle_type)
+    : Expr(passkey) {
+  addOutput(out_x);
+  addOutput(out_y);
+  addInput(in_x);
+  addInput(in_y);
+  addDataAttribute(swizzle_type);
+}
+
+std::string Swizzle::toString(int indent_size) const {
+  std::stringstream ss;
+  ss << swizzleType() << "(2D): ";
+  ss << inX()->toString();
+  ss << " , ";
+  ss << inY()->toString();
+  ss << " -> ";
+  ss << outX()->toString();
+  ss << " , ";
+  ss << outY()->toString();
+  ss << "\n";
+  return ss.str();
+}
+
+std::string Swizzle::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Swizzle)
 
 Swizzle2D::Swizzle2D(
     IrBuilderPasskey passkey,
