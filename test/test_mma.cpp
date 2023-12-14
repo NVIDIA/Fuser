@@ -19,7 +19,7 @@
 
 namespace nvfuser {
 
-namespace debug {
+namespace debugging {
 
 // Utilities for debugging MMA ops
 
