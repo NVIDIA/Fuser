@@ -7,12 +7,6 @@ import os
 
 # Model Parameters from LLMs (GPT2/3, PaLM, LLama)
 
-# Input sequence length
-SEQ_LENGTH_MIN = 1024
-SEQ_LENGTH_MAX = 16384
-# Maximum sequence lengths in LLMs.
-SEQ_LENGTHS = [1024, 2048, 4096, 16384]
-
 # Embedding size: d_model, d_ff = 4 * d_model
 D_MODEL_MIN = 768
 D_MODEL_MAX = 18432
@@ -34,10 +28,6 @@ D_MODEL_SIZES = [
     12288,
     18432,
 ]
-
-# Number of heads: n_head
-N_HEAD_MIN = 12
-N_HEAD_MAX = 96
 
 # BENCHMARK_MODE = weekly/nightly.
 BENCHMARK_MODE = os.getenv("BENCHMARK_MODE")
