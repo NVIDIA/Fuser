@@ -524,8 +524,6 @@ TEST_P(HopperSS, SingleTile) {
 
   auto inputs = matmulAtInput(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
-  makeIdentity(inputs.first);
-  makeARange(inputs.second);
 
   FusionExecutor fe;
   fe.compileFusion(
@@ -533,8 +531,6 @@ TEST_P(HopperSS, SingleTile) {
   auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-  std::cout << "output:\n" << cg_outputs[0] << "\n";
-  std::cout << "tref:\n" << tref << "\n";
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
