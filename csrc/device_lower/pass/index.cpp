@@ -1494,7 +1494,8 @@ void IndexLowering::handle(const MmaOp* mma) {
     a = lowerSrcIndex(
         mma->inA(), mma->out(), {}, false, getMmaInputAType(mma->macro()));
   }
-  // $NVFUSER_DUMP="" ./bin/test_matmul --gtest_filter=*MmaTest/HopperSS.SingleTile/64_8_16_NT_NoSwizzle_32B__half*
+  // $NVFUSER_DUMP="" ./bin/test_matmul
+  // --gtest_filter=*MmaTest/HopperSS.SingleTile/64_8_16_NT_NoSwizzle_32B__half*
   if (mma->inB()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
@@ -1508,7 +1509,8 @@ void IndexLowering::handle(const MmaOp* mma) {
         roundUpToMultiple(getN(mma->macro()) / 8L,
                           getBytesFromSwizzle(swizzle) / 16L) *
         /*bytes per item*/ 2L;
-    if (swizzle != MmaInputSmemSwizzle::None) {
+    if (swizzle != MmaInputSmemSwizzle::None &&
+        (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::TN)) {
       // TODO: why???!!!
       std::swap(leading_bytes, stride_bytes);
     }
