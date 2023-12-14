@@ -1322,6 +1322,7 @@ TEST_F(AllocationDomainTest, Bug) {
   TensorView* add_out = add(permute_out, permute_out);
 
   fusion->addInput(in);
+  fusion->addOutput(permute_out);
   fusion->addOutput(add_out);
 
   permute_out->setAllocationDomain(
