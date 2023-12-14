@@ -260,12 +260,19 @@ void lowerToBroadcastOrP2P(
       NVF_ERROR(
           sender_mesh.vector().size() == receiver_mesh.vector().size(),
           "the receiver and sender meshes have different sizes");
+      at::Tensor input, output;
+      if (input_tensor.numel()) {
+        input = input_tensor.index({static_cast<int>(0), "..."});
+      }
+      if (output_tensor.numel()) {
+        output = output_tensor.index({static_cast<int>(0), "..."});
+      }
       lowerToBroadcastOrP2P(
           my_device_index,
           sender_mesh.vector().at(i),
           DeviceMesh({receiver_mesh.vector().at(i)}),
-          input_tensor.index({0, "..."}),
-          output_tensor.index({0, "..."}),
+          input,
+          output,
           comms);
     }
   } else {
@@ -427,7 +434,7 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
   bool is_reduction = original_expr->isA<ReductionOp>();
 
   NVF_ERROR(
-      !is_input_sharded ||
+      !is_input_sharded || !input_tensor.numel() ||
           sender_mesh.vector().size() ==
               static_cast<size_t>(input_tensor.size(0)),
       "the size of the mesh ",
@@ -435,7 +442,7 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
       " doesn't match the size of the tensor ",
       input_tensor.size(0));
   NVF_ERROR(
-      !is_output_sharded || is_reduction ||
+      !is_output_sharded || !output_tensor.numel() || is_reduction ||
           receiver_mesh.vector().size() ==
               static_cast<size_t>(output_tensor.size(0)),
       "the size of the mesh",
