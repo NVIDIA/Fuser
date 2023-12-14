@@ -1923,63 +1923,47 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
  private:
   using kir::ExprMutator::dispatch;
 
-  void dispatch(Expr* expr) final {
-    int prev_position = position_;
-    position_ = allocation_info_map_.getScopeMap().getExprPos(expr);
-
-    if (position_ - prev_position > 1) {
-      for (auto [start, end] : sync_intervals_) {
-        if (start >= prev_position && start < position_ - 1) {
-          // Positions exist for which there are no active expressions; for
-          // example the end of each for loop has a position but no expression.
-          // We also might skip expressions if they are deleted before this
-          // pass. In these cases the previously dispatched expr might not be
-          // position-1 but instead position-n.
-          //
-          // If a sync interval is contained entirely within the skipped
-          // expression range, then we insert the current position as the first
-          // write, so that we will place a sync before the current expression
-          // if expr is not itself a syncing expression.
-          //
-          // If the sync interval began within the skipped region but is not
-          // yet resolved, then we insert the original (later) first write
-          // position.
-          upcoming_first_writes_.insert(std::max(position_ - 1, end));
-        }
-      }
-      // Look for live intervals that were already inserted but which ended in
-      // this skipped region. Translate those so that they end just before the
-      // current expression.
-      for (auto fw : upcoming_first_writes_) {
-        if (fw >= prev_position && fw < position_ - 1) {
-          // Translating this skipped end of the interval to current position
-          // will cause it to be processed after this loop
-          upcoming_first_writes_.erase(fw);
-          upcoming_first_writes_.insert(position_ - 1);
-        }
-      }
-    }
-
+  //! "Last read" positions are the ends of allocation lifetimes that correspond
+  //! to the beginnings of the open intervals upon which we need to ensure that
+  //! a sync exists. This function finds any sync intervals having "position" as
+  //! the last read, and adds the other end of the interval to
+  //! upcoming_first_writes_.
+  void processLastReads(int position) {
+    NVF_ERROR(
+        position == ++last_processed_position_,
+        "Expr position skipped visited out of order. Previous position was ",
+        last_processed_position_ - 1,
+        " but this position is ",
+        position);
     // Lifetime intervals are closed, so sync intervals are open. If this is the
     // first expr past a lifetime's last read, then add the corresponding upper
     // endpoint for the sync interval. Note that we add these before checking
     // for first writes so that we can detect adjacent intervals properly.
-    auto range = sync_intervals_.equal_range(position_ - 1);
+    auto range = sync_intervals_.equal_range(position - 1);
     for (auto& it = range.first; it != range.second; ++it) {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-        debug() << "Found dependency last read at position " << position_ - 1
+        debug() << "Found dependency last read at position " << position - 1
                 << " corresponding to first write at " << it->second
                 << std::endl;
       }
       upcoming_first_writes_.insert(it->second);
     }
+  }
 
+  //! "First write" positions are the beginnings of allocation lifetimes that
+  //! correspond to the ends of the open intervals upon which we need to ensure
+  //! that a sync exists. If we have not yet cleared sync intervals in
+  //! upcoming_first_writes_ with end positions equal to position, it means we
+  //! need to insert a sync just before this position. In that case, we register
+  //! a new sync for insertion. This function returns a bool indicating whether
+  //! a new sync was inserted.
+  bool processFirstWrites(Expr* expr, int position) {
     // If this is an upcoming first write that has not yet been erased, it means
     // we have not seen a sync in its interval. So we should insert a BlockSync
     // before this expr.
-    if (upcoming_first_writes_.erase(position_)) {
+    if (upcoming_first_writes_.erase(position)) {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-        debug() << "Inserting block sync before position " << position_
+        debug() << "Inserting block sync before position " << position
                 << std::endl;
       }
       auto new_sync = IrBuilder::create<kir::BlockSync>();
@@ -1988,21 +1972,42 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
       // Now that we have inserted a sync, we can safely clear any other
       // upcoming first writes.
       upcoming_first_writes_.clear();
-      kir::ExprMutator::dispatch(expr);
-      return;
+      return true;
     }
+    return false;
+  }
+
+  //! This function will be called in such an order that the position of expr
+  //! is strictly increasing and skips no positions. We process the start and
+  //! end of each sync interval, with special handling of ENDFOR positions.
+  void dispatch(Expr* expr) final {
+    const ScopeMap& scope_map = allocation_info_map_.getScopeMap();
+    auto position = scope_map.getExprPos(expr);
+
+    processLastReads(position);
+
+    bool inserted_sync = processFirstWrites(expr, position);
 
     // If we have a sync at this location, we can clear any upcoming first
-    // writes since they can be considered safe.
-    if (lower_utils::hasBlockSync(expr, GpuLower::current()->threadPredMap())) {
+    // writes since they can be considered safe. If we just inserted a sync,
+    // there is no need to perform the hasBlockSync check as we know that
+    // upcoming_first_writes_ was just cleared.
+    if (!inserted_sync &&
+        lower_utils::hasBlockSync(expr, GpuLower::current()->threadPredMap())) {
       if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
-        debug() << "Found blocking expression at position " << position_
+        debug() << "Found blocking expression at position " << position
                 << std::endl;
       }
       upcoming_first_writes_.clear();
     }
 
+    // This causes recursion into loops
     kir::ExprMutator::dispatch(expr);
+
+    if (auto loop = dynamic_cast<kir::ForLoop*>(expr)) {
+      // We might have a last read outer position that is the end of a for loop.
+      processLastReads(scope_map.getLoopScopeInfo(loop)->end_pos);
+    }
   }
 
  private:
@@ -2020,7 +2025,9 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
   // Holds all new syncs we have inserted
   std::unordered_set<Expr*> inserted_syncs_;
 
-  int position_ = -1;
+  // Used to check that we have processed each position once, in order. Note
+  // that positions start at 1.
+  int last_processed_position_ = 0;
 };
 
 // Insert missing synchronizations in cases where a TensorView is marked as
