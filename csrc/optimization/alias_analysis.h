@@ -61,7 +61,7 @@ class AliasAnalysisResult {
 
   std::string toString(int indent_size) const;
 
-  // Gets the nearest aliased fusion input of a `fusion_out` other than
+  // Gets the nearest aliased fusion input/output of a `fusion_out` other than
   // `fusion_out` itself. Returns null if that doesn't exist.
   TensorView* getNearestAliasedIo(const TensorView* fusion_out) const;
 
