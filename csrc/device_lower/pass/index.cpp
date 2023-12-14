@@ -1349,13 +1349,16 @@ void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
           ->withPredicate(ldst->predicate());
   pushBack(new_ldst);
   GpuLower::current()->propagateExprInfo(ldst, back());
-  pushBack(IrBuilder::create<kir::CpAsyncBulkS2GCommit>());
   // Waits on all the prior bulk async-groups to complete.
-  pushBack(IrBuilder::create<kir::CpAsyncBulkS2GWait>(0));
+  // TODO: we should not insert sync here. We should move this to
+  // insertRawThreadSynchronization or insertWarThreadSynchronization.
+  pushBack(IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsyncBulk));
+  pushBack(IrBuilder::create<kir::AsyncWait>(AsyncOpType::CpAsyncBulk, 0));
 }
 
 static DataType getMmaInputAType(MmaMacro macro) {
-  int size = getM(macro) * getK(macro) / 32 /* threads per warp */ /
+  int warp_group_size = isHopper(macro) ? 128 : 32;
+  int size = getM(macro) * getK(macro) / warp_group_size /
       2 /* halves per 32bit register */;
   return ArrayType{std::make_shared<DataType>(DataType::UInt32), (size_t)size};
 }
@@ -1395,6 +1398,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
           (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>()) /
               2};
     } else if (ldst->out()->definition()->isA<MmaOp>()) {
+      // For MMA accumulator initialization
       as_type = getMmaOutType(ldst->out()->as<TensorView>());
     }
     in = lowerSrcIndex(
@@ -1411,17 +1415,128 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
   }
 }
 
+// Reference:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-matrix-descriptor
+static Val* matrixDescriptorEncode(Val* x) {
+  auto x_cast = IrBuilder::maybeCastExpr(DataType::UInt, x);
+  auto mask = IrBuilder::create<Val>(0x3FFFF, DataType::UInt);
+  auto x_and = IrBuilder::bitwiseAndExpr(x_cast, mask);
+  auto shift = IrBuilder::create<Val>(0x4, DataType::UInt);
+  return IrBuilder::rShiftExpr(x_and, shift);
+}
+
+static Val* constructMatrixDescriptor(
+    Val* start_address,
+    Val* leading_dim_byte_offset,
+    Val* stride_dim_byte_offset,
+    Val* matrix_base_offset,
+    MmaInputSmemSwizzle swizzle) {
+  auto or0 = matrixDescriptorEncode(start_address);
+  auto or1 = IrBuilder::lShiftExpr(
+      matrixDescriptorEncode(leading_dim_byte_offset),
+      IrBuilder::create<Val>(16, DataType::UInt));
+  auto or2 = IrBuilder::lShiftExpr(
+      matrixDescriptorEncode(stride_dim_byte_offset),
+      IrBuilder::create<Val>(32, DataType::UInt));
+  auto or3 = IrBuilder::lShiftExpr(
+      matrix_base_offset, IrBuilder::create<Val>(49, DataType::UInt));
+  auto or4 = IrBuilder::lShiftExpr(
+      IrBuilder::create<Val>((int64_t)swizzle, DataType::UInt),
+      IrBuilder::create<Val>(62, DataType::UInt));
+  return IrBuilder::bitwiseOrExpr(
+      IrBuilder::bitwiseOrExpr(
+          IrBuilder::bitwiseOrExpr(IrBuilder::bitwiseOrExpr(or0, or1), or2),
+          or3),
+      or4);
+}
+
+static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
+  auto n_alloc = tv->getAllocationDomain().size();
+  auto num_core_matrices = tv->getAllocationDomain()
+                               .at(n_alloc - 2)
+                               ->extent()
+                               ->evaluate()
+                               .as<int64_t>() /
+      8;
+  if (num_core_matrices == 1) {
+    return MmaInputSmemSwizzle::None;
+  }
+  return getSwizzleFromBytes(num_core_matrices * 16);
+}
+
+// Reference for smem strides:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#strides
 void IndexLowering::handle(const MmaOp* mma) {
-  const auto a = lowerSrcIndex(
-      mma->inA(), mma->out(), {}, false, getMmaInputAType(mma->macro()));
-  const auto b = lowerSrcIndex(
-      mma->inB(), mma->out(), {}, false, getMmaInputBType(mma->macro()));
+  Val* a = nullptr;
+  Val* b = nullptr;
+  if (mma->inA()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
+    // TODO: This is a temporary solution and only supports a single tile in
+    // smem.
+    auto tv = mma->inA()->as<TensorView>();
+    auto base_addr = IrBuilder::baseAddressExpr(tv);
+    int64_t stride_bytes =
+        /*8x8 items each core matrix*/ 64L * /*bytes per item*/ 2L;
+    int64_t leading_bytes = /*8x8 items each core matrix*/ 64L *
+        /*number of core matrices*/ (getM(mma->macro()) / 8L) *
+        /*bytes per item*/ 2L;
+    auto matrix_desc = constructMatrixDescriptor(
+        base_addr,
+        IrBuilder::create<Val>(leading_bytes, DataType::UInt),
+        IrBuilder::create<Val>(stride_bytes, DataType::UInt),
+        IrBuilder::create<Val>(0, DataType::UInt),
+        getSwizzleMode(tv));
+    a = IrBuilder::create<kir::TensorIndex>(
+        tv,
+        GpuLower::current()->commonScalarMap().hoistScalar(
+            matrix_desc, for_loops_));
+  } else {
+    a = lowerSrcIndex(
+        mma->inA(), mma->out(), {}, false, getMmaInputAType(mma->macro()));
+  }
+  if (mma->inB()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
+    // TODO: This is a temporary solution and only supports a single tile in
+    // smem.
+    auto tv = mma->inB()->as<TensorView>();
+    auto swizzle = getSwizzleMode(tv);
+    auto base_addr = IrBuilder::baseAddressExpr(tv);
+    int64_t stride_bytes =
+        8L * getBytesFromSwizzle(swizzle); // swizzle period in bytes
+    int64_t leading_bytes = /*8x8 items each core matrix*/ 64L *
+        /*number of core matrices, rounded up to handle padding */
+        roundUpToMultiple(getN(mma->macro()) / 8L,
+                          getBytesFromSwizzle(swizzle) / 16L) *
+        /*bytes per item*/ 2L;
+    if (swizzle != MmaInputSmemSwizzle::None) {
+      // TODO: why???!!!
+      std::swap(leading_bytes, stride_bytes);
+    }
+    auto matrix_desc = constructMatrixDescriptor(
+        base_addr,
+        IrBuilder::create<Val>(leading_bytes, DataType::UInt),
+        IrBuilder::create<Val>(stride_bytes, DataType::UInt),
+        IrBuilder::create<Val>(0, DataType::UInt),
+        swizzle);
+    b = IrBuilder::create<kir::TensorIndex>(
+        tv,
+        GpuLower::current()->commonScalarMap().hoistScalar(
+            matrix_desc, for_loops_));
+  } else {
+    b = lowerSrcIndex(
+        mma->inB(), mma->out(), {}, false, getMmaInputBType(mma->macro()));
+  }
   const auto out = lowerDstIndex(
       mma->out(), {}, false, getMmaOutType(mma->out()->as<TensorView>()));
   auto mma_indexed = IrBuilder::create<MmaOp>(
       out, a, b, mma->init(), mma->macro(), mma->layout());
   pushBack(mma_indexed);
   GpuLower::current()->propagateExprInfo(mma, back());
+  if (mma->isHopper()) {
+    // Waits on all the prior bulk async-groups to complete.
+    // TODO: we should not insert sync here. We should move this to
+    // insertRawThreadSynchronization or insertWarThreadSynchronization.
+    pushBack(IrBuilder::create<kir::AsyncCommit>(AsyncOpType::WgMma));
+    pushBack(IrBuilder::create<kir::AsyncWait>(AsyncOpType::WgMma, 0));
+  }
 }
 
 void IndexLowering::handle(const BroadcastOp* bop) {
@@ -1493,24 +1608,14 @@ void IndexLowering::handle(const kir::GridSync* sync) {
   pushBack(const_cast<kir::GridSync*>(sync)); // NOLINT
 }
 
-void IndexLowering::handle(const kir::CpAsyncWait* wait) {
+void IndexLowering::handle(const kir::AsyncWait* wait) {
   // TODO(kir): remove the need for const_cast
-  pushBack(const_cast<kir::CpAsyncWait*>(wait)); // NOLINT
+  pushBack(const_cast<kir::AsyncWait*>(wait)); // NOLINT
 }
 
-void IndexLowering::handle(const kir::CpAsyncCommit* commit) {
+void IndexLowering::handle(const kir::AsyncCommit* commit) {
   // TODO(kir): remove the need for const_cast
-  pushBack(const_cast<kir::CpAsyncCommit*>(commit)); // NOLINT
-}
-
-void IndexLowering::handle(const kir::CpAsyncBulkS2GWait* wait) {
-  // TODO(kir): remove the need for const_cast
-  pushBack(const_cast<kir::CpAsyncBulkS2GWait*>(wait)); // NOLINT
-}
-
-void IndexLowering::handle(const kir::CpAsyncBulkS2GCommit* commit) {
-  // TODO(kir): remove the need for const_cast
-  pushBack(const_cast<kir::CpAsyncBulkS2GCommit*>(commit)); // NOLINT
+  pushBack(const_cast<kir::AsyncCommit*>(commit)); // NOLINT
 }
 
 void IndexLowering::generate(const std::vector<Expr*>& exprs) {

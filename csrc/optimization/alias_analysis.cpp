@@ -132,6 +132,8 @@ void AliasFinder::handle(const ViewOp* view) {
 
   std::unordered_map<IterDomain*, IterDomain*> in_rfactor_to_out_root =
       PairwiseRootDomainMap(in, out).mapBroadcast(true).mapProducerToConsumer();
+  std::unordered_map<IterDomain*, IterDomain*> out_root_to_in_rfactor =
+      PairwiseRootDomainMap(in, out).mapBroadcast(true).mapConsumerToProducer();
 
   // Collect the allocation order of `in`'s rfactor domain and thus `out`'s root
   // domain.
@@ -142,9 +144,18 @@ void AliasFinder::handle(const ViewOp* view) {
       // `in_allocation_id` is a reduction product.
       continue;
     }
-    IterDomain* out_root_id = in_rfactor_to_out_root.at(in_allocation_id);
-    allocation_to_contiguity.pushBack(out_root_id, in_layout.contiguity[i]);
+    allocation_to_contiguity.pushBack(
+        in_allocation_id, in_layout.contiguity[i]);
   }
+
+  // TODO(#1174): preserve expanded extents in `out_root` so we don't have to
+  // look for expanded extents in `in_rfactor`.
+  auto map_or_identity =
+      [](const std::unordered_map<IterDomain*, IterDomain*>& map,
+         IterDomain* id) {
+        const auto i = map.find(id);
+        return i == map.end() ? id : i->second;
+      };
 
   // Replay `Expr`s from `out`'s root to `out`'s rfactor on `out`'s root.
   // Stop when an `Expr` requires a data copy; otherwise generate the allocation
@@ -153,25 +164,31 @@ void AliasFinder::handle(const ViewOp* view) {
            {out_root.begin(), out_root.end()},
            {out_rfactor.begin(), out_rfactor.end()})) {
     if (Split* split = dynamic_cast<Split*>(transform)) {
+      IterDomain* split_in =
+          map_or_identity(out_root_to_in_rfactor, split->in());
       const auto [contiguity, split_i] =
-          allocation_to_contiguity.erase(split->in());
+          allocation_to_contiguity.erase(split_in);
       auto [outer_contiguity, inner_contiguity] = splitContiguity(contiguity);
       allocation_to_contiguity.insert(
           split_i, split->outer(), outer_contiguity);
       allocation_to_contiguity.insert(
           split_i, split->inner(), inner_contiguity);
     } else if (Merge* merge = dynamic_cast<Merge*>(transform)) {
+      IterDomain* merge_inner =
+          map_or_identity(out_root_to_in_rfactor, merge->inner());
+      IterDomain* merge_outer =
+          map_or_identity(out_root_to_in_rfactor, merge->outer());
       const auto [outer_contiguity, inner_i] =
-          allocation_to_contiguity.erase(merge->outer());
+          allocation_to_contiguity.erase(merge_outer);
       if (inner_i == allocation_to_contiguity.end() ||
-          inner_i->first != merge->inner()) {
+          inner_i->first != merge_inner) {
         // Outer and inner are not adjacent in allocation order.
         return;
       }
       const auto [inner_contiguity, merge_i] =
-          allocation_to_contiguity.erase(merge->inner());
+          allocation_to_contiguity.erase(merge_inner);
       const auto [mergeable, contiguity] = mergeContiguity(
-          merge->outer(), outer_contiguity, merge->inner(), inner_contiguity);
+          merge_outer, outer_contiguity, merge_inner, inner_contiguity);
       if (!mergeable) {
         return;
       }
@@ -184,7 +201,8 @@ void AliasFinder::handle(const ViewOp* view) {
 
   Layout out_layout;
   for (const auto& [allocation_id, contiguity] : allocation_to_contiguity) {
-    out_layout.allocation_domain.push_back(allocation_id);
+    out_layout.allocation_domain.push_back(
+        map_or_identity(in_rfactor_to_out_root, allocation_id));
     out_layout.contiguity.push_back(contiguity);
   }
   analysis_.add(out, in, std::move(out_layout));
@@ -318,13 +336,14 @@ void AliasFinder::handle(const SliceOp* slice) {
 
 void AliasAnalysisResult::add(
     const TensorView* alias,
-    const TensorView* source,
+    TensorView* source,
     Layout&& layout) {
   auto [i, inserted] = alias_to_source_.emplace(
       alias, std::make_pair(source, std::move(layout)));
   NVF_ERROR(
       inserted,
-      "The current implementation of alias analysis shouldn't find two sources for an alias. However, it's trying to make ",
+      "The current implementation of alias analysis shouldn't find two "
+      "sources for an alias. However, it's trying to make ",
       alias->toString(),
       " an alias of ",
       source->toString(),
@@ -332,10 +351,10 @@ void AliasAnalysisResult::add(
       i->second.first->toString());
 }
 
-const Val* AliasAnalysisResult::findRoot(const Val* alias) const {
-  const TensorView* root = dynamic_cast<const TensorView*>(alias);
+Val* AliasAnalysisResult::findRoot(Val* alias) const {
+  TensorView* root = dynamic_cast<TensorView*>(alias);
   if (root == nullptr) {
-    return nullptr;
+    return alias;
   }
 
   // This can be made faster by path compression at the cost of losing
@@ -346,12 +365,50 @@ const Val* AliasAnalysisResult::findRoot(const Val* alias) const {
   return root;
 }
 
+TensorView* AliasAnalysisResult::getAliasedInput(
+    const TensorView* fusion_out) const {
+  const auto i = out_to_root_.find(fusion_out);
+  return i == out_to_root_.end() ? nullptr : i->second;
+}
+
+namespace {
+bool okToRelayout(
+    const TensorView* out,
+    const Layout& new_layout,
+    const bool can_override_empty_allocation_domain) {
+  const std::vector<IterDomain*> out_allocation =
+      (can_override_empty_allocation_domain ? out->getAllocationDomain()
+                                            : out->getMaybeAllocationDomain());
+  return new_layout.isCompliantWith({out_allocation, out->getContiguity()});
+}
+} // namespace
+
+void AliasAnalysisResult::finalize(
+    Fusion* fusion,
+    const bool can_override_empty_allocation_domain) {
+  for (TensorView* out :
+       ir_utils::filterByType<TensorView>(fusion->outputs())) {
+    Val* in = findRoot(out);
+    if (!in->isFusionInput()) {
+      continue;
+    }
+
+    const Layout preferred_layout = preferredLayout(out);
+    if (!okToRelayout(
+            out, preferred_layout, can_override_empty_allocation_domain)) {
+      continue;
+    }
+
+    out_to_root_[out] = in->as<TensorView>();
+  }
+}
+
 Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
   const TensorView* tv = dynamic_cast<const TensorView*>(v);
-  NVF_CHECK(
+  NVF_ERROR(
       tv != nullptr,
       "`v` is expected to be a TensorView. Found: ",
-      v->toString());
+      v == nullptr ? "<null>" : v->toString());
 
   if (auto i = alias_to_source_.find(tv); i != alias_to_source_.end()) {
     return i->second.second;
@@ -361,16 +418,30 @@ Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
 
 std::string AliasAnalysisResult::toString(const int indent_size) const {
   std::stringstream ss;
+  indent(ss, indent_size) << "All aliases:"
+                          << (alias_to_source_.empty() ? " <empty>" : "")
+                          << std::endl;
   for (const auto& [alias, source_and_layout] : alias_to_source_) {
     const auto& [source, layout] = source_and_layout;
-    indent(ss, indent_size)
-        << alias->toString() << " is an alias of " << source->toString()
-        << " if its layout is " << layout.toString() << std::endl;
+    indent(ss, indent_size + 1)
+        << ir_utils::varName(alias) << " is an alias of "
+        << ir_utils::varName(source) << " if its layout is "
+        << layout.toString() << std::endl;
+  }
+  indent(ss, indent_size) << "Output aliases only:"
+                          << (out_to_root_.empty() ? " <empty>" : "")
+                          << std::endl;
+  for (const auto& [out, root] : out_to_root_) {
+    indent(ss, indent_size + 1)
+        << ir_utils::varName(out) << " is a transitive alias of "
+        << ir_utils::varName(root) << std::endl;
   }
   return ss.str();
 }
 
-AliasAnalysisResult findAliases(Fusion* fusion) {
+AliasAnalysisResult findAliases(
+    Fusion* fusion,
+    const bool can_override_empty_allocation_domain) {
   AliasAnalysisResult analysis;
   AliasFinder finder(analysis);
   // Fusion::exprs() computes and returns topological order.
@@ -382,6 +453,7 @@ AliasAnalysisResult findAliases(Fusion* fusion) {
     // results).
     finder.dispatch(expr);
   }
+  analysis.finalize(fusion, can_override_empty_allocation_domain);
   return analysis;
 }
 
@@ -393,6 +465,36 @@ std::string Layout::toString(const int indent_size) const {
                           << toDelimitedString(contiguity, /*delim=*/" ")
                           << "]>";
   return ss.str();
+}
+
+namespace {
+bool contiguityIsCompliant(
+    const std::optional<bool>& actual,
+    const std::optional<bool>& required) {
+  if (actual == true && required == false) {
+    return true;
+  }
+  return actual == required;
+}
+} // namespace
+
+bool Layout::isCompliantWith(const Layout& required) const {
+  if (required.allocation_domain.empty()) {
+    return true;
+  }
+
+  if (allocation_domain != required.allocation_domain) {
+    // This can be relaxed by allowing broadcast dimensions to be ordered
+    // differently.
+    return false;
+  }
+
+  for (const auto i : c10::irange(allocation_domain.size())) {
+    if (!contiguityIsCompliant(contiguity[i], required.contiguity[i])) {
+      return false;
+    }
+  }
+  return true;
 }
 
 } // namespace nvfuser::optimization

@@ -310,6 +310,14 @@ class VectorizeValidator : public OptInDispatch {
     domains_.insert(r->in());
   }
 
+  void handle(Swizzle* swizzle) final {
+    if (swizzle->outX() == vectorized_id_ || swizzle->inX() == vectorized_id_ ||
+        swizzle->outY() == vectorized_id_ || swizzle->inY() == vectorized_id_) {
+      // Do not (yet) allow vectorization across any swizzled id.
+      is_valid = false;
+    }
+  }
+
   void handle(Swizzle2D* swizzle) final {
     if (swizzle->outX() == vectorized_id_ || swizzle->inX() == vectorized_id_ ||
         swizzle->outY() == vectorized_id_ || swizzle->inY() == vectorized_id_) {
@@ -530,17 +538,8 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::Lower::validateVectorize");
   FusionGuard fg(fusion);
 
-  auto used_vals = fusion->usedMathVals();
-
-  std::unordered_set<TensorView*> used_tvs;
-
-  for (auto val : used_vals) {
-    if (ir_utils::isTV(val)) {
-      used_tvs.emplace(val->as<TensorView>());
-    }
-  }
-
-  for (auto tv : used_tvs) {
+  std::vector<Val*> used_vals = fusion->usedMathVals();
+  for (auto* tv : ir_utils::filterByType<TensorView>(used_vals)) {
     bool has_vectorize_dim = false;
     bool has_misaligned_vectorize_dim = false;
 

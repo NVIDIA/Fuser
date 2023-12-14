@@ -722,34 +722,9 @@ class PersistentBufferProjector {
 
   const std::vector<TensorView*>& project() {
     if (project_to_inputs_) {
-      // Iterate through projected buffers, tracking which index it corresponds
-      // too since there's a resolution point entry for every buffer.
-      for (auto buffer_i : c10::irange(persistent_buffers.size())) {
-        auto buffer = persistent_buffers[buffer_i];
-        if (std::find(
-                projectable_persistent_buffers.begin(),
-                projectable_persistent_buffers.end(),
-                buffer) == projectable_persistent_buffers.end()) {
-          continue;
-        }
-        projectToInputOrImmediatePersistentProducer(
-            (int)buffer_i, fusion_->inputs());
-      }
+      projectToInputs();
     } else {
-      std::unordered_set<TensorView*> persistent_buffer_set(
-          persistent_buffers.begin(), persistent_buffers.end());
-      for (auto buffer_i : c10::irange(persistent_buffers.size())) {
-        auto buffer = persistent_buffers[buffer_i];
-        const auto& producers = ir_utils::producerTvsOf(buffer);
-        if (scheduler_utils::canProjectToPersistentProducer(
-                buffer, producers, persistent_buffer_set)) {
-          projectToInputOrImmediatePersistentProducer(
-              (int)buffer_i,
-              std::vector<Val*>(producers.begin(), producers.end()));
-          // "buffer" is no longer a persistent buffer
-          persistent_buffer_set.erase(buffer);
-        }
-      }
+      projectToProducers();
     }
     return dummy_outputs_;
   }
@@ -763,6 +738,80 @@ class PersistentBufferProjector {
   const std::vector<TensorView*>& projectable_persistent_buffers;
   std::vector<TensorView*> dummy_outputs_;
   const bool project_to_inputs_;
+
+  void projectToInputs() {
+    // Iterate through projected buffers, tracking which index it corresponds
+    // too since there's a resolution point entry for every buffer.
+    const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion_);
+    for (auto buffer_i : c10::irange(persistent_buffers.size())) {
+      auto buffer = persistent_buffers[buffer_i];
+      if (std::find(
+              projectable_persistent_buffers.begin(),
+              projectable_persistent_buffers.end(),
+              buffer) == projectable_persistent_buffers.end()) {
+        continue;
+      }
+      // when project to inputs, if the buffer depends on reduction tvs,
+      // additional reduction is required to re-calculate the buffer.
+      // Consider the following fusion where f() is a trivial op.
+      // t1 = f(t0); t2 = sum(t1); t3 = broadcast(t2); t4 = add(t1, t3);
+      // t5 = f(t4); t6 = sum(t5); t7 = broadcast(t6); t8 = add(t5, t7);
+      // In this case t0 is input, t1 and t5 are persistent buffers.
+      // Re-calculation of t1 from t0 is trivial, just f(t0).
+      // Re-calculation of t5 from t0 needs t0->t1->t2->t3->t4->t5 where
+      // t1->t2 is a reduction, which is considered very expensive and should
+      // be avoided. Since t3 is a broadcast tv, all the persitent batches are
+      // sharing the same value. It can be considered as a `free` persistent
+      // buffer. So, t5 can be re-calculated directly from t3, this skips the
+      // reduciton and broadcast from input t0 to t3. The broadcast here is not
+      // just a local register copy but involves an inter-thread communication.
+      std::vector<Val*> vals_project_to = fusion_->inputs();
+      const auto& dep_vals = DependencyCheck::getAllValsBetween(
+          {reduction_tvs.begin(), reduction_tvs.end()}, {buffer});
+      const auto& broadcast_tvs = scheduler_utils::getBroadcastTvs(dep_vals);
+      vals_project_to.insert(
+          vals_project_to.end(), broadcast_tvs.begin(), broadcast_tvs.end());
+      projectToInputOrImmediatePersistentProducer(
+          (int)buffer_i, vals_project_to);
+    }
+  }
+
+  void projectToProducers() {
+    // visit consumer before producer. e.g.
+    // T1 = f(T0); Tx = add(T1, broadcast(sum(T1)));
+    // T2 = f(T1); Ty = add(T2, broadcast(sum(T2)));
+    // T3 = f(T2); Tz = add(T3, broadcast(sum(T3)));
+    // T1, T2, T3 are persistent buffers.
+    // The visiting order should be [T3, T2, T1].
+    // After project T3 to its producers, we have:
+    // Tz = add(f(T2),broadcast(sum(T3)));
+    // After project T2 to its producers, we have:
+    // Tz = add(f(f(T1)),broadcast(sum(T3)));
+    // Ty = add(f(T1), broadcast(sum(T2)));
+    // At last, the only persistent buffer is T1.
+    // For a solid case, see NVFuserTest.ChainProjectionToPersistentProducer.
+    std::vector<int> visiting_order(persistent_buffers.size());
+    std::iota(visiting_order.begin(), visiting_order.end(), 0);
+    std::stable_sort(
+        visiting_order.begin(), visiting_order.end(), [this](int a, int b) {
+          return !DependencyCheck::isDependencyOf(
+              persistent_buffers[a], persistent_buffers[b]);
+        });
+
+    // try to project buffer to its producers
+    std::unordered_set<TensorView*> persistent_buffer_set(
+        persistent_buffers.begin(), persistent_buffers.end());
+    for (auto buffer_i : visiting_order) {
+      auto buffer = persistent_buffers[buffer_i];
+      const auto& producers = ir_utils::producerTvsOf(buffer);
+      if (scheduler_utils::canProjectToPersistentProducer(
+              buffer, producers, persistent_buffer_set)) {
+        projectToInputOrImmediatePersistentProducer(
+            (int)buffer_i,
+            std::vector<Val*>(producers.begin(), producers.end()));
+      }
+    }
+  }
 
   // get all uses of the persistent buffer
   std::vector<Val*> getPersistentUseOfBuffer(int buffer_i) {
