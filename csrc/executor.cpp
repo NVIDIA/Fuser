@@ -986,7 +986,7 @@ std::vector<at::Tensor> allocateOutputs(
     ExpressionEvaluator& ee) {
   FUSER_PERF_SCOPE("allocateOutputs");
 
-  const int64_t num_outs = output_info.size();
+  const auto num_outs = output_info.size();
 
   // Sort the outputs so we compute aliases after allocating non-aliases. The
   // order between aliases can be arbitrary. E.g.,
