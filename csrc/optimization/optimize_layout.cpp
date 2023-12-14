@@ -37,7 +37,8 @@ void OptimizeLayoutPass::runPass(Fusion* fusion) {
       continue;
     }
 
-    if (aliased_io->isFusionOutput()) {
+    if (aliased_io->isFusionOutput() &&
+        analysis.getNearestAliasedIo(aliased_io) == nullptr) {
       aliased_outs.push_back(aliased_io);
     }
 

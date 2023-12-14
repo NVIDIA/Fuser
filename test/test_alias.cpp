@@ -843,7 +843,7 @@ TEST_F(AliasTest, OutputAliasesAnotherOutput) {
   EXPECT_TRUE(permute_out_tensor.is_alias_of(reshape_out_tensor));
 }
 
-TEST_F(AliasTest, ManyOutputToOutputAliases) {
+TEST_F(AliasTest, ManyAliasesBetweenOutputs) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -874,6 +874,11 @@ TEST_F(AliasTest, ManyOutputToOutputAliases) {
   EXPECT_EQ(add_out_tensor.data_ptr(), slice_out_tensor.data_ptr());
   EXPECT_EQ(add_out_tensor.data_ptr(), permute_out_tensor.data_ptr());
   EXPECT_EQ(add_out_tensor.data_ptr(), reshape_out_tensor.data_ptr());
+
+  // Segment 1: in -> add_out
+  // Segment 2: add_out -> its output aliases
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
 }
 
 } // namespace nvfuser
