@@ -24,7 +24,7 @@ void OptimizeLayoutPass::runPass(Fusion* fusion) {
   }
 
   // Fusion outputs that are (1) aliased by others and (2) not aliases
-  // themselves. We will later add `segment_set` before them so aliases are
+  // themselves. Code will later add `segment_set` before them so aliases are
   // separated from non-aliases and more likely to be accepted by the no-op
   // scheduler.
   std::vector<TensorView*> aliased_outs;

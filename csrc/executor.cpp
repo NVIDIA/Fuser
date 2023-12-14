@@ -928,9 +928,10 @@ at::Tensor allocateOutput(
   if (aliased_io != nullptr) {
     NVF_ERROR(
         aliased_io->isFusionInput() || aliased_io->isFusionOutput(),
-        "Otherwise, `ee.evaluate` ",
         aliased_io->toInlineString(),
-        " would involve GPU computation.");
+        " is expected to be a fusion input/output. `ee.evaluate` ",
+        "an intermediate tensor may involve GPU computation to materialize it ",
+        "to global memory.");
     const PolymorphicValue& aliased_io_val = ee.evaluate(aliased_io);
     NVF_ERROR(
         aliased_io_val.is<at::Tensor>(),
@@ -1000,7 +1001,7 @@ std::vector<at::Tensor> allocateOutputs(
   // It's fine to compute `alias_out_1` before computing `alias_out_0`: when we
   // compute `alias_out_1`, `alias_out_0` will be recursively
   // `ExpressionEvaluator::evaluate`ed. However, `non_alias_out` must be
-  // allocated first.
+  // allocated first so `alias_out_*` can refer them.
   std::vector<std::pair<int64_t, Val*>> sorted_outs;
   sorted_outs.reserve(num_outs);
   for (const auto out_index : c10::irange(num_outs)) {

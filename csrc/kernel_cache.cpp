@@ -202,14 +202,12 @@ class ArgumentManager {
         continue;
       }
 
-      PolymorphicValue group_runtime_output;
       if constexpr (std::is_pointer_v<
                         decltype(group_runtime_outputs[group_out_i])>) {
-        group_runtime_output = *group_runtime_outputs[group_out_i];
+        fusion_args_.push(*group_runtime_outputs[group_out_i]);
       } else {
-        group_runtime_output = group_runtime_outputs[group_out_i];
+        fusion_args_.push(group_runtime_outputs[group_out_i]);
       }
-      fusion_args_.push(std::move(group_runtime_output));
       runtime_output = fusion_args_.back();
     }
   }
