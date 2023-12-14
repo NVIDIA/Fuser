@@ -283,7 +283,6 @@ class VectorizeValidator : public OptInDispatch {
 
   void handle(Split* s) final {
     if (s->outer() == vectorized_id_) {
-      std::cout << "Split is invalid: " << s->toString();
       is_valid = false;
     } else if (s->inner() == vectorized_id_) {
       vectorized_id_ = s->in();
@@ -315,7 +314,6 @@ class VectorizeValidator : public OptInDispatch {
     if (swizzle->outX() == vectorized_id_ || swizzle->inX() == vectorized_id_ ||
         swizzle->outY() == vectorized_id_ || swizzle->inY() == vectorized_id_) {
       // Do not (yet) allow vectorization across any swizzled id.
-      std::cout << "Swizzle is invalid: " << swizzle->toString();
       is_valid = false;
     }
   }
@@ -324,7 +322,6 @@ class VectorizeValidator : public OptInDispatch {
     if (swizzle->outX() == vectorized_id_ || swizzle->inX() == vectorized_id_ ||
         swizzle->outY() == vectorized_id_ || swizzle->inY() == vectorized_id_) {
       // Do not (yet) allow vectorization across any swizzled id.
-      std::cout << "Swizzle is invalid: " << swizzle->toString();
       is_valid = false;
     }
   }
