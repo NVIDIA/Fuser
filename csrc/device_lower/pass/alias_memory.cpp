@@ -1922,6 +1922,7 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
 
  private:
   using kir::ExprMutator::dispatch;
+  using kir::ExprMutator::handle;
 
   //! "Last read" positions are the ends of allocation lifetimes that correspond
   //! to the beginnings of the open intervals upon which we need to ensure that
@@ -1981,8 +1982,7 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
   //! is strictly increasing and skips no positions. We process the start and
   //! end of each sync interval, with special handling of ENDFOR positions.
   void dispatch(Expr* expr) final {
-    const ScopeMap& scope_map = allocation_info_map_.getScopeMap();
-    auto position = scope_map.getExprPos(expr);
+    auto position = allocation_info_map_.getScopeMap().getExprPos(expr);
 
     processLastReads(position);
 
@@ -2003,11 +2003,16 @@ class PromoteReuseSyncModifier : private kir::ExprMutator {
 
     // This causes recursion into loops
     kir::ExprMutator::dispatch(expr);
+  }
 
-    if (auto loop = dynamic_cast<kir::ForLoop*>(expr)) {
-      // We might have a last read outer position that is the end of a for loop.
-      processLastReads(scope_map.getLoopScopeInfo(loop)->end_pos);
-    }
+  //! Recurse into loop, then process ENDFOR position as a potential last read.
+  //! An ENDFOR cannot be a first write.
+  void handle(kir::ForLoop* loop) {
+    kir::ExprMutator::handle(loop);
+
+    // We might have a last read outer position that is the end of a for loop.
+    processLastReads(
+        allocation_info_map_.getScopeMap().getLoopScopeInfo(loop)->end_pos);
   }
 
  private:
