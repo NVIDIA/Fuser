@@ -247,23 +247,25 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       n_waves_max > mrpb_wave_threshold;
 
   // hint for max persistent size based on experiments.
-  const auto [persistent_experiment_max, persistent_experiment_min] = [&]() {
+  const auto [persistent_experiment_min, persistent_experiment_max] = [&]() {
     int64_t experiment_min = 1l;
     int64_t experiment_max = 1l;
     if (has_rng_ops) {
+      experiment_max = 8l;
       // softmax dropout, dont' use batch size of 6 at 6K.
-      if (total_reduction_numel <= 4096l) {
-        experiment_max = 1l;
-      } else if (total_reduction_numel <= 8192l) {
-        experiment_min = 2l;
-        experiment_max = 2l;
-      } else if (total_reduction_numel <= 1024l * 18l) {
-        experiment_min = 2l;
-        experiment_max = 4l;
-      } else {
-        experiment_min = 4l;
-        experiment_max = 8l;
-      }
+      // if (total_reduction_numel < 2048l) {
+      //   experiment_min = 1l;
+      //   experiment_max = 2l;
+      // } else if (total_reduction_numel <= 8192l) {
+      //   experiment_min = 2l;
+      //   experiment_max = 2l;
+      // } else if (total_reduction_numel <= 1024l * 18l) {
+      //   experiment_min = 2l;
+      //   experiment_max = 4l;
+      // } else {
+      //   experiment_min = 4l;
+      //   experiment_max = 8l;
+      // }
     } else {
       if (total_reduction_numel <= 6144l) {
         experiment_max = 5l;
@@ -272,7 +274,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         experiment_max = 10l;
       }
     }
-    return std::make_pair(experiment_max, experiment_min);
+    return std::make_pair(experiment_min, experiment_max);
   }();
   const std::vector<int> mayChangePersistentValBy = [&]() -> std::vector<int> {
     if (has_rng_ops) {
@@ -345,38 +347,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     }
     return bdimy_val;
   };
-  // How the heuristic works?
-  // The reduction dim is parallelized by [bdimx], [persistent], and
-  // [vectorization].
-  // The iteration dim is parallelized by [bdimy], [gdimx]
-  // For reduction dim, we need to parallel [reduction_element] using  [bdimx],
-  // [persistent], and [vectorization].
-  // (1) set [vectorization] to largest value, get [after_vect]
-  // (2) set [persistent] using the following step:
-  //     (2.1) set [bdimx_min] and [bdimx_max]
-  //     (2.2) calculate [persistent_min] and [persistent_max] using [bdimx_min]
-  //           and [bdimx_max].
-  //     (2.3) init [persistent] to [persistent_max]
-  //     (2.4) adjust [persistent] to a value divisible by [warps_after_vect].
-  //           if no disible value, use the one generating smallest tailing.
-  //           if has rng op, the adjust is shifting [persistent] by -1, -2,
-  //           -3, 1 to prefer small persistent size.
-  //           if doesn't have rng op, the adjust is shifting [persistent]
-  //           by 1, 2, 3, -1 to prefer larger persistent size.
-  // (X) if has rng and [persistent_val] is not divisible,
-  //      use [persistent_min] to reduce workload of each thread.
-  // (3) calculate [bdimx] based on [persistent] and [after_vect].
-  // (4) calculate [bdimy] for multi-reducitons per block.
-  // (5) calculate [nvrtc_register_per_thread] to achieve 50% occupancy
-  //     (5.1) estimate register usage by assume 24 registers for overhead.
-  //     (5.2) can reduce register usage by 8 from estimated value.
-  //     (5.3) calculate [occupancy] and [blocks per sm]
-  // (X) if has rng and [persistent_val] is not divisible, and [occupancy]
-  //     is lower than 50%, increase [persistent] for higher occupancy.
-  //     Needs iterate over steps (3) to (5).
-  // (6) if [blocks per sm] == 1, increase [persistent] for higher
-  //      occupancy. Needs iterate over steps (3) to (5).
-  // (7) calculate [gdimx] and [gdimy] based on [bdimy]
 
   struct HeuristicParas {
     int64_t warp_size;
@@ -440,6 +410,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       return 0;
     };
     auto tails_score = -1 * compare(ha.n_threads_tails, hb.n_threads_tails);
+    auto occupancy_score = compare(ha.warps_per_sm , hb.warps_per_sm);
     auto register_usage = compare(
         ha.warps_per_sm * ha.nvrtc_register_per_thread,
         hb.warps_per_sm * hb.nvrtc_register_per_thread);
@@ -452,8 +423,11 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
               << single_warp_reduction_score << std::endl;
     auto first_priority = register_usage;
     auto second_priority = tails_score;
+    auto third_priority = occupancy_score;
     if (has_rng_ops) {
-      std::swap(first_priority, second_priority);
+      first_priority = tails_score;
+      second_priority = occupancy_score;
+      third_priority = register_usage;
     }
     if (first_priority > 0) {
       return true;
@@ -465,17 +439,23 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       } else if (second_priority < 0) {
         return false;
       } else {
-        if (single_warp_reduction_score > 0) {
+        if (third_priority > 0) {
           return true;
-        } else if (single_warp_reduction_score < 0) {
+        } else if (third_priority < 0) {
           return false;
         } else {
-          if (n_waves_score > 0) {
+          if (single_warp_reduction_score > 0) {
             return true;
-          } else if (n_waves_score < 0) {
+          } else if (single_warp_reduction_score < 0) {
             return false;
           } else {
-            return ha.persistent_val > hb.persistent_val;
+            if (n_waves_score > 0) {
+              return true;
+            } else if (n_waves_score < 0) {
+              return false;
+            } else {
+              return ha.persistent_val > hb.persistent_val;
+            }
           }
         }
       }
@@ -497,7 +477,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   const int64_t bdimx_max = max_threads_per_block;
 
   // (2.2) set [persistent_min] and [persistent_max]
-  const int64_t persistent_min = std::max(persistent_experiment_min, ceilDiv(after_vect, bdimx_max));
+  const int64_t persistent_min =
+      std::max(persistent_experiment_min, ceilDiv(after_vect, bdimx_max));
   const int64_t persistent_max = std::min(
       std::max(persistent_experiment_max, persistent_min),
       ceilDiv(after_vect, bdimx_min));
