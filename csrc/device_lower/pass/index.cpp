@@ -1456,13 +1456,18 @@ static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
   auto exprs = StmtSort::getExprsBetween(
       {alloc_domain.begin(), alloc_domain.end()},
       {leaf_domain.begin(), leaf_domain.end()});
-  for (auto expr : exprs) {
-    if (auto swizzle = dynamic_cast<const Swizzle*>(expr)) {
-      return getSwizzleFromBytes(
-          swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
-    }
+  auto swizzle_exprs = ir_utils::filterByType<Swizzle>(exprs);
+  if (swizzle_exprs.empty()) {
+    return MmaInputSmemSwizzle::None;
   }
-  return MmaInputSmemSwizzle::None;
+  NVF_ERROR(
+      swizzle_exprs.size() < 2,
+      "expected 2 or less swizzle expressions in mma input, got ",
+      swizzle_exprs.size());
+  auto swizzle = *swizzle_exprs.begin();
+  NVF_ERROR(swizzle->swizzleType() == SwizzleType::XOR, "expect xor swizzle");
+  return getSwizzleFromBytes(
+      swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
 }
 
 // Reference for smem strides:
