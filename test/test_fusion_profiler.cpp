@@ -26,10 +26,14 @@ class FusionProfilerTest : public NVFuserTest {
   void SetUp() override {
     NVFuserTest::SetUp();
     saved_ = ProfilerOptionsGuard::getCurOptions();
+    FusionProfiler::reset();
   }
 
   void TearDown() override {
     ProfilerOptionsGuard::getCurOptions() = saved_;
+    if (ProfilerState::Running == FusionProfiler::state()) {
+      FusionProfiler::stop();
+    }
     NVFuserTest::TearDown();
   }
 
