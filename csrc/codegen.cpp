@@ -185,6 +185,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         // For 64-bit Unix systems, int is 32-bit, long and long long are 64-bit
         // For 64-bit Windows, int and long are 32-bit, long long are 64-bit
         return "LL";
+      case DataType::UInt:
+        return "ULL";
+      case DataType::UInt32:
+        return "U";
       case DataType::Index:
         return getLiteralSuffix(kernel_->indexType());
       default:
@@ -448,7 +452,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (value.is<bool>()) {
       code_ << (value ? "true" : "false");
     } else if (value.is<int64_t>()) {
-      code_ << value << getLiteralSuffix(dtype);
+      if (isUnsignedIntegralType(dtype)) {
+        code_ << (uint64_t)value << getLiteralSuffix(dtype);
+      } else {
+        code_ << value << getLiteralSuffix(dtype);
+      }
     } else if (value.is<double>()) {
       auto val = value.as<double>();
       // note: default inf/nan doesn't work and should be replaced with macros

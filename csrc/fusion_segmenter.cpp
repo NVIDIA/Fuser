@@ -323,9 +323,9 @@ void SegmentedGroup::finalize() {
       // aliasing currently only supported as output to input
       NVF_ERROR(
           aliased_input->isFusionInput(),
-          "aliased input ",
+          "Aliased input ",
           aliased_input->toString(),
-          " is not found in the complete fusion");
+          " is not found in the complete fusion.");
       if (!input_set.count(aliased_input)) {
         input_set.insert(aliased_input);
         input_vals.push_back(aliased_input);

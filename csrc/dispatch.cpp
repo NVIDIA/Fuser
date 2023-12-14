@@ -208,6 +208,10 @@ void Expr::dispatch(T handler, Expr* expr) {
     ptr(handler)->handle(expr->as<Merge>());
     return;
   }
+  if (expr->isStrictlyA<Swizzle>()) {
+    ptr(handler)->handle(expr->as<Swizzle>());
+    return;
+  }
   if (expr->isStrictlyA<Swizzle2D>()) {
     ptr(handler)->handle(expr->as<Swizzle2D>());
     return;
@@ -522,6 +526,10 @@ void Expr::constDispatch(T handler, const Expr* expr) {
   }
   if (expr->isStrictlyA<Merge>()) {
     ptr(handler)->handle(expr->as<Merge>());
+    return;
+  }
+  if (expr->isStrictlyA<Swizzle>()) {
+    ptr(handler)->handle(expr->as<Swizzle>());
     return;
   }
   if (expr->isStrictlyA<Swizzle2D>()) {
@@ -947,6 +955,9 @@ void OptOutConstDispatch::handle(const Split* stmt) {
 void OptOutConstDispatch::handle(const Merge* stmt) {
   unhandled(stmt);
 }
+void OptOutConstDispatch::handle(const Swizzle* stmt) {
+  unhandled(stmt);
+}
 void OptOutConstDispatch::handle(const Swizzle2D* stmt) {
   unhandled(stmt);
 }
@@ -1178,6 +1189,9 @@ void OptOutDispatch::handle(Split* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(Merge* stmt) {
+  unhandled(stmt);
+}
+void OptOutDispatch::handle(Swizzle* stmt) {
   unhandled(stmt);
 }
 void OptOutDispatch::handle(Swizzle2D* stmt) {

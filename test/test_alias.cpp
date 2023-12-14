@@ -584,10 +584,13 @@ TEST_F(AliasTest, DuplicateOutputsSegmentedFusion) {
 
 namespace {
 
-const FusionExecutor& mostRecentExecutor(const FusionExecutorCache& fec) {
+// Returns the only executor in the most recent runtime.
+const FusionExecutor& onlyExecutorInMostRecentRuntime(
+    const FusionExecutorCache& fec) {
   const std::vector<FusionExecutor>& executors =
       fec.getMostRecentKernelRuntime()->executors();
-  return executors.back();
+  EXPECT_EQ(executors.size(), 1);
+  return executors.front();
 }
 
 void expectKernelDoesNotStoreToOutput(
@@ -623,7 +626,8 @@ TEST_F(AliasTest, NotAllOutputsAlias) {
   at::Tensor slice_out_tensor = out_tensors[0];
   EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
 
-  expectKernelDoesNotStoreToOutput(mostRecentExecutor(fec), /*out_index=*/0);
+  expectKernelDoesNotStoreToOutput(
+      onlyExecutorInMostRecentRuntime(fec), /*out_index=*/0);
 }
 
 TEST_F(AliasTest, Issue1452) {
@@ -646,7 +650,8 @@ TEST_F(AliasTest, Issue1452) {
   at::Tensor set_out_tensor = out_tensors[0];
   EXPECT_TRUE(set_out_tensor.is_alias_of(in_tensor));
 
-  expectKernelDoesNotStoreToOutput(mostRecentExecutor(fec), /*out_index=*/0);
+  expectKernelDoesNotStoreToOutput(
+      onlyExecutorInMostRecentRuntime(fec), /*out_index=*/0);
 }
 
 TEST_F(AliasTest, AliasOutputBeforeNonAliasOutput) {
@@ -669,7 +674,8 @@ TEST_F(AliasTest, AliasOutputBeforeNonAliasOutput) {
   at::Tensor slice_out_tensor = out_tensors[0];
   EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
 
-  expectKernelDoesNotStoreToOutput(mostRecentExecutor(fec), /*out_index=*/0);
+  expectKernelDoesNotStoreToOutput(
+      onlyExecutorInMostRecentRuntime(fec), /*out_index=*/0);
 }
 
 TEST_F(AliasTest, Set_NoAliasForIncompatibleLayout) {
@@ -737,6 +743,80 @@ TEST_F(AliasTest, DuplicateInputs) {
       [&]() { fusion->addInput(in); },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("duplicated inputs is not allowed")));
+}
+
+TEST_F(AliasTest, AliasInSegment) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // The segment between `permute_in` and `permute_out` is meta-op only and
+  // turned into a no-op kernel.
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* add_out = add(in, in);
+  TensorView* permute_in = segment_set(in);
+  TensorView* permute_out = permute(permute_in, {1, 0});
+
+  fusion->addInput(in);
+  fusion->addOutput(add_out);
+  fusion->addOutput(permute_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_TRUE(out_tensors[1].is_alias_of(in_tensor));
+}
+
+TEST_F(AliasTest, TrivialInputForwarding) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeConcreteTensor({-1, -1});
+  TensorView* tv1 = makeConcreteTensor({-1, -1});
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  // Note: output of add is not used. Kept it here since previously there was an
+  // assertion from sorting in codegen.
+  add(tv1, IrBuilder::create<Val>(3.141));
+  fusion->addOutput(tv0);
+
+  at::Tensor t0 = at::randn({10, 4}).cuda();
+  at::Tensor t1 = at::randn({10, 4}).cuda();
+
+  FusionExecutorCache fec(std::move(fusion));
+  std::vector<at::Tensor> cg_outputs = fec.runFusionWithInputs({t0, t1});
+
+  EXPECT_EQ(cg_outputs[0].data_ptr(), t0.data_ptr());
+  testValidate(fec.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+
+  // Second run to ensure cache hit handles trivial forwarding properly
+  NVF_CHECK(fec.isCompiled({t0, t1}));
+  auto cg_outputs2 = fec.runFusionWithInputs({t0, t1});
+  EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
+  testValidate(fec.fusion(), cg_outputs2, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(AliasTest, TrivialInputForwarding_ScalarTensor) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(0);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv0);
+
+  at::Tensor t0 = at::randn({}).cuda();
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto cg_outputs = fec.runFusionWithInputs({t0});
+  EXPECT_EQ(cg_outputs[0].data_ptr(), t0.data_ptr());
+  testValidate(fec.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
+
+  // Second run to ensure cache hit handles trivial forwarding properly
+  NVF_CHECK(fec.isCompiled({t0}));
+  auto cg_outputs2 = fec.runFusionWithInputs({t0});
+  EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
+  testValidate(fec.fusion(), cg_outputs2, {t0}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

@@ -556,7 +556,8 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
   return {concrete_sizes, strides};
 }
 
-// Infer the shape of an intemediate tensor using kir::Allocate
+// Infer the shape of an intemediate tensor using kir::Allocate. This
+// is not ideal but still necessary when tensors are expanded with halo
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
     const TensorView* tv,
     const kir::Allocate* alloc,
@@ -921,6 +922,9 @@ at::Tensor allocateOutput(
     const c10::Device& device,
     ExpressionEvaluator& ee) {
   TensorView* out_tv = out_info.tv;
+  if (ee.isKnown(out_tv)) {
+    return ee.evaluate(out_tv).as<at::Tensor>();
+  }
 
   if (aliased_in != nullptr) {
     const PolymorphicValue& aliased_in_val = ee.evaluate(aliased_in);
@@ -963,10 +967,11 @@ at::Tensor allocateOutput(
     fillTensorWithNan(alloc_tensor);
   }
 
-  if (!out_tv->hasAllocation()) {
-    return alloc_tensor;
+  if (out_tv->hasAllocation()) {
+    alloc_tensor =
+        transformOutputFromAllocationToRFactor(alloc_tensor, out_tv, ee);
   }
-  return transformOutputFromAllocationToRFactor(alloc_tensor, out_tv, ee);
+  return alloc_tensor;
 }
 
 // Allocate output tensors for a given kernel. Outputs may alias inputs, in
@@ -981,22 +986,14 @@ std::vector<at::Tensor> allocateOutputs(
   std::vector<at::Tensor> outputs;
   outputs.reserve(output_info.size());
 
-  std::unordered_map<Val*, at::Tensor> outputs_map;
-
   for (const auto output_idx : c10::irange(output_info.size())) {
     Val* out = kernel->outputs()[output_idx];
-    // TODO: remove the else block and outputs_map when output aliasing is
-    // handled properly
-    auto iter = outputs_map.find(out);
-    if (iter == outputs_map.end()) {
-      auto [aliased_in, alias_info] = kernel->getOutputAlias(out);
-      auto output = allocateOutput(
-          output_info[output_idx], aliased_in, alias_info, device, ee);
-      outputs_map[out] = output;
-      outputs.push_back(output);
-    } else {
-      outputs.push_back(iter->second);
-    }
+    auto [aliased_in, alias_info] = kernel->getOutputAlias(out);
+    auto out_tensor = allocateOutput(
+        output_info[output_idx], aliased_in, alias_info, device, ee);
+    // Bind `out_tensor` so duplicated outputs map to the same tensor.
+    ee.bind(out, out_tensor);
+    outputs.push_back(out_tensor);
   }
   return outputs;
 }
@@ -1230,8 +1227,20 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     GlobalBufferInfo info;
     info.tv = tv;
     info.zero_init = alloc->zeroInit();
-    std::tie(info.sizes, info.strides) =
-        inferShapeOfIntermediate(tv, alloc, expr_eval);
+    // TODO: Allocation size needs to consider both expanded domains
+    // as well as halo. Currently, allocation of tensors with halo is
+    // only supported by inferShapeOfIntermediate, whereas expanded
+    // domains are only supported by inferShapeOfOutput. Until the
+    // halo support is revisited, use the former for all tensors
+    // unless expanded and the latter otherwise. This assumes there's
+    // no expanded domains with halo, which is fine for now.
+    const auto has_expanded_domains = std::any_of(
+        tv->getMaybeAllocationDomain().begin(),
+        tv->getMaybeAllocationDomain().end(),
+        [](IterDomain* id) { return id->hasExpandedExtent(); });
+    std::tie(info.sizes, info.strides) = has_expanded_domains
+        ? inferShapeOfOutput(tv, expr_eval)
+        : inferShapeOfIntermediate(tv, alloc, expr_eval);
     auto dtype = (tv->dtype() == DataType::Index ? index_type : tv->dtype());
     info.type = data_type_to_aten(dtype);
 
@@ -1684,14 +1693,26 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     FUSER_PERF_SCOPE("ExecutorRunFusion::IntermediateBufferAlloc");
     for (const auto i : c10::irange(executor_entry->intermediates.size())) {
       const auto& buf_info = executor_entry->intermediates.at(i);
+      bool has_expansion = false;
+      std::vector<int64_t> unexpanded_sizes;
+      unexpanded_sizes.reserve(buf_info.sizes.size());
+      NVF_ERROR(buf_info.sizes.size() == buf_info.strides.size())
+      for (const auto j : c10::irange(buf_info.sizes.size())) {
+        if (buf_info.strides[j] == 0) {
+          has_expansion = true;
+          unexpanded_sizes.push_back(1L);
+        } else {
+          unexpanded_sizes.push_back(buf_info.sizes[j]);
+        }
+      }
       at::Tensor intermediate_buffer;
       if (buf_info.zero_init) {
         intermediate_buffer = at::zeros(
-            buf_info.sizes,
+            unexpanded_sizes,
             at::TensorOptions().dtype(buf_info.type).device(options_.device));
       } else {
         intermediate_buffer = at::native::empty_cuda(
-            buf_info.sizes,
+            unexpanded_sizes,
             buf_info.type,
             c10::nullopt,
             options_.device,
@@ -1699,6 +1720,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         if (shouldFillAllocationWithNan()) {
           fillTensorWithNan(intermediate_buffer);
         }
+      }
+      if (has_expansion) {
+        intermediate_buffer =
+            at::native::expand(intermediate_buffer, buf_info.sizes);
       }
       args.push(intermediate_buffer);
       intermediates.push_back(intermediate_buffer);
