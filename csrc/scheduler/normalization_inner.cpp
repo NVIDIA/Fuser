@@ -410,7 +410,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       return 0;
     };
     auto tails_score = -1 * compare(ha.n_threads_tails, hb.n_threads_tails);
-    auto occupancy_score = compare(ha.warps_per_sm , hb.warps_per_sm);
+    auto occupancy_score = compare(ha.warps_per_sm, hb.warps_per_sm);
     auto register_usage = compare(
         ha.warps_per_sm * ha.nvrtc_register_per_thread,
         hb.warps_per_sm * hb.nvrtc_register_per_thread);
@@ -486,27 +486,124 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
             << ", persistent_max: " << persistent_max
             << ", bdimx_min: " << bdimx_min << std::endl;
   // (2.3) init [bimdx] to [bdimx_min], calculate [persistent_val]
-  int64_t bdimx_val = bdimx_min;
-  int64_t persistent_val = ceilDiv(after_vect, bdimx_val);
-  persistent_val =
-      std::max(persistent_min, std::min(persistent_max, persistent_val));
+  // int64_t bdimx_val = bdimx_min;
+  // int64_t persistent_val = ceilDiv(after_vect, bdimx_val);
+  // persistent_val =
+  //     std::max(persistent_min, std::min(persistent_max, persistent_val));
 
   // (2.4) get our first [h_params] using [persistent_val]
-  HeuristicParas h_params = getHeuristicParas(persistent_val);
-  std::cout << h_params.toString() << std::endl;
-
-  for (auto persistent_tmp = persistent_min; persistent_tmp <= persistent_max;
-       persistent_tmp++) {
-    HeuristicParas h_params_tmp = getHeuristicParas(persistent_tmp);
-    std::cout << "h_params_tmp: " << h_params_tmp.toString() << std::endl;
-    if (isBetterThan(h_params_tmp, h_params)) {
-      std::cout << "is better:" << std::endl;
-      h_params = h_params_tmp;
-      // if (h_params.n_threads_tails == 0) {
-      //   break;
-      // }
-    }
+  int64_t selected_item = 0;
+  std::vector<HeuristicParas> all_h_params;
+  all_h_params.reserve(persistent_max - persistent_min + 1);
+  for (auto pb = persistent_min; pb <= persistent_max; pb++) {
+    all_h_params.emplace_back(getHeuristicParas(pb));
   }
+
+  // sort by occupancy and only further process those with occupancy >= 50%.
+  std::stable_sort(
+      all_h_params.begin(),
+      all_h_params.end(),
+      [](const HeuristicParas& a, const HeuristicParas& b) {
+        return a.warps_per_sm > b.warps_per_sm;
+      });
+  int64_t n_items = std::count_if(
+      all_h_params.begin(),
+      all_h_params.end(),
+      [target_warps_per_sm](const auto& h_params) {
+        return h_params.warps_per_sm >= target_warps_per_sm;
+      });
+
+  // e.g. at 22K, want to use [persistent_val= 5] which is the only size leading
+  // to occupancy >= 50%. persistent_val= 8, bdimx_val= 352, bdimy_val= 1,
+  // nvrtc_register_per_thread= 80, n_waves= 8, n_threads_tails= 0,
+  // warps_per_sm= 22, registers= 56320 persistent_val= 4, bdimx_val= 704,
+  // bdimy_val= 1, nvrtc_register_per_thread= 48, n_waves= 16, n_threads_tails=
+  // 0, warps_per_sm= 22, registers= 33792 persistent_val= 5, bdimx_val= 576,
+  // bdimy_val= 1, nvrtc_register_per_thread= 56, n_waves= 8, n_threads_tails=
+  // 64, warps_per_sm= 36, registers= 64512 persistent_val= 6, bdimx_val= 480,
+  // bdimy_val= 1, nvrtc_register_per_thread= 64, n_waves= 8, n_threads_tails=
+  // 64, warps_per_sm= 30, registers= 61440 persistent_val= 3, bdimx_val= 960,
+  // bdimy_val= 1, nvrtc_register_per_thread= 40, n_waves= 16, n_threads_tails=
+  // 64, warps_per_sm= 30, registers= 38400 persistent_val= 7, bdimx_val= 416,
+  // bdimy_val= 1, nvrtc_register_per_thread= 72, n_waves= 8, n_threads_tails=
+  // 96, warps_per_sm= 26, registers= 59904
+  if (n_items > 1) {
+    std::stable_sort(
+        all_h_params.begin(), all_h_params.begin() + n_items, isBetterThan);
+  }
+
+  // // Find the number of items with warps_per_sm >= target_warps_per_sm.
+  // // If all items have warps_per_sm < target_warps_per_sm, use the first
+  // item.
+  // // all_h_params is sorted by warps_per_sm in descending order.
+  // int64_t n_items = std::count_if(
+  //     all_h_params.begin(),
+  //     all_h_params.end(),
+  //     [target_warps_per_sm](const auto& h_params) {
+  //       return h_params.warps_per_sm >= target_warps_per_sm;
+  //     });
+  // if (n_items > 1) {
+  //   // sort first n_items items by tails
+  //   std::stable_sort(
+  //       all_h_params.begin(),
+  //       all_h_params.begin() + n_items,
+  //       [](const HeuristicParas& a, const HeuristicParas& b) {
+  //         return a.n_threads_tails < b.n_threads_tails;
+  //       });
+
+  //   // Find the number of items with tails == 0. If all items have tails > 0,
+  //   use
+  //   // the first item.
+  //   n_items = std::count_if(
+  //       all_h_params.begin(),
+  //       all_h_params.begin() + n_items,
+  //       [](const auto& h_params) { return h_params.n_threads_tails == 0; });
+  //   // check how many registers is being used.
+  //   // persistent_min: 1, persistent_max: 6, bdimx_min: 128
+  //   // persistent_val= 1, bdimx_val= 768, bdimy_val= 1,
+  //   nvrtc_register_per_thread= 40, n_waves= 125, n_threads_tails= 0,
+  //   warps_per_sm= 48, registers= 61440
+  //   // persistent_val= 2, bdimx_val= 384, bdimy_val= 1,
+  //   nvrtc_register_per_thread= 56, n_waves= 83, n_threads_tails= 0,
+  //   warps_per_sm= 36, registers= 64512
+  //   // persistent_val= 4, bdimx_val= 192, bdimy_val= 1,
+  //   nvrtc_register_per_thread= 56, n_waves= 42, n_threads_tails= 0,
+  //   warps_per_sm= 36, registers= 64512
+  //   // persistent_val= 3, bdimx_val= 256, bdimy_val= 1,
+  //   nvrtc_register_per_thread= 64, n_waves= 63, n_threads_tails= 0,
+  //   warps_per_sm= 32, registers= 65536
+  //   // persistent_val= 6, bdimx_val= 128, bdimy_val= 1,
+  //   nvrtc_register_per_thread= 64, n_waves= 32, n_threads_tails= 0,
+  //   warps_per_sm= 32, registers= 65536
+  //   // persistent_val= 5, bdimx_val= 160, bdimy_val= 1,
+  //   nvrtc_register_per_thread= 56, n_waves= 36, n_threads_tails= 32,
+  //   warps_per_sm= 35, registers= 62720 if (n_items > 1){
+  //     // sort first n_items items by register usage
+  //     std::stable_sort(
+  //         all_h_params.begin(),
+  //         all_h_params.begin() + n_items,
+  //         [](const HeuristicParas& a, const HeuristicParas& b) {
+  //           return a.warps_per_sm*a.nvrtc_register_per_thread >
+  //           b.warps_per_sm*b.nvrtc_register_per_thread;
+  //         });
+  //     // Find the number of items with register usage == 0. If all items have
+  //     register usage > 0, use
+  //     // the first item.
+  //     n_items = std::count_if(
+  //         all_h_params.begin(),
+  //         all_h_params.begin() + n_items,
+  //         [](const auto& h_params) { return h_params.n_adjusted_register ==
+  //         0; });
+  //   }
+  // }
+
+  for (auto it = all_h_params.begin(); it != all_h_params.end(); it++) {
+    std::cout << it->toString() << std::endl;
+  }
+  // std::cout << "selected_item: " << selected_item << " n_items: " << n_items
+  // << std::endl;
+  HeuristicParas h_params = all_h_params[selected_item];
+
   // Evaluate this [h_params] focus on [occupancy] and [n_waves]
   // (2.4) Up to this point, [persistent_val] * [bdimx_val]  >= [after_vect].
   // Let [tailing] = [persistent_val] * [bdimx_val] - [after_vect].
