@@ -479,7 +479,7 @@ TEST_F(SmemReuseTest, SkippedSyncInterval) {
   //   27  ENDFOR threadIdx.x
   //
   // Parallelized loops still occupy a "position" in the expression list; i.e.
-  // the ENDFOR of the ithreadIdx.x3{5} loop is at position 13 (not shown).
+  // the ENDFOR of the ithreadIdx.x3{5} loop is at position 13.
   // Lifetimes are computed with respect to for loops that appear in the
   // kernel, so we will wind up with a gap between the end of outer lifetime of
   // tv0, which now ends at the end of the H loop, and the beginning of the H
