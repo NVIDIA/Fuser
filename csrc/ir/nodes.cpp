@@ -462,6 +462,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::Cos:
       return {in.as<at::Tensor>().cos()};
       break;
+    case UnaryOpType::Tan:
+      return {in.as<at::Tensor>().tan()};
+      break;
     case UnaryOpType::BitCast:
       NVF_CHECK(
           dataTypeSize(input(0)->dtype()) == dataTypeSize(out()->dtype()),
