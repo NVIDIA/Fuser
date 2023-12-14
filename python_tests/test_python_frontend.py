@@ -2558,20 +2558,17 @@ class TestNvFuserFrontend(TestCase):
                 torch.manual_seed(seed)
 
                 stateful_sequence = [fd_stoch.execute(inputs) for _ in range(10)]
-                # Each call to uniform with DataType::Float will advance the offset by 4
+                # Each call to uniform with DataType::Float will advance the offset by one
+                # See Note [Divide offset by 4] in rng.cpp for more information
                 stateless_sequence = [
                     fd_det.execute([inputs[0], seed, rng_offset])
-                    for rng_offset in range(0, 10 * 4, 4)
+                    for rng_offset in range(10)
                 ]
 
                 for i, (sful, sless) in enumerate(
                     zip(stateful_sequence, stateless_sequence)
                 ):
-                    try:
-                        torch.testing.assert_close(sful[0], sless[0])
-                    except AssertionError as e:
-                        print(f"Assertion failed for iteration {i} with seed {seed}")
-                        print(e)
+                    torch.testing.assert_close(sful[0], sless[0])
 
     # Test expand to zero is replaced with expanded extent and not 1
     # see https://github.com/NVIDIA/Fuser/issues/603
