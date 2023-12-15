@@ -310,6 +310,14 @@ class VectorizeValidator : public OptInDispatch {
     domains_.insert(r->in());
   }
 
+  void handle(Swizzle* swizzle) final {
+    if (swizzle->outX() == vectorized_id_ || swizzle->inX() == vectorized_id_ ||
+        swizzle->outY() == vectorized_id_ || swizzle->inY() == vectorized_id_) {
+      // Do not (yet) allow vectorization across any swizzled id.
+      is_valid = false;
+    }
+  }
+
   void handle(Swizzle2D* swizzle) final {
     if (swizzle->outX() == vectorized_id_ || swizzle->inX() == vectorized_id_ ||
         swizzle->outY() == vectorized_id_ || swizzle->inY() == vectorized_id_) {
@@ -530,17 +538,8 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::Lower::validateVectorize");
   FusionGuard fg(fusion);
 
-  auto used_vals = fusion->usedMathVals();
-
-  std::unordered_set<TensorView*> used_tvs;
-
-  for (auto val : used_vals) {
-    if (ir_utils::isTV(val)) {
-      used_tvs.emplace(val->as<TensorView>());
-    }
-  }
-
-  for (auto tv : used_tvs) {
+  std::vector<Val*> used_vals = fusion->usedMathVals();
+  for (auto* tv : ir_utils::filterByType<TensorView>(used_vals)) {
     bool has_vectorize_dim = false;
     bool has_misaligned_vectorize_dim = false;
 
@@ -836,7 +835,7 @@ void validatePartialSplit(Fusion* fusion) {
 
   for (auto tv : ir_utils::allTvs(fusion)) {
     auto exprs = StmtSort::getExprsTo(
-        tv->fusion(), {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
+        {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
     for (auto split : ir_utils::filterByType<Split>(exprs)) {
       // When the start and stop offsets are not zero, make sure the
       // range defined by the split includes the required range to
@@ -900,10 +899,18 @@ void validateMmaTensors(MmaOp* mma) {
               GpuLower::current()->parallelDimensionMap();
           NVF_ERROR(
               lower_utils::isExtentEqualToMaxParallelTypeExtent(id) &&
-                  paralel_dim_map.get(ptype)->isConstInt() &&
-                  paralel_dim_map.get(ptype)->evaluate() ==
-                      at::cuda::warp_size(),
-              "TIDx is reserved for lane id in mma kernels, and it needs to be exactly a warp");
+                  paralel_dim_map.get(ptype)->isConstInt(),
+              "TIDx is reserved for lane id in mma kernels");
+          if (mma->isHopper()) {
+            NVF_ERROR(
+                paralel_dim_map.get(ptype)->evaluate() ==
+                    at::cuda::warp_size() * 4,
+                "TIDx must be exactly a warp group for Hopper");
+          } else {
+            NVF_ERROR(
+                paralel_dim_map.get(ptype)->evaluate() == at::cuda::warp_size(),
+                "TIDx must be exactly a warp for Turing/Ampere");
+          }
           tidx_validated = true;
         }
       }
@@ -911,10 +918,23 @@ void validateMmaTensors(MmaOp* mma) {
   }
 
   // Note: this check will be relaxed in a follow up.
-  auto validate_operand = [](const TensorView* tv) {
-    NVF_ERROR(
-        tv->getMemoryType() == MemoryType::Local,
-        "Only supporting register input for mma ops, up to sm80 all mma ops have to take register inputs.");
+  auto validate_operand = [mma](const TensorView* tv, MmaOperand operand) {
+    if (mma->isHopper()) {
+      if (operand == MmaOperand::B) {
+        NVF_ERROR(
+            tv->getMemoryType() == MemoryType::Shared,
+            "Only supporting smem input for Hopper mma input B");
+      } else {
+        NVF_ERROR(
+            tv->getMemoryType() == MemoryType::Local ||
+                tv->getMemoryType() == MemoryType::Shared,
+            "Only supporting register or shared memory input for Hopper mma input A");
+      }
+    } else {
+      NVF_ERROR(
+          tv->getMemoryType() == MemoryType::Local,
+          "Only supporting register input for mma input on Ampere/Turing");
+    }
 
     NVF_ERROR(
         std::all_of(
@@ -936,8 +956,8 @@ void validateMmaTensors(MmaOp* mma) {
         tv);
   };
 
-  validate_operand(mma->inA()->as<TensorView>());
-  validate_operand(mma->inB()->as<TensorView>());
+  validate_operand(mma->inA()->as<TensorView>(), MmaOperand::A);
+  validate_operand(mma->inB()->as<TensorView>(), MmaOperand::B);
 
   // Additionally validate that mma is not directly taking a double buffered
   //  register input as the double buffer indexing is currently not compatible
@@ -948,68 +968,6 @@ void validateMmaTensors(MmaOp* mma) {
   NVF_ERROR(
       !mma->inB()->as<TensorView>()->isDoubleBuffered(),
       "MMA op cannot directly take double buffered register input, put a set stage before.");
-}
-
-//! Note and TODO:
-//!   Currently relying on ldmatrix to
-//!     obtain the correct data layout for turing/ampere
-//!     mma's.
-//!   This restriction will eventually not
-//!    be necessary once the scatter swizzle is ready.
-void validateTuringMmaInput(TensorView* tv) {
-  // Pattern matching here to make sure LDMatrix is the right format.
-  //  Format is done through swizzling in the scheduling and
-  //  we check that swizzling to make sure it's correctly setup for LDMatrix.
-  //  We could in theory support patterns LDMatrix doesn't support,
-  //  but that would also mean the MMA isn't supported and
-  //  so we would have to lower to something completely different.
-
-  // MemCpy async is a more generic utility that we can use.
-  // Currently only allowed input paths are:
-  //  ldmatrix -> mma or
-  //  ldmatrix -> broadcast -> mma
-  // We actually wouldn't want too much flexibility here since
-  //  this path is very perf critical. But the check itself
-  //  can be made cleaner once we have the correct swizzle
-  //  labeling.
-  // The most generic support would involve build out to
-  //  support any pointwise ops that does not change the
-  //  datalayout.
-  auto tv_def = tv->definition();
-  NVF_ERROR(tv_def);
-  if (tv_def->isA<BroadcastOp>()) {
-    tv_def = tv_def->input(0)->definition();
-  }
-  NVF_ERROR(tv_def);
-  NVF_ERROR(ir_utils::isLdMatrixOp(tv_def));
-}
-
-// Output of ldmatrix is swizzled with the mma format, so it
-//  currently should not be fused with any pointwise ops. This
-//  check is to protect against these cases.
-// This would also not be needed once scatter swizzle ready, should
-//  just become a swizzle format check if we wanted to fuse ldmatrix
-//  with any op other than mma.
-void validateLdMatrixOutput(TensorView* tv) {
-  const auto& out_uses = tv->fusion()->unordered_uses(tv);
-  if (out_uses.empty()) {
-    return;
-  }
-  // TODO: restricting to single use pipelines for now which
-  //  is true to matmul mainloop. This Could be relaxed to
-  //  support more complex mma usage.
-  NVF_ERROR(out_uses.size() == 1);
-  auto out_use = *(out_uses.begin());
-
-  if (out_use->isA<BroadcastOp>()) {
-    validateLdMatrixOutput(out_use->output(0)->as<TensorView>());
-    return;
-  }
-
-  NVF_ERROR(
-      out_use->isA<MmaOp>(),
-      "validateLdMatrixOutput: currently only supports single mma use for ldmatrix",
-      out_use);
 }
 
 void validateSizeMemoryOp(LoadStoreOp* ldst) {
@@ -1046,18 +1004,6 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
   }
 }
 
-// Checks that the memory ops are supported on the targeted GPU
-void validateArchMemoryOp(LoadStoreOp* ldst) {
-  switch (ldst->opType()) {
-    case LoadStoreOpType::LdMatrix:
-    case LoadStoreOpType::LdMatrixTranspose:
-      validateLdMatrixOutput(ldst->out()->as<TensorView>());
-      return;
-    default:
-      return;
-  }
-}
-
 } // namespace
 
 //! Validate data format and GPU arch compatibility of scheduled
@@ -1068,24 +1014,8 @@ void validateMma(Fusion* fusion) {
   for (auto expr : exprs) {
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
       validateMmaTensors(mma);
-
-      switch (mma->macro()) {
-        case MmaOptions::MacroType::Turing_16_8_16:
-        case MmaOptions::MacroType::Turing_16_16_16:
-        case MmaOptions::MacroType::Ampere_16_8_16:
-        case MmaOptions::MacroType::Ampere_16_16_16:
-          // Check that operands come from ldmatrix, can be
-          //  relaxed once swizzles can be labeled on iterdomains.
-          validateTuringMmaInput(mma->inA()->as<TensorView>());
-          validateTuringMmaInput(mma->inB()->as<TensorView>());
-          break;
-        default:
-          NVF_ERROR(false, "validate mma: unsupported macro");
-          break;
-      }
     }
     if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
-      validateArchMemoryOp(ldst);
       validateSizeMemoryOp(ldst);
     }
   }
@@ -1345,7 +1275,6 @@ void validateResize(Fusion* fusion) {
   for (auto tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
     // Make sure resize is only used as part of rfactor transformations
     auto rf_to_leaf_exprs = StmtSort::getExprsBetween(
-        fusion,
         {tv->getMaybeRFactorDomain().begin(),
          tv->getMaybeRFactorDomain().end()},
         {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});

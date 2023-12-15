@@ -160,13 +160,17 @@ class WarpMmaSwizzler {
   //! Applies the output mma swizzling to the given tv, should be used
   //!  on mma output or tv's involved in epilog fusion, i.e. bias.
   //! The rightmost iterdomains must follow the m,n,k convention before calling.
-  static void scheduleMmaWarpOutput(TensorView* tv, MmaOptions options);
+  static void scheduleMmaWarpOutput(TensorView* tv);
 
   //! Applies the input mma swizzling to the given tv as its allocation domain,
   //! should be used on mma input or tv's involved in any fusion before mma, but
   //! after smem read.
   //! The rightmost iterdomains must follow the m,n,k convention before calling.
-  static void scheduleOperandRead(TensorView* tv, MmaOptions options);
+  static void scheduleOperandRead(TensorView* tv, MmaOperand operand);
+  static void scheduleOperandRead(
+      TensorView* tv,
+      MmaInputSmemSwizzle swizzle,
+      bool transpose);
 
   //! Note [schedule of ldmatrix]
   //! If you look at the doc of ldmatrix and mma for Turing and Ampere:
@@ -182,7 +186,7 @@ class WarpMmaSwizzler {
   //! leaf domain of the ldmatrix output. The allocation domain of the ldmatrix
   //! output and mma inputs are scheduled in scheduleOperandRead, which must be
   //! called before this function.
-  static void scheduleLdMatrix(TensorView* tv, MmaOptions options);
+  static void scheduleLdMatrix(TensorView* tv, MmaOperand operand);
 };
 
 void checkDimSize(
@@ -235,7 +239,7 @@ class DataWrapperOpt {
   }
 };
 
-using MatmulProblemLayoutOpt = DataWrapperOpt<MmaOptions::MmaLayout>;
+using MatmulProblemLayoutOpt = DataWrapperOpt<MmaLayout>;
 using ProblemIterDomainsOpt = DataWrapperOpt<ProblemIterDomains>;
 using RolesMapOpt = DataWrapperOpt<RolesMap>;
 
@@ -255,7 +259,7 @@ using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 //!  transposition of inputs in mma instructions, while other (e.g. Turing,
 //!  Ampere) the only supported transposition is TN which means that mma
 //!  instruction first input is transposed, the second input is non-transposed.
-MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion);
+MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion);
 
 //! Returns wrapped collection of IterDomains that can be used to get
 //!  problem shape with runtime info.
@@ -299,6 +303,63 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
     bool smem_a_reuse_guaranteed = false,
     bool smem_b_reuse_guaranteed = false,
     bool ignore_occupancy_drop = false);
+
+struct MulSumAsMmaProps {
+  MulSumAsMmaProps(
+      BinaryOp* m,
+      ReductionOp* r,
+      TensorView* at = nullptr,
+      TensorView* bt = nullptr,
+      TensorView* out_t = nullptr,
+      BroadcastOp* bc_a = nullptr,
+      BroadcastOp* bc_b = nullptr)
+      : mop(m),
+        redop(r),
+        a(at),
+        b(bt),
+        out(out_t),
+        bcast_a(bc_a),
+        bcast_b(bc_b){};
+
+  BinaryOp* mop;
+  ReductionOp* redop;
+  TensorView* a;
+  TensorView* b;
+  TensorView* out;
+  BroadcastOp* bcast_a;
+  BroadcastOp* bcast_b;
+};
+
+//! Go through the fusion IR to find combinations of mul-sum
+//! which can be replaced with a mma op. This class operates
+//! in two phases. It can go through the graph and find the mul-sum
+//! pairs which can be replaced by a mma op. This phase returns a vector
+//! of properties of the mma op (MulSumAsMmaProps) which would replace the
+//! the mul-sum pair. It then exposes a function to replace with mma ops.
+class CombineMulSum : public IterVisitor {
+ public:
+  CombineMulSum(Fusion* fusion) : IterVisitor(), fusion_(fusion){};
+
+  //! Goes through the fusion to find mul-sum pairs.
+  //! If user sets the caching flags and properties have been previously
+  //! computed, then just return cached results.
+  std::vector<MulSumAsMmaProps> generateMulSumCanidates(
+      bool use_cached_results = false);
+
+  //! Replaces the candidate mul-sum pairs with mma ops.
+  //! Please not this will run generateMulSumCandidates again.
+  void replaceWithMmaOp();
+
+ protected:
+  void handle(ReductionOp* stmt) override;
+
+ private:
+  Fusion* fusion_;
+  //! This is the list of mul-sum pairs and the properties
+  //! of the mma op which can replace it. This is only populated
+  //! if the mul-sum pair is a valid replacement candidate.
+  std::vector<MulSumAsMmaProps> mul_sum_props_ = {};
+};
 
 } // namespace mma_utils
 

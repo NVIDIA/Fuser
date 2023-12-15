@@ -1098,17 +1098,9 @@ TEST_F(NVFuserTest, DynamicTransformIssue418_CUDA) {
   at::Tensor at0 = at::randn({256, 128, 28, 28}, options);
   std::vector<c10::IValue> aten_inputs = {at0, 32};
   auto outputs = fusion_executor_cache.runFusionWithInputs(aten_inputs);
-  auto at1 = at0.reshape({256, 4, 32, 28, 28});
-  auto atmean = at1.mean({2, 3, 4}, /*keepdim*/ true);
-  auto atvar = at1.var({2, 3, 4}, /*unbiased*/ true, /*keepdim*/ true);
 
   testValidate(
-      fusion_executor_cache.fusion(),
-      outputs,
-      aten_inputs,
-      {atmean, atvar},
-      __LINE__,
-      __FILE__);
+      fusion_executor_cache.fusion(), outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, Issue249_CUDA) {
@@ -1260,6 +1252,47 @@ TEST_F(NVFuserTest, OptOutMutatorRedefinedConstant) {
   auto outputs = fe.runFusion({3L});
 
   testValidate(fusion, outputs, {3L}, __LINE__, __FILE__);
+}
+
+// Test that we can squeeze Symbolic IterDomains and that we properly detect
+// improper concretizations where we have squeezed a dimension with extent
+// other than 1.
+// See https://github.com/NVIDIA/Fuser/issues/1273
+TEST_F(NVFuserTest, SymbolicSqueeze) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s1 = IrBuilder::create<Val>(DataType::Index);
+  fusion->addInput(tv0);
+  fusion->addInput(s0);
+  fusion->addInput(s1);
+
+  auto tv1 = reshape(tv0, {s0, s1});
+  auto tv2 = squeeze(
+      tv1, std::vector<bool>({false, true})); // Squeeze second dimension
+  fusion->addOutput(tv2);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({3, 2}, options);
+  std::vector<c10::IValue> valid_inputs = {t0, 6, 1};
+  // An invalid input has a second dimension that cannot be squeezed
+  std::vector<c10::IValue> invalid_inputs = {t0, 2, 3};
+
+  auto outputs = fec.runFusionWithInputs(valid_inputs);
+
+  testValidate(fusion, outputs, valid_inputs, __LINE__, __FILE__);
+
+  // An informative error message should be given by
+  // SqueezeOp::checkConcretization
+  EXPECT_THAT(
+      [&]() { fec.runFusionWithInputs(invalid_inputs); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          " must concretize to IterType::Broadcast but found")));
 }
 
 } // namespace nvfuser

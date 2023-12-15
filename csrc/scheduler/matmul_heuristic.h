@@ -67,7 +67,7 @@ class MatmulParams : public HeuristicParams {
   MatMulTileOptions tile_sizes = {};
 
   //! Specify the type of MMA op to be used in generated kernel.
-  MmaOptions::MacroType mma_macro = MmaOptions::MacroType::NoMMA;
+  MmaMacro mma_macro = MmaMacro::NoMMA;
 
   //! Specify CTA rastrization order.
   TileRasterizationOrder cta_order = TileRasterizationOrder::RowMajor;

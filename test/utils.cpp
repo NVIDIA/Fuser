@@ -268,27 +268,28 @@ Container parse(const std::string& nvdisasm_output) {
 TensorView* matmulTuringOrLater(
     TensorView* a,
     TensorView* b,
-    MatmulLayout layout) {
+    MmaLayout layout,
+    bool as_mul_sum) {
   NVF_CHECK(a->nDims() == b->nDims());
   NVF_CHECK(a->nDims() == 2 || a->nDims() == 3);
-  TensorView *tv2 = nullptr, *tv0t = nullptr, *tv1t = nullptr, *tv0b = nullptr,
-             *tv1b = nullptr;
+  TensorView *tv3 = nullptr, *tv2 = nullptr, *tv0t = nullptr, *tv1t = nullptr,
+             *tv0b = nullptr, *tv1b = nullptr;
   if (a->nDims() == 3) { // bmm
     switch (layout) {
         // Canonicalize all inputs to [B, M, K] and [B, N, K]
-      case MatmulLayout::TT:
+      case MmaLayout::TT:
         tv0t = transpose(a, 0, 1);
         tv1t = transpose(b, 1, 2);
         break;
-      case MatmulLayout::TN:
+      case MmaLayout::TN:
         tv0t = transpose(a, 0, 1);
         tv1t = transpose(b, 0, 1);
         break;
-      case MatmulLayout::NT:
+      case MmaLayout::NT:
         tv0t = transpose(a, 1, 2);
         tv1t = transpose(b, 1, 2);
         break;
-      case MatmulLayout::NN:
+      case MmaLayout::NN:
         tv0t = transpose(a, 1, 2);
         tv1t = transpose(b, 0, 1);
         break;
@@ -298,19 +299,19 @@ TensorView* matmulTuringOrLater(
   } else {
     switch (layout) {
         // Canonicalize all inputs to [M, K] and [N, K]
-      case MatmulLayout::TT:
+      case MmaLayout::TT:
         tv0t = a;
         tv1t = transpose(b, 0, 1);
         break;
-      case MatmulLayout::TN:
+      case MmaLayout::TN:
         tv0t = a;
         tv1t = b;
         break;
-      case MatmulLayout::NT:
+      case MmaLayout::NT:
         tv0t = transpose(a, 0, 1);
         tv1t = transpose(b, 0, 1);
         break;
-      case MatmulLayout::NN:
+      case MmaLayout::NN:
         tv0t = transpose(a, 0, 1);
         tv1t = b;
         break;
@@ -324,24 +325,29 @@ TensorView* matmulTuringOrLater(
   bcast_dims.at(bcast_dims.size() - 2) = false;
   bcast_dims.at(bcast_dims.size() - 3) = true;
   tv1b = broadcast(tv1t, bcast_dims);
-  tv2 = fusedMultiplySum(tv0b, tv1b, {-1});
-  return tv2;
+  if (as_mul_sum) {
+    tv2 = mul(tv0b, tv1b);
+    tv3 = sum(tv2, {-1});
+    return tv3;
+  }
+  tv3 = fusedMultiplySum(tv0b, tv1b, {-1});
+  return tv3;
 }
 
 TensorView* matmul(
     TensorView* a,
     TensorView* b,
-    MatmulLayout layout,
-    bool turing_or_later // TODO: This is a temporary solution. Remove this!
-) {
+    MmaLayout layout,
+    bool turing_or_later, // TODO: This is a temporary solution. Remove this!
+    bool as_mul_sum) {
   NVF_ERROR(turing_or_later, "Only Turing or later is supported for now.");
-  return matmulTuringOrLater(a, b, layout);
+  return matmulTuringOrLater(a, b, layout, as_mul_sum);
 }
 
 TensorView* splitkLikeBatchedMatmul(
     TensorView* a,
     TensorView* b,
-    MatmulLayout layout) {
+    MmaLayout layout) {
   NVF_CHECK(
       a->nDims() == 3 && b->nDims() == 3,
       "only splitk-like batched matmuls for these tests");
@@ -349,25 +355,25 @@ TensorView* splitkLikeBatchedMatmul(
              *tv1b = nullptr;
   switch (layout) {
       // Canonicalize all inputs to [B, M, K] and [B, N, K]
-    case MatmulLayout::TT:
+    case MmaLayout::TT:
       // [M, B, K] -> [B, M, K]
       tv0t = transpose(a, 0, 1);
       // [B, K, N] -> [B, N, K]
       tv1t = transpose(b, 1, 2);
       break;
-    case MatmulLayout::TN:
+    case MmaLayout::TN:
       // [M, B, K] -> [B, M, K]
       tv0t = transpose(a, 0, 1);
       // [N, B, K] -> [B, N, K]
       tv1t = transpose(b, 0, 1);
       break;
-    case MatmulLayout::NT:
+    case MmaLayout::NT:
       // [B, K, M] -> [B, M, K]
       tv0t = transpose(a, 1, 2);
       // [B, K, N] -> [B, N, K]
       tv1t = transpose(b, 1, 2);
       break;
-    case MatmulLayout::NN:
+    case MmaLayout::NN:
       // [B, K, M] -> [B, M, K]
       tv0t = transpose(a, 1, 2);
       // [N, B, K] -> [B, N, K]
@@ -389,7 +395,7 @@ TensorView* splitkLikeBatchedMatmul(
 //   NT: [B, K, M] [B, K, N]
 //   NN: [B, K, M] [N, B, K]
 // ATen matmul assumes [B, M, K] [B, K, N] so here we transpose into that order
-at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
+at::Tensor atMatmul(at::Tensor a, at::Tensor b, MmaLayout layout) {
   NVF_CHECK(
       a.dim() == b.dim(), "Either both or none of A and B should be batch");
   NVF_CHECK(
@@ -397,26 +403,26 @@ at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
       "Must have either zero or one batch dimensions");
   if (a.dim() == 3) { // bmm
     switch (layout) {
-      case MatmulLayout::TT:
+      case MmaLayout::TT:
         return a.transpose(0, 1).matmul(b);
-      case MatmulLayout::TN:
+      case MmaLayout::TN:
         return a.transpose(0, 1).matmul(b.transpose(0, 1).transpose(1, 2));
-      case MatmulLayout::NT:
+      case MmaLayout::NT:
         return a.transpose(1, 2).matmul(b);
-      case MatmulLayout::NN:
+      case MmaLayout::NN:
         return a.transpose(1, 2).matmul(b.transpose(0, 1).transpose(1, 2));
       default:
         NVF_CHECK(false, "unsupported data layout.");
     }
   } else {
     switch (layout) {
-      case MatmulLayout::TT:
+      case MmaLayout::TT:
         return a.matmul(b);
-      case MatmulLayout::TN:
+      case MmaLayout::TN:
         return a.matmul(b.t());
-      case MatmulLayout::NT:
+      case MmaLayout::NT:
         return a.t().matmul(b);
-      case MatmulLayout::NN:
+      case MmaLayout::NN:
         return a.t().matmul(b.t());
       default:
         NVF_CHECK(false, "unsupported data layout.");
@@ -425,18 +431,18 @@ at::Tensor atMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
   return at::Tensor();
 }
 
-at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MatmulLayout layout) {
+at::Tensor splitkLikeAtMatmul(at::Tensor a, at::Tensor b, MmaLayout layout) {
   switch (layout) {
-    case MatmulLayout::TT:
+    case MmaLayout::TT:
       // [M, B, K] @ [B, K, N] -> [B, M, N]
       return a.transpose(0, 1).matmul(b);
-    case MatmulLayout::TN:
+    case MmaLayout::TN:
       // [M, B, K] @ [N, B, K] -> [B, M, N]
       return a.transpose(0, 1).matmul(b.permute({1, 2, 0}));
-    case MatmulLayout::NT:
+    case MmaLayout::NT:
       // [B, K, M] @ [B, K, N] -> [B, M, N]
       return a.transpose(1, 2).matmul(b);
-    case MatmulLayout::NN:
+    case MmaLayout::NN:
       // [B, K, M] @ [N, B, K] -> [B, M, N]
       return a.transpose(1, 2).matmul(b.permute({1, 2, 0}));
     default:
@@ -449,21 +455,21 @@ std::pair<at::Tensor, at::Tensor> matmulAtInput(
     int M,
     int N,
     int K,
-    MatmulLayout layout,
+    MmaLayout layout,
     c10::ScalarType dtype) {
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
 
   switch (layout) {
-    case MatmulLayout::TT:
+    case MmaLayout::TT:
       return std::make_pair(
           at::randn({M, K}, options), at::randn({K, N}, options));
-    case MatmulLayout::TN:
+    case MmaLayout::TN:
       return std::make_pair(
           at::randn({M, K}, options), at::randn({N, K}, options));
-    case MatmulLayout::NT:
+    case MmaLayout::NT:
       return std::make_pair(
           at::randn({K, M}, options), at::randn({K, N}, options));
-    case MatmulLayout::NN:
+    case MmaLayout::NN:
       return std::make_pair(
           at::randn({K, M}, options), at::randn({N, K}, options));
     default:
@@ -473,7 +479,7 @@ std::pair<at::Tensor, at::Tensor> matmulAtInput(
 }
 
 at::Tensor matmulAtInput(
-    const MatmulLayout layout,
+    const MmaLayout layout,
     const TensorMatmulPos tensor,
     const c10::ScalarType dtype,
     const int M,
@@ -498,7 +504,7 @@ at::Tensor matmulAtInput(
   }
 
   switch (layout) {
-    case MatmulLayout::TT:
+    case MmaLayout::TT:
       switch (tensor) {
         case TensorMatmulPos::A:
           return is_batch ? at::randn({M, B, K}, options)
@@ -510,7 +516,7 @@ at::Tensor matmulAtInput(
           break;
       }
       break;
-    case MatmulLayout::TN:
+    case MmaLayout::TN:
       switch (tensor) {
         case TensorMatmulPos::A:
           return is_batch ? at::randn({M, B, K}, options)
@@ -522,7 +528,7 @@ at::Tensor matmulAtInput(
           break;
       }
       break;
-    case MatmulLayout::NT:
+    case MmaLayout::NT:
       switch (tensor) {
         case TensorMatmulPos::A:
           return is_batch ? at::randn({B, K, M}, options)
@@ -534,7 +540,7 @@ at::Tensor matmulAtInput(
           break;
       }
       break;
-    case MatmulLayout::NN:
+    case MmaLayout::NN:
       switch (tensor) {
         case TensorMatmulPos::A:
           return is_batch ? at::randn({B, K, M}, options)

@@ -184,7 +184,7 @@ void ValGraph::initializeVal(
     const VectorOfUniqueEntries<Expr*>& definitions,
     const VectorOfUniqueEntries<Expr*>& uses) {
   const ValGroup& val_disjoint_set =
-      disjointValSets().initializeSet(val).first->second;
+      disjoint_vals_.initializeSet(val).first->second;
 
   // For now, the definition of a val should be unique. Remove this
   // assertion as necessary
@@ -193,7 +193,7 @@ void ValGraph::initializeVal(
   ExprGroups def_groups;
   for (auto def : definitions) {
     const ExprGroup& expr_set =
-        disjointExprSets().initializeSet(def).first->second;
+        disjoint_exprs_.initializeSet(def).first->second;
     def_groups.pushBack(expr_set);
   }
   // TODO-NM: def_groups can be empty. Should it be still mapped?
@@ -205,7 +205,7 @@ void ValGraph::initializeVal(
   ExprGroups use_groups;
   for (auto use : uses) {
     const ExprGroup& expr_set =
-        disjointExprSets().initializeSet(use).first->second;
+        disjoint_exprs_.initializeSet(use).first->second;
     use_groups.pushBack(expr_set);
   }
   // TODO-NM: use_groups can be empty. Should it be still mapped?
@@ -332,7 +332,7 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
   // Map the iter domains together before we traverse across definitions and
   // uses. Traversing definitions and uses could use the new property of id0 and
   // id1 being mapped.
-  disjointValSets().mapEntries(val0, val1);
+  disjoint_vals_.mapEntries(val0, val1);
   auto new_val_group = toGroup(val0);
 
   unique_definitions_[new_val_group] = orig_defs0->computeUnion(*orig_defs1);
@@ -411,10 +411,12 @@ void ValGraph::mapExprs(Expr* expr0, Expr* expr1) {
     return;
   }
 
-  const ExprGroup& expr0_orig_group = toGroup(expr0);
-  const ExprGroup& expr1_orig_group = toGroup(expr1);
+  // Note that non-reference copies are required here as they may be
+  // removed by mapEntries
+  const ExprGroup expr0_orig_group = toGroup(expr0);
+  const ExprGroup expr1_orig_group = toGroup(expr1);
 
-  disjointExprSets().mapEntries(expr0, expr1);
+  disjoint_exprs_.mapEntries(expr0, expr1);
 
   const ExprGroup& expr_new_group = toGroup(expr0);
 

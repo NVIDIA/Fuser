@@ -646,12 +646,23 @@ def sanitize_ptx_lines(lines: list[str]) -> list[str]:
         # or
         #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_4_cu_8995cef2_3255329nvfuser_4ENS_6TensorIfLi2ELi2EEES1_S1_
         # with
-        #   _ZN76_GLOBAL__N__00000000_37__kernel_cu_8995cef2_3255329kernelENS_6TensorIfLi2ELi2EEES1_S1_
-        l = re.sub(
-            r"(_tmp_kernel|nvfuser)(_[a-z]+)?_(\d+|f\d+_c\d*_r\d+_g\d+)", "kernel", l
-        )
-        # This part removes the hash and timestamp of the cu file
-        l = re.sub(r"kernel_cu_[0-9a-z]{8}_\d{5}", "kernel_cu_", l)
+        #   _ZN11kernelscope6kernelENS_6TensorIfLi2ELi2EEES1_S1_
+
+        # demangle first two parts after _ZN and replace with "kernelscope" and "kernel"
+        m = re.match(r"^(?P<prefix>^.*\b_Z?ZN)(?P<scopenamelen>\d+)_", l)
+        if m is not None:
+            d = m.groupdict()
+            scopenamelen = int(d["scopenamelen"])
+            # demangle second part in remainder after scope name
+            remainder = l[(len(d["prefix"]) + len(d["scopenamelen"]) + scopenamelen) :]
+            mrem = re.match(r"^(?P<varnamelen>\d+)", remainder)
+            if mrem is not None:
+                drem = mrem.groupdict()
+                varnamelen = int(drem["varnamelen"])
+                remainder = (
+                    "6kernel" + remainder[len(drem["varnamelen"]) + varnamelen :]
+                )
+            l = d["prefix"] + "11kernelscope" + remainder
 
         # Remove comments. This fixes mismatches in PTX "callseq" comments, which appear to be non-repeatable.
         l = re.sub(r"//.*$", "", l)
@@ -718,11 +729,14 @@ class TestDifferences:
 
             compiled_test2 = self.run2.kernel_map[testname]
 
-            if len(compiled_test1.kernels) != len(compiled_test2.kernels):
+            test1_kernel_count = len(compiled_test1.kernels)
+            test2_kernel_count = len(compiled_test2.kernels)
+            minimum_kernel_count = min(test1_kernel_count, test2_kernel_count)
+            if test1_kernel_count != test2_kernel_count:
                 print(
-                    f"WARNING: Test {testname} has different number of kernels "
-                    f"in {self.run1.directory} than in {self.run2.directory}. "
-                    "Not showing diffs for this test.",
+                    f"WARNING: Test {testname} has {test1_kernel_count} kernels "
+                    f"in {self.run1.directory} and {test2_kernel_count} kernels in {self.run2.directory}. "
+                    f"Only showing diffs for the first {minimum_kernel_count} kernels in this test.",
                     file=sys.stderr,
                 )
                 self.test_diffs.append(
@@ -735,7 +749,7 @@ class TestDifferences:
                 )
 
             kernel_diffs = []
-            for kernel_num in range(len(compiled_test1.kernels)):
+            for kernel_num in range(minimum_kernel_count):
                 kern1 = self.run1.get_kernel(testname, kernel_num, strip_preamble=True)
                 kern2 = self.run2.get_kernel(testname, kernel_num, strip_preamble=True)
                 assert kern1.code is not None

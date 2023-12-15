@@ -674,58 +674,41 @@ std::unordered_set<IterDomain*> getMmaDomainSet(
 
 } // namespace
 
-void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOptions options) {
+void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOperand operand) {
   bool transpose = tv->definition()->as<LoadStoreOp>()->opType() ==
       LoadStoreOpType::LdMatrixTranspose;
-  //  -5   -4   -3   -2    -1          or          -5   -4   -3   -2   -1
-  //[8mni, 4k, 2ko, 2mno, 2ki]                   [8mni, 4k, 2ko, 1mno, 2ki]
+  // For A, we have an extra outer dim (-6), which is the "warp group". For
+  // Hopper, mma instructions executes on warp group level. For Turing/Ampere,
+  // this dim will just have extent 1.
+
+  //               A                                   B
+  //  -6    -5  -4   -3   -2   -1     or     -5  -4   -3   -2   -1
+  //[4moo, 8mi, 4k, 2ko, 2mo, 2ki]         [8ni, 4k, 2ko, 1no, 2ki]
   tv->reorder({{-2, -4}, {-3, -5}});
-  //  -5   -4    -3   -2   -1          or          -5   -4    -3   -2   -1
-  //[2ko, 2mno, 8mni, 4k, 2ki]                   [2ko, 1mno, 8mni, 4k, 2ki]
+  //                A                                   B
+  //  -6    -5   -4   -3  -2   -1     or     -5   -4   -3  -2   -1
+  //[4moo, 2ko, 2mo, 8mi, 4k, 2ki]         [2ko, 1no, 8ni, 4k, 2ki]
   tv->merge(-2);
-  //  -4   -3    -2   -1         or          -4   -3    -2   -1
-  //[2ko, 2mno, 8mni, 8k]                  [2ko, 1mno, 8mni, 8k]
+  //              A                                      B
+  //  -5    -4   -3   -2  -1         or          -4   -3   -2   -1
+  //[4moo, 2ko, 2mo, 8mi, 8k]                  [2ko, 1no, 8ni, 8k]
   if (transpose) {
     tv->reorder({{-2, -1}});
-    //  -4   -3   -2   -1        or          -4    -3   -2   -1
-    //[2ko, 2mno, 8k, 8mni]                 [2ko, 1mno, 8k, 8mni]
-  }
-
-  // ldmatrix loads multiple 8x8 matrices from shared memory to registers in a
-  // swizzled memory format.
-  //   +--------+--------+
-  //   |        |        |
-  //   |  8x8   |  8x8   |
-  //   |        |        |
-  //   +--------+--------+
-  //   |        |        |
-  //   |  8x8   |  8x8   |
-  //   |        |        |
-  //   +--------+--------+
-  // If mn_major is true, these 8x8 matrices are visited in the order of:
-  // top left -> top right -> bottom left -> bottom right.
-  // If mn_major is false, these 8x8 matrices are visited in the order of:
-  // top left -> bottom left -> top right -> bottom right.
-  //
-  // In principle, only `mn_major = false` should be needed. But unfortunately,
-  // we are taking advantage of the ldmatrix large load in a pretty hacky way.
-  // For example, for Turing, only m16n8k8 is supported by hardware. But we are
-  // also using a fake m16n8k16 and m16n16k16, which uses a single large
-  // ldmatrix to load data to register, and run multiple mma instructions to
-  // consume these data. In the future, we should only keep the m16n8k8 macro,
-  // and schedule m16n8k16 and m16n16k16 more correctly than this current way.
-  bool mn_major =
-      options.operand == MmaOptions::Operand::B && getN(options.macro) > 8;
-  if (mn_major) {
-    tv->reorder({{-4, -3}, {-3, -4}});
-    //  -4    -3  -2   -1        or           -4    -3  -2   -1
-    //[2mno, 2ko, 8k, 8mni]                 [1mno, 2ko, 8k, 8mni]
+    //              A                                     B
+    //  -5    -4   -3  -2   -1        or          -4   -3  -2   -1
+    //[4moo, 2ko, 2mo, 8k, 8mi]                 [2ko, 1no, 8k, 8ni]
   }
 
   tv->merge(-4);
   tv->merge(-3);
-  // -2  -1         or          -2  -1
-  //[32, 8k]                   [16, 8k]
+  if (operand == MmaOperand::A) {
+    // For A, we have an extra outer dim which is the warp group. Merge it back
+    // here so that TIDx represent a warp group, instead of a single warp.
+    tv->merge(-3);
+  }
+  //    A                         B
+  // -2  -1         or          -2 -1
+  //[128, 8]                   [16, 8]
 
   // The extent of axis(-2) is the number of threads that contains useful
   // addresses. We can not parallelize axis(-2) directly if the extent is less
@@ -744,8 +727,9 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOptions options) {
     tv->merge(-3);
   }
 
-  // -2 -1        or          -2 -1
-  //[32, 8k]                [32, 4k]
+  //    A                      B
+  // -2  -1        or        -2 -1
+  //[128, 8]                [32, 4]
 
   tv->axis(-2)->parallelize(ParallelType::TIDx);
   // TODO: this is not really vectorization. Change its parallel type to Mma.
@@ -753,77 +737,189 @@ void WarpMmaSwizzler::scheduleLdMatrix(TensorView* tv, MmaOptions options) {
   setWarpMapped(tv, 2);
 }
 
-void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOptions options) {
+void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOperand operand) {
+  // This function works for all mma ops, regardless of the architecture.
+  // Operand A and B are slightly different in the sense that operand A can be
+  // (>=16)x16 matrix, but operand B can only be 8x16 or 16x16. For operand A,
+  // the Hopper one is the most general one. For earlier architectures, we will
+  // have some dimensions with size 1 after split, this is fine. Memory format
+  // for hopper mma:
+  // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#wgmma-64n16-a
   NVF_ERROR(tv->nDims() >= 2);
 
+  //     A                            B
   //  -2   -1          or          -2   -1
-  //[16m, 16k]                    [8n, 16k]
+  //[64m, 16k]                    [8n, 16k]
   tv->split(-2, 8);
   tv->split(-1, 2);
   tv->split(-2, 4);
 
+  //          A                               B
   // -5  -4  -3  -2  -1      or      -5  -4  -3  -2  -1
-  //[2m, 8m, 2k, 4k, 2k']           [1n, 8n, 2k, 4k, 2k']
+  //[8m, 8m, 2k, 4k, 2k']           [1n, 8n, 2k, 4k, 2k']
+
+  if (operand == MmaOperand::A) {
+    // For A, we need to have an extra outer dim (-6) for warp group.
+    tv->split(-5, 2);
+    // On Ampere and Turing, the extent of dim -6 after the split below will be
+    // just 1. On Hopper, the dim -6 will be 4 because Hopper warp group
+    // instructions have 4x larger m extend than Ampere/Turing.
+  }
+
+  //            A                                 B
+  // -6  -5  -4  -3  -2  -1      or      -5  -4  -3  -2  -1
+  //[4m, 2m, 8m, 2k, 4k, 2k']           [1n, 8n, 2k, 4k, 2k']
+
   tv->reorder({{-4, -5}, {-5, -2}, {-2, -4}});
 
-  // -5  -4   -3  -2  -1    or      -5  -4  -3  -2  -1
-  //[8m, 4k, 2k, 2m, 2k']          [8n, 4k, 2k, 1n, 2k']
+  //            A                                B
+  // -6  -5  -4  -3  -2  -1     or      -5  -4  -3  -2  -1
+  //[4m, 8m, 4k, 2k, 2m, 2k']          [8n, 4k, 2k, 1n, 2k']
+
+  // ldmatrix loads multiple 8x8 matrices from shared memory to registers in a
+  // swizzled memory format.
+  //   +--------+--------+
+  //   |        |        |
+  //   |  8x8   |  8x8   |
+  //   |        |        |
+  //   +--------+--------+
+  //   |        |        |
+  //   |  8x8   |  8x8   |
+  //   |        |        |
+  //   +--------+--------+
+  // If n_major is true, these 8x8 matrices are visited in the order of:
+  // top left -> top right -> bottom left -> bottom right.
+  // If n_major is false, these 8x8 matrices are visited in the order of:
+  // top left -> bottom left -> top right -> bottom right.
+  //
+  // In principle, only `n_major = false` should be needed. But unfortunately,
+  // we are taking advantage of the ldmatrix large load in a pretty hacky way.
+  // For example, for Turing, only m16n8k8 is supported by hardware. But we are
+  // also using a fake m16n8k16 and m16n16k16, which uses a single large
+  // ldmatrix to load data to register, and run multiple mma instructions to
+  // consume these data. In the future, we should only keep the m16n8k8 macro,
+  // and schedule m16n8k16 and m16n16k16 more correctly than this current way.
+  bool n_major =
+      operand == MmaOperand::B && tv->axis(-2)->extent()->evaluate() > 1;
+  if (n_major) {
+    tv->reorder({{-2, -3}, {-3, -2}});
+    // -5  -4  -2  -3  -1
+    //[8n, 4k, 1n, 2k, 2k']
+  }
+
+  bool set_allocation = ir_utils::isLdMatrixOp(tv->definition());
+  if (!set_allocation) {
+    for (auto u : tv->uses()) {
+      if (u->isA<MmaOp>()) {
+        set_allocation = true;
+        break;
+      }
+    }
+  }
+  if (set_allocation) {
+    tv->setAllocationDomain(tv->getLeafDomain(), true);
+  }
+}
+
+// Reference:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-swizzling-modes
+void WarpMmaSwizzler::scheduleOperandRead(
+    TensorView* tv,
+    MmaInputSmemSwizzle swizzle,
+    bool transpose) {
+  if (transpose) {
+    tv->reorder({{-2, -1}});
+  }
+  if (swizzle == MmaInputSmemSwizzle::None) {
+    // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
+    // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
+    // memory. [K, M]
+    tv->split(-2, 8);
+    tv->split(-1, 8);
+    // [Ko, K8, Mo, M8]
+    tv->reorder({{-2, -3}});
+    // [Ko, Mo, K8, M8]
+  } else {
+    auto swizzle_size = getBytesFromSwizzle(swizzle) / 16;
+    // For example, [K, M]
+    tv->split(-2, 8);
+    tv->split(-1, 8);
+    // [Ko, K8, Mo, M8]
+    tv->reorder({{-2, -3}});
+    // [Ko, Mo, K8, M8]
+    // Note: the extent of Mo may not be a multiple of swizzle_size, but we
+    // still split swizzle_size. If this is the case, effectively we are padding
+    // it to a multiple of swizzle_size.
+    tv->split(-3, swizzle_size);
+    // For example, swizzle_size = 2
+    // [Ko, Moo, Mo2, K8, M8]
+    tv->reorder({{-2, -3}});
+    // [Ko, Moo, K8, Mo2, M8]
+    tv->split(-3, 8 / swizzle_size);
+    // [Ko, Moo, K2, K4, Mo2, M8]
+    tv->swizzle(SwizzleType::XOR, -4, -2);
+    tv->merge(-4);
+    tv->merge(-3);
+    // [Ko, Moo, KKMo16, M8]
+  }
   tv->setAllocationDomain(tv->getLeafDomain(), true);
 }
 
-void WarpMmaSwizzler::scheduleMmaWarpOutput(
-    TensorView* tv,
-    MmaOptions options) {
-  // Assume last 2 dims [M16, N8] or [M16, N8, R]
-  // Locate instruction m
-  bool is_reduction = tv->axis(-1)->isReduction();
+void WarpMmaSwizzler::scheduleMmaWarpOutput(TensorView* tv) {
+  // This function works for all mma ops, regardless of the architecture. The
+  // Hopper one is the most general one. For earlier architectures, we will have
+  // some dimensions with size 1 after split, this is fine.
+  // Memory format for hopper mma:
+  // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#wgmma-64n16-d
 
-  int m_pos = is_reduction ? -3 : -2;
+  // Assume last 2 dims, for example [M64, N24] or [M64, N24, R]
+  NVF_ERROR(tv->nDims() >= 2);
+  bool is_mma_output = tv->definition()->isA<MmaOp>();
 
-  //  m
-  // [16, 8  (,R)]
-  tv->split(m_pos, 8);
-  tv->split(m_pos + 1, 8);
-  //        m
-  // [2, 8, 1, 8  (,R)]
-  tv->split(m_pos + 1, 2);
+  int m_pos = is_mma_output ? -3 : -2;
+  int n_pos = is_mma_output ? -2 : -1;
 
-  //              m
-  // [2o, 8o, 1, 4i, 2i (,R)]
-  tv->reorder({{m_pos, m_pos - 1}, {m_pos - 1, m_pos}});
-  m_pos--;
-  //           m
-  // [2o, 8o, 4i, 1, 2i (,R)]
-  tv->merge(m_pos - 1);
+  //   m    n
+  // [M64, N24  (,R)]
+  tv->split(m_pos--, 8);
+  tv->split(m_pos--, 2);
+  //   m           n
+  // [M4, M2, M8, N24  (,R)]
+  tv->split(n_pos, 8);
+  tv->split(n_pos, 2);
+
+  n_pos -= 2;
+  m_pos -= 2;
+  //  m           n
+  // [M4, M2, M8, N3, N4, N2  (,R)]
+
+  tv->reorder({{m_pos + 1, n_pos + 1}, {n_pos + 1, m_pos + 2}});
+  //  m           n
+  // [M4, M8, N4, N3, M2, N2  (,R)]
+  tv->merge(m_pos++);
+  tv->merge(m_pos++);
 
   //       m
-  // [2o, Warp, 1, 2i (,R)]
-  tv->reorder({{m_pos, m_pos - 1}, {m_pos + 1, m_pos}});
-  m_pos--;
+  // [WarpGroup128, N3, M2, N2  (,R)]
 
-  //    m
-  // [Warp, 1, 2o, 2i (,R)]
-  if (is_reduction) {
+  if (is_mma_output) {
     tv->split(-1, 2);
     tv->split(-2, 4);
     m_pos -= 2;
-    //    m
-    // [Warp, 1, 2o, 2i, R2, R4, R2]
+    //       m
+    // [WarpGroup128, N3, M2, N2, Ro, R4, R2]
   }
 
   NVF_CHECK(tv->definition() != nullptr);
 
-  if (is_reduction && tv->definition()->isA<MmaOp>()) {
+  tv->axis(m_pos)->parallelize(ParallelType::TIDx);
+
+  if (is_mma_output) {
     // Set instruction loops for mma reduce
     int pos = -1;
     while (pos > m_pos) {
       tv->axis(pos--)->parallelize(ParallelType::Mma);
     }
-  }
-
-  tv->axis(m_pos)->parallelize(ParallelType::TIDx);
-
-  if (tv->definition()->isA<MmaOp>()) {
     setWarpMapped(tv, 7);
   }
 }
@@ -971,7 +1067,7 @@ ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion) {
   return ProblemIterDomains{m, n, k};
 }
 
-MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion) {
+MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion) {
   ComputeAtMap ca_map(fusion);
   const auto mma_input_candidates =
       ir_utils::filterByType<TensorView>(fusion->inputs()).vector();
@@ -1034,16 +1130,16 @@ MatmulProblemLayoutOpt getMatmulLayout(Fusion* fusion) {
   }
 
   if ((mk_found && kn_found) && !(km_found || nk_found)) {
-    return MmaOptions::MmaLayout::TT;
+    return MmaLayout::TT;
   }
   if ((km_found && kn_found) && !(mk_found || nk_found)) {
-    return MmaOptions::MmaLayout::NT;
+    return MmaLayout::NT;
   }
   if ((mk_found && nk_found) && !(km_found || kn_found)) {
-    return MmaOptions::MmaLayout::TN;
+    return MmaLayout::TN;
   }
   if ((km_found && nk_found) && !(mk_found || kn_found)) {
-    return MmaOptions::MmaLayout::NN;
+    return MmaLayout::NN;
   }
 
   return {"Failed to decide fusion inputs' data layout."};
@@ -1067,9 +1163,8 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
     return mma_output_domains.getErrorMsg();
   }
 
-  const auto findRolesByDomains = [](const DependenciesMap& deps_map,
-                                     RolesMap& roles_map,
-                                     const bool processing_output) {
+  const auto findInputRolesByDomains = [](const DependenciesMap& deps_map,
+                                          RolesMap& roles_map) {
     for (const auto& entry : deps_map) {
       const auto& domains = entry.second;
       const auto begin = domains.begin();
@@ -1079,38 +1174,79 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
       bool has_n = (end != std::find(begin, end, MatmulDomain::N));
       bool has_k = (end != std::find(begin, end, MatmulDomain::K));
 
-      if (!processing_output && has_m && has_k && !has_n) {
+      if (has_m && has_k && !has_n) {
         roles_map[MatmulRole::INPUT_A].push_back(entry.first);
         continue;
       }
-      if (!processing_output && has_n && has_k && !has_m) {
+      if (has_n && has_k && !has_m) {
         roles_map[MatmulRole::INPUT_B].push_back(entry.first);
         continue;
       }
-      if (!processing_output && has_m && has_n && !has_k) {
+      if (has_m && has_n && !has_k) {
         roles_map[MatmulRole::INPUT_C].push_back(entry.first);
         continue;
       }
       // Bias vectors are assigned to INPUT_C role
-      if (!processing_output && has_m && !has_n && !has_k) {
+      if (has_m && !has_n && !has_k) {
         roles_map[MatmulRole::INPUT_C].push_back(entry.first);
         continue;
       }
+    }
+
+    for (auto& [role, tvs] : roles_map) {
+      // NOTE: sort input roles in descending order by uses() size, and
+      //  if equal then by name() to ensure the stable ordering of tensor
+      //  views in collections assigned to the supported roles
+      std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
+        return (a->uses().size() == b->uses().size())
+            ? (a->name() < b->name())
+            : (a->uses().size() > b->uses().size());
+      });
+    }
+  };
+
+  const auto findOutputRolesByDomains = [](const DependenciesMap& deps_map,
+                                           RolesMap& roles_map) {
+    std::vector<TensorView*> storage;
+    storage.reserve(deps_map.size());
+
+    for (const auto& entry : deps_map) {
+      const auto& domains = entry.second;
+      const auto begin = domains.begin();
+      const auto end = domains.end();
+
+      bool has_m = (end != std::find(begin, end, MatmulDomain::M));
+      bool has_n = (end != std::find(begin, end, MatmulDomain::N));
 
       // NOTE: depending on fusion definition k domain may appear in the output:
       //  - for mma_output == fusion output k domain is present
       //  - for mma_output != fusion output (fusion with epilogue) k domain
       //    is not present
-      if (processing_output && has_m && has_n) {
-        roles_map[MatmulRole::OUTPUT_D].push_back(entry.first);
-        continue;
+
+      // NOTE: the core fusion output tensors are the ones with m and n
+      //  domains
+      if (has_m && has_n) {
+        storage.push_back(entry.first);
       }
     }
-    for (auto& [role, tvs] : roles_map) {
-      // sort tvs by name()
-      std::sort(tvs.begin(), tvs.end(), [](TensorView* a, TensorView* b) {
-        return a->name() < b->name();
-      });
+
+    // NOTE: sort output roles in descending order by uses() size, and
+    //  if equal then by name() to ensure the stable ordering of tensor
+    //  views in collections assigned to the supported roles
+    std::sort(storage.begin(), storage.end(), [](TensorView* a, TensorView* b) {
+      return (a->uses().size() == b->uses().size())
+          ? (a->name() < b->name())
+          : (a->uses().size() > b->uses().size());
+    });
+
+    if (!storage.empty()) {
+      // NOTE: currently, we pick as a reference tensor one with `m` and `n`
+      //       IterDomains and the most uses
+      auto pos = storage.begin();
+      roles_map[MatmulRole::OUTPUT_D].push_back(*pos);
+      for (++pos; pos != storage.end(); ++pos) {
+        roles_map[MatmulRole::OUTPUT_AUX].push_back(*pos);
+      }
     }
   };
 
@@ -1123,20 +1259,175 @@ RolesMapOpt getTensorsRoles(Fusion* fusion) {
   RolesMap roles_map;
 
   // Handle fusion input TensorView objects
-  bool handling_output = false;
   resolveTvToMatmulDomainsMapping(
       deps_map, mma_input_candidates, m, n, k, ca_map);
-  findRolesByDomains(deps_map, roles_map, handling_output);
+  findInputRolesByDomains(deps_map, roles_map);
 
   deps_map.clear();
 
   // Handle fusion output TensorView objects
-  handling_output = true;
   resolveTvToMatmulDomainsMapping(
       deps_map, mma_output_candidates, m, n, k, ca_map);
-  findRolesByDomains(deps_map, roles_map, handling_output);
+  findOutputRolesByDomains(deps_map, roles_map);
 
   return roles_map;
+}
+
+namespace {
+
+void addMMAOp(Fusion* fusion_, std::vector<MulSumAsMmaProps>& props) {
+  auto* init = IrBuilder::create<Val>(0.0);
+  for (auto prop : props) {
+    IrBuilder::create<MmaOp>(prop.out, prop.a, prop.b, init);
+  }
+}
+
+// Check the val (in) is the output of broadcast.
+// Then check the output of the broadcast is 3D (4D for bmm).
+bool hasValidBroadcastOp(TensorView* bcast_out) {
+  // First check the tensorsview is 3D (4D)
+  // and has one broadcast dim.
+  auto dims = bcast_out->domain()->nDims();
+  if (!((dims == 3 || dims == 4) &&
+        bcast_out->domain()->noBroadcasts().size() == dims - 1)) {
+    return false;
+  }
+
+  // Check if the definition is a broadcast op.
+  if (dynamic_cast<BroadcastOp*>(bcast_out->definition())) {
+    return true;
+  }
+
+  return false;
+}
+
+// This function checks if the mul-sum can be replace with a mma op. The checks
+// are:
+// 1. The inputs to the muls are broadcast ops.
+// 2. The broadcasts have 2D or 3D(bmm) inputs.
+// 3. The broadcasts only broadcast one dim and the dims are different for the 2
+// muls.
+// 4. There is a single reduction dim, and that dim that is not either of the
+// broadcast dims.
+bool broadcastsAreValid(
+    TensorView* left,
+    TensorView* right,
+    unsigned int reduction_axis) {
+  if (!(hasValidBroadcastOp(left) && hasValidBroadcastOp(right))) {
+    return false;
+  }
+
+  auto bcast_l = dynamic_cast<BroadcastOp*>(left->definition());
+  auto bcast_r = dynamic_cast<BroadcastOp*>(right->definition());
+
+  // Ensure that only one dim is getting broadcast.
+  auto bcastFlags_l = bcast_l->getBroadcastDimFlags();
+  auto bcastFlags_r = bcast_r->getBroadcastDimFlags();
+  auto count_l = std::count(bcastFlags_l.begin(), bcastFlags_l.end(), true);
+  auto count_r = std::count(bcastFlags_r.begin(), bcastFlags_r.end(), true);
+  if ((count_l != 1) || (count_l != count_r)) {
+    return false;
+  }
+
+  // Also ensure that it's not the same dim for the two muls. that's
+  // getting broadcast.
+  auto idx_l = std::find(bcastFlags_l.begin(), bcastFlags_l.end(), true) -
+      bcastFlags_l.begin();
+  auto idx_r = std::find(bcastFlags_r.begin(), bcastFlags_r.end(), true) -
+      bcastFlags_r.begin();
+  if (idx_l == idx_r) {
+    return false;
+  }
+
+  // Also ensure that the reduction dim is not either of the broadcast dim.
+  if (reduction_axis == idx_l || reduction_axis == idx_r) {
+    return false;
+  }
+
+  // Check different dimensions are the broadcast dims.
+  return true;
+}
+
+// If the tensorview is a output of a cast operation, then
+// return the input to the cast operation, else return the tensorview.
+TensorView* getTensorviewPriorToCast(TensorView* in) {
+  if (auto uCastOp = dynamic_cast<UnaryOp*>(in->definition());
+      uCastOp && uCastOp->getUnaryOpType() == UnaryOpType::Cast) {
+    return static_cast<TensorView*>(uCastOp->in());
+  }
+  return in;
+}
+
+// Check if the Mul-Sum pair represents a matmul. If so, add the properties
+// of the mma op which can be a tentatice substitue. This checks that the output
+// of sum has on reduction axis, and the inputs to mul are valid broadcasts.
+std::optional<MulSumAsMmaProps> getMulSumInsOutsBcasts(
+    BinaryOp* mop,
+    ReductionOp* redop) {
+  auto a = getTensorviewPriorToCast(static_cast<TensorView*>(mop->lhs()));
+  auto b = getTensorviewPriorToCast(static_cast<TensorView*>(mop->rhs()));
+
+  // Get the dimension of the reduction in the output. If not present, bail.
+  // Also ensure there is only only reduction axis.
+  auto red_axis = static_cast<TensorView*>(redop->out())->getReductionAxis();
+  auto num_reduction_dims =
+      static_cast<TensorView*>(redop->out())->domain()->nDims() -
+      static_cast<TensorView*>(redop->out())->domain()->noReductions().size();
+  if (!red_axis.has_value() || num_reduction_dims > 1) {
+    return std::nullopt;
+  }
+
+  if (broadcastsAreValid(a, b, *red_axis)) {
+    return MulSumAsMmaProps(
+        mop,
+        redop,
+        a,
+        b,
+        static_cast<TensorView*>(redop->output(0)),
+        dynamic_cast<BroadcastOp*>(a->definition()),
+        dynamic_cast<BroadcastOp*>(b->definition()));
+  }
+  return std::nullopt;
+}
+} // namespace
+
+void CombineMulSum::handle(ReductionOp* stmt) {
+  // Check if operation is a sum.
+  if (stmt->getReductionOpType() == BinaryOpType::Add) {
+    auto* inputOfSum = stmt->in();
+    if (inputOfSum != nullptr) {
+      auto* expr = inputOfSum->definition();
+      // Then check if the prodcer of the sum is a mul.
+      if (auto bOp = dynamic_cast<BinaryOp*>(expr)) {
+        // If it'a mul followed by a sum, put this in a list.
+        if (bOp->getBinaryOpType() == BinaryOpType::Mul) {
+          // If the Mul-Sum is a valid representation of a matmul,
+          // then get the properties of the replacement Mma op.
+          auto props = getMulSumInsOutsBcasts(bOp, stmt);
+          if (props.has_value()) {
+            mul_sum_props_.push_back(*props);
+          }
+        }
+      }
+    }
+  }
+};
+
+std::vector<MulSumAsMmaProps> CombineMulSum::generateMulSumCanidates(
+    bool use_cached_results) {
+  if (use_cached_results && !mul_sum_props_.empty()) {
+    return mul_sum_props_;
+  }
+  traverse(fusion_);
+  return mul_sum_props_;
+}
+
+void CombineMulSum::replaceWithMmaOp() {
+  // Recreate the mul-sum pairs since someone
+  // may run this function more than once.
+  generateMulSumCanidates();
+  addMMAOp(fusion_, mul_sum_props_);
+  return;
 }
 
 } // namespace mma_utils

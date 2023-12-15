@@ -1190,7 +1190,8 @@ TEST_F(GpuViewTest, FusionReshapeVectorize) {
   fusion.addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor input = at::randn({256, 1024, 1024}, options);
+
+  at::Tensor input = at::randn({256, 256, 256}, options);
 
   auto lparams = schedulePointwise(&fusion, {input});
 

@@ -2734,12 +2734,7 @@ void testVarMean(at::ScalarType dtype, int correction, bool keepdim) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs({t0});
 
-  auto at_var_mean = at::var_mean(t0, {1}, correction, keepdim);
-  std::vector<at::Tensor> aten_outputs = {
-      std::get<0>(at_var_mean), std::get<1>(at_var_mean)};
-
-  testValidate(
-      executor_cache.fusion(), outputs, {t0}, aten_outputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 } // namespace
 
@@ -5655,17 +5650,7 @@ TEST_F(NVFuserTest, FusionBNRepro2_CUDA) {
   std::vector<c10::IValue> aten_inputs = {input1};
   auto cg_outputs = fec.runFusionWithInputs(aten_inputs);
 
-  auto at_results = at::native_batch_norm(
-      input1_ref, r_m, r_v, weight, bias, kTraining, kMomentum, kEps);
-
-  auto at_output = std::get<0>(at_results);
-  auto at_mean = std::get<1>(at_results);
-  auto at_invstd = std::get<2>(at_results);
-
-  std::vector<at::Tensor> aten_outputs = {at_output, at_mean, at_invstd};
-
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, aten_outputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionZeroSizeTensorPW_CUDA) {
@@ -9152,10 +9137,11 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation4_CUDA) {
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
 
+  // T1 and T2 are persistent buffers, but T2 can be projected to T1.
+  // So, the actual buffer size is just the size to save T1.
   NVF_ERROR(
       persistent_buffer_size.persistent_buffer_size ==
-      static_cast<int64_t>(
-          aten_t0.size(1) * dataTypeSize(DataType::Float) * 2));
+      static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Float)));
 
   NVF_ERROR(
       persistent_buffer_size.projected_persistent_buffer_size ==

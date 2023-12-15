@@ -941,6 +941,9 @@ class GroupedReductionOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   //! Number of expressions grouped horizontally. It does not reflect
   //! iteration grouping.
@@ -1133,6 +1136,9 @@ class WelfordOp : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 
   Val* out() const {
     return outputTriplet().avg();
@@ -1334,7 +1340,7 @@ class GroupedWelfordOp : public Expr {
 class MmaOp : public Expr {
  public:
   using AxesData = std::vector<int64_t>;
-  using MmaLayoutOpt = std::optional<MmaOptions::MmaLayout>;
+  using MmaLayoutOpt = std::optional<MmaLayout>;
   using Expr::Expr;
 
   MmaOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* init);
@@ -1345,7 +1351,7 @@ class MmaOp : public Expr {
       Val* in_a,
       Val* in_b,
       Val* init,
-      const MmaOptions::MacroType& options,
+      const MmaMacro& options,
       const MmaLayoutOpt& input_layout);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
@@ -1374,7 +1380,7 @@ class MmaOp : public Expr {
   }
 
   const auto& macro() const {
-    return attribute<MmaOptions::MacroType>(ATTR_POS_MACRO);
+    return attribute<MmaMacro>(ATTR_POS_MACRO);
   }
 
   int m() const {
@@ -1397,7 +1403,11 @@ class MmaOp : public Expr {
     return nvfuser::isAmpere(macro());
   }
 
-  void configureOptions(MmaOptions options);
+  bool isHopper() const {
+    return nvfuser::isHopper(macro());
+  }
+
+  void setMacro(MmaMacro options);
 
   auto layout() const {
     return attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
@@ -1786,6 +1796,53 @@ class Merge : public Expr {
   }
   IterDomain* inner() const {
     return input(1)->as<IterDomain>();
+  }
+};
+
+class Swizzle : public Expr {
+ public:
+  using Expr::Expr;
+
+  Swizzle(
+      IrBuilderPasskey,
+      IterDomain* out_x,
+      IterDomain* out_y,
+      IterDomain* in_x,
+      IterDomain* in_y,
+      SwizzleType swizzle_type = SwizzleType::NoSwizzle);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "Swizzle";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  // Output iterdomain pair corresponding
+  //  to the original input iterdomain pair.
+  IterDomain* outX() const {
+    return output(0)->as<IterDomain>();
+  }
+
+  IterDomain* outY() const {
+    return output(1)->as<IterDomain>();
+  }
+
+  // Input iterdomain pair.
+  IterDomain* inX() const {
+    return input(0)->as<IterDomain>();
+  }
+
+  IterDomain* inY() const {
+    return input(1)->as<IterDomain>();
+  }
+
+  // The type of predefined 1-to-1 functions
+  //  used for swizzling math.
+  auto swizzleType() const {
+    return attribute<SwizzleType>(0);
   }
 };
 
