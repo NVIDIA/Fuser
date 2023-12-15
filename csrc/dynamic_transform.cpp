@@ -490,6 +490,21 @@ std::string DynamicTransformConcretizationInfo::toString() const {
     ss << indent << indent << id->toString() << " (index=" << id_index << "), "
        << iter_type << "\n";
   }
+  ss << indent << "Expand:\n";
+  for (const auto& [tv_index, expand_axes] : expand_axes_) {
+    auto tv = initial_info_->getDynamicExpandedTensorViews().at(tv_index);
+    ss << indent << indent << tv->toString() << " (index=" << tv_index
+       << "), {";
+    bool first = true;
+    for (bool e : expand_axes) {
+      if (!first) {
+        ss << ", ";
+      }
+      first = false;
+      ss << (e ? "true" : "false");
+    }
+    ss << "}\n";
+  }
   return ss.str();
 }
 
