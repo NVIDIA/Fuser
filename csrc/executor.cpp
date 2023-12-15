@@ -905,15 +905,14 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     }
   }
 
-  auto size_stride =
-      inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+  auto size_stride = inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
   if (!tv->hasAllocation()) {
     return size_stride;
   }
   auto options =
       c10::TensorOptions().device(c10::Device(c10::DeviceType::Meta));
-  auto meta_tensor = at::empty_strided(
-      size_stride.first, size_stride.second, options);
+  auto meta_tensor =
+      at::empty_strided(size_stride.first, size_stride.second, options);
   // TODO(jiej): we should refactor it here, there's no need to use
   // meta_tensor at all, size + stride should be used directly in the
   // `transformOutputFromAllocationToRFactor`
