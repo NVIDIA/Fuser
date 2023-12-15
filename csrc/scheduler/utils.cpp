@@ -473,17 +473,37 @@ class PersistentBufferResolution : public IterVisitor {
 
 } // namespace
 
-// Returns all broadcast tvs from the given vector of Vals.
-std::vector<TensorView*> getBroadcastTvsExcept(
-    const std::vector<Val*>& dep_vals,
-    const TensorView* except_tv) {
+// Returns all broadcast tvs whose produers are reduction tvs and each broadcast
+// dim is mapped to a reduction dim.
+std::vector<TensorView*> getBroadcastTvsProducedbyReduction(
+    const std::vector<Val*>& dep_vals) {
   std::vector<TensorView*> broadcast_tvs;
+  broadcast_tvs.reserve(dep_vals.size());
   for (auto val : dep_vals) {
     if (auto tv = dynamic_cast<TensorView*>(val)) {
-      if (tv->hasReduction() || tv == except_tv) {
+      if (!tv->definition()->isA<BroadcastOp>()) {
         continue;
       }
-      if (tv->hasBroadcast()) {
+      const auto& producers = ir_utils::producerTvsOf(tv);
+      NVF_ERROR(
+          producers.size() == 1,
+          "Tv defined by BroadcastOp must have one produer! Got: ",
+          producers.size());
+      auto producer = producers.at(0);
+      if (!producer->definition()->isA<ReductionOp>()) {
+        continue;
+      }
+      // Each reduction dimension the producer, must be mapped to a broadcast
+      // dimension in the consumer, otherwise it is not a valid broadcast after
+      // reduction.
+      bool is_broadcast_after_reduction = true;
+      for (auto i : c10::irange(producer->nDims())) {
+        if (producer->axis(i)->isReduction() && !tv->axis(i)->isBroadcast()) {
+          is_broadcast_after_reduction = false;
+          break;
+        }
+      }
+      if (is_broadcast_after_reduction) {
         broadcast_tvs.push_back(tv);
       }
     }
@@ -568,7 +588,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     const auto& dep_vals = DependencyCheck::getAllValsBetween(
         {reduction_tvs.begin(), reduction_tvs.end()}, {persistent_buffer});
     if (dep_vals.empty() ||
-        !getBroadcastTvsExcept(dep_vals, persistent_buffer).empty()) {
+        !getBroadcastTvsProducedbyReduction(dep_vals).empty()) {
       persistent_buffer_info.projectable_persistent_buffers.push_back(
           persistent_buffer);
     }

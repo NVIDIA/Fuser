@@ -8529,6 +8529,64 @@ TEST_F(NVFuserTest, ProjectPersistentBufferToInputsAndBroadcastTvs) {
   auto cg_outputs = fe.runFusion(inputs);
 }
 
+TEST_F(NVFuserTest, AvoidSelfProjection) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int batch_size = 128;
+  const int hidden_size = 8192;
+  DataType input_dtype = DataType::Half;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = exp(tv1);
+  auto tv3 = sum(tv2, {-1});
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = add(tv2, tv4);
+  fusion->addOutput(tv5);
+
+  auto tv6 = broadcast(tv5, {true, false, false});
+  auto tv7 = sum(tv6, {-1});
+  auto tv8 = broadcast(tv7, {false, false, true});
+  auto tv9 = add(tv6, tv8);
+  fusion->addOutput(tv9);
+
+  // In this fusion, tv6 is a persistent buffer with a broadcast dim.
+  // When project it to inputs and broadcast tvs, should avoid self projection.
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  const auto& dep_vals = DependencyCheck::getAllValsBetween(
+      {reduction_tvs.begin(), reduction_tvs.end()}, {tv6});
+  const auto& broadcast_tvs =
+      scheduler_utils::getBroadcastTvsProducedbyReduction(dep_vals);
+  NVF_CHECK(
+      broadcast_tvs.size() == 1,
+      "Should have one target broadcast tv!, Got: ",
+      broadcast_tvs.size());
+  NVF_CHECK(
+      broadcast_tvs.at(0) == tv4,
+      "Target broadcast tv should be tv4!, Got: ",
+      broadcast_tvs.at(0)->toString());
+
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({batch_size, hidden_size}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  auto persistent_params = getInnerPersistentHeuristics(fusion, inputs);
+  NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
+  NVF_CHECK(
+      persistent_params->project_persistent_buffers,
+      "Should project persistent buffers to inputs!");
+
+  scheduleInnerPersistentKernel(fusion, *persistent_params);
+  FusionExecutor fe;
+  fe.compileFusion(fusion, inputs, persistent_params->lparams);
+  auto cg_outputs = fe.runFusion(inputs, persistent_params->lparams);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
