@@ -475,13 +475,14 @@ class PersistentBufferResolution : public IterVisitor {
 
 // Returns all broadcast tvs whose produers are reduction tvs and each broadcast
 // dim is mapped to a reduction dim.
-std::vector<TensorView*> getBroadcastTvsProducedbyReduction(
-    const std::vector<Val*>& dep_vals) {
+std::vector<TensorView*> getBufferProjectableBroadcastsTvs(
+    const std::vector<Val*>& dep_vals,
+    const TensorView* persistent_buffer) {
   std::vector<TensorView*> broadcast_tvs;
   broadcast_tvs.reserve(dep_vals.size());
   for (auto val : dep_vals) {
     if (auto tv = dynamic_cast<TensorView*>(val)) {
-      if (!tv->definition()->isA<BroadcastOp>()) {
+      if (!tv->definition()->isA<BroadcastOp>() || tv == persistent_buffer) {
         continue;
       }
       const auto& producers = ir_utils::producerTvsOf(tv);
@@ -588,7 +589,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     const auto& dep_vals = DependencyCheck::getAllValsBetween(
         {reduction_tvs.begin(), reduction_tvs.end()}, {persistent_buffer});
     if (dep_vals.empty() ||
-        !getBroadcastTvsProducedbyReduction(dep_vals).empty()) {
+        !getBufferProjectableBroadcastsTvs(dep_vals, persistent_buffer)
+             .empty()) {
       persistent_buffer_info.projectable_persistent_buffers.push_back(
           persistent_buffer);
     }

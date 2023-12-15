@@ -197,10 +197,13 @@ bool canProjectToPersistentProducer(
     const std::vector<TensorView*>& producers,
     const std::unordered_set<TensorView*>& persistent_buffer_set);
 
-// Returns all broadcast tvs whose produers are reduction tvs and each broadcast
-// dim is mapped to a reduction dim.
-std::vector<TensorView*> getBroadcastTvsProducedbyReduction(
-    const std::vector<Val*>& dep_vals);
+// Returns all broadcast tvs the persistent buffer tv can be projected to.
+// The returned tvs should not include the persistent buffer tv itself.
+// The returned tvs should only include the broadcast tvs that are produced by
+// a reduction tv.
+std::vector<TensorView*> getBufferProjectableBroadcastsTvs(
+    const std::vector<Val*>& dep_vals,
+    const TensorView* persistent_buffer_tv);
 
 struct ReductionTvProperties {
   // How many elements in tensor view are there to reduce.

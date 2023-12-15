@@ -8559,7 +8559,7 @@ TEST_F(NVFuserTest, AvoidSelfProjection) {
   const auto& dep_vals = DependencyCheck::getAllValsBetween(
       {reduction_tvs.begin(), reduction_tvs.end()}, {tv6});
   const auto& broadcast_tvs =
-      scheduler_utils::getBroadcastTvsProducedbyReduction(dep_vals);
+      scheduler_utils::getBufferProjectableBroadcastsTvs(dep_vals, tv6);
   NVF_CHECK(
       broadcast_tvs.size() == 1,
       "Should have one target broadcast tv!, Got: ",

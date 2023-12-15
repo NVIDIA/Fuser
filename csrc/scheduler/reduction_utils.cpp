@@ -769,7 +769,7 @@ class PersistentBufferProjector {
       const auto& dep_vals = DependencyCheck::getAllValsBetween(
           {reduction_tvs.begin(), reduction_tvs.end()}, {buffer});
       const auto& broadcast_tvs =
-          scheduler_utils::getBroadcastTvsProducedbyReduction(dep_vals);
+          scheduler_utils::getBufferProjectableBroadcastsTvs(dep_vals, buffer);
       vals_project_to.insert(
           vals_project_to.end(), broadcast_tvs.begin(), broadcast_tvs.end());
       projectToInputOrImmediatePersistentProducer(
