@@ -786,8 +786,11 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   auto mma_result = mma->out()->as<TensorView>();
 
   // Unswizzle mma result in shared memory
-  auto smem_epilogue =
-      params.use_smem_epilogue ? mma_result->cacheAfter() : mma_result;
+  // Note that if we are using split-K, we will set up this buffer after
+  // rfactoring the matmul, between the MmaOp and the ReductionOp, in order to
+  // take advantage of unswizzling during the grid reduction
+  auto smem_epilogue = (params.use_smem_epilogue && params.splitk_factor == 0)
+    ? mma_result->cacheAfter() : mma_result;
 
   // Clear MmaOp pointer, it's not needed from now on
   mma = nullptr;
@@ -898,6 +901,14 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     // the actual MmaOp output, so here we reassign that to the intermediate.
     splitk_sum = mma_result;
     mma_result = splitk_sum->rFactor({-4, -1});
+
+    if (params.use_smem_epilogue) {
+      //   splitk_sum = sum(mma_result)
+      // becomes
+      //   smem_epilogue = set(mma_result)
+      //   splitk_sum = sum(smem_epilogue)
+      smem_epilogue = mma_result->cacheAfter();
+    }
 
     splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
 
