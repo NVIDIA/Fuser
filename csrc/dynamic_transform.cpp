@@ -988,6 +988,11 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
     std::optional<IterType> id_type;
 
+    // If a producer ID is an expanded broadcast then the consumer ID is an
+    // expanded broadcast unless we encounter a mapped Iteration producer ID,
+    // in which case the output IterType will be Iteration.
+    bool has_expanded_producer = false;
+
     bool found = false;
     for (const auto& c2p : c2p_maps) {
       auto p_it = c2p.find(root_id);
@@ -1017,6 +1022,8 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
           "Producer ID not concretized: ",
           input_id->toString());
 
+      has_expanded_producer |= input_id->hasExpandedExtent();
+
       if (id_type.has_value()) {
         id_type = ops::promoteIterType(*id_type, input_id->getIterType());
       } else {
@@ -1042,10 +1049,23 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
         " of ",
         consumer->toString());
 
-    auto concretized_id =
-        IterDomainBuilder(maybeMutated(root_id)->as<IterDomain>())
-            .iter_type(*id_type)
-            .build();
+    IterDomain* concretized_id = nullptr;
+    if (*id_type == IterType::Broadcast && has_expanded_producer) {
+      // Propagate expanded IterDomains by swapping the extent into the expanded
+      // extent
+      concretized_id =
+          IterDomainBuilder(maybeMutated(root_id)->as<IterDomain>())
+              .iter_type(*id_type)
+              .extent(FusionGuard::getCurFusion()->oneVal(DataType::Index))
+              .expanded_extent(
+                  maybeMutated(root_id)->as<IterDomain>()->extent())
+              .build();
+    } else {
+      concretized_id =
+          IterDomainBuilder(maybeMutated(root_id)->as<IterDomain>())
+              .iter_type(*id_type)
+              .build();
+    }
 
     registerConcretization(root_id, concretized_id);
     is_concretized = true;

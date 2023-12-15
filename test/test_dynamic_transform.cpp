@@ -1315,8 +1315,9 @@ TEST_F(NVFuserTest, SymbolicExpand) {
 
   auto tv1 = reshape(tv0, {s0, s1});
   auto tv2 = expand(tv1, {s2, s3});
+  auto tv3 = add(tv2, tv2);
 
-  fusion->addOutput(tv2);
+  fusion->addOutput(tv3);
 
   FusionExecutorCache fec(std::move(fusion_ptr));
 
@@ -1333,8 +1334,8 @@ TEST_F(NVFuserTest, SymbolicExpand) {
   // An informative error message should be given during concretization
   EXPECT_THAT(
       [&]() { fec.runFusionWithInputs(invalid_inputs); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "Mismatch in sizes when concretizing expand.")));
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("Mismatch in sizes when concretizing expand.")));
 }
 
 } // namespace nvfuser
