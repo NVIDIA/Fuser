@@ -740,6 +740,7 @@ class PersistentBufferProjector {
   const bool project_to_inputs_;
 
   void projectToInputs() {
+    fusion_->printMath();
     // Iterate through projected buffers, tracking which index it corresponds
     // too since there's a resolution point entry for every buffer.
     const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion_);
@@ -768,7 +769,8 @@ class PersistentBufferProjector {
       std::vector<Val*> vals_project_to = fusion_->inputs();
       const auto& dep_vals = DependencyCheck::getAllValsBetween(
           {reduction_tvs.begin(), reduction_tvs.end()}, {buffer});
-      const auto& broadcast_tvs = scheduler_utils::getBroadcastTvs(dep_vals);
+      const auto& broadcast_tvs =
+          scheduler_utils::getBroadcastTvsExcept(dep_vals, buffer);
       vals_project_to.insert(
           vals_project_to.end(), broadcast_tvs.begin(), broadcast_tvs.end());
       projectToInputOrImmediatePersistentProducer(

@@ -474,10 +474,15 @@ class PersistentBufferResolution : public IterVisitor {
 } // namespace
 
 // Returns all broadcast tvs from the given vector of Vals.
-std::vector<TensorView*> getBroadcastTvs(const std::vector<Val*>& dep_vals) {
+std::vector<TensorView*> getBroadcastTvsExcept(
+    const std::vector<Val*>& dep_vals,
+    const TensorView* except_tv) {
   std::vector<TensorView*> broadcast_tvs;
   for (auto val : dep_vals) {
     if (auto tv = dynamic_cast<TensorView*>(val)) {
+      if (tv->hasReduction() || tv == except_tv) {
+        continue;
+      }
       if (tv->hasBroadcast()) {
         broadcast_tvs.push_back(tv);
       }
@@ -558,10 +563,12 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     // If the buffer doesn't depends on reduction tvs or there is a broadcasted
     // tv between reduction and persistent buffer. The re-calculation of the
     // persistent buffer doesn't need additional reductions and this buffer is
-    // projecatable.
+    // projecatable. When searching for broadcasted tvs, exclude the buffer
+    // itself.
     const auto& dep_vals = DependencyCheck::getAllValsBetween(
         {reduction_tvs.begin(), reduction_tvs.end()}, {persistent_buffer});
-    if (dep_vals.empty() || !getBroadcastTvs(dep_vals).empty()) {
+    if (dep_vals.empty() ||
+        !getBroadcastTvsExcept(dep_vals, persistent_buffer).empty()) {
       persistent_buffer_info.projectable_persistent_buffers.push_back(
           persistent_buffer);
     }
