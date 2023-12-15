@@ -198,6 +198,16 @@ Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute) {
       expr, reference, substitute);
 }
 
+void replaceVal(Val* old_val, Val* new_val) {
+  auto uses = old_val->uses();
+  for (auto use_of_old_val : uses) {
+    ir_utils::replaceValInExprInputs(use_of_old_val, old_val, new_val);
+  }
+  if (old_val->isFusionOutput()) {
+    old_val->fusion()->replaceOutput(old_val, new_val);
+  }
+}
+
 Expr* transferDefinitionToNewOutputs(
     Expr* expr,
     const std::vector<Val*>& new_outputs) {

@@ -1295,4 +1295,68 @@ TEST_F(NVFuserTest, SymbolicSqueeze) {
           " must concretize to IterType::Broadcast but found")));
 }
 
+// See https://github.com/NVIDIA/Fuser/issues/1398
+TEST_F(NVFuserTest, SymbolicExpand) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion* fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+
+  auto s0 = IrBuilder::create<Val>(DataType::Index);
+  auto s1 = IrBuilder::create<Val>(DataType::Index);
+  auto s2 = IrBuilder::create<Val>(DataType::Index);
+  auto s3 = IrBuilder::create<Val>(DataType::Index);
+  fusion->addInput(s0);
+  fusion->addInput(s1);
+  fusion->addInput(s2);
+  fusion->addInput(s3);
+
+  auto tv1 = reshape(tv0, {s0, s1});
+  auto tv2 = expand(tv1, {s2, s3});
+
+  fusion->addOutput(tv2);
+
+  FusionExecutorCache fec(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({3, 2}, options);
+  std::vector<c10::IValue> valid_inputs = {t0, 6, 1, 6, 5};
+  // An invalid input has a second dimension that cannot be expanded
+  std::vector<c10::IValue> invalid_inputs = {t0, 2, 3, 2, 5};
+
+  auto outputs = fec.runFusionWithInputs(valid_inputs);
+
+  std::cout << outputs.at(0) << std::endl;
+  std::cout << "sizes: " << outputs[0].sizes() << std::endl;
+  std::cout << "strides: " << outputs[0].strides() << std::endl;
+
+  auto ref = at::reshape(t0, {6, 1}).expand({6, 5});
+
+  std::cout << ref << std::endl;
+  std::cout << "ref sizes: " << ref.sizes() << std::endl;
+  std::cout << "ref strides: " << ref.strides() << std::endl;
+  /*
+-0.9247 -0.4253 -2.6438  0.1452 -0.1209
+-0.5797     nan     nan     nan     nan
+    nan     nan     nan     nan     nan
+    nan     nan     nan     nan     nan
+    nan     nan     nan     nan     nan
+    nan     nan     nan     nan     nan
+[ CUDAFloatType{6,5} ]
+sizes: [6, 5]
+strides: [5, 1]
+-0.9247 -0.9247 -0.9247 -0.9247 -0.9247
+-0.4253 -0.4253 -0.4253 -0.4253 -0.4253
+-2.6438 -2.6438 -2.6438 -2.6438 -2.6438
+ 0.1452  0.1452  0.1452  0.1452  0.1452
+-0.1209 -0.1209 -0.1209 -0.1209 -0.1209
+-0.5797 -0.5797 -0.5797 -0.5797 -0.5797
+[ CUDAFloatType{6,5} ]
+ref sizes: [6, 5]
+ref strides: [1, 0]
+  */
+}
+
 } // namespace nvfuser

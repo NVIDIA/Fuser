@@ -172,6 +172,10 @@ std::vector<int> normalizeOld2New(
 //! Warning: Creates new Expr defining substitute.
 Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute);
 
+//! Replace old_val with new_val in all active uses as well as in fusion
+//! outputs.
+void replaceVal(Val* old_val, Val* new_val);
+
 //! Removes the given expression and creates a new expression that is identical
 //! to expr, but whose outputs are given by the new_outputs argument. It is an
 //! error for Vals in new_outputs that are not equal to their old equivalents to
