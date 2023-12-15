@@ -667,6 +667,8 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
   // Compute or get cached initial concretization info
   const auto& initial_info = initialInfo();
 
+  std::cout << initial_info.toString() << std::endl;
+
   // Compute concretization info to use as cache key
   DynamicTransformConcretizationInfo* conc_info = nullptr;
   if (initial_info.isDynamic()) {
@@ -677,6 +679,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         std::make_unique<DynamicTransformConcretizationInfo>(
             &initial_info, &expr_eval));
     conc_info = cached_conc_info_.back().get();
+    std::cout << conc_info->toString() << std::endl;
   }
 
   // Initialize or fetch vector of FusionKernelRuntime objects associated with

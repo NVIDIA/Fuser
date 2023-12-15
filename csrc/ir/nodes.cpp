@@ -2362,8 +2362,7 @@ void ExpandOp::checkConcretization(Val* old_val, Val* new_val) const {
       " does not match input TV ",
       in()->toString());
   auto old_tv = old_val->as<TensorView>();
-  auto new_tv = new_val->as<
-      TensorView>(); // NOLINT(clang-analyzer-core.CallAndMessage,-warnings-as-errors)
+  auto new_tv = new_val->as<TensorView>();
   auto old_rfactor = old_tv->getMaybeRFactorDomain();
   auto new_rfactor = new_tv->getMaybeRFactorDomain();
   NVF_CHECK(
@@ -2374,11 +2373,13 @@ void ExpandOp::checkConcretization(Val* old_val, Val* new_val) const {
       new_rfactor.size(),
       " but expected ",
       old_tv->getMaybeRFactorDomain().size());
+  /*
   for (auto i : c10::irange(exp_exts.size())) {
     auto new_id = new_rfactor.at(i);
-    // TODO: how can we tell before propagation that this domain is expanded?
-    // Should checkConcretization also include an ExpressionEvalutor??
+    // TODO: detect actual broadcasts. This might necessitate eagerly replacing
+    // the output in concretizeExpands
   }
+  */
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)

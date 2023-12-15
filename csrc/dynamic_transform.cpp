@@ -377,14 +377,48 @@ void DynamicTransformConcretizationInfo::analyzeResizes(
 
 void DynamicTransformConcretizationInfo::analyzeExpands(
     ExpressionEvaluator* expr_eval) {
-  const auto& expanded_tvs = initial_info_->getDynamicExpandedTensorViews();
+  const std::vector<TensorView*>& expanded_tvs =
+      initial_info_->getDynamicExpandedTensorViews();
   for (const auto tv_index : c10::irange(expanded_tvs.size())) {
-    auto out_tv = expanded_tvs.at(tv_index);
-    auto op = out_tv->definition()->as<ExpandOp>();
+    const TensorView* out_tv = expanded_tvs.at(tv_index);
+    const TensorView* inp_tv = out_tv->definition()->as<ExpandOp>()->in();
 
-    std::cout << "analyzeExpands " << op->toString();
+    const std::vector<IterDomain*>& out_root = out_tv->getRootDomain();
+    const std::vector<IterDomain*> inp_rfactor =
+        TensorDomain::noReductions(inp_tv->getMaybeRFactorDomain());
 
-    // TODO: complete this
+    NVF_ERROR(out_root.size() == inp_rfactor.size());
+    std::vector<bool> expand_axes;
+    expand_axes.reserve(out_root.size());
+    for (int i : c10::irange(out_root.size())) {
+      const IterDomain* inp_id = inp_rfactor[i];
+      const IterDomain* out_id = out_root[i];
+      if (out_id->isIteration()) {
+        expand_axes.push_back(false);
+        continue;
+      }
+      // For Broadcast or Symbolic axes, check the sizes of the input and output
+      int64_t out_size = expr_eval->evaluate(out_id->extent()).as<int64_t>();
+      // Use getMaybeExpandedExtent() here so we can mark "false" if we are just
+      // preserving a pre-existing expansion.
+      int64_t in_size =
+          expr_eval->evaluate(inp_id->getMaybeExpandedExtent()).as<int64_t>();
+      if (in_size == 1) {
+        expand_axes.push_back(out_size != in_size);
+      } else {
+        NVF_CHECK(
+            out_size == in_size,
+            "Mismatch in sizes when concretizing expand. Expanded or Iteration domain ",
+            inp_id->toString(),
+            " has possibly expanded extent ",
+            in_size,
+            " which is incompatible with expansion to size ",
+            out_size,
+            ". Note that already-expanded axes may not themselves be expanded.");
+        expand_axes.push_back(false);
+      }
+    }
+    expand_axes_.emplace_back(tv_index, expand_axes);
   }
 }
 
