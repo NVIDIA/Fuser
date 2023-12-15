@@ -908,13 +908,11 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   auto pair_size_stride = inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
   if (tv->hasAllocation()) {
     // TODO(jiej): clean up 
-    auto meta_tensor = at::native::empty_strided_cuda(
+    auto options = c10::TensorOptions().device(c10::Device(c10::DeviceType::Meta));
+    auto meta_tensor = at::empty_strided(
         pair_size_stride.first,
         pair_size_stride.second,
-        c10::nullopt,
-        c10::nullopt,
-        c10::Device(c10::DeviceType::Meta),
-        c10::nullopt);
+        options);
     meta_tensor =
         transformOutputFromAllocationToRFactor(meta_tensor, tv, expr_eval);
     return {meta_tensor.sizes().vec(), meta_tensor.strides().vec()};
@@ -981,10 +979,6 @@ at::Tensor allocateOutput(
     fillTensorWithNan(alloc_tensor);
   }
 
-  if (out_tv->hasAllocation()) {
-    alloc_tensor =
-        transformOutputFromAllocationToRFactor(alloc_tensor, out_tv, ee);
-  }
   return alloc_tensor;
 }
 
