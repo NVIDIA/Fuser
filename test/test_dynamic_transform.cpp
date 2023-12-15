@@ -1295,7 +1295,7 @@ TEST_F(NVFuserTest, SymbolicSqueeze) {
           " must concretize to IterType::Broadcast but found")));
 }
 
-// See https://github.com/NVIDIA/Fuser/issues/1398
+// See https://github.com/NVIDIA/Fuser/issues/1468
 TEST_F(NVFuserTest, SymbolicExpand) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion* fusion = fusion_ptr.get();
@@ -1328,35 +1328,13 @@ TEST_F(NVFuserTest, SymbolicExpand) {
 
   auto outputs = fec.runFusionWithInputs(valid_inputs);
 
-  std::cout << outputs.at(0) << std::endl;
-  std::cout << "sizes: " << outputs[0].sizes() << std::endl;
-  std::cout << "strides: " << outputs[0].strides() << std::endl;
+  testValidate(fec.fusion(), outputs, valid_inputs, __LINE__, __FILE__);
 
-  auto ref = at::reshape(t0, {6, 1}).expand({6, 5});
-
-  std::cout << ref << std::endl;
-  std::cout << "ref sizes: " << ref.sizes() << std::endl;
-  std::cout << "ref strides: " << ref.strides() << std::endl;
-  /*
--0.9247 -0.4253 -2.6438  0.1452 -0.1209
--0.5797     nan     nan     nan     nan
-    nan     nan     nan     nan     nan
-    nan     nan     nan     nan     nan
-    nan     nan     nan     nan     nan
-    nan     nan     nan     nan     nan
-[ CUDAFloatType{6,5} ]
-sizes: [6, 5]
-strides: [5, 1]
--0.9247 -0.9247 -0.9247 -0.9247 -0.9247
--0.4253 -0.4253 -0.4253 -0.4253 -0.4253
--2.6438 -2.6438 -2.6438 -2.6438 -2.6438
- 0.1452  0.1452  0.1452  0.1452  0.1452
--0.1209 -0.1209 -0.1209 -0.1209 -0.1209
--0.5797 -0.5797 -0.5797 -0.5797 -0.5797
-[ CUDAFloatType{6,5} ]
-ref sizes: [6, 5]
-ref strides: [1, 0]
-  */
+  // An informative error message should be given during concretization
+  EXPECT_THAT(
+      [&]() { fec.runFusionWithInputs(invalid_inputs); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "Mismatch in sizes when concretizing expand.")));
 }
 
 } // namespace nvfuser

@@ -390,7 +390,7 @@ void DynamicTransformConcretizationInfo::analyzeExpands(
     NVF_ERROR(out_root.size() == inp_rfactor.size());
     std::vector<bool> expand_axes;
     expand_axes.reserve(out_root.size());
-    for (int i : c10::irange(out_root.size())) {
+    for (size_t i : c10::irange(out_root.size())) {
       const IterDomain* inp_id = inp_rfactor[i];
       const IterDomain* out_id = out_root[i];
       if (out_id->isIteration()) {
@@ -566,6 +566,9 @@ void DynamicTransformConcretizer::concretize() {
   // Set output IterTypes for dynamic resize ops
   concretizeResize();
 
+  // Overwrite expanded IterDomains for dynamic expand ops
+  concretizeExpand();
+
   // Registers replacement of all empty extents with zeroVal()
   concretizeEmptyExtents();
 
@@ -709,7 +712,7 @@ void DynamicTransformConcretizer::concretizeExpand() {
     std::vector<IterDomain*> out_rfactor =
         TensorDomain::noReductions(symbolic_out_tv->getMaybeRFactorDomain());
     NVF_ERROR(axis_is_expanded.size() == out_rfactor.size());
-    for (int i : c10::irange(out_rfactor.size())) {
+    for (size_t i : c10::irange(out_rfactor.size())) {
       if (!axis_is_expanded[i]) {
         // Propagate as usual for non-expanded IterDomains
         continue;
@@ -719,12 +722,12 @@ void DynamicTransformConcretizer::concretizeExpand() {
       // an extent. Here we set the IterType to Broadcast and swap the extent to
       // expandedExtent.
       IterDomain* symbolic_id = out_rfactor[i];
-      IterDomain* concretized_id =
-          IterDomainBuilder(symbolic_id)
-              .iter_type(IterType::Broadcast)
-              .extent(FusionGuard::getCurFusion()->oneVal(DataType::Index))
-              .expanded_extent(symbolic_id->extent())
-              .build();
+      Val* one = FusionGuard::getCurFusion()->oneVal(DataType::Index);
+      IterDomain* concretized_id = IterDomainBuilder(symbolic_id)
+                                       .iter_type(IterType::Broadcast)
+                                       .extent(one)
+                                       .expanded_extent(symbolic_id->extent())
+                                       .build();
       registerConcretization(symbolic_id, concretized_id);
     }
   }

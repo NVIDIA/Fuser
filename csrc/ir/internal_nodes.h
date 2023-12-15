@@ -1477,9 +1477,6 @@ class ExpandOp : public Expr {
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
-
-  //! Check that expanded IDs in have Broadcast IterType
-  void checkConcretization(Val* old_tv, Val* new_tv) const override;
 };
 
 //! Shift
