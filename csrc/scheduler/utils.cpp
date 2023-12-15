@@ -499,7 +499,8 @@ std::vector<TensorView*> getBufferProjectableBroadcastsTvs(
       // reduction.
       bool is_broadcast_after_reduction = true;
       for (auto i : c10::irange(producer->nDims())) {
-        if (producer->axis(i)->isReduction() && !tv->axis(i)->isBroadcast()) {
+        if (producer->axis((int)i)->isReduction() &&
+            !tv->axis((int)i)->isBroadcast()) {
           is_broadcast_after_reduction = false;
           break;
         }
