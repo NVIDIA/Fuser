@@ -1312,7 +1312,7 @@ TEST_F(AllocationDomainTest, TrivialStrideOrderTensorViewBuilder) {
   EXPECT_TRUE(!tv0->hasAllocation());
 }
 
-TEST_F(AllocationDomainTest, Bug) {
+TEST_F(AllocationDomainTest, Issue1524) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
