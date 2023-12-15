@@ -8529,6 +8529,54 @@ TEST_F(NVFuserTest, ProjectPersistentBufferToInputsAndBroadcastTvs) {
   auto cg_outputs = fe.runFusion(inputs);
 }
 
+TEST_F(NVFuserTest, AvoidSelfProjection) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  const int batch_size = 128;
+  const int hidden_size = 1024;
+  DataType input_dtype = DataType::Half;
+  auto tv0 = makeContigTensor(2, input_dtype);
+  fusion->addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = broadcast(tv1, {false, false, true});
+  auto tv3 = sum(tv2, {0});
+  auto tv4 = broadcast(tv3, {true, false, false});
+  auto tv5 = add(tv2, tv4);
+  fusion->addOutput(tv5);
+
+  auto tv6 = add(tv5, tv5);
+  auto tv7 = sum(tv6, {0});
+  auto tv8 = broadcast(tv7, {true, false, false});
+  auto tv9 = add(tv6, tv8);
+  fusion->addOutput(tv9);
+  fusion->printMath();
+
+
+  // The persistent buffers in this fusion are: tv2, tv6, and tv10.
+  // tv2 is projected to input.
+  // tv6 is projected to input and tv4 which is a broadcast tv.
+  // tv10 is projected to input, tv4 and tv8 which are broadcast tvs.
+  // The only actual persisent buffer is the cached input.
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(input_dtype))
+                     .device(at::kCUDA, 0);
+  auto t0 = at::randn({batch_size, hidden_size}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  auto persistent_params = getOuterPersistentHeuristics(fusion, inputs);
+  // NVF_CHECK(persistent_params, "Reduction schedule was not generated!");
+  // NVF_CHECK(
+  //     persistent_params->project_persistent_buffers,
+  //     "Should project persistent buffers to inputs!");
+
+  scheduleOuterPersistentKernel(fusion, *persistent_params);
+  FusionExecutor fe;
+  fe.compileFusion(fusion, inputs, persistent_params->lparams);
+  auto cg_outputs = fe.runFusion(inputs, persistent_params->lparams);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
