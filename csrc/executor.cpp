@@ -603,7 +603,14 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     }
   }
 
-  return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+  auto pair_size_stride = inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+  if (tv->hasAllocation()) {
+    auto meta_tensor = at::native::empty_strided_meta(pair_size_stride.first, pair_size_stride.second);
+    meta_tensor =
+        transformOutputFromAllocationToRFactor(meta_tensor, tv, expr_eval);
+    return {meta_tensor.size, meta_tensor.stride};
+  }
+  return pair_size_stride;
 }
 
 class ForwardTraverseFromAllocToRFactor {
