@@ -575,44 +575,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
   return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
 }
 
-// Infer the sizes and strides of an output tensor
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
-    const TensorView* tv,
-    ExpressionEvaluator& expr_eval) {
-  // Fusion outputs do not come with Allocate and
-  // need to be allocated while taking expanded broadcasts into
-  // account.
-
-  std::vector<Val*> symbolic_sizes;
-  std::vector<bool> expand_flags;
-
-  // Allocate the allocation domain
-  for (const auto id : tv->getMaybeAllocationDomain()) {
-    if (id->isReduction() || id->isStride()) {
-      continue;
-    }
-    symbolic_sizes.push_back(id->getMaybeExpandedExtent());
-    if (id->hasExpandedExtent()) {
-      NVF_ERROR(
-          id->isBroadcast(),
-          "Non-broadcast domain should not have an expanded extent: ",
-          id->toString());
-      expand_flags.push_back(true);
-    } else {
-      expand_flags.push_back(false);
-    }
-  }
-
-  auto pair_size_stride = inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
-  if (tv->hasAllocation()) {
-    auto meta_tensor = at::native::empty_strided_meta(pair_size_stride.first, pair_size_stride.second);
-    meta_tensor =
-        transformOutputFromAllocationToRFactor(meta_tensor, tv, expr_eval);
-    return {meta_tensor.size, meta_tensor.stride};
-  }
-  return pair_size_stride;
-}
-
 class ForwardTraverseFromAllocToRFactor {
   at::Tensor tensor_;
   ExpressionEvaluator& ee_;
@@ -913,6 +875,51 @@ at::Tensor transformOutputFromAllocationToRFactor(
     dims.emplace_back(current_dims.at(id));
   }
   return tensor.permute(dims);
+}
+
+// Infer the sizes and strides of an output tensor
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
+    TensorView* tv,
+    ExpressionEvaluator& expr_eval) {
+  // Fusion outputs do not come with Allocate and
+  // need to be allocated while taking expanded broadcasts into
+  // account.
+
+  std::vector<Val*> symbolic_sizes;
+  std::vector<bool> expand_flags;
+
+  // Allocate the allocation domain
+  for (const auto id : tv->getMaybeAllocationDomain()) {
+    if (id->isReduction() || id->isStride()) {
+      continue;
+    }
+    symbolic_sizes.push_back(id->getMaybeExpandedExtent());
+    if (id->hasExpandedExtent()) {
+      NVF_ERROR(
+          id->isBroadcast(),
+          "Non-broadcast domain should not have an expanded extent: ",
+          id->toString());
+      expand_flags.push_back(true);
+    } else {
+      expand_flags.push_back(false);
+    }
+  }
+
+  auto pair_size_stride = inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+  if (tv->hasAllocation()) {
+    // TODO(jiej): clean up 
+    auto meta_tensor = at::native::empty_strided_cuda(
+        pair_size_stride.first,
+        pair_size_stride.second,
+        c10::nullopt,
+        c10::nullopt,
+        c10::Device(c10::DeviceType::Meta),
+        c10::nullopt);
+    meta_tensor =
+        transformOutputFromAllocationToRFactor(meta_tensor, tv, expr_eval);
+    return {meta_tensor.sizes().vec(), meta_tensor.strides().vec()};
+  }
+  return pair_size_stride;
 }
 
 int64_t IndexOfFusionInput(const Val* in, const Fusion* fusion) {
