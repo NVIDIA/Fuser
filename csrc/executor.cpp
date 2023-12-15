@@ -905,21 +905,21 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     }
   }
 
-  auto pair_size_stride =
+  auto size_stride =
       inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
-  if (tv->hasAllocation()) {
-    auto options =
-        c10::TensorOptions().device(c10::Device(c10::DeviceType::Meta));
-    auto meta_tensor = at::empty_strided(
-        pair_size_stride.first, pair_size_stride.second, options);
-    // TODO(jiej): we should refactor it here, there's no need to use
-    // meta_tensor at all, size + stride should be used directly in the
-    // `transformOutputFromAllocationToRFactor`
-    meta_tensor =
-        transformOutputFromAllocationToRFactor(meta_tensor, tv, expr_eval);
-    return {meta_tensor.sizes().vec(), meta_tensor.strides().vec()};
+  if (!tv->hasAllocation()) {
+    return size_stride;
   }
-  return pair_size_stride;
+  auto options =
+      c10::TensorOptions().device(c10::Device(c10::DeviceType::Meta));
+  auto meta_tensor = at::empty_strided(
+      size_stride.first, size_stride.second, options);
+  // TODO(jiej): we should refactor it here, there's no need to use
+  // meta_tensor at all, size + stride should be used directly in the
+  // `transformOutputFromAllocationToRFactor`
+  meta_tensor =
+      transformOutputFromAllocationToRFactor(meta_tensor, tv, expr_eval);
+  return {meta_tensor.sizes().vec(), meta_tensor.strides().vec()};
 }
 
 int64_t IndexOfFusionInput(const Val* in, const Fusion* fusion) {
