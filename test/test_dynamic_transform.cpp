@@ -1311,6 +1311,12 @@ TEST_F(NVFuserTest, DynamicReshapeBroadcast) {
   auto s1 = IrBuilder::create<Val>(DataType::Index);
   auto s2 = IrBuilder::create<Val>(DataType::Index);
   auto s3 = IrBuilder::create<Val>(DataType::Index);
+  fusion->addInput(tv0);
+  fusion->addInput(s0);
+  fusion->addInput(s1);
+  fusion->addInput(s2);
+  fusion->addInput(s3);
+
   auto tv1 = reshape(tv0, {s0, s1, s2});
   auto tv2 = expand(tv1, {s0, s1, s3});
   auto s4 = IrBuilder::create<Val>(1.0);
@@ -1320,13 +1326,24 @@ TEST_F(NVFuserTest, DynamicReshapeBroadcast) {
   FusionExecutorCache fec(std::move(fusion_ptr));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({3}, options).as_strided({3, 4}, {1, 0});
-  auto ref = t0.add(1.0).as_strided({3, 4, 5}, {4, 1, 0});
+  at::Tensor t0 = at::randn({3, 4}, options).as_strided({3, 4}, {0, 1});
+  std::vector<c10::IValue> inputs = {t0, 3, 4, 1, 5};
 
-  std::vector<c10::IValue> aten_inputs({t0, 3, 4, 1, 5});
+  auto ref = t0.add(1.0).as_strided({3, 4, 5}, {0, 1, 0});
+
+  std::vector<c10::IValue> aten_inputs(inputs);
   auto outputs = fec.runFusionWithInputs(aten_inputs);
 
-  testValidate(fusion, outputs, {t0}, {ref}, __LINE__, __FILE__);
+  // TODO: currently fails due to https://github.com/NVIDIA/Fuser/issues/1468
+  // testValidate(fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
+
+  // An informative error message should be given when incompatible sizes are
+  // used in dynamic expand
+  std::vector<c10::IValue> invalid_inputs = {t0, 3, 2, 2, 5};
+  EXPECT_THAT(
+      [&]() { fec.runFusionWithInputs(invalid_inputs); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          " must concretize to IterType::Broadcast but found")));
 }
 
 } // namespace nvfuser

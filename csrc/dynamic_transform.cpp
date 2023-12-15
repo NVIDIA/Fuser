@@ -246,7 +246,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
           !inp_id->maybePartial(),
           "Invalid domain to reshape: ",
           inp_id->toString());
-      auto extent_val = expr_eval->evaluate(inp_id->extent());
+      auto extent_val = expr_eval->evaluate(inp_id->getMaybeExpandedExtent());
       NVF_ERROR(
           extent_val.hasValue(),
           "Cannot evaluate the extent of an input domain to reshape: ",

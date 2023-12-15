@@ -2353,6 +2353,34 @@ std::vector<PolymorphicValue> ExpandOp::evaluate(
   return {at::expand_copy(in, expanded_size)};
 }
 
+void ExpandOp::checkConcretization(Val* old_val, Val* new_val) const {
+  Expr::checkConcretization(old_val, new_val); // does nullptr, vtype checks
+  NVF_CHECK(
+      old_val == in(),
+      "Pre-concretized Val ",
+      old_val->toString(),
+      " does not match input TV ",
+      in()->toString());
+  auto old_tv = old_val->as<TensorView>();
+  auto new_tv = new_val->as<
+      TensorView>(); // NOLINT(clang-analyzer-core.CallAndMessage,-warnings-as-errors)
+  auto old_rfactor = old_tv->getMaybeRFactorDomain();
+  auto new_rfactor = new_tv->getMaybeRFactorDomain();
+  NVF_CHECK(
+      new_rfactor.size() == old_tv->getMaybeRFactorDomain().size(),
+      "New TV ",
+      new_tv->toString(),
+      " has rfactor of length ",
+      new_rfactor.size(),
+      " but expected ",
+      old_tv->getMaybeRFactorDomain().size());
+  for (auto i : c10::irange(exp_exts.size())) {
+    auto new_id = new_rfactor.at(i);
+    // TODO: how can we tell before propagation that this domain is expanded?
+    // Should checkConcretization also include an ExpressionEvalutor??
+  }
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)
 
 ShiftOp::ShiftOp(
