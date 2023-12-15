@@ -2919,10 +2919,9 @@ std::string IterDomain::toString(int indent_size) const {
   if (stop() != extent()) {
     ss << stop()->toInlineString() << " : ";
   }
-  if (isBroadcast() && hasExpandedExtent()) {
-    ss << expandedExtent()->toInlineString();
-  } else {
-    ss << extent()->toInlineString();
+  ss << extent()->toInlineString();
+  if (hasExpandedExtent()) {
+    ss << " expanded to " << expandedExtent()->toInlineString();
   }
   ss << "}";
   if (isRFactorProduct()) {

@@ -9011,6 +9011,7 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation3_CUDA) {
   auto tv13 = add(tv12, tv11);
 
   fusion.addOutput(tv13);
+
   auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
 
   auto isTvWithinVec = [](std::vector<TensorView*>& vec, TensorView* tv) {
@@ -9033,11 +9034,12 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation3_CUDA) {
   NVF_ERROR(
       resolution.size() == 2 && resolution[0].size() == 1 &&
       resolution[1].size() == 1);
-  NVF_ERROR(projectable.size() == 2);
-  NVF_ERROR(projectable_inputs.size() == 2);
+  NVF_ERROR(projectable.size() == 1);
+  NVF_ERROR(projectable_inputs.size() == 1);
 
   NVF_ERROR(isTvWithinVec(buffers, tv1) && isTvWithinVec(buffers, tv7));
-  NVF_ERROR(isTvWithinVec(projectable, tv1) && isTvWithinVec(projectable, tv7));
+  NVF_ERROR(
+      isTvWithinVec(projectable, tv1) && !isTvWithinVec(projectable, tv7));
 
   NVF_ERROR(isTvWithinVec(projectable_inputs, tv0));
 
@@ -9064,7 +9066,9 @@ TEST_F(NVFuserTest, FusionPersistentBufferCalculation3_CUDA) {
           aten_t0.size(1) * dataTypeSize(DataType::Float) * 2));
   NVF_ERROR(
       persistent_buffer_size.projected_persistent_buffer_size ==
-      static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Half) * 2));
+      static_cast<int64_t>(
+          aten_t0.size(1) *
+          (dataTypeSize(DataType::Half) + dataTypeSize(DataType::Float))));
 }
 
 TEST_F(NVFuserTest, FusionPersistentBufferCalculation4_CUDA) {
