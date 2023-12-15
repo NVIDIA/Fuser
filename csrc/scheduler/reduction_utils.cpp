@@ -742,6 +742,7 @@ class PersistentBufferProjector {
   void projectToInputs() {
     // Iterate through projected buffers, tracking which index it corresponds
     // too since there's a resolution point entry for every buffer.
+    const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion_);
     for (auto buffer_i : c10::irange(persistent_buffers.size())) {
       auto buffer = persistent_buffers[buffer_i];
       if (std::find(
