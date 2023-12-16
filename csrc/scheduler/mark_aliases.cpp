@@ -35,17 +35,17 @@ void markAliases(Fusion* fusion) {
 
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    TensorView* in = analysis.getAliasedInput(out);
-    if (in == nullptr) {
+    TensorView* aliased_io = analysis.getNearestAliasedIo(out);
+    if (aliased_io == nullptr) {
       continue;
     }
 
-    fusion->aliasOutputToInput(out, in, AliasType::PointerArithmetic);
+    fusion->aliasOutputToInput(out, aliased_io, AliasType::PointerArithmetic);
     vlog(
         "Marked ",
         ir_utils::varName(out),
         " as an alias of ",
-        ir_utils::varName(in));
+        ir_utils::varName(aliased_io));
   }
 }
 
