@@ -850,11 +850,11 @@ TEST_F(AliasTest, ManyAliasesBetweenOutputs) {
   TensorView* in = makeContigConcreteTensor({2, 3, 5});
   TensorView* add_out = add(in, in);
   TensorView* permute_out = permute(add_out, {1, 2, 0});
-  TensorView* reshape_out = reshape(permute_out, {3, 5, 2}, {3, 10});
+  TensorView* reshape_out = reshape(permute_out, {3, 5, 2}, {15, 2});
   TensorView* slice_out = slice(permute_out, {0, 0, 0}, {2, 4, 1});
 
   fusion->addInput(in);
-  // I intentionally add the output in reverse order to execise sorting in
+  // I intentionally add the outputs in reverse order to execise sorting in
   // `allocateOutputs`.
   fusion->addOutput(slice_out);
   fusion->addOutput(reshape_out);
