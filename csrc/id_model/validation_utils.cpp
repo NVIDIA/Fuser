@@ -15,6 +15,8 @@
 
 namespace nvfuser {
 
+namespace {
+
 // Same as IterDomain::exprsMap but uses
 // ValGraph::mapMergeBackward. Copying the funciton here isn't ideal,
 // but it doesn't make sense to change the ComputeAtMap code just for
