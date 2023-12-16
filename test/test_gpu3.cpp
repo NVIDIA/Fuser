@@ -8529,12 +8529,8 @@ TEST_F(NVFuserTest, ProjectToInputsAndBroadcastTvs1) {
   auto cg_outputs = fe.runFusion(inputs);
 }
 
-<<<<<<< HEAD
 // Test projection to inputs when the persistent buffer is a broadcast tv.
 TEST_F(NVFuserTest, ProjectToInputsAndBroadcastTvs2) {
-=======
-TEST_F(NVFuserTest, AvoidSelfProjection) {
->>>>>>> eb41fcb53970c4e825f403af5237ff505a0d7f63
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -8559,7 +8555,6 @@ TEST_F(NVFuserTest, AvoidSelfProjection) {
   fusion->addOutput(tv9);
 
   // In this fusion, tv6 is a persistent buffer with a broadcast dim.
-<<<<<<< HEAD
   // Between reduction tv2 and tv6, there are two broadcast tvs: tv4 and tv6.
   // Only tv4 is a valid broadcast tv to project to.
   const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
@@ -8574,21 +8569,6 @@ TEST_F(NVFuserTest, AvoidSelfProjection) {
   NVF_CHECK(
       broadcast_tvs.at(0) == tv4,
       "Expect target tv4!, Got: ",
-=======
-  // When project it to inputs and broadcast tvs, should avoid self projection.
-  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-  const auto& dep_vals = DependencyCheck::getAllValsBetween(
-      {reduction_tvs.begin(), reduction_tvs.end()}, {tv6});
-  const auto& broadcast_tvs =
-      scheduler_utils::getBufferProjectableBroadcastsTvs(dep_vals, tv6);
-  NVF_CHECK(
-      broadcast_tvs.size() == 1,
-      "Should have one target broadcast tv!, Got: ",
-      broadcast_tvs.size());
-  NVF_CHECK(
-      broadcast_tvs.at(0) == tv4,
-      "Target broadcast tv should be tv4!, Got: ",
->>>>>>> eb41fcb53970c4e825f403af5237ff505a0d7f63
       broadcast_tvs.at(0)->toString());
 
   auto options = at::TensorOptions()
@@ -8609,7 +8589,6 @@ TEST_F(NVFuserTest, AvoidSelfProjection) {
   auto cg_outputs = fe.runFusion(inputs, persistent_params->lparams);
 }
 
-<<<<<<< HEAD
 TEST_F(NVFuserTest, ProjectToInputsAndBroadcastTvs3) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
@@ -8695,8 +8674,6 @@ TEST_F(NVFuserTest, ProjectToInputsAndBroadcastTvs3) {
   auto cg_outputs = fe.runFusion(inputs, persistent_params->lparams);
 }
 
-=======
->>>>>>> eb41fcb53970c4e825f403af5237ff505a0d7f63
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

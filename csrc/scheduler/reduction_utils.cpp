@@ -772,7 +772,6 @@ class PersistentBufferProjector {
       // reduciton and broadcast from input t0 to t3. The broadcast here is not
       // just a local register copy but involves an inter-thread communication.
       std::vector<Val*> vals_project_to = fusion_->inputs();
-<<<<<<< HEAD
       const auto& [can_project, broadcast_tvs] =
           scheduler_utils::canProjectToInputsWithoutReduction(
               reduction_tvs, buffer);
@@ -781,14 +780,6 @@ class PersistentBufferProjector {
             vals_project_to.end(), broadcast_tvs.begin(), broadcast_tvs.end());
       }
 
-=======
-      const auto& dep_vals = DependencyCheck::getAllValsBetween(
-          {reduction_tvs.begin(), reduction_tvs.end()}, {buffer});
-      const auto& broadcast_tvs =
-          scheduler_utils::getBufferProjectableBroadcastsTvs(dep_vals, buffer);
-      vals_project_to.insert(
-          vals_project_to.end(), broadcast_tvs.begin(), broadcast_tvs.end());
->>>>>>> eb41fcb53970c4e825f403af5237ff505a0d7f63
       projectToInputOrImmediatePersistentProducer(
           (int)buffer_i, vals_project_to);
     }
