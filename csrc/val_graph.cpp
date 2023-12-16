@@ -227,78 +227,6 @@ void ValGraph::initializeVal(Val* val) {
   initializeVal(val, defs, uses);
 }
 
-namespace {
-
-// Can't back prop through merge without making sure one input actually
-// matches. This can be done on a map or extent basis.
-bool mapMergeBackward(Merge* merge0, Merge* merge1, const ValGraph& graph) {
-  auto extent_match = [](IterDomain* id0, IterDomain* id1) -> bool {
-    return id0->extent()->sameAs(id1->extent()) ||
-        (id0->extent()->isConstInt() && id1->extent()->isConstInt() &&
-         id0->extent()->evaluate() == id1->extent()->evaluate());
-  };
-
-  // If one pair of the domains are mapped in the given graph, the
-  // backward merge is considered mapped
-  if (graph.disjointValSets().permissiveAreMapped(
-          merge0->outer(), merge1->outer()) ||
-      graph.disjointValSets().permissiveAreMapped(
-          merge0->inner(), merge1->inner())) {
-    return true;
-  }
-
-  // Considered mapped if the extents are equal
-  if (extent_match(merge0->outer(), merge1->outer()) ||
-      extent_match(merge0->inner(), merge1->inner())) {
-    return true;
-  }
-
-  // The mapped ID group may have different extents depending on the
-  // mapping conditions. For example, the Permissive graph may have a
-  // symbolic extent as well as an extent of 1 for broadcast
-  // domains. Those other mapped domains need to be checked as well.
-
-  // First, the outer groups
-  ValGroup outer0_group = graph.hasGroup(merge0->outer())
-      ? graph.toGroup(merge0->outer())
-      : std::make_shared<VectorOfUniqueEntries<Val*>>(
-            VectorOfUniqueEntries<Val*>{merge0->outer()});
-  ValGroup outer1_group = graph.hasGroup(merge1->outer())
-      ? graph.toGroup(merge1->outer())
-      : std::make_shared<VectorOfUniqueEntries<Val*>>(
-            VectorOfUniqueEntries<Val*>{merge1->outer()});
-
-  for (Val* outer0 : *outer0_group) {
-    for (Val* outer1 : *outer1_group) {
-      if (extent_match(outer0->as<IterDomain>(), outer1->as<IterDomain>())) {
-        return true;
-      }
-    }
-  }
-
-  // Check the inner groups as well if not already matched
-  ValGroup inner0_group = graph.hasGroup(merge0->inner())
-      ? graph.toGroup(merge0->inner())
-      : std::make_shared<VectorOfUniqueEntries<Val*>>(
-            VectorOfUniqueEntries<Val*>{merge0->inner()});
-  ValGroup inner1_group = graph.hasGroup(merge1->inner())
-      ? graph.toGroup(merge1->inner())
-      : std::make_shared<VectorOfUniqueEntries<Val*>>(
-            VectorOfUniqueEntries<Val*>{merge1->inner()});
-
-  for (Val* inner0 : *inner0_group) {
-    for (Val* inner1 : *inner1_group) {
-      if (extent_match(inner0->as<IterDomain>(), inner1->as<IterDomain>())) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-} // namespace
-
 bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
   NVF_ERROR(first);
   NVF_ERROR(second);
@@ -328,7 +256,8 @@ bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
 
   // Special handling for backprop of merge
   if (first->isA<Merge>() && !forward) {
-    if (!mapMergeBackward(first->as<Merge>(), second->as<Merge>(), *this)) {
+    if (!ValGraph::mapMergeBackward<Val>(
+            first->as<Merge>(), second->as<Merge>(), this->disjointValSets())) {
       return false;
     }
   }
