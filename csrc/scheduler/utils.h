@@ -197,6 +197,7 @@ bool canProjectToPersistentProducer(
     const std::vector<TensorView*>& producers,
     const std::unordered_set<TensorView*>& persistent_buffer_set);
 
+<<<<<<< HEAD
 //! Evaluates if a persistent buffer can be projected to input tvs without
 //! dependency on reduction tvs. Returns a std::pair with a boolean indicating
 //! whether projection is feasible and a vector of projectable tvs.
@@ -213,6 +214,15 @@ bool canProjectToPersistentProducer(
 std::pair<bool, std::vector<TensorView*>> canProjectToInputsWithoutReduction(
     const std::vector<TensorView*> reduction_tvs,
     TensorView* persistent_buffer);
+=======
+// Returns all broadcast tvs the persistent buffer tv can be projected to.
+// The returned tvs should not include the persistent buffer tv itself.
+// The returned tvs should only include the broadcast tvs that are produced by
+// a reduction tv.
+std::vector<TensorView*> getBufferProjectableBroadcastsTvs(
+    const std::vector<Val*>& dep_vals,
+    const TensorView* persistent_buffer_tv);
+>>>>>>> eb41fcb53970c4e825f403af5237ff505a0d7f63
 
 struct ReductionTvProperties {
   // How many elements in tensor view are there to reduce.
