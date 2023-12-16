@@ -1138,6 +1138,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_nt", _matmul_nt)
   NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_tn", _matmul_tn)
   NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("_matmul_tt", _matmul_tt)
+  NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY("matmul", matmul)
 #undef NVFUSER_PYTHON_BINDING_BINARY_OP_TENSORS_ONLY
 
 #define NVFUSER_PYTHON_BINDING_BINARY_OP(op_str, op_name)                      \
