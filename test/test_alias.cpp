@@ -11,11 +11,11 @@
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
+#include <alias_analysis.h>
 #include <fusion.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
-#include <optimization/alias_analysis.h>
 #include <test/utils.h>
 #include <test/validator.h>
 
@@ -44,8 +44,7 @@ TEST_F(AliasAnalysisTest, View_SymbolicTensor) {
   TensorView* out = reshape(in, {in_shape[0], mul(in_shape[1], in_shape[2])});
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 }
 
@@ -63,8 +62,7 @@ TEST_F(AliasAnalysisTest, ChainOfViews) {
   TensorView* out = reshape(intermediate, intermediate_shape, out_shape);
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 }
 
@@ -80,10 +78,9 @@ TEST_F(AliasAnalysisTest, View_Contiguous) {
   TensorView* out = reshape(in, in_shape, out_shape);
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
-  optimization::Layout preferred_layout = alias_analysis.preferredLayout(out);
+  Layout preferred_layout = alias_analysis.preferredLayout(out);
   EXPECT_THAT(
       preferred_layout.allocation_domain,
       ElementsAre(out->axis(0), out->axis(1)));
@@ -106,8 +103,7 @@ TEST_F(AliasAnalysisTest, View_MergeNonContiguous) {
   TensorView* out = reshape(in, in_shape, out_shape);
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), nullptr);
 }
 
@@ -122,8 +118,7 @@ TEST_F(AliasAnalysisTest, Set) {
 
   in->setAllocationDomain({in->axis(1), in->axis(2), in->axis(0)}, true);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 
   const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
@@ -143,8 +138,7 @@ TEST_F(AliasAnalysisTest, Permute) {
   TensorView* out = permute(in, {1, 2, 0});
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 
   const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
@@ -172,8 +166,7 @@ TEST_F(AliasAnalysisTest, View_SplitExpandedBroadcast) {
       reshape(in, {IrBuilder::create<Val>(40), IrBuilder::create<Val>(3)});
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), nullptr);
 }
 
@@ -192,8 +185,7 @@ TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
   TensorView* out = reshape(in, {4, 5, 6}, {20, -1});
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 
   // Verify the last dimension isn't expanded physically.
@@ -221,8 +213,7 @@ TEST_F(AliasAnalysisTest, View_MergeExpandedBroadcast) {
   TensorView* out = reshape(in, {4, 5, 6}, {4, -1});
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), nullptr);
 }
 
@@ -236,8 +227,7 @@ TEST_F(AliasAnalysisTest, TrivialSlice) {
   out = reshape(out, {2, 3}, {6});
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 }
 
@@ -251,8 +241,7 @@ TEST_F(AliasAnalysisTest, MergeTriviallySlicedDimensions) {
   out = reshape(out, {2, 2, 5}, {2, 10});
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 }
 
@@ -266,8 +255,7 @@ TEST_F(AliasAnalysisTest, MergeSlicedDimensions) {
   TensorView* out = reshape(slice_out, {2, 2, 5}, {4, 5});
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
   EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), nullptr);
 }
 
