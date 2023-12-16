@@ -266,7 +266,7 @@ void FusionExecutor::compileFusion(
     std::vector<Val*> output_extents;
     for (const auto id : maybe_rfactor_domain) {
       Val* extent = nullptr;
-      if (id->isReduction() || id->isStride()) {
+      if (id->isReduction() || id->isStride() || id->isDeviceDim()) {
         continue;
       } else if (id->isBroadcast() && id->hasExpandedExtent()) {
         extent = id->expandedExtent();
@@ -292,6 +292,7 @@ void FusionExecutor::compileFusion(
   } else if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
     fusion->printMath();
   }
+  fusion->print();
 
   // TODO: refactor the options_ passed through
   options_.device =
@@ -341,6 +342,7 @@ void FusionExecutor::compileFusion(
   if (isDebugDumpEnabled(DebugDumpOption::KernelIr)) {
     kernel->print();
   }
+  kernel->print();
 
   if (isDebugDumpEnabled(DebugDumpOption::BankConflictInfo)) {
     auto bank_conflict_info = getBankConflictInfo(kernel);
@@ -590,7 +592,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput( //see 
 
   // Allocate the allocation domain
   for (const auto id : tv->getMaybeAllocationDomain()) {
-    if (id->isReduction() || id->isStride()) { //add isDevice?
+    if (id->isReduction() || id->isStride() || id->isDeviceDim()) {
       continue;
     }
     symbolic_sizes.push_back(id->getMaybeExpandedExtent());
@@ -882,8 +884,10 @@ at::Tensor transformOutputFromAllocationToRFactor( //maybe it is brutal to compl
     TensorView* tv,
     ExpressionEvaluator& ee) {
   // Ignore reductions because reductions does not exist in tensor's definition
-  auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
-  auto alloc = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  // auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  // auto alloc = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  auto rfactor = TensorDomain::noDevices(TensorDomain::noReductions(tv->getMaybeRFactorDomain()));
+  auto alloc = TensorDomain::noDevices(TensorDomain::noReductions(tv->getMaybeAllocationDomain()));
   // Traverse all affine transformations from allocation domain. Because
   // allocation domain can be before or after the rFactor domain, we need both a
   // forward and a backward traverse.
@@ -1249,6 +1253,8 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     info.zero_init = alloc->zeroInit();
     std::tie(info.sizes, info.strides) =
         inferShapeOfIntermediate(tv, alloc, expr_eval);
+    std::cout << "Get Intermediate buffer info " << info.sizes << " " << info.strides << std::endl;
+
     auto dtype = (tv->dtype() == DataType::Index ? index_type : tv->dtype());
     info.type = data_type_to_aten(dtype);
 
@@ -1619,6 +1625,8 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     dumpFusionArgs(
         fusion_id_, args, launch_constraints, compile_params, outputs);
   }
+  dumpFusionArgs(
+        fusion_id_, args, launch_constraints, compile_params, outputs);
 
   c10::DeviceGuard dg(options_.device);
   auto stream = at::cuda::getCurrentCUDAStream();
@@ -1703,6 +1711,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     for (const auto i : c10::irange(executor_entry->intermediates.size())) {
       const auto& buf_info = executor_entry->intermediates.at(i);
       at::Tensor intermediate_buffer;
+      std::cout << "Intermediate buffer " << buf_info.sizes << std::endl;
       if (buf_info.zero_init) {
         intermediate_buffer = at::zeros(
             buf_info.sizes,
@@ -1742,6 +1751,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
     launch_params_.print();
   }
+  launch_params_.print();
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelArgs)) {
     dumpKernelArgs(
@@ -1752,6 +1762,14 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         intermediates,
         executor_entry->intermediates);
   }
+
+  dumpKernelArgs(
+        fusion_id_,
+        args,
+        num_inputs,
+        outputs,
+        intermediates,
+        executor_entry->intermediates);
 
   if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
     debug() << "Index type: " << kernel()->indexType() << std::endl;
@@ -1847,6 +1865,11 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   if (isOptionEnabled(EnableOption::KernelProfile)) {
     debug() << kernel()->profile().toString(profile_buffer);
   }
+
+  for (auto a : intermediates)
+    std::cout << "Intermediate " << a << std::endl;
+
+  std::cout << "Checking outputs of fusion " << outputs[0] << std::endl;
 
   return outputs;
 }

@@ -37,11 +37,9 @@ std::pair<std::unique_ptr<Fusion>, std::unordered_map<Val*, Val*>> copyFusionAnd
         copy_to_original_map[original_to_copy_cloner.clone(output)] = output;
         });
 
+    // This is needed to prvent error at csrc/executor.cpp:404
     for (auto tv : ir_utils::filterByType<TensorView>(fusion_copy->vals())) {
       tv->setMemoryType(MemoryType::Global);
-      for (auto i : c10::irange(tv->domain()->nDims())) {
-        tv->axis(i)->parallelize(ParallelType::Serial);
-      }
     }
 
     return std::make_pair<std::unique_ptr<Fusion>, std::unordered_map<Val*, Val*>>(std::move(fusion_copy), std::move(copy_to_original_map));

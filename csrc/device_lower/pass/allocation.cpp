@@ -163,13 +163,16 @@ class AllocationInserter : public kir::ExprMutator {
     std::vector<Val*> alloc_dims;
 
     for (const auto id : maybe_rfactor_domain) {
-      if (id->isDeviceDim()) continue; //or oneVal?
       if (id->isReduction() || id->isStride()) {
         continue;
       } else if (id->isBroadcast()) {
         // No matter whether this broadcast is expanded or not, we always
         // allocate size 1
         alloc_dims.emplace_back(id->container()->oneVal());
+        continue;
+      } else if (id->isDeviceDim()) {
+        // Device dims are not distributed and not allocated
+        alloc_dims.emplace_back(id->container()->zeroVal());
         continue;
       }
       auto extent = id->extent();
@@ -336,8 +339,8 @@ class AllocationInserter : public kir::ExprMutator {
     for (const auto axis_i : c10::irange(info.buffer->nDims())) {
       const auto local_id = info.buffer->axis((int)axis_i);
 
-      // Don't use reduction/stride/broadcast axis in the allocation
-      // computation
+      // Don't use reduction/stride/broadcast/device axis in the 
+      // allocation computation
       if (local_id->isReduction() || local_id->isStride() ||
           local_id->isBroadcast() || local_id->isDeviceDim()) { //or oneVal ?
         continue;

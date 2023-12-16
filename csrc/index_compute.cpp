@@ -1740,8 +1740,11 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   for (auto alloc_id : alloc_dom) {
     // Already taken care of because we can detect no indexing required
+    if (alloc_id->isDeviceDim()) {
+      std::cout << "AllocID producer is device dim" << alloc_id->toString() << std::endl;
+    }
     if (alloc_id->isBroadcast() || alloc_id->isReduction() ||
-        alloc_id->isStride() ||
+        alloc_id->isStride() || alloc_id->isDeviceDim() ||
         (alloc_id->isThread() &&
          producer_tv->getMemoryType() == MemoryType::Local)) {
       skip_indexing.insert(alloc_id);
@@ -1961,8 +1964,11 @@ std::vector<Val*> Index::getConsumerAllocationIndices(
   for (const auto i : c10::irange(alloc_dom.size())) {
     // See a comment in indexing to allocation domains in
     // getGlobalProducerIndex.
+    if (alloc_dom[i]->isDeviceDim()) {
+      std::cout << "getConsumerAllocationIndices skip " << alloc_dom[i]->toString() << std::endl;
+    }
     if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast() ||
-        alloc_dom[i]->isStride()) {
+        alloc_dom[i]->isStride() || alloc_dom[i]->isDeviceDim()) {
       continue;
     }
 
@@ -2067,8 +2073,10 @@ std::vector<Val*> Index::getProducerAllocationIndices(
   for (const auto i : c10::irange(alloc_dom.size())) {
     auto override_it = override_index.find(alloc_dom[i]);
     const bool is_overriden = override_it != override_index.end();
-
-    if (alloc_dom[i]->isReduction() ||
+    if ( alloc_dom[i]->isDeviceDim()) {
+      std::cout << "getProducerAllocationIndices skip device dim " << alloc_dom[i]->toString() << std::endl;
+    }
+    if (alloc_dom[i]->isReduction() || alloc_dom[i]->isDeviceDim() ||
         (alloc_dom[i]->isBroadcast() && !is_overriden)) {
       continue;
     }
@@ -2196,11 +2204,16 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
   // Indices should now be mapped onto IterDomains in consumer, so just grab
   // and use them.
   const auto& alloc_dom = consumer_tv->getMaybeAllocationDomain();
+  std::cout << "Consumer tv allocation domain " << consumer_tv->toString() << " " << alloc_dom.size();
+  for (const auto i : c10::irange(alloc_dom.size())) {
+    std::cout << " " << alloc_dom[i]->toString();
+  }
+  std::cout << std::endl;
   std::vector<Val*> strided_inds(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
   for (const auto i : c10::irange(alloc_dom.size())) {
     if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast() ||
-        alloc_dom[i]->isStride() ||
+        alloc_dom[i]->isStride() || alloc_dom[i]->isDeviceDim() ||
         (alloc_dom[i]->isThread() &&
          consumer_tv->getMemoryType() == MemoryType::Local)) {
       continue;
@@ -2232,8 +2245,10 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
     // Compute striding for this index.
     Val* stride = nullptr;
     for (const auto j : c10::irange(i + 1, alloc_dom.size())) {
+      if(alloc_dom[j]->isDeviceDim())
+        std::cout << "getNonGlobalConsumerStridedIndices2" << alloc_dom[j]->toString() << std::endl;
       if (alloc_dom[j]->isBroadcast() || alloc_dom[j]->isReduction() ||
-          alloc_dom[j]->isStride()) {
+          alloc_dom[j]->isDeviceDim() || alloc_dom[j]->isStride()) {
         continue;
       }
 
@@ -2267,6 +2282,12 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
       strided_inds[i] = alloc_ind_i;
     }
   }
+
+  std::cout << "Strided indices";
+  for (auto i : strided_inds) {
+    std::cout << " " << i;
+  }
+  std::cout << std::endl;
 
   // This check was originally done in getConsumerStridedIndices, but
   // the number of strided index values depends on the loop where the

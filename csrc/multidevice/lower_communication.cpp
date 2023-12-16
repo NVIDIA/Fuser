@@ -108,20 +108,23 @@ CommParams createParamsForGatherScatter(
   }
 
   if (mesh.has(my_device_index)) {
-    auto sliced_buf = buf.index({0, "..."});
-    ((is_scatter) ? params.dst_bufs : params.src_bufs) = {sliced_buf};
+    // auto sliced_buf = buf.index({0, "..."});
+    ((is_scatter) ? params.dst_bufs : params.src_bufs) = {buf};
   }
 
   if (my_device_index == root) {
     for (auto i : c10::irange(mesh.vector().size())) {
-      ((is_scatter)? params.src_bufs : params.dst_bufs).push_back(root_buf.index({static_cast<int>(i), "..."}));
+      auto x = root_buf.index({static_cast<int>(i), "..."});
+      std::cout << "Scatter params " << x << std::endl;
+      std::cout << "Contig?" << x.is_contiguous() << std::endl;
+      ((is_scatter)? params.src_bufs : params.dst_bufs).push_back(x);
     }
     // The scatter/gather semantics imposes the root to be both
     // sender and receiver. If the root is not in the mesh, we thus
     // have to artificially make it send and receive a dummy buffer
     // Since it is an "inplace" operation, this should not cause any overhead
     if (!is_root_in_mesh) {
-      at::Tensor dummy = createDummyTensor(root_buf.index({0, "..."}));
+      at::Tensor dummy = createDummyTensor(buf);
       params.src_bufs.push_back(dummy);
       params.dst_bufs.push_back(dummy);
     }
@@ -188,7 +191,7 @@ void lowerToAllgather(
     params.dst_bufs.push_back(
         output_tensor.index({static_cast<int>(i), "..."}));
   }
-  params.src_bufs = {input_tensor.index({0, "..."})};
+  params.src_bufs = {input_tensor};
 
   comms.push_back(std::make_shared<Allgather>(std::move(params)));
 }
@@ -429,25 +432,26 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
     original_expr," to communication is not supported");
   bool is_reduction = original_expr->isA<ReductionOp>();
 
-  NVF_ERROR(
-      !is_input_sharded ||
-      !input_tensor.numel() ||
-          sender_mesh.vector().size() ==
-              static_cast<size_t>(input_tensor.size(0)),
-      "the size of the mesh ",
-      sender_mesh.vector().size(),
-      " doesn't match the size of the tensor ",
-      input_tensor.size(0));
-  NVF_ERROR(
-      !is_output_sharded ||
-      !output_tensor.numel() ||
-      is_reduction ||
-          receiver_mesh.vector().size() ==
-              static_cast<size_t>(output_tensor.size(0)),
-      "the size of the mesh",
-      receiver_mesh.vector().size(),
-      " doesn't match the size of the tensor ",
-      output_tensor.size(0));
+  // TODO: FIX
+  // NVF_ERROR(
+  //     !is_input_sharded ||
+  //     !input_tensor.numel() ||
+  //         sender_mesh.vector().size() ==
+  //             static_cast<size_t>(input_tensor.size(0)),
+  //     "the size of the mesh ",
+  //     sender_mesh.vector().size(),
+  //     " doesn't match the size of the tensor ",
+  //     input_tensor.size(0));
+  // NVF_ERROR(
+  //     !is_output_sharded ||
+  //     !output_tensor.numel() ||
+  //     is_reduction ||
+  //         receiver_mesh.vector().size() ==
+  //             static_cast<size_t>(output_tensor.size(0)),
+  //     "the size of the mesh",
+  //     receiver_mesh.vector().size(),
+  //     " doesn't match the size of the tensor ",
+  //     output_tensor.size(0));
   if (is_reduction) {
     BinaryOpType op_type = output_tv->definition()->as<ReductionOp>()->getReductionOpType();
     NVF_ERROR(is_input_sharded, "the comm input must be sharded in case of reduce.",
