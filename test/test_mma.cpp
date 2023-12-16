@@ -419,18 +419,6 @@ class HopperSS : public HopperBase,
     layout = std::get<2>(GetParam());
     swizzle_a = std::get<3>(GetParam());
     swizzle_b = std::get<4>(GetParam());
-
-    if (swizzle_b == MmaInputSmemSwizzle::B128) {
-      GTEST_SKIP() << "128B swizzle not supported yet";
-    }
-
-    if (swizzle_b == MmaInputSmemSwizzle::B64) {
-      GTEST_SKIP() << "64B swizzle not supported yet";
-    }
-
-    if (swizzle_b == MmaInputSmemSwizzle::B32) {
-      GTEST_SKIP() << "32B swizzle not supported yet";
-    }
   }
 };
 
@@ -532,15 +520,7 @@ TEST_P(HopperSS, SingleTile) {
   // Hopper tensor core assumes K major, so we are using !transpose_a here.
   tv0b->applyMmaSwizzle(swizzle_a, !transpose_a);
   tv1b->setMemoryType(MemoryType::Shared);
-  tv1b->applyMmaSwizzle(swizzle_b, transpose_b);
-
-  if (transpose_a) {
-    // TODO: Why do we need to transpose B if A is transposed? I don't really
-    // understand why, but empirically it works...
-    auto alloc = tv1b->getAllocationDomain();
-    std::swap(alloc[alloc.size() - 1], alloc[alloc.size() - 2]);
-    tv1b->setAllocationDomain(alloc, true);
-  }
+  tv1b->applyMmaSwizzle(swizzle_b, transpose_b, transpose_a);
 
   naivelyParallelize(tv0b);
   naivelyParallelize(tv1b);
