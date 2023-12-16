@@ -61,14 +61,14 @@ class AliasAnalysisResult {
 
   std::string toString(int indent_size) const;
 
-  // Gets the aliased fusion input of a fusion output. Returns nullptr
-  // when `fusion_out` is not a fusion output or does not alias a fusion input.
-  TensorView* getAliasedInput(const TensorView* fusion_out) const;
+  // Gets the nearest aliased fusion input/output of a `fusion_out` other than
+  // `fusion_out` itself. Returns null if that doesn't exist.
+  TensorView* getNearestAliasedIo(const TensorView* fusion_out) const;
 
  private:
-  // Walks up `alias_to_source_` to find the root of the chain. Returns itself
-  // if `alias` doesn't alias anything.
-  Val* findRoot(Val* alias) const;
+  // Same as `getNearestAliasedIo` except that the `get` method returns the
+  // cached result.
+  TensorView* findNearestAliasedIo(TensorView* fusion_out) const;
 
   // Maps aliases (e.g. the output of a View) to their direct sources (e.g. the
   // input of the same View). Also stores the preferred output layout for the
@@ -78,7 +78,7 @@ class AliasAnalysisResult {
   std::unordered_map<const TensorView*, std::pair<TensorView*, Layout>>
       alias_to_source_;
 
-  // Maps a fusion output to its aliased fusion input.
+  // Maps a fusion output to its nearest aliased fusion input/output.
   std::unordered_map<const TensorView*, TensorView*> out_to_root_;
 };
 
