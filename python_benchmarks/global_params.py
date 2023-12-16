@@ -37,7 +37,7 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
     for dim in dims:
         if dim == 2:
             # max_batch_range: set according to max size that fits in GPU memory
-            batch_range = [2**i for i in range(4, 14)]  # {16, 8192}
+            batch_range = [2**i for i in range(4, 15)]  # {16, 4096}
             step_size = 256
             # max_hidden_size = 4 * d_model_max (max hidden size in feedforward layers)
             hidden_range = np.arange(
