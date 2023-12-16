@@ -197,10 +197,22 @@ bool canProjectToPersistentProducer(
     const std::vector<TensorView*>& producers,
     const std::unordered_set<TensorView*>& persistent_buffer_set);
 
-// Returns all broadcast tvs.
-std::vector<TensorView*> getBroadcastTvsExcept(
-    const std::vector<Val*>& tvs,
-    const TensorView* except);
+//! Evaluates if a persistent buffer can be projected to input tvs without
+//! dependency on reduction tvs. Returns a std::pair with a boolean indicating
+//! whether projection is feasible and a vector of projectable tvs.
+//!
+//! The function operates in two main steps:
+//! (1) Checks if the persistent buffer has dependencies on any of the given
+//!     reduction tvs. If no dependencies are found, it returns true with an
+//!     empty vector of target broadcast tvs.
+//! (2) If there are dependencies, it examines each reduction tv for an
+//!     associated broadcast tv that can be projected to. If all reduction tvs
+//!     have corresponding broadcast tvs, true is returned along with these tvs.
+//!     If any reduction tv lacks a corresponding broadcast tv, false is
+//!     returned with the current list of identified broadcast tvs.
+std::pair<bool, std::vector<TensorView*>> canProjectToInputsWithoutReduction(
+    const std::vector<TensorView*> reduction_tvs,
+    TensorView* persistent_buffer);
 
 struct ReductionTvProperties {
   // How many elements in tensor view are there to reduce.

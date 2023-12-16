@@ -721,11 +721,17 @@ class PersistentBufferProjector {
         project_to_inputs_(project_to_inputs) {}
 
   const std::vector<TensorView*>& project() {
+    std::cout << "Before project persistent buffers to "
+              << (project_to_inputs_ ? "inputs" : "producers") << std::endl;
+    fusion_->printMath();
     if (project_to_inputs_) {
       projectToInputs();
     } else {
       projectToProducers();
     }
+    std::cout << "\nAfter project persistent buffers to "
+              << (project_to_inputs_ ? "inputs" : "producers") << std::endl;
+    fusion_->printMath();
     return dummy_outputs_;
   }
 
@@ -766,12 +772,14 @@ class PersistentBufferProjector {
       // reduciton and broadcast from input t0 to t3. The broadcast here is not
       // just a local register copy but involves an inter-thread communication.
       std::vector<Val*> vals_project_to = fusion_->inputs();
-      const auto& dep_vals = DependencyCheck::getAllValsBetween(
-          {reduction_tvs.begin(), reduction_tvs.end()}, {buffer});
-      const auto& broadcast_tvs =
-          scheduler_utils::getBroadcastTvsExcept(dep_vals, buffer);
-      vals_project_to.insert(
-          vals_project_to.end(), broadcast_tvs.begin(), broadcast_tvs.end());
+      const auto& [can_project, broadcast_tvs] =
+          scheduler_utils::canProjectToInputsWithoutReduction(
+              reduction_tvs, buffer);
+      if (can_project) {
+        vals_project_to.insert(
+            vals_project_to.end(), broadcast_tvs.begin(), broadcast_tvs.end());
+      }
+
       projectToInputOrImmediatePersistentProducer(
           (int)buffer_i, vals_project_to);
     }

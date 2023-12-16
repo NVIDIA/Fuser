@@ -473,22 +473,72 @@ class PersistentBufferResolution : public IterVisitor {
 
 } // namespace
 
-// Returns all broadcast tvs from the given vector of Vals.
-std::vector<TensorView*> getBroadcastTvsExcept(
-    const std::vector<Val*>& dep_vals,
-    const TensorView* except_tv) {
-  std::vector<TensorView*> broadcast_tvs;
+namespace {
+// This function checks if there is a broadcast tv in the dependencies between
+// the reduction_tv and the persistent_buffer. A tv is considered projectable
+// if its definition is a broadcast, has the same number of dimensions as the
+// reduction_tv, and each reduction dimension in reduction_tv corresponds to
+// a broadcast dimension in the broadcast tv.
+// Return the broadcast tv if there is one, otherwise return nullptr.
+TensorView* getBufferProjectableBroadcastsTv(
+    TensorView* reduction_tv,
+    TensorView* persistent_buffer) {
+  const auto& dep_vals =
+      DependencyCheck::getAllValsBetween({reduction_tv}, {persistent_buffer});
   for (auto val : dep_vals) {
     if (auto tv = dynamic_cast<TensorView*>(val)) {
-      if (tv->hasReduction() || tv == except_tv) {
+      if (!tv->definition()->isA<BroadcastOp>()) {
         continue;
       }
-      if (tv->hasBroadcast()) {
-        broadcast_tvs.push_back(tv);
+      if (reduction_tv->nDims() != tv->nDims()) {
+        continue;
+      }
+      // Each reduction dimension the producer, must be mapped to a broadcast
+      // dimension in the consumer, otherwise it is not a valid broadcast after
+      // reduction.
+      bool is_broadcast_after_reduction = true;
+      for (auto i : c10::irange(reduction_tv->nDims())) {
+        if (reduction_tv->axis((int)i)->isReduction() &&
+            !tv->axis((int)i)->isBroadcast()) {
+          is_broadcast_after_reduction = false;
+          break;
+        }
+      }
+      if (is_broadcast_after_reduction) {
+        return tv;
       }
     }
   }
-  return broadcast_tvs;
+  return nullptr;
+}
+} // namespace
+
+std::pair<bool, std::vector<TensorView*>> canProjectToInputsWithoutReduction(
+    const std::vector<TensorView*> reduction_tvs,
+    TensorView* persistent_buffer) {
+  std::vector<TensorView*> dep_reduction_tvs, target_broadcast_tvs;
+  dep_reduction_tvs.reserve(reduction_tvs.size());
+  for (auto tv : reduction_tvs) {
+    if (DependencyCheck::isDependencyOf(tv, persistent_buffer)) {
+      dep_reduction_tvs.push_back(tv);
+    }
+  }
+  // (1) The persistent buffer doesn't depend on any reduction tv
+  if (dep_reduction_tvs.empty()) {
+    return std::make_pair(true, target_broadcast_tvs);
+  }
+  // (2) It depends on reduction tv(s), but after each reduction tv, there is a
+  // broadcasted tv can be projected to.
+  target_broadcast_tvs.reserve(dep_reduction_tvs.size());
+  for (auto reduction_tv : dep_reduction_tvs) {
+    auto broadcast_tv =
+        getBufferProjectableBroadcastsTv(reduction_tv, persistent_buffer);
+    if (!broadcast_tv) {
+      return std::make_pair(false, target_broadcast_tvs);
+    }
+    target_broadcast_tvs.push_back(broadcast_tv);
+  }
+  return std::make_pair(true, target_broadcast_tvs);
 }
 
 PersistentBufferInfo persistentBuffers(Fusion* fusion) {
@@ -560,15 +610,11 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     if (persistent_buffer->isFusionInput()) {
       continue;
     }
-    // If the buffer doesn't depends on reduction tvs or there is a broadcasted
-    // tv between reduction and persistent buffer. The re-calculation of the
-    // persistent buffer doesn't need additional reductions and this buffer is
-    // projecatable. When searching for broadcasted tvs, exclude the buffer
-    // itself.
-    const auto& dep_vals = DependencyCheck::getAllValsBetween(
-        {reduction_tvs.begin(), reduction_tvs.end()}, {persistent_buffer});
-    if (dep_vals.empty() ||
-        !getBroadcastTvsExcept(dep_vals, persistent_buffer).empty()) {
+
+    // can project to input if the persistent_buffer can be recalculated without
+    // doing reduction.
+    if (canProjectToInputsWithoutReduction(reduction_tvs, persistent_buffer)
+            .first) {
       persistent_buffer_info.projectable_persistent_buffers.push_back(
           persistent_buffer);
     }
