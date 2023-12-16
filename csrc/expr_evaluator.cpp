@@ -34,8 +34,7 @@ void validateValWithConcreteValue(
         concrete_value.type().name());
     const auto& t = concrete_value.as<at::Tensor>();
     auto expect_dim =
-      (int64_t) TensorDomain::noReductions(
-          TensorDomain::noDevices(tv->getMaybeRFactorDomain())).size();
+      (int64_t) TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
     NVF_CHECK(
         t.dim() == expect_dim,
         "Expected ",
@@ -115,8 +114,7 @@ void ExpressionEvaluator::bind_(
   if (auto tv = dynamic_cast<const TensorView*>(value)) {
     const auto& t = concrete_value.as<at::Tensor>();
     auto rfactor_domain =
-        TensorDomain::noDevices(
-          TensorDomain::noReductions(tv->getMaybeRFactorDomain()));
+        TensorDomain::noReductions(tv->getMaybeRFactorDomain());
     NVF_ERROR(
         t.dim() == (int64_t)rfactor_domain.size(),
         "Expected ",
@@ -126,10 +124,20 @@ void ExpressionEvaluator::bind_(
         ", but got a tensor of rank ",
         t.dim());
     for (auto i : c10::irange(t.dim())) {
-      bind_(
-          rfactor_domain[i]->getMaybeExpandedExtent(),
-          t.size(i),
-          evaluate_validate);
+      auto idom = rfactor_domain[i];
+      // Device dimensions will always be 1.
+      // Ignore concrete extents because they will match unsharded. 
+      if (idom->isDeviceDim() && idom->getMaybeExpandedExtent()->isConst() ) {
+        NVF_CHECK(
+        1 == t.size(i),
+        "Tried to bind to a constant value: 1 as ",
+        t.size(0));
+      } else {
+        bind_(
+            idom->getMaybeExpandedExtent(),
+            t.size(i),
+            evaluate_validate);
+      }
     }
   }
   if (value->isA<NamedScalar>()) {

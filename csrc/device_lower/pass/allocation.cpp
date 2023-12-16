@@ -172,7 +172,7 @@ class AllocationInserter : public kir::ExprMutator {
         continue;
       } else if (id->isDeviceDim()) {
         // Device dims are not distributed and not allocated
-        alloc_dims.emplace_back(id->container()->zeroVal());
+        alloc_dims.emplace_back(id->container()->oneVal());
         continue;
       }
       auto extent = id->extent();
@@ -342,7 +342,7 @@ class AllocationInserter : public kir::ExprMutator {
       // Don't use reduction/stride/broadcast/device axis in the 
       // allocation computation
       if (local_id->isReduction() || local_id->isStride() ||
-          local_id->isBroadcast() || local_id->isDeviceDim()) { //or oneVal ?
+          local_id->isBroadcast() || local_id->isDeviceDim()) {
         continue;
       }
 

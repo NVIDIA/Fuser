@@ -114,9 +114,7 @@ CommParams createParamsForGatherScatter(
 
   if (my_device_index == root) {
     for (auto i : c10::irange(mesh.vector().size())) {
-      auto x = root_buf.index({static_cast<int>(i), "..."});
-      std::cout << "Scatter params " << x << std::endl;
-      std::cout << "Contig?" << x.is_contiguous() << std::endl;
+      auto x = root_buf.index({static_cast<int>(i), "..."}).view(buf.sizes());
       ((is_scatter)? params.src_bufs : params.dst_bufs).push_back(x);
     }
     // The scatter/gather semantics imposes the root to be both
@@ -189,7 +187,7 @@ void lowerToAllgather(
   params.team = mesh.vector();
   for (auto i : c10::irange(mesh.vector().size())) {
     params.dst_bufs.push_back(
-        output_tensor.index({static_cast<int>(i), "..."}));
+        output_tensor.index({static_cast<int>(i), "..."}).view(input_tensor.sizes()));
   }
   params.src_bufs = {input_tensor};
 

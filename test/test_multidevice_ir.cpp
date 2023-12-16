@@ -26,9 +26,6 @@ TEST_F(MultiDeviceTest, ShardOuterAxisConcrete) {
   DeviceMesh mesh({0, 1});
   int num_devices = 2;
 
-  // TensorView* tv0 = makeContigTensor(2);
-  // TODO: Concrete 2D tensor, symbolic 3D tensor work, but not symbolic 2D tensor. 
-  // Generates NANs at tv3.
   TensorView* tv0 = makeConcreteTensor({2, 3});
   TensorView* tv1 = add(tv0, tv0);
   TensorView* tv2 = set(tv1);
@@ -36,8 +33,6 @@ TEST_F(MultiDeviceTest, ShardOuterAxisConcrete) {
   TensorView* tv4 = set(tv3);
   TensorView* tv5 = sum(tv4, {0});
   fusion.addInput(tv0);
-  // fusion.addOutput(tv2);
-  // fusion.addOutput(tv3);
   fusion.addOutput(tv5);
 
   // TODO: split
@@ -61,18 +56,18 @@ TEST_F(MultiDeviceTest, ShardOuterAxisConcrete) {
   auto x = at::randn({num_devices, 3}, tensor_options);
   std::vector<c10::IValue> inputs = {x};
   auto ref_outputs = at::sum(x*4, {0});
-  if (communicator->deviceId() == 0) {
-    fusion.printKernel();
-    fusion.printMath();
-    std::cout << "Inputs " << x << std::endl;
-    std::cout << "Expected " << ref_outputs << std::endl;
-  }
+  // if (communicator->deviceId() == 0) {
+  //   fusion.printKernel();
+  //   fusion.printMath();
+  //   std::cout << "Inputs " << x << std::endl;
+  //   std::cout << "Expected " << ref_outputs << std::endl;
+  // }
   
   MultiDeviceRuntime runtime(&pipeline, *communicator);
   auto outputs = runtime.runWithInput(inputs);
-  std::cout << "Outputs: " << std::endl;
-  for (auto i : outputs)
-    std::cout << i << std::endl;
+  // std::cout << "Outputs: " << std::endl;
+  // for (auto i : outputs)
+  //   std::cout << i << std::endl;
 
   testValidate(&fusion, outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
 }
@@ -84,17 +79,12 @@ TEST_F(MultiDeviceTest, ShardOuterAxis) {
   int num_devices = 2;
 
   TensorView* tv0 = makeContigTensor(2);
-  // TODO: Concrete 2D tensor, symbolic 3D tensor work, but not symbolic 2D tensor. 
-  // Generates NANs at tv3.
-  // TensorView* tv0 = makeConcreteTensor({2, 3});
   TensorView* tv1 = add(tv0, tv0);
   TensorView* tv2 = set(tv1);
   TensorView* tv3 = add(tv2, tv2);
   TensorView* tv4 = set(tv3);
   TensorView* tv5 = sum(tv4, {0});
   fusion.addInput(tv0);
-  // fusion.addOutput(tv2);
-  // fusion.addOutput(tv3);
   fusion.addOutput(tv5);
 
   // TODO: split
@@ -118,18 +108,15 @@ TEST_F(MultiDeviceTest, ShardOuterAxis) {
   auto x = at::randn({num_devices, 2}, tensor_options);
   std::vector<c10::IValue> inputs = {x};
   auto ref_outputs = at::sum(x*4, {0});
-  if (communicator->deviceId() == 0) {
-    fusion.printKernel();
-    fusion.printMath();
-    std::cout << "Inputs " << x << std::endl;
-    std::cout << "Expected " << ref_outputs << std::endl;
-  }
+  // if (communicator->deviceId() == 0) {
+  //   fusion.printKernel();
+  //   fusion.printMath();
+  //   std::cout << "Inputs " << x << std::endl;
+  //   std::cout << "Expected " << ref_outputs << std::endl;
+  // }
   
   MultiDeviceRuntime runtime(&pipeline, *communicator);
   auto outputs = runtime.runWithInput(inputs);
-  std::cout << "Outputs: " << std::endl;
-  for (auto i : outputs)
-    std::cout << i << std::endl;
 
   testValidate(&fusion, outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
 }

@@ -34,9 +34,7 @@ void PipelineExecutor::handle(PipelineStage* stage) {
     NVF_ERROR(val_to_IValue_.find(input_val) != val_to_IValue_.end(), "Device ", runtime_.comm_.deviceId(), " has no buffer associated with Val ", input_val, " for handling stage ", stage);
     NVF_ERROR(val_to_IValue_.at(input_val).isTensor());
     stage_input_IValues.push_back(val_to_IValue_.at(input_val));
-    std::cout << "PipelineStage input " << val_to_IValue_.at(input_val).toTensor() << std::endl;
   }
-
 
   std::vector<at::Tensor> outputs;
 
@@ -55,7 +53,6 @@ void PipelineExecutor::handle(PipelineStage* stage) {
     outputs = fec_[stage]->runFusionWithInputs(stage_input_IValues);
 
   } else {
-    std::cout << "Do not autoschedule" << std::endl;
     // Check if the executor has been cached. If not, create and cache it
     if (fe_.find(stage) == fe_.end()) {
       fe_.emplace(stage, std::make_unique<FusionExecutor>());
@@ -67,12 +64,9 @@ void PipelineExecutor::handle(PipelineStage* stage) {
     outputs = fe_[stage]->runFusion(stage_input_IValues);
   }
 
-  std::cout << "Pipeline stage Outputs " << outputs.size() << " ";
   // Store the outputs or placeholders in the context
   for (auto output_idx : c10::irange(outputs.size())) {
     val_to_IValue_[stage->outputs().at(output_idx)->as<PipelineVal>()->getOriginalVal()] = outputs.at(output_idx);
-    std::cout << stage->outputs().at(output_idx)->as<PipelineVal>()->getOriginalVal() << std::endl;
-    std::cout << outputs.at(output_idx) << std::endl;
   }
 }
 
@@ -86,8 +80,6 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
   if (val_to_IValue_.find(output_val) != val_to_IValue_.end()) {
     output_tensor = val_to_IValue_.at(output_val).toTensor();
   }
-
-  std::cout << "Input of PipelineComm " << input_tensor << std::endl;
 
   // Lower the Communication into a vector of Communications
   if (communications_.find(c) == communications_.end()) { // check if cached
@@ -103,8 +95,6 @@ void PipelineExecutor::handle(PipelineCommunication* c) {
     auto work = communication->post(runtime_.comm_);
     if (work) work->wait();
   }
-  std::cout << "Output of PipelineComm " << output_tensor << std::endl;
-  std::cout << "Output is contig? " << output_tensor.is_contiguous() << std::endl;
 }
 
 std::vector<at::Tensor> PipelineExecutor::runWithInput(
