@@ -442,8 +442,6 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
   for (auto expr : exprs) {
     // Multiple outputs are already mapped, we can ignore all but the first
     // consumer given they have to be replayed in the same exact way
-    // Multiple outputs are already mapped, we can ignore all but the first
-    // consumer given they have to be replayed in the same exact way
     TensorView* c_tv = ir_utils::getTvOutput(expr);
 
     auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
