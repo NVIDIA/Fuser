@@ -235,7 +235,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       has_rng_ops ? dev_prop->maxThreadsPerBlock : dev_prop->maxThreadsPerBlock;
 
   // target 50% occupancy based on experiments
-  const int64_t target_warps_per_sm = max_persistent_buffer_size >= 10240l*4l  ? 24l : 32l;
+  const int64_t target_warps_per_sm =
+      max_persistent_buffer_size >= 10240l * 4l ? 24l : 32l;
 
   // allows to reduce estimated register usage for higher occupancy.
   constexpr int64_t max_adjust_count = 8;
@@ -254,16 +255,16 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     int64_t experiment_min = 1l;
     int64_t experiment_max = 1l;
     if (has_rng_ops) {
-      // needs this to help the search. e.g. at 4K, we can use persistent_val of 1, 2, 4.
-      // All values are divisible and lead to same occupancy and fully used all registers.
-      // However, test shows persistent_val = 2.
+      // needs this to help the search. e.g. at 4K, we can use persistent_val of
+      // 1, 2, 4. All values are divisible and lead to same occupancy and fully
+      // used all registers. However, test shows persistent_val = 2.
       if (total_reduction_numel <= 3072l) {
         experiment_min = 1l;
         experiment_max = 1l;
       } else if (total_reduction_numel <= 6144l) {
         experiment_min = 1l;
         experiment_max = 3l;
-      }else if (total_reduction_numel <= 16384l) {
+      } else if (total_reduction_numel <= 16384l) {
         experiment_min = 2l;
         experiment_max = 4l;
       } else {
@@ -287,7 +288,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       return {1, 2, 3, -1};
     }
   }();
-
 
   // hint for register usage based on experiments
   auto estimateRegisterPerThread = [](int64_t buffer_per_thread) {
@@ -318,6 +318,11 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         threads_per_block;
     int64_t warps_per_sm =
         std::min(blocks_per_sm * warps_per_block, max_warps_per_sm);
+    // recheck register usage
+    if (nvrtc_register_per_thread == min_reg_per_thread) {
+      nvrtc_register_per_thread =
+          getRegPerThreadGivenThreadsPerSM(warps_per_sm * threads_per_warp);
+    }
     int64_t n_waves = ceilDiv(
         total_iteration_numel,
         (int64_t)dev_prop->multiProcessorCount * blocks_per_sm * bdimy_val);
@@ -428,7 +433,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     auto third_priority = occupancy_score;
     if (has_rng_ops) {
       first_priority = tails_score;
-      second_priority =   register_usage;
+      second_priority = register_usage;
       third_priority = occupancy_score;
     }
     if (first_priority > 0) {
