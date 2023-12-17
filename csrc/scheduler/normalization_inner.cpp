@@ -187,7 +187,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     const size_t max_vectorize_factor,
     const bool project_to_input,
     const PrimDataType index_type,
-    const bool has_rng_ops) {
+    const bool has_rng_ops,
+    const bool has_exp_ops) {
   // Some checks:
   NVF_ERROR(
       total_reduction_numel % max_vectorize_factor == 0,
@@ -260,12 +261,15 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       // used all registers. However, test shows persistent_val = 2.
       if (total_reduction_numel <= 3072l) {
         experiment_min = 1l;
-        experiment_max = 1l;
-      } else if (total_reduction_numel <= 6144l) {
-        experiment_min = 1l;
         experiment_max = 3l;
-      } else if (total_reduction_numel <= 16384l) {
+      } else if (total_reduction_numel <= 7168l) {
+        experiment_min = has_exp_ops ? 1l : 2l;
+        experiment_max = 3l;
+      } else if (total_reduction_numel <= 12384l) {
         experiment_min = 2l;
+        experiment_max = 4l;
+      } else if (total_reduction_numel <= 18432l) {
+        experiment_min = 3l;
         experiment_max = 4l;
       } else {
         experiment_min = 4l;
@@ -281,13 +285,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     }
     return std::make_pair(experiment_min, experiment_max);
   }();
-  const std::vector<int> mayChangePersistentValBy = [&]() -> std::vector<int> {
-    if (has_rng_ops) {
-      return {-1, -2, -3, 1};
-    } else {
-      return {1, 2, 3, -1};
-    }
-  }();
 
   // hint for register usage based on experiments
   auto estimateRegisterPerThread = [](int64_t buffer_per_thread) {
@@ -298,34 +295,55 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   auto calculateRegWaveOccupancy = [&](int64_t persistent_val_x,
                                        int64_t bdimx_val,
                                        int64_t bdimy_val) {
+    int64_t nvrtc_register_per_thread = -1l;
+    int64_t blocks_per_sm = -1l;
+
     int64_t threads_per_block = bdimx_val * bdimy_val;
     int64_t warps_per_block = ceilDiv(threads_per_block, threads_per_warp);
     int64_t target_blocks_per_sm =
         ceilDiv(target_warps_per_sm, warps_per_block);
-    int64_t target_reg_per_thread = getRegPerThreadGivenThreadsPerSM(
-        target_blocks_per_sm * warps_per_block * threads_per_warp);
     int64_t buffer_per_thread = max_persistent_buffer_size /
         total_reduction_numel * vectorization_unroll_val * persistent_val_x;
     int64_t estimated_reg_per_thread =
         estimateRegisterPerThread(buffer_per_thread);
     int64_t min_reg_per_thread = estimated_reg_per_thread - max_adjust_count;
-    int64_t nvrtc_register_per_thread =
-        std::max(min_reg_per_thread, target_reg_per_thread);
-    int64_t n_adjusted_register =
-        std::max(0l, estimated_reg_per_thread - nvrtc_register_per_thread);
-    int64_t blocks_per_sm =
-        getThreadsPerSMGivenRegPerThread(nvrtc_register_per_thread) /
-        threads_per_block;
+    int64_t target_reg_per_thread = getRegPerThreadGivenThreadsPerSM(
+        target_blocks_per_sm * threads_per_block);
+
+    if (has_exp_ops) {
+      // Try to maximize occupancy.
+      // calc blocks_per_sm using estimated register usage, if lower than
+      // expected, try to increase it by reducing register usage.      
+      blocks_per_sm =
+          getThreadsPerSMGivenRegPerThread(estimated_reg_per_thread) /
+          threads_per_block;
+      if (blocks_per_sm < target_blocks_per_sm) {
+        blocks_per_sm = getThreadsPerSMGivenRegPerThread(min_reg_per_thread) /
+            threads_per_block;
+      }
+      nvrtc_register_per_thread = getRegPerThreadGivenThreadsPerSM(
+          blocks_per_sm * warps_per_block * threads_per_warp);
+    } else {
+      // Try to set occupancy to target, then maximize register usage.
+      if (target_reg_per_thread >= min_reg_per_thread) {
+        blocks_per_sm = target_blocks_per_sm;
+        nvrtc_register_per_thread = target_reg_per_thread;
+      } else {
+        blocks_per_sm = getThreadsPerSMGivenRegPerThread(min_reg_per_thread) /
+            threads_per_block;
+        nvrtc_register_per_thread = getRegPerThreadGivenThreadsPerSM(
+            blocks_per_sm * warps_per_block * threads_per_warp);
+      }
+    }
+
     int64_t warps_per_sm =
         std::min(blocks_per_sm * warps_per_block, max_warps_per_sm);
-    // recheck register usage
-    if (nvrtc_register_per_thread == min_reg_per_thread) {
-      nvrtc_register_per_thread =
-          getRegPerThreadGivenThreadsPerSM(warps_per_sm * threads_per_warp);
-    }
+    // get the maximum register without reducing occupancy.
     int64_t n_waves = ceilDiv(
         total_iteration_numel,
         (int64_t)dev_prop->multiProcessorCount * blocks_per_sm * bdimy_val);
+    int64_t n_adjusted_register =
+        std::max(0l, estimated_reg_per_thread - nvrtc_register_per_thread);
     return std::make_tuple(
         nvrtc_register_per_thread, warps_per_sm, n_waves, n_adjusted_register);
   };
@@ -418,13 +436,25 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     };
     auto tails_score = -1 * compare(ha.n_threads_tails, hb.n_threads_tails);
     auto occupancy_score = compare(ha.warps_per_sm, hb.warps_per_sm);
+
+    // at 20K, [persistent_val= 5] is 1.1x times of [persistent_val= 4]
+    // persistent_val= 5, bdimx_val= 512, bdimy_val= 1,
+    // nvrtc_register_per_thread= 64, n_waves= 125, n_threads_tails= 0,
+    // warps_per_sm= 32, registers= 65536 persistent_val= 4, bdimx_val= 640,
+    // bdimy_val= 1, nvrtc_register_per_thread= 48, n_waves= 125,
+    // n_threads_tails= 0, warps_per_sm= 40, registers= 61440 persistent_val= 6,
+    // bdimx_val= 448, bdimy_val= 1, nvrtc_register_per_thread= 72, n_waves=
+    // 125, n_threads_tails= 128, warps_per_sm= 28, registers= 64512
     auto register_usage = compare(
-        ha.warps_per_sm * ha.nvrtc_register_per_thread,
-        hb.warps_per_sm * hb.nvrtc_register_per_thread);
+        ha.warps_per_sm * ha.nvrtc_register_per_thread * 32l,
+        hb.warps_per_sm * hb.nvrtc_register_per_thread * 32l);
     auto single_warp_reduction_score = compare(
         ha.bdimx_val == threads_per_warp, hb.bdimx_val == threads_per_warp);
-    auto n_waves_score = compare(ha.n_waves >= 1, hb.n_waves >= 1);
-    std::cout << "tails_score:" << tails_score
+    // auto n_waves_score = compare(ha.n_waves >= 1, hb.n_waves >= 1);
+    auto n_bdimx_score =
+        compare(ha.bdimx_val % 128 == 0, hb.bdimx_val % 128 == 0);
+    std::cout << "pa:" << ha.persistent_val << ", pb:" << hb.persistent_val
+              << ", tails_score:" << tails_score
               << ", register_usage: " << register_usage
               << ", single_warp_reduction_score: "
               << single_warp_reduction_score << std::endl;
@@ -456,9 +486,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
           } else if (single_warp_reduction_score < 0) {
             return false;
           } else {
-            if (n_waves_score > 0) {
+            if (n_bdimx_score > 0) {
               return true;
-            } else if (n_waves_score < 0) {
+            } else if (n_bdimx_score < 0) {
               return false;
             } else {
               return ha.persistent_val > hb.persistent_val;
@@ -527,70 +557,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         all_h_params.begin(), all_h_params.begin() + n_items, isBetterThan);
   }
 
-  // // Find the number of items with warps_per_sm >= target_warps_per_sm.
-  // // If all items have warps_per_sm < target_warps_per_sm, use the first
-  // item.
-  // // all_h_params is sorted by warps_per_sm in descending order.
-  // int64_t n_items = std::count_if(
-  //     all_h_params.begin(),
-  //     all_h_params.end(),
-  //     [target_warps_per_sm](const auto& h_params) {
-  //       return h_params.warps_per_sm >= target_warps_per_sm;
-  //     });
-  // if (n_items > 1) {
-  //   // sort first n_items items by tails
-  //   std::stable_sort(
-  //       all_h_params.begin(),
-  //       all_h_params.begin() + n_items,
-  //       [](const HeuristicParas& a, const HeuristicParas& b) {
-  //         return a.n_threads_tails < b.n_threads_tails;
-  //       });
-
-  //   // Find the number of items with tails == 0. If all items have tails > 0,
-  //   use
-  //   // the first item.
-  //   n_items = std::count_if(
-  //       all_h_params.begin(),
-  //       all_h_params.begin() + n_items,
-  //       [](const auto& h_params) { return h_params.n_threads_tails == 0; });
-  //   // check how many registers is being used.
-  //   // persistent_min: 1, persistent_max: 6, bdimx_min: 128
-  //   // persistent_val= 1, bdimx_val= 768, bdimy_val= 1,
-  //   nvrtc_register_per_thread= 40, n_waves= 125, n_threads_tails= 0,
-  //   warps_per_sm= 48, registers= 61440
-  //   // persistent_val= 2, bdimx_val= 384, bdimy_val= 1,
-  //   nvrtc_register_per_thread= 56, n_waves= 83, n_threads_tails= 0,
-  //   warps_per_sm= 36, registers= 64512
-  //   // persistent_val= 4, bdimx_val= 192, bdimy_val= 1,
-  //   nvrtc_register_per_thread= 56, n_waves= 42, n_threads_tails= 0,
-  //   warps_per_sm= 36, registers= 64512
-  //   // persistent_val= 3, bdimx_val= 256, bdimy_val= 1,
-  //   nvrtc_register_per_thread= 64, n_waves= 63, n_threads_tails= 0,
-  //   warps_per_sm= 32, registers= 65536
-  //   // persistent_val= 6, bdimx_val= 128, bdimy_val= 1,
-  //   nvrtc_register_per_thread= 64, n_waves= 32, n_threads_tails= 0,
-  //   warps_per_sm= 32, registers= 65536
-  //   // persistent_val= 5, bdimx_val= 160, bdimy_val= 1,
-  //   nvrtc_register_per_thread= 56, n_waves= 36, n_threads_tails= 32,
-  //   warps_per_sm= 35, registers= 62720 if (n_items > 1){
-  //     // sort first n_items items by register usage
-  //     std::stable_sort(
-  //         all_h_params.begin(),
-  //         all_h_params.begin() + n_items,
-  //         [](const HeuristicParas& a, const HeuristicParas& b) {
-  //           return a.warps_per_sm*a.nvrtc_register_per_thread >
-  //           b.warps_per_sm*b.nvrtc_register_per_thread;
-  //         });
-  //     // Find the number of items with register usage == 0. If all items have
-  //     register usage > 0, use
-  //     // the first item.
-  //     n_items = std::count_if(
-  //         all_h_params.begin(),
-  //         all_h_params.begin() + n_items,
-  //         [](const auto& h_params) { return h_params.n_adjusted_register ==
-  //         0; });
-  //   }
-  // }
 
   for (auto it = all_h_params.begin(); it != all_h_params.end(); it++) {
     std::cout << it->toString() << std::endl;
@@ -818,7 +784,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
     const size_t vectorize_factor,
     const bool project_to_input,
     const PrimDataType index_type,
-    const bool has_rng_op) {
+    const bool has_rng_op,
+    const bool has_exp_op) {
   if (max_persistent_buffer_size > scheduler_utils::register_file_size) {
     // use shared memory for persistent buffer
     return innerPersistentHeuristicSharedMemory(
@@ -844,7 +811,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic(
           vectorize_factor,
           project_to_input,
           index_type,
-          has_rng_op);
+          has_rng_op,
+          has_exp_op);
     }
   }
   // Set some targets for parallelization
@@ -1383,8 +1351,6 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
           data_cache,
           InnerPersistentKernelScheduler::heuristicType());
 
-  bool has_rng_op = ir_utils::hasOpsOfType<RNGOp>(fusion);
-
   std::shared_ptr<ReductionParams> rparams = innerPersistentHeuristic(
       prop.total_reduction_numel,
       prop.total_iteration_numel,
@@ -1395,7 +1361,8 @@ std::shared_ptr<ReductionParams> getInnerPersistentHeuristics(
       prop.vectorize_factor,
       prop.project_persistent_buffers,
       prop.index_type,
-      has_rng_op);
+      prop.has_rng_op,
+      prop.has_exp_op);
   return rparams;
 }
 

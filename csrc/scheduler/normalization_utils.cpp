@@ -989,6 +989,23 @@ PersistentKernelProperties getPersistentKernelProperties(
   // zero.
   n_tensor_inputs = std::max(n_tensor_inputs, (int64_t)1);
 
+
+  // more detailed info about fusion
+  bool has_rng_op = ir_utils::hasOpsOfType<RNGOp>(fusion);
+  bool has_exp_op = false;
+  const auto& persistent_buffers =
+      persistent_buffer_info.persistent_buffers;
+  auto all_inputs = ir_utils::inputTvsOf(persistent_buffers);
+  const auto all_exprs = StmtSort::getExprsBetween(
+      {all_inputs.begin(), all_inputs.end()},
+      {persistent_buffers.begin(), persistent_buffers.end()});
+  for (auto expr : all_exprs) {
+    if (expr->isA<UnaryOp>() &&
+        expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Exp) {
+      has_exp_op = true;
+    }
+  }
+
   // (8) return collected properties to get heuristics.
   return PersistentKernelProperties{
       .inner_most_dimension_numel = properties.inner_most_dimension_numel,
@@ -999,7 +1016,9 @@ PersistentKernelProperties getPersistentKernelProperties(
       .max_dtype_size = max_dtype_size,
       .vectorize_factor = vectorize_factor,
       .project_persistent_buffers = project_persistent_buffers,
-      .index_type = runtime_info.getIndexType()};
+      .index_type = runtime_info.getIndexType(),
+      .has_rng_op = has_rng_op,
+      .has_exp_op = has_exp_op};
 }
 
 bool checkOpsAndInputs(Fusion* fusion, ScheduleHeuristic schedule_heuristic) {
