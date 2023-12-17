@@ -2240,6 +2240,7 @@ class FusionSegmentGuard : public NonCopyable {
     NVF_ERROR(fusion_ != nullptr);
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
+    num_original_vals_ = fusion_->vals().size();
     original_tvs_ = ir_utils::allTvs(fusion_);
 #endif // NDEBUG
     narrowToNewSegment(inputs, outputs);
@@ -2252,6 +2253,7 @@ class FusionSegmentGuard : public NonCopyable {
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
+    num_original_vals_ = fusion_->vals().size();
     original_tvs_ = ir_utils::allTvs(fusion_);
 #endif // NDEBUG
     lowered_edges_ = segmented_fusion_->castInputOutputToLowerPrecision(
@@ -2268,6 +2270,7 @@ class FusionSegmentGuard : public NonCopyable {
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
+    num_original_vals_ = fusion_->vals().size();
     original_tvs_ = ir_utils::allTvs(fusion_);
 #endif // NDEBUG
 
@@ -2297,6 +2300,7 @@ class FusionSegmentGuard : public NonCopyable {
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
+    num_original_vals_ = fusion_->vals().size();
     original_tvs_ = ir_utils::allTvs(fusion_);
 #endif // NDEBUG
 
@@ -2338,6 +2342,13 @@ class FusionSegmentGuard : public NonCopyable {
         num_original_exprs_,
         ", actual: ",
         num_current_exprs);
+    auto num_current_vals = fusion_->vals().size();
+    NVF_ERROR(
+        num_original_vals_ == num_current_vals,
+        "Failed to revert temporary changes. Expected: ",
+        num_original_vals_,
+        ", actual: ",
+        num_current_vals);
     auto current_tvs = ir_utils::allTvs(fusion_);
     NVF_ERROR(
         original_tvs_ == current_tvs, "Failed to revert temporary changes.");
@@ -2406,6 +2417,7 @@ class FusionSegmentGuard : public NonCopyable {
   std::vector<SegmentedEdge*> lowered_edges_;
 #ifndef NDEBUG
   size_t num_original_exprs_ = 0;
+  size_t num_original_vals_ = 0;
   std::vector<TensorView*> original_tvs_;
 #endif
 };
