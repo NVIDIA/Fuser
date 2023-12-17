@@ -235,7 +235,10 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       has_rng_ops ? dev_prop->maxThreadsPerBlock : dev_prop->maxThreadsPerBlock;
 
   // target 50% occupancy based on experiments
-  const int64_t target_warps_per_sm = 32l;
+  const int64_t target_warps_per_sm = max_persistent_buffer_size >= 10240l*4l  ? 24l : 32l;
+
+  // allows to reduce estimated register usage for higher occupancy.
+  constexpr int64_t max_adjust_count = 8;
 
   // when may do multi reductions per block (mrpb)
   // Ideally, reduction_numel_threshold depends on n_waves_max.
@@ -285,8 +288,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     }
   }();
 
-  // allows to reduce estimated register usage for higher occupancy.
-  constexpr int64_t max_adjust_count = 8;
 
   // hint for register usage based on experiments
   auto estimateRegisterPerThread = [](int64_t buffer_per_thread) {
