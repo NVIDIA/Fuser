@@ -306,7 +306,7 @@ void SegmentedGroup::finalize() {
     if (auto tv = dynamic_cast<TensorView*>(i)) {
       // We do not need to add scalars which are the extents of already-added
       // input TensorViews
-      for (auto id : tv->getMaybeRFactorDomain()) {
+      for (auto id : TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
         input_set.insert(id->getMaybeExpandedExtent());
       }
     }
@@ -3989,7 +3989,8 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
   for (auto inp : group->input_vals) {
     input_set.insert(inp);
     if (auto tv = dynamic_cast<TensorView*>(inp)) {
-      for (IterDomain* id : tv->getMaybeRFactorDomain()) {
+      for (IterDomain* id :
+           TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
         // Extents of inputs will already be bound. This prevents adding them
         // as redundant inputs.
         input_set.insert(id->getMaybeExpandedExtent());
