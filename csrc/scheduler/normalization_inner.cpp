@@ -254,7 +254,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // hint for max persistent size based on experiments.
   const auto [persistent_experiment_min, persistent_experiment_max] = [&]() {
     int64_t experiment_min = 1l;
-    int64_t experiment_max = 1l;
+    int64_t experiment_max = 6l;
     if (has_rng_ops) {
       // needs this to help the search. e.g. at 4K, we can use persistent_val of
       // 1, 2, 4. All values are divisible and lead to same occupancy and fully
@@ -262,18 +262,18 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       if (total_reduction_numel <= 3072l) {
         experiment_min = 1l;
         experiment_max = 3l;
-      } else if (total_reduction_numel <= 7168l) {
-        experiment_min = has_exp_ops ? 1l : 2l;
+      } else if (total_reduction_numel < 8192l) {
+        experiment_min = has_exp_ops ? 1l : 1l;
         experiment_max = 3l;
       } else if (total_reduction_numel <= 12384l) {
         experiment_min = 2l;
-        experiment_max = 4l;
-      } else if (total_reduction_numel <= 18432l) {
-        experiment_min = 3l;
-        experiment_max = 4l;
-      } else {
-        experiment_min = 4l;
         experiment_max = 6l;
+      } else if (total_reduction_numel <= 18432l) {
+        experiment_min = 2l;
+        experiment_max = 8l;
+      } else {
+        experiment_min = 2l;
+        experiment_max = 8l;
       }
     } else {
       if (total_reduction_numel <= 6144l) {
@@ -465,12 +465,17 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       first_priority = tails_score;
       second_priority = register_usage;
       third_priority = occupancy_score;
+
     }
     if (first_priority > 0) {
       return true;
     } else if (first_priority < 0) {
       return false;
     } else {
+      if(ha.n_threads_tails != 0){
+        second_priority = occupancy_score;
+        third_priority = register_usage;
+      }      
       if (second_priority > 0) {
         return true;
       } else if (second_priority < 0) {
@@ -491,7 +496,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
             } else if (n_bdimx_score < 0) {
               return false;
             } else {
-              return ha.persistent_val > hb.persistent_val;
+              // If wasted threads number is non-zero, perfer small [persistent], it leads to larger [bdimx], means wasted fraction of threads is smaller.
+              // e.g. at 10496, prefer persistent = 3 instead of 6., bandwidth is 1.24x
+              return ha.n_threads_tails != 0 ? ha.persistent_val < hb.persistent_val : ha.persistent_val > hb.persistent_val;
             }
           }
         }
