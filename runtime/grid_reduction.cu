@@ -648,20 +648,22 @@ __device__ void serialReductionStep(
   }
   if (read_pred) {
     loadGeneric<T, vec_size>(out, in);
+  } else {
+#pragma unroll
+    for (int i = 0; i < vec_size; ++i) {
+      out[i] = init;
+    }
   }
   if (!first_step) {
     T work_reg[vec_size];
-    loadGenericVolatile<T, vec_size, false, true>(work_reg, work);
+    loadGlobalToLocal<T, vec_size, true, CacheOp::Global>(work_reg, work);
 #pragma unroll
     for (int i = 0; i < vec_size; ++i) {
-      if (!read_pred) {
-        out[i] = init;
-      }
       reduction_op(out[i], work_reg[i]);
     }
   }
   if (!last_step) {
-    loadGenericVolatile<T, vec_size, true, false>(work, out);
+    loadLocalToGlobal<T, vec_size, true>(work, out);
   }
 }
 
