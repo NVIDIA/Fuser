@@ -205,6 +205,22 @@ class FusionExecutor : public NonCopyable {
     return measure_kernel_time_ ? kernel_time_ms_ : 0;
   }
 
+  //! get occupancy of the last kernel execution
+  float getKernelOccupancy() const {
+    NVF_ERROR(
+        kernel_occupancy_ > 0,
+        "Occupancy unknown, should run with dump occupancy or perf_debug_verbose");
+    return kernel_occupancy_;
+  }
+
+  void setKernelOccupancy(float occupancy) {
+    kernel_occupancy_ = occupancy;
+  }
+
+  //! get register spills (load + store) of the compiled kernel
+  int getKernelRegisterSpills() const {
+    return compiled_kernel_->register_spills;
+  }
   //! Returns the input bytes accessed for a kernel
   //! \note It is important to sample the args struct prior to adding the
   // 1    output to the args struct
@@ -427,7 +443,7 @@ class FusionExecutor : public NonCopyable {
   //! Serialize CompiledKernel using flatbuffers
   flatbuffers::Offset<serde::CudaKernel> serialize(
       flatbuffers::FlatBufferBuilder& builder,
-      const executor_utils::CompiledKernel& kernel) const;
+      const executor_utils::CompiledKernel* kernel) const;
 
   // ExecutorEntry is an internal POD struct for the FusionExecutor class.
   // We define ExecutorEntry's serialize and deserialize as private methods in
@@ -548,6 +564,10 @@ class FusionExecutor : public NonCopyable {
   // Profiling support: the last kernel execution time, if measure_kernel_time_
   // is true
   float kernel_time_ms_ = 0;
+
+  // Heuristic tuning support: the last kernel occupancy, if
+  // DebugDumpOption::Occupancy is true
+  float kernel_occupancy_ = -1.0f;
 
   // Profiling support: last kernel bytes processed in each input
   std::optional<std::vector<int64_t>> bytes_processed_per_input_ = std::nullopt;

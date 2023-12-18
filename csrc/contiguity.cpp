@@ -262,6 +262,75 @@ void OrderedIdInformation::handle(Split* split) {
 
 // Swizzle generally can't be contiguous because of the non-affine nature of it,
 // but we can still analyze the operation in the same way as merge/split.
+void OrderedIdInformation::handle(Swizzle* swizzle) {
+  // Find inputs in the active_ids_ vector
+  const auto in_x_it =
+      std::find(active_ids_.begin(), active_ids_.end(), swizzle->inX());
+  const auto in_y_it =
+      std::find(active_ids_.begin(), active_ids_.end(), swizzle->inY());
+
+  if (in_x_it == active_ids_.end() || in_y_it == active_ids_.end()) {
+    return;
+  }
+
+  auto in_x_pos = std::distance(active_ids_.begin(), in_x_it);
+  auto in_y_pos = std::distance(active_ids_.begin(), in_y_it);
+
+  // Find inputs in the ordered transforms map
+  const auto in_x_ordered_it = consistently_ordered_ids_.find(swizzle->inX());
+  const auto in_y_ordered_it = consistently_ordered_ids_.find(swizzle->inY());
+
+  bool in_x_ordered = in_x_ordered_it != consistently_ordered_ids_.end();
+  bool in_y_ordered = in_y_ordered_it != consistently_ordered_ids_.end();
+
+  // Get allocation ids of the two inputs
+  const auto in_x_alloc_ids_it = id_to_alloc_ids_.find(swizzle->inX());
+  const auto in_y_alloc_ids_it = id_to_alloc_ids_.find(swizzle->inY());
+
+  NVF_ERROR(
+      in_x_alloc_ids_it != id_to_alloc_ids_.end() &&
+          in_y_alloc_ids_it != id_to_alloc_ids_.end(),
+      "Error replaying transforms in contiguous ID checker.");
+
+  const auto& in_x_alloc_ids = in_x_alloc_ids_it->second;
+  const auto& in_y_alloc_ids = in_y_alloc_ids_it->second;
+
+  // Update map for outputs
+  // Remove inputs from the active_ids_ and insert the output ID
+  active_ids_[in_x_pos] = swizzle->outX();
+  active_ids_[in_y_pos] = swizzle->outY();
+
+  // In the case of no real swizzle we can forward properties on each domain
+  // independently.
+  if (swizzle->swizzleType() == SwizzleType::NoSwizzle) {
+    if (in_x_ordered) {
+      consistently_ordered_ids_.emplace(swizzle->outX());
+    }
+
+    if (exclusivelyConsumesAllocs(swizzle->inX())) {
+      exclusively_consumes_allocs_.emplace(swizzle->outX());
+    }
+
+    if (in_y_ordered) {
+      consistently_ordered_ids_.emplace(swizzle->outY());
+    }
+
+    if (exclusivelyConsumesAllocs(swizzle->inY())) {
+      exclusively_consumes_allocs_.emplace(swizzle->outY());
+    }
+
+    id_to_alloc_ids_[swizzle->outX()] = in_x_alloc_ids;
+    id_to_alloc_ids_[swizzle->outY()] = in_y_alloc_ids;
+  } else {
+    VectorOfUniqueEntries<IterDomain*> alloc_ids = in_x_alloc_ids;
+    alloc_ids.pushBack(in_y_alloc_ids);
+    id_to_alloc_ids_[swizzle->outX()] = alloc_ids;
+    id_to_alloc_ids_[swizzle->outY()] = alloc_ids;
+  }
+}
+
+// Swizzle generally can't be contiguous because of the non-affine nature of it,
+// but we can still analyze the operation in the same way as merge/split.
 void OrderedIdInformation::handle(Swizzle2D* swizzle) {
   // Find inputs in the active_ids_ vector
   const auto in_x_it =

@@ -46,6 +46,8 @@ namespace nvfuser {
 
 using namespace at::indexing;
 
+class ShiftTest : public NVFuserTest {};
+
 namespace {
 
 // Used to signify invalid ranges, i.e., values at offset 0 to
@@ -185,7 +187,7 @@ auto gather(
 } // namespace
 
 // Shift an input tensor
-TEST_F(NVFuserTest, FusionShift1_CUDA) {
+TEST_F(ShiftTest, Shift1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -229,7 +231,7 @@ TEST_F(NVFuserTest, FusionShift1_CUDA) {
 }
 
 // Shifts an intermediate tensor
-TEST_F(NVFuserTest, FusionShift2_CUDA) {
+TEST_F(ShiftTest, Shift2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -320,7 +322,7 @@ TEST_F(NVFuserTest, FusionShift2_CUDA) {
   testValidate(&fusion, outputs, inputs, {t2, t11}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShiftRightOfCA_CUDA) {
+TEST_F(ShiftTest, ShiftRightOfCA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -352,7 +354,7 @@ TEST_F(NVFuserTest, FusionShiftRightOfCA_CUDA) {
   NVF_CHECK(t2.allclose(outputs[0]));
 }
 
-TEST_F(NVFuserTest, FusionShiftLeftOfCA_CUDA) {
+TEST_F(ShiftTest, ShiftLeftOfCA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -372,7 +374,7 @@ TEST_F(NVFuserTest, FusionShiftLeftOfCA_CUDA) {
   ASSERT_ANY_THROW(fusion.printKernel());
 }
 
-TEST_F(NVFuserTest, FusionShiftSplit1_CUDA) {
+TEST_F(ShiftTest, ShiftSplit1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -422,7 +424,7 @@ TEST_F(NVFuserTest, FusionShiftSplit1_CUDA) {
   testValidate(&fusion, outputs, inputs, {t2, t3}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShiftSplit2_CUDA) {
+TEST_F(ShiftTest, ShiftSplit2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -492,7 +494,7 @@ TEST_F(NVFuserTest, FusionShiftSplit2_CUDA) {
   testValidate(&fusion, outputs, inputs, {t5, t8}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShiftDoubleSplit_CUDA) {
+TEST_F(ShiftTest, ShiftDoubleSplit) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -546,7 +548,7 @@ TEST_F(NVFuserTest, FusionShiftDoubleSplit_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShift3ptStencil_CUDA) {
+TEST_F(ShiftTest, Shift3ptStencil) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -619,7 +621,7 @@ TEST_F(NVFuserTest, FusionShift3ptStencil_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShift5ptStencil_CUDA) {
+TEST_F(ShiftTest, Shift5ptStencil) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -697,7 +699,7 @@ TEST_F(NVFuserTest, FusionShift5ptStencil_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShift9ptStencil_CUDA) {
+TEST_F(ShiftTest, Shift9ptStencil) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -785,7 +787,7 @@ TEST_F(NVFuserTest, FusionShift9ptStencil_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShiftSmemBlocking_CUDA) {
+TEST_F(ShiftTest, ShiftSmemBlocking) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -841,7 +843,7 @@ TEST_F(NVFuserTest, FusionShiftSmemBlocking_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShift3ptStencilParallel_CUDA) {
+TEST_F(ShiftTest, Shift3ptStencilParallel) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -896,7 +898,7 @@ TEST_F(NVFuserTest, FusionShift3ptStencilParallel_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShift5ptStencilParallel_CUDA) {
+TEST_F(ShiftTest, Shift5ptStencilParallel) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -964,7 +966,7 @@ TEST_F(NVFuserTest, FusionShift5ptStencilParallel_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShiftMerge1_CUDA) {
+TEST_F(ShiftTest, ShiftMerge1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1021,7 +1023,7 @@ TEST_F(NVFuserTest, FusionShiftMerge1_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShiftMerge2_CUDA) {
+TEST_F(ShiftTest, ShiftMerge2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1081,7 +1083,7 @@ TEST_F(NVFuserTest, FusionShiftMerge2_CUDA) {
   NVF_CHECK(t4.allclose(outputs[0]));
 }
 
-TEST_F(NVFuserTest, FusionShiftGlobal_CUDA) {
+TEST_F(ShiftTest, ShiftGlobal) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1147,7 +1149,7 @@ TEST_F(NVFuserTest, FusionShiftGlobal_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShiftDoubleSplitMerge1_CUDA) {
+TEST_F(ShiftTest, ShiftDoubleSplitMerge1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1199,7 +1201,7 @@ TEST_F(NVFuserTest, FusionShiftDoubleSplitMerge1_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShiftDoubleSplitMerge2_CUDA) {
+TEST_F(ShiftTest, ShiftDoubleSplitMerge2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1273,7 +1275,7 @@ TEST_F(NVFuserTest, FusionShiftDoubleSplitMerge2_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShift5ptStencilParallel1DThreadBlock_CUDA) {
+TEST_F(ShiftTest, Shift5ptStencilParallel1DThreadBlock) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1362,7 +1364,7 @@ TEST_F(NVFuserTest, FusionShift5ptStencilParallel1DThreadBlock_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShiftChain1_CUDA) {
+TEST_F(ShiftTest, ShiftChain1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1393,7 +1395,7 @@ TEST_F(NVFuserTest, FusionShiftChain1_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShiftChain2_CUDA) {
+TEST_F(ShiftTest, ShiftChain2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1423,7 +1425,7 @@ TEST_F(NVFuserTest, FusionShiftChain2_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShiftChain3_CUDA) {
+TEST_F(ShiftTest, ShiftChain3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1482,7 +1484,7 @@ TEST_F(NVFuserTest, FusionShiftChain3_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShiftChain4_CUDA) {
+TEST_F(ShiftTest, ShiftChain4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1553,7 +1555,7 @@ TEST_F(NVFuserTest, FusionShiftChain4_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShift5ptStencilChain_CUDA) {
+TEST_F(ShiftTest, Shift5ptStencilChain) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1678,7 +1680,7 @@ TEST_F(NVFuserTest, FusionShift5ptStencilChain_CUDA) {
 }
 
 // Shift a reduced tensor
-TEST_F(NVFuserTest, FusionShiftReduction1_CUDA) {
+TEST_F(ShiftTest, ShiftReduction1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1713,7 +1715,7 @@ TEST_F(NVFuserTest, FusionShiftReduction1_CUDA) {
 }
 
 // Parallelized version of FusionShiftReduction1
-TEST_F(NVFuserTest, FusionShiftReduction2_CUDA) {
+TEST_F(ShiftTest, ShiftReduction2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1753,7 +1755,7 @@ TEST_F(NVFuserTest, FusionShiftReduction2_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShiftRfactor1_CUDA) {
+TEST_F(ShiftTest, ShiftRfactor1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1795,7 +1797,7 @@ TEST_F(NVFuserTest, FusionShiftRfactor1_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShiftBcast1_CUDA) {
+TEST_F(ShiftTest, ShiftBcast1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1829,7 +1831,7 @@ TEST_F(NVFuserTest, FusionShiftBcast1_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShiftBcast2_CUDA) {
+TEST_F(ShiftTest, ShiftBcast2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1865,7 +1867,7 @@ TEST_F(NVFuserTest, FusionShiftBcast2_CUDA) {
 }
 
 // Combine ShiftBcast1 and ShiftBcast2 with parallelization
-TEST_F(NVFuserTest, FusionShiftBcast3_CUDA) {
+TEST_F(ShiftTest, ShiftBcast3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1915,7 +1917,7 @@ TEST_F(NVFuserTest, FusionShiftBcast3_CUDA) {
 }
 
 // See issue #893
-TEST_F(NVFuserTest, FusionShiftSyncPlacement1_CUDA) {
+TEST_F(ShiftTest, ShiftSyncPlacement1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1959,7 +1961,7 @@ TEST_F(NVFuserTest, FusionShiftSyncPlacement1_CUDA) {
 }
 
 // See issue #893. Top-level placement.
-TEST_F(NVFuserTest, FusionShiftSyncPlacement2_CUDA) {
+TEST_F(ShiftTest, ShiftSyncPlacement2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2004,7 +2006,7 @@ TEST_F(NVFuserTest, FusionShiftSyncPlacement2_CUDA) {
 //   along the Y dimension. The other 10 warps are used to load a 32x10
 //   tile, and all warps will do coalesced loads. No such optimization
 //   is done in the fuser version.
-TEST_F(NVFuserTest, FusionHdiff_CUDA) {
+TEST_F(ShiftTest, Hdiff) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2187,7 +2189,7 @@ TEST_F(NVFuserTest, FusionHdiff_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionHdiffPartialSplitUnswitch_CUDA) {
+TEST_F(ShiftTest, HdiffPartialSplitUnswitch) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2388,7 +2390,7 @@ TEST_F(NVFuserTest, FusionHdiffPartialSplitUnswitch_CUDA) {
 }
 
 // 3x3 max pooling
-TEST_F(NVFuserTest, FusionMaxPooling_CUDA) {
+TEST_F(ShiftTest, MaxPooling) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2480,7 +2482,7 @@ TEST_F(NVFuserTest, FusionMaxPooling_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionGather1_CUDA) {
+TEST_F(ShiftTest, Gather1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2509,7 +2511,7 @@ TEST_F(NVFuserTest, FusionGather1_CUDA) {
   NVF_CHECK(ref.equal(outputs[0]));
 }
 
-TEST_F(NVFuserTest, FusionGather2_CUDA) {
+TEST_F(ShiftTest, Gather2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2556,7 +2558,7 @@ TEST_F(NVFuserTest, FusionGather2_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionGather3_CUDA) {
+TEST_F(ShiftTest, Gather3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2589,7 +2591,7 @@ TEST_F(NVFuserTest, FusionGather3_CUDA) {
   NVF_CHECK(ref.equal(outputs[0]));
 }
 
-TEST_F(NVFuserTest, FusionGather4_CUDA) {
+TEST_F(ShiftTest, Gather4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2623,7 +2625,7 @@ TEST_F(NVFuserTest, FusionGather4_CUDA) {
   NVF_CHECK(ref.equal(outputs[0]));
 }
 
-TEST_F(NVFuserTest, FusionGather5_CUDA) {
+TEST_F(ShiftTest, Gather5) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2658,7 +2660,7 @@ TEST_F(NVFuserTest, FusionGather5_CUDA) {
 }
 
 // Conv-like pattern with no padding
-TEST_F(NVFuserTest, FusionGather6_CUDA) {
+TEST_F(ShiftTest, Gather6) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2718,7 +2720,7 @@ TEST_F(NVFuserTest, FusionGather6_CUDA) {
 }
 
 // Conv-like pattern with irregular padding
-TEST_F(NVFuserTest, FusionGather7_CUDA) {
+TEST_F(ShiftTest, Gather7) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2776,7 +2778,7 @@ TEST_F(NVFuserTest, FusionGather7_CUDA) {
 }
 
 // With no padding but with striding
-TEST_F(NVFuserTest, FusionGather8_CUDA) {
+TEST_F(ShiftTest, Gather8) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2818,7 +2820,7 @@ TEST_F(NVFuserTest, FusionGather8_CUDA) {
 }
 
 // Similar to Gather8 but with splitting and parallelization
-TEST_F(NVFuserTest, FusionGather9_CUDA) {
+TEST_F(ShiftTest, Gather9) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2884,7 +2886,7 @@ TEST_F(NVFuserTest, FusionGather9_CUDA) {
   NVF_CHECK(ref.equal(outputs[0]));
 }
 
-TEST_F(NVFuserTest, FusionConv2D_CUDA) {
+TEST_F(ShiftTest, Conv2D) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2975,7 +2977,7 @@ TEST_F(NVFuserTest, FusionConv2D_CUDA) {
   testValidate(&fusion, cg_outputs, inputs, {at_out}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionConv2DNoPadding_CUDA) {
+TEST_F(ShiftTest, Conv2DNoPadding) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   ContextCudnnTF32Disabled disabling_tf32_cudnn;
@@ -3069,7 +3071,7 @@ TEST_F(NVFuserTest, FusionConv2DNoPadding_CUDA) {
   testValidate(&fusion, cg_outputs, inputs, {at_out}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionConv2DNoPaddingStrided_CUDA) {
+TEST_F(ShiftTest, Conv2DNoPaddingStrided) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3163,7 +3165,7 @@ TEST_F(NVFuserTest, FusionConv2DNoPaddingStrided_CUDA) {
 }
 
 // 5x5 followed by 3x3
-TEST_F(NVFuserTest, FusionConv2DChain_CUDA) {
+TEST_F(ShiftTest, Conv2DChain) {
   const int dim_w1_h = 5;
   const int dim_w1_w = 5;
   const int dim_pad1_h = (dim_w1_h - 1) / 2;
@@ -3280,7 +3282,7 @@ TEST_F(NVFuserTest, FusionConv2DChain_CUDA) {
   testValidate(&fusion, cg_outputs, inputs, {at_out2}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionConv2DStaticEvenSizedWindow_CUDA) {
+TEST_F(ShiftTest, Conv2DStaticEvenSizedWindow) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3380,7 +3382,7 @@ TEST_F(NVFuserTest, FusionConv2DStaticEvenSizedWindow_CUDA) {
   testValidate(&fusion, cg_outputs, inputs, {at_out}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionConv4x4Pad1x1_CUDA) {
+TEST_F(ShiftTest, Conv4x4Pad1x1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3474,7 +3476,7 @@ TEST_F(NVFuserTest, FusionConv4x4Pad1x1_CUDA) {
   testValidate(&fusion, cg_outputs, inputs, {at_out}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionConv4x5Pad1x2_CUDA) {
+TEST_F(ShiftTest, Conv4x5Pad1x2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3567,7 +3569,7 @@ TEST_F(NVFuserTest, FusionConv4x5Pad1x2_CUDA) {
   testValidate(&fusion, cg_outputs, inputs, {at_out}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionConv4x4Pad1x1Stride4_CUDA) {
+TEST_F(ShiftTest, Conv4x4Pad1x1Stride4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3669,7 +3671,7 @@ TEST_F(NVFuserTest, FusionConv4x4Pad1x1Stride4_CUDA) {
 }
 
 // POC implementation of im2col for 3-by-3 kernels
-TEST_F(NVFuserTest, FusionIm2Col_CUDA) {
+TEST_F(ShiftTest, Im2Col) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3742,7 +3744,7 @@ TEST_F(NVFuserTest, FusionIm2Col_CUDA) {
   testValidate(&fusion, cg_outputs, inputs, {at_out}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShiftNoPadding1_CUDA) {
+TEST_F(ShiftTest, ShiftNoPadding1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3797,7 +3799,7 @@ TEST_F(NVFuserTest, FusionShiftNoPadding1_CUDA) {
 }
 
 // Split and merge
-TEST_F(NVFuserTest, FusionShiftNoPadding2_CUDA) {
+TEST_F(ShiftTest, ShiftNoPadding2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3852,7 +3854,7 @@ TEST_F(NVFuserTest, FusionShiftNoPadding2_CUDA) {
 }
 
 // Split and merge, then welford
-TEST_F(NVFuserTest, FusionShiftNoPadding3_CUDA) {
+TEST_F(ShiftTest, ShiftNoPadding3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3923,7 +3925,7 @@ TEST_F(NVFuserTest, FusionShiftNoPadding3_CUDA) {
 }
 
 // Shift indexing and predication with contiguous merge
-TEST_F(NVFuserTest, FusionShiftNoPaddingContigMerge_CUDA) {
+TEST_F(ShiftTest, ShiftNoPaddingContigMerge) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3969,7 +3971,7 @@ TEST_F(NVFuserTest, FusionShiftNoPaddingContigMerge_CUDA) {
   testValidate(&fusion, {fuser_out}, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShiftNoPaddingChain_CUDA) {
+TEST_F(ShiftTest, ShiftNoPaddingChain) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4022,7 +4024,7 @@ TEST_F(NVFuserTest, FusionShiftNoPaddingChain_CUDA) {
 }
 
 // Rfactor is not allowed with partial domains
-TEST_F(NVFuserTest, FusionShiftNoPaddingRfactor_CUDA) {
+TEST_F(ShiftTest, ShiftNoPaddingRfactor) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4042,7 +4044,7 @@ TEST_F(NVFuserTest, FusionShiftNoPaddingRfactor_CUDA) {
   ASSERT_ANY_THROW(tv3->rFactor({-2}));
 }
 
-TEST_F(NVFuserTest, FusionShiftPadding1_CUDA) {
+TEST_F(ShiftTest, ShiftPadding1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4096,7 +4098,7 @@ TEST_F(NVFuserTest, FusionShiftPadding1_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionPartialSplit1_CUDA) {
+TEST_F(ShiftTest, PartialSplit1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4166,7 +4168,7 @@ TEST_F(NVFuserTest, FusionPartialSplit1_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionPartialSplit2_CUDA) {
+TEST_F(ShiftTest, PartialSplit2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4197,7 +4199,7 @@ TEST_F(NVFuserTest, FusionPartialSplit2_CUDA) {
 }
 
 // 2D version of PartialSplit1
-TEST_F(NVFuserTest, FusionPartialSplit3_CUDA) {
+TEST_F(ShiftTest, PartialSplit3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4247,7 +4249,7 @@ TEST_F(NVFuserTest, FusionPartialSplit3_CUDA) {
 
 // Almost same fusion with Shift5ptStencilChain but non-padded shift
 // and partial split.
-TEST_F(NVFuserTest, FusionPartialSplit4_CUDA) {
+TEST_F(ShiftTest, PartialSplit4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4360,7 +4362,7 @@ TEST_F(NVFuserTest, FusionPartialSplit4_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionPartialSplit5_CUDA) {
+TEST_F(ShiftTest, PartialSplit5) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4407,7 +4409,7 @@ TEST_F(NVFuserTest, FusionPartialSplit5_CUDA) {
   testValidate(&fusion, outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionPartialSplit6_CUDA) {
+TEST_F(ShiftTest, PartialSplit6) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4449,7 +4451,7 @@ TEST_F(NVFuserTest, FusionPartialSplit6_CUDA) {
   testValidate(&fusion, outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionShiftUnswitch1_CUDA) {
+TEST_F(ShiftTest, ShiftUnswitch1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4509,7 +4511,7 @@ TEST_F(NVFuserTest, FusionShiftUnswitch1_CUDA) {
   NVF_CHECK(t6.equal(outputs[4]));
 }
 
-TEST_F(NVFuserTest, FusionGatherUnswitch1_CUDA) {
+TEST_F(ShiftTest, GatherUnswitch1) {
   const int tv1_gather = 3;
   const int tv1_gather_pad = 1;
   const int tv2_gather = 5;
@@ -4568,7 +4570,7 @@ TEST_F(NVFuserTest, FusionGatherUnswitch1_CUDA) {
   NVF_CHECK(t4.equal(outputs[3]));
 }
 
-TEST_F(NVFuserTest, FusionGatherStrided1_CUDA) {
+TEST_F(ShiftTest, GatherStrided1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4631,7 +4633,7 @@ TEST_F(NVFuserTest, FusionGatherStrided1_CUDA) {
 }
 
 // Split strided domain
-TEST_F(NVFuserTest, FusionGatherStrided2_CUDA) {
+TEST_F(ShiftTest, GatherStrided2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4683,7 +4685,7 @@ TEST_F(NVFuserTest, FusionGatherStrided2_CUDA) {
 }
 
 // Outer split
-TEST_F(NVFuserTest, FusionGatherStrided3_CUDA) {
+TEST_F(ShiftTest, GatherStrided3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4730,7 +4732,7 @@ TEST_F(NVFuserTest, FusionGatherStrided3_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionGatherStrided4_CUDA) {
+TEST_F(ShiftTest, GatherStrided4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4776,7 +4778,7 @@ TEST_F(NVFuserTest, FusionGatherStrided4_CUDA) {
 }
 
 // Same as GatherStrided1 but with stride != window
-TEST_F(NVFuserTest, FusionGatherStrided5_CUDA) {
+TEST_F(ShiftTest, GatherStrided5) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4808,7 +4810,7 @@ TEST_F(NVFuserTest, FusionGatherStrided5_CUDA) {
 }
 
 // Same as GatherStrided2 but with stride != window
-TEST_F(NVFuserTest, FusionGatherStrided6_CUDA) {
+TEST_F(ShiftTest, GatherStrided6) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4860,7 +4862,7 @@ TEST_F(NVFuserTest, FusionGatherStrided6_CUDA) {
 }
 
 // Same as GatherStrided4 but different strides
-TEST_F(NVFuserTest, FusionGatherStrided7_CUDA) {
+TEST_F(ShiftTest, GatherStrided7) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4890,7 +4892,7 @@ TEST_F(NVFuserTest, FusionGatherStrided7_CUDA) {
 }
 
 // Same as GatherStrided2 but with unswitch
-TEST_F(NVFuserTest, FusionGatherStrided8_CUDA) {
+TEST_F(ShiftTest, GatherStrided8) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4946,7 +4948,7 @@ TEST_F(NVFuserTest, FusionGatherStrided8_CUDA) {
 }
 
 // Chained strided gather. Not supported yet.
-TEST_F(NVFuserTest, FusionGatherStridedChain_CUDA) {
+TEST_F(ShiftTest, GatherStridedChain) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4976,7 +4978,7 @@ TEST_F(NVFuserTest, FusionGatherStridedChain_CUDA) {
   ASSERT_ANY_THROW(GpuLower(&fusion).run());
 }
 
-TEST_F(NVFuserTest, FusionMaxPoolingStrided_CUDA) {
+TEST_F(ShiftTest, MaxPoolingStrided) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -5052,7 +5054,7 @@ TEST_F(NVFuserTest, FusionMaxPoolingStrided_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionConv2DStaticStrided_CUDA) {
+TEST_F(ShiftTest, Conv2DStaticStrided) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -5152,7 +5154,7 @@ TEST_F(NVFuserTest, FusionConv2DStaticStrided_CUDA) {
   testValidate(&fusion, cg_outputs, inputs, {at_out}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionNonDivisibleHalo1_CUDA) {
+TEST_F(ShiftTest, NonDivisibleHalo1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -5183,7 +5185,7 @@ TEST_F(NVFuserTest, FusionNonDivisibleHalo1_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionNonDivisibleHalo2_CUDA) {
+TEST_F(ShiftTest, NonDivisibleHalo2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -5243,7 +5245,7 @@ TEST_F(NVFuserTest, FusionNonDivisibleHalo2_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {t4}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionGather9ptStencilDoubleBuffering_CUDA) {
+TEST_F(ShiftTest, Gather9ptStencilDoubleBuffering) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -5297,7 +5299,7 @@ TEST_F(NVFuserTest, FusionGather9ptStencilDoubleBuffering_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionValidateParallelizeShift_CUDA) {
+TEST_F(ShiftTest, ValidateParallelizeShift) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -5338,7 +5340,7 @@ TEST_F(NVFuserTest, FusionValidateParallelizeShift_CUDA) {
 }
 
 // Test IterType promotion with gather
-TEST_F(NVFuserTest, FusionGatherIterTypePromotion_CUDA) {
+TEST_F(ShiftTest, GatherIterTypePromotion) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -5377,7 +5379,7 @@ TEST_F(NVFuserTest, FusionGatherIterTypePromotion_CUDA) {
   testValidate(&fusion, outputs, inputs, {ref}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionContigPredicateShift_CUDA) {
+TEST_F(ShiftTest, ContigPredicateShift) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 

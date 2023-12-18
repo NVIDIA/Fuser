@@ -233,6 +233,9 @@ std::string TensorView::toString(int indent_size) const {
     ss << getMaybeMaxProducerPosition();
     ss << " )";
   }
+  if (hasDeviceMesh()) {
+    ss << " (" << getDeviceMesh() << ")";
+  }
   return ss.str();
 }
 
@@ -782,6 +785,41 @@ TensorView* TensorView::reorder(const std::unordered_map<int, int>& old2new_) {
   }
 
   domain()->reorder(old2new_);
+  return this;
+}
+
+TensorView* TensorView::swizzle(SwizzleType swizzle_type, int x, int y) {
+  if (x < 0) {
+    x += (int)domain()->nDims();
+  }
+  if (y < 0) {
+    y += (int)domain()->nDims();
+  }
+
+  // Check swizzle specific constraints on the input axes:
+  auto x_id = axis(x);
+  auto y_id = axis(y);
+
+  NVF_ERROR(
+      x_id->extent()->isConstInt() && y_id->extent()->isConstInt(),
+      "Only constant iterdomains supported on given swizzle type");
+
+  int in_x_size = (int)x_id->extent()->evaluate();
+  int in_y_size = (int)y_id->extent()->evaluate();
+
+  // Check size constraints based on swizzle type
+  if (swizzle_type == SwizzleType::XOR) {
+    NVF_ERROR(in_x_size == in_y_size, "Swizzle: equal dim iterdomains only");
+  }
+
+  if (swizzle_type == SwizzleType::XOR) {
+    // XOR swizzle only support power of 2 swizzle unit sizes:
+    bool is_pow_of_2 = in_x_size > 1 && ((in_x_size & (in_x_size - 1)) == 0);
+    NVF_ERROR(is_pow_of_2, "XOR swizzle only support power of 2 domain sizes.");
+  }
+
+  domain()->swizzle(swizzle_type, x, y);
+
   return this;
 }
 
@@ -1398,6 +1436,17 @@ void TensorView::applyMmaSwizzle(MmaOperand operand) {
       NVF_ERROR(false, "unknown operand flag");
       break;
   }
+}
+
+void TensorView::applyMmaSwizzle(
+    MmaInputSmemSwizzle swizzle,
+    bool transpose,
+    bool transpose2) {
+  NVF_ERROR(
+      getMemoryType() == MemoryType::Shared,
+      "Shared memory swizzle is only supported for shared memory");
+  mma_utils::WarpMmaSwizzler::scheduleOperandRead(
+      this, swizzle, transpose, transpose2);
 }
 
 void TensorView::commitLeafToRFactor() {
