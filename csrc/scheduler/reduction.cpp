@@ -388,6 +388,13 @@ std::shared_ptr<ReductionParams> innerReductionHeuristic(
   // If barely just covering reduction dim, don't pad to the next warp
   pad_bdimx = pad_bdimx &&
       bdimx * inner_reduction_unroll_factor != inner_most_dimension_numel;
+
+  if (std::getenv("DISABLE_PAD")) {
+    pad_bdimx = false;
+  } else {
+    pad_bdimx = true;
+  }
+
   rparams->pad_inner_reduction_to_warp = pad_bdimx;
 
   if (rparams->pad_inner_reduction_to_warp) {

@@ -7123,12 +7123,12 @@ TEST_F(NVFuserTest, AlignedSyncReduction1_CUDA) {
   fusion.addOutput(tv1);
 
   const int gdimx = 16;
-  const int bdimx = 100;
+  const int bdimy = 100;
   const int per_thread_reductions = 8;
 
-  std::vector<int64_t> shape({gdimx * bdimx * per_thread_reductions});
+  std::vector<int64_t> shape({gdimx * bdimy * per_thread_reductions});
 
-  tv1->split(0, bdimx);
+  tv1->split(0, bdimy);
   tv1->split(0, per_thread_reductions);
 
   // Serial reduction
@@ -7137,7 +7137,9 @@ TEST_F(NVFuserTest, AlignedSyncReduction1_CUDA) {
   tv1->rFactor({1});
 
   tv2->axis(0)->parallelize(ParallelType::BIDx);
-  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+  // if parallelized by TIDx, warp reduction will be used in place of block
+  // reduction.
+  tv2->axis(-1)->parallelize(ParallelType::TIDy);
 
   scheduler_utils::parallelizeAllLike(tv2);
 
@@ -7146,7 +7148,7 @@ TEST_F(NVFuserTest, AlignedSyncReduction1_CUDA) {
 
   // The block reduction should use the aligned sync
   NVF_CHECK(
-      kernel_string.find("blockReduce<true, false, false, true>(") !=
+      kernel_string.find("blockReduce<false, true, false, true>(") !=
           std::string::npos,
       "blockReduce with aligned sync not found: ",
       kernel_string);
@@ -8077,6 +8079,44 @@ TEST_F(NVFuserTest, VectorizationStrideValidation) {
   auto cg_outputs = fe.runFusion(aten_inputs);
 
   ASSERT_TRUE(cg_outputs[0].equal(t0));
+}
+
+TEST_F(NVFuserTest, NonPaddedWarpReduction) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  TensorView* tv2 = sum(tv1, {0});
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  tv1->axis(0)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(tv1);
+  inlineMost();
+
+  const std::string kernel_string =
+      codegen::generateCudaKernel(GpuLower(&fusion).kernel());
+  NVF_CHECK(
+      kernel_string.find("warp::unPaddedWarpReduceTIDX") != std::string::npos,
+      "unPaddedWarpReduceTIDX not found in:\n",
+      kernel_string);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto test = [&](int num_elements) {
+    at::Tensor t0 = at::randn({num_elements}, options);
+    std::vector<c10::IValue> aten_inputs = {t0};
+
+    FusionExecutor fe;
+    fe.compileFusion(&fusion, aten_inputs);
+    std::vector<at::Tensor> outputs = fe.runFusion(aten_inputs);
+    testValidate(&fusion, outputs, aten_inputs, {t0.sum()}, __LINE__, __FILE__);
+  };
+  for (int i = 1; i <= 1024; i += 31) {
+    test(i);
+  }
 }
 
 // Test that Int constants used in expressions that would overflow for 32-bit
