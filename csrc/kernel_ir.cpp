@@ -157,7 +157,7 @@ Allocate::Allocate(
     std::vector<Val*> shape,
     bool zero_init,
     Allocate* alias)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Allocate) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
@@ -249,7 +249,7 @@ Asm::Asm(
     const std::vector<Val*>& outputs,
     const std::vector<Val*>& inputs,
     const Options& options)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Asm) {
   addDataAttribute(code);
   addDataAttribute(options);
   for (auto out : outputs) {
@@ -422,7 +422,8 @@ std::string Asm::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Asm)
 
-BlockSync::BlockSync(IrBuilderPasskey passkey, bool war_sync) : Expr(passkey) {
+BlockSync::BlockSync(IrBuilderPasskey passkey, bool war_sync)
+    : Expr(passkey, serde::ExprType::BlockSync) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
@@ -447,7 +448,7 @@ GridSync::GridSync(
     IrBuilderPasskey passkey,
     ParallelTypeBitmap sync_dims,
     Val* sync_buffer)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::GridSync) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   addDataAttribute(sync_dims);
   addAttribute(sync_buffer);
@@ -470,7 +471,7 @@ MBarrierInit::MBarrierInit(
     IrBuilderPasskey passkey,
     Val* mbarrier,
     Val* thread_count)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::MBarrierInit) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_CHECK(thread_count->dtype() == DataType::UInt32);
   addInput(mbarrier);
@@ -491,7 +492,7 @@ std::string MBarrierInit::toInlineString(int indent_size) const {
 NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierInit)
 
 MBarrierInvalidate::MBarrierInvalidate(IrBuilderPasskey passkey, Val* mbarrier)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::MBarrierInvalidate) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   addInput(mbarrier);
 }
@@ -513,7 +514,7 @@ MBarrierArrive::MBarrierArrive(
     IrBuilderPasskey passkey,
     Val* state,
     Val* mbarrier)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::MBarrierArrive) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_CHECK(state->dtype() == DataType::UInt);
   addInput(mbarrier);
@@ -538,7 +539,7 @@ MBarrierArriveExpectTx::MBarrierArriveExpectTx(
     Val* state,
     Val* mbarrier,
     Val* tx_count)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::MBarrierArriveExpectTx) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_CHECK(tx_count->dtype() == DataType::UInt32);
   addInput(mbarrier);
@@ -560,7 +561,7 @@ std::string MBarrierArriveExpectTx::toInlineString(int indent_size) const {
 NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierArriveExpectTx)
 
 MBarrierWait::MBarrierWait(IrBuilderPasskey passkey, Val* mbarrier, Val* state)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::MBarrierWait) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_CHECK(state->dtype() == DataType::UInt);
   addInput(mbarrier);
@@ -584,7 +585,7 @@ BlockSerializeWait::BlockSerializeWait(
     IrBuilderPasskey passkey,
     ParallelTypeBitmap sync_dims,
     Val* sync_buffer)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::BlockSerializeWait) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   addDataAttribute(sync_dims);
   addAttribute(sync_buffer);
@@ -607,7 +608,7 @@ BlockSerializeRelease::BlockSerializeRelease(
     IrBuilderPasskey passkey,
     ParallelTypeBitmap sync_dims,
     Val* sync_buffer)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::BlockSerializeRelease) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   addDataAttribute(sync_dims);
   addAttribute(sync_buffer);
@@ -630,7 +631,7 @@ AsyncWait::AsyncWait(
     IrBuilderPasskey passkey,
     AsyncOpType async_op_type,
     int64_t keep_stages)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::AsyncWait) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
@@ -681,7 +682,7 @@ bool AsyncWait::memory() const {
 NVFUSER_DEFINE_CLONE_AND_CREATE(AsyncWait)
 
 AsyncCommit::AsyncCommit(IrBuilderPasskey passkey, AsyncOpType async_op_type)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::AsyncCommit) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
@@ -726,7 +727,8 @@ bool AsyncCommit::memory() const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(AsyncCommit)
 
-InitMagicZero::InitMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
+InitMagicZero::InitMagicZero(IrBuilderPasskey passkey)
+    : Expr(passkey, serde::ExprType::InitMagicZero) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
@@ -745,7 +747,8 @@ std::string InitMagicZero::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(InitMagicZero)
 
-UpdateMagicZero::UpdateMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
+UpdateMagicZero::UpdateMagicZero(IrBuilderPasskey passkey)
+    : Expr(passkey, serde::ExprType::UpdateMagicZero) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
@@ -846,7 +849,7 @@ ForLoop::ForLoop(
     Val* vectorize_shift,
     bool unroll_required,
     DoubleBufferLoopStage double_buffer_loop_stage)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::ForLoop) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
@@ -1116,7 +1119,7 @@ bool ForLoop::isGroup() const {
 NVFUSER_DEFINE_CLONE_AND_CREATE(ForLoop)
 
 IfThenElse::IfThenElse(IrBuilderPasskey passkey, Predicate* cond)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::IfThenElse) {
   setPredicate(cond);
   addInput(cond);
   // Storing IR nodes as Attribute is not safe with IrCloner, but fortunately
@@ -1301,7 +1304,7 @@ GridBroadcast::GridBroadcast(
     BroadcastOp* broadcast_op,
     Allocate* broadcast_buffer,
     Allocate* sync_buffer)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::GridBroadcast) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
@@ -1339,7 +1342,7 @@ GridWelford::GridWelford(
     Allocate* sync_buffer,
     Val* entrance_index,
     Val* entrances)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::GridWelford) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
@@ -1583,7 +1586,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(VectorizedWelfordOp)
 AllocateFusedReduction::AllocateFusedReduction(
     IrBuilderPasskey passkey,
     Expr* grid_expr)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::AllocateFusedReduction) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
@@ -1646,7 +1649,7 @@ GetRNGSeedAndOffsetFromHost::GetRNGSeedAndOffsetFromHost(
     Val* first_offset_ptr,
     Val* first_offset_val,
     int64_t offsets)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::GetRNGSeedAndOffsetFromHost) {
   addOutput(seed_ptr);
   addOutput(seed_val);
   addOutput(first_offset_ptr);
@@ -1683,7 +1686,7 @@ EncodeTensorMapTiled::EncodeTensorMapTiled(
     MmaInputSmemSwizzle swizzle,
     tma::TensorMapL2Promotion l2_promotion,
     tma::TensorMapFloatOOBFill oob_fill)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::EncodeTensorMapTiled) {
   auto out_dtype = output->dtype();
   NVF_CHECK(std::holds_alternative<OpaqueType>(out_dtype.type));
   addOutput(output);

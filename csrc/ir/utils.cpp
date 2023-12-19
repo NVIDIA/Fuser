@@ -664,7 +664,12 @@ Val* replaceValRecursively(
 
   auto out = IrBuilder::create<Val>(val->dtype());
   auto newObjectFunc = def->newObjectFunc();
-  newObjectFunc(def->container(), mutated_inputs, {out}, mutated_attrs);
+  newObjectFunc(
+      def->container(),
+      def->expressionType(),
+      mutated_inputs,
+      {out},
+      mutated_attrs);
 
   return out;
 }

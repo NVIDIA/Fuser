@@ -464,6 +464,7 @@ class Val : public Statement {
 
 using newObjectFuncType = Expr*(
     IrContainer*,
+    serde::ExprType,
     std::vector<Val*>,
     std::vector<Val*>,
     std::vector<Statement*>);
@@ -509,12 +510,13 @@ using newObjectFuncType = Expr*(
 //!
 class Expr : public Statement {
  public:
-  explicit Expr(IrBuilderPasskey);
+  explicit Expr(IrBuilderPasskey, serde::ExprType expr_type);
 
   Expr(const Expr* src, IrCloner* ir_cloner);
 
   Expr(
       IrBuilderPasskey,
+      serde::ExprType expr_type,
       std::vector<Val*> inputs,
       std::vector<Val*> outputs,
       std::vector<Statement*> attributes);
@@ -531,6 +533,10 @@ class Expr : public Statement {
 
   bool sameAs(const Statement* other) const override;
 
+  flatbuffers::Offset<serde::Expression> serialize(
+      const IrSerde& container,
+      flatbuffers::FlatBufferBuilder& builder) const;
+
   virtual std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const;
@@ -546,6 +552,10 @@ class Expr : public Statement {
 
   const auto& attributes() const {
     return attributes_;
+  }
+
+  serde::ExprType expressionType() const {
+    return serde_expr_type_;
   }
 
   auto input(size_t index) const {
@@ -646,6 +656,7 @@ class Expr : public Statement {
  private:
   std::vector<Val*> inputs_;
   std::vector<Val*> outputs_;
+  serde::ExprType serde_expr_type_;
   kir::Predicate* predicate_ = nullptr;
 
   // Only used for reduction-related expressions
@@ -664,6 +675,7 @@ bool Val::isDefinitionType() const {
   virtual Statement* clone(IrCloner* ir_cloner) const override; \
   static Expr* newObject(                                       \
       IrContainer* container,                                   \
+      serde::ExprType expr_type,                                \
       std::vector<Val*> inputs,                                 \
       std::vector<Val*> outputs,                                \
       std::vector<Statement*> attributes);                      \
@@ -671,17 +683,18 @@ bool Val::isDefinitionType() const {
     return newObject;                                           \
   }
 
-#define NVFUSER_DEFINE_CLONE_AND_CREATE(ClassName)         \
-  Statement* ClassName::clone(IrCloner* ir_cloner) const { \
-    return IrBuilder::clone(this, ir_cloner);              \
-  }                                                        \
-  Expr* ClassName::newObject(                              \
-      IrContainer* container,                              \
-      std::vector<Val*> inputs,                            \
-      std::vector<Val*> outputs,                           \
-      std::vector<Statement*> attributes) {                \
-    return IrBuilder::create<ClassName>(                   \
-        container, inputs, outputs, attributes);           \
+#define NVFUSER_DEFINE_CLONE_AND_CREATE(ClassName)          \
+  Statement* ClassName::clone(IrCloner* ir_cloner) const {  \
+    return IrBuilder::clone(this, ir_cloner);               \
+  }                                                         \
+  Expr* ClassName::newObject(                               \
+      IrContainer* container,                               \
+      serde::ExprType expr_type,                            \
+      std::vector<Val*> inputs,                             \
+      std::vector<Val*> outputs,                            \
+      std::vector<Statement*> attributes) {                 \
+    return IrBuilder::create<ClassName>(                    \
+        container, expr_type, inputs, outputs, attributes); \
   }
 
 } // namespace nvfuser

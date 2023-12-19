@@ -36,6 +36,18 @@ IrSerde::IrSerde(const IrContainer* container) : container_{container} {
   exprs_to_id_map = container->deterministic_exprs_map();
 }
 
+int64_t IrSerde::map(Statement* stmt) const {
+  if (stmt->isVal()) {
+    return map(stmt->asVal());
+  } else {
+    return map(stmt->asExpr());
+  }
+}
+
+int64_t IrSerde::map(const Statement* stmt) const {
+  return map((Statement*)stmt);
+}
+
 int64_t IrSerde::map(Val* v) const {
   return vals_to_id_map.at(v);
 }
@@ -54,12 +66,15 @@ int64_t IrSerde::map(const Expr* e) const {
   return exprs_to_id_map.at((Expr*)e);
 }
 
-std::vector<int64_t> IrSerde::map(const std::vector<IterDomain*>& vals) const {
-  return convertContainer<Val*, int64_t>(vals_to_id_map, vals);
-}
-
-std::vector<int64_t> IrSerde::map(const std::vector<TensorView*>& vals) const {
-  return convertContainer<Val*, int64_t>(vals_to_id_map, vals);
+std::vector<int64_t> IrSerde::map(const std::vector<Statement*>& stmts) const {
+  std::vector<int64_t> result;
+  result.reserve(stmts.size());
+  std::transform(
+      stmts.begin(),
+      stmts.end(),
+      std::back_inserter(result),
+      [&](Statement* key) { return map(key); });
+  return result;
 }
 
 std::vector<int64_t> IrSerde::map(const std::vector<Val*>& vals) const {
@@ -68,6 +83,14 @@ std::vector<int64_t> IrSerde::map(const std::vector<Val*>& vals) const {
 
 std::vector<int64_t> IrSerde::map(const std::vector<Expr*>& exprs) const {
   return convertContainer<Expr*, int64_t>(exprs_to_id_map, exprs);
+}
+
+std::vector<int64_t> IrSerde::map(const std::vector<IterDomain*>& vals) const {
+  return convertContainer<Val*, int64_t>(vals_to_id_map, vals);
+}
+
+std::vector<int64_t> IrSerde::map(const std::vector<TensorView*>& vals) const {
+  return convertContainer<Val*, int64_t>(vals_to_id_map, vals);
 }
 
 } // namespace nvfuser

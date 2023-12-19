@@ -291,27 +291,31 @@ bool Val::isConsumerOf(const Val* other) const {
 
 // We don't register with the active fusion in Expr as this needs to be done
 // after inputs and outputs are registered with the Expr
-Expr::Expr(IrBuilderPasskey passkey) : Statement(passkey) {}
+Expr::Expr(IrBuilderPasskey passkey, serde::ExprType expr_type)
+    : Statement(passkey), serde_expr_type_{expr_type} {}
 
 Expr::Expr(const Expr* src, IrCloner* ir_cloner)
     : Statement(src, ir_cloner),
       attributes_(ir_cloner->clone(src->attributes_)),
       inputs_(ir_cloner->clone(src->inputs_)),
-      outputs_(ir_cloner->clone(src->outputs_)) {}
+      outputs_(ir_cloner->clone(src->outputs_)),
+      serde_expr_type_{src->serde_expr_type_} {}
 
 Expr::Expr(
     IrBuilderPasskey passkey,
+    serde::ExprType expr_type,
     std::vector<Val*> inputs,
     std::vector<Val*> outputs,
     std::vector<Statement*> attributes)
     : Statement(passkey),
       attributes_(std::move(attributes)),
       inputs_(std::move(inputs)),
-      outputs_(std::move(outputs)) {}
+      outputs_(std::move(outputs)),
+      serde_expr_type_{expr_type} {}
 
 Expr* Expr::shallowCopy() const {
-  auto result =
-      newObjectFunc()(ir_container_, inputs(), outputs(), attributes());
+  auto result = newObjectFunc()(
+      ir_container_, serde_expr_type_, inputs(), outputs(), attributes());
   if (container()->isA<kir::Kernel>()) {
     result->predicate_ = predicate_;
     result->write_predicate_ = write_predicate_;
@@ -382,6 +386,16 @@ bool Expr::sameAs(const Statement* other) const {
     }
   }
   return true;
+}
+
+flatbuffers::Offset<serde::Expression> Expr::serialize(
+    const IrSerde& container,
+    flatbuffers::FlatBufferBuilder& builder) const {
+  auto fb_inputs = container.map(inputs());
+  auto fb_outputs = container.map(outputs());
+  auto fb_attributes = container.map(attributes());
+  return serde::CreateExpressionDirect(
+      builder, serde_expr_type_, &fb_inputs, &fb_outputs, &fb_attributes);
 }
 
 kir::Predicate* Expr::predicate() const {

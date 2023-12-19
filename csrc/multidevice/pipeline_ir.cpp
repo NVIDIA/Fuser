@@ -17,7 +17,7 @@ PipelineStage::PipelineStage(
     const PipelineStageDescriptor* descriptor,
     ValSet input_vals,
     ValSet output_vals)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::PipelineStage) {
   NVF_ERROR(
       passkey.ir_container_ ? passkey.ir_container_->isA<Pipeline>() : false,
       "IR type only valid for Pipeline container.");
@@ -70,7 +70,7 @@ PipelineCommunication::PipelineCommunication(
     IrBuilderPasskey passkey,
     Val* in,
     Val* out)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::PipelineCommunication) {
   NVF_ERROR(
       passkey.ir_container_ ? passkey.ir_container_->isA<Pipeline>() : false,
       "IR type only valid for Pipeline container.");
