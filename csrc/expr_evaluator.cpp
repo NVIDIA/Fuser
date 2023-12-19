@@ -124,19 +124,25 @@ void ExpressionEvaluator::bind_(
         ", but got a tensor of rank ",
         t.dim());
     for (auto i : c10::irange(t.dim())) {
-      auto idom = rfactor_domain[i];
-      // Device dimensions will always be 1.
-      // Ignore concrete extents because they will match unsharded. 
-      if (idom->isDeviceDim() && idom->getMaybeExpandedExtent()->isConst() ) {
-        NVF_CHECK(
-        1 == t.size(i),
-        "Tried to bind to a constant value: 1 as ",
-        t.size(0));
-      } else {
-        bind_(
-            idom->getMaybeExpandedExtent(),
+      auto id = rfactor_domain[i];
+      if (id->hasExpandedExtent()) {
+        // Verify that t is also expanded
+        NVF_ERROR(
+            t.size(i) == 1 || t.stride(i) == 0,
+            "IterDomain ",
+            id->toString(),
+            " in TensorView ",
+            tv->toString(),
+            " has expanded extent but input tensor has size ",
             t.size(i),
-            evaluate_validate);
+            " and stride ",
+            t.stride(i),
+            " in dimension ",
+            i);
+        bind_(
+            rfactor_domain[i]->expandedExtent(), t.size(i), evaluate_validate);
+      } else {
+        bind_(rfactor_domain[i]->extent(), t.size(i), evaluate_validate);
       }
     }
   }

@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <disjoint_set.h>
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <type.h>
@@ -534,7 +535,7 @@ std::vector<Expr*> getAllTypesOfReductionOps(Fusion* fusion);
 //! Returns true if fusion has any reduction ops.
 bool hasAnyReductionOps(Fusion* fusion);
 
-int64_t getVectorizeSize(TensorView* tv);
+int64_t getVectorizeSize(const TensorView* tv);
 
 // Returns the permutation from `in` to `out`, i.e., `out[i]==in[perm[i]]`. If
 // `out` is not a permutation of `in`, returns nullopt.
@@ -558,7 +559,9 @@ std::optional<std::vector<int64_t>> computePermutation(
   return permutation;
 }
 
-std::unordered_set<TensorView*> haveDifferentSharding(TensorView* ref, std::unordered_set<TensorView*> tvs);
+std::unordered_set<TensorView*> haveDifferentSharding(
+    TensorView* ref,
+    std::unordered_set<TensorView*> tvs);
 
 bool isResharding(Expr* expr);
 

@@ -11,11 +11,11 @@
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
+#include <alias_analysis.h>
 #include <fusion.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
-#include <optimization/alias_analysis.h>
 #include <test/utils.h>
 #include <test/validator.h>
 
@@ -44,9 +44,8 @@ TEST_F(AliasAnalysisTest, View_SymbolicTensor) {
   TensorView* out = reshape(in, {in_shape[0], mul(in_shape[1], in_shape[2])});
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.findRoot(out), in);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 }
 
 TEST_F(AliasAnalysisTest, ChainOfViews) {
@@ -63,9 +62,8 @@ TEST_F(AliasAnalysisTest, ChainOfViews) {
   TensorView* out = reshape(intermediate, intermediate_shape, out_shape);
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.findRoot(out), in);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 }
 
 TEST_F(AliasAnalysisTest, View_Contiguous) {
@@ -80,10 +78,9 @@ TEST_F(AliasAnalysisTest, View_Contiguous) {
   TensorView* out = reshape(in, in_shape, out_shape);
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.findRoot(out), in);
-  optimization::Layout preferred_layout = alias_analysis.preferredLayout(out);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
+  Layout preferred_layout = alias_analysis.preferredLayout(out);
   EXPECT_THAT(
       preferred_layout.allocation_domain,
       ElementsAre(out->axis(0), out->axis(1)));
@@ -106,9 +103,8 @@ TEST_F(AliasAnalysisTest, View_MergeNonContiguous) {
   TensorView* out = reshape(in, in_shape, out_shape);
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.findRoot(out), out);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), nullptr);
 }
 
 TEST_F(AliasAnalysisTest, Set) {
@@ -122,9 +118,8 @@ TEST_F(AliasAnalysisTest, Set) {
 
   in->setAllocationDomain({in->axis(1), in->axis(2), in->axis(0)}, true);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.findRoot(out), in);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 
   const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
   EXPECT_THAT(
@@ -143,9 +138,8 @@ TEST_F(AliasAnalysisTest, Permute) {
   TensorView* out = permute(in, {1, 2, 0});
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.findRoot(out), in);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 
   const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
   EXPECT_THAT(
@@ -157,47 +151,47 @@ TEST_F(AliasAnalysisTest, View_SplitExpandedBroadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  TensorView* in = makeContigConcreteTensor({4, 5});
+  TensorView* in = TensorViewBuilder()
+                       .ndims(3)
+                       .dtype(DataType::Float)
+                       .contiguity({true, true, std::nullopt})
+                       .shape({4, 5, 6})
+                       .expanded({false, false, true})
+                       .build();
   fusion.addInput(in);
-  TensorView* broadcast_out = broadcast(in, {false, false, true});
-  TensorView* expand_out = expand(
-      broadcast_out,
-      {IrBuilder::create<Val>(4),
-       IrBuilder::create<Val>(5),
-       IrBuilder::create<Val>(6)});
   // tryStaticReshape used to fail to get the expanded extent, which is 6.
-  TensorView* out = reshape(
-      expand_out, {IrBuilder::create<Val>(40), IrBuilder::create<Val>(3)});
+  // Therefore, we use the `vector<Val*>` version of `reshape` as a regression
+  // test.
+  TensorView* out =
+      reshape(in, {IrBuilder::create<Val>(40), IrBuilder::create<Val>(3)});
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.findRoot(out), expand_out);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), nullptr);
 }
 
 TEST_F(AliasAnalysisTest, View_ForwardExpandedBroadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  TensorView* in = makeContigConcreteTensor({4, 5});
+  TensorView* in = TensorViewBuilder()
+                       .ndims(3)
+                       .dtype(DataType::Float)
+                       .contiguity({true, true, std::nullopt})
+                       .shape({4, 5, 6})
+                       .expanded({false, false, true})
+                       .build();
   fusion.addInput(in);
-  TensorView* broadcast_out = broadcast(in, {false, false, true});
-  TensorView* expand_out = expand(
-      broadcast_out,
-      {IrBuilder::create<Val>(4),
-       IrBuilder::create<Val>(5),
-       IrBuilder::create<Val>(6)});
-  TensorView* out = reshape(expand_out, {4, 5, 6}, {20, -1});
+  TensorView* out = reshape(in, {4, 5, 6}, {20, -1});
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.findRoot(out), expand_out);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 
   // Verify the last dimension isn't expanded physically.
   FusionExecutor fe;
   at::Tensor in_tensor =
-      at::randn({4, 5}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+      at::randn({4, 5}).cuda().as_strided({4, 5, 6}, {5, 1, 0});
   fe.compileFusion(&fusion, {in_tensor});
   at::Tensor out_tensor = fe.runFusion({in_tensor})[0];
 
@@ -208,20 +202,19 @@ TEST_F(AliasAnalysisTest, View_MergeExpandedBroadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  TensorView* in = makeContigConcreteTensor({4, 5});
+  TensorView* in = TensorViewBuilder()
+                       .ndims(3)
+                       .dtype(DataType::Float)
+                       .contiguity({true, true, std::nullopt})
+                       .shape({4, 5, 6})
+                       .expanded({false, false, true})
+                       .build();
   fusion.addInput(in);
-  TensorView* broadcast_out = broadcast(in, {false, false, true});
-  TensorView* expand_out = expand(
-      broadcast_out,
-      {IrBuilder::create<Val>(4),
-       IrBuilder::create<Val>(5),
-       IrBuilder::create<Val>(6)});
-  TensorView* out = reshape(expand_out, {4, 5, 6}, {4, -1});
+  TensorView* out = reshape(in, {4, 5, 6}, {4, -1});
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.findRoot(out), expand_out);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), nullptr);
 }
 
 TEST_F(AliasAnalysisTest, TrivialSlice) {
@@ -234,9 +227,8 @@ TEST_F(AliasAnalysisTest, TrivialSlice) {
   out = reshape(out, {2, 3}, {6});
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.findRoot(out), in);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 }
 
 TEST_F(AliasAnalysisTest, MergeTriviallySlicedDimensions) {
@@ -249,9 +241,8 @@ TEST_F(AliasAnalysisTest, MergeTriviallySlicedDimensions) {
   out = reshape(out, {2, 2, 5}, {2, 10});
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.findRoot(out), in);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), in);
 }
 
 TEST_F(AliasAnalysisTest, MergeSlicedDimensions) {
@@ -264,10 +255,8 @@ TEST_F(AliasAnalysisTest, MergeSlicedDimensions) {
   TensorView* out = reshape(slice_out, {2, 2, 5}, {4, 5});
   fusion.addOutput(out);
 
-  optimization::AliasAnalysisResult alias_analysis =
-      optimization::findAliases(&fusion);
-  EXPECT_EQ(alias_analysis.findRoot(out), out);
-  EXPECT_EQ(alias_analysis.findRoot(slice_out), in);
+  AliasAnalysisResult alias_analysis = findAliases(&fusion);
+  EXPECT_EQ(alias_analysis.getNearestAliasedIo(out), nullptr);
 }
 
 using AliasTest = NVFuserTest;
@@ -298,7 +287,58 @@ TEST_F(AliasTest, View) {
   testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
-TEST_F(AliasTest, View_NoAliasForIncompatibleLayout) {
+TEST_F(AliasTest, View_AliasForSameLayout) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const std::vector<int64_t> in_shape({2, 3, 4});
+  const std::vector<int64_t> out_shape({2, 12});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  fusion->addInput(in);
+  TensorView* out = reshape(in, in_shape, out_shape);
+  fusion->addOutput(out);
+
+  in->setAllocationDomain(
+      {in->axis(1), in->axis(2), in->axis(0)}, {true, false, false});
+  out->setAllocationDomain({out->axis(1), out->axis(0)}, false);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn({60}).cuda().as_strided({2, 3, 4}, {2, 20, 5});
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  ASSERT_EQ(out_tensors.size(), 1);
+  at::Tensor out_tensor = out_tensors[0];
+  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_TRUE(out_tensor.is_alias_of(in_tensor));
+}
+
+TEST_F(AliasTest, View_AliasForCompliantLayout) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const std::vector<int64_t> in_shape({2, 3, 4});
+  const std::vector<int64_t> out_shape({2, 12});
+
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  fusion->addInput(in);
+  TensorView* out = reshape(in, in_shape, out_shape);
+  fusion->addOutput(out);
+
+  out->setAllocationDomain({out->axis(0), out->axis(1)}, {false, false});
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3, 4}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  ASSERT_EQ(out_tensors.size(), 1);
+  at::Tensor out_tensor = out_tensors[0];
+  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_TRUE(out_tensor.is_alias_of(in_tensor));
+}
+
+TEST_F(AliasTest, View_NoAliasForIncompliantLayout) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -532,10 +572,13 @@ TEST_F(AliasTest, DuplicateOutputsSegmentedFusion) {
 
 namespace {
 
-const FusionExecutor& mostRecentExecutor(const FusionExecutorCache& fec) {
+// Returns the only executor in the most recent runtime.
+const FusionExecutor& onlyExecutorInMostRecentRuntime(
+    const FusionExecutorCache& fec) {
   const std::vector<FusionExecutor>& executors =
       fec.getMostRecentKernelRuntime()->executors();
-  return executors.back();
+  EXPECT_EQ(executors.size(), 1);
+  return executors.front();
 }
 
 void expectKernelDoesNotStoreToOutput(
@@ -566,15 +609,37 @@ TEST_F(AliasTest, NotAllOutputsAlias) {
   FusionExecutorCache fec(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
   std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
-
-  // As a known limitation, nvFuser still generates code to copy data from `in`
-  // to `slice_out` despite the fact that `slice_out` is an alias.
   testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   at::Tensor slice_out_tensor = out_tensors[0];
   EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
 
-  expectKernelDoesNotStoreToOutput(mostRecentExecutor(fec), /*out_index=*/0);
+  expectKernelDoesNotStoreToOutput(
+      onlyExecutorInMostRecentRuntime(fec), /*out_index=*/0);
+}
+
+TEST_F(AliasTest, Issue1452) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Large enough to trigger vectorization.
+  TensorView* in = makeContigConcreteTensor({1024, 1024});
+  TensorView* set_out = set(in);
+  TensorView* add_out = add(in, fusion->oneVal());
+  fusion->addInput(in);
+  fusion->addOutput(set_out);
+  fusion->addOutput(add_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({1024, 1024}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  at::Tensor set_out_tensor = out_tensors[0];
+  EXPECT_TRUE(set_out_tensor.is_alias_of(in_tensor));
+
+  expectKernelDoesNotStoreToOutput(
+      onlyExecutorInMostRecentRuntime(fec), /*out_index=*/0);
 }
 
 TEST_F(AliasTest, AliasOutputBeforeNonAliasOutput) {
@@ -597,7 +662,8 @@ TEST_F(AliasTest, AliasOutputBeforeNonAliasOutput) {
   at::Tensor slice_out_tensor = out_tensors[0];
   EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
 
-  expectKernelDoesNotStoreToOutput(mostRecentExecutor(fec), /*out_index=*/0);
+  expectKernelDoesNotStoreToOutput(
+      onlyExecutorInMostRecentRuntime(fec), /*out_index=*/0);
 }
 
 TEST_F(AliasTest, Set_NoAliasForIncompatibleLayout) {
@@ -665,6 +731,142 @@ TEST_F(AliasTest, DuplicateInputs) {
       [&]() { fusion->addInput(in); },
       testing::ThrowsMessage<nvfuser::nvfError>(
           testing::HasSubstr("duplicated inputs is not allowed")));
+}
+
+TEST_F(AliasTest, AliasInSegment) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // The segment between `permute_in` and `permute_out` is meta-op only and
+  // turned into a no-op kernel.
+  TensorView* in = makeContigConcreteTensor({2, 3});
+  TensorView* add_out = add(in, in);
+  TensorView* permute_in = segment_set(in);
+  TensorView* permute_out = permute(permute_in, {1, 0});
+
+  fusion->addInput(in);
+  fusion->addOutput(add_out);
+  fusion->addOutput(permute_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_TRUE(out_tensors[1].is_alias_of(in_tensor));
+}
+
+TEST_F(AliasTest, TrivialInputForwarding) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeConcreteTensor({-1, -1});
+  TensorView* tv1 = makeConcreteTensor({-1, -1});
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  // Note: output of add is not used. Kept it here since previously there was an
+  // assertion from sorting in codegen.
+  add(tv1, IrBuilder::create<Val>(3.141));
+  fusion->addOutput(tv0);
+
+  at::Tensor t0 = at::randn({10, 4}).cuda();
+  at::Tensor t1 = at::randn({10, 4}).cuda();
+
+  FusionExecutorCache fec(std::move(fusion));
+  std::vector<at::Tensor> cg_outputs = fec.runFusionWithInputs({t0, t1});
+
+  EXPECT_EQ(cg_outputs[0].data_ptr(), t0.data_ptr());
+  testValidate(fec.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+
+  // Second run to ensure cache hit handles trivial forwarding properly
+  NVF_CHECK(fec.isCompiled({t0, t1}));
+  auto cg_outputs2 = fec.runFusionWithInputs({t0, t1});
+  EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
+  testValidate(fec.fusion(), cg_outputs2, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(AliasTest, TrivialInputForwarding_ScalarTensor) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(0);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv0);
+
+  at::Tensor t0 = at::randn({}).cuda();
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto cg_outputs = fec.runFusionWithInputs({t0});
+  EXPECT_EQ(cg_outputs[0].data_ptr(), t0.data_ptr());
+  testValidate(fec.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
+
+  // Second run to ensure cache hit handles trivial forwarding properly
+  NVF_CHECK(fec.isCompiled({t0}));
+  auto cg_outputs2 = fec.runFusionWithInputs({t0});
+  EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
+  testValidate(fec.fusion(), cg_outputs2, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(AliasTest, OutputAliasesAnotherOutput) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  TensorView* add_out = add(in, in);
+  TensorView* reshape_out = reshape(add_out, {2, 3, 5}, {6, 5});
+  TensorView* permute_out = permute(reshape_out, {1, 0});
+
+  fusion->addInput(in);
+  fusion->addOutput(reshape_out);
+  fusion->addOutput(permute_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  ASSERT_EQ(out_tensors.size(), 2);
+  at::Tensor reshape_out_tensor = out_tensors[0];
+  at::Tensor permute_out_tensor = out_tensors[1];
+  EXPECT_TRUE(permute_out_tensor.is_alias_of(reshape_out_tensor));
+}
+
+TEST_F(AliasTest, ManyAliasesBetweenOutputs) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({2, 3, 5});
+  TensorView* add_out = add(in, in);
+  TensorView* permute_out = permute(add_out, {1, 2, 0});
+  TensorView* reshape_out = reshape(permute_out, {3, 5, 2}, {15, 2});
+  TensorView* slice_out = slice(permute_out, {0, 0, 0}, {2, 4, 1});
+
+  fusion->addInput(in);
+  // I intentionally add the outputs in reverse order to execise sorting in
+  // `allocateOutputs`.
+  fusion->addOutput(slice_out);
+  fusion->addOutput(reshape_out);
+  fusion->addOutput(permute_out);
+  fusion->addOutput(add_out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3, 5}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  testValidate(fec.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+  ASSERT_EQ(out_tensors.size(), 4);
+  at::Tensor slice_out_tensor = out_tensors[0];
+  at::Tensor reshape_out_tensor = out_tensors[1];
+  at::Tensor permute_out_tensor = out_tensors[2];
+  at::Tensor add_out_tensor = out_tensors[3];
+
+  EXPECT_EQ(add_out_tensor.data_ptr(), slice_out_tensor.data_ptr());
+  EXPECT_EQ(add_out_tensor.data_ptr(), reshape_out_tensor.data_ptr());
+  EXPECT_EQ(add_out_tensor.data_ptr(), permute_out_tensor.data_ptr());
+
+  // Segment 1: in -> add_out
+  // Segment 2: add_out -> its output aliases
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
 }
 
 } // namespace nvfuser

@@ -16,4 +16,8 @@ namespace nvfuser {
 // Checks that the other non-reduction axis are not parallelized on Didx
 bool isSharded(TensorView*);
 
+// returns the number of device indices present accross all
+// device meshes in the Fusion
+int64_t requestedNumberOfDevices(Fusion*);
+
 } // namespace nvfuser

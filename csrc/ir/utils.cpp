@@ -1079,7 +1079,7 @@ bool isTensorStride(const Val* val) {
       isTensorAttr(val, "alloc_stride");
 }
 
-int64_t getVectorizeSize(TensorView* tv) {
+int64_t getVectorizeSize(const TensorView* tv) {
   for (auto id : tv->getLeafDomain()) {
     if (!isParallelTypeVectorize(id->getParallelType())) {
       continue;
@@ -1120,7 +1120,7 @@ std::unordered_set<TensorView*> haveDifferentSharding(TensorView* ref, std::unor
   }
 
   for (auto tv: tvs) {
-    if (!(*ref->getDeviceMesh() == *tv->getDeviceMesh())) {
+    if (!(ref->getDeviceMesh() == tv->getDeviceMesh())) {
       ret.insert(tv);
       continue;
     }

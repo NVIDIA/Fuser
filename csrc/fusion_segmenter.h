@@ -71,6 +71,22 @@ class SegmentedGroup {
       : is_fusion_input_(is_fusion_input),
         segmented_fusion_(segmented_fusion) {}
 
+  //! Serialize SegmentedGroup using flatbuffers
+  flatbuffers::Offset<serde::SegmentedGroup> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const std::unordered_map<Val*, int64_t>& vals_map,
+      const std::unordered_map<Expr*, int64_t>& exprs_map,
+      const std::unordered_map<SegmentedGroup*, int64_t>& groups_map,
+      const std::unordered_map<SegmentedEdge*, int64_t>& edges_map) const;
+
+  //! Deserialize SegmentedGroup using flatbuffers
+  void deserialize(
+      const serde::SegmentedGroup* buffer,
+      const std::deque<Val*>& vals,
+      const std::deque<Expr*>& exprs,
+      const std::vector<SegmentedGroup*>& groups,
+      const std::vector<SegmentedEdge*>& edges);
+
   //! Checks if this group takes original fusion's input
   bool isInputGroup() {
     return !input_vals.empty();
@@ -392,9 +408,28 @@ class SegmentedFusion {
   //! Same as validate but only enabled when NDEBUG is undefined
   void validateIfDebug(bool require_disjoint = true) const;
 
+  //! Serialize SegmentedFusion using flatbuffers
+  flatbuffers::Offset<serde::SegmentedFusion> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize SegmentedFusion using flatbuffers
+  void deserialize(const serde::SegmentedFusion* buffer);
+
  private:
   void validateDAG() const;
   void validateDisjoint() const;
+
+  //! Serialize SegmentedEdge using flatbuffers
+  flatbuffers::Offset<serde::SegmentedEdge> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const nvfuser::SegmentedEdge* edge,
+      const std::unordered_map<Val*, int64_t>& vals_map,
+      const std::unordered_map<SegmentedGroup*, int64_t>& groups_map) const;
+
+  //! Deserialize SegmentedEdge using flatbuffers
+  nvfuser::SegmentedEdge deserialize(
+      const serde::SegmentedEdge* buffer,
+      const std::deque<Val*>& vals);
 
  private:
   //! Unique name for segmented fusion
@@ -414,6 +449,8 @@ class SegmentedFusion {
     SegmentedGroup* makeFusionInputGroup();
     SegmentedEdge* makeEdge(SegmentedGroup* from, SegmentedGroup* to, Val* val);
     void cleanUnused();
+    std::unordered_map<SegmentedGroup*, int64_t> groups_map() const;
+    std::unordered_map<SegmentedEdge*, int64_t> edges_map() const;
 
    private:
     using GroupPtr = std::unique_ptr<SegmentedGroup>;
@@ -435,6 +472,14 @@ class SegmentedFusion {
   //! Static traversal information to be used for fast heuristics lookup
   std::unordered_map<SegmentedGroup*, std::unique_ptr<HeuristicSummary>>
       heuristic_summary_cache_;
+
+  //! The number of values in fusion after constructing segmented fusion.
+  //! Used for checking state during deserialization.
+  size_t initial_vals_size_;
+
+  //! The number of expressions in fusion after constructing segmented fusion.
+  //! Used for checking state during deserialization.
+  size_t initial_exprs_size_;
 
   // TODO: this class needs cleanup
  protected:
@@ -487,6 +532,7 @@ struct SegmentCandidateFinderOptions {
   bool run_combine_reductions = true;
   bool run_herrmann_merge = true;
   bool run_final_merge = true;
+  bool only_segment_resharding_exprs = false;
 };
 
 //!  SegmentCandidateFinder
@@ -537,6 +583,19 @@ class SegmentCandidateFinder {
     return std::move(scf.segmented_fusion_);
   }
 
+  // Perform segmentation on and take ownership of the given fusion
+  static std::unique_ptr<SegmentedFusion> segment(
+      std::unique_ptr<Fusion> fusion,
+      SegmentCandidateFinderOptions options) {
+    if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
+      debug() << "Segment the fusion (Original Fusion Un-modified): "
+              << std::endl;
+      fusion->printMath();
+    }
+    SegmentCandidateFinder scf(std::move(fusion), options);
+    return std::move(scf.segmented_fusion_);
+  }
+
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
@@ -553,6 +612,10 @@ class SegmentCandidateFinder {
   SegmentCandidateFinder(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
+      SegmentCandidateFinderOptions options);
+
+  SegmentCandidateFinder(
+      std::unique_ptr<Fusion> fusion,
       SegmentCandidateFinderOptions options);
 
   void resetTraversal();
@@ -596,11 +659,13 @@ class SegmentCandidateFinder {
   }
 
   SchedulerRuntimeInfo& runtimeInfo() {
-    return runtime_info_;
+    NVF_ERROR(runtime_info_.has_value(), "needs runtime info");
+    return runtime_info_.value();
   }
 
   ExpressionEvaluator& expressionEvaluator() {
-    return runtime_info_.expressionEvaluator();
+    NVF_ERROR(runtime_info_.has_value(), "needs runtime info");
+    return runtime_info_->expressionEvaluator();
   }
 
   //! Additional merging iteration, clean up the rest of
@@ -710,7 +775,7 @@ class SegmentCandidateFinder {
   // unary ops on inputs to the complete fusion
   VectorOfUniqueEntries<Expr*> excluded_inp_unary_exprs_;
 
-  SchedulerRuntimeInfo runtime_info_;
+  std::optional<SchedulerRuntimeInfo> runtime_info_;
 
   //! Note:
   //!  Segmenter should eventually rely only on runtime_info_ for
@@ -728,7 +793,7 @@ class SegmentCandidateFinder {
   //! TODO:
   //!  implement the expression evaluator transfer and
   //!  remove runtime_inputs_ in a follow up.
-  const KernelArgumentHolder& runtime_inputs_;
+  std::optional<KernelArgumentHolder> runtime_inputs_;
 };
 
 // TODO: Make as member functions on classes instead of global scope

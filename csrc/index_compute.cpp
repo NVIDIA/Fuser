@@ -657,6 +657,32 @@ void IndexCompute::handle(Merge* merge) {
   }
 }
 
+void IndexCompute::handle(Swizzle* swizzle) {
+  auto out_x_id = maybeGetExactMapConcreteID(swizzle->outX());
+  auto out_y_id = maybeGetExactMapConcreteID(swizzle->outY());
+  auto in_x_id = maybeGetExactMapConcreteID(swizzle->inX());
+  auto in_y_id = maybeGetExactMapConcreteID(swizzle->inY());
+
+  auto out_x_it = index_map_.find(out_x_id);
+  auto out_y_it = index_map_.find(out_y_id);
+
+  if (out_x_it == index_map_.end() || out_y_it == index_map_.end()) {
+    return;
+  }
+
+  const auto out_x_ind = out_x_it->second;
+  const auto out_y_ind = out_y_it->second;
+
+  std::pair<Val*, Val*> swizzled_index = dispatchSwizzle(
+      swizzle->swizzleType(),
+      out_x_ind,
+      out_y_ind,
+      getExtent(out_x_id),
+      getExtent(out_y_id));
+  index_map_[in_x_id] = swizzled_index.first;
+  index_map_[in_y_id] = swizzled_index.second;
+}
+
 void IndexCompute::handle(Swizzle2D* swizzle_2d) {
   auto out_x_id = maybeGetExactMapConcreteID(swizzle_2d->outX());
   auto out_y_id = maybeGetExactMapConcreteID(swizzle_2d->outY());
@@ -732,7 +758,8 @@ void IndexCompute::handle(Resize* resize) {
 }
 
 void IndexCompute::dispatch(Expr* e) {
-  auto is_expected_type = e->isOneOf<Split, Merge, Swizzle2D, Resize>();
+  auto is_expected_type =
+      e->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>();
   NVF_ERROR(
       is_expected_type, "Invalid expr type found in transform traversal.");
   updateUnswitchedDomains(e);
@@ -2384,14 +2411,26 @@ kir::TensorIndex* Index::getProducerIndex(
       override_index,
       generate_pointer);
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
-  if (ir_utils::isLdMatrixOp(consumer->definition())) {
-    if (at::cuda::getCurrentDeviceProperties()->major < 8) {
+  if (ir_utils::isLdMatrixOp(consumer->definition()) &&
+      at::cuda::getCurrentDeviceProperties()->major < 8) {
+    auto items_per_thread = ir_utils::getVectorizeSize(consumer);
+    if (items_per_thread != 8) {
       // For Turing, unused indices for ldmatrix needs to be aligned, although
       // they are not used.
       auto orig_index = index;
       index = IrBuilder::create<Val>(index->dtype());
-      IrBuilder::create<UnaryOp>(
-          UnaryOpType::AdjustPartialLdMatrixAddrInTuring, index, orig_index);
+      UnaryOpType op = UnaryOpType::Print;
+      if (items_per_thread == 2) {
+        op = UnaryOpType::AdjustPartialLdMatrixAddrInTuring8;
+      } else if (items_per_thread == 4) {
+        op = UnaryOpType::AdjustPartialLdMatrixAddrInTuring16;
+      } else {
+        NVF_ERROR(
+            false,
+            "Unexpected output vectorizaiton for ldmatrix, expect 2, 4, or 8, get ",
+            items_per_thread);
+      }
+      IrBuilder::create<UnaryOp>(op, index, orig_index);
     }
   }
   return IrBuilder::create<kir::TensorIndex>(producer, index, as_type);

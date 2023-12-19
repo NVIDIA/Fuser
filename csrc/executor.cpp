@@ -559,8 +559,9 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
   return {concrete_sizes, strides};
 }
 
-// Infer the shape of an intemediate tensor using kir::Allocate
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate( //can we use this directly?
+// Infer the shape of an intemediate tensor using kir::Allocate. This
+// is not ideal but still necessary when tensors are expanded with halo
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
     const TensorView* tv,
     const kir::Allocate* alloc,
     ExpressionEvaluator& expr_eval) {
@@ -573,43 +574,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate( 
   // For intermediate tensors, we just need to allocate a memory chunk
   // of the specified size. Broadcast expansion does not need to be considered.
   const auto expand_flags = std::vector<bool>(symbolic_sizes.size(), false);
-
-  return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
-}
-
-// Infer the sizes and strides of an output tensor
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput( //see here
-    const TensorView* tv,
-    ExpressionEvaluator& expr_eval) {
-  // Fusion outputs do not come with Allocate and
-  // need to be allocated while taking expanded broadcasts into
-  // account.
-
-  std::vector<Val*> symbolic_sizes;
-  std::vector<bool> expand_flags;
-
-  // Allocate the allocation domain
-  for (const auto id : tv->getMaybeAllocationDomain()) {
-    if (id->isReduction() || id->isStride()) {
-      continue;
-    } else if (id->isDeviceDim()) {
-      // Allocate device dimension but set extent to 1. 
-      // TODO: Should we skip instead? allocating preserves the same dimensionality
-      // as unsharded. 
-      symbolic_sizes.push_back(id->container()->oneVal());
-    } else {
-      symbolic_sizes.push_back(id->getMaybeExpandedExtent());
-    }
-    if (id->hasExpandedExtent()) {
-      NVF_ERROR(
-          id->isBroadcast(),
-          "Non-broadcast domain should not have an expanded extent: ",
-          id->toString());
-      expand_flags.push_back(true);
-    } else {
-      expand_flags.push_back(false);
-    }
-  }
 
   return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
 }
@@ -918,25 +882,82 @@ at::Tensor transformOutputFromAllocationToRFactor( //maybe it is brutal to compl
   return tensor.permute(dims);
 }
 
+// Infer the sizes and strides of an output tensor
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
+    TensorView* tv,
+    ExpressionEvaluator& expr_eval) {
+  // Fusion outputs do not come with Allocate and
+  // need to be allocated while taking expanded broadcasts into
+  // account.
+
+  std::vector<Val*> symbolic_sizes;
+  std::vector<bool> expand_flags;
+
+  // Allocate the allocation domain
+  for (const auto id : tv->getMaybeAllocationDomain()) {
+    if (id->isReduction() || id->isStride()) {
+      continue;
+    }
+    symbolic_sizes.push_back(id->getMaybeExpandedExtent());
+    if (id->hasExpandedExtent()) {
+      NVF_ERROR(
+          id->isBroadcast(),
+          "Non-broadcast domain should not have an expanded extent: ",
+          id->toString());
+      expand_flags.push_back(true);
+    } else {
+      expand_flags.push_back(false);
+    }
+  }
+
+  auto size_stride = inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+  if (!tv->hasAllocation()) {
+    return size_stride;
+  }
+  auto options =
+      c10::TensorOptions().device(c10::Device(c10::DeviceType::Meta));
+  auto meta_tensor =
+      at::empty_strided(size_stride.first, size_stride.second, options);
+  // TODO(jiej): we should refactor it here, there's no need to use
+  // meta_tensor at all, size + stride should be used directly in the
+  // `transformOutputFromAllocationToRFactor`
+  meta_tensor =
+      transformOutputFromAllocationToRFactor(meta_tensor, tv, expr_eval);
+  return {meta_tensor.sizes().vec(), meta_tensor.strides().vec()};
+}
+
 int64_t IndexOfFusionInput(const Val* in, const Fusion* fusion) {
   auto i = std::find(fusion->inputs().begin(), fusion->inputs().end(), in);
   NVF_ERROR(i != fusion->inputs().end());
   return std::distance(fusion->inputs().begin(), i);
 }
 
-// Returns the at::Tensor allocated for `out_info`.
+// Allocate an `at::Tensor` for `out_info` or compute it as an alias.
 at::Tensor allocateOutput(
     const FusionExecutor::GlobalBufferInfo& out_info,
-    Val* aliased_in,
+    Val* aliased_io,
     const AliasInfo* alias_info,
-    const at::Tensor& aliased_in_tensor,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
   TensorView* out_tv = out_info.tv;
+  if (ee.isKnown(out_tv)) {
+    return ee.evaluate(out_tv).as<at::Tensor>();
+  }
 
-  // Note: aliased output is not returned as output. But we still need it
-  // for kernel execution, so would need to push them to args
-  if (aliased_in != nullptr) {
+  if (aliased_io != nullptr) {
+    NVF_ERROR(
+        aliased_io->isFusionInput() || aliased_io->isFusionOutput(),
+        aliased_io->toInlineString(),
+        " is expected to be a fusion input/output. `ee.evaluate` ",
+        "an intermediate tensor may involve GPU computation to materialize it ",
+        "to global memory.");
+    const PolymorphicValue& aliased_io_val = ee.evaluate(aliased_io);
+    NVF_ERROR(
+        aliased_io_val.is<at::Tensor>(),
+        "Alias io only supports tensor. Found ",
+        PolymorphicValue_functions::toString(aliased_io_val));
+    auto aliased_io_tensor = aliased_io_val.as<at::Tensor>();
+
     switch (alias_info->type) {
       case AliasType::InplaceUpdate:
         // Unlike for `AliasType::PointerArithmetic`, don't use
@@ -944,18 +965,16 @@ at::Tensor allocateOutput(
         // the output tensor may hold different data from the input, e.g., an
         // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
         // would trigger non-trivial host computation.
-        return aliased_in_tensor;
+        return aliased_io_tensor;
 
       case AliasType::PointerArithmetic:
-        auto* in_tv = aliased_in->as<TensorView>();
-        ee.bind(in_tv, aliased_in_tensor);
         at::Tensor out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
         NVF_ERROR(
-            out_tensor.is_alias_of(aliased_in_tensor),
+            out_tensor.is_alias_of(aliased_io_tensor),
             "ExpressionEvaluator failed to evaluate ",
             out_tv->toString(),
             " as an alias of ",
-            in_tv->toString());
+            aliased_io->toString());
         inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
         return out_tensor;
     }
@@ -971,11 +990,7 @@ at::Tensor allocateOutput(
   if (shouldFillAllocationWithNan()) {
     fillTensorWithNan(alloc_tensor);
   }
-
-  if (!out_tv->hasAllocation()) {
-    return alloc_tensor;
-  }
-  return transformOutputFromAllocationToRFactor(alloc_tensor, out_tv, ee);
+  return alloc_tensor;
 }
 
 // Allocate output tensors for a given kernel. Outputs may alias inputs, in
@@ -983,49 +998,55 @@ at::Tensor allocateOutput(
 std::vector<at::Tensor> allocateOutputs(
     const kir::Kernel* kernel,
     const std::vector<FusionExecutor::GlobalBufferInfo>& output_info,
-    const KernelArgumentHolder& inputs,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
   FUSER_PERF_SCOPE("allocateOutputs");
 
-  std::vector<at::Tensor> outputs;
-  outputs.reserve(output_info.size());
+  const auto num_outs = output_info.size();
 
-  std::unordered_map<Val*, at::Tensor> outputs_map;
-
-  for (const auto output_idx : c10::irange(output_info.size())) {
-    Val* out = kernel->outputs()[output_idx];
-    // TODO: remove the else block and outputs_map when output aliasing is
-    // handled properly
-    auto iter = outputs_map.find(out);
-    if (iter == outputs_map.end()) {
-      auto [aliased_in, alias_info] = kernel->getOutputAlias(out);
-      at::Tensor aliased_in_tensor;
-      if (aliased_in != nullptr) {
-        const PolymorphicValue& aliased_in_val =
-            *inputs[IndexOfFusionInput(aliased_in, kernel)];
-        NVF_ERROR(
-            aliased_in_val.is<at::Tensor>(),
-            "Alias io only supports tensor. Found ",
-            PolymorphicValue_functions::toString(aliased_in_val));
-        aliased_in_tensor = aliased_in_val.as<at::Tensor>();
-      }
-      auto output = allocateOutput(
-          output_info[output_idx],
-          aliased_in,
-          alias_info,
-          aliased_in_tensor,
-          device,
-          ee);
-      outputs_map[out] = output;
-      outputs.push_back(output);
-    } else {
-      outputs.push_back(iter->second);
-    }
+  // Sort the outputs so we compute aliases after allocating non-aliases. The
+  // order between aliases can be arbitrary. E.g.,
+  //
+  // ```
+  // non_alias_out = ...
+  // alias_out_0 = reshape(non_alias_out, ...)
+  // alias_out_1 = reshape(alias_out_0, ...)
+  // ```
+  //
+  // It's fine to compute `alias_out_1` before computing `alias_out_0`: when we
+  // compute `alias_out_1`, `alias_out_0` will be recursively
+  // `ExpressionEvaluator::evaluate`ed. However, `non_alias_out` must be
+  // allocated first so `alias_out_*` can refer them.
+  std::vector<std::pair<int64_t, Val*>> sorted_outs;
+  sorted_outs.reserve(num_outs);
+  for (const auto out_index : c10::irange(num_outs)) {
+    sorted_outs.emplace_back(out_index, kernel->outputs()[out_index]);
   }
-  return outputs;
-}
+  std::sort(
+      sorted_outs.begin(),
+      sorted_outs.end(),
+      [kernel](
+          const std::pair<int64_t, Val*>& out_i,
+          const std::pair<int64_t, Val*>& out_j) {
+        return (
+            kernel->getOutputAlias(out_i.second).first == nullptr &&
+            kernel->getOutputAlias(out_j.second).first != nullptr);
+      });
 
+  std::vector<at::Tensor> out_tensors(num_outs);
+  for (const auto& [out_index, out] : sorted_outs) {
+    auto [aliased_io, alias_info] = kernel->getOutputAlias(out);
+    at::Tensor out_tensor = allocateOutput(
+        output_info[out_index], aliased_io, alias_info, device, ee);
+    // Bind `out_tensor` so
+    // 1. duplicated outputs map to the same tensor,
+    // 2. an output that aliases another output can be evaluated via
+    // ExpressionEvaluator cheaply.
+    ee.bind(out, out_tensor);
+    out_tensors[out_index] = out_tensor;
+  }
+  return out_tensors;
+}
 } // namespace
 
 int64_t FusionExecutor::computeSharedMemory(
@@ -1255,9 +1276,20 @@ std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
     GlobalBufferInfo info;
     info.tv = tv;
     info.zero_init = alloc->zeroInit();
-    std::tie(info.sizes, info.strides) =
-        inferShapeOfIntermediate(tv, alloc, expr_eval);
-
+    // TODO: Allocation size needs to consider both expanded domains
+    // as well as halo. Currently, allocation of tensors with halo is
+    // only supported by inferShapeOfIntermediate, whereas expanded
+    // domains are only supported by inferShapeOfOutput. Until the
+    // halo support is revisited, use the former for all tensors
+    // unless expanded and the latter otherwise. This assumes there's
+    // no expanded domains with halo, which is fine for now.
+    const auto has_expanded_domains = std::any_of(
+        tv->getMaybeAllocationDomain().begin(),
+        tv->getMaybeAllocationDomain().end(),
+        [](IterDomain* id) { return id->hasExpandedExtent(); });
+    std::tie(info.sizes, info.strides) = has_expanded_domains
+        ? inferShapeOfOutput(tv, expr_eval)
+        : inferShapeOfIntermediate(tv, alloc, expr_eval);
     auto dtype = (tv->dtype() == DataType::Index ? index_type : tv->dtype());
     info.type = data_type_to_aten(dtype);
 
@@ -1282,8 +1314,7 @@ std::vector<at::Tensor> FusionExecutor::allocOutputSpace(
   auto output_info =
       getOutputBufferInfo(kernel_inputs, expr_eval, kernel()->indexType());
 
-  return allocateOutputs(
-      kernel(), output_info, kernel_inputs, options_.device, expr_eval);
+  return allocateOutputs(kernel(), output_info, options_.device, expr_eval);
 }
 
 std::vector<FusionExecutor::GlobalBufferInfo> FusionExecutor::
@@ -1683,7 +1714,7 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
   // only allocate outputs when not given
   if (outputs.empty()) {
     outputs = allocateOutputs(
-        kernel(), executor_entry->outputs, args, options_.device, expr_eval);
+        kernel(), executor_entry->outputs, options_.device, expr_eval);
   } else {
     // TODO: Use validateKernelOutputs
     NVF_ERROR(
@@ -1711,14 +1742,26 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
     FUSER_PERF_SCOPE("ExecutorRunFusion::IntermediateBufferAlloc");
     for (const auto i : c10::irange(executor_entry->intermediates.size())) {
       const auto& buf_info = executor_entry->intermediates.at(i);
+      bool has_expansion = false;
+      std::vector<int64_t> unexpanded_sizes;
+      unexpanded_sizes.reserve(buf_info.sizes.size());
+      NVF_ERROR(buf_info.sizes.size() == buf_info.strides.size())
+      for (const auto j : c10::irange(buf_info.sizes.size())) {
+        if (buf_info.strides[j] == 0) {
+          has_expansion = true;
+          unexpanded_sizes.push_back(1L);
+        } else {
+          unexpanded_sizes.push_back(buf_info.sizes[j]);
+        }
+      }
       at::Tensor intermediate_buffer;
       if (buf_info.zero_init) {
         intermediate_buffer = at::zeros(
-            buf_info.sizes,
+            unexpanded_sizes,
             at::TensorOptions().dtype(buf_info.type).device(options_.device));
       } else {
         intermediate_buffer = at::native::empty_cuda(
-            buf_info.sizes,
+            unexpanded_sizes,
             buf_info.type,
             c10::nullopt,
             options_.device,
@@ -1726,6 +1769,10 @@ std::vector<at::Tensor> FusionExecutor::runFusion(
         if (shouldFillAllocationWithNan()) {
           fillTensorWithNan(intermediate_buffer);
         }
+      }
+      if (has_expansion) {
+        intermediate_buffer =
+            at::native::expand(intermediate_buffer, buf_info.sizes);
       }
       args.push(intermediate_buffer);
       intermediates.push_back(intermediate_buffer);
@@ -2021,38 +2068,42 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
       toUnderlying(kernel()->indexType()),
-      serialize(builder, *compiled_kernel_));
+      serialize(builder, compiled_kernel_.get()));
 }
 
 flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
-    const executor_utils::CompiledKernel& compiled_kernel) const {
+    const executor_utils::CompiledKernel* compiled_kernel) const {
   NVF_ERROR(
-      !compiled_kernel.cubin.empty() || !compiled_kernel.ptx.empty(),
+      compiled_kernel_ != nullptr &&
+          (!compiled_kernel->cubin.empty() || !compiled_kernel->ptx.empty()),
       "Expected compiled cuda kernel before serializing FusionExecutor.");
 
-  auto fb_kernel_name = builder.CreateString(compiled_kernel.kernel_name);
-  auto fb_compile_args = builder.CreateString(compiled_kernel.compile_args);
+  auto fb_kernel_name = builder.CreateString(compiled_kernel->kernel_name);
+  auto fb_compile_args = builder.CreateString(compiled_kernel->compile_args);
 
   flatbuffers::Offset<flatbuffers::Vector<uint8_t>> fb_cubin = 0;
   flatbuffers::Offset<flatbuffers::String> fb_cubin_filename = 0;
-  if (!compiled_kernel.cubin.empty()) {
+  if (!compiled_kernel->cubin.empty()) {
     uint8_t* cubin_ptr = nullptr;
     fb_cubin = builder.CreateUninitializedVector(
-        compiled_kernel.cubin.size(), &cubin_ptr);
+        compiled_kernel->cubin.size(), &cubin_ptr);
     std::copy(
-        compiled_kernel.cubin.begin(), compiled_kernel.cubin.end(), cubin_ptr);
-    fb_cubin_filename = builder.CreateString(compiled_kernel.cubin_filename);
+        compiled_kernel->cubin.begin(),
+        compiled_kernel->cubin.end(),
+        cubin_ptr);
+    fb_cubin_filename = builder.CreateString(compiled_kernel->cubin_filename);
   }
 
   flatbuffers::Offset<flatbuffers::Vector<uint8_t>> fb_ptx = 0;
   flatbuffers::Offset<flatbuffers::String> fb_ptx_filename = 0;
-  if (!compiled_kernel.ptx.empty()) {
+  if (!compiled_kernel->ptx.empty()) {
     uint8_t* ptx_ptr = nullptr;
-    fb_ptx =
-        builder.CreateUninitializedVector(compiled_kernel.ptx.size(), &ptx_ptr);
-    std::copy(compiled_kernel.ptx.begin(), compiled_kernel.ptx.end(), ptx_ptr);
-    fb_ptx_filename = builder.CreateString(compiled_kernel.ptx_filename);
+    fb_ptx = builder.CreateUninitializedVector(
+        compiled_kernel->ptx.size(), &ptx_ptr);
+    std::copy(
+        compiled_kernel->ptx.begin(), compiled_kernel->ptx.end(), ptx_ptr);
+    fb_ptx_filename = builder.CreateString(compiled_kernel->ptx_filename);
   }
 
   serde::CudaKernelBuilder ckb(builder);
@@ -2062,7 +2113,7 @@ flatbuffers::Offset<serde::CudaKernel> FusionExecutor::serialize(
   ckb.add_ptx_filename(fb_ptx_filename);
   ckb.add_kernel_name(fb_kernel_name);
   ckb.add_compile_args(fb_compile_args);
-  ckb.add_block_size(compiled_kernel.block_size);
+  ckb.add_block_size(compiled_kernel->block_size);
   return ckb.Finish();
 }
 

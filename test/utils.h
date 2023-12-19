@@ -590,12 +590,14 @@ static constexpr std::array<MmaLayout, 4> kAllSupportedMmaLayout = {
     MmaLayout::NN};
 
 // Generic interface to get matmul op with the given layout.
+// The as_mul_sum flags creates a mul and sum ops instead of mma
+// to express matmuls. This flag only works for Ampere.
 TensorView* matmul(
     TensorView* a,
     TensorView* b,
     MmaLayout layout,
-    bool turing_or_later // TODO: This is a temporary solution. Remove this!
-);
+    bool turing_or_later, // TODO: This is a temporary solution. Remove this!
+    bool as_mul_sum = false);
 
 // Generic interface to get splitK-like batched matmul op with the given layout.
 // For splitK like batched matmul, there is only one batch dimension, and that

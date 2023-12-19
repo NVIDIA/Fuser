@@ -171,7 +171,7 @@ class AllocationInserter : public kir::ExprMutator {
         alloc_dims.emplace_back(id->container()->oneVal());
         continue;
       } else if (id->isDeviceDim()) {
-        // Device dims are not distributed and not allocated
+        // Allocate device dims as size 1
         alloc_dims.emplace_back(id->container()->oneVal());
         continue;
       }

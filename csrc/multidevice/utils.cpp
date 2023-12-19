@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <ir/internal_base_nodes.h>
+#include <ir/utils.h>
 #include <multidevice/utils.h>
 
 #include <c10/util/irange.h>
@@ -26,6 +27,19 @@ bool isSharded(TensorView* tv) {
         "only the outmost dimension can be device-parallelized");
   }
   return is_sharded.empty() ? false : is_sharded.at(0);
+}
+
+int64_t requestedNumberOfDevices(Fusion* fusion) {
+  std::set<DeviceIdxType> device_indices;
+  for (auto tv : ir_utils::filterByType<TensorView>(fusion->vals())) {
+    if (tv->hasDeviceMesh()) {
+      std::copy(
+          tv->getDeviceMesh().vector().begin(),
+          tv->getDeviceMesh().vector().end(),
+          std::inserter(device_indices, device_indices.begin()));
+    }
+  }
+  return static_cast<int64_t>(device_indices.size());
 }
 
 } // namespace nvfuser
