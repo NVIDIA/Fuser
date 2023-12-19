@@ -1287,21 +1287,8 @@ struct TensorRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     auto fb_sizes = builder.CreateVector(shape_);
 
-    auto mapOptionalToEnum = [](std::optional<bool> v) -> serde::Contiguity {
-      if (!v.has_value()) {
-        return serde::Contiguity::None;
-      } else if (v.value()) {
-        return serde::Contiguity::Contiguous;
-      } else {
-        return serde::Contiguity::Strided;
-      }
-    };
-    std::vector<serde::Contiguity> contiguity_enum;
-    std::transform(
-        contiguity_.cbegin(),
-        contiguity_.cend(),
-        std::back_inserter(contiguity_enum),
-        mapOptionalToEnum);
+    std::vector<serde::Contiguity> contiguity_enum =
+        serde::mapContiguity(contiguity_);
     auto fb_contiguity_enum = builder.CreateVector(contiguity_enum);
     auto fb_stride_order = builder.CreateVector(stride_order_);
 

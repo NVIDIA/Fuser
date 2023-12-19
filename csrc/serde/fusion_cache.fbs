@@ -169,9 +169,12 @@ union PolymorphicValueData {
 union ValData {
   IterDomain,
   NamedScalar,
+  PipelineVal,
   PolymorphicValue,
+  Predicate,
   TensorDomain,
   TensorView,
+  TensorIndex,
 }
 
 // =====================================================================================
@@ -375,6 +378,24 @@ table Vector {
 // =====================================================================================
 //
 
+table Predicate {
+    predicate_type_enum: long;
+    expr: long;
+    thread_pred: long;
+    unrolled_loop: long;
+    value: long;
+}
+
+table TensorIndex {
+  view: long;
+  index: long;
+}
+
+table PipelineVal {
+  original_val: long;
+  stage: long;
+}
+
 table NamedScalar {
   name: string;
 }
@@ -393,15 +414,15 @@ table IterDomain {
 }
 
 table TensorDomain {
-  root_domain: [IterDomain];
-  rfactor_domain: [IterDomain];
-  allocation_domain: [IterDomain];
-  leaf_domain: [IterDomain];
+  root_domain: [long];
+  rfactor_domain: [long];
+  allocation_domain: [long];
+  leaf_domain: [long];
   contiguity: [Contiguity];
 }
 
 table TensorView {
-  domain: TensorDomain;
+  domain: long;
   compute_at_pos: ulong;
   max_producer_pos_:  ulong;
   memory_type_enum: long;
@@ -416,7 +437,7 @@ table TensorView {
   promote_reuse: bool;
 }
 
-table Val {
+table Value {
   dtype_enum: long;
   is_fusion_input: bool;
   is_fusion_output: bool;
@@ -426,7 +447,7 @@ table Val {
   data: ValData;
 }
 
-table Expr {
+table Expression {
   type: ExprType;
   input_vals: [long];
   output_vals: [long];
@@ -435,8 +456,8 @@ table Expr {
 }
 
 table IrContainer {
-  vals: [Val];
-  exprs: [Expr];
+  vals: [Value];
+  exprs: [Expression];
   val_type_name_map_keys: long;
   val_type_name_map_values: ulong;
   expr_name_counter: ulong;

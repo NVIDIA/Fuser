@@ -80,6 +80,19 @@ std::string Predicate::toInlineString(int indent_size) const {
   return toString(indent_size);
 }
 
+std::pair<serde::ValData, flatbuffers::Offset<void>> Predicate::serializeData(
+    const IrSerde& container,
+    flatbuffers::FlatBufferBuilder& builder) const {
+  flatbuffers::Offset<serde::Predicate> data = serde::CreatePredicate(
+      builder,
+      toUnderlying(ptype_),
+      container.map(expr_),
+      container.map(thread_pred_),
+      container.map(unrolled_loop_),
+      container.map(value_));
+  return {serde::ValData::Predicate, data.Union()};
+}
+
 TensorIndex::TensorIndex(
     IrBuilderPasskey passkey,
     const TensorView* view,
@@ -127,6 +140,14 @@ std::string TensorIndex::toString(int indent_size) const {
 
 std::string TensorIndex::toInlineString(int indent_size) const {
   return toString(indent_size);
+}
+
+std::pair<serde::ValData, flatbuffers::Offset<void>> TensorIndex::serializeData(
+    const IrSerde& container,
+    flatbuffers::FlatBufferBuilder& builder) const {
+  flatbuffers::Offset<serde::TensorIndex> data = serde::CreateTensorIndex(
+      builder, container.map(view_), container.map(index_));
+  return {serde::ValData::TensorIndex, data.Union()};
 }
 
 Allocate::Allocate(

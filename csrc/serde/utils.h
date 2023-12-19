@@ -31,4 +31,8 @@ std::vector<T> parseVector(const flatbuffers::Vector<T>* fb_vector) {
 std::vector<bool> parseBoolVector(
     const flatbuffers::Vector<uint8_t>* fb_vector);
 
+serde::Contiguity mapContiguityValue(std::optional<bool> v);
+std::vector<serde::Contiguity> mapContiguity(
+    const std::vector<std::optional<bool>>& contiguity);
+
 } // namespace nvfuser::serde

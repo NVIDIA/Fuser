@@ -121,6 +121,10 @@ class TensorView : public Val {
 
   std::string toInlineString(int indent_size = 0) const override;
 
+  std::pair<serde::ValData, flatbuffers::Offset<void>> serializeData(
+      const IrSerde& container,
+      flatbuffers::FlatBufferBuilder& builder) const override;
+
   void printTransforms() const;
 
   TensorDomain* domain() const {

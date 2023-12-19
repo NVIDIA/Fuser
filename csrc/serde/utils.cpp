@@ -21,4 +21,25 @@ std::vector<bool> parseBoolVector(
   return result;
 }
 
+serde::Contiguity mapContiguityValue(std::optional<bool> v) {
+  if (!v.has_value()) {
+    return serde::Contiguity::None;
+  } else if (v.value()) {
+    return serde::Contiguity::Contiguous;
+  } else {
+    return serde::Contiguity::Strided;
+  }
+}
+
+std::vector<serde::Contiguity> mapContiguity(
+    const std::vector<std::optional<bool>>& contiguity) {
+  std::vector<serde::Contiguity> contiguity_enum;
+  std::transform(
+      contiguity.cbegin(),
+      contiguity.cend(),
+      std::back_inserter(contiguity_enum),
+      mapContiguityValue);
+  return contiguity_enum;
+}
+
 } // namespace nvfuser::serde
