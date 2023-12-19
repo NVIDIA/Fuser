@@ -1115,13 +1115,11 @@ TensorViewDetails getDetailsFor(const std::vector<IterDomain*>& dims) {
     const auto axis = dims.at(pos);
     if (axis->isReduction()) {
       details.rdomains.push_back(pos);
-      continue;
-    }
-    if (axis->isBroadcast()) {
+    } else if (axis->isBroadcast()) {
       details.bcasts.push_back(pos);
-      continue;
+    } else {
+      details.cdomains.push_back(pos);
     }
-    details.cdomains.push_back(pos);
   }
   return details;
 }

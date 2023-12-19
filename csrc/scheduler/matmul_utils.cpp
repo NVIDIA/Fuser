@@ -137,10 +137,9 @@ inline bool initCoreHeuristics(
 
 //! A helper for getting problem shape from fusion and runtime info.
 ProblemShape getProblemShape(
-    Fusion* fusion,
-    const MmaOp* mma_expr,
+    mma_utils::MulSumProperties::InputsOutputs props,
     SchedulerRuntimeInfo& runtime_info) {
-  const auto mma_output_domains = mma_utils::getProblemIterDomains(fusion);
+  const auto mma_output_domains = mma_utils::getProblemIterDomains({props});
   if (!mma_output_domains.isValid()) {
     NVF_ERROR(false, mma_output_domains.getErrorMsg());
   }
@@ -169,7 +168,7 @@ ProblemShape getProblemShape(
 
 std::string isMatmulFusionDefinitionSupported(
     Fusion* fusion,
-    mma_utils::MmaOrMulSumProperties::InputsOutputs props) {
+    mma_utils::MulSumProperties::InputsOutputs props) {
   const auto& fusion_inputs = fusion->inputs();
   const auto& fusion_outputs = fusion->outputs();
   std::vector<TensorView*> mma_inputs = {props.a, props.b};
@@ -304,53 +303,38 @@ std::string getMatmulRunTimeRejectReason(
   return "";
 }
 
+// The analysis is based on mul-sum pair pattern, detected in the provided
+// fusion definition. If detected and properties of an instance of such
+// pattern are valid then it will be later replaced with MmaOp in
+// fusion definition. For the time being a direct instance of MmaOp is
+// also accepted and handled by the analysis.
 std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // The plan:
-  // 1. check if there is exactly one MmaOp defined in the fusion
-  // 2. check if MmaOp inputs match any of supported inputs layout
-  // 3. check if fusion represents expressions that are recognized by matmul
-  // scheduler In addition to the above, it may be the case that there is no mma
-  // op, but a mul-sum pair which may be replaced by a mma op. In that case we
-  // run a pass through the IR to find such a pair of mul-sum, and the
-  // properties of that pair. We then test if the mma op that would replace the
-  // mul-sum pair can be scheduled.
+  // 1. Check if there is exactly one MmaOp or suitable mul sum pair
+  // defined in the fusion.
+  // 2. Check if inputs to the mma op or mul sum pair match any of
+  // supported inputs layout
+  // 3. Check if fusion represents expressions that are recognized by matmul
+  // scheduler.
 
   // #1
   auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
   // Initializing the machinery to check if there's a Mul-Sum pair
   // can be replaced by a Mma Op.
   mma_utils::CombineMulSum combiner(fusion);
-  std::vector<mma_utils::MmaOrMulSumProperties> mma_from_mul_sums = {};
-  mma_utils::MmaOrMulSumProperties::InputsOutputs mma_inputs_out;
-
-  if (mma_exprs.size() != 1) {
-    // If there are no mma ops, check if there's a suitable mul-sum pair
-    // that can be substituted by a mma op.
-    if (mma_exprs.empty()) {
-      mma_from_mul_sums = combiner.generateMulSumCanidates();
-    }
-    // There are more than 1 mma op, or there no mma ops and no suitable mul-sum
-    // pair.
-    if (mma_from_mul_sums.size() != 1) {
-      std::stringstream ss;
-      ss << "Matmul scheduler supports fusions only with a single MMA op, got: "
-         << mma_exprs.size();
-      return ss.str();
-    }
-  }
-
-  if (!mma_exprs.empty()) {
-    mma_inputs_out = {
-        static_cast<TensorView*>(mma_exprs.front()->inA()),
-        static_cast<TensorView*>(mma_exprs.front()->inB()),
-        static_cast<TensorView*>(mma_exprs.front()->out())};
+  std::vector<mma_utils::MulSumProperties> mma_from_mul_sums =
+      combiner.generateMulSumCanidates();
+  if (!combiner.isValid()) {
+    std::stringstream ss;
+    ss << "Matmul scheduler supports fusions only with a single mma op"
+       << "or supports a mul-sum pair which can be replaced with a mma op";
+    return ss.str();
   }
 
   // #2
   {
-    const auto input_layout_opt = mma_utils::getMmaLayout(
-        fusion,
-        mma_exprs.empty() ? mma_from_mul_sums.front().insouts : mma_inputs_out);
+    const auto input_layout_opt =
+        mma_utils::getMmaLayout(fusion, mma_from_mul_sums.front().insouts);
     if (!input_layout_opt.isValid()) {
       return input_layout_opt.getErrorMsg();
     }
@@ -359,13 +343,9 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // #3
   {
     auto support_status = isMatmulFusionDefinitionSupported(
-        fusion,
-        mma_exprs.empty() ? mma_from_mul_sums.front().insouts : mma_inputs_out);
+        fusion, mma_from_mul_sums.front().insouts);
     if (!support_status.empty()) {
       return support_status;
-    }
-    if (!mma_from_mul_sums.empty()) {
-      combiner.replaceWithMmaOp();
     }
   }
 
@@ -383,10 +363,15 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
 
   // Check initial conditions
   auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
-  NVF_ERROR(mma_exprs.size() == 1, "Support only fusion with a single mma op.");
+  mma_utils::CombineMulSum combiner(fusion);
+  std::vector<mma_utils::MulSumProperties> mulSum =
+      combiner.generateMulSumCanidates();
+  NVF_ERROR(
+      combiner.isValid(),
+      "There's no (single) mma op or mul-sum op which mma op can replace")
 
   const auto problem_shape =
-      getProblemShape(fusion, mma_exprs.front()->as<MmaOp>(), runtime_info);
+      getProblemShape(mulSum.front().insouts, runtime_info);
 
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
   const auto mma_op =
@@ -405,7 +390,8 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   params->cparams.enable_magic_zero = false;
 
   // Set whether to use shared memory for epilogue
-  const auto& roles_map_opt = mma_utils::getTensorsRoles(fusion);
+  const auto& roles_map_opt =
+      mma_utils::getTensorsRoles(fusion, mulSum.front().insouts);
   NVF_ERROR(roles_map_opt.isValid(), "Tensor roles map in mma is not valid.");
 
   const auto roles_map = roles_map_opt.getData();

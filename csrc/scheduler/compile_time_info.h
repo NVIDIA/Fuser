@@ -44,6 +44,7 @@ enum class CompileTimeEntryType {
   BROADCAST_BYTE_MULTIPLES,
   INNER_MOST_DIMS_INFO,
   CAN_SCHEDULE_TRANSPOSE,
+  CAN_SCHEDULE_MUL_SUM_AS_MMA,
 };
 
 //! Entry type definition class for `DOMAIN_MAP`,

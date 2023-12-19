@@ -244,7 +244,7 @@ class DataWrapperOpt {
 // This struct hold properties of a Mul and Sum pair
 // which can possibly be replaced a Mma op. This struct
 // can be be created (partially) from a Mma op.
-struct MmaOrMulSumProperties {
+struct MulSumProperties {
   // The Mul amd Sum op which can be replaced by a Mma op.
   struct MulAndSumOps {
     BinaryOp* mop = nullptr;
@@ -291,7 +291,7 @@ using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 //!  instruction first input is transposed, the second input is non-transposed.
 MatmulProblemLayoutOpt getMmaLayout(
     Fusion* fusion,
-    mma_utils::MmaOrMulSumProperties::InputsOutputs props);
+    const mma_utils::MulSumProperties::InputsOutputs& props);
 MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion);
 
 //! Returns wrapped collection of IterDomains that can be used to get
@@ -303,14 +303,14 @@ MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion);
 //!  TODO: 4th domain must be added for batch gemm support.
 ProblemIterDomainsOpt getProblemIterDomains(Fusion* fusion);
 ProblemIterDomainsOpt getProblemIterDomains(
-    std::vector<mma_utils::MmaOrMulSumProperties::InputsOutputs> props);
+    mma_utils::MulSumProperties::InputsOutputs props);
 
 //! Returns wrapped collection of TensorView roles in fusion.
 //!  An error message is stored in retruned object if valid data cannot
 //!  be gathered.
 RolesMapOpt getTensorsRoles(
     Fusion* fusion,
-    mma_utils::MmaOrMulSumProperties::InputsOutputs props);
+    mma_utils::MulSumProperties::InputsOutputs props);
 RolesMapOpt getTensorsRoles(Fusion* fusion);
 
 //! Return pair of whether use shared memory epilogue or not and whether to
@@ -355,12 +355,19 @@ class CombineMulSum : public IterVisitor {
   //! Goes through the fusion to find mul-sum pairs.
   //! If user sets the caching flags and properties have been previously
   //! computed, then just return cached results.
-  std::vector<MmaOrMulSumProperties> generateMulSumCanidates(
+  std::vector<MulSumProperties> generateMulSumCanidates(
       bool use_cached_results = false);
 
   //! Replaces the candidate mul-sum pairs with mma ops.
   //! Please not this will run generateMulSumCandidates again.
   void replaceWithMmaOp();
+
+  //! Check if the fusion has a mul-sum pair
+  //! than can be replaced by a mma op, or has a single mma op.
+  //! This should be run after generaateMulSumCandidates is run.
+  bool isValid() {
+    return is_valid_;
+  }
 
  protected:
   void handle(ReductionOp* stmt) override;
@@ -370,7 +377,10 @@ class CombineMulSum : public IterVisitor {
   //! This is the list of mul-sum pairs and the properties
   //! of the mma op which can replace it. This is only populated
   //! if the mul-sum pair is a valid replacement candidate.
-  std::vector<MmaOrMulSumProperties> mul_sum_props_ = {};
+  std::vector<MulSumProperties> mul_sum_props_ = {};
+  //! This variable tracks if the fusion has a mul-sum pair
+  //! than can be replaced by a mma op, or has a single mma op.
+  bool is_valid_ = false;
 };
 
 } // namespace mma_utils

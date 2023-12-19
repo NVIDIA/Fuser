@@ -211,6 +211,13 @@ TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  // Ensure there's a mma op.
+  ASSERT_FALSE(
+      ir_utils::getOpsOfType<MmaOp>(executor_cache.getMostRecentKernelRuntime()
+                                        ->executors()
+                                        .at(0)
+                                        .kernel())
+          .empty());
 
   NVF_CHECK(
       !executor_cache.getMostRecentKernelRuntime()->isSegmented(),
