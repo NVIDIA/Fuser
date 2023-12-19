@@ -142,12 +142,16 @@ using PipelineTestTwoStagesParams =
     std::tuple<CommunicatorBackend, DeviceMesh, DeviceMesh, bool, bool, bool>;
 class PipelineTestTwoStages
     : public PipelineTest,
-      public ::testing::WithParamInterface<PipelineTestTwoStagesParams> {
-};
+      public ::testing::WithParamInterface<PipelineTestTwoStagesParams> {};
 
 TEST_P(PipelineTestTwoStages, Communication) {
-  auto [backend, mesh0, mesh1, is_stage0_sharded, is_stage1_sharded, do_reduction] =
-      GetParam();
+  auto
+      [backend,
+       mesh0,
+       mesh1,
+       is_stage0_sharded,
+       is_stage1_sharded,
+       do_reduction] = GetParam();
   if (!communicator->isBackendAvailable(backend)) {
     GTEST_SKIP() << "Backend not available";
   }
@@ -156,7 +160,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(4);
   TensorView* tv1 = sum(tv0, {3});
-  TensorView* tv2 = do_reduction? sum(tv1, {0}) : set(tv1);
+  TensorView* tv2 = do_reduction ? sum(tv1, {0}) : set(tv1);
   TensorView* tv3 = sum(tv2, {1});
   fusion->addInput(tv0);
   fusion->addOutput(tv3);
@@ -174,7 +178,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
     tv1->axis(0)->parallelize(ParallelType::DIDx);
   }
   if (is_stage1_sharded) {
-    tv2->axis(do_reduction? 1 : 0)->parallelize(ParallelType::DIDx);
+    tv2->axis(do_reduction ? 1 : 0)->parallelize(ParallelType::DIDx);
     tv3->axis(0)->parallelize(ParallelType::DIDx);
   }
 

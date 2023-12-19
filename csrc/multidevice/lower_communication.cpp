@@ -464,9 +464,10 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
         "the comm input must be sharded in case of reduce.",
         "Insert a `set` before the reduction to reshard")
     if (is_output_sharded) {
-      NVF_ERROR(receiver_mesh == sender_mesh,
-                "ReduceScatter operation must have the same sender and receiver device mesh. "
-                "Insert a Set operation before or after the reduction to reshard ot another device mesh");
+      NVF_ERROR(
+          receiver_mesh == sender_mesh,
+          "ReduceScatter operation must have the same sender and receiver device mesh. "
+          "Insert a Set operation before or after the reduction to reshard ot another device mesh");
       lowerToReduceScatter(
           my_device_index,
           sender_mesh,
