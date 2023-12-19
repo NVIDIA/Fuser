@@ -66,13 +66,7 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
       }
     }
   }
-  for (auto global_output : pipeline_->outputs()) {
-    vals_to_allocate.insert(global_output);
-  }
-  for (auto global_input : pipeline_->inputs()) {
-    vals_to_not_allocate.insert(global_input);
-  }
-  for (auto val_to_not_allocate : vals_to_not_allocate) {
+  for (auto val_to_not_allocate : pipeline_->inputs()) {
     vals_to_allocate.erase(val_to_not_allocate);
   }
 
@@ -250,8 +244,11 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
 
   // Collect global outputs from context
   std::vector<at::Tensor> outputs;
-  for (auto output_val : pipeline_->outputs()) {
-    outputs.push_back(val_to_IValue_.at(output_val).toTensor());
+  for (auto output_val : runtime_.pipeline_->originalFusion()->outputs()) {
+    auto output = (val_to_IValue_.find(output_val) != val_to_IValue_.end())
+        ? val_to_IValue_.at(output_val).toTensor()
+        : at::Tensor();
+    outputs.push_back(output);
   }
 
   return outputs;

@@ -4,11 +4,12 @@
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
+// clang-format on
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <iter_visitor.h>
 #include <fusion.h>
+#include <iter_visitor.h>
 #include <ops/all_ops.h>
 #include <test/utils.h>
 
@@ -38,8 +39,10 @@ TEST_F(IterVisitorTest, IterVisitorTraverseAttributes) {
   auto stmts = StmtSort::getStmts(&fusion, true, true);
 
   // Make sure the expansion parameters of tv1_resize are visited
-  EXPECT_THAT(stmts, Contains(tv1_resize->leftExpand())) << "Resize left expand parameter not found";
-  EXPECT_THAT(stmts, Contains(tv1_resize->rightExpand())) << "Resize right expand parameter not found";
+  EXPECT_THAT(stmts, Contains(tv1_resize->leftExpand()))
+      << "Resize left expand parameter not found";
+  EXPECT_THAT(stmts, Contains(tv1_resize->rightExpand()))
+      << "Resize right expand parameter not found";
 }
 
 // Test that traversing siblings with IterVisitor visits "orphans", i.e. unused
@@ -71,8 +74,10 @@ TEST_F(IterVisitorTest, IterVisitorTraverseSiblings) {
       /*traverse_all_paths=*/false,
       /*traverse_attributes=*/false,
       /*traverse_siblings=*/true);
-  EXPECT_THAT(stmts, Contains(wf.avg)) << "Welford avg not traversed in getStmtsTo({n})";
-  EXPECT_THAT(stmts, Contains(wf.var_sum)) << "Welford var_sum not traversed in getStmtsTo({n})";
+  EXPECT_THAT(stmts, Contains(wf.avg))
+      << "Welford avg not traversed in getStmtsTo({n})";
+  EXPECT_THAT(stmts, Contains(wf.var_sum))
+      << "Welford var_sum not traversed in getStmtsTo({n})";
 }
 
 TEST_F(IterVisitorTest, IterVisitorGetInputsTo) {
@@ -115,7 +120,9 @@ TEST_F(IterVisitorTest, NonTerminatingOutput) {
   // Even though `c` is a non-terminating output, `d` and `e` should still be
   // considered in between. This is because `StmtSort::getExprsBetween`
   // traverses from `to` along use-def chains until it hits `from`.
-  EXPECT_THAT(StmtSort::getExprsBetween({a}, {c, e}), IsSupersetOf({d->definition(), e->definition()}));
+  EXPECT_THAT(
+      StmtSort::getExprsBetween({a}, {c, e}),
+      IsSupersetOf({d->definition(), e->definition()}));
 }
 
 } // namespace nvfuser

@@ -833,9 +833,7 @@ TEST_F(NVFuserTest, FusionGroupedReduction6_CUDA) {
   fe.compileFusion(&fusion, {t0});
   auto outputs = fe.runFusion({t0});
 
-  auto ref = (t0 + 1).sum({1}) + (t0 + 2).sum({1}) + (t0 + 3).sum({1});
-
-  testValidate(fe.kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(fe.kernel(), outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionGroupedReduction7_CUDA) {

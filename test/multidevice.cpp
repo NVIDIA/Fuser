@@ -144,10 +144,9 @@ void SendToTester(
     }
   } else {
     at::Tensor send_buf, recv_buf;
-    auto sender = mesh->vector().at(0);
-    if (tester != sender &&
-        (communicator->deviceId() == sender ||
-         communicator->deviceId() == tester)) {
+    auto sender = mesh.vector().at(0);
+    if (communicator->deviceId() == sender ||
+        communicator->deviceId() == tester) {
       if (communicator->deviceId() == sender) {
         send_buf = tensor;
       }
@@ -170,10 +169,8 @@ void testValidateMultidevice(
     DeviceIdxType tester = 0,
     bool validate = true,
     bool auto_schedule = false) {
-  std::vector<c10::IValue> unsharded_inputs;
-  std::vector<at::Tensor> unsharded_outputs;
-
   // gathering all the inputs at tester
+  std::vector<c10::IValue> unsharded_inputs;
   for (auto i : c10::irange(inputs.size())) {
     c10::IValue unsharded_input = inputs.at(i).deepcopy();
     unsharded_inputs.push_back(unsharded_input);
@@ -186,10 +183,29 @@ void testValidateMultidevice(
         debug_print);
   }
 
+  // allocate output buffers for the tester
+  std::vector<at::Tensor> unsharded_outputs;
+  if (communicator->deviceId() == tester) {
+    std::unique_ptr<Fusion> fusion_copy = std::make_unique<Fusion>();
+    auto original_to_copy_cloner =
+        Fusion::copy(fusion_ptr.get(), fusion_copy.get());
+
+    for (auto tv : ir_utils::filterByType<TensorView>(fusion_copy->vals())) {
+      unshardTv(tv);
+      tv->setMemoryType(MemoryType::Global);
+    }
+
+    FusionExecutor fe;
+    fe.compileFusion(fusion_copy.get(), unsharded_inputs);
+    unsharded_outputs = fe.allocOutputSpace(unsharded_inputs);
+  } else {
+    // On non-tester devices, these tensors won't be used.
+    // we copy the local outputs for convenience
+    unsharded_outputs = outputs;
+  }
+
   // gathering all the outputs at tester
   for (auto i : c10::irange(outputs.size())) {
-    at::Tensor unsharded_output = at::clone(outputs.at(i));
-    unsharded_outputs.push_back(unsharded_output);
     SendToTester(
         runtime.fusion()->outputs().at(i)->as<TensorView>(),
         outputs.at(i),

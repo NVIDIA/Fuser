@@ -20,7 +20,7 @@ namespace nvfuser {
 */
 class DeviceMesh final {
  public:
-  DeviceMesh(std::vector<DeviceIdxType> devices = {0}) {
+  DeviceMesh(std::vector<DeviceIdxType> devices = {}) {
     setDevices(devices);
   }
 
@@ -52,7 +52,6 @@ class DeviceMesh final {
  private:
   void setDevices(std::vector<DeviceIdxType> devices) {
     vector_ = devices;
-    NVF_ERROR(!devices.empty(), "empty device mesh");
     NVF_ERROR(
         std::unique(vector_.begin(), vector_.end()) == vector_.end(),
         "device mesh has duplicates");

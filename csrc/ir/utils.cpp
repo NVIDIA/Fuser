@@ -1079,7 +1079,7 @@ bool isTensorStride(const Val* val) {
       isTensorAttr(val, "alloc_stride");
 }
 
-int64_t getVectorizeSize(TensorView* tv) {
+int64_t getVectorizeSize(const TensorView* tv) {
   for (auto id : tv->getLeafDomain()) {
     if (!isParallelTypeVectorize(id->getParallelType())) {
       continue;

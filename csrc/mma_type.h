@@ -254,6 +254,9 @@ enum class MmaInputSmemSwizzle {
   B32 = 3,
 };
 
+int64_t getBytesFromSwizzle(MmaInputSmemSwizzle swizzle);
+MmaInputSmemSwizzle getSwizzleFromBytes(int64_t bytes);
+
 // MMA stringify utils
 std::string toString(MmaLayout input_layout);
 std::string toString(const GemmTile& tile);

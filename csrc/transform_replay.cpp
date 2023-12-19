@@ -137,6 +137,10 @@ class ReplaySelf : public ReplayTransformations {
     id_map_[m->out()] = merged_id;
   }
 
+  void handle(Swizzle* swizzle) override {
+    NVF_ERROR(false, "Unexpected expr to self replay: ", swizzle->toString());
+  }
+
   void handle(Swizzle2D* swizzle) override {
     NVF_ERROR(false, "Unexpected expr to self replay: ", swizzle->toString());
   }

@@ -273,6 +273,11 @@ inline bool isIntegralType(DataType dtype) {
       dtype.type);
 }
 
+// Returns if the datatype is an unsigned integer type
+inline bool isUnsignedIntegralType(DataType dtype) {
+  return dtype == DataType::UInt || dtype == DataType::UInt32;
+}
+
 // Returns if the datatype is a pointer type
 inline bool isPointerType(DataType dtype) {
   return std::holds_alternative<PointerType>(dtype.type) ||
@@ -576,7 +581,8 @@ enum class UnaryOpType {
 
   // Special unary ops
   ToUnsignedSmemAddr,
-  AdjustPartialLdMatrixAddrInTuring
+  AdjustPartialLdMatrixAddrInTuring8,
+  AdjustPartialLdMatrixAddrInTuring16
 };
 
 // TODO: Order of this list is important as it affects type promotion. it's not
@@ -758,6 +764,7 @@ enum class DoubleBufferLoopStage { NotApplicable, Prolog, Main, Epilog };
 //!
 //!  TODO: unify with existing swizzle logic, currently
 //!    doesn't have the same type.
+enum class SwizzleType { NoSwizzle = 0, XOR };
 enum class Swizzle2DType { NoSwizzle = 0, ZShape, XOR, CyclicShift };
 
 //! Modes of swizzle, see [Note on swizzle mode].
@@ -892,6 +899,7 @@ std::ostream& operator<<(std::ostream&, const IterType);
 std::ostream& operator<<(std::ostream&, const IdMappingMode);
 std::ostream& operator<<(std::ostream&, const LoadStoreOpType);
 std::ostream& operator<<(std::ostream&, const DoubleBufferLoopStage);
+std::ostream& operator<<(std::ostream&, const SwizzleType&);
 std::ostream& operator<<(std::ostream&, const Swizzle2DType&);
 std::ostream& operator<<(std::ostream&, const SwizzleMode&);
 std::ostream& operator<<(std::ostream&, const KernelIndexMode&);
@@ -1008,5 +1016,7 @@ template <typename E>
 constexpr auto toUnderlying(E e) noexcept {
   return static_cast<std::underlying_type_t<E>>(e);
 }
+
+enum class AsyncOpType { CpAsync, CpAsyncBulk, WgMma };
 
 } // namespace nvfuser
