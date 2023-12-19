@@ -36,7 +36,7 @@ class MultiDeviceExecutor {
 
   // Returns the Fusion
   auto fusion() const {
-    return pipeline_->completeFusion();
+    return staged_fusion_->completeFusion();
   }
 
   // check if the runtime is valid returns an error msg.
@@ -63,7 +63,7 @@ class MultiDeviceExecutor {
   // Each SegmentedGroup represents a pipeline's stage, and can be either
   // 1) a Fusion which doesn't involve inter-device communication
   // 2) a Fusion comprised of one Expr, representing inter-device communication
-  std::unique_ptr<SegmentedFusion> pipeline_;
+  std::unique_ptr<SegmentedFusion> staged_fusion_;
   // Stores the order in which the pipeline's stage should be executed
   std::vector<SegmentedGroup*> group_run_order_;
   // Cache Fusions, FusionExecutors, and Communications

@@ -59,14 +59,14 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
     std::vector<c10::IValue> global_inputs_IValues) {
   std::unordered_set<Val*> vals_to_allocate;
   std::unordered_set<Val*> vals_to_not_allocate;
-  for (auto group : pipeline_->groups()) {
+  for (auto group : staged_fusion_->groups()) {
     if (!is_resharding_[group] && should_run_[group]) {
       for (auto input : group->inputs()) {
         vals_to_allocate.insert(input);
       }
     }
   }
-  for (auto val_to_not_allocate : pipeline_->inputs()) {
+  for (auto val_to_not_allocate : staged_fusion_->inputs()) {
     vals_to_allocate.erase(val_to_not_allocate);
   }
 
@@ -99,9 +99,9 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       .run_final_merge = true,
       .only_segment_resharding_exprs = true};
 
-  pipeline_ = SegmentCandidateFinder::segment(std::move(fusion), options);
+  staged_fusion_ = SegmentCandidateFinder::segment(std::move(fusion), options);
 
-  for (auto group : pipeline_->groups()) {
+  for (auto group : staged_fusion_->groups()) {
     // check if the group invovles inter-device communication
     if (std::none_of(
             group->exprs().begin(), group->exprs().end(), [](auto expr) {
@@ -137,7 +137,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
   }
   // prepare the order in which to launch the kernels/comms
   RuntimeWorkSpace workspace;
-  prepareRuntimeOrder(pipeline_.get(), workspace);
+  prepareRuntimeOrder(staged_fusion_.get(), workspace);
   group_run_order_ = std::move(workspace.group_run_order);
 }
 
@@ -167,7 +167,7 @@ void MultiDeviceExecutor::postKernel(SegmentedGroup* group) {
   // Check if the executor has been cached. If not, create and cache it
   if (fe_.find(group) == fe_.end()) {
     fe_.emplace(group, std::make_unique<FusionExecutor>());
-    fusions_.emplace(group, pipeline_->makeFusion(group));
+    fusions_.emplace(group, staged_fusion_->makeFusion(group));
     fe_[group]->compileFusion(fusions_.at(group).get(), group_input_IValues);
   }
   outputs = fe_[group]->runFusion(group_input_IValues);
@@ -224,13 +224,13 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
 
   // Make sure inputs align at global boundary.
   NVF_ERROR(
-      inputs.size() == pipeline_->inputs().size(), "Wrong number of inputs");
+      inputs.size() == staged_fusion_->inputs().size(), "Wrong number of inputs");
 
   val_to_IValue_ = allocateRecvBuffers(inputs);
 
   // process input values:
   for (auto input_idx : c10::irange(inputs.size())) {
-    val_to_IValue_[pipeline_->inputs().at(input_idx)] = inputs.at(input_idx);
+    val_to_IValue_[staged_fusion_->inputs().at(input_idx)] = inputs.at(input_idx);
   }
 
   // Run through the groups to launch kernels and comms
@@ -244,7 +244,7 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
 
   // Collect global outputs from context
   std::vector<at::Tensor> outputs;
-  for (auto output_val : pipeline_->outputs()) {
+  for (auto output_val : staged_fusion_->outputs()) {
     auto output = (val_to_IValue_.find(output_val) != val_to_IValue_.end())
         ? val_to_IValue_.at(output_val).toTensor()
         : at::Tensor();
