@@ -3960,7 +3960,17 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
     for (auto input : expr->inputs()) {
       if (input->isScalar()) {
         to_visit.push_back(input);
-      } else if (auto tv = dynamic_cast<TensorView*>(input)) {
+      } else if (auto tv = dynamic_cast<TensorView*>(input); tv &&
+                 std::none_of(group->producer_edges.begin(),
+                              group->producer_edges.end(),
+                              [&tv](SegmentedEdge* e) {
+                                return e->val == tv;
+                              })) {
+        // Intermediate group inputs (producer edges) will have their rfactor
+        // domain reassigned as the root domain, so there is no need to process
+        // them. Tensors computed inside this group will need processing,
+        // however, as their root->rfactor transforms must be computed in this
+        // group.
         processTV(tv);
       }
     }
