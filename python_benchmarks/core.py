@@ -3,7 +3,7 @@ import torch
 from torch.profiler import profile, ProfilerActivity
 from typing import List, Callable, Union, Tuple
 from torch.autograd import DeviceType
-
+import gc
 
 def get_device_properties() -> Tuple[int, float]:
     """
@@ -123,6 +123,12 @@ def clear_l2_cache() -> None:
     x = torch.empty(n_elements, dtype=torch.float32, device="cuda", requires_grad=False)
     y = torch.clone(x)
 
+def clear_cuda_cache() -> None:
+    """
+    Clear any unused allocated CUDA memory.
+    """
+    gc.collect()
+    torch.cuda.empty_cache()
 
 class NVFBenchmark:
     """
