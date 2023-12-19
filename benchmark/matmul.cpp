@@ -16,6 +16,7 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>
+#include <utils.h>
 
 #include <benchmark/benchmark.h>
 
@@ -155,8 +156,15 @@ static void SingleMatmulBase(
   // Disable magic zero
   CompileParams cparams;
   cparams.enable_magic_zero = false;
-  // Always use 32b indexing mode for now.
-  cparams.index_type = PrimDataType::Int32;
+  KernelIndexTypeCompute index_type_helper;
+  index_type_helper.addDim(std::max(input_mnk[0], input_mnk[1]), input_mnk[2]);
+  index_type_helper.addDim(input_mnk[2], 1);
+  cparams.index_type = index_type_helper.getType();
+  if (cparams.index_type == DataType::Int) {
+    // Notify as this can have a slight perf impact, but is necessary for large
+    // inputs
+    debug() << "Using int64_t as index type" << std::endl;
+  }
 
   // Compile kernel
   auto launch_constraints = LaunchParams();
