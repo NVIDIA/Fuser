@@ -3923,7 +3923,7 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
   std::unordered_set<Val*> visited;
 
   const auto processTV = [&to_visit](TensorView* tv) {
-    for (auto id : tv->getRootDomain()) {
+    for (auto id : TensorDomain::noReductions(tv->getRootDomain())) {
       to_visit.push_back(id->getMaybeExpandedExtent());
     }
     if (tv->domain()->hasRFactor()) {
