@@ -8,56 +8,75 @@
 #ifdef USE_DISTRIBUTED
 #pragma once
 
+#include <c10/core/DeviceType.h>
 #include <exceptions.h>
-#include <iter_visitor.h>
-#include <kernel_cache.h>
+#include <fusion.h>
+#include <fusion_segmenter.h>
 #include <multidevice/communication.h>
-#include <multidevice/pipeline_ir.h>
-#include <multidevice/runtime.h>
+#include <multidevice/communicator.h>
+#include <multidevice/multidevice.h>
 
 namespace nvfuser {
 
-// Runtime Executor for Pipelines
-// This class inherits from IterVisitor because the execution
-// is ordered by the traversal of the Pipeline seen as a DAG
-class PipelineExecutor : public IterVisitor {
+/*
+  The MultiDeviceExecutor executes a Fusion on a multi-device setting.
+  It is instantiated from a Fusion and a Communicator.
+*/
+class MultiDeviceExecutor {
  public:
-  explicit PipelineExecutor(MultiDeviceRuntime& runtime)
-      : IterVisitor(), runtime_(runtime) {}
+  MultiDeviceExecutor(std::unique_ptr<Fusion> fusion, Communicator& comm);
 
-  // Run the Pipelined Fusion with the given global inputs
+  // Run the fusion on several devices with the given global inputs
   std::vector<at::Tensor> runWithInput(const std::vector<c10::IValue>& inputs);
 
- private:
-  // Implement the execution of exprs of the Pipeline
-  // Each PipelineStage will be compiled and executed on a GPU
-  // Each PipelineCommunication will invoke the communicator's process group
-  // to perform the communication
-  using IterVisitor::handle;
-  void handle(PipelineStage* pipelineStage) override;
-  void handle(PipelineCommunication* sr) override;
+  // Returns the Communicator
+  Communicator* comm() const {
+    return &comm_;
+  }
 
-  // Returns whether the current process should run the stage
-  bool shouldRun(PipelineStage* stage);
+  // Returns the Fusion
+  auto fusion() const {
+    return pipeline_->completeFusion();
+  }
+
+  // check if the runtime is valid returns an error msg.
+  // An empty message means that the runtime is valid
+  std::string validate() const;
+
+ private:
+  // execute locally a SegmentedGroup that does not involve inter-device
+  // communication
+  void postKernel(SegmentedGroup* group);
+  // execute a SegmentedGroup representing inter-device communication
+  void postCommunication(SegmentedGroup* group);
+
+  // allocate inter-device communication recv buffers
+  std::unordered_map<Val*, c10::IValue> allocateRecvBuffers(
+      std::vector<c10::IValue> global_inputs_IValues);
 
   // Stores concrete computed values,
   std::unordered_map<Val*, c10::IValue> val_to_IValue_;
 
-  // Stores FusionExecutor(Cache) for each PipelineStage
-  std::unordered_map<PipelineStage*, std::unique_ptr<FusionExecutor>> fe_;
-  std::unordered_map<PipelineStage*, std::unique_ptr<FusionExecutorCache>> fec_;
-  // Stores the resulting Communications after lowering each
-  // PipelineCommunication
+  // holds the Communicator to be used for execution
+  Communicator& comm_;
+  // holds the fusion after segmentation at the inter-device communications
+  // Each SegmentedGroup represents a pipeline's stage, and can be either
+  // 1) a Fusion which doesn't involve inter-device communication
+  // 2) a Fusion comprised of one Expr, representing inter-device communication
+  std::unique_ptr<SegmentedFusion> pipeline_;
+  // Stores the order in which the pipeline's stage should be executed
+  std::vector<SegmentedGroup*> group_run_order_;
+  // Cache Fusions, FusionExecutors, and Communications
+  std::unordered_map<SegmentedGroup*, std::unique_ptr<FusionExecutor>> fe_;
+  std::unordered_map<SegmentedGroup*, std::unique_ptr<Fusion>> fusions_;
   std::unordered_map<
-      PipelineCommunication*,
+      SegmentedGroup*,
       std::vector<std::shared_ptr<Communication>>>
       communications_;
-
-  // Cache results of shouldRun method
-  std::unordered_map<PipelineStage*, bool> should_run_;
-
-  // MultiDeviceRuntime to be executed
-  MultiDeviceRuntime& runtime_;
+  // Cache whether a SegmentedGroup should be run by the current device
+  std::unordered_map<SegmentedGroup*, bool> should_run_;
+  // Cache whether a SegmentedGroup requires inter-device communication
+  std::map<SegmentedGroup*, bool> is_resharding_;
 };
 
 } // namespace nvfuser

@@ -281,8 +281,6 @@ static const char* val_type2string(ValType t) {
       return "Predicate";
     case ValType::TensorIndex:
       return "TensorIndex";
-    case ValType::PipelineVal:
-      return "PipelineVal";
     default:
       NVF_ERROR(false, "No string found for val type.");
   }

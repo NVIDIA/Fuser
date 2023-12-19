@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <disjoint_set.h>
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <type.h>
@@ -558,7 +559,9 @@ std::optional<std::vector<int64_t>> computePermutation(
   return permutation;
 }
 
-std::unordered_set<TensorView*> haveDifferentSharding(TensorView* ref, std::unordered_set<TensorView*> tvs);
+std::unordered_set<TensorView*> haveDifferentSharding(
+    TensorView* ref,
+    std::unordered_set<TensorView*> tvs);
 
 bool isResharding(Expr* expr);
 

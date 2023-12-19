@@ -361,6 +361,65 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
   return ret;
 }
 
+void prepareRuntimeOrder(
+    SegmentedFusion* segmented_fusion,
+    RuntimeWorkSpace& runtime_workspace) {
+  // Setup group run order:
+  std::unordered_set<Val*> available_input;
+
+  // setup the order tensor dimensions are bound
+  for (const size_t i : c10::irange(segmented_fusion->inputs().size())) {
+    auto input_val = segmented_fusion->inputs()[i];
+    available_input.insert(input_val);
+
+    if (auto input_tv = dynamic_cast<TensorView*>(input_val)) {
+      auto root_dom = TensorDomain::noReductions(input_tv->getRootDomain());
+      for (const size_t dim : c10::irange(root_dom.size())) {
+        const auto extent = root_dom[dim]->getMaybeExpandedExtent();
+        available_input.insert(extent);
+        runtime_workspace.group_extent_binding_order.push_back(extent);
+      }
+    }
+  }
+
+  // Keep track of groups that has run
+  std::vector<bool> group_ran(segmented_fusion->groups().size(), false);
+
+  while (!std::all_of(
+      group_ran.begin(), group_ran.end(), [](bool b) { return b; })) {
+    bool one_ran = false;
+
+    // Find the first segment with all inputs available to run
+    for (const size_t group_i :
+         c10::irange(segmented_fusion->groups().size())) {
+      auto& group = segmented_fusion->groups()[group_i];
+      if (group_ran[group_i]) {
+        continue;
+      }
+      const auto& group_inputs = group->inputs();
+      bool ready_to_run = std::all_of(
+          group_inputs.begin(),
+          group_inputs.end(),
+          [&available_input](Val* val) { return available_input.count(val); });
+
+      if (ready_to_run) {
+        runtime_workspace.group_run_order.push_back(group);
+        const auto& group_outputs = group->outputs();
+
+        // Insert graph segment output to tensor map
+        for (const size_t group_out_i : c10::irange(group_outputs.size())) {
+          available_input.insert(group_outputs[group_out_i]);
+        }
+        group_ran[group_i] = true;
+        one_ran = true;
+      }
+    }
+    NVF_ERROR(
+        one_ran,
+        "Couldn't run all groups, something must have gone wrong in segmentation.");
+  }
+}
+
 FusionExecutorCache::FusionExecutorCache(
     std::unique_ptr<Fusion> fusion,
     int64_t fusion_id)
@@ -982,7 +1041,7 @@ FusionKernelRuntime::FusionKernelRuntime(
 
   // Pre-compute the executor order so that the run time path
   //  would go directly to kernel launch.
-  prepareRuntimeOrder();
+  prepareRuntimeOrder(segmented_fusion_.get(), runtime_workspace_);
 }
 
 flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
@@ -1116,63 +1175,6 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   }
 
   return outputs;
-}
-
-void FusionKernelRuntime::prepareRuntimeOrder() {
-  // Setup group run order:
-  std::unordered_set<Val*> available_input;
-
-  // setup the order tensor dimensions are bound
-  for (const size_t i : c10::irange(segmented_fusion_->inputs().size())) {
-    auto input_val = segmented_fusion_->inputs()[i];
-    available_input.insert(input_val);
-
-    if (auto input_tv = dynamic_cast<TensorView*>(input_val)) {
-      auto root_dom = TensorDomain::noReductions(input_tv->getRootDomain());
-      for (const size_t dim : c10::irange(root_dom.size())) {
-        const auto extent = root_dom[dim]->getMaybeExpandedExtent();
-        available_input.insert(extent);
-        runtime_workspace_.group_extent_binding_order.push_back(extent);
-      }
-    }
-  }
-
-  // Keep track of groups that has run
-  std::vector<bool> group_ran(segmented_fusion_->groups().size(), false);
-
-  while (!std::all_of(
-      group_ran.begin(), group_ran.end(), [](bool b) { return b; })) {
-    bool one_ran = false;
-
-    // Find the first segment with all inputs available to run
-    for (const size_t group_i :
-         c10::irange(segmented_fusion_->groups().size())) {
-      auto& group = segmented_fusion_->groups()[group_i];
-      if (group_ran[group_i]) {
-        continue;
-      }
-      const auto& group_inputs = group->inputs();
-      bool ready_to_run = std::all_of(
-          group_inputs.begin(),
-          group_inputs.end(),
-          [&available_input](Val* val) { return available_input.count(val); });
-
-      if (ready_to_run) {
-        runtime_workspace_.group_run_order.push_back(group);
-        const auto& group_outputs = group->outputs();
-
-        // Insert graph segment output to tensor map
-        for (const size_t group_out_i : c10::irange(group_outputs.size())) {
-          available_input.insert(group_outputs[group_out_i]);
-        }
-        group_ran[group_i] = true;
-        one_ran = true;
-      }
-    }
-    NVF_ERROR(
-        one_ran,
-        "Couldn't run all groups, something must have gone wrong in segmentation.");
-  }
 }
 
 // passing args by value because we will be modify this
