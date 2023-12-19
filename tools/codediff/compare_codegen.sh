@@ -67,7 +67,7 @@ do
       outdir=$OPTARG
       ;;
     t)
-      commandtype=$(tr '[:lower:]' '[:upper:]' "$OPTARG")
+      commandtype=$(echo "$OPTARG" | tr '[:lower:]' '[:upper:]')
       ;;
     q)
       quiet=1
