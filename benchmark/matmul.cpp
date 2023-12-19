@@ -157,6 +157,7 @@ static void SingleMatmulBase(
   CompileParams cparams;
   cparams.enable_magic_zero = false;
   KernelIndexTypeCompute index_type_helper;
+  // This assumes M*N is smaller than max(M, N) * K.
   index_type_helper.addDim(std::max(input_mnk[0], input_mnk[1]), input_mnk[2]);
   index_type_helper.addDim(input_mnk[2], 1);
   cparams.index_type = index_type_helper.getType();
