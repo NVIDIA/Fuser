@@ -122,14 +122,12 @@ static void SingleMatmulBase(
     benchmark::State& benchmark_state,
     MmaLayout layout,
     MatmulParams params) {
-  std::vector<int64_t> input_mnk{
-      benchmark_state.range(0),
-      benchmark_state.range(1),
-      benchmark_state.range(2)};
+  int64_t m = benchmark_state.range(0);
+  int64_t n = benchmark_state.range(1);
+  int64_t k = benchmark_state.range(2);
 
   // Tensor inputs
-  auto inputs =
-      matmulAtInput(input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
+  auto inputs = matmulAtInput(m, n, k, layout);
   auto expected_output = atMatmul(
       inputs.first.to(at::kDouble), inputs.second.to(at::kDouble), layout);
 
@@ -157,9 +155,9 @@ static void SingleMatmulBase(
   CompileParams cparams;
   cparams.enable_magic_zero = false;
   KernelIndexTypeCompute index_type_helper;
-  // This assumes M*N is smaller than max(M, N) * K.
-  index_type_helper.addDim(std::max(input_mnk[0], input_mnk[1]), input_mnk[2]);
-  index_type_helper.addDim(input_mnk[2], 1);
+  index_type_helper.addDim(m, k); // A
+  index_type_helper.addDim(n, k); // B
+  index_type_helper.addDim(m, n); // D
   cparams.index_type = index_type_helper.getType();
   if (cparams.index_type == DataType::Int) {
     // Notify as this can have a slight perf impact, but is necessary for large
@@ -181,7 +179,7 @@ static void SingleMatmulBase(
 
   // Warm up run
   auto outputs = fe.runFusion(aten_inputs);
-  checkMatch(expected_output, outputs.at(0).to(at::kDouble), input_mnk.at(2));
+  checkMatch(expected_output, outputs.at(0).to(at::kDouble), k);
 
   runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
 
