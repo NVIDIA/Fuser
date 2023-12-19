@@ -18,51 +18,103 @@ struct RecordFunctor;
 // OpRecord Function Signatures
 // ========================================================================
 // Unary Functions
-typedef std::function<TensorView*(TensorView*)> unary_tv_fn;
-typedef std::function<Val*(Val*)> unary_val_fn;
+typedef std::function<nvfuser::TensorView*(nvfuser::TensorView*)> unary_tv_fn;
+typedef std::function<nvfuser::Val*(nvfuser::Val*)> unary_val_fn;
 
 // ========================================================================
 // Binary Functions
-typedef std::function<TensorView*(TensorView*, TensorView*)> binary_tv_fn;
-typedef std::function<Val*(Val*, Val*)> binary_val_fn;
-typedef std::function<TensorView*(TensorView*, Val*)> binary_tv_val_fn;
-typedef std::function<TensorView*(Val*, TensorView*)> binary_val_tv_fn;
+typedef std::function<
+    nvfuser::TensorView*(nvfuser::TensorView*, nvfuser::TensorView*)>
+    binary_tv_fn;
+typedef std::function<nvfuser::Val*(nvfuser::Val*, nvfuser::Val*)>
+    binary_val_fn;
+typedef std::function<nvfuser::TensorView*(nvfuser::TensorView*, nvfuser::Val*)>
+    binary_tv_val_fn;
+typedef std::function<nvfuser::TensorView*(nvfuser::Val*, nvfuser::TensorView*)>
+    binary_val_tv_fn;
 
 // ========================================================================
 // Ternary Functions
 // Binary with Alpha Functions
-typedef std::function<TensorView*(TensorView*, TensorView*, TensorView*)>
+typedef std::function<nvfuser::TensorView*(
+    nvfuser::TensorView*,
+    nvfuser::TensorView*,
+    nvfuser::TensorView*)>
     ternary_tv_fn;
-typedef std::function<Val*(Val*, Val*, Val*)> ternary_val_fn;
-typedef std::function<TensorView*(TensorView*, TensorView*, Val*)>
+typedef std::function<
+    nvfuser::Val*(nvfuser::Val*, nvfuser::Val*, nvfuser::Val*)>
+    ternary_val_fn;
+typedef std::function<nvfuser::TensorView*(
+    nvfuser::TensorView*,
+    nvfuser::TensorView*,
+    nvfuser::Val*)>
     ternary_tv_tv_val_fn;
-typedef std::function<TensorView*(TensorView*, Val*, TensorView*)>
+typedef std::function<nvfuser::TensorView*(
+    nvfuser::TensorView*,
+    nvfuser::Val*,
+    nvfuser::TensorView*)>
     ternary_tv_val_tv_fn;
-typedef std::function<TensorView*(Val*, TensorView*, TensorView*)>
+typedef std::function<nvfuser::TensorView*(
+    nvfuser::Val*,
+    nvfuser::TensorView*,
+    nvfuser::TensorView*)>
     ternary_val_tv_tv_fn;
-typedef std::function<TensorView*(Val*, Val*, TensorView*)>
+typedef std::function<
+    nvfuser::TensorView*(nvfuser::Val*, nvfuser::Val*, nvfuser::TensorView*)>
     ternary_val_val_tv_fn;
-typedef std::function<TensorView*(TensorView*, Val*, Val*)>
+typedef std::function<
+    nvfuser::TensorView*(nvfuser::TensorView*, nvfuser::Val*, nvfuser::Val*)>
     ternary_tv_val_val_fn;
-typedef std::function<TensorView*(Val*, TensorView*, Val*)>
+typedef std::function<
+    nvfuser::TensorView*(nvfuser::Val*, nvfuser::TensorView*, nvfuser::Val*)>
     ternary_val_tv_val_fn;
 
 // ========================================================================
 // Ternary with Alpha Functions
-typedef std::function<TensorView*(TensorView*, TensorView*, TensorView*, Val*)>
+typedef std::function<nvfuser::TensorView*(
+    nvfuser::TensorView*,
+    nvfuser::TensorView*,
+    nvfuser::TensorView*,
+    nvfuser::Val*)>
     ternary_alpha_tv_fn;
-typedef std::function<Val*(Val*, Val*, Val*, Val*)> ternary_alpha_val_fn;
-typedef std::function<TensorView*(TensorView*, TensorView*, Val*, Val*)>
+typedef std::function<
+    nvfuser::Val*(nvfuser::Val*, nvfuser::Val*, nvfuser::Val*, nvfuser::Val*)>
+    ternary_alpha_val_fn;
+typedef std::function<nvfuser::TensorView*(
+    nvfuser::TensorView*,
+    nvfuser::TensorView*,
+    nvfuser::Val*,
+    nvfuser::Val*)>
     ternary_alpha_tv_tv_val_fn;
-typedef std::function<TensorView*(TensorView*, Val*, TensorView*, Val*)>
+typedef std::function<nvfuser::TensorView*(
+    nvfuser::TensorView*,
+    nvfuser::Val*,
+    nvfuser::TensorView*,
+    nvfuser::Val*)>
     ternary_alpha_tv_val_tv_fn;
-typedef std::function<TensorView*(Val*, TensorView*, TensorView*, Val*)>
+typedef std::function<nvfuser::TensorView*(
+    nvfuser::Val*,
+    nvfuser::TensorView*,
+    nvfuser::TensorView*,
+    nvfuser::Val*)>
     ternary_alpha_val_tv_tv_fn;
-typedef std::function<TensorView*(Val*, Val*, TensorView*, Val*)>
+typedef std::function<nvfuser::TensorView*(
+    nvfuser::Val*,
+    nvfuser::Val*,
+    nvfuser::TensorView*,
+    nvfuser::Val*)>
     ternary_alpha_val_val_tv_fn;
-typedef std::function<TensorView*(TensorView*, Val*, Val*, Val*)>
+typedef std::function<nvfuser::TensorView*(
+    nvfuser::TensorView*,
+    nvfuser::Val*,
+    nvfuser::Val*,
+    nvfuser::Val*)>
     ternary_alpha_tv_val_val_fn;
-typedef std::function<TensorView*(Val*, TensorView*, Val*, Val*)>
+typedef std::function<nvfuser::TensorView*(
+    nvfuser::Val*,
+    nvfuser::TensorView*,
+    nvfuser::Val*,
+    nvfuser::Val*)>
     ternary_alpha_val_tv_val_fn;
 // ========================================================================
 
