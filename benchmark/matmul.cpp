@@ -671,7 +671,11 @@ static void MatmulShapeWarpStageAutoSplitK(benchmark::internal::Benchmark* b) {
 
 ForAllLayouts(EagerModeBenchmark);
 ForAllLayouts(NvfuserMatmulBenchmark);
-ForAllLayouts(AutoSplitKBenchmark);
+// Disable split-K benchmarks due to slow compilation.
+// See https://github.com/NVIDIA/Fuser/issues/1389.
+// These benchmarks should be enabled again after merging
+// https://github.com/NVIDIA/Fuser/pull/1510
+// ForAllLayouts(AutoSplitKBenchmark);
 ForAllLayouts(AutoPartitionedKBenchmark);
 
 // Note: SplitK Reduction benchmarks are parametrized only by M, N. The splitk
