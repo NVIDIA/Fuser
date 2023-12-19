@@ -217,7 +217,6 @@ c10::intrusive_ptr<c10d::Work> Scatter::post(
 Reduce::Reduce(CommParams params) : Communication(params, "reduce") {
   assertBuffersHaveSameSize(params_.src_bufs, params_.dst_bufs);
   assertBufferCount(params_.src_bufs, 1);
-  NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
 }
 
 c10::intrusive_ptr<c10d::Work> Reduce::post(
@@ -252,7 +251,6 @@ Allreduce::Allreduce(CommParams params)
   assertBuffersHaveSameSize(params_.src_bufs, params_.dst_bufs);
   assertBufferCount(params_.src_bufs, 1);
   assertBufferCount(params_.dst_bufs, 1);
-  NVF_ERROR(params_.team.size() > 1, "the team size must be greater than 1");
 }
 
 c10::intrusive_ptr<c10d::Work> Allreduce::post(
