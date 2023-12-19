@@ -56,7 +56,7 @@ class ExpressionEvaluator {
   //! Try to evaluate a parallel dimension
   const PolymorphicValue& evaluate(ParallelType pt);
 
-  //! Try to evaluate a known value using const evaluator ref
+  //! Try to evaluate a value using const evaluator ref
   PolymorphicValue evaluate(const Val* value) const;
 
   bool isKnown(const Val* value) const {
