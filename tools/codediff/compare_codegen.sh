@@ -150,7 +150,7 @@ collect_kernels() {
     binarytestdir=$outdir/$commit/binary_tests
     pyfrontenddir=$outdir/$commit/python_frontend_tests
     pyopsdir=$outdir/$commit/python_ops_tests
-    pyschedopsdir=$outdir/$commit/python_shedule_ops_tests
+    pyschedopsdir=$outdir/$commit/python_schedule_ops_tests
 
     # Test for output directories and return early if they exist. This
     # avoids rebuilds when we are changing code and comparing repeatedly to
