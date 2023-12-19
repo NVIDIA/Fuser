@@ -621,12 +621,8 @@ class TensorView : public Val {
   //! allocated to this tensor.
   bool promote_reuse_ = false;
 
-<<<<<<< HEAD
-  DeviceMesh* mesh_ = nullptr;
-=======
   // Device Mesh on which the Tensor is sharded
   DeviceMesh mesh_;
->>>>>>> b7c13aeaf9eea680da88ee396fad541ffe481ad2
 };
 
 //! A simple TensorView builder

@@ -1120,7 +1120,7 @@ std::unordered_set<TensorView*> haveDifferentSharding(TensorView* ref, std::unor
   }
 
   for (auto tv: tvs) {
-    if (!(*ref->getDeviceMesh() == *tv->getDeviceMesh())) {
+    if (!(ref->getDeviceMesh() == tv->getDeviceMesh())) {
       ret.insert(tv);
       continue;
     }

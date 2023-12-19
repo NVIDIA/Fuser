@@ -413,8 +413,8 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
   TensorView* output_tv = c->outputs().at(0)->as<TensorView>();
   at::Tensor dummy;
 
-  const auto& sender_mesh = *input_tv->getDeviceMesh();
-  const auto& receiver_mesh = *output_tv->getDeviceMesh();
+  const auto& sender_mesh = input_tv->getDeviceMesh();
+  const auto& receiver_mesh = output_tv->getDeviceMesh();
 
   // Stores whether the I/O has its first axis parallelized on Didx
   const bool is_input_sharded =

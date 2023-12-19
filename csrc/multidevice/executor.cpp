@@ -127,7 +127,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
                                .at(0)
                                ->as<TensorView>()
                                ->getDeviceMesh()
-                               ->has(comm_.deviceId());
+                               .has(comm_.deviceId());
     } else {
       // check that the group is comprised of one resharding expr
       NVF_ERROR(group->exprs().size() == 1, "Communications cannot be fused");
@@ -244,7 +244,7 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
 
   // Collect global outputs from context
   std::vector<at::Tensor> outputs;
-  for (auto output_val : runtime_.pipeline_->originalFusion()->outputs()) {
+  for (auto output_val : pipeline_->outputs()) {
     auto output = (val_to_IValue_.find(output_val) != val_to_IValue_.end())
         ? val_to_IValue_.at(output_val).toTensor()
         : at::Tensor();

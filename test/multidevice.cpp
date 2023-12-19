@@ -128,9 +128,9 @@ void SendToTester(
     bool debug_print) {
   auto mesh = tv->getDeviceMesh();
   if (isSharded(tv)) {
-    for (DeviceIdxType j : c10::irange(mesh->vector().size())) {
+    for (DeviceIdxType j : c10::irange(mesh.vector().size())) {
       at::Tensor send_buf, recv_buf;
-      auto sender = mesh->vector().at(j);
+      auto sender = mesh.vector().at(j);
       if (communicator->deviceId() == sender ||
           communicator->deviceId() == tester) {
         if (communicator->deviceId() == sender) {
@@ -185,10 +185,10 @@ void testValidateMultidevice(
 
   // allocate output buffers for the tester
   std::vector<at::Tensor> unsharded_outputs;
-  if (communicator->deviceId() == tester) {
+  if (runtime.comm()->deviceId() == tester) {
     std::unique_ptr<Fusion> fusion_copy = std::make_unique<Fusion>();
     auto original_to_copy_cloner =
-        Fusion::copy(fusion_ptr.get(), fusion_copy.get());
+        Fusion::copy(runtime.fusion(), fusion_copy.get());
 
     for (auto tv : ir_utils::filterByType<TensorView>(fusion_copy->vals())) {
       unshardTv(tv);
@@ -343,10 +343,10 @@ void PipelineTestTwoStages::SetUp() {
   fusion->addInput(tv0);
   fusion->addOutput(tv3);
 
-  tv0->setDeviceMesh(&mesh0);
-  tv1->setDeviceMesh(&mesh0);
-  tv2->setDeviceMesh(&mesh1);
-  tv3->setDeviceMesh(&mesh1);
+  tv0->setDeviceMesh(mesh0);
+  tv1->setDeviceMesh(mesh0);
+  tv2->setDeviceMesh(mesh1);
+  tv3->setDeviceMesh(mesh1);
   if (is_stage0_sharded) {
     tv0->axis(0)->parallelize(ParallelType::DIDx);
     tv1->axis(0)->parallelize(ParallelType::DIDx);

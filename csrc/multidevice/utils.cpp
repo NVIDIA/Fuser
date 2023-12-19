@@ -34,8 +34,8 @@ int64_t requestedNumberOfDevices(Fusion* fusion) {
   for (auto tv : ir_utils::filterByType<TensorView>(fusion->vals())) {
     if (tv->hasDeviceMesh()) {
       std::copy(
-          tv->getDeviceMesh()->vector().begin(),
-          tv->getDeviceMesh()->vector().end(),
+          tv->getDeviceMesh().vector().begin(),
+          tv->getDeviceMesh().vector().end(),
           std::inserter(device_indices, device_indices.begin()));
     }
   }
