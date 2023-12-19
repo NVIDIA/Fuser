@@ -6,11 +6,12 @@
 # compare_codegen.sh - compare generated CUDA kernels between git commits
 #
 # This script is made to compare generated kernels when making changes to
-# codegen. Invoking it without any arguments will checkout origin/main, as well
-# as this commit. For each, it will build the project in release mode then
-# invoke all binary and python tests, saving the generated cuda kernels to .cu
-# files. It will then diff these files and report which ones changed. The exit
-# code is 1 if there are differences.
+# codegen. Invoking it without any arguments will checkout the reference commit
+# as well as this commit. The default reference commit is the merge-base equal
+# to `git merge-base origin/main HEAD`. For each, it will build the project in
+# release mode then invoke all binary and python tests, saving the generated
+# cuda kernels to .cu files. It will then diff these files and report which
+# ones changed. The exit code is 1 if there are differences.
 #
 # The -r option controls the git ref to compare against. The -o option lets you
 # specify the output directory.
@@ -39,8 +40,10 @@
 set -e
 set -o pipefail
 
+comparetoref=$(git merge-base origin/main HEAD)
+
 usage() {
-  echo "Usage: $0 [-h] [-q] [-r origin/main] [-o codegen_comparison] [-- custom command to run]"
+  echo "Usage: $0 [-h] [-q] [-r ${comparetoref}] [-o codegen_comparison] [-- custom command to run]"
   echo -n "If given, the custom command should only run a single executable. "
   echo "If multiple executables are run, kernel files may be overwritten."
 }
@@ -48,7 +51,6 @@ usage() {
 # top-level directory of nvfuser repo
 nvfuserdir="$(dirname "$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")")"
 
-comparetoref=origin/main
 outdir=$nvfuserdir/codegen_comparison
 
 while getopts "r:o:hq" arg
