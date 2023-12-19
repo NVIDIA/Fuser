@@ -238,8 +238,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // target 50% occupancy based on experiments
   // at 14K, prefer persistent_val= 4, bdimx_val= 448, warp_per_sm= 28
   // at 20736, prefer persistent_val= 3, bdimx_val= 864, warp_per_sm= 27
+  // at 23K, perfer persistent_val= 4, bdimx_val= 736, warp_per_sm= 23
   const int64_t target_warps_per_sm =
-      max_persistent_buffer_size >= 14l*1024l * 4l ? 24l : 32l;
+      max_persistent_buffer_size >= 14l * 1024l * 4l ? 24l : 32l;
 
   // allows to reduce estimated register usage for higher occupancy.
   constexpr int64_t max_adjust_count = 8;
@@ -262,9 +263,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       // 1, 2, 4. All values are divisible and lead to same occupancy and fully
       // used all registers. However, test shows persistent_val = 2.
       if (total_reduction_numel >= 20480) {
-        experiment_min = 3l;
+        experiment_min = 4l;
         experiment_max = 7l;
-      } else if (total_reduction_numel >= 8192l) {
+      } else if (total_reduction_numel >= 6144l) {
         experiment_min = 2l;
         experiment_max = 4l;
       } else if (total_reduction_numel >= 3072l) {
@@ -273,7 +274,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       } else if (total_reduction_numel >= 2048l) {
         experiment_min = 1l;
         experiment_max = 2l;
-      }else {
+      } else {
         experiment_min = 1l;
         experiment_max = 1l;
       }
@@ -315,7 +316,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     if (has_exp_ops) {
       // Try to maximize occupancy.
       // calc blocks_per_sm using estimated register usage, if lower than
-      // expected, try to increase it by reducing register usage.      
+      // expected, try to increase it by reducing register usage.
       blocks_per_sm =
           getThreadsPerSMGivenRegPerThread(estimated_reg_per_thread) /
           threads_per_block;
@@ -401,6 +402,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       return ss.str();
     }
   };
+
   auto getHeuristicParas = [&](int64_t persistent_val) {
     int64_t bdimx_val = calculateBdimx(persistent_val);
     int64_t bdimy_val = calculateBdimy(bdimx_val, may_use_mrpb);
@@ -411,8 +413,17 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
          n_waves,
          n_adjusted_register] =
             calculateRegWaveOccupancy(persistent_val, bdimx_val, bdimy_val);
-    auto n_threads_tails = persistent_val * bdimx_val - after_vect;
-    auto n_persistent_tails = after_vect % persistent_val;
+
+    // after_vect is split into multiple persistent batches, the last batch may
+    // not be full. for each persistent loop, bimdx is padded full warps, want
+    // to minimize this padding to reduce wasted registers. prefer
+    // n_persistent_tails = 0 and n_threads_tails = 0. n_threads_tails == 0 is
+    // more important than n_persistent_tails == 0 since it is in the inner
+    // loop.
+    auto n_persistent_tails =
+        ceilDiv(after_vect, persistent_val) * persistent_val - after_vect;
+    auto n_threads_tails = bdimx_val - ceilDiv(after_vect, persistent_val);
+
     return HeuristicParas{
         .warp_size = threads_per_warp,
         .persistent_val = persistent_val,
@@ -440,52 +451,56 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       }
       return 0;
     };
-    // how many warps are being wasted
-    auto threads_tails_score = -1*compare(ha.n_threads_tails, hb.n_threads_tails);
+    // 22k and 23k, occupancy is more important than n_threads_tails.
+    auto threads_tails_score =
+        compare(ha.n_threads_tails == 0, hb.n_threads_tails == 0);
     // divisible split
-    auto persistent_tails_score = -1 * compare(ha.n_persistent_tails, hb.n_persistent_tails);
-    auto occupancy_score = compare(ha.warps_per_sm, hb.warps_per_sm);
+    auto persistent_tails_score =
+        compare(ha.n_persistent_tails == 0, hb.n_persistent_tails == 0);
 
-    // at 20K, [persistent_val= 5] is 1.1x times of [persistent_val= 4]
-    // persistent_val= 5, bdimx_val= 512, bdimy_val= 1,
-    // nvrtc_register_per_thread= 64, n_waves= 125, n_threads_tails= 0,
-    // warps_per_sm= 32, registers= 65536 persistent_val= 4, bdimx_val= 640,
-    // bdimy_val= 1, nvrtc_register_per_thread= 48, n_waves= 125,
-    // n_threads_tails= 0, warps_per_sm= 40, registers= 61440 persistent_val= 6,
-    // bdimx_val= 448, bdimy_val= 1, nvrtc_register_per_thread= 72, n_waves=
-    // 125, n_threads_tails= 128, warps_per_sm= 28, registers= 64512
+    // 9472
+    // persistent_val= 4, bdimx_val= 320, bdimy_val= 1,
+    // nvrtc_register_per_thread= 48, n_waves= 63, n_threads_tails= 24,
+    // warps_per_sm= 40, n_persistent_tails= 0, registers= 61440 persistent_val=
+    // 3, bdimx_val= 416, bdimy_val= 1, nvrtc_register_per_thread= 48, n_waves=
+    // 83, n_threads_tails= 21, warps_per_sm= 39, n_persistent_tails= 1,
+    // registers= 59904 persistent_val= 2, bdimx_val= 608, bdimy_val= 1,
+    // nvrtc_register_per_thread= 48, n_waves= 125, n_threads_tails= 16,
+    // warps_per_sm= 38, n_persistent_tails= 0, registers= 58368
+
+    // 11008
+    // persistent_val= 3, bdimx_val= 480, bdimy_val= 1,
+    // nvrtc_register_per_thread= 40, n_waves= 83, n_threads_tails= 21,
+    // warps_per_sm= 45, n_persistent_tails= 1, registers= 57600 persistent_val=
+    // 2, bdimx_val= 704, bdimy_val= 1, nvrtc_register_per_thread= 40, n_waves=
+    // 125, n_threads_tails= 16, warps_per_sm= 44, n_persistent_tails= 0,
+    // registers= 56320 persistent_val= 4, bdimx_val= 352, bdimy_val= 1,
+    // nvrtc_register_per_thread= 56, n_waves= 83, n_threads_tails= 8,
+    // warps_per_sm= 33, n_persistent_tails= 0, registers= 59136
+
+    // 22528
+    // ersistent_val= 5, bdimx_val= 576, bdimy_val= 1,
+    // nvrtc_register_per_thread= 56, n_waves= 125, n_threads_tails= 12,
+    // warps_per_sm= 36, n_persistent_tails= 4, registers= 64512 persistent_val=
+    // 3, bdimx_val= 960, bdimy_val= 1, nvrtc_register_per_thread= 64, n_waves=
+    // 249, n_threads_tails= 21, warps_per_sm= 30, n_persistent_tails= 1,
+    // registers= 61440 persistent_val= 6, bdimx_val= 480, bdimy_val= 1,
+    // nvrtc_register_per_thread= 64, n_waves= 125, n_threads_tails= 10,
+    // warps_per_sm= 30, n_persistent_tails= 4, registers= 61440 persistent_val=
+    // 7, bdimx_val= 416, bdimy_val= 1, nvrtc_register_per_thread= 72, n_waves=
+    // 125, n_threads_tails= 13, warps_per_sm= 26, n_persistent_tails= 5,
+    // registers= 59904 persistent_val= 4, bdimx_val= 704, bdimy_val= 1,
+    // nvrtc_register_per_thread= 80, n_waves= 249, n_threads_tails= 0,
+    // warps_per_sm= 22, n_persistent_tails= 0, registers= 56320
+    auto occupancy_score = compare(ha.warps_per_sm, hb.warps_per_sm);
     auto register_usage = compare(
         ha.warps_per_sm * ha.nvrtc_register_per_thread * 32l,
         hb.warps_per_sm * hb.nvrtc_register_per_thread * 32l);
     auto single_warp_reduction_score = compare(
         ha.bdimx_val == threads_per_warp, hb.bdimx_val == threads_per_warp);
-    // auto n_waves_score = compare(ha.n_waves >= 1, hb.n_waves >= 1);
-
-// prefer 4, where bdimx_val is not divisible by 128.
-// persistent_val= 2, bdimx_val= 896, bdimy_val= 1, nvrtc_register_per_thread= 72, n_waves= 16, n_threads_tails= 0, warps_per_sm= 28, registers= 64512
-// persistent_val= 4, bdimx_val= 448, bdimy_val= 1, nvrtc_register_per_thread= 72, n_waves= 8, n_threads_tails= 0, warps_per_sm= 28, registers= 64512
-// persistent_val= 7, bdimx_val= 256, bdimy_val= 1, nvrtc_register_per_thread= 80, n_waves= 6, n_threads_tails= 0, warps_per_sm= 24, registers= 61440
-// persistent_val= 3, bdimx_val= 608, bdimy_val= 1, nvrtc_register_per_thread= 48, n_waves= 8, n_threads_tails= 32, warps_per_sm= 38, registers= 58368
-// persistent_val= 6, bdimx_val= 320, bdimy_val= 1, nvrtc_register_per_thread= 64, n_waves= 6, n_threads_tails= 128, warps_per_sm= 30, registers= 61440
-// persistent_val= 5, bdimx_val= 384, bdimy_val= 1, nvrtc_register_per_thread= 80, n_waves= 8, n_threads_tails= 128, warps_per_sm= 24, registers= 61440
-// final_params: persistent_val= 2, bdimx_val= 896, bdimy_val= 1, nvrtc_register_per_thread= 72, n_waves= 16, n_threads_tails= 0, warps_per_sm= 28, registers= 64512
-// ===== Reduction Stats ========
-// total_reduction_numel: 14336
-// total_iteration_numel: 2048    
-
-
-// prefer 3.
-// persistent_val= 4, bdimx_val= 288, bdimy_val= 1, nvrtc_register_per_thread= 56, n_waves= 4, n_threads_tails= 8, warps_per_sm= 36, n_persistent_tails= 0, registers= 64512
-// persistent_val= 2, bdimx_val= 544, bdimy_val= 1, nvrtc_register_per_thread= 56, n_waves= 8, n_threads_tails= 16, warps_per_sm= 34, n_persistent_tails= 0, registers= 60928
-// persistent_val= 3, bdimx_val= 352, bdimy_val= 1, nvrtc_register_per_thread= 56, n_waves= 6, n_threads_tails= 0, warps_per_sm= 33, n_persistent_tails= 0, registers= 59136
-// persistent_val= 5, bdimx_val= 224, bdimy_val= 1, nvrtc_register_per_thread= 56, n_waves= 4, n_threads_tails= 20, warps_per_sm= 35, n_persistent_tails= 1, registers= 62720
-// final_params: persistent_val= 4, bdimx_val= 288, bdimy_val= 1, nvrtc_register_per_thread= 56, n_waves= 4, n_threads_tails= 8, warps_per_sm= 36, n_persistent_tails= 0, registers= 64512
-// ===== Reduction Stats ========
-// total_reduction_numel: 8448
-// total_iteration_numel: 2048
-    auto n_bdimx_score =
-        compare(ha.bdimx_val > 0, hb.bdimx_val > 0);
-    // auto persistent_val_score = compare(ha.persistent_val, hb.persistent_val);
+    auto n_bdimx_score = compare(ha.bdimx_val > 0, hb.bdimx_val > 0);
+    // auto persistent_val_score = compare(ha.persistent_val,
+    // hb.persistent_val);
     std::cout << "pa:" << ha.persistent_val << ", pb:" << hb.persistent_val
               << ", persistent_tails_score:" << persistent_tails_score
               << ", threads_tails_score:" << threads_tails_score
@@ -497,10 +512,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     auto second_priority = threads_tails_score;
     auto third_priority = occupancy_score;
     if (has_rng_ops) {
-      first_priority = persistent_tails_score;
-      second_priority = threads_tails_score ;
-      third_priority =  occupancy_score;
-
+      first_priority = threads_tails_score;
+      second_priority = persistent_tails_score;
+      third_priority = occupancy_score;
     }
     if (first_priority > 0) {
       return true;
@@ -512,6 +526,22 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       } else if (second_priority < 0) {
         return false;
       } else {
+        // at 6K, prefer 3 not 1 or 2.
+        // at 21K, prefer 6 not 7.
+        if (ha.n_threads_tails == 0 && ha.n_persistent_tails == 0) {
+          // // at 7K, prefer 2 not 1.
+          // if (total_reduction_numel >= 7168l) {
+          //   if(hb.persistent_val == 1){
+          //     return true;
+          //   }else if(ha.persistent_val == 1){
+          //   return false;
+          //   }
+          // }
+          third_priority = register_usage;
+        } else {
+          return ha.persistent_val < hb.persistent_val;
+        }
+
         if (third_priority > 0) {
           return true;
         } else if (third_priority < 0) {
@@ -527,9 +557,13 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
             } else if (n_bdimx_score < 0) {
               return false;
             } else {
-              // If wasted threads number is non-zero, perfer small [persistent], it leads to larger [bdimx], means wasted fraction of threads is smaller.
-              // e.g. at 10496, prefer persistent = 3 instead of 6., bandwidth is 1.24x
-              return ha.n_threads_tails != 0 ? ha.persistent_val < hb.persistent_val : ha.persistent_val > hb.persistent_val;
+              // If wasted threads number is non-zero, perfer small
+              // [persistent], it leads to larger [bdimx], means wasted fraction
+              // of threads is smaller. e.g. at 10496, prefer persistent = 3
+              // instead of 6., bandwidth is 1.24x
+              return ha.n_threads_tails != 0
+                  ? ha.persistent_val < hb.persistent_val
+                  : ha.persistent_val > hb.persistent_val;
             }
           }
         }
@@ -552,8 +586,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   const int64_t bdimx_max = max_threads_per_block;
 
   // (2.2) set [persistent_min] and [persistent_max]
+  const int64_t persistent_min_hardware = ceilDiv(after_vect, bdimx_max);
   const int64_t persistent_min =
-      std::max(persistent_experiment_min, ceilDiv(after_vect, bdimx_max));
+      std::max(persistent_experiment_min, persistent_min_hardware);
   const int64_t persistent_max = std::min(
       std::max(persistent_experiment_max, persistent_min),
       ceilDiv(after_vect, bdimx_min));
@@ -568,10 +603,22 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
 
   // (2.4) get our first [h_params] using [persistent_val]
   int64_t selected_item = 0;
+  bool has_divisible_split = false;
   std::vector<HeuristicParas> all_h_params;
   all_h_params.reserve(persistent_max - persistent_min + 1);
   for (auto pb = persistent_min; pb <= persistent_max; pb++) {
-    all_h_params.emplace_back(getHeuristicParas(pb));
+    auto h_params = getHeuristicParas(pb);
+    if (h_params.n_threads_tails == 0 && h_params.n_persistent_tails == 0) {
+      has_divisible_split = true;
+    }
+    all_h_params.emplace_back(h_params);
+  }
+  // extra search space for cases don't have divisible split, e.g. 20736 needs
+  // a persistent batch of 3.
+  if (!has_divisible_split) {
+    for (auto pb = persistent_min - 1; pb >= persistent_min_hardware; pb--) {
+      all_h_params.emplace_back(getHeuristicParas(pb));
+    }
   }
 
   // sort by occupancy and only further process those with occupancy >= 50%.
@@ -594,7 +641,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     std::stable_sort(
         all_h_params.begin(), all_h_params.begin() + n_items, isBetterThan);
   }
-
 
   for (auto it = all_h_params.begin(); it != all_h_params.end(); it++) {
     std::cout << it->toString() << std::endl;
