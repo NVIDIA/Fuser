@@ -1,7 +1,7 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark
+from .core import run_benchmark, clear_cuda_cache
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
@@ -46,6 +46,8 @@ def test_transpose_benchmark(
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
+    clear_cuda_cache()
+    
     input1 = torch.randn(*size, device="cuda", dtype=dtype)
     input2 = torch.randn(*size, device="cuda", dtype=dtype)
     permute_axes = list(range(len(size)))
@@ -65,5 +67,3 @@ def test_transpose_benchmark(
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, [input1, input2])
-
-    torch.cuda.empty_cache()

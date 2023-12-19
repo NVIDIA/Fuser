@@ -125,7 +125,7 @@ def clear_l2_cache() -> None:
 
 def clear_cuda_cache() -> None:
     """
-    Clear any unused allocated CUDA memory.
+    Utility function to clear any unused allocated CUDA memory before tests.
     """
     gc.collect()
     torch.cuda.empty_cache()
