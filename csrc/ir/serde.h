@@ -13,6 +13,7 @@
 
 namespace nvfuser {
 
+class Statement;
 class Expr;
 class Val;
 class IterDomain;
@@ -22,14 +23,22 @@ class IrContainer;
 class IrSerde {
  public:
   IrSerde(const IrContainer* container);
+
+  int64_t map(Statement* v) const;
+  int64_t map(const Statement* v) const;
+
   int64_t map(Val* v) const;
   int64_t map(const Val* v) const;
+
   int64_t map(Expr* e) const;
   int64_t map(const Expr* e) const;
+
+  std::vector<int64_t> map(const std::vector<Statement*>& vals) const;
   std::vector<int64_t> map(const std::vector<Val*>& vals) const;
+  std::vector<int64_t> map(const std::vector<Expr*>& exprs) const;
+
   std::vector<int64_t> map(const std::vector<IterDomain*>& vals) const;
   std::vector<int64_t> map(const std::vector<TensorView*>& vals) const;
-  std::vector<int64_t> map(const std::vector<Expr*>& exprs) const;
 
  private:
   const IrContainer* container_;

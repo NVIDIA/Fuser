@@ -35,7 +35,7 @@
 namespace nvfuser {
 
 FullOp::FullOp(IrBuilderPasskey passkey, Val* out, Val* fill_value)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Full) {
   if (out->isA<TensorView>()) {
     auto tv_root = out->as<TensorView>()->getRootDomain();
     for (auto id : tv_root) {
@@ -90,7 +90,7 @@ SelectOp::SelectOp(
     Val* in,
     int64_t dim,
     Val* index)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Select) {
   addInput(in);
   addInput(index);
   addOutput(out);
@@ -134,7 +134,7 @@ IndexSelectOp::IndexSelectOp(
     Val* in,
     int64_t dim,
     Val* indices)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::IndexSelect) {
   addInput(in);
   addInput(indices);
   addOutput(out);
@@ -183,7 +183,7 @@ TorchGatherOp::TorchGatherOp(
     int64_t dim,
     Val* indices,
     bool exact_sizes)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::TorchGather) {
   addInput(in);
   addInput(indices);
   addOutput(out);
@@ -242,7 +242,7 @@ ScatterOp::ScatterOp(
     int64_t dim,
     Val* index,
     Val* src)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Scatter) {
   addInput(self);
   addInput(index);
   addInput(src);
@@ -288,7 +288,7 @@ IotaOp::IotaOp(
     Val* length,
     Val* start,
     Val* step)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Iota) {
   NVF_CHECK(isIntegralType(*length->getDataType()));
   addInput(length);
   NVF_CHECK(start->getDataType() == step->getDataType());
@@ -341,7 +341,7 @@ std::vector<PolymorphicValue> IotaOp::evaluate(
 NVFUSER_DEFINE_CLONE_AND_CREATE(IotaOp)
 
 EyeOp::EyeOp(IrBuilderPasskey passkey, Val* out, DataType dtype)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Eye) {
   if (out->isA<TensorView>()) {
     addInput(out->as<TensorView>()->getRootDomain()[0]->extent());
     if (out->as<TensorView>()->getRootDomain()[1] !=
@@ -382,7 +382,7 @@ std::vector<PolymorphicValue> EyeOp::evaluate(
 NVFUSER_DEFINE_CLONE_AND_CREATE(EyeOp)
 
 UnaryOp::UnaryOp(IrBuilderPasskey passkey, UnaryOpType type, Val* out, Val* in)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Unary) {
   addOutput(out);
   addInput(in);
   addDataAttribute(type);
@@ -561,7 +561,7 @@ BinaryOp::BinaryOp(
     Val* out,
     Val* lhs,
     Val* rhs)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Binary) {
   addOutput(out);
   addInput(lhs);
   addInput(rhs);
@@ -723,7 +723,7 @@ TernaryOp::TernaryOp(
     Val* in1,
     Val* in2,
     Val* in3)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Ternary) {
   addOutput(out);
   addInput(in1);
   addInput(in2);
@@ -821,7 +821,7 @@ ArrayConstruct::ArrayConstruct(
     IrBuilderPasskey passkey,
     Val* output,
     std::vector<Val*> inputs)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::ArrayConstruct) {
   NVF_ERROR(!inputs.empty(), "Cannot create an array with no members.");
   addOutput(output);
   DataType input_dtype = DataType::Null;
@@ -866,7 +866,7 @@ std::vector<PolymorphicValue> ArrayConstruct::evaluate(
 NVFUSER_DEFINE_CLONE_AND_CREATE(ArrayConstruct)
 
 ReverseArray::ReverseArray(IrBuilderPasskey passkey, Val* output, Val* input)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::ReverseArray) {
   NVF_ERROR(
       std::holds_alternative<ArrayType>(input->dtype().type),
       "Cannot reverse a non-array type.");
@@ -917,7 +917,7 @@ std::vector<PolymorphicValue> ReverseArray::evaluate(
 NVFUSER_DEFINE_CLONE_AND_CREATE(ReverseArray)
 
 GetItem::GetItem(IrBuilderPasskey passkey, Val* output, Val* array, Val* index)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::GetItem) {
   addOutput(output);
   addInput(array);
   addInput(index);
@@ -953,7 +953,7 @@ StructConstruct::StructConstruct(
     IrBuilderPasskey passkey,
     Val* output,
     const std::vector<std::pair<std::string, Val*>>& fields)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::StructConstruct) {
   NVF_ERROR(!fields.empty(), "Cannot create a struct with no members.");
   auto output_dtype = std::get<StructType>(output->dtype().type);
   NVF_ERROR(
@@ -1025,7 +1025,7 @@ GetAttr::GetAttr(
     Val* output,
     Val* struct_,
     std::string attr)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::GetAttr) {
   NVF_ERROR(
       std::get<StructType>(struct_->dtype().type).fieldDataType(attr) ==
           output->dtype(),
@@ -1058,7 +1058,7 @@ std::vector<PolymorphicValue> GetAttr::evaluate(
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetAttr)
 
 GetMetaData::GetMetaData(IrBuilderPasskey passkey, Val* output, Val* input)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::GetMetaData) {
   addOutput(output);
   addInput(input);
   NVF_ERROR(
@@ -1085,7 +1085,7 @@ TensorConstruct::TensorConstruct(
     IrBuilderPasskey passkey,
     TensorView* output,
     Val* input)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::TensorConstruct) {
   addOutput(output);
   addInput(input);
 }
@@ -1120,7 +1120,7 @@ RNGOp::RNGOp(
     Val* philox_seed,
     Val* philox_offset,
     Val* philox_index)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::RNG) {
   if (auto tv_out = dynamic_cast<TensorView*>(out)) {
     for (auto id : tv_out->getRootDomain()) {
       NVF_CHECK(!id->isReduction(), "Output of RNGOp can not have reduction");
@@ -1182,7 +1182,7 @@ BroadcastOp::BroadcastOp(
     Val* out,
     Val* in,
     std::vector<bool> is_broadcast_dims)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Broadcast) {
   auto out_type = out->getValType().value();
   auto in_type = in->getValType().value();
 
@@ -1275,7 +1275,7 @@ SqueezeOp::SqueezeOp(
     Val* out,
     Val* in,
     std::vector<bool> is_squeeze_dims)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Squeeze) {
   auto out_type = out->getValType().value();
   auto in_type = in->getValType().value();
 
@@ -1417,7 +1417,7 @@ ReductionOp::ReductionOp(
     Val* out,
     Val* in,
     bool is_allreduce)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Reduction) {
   NVF_CHECK(
       out->getValType().value() == ValType::TensorView ||
       out->getValType().value() == ValType::TensorIndex);
@@ -1508,7 +1508,7 @@ GroupedReductionOp::GroupedReductionOp(
     std::vector<Val*> outputs,
     std::vector<Val*> inputs,
     bool is_fused)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::GroupedReduction) {
   for (auto out : outputs) {
     addOutput(out);
   }
@@ -1631,7 +1631,7 @@ WelfordOp::WelfordOp(
     const WelfordTriplet& input,
     const WelfordTriplet& init,
     bool is_fused)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Welford) {
   // Previously, nullptr was accepted and implicitly replaced by
   // default values. Looks like we always pass some non-null values,
   // so removed the implicit default behavior for code simplicity.
@@ -1808,7 +1808,7 @@ GroupedWelfordOp::GroupedWelfordOp(
     std::vector<WelfordTriplet> input_vals,
     std::vector<WelfordTriplet> init_vals,
     bool is_allreduce)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::GroupedWelford) {
   const auto num_grouped_ops = output_vals.size();
 
   NVF_ERROR(
@@ -1971,7 +1971,7 @@ MmaOp::MmaOp(
     Val* in_a,
     Val* in_b,
     Val* init)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Mma) {
   NVF_ERROR(
       out->getValType().value() == ValType::TensorView ||
           out->getValType().value() == ValType::TensorIndex,
@@ -2071,7 +2071,7 @@ ExpandOp::ExpandOp(
     TensorView* out,
     TensorView* in,
     std::vector<Val*> _expanded_extents)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Expand) {
   addOutput(out);
   addInput(in);
   for (auto expanded_extent : _expanded_extents) {
@@ -2115,7 +2115,7 @@ ShiftOp::ShiftOp(
     Val* in,
     std::vector<int> offsets,
     std::vector<int> pad_width)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Shift) {
   // clang-tidy complains about out that it may be null.
   NVF_ERROR(out != nullptr);
   NVF_ERROR(in != nullptr);
@@ -2167,7 +2167,7 @@ GatherOp::GatherOp(
     Val* in,
     std::vector<int> window_shape,
     std::vector<std::vector<int>> pad_width)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Gather) {
   // clang-tidy complains about out_ that it may be null.
   NVF_ERROR(out != nullptr);
   NVF_ERROR(in != nullptr);
@@ -2238,7 +2238,7 @@ ViewAsScalar::ViewAsScalar(
     Val* out,
     Val* in,
     IterDomain* vector_id)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::ViewAsScalar) {
   addOutput(out);
   addInput(in);
   addAttribute(vector_id);
@@ -2265,7 +2265,8 @@ std::vector<PolymorphicValue> ViewAsScalar::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ViewAsScalar)
 
-ViewOp::ViewOp(IrBuilderPasskey passkey, Val* out, Val* in) : Expr(passkey) {
+ViewOp::ViewOp(IrBuilderPasskey passkey, Val* out, Val* in)
+    : Expr(passkey, serde::ExprType::View) {
   NVF_ERROR(
       in->isA<TensorView>(),
       in->toString(),
@@ -2320,7 +2321,7 @@ LoadStoreOp::LoadStoreOp(
     Val* out,
     Val* in,
     CacheOp cache_op)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::LoadStore) {
   // Pick the default cache operator.
   if (op_type == LoadStoreOpType::CpAsync) {
     if (cache_op == CacheOp::Unspecified) {
@@ -3883,7 +3884,7 @@ Split::Split(
     bool inner_split,
     Val* start_offset,
     Val* stop_offset)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Split) {
   NVF_ERROR(
       factor->isIntegralScalar(),
       "Attempted to create a Split node with a non-integer factor.");
@@ -3949,7 +3950,7 @@ Merge::Merge(
     IterDomain* out,
     IterDomain* outer,
     IterDomain* inner)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Merge) {
   addOutput(out);
   addInput(outer);
   addInput(inner);
@@ -3980,7 +3981,7 @@ Swizzle::Swizzle(
     IterDomain* in_x,
     IterDomain* in_y,
     SwizzleType swizzle_type)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Swizzle) {
   addOutput(out_x);
   addOutput(out_y);
   addInput(in_x);
@@ -4016,7 +4017,7 @@ Swizzle2D::Swizzle2D(
     IterDomain* in_y,
     Swizzle2DType swizzle_type,
     SwizzleMode swizzle_mode)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Swizzle2D) {
   addOutput(out_x);
   addOutput(out_y);
   addInput(in_x);
@@ -4051,7 +4052,7 @@ Resize::Resize(
     IterDomain* in,
     Val* left,
     Val* right)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Resize) {
   addOutput(out);
   addInput(in);
   addAttribute(left);
@@ -4161,7 +4162,7 @@ PadOp::PadOp(
     TensorView* inp,
     const std::vector<Val*>& pad_widths,
     Val* value)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Pad) {
   const auto ndims =
       TensorDomain::noReductions(inp->getMaybeRFactorDomain()).size();
   NVF_ERROR(
@@ -4257,7 +4258,7 @@ SliceOp::SliceOp(
     TensorView* out,
     TensorView* inp,
     const std::vector<Slice>& ranges)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Slice) {
   const auto ndims =
       TensorDomain::noReductions(inp->getMaybeRFactorDomain()).size();
   NVF_ERROR(
@@ -4342,7 +4343,7 @@ CatOp::CatOp(
     Val* out,
     const std::vector<Val*>& inputs,
     int64_t concatenated_dim)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Cat) {
   addOutput(out);
   for (auto inp : inputs) {
     addInput(inp);
@@ -4364,7 +4365,7 @@ CatOp::CatOp(
     int64_t concatenated_dim,
     Val* concatenated_domain_index,
     const std::vector<Val*>& preds)
-    : Expr(passkey) {
+    : Expr(passkey, serde::ExprType::Cat) {
   NVF_ERROR(
       passkey.ir_container_ != nullptr,
       "IrContainer must be provided to create a CatOp.");

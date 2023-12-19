@@ -468,7 +468,7 @@ struct DummyExpr : public Expr {
       Val* _outrhs,
       Val* _lhs,
       Val* _rhs)
-      : Expr(passkey) {
+      : Expr(passkey, serde::ExprType::None) {
     addOutput(_outlhs);
     addOutput(_outrhs);
     addInput(_lhs);

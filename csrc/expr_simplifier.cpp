@@ -335,7 +335,11 @@ Val* recurseDown(Val* value, std::function<Val*(Val*)> rule) {
   Val* output = IrBuilder::create<Val>(*value->getDataType());
   auto create_fn = def->newObjectFunc();
   create_fn(
-      def->container(), std::move(new_inputs), {output}, def->attributes());
+      def->container(),
+      def->expressionType(),
+      std::move(new_inputs),
+      {output},
+      def->attributes());
   return output;
 }
 
@@ -552,7 +556,7 @@ class FlattenedAssocCommOp : public Expr {
       BinaryOpType op,
       Val* out,
       std::vector<Val*> terms)
-      : Expr(passkey) {
+      : Expr(passkey, serde::ExprType::FlattenedAssocComm) {
     NVF_CHECK(
         isAssociativeAndCommutative(op),
         "Can only flatten associative and commutative ops");

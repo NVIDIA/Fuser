@@ -244,7 +244,12 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
     value = IrBuilder::create<Val>(*value->getDataType());
     NVF_ERROR(def->outputs().size() == 1);
     auto create_fn = def->newObjectFunc();
-    create_fn(value->container(), inputs, {value}, def->attributes());
+    create_fn(
+        value->container(),
+        def->expressionType(),
+        inputs,
+        {value},
+        def->attributes());
   }
 
   // hoist subexpression to outer loop. If `value` depends on a tensor, then we
