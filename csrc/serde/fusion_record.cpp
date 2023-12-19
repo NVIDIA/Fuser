@@ -53,8 +53,8 @@ python_frontend::RecordFunctor* deserializeOpRecord(
 }
 
 python_frontend::RecordFunctor* deserializeReductionRecord(
-    std::function<TensorView*(
-        TensorView*,
+    std::function<nvfuser::TensorView*(
+        nvfuser::TensorView*,
         const std::vector<int>&,
         bool,
         nvfuser::DataType)> fusion_op,
@@ -85,13 +85,15 @@ void RecordFunctorFactory::registerAllParsers() {
 
   // Unary Ops
   auto unary_tv_parser = [&](const RecordFunctor* buffer) {
-    return deserializeOpRecord<unary_tv_fn, TensorView*, TensorView*>(
-        unary_tv, RecordType::Unary_TV, buffer);
+    return deserializeOpRecord<
+        unary_tv_fn,
+        nvfuser::TensorView*,
+        nvfuser::TensorView*>(unary_tv, RecordType::Unary_TV, buffer);
   };
   registerParser(RecordType::Unary_TV, unary_tv_parser);
 
   auto unary_val_parser = [&](const RecordFunctor* buffer) {
-    return deserializeOpRecord<unary_val_fn, Val*, Val*>(
+    return deserializeOpRecord<unary_val_fn, nvfuser::Val*, nvfuser::Val*>(
         unary_val, RecordType::Unary_VAL, buffer);
   };
   registerParser(RecordType::Unary_VAL, unary_val_parser);
@@ -100,33 +102,36 @@ void RecordFunctorFactory::registerAllParsers() {
   auto binary_tv_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         binary_tv_fn,
-        TensorView*,
-        TensorView*,
-        TensorView*>(binary_tv, RecordType::Binary_TV, buffer);
+        nvfuser::TensorView*,
+        nvfuser::TensorView*,
+        nvfuser::TensorView*>(binary_tv, RecordType::Binary_TV, buffer);
   };
   registerParser(RecordType::Binary_TV, binary_tv_parser);
 
   auto binary_tv_val_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         binary_tv_val_fn,
-        TensorView*,
-        TensorView*,
-        Val*>(binary_tv_val, RecordType::Binary_TV_VAL, buffer);
+        nvfuser::TensorView*,
+        nvfuser::TensorView*,
+        nvfuser::Val*>(binary_tv_val, RecordType::Binary_TV_VAL, buffer);
   };
   registerParser(RecordType::Binary_TV_VAL, binary_tv_val_parser);
 
   auto binary_val_tv_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         binary_val_tv_fn,
-        TensorView*,
-        Val*,
-        TensorView*>(binary_val_tv, RecordType::Binary_VAL_TV, buffer);
+        nvfuser::TensorView*,
+        nvfuser::Val*,
+        nvfuser::TensorView*>(binary_val_tv, RecordType::Binary_VAL_TV, buffer);
   };
   registerParser(RecordType::Binary_VAL_TV, binary_val_tv_parser);
 
   auto binary_val_parser = [&](const RecordFunctor* buffer) {
-    return deserializeOpRecord<binary_val_fn, Val*, Val*, Val*>(
-        binary_val, RecordType::Binary_VAL, buffer);
+    return deserializeOpRecord<
+        binary_val_fn,
+        nvfuser::Val*,
+        nvfuser::Val*,
+        nvfuser::Val*>(binary_val, RecordType::Binary_VAL, buffer);
   };
   registerParser(RecordType::Binary_VAL, binary_val_parser);
 
@@ -134,50 +139,53 @@ void RecordFunctorFactory::registerAllParsers() {
   auto ternary_tv_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_tv_fn,
-        TensorView*,
-        TensorView*,
-        TensorView*,
-        TensorView*>(ternary_tv, RecordType::Ternary_TV, buffer);
+        nvfuser::TensorView*,
+        nvfuser::TensorView*,
+        nvfuser::TensorView*,
+        nvfuser::TensorView*>(ternary_tv, RecordType::Ternary_TV, buffer);
   };
   registerParser(RecordType::Ternary_TV, ternary_tv_parser);
 
   auto ternary_tv_tv_val_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_tv_tv_val_fn,
-        TensorView*,
-        TensorView*,
-        TensorView*,
-        Val*>(ternary_tv_tv_val, RecordType::Ternary_TV_TV_VAL, buffer);
+        nvfuser::TensorView*,
+        nvfuser::TensorView*,
+        nvfuser::TensorView*,
+        nvfuser::Val*>(
+        ternary_tv_tv_val, RecordType::Ternary_TV_TV_VAL, buffer);
   };
   registerParser(RecordType::Ternary_TV_TV_VAL, ternary_tv_tv_val_parser);
 
   auto ternary_tv_val_tv_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_tv_val_tv_fn,
-        TensorView*,
-        TensorView*,
-        Val*,
-        TensorView*>(ternary_tv_val_tv, RecordType::Ternary_TV_VAL_TV, buffer);
+        nvfuser::TensorView*,
+        nvfuser::TensorView*,
+        nvfuser::Val*,
+        nvfuser::TensorView*>(
+        ternary_tv_val_tv, RecordType::Ternary_TV_VAL_TV, buffer);
   };
   registerParser(RecordType::Ternary_TV_VAL_TV, ternary_tv_val_tv_parser);
 
   auto ternary_val_tv_tv_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_val_tv_tv_fn,
-        TensorView*,
-        Val*,
-        TensorView*,
-        TensorView*>(ternary_val_tv_tv, RecordType::Ternary_VAL_TV_TV, buffer);
+        nvfuser::TensorView*,
+        nvfuser::Val*,
+        nvfuser::TensorView*,
+        nvfuser::TensorView*>(
+        ternary_val_tv_tv, RecordType::Ternary_VAL_TV_TV, buffer);
   };
   registerParser(RecordType::Ternary_VAL_TV_TV, ternary_val_tv_tv_parser);
 
   auto ternary_val_val_tv_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_val_val_tv_fn,
-        TensorView*,
-        Val*,
-        Val*,
-        TensorView*>(
+        nvfuser::TensorView*,
+        nvfuser::Val*,
+        nvfuser::Val*,
+        nvfuser::TensorView*>(
         ternary_val_val_tv, RecordType::Ternary_VAL_VAL_TV, buffer);
   };
   registerParser(RecordType::Ternary_VAL_VAL_TV, ternary_val_val_tv_parser);
@@ -185,26 +193,32 @@ void RecordFunctorFactory::registerAllParsers() {
   auto ternary_tv_val_val_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_tv_val_val_fn,
-        TensorView*,
-        TensorView*,
-        Val*,
-        Val*>(ternary_tv_val_val, RecordType::Ternary_TV_VAL_VAL, buffer);
+        nvfuser::TensorView*,
+        nvfuser::TensorView*,
+        nvfuser::Val*,
+        nvfuser::Val*>(
+        ternary_tv_val_val, RecordType::Ternary_TV_VAL_VAL, buffer);
   };
   registerParser(RecordType::Ternary_TV_VAL_VAL, ternary_tv_val_val_parser);
 
   auto ternary_val_tv_val_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_val_tv_val_fn,
-        TensorView*,
-        Val*,
-        TensorView*,
-        Val*>(ternary_val_tv_val, RecordType::Ternary_VAL_TV_VAL, buffer);
+        nvfuser::TensorView*,
+        nvfuser::Val*,
+        nvfuser::TensorView*,
+        nvfuser::Val*>(
+        ternary_val_tv_val, RecordType::Ternary_VAL_TV_VAL, buffer);
   };
   registerParser(RecordType::Ternary_VAL_TV_VAL, ternary_val_tv_val_parser);
 
   auto ternary_val_parser = [&](const RecordFunctor* buffer) {
-    return deserializeOpRecord<ternary_val_fn, Val*, Val*, Val*, Val*>(
-        ternary_val, RecordType::Ternary_VAL, buffer);
+    return deserializeOpRecord<
+        ternary_val_fn,
+        nvfuser::Val*,
+        nvfuser::Val*,
+        nvfuser::Val*,
+        nvfuser::Val*>(ternary_val, RecordType::Ternary_VAL, buffer);
   };
   registerParser(RecordType::Ternary_VAL, ternary_val_parser);
 
@@ -212,22 +226,22 @@ void RecordFunctorFactory::registerAllParsers() {
   auto ternary_alpha_tv_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_alpha_tv_fn,
-        TensorView*,
-        TensorView*,
-        TensorView*,
-        TensorView*,
-        Val*>(ternary_alpha_tv, RecordType::Ternary_Alpha_TV, buffer);
+        nvfuser::TensorView*,
+        nvfuser::TensorView*,
+        nvfuser::TensorView*,
+        nvfuser::TensorView*,
+        nvfuser::Val*>(ternary_alpha_tv, RecordType::Ternary_Alpha_TV, buffer);
   };
   registerParser(RecordType::Ternary_Alpha_TV, ternary_alpha_tv_parser);
 
   auto ternary_alpha_tv_tv_val_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_alpha_tv_tv_val_fn,
-        TensorView*,
-        TensorView*,
-        TensorView*,
-        Val*,
-        Val*>(
+        nvfuser::TensorView*,
+        nvfuser::TensorView*,
+        nvfuser::TensorView*,
+        nvfuser::Val*,
+        nvfuser::Val*>(
         ternary_alpha_tv_tv_val, RecordType::Ternary_Alpha_TV_TV_VAL, buffer);
   };
   registerParser(
@@ -236,11 +250,11 @@ void RecordFunctorFactory::registerAllParsers() {
   auto ternary_alpha_tv_val_tv_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_alpha_tv_val_tv_fn,
-        TensorView*,
-        TensorView*,
-        Val*,
-        TensorView*,
-        Val*>(
+        nvfuser::TensorView*,
+        nvfuser::TensorView*,
+        nvfuser::Val*,
+        nvfuser::TensorView*,
+        nvfuser::Val*>(
         ternary_alpha_tv_val_tv, RecordType::Ternary_Alpha_TV_VAL_TV, buffer);
   };
   registerParser(
@@ -249,11 +263,11 @@ void RecordFunctorFactory::registerAllParsers() {
   auto ternary_alpha_val_tv_tv_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_alpha_val_tv_tv_fn,
-        TensorView*,
-        Val*,
-        TensorView*,
-        TensorView*,
-        Val*>(
+        nvfuser::TensorView*,
+        nvfuser::Val*,
+        nvfuser::TensorView*,
+        nvfuser::TensorView*,
+        nvfuser::Val*>(
         ternary_alpha_val_tv_tv, RecordType::Ternary_Alpha_VAL_TV_TV, buffer);
   };
   registerParser(
@@ -262,11 +276,11 @@ void RecordFunctorFactory::registerAllParsers() {
   auto ternary_alpha_val_val_tv_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_alpha_val_val_tv_fn,
-        TensorView*,
-        Val*,
-        Val*,
-        TensorView*,
-        Val*>(
+        nvfuser::TensorView*,
+        nvfuser::Val*,
+        nvfuser::Val*,
+        nvfuser::TensorView*,
+        nvfuser::Val*>(
         ternary_alpha_val_val_tv, RecordType::Ternary_Alpha_VAL_VAL_TV, buffer);
   };
   registerParser(
@@ -275,11 +289,11 @@ void RecordFunctorFactory::registerAllParsers() {
   auto ternary_alpha_tv_val_val_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_alpha_tv_val_val_fn,
-        TensorView*,
-        TensorView*,
-        Val*,
-        Val*,
-        Val*>(
+        nvfuser::TensorView*,
+        nvfuser::TensorView*,
+        nvfuser::Val*,
+        nvfuser::Val*,
+        nvfuser::Val*>(
         ternary_alpha_tv_val_val, RecordType::Ternary_Alpha_TV_VAL_VAL, buffer);
   };
   registerParser(
@@ -288,11 +302,11 @@ void RecordFunctorFactory::registerAllParsers() {
   auto ternary_alpha_val_tv_val_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_alpha_val_tv_val_fn,
-        TensorView*,
-        Val*,
-        TensorView*,
-        Val*,
-        Val*>(
+        nvfuser::TensorView*,
+        nvfuser::Val*,
+        nvfuser::TensorView*,
+        nvfuser::Val*,
+        nvfuser::Val*>(
         ternary_alpha_val_tv_val, RecordType::Ternary_Alpha_VAL_TV_VAL, buffer);
   };
   registerParser(
@@ -301,11 +315,12 @@ void RecordFunctorFactory::registerAllParsers() {
   auto ternary_alpha_val_parser = [&](const RecordFunctor* buffer) {
     return deserializeOpRecord<
         ternary_alpha_val_fn,
-        Val*,
-        Val*,
-        Val*,
-        Val*,
-        Val*>(ternary_alpha_val, RecordType::Ternary_Alpha_VAL, buffer);
+        nvfuser::Val*,
+        nvfuser::Val*,
+        nvfuser::Val*,
+        nvfuser::Val*,
+        nvfuser::Val*>(
+        ternary_alpha_val, RecordType::Ternary_Alpha_VAL, buffer);
   };
   registerParser(RecordType::Ternary_Alpha_VAL, ternary_alpha_val_parser);
   // END OpRecord Parsers
@@ -370,22 +385,26 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(RecordType::BroadcastInDim, deserializeBroadcastInDimRecord);
 
   auto deserializeCastTvRecord = [](const RecordFunctor* buffer) {
-    std::function<TensorView*(nvfuser::DataType, TensorView*)> fusion_op =
-        static_cast<TensorView* (*)(nvfuser::DataType, TensorView*)>(castOp);
-    return new python_frontend::CastOpRecord<TensorView*, TensorView*>(
-        parseStateArgs(buffer->args()),
-        parseStateArgs(buffer->outputs()),
-        buffer->name()->str(),
-        RecordType::CastTv,
-        fusion_op,
-        mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()));
+    std::function<nvfuser::TensorView*(nvfuser::DataType, nvfuser::TensorView*)>
+        fusion_op =
+            static_cast<nvfuser::TensorView* (*)(nvfuser::DataType,
+                                                 nvfuser::TensorView*)>(castOp);
+    return new python_frontend::
+        CastOpRecord<nvfuser::TensorView*, nvfuser::TensorView*>(
+            parseStateArgs(buffer->args()),
+            parseStateArgs(buffer->outputs()),
+            buffer->name()->str(),
+            RecordType::CastTv,
+            fusion_op,
+            mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()));
   };
   registerParser(RecordType::CastTv, deserializeCastTvRecord);
 
   auto deserializeCastValRecord = [](const RecordFunctor* buffer) {
-    std::function<Val*(nvfuser::DataType, Val*)> fusion_op =
-        static_cast<Val* (*)(nvfuser::DataType, Val*)>(castOp);
-    return new python_frontend::CastOpRecord<Val*, Val*>(
+    std::function<nvfuser::Val*(nvfuser::DataType, nvfuser::Val*)> fusion_op =
+        static_cast<nvfuser::Val* (*)(nvfuser::DataType, nvfuser::Val*)>(
+            castOp);
+    return new python_frontend::CastOpRecord<nvfuser::Val*, nvfuser::Val*>(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         buffer->name()->str(),
@@ -615,105 +634,162 @@ void RecordFunctorFactory::registerAllParsers() {
 }
 
 void RecordFunctorFactory::setupFunctionMaps() {
-#define NVFUSER_UNARY_TV_OP(op_str, op_name)                                \
-  unary_tv.emplace(                                                         \
-      ("ops." op_str), static_cast<TensorView* (*)(TensorView*)>(op_name)); \
-  unary_val.emplace(("ops." op_str), static_cast<Val* (*)(Val*)>(op_name));
+#define NVFUSER_UNARY_TV_OP(op_str, op_name)                                 \
+  unary_tv.emplace(                                                          \
+      ("ops." op_str),                                                       \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*)>(op_name)); \
+  unary_val.emplace(                                                         \
+      ("ops." op_str),                                                       \
+      static_cast<nvfuser::Val* (*)(nvfuser::Val*)>(op_name));
 
-#define NVFUSER_BINARY_TV_ONLY_OP(op_str, op_name) \
-  binary_tv.emplace(                               \
-      ("ops." op_str),                             \
-      static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name));
+#define NVFUSER_BINARY_TV_ONLY_OP(op_str, op_name)               \
+  binary_tv.emplace(                                             \
+      ("ops." op_str),                                           \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*, \
+                                           nvfuser::TensorView*)>(op_name));
 
-#define NVFUSER_BINARY_TV_OP(op_str, op_name)                           \
-  binary_tv.emplace(                                                    \
-      ("ops." op_str),                                                  \
-      static_cast<TensorView* (*)(TensorView*, TensorView*)>(op_name)); \
-  binary_val.emplace(                                                   \
-      ("ops." op_str), static_cast<Val* (*)(Val*, Val*)>(op_name));     \
-  binary_tv_val.emplace(                                                \
-      ("ops." op_str),                                                  \
-      static_cast<TensorView* (*)(TensorView*, Val*)>(op_name));        \
-  binary_val_tv.emplace(                                                \
-      ("ops." op_str),                                                  \
-      static_cast<TensorView* (*)(Val*, TensorView*)>(op_name));
+#define NVFUSER_BINARY_TV_OP(op_str, op_name)                                 \
+  binary_tv.emplace(                                                          \
+      ("ops." op_str),                                                        \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,              \
+                                           nvfuser::TensorView*)>(op_name));  \
+  binary_val.emplace(                                                         \
+      ("ops." op_str),                                                        \
+      static_cast<nvfuser::Val* (*)(nvfuser::Val*, nvfuser::Val*)>(op_name)); \
+  binary_tv_val.emplace(                                                      \
+      ("ops." op_str),                                                        \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,              \
+                                           nvfuser::Val*)>(op_name));         \
+  binary_val_tv.emplace(                                                      \
+      ("ops." op_str),                                                        \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::Val*,                     \
+                                           nvfuser::TensorView*)>(op_name));
 
-#define NVFUSER_BINARY_TV_ALPHA_OP(op_str, op_name)                           \
-  ternary_val.emplace(                                                        \
-      ("ops." op_str), static_cast<Val* (*)(Val*, Val*, Val*)>(op_name));     \
-  ternary_tv_tv_val.emplace(                                                  \
-      ("ops." op_str),                                                        \
-      static_cast<TensorView* (*)(TensorView*, TensorView*, Val*)>(op_name)); \
-  ternary_tv_val_val.emplace(                                                 \
-      ("ops." op_str),                                                        \
-      static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(op_name));        \
-  ternary_val_tv_val.emplace(                                                 \
-      ("ops." op_str),                                                        \
-      static_cast<TensorView* (*)(Val*, TensorView*, Val*)>(op_name));
+#define NVFUSER_BINARY_TV_ALPHA_OP(op_str, op_name)                        \
+  ternary_val.emplace(                                                     \
+      ("ops." op_str),                                                     \
+      static_cast<                                                         \
+          nvfuser::Val* (*)(nvfuser::Val*, nvfuser::Val*, nvfuser::Val*)>( \
+          op_name));                                                       \
+  ternary_tv_tv_val.emplace(                                               \
+      ("ops." op_str),                                                     \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,           \
+                                           nvfuser::TensorView*,           \
+                                           nvfuser::Val*)>(op_name));      \
+  ternary_tv_val_val.emplace(                                              \
+      ("ops." op_str),                                                     \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,           \
+                                           nvfuser::Val*,                  \
+                                           nvfuser::Val*)>(op_name));      \
+  ternary_val_tv_val.emplace(                                              \
+      ("ops." op_str),                                                     \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::Val*,                  \
+                                           nvfuser::TensorView*,           \
+                                           nvfuser::Val*)>(op_name));
 
-#define NVFUSER_TERNARY_TV_OP(op_str, op_name)                                \
-  ternary_tv.emplace(                                                         \
-      ("ops." op_str),                                                        \
-      static_cast<TensorView* (*)(TensorView*, TensorView*, TensorView*)>(    \
-          op_name));                                                          \
-  ternary_val.emplace(                                                        \
-      ("ops." op_str), static_cast<Val* (*)(Val*, Val*, Val*)>(op_name));     \
-  ternary_tv_tv_val.emplace(                                                  \
-      ("ops." op_str),                                                        \
-      static_cast<TensorView* (*)(TensorView*, TensorView*, Val*)>(op_name)); \
-  ternary_tv_val_tv.emplace(                                                  \
-      ("ops." op_str),                                                        \
-      static_cast<TensorView* (*)(TensorView*, Val*, TensorView*)>(op_name)); \
-  ternary_val_tv_tv.emplace(                                                  \
-      ("ops." op_str),                                                        \
-      static_cast<TensorView* (*)(Val*, TensorView*, TensorView*)>(op_name)); \
-  ternary_val_val_tv.emplace(                                                 \
-      ("ops." op_str),                                                        \
-      static_cast<TensorView* (*)(Val*, Val*, TensorView*)>(op_name));        \
-  ternary_tv_val_val.emplace(                                                 \
-      ("ops." op_str),                                                        \
-      static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(op_name));        \
-  ternary_val_tv_val.emplace(                                                 \
-      ("ops." op_str),                                                        \
-      static_cast<TensorView* (*)(Val*, TensorView*, Val*)>(op_name));
-
-#define NVFUSER_THRESHOLD_TV_OP(op_str, op_name)                          \
-  ternary_val.emplace(                                                    \
-      ("ops." op_str), static_cast<Val* (*)(Val*, Val*, Val*)>(op_name)); \
-  ternary_tv_val_val.emplace(                                             \
-      ("ops." op_str),                                                    \
-      static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(op_name));
-
-#define NVFUSER_TERNARY_TV_ALPHA_OP(op_str, op_name)                         \
-  ternary_alpha_tv.emplace(                                                  \
+#define NVFUSER_TERNARY_TV_OP(op_str, op_name)                               \
+  ternary_tv.emplace(                                                        \
+      ("ops." op_str),                                                       \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,             \
+                                           nvfuser::TensorView*,             \
+                                           nvfuser::TensorView*)>(op_name)); \
+  ternary_val.emplace(                                                       \
       ("ops." op_str),                                                       \
       static_cast<                                                           \
-          TensorView* (*)(TensorView*, TensorView*, TensorView*, Val*)>(     \
+          nvfuser::Val* (*)(nvfuser::Val*, nvfuser::Val*, nvfuser::Val*)>(   \
           op_name));                                                         \
-  ternary_alpha_val.emplace(                                                 \
+  ternary_tv_tv_val.emplace(                                                 \
       ("ops." op_str),                                                       \
-      static_cast<Val* (*)(Val*, Val*, Val*, Val*)>(op_name));               \
-  ternary_alpha_tv_tv_val.emplace(                                           \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,             \
+                                           nvfuser::TensorView*,             \
+                                           nvfuser::Val*)>(op_name));        \
+  ternary_tv_val_tv.emplace(                                                 \
       ("ops." op_str),                                                       \
-      static_cast<TensorView* (*)(TensorView*, TensorView*, Val*, Val*)>(    \
-          op_name));                                                         \
-  ternary_alpha_tv_val_tv.emplace(                                           \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,             \
+                                           nvfuser::Val*,                    \
+                                           nvfuser::TensorView*)>(op_name)); \
+  ternary_val_tv_tv.emplace(                                                 \
       ("ops." op_str),                                                       \
-      static_cast<TensorView* (*)(TensorView*, Val*, TensorView*, Val*)>(    \
-          op_name));                                                         \
-  ternary_alpha_val_tv_tv.emplace(                                           \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::Val*,                    \
+                                           nvfuser::TensorView*,             \
+                                           nvfuser::TensorView*)>(op_name)); \
+  ternary_val_val_tv.emplace(                                                \
       ("ops." op_str),                                                       \
-      static_cast<TensorView* (*)(Val*, TensorView*, TensorView*, Val*)>(    \
-          op_name));                                                         \
-  ternary_alpha_val_val_tv.emplace(                                          \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::Val*,                    \
+                                           nvfuser::Val*,                    \
+                                           nvfuser::TensorView*)>(op_name)); \
+  ternary_tv_val_val.emplace(                                                \
       ("ops." op_str),                                                       \
-      static_cast<TensorView* (*)(Val*, Val*, TensorView*, Val*)>(op_name)); \
-  ternary_alpha_tv_val_val.emplace(                                          \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,             \
+                                           nvfuser::Val*,                    \
+                                           nvfuser::Val*)>(op_name));        \
+  ternary_val_tv_val.emplace(                                                \
       ("ops." op_str),                                                       \
-      static_cast<TensorView* (*)(TensorView*, Val*, Val*, Val*)>(op_name)); \
-  ternary_alpha_val_tv_val.emplace(                                          \
-      ("ops." op_str),                                                       \
-      static_cast<TensorView* (*)(Val*, TensorView*, Val*, Val*)>(op_name));
+      static_cast<nvfuser::TensorView* (*)(nvfuser::Val*,                    \
+                                           nvfuser::TensorView*,             \
+                                           nvfuser::Val*)>(op_name));
+
+#define NVFUSER_THRESHOLD_TV_OP(op_str, op_name)                           \
+  ternary_val.emplace(                                                     \
+      ("ops." op_str),                                                     \
+      static_cast<                                                         \
+          nvfuser::Val* (*)(nvfuser::Val*, nvfuser::Val*, nvfuser::Val*)>( \
+          op_name));                                                       \
+  ternary_tv_val_val.emplace(                                              \
+      ("ops." op_str),                                                     \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,           \
+                                           nvfuser::Val*,                  \
+                                           nvfuser::Val*)>(op_name));
+
+#define NVFUSER_TERNARY_TV_ALPHA_OP(op_str, op_name)                  \
+  ternary_alpha_tv.emplace(                                           \
+      ("ops." op_str),                                                \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,      \
+                                           nvfuser::TensorView*,      \
+                                           nvfuser::TensorView*,      \
+                                           nvfuser::Val*)>(op_name)); \
+  ternary_alpha_val.emplace(                                          \
+      ("ops." op_str),                                                \
+      static_cast<nvfuser::Val* (*)(nvfuser::Val*,                    \
+                                    nvfuser::Val*,                    \
+                                    nvfuser::Val*,                    \
+                                    nvfuser::Val*)>(op_name));        \
+  ternary_alpha_tv_tv_val.emplace(                                    \
+      ("ops." op_str),                                                \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,      \
+                                           nvfuser::TensorView*,      \
+                                           nvfuser::Val*,             \
+                                           nvfuser::Val*)>(op_name)); \
+  ternary_alpha_tv_val_tv.emplace(                                    \
+      ("ops." op_str),                                                \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,      \
+                                           nvfuser::Val*,             \
+                                           nvfuser::TensorView*,      \
+                                           nvfuser::Val*)>(op_name)); \
+  ternary_alpha_val_tv_tv.emplace(                                    \
+      ("ops." op_str),                                                \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::Val*,             \
+                                           nvfuser::TensorView*,      \
+                                           nvfuser::TensorView*,      \
+                                           nvfuser::Val*)>(op_name)); \
+  ternary_alpha_val_val_tv.emplace(                                   \
+      ("ops." op_str),                                                \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::Val*,             \
+                                           nvfuser::Val*,             \
+                                           nvfuser::TensorView*,      \
+                                           nvfuser::Val*)>(op_name)); \
+  ternary_alpha_tv_val_val.emplace(                                   \
+      ("ops." op_str),                                                \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,      \
+                                           nvfuser::Val*,             \
+                                           nvfuser::Val*,             \
+                                           nvfuser::Val*)>(op_name)); \
+  ternary_alpha_val_tv_val.emplace(                                   \
+      ("ops." op_str),                                                \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::Val*,             \
+                                           nvfuser::TensorView*,      \
+                                           nvfuser::Val*,             \
+                                           nvfuser::Val*)>(op_name));
 
   NVFUSER_UNARY_TV_OP("abs", abs)
   NVFUSER_UNARY_TV_OP("acos", acos)
@@ -807,10 +883,14 @@ void RecordFunctorFactory::setupFunctionMaps() {
   // The following ops behave like TernaryOps but are only TV_VAL_VAL
   ternary_tv_val_val.emplace(
       "ops.rand_like",
-      static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(rand_like));
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,
+                                           nvfuser::Val*,
+                                           nvfuser::Val*)>(rand_like));
   ternary_tv_val_val.emplace(
       "ops.randn_like",
-      static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(randn_like));
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,
+                                           nvfuser::Val*,
+                                           nvfuser::Val*)>(randn_like));
 
   NVFUSER_THRESHOLD_TV_OP("clamp", clamp)
   NVFUSER_THRESHOLD_TV_OP("threshold", threshold)
