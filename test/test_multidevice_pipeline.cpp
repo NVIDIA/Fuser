@@ -152,34 +152,9 @@ TEST_P(PipelineTestTwoStages, Communication) {
   }
   communicator->setDefaultBackend(backend);
 
-  FusionGuard fg(fusion.get());
-  TensorView* tv0 = makeContigTensor(4);
-  TensorView* tv1 = sum(tv0, {3});
-  TensorView* tv2 = do_reduction ? sum(tv1, {0}) : set(tv1);
-  TensorView* tv3 = sum(tv2, {1});
-  fusion->addInput(tv0);
-  fusion->addOutput(tv3);
-
-  PipelineStageDescriptor stage0(false), stage1(false);
-  stage0.addVal({tv0, tv1});
-  stage1.addVal({tv2, tv3});
   if (mesh1.vector().empty()) {
     mesh1 = mesh0;
   }
-  stage0.mesh = mesh0;
-  stage1.mesh = mesh1;
-  if (is_stage0_sharded) {
-    tv0->axis(0)->parallelize(ParallelType::DIDx);
-    tv1->axis(0)->parallelize(ParallelType::DIDx);
-  }
-  if (is_stage1_sharded) {
-    tv2->axis(do_reduction ? 1 : 0)->parallelize(ParallelType::DIDx);
-    tv3->axis(0)->parallelize(ParallelType::DIDx);
-  }
-
-  PipelineDescriptor descriptor{
-      .stage_descriptors{std::move(stage0), std::move(stage1)}};
-  pipeline = std::make_unique<Pipeline>(fusion.get(), std::move(descriptor));
 
   int first_axis_extent = 16;
   if (is_stage0_sharded) {
@@ -192,9 +167,30 @@ TEST_P(PipelineTestTwoStages, Communication) {
     GTEST_ASSERT_EQ(mesh0.vector().size(), mesh1.vector().size());
     second_axis_extent = mesh1.vector().size();
   }
-  inputs = {
-      at::ones({first_axis_extent, second_axis_extent, 3, 5}, tensor_options) *
-      communicator->deviceId()};
+  const std::vector<int64_t> input_sizes = {first_axis_extent, second_axis_extent, 3, 5};
+
+  FusionGuard fg(fusion.get());
+  TensorView* tv0 = makeConcreteTensor(input_sizes);
+  TensorView* tv1 = sum(tv0, {3});
+  TensorView* tv2 = do_reduction ? sum(tv1, {0}) : set(tv1);
+  TensorView* tv3 = sum(tv2, {1});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv3);
+
+  tv0->setDeviceMesh(mesh0);
+  tv1->setDeviceMesh(mesh0);
+  tv2->setDeviceMesh(mesh1);
+  tv3->setDeviceMesh(mesh1);
+  if (is_stage0_sharded) {
+    tv0->axis(0)->parallelize(ParallelType::DIDx);
+    tv1->axis(0)->parallelize(ParallelType::DIDx);
+  }
+  if (is_stage1_sharded) {
+    tv2->axis(do_reduction ? 1 : 0)->parallelize(ParallelType::DIDx);
+    tv3->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  inputs = {at::ones(input_sizes, tensor_options) * communicator->deviceId()};
 
   validate();
 }
