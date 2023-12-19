@@ -237,8 +237,14 @@ class Fusion : public IrContainer {
   // Note: this is not always safe and should be used with extra caution.
   // Currently the only place it's used is in the running stats update for batch
   // normalization.
+  //
+  // TODO(wujingyue): Rename this method because `input` can be another fusion
+  // output.
+  //
   // TODO: alias should be made aware to segmentation, so we'll always include
-  // the input tensor to the section where output is produced.
+  // the input tensor to the section where output is produced. Currently,
+  // aliases of type `PointerArithmetics` are marked after segmentation, but
+  // those of type `InplaceUpdate` are marked in fusion definitions.
   void aliasOutputToInput(Val* output, Val* input, AliasType type);
 
   //! Returns the aliased input of a given output along with an `AliasInfo`
@@ -428,7 +434,6 @@ class Fusion : public IrContainer {
   friend SegmentedFusion;
   friend class TranslateApplicableWelford;
   friend Val;
-
 
   using IrContainer::registerExpr;
   using IrContainer::registerVal;

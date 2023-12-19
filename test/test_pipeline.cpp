@@ -35,98 +35,98 @@ TEST_F(NVFuserTest, ReshardingDetection) {
 
   TensorView* tv0 = makeContigTensor(3);
   fusion->addInput(tv0);
-  tv0->setDeviceMesh(&mesh0);
+  tv0->setDeviceMesh(mesh0);
 
   TensorView* tv1 = set(tv0);
-  tv1->setDeviceMesh(&mesh0);
+  tv1->setDeviceMesh(mesh0);
 
   TensorView* tv2 = set(tv1); // resharding
-  tv2->setDeviceMesh(&mesh1);
+  tv2->setDeviceMesh(mesh1);
 
   TensorView* tv3 = set(tv2);
-  tv3->setDeviceMesh(&mesh1);
+  tv3->setDeviceMesh(mesh1);
 
   TensorView* tv4 = set(tv3); // resharding
-  tv4->setDeviceMesh(&mesh2);
+  tv4->setDeviceMesh(mesh2);
 
   TensorView* tv5 = set(tv4); // resharding
-  tv5->setDeviceMesh(&mesh2);
+  tv5->setDeviceMesh(mesh2);
   tv5->axis(0)->parallelize(ParallelType::DIDx);
 
   TensorView* tv6 = set(tv5);
-  tv6->setDeviceMesh(&mesh2);
+  tv6->setDeviceMesh(mesh2);
   tv6->axis(0)->parallelize(ParallelType::DIDx);
 
   TensorView* tv7 = set(tv6); // resharding
-  tv7->setDeviceMesh(&mesh2);
+  tv7->setDeviceMesh(mesh2);
 
   TensorView* tv8 = sum(tv0, {0});
-  tv8->setDeviceMesh(&mesh0);
+  tv8->setDeviceMesh(mesh0);
 
   TensorView* tv9 = sum(tv0, {0}); // resharding, but seems invalid
-  tv9->setDeviceMesh(&mesh0);
+  tv9->setDeviceMesh(mesh0);
   tv9->axis(0)->parallelize(ParallelType::DIDx);
 
   TensorView* tv10 = sum(tv0, {0}); // resharding,
-  tv10->setDeviceMesh(&mesh0);
+  tv10->setDeviceMesh(mesh0);
   tv10->axis(1)->parallelize(ParallelType::DIDx);
 
   TensorView* tv11 = sum(tv0, {0}); // resharding,
-  tv11->setDeviceMesh(&mesh1);
+  tv11->setDeviceMesh(mesh1);
 
   TensorView* tv12 = sum(tv5, {0}); // not resharding
-  tv12->setDeviceMesh(&mesh2);
+  tv12->setDeviceMesh(mesh2);
   tv12->axis(0)->parallelize(ParallelType::DIDx);
 
   TensorView* tv13 = sum(tv5, {0}); // resharding
-  tv13->setDeviceMesh(&mesh2);
+  tv13->setDeviceMesh(mesh2);
   tv13->axis(1)->parallelize(ParallelType::DIDx);
 
   TensorView* tv14 = sum(tv5, {0}); // resharding
-  tv14->setDeviceMesh(&mesh2);
+  tv14->setDeviceMesh(mesh2);
   tv14->axis(0)->parallelize(ParallelType::DIDx);
   tv14->axis(1)->parallelize(ParallelType::DIDx);
 
   TensorView* tv15 = add(tv0, tv1);
-  tv15->setDeviceMesh(&mesh0);
+  tv15->setDeviceMesh(mesh0);
 
   TensorView* tv16 = add(tv0, tv1); // resharding
-  tv16->setDeviceMesh(&mesh1);
+  tv16->setDeviceMesh(mesh1);
 
   TensorView* tv17 = add(tv0, tv1); // resharding
-  tv17->setDeviceMesh(&mesh0);
+  tv17->setDeviceMesh(mesh0);
   tv17->axis(0)->parallelize(ParallelType::DIDx);
 
   TensorView* tv18 = add(tv5, tv6);
-  tv18->setDeviceMesh(&mesh2);
+  tv18->setDeviceMesh(mesh2);
   tv18->axis(0)->parallelize(ParallelType::DIDx);
 
   TensorView* tv19 = add(tv5, tv7); // resharding
-  tv19->setDeviceMesh(&mesh2);
+  tv19->setDeviceMesh(mesh2);
   tv19->axis(0)->parallelize(ParallelType::DIDx);
 
   TensorView* tv20 = add(tv5, tv7); // resharding
-  tv20->setDeviceMesh(&mesh2);
+  tv20->setDeviceMesh(mesh2);
 
   TensorView* tv21 = add(tv0, tv7); // resharding
-  tv21->setDeviceMesh(&mesh2);
+  tv21->setDeviceMesh(mesh2);
 
   TensorView* tv22 = sum(tv5, {1});
-  tv22->setDeviceMesh(&mesh2);
+  tv22->setDeviceMesh(mesh2);
   tv22->axis(0)->parallelize(ParallelType::DIDx);
 
   TensorView* tv23 = sum(tv5, {1}); // resharding
-  tv23->setDeviceMesh(&mesh2);
+  tv23->setDeviceMesh(mesh2);
 
   TensorView* tv24 = sum(tv7, {0});
-  tv24->setDeviceMesh(&mesh2);
+  tv24->setDeviceMesh(mesh2);
 
   TensorView* tv25 = sum(tv7, {0}); // not resharding but invalid
-  tv25->setDeviceMesh(&mesh2);
+  tv25->setDeviceMesh(mesh2);
   tv22->axis(0)->parallelize(ParallelType::DIDx);
 
   TensorView* tv26 = add(tv5, tv6); // resharding
-  tv26->setDeviceMesh(&mesh2);
+  tv26->setDeviceMesh(mesh2);
 
   fusion->addOutput(tv1);
   fusion->addOutput(tv2);
@@ -245,12 +245,12 @@ TEST_P(automaticReshardingTest, setInsertion) {
   TensorView* tv4 = broadcast(tv3, {true, false, false});
   TensorView* tv5 = binaryOp(BinaryOpType::Mul, tv2, tv4);
 
-  tv0->setDeviceMesh(&mesh0);
-  tv1->setDeviceMesh(&mesh1);
-  tv2->setDeviceMesh(&mesh2);
-  tv3->setDeviceMesh(&mesh0);
-  tv4->setDeviceMesh(&mesh1);
-  tv5->setDeviceMesh(&mesh0);
+  tv0->setDeviceMesh(mesh0);
+  tv1->setDeviceMesh(mesh1);
+  tv2->setDeviceMesh(mesh2);
+  tv3->setDeviceMesh(mesh0);
+  tv4->setDeviceMesh(mesh1);
+  tv5->setDeviceMesh(mesh0);
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
   fusion->addOutput(tv5);

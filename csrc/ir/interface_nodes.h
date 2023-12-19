@@ -328,6 +328,7 @@ class TensorView : public Val {
 
   //! Swizzle the rectangular tile defined by the iterdomains corresponding
   //!  to the 2 given indices.
+  TensorView* swizzle(SwizzleType swizzle_type, int x, int y);
   TensorView* swizzle(
       Swizzle2DType swizzle_type,
       int x,
@@ -418,6 +419,11 @@ class TensorView : public Val {
   //!  have a matching thread swizzle with the mma operand/result.
   //! More detail on usage see [WarpMmaSwizzler] in scheduler/mma_utils.h .
   void applyMmaSwizzle(MmaOperand operand);
+  // TODO: what is transpose 2? Why do we need it?
+  void applyMmaSwizzle(
+      MmaInputSmemSwizzle swizzle,
+      bool transpose,
+      bool transpose2 = false);
 
   //! Returns if this tensor view has swizzle operator on its tensor domain.
   //!  This is the temporary flag for indicating that the new swizzle
@@ -530,17 +536,17 @@ class TensorView : public Val {
     return promote_reuse_;
   }
 
-  void setDeviceMesh(DeviceMesh* mesh) {
+  void setDeviceMesh(const DeviceMesh& mesh) {
     mesh_ = mesh;
   }
 
-  DeviceMesh* getDeviceMesh() const {
-    NVF_ERROR(mesh_, "DeviceMesh is not initialized");
+  const DeviceMesh& getDeviceMesh() const {
+    NVF_ERROR(hasDeviceMesh(), "DeviceMesh is not initialized");
     return mesh_;
   }
 
   bool hasDeviceMesh() const {
-    return mesh_;
+    return !mesh_.vector().empty();
   }
 
  protected:
@@ -615,7 +621,8 @@ class TensorView : public Val {
   //! allocated to this tensor.
   bool promote_reuse_ = false;
 
-  DeviceMesh* mesh_ = nullptr;
+  // Device Mesh on which the Tensor is sharded
+  DeviceMesh mesh_;
 };
 
 //! A simple TensorView builder

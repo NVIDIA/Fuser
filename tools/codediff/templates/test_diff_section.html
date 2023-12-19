@@ -42,7 +42,8 @@ SPDX-License-Identifier: BSD-3-Clause
         {% endif %}
         <br>
         {% set outer_index = loop.index %}
-        {% for kernel_diff in test_diff.kernel_diffs %}
+        {% if test_diff.kernel_diffs is not none %}
+          {% for kernel_diff in test_diff.kernel_diffs %}
             {% if loop_vars.total_diffs == max_diffs + 1 %}
                 <br>
                 <b>WARNING: Only showing {{ max_diffs }} out of {{ total_num_diffs }}
@@ -133,6 +134,7 @@ SPDX-License-Identifier: BSD-3-Clause
 {%- endif -%}
 {%- set loop_vars.total_diffs = loop_vars.total_diffs + 1 -%}
 {%- endfor -%}
+{%- endif -%}
 <br>
 {%- endif -%}
 {%- endfor -%}

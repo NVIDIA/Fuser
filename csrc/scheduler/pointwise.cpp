@@ -12,6 +12,7 @@
 #include <instrumentation.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
+#include <scheduler/mark_aliases.h>
 #include <scheduler/pointwise.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
@@ -873,6 +874,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams& params) {
   inlineMost(inner_most_tensors);
 
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
+
+  // TODO(#1401): improve segmentation so it can split a partially aliasing
+  // pointwise fusion into an alias-only segment and the rest. This way,
+  // the pointwise scheduler doesn't need to mark aliases.
+  markAliases(fusion);
 }
 
 } // namespace nvfuser

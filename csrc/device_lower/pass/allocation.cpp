@@ -163,8 +163,7 @@ class AllocationInserter : public kir::ExprMutator {
     std::vector<Val*> alloc_dims;
 
     for (const auto id : maybe_rfactor_domain) {
-      if (id->isDeviceDim()) continue; //or oneVal?
-      if (id->isReduction() || id->isStride()) {
+      if (id->isReduction() || id->isStride() || id->isDeviceDim()) {
         continue;
       } else if (id->isBroadcast()) {
         // No matter whether this broadcast is expanded or not, we always
@@ -339,7 +338,7 @@ class AllocationInserter : public kir::ExprMutator {
       // Don't use reduction/stride/broadcast axis in the allocation
       // computation
       if (local_id->isReduction() || local_id->isStride() ||
-          local_id->isBroadcast() || local_id->isDeviceDim()) { //or oneVal ?
+          local_id->isBroadcast() || local_id->isDeviceDim()) {
         continue;
       }
 

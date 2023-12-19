@@ -100,26 +100,26 @@ TEST_F(PipelineTest, Pipeline) {
   DeviceMesh mesh3({2});
   DeviceMesh mesh4({4, 5});
 
-  tv0_->setDeviceMesh(&mesh0_);
-  tv1_->setDeviceMesh(&mesh0_);
-  tv2_->setDeviceMesh(&mesh1_);
-  tv3_->setDeviceMesh(&mesh1_);
-  tv0->setDeviceMesh(&mesh0);
-  tv1->setDeviceMesh(&mesh0);
-  tv2->setDeviceMesh(&mesh1);
-  tv2a->setDeviceMesh(&mesh1);
-  tv3->setDeviceMesh(&mesh1);
-  tv4->setDeviceMesh(&mesh2);
-  tv4a->setDeviceMesh(&mesh2);
-  tv5->setDeviceMesh(&mesh2);
-  tv6->setDeviceMesh(&mesh3);
-  tv7->setDeviceMesh(&mesh3);
-  tv8->setDeviceMesh(&mesh4);
-  tv9->setDeviceMesh(&mesh4);
-  tv10->setDeviceMesh(&mesh4);
-  tv11->setDeviceMesh(&mesh4);
-  tv12->setDeviceMesh(&mesh4);
-  tv13->setDeviceMesh(&mesh4);
+  tv0_->setDeviceMesh(mesh0_);
+  tv1_->setDeviceMesh(mesh0_);
+  tv2_->setDeviceMesh(mesh1_);
+  tv3_->setDeviceMesh(mesh1_);
+  tv0->setDeviceMesh(mesh0);
+  tv1->setDeviceMesh(mesh0);
+  tv2->setDeviceMesh(mesh1);
+  tv2a->setDeviceMesh(mesh1);
+  tv3->setDeviceMesh(mesh1);
+  tv4->setDeviceMesh(mesh2);
+  tv4a->setDeviceMesh(mesh2);
+  tv5->setDeviceMesh(mesh2);
+  tv6->setDeviceMesh(mesh3);
+  tv7->setDeviceMesh(mesh3);
+  tv8->setDeviceMesh(mesh4);
+  tv9->setDeviceMesh(mesh4);
+  tv10->setDeviceMesh(mesh4);
+  tv11->setDeviceMesh(mesh4);
+  tv12->setDeviceMesh(mesh4);
+  tv13->setDeviceMesh(mesh4);
 
   // Create input tensors.
   // Note: each process is binded to a different GPU
@@ -200,10 +200,10 @@ TEST_F(PipelineTest, Pipeline_Reduce) {
 
   DeviceMesh mesh0({0, 1, 2, 3});
   DeviceMesh mesh1({0, 1});
-  tv0->setDeviceMesh(&mesh0);
-  tv1->setDeviceMesh(&mesh0);
-  tv2->setDeviceMesh(&mesh1);
-  tv3->setDeviceMesh(&mesh1);
+  tv0->setDeviceMesh(mesh0);
+  tv1->setDeviceMesh(mesh0);
+  tv2->setDeviceMesh(mesh1);
+  tv3->setDeviceMesh(mesh1);
 
   tv0->axis(0)->parallelize(ParallelType::DIDx);
   tv1->axis(0)->parallelize(ParallelType::DIDx);
@@ -228,10 +228,10 @@ TEST_F(PipelineTest, Pipeline_ReduceToExternalRoot) {
 
   DeviceMesh mesh0({0, 1});
   DeviceMesh mesh1({2});
-  tv0->setDeviceMesh(&mesh0);
-  tv1->setDeviceMesh(&mesh0);
-  tv2->setDeviceMesh(&mesh1);
-  tv3->setDeviceMesh(&mesh1);
+  tv0->setDeviceMesh(mesh0);
+  tv1->setDeviceMesh(mesh0);
+  tv2->setDeviceMesh(mesh1);
+  tv3->setDeviceMesh(mesh1);
 
   tv0->axis(0)->parallelize(ParallelType::DIDx);
   tv1->axis(0)->parallelize(ParallelType::DIDx);
@@ -255,10 +255,10 @@ TEST_F(PipelineTest, Pipeline_Allreduce) {
 
   DeviceMesh mesh0({0, 1, 2, 3});
   DeviceMesh mesh1({0, 1});
-  tv0->setDeviceMesh(&mesh0);
-  tv1->setDeviceMesh(&mesh0);
-  tv2->setDeviceMesh(&mesh1);
-  tv3->setDeviceMesh(&mesh1);
+  tv0->setDeviceMesh(mesh0);
+  tv1->setDeviceMesh(mesh0);
+  tv2->setDeviceMesh(mesh1);
+  tv3->setDeviceMesh(mesh1);
 
   tv0->axis(0)->parallelize(ParallelType::DIDx);
   tv1->axis(0)->parallelize(ParallelType::DIDx);
@@ -283,10 +283,10 @@ TEST_F(PipelineTest, Pipeline_ReduceScatter) {
 
   DeviceMesh mesh0({0, 1, 2, 3});
   DeviceMesh mesh1({0, 1, 2, 3});
-  tv0->setDeviceMesh(&mesh0);
-  tv1->setDeviceMesh(&mesh0);
-  tv2->setDeviceMesh(&mesh1);
-  tv3->setDeviceMesh(&mesh1);
+  tv0->setDeviceMesh(mesh0);
+  tv1->setDeviceMesh(mesh0);
+  tv2->setDeviceMesh(mesh1);
+  tv3->setDeviceMesh(mesh1);
 
   tv0->axis(0)->parallelize(ParallelType::DIDx);
   tv1->axis(0)->parallelize(ParallelType::DIDx);
@@ -434,8 +434,8 @@ TEST_F(PipelineTest, matmul_summa) {
   a->split(2, M, false);
   b->split(0, N, false);
   b->split(2, M, false);
-  a->setDeviceMesh(&mesh);
-  b->setDeviceMesh(&mesh);
+  a->setDeviceMesh(mesh);
+  b->setDeviceMesh(mesh);
   a->axis(0)->parallelize(ParallelType::DIDx);
   a->axis(2)->parallelize(ParallelType::DIDy);
   b->axis(0)->parallelize(ParallelType::DIDx);
@@ -449,8 +449,8 @@ TEST_F(PipelineTest, matmul_summa) {
   auto b2 = set(b);
   a2->split(0, N, false);
   b2->split(1, M, false);
-  a2->setDeviceMesh(&mesh);
-  b2->setDeviceMesh(&mesh);
+  a2->setDeviceMesh(mesh);
+  b2->setDeviceMesh(mesh);
   a2->axis(0)->parallelize(ParallelType::DIDx);
   b2->axis(1)->parallelize(ParallelType::DIDy);
 
@@ -460,20 +460,20 @@ TEST_F(PipelineTest, matmul_summa) {
   auto b3 = broadcast(b2, {true, true, false, false});
   a3->split(0, N, false);
   b3->split(3, M, false);
-  a3->setDeviceMesh(&mesh);
-  b3->setDeviceMesh(&mesh);
+  a3->setDeviceMesh(mesh);
+  b3->setDeviceMesh(mesh);
   a3->axis(0)->parallelize(ParallelType::DIDx);
   b3->axis(3)->parallelize(ParallelType::DIDy);
 
   // c {DIDx{N}, x/N, y, DIDy{M}, z/M}
   auto c = mul(a3, b3);
-  c->setDeviceMesh(&mesh);
+  c->setDeviceMesh(mesh);
   c->axis(0)->parallelize(ParallelType::DIDx);
   c->axis(3)->parallelize(ParallelType::DIDy);
 
   // d {DIDx{N}, x/N, r{y}, DIDy{M}, z/M}
   auto d = sum(c, {2});
-  d->setDeviceMesh(&mesh);
+  d->setDeviceMesh(mesh);
   d->axis(0)->parallelize(ParallelType::DIDx);
   d->axis(3)->parallelize(ParallelType::DIDy);
   fusion->addOutput(d);

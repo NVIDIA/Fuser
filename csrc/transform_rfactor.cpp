@@ -221,6 +221,10 @@ class ReplayRFactor : public ReplayTransformations {
     NVF_ERROR(false, "Unexpected expression: ", resize->toString());
   }
 
+  void handle(Swizzle* swizzle) override {
+    NVF_ERROR(false, "Unexpected expression: ", swizzle->toString());
+  }
+
   void handle(Swizzle2D* swizzle) override {
     NVF_ERROR(false, "Unexpected expression: ", swizzle->toString());
   }
