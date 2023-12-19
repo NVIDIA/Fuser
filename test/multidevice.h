@@ -74,17 +74,6 @@ class PipelineTest : public MultiDeviceTest {
   std::vector<c10::IValue> inputs;
 };
 
-//(first stage's mesh, second stage's mesh, is first stage sharded, is second
-// stage sharded)
-using PipelineTestTwoStagesParams =
-    std::tuple<CommunicatorBackend, DeviceMesh, DeviceMesh, bool, bool>;
-class PipelineTestTwoStages
-    : public PipelineTest,
-      public ::testing::WithParamInterface<PipelineTestTwoStagesParams> {
- protected:
-  void SetUp() override;
-};
-
 } // namespace nvfuser
 
 #endif

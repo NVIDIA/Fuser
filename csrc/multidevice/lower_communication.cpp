@@ -27,11 +27,9 @@ inline T getInitialValue(BinaryOpType op) {
     case BinaryOpType::Min:
       return std::numeric_limits<T>::min();
     case BinaryOpType::Max:
-      return std::numeric_limits<T>::max();
     case BinaryOpType::BitwiseAnd:
       return std::numeric_limits<T>::max();
     case BinaryOpType::BitwiseOr:
-      return 0;
     case BinaryOpType::BitwiseXor:
       return 0;
     default:
@@ -380,8 +378,8 @@ void lowerToReduceScatter(
   params.redOp = getC10dReduceOpType(op_type);
   params.team = mesh.vector();
   params.dst_bufs = {output_tensor.index({0, "..."})};
-  for (int i : params.team) {
-    auto sliced_buf = input_tensor.index({0, i, "..."});
+  for (auto i : c10::irange(mesh.vector().size())) {
+    auto sliced_buf = input_tensor.index({0, static_cast<int>(i), "..."});
     params.src_bufs.push_back(sliced_buf);
   }
 
@@ -450,19 +448,21 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
     BinaryOpType op_type =
         output_tv->definition()->as<ReductionOp>()->getReductionOpType();
     NVF_ERROR(
-        is_input_sharded,
+        is_input_sharded || sender_mesh.vector().size() == 1,
         "the comm input must be sharded in case of reduce.",
         "Insert a `set` before the reduction to reshard")
     if (is_output_sharded) {
-      if (receiver_mesh == sender_mesh) {
-        lowerToReduceScatter(
-            my_device_index,
-            sender_mesh,
-            input_tensor,
-            output_tensor,
-            op_type,
-            comms);
-      }
+      NVF_ERROR(
+          receiver_mesh == sender_mesh,
+          "ReduceScatter operation must have the same sender and receiver device mesh. "
+          "Insert a Set operation before or after the reduction to reshard ot another device mesh");
+      lowerToReduceScatter(
+          my_device_index,
+          sender_mesh,
+          input_tensor,
+          output_tensor,
+          op_type,
+          comms);
     } else {
       if (receiver_mesh == sender_mesh) {
         lowerToAllreduce(
