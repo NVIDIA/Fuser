@@ -6,11 +6,12 @@
 # compare_codegen.sh - compare generated CUDA kernels between git commits
 #
 # This script is made to compare generated kernels when making changes to
-# codegen. Invoking it without any arguments will checkout origin/main, as well
-# as this commit. For each, it will build the project in release mode then
-# invoke all binary and python tests, saving the generated cuda kernels to .cu
-# files. It will then diff these files and report which ones changed. The exit
-# code is 1 if there are differences.
+# codegen. Invoking it without any arguments will checkout the reference commit
+# as well as this commit. The default reference commit is the merge-base equal
+# to `git merge-base origin/main HEAD`. For each, it will build the project in
+# release mode then invoke all binary and python tests, saving the generated
+# cuda kernels to .cu files. It will then diff these files and report which
+# ones changed. The exit code is 1 if there are differences.
 #
 # The -r option controls the git ref to compare against. The -o option lets you
 # specify the output directory.
@@ -32,6 +33,10 @@
 # directory for each commit labelled "custom_command_$LAUNCHTIME" where
 # $LAUNCHTIME is a string representing the time this script was launched.
 #
+# The -t option applies only if a custom command is provided, and specifies the
+# command type passed to run_command.sh. Should be one of GOOGLEBENCH,
+# GOOGLETEST, PYTEST, or UNKNOWN.
+#
 # By default, `python setup.py develop` is used to rebuild the project.
 # You can also set environment variable CUSTOM_BUILD_COMMAND if your build
 # is different.
@@ -39,8 +44,10 @@
 set -e
 set -o pipefail
 
+comparetoref=$(git merge-base origin/main HEAD)
+
 usage() {
-  echo "Usage: $0 [-h] [-q] [-r origin/main] [-o codegen_comparison] [-- custom command to run]"
+  echo "Usage: $0 [-h] [-q] [-r ${comparetoref}] [-o codegen_comparison] [-t command_type] [-- custom command to run]"
   echo -n "If given, the custom command should only run a single executable. "
   echo "If multiple executables are run, kernel files may be overwritten."
 }
@@ -48,10 +55,9 @@ usage() {
 # top-level directory of nvfuser repo
 nvfuserdir="$(dirname "$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")")"
 
-comparetoref=origin/main
 outdir=$nvfuserdir/codegen_comparison
 
-while getopts "r:o:hq" arg
+while getopts "r:o:t:hq" arg
 do
   case $arg in
     r)
@@ -59,6 +65,9 @@ do
       ;;
     o)
       outdir=$OPTARG
+      ;;
+    t)
+      commandtype=$(echo "$OPTARG" | tr '[:lower:]' '[:upper:]')
       ;;
     q)
       quiet=1
@@ -150,7 +159,7 @@ collect_kernels() {
     binarytestdir=$outdir/$commit/binary_tests
     pyfrontenddir=$outdir/$commit/python_frontend_tests
     pyopsdir=$outdir/$commit/python_ops_tests
-    pyschedopsdir=$outdir/$commit/python_shedule_ops_tests
+    pyschedopsdir=$outdir/$commit/python_schedule_ops_tests
 
     # Test for output directories and return early if they exist. This
     # avoids rebuilds when we are changing code and comparing repeatedly to
@@ -194,7 +203,12 @@ collect_kernels() {
 
     if [[ $hascustomcommand ]]
     then
-        "${bashcmd[@]}" -o "$customcmddir" -- "${customcommand[@]}"
+        if [[ -n $commandtype ]]
+        then
+            "${bashcmd[@]}" -t "$commandtype" -o "$customcmddir" -- "${customcommand[@]}"
+        else
+            "${bashcmd[@]}" -o "$customcmddir" -- "${customcommand[@]}"
+        fi
     else
         # python tests
         # Using -s to disable capturing stdout. This is important as it will let us see which tests creates each .cu file
