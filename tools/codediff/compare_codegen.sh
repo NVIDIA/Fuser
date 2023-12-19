@@ -33,6 +33,10 @@
 # directory for each commit labelled "custom_command_$LAUNCHTIME" where
 # $LAUNCHTIME is a string representing the time this script was launched.
 #
+# The -t option applies only if a custom command is provided, and specifies the
+# command type passed to run_command.sh. Should be one of GOOGLEBENCH,
+# GOOGLETEST, PYTEST, or UNKNOWN.
+#
 # By default, `python setup.py develop` is used to rebuild the project.
 # You can also set environment variable CUSTOM_BUILD_COMMAND if your build
 # is different.
@@ -43,7 +47,7 @@ set -o pipefail
 comparetoref=$(git merge-base origin/main HEAD)
 
 usage() {
-  echo "Usage: $0 [-h] [-q] [-r ${comparetoref}] [-o codegen_comparison] [-- custom command to run]"
+  echo "Usage: $0 [-h] [-q] [-r ${comparetoref}] [-o codegen_comparison] [-t command_type] [-- custom command to run]"
   echo -n "If given, the custom command should only run a single executable. "
   echo "If multiple executables are run, kernel files may be overwritten."
 }
@@ -53,7 +57,7 @@ nvfuserdir="$(dirname "$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")"
 
 outdir=$nvfuserdir/codegen_comparison
 
-while getopts "r:o:hq" arg
+while getopts "r:o:t:hq" arg
 do
   case $arg in
     r)
@@ -61,6 +65,9 @@ do
       ;;
     o)
       outdir=$OPTARG
+      ;;
+    t)
+      commandtype=$(tr '[:lower:]' '[:upper:]' "$OPTARG")
       ;;
     q)
       quiet=1
@@ -196,7 +203,12 @@ collect_kernels() {
 
     if [[ $hascustomcommand ]]
     then
-        "${bashcmd[@]}" -o "$customcmddir" -- "${customcommand[@]}"
+        if [[ -n $commandtype ]]
+        then
+            "${bashcmd[@]}" -t "$commandtype" -o "$customcmddir" -- "${customcommand[@]}"
+        else
+            "${bashcmd[@]}" -o "$customcmddir" -- "${customcommand[@]}"
+        fi
     else
         # python tests
         # Using -s to disable capturing stdout. This is important as it will let us see which tests creates each .cu file
