@@ -90,6 +90,29 @@ kir::Kernel* Statement::kernel() const {
 
 NVFUSER_DEFINE_CLONE(Val)
 
+std::pair<serde::ValData, flatbuffers::Offset<void>> Val::serializeData(
+    const IrSerde& container,
+    flatbuffers::FlatBufferBuilder& builder) const {
+  return {serde::ValData::NONE, flatbuffers::Offset<void>()};
+}
+
+flatbuffers::Offset<serde::Value> Val::serialize(
+    const IrSerde& container,
+    flatbuffers::FlatBufferBuilder& builder) const {
+  auto&& [val_data_type, val_data] = serializeData(container, builder);
+  auto fb_uses = container.map(uses_);
+  return serde::CreateValueDirect(
+      builder,
+      toUnderlying(std::get<PrimDataType>(dtype_.type)),
+      is_fusion_input_,
+      is_fusion_output_,
+      container.map(definition_),
+      &fb_uses,
+      evaluator_index_,
+      val_data_type,
+      val_data);
+}
+
 const std::vector<Expr*>& Val::uses() const {
   if (vtype_ == ValType::TensorView) {
     if (!fusion()->isTVUseInfoValid() && !fusion()->isUpdatingTVUseInfo()) {

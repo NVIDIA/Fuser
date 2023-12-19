@@ -2010,6 +2010,10 @@ class NamedScalar : public Val {
     return name_;
   }
 
+  std::pair<serde::ValData, flatbuffers::Offset<void>> serializeData(
+      const IrSerde& container,
+      flatbuffers::FlatBufferBuilder& builder) const override;
+
   //! Check if this is threadIdx.{x,y,z}
   bool isThreadIdx() const {
     auto p = getParallelIndex();

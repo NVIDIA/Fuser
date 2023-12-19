@@ -17,6 +17,7 @@
 #include <kernel_ir.h>
 #include <ops/arith.h>
 #include <root_domain_map.h>
+#include <serde/utils.h>
 #include <transform_iter.h>
 #include <transform_rfactor.h>
 #include <transform_view.h>
@@ -2662,6 +2663,24 @@ std::string IterDomain::toInlineString(int indent_size) const {
   return toString(indent_size);
 }
 
+std::pair<serde::ValData, flatbuffers::Offset<void>> IterDomain::serializeData(
+    const IrSerde& container,
+    flatbuffers::FlatBufferBuilder& builder) const {
+  flatbuffers::Offset<serde::IterDomain> data = serde::CreateIterDomain(
+      builder,
+      container.map(start_),
+      container.map(extent_),
+      container.map(expanded_extent_),
+      container.map(stop_offset_),
+      toUnderlying(parallel_type_),
+      toUnderlying(iter_type_),
+      is_rfactor_domain_,
+      is_padded_dimension_,
+      (padded_to_size_.has_value()) ? padded_to_size_.value() : -1,
+      is_mma_swizzled_);
+  return {serde::ValData::IterDomain, data.Union()};
+}
+
 // Returns a new IterDomain matching properties of this except for
 // is_rfactor_domain_
 IterDomain* IterDomain::cloneWithoutRFactor() const {
@@ -3412,6 +3431,26 @@ std::string TensorDomain::toInlineString(int indent_size) const {
   return toString(indent_size);
 }
 
+std::pair<serde::ValData, flatbuffers::Offset<void>> TensorDomain::
+    serializeData(
+        const IrSerde& container,
+        flatbuffers::FlatBufferBuilder& builder) const {
+  auto fb_root_domain = container.map(root_domain_);
+  auto fb_rfactor_domain = container.map(rfactor_domain_);
+  auto fb_allocation_domain = container.map(allocation_domain_);
+  auto fb_leaf_domain = container.map(leaf_domain_);
+  auto fb_contiguity = serde::mapContiguity(contiguity_);
+  flatbuffers::Offset<serde::TensorDomain> data =
+      serde::CreateTensorDomainDirect(
+          builder,
+          &fb_root_domain,
+          &fb_rfactor_domain,
+          &fb_allocation_domain,
+          &fb_leaf_domain,
+          &fb_contiguity);
+  return {serde::ValData::TensorDomain, data.Union()};
+}
+
 void TensorDomain::setContiguity(
     const std::vector<std::optional<bool>>& contig) {
   NVF_ERROR(
@@ -4056,6 +4095,14 @@ bool NamedScalar::sameAs(const Statement* other) const {
     return false;
   }
   return other->as<NamedScalar>()->name().compare(name()) == 0;
+}
+
+std::pair<serde::ValData, flatbuffers::Offset<void>> NamedScalar::serializeData(
+    const IrSerde& container,
+    flatbuffers::FlatBufferBuilder& builder) const {
+  return {
+      serde::ValData::NamedScalar,
+      serde::CreateNamedScalarDirect(builder, name_.c_str()).Union()};
 }
 
 NamedScalar* NamedScalar::getParallelDim(ParallelType p_type) {

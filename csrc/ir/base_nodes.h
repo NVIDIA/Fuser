@@ -13,7 +13,9 @@
 #include <exceptions.h>
 
 #include <ir/builder_passkey.h>
+#include <ir/serde.h>
 #include <polymorphic_value.h>
+#include <serde/fusion_cache_generated.h>
 #include <type.h>
 #include <utils.h>
 
@@ -266,6 +268,14 @@ class Val : public Statement {
   std::string toString(int indent_size = 0) const override;
 
   std::string toInlineString(int indent_size = 0) const override;
+
+  flatbuffers::Offset<serde::Value> serialize(
+      const IrSerde& container,
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  virtual std::pair<serde::ValData, flatbuffers::Offset<void>> serializeData(
+      const IrSerde& container,
+      flatbuffers::FlatBufferBuilder& builder) const;
 
   // Dispatch functions, definitions in dispatch.cpp
   template <typename T>

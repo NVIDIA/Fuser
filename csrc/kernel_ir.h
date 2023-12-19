@@ -79,6 +79,10 @@ class Predicate final : public Val {
 
   std::string toInlineString(int indent_size = 0) const override;
 
+  std::pair<serde::ValData, flatbuffers::Offset<void>> serializeData(
+      const IrSerde& container,
+      flatbuffers::FlatBufferBuilder& builder) const override;
+
   PredicateType predicate_type() const {
     return ptype_;
   }
@@ -167,6 +171,10 @@ class TensorIndex final : public Val {
   std::string toString(int indent_size = 0) const override;
 
   std::string toInlineString(int indent_size = 0) const override;
+
+  std::pair<serde::ValData, flatbuffers::Offset<void>> serializeData(
+      const IrSerde& container,
+      flatbuffers::FlatBufferBuilder& builder) const override;
 
  private:
   const TensorView* view_ = nullptr;

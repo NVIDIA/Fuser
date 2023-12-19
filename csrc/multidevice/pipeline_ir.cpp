@@ -130,4 +130,12 @@ std::string PipelineVal::toInlineString(int indent_size) const {
   return toString(indent_size);
 }
 
+std::pair<serde::ValData, flatbuffers::Offset<void>> PipelineVal::serializeData(
+    const IrSerde& container,
+    flatbuffers::FlatBufferBuilder& builder) const {
+  flatbuffers::Offset<serde::PipelineVal> data = serde::CreatePipelineVal(
+      builder, container.map(original_val_), container.map(stage_));
+  return {serde::ValData::PipelineVal, data.Union()};
+}
+
 } // namespace nvfuser

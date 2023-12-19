@@ -111,6 +111,10 @@ class IterDomain : public Val {
 
   std::string toInlineString(int indent_size = 0) const override;
 
+  std::pair<serde::ValData, flatbuffers::Offset<void>> serializeData(
+      const IrSerde& container,
+      flatbuffers::FlatBufferBuilder& builder) const override;
+
   //! Returns a new IterDomain matching properties of this
   //!
   //! This does NOT copy the is_rfactor_domain flag.
@@ -512,6 +516,10 @@ class TensorDomain : public Val {
   std::string toString(int indent_size, bool leaf_only) const;
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+
+  std::pair<serde::ValData, flatbuffers::Offset<void>> serializeData(
+      const IrSerde& container,
+      flatbuffers::FlatBufferBuilder& builder) const override;
 
   // Note: [Contiguity]
   // Contiguity is a vector of optional<bool> which has the same number of
