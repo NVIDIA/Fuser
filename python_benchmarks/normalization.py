@@ -290,7 +290,7 @@ def norm_bwd_benchmark(
     """
 
     clear_cuda_cache()
-    
+
     assert norm in ["batch_norm", "instance_norm"], NotImplementedError
 
     # Size is assumed to be in the order N, C, ...

@@ -102,7 +102,7 @@ def test_layernorm_bwd_benchmark(
     eps: float = 1e-5,
 ):
     clear_cuda_cache()
-    
+
     inputs = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(*size, device="cuda", dtype=dtype)
     weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)

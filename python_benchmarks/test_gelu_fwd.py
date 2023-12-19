@@ -48,7 +48,7 @@ def test_gelu_fwd_benchmark(
     disable_benchmarking: bool,
 ):
     clear_cuda_cache()
-    
+
     inputs = torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
     bias = torch.ones(size[-1], device="cuda", dtype=dtype)
     with FusionDefinition() as fd:

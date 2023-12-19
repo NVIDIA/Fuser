@@ -47,7 +47,7 @@ def test_transpose_benchmark(
     disable_benchmarking: bool,
 ):
     clear_cuda_cache()
-    
+
     input1 = torch.randn(*size, device="cuda", dtype=dtype)
     input2 = torch.randn(*size, device="cuda", dtype=dtype)
     permute_axes = list(range(len(size)))

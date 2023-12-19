@@ -56,7 +56,7 @@ def test_softmax_fwd_benchmark(
     disable_benchmarking: bool,
 ):
     clear_cuda_cache()
-    
+
     inputs = [torch.randn(*size, device="cuda", dtype=dtype)]
 
     with FusionDefinition() as fd:
