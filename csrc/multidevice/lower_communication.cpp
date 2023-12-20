@@ -424,7 +424,7 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
   NVF_ERROR(
       isLowerableToCommunication(original_expr),
       "Lowering expression ",
-      original_expr,
+      original_expr->toString(),
       " to communication is not supported");
   bool is_reduction = original_expr->isA<ReductionOp>();
 

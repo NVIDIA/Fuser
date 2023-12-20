@@ -131,8 +131,8 @@ TEST_F(PipelineTest, Pipeline) {
   validate();
 }
 
-//(first stage's mesh, second stage's mesh, is first stage sharded, is second
-// stage sharded, do_reduction?)
+//(backend type, first stage's mesh, second stage's mesh (if not null), is first stage sharded?, is second
+// stage sharded?, do_reduction?)
 using PipelineTestTwoStagesParams =
     std::tuple<CommunicatorBackend, DeviceMesh, DeviceMesh, bool, bool, bool>;
 class PipelineTestTwoStages
@@ -186,7 +186,9 @@ TEST_P(PipelineTestTwoStages, Communication) {
     tv1->axis(0)->parallelize(ParallelType::DIDx);
   }
   if (is_stage1_sharded) {
-    tv2->axis(do_reduction ? 1 : 0)->parallelize(ParallelType::DIDx);
+    // in case of reduction, axis(0) of tv2 is a reduction axis, except if it was initially of size 1, in which case it is simply removed.
+    int tv2_outmost_axis = (do_reduction && second_axis_extent > 1) ? 1 : 0; 
+    tv2->axis(tv2_outmost_axis)->parallelize(ParallelType::DIDx);
     tv3->axis(0)->parallelize(ParallelType::DIDx);
   }
 
@@ -206,6 +208,7 @@ DeviceMesh mesh2({0, 1, 2, 3});
 DeviceMesh mesh3({0, 2, 3});
 DeviceMesh mesh4({1, 0, 2});
 auto all_meshes = ::testing::Values(mesh0, mesh1, mesh2, mesh3, mesh4);
+auto all_nontrivial_meshes = ::testing::Values(mesh2, mesh3, mesh4);
 
 } // namespace
 
@@ -269,7 +272,7 @@ INSTANTIATE_TEST_SUITE_P(
     PipelineTestTwoStages,
     ::testing::Combine(
         all_backends,
-        all_meshes,
+        all_nontrivial_meshes,
         all_meshes,
         ::testing::Values(true),
         ::testing::Values(false),
@@ -280,7 +283,7 @@ INSTANTIATE_TEST_SUITE_P(
     PipelineTestTwoStages,
     ::testing::Combine(
         all_backends,
-        all_meshes,
+        all_nontrivial_meshes,
         ::testing::Values(mesh_null), // the same mesh is used for all tensors
         ::testing::Values(true),
         ::testing::Values(true),
