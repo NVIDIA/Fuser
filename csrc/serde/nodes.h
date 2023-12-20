@@ -7,8 +7,8 @@
  */
 // clang-format on
 #pragma once
-#include <serde/factory.h>
 #include <ir/all_nodes.h>
+#include <serde/factory.h>
 
 namespace nvfuser::serde {
 
@@ -21,7 +21,8 @@ class ValueFactory : public NodeFactory<serde::Value, nvfuser::Val*> {
   void registerAllParsers() override;
 };
 
-class ExpressionFactory : public NodeFactory<serde::Expression, nvfuser::Expr*> {
+class ExpressionFactory
+    : public NodeFactory<serde::Expression, nvfuser::Expr*> {
  private:
   void registerAllParsers() override;
 };
