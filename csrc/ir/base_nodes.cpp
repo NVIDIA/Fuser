@@ -393,7 +393,14 @@ flatbuffers::Offset<serde::Expression> Expr::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   auto fb_inputs = container.map(inputs());
   auto fb_outputs = container.map(outputs());
-  auto fb_attributes = container.map(attributes());
+
+  std::vector<flatbuffers::Offset<serde::Statement>> fb_attributes;
+  fb_attributes.reserve(attributes().size());
+  for (auto stmt : attributes()) {
+    fb_attributes.push_back(
+        serde::CreateStatement(builder, container.map(stmt), stmt->isVal()));
+  }
+
   return serde::CreateExpressionDirect(
       builder, serde_expr_type_, &fb_inputs, &fb_outputs, &fb_attributes);
 }

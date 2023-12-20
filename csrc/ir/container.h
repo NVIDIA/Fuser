@@ -56,6 +56,17 @@ class IrContainer : public PolymorphicBase {
         inContainer(stmt), msg, " it was not found in the active container.");
   }
 
+  Expr* getExpr(int64_t index) {
+    NVF_CHECK(
+        index < (int64_t)exprs_up_.size(), "Out of bounds expression index.");
+    return exprs_up_.at(index).get();
+  }
+
+  Val* getVal(int64_t index) {
+    NVF_CHECK(index < (int64_t)vals_up_.size(), "Out of bounds value index.");
+    return vals_up_.at(index).get();
+  }
+
   //! Return values in insertion order
   const std::deque<Val*> deterministic_vals() const noexcept {
     std::deque<Val*> vals_deque;

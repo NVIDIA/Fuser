@@ -204,8 +204,8 @@ union ValData {
   PolymorphicValue,
   Predicate,
   TensorDomain,
-  TensorView,
   TensorIndex,
+  TensorView,
 }
 
 // =====================================================================================
@@ -478,11 +478,16 @@ table Value {
   data: ValData;
 }
 
+table Statement {
+  index: long;
+  is_val: bool;
+}
+
 table Expression {
   type: ExprType;
   input_vals: [long];
   output_vals: [long];
-  attributes_vals: [long];
+  attributes_stmts: [Statement];
 }
 
 table IrContainer {
