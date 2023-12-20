@@ -81,11 +81,19 @@ namespace nvfuser::serde {
 
 void ValueFactory::registerAllParsers() {
   auto deserializeVal = [](const nvf::IrContainer& container,
-                           const Value* buffer) {
+                           const serde::Value* buffer) {
     return IrBuilder::create<nvf::Val>(
         nvf::ValType::Others, mapToDtypeStruct(buffer->dtype_enum()));
   };
   registerParser(serde::ValData::NONE, deserializeVal);
+
+  auto deserializeNamedScalar = [](const nvf::IrContainer& container,
+                                   const serde::Value* buffer) {
+    auto data = buffer->data_as_NamedScalar();
+    return IrBuilder::create<nvf::NamedScalar>(
+        data->name()->str(), mapToDtypeStruct(buffer->dtype_enum()));
+  };
+  registerParser(serde::ValData::NamedScalar, deserializeNamedScalar);
 }
 
 void ExpressionFactory::registerAllParsers() {

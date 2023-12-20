@@ -174,7 +174,7 @@ flatbuffers::Offset<serde::IrContainer> IrContainer::serialize(
       &fb_val_type_name_map_keys,
       &fb_val_type_name_map_values,
       expr_name_counter_,
-      (fb_axioms.empty()) ? 0 : &fb_axioms,
+      (fb_axioms.empty()) ? nullptr : &fb_axioms,
       &fb_metadata_keys,
       &fb_metadata_values_lhs,
       &fb_metadata_values_rhs);
