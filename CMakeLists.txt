@@ -61,6 +61,7 @@ endif()
 # nvfuser codegen sources
 set(NVFUSER_SRCS)
 list(APPEND NVFUSER_SRCS
+  ${NVFUSER_SRCS_DIR}/alias_analysis.cpp
   ${NVFUSER_SRCS_DIR}/compute_at.cpp
   ${NVFUSER_SRCS_DIR}/inlining.cpp
   ${NVFUSER_SRCS_DIR}/compute_at_map.cpp
@@ -133,6 +134,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/validation.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/lower2device.cpp
   ${NVFUSER_SRCS_DIR}/maxinfo_propagator.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/allocator.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communication.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communicator.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/device_mesh.cpp
@@ -166,6 +168,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/transpose.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_outer.cpp
@@ -193,9 +196,8 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/mma_type.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
   ${NVFUSER_SRCS_DIR}/optimization/add_axioms.cpp
-  ${NVFUSER_SRCS_DIR}/optimization/alias_analysis.cpp
   ${NVFUSER_SRCS_DIR}/optimization/consecutive_cast.cpp
-  ${NVFUSER_SRCS_DIR}/optimization/mark_alias.cpp
+  ${NVFUSER_SRCS_DIR}/optimization/optimize_layout.cpp
   ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/optimization/remove_empty.cpp
   ${NVFUSER_SRCS_DIR}/val_graph.cpp
@@ -392,7 +394,6 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/test/test_gpu_fused_reduction.cpp
   ${NVFUSER_ROOT}/test/test_gpu_outer_reduction.cpp
   ${NVFUSER_ROOT}/test/test_loop_rotation.cpp
-  ${NVFUSER_ROOT}/test/test_gpu_shift.cpp
   ${NVFUSER_ROOT}/test/test_resize.cpp
   ${NVFUSER_ROOT}/test/test_polymorphic_value.cpp
   ${NVFUSER_ROOT}/test/test_mbarrier.cpp
@@ -447,9 +448,12 @@ function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
 endfunction()
 
 if(BUILD_TEST)
+  set(TEST_BINARIES)
   add_test(${PROJECT_NAME}_tests "${JIT_TEST_SRCS}" "")
+  list(APPEND TEST_BINARIES ${PROJECT_NAME}_tests)
 
   add_test(test_rng ${NVFUSER_ROOT}/test/test_rng.cpp ${RNG_TEST_KERNELS})
+  list(APPEND TEST_BINARIES test_rng)
 
   set(MULTIDEVICE_TEST_SRCS)
   list(APPEND MULTIDEVICE_TEST_SRCS
@@ -458,8 +462,10 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_multidevice_communications.cpp
   )
   add_test(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
+  list(APPEND TEST_BINARIES test_multidevice)
 
   add_test(test_view "${NVFUSER_ROOT}/test/test_gpu_view.cpp" "")
+  list(APPEND TEST_BINARIES test_view)
 
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
@@ -469,10 +475,16 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/test/test_gpu_tensorcore.cpp
   )
   add_test(test_matmul "${MATMUL_TEST_SRCS}" "")
+  list(APPEND TEST_BINARIES test_matmul)
 
   add_test(test_external_src "${NVFUSER_ROOT}/test/test_external_src.cpp" "")
+  list(APPEND TEST_BINARIES test_external_src)
+
+  add_test(test_shift "${NVFUSER_ROOT}/test/test_shift.cpp" "")
+  list(APPEND TEST_BINARIES test_shift)
 
   add_test(tutorial "${NVFUSER_ROOT}/test/test_tutorial.cpp" "")
+  list(APPEND TEST_BINARIES tutorial)
 
   if(BUILD_PYTHON)
     set(PY_FRONTEND_TEST_SRCS)
@@ -482,12 +494,16 @@ if(BUILD_TEST)
       ${NVFUSER_SRCS_DIR}/python_frontend/test/test_nvfuser_fusion_record.cpp
     )
     add_test(test_python_frontend "${PY_FRONTEND_TEST_SRCS}" "")
+    list(APPEND TEST_BINARIES test_python_frontend)
   endif()
 
   # We don't link CUPTI for MSVC
   if(NOT MSVC)
     add_test(test_profiler "${NVFUSER_ROOT}/test/test_fusion_profiler.cpp" "")
+    list(APPEND TEST_BINARIES test_profiler)
   endif()
+
+  add_custom_target(tests DEPENDS ${TEST_BINARIES})
 endif()
 
 # -- build benchmark

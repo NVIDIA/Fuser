@@ -34,6 +34,21 @@ std::string ptrType(DataType dt) {
   return ss.str();
 }
 
+bool isTmaType(const DataType& dtype) {
+  return std::visit(
+      [](auto&& dtype) -> bool {
+        using T = std::decay_t<decltype(dtype)>;
+        if constexpr (std::is_same_v<T, PointerType>) {
+          return isTmaType(*dtype.type);
+        }
+        if constexpr (std::is_same_v<T, OpaqueType>) {
+          return 0 == dtype.name.compare("TensorMap");
+        }
+        return false;
+      },
+      dtype.type);
+}
+
 //! Utility class to build an argument list
 class ArgumentBuilder {
  public:
@@ -275,7 +290,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         }
       } else {
         NVF_ERROR(param->isScalar()); // NOLINT (LLVM bug 48525)
-        code_ << param->dtype() << " " << var_name_ss.str();
+        if (isTmaType(param->dtype())) {
+          code_ << "const __grid_constant__ " << param->dtype() << " "
+                << var_name_ss.str();
+        } else {
+          code_ << param->dtype() << " " << var_name_ss.str();
+        }
       }
 
       if (i + 1 != kernel_->parameters().size()) {
@@ -2751,7 +2771,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     alloc_map_.emplace(alloc->buffer(), alloc);
 
     if (!alloc->buffer()->isA<TensorView>()) {
-      indent() << buffer_dtype << " " << gen(alloc->buffer()) << ";\n";
+      // Pointer TensorMap allocation must be const as kernel parametr assigned
+      // to it is const by definition, see genDeclaration(...) for details
+      const bool add_const = isTmaType(buffer_dtype);
+      indent() << (add_const ? "const " : "") << buffer_dtype << " "
+               << gen(alloc->buffer()) << ";\n";
       return;
     }
 
