@@ -114,6 +114,72 @@ IrContainer::~IrContainer() {
   clear();
 }
 
+flatbuffers::Offset<serde::IrContainer> IrContainer::serialize(
+    const IrSerde& container,
+    flatbuffers::FlatBufferBuilder& builder) const {
+  // Copy values in deterministic order
+  // deterministic_vals can contain special values like one_val_, zero_val_, etc
+  // that are not registered in the container.
+  std::vector<flatbuffers::Offset<serde::Value>> fb_vals;
+  fb_vals.reserve(vals().size());
+  for (auto val : deterministic_vals()) {
+    if (vals().count(val) > 0) {
+      fb_vals.push_back(val->serialize(container, builder));
+    }
+  }
+
+  // Copy expressions in deterministic order
+  std::vector<flatbuffers::Offset<serde::Expression>> fb_exprs;
+  fb_exprs.reserve(unordered_exprs().size());
+  for (auto expr : deterministic_exprs()) {
+    if (unordered_exprs().count(expr) > 0) {
+      fb_exprs.push_back(expr->serialize(container, builder));
+    }
+  }
+
+  std::vector<int64_t> fb_val_type_name_map_keys;
+  std::vector<uint64_t> fb_val_type_name_map_values;
+  fb_val_type_name_map_keys.reserve(val_type_name_map_.size());
+  fb_val_type_name_map_values.reserve(val_type_name_map_.size());
+  for (const auto& item : val_type_name_map_) {
+    fb_val_type_name_map_keys.push_back(toUnderlying(item.first));
+    fb_val_type_name_map_values.push_back(item.second);
+  }
+
+  std::vector<int64_t> fb_axioms;
+  if (axioms_ != nullptr) {
+    fb_axioms.reserve(axioms_->size());
+    for (auto pred : *axioms_) {
+      fb_axioms.push_back(container.map(pred));
+    }
+  }
+
+  std::vector<int64_t> fb_metadata_keys;
+  std::vector<int64_t> fb_metadata_values_lhs;
+  std::vector<int64_t> fb_metadata_values_rhs;
+  fb_metadata_keys.reserve(metadata_.size());
+  fb_metadata_values_lhs.reserve(metadata_.size());
+  fb_metadata_values_rhs.reserve(metadata_.size());
+  for (const auto& item : metadata_) {
+    fb_metadata_keys.push_back(container.map(item.first));
+    auto&& [val, expr] = item.second;
+    fb_metadata_values_lhs.push_back(container.map(val));
+    fb_metadata_values_rhs.push_back(container.map(expr));
+  }
+
+  return serde::CreateIrContainerDirect(
+      builder,
+      &fb_vals,
+      &fb_exprs,
+      &fb_val_type_name_map_keys,
+      &fb_val_type_name_map_values,
+      expr_name_counter_,
+      (fb_axioms.empty()) ? 0 : &fb_axioms,
+      &fb_metadata_keys,
+      &fb_metadata_values_lhs,
+      &fb_metadata_values_rhs);
+}
+
 //! Register the Statement with this container
 void IrContainer::registerStmt(IrBuilderPasskey, Statement* stmt) {
   if (stmt->isVal()) {

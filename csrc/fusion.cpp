@@ -150,6 +150,69 @@ Fusion::~Fusion() {
   clear();
 }
 
+flatbuffers::Offset<serde::Fusion> Fusion::serialize(
+    flatbuffers::FlatBufferBuilder& builder) const {
+  NVF_ERROR(
+      managed_data_.empty(), "Serialization does not support managed_data");
+  NVF_ERROR(
+      managed_named_data_.empty(),
+      "Serialization does not support managed_named_data");
+
+  IrSerde container(this);
+
+  std::vector<int64_t> fb_inputs_vals;
+  fb_inputs_vals.reserve(inputs_.size());
+  for (auto inp : inputs_) {
+    fb_inputs_vals.push_back(container.map(inp));
+  }
+
+  std::vector<int64_t> fb_outputs_vals;
+  fb_inputs_vals.reserve(outputs_.size());
+  for (auto out : outputs_) {
+    fb_outputs_vals.push_back(container.map(out));
+  }
+
+  std::vector<int64_t> fb_io_alias_keys;
+  std::vector<flatbuffers::Offset<serde::AliasInfo>> fb_io_alias_values;
+  fb_io_alias_keys.reserve(io_alias_.size());
+  fb_io_alias_values.reserve(io_alias_.size());
+  for (const auto& entry : io_alias_) {
+    fb_io_alias_keys.push_back(container.map(entry.first));
+    auto&& [val, info] = entry.second;
+    fb_io_alias_values.push_back(serde::CreateAliasInfo(
+        builder,
+        container.map(val),
+        toUnderlying(info.type),
+        info.hide_output));
+  }
+
+  std::vector<flatbuffers::Offset<serde::Permutation>> fb_permuted_input_map;
+  fb_permuted_input_map.reserve(permuted_input_map_.size());
+  for (const auto& entry : permuted_input_map_) {
+    fb_permuted_input_map.push_back(
+        serde::CreatePermutationDirect(builder, entry.first, &entry.second));
+  }
+
+  std::vector<flatbuffers::Offset<serde::Permutation>> fb_permuted_output_map;
+  fb_permuted_output_map.reserve(permuted_output_map_.size());
+  for (const auto& entry : permuted_output_map_) {
+    fb_permuted_output_map.push_back(
+        serde::CreatePermutationDirect(builder, entry.first, &entry.second));
+  }
+
+  return serde::CreateFusionDirect(
+      builder,
+      IrContainer::serialize(container, builder),
+      &fb_inputs_vals,
+      &fb_outputs_vals,
+      &fb_io_alias_keys,
+      &fb_io_alias_values,
+      &fb_permuted_input_map,
+      &fb_permuted_output_map,
+      all_tv_uses_valid_,
+      is_during_update_uses_);
+}
+
 void Fusion::clear() noexcept {
   // Perf scope isn't safe here as this function could be called by
   // the Fusion destructor and the scope initializer could call the
