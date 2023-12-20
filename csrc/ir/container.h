@@ -45,6 +45,10 @@ class IrContainer : public PolymorphicBase {
 
   ~IrContainer() override;
 
+  flatbuffers::Offset<serde::IrContainer> serialize(
+      const IrSerde& container,
+      flatbuffers::FlatBufferBuilder& builder) const;
+
   bool inContainer(const Statement* stmt) const;
 
   void assertInContainer(const Statement* stmt, const std::string& msg) const {

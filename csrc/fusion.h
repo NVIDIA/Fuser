@@ -125,6 +125,9 @@ class Fusion : public IrContainer {
 
   ~Fusion() override;
 
+  flatbuffers::Offset<serde::Fusion> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
   friend void swap(Fusion& a, Fusion& b) noexcept;
 
   void clear() noexcept;

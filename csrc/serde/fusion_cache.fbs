@@ -488,8 +488,8 @@ table Expression {
 table IrContainer {
   vals: [Value];
   exprs: [Expression];
-  val_type_name_map_keys: long;
-  val_type_name_map_values: ulong;
+  val_type_name_map_keys: [long];
+  val_type_name_map_values: [ulong];
   expr_name_counter: ulong;
   axioms: [long];
   metadata_keys: [long];
@@ -511,6 +511,8 @@ table Permutation {
 
 // Managed Data is not supported
 table Fusion {
+  container: IrContainer;
+
   // Fusion inputs and outputs Val
   inputs_vals: [long];
   outputs_vals: [long];
