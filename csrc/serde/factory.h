@@ -64,6 +64,7 @@ class NodeFactory {
   NodeFactory(size_t num_parsers) : parsers_(num_parsers, nullptr) {
     registerAllParsers();
   };
+  virtual ~NodeFactory() = default;
 
   template <typename SerdeEnum>
   void registerParser(SerdeEnum serde_type, SerdeParser parser) {
@@ -86,7 +87,7 @@ class NodeFactory {
   }
 
  private:
-  virtual void registerAllParsers();
+  virtual void registerAllParsers() = 0;
   std::vector<SerdeParser> parsers_;
 };
 

@@ -17,12 +17,18 @@ class Expr;
 class Val;
 
 class ValueFactory : public NodeFactory<serde::Value, nvfuser::Val*> {
+ public:
+  ~ValueFactory() override = default;
+
  private:
   void registerAllParsers() override;
 };
 
 class ExpressionFactory
     : public NodeFactory<serde::Expression, nvfuser::Expr*> {
+ public:
+  ~ExpressionFactory() override = default;
+
  private:
   void registerAllParsers() override;
 };
