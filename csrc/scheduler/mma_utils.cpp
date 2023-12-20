@@ -826,7 +826,8 @@ void WarpMmaSwizzler::scheduleOperandRead(TensorView* tv, MmaOperand operand) {
 void WarpMmaSwizzler::scheduleOperandRead(
     TensorView* tv,
     MmaInputSmemSwizzle swizzle,
-    bool transpose) {
+    bool transpose,
+    bool transpose2) {
   if (transpose) {
     tv->reorder({{-2, -1}});
   }
@@ -839,28 +840,43 @@ void WarpMmaSwizzler::scheduleOperandRead(
     // [Ko, K8, Mo, M8]
     tv->reorder({{-2, -3}});
     // [Ko, Mo, K8, M8]
+    if (transpose2) {
+      tv->reorder({{-2, -1}});
+    }
   } else {
     auto swizzle_size = getBytesFromSwizzle(swizzle) / 16;
-    // For example, [K, M]
-    tv->split(-2, 8);
-    tv->split(-1, 8);
-    // [Ko, K8, Mo, M8]
-    tv->reorder({{-2, -3}});
-    // [Ko, Mo, K8, M8]
-    // Note: the extent of Mo may not be a multiple of swizzle_size, but we
-    // still split swizzle_size. If this is the case, effectively we are padding
-    // it to a multiple of swizzle_size.
-    tv->split(-3, swizzle_size);
-    // For example, swizzle_size = 2
-    // [Ko, Moo, Mo2, K8, M8]
-    tv->reorder({{-2, -3}});
-    // [Ko, Moo, K8, Mo2, M8]
-    tv->split(-3, 8 / swizzle_size);
-    // [Ko, Moo, K2, K4, Mo2, M8]
-    tv->swizzle(SwizzleType::XOR, -4, -2);
-    tv->merge(-4);
-    tv->merge(-3);
-    // [Ko, Moo, KKMo16, M8]
+    if (transpose2) {
+      // For example, [K, M]
+      tv->reorder({{-2, -1}});
+      // [M, K]
+      tv->split(-2, 8);
+      tv->split(-1, 8);
+      // [Mo, M8, Ko, K8]
+      tv->split(-3, 8 / swizzle_size);
+      // For example swizzle_size = 2
+      // [Mo, M2, M4, Ko, K8]
+      tv->split(-2, swizzle_size);
+      // [Mo, M2, M4, Koo, K2, K8]
+      tv->swizzle(SwizzleType::XOR, -5, -2);
+    } else {
+      // For example, [K, M]
+      tv->split(-2, 8);
+      tv->split(-1, 8);
+      // [Ko, K8, Mo, M8]
+      tv->reorder({{-2, -3}});
+      // [Ko, Mo, K8, M8]
+      // Note: the extent of Mo may not be a multiple of swizzle_size, but we
+      // still split swizzle_size. If this is the case, effectively we are
+      // padding it to a multiple of swizzle_size.
+      tv->split(-3, swizzle_size);
+      // For example, swizzle_size = 2
+      // [Ko, Moo, Mo2, K8, M8]
+      tv->reorder({{-2, -3}});
+      // [Ko, Moo, K8, Mo2, M8]
+      tv->split(-3, 8 / swizzle_size);
+      // [Ko, Moo, K2, K4, Mo2, M8]
+      tv->swizzle(SwizzleType::XOR, -4, -2);
+    }
   }
   tv->setAllocationDomain(tv->getLeafDomain(), true);
 }

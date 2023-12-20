@@ -575,37 +575,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
   return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
 }
 
-// Infer the sizes and strides of an output tensor
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
-    const TensorView* tv,
-    ExpressionEvaluator& expr_eval) {
-  // Fusion outputs do not come with Allocate and
-  // need to be allocated while taking expanded broadcasts into
-  // account.
-
-  std::vector<Val*> symbolic_sizes;
-  std::vector<bool> expand_flags;
-
-  // Allocate the allocation domain
-  for (const auto id : tv->getMaybeAllocationDomain()) {
-    if (id->isReduction() || id->isStride()) {
-      continue;
-    }
-    symbolic_sizes.push_back(id->getMaybeExpandedExtent());
-    if (id->hasExpandedExtent()) {
-      NVF_ERROR(
-          id->isBroadcast(),
-          "Non-broadcast domain should not have an expanded extent: ",
-          id->toString());
-      expand_flags.push_back(true);
-    } else {
-      expand_flags.push_back(false);
-    }
-  }
-
-  return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
-}
-
 class ForwardTraverseFromAllocToRFactor {
   at::Tensor tensor_;
   ExpressionEvaluator& ee_;
@@ -908,16 +877,60 @@ at::Tensor transformOutputFromAllocationToRFactor(
   return tensor.permute(dims);
 }
 
+// Infer the sizes and strides of an output tensor
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
+    TensorView* tv,
+    ExpressionEvaluator& expr_eval) {
+  // Fusion outputs do not come with Allocate and
+  // need to be allocated while taking expanded broadcasts into
+  // account.
+
+  std::vector<Val*> symbolic_sizes;
+  std::vector<bool> expand_flags;
+
+  // Allocate the allocation domain
+  for (const auto id : tv->getMaybeAllocationDomain()) {
+    if (id->isReduction() || id->isStride()) {
+      continue;
+    }
+    symbolic_sizes.push_back(id->getMaybeExpandedExtent());
+    if (id->hasExpandedExtent()) {
+      NVF_ERROR(
+          id->isBroadcast(),
+          "Non-broadcast domain should not have an expanded extent: ",
+          id->toString());
+      expand_flags.push_back(true);
+    } else {
+      expand_flags.push_back(false);
+    }
+  }
+
+  auto size_stride = inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+  if (!tv->hasAllocation()) {
+    return size_stride;
+  }
+  auto options =
+      c10::TensorOptions().device(c10::Device(c10::DeviceType::Meta));
+  auto meta_tensor =
+      at::empty_strided(size_stride.first, size_stride.second, options);
+  // TODO(jiej): we should refactor it here, there's no need to use
+  // meta_tensor at all, size + stride should be used directly in the
+  // `transformOutputFromAllocationToRFactor`
+  meta_tensor =
+      transformOutputFromAllocationToRFactor(meta_tensor, tv, expr_eval);
+  return {meta_tensor.sizes().vec(), meta_tensor.strides().vec()};
+}
+
 int64_t IndexOfFusionInput(const Val* in, const Fusion* fusion) {
   auto i = std::find(fusion->inputs().begin(), fusion->inputs().end(), in);
   NVF_ERROR(i != fusion->inputs().end());
   return std::distance(fusion->inputs().begin(), i);
 }
 
-// Returns the at::Tensor allocated for `out_info`.
+// Allocate an `at::Tensor` for `out_info` or compute it as an alias.
 at::Tensor allocateOutput(
     const FusionExecutor::GlobalBufferInfo& out_info,
-    Val* aliased_in,
+    Val* aliased_io,
     const AliasInfo* alias_info,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
@@ -926,13 +939,19 @@ at::Tensor allocateOutput(
     return ee.evaluate(out_tv).as<at::Tensor>();
   }
 
-  if (aliased_in != nullptr) {
-    const PolymorphicValue& aliased_in_val = ee.evaluate(aliased_in);
+  if (aliased_io != nullptr) {
     NVF_ERROR(
-        aliased_in_val.is<at::Tensor>(),
+        aliased_io->isFusionInput() || aliased_io->isFusionOutput(),
+        aliased_io->toInlineString(),
+        " is expected to be a fusion input/output. `ee.evaluate` ",
+        "an intermediate tensor may involve GPU computation to materialize it ",
+        "to global memory.");
+    const PolymorphicValue& aliased_io_val = ee.evaluate(aliased_io);
+    NVF_ERROR(
+        aliased_io_val.is<at::Tensor>(),
         "Alias io only supports tensor. Found ",
-        PolymorphicValue_functions::toString(aliased_in_val));
-    auto aliased_in_tensor = aliased_in_val.as<at::Tensor>();
+        PolymorphicValue_functions::toString(aliased_io_val));
+    auto aliased_io_tensor = aliased_io_val.as<at::Tensor>();
 
     switch (alias_info->type) {
       case AliasType::InplaceUpdate:
@@ -941,16 +960,16 @@ at::Tensor allocateOutput(
         // the output tensor may hold different data from the input, e.g., an
         // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
         // would trigger non-trivial host computation.
-        return aliased_in_tensor;
+        return aliased_io_tensor;
 
       case AliasType::PointerArithmetic:
         at::Tensor out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
         NVF_ERROR(
-            out_tensor.is_alias_of(aliased_in_tensor),
+            out_tensor.is_alias_of(aliased_io_tensor),
             "ExpressionEvaluator failed to evaluate ",
             out_tv->toString(),
             " as an alias of ",
-            aliased_in->toString());
+            aliased_io->toString());
         inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
         return out_tensor;
     }
@@ -966,11 +985,6 @@ at::Tensor allocateOutput(
   if (shouldFillAllocationWithNan()) {
     fillTensorWithNan(alloc_tensor);
   }
-
-  if (out_tv->hasAllocation()) {
-    alloc_tensor =
-        transformOutputFromAllocationToRFactor(alloc_tensor, out_tv, ee);
-  }
   return alloc_tensor;
 }
 
@@ -983,21 +997,51 @@ std::vector<at::Tensor> allocateOutputs(
     ExpressionEvaluator& ee) {
   FUSER_PERF_SCOPE("allocateOutputs");
 
-  std::vector<at::Tensor> outputs;
-  outputs.reserve(output_info.size());
+  const auto num_outs = output_info.size();
 
-  for (const auto output_idx : c10::irange(output_info.size())) {
-    Val* out = kernel->outputs()[output_idx];
-    auto [aliased_in, alias_info] = kernel->getOutputAlias(out);
-    auto out_tensor = allocateOutput(
-        output_info[output_idx], aliased_in, alias_info, device, ee);
-    // Bind `out_tensor` so duplicated outputs map to the same tensor.
-    ee.bind(out, out_tensor);
-    outputs.push_back(out_tensor);
+  // Sort the outputs so we compute aliases after allocating non-aliases. The
+  // order between aliases can be arbitrary. E.g.,
+  //
+  // ```
+  // non_alias_out = ...
+  // alias_out_0 = reshape(non_alias_out, ...)
+  // alias_out_1 = reshape(alias_out_0, ...)
+  // ```
+  //
+  // It's fine to compute `alias_out_1` before computing `alias_out_0`: when we
+  // compute `alias_out_1`, `alias_out_0` will be recursively
+  // `ExpressionEvaluator::evaluate`ed. However, `non_alias_out` must be
+  // allocated first so `alias_out_*` can refer them.
+  std::vector<std::pair<int64_t, Val*>> sorted_outs;
+  sorted_outs.reserve(num_outs);
+  for (const auto out_index : c10::irange(num_outs)) {
+    sorted_outs.emplace_back(out_index, kernel->outputs()[out_index]);
   }
-  return outputs;
-}
+  std::sort(
+      sorted_outs.begin(),
+      sorted_outs.end(),
+      [kernel](
+          const std::pair<int64_t, Val*>& out_i,
+          const std::pair<int64_t, Val*>& out_j) {
+        return (
+            kernel->getOutputAlias(out_i.second).first == nullptr &&
+            kernel->getOutputAlias(out_j.second).first != nullptr);
+      });
 
+  std::vector<at::Tensor> out_tensors(num_outs);
+  for (const auto& [out_index, out] : sorted_outs) {
+    auto [aliased_io, alias_info] = kernel->getOutputAlias(out);
+    at::Tensor out_tensor = allocateOutput(
+        output_info[out_index], aliased_io, alias_info, device, ee);
+    // Bind `out_tensor` so
+    // 1. duplicated outputs map to the same tensor,
+    // 2. an output that aliases another output can be evaluated via
+    // ExpressionEvaluator cheaply.
+    ee.bind(out, out_tensor);
+    out_tensors[out_index] = out_tensor;
+  }
+  return out_tensors;
+}
 } // namespace
 
 int64_t FusionExecutor::computeSharedMemory(

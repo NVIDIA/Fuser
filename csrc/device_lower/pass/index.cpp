@@ -1451,17 +1451,23 @@ static Val* constructMatrixDescriptor(
 }
 
 static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
-  auto n_alloc = tv->getAllocationDomain().size();
-  auto num_core_matrices = tv->getAllocationDomain()
-                               .at(n_alloc - 2)
-                               ->extent()
-                               ->evaluate()
-                               .as<int64_t>() /
-      8;
-  if (num_core_matrices == 1) {
+  const auto& alloc_domain = tv->getRootDomain();
+  const auto& leaf_domain = tv->getLeafDomain();
+  auto exprs = StmtSort::getExprsBetween(
+      {alloc_domain.begin(), alloc_domain.end()},
+      {leaf_domain.begin(), leaf_domain.end()});
+  auto swizzle_exprs = ir_utils::filterByType<Swizzle>(exprs);
+  if (swizzle_exprs.empty()) {
     return MmaInputSmemSwizzle::None;
   }
-  return getSwizzleFromBytes(num_core_matrices * 16);
+  NVF_ERROR(
+      swizzle_exprs.size() < 2,
+      "expected 2 or less swizzle expressions in mma input, got ",
+      swizzle_exprs.size());
+  auto swizzle = *swizzle_exprs.begin();
+  NVF_ERROR(swizzle->swizzleType() == SwizzleType::XOR, "expect xor swizzle");
+  return getSwizzleFromBytes(
+      swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
 }
 
 // Reference for smem strides:
@@ -1511,7 +1517,8 @@ void IndexLowering::handle(const MmaOp* mma) {
         roundUpToMultiple(getN(mma->macro()) / 8L,
                           getBytesFromSwizzle(swizzle) / 16L) *
         /*bytes per item*/ 2L;
-    if (swizzle != MmaInputSmemSwizzle::None) {
+    if (swizzle != MmaInputSmemSwizzle::None &&
+        (mma->layout() == MmaLayout::TT || mma->layout() == MmaLayout::TN)) {
       // TODO: why???!!!
       std::swap(leading_bytes, stride_bytes);
     }
