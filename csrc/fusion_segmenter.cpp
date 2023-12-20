@@ -3955,6 +3955,16 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
     }
   };
 
+  // Segment TensorView inputs will have their rfactor extents available, so we
+  // avoid adding them as separate scalar inputs.
+  for (auto e : group->producer_edges) {
+    if (const auto tv = dynamic_cast<TensorView*>(e->val)) {
+      for (auto id : TensorDomain::noReductions(tv->getMaybeRFactorDomain())) {
+        visited.insert(id->getMaybeExpandedExtent());
+      }
+    }
+  }
+
   // Collect all scalar uses in the group
   for (auto expr : group->exprs()) {
     for (auto input : expr->inputs()) {
