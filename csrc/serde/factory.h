@@ -9,6 +9,7 @@
 
 #include <c10/util/Exception.h>
 #include <exceptions.h>
+#include <ir/container.h>
 #include <type.h>
 #include <functional>
 
@@ -50,6 +51,42 @@ class Factory {
   }
 
  private:
+  std::vector<SerdeParser> parsers_;
+};
+
+template <typename SerdeBuffer, typename BaseTypePtr>
+class NodeFactory {
+ public:
+  // A function pointer that creates a BaseType object given a Buffer
+  typedef std::function<BaseTypePtr(nvfuser::IrContainer&, const SerdeBuffer*)>
+      SerdeParser;
+
+  NodeFactory(size_t num_parsers) : parsers_(num_parsers, nullptr) {
+    registerAllParsers();
+  };
+
+  template <typename SerdeEnum>
+  void registerParser(SerdeEnum serde_type, SerdeParser parser) {
+    auto serde_integer = nvfuser::toUnderlying(serde_type);
+    NVF_ERROR(
+        serde_integer >= 0 && serde_integer < (int)parsers_.size(),
+        "RegisterParser: Invalid serde type: ",
+        serde_integer);
+    parsers_.at(serde_integer) = parser;
+  }
+
+  template <typename SerdeEnum>
+  BaseTypePtr parse(SerdeEnum serde_type, const SerdeBuffer* buffer) {
+    auto serde_integer = nvfuser::toUnderlying(serde_type);
+    NVF_ERROR(
+        serde_integer >= 0 && serde_integer < (int)parsers_.size(),
+        "Deserialize: Invalid serde type: ",
+        serde_integer);
+    return parsers_.at(serde_integer)(buffer);
+  }
+
+ private:
+  virtual void registerAllParsers();
   std::vector<SerdeParser> parsers_;
 };
 
