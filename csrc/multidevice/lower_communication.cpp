@@ -110,13 +110,14 @@ CommParams createParamsForGatherScatter(
   }
 
   if (mesh.has(my_device_index)) {
-    // auto sliced_buf = buf.index({0, "..."});
+    std::cout << "Scatter dst buffer scatter " << buf.sizes() << std::endl;
     ((is_scatter) ? params.dst_bufs : params.src_bufs) = {buf};
   }
 
   if (my_device_index == root) {
     for (auto i : c10::irange(mesh.vector().size())) {
       auto x = root_buf.index({static_cast<int>(i), "..."}).view(buf.sizes());
+      std::cout << "Scatter sources " << i << " " << x << std::endl;
       ((is_scatter)? params.src_bufs : params.dst_bufs).push_back(x);
     }
     // The scatter/gather semantics imposes the root to be both

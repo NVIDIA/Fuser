@@ -171,7 +171,7 @@ class AllocationInserter : public kir::ExprMutator {
         alloc_dims.emplace_back(id->container()->oneVal());
         continue;
       } else if (id->isDeviceDim()) {
-        // Allocate device dims as size 1
+        // Allocate device axes as size 1
         alloc_dims.emplace_back(id->container()->oneVal());
         continue;
       }
@@ -186,6 +186,7 @@ class AllocationInserter : public kir::ExprMutator {
       }
       alloc_dims.emplace_back(extent);
     }
+    std::cout << "Allocation info" << alloc_dims << std::endl;
 
     return alloc_dims;
   }

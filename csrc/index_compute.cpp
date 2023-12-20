@@ -1989,7 +1989,7 @@ std::vector<Val*> Index::getConsumerAllocationIndices(
     // See a comment in indexing to allocation domains in
     // getGlobalProducerIndex.
     if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast() ||
-        alloc_dom[i]->isStride()) { //} || alloc_dom[i]->isDeviceDim()) {
+        alloc_dom[i]->isStride()) {
       continue;
     }
 
@@ -2094,7 +2094,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
   for (const auto i : c10::irange(alloc_dom.size())) {
     auto override_it = override_index.find(alloc_dom[i]);
     const bool is_overriden = override_it != override_index.end();
-    if (alloc_dom[i]->isReduction() || //alloc_dom[i]->isDeviceDim() ||
+    if (alloc_dom[i]->isReduction() ||
         (alloc_dom[i]->isBroadcast() && !is_overriden)) {
       continue;
     }
