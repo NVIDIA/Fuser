@@ -114,6 +114,38 @@ IrContainer::~IrContainer() {
   clear();
 }
 
+std::vector<Expr*> IrContainer::getExpressions(
+    const flatbuffers::Vector<int64_t>* buffer) {
+  NVF_CHECK(buffer != nullptr, "Expressions buffer is nullptr");
+  std::vector<Expr*> result;
+  result.reserve(buffer->size());
+  std::transform(
+      buffer->begin(),
+      buffer->end(),
+      std::back_inserter(result),
+      [&](int64_t index) { return getExpr(index); });
+  return result;
+}
+
+std::vector<Statement*> IrContainer::getStatements(
+    const flatbuffers::Vector<flatbuffers::Offset<serde::Statement>>* buffer) {
+  NVF_CHECK(buffer != nullptr, "Statements buffer is nullptr");
+  std::vector<Statement*> result;
+  result.reserve(buffer->size());
+  std::transform(
+      buffer->begin(),
+      buffer->end(),
+      std::back_inserter(result),
+      [&](auto stmt) -> Statement* {
+        if (stmt->is_val()) {
+          return getVal(stmt->index());
+        } else {
+          return getExpr(stmt->index());
+        }
+      });
+  return result;
+}
+
 flatbuffers::Offset<serde::IrContainer> IrContainer::serialize(
     const IrSerde& container,
     flatbuffers::FlatBufferBuilder& builder) const {

@@ -10,79 +10,9 @@
 #include <serde/utils.h>
 #include <optional>
 
-namespace fb = flatbuffers;
 namespace nvf = nvfuser;
 
 namespace {
-
-template <typename NvfuserValType>
-std::vector<NvfuserValType*> getValues(
-    nvf::IrContainer& container,
-    const fb::Vector<int64_t>* buffer) {
-  NVF_CHECK(buffer != nullptr, "Values buffer is nullptr");
-  std::vector<NvfuserValType*> result;
-  result.reserve(buffer->size());
-  std::transform(
-      buffer->begin(),
-      buffer->end(),
-      std::back_inserter(result),
-      [&](int64_t index) {
-        nvf::Val* v = container.getVal(index);
-        NVF_CHECK(
-            v->isA<NvfuserValType>(), "nvf::Val* does not have desired type.");
-        return v->as<NvfuserValType>();
-      });
-  return result;
-}
-
-template <>
-std::vector<nvf::Val*> getValues<nvf::Val>(
-    nvf::IrContainer& container,
-    const fb::Vector<int64_t>* buffer) {
-  NVF_CHECK(buffer != nullptr, "Values buffer is nullptr");
-  std::vector<nvf::Val*> result;
-  result.reserve(buffer->size());
-  std::transform(
-      buffer->begin(),
-      buffer->end(),
-      std::back_inserter(result),
-      [&](int64_t index) { return container.getVal(index); });
-  return result;
-}
-
-std::vector<nvf::Expr*> getExpressions(
-    nvf::IrContainer& container,
-    const fb::Vector<int64_t>* buffer) {
-  NVF_CHECK(buffer != nullptr, "Expressions buffer is nullptr");
-  std::vector<nvf::Expr*> result;
-  result.reserve(buffer->size());
-  std::transform(
-      buffer->begin(),
-      buffer->end(),
-      std::back_inserter(result),
-      [&](int64_t index) { return container.getExpr(index); });
-  return result;
-}
-
-std::vector<nvf::Statement*> getStatements(
-    nvf::IrContainer& container,
-    const fb::Vector<fb::Offset<nvf::serde::Statement>>* buffer) {
-  NVF_CHECK(buffer != nullptr, "Statements buffer is nullptr");
-  std::vector<nvf::Statement*> result;
-  result.reserve(buffer->size());
-  std::transform(
-      buffer->begin(),
-      buffer->end(),
-      std::back_inserter(result),
-      [&](auto stmt) -> nvf::Statement* {
-        if (stmt->is_val()) {
-          return container.getVal(stmt->index());
-        } else {
-          return container.getExpr(stmt->index());
-        }
-      });
-  return result;
-}
 
 template <typename ExprType>
 nvf::Expr* deserialize(
@@ -90,11 +20,11 @@ nvf::Expr* deserialize(
     const nvf::serde::Expression* buffer) {
   NVF_CHECK(buffer != nullptr, "serde::Expression is nullptr");
   std::vector<nvf::Val*> inputs =
-      getValues<nvf::Val>(container, buffer->input_vals());
+      container.getValues<nvf::Val>(buffer->input_vals());
   std::vector<nvf::Val*> outputs =
-      getValues<nvf::Val>(container, buffer->output_vals());
+      container.getValues<nvf::Val>(buffer->output_vals());
   std::vector<nvf::Statement*> attributes =
-      getStatements(container, buffer->attributes_stmts());
+      container.getStatements(buffer->attributes_stmts());
   return nvf::IrBuilder::create<ExprType>(
       buffer->type(), inputs, outputs, attributes);
 }
@@ -181,10 +111,10 @@ void ValueFactory::registerAllParsers() {
     auto data = buffer->data_as_TensorDomain();
     NVF_ERROR(data != nullptr, "Expected TensorDomain data.");
     return IrBuilder::create<nvf::TensorDomain>(
-        getValues<nvf::IterDomain>(container, data->root_domain()),
-        getValues<nvf::IterDomain>(container, data->rfactor_domain()),
-        getValues<nvf::IterDomain>(container, data->allocation_domain()),
-        getValues<nvf::IterDomain>(container, data->leaf_domain()),
+        container.getValues<nvf::IterDomain>(data->root_domain()),
+        container.getValues<nvf::IterDomain>(data->rfactor_domain()),
+        container.getValues<nvf::IterDomain>(data->allocation_domain()),
+        container.getValues<nvf::IterDomain>(data->leaf_domain()),
         mapSerdeContiguityEnum(data->contiguity()));
   };
   registerParser(serde::ValData::TensorDomain, deserializeTensorDomain);
