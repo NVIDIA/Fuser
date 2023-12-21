@@ -24,13 +24,14 @@ class ValueFactory : public NodeFactory<serde::Value, nvfuser::Val*> {
   void registerAllParsers() override;
 };
 
-class ExpressionFactory
-    : public NodeFactory<serde::Expression, nvfuser::Expr*> {
+class ExpressionFactory : public Factory<serde::Expression, nvfuser::Expr*> {
  public:
-  ~ExpressionFactory() override = default;
+  ExpressionFactory() : Factory((nvfuser::toUnderlying(ExprType::MAX) + 1)) {
+    registerAllParsers();
+  }
 
  private:
-  void registerAllParsers() override;
+  void registerAllParsers();
 };
 
 } // namespace nvfuser::serde
