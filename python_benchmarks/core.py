@@ -127,10 +127,14 @@ def clear_l2_cache() -> None:
 
 def clear_cuda_cache() -> None:
     """
-    Utility function to clear any unused allocated CUDA memory before tests.
+    Utility function to clear CUDA cache before running a test.
     """
-    gc.collect()
-    torch.cuda.empty_cache()
+    if (
+        torch.cuda.memory_allocated()
+        or torch.cuda.memory_reserved() > 0.8 * DEVICE_PROPERTIES["gpu_gmem_bytes"]
+    ):
+        gc.collect()
+        torch.cuda.empty_cache()
 
 
 class NVFBenchmark:
