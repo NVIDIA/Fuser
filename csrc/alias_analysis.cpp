@@ -8,16 +8,16 @@
 #include <unordered_map>
 #include <vector>
 
+#include <alias_analysis.h>
 #include <dispatch.h>
 #include <fusion.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
 #include <linked_hash_map.h>
-#include <optimization/alias_analysis.h>
 #include <root_domain_map.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser {
 
 namespace {
 
@@ -351,21 +351,18 @@ void AliasAnalysisResult::add(
       i->second.first->toString());
 }
 
-Val* AliasAnalysisResult::findRoot(Val* alias) const {
-  TensorView* root = dynamic_cast<TensorView*>(alias);
-  if (root == nullptr) {
-    return alias;
-  }
-
-  // This can be made faster by path compression at the cost of losing
-  // the potentially useful immediate sources. Go simple for now.
-  while (alias_to_source_.count(root)) {
-    root = alias_to_source_.at(root).first;
-  }
+TensorView* AliasAnalysisResult::findNearestAliasedIo(
+    TensorView* fusion_out) const {
+  TensorView* root = fusion_out;
+  do {
+    const auto i = alias_to_source_.find(root);
+    root = (i == alias_to_source_.end() ? nullptr : i->second.first);
+  } while (root != nullptr && !root->isFusionInput() &&
+           !root->isFusionOutput());
   return root;
 }
 
-TensorView* AliasAnalysisResult::getAliasedInput(
+TensorView* AliasAnalysisResult::getNearestAliasedIo(
     const TensorView* fusion_out) const {
   const auto i = out_to_root_.find(fusion_out);
   return i == out_to_root_.end() ? nullptr : i->second;
@@ -388,8 +385,8 @@ void AliasAnalysisResult::finalize(
     const bool can_override_empty_allocation_domain) {
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    Val* in = findRoot(out);
-    if (!in->isFusionInput()) {
+    TensorView* root = findNearestAliasedIo(out);
+    if (root == nullptr) {
       continue;
     }
 
@@ -399,7 +396,7 @@ void AliasAnalysisResult::finalize(
       continue;
     }
 
-    out_to_root_[out] = in->as<TensorView>();
+    out_to_root_[out] = root;
   }
 }
 
@@ -497,4 +494,4 @@ bool Layout::isCompliantWith(const Layout& required) const {
   return true;
 }
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser

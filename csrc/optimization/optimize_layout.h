@@ -10,6 +10,7 @@
 namespace nvfuser::optimization {
 
 // Updates layouts to enable aliases.
+// TODO(wujingyue): Rename. It also inserts segment_set to help segmentation.
 class OptimizeLayoutPass : public OptimizationPass<OptimizeLayoutPass> {
   friend class OptimizationPass<OptimizeLayoutPass>;
 

@@ -41,6 +41,10 @@ SPDX-License-Identifier: BSD-3-Clause
             {%- endif -%}
         {% endif %}
         <br>
+        {%- if test_diff.test1.kernels|length != test_diff.test2.kernels|length -%}
+        &nbsp;&nbsp;&nbsp;&nbsp;<span style="font-weight:bold; color: red">WARNING: Number of kernels in <i>{{ run1.name }}</i> ({{test_diff.test1.kernels|length}}) does not match number of kernels in <i>{{run2.name}}</i> ({{test_diff.test2.kernels|length}}). Kernels shown below might not correspond to one another, and no diffs might be shown if new kernels were introduced or removed from the end of the list.</span>
+        <br>
+        {%- endif -%}
         {% set outer_index = loop.index %}
         {% if test_diff.kernel_diffs is not none %}
           {% for kernel_diff in test_diff.kernel_diffs %}

@@ -61,6 +61,7 @@ endif()
 # nvfuser codegen sources
 set(NVFUSER_SRCS)
 list(APPEND NVFUSER_SRCS
+  ${NVFUSER_SRCS_DIR}/alias_analysis.cpp
   ${NVFUSER_SRCS_DIR}/compute_at.cpp
   ${NVFUSER_SRCS_DIR}/inlining.cpp
   ${NVFUSER_SRCS_DIR}/compute_at_map.cpp
@@ -132,6 +133,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/validation.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/lower2device.cpp
   ${NVFUSER_SRCS_DIR}/maxinfo_propagator.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/allocator.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communication.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communicator.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/device_mesh.cpp
@@ -193,7 +195,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/mma_type.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
   ${NVFUSER_SRCS_DIR}/optimization/add_axioms.cpp
-  ${NVFUSER_SRCS_DIR}/optimization/alias_analysis.cpp
   ${NVFUSER_SRCS_DIR}/optimization/consecutive_cast.cpp
   ${NVFUSER_SRCS_DIR}/optimization/optimize_layout.cpp
   ${NVFUSER_SRCS_DIR}/optimization/pre_segmenter.cpp

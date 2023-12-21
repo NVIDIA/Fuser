@@ -23,6 +23,7 @@
 #include <string>
 #include <type_traits>
 #include <typeinfo>
+#include <unordered_map>
 #include <vector>
 
 //! IR header hierarchy

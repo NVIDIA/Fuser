@@ -233,6 +233,9 @@ std::string TensorView::toString(int indent_size) const {
     ss << getMaybeMaxProducerPosition();
     ss << " )";
   }
+  if (hasDeviceMesh()) {
+    ss << " (" << getDeviceMesh() << ")";
+  }
   return ss.str();
 }
 
@@ -1435,11 +1438,15 @@ void TensorView::applyMmaSwizzle(MmaOperand operand) {
   }
 }
 
-void TensorView::applyMmaSwizzle(MmaInputSmemSwizzle swizzle, bool transpose) {
+void TensorView::applyMmaSwizzle(
+    MmaInputSmemSwizzle swizzle,
+    bool transpose,
+    bool transpose2) {
   NVF_ERROR(
       getMemoryType() == MemoryType::Shared,
       "Shared memory swizzle is only supported for shared memory");
-  mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, swizzle, transpose);
+  mma_utils::WarpMmaSwizzler::scheduleOperandRead(
+      this, swizzle, transpose, transpose2);
 }
 
 void TensorView::commitLeafToRFactor() {
