@@ -42,4 +42,29 @@ std::vector<serde::Contiguity> mapContiguity(
   return contiguity_enum;
 }
 
+std::optional<bool> mapContiguityEnumToOptional(Contiguity v) {
+  switch (v) {
+    case Contiguity::Strided:
+      return std::optional<bool>(false);
+    case Contiguity::Contiguous:
+      return std::optional<bool>(true);
+    case Contiguity::None:
+      return std::nullopt;
+  }
+  NVF_ERROR(false, "Invalid contiguity type.");
+  return std::nullopt;
+}
+
+std::vector<std::optional<bool>> mapSerdeContiguityEnum(
+    const flatbuffers::Vector<Contiguity>* serde_contiguity) {
+  NVF_ERROR(serde_contiguity != nullptr);
+  std::vector<std::optional<bool>> contiguity;
+  std::transform(
+      serde_contiguity->cbegin(),
+      serde_contiguity->cend(),
+      std::back_inserter(contiguity),
+      mapContiguityEnumToOptional);
+  return contiguity;
+}
+
 } // namespace nvfuser::serde
