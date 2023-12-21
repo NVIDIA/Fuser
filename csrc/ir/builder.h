@@ -54,6 +54,24 @@ class IrBuilder {
   template <class T>
   static T* clone(const T* src, IrCloner* ir_cloner);
 
+  template <class ExprType>
+  static ExprType* deserialize(const serde::Expression* buffer) {
+    NVF_CHECK(buffer != nullptr, "serde::Expression is nullptr");
+
+    Fusion* container = FusionGuard::getCurFusion();
+    NVF_ERROR(container != nullptr, "Need an active container to build IR.");
+
+    std::vector<Val*> inputs = container->getValues<Val>(buffer->input_vals());
+    std::vector<Val*> outputs =
+        container->getValues<Val>(buffer->output_vals());
+    std::vector<Statement*> attributes =
+        container->getStatements(buffer->attributes_stmts());
+    ExprType* node = IrBuilder::create<ExprType>(
+        buffer->type(), inputs, outputs, attributes);
+    container->registerStmt(IrBuilderPasskey(container), node);
+    return node;
+  }
+
   // Unary operations
   static Val* derefExpr(Val* val);
   static Val* negExpr(Val* val);
