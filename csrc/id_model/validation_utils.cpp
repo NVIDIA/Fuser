@@ -78,7 +78,7 @@ bool exprsMap(
   }
 
   if (first->isA<Merge>() && !forward) {
-    if (!ValGraph::mapMergeBackward<IterDomain>(
+    if (!ValGraph::shouldMapMergeBackward<IterDomain>(
             first->as<Merge>(), second->as<Merge>(), id_map)) {
       return false;
     }

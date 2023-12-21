@@ -256,7 +256,7 @@ bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
 
   // Special handling for backprop of merge
   if (first->isA<Merge>() && !forward) {
-    if (!ValGraph::mapMergeBackward<Val>(
+    if (!shouldMapMergeBackward<Val>(
             first->as<Merge>(), second->as<Merge>(), this->disjointValSets())) {
       return false;
     }

@@ -164,7 +164,7 @@ class ValGraph {
   // TODO: Move this to val_graph.cpp once validation_utils.cpp is
   // retired.
   template <typename T>
-  static bool mapMergeBackward(
+  static bool shouldMapMergeBackward(
       Merge* merge0,
       Merge* merge1,
       const DisjointSets<T*>& id_sets) {
