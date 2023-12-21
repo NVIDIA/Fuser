@@ -67,6 +67,34 @@ class IrContainer : public PolymorphicBase {
     return vals_up_.at(index).get();
   }
 
+  template <typename NvfuserValType>
+  std::vector<NvfuserValType*> getValues(
+      const flatbuffers::Vector<int64_t>* buffer) {
+    NVF_CHECK(buffer != nullptr, "Values buffer is nullptr");
+    std::vector<NvfuserValType*> result;
+    result.reserve(buffer->size());
+    std::transform(
+        buffer->begin(),
+        buffer->end(),
+        std::back_inserter(result),
+        [&](int64_t index) {
+          Val* v = getVal(index);
+          if constexpr (std::is_same_v<Val, NvfuserValType>) {
+            return v;
+          }
+          NVF_CHECK(
+              v->isA<NvfuserValType>(),
+              "nvf::Val* does not have desired type.");
+          return v->as<NvfuserValType>();
+        });
+    return result;
+  }
+
+  std::vector<Expr*> getExpressions(const flatbuffers::Vector<int64_t>* buffer);
+
+  std::vector<Statement*> getStatements(
+      const flatbuffers::Vector<flatbuffers::Offset<serde::Statement>>* buffer);
+
   //! Return values in insertion order
   const std::deque<Val*> deterministic_vals() const noexcept {
     std::deque<Val*> vals_deque;
