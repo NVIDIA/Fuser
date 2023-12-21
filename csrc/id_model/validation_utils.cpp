@@ -75,7 +75,7 @@ bool exprsMap(
   }
 
   if (first->isA<Merge>() && !forward) {
-    if (!ValGraph::mapMergeBackward<IterDomain>(
+    if (!ValGraph::shouldMapMergeBackward<IterDomain>(
             first->as<Merge>(), second->as<Merge>(), id_map)) {
       return false;
     }
@@ -157,40 +157,13 @@ void IdModelValidator::fullyPropagateMappings(
         // output domains are mapped and the expr
         // properties are equivalent, map the outputs or inputs as
         // well
-#if 0
-        if (!is_forward) {
-          std::cerr << "Expr outputs: ";
-          for (auto expr: all_exprs) {
-            std::cerr << expr->output(0)->name() << " ";
-          }
-          std::cerr << std::endl;
-        }
-#endif
         auto count = all_exprs.size();
         for (size_t i = 0; i < count; ++i) {
           auto expr_i = all_exprs.at(i);
           for (size_t j = i + 1; j < count; ++j) {
             auto expr_j = all_exprs.at(j);
-            bool debug =
-                ((expr_i->output(0)->name() == 92 &&
-                  expr_j->output(0)->name() == 39) ||
-                 (expr_i->output(0)->name() == 39 &&
-                  expr_j->output(0)->name() == 92));
-            debug = debug && !is_forward && expr_i->isA<Merge>();
-            debug = false;
-            if (debug) {
-              std::cerr << "Considering " << expr_i->toString()
-                        << expr_j->toString() << "forward: " << is_forward
-                        << std::endl;
-            }
             if (!exprsMap(expr_i, expr_j, is_forward, id_sets)) {
-              if (debug) {
-                std::cerr << "not mapped\n";
-              }
               continue;
-            }
-            if (debug) {
-              std::cerr << "Mapped\n";
             }
             const auto& prop_target_i =
                 is_forward ? expr_i->outputs() : expr_i->inputs();

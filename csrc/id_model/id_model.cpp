@@ -782,46 +782,6 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
   // not necessary for permissive and loop maps
   idGraph(IdMappingMode::PERMISSIVE) = idGraph(IdMappingMode::EXACT);
 
-  auto debug_print = [&]() {
-    return;
-    auto& g = idGraph(IdMappingMode::PERMISSIVE);
-    bool found = false;
-    for (const auto& id_set : g.disjointValSets().disjointSets()) {
-      auto i37_it = std::find_if(
-          id_set->vector().begin(), id_set->vector().end(), [](Val* val) {
-            return val->name() == 37;
-          });
-      auto i43_it = std::find_if(
-          id_set->vector().begin(), id_set->vector().end(), [](Val* val) {
-            return val->name() == 43;
-          });
-      if (i37_it != id_set->vector().end() &&
-          i43_it != id_set->vector().end()) {
-        std::cerr << "37 and 43 mapped: " << nvfuser::toString(id_set->vector())
-                  << "\n";
-        found = true;
-        break;
-      }
-    }
-    if (found) {
-      for (const auto& id_set : g.disjointValSets().disjointSets()) {
-        std::cerr << "\t" << nvfuser::toString(id_set->vector()) << "\n";
-      }
-      // std::exit(1);
-    }
-  };
-
-  auto debug_print_current = [&]() {
-    return;
-    auto& g = idGraph(IdMappingMode::PERMISSIVE);
-    std::cerr << "Current:\n";
-    for (const auto& id_set : g.disjointValSets().disjointSets()) {
-      std::cerr << "\t" << nvfuser::toString(id_set->vector()) << "\n";
-    }
-  };
-
-  debug_print();
-
   for (auto expr : exprs) {
     // Multiple outputs are already mapped, we can ignore all but the first
     // consumer given they have to be replayed in the same exact way
@@ -834,11 +794,7 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
     for (auto p_tv : tv_inputs) {
       ForwardingInfo permissive_forwarding(p_tv, c_tv);
       for (auto entry : permissive_forwarding.producer_forwarding_map) {
-        // std::cerr << "Mapping: " << entry.first->name() << ", " <<
-        // entry.second->name() <<std::endl;
-        debug_print_current();
         idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
-        debug_print();
       }
 
       // TODO: Should this just get rolled up in the forwarding map now?
@@ -851,11 +807,7 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
       }
 
       for (auto entry : permissive_forwarding.consumer_forwarding_map) {
-        // std::cerr << "Mapping2: " << entry.first->name() << ", " <<
-        // entry.second->name() <<std::endl;
-        debug_print_current();
         idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
-        debug_print();
       }
 
       // TODO: Should this just get rolled up in the forwarding map now?
@@ -873,9 +825,6 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
 
       for (auto entry : permissive_c2p_root_map.mapConsumerToProducer()) {
         idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
-        // std::cerr << "Mapping3: " << entry.first->name() << ", " <<
-        // entry.second->name() <<std::endl;
-        debug_print();
       }
     }
   }
