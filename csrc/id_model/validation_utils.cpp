@@ -10,7 +10,6 @@
 #include <id_model/validation_utils.h>
 #include <ir/utils.h>
 #include <utils.h>
-#include <val_graph.h>
 
 #include <sstream>
 
@@ -18,6 +17,10 @@ namespace nvfuser {
 
 namespace {
 
+// Same as IterDomain::exprsMap but uses
+// ValGraph::mapMergeBackward. Copying the funciton here isn't ideal,
+// but it doesn't make sense to change the ComputeAtMap code just for
+// this validation.
 bool exprsMap(
     Expr* first,
     Expr* second,
@@ -155,8 +158,7 @@ void IdModelValidator::fullyPropagateMappings(
         // Look at all combinatorial pairs of the uses of
         // definitions. If they are mapped, i.e., their input or
         // output domains are mapped and the expr
-        // properties are equivalent, map the outputs or inputs as
-        // well
+        // properties are equivalent, map the outputs or inputs as well
         auto count = all_exprs.size();
         for (size_t i = 0; i < count; ++i) {
           auto expr_i = all_exprs.at(i);
