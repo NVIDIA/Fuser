@@ -35,4 +35,8 @@ serde::Contiguity mapContiguityValue(std::optional<bool> v);
 std::vector<serde::Contiguity> mapContiguity(
     const std::vector<std::optional<bool>>& contiguity);
 
+std::optional<bool> mapContiguityEnumToOptional(Contiguity v);
+std::vector<std::optional<bool>> mapSerdeContiguityEnum(
+    const flatbuffers::Vector<Contiguity>* serde_contiguity);
+
 } // namespace nvfuser::serde

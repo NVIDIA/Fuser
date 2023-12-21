@@ -10,6 +10,7 @@
 #include <python_frontend/fusion_record.h>
 #include <serde/fusion_cache_generated.h>
 #include <serde/fusion_record.h>
+#include <serde/utils.h>
 #include <functional>
 
 namespace nvfuser::serde {
@@ -21,19 +22,6 @@ std::vector<python_frontend::State> parseStateArgs(
     result.emplace_back(s->index(), s->type());
   }
   return result;
-}
-
-std::optional<bool> mapContiguityEnumToOptional(Contiguity v) {
-  switch (v) {
-    case Contiguity::Strided:
-      return std::optional<bool>(false);
-    case Contiguity::Contiguous:
-      return std::optional<bool>(true);
-    case Contiguity::None:
-      return std::nullopt;
-  }
-  NVF_ERROR(false, "Invalid contiguity type.");
-  return std::nullopt;
 }
 
 template <class fn_type, class... Signature>
@@ -554,12 +542,8 @@ void RecordFunctorFactory::registerAllParsers() {
   auto deserializeTensorRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Tensor();
 
-    std::vector<std::optional<bool>> contiguity;
-    std::transform(
-        data->contiguity()->cbegin(),
-        data->contiguity()->cend(),
-        std::back_inserter(contiguity),
-        mapContiguityEnumToOptional);
+    std::vector<std::optional<bool>> contiguity =
+        mapSerdeContiguityEnum(data->contiguity());
 
     return new python_frontend::TensorRecord(
         parseStateArgs(buffer->outputs()),
