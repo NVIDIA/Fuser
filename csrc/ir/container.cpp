@@ -138,7 +138,7 @@ std::vector<Statement*> IrContainer::getStatements(
       std::back_inserter(result),
       [&](auto stmt) -> Statement* {
         if (stmt->is_val()) {
-          return getVal(stmt->index());
+          return getVal<Val>(stmt->index());
         } else {
           return getExpr(stmt->index());
         }
