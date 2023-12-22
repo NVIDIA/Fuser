@@ -62,9 +62,16 @@ class IrContainer : public PolymorphicBase {
     return exprs_up_.at(index).get();
   }
 
-  Val* getVal(int64_t index) {
+  template <typename NvfuserValType>
+  NvfuserValType* getVal(int64_t index) {
     NVF_CHECK(index < (int64_t)vals_up_.size(), "Out of bounds value index.");
-    return vals_up_.at(index).get();
+    Val* v = vals_up_.at(index).get();
+    if constexpr (std::is_same_v<Val, NvfuserValType>) {
+      return v;
+    }
+    NVF_CHECK(
+        v->isA<NvfuserValType>(), "nvf::Val* does not have desired type.");
+    return v->as<NvfuserValType>();
   }
 
   template <typename NvfuserValType>
@@ -77,16 +84,7 @@ class IrContainer : public PolymorphicBase {
         buffer->begin(),
         buffer->end(),
         std::back_inserter(result),
-        [&](int64_t index) {
-          Val* v = getVal(index);
-          if constexpr (std::is_same_v<Val, NvfuserValType>) {
-            return v;
-          }
-          NVF_CHECK(
-              v->isA<NvfuserValType>(),
-              "nvf::Val* does not have desired type.");
-          return v->as<NvfuserValType>();
-        });
+        [&](int64_t index) { return getVal<NvfuserValType>(index); });
     return result;
   }
 

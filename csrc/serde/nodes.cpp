@@ -38,7 +38,7 @@ void ValueFactory::registerAllParsers() {
     return IrBuilder::create<nvf::kir::Predicate>(
         static_cast<PredicateType>(data->predicate_type_enum()),
         container.getExpr(data->expr()),
-        container.getVal(data->thread_pred()));
+        container.getVal<nvf::Val>(data->thread_pred()));
   };
   registerParser(serde::ValData::Predicate, deserializePredicate);
 
@@ -47,13 +47,13 @@ void ValueFactory::registerAllParsers() {
     auto data = buffer->data_as_TensorIndex();
     NVF_ERROR(data != nullptr, "Expected TensorIndex data.");
 
-    const nvf::Val* view = container.getVal(data->view());
+    const nvf::Val* view = container.getVal<nvf::Val>(data->view());
     NVF_ERROR(
         view->isA<nvf::TensorView>(),
         "Expected nvfuser::Val to be a TensorView.");
     return IrBuilder::create<nvf::kir::TensorIndex>(
         view->as<nvf::TensorView>(),
-        container.getVal(data->index()),
+        container.getVal<nvf::Val>(data->index()),
         mapToDtypeStruct(buffer->dtype_enum()));
   };
   registerParser(serde::ValData::TensorIndex, deserializeTensorIndex);
@@ -63,7 +63,7 @@ void ValueFactory::registerAllParsers() {
     auto data = buffer->data_as_PipelineVal();
     NVF_ERROR(data != nullptr, "Expected PipelineVal data.");
     return IrBuilder::create<nvf::PipelineVal>(
-        container.getVal(data->original_val()));
+        container.getVal<nvf::Val>(data->original_val()));
   };
   registerParser(serde::ValData::PipelineVal, deserializePipelineVal);
 
@@ -72,10 +72,10 @@ void ValueFactory::registerAllParsers() {
     auto data = buffer->data_as_IterDomain();
     NVF_ERROR(data != nullptr, "Expected IterDomain data.");
     return IrBuilder::create<nvf::IterDomain>(
-        container.getVal(data->start_val()),
-        container.getVal(data->extent_val()),
-        container.getVal(data->expanded_extent_val()),
-        container.getVal(data->stop_offset_val()),
+        container.getVal<nvf::Val>(data->start_val()),
+        container.getVal<nvf::Val>(data->extent_val()),
+        container.getVal<nvf::Val>(data->expanded_extent_val()),
+        container.getVal<nvf::Val>(data->stop_offset_val()),
         static_cast<ParallelType>(data->parallel_type_enum()),
         static_cast<IterType>(data->iter_type_enum()),
         data->is_rfactor_domain(),
@@ -105,12 +105,8 @@ void ValueFactory::registerAllParsers() {
     auto data = buffer->data_as_TensorView();
     NVF_ERROR(data != nullptr, "Expected TensorView data.");
 
-    nvf::Val* domain = container.getVal(data->domain());
-    NVF_ERROR(
-        domain->isA<nvf::TensorDomain>(),
-        "Expected nvfuser::Val to be a TensorDomain.");
     return IrBuilder::create<nvf::TensorView>(
-        domain->as<nvf::TensorDomain>(),
+        container.getVal<nvf::TensorDomain>(data->domain()),
         mapToDtypeStruct(buffer->dtype_enum()),
         static_cast<MemoryType>(data->memory_type_enum()));
   };
