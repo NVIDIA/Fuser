@@ -3812,10 +3812,10 @@ void SegmentCandidateFinder::forwardInputs() {
         // If there are either no more uses, more than one use, or one use that
         // is not a UnaryOp, then we cannot extend the chain of unary Ops.
         //
-        // If the single use is a SliceOp or PadOp, then we do not want to
-        // forward this input, since that would cause us to replay the forwarded
-        // UnaryOps in their segment, breaking the assumption that those Exprs'
-        // inputs are segment inputs.
+        // If any use is a SliceOp or PadOp, then we do not want to forward this
+        // input, since that would cause us to replay the forwarded UnaryOps in
+        // their segment, breaking the assumption that those Exprs' inputs are
+        // segment inputs.
         //
         // Otherwise, we finalize this chain by saving the uop and its output.
         excluded_inp_unary_exprs_.pushBack(uop);
