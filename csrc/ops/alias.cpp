@@ -658,7 +658,7 @@ TensorView* cat(
         //
         // TODO: what to do if inp_id is not a normal iterdomain, i.e.,
         // broadcast, partial, etc? For now, assume it's a normal
-        // IterDomain.
+        // IterDomain or Symbolic, i.e. Broadcast or Iteration.
         NVF_ERROR(
             inp_root_id->isSymbolic() ||
                 ((inp_root_id->isIteration() || inp_root_id->isBroadcast()) &&
