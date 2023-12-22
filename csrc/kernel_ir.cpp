@@ -73,11 +73,12 @@ Predicate::Predicate(
     IrBuilderPasskey passkey,
     const serde::Value* buffer,
     const serde::Predicate* data)
-    : Predicate(
-          passkey,
-          static_cast<PredicateType>(data->predicate_type_enum()),
-          container->getExpr(data->expr()),
-          container->getVal<Val>(data->thread_pred())) {}
+    : Predicate(passkey, container->getVal<Val>(data->thread_pred())) {
+  // CLANGTIDY expects ptype_ to be in member initializer list but we are using
+  // delegating constructor.
+  // NOLINTNEXTLINE(cppcoreguidelines-prefer-member-initializer)
+  ptype_ = static_cast<PredicateType>(data->predicate_type_enum());
+}
 
 std::string Predicate::toString(int indent_size) const {
   std::stringstream ss;

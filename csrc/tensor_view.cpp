@@ -194,7 +194,24 @@ TensorView::TensorView(
           passkey,
           container->getVal<TensorDomain>(data->domain()),
           serde::mapToDtypeStruct(buffer->dtype_enum()),
-          static_cast<MemoryType>(data->memory_type_enum())) {}
+          static_cast<MemoryType>(data->memory_type_enum())) {
+  //! CLANGTIDY expects member variables to be in member initializer list but we
+  //! are using delegating constructor.
+  //! NOLINTBEGIN(cppcoreguidelines-prefer-member-initializer)
+  compute_at_pos_ = data->compute_at_pos();
+  max_producer_pos_ = data->max_producer_pos();
+  is_double_buffered_ = data->is_double_buffered();
+  is_circular_buffered_ = data->is_circular_buffered();
+  circular_buffer_stage_ = data->circular_buffer_stage();
+  cpu_scalar_ = data->cpu_scalar();
+  has_swizzle_op_ = data->has_swizzle_op();
+  compute_with_consumers_ =
+      container->getValues<TensorView>(data->compute_with_consumers());
+  compute_with_pos_ = data->compute_with_pos();
+  maybe_max_producer_pos_ = data->max_producer_pos();
+  promote_reuse_ = data->promote_reuse();
+  //! NOLINTEND(cppcoreguidelines-prefer-member-initializer)
+}
 
 std::string TensorView::toString(int indent_size) const {
   std::stringstream ss;
