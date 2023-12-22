@@ -161,13 +161,33 @@ TEST_F(SegmentationTest, TMP) {
   auto tv0 = makeSymbolicTensor(1);
   fusion->addInput(tv0);
   auto tv1 = neg(tv0);
-  auto tv2 = slice(tv1, {0}, {5}); 
+  auto tv2 = slice(tv1, {0}, {5});
   fusion->addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({10}, options);
   std::vector<c10::IValue> inputs({t0});
-  
+
+  FusionExecutorCache fec(std::move(fusion));
+  auto outputs = fec.runFusionWithInputs(inputs);
+}
+
+TEST_F(SegmentationTest, TMP2) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = neg(tv0);
+  auto tv2 = sum(tv1, {0});
+  auto tv3 = sum(tv1, {1});
+  fusion->addOutput(tv2);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({10, 20}, options);
+  std::vector<c10::IValue> inputs({t0});
+
   FusionExecutorCache fec(std::move(fusion));
   auto outputs = fec.runFusionWithInputs(inputs);
 }

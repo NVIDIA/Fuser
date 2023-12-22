@@ -3602,11 +3602,17 @@ void SegmentCandidateFinder::buildInitialSegments() {
     auto expr_group = expr2group.at(expr);
     for (auto inp : expr->inputs()) {
       if (isFusionInput(inp)) {
-        expr_group->input_vals.push_back(inp);
-        auto aux_group = input2group_.at(inp);
-        auto new_edge = segmented_fusion_->newEdge(aux_group, expr_group, inp);
-        expr_group->producer_edges.push_back(new_edge);
-        aux_group->consumer_edges.push_back(new_edge);
+        if (std::find(
+                expr_group->input_vals.begin(),
+                expr_group->input_vals.end(),
+                inp) == expr_group->input_vals.end()) {
+          expr_group->input_vals.push_back(inp);
+          auto aux_group = input2group_.at(inp);
+          auto new_edge =
+              segmented_fusion_->newEdge(aux_group, expr_group, inp);
+          expr_group->producer_edges.push_back(new_edge);
+          aux_group->consumer_edges.push_back(new_edge);
+        }
         continue;
       }
 
@@ -3753,6 +3759,86 @@ void SegmentCandidateFinder::findSegments() {
   }
 
   segmented_fusion_->validateIfDebug();
+
+  {
+    auto cur_groups = segmented_fusion_->groups();
+    for (auto group : cur_groups) {
+      std::vector<Val*> to_visit;
+      std::unordered_set<Val*> visited;
+
+      // Collect all inputs to group that are not inputs of fusion
+      for (auto input : group->inputs()) {
+        if (std::find(
+                forwarded_fusion_inputs_.begin(),
+                forwarded_fusion_inputs_.end(),
+                input) != forwarded_fusion_inputs_.end() &&
+            !input->isFusionInput()) {
+          to_visit.push_back(input);
+        }
+      }
+
+      if (to_visit.empty()) {
+        continue;
+      }
+
+      // Reset group inputs to real inputs
+      // group->input_vals = IterVisitor::getInputsTo(group->inputs());
+
+      // Grab all expressions needed to produce to_visit
+      auto input_exprs = StmtSort::getExprsTo(to_visit);
+
+      auto input_group = segmented_fusion_->newGroup();
+      input_group->input_vals = IterVisitor::getInputsTo(to_visit);
+      input_group->exprs_.insert(
+          input_group->exprs_.end(), input_exprs.begin(), input_exprs.end());
+
+      for (auto forwarded_inp : to_visit) {
+        auto new_edge =
+            segmented_fusion_->newEdge(input_group, group, forwarded_inp);
+        group->producer_edges.push_back(new_edge);
+        input_group->consumer_edges.push_back(new_edge);
+
+        auto input_vals_it = std::find(
+            group->input_vals.begin(), group->input_vals.end(), forwarded_inp);
+        group->input_vals.erase(input_vals_it);
+
+        if (forwarded_inp->isScalar()) {
+          continue;
+        }
+
+        auto aux_group = input2group_.at(forwarded_inp);
+        // disconnect aux group
+        auto producer_edge_to_remove = std::find_if(
+            group->producer_edges.begin(),
+            group->producer_edges.end(),
+            [&](auto edge) {
+              return edge->val == forwarded_inp && edge->from == aux_group;
+            });
+        NVF_ERROR(producer_edge_to_remove != group->producer_edges.end());
+        SegmentedEdge* aux_edge = *producer_edge_to_remove;
+        group->producer_edges.erase(producer_edge_to_remove);
+        auto consumer_edge_to_remove = std::find(
+            aux_group->consumer_edges.begin(),
+            aux_group->consumer_edges.end(),
+            aux_edge);
+        aux_group->consumer_edges.erase(consumer_edge_to_remove);
+
+        // Remove the edge itself
+        edges().erase(
+            std::remove(edges().begin(), edges().end(), aux_edge),
+            edges().end());
+      }
+
+      if (codeGenSupportedMerge(input_group, group)) {
+        NVF_ERROR(to_merge_.empty());
+        to_merge_.push_back(input_group);
+        to_merge_.push_back(group);
+        mergeNodes();
+      } else {
+        // Not possible to merge. Leave the input group as a separate segment
+      }
+    }
+  }
 
   // Forwarded input groups are no longer used. Clean them up.
   cleanupForwardedInputs();
@@ -4140,9 +4226,9 @@ void SegmentCandidateFinder::finalize() {
   }
 
   // Resolve all the scalar expressions needed in each group
-  for (auto group : segmented_fusion_->groups()) {
-    resolveInputsInGroup(group);
-  }
+  // for (auto group : segmented_fusion_->groups()) {
+  // resolveInputsInGroup(group);
+  //}
 
   // Finalize each group, fill in the missing inputs, i.e. tensor dims.
   for (auto g : groups()) {
