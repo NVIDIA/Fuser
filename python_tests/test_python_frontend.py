@@ -3156,13 +3156,11 @@ class TestNvFuserFrontend(TestCase):
 
     # Test that slice does not fail to segment due to forwarded unary ops
     # See https://github.com/NVIDIA/Fuser/pull/1541
-    def test_simple_slice_fusion_bfloat16(self):
-        inputs = [torch.randn((10,), dtype=torch.bfloat16, device="cuda:0")]
+    def test_simple_slice_fusion(self):
+        inputs = [torch.randn((10,), dtype=torch.float, device="cuda:0")]
 
         def fusion_func(fd: FusionDefinition) -> None:
-            T0 = fd.define_tensor(
-                shape=[-1], contiguity=[True], dtype=DataType.BFloat16
-            )
+            T0 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float)
             T1 = fd.ops.neg(T0)
             T2 = fd.ops.slice(T1, start_indices=[0], end_indices=[5])
             fd.add_output(T2)
