@@ -1036,9 +1036,7 @@ TEST_F(NVFuserTest, FusionInlineBroadcastIndexing0_CUDA) {
 
   auto outputs = fe.runFusion({t0, t1});
 
-  auto tv_ref = t0 + t1;
-
-  testValidate(&fusion, outputs, {t0, t1}, {tv_ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 // Broadcast inline 3 times and merge all domains
