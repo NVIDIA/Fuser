@@ -660,8 +660,9 @@ TensorView* cat(
         // broadcast, partial, etc? For now, assume it's a normal
         // IterDomain.
         NVF_ERROR(
-            (inp_root_id->isIteration() || inp_root_id->isBroadcast()) &&
-                !inp_root_id->maybePartial(),
+            inp_root_id->isSymbolic() ||
+                ((inp_root_id->isIteration() || inp_root_id->isBroadcast()) &&
+                 !inp_root_id->maybePartial()),
             "Unsupported IterDomain to concatenate: ",
             inp_root_id->toString());
         // The right pad of the last tensor is just zero
