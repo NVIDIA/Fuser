@@ -150,6 +150,77 @@ Fusion::~Fusion() {
   clear();
 }
 
+Fusion::Fusion(const serde::Fusion* buffer) : IrContainer(buffer->container()) {
+  FUSER_PERF_SCOPE("Fusion constructor deserialize");
+  NVF_ERROR(buffer != nullptr, "serde::Fusion is nullptr.");
+
+  for (int64_t index :
+       c10::irange((int64_t)buffer->container()->vals()->size())) {
+    getVal<Val>(index)->deserializeExpr(
+        this, buffer->container()->vals()->Get(index));
+  }
+
+  inputs_.reserve(buffer->inputs_vals()->size());
+  std::transform(
+      buffer->inputs_vals()->begin(),
+      buffer->inputs_vals()->end(),
+      std::back_inserter(inputs_),
+      [&](int64_t index) {
+        auto inp = getVal<Val>(index);
+        inp->setIsFusionInput(true);
+        return inp;
+      });
+
+  outputs_.reserve(buffer->outputs_vals()->size());
+  std::transform(
+      buffer->outputs_vals()->begin(),
+      buffer->outputs_vals()->end(),
+      std::back_inserter(outputs_),
+      [&](int64_t index) {
+        auto out = getVal<Val>(index);
+        out->setIsFusionOutput(true);
+        return out;
+      });
+
+  NVF_CHECK(
+      buffer->io_alias_keys()->size() == buffer->io_alias_values()->size());
+  for (size_t index : c10::irange(buffer->io_alias_keys()->size())) {
+    Val* key_val = getVal<Val>(buffer->io_alias_keys()->Get(index));
+    const serde::AliasInfo* fb_alias_info =
+        buffer->io_alias_values()->Get(index);
+    NVF_ERROR(fb_alias_info != nullptr, "serde::AliasInfo is nullptr.");
+
+    Val* val_lhs = getVal<Val>(fb_alias_info->value());
+    AliasType at_type_enum =
+        static_cast<AliasType>(fb_alias_info->alias_type_enum());
+    io_alias_.emplace(
+        key_val,
+        std::make_pair(
+            val_lhs, AliasInfo{at_type_enum, fb_alias_info->hide_output()}));
+  }
+
+  for (const serde::Permutation* fb_permutation :
+       *buffer->permuted_input_map()) {
+    NVF_ERROR(fb_permutation != nullptr, "serde::Permutation is nullptr.");
+    permuted_input_map_.emplace(
+        fb_permutation->key(),
+        std::vector<int64_t>(
+            fb_permutation->value()->begin(), fb_permutation->value()->end()));
+  }
+
+  for (const serde::Permutation* fb_permutation :
+       *buffer->permuted_output_map()) {
+    NVF_ERROR(fb_permutation != nullptr, "serde::Permutation is nullptr.");
+    permuted_output_map_.emplace(
+        fb_permutation->key(),
+        std::vector<int64_t>(
+            fb_permutation->value()->begin(), fb_permutation->value()->end()));
+  }
+
+  all_tv_uses_valid_ = buffer->all_tv_uses_valid();
+  is_during_update_uses_ = buffer->is_during_update_uses();
+}
+
 flatbuffers::Offset<serde::Fusion> Fusion::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   NVF_ERROR(
