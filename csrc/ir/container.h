@@ -59,12 +59,18 @@ class IrContainer : public PolymorphicBase {
   Expr* getExpr(int64_t index) {
     NVF_CHECK(
         index < (int64_t)exprs_up_.size(), "Out of bounds expression index.");
+    if (index < 0) {
+      return nullptr;
+    }
     return exprs_up_.at(index).get();
   }
 
   template <typename NvfuserValType>
   NvfuserValType* getVal(int64_t index) {
     NVF_CHECK(index < (int64_t)vals_up_.size(), "Out of bounds value index.");
+    if (index < 0) {
+      return nullptr;
+    }
     Val* v = vals_up_.at(index).get();
     if constexpr (std::is_same_v<Val, NvfuserValType>) {
       return v;

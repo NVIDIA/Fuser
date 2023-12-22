@@ -42,8 +42,8 @@ class IrSerde {
 
  private:
   const IrContainer* container_;
-  std::unordered_map<Val*, int64_t> vals_to_id_map;
-  std::unordered_map<Expr*, int64_t> exprs_to_id_map;
+  const std::unordered_map<Val*, int64_t> vals_to_id_map_;
+  const std::unordered_map<Expr*, int64_t> exprs_to_id_map_;
 };
 
 } // namespace nvfuser
