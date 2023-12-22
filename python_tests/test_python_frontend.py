@@ -3171,6 +3171,23 @@ class TestNvFuserFrontend(TestCase):
 
         torch.testing.assert_close(nvf_out[0], ref)
 
+    # Test that pad does not fail to segment due to forwarded unary ops
+    # See https://github.com/NVIDIA/Fuser/pull/1553
+    def test_simple_pad_fusion(self):
+        inputs = [torch.randn((10,), dtype=torch.float32, device="cuda:0")]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float)
+            T1 = fd.ops.neg(T0)
+            T2 = fd.ops.pad(T1, [0, 2])
+            fd.add_output(T2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        ref = F.pad(-inputs[0], [0, 2])
+
+        torch.testing.assert_close(nvf_out[0], ref)
+
 
 if __name__ == "__main__":
     run_tests()

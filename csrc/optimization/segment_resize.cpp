@@ -7,8 +7,8 @@
 // clang-format on
 #include <optimization/segment_resize.h>
 
-#include <iter_visitor.h>
 #include <ir/internal_nodes.h>
+#include <iter_visitor.h>
 
 #include <algorithm>
 #include <limits>
