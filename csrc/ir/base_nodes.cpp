@@ -16,6 +16,7 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <serde/utils.h>
 
 #include <torch/csrc/jit/ir/ir.h>
 
@@ -89,6 +90,14 @@ kir::Kernel* Statement::kernel() const {
 }
 
 NVFUSER_DEFINE_CLONE(Val)
+
+Val::Val(
+    IrContainer* container,
+    IrBuilderPasskey passkey,
+    const serde::Value* buffer)
+    : Val(passkey,
+          ValType::Others,
+          serde::mapToDtypeStruct(buffer->dtype_enum())) {}
 
 std::pair<serde::ValData, flatbuffers::Offset<void>> Val::serializeData(
     const IrSerde& container,
