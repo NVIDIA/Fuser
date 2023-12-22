@@ -105,6 +105,13 @@ PipelineVal::PipelineVal(const PipelineVal* src, IrCloner* ir_cloner)
       original_val_(src->original_val_),
       stage_(src->stage_) {}
 
+PipelineVal::PipelineVal(
+    IrContainer* container,
+    IrBuilderPasskey passkey,
+    const serde::Value* buffer,
+    const serde::PipelineVal* data)
+    : PipelineVal(passkey, container->getVal<Val>(data->original_val())) {}
+
 bool PipelineVal::sameAs(const Statement* other) const {
   if (!Val::sameAs(other)) {
     return false;

@@ -14,6 +14,7 @@
 #include <ir/iostream.h>
 #include <kernel.h>
 #include <kernel_ir.h>
+#include <serde/utils.h>
 #include <type.h>
 
 #include <iostream>
@@ -67,6 +68,17 @@ Predicate::Predicate(IrBuilderPasskey passkey, Val* value)
   NVF_ERROR(value != nullptr);
 }
 
+Predicate::Predicate(
+    IrContainer* container,
+    IrBuilderPasskey passkey,
+    const serde::Value* buffer,
+    const serde::Predicate* data)
+    : Predicate(
+          passkey,
+          static_cast<PredicateType>(data->predicate_type_enum()),
+          container->getExpr(data->expr()),
+          container->getVal<Val>(data->thread_pred())) {}
+
 std::string Predicate::toString(int indent_size) const {
   std::stringstream ss;
   ss << predicate_type2string(predicate_type());
@@ -114,6 +126,17 @@ TensorIndex::TensorIndex(
               DataType::UInt /*For matrix descriptor for hopper MMA*/,
       "Cannot index with a value other than an int/pointer/struct.");
 }
+
+TensorIndex::TensorIndex(
+    IrContainer* container,
+    IrBuilderPasskey passkey,
+    const serde::Value* buffer,
+    const serde::TensorIndex* data)
+    : TensorIndex(
+          passkey,
+          container->getVal<TensorView>(data->view()),
+          container->getVal<Val>(data->index()),
+          serde::mapToDtypeStruct(buffer->dtype_enum())) {}
 
 std::string TensorIndex::toString(int indent_size) const {
   std::stringstream ss;

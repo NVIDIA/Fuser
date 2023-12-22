@@ -20,6 +20,7 @@
 #include <ir/utils.h>
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>
+#include <serde/utils.h>
 
 // Cleanup
 #include <transform_iter.h>
@@ -183,6 +184,17 @@ TensorView::TensorView(
 }
 
 NVFUSER_DEFINE_CLONE(TensorView)
+
+TensorView::TensorView(
+    IrContainer* container,
+    IrBuilderPasskey passkey,
+    const serde::Value* buffer,
+    const serde::TensorView* data)
+    : TensorView(
+          passkey,
+          container->getVal<TensorDomain>(data->domain()),
+          serde::mapToDtypeStruct(buffer->dtype_enum()),
+          static_cast<MemoryType>(data->memory_type_enum())) {}
 
 std::string TensorView::toString(int indent_size) const {
   std::stringstream ss;
