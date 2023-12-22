@@ -154,4 +154,22 @@ TEST_F(SegmentationTest, SegmentHintOnNonTerminatingOutput) {
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
 }
 
+TEST_F(SegmentationTest, TMP) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion->addInput(tv0);
+  auto tv1 = neg(tv0);
+  auto tv2 = slice(tv1, {0}, {5}); 
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({10}, options);
+  std::vector<c10::IValue> inputs({t0});
+  
+  FusionExecutorCache fec(std::move(fusion));
+  auto outputs = fec.runFusionWithInputs(inputs);
+}
+
 } // namespace nvfuser
