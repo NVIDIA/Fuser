@@ -2593,6 +2593,26 @@ IterDomain::IterDomain(const IterDomain* src, IrCloner* ir_cloner)
 
 NVFUSER_DEFINE_CLONE(IterDomain)
 
+IterDomain::IterDomain(
+    IrContainer* container,
+    IrBuilderPasskey passkey,
+    const serde::Value* buffer,
+    const serde::IterDomain* data)
+    : IterDomain(
+          passkey,
+          container->getVal<Val>(data->start_val()),
+          container->getVal<Val>(data->extent_val()),
+          container->getVal<Val>(data->expanded_extent_val()),
+          container->getVal<Val>(data->stop_offset_val()),
+          static_cast<ParallelType>(data->parallel_type_enum()),
+          static_cast<IterType>(data->iter_type_enum()),
+          data->is_rfactor_domain(),
+          data->is_padded_dimension(),
+          (data->padded_to_size() != -1)
+              ? std::optional<int64_t>(data->padded_to_size())
+              : std::nullopt,
+          data->is_mma_swizzled()) {}
+
 bool IterDomain::sameAs(const Statement* other) const {
   if (other == this) {
     return true;
@@ -3300,6 +3320,19 @@ TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
       has_reduction_(src->has_reduction_) {}
 
 NVFUSER_DEFINE_CLONE(TensorDomain)
+
+TensorDomain::TensorDomain(
+    IrContainer* container,
+    IrBuilderPasskey passkey,
+    const serde::Value* buffer,
+    const serde::TensorDomain* data)
+    : TensorDomain(
+          passkey,
+          container->getValues<IterDomain>(data->root_domain()),
+          container->getValues<IterDomain>(data->rfactor_domain()),
+          container->getValues<IterDomain>(data->allocation_domain()),
+          container->getValues<IterDomain>(data->leaf_domain()),
+          serde::mapSerdeContiguityEnum(data->contiguity())) {}
 
 bool TensorDomain::hasBlockBroadcast() const {
   return std::any_of(
@@ -4087,6 +4120,16 @@ NamedScalar::NamedScalar(const NamedScalar* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner), name_(src->name_) {}
 
 NVFUSER_DEFINE_CLONE(NamedScalar)
+
+NamedScalar::NamedScalar(
+    IrContainer* container,
+    IrBuilderPasskey passkey,
+    const serde::Value* buffer,
+    const serde::NamedScalar* data)
+    : NamedScalar(
+          passkey,
+          data->name()->str(),
+          serde::mapToDtypeStruct(buffer->dtype_enum())) {}
 
 bool NamedScalar::sameAs(const Statement* other) const {
   if (this == other) {

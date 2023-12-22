@@ -117,6 +117,12 @@ class TensorView : public Val {
 
   NVFUSER_DECLARE_CLONE
 
+  TensorView(
+      IrContainer* container,
+      IrBuilderPasskey passkey,
+      const serde::Value* buffer,
+      const serde::TensorView* data);
+
   std::string toString(int indent_size = 0) const override;
 
   std::string toInlineString(int indent_size = 0) const override;

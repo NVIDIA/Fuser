@@ -1996,6 +1996,12 @@ class NamedScalar : public Val {
 
   NVFUSER_DECLARE_CLONE
 
+  NamedScalar(
+      IrContainer* container,
+      IrBuilderPasskey passkey,
+      const serde::Value* buffer,
+      const serde::NamedScalar* data);
+
   const std::string& name() const {
     return name_;
   }

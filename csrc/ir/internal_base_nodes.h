@@ -105,6 +105,12 @@ class IterDomain : public Val {
 
   NVFUSER_DECLARE_CLONE
 
+  IterDomain(
+      IrContainer* container,
+      IrBuilderPasskey passkey,
+      const serde::Value* buffer,
+      const serde::IterDomain* data);
+
   bool sameAs(const Statement* other) const override;
 
   std::string toString(int indent_size = 0) const override;
@@ -495,6 +501,12 @@ class TensorDomain : public Val {
   TensorDomain(const TensorDomain* src, IrCloner* ir_cloner);
 
   NVFUSER_DECLARE_CLONE
+
+  TensorDomain(
+      IrContainer* container,
+      IrBuilderPasskey passkey,
+      const serde::Value* buffer,
+      const serde::TensorDomain* data);
 
   bool operator==(const TensorDomain& other) const;
   bool operator!=(const TensorDomain& other) const {

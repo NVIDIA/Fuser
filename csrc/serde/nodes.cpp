@@ -15,102 +15,58 @@ namespace nvf = nvfuser;
 namespace nvfuser::serde {
 
 void ValueFactory::registerAllParsers() {
-  auto deserializeVal = [](nvf::IrContainer& container,
-                           const serde::Value* buffer) {
-    return IrBuilder::create<nvf::Val>(
-        nvf::ValType::Others, mapToDtypeStruct(buffer->dtype_enum()));
-  };
-  registerParser(serde::ValData::NONE, deserializeVal);
+  registerParser(
+      serde::ValData::NONE,
+      nvf::IrBuilder::deserializeVal<nvf::Val, void, serde::ValData::NONE>);
 
-  auto deserializeNamedScalar = [](nvf::IrContainer& container,
-                                   const serde::Value* buffer) {
-    auto data = buffer->data_as_NamedScalar();
-    NVF_ERROR(data != nullptr, "Expected NamedScalar data.");
-    return IrBuilder::create<nvf::NamedScalar>(
-        data->name()->str(), mapToDtypeStruct(buffer->dtype_enum()));
-  };
-  registerParser(serde::ValData::NamedScalar, deserializeNamedScalar);
+  registerParser(
+      serde::ValData::NamedScalar,
+      nvf::IrBuilder::deserializeVal<
+          nvf::NamedScalar,
+          serde::NamedScalar,
+          serde::ValData::NamedScalar>);
 
-  auto deserializePredicate = [](nvf::IrContainer& container,
-                                 const serde::Value* buffer) {
-    auto data = buffer->data_as_Predicate();
-    NVF_ERROR(data != nullptr, "Expected Predicate data.");
-    return IrBuilder::create<nvf::kir::Predicate>(
-        static_cast<PredicateType>(data->predicate_type_enum()),
-        container.getExpr(data->expr()),
-        container.getVal<nvf::Val>(data->thread_pred()));
-  };
-  registerParser(serde::ValData::Predicate, deserializePredicate);
+  registerParser(
+      serde::ValData::IterDomain,
+      nvf::IrBuilder::deserializeVal<
+          nvf::IterDomain,
+          serde::IterDomain,
+          serde::ValData::IterDomain>);
 
-  auto deserializeTensorIndex = [](nvf::IrContainer& container,
-                                   const serde::Value* buffer) {
-    auto data = buffer->data_as_TensorIndex();
-    NVF_ERROR(data != nullptr, "Expected TensorIndex data.");
+  registerParser(
+      serde::ValData::PipelineVal,
+      nvf::IrBuilder::deserializeVal<
+          nvf::PipelineVal,
+          serde::PipelineVal,
+          serde::ValData::PipelineVal>);
 
-    const nvf::Val* view = container.getVal<nvf::Val>(data->view());
-    NVF_ERROR(
-        view->isA<nvf::TensorView>(),
-        "Expected nvfuser::Val to be a TensorView.");
-    return IrBuilder::create<nvf::kir::TensorIndex>(
-        view->as<nvf::TensorView>(),
-        container.getVal<nvf::Val>(data->index()),
-        mapToDtypeStruct(buffer->dtype_enum()));
-  };
-  registerParser(serde::ValData::TensorIndex, deserializeTensorIndex);
+  registerParser(
+      serde::ValData::Predicate,
+      nvf::IrBuilder::deserializeVal<
+          nvf::kir::Predicate,
+          serde::Predicate,
+          serde::ValData::Predicate>);
 
-  auto deserializePipelineVal = [](nvf::IrContainer& container,
-                                   const serde::Value* buffer) {
-    auto data = buffer->data_as_PipelineVal();
-    NVF_ERROR(data != nullptr, "Expected PipelineVal data.");
-    return IrBuilder::create<nvf::PipelineVal>(
-        container.getVal<nvf::Val>(data->original_val()));
-  };
-  registerParser(serde::ValData::PipelineVal, deserializePipelineVal);
+  registerParser(
+      serde::ValData::TensorIndex,
+      nvf::IrBuilder::deserializeVal<
+          nvf::kir::TensorIndex,
+          serde::TensorIndex,
+          serde::ValData::TensorIndex>);
 
-  auto deserializeIterDomain = [](nvf::IrContainer& container,
-                                  const serde::Value* buffer) {
-    auto data = buffer->data_as_IterDomain();
-    NVF_ERROR(data != nullptr, "Expected IterDomain data.");
-    return IrBuilder::create<nvf::IterDomain>(
-        container.getVal<nvf::Val>(data->start_val()),
-        container.getVal<nvf::Val>(data->extent_val()),
-        container.getVal<nvf::Val>(data->expanded_extent_val()),
-        container.getVal<nvf::Val>(data->stop_offset_val()),
-        static_cast<ParallelType>(data->parallel_type_enum()),
-        static_cast<IterType>(data->iter_type_enum()),
-        data->is_rfactor_domain(),
-        data->is_padded_dimension(),
-        (data->padded_to_size() != -1)
-            ? std::optional<int64_t>(data->padded_to_size())
-            : std::nullopt,
-        data->is_mma_swizzled());
-  };
-  registerParser(serde::ValData::IterDomain, deserializeIterDomain);
+  registerParser(
+      serde::ValData::TensorDomain,
+      nvf::IrBuilder::deserializeVal<
+          nvf::TensorDomain,
+          serde::TensorDomain,
+          serde::ValData::TensorDomain>);
 
-  auto deserializeTensorDomain = [](nvf::IrContainer& container,
-                                    const serde::Value* buffer) {
-    auto data = buffer->data_as_TensorDomain();
-    NVF_ERROR(data != nullptr, "Expected TensorDomain data.");
-    return IrBuilder::create<nvf::TensorDomain>(
-        container.getValues<nvf::IterDomain>(data->root_domain()),
-        container.getValues<nvf::IterDomain>(data->rfactor_domain()),
-        container.getValues<nvf::IterDomain>(data->allocation_domain()),
-        container.getValues<nvf::IterDomain>(data->leaf_domain()),
-        mapSerdeContiguityEnum(data->contiguity()));
-  };
-  registerParser(serde::ValData::TensorDomain, deserializeTensorDomain);
-
-  auto deserializeTensorView = [](nvf::IrContainer& container,
-                                  const serde::Value* buffer) {
-    auto data = buffer->data_as_TensorView();
-    NVF_ERROR(data != nullptr, "Expected TensorView data.");
-
-    return IrBuilder::create<nvf::TensorView>(
-        container.getVal<nvf::TensorDomain>(data->domain()),
-        mapToDtypeStruct(buffer->dtype_enum()),
-        static_cast<MemoryType>(data->memory_type_enum()));
-  };
-  registerParser(serde::ValData::TensorView, deserializeTensorView);
+  registerParser(
+      serde::ValData::TensorView,
+      nvf::IrBuilder::deserializeVal<
+          nvf::TensorView,
+          serde::TensorView,
+          serde::ValData::TensorView>);
 }
 
 void ExpressionFactory::registerAllParsers() {

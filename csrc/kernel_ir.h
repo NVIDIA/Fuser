@@ -75,6 +75,12 @@ class Predicate final : public Val {
 
   explicit Predicate(IrBuilderPasskey passkey, Val* value);
 
+  Predicate(
+      IrContainer* container,
+      IrBuilderPasskey passkey,
+      const serde::Value* buffer,
+      const serde::Predicate* data);
+
   std::string toString(int indent_size = 0) const override;
 
   std::string toInlineString(int indent_size = 0) const override;
@@ -158,6 +164,12 @@ class TensorIndex final : public Val {
       const TensorView* view,
       Val* index,
       DataType dtype = DataType::Null);
+
+  TensorIndex(
+      IrContainer* container,
+      IrBuilderPasskey passkey,
+      const serde::Value* buffer,
+      const serde::TensorIndex* data);
 
   Val* index() const {
     return index_;

@@ -16,17 +16,19 @@ namespace nvfuser::serde {
 class Expr;
 class Val;
 
-class ValueFactory : public NodeFactory<serde::Value, nvfuser::Val*> {
+class ValueFactory : public Factory<serde::Value, nvfuser::Val*> {
  public:
-  ~ValueFactory() override = default;
+  ValueFactory() : Factory((nvfuser::toUnderlying(ValData::MAX) + 1)) {
+    registerAllParsers();
+  }
 
  private:
-  void registerAllParsers() override;
+  void registerAllParsers();
 };
 
 class ExpressionFactory : public Factory<serde::Expression, nvfuser::Expr*> {
  public:
-  ExpressionFactory() : Factory((nvfuser::toUnderlying(ExprType::MAX) + 1)) {
+  ExpressionFactory() : Factory((nvfuser::toUnderlying(ExprType::MAX) + 2)) {
     registerAllParsers();
   }
 
