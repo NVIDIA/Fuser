@@ -117,152 +117,164 @@ void ExpressionFactory::registerAllParsers() {
   // fusion
   registerParser(
       serde::ExprType::ArrayConstruct,
-      nvf::IrBuilder::deserialize<nvf::ArrayConstruct>);
+      nvf::IrBuilder::deserializeExpr<nvf::ArrayConstruct>);
   registerParser(
-      serde::ExprType::Binary, nvf::IrBuilder::deserialize<nvf::BinaryOp>);
+      serde::ExprType::Binary, nvf::IrBuilder::deserializeExpr<nvf::BinaryOp>);
   registerParser(
       serde::ExprType::Broadcast,
-      nvf::IrBuilder::deserialize<nvf::BroadcastOp>);
-  registerParser(serde::ExprType::Cat, nvf::IrBuilder::deserialize<nvf::CatOp>);
+      nvf::IrBuilder::deserializeExpr<nvf::BroadcastOp>);
   registerParser(
-      serde::ExprType::Expand, nvf::IrBuilder::deserialize<nvf::ExpandOp>);
-  registerParser(serde::ExprType::Eye, nvf::IrBuilder::deserialize<nvf::EyeOp>);
+      serde::ExprType::Cat, nvf::IrBuilder::deserializeExpr<nvf::CatOp>);
   registerParser(
-      serde::ExprType::Full, nvf::IrBuilder::deserialize<nvf::FullOp>);
+      serde::ExprType::Expand, nvf::IrBuilder::deserializeExpr<nvf::ExpandOp>);
   registerParser(
-      serde::ExprType::Gather, nvf::IrBuilder::deserialize<nvf::GatherOp>);
+      serde::ExprType::Eye, nvf::IrBuilder::deserializeExpr<nvf::EyeOp>);
   registerParser(
-      serde::ExprType::GetAttr, nvf::IrBuilder::deserialize<nvf::GetAttr>);
+      serde::ExprType::Full, nvf::IrBuilder::deserializeExpr<nvf::FullOp>);
   registerParser(
-      serde::ExprType::GetItem, nvf::IrBuilder::deserialize<nvf::GetItem>);
+      serde::ExprType::Gather, nvf::IrBuilder::deserializeExpr<nvf::GatherOp>);
+  registerParser(
+      serde::ExprType::GetAttr, nvf::IrBuilder::deserializeExpr<nvf::GetAttr>);
+  registerParser(
+      serde::ExprType::GetItem, nvf::IrBuilder::deserializeExpr<nvf::GetItem>);
   registerParser(
       serde::ExprType::GetMetaData,
-      nvf::IrBuilder::deserialize<nvf::GetMetaData>);
+      nvf::IrBuilder::deserializeExpr<nvf::GetMetaData>);
   registerParser(
       serde::ExprType::IndexSelect,
-      nvf::IrBuilder::deserialize<nvf::IndexSelectOp>);
+      nvf::IrBuilder::deserializeExpr<nvf::IndexSelectOp>);
   registerParser(
-      serde::ExprType::Iota, nvf::IrBuilder::deserialize<nvf::IotaOp>);
+      serde::ExprType::Iota, nvf::IrBuilder::deserializeExpr<nvf::IotaOp>);
   registerParser(
       serde::ExprType::LoadStore,
-      nvf::IrBuilder::deserialize<nvf::LoadStoreOp>);
+      nvf::IrBuilder::deserializeExpr<nvf::LoadStoreOp>);
   registerParser(
-      serde::ExprType::Merge, nvf::IrBuilder::deserialize<nvf::Merge>);
-  registerParser(serde::ExprType::Mma, nvf::IrBuilder::deserialize<nvf::MmaOp>);
-  registerParser(serde::ExprType::Pad, nvf::IrBuilder::deserialize<nvf::PadOp>);
+      serde::ExprType::Merge, nvf::IrBuilder::deserializeExpr<nvf::Merge>);
+  registerParser(
+      serde::ExprType::Mma, nvf::IrBuilder::deserializeExpr<nvf::MmaOp>);
+  registerParser(
+      serde::ExprType::Pad, nvf::IrBuilder::deserializeExpr<nvf::PadOp>);
   registerParser(
       serde::ExprType::Reduction,
-      nvf::IrBuilder::deserialize<nvf::ReductionOp>);
+      nvf::IrBuilder::deserializeExpr<nvf::ReductionOp>);
   registerParser(
-      serde::ExprType::Resize, nvf::IrBuilder::deserialize<nvf::Resize>);
+      serde::ExprType::Resize, nvf::IrBuilder::deserializeExpr<nvf::Resize>);
   registerParser(
       serde::ExprType::ReverseArray,
-      nvf::IrBuilder::deserialize<nvf::ReverseArray>);
-  registerParser(serde::ExprType::RNG, nvf::IrBuilder::deserialize<nvf::RNGOp>);
+      nvf::IrBuilder::deserializeExpr<nvf::ReverseArray>);
   registerParser(
-      serde::ExprType::Scatter, nvf::IrBuilder::deserialize<nvf::ScatterOp>);
+      serde::ExprType::RNG, nvf::IrBuilder::deserializeExpr<nvf::RNGOp>);
   registerParser(
-      serde::ExprType::Select, nvf::IrBuilder::deserialize<nvf::SelectOp>);
+      serde::ExprType::Scatter,
+      nvf::IrBuilder::deserializeExpr<nvf::ScatterOp>);
   registerParser(
-      serde::ExprType::Shift, nvf::IrBuilder::deserialize<nvf::ShiftOp>);
+      serde::ExprType::Select, nvf::IrBuilder::deserializeExpr<nvf::SelectOp>);
   registerParser(
-      serde::ExprType::Slice, nvf::IrBuilder::deserialize<nvf::SliceOp>);
+      serde::ExprType::Shift, nvf::IrBuilder::deserializeExpr<nvf::ShiftOp>);
   registerParser(
-      serde::ExprType::Split, nvf::IrBuilder::deserialize<nvf::Split>);
+      serde::ExprType::Slice, nvf::IrBuilder::deserializeExpr<nvf::SliceOp>);
   registerParser(
-      serde::ExprType::Squeeze, nvf::IrBuilder::deserialize<nvf::SqueezeOp>);
+      serde::ExprType::Split, nvf::IrBuilder::deserializeExpr<nvf::Split>);
+  registerParser(
+      serde::ExprType::Squeeze,
+      nvf::IrBuilder::deserializeExpr<nvf::SqueezeOp>);
   registerParser(
       serde::ExprType::StructConstruct,
-      nvf::IrBuilder::deserialize<nvf::StructConstruct>);
+      nvf::IrBuilder::deserializeExpr<nvf::StructConstruct>);
   registerParser(
-      serde::ExprType::Swizzle, nvf::IrBuilder::deserialize<nvf::Swizzle>);
+      serde::ExprType::Swizzle, nvf::IrBuilder::deserializeExpr<nvf::Swizzle>);
   registerParser(
-      serde::ExprType::Swizzle2D, nvf::IrBuilder::deserialize<nvf::Swizzle2D>);
+      serde::ExprType::Swizzle2D,
+      nvf::IrBuilder::deserializeExpr<nvf::Swizzle2D>);
   registerParser(
       serde::ExprType::TensorConstruct,
-      nvf::IrBuilder::deserialize<nvf::TensorConstruct>);
+      nvf::IrBuilder::deserializeExpr<nvf::TensorConstruct>);
   registerParser(
-      serde::ExprType::Ternary, nvf::IrBuilder::deserialize<nvf::TernaryOp>);
+      serde::ExprType::Ternary,
+      nvf::IrBuilder::deserializeExpr<nvf::TernaryOp>);
   registerParser(
       serde::ExprType::TorchGather,
-      nvf::IrBuilder::deserialize<nvf::TorchGatherOp>);
+      nvf::IrBuilder::deserializeExpr<nvf::TorchGatherOp>);
   registerParser(
-      serde::ExprType::Unary, nvf::IrBuilder::deserialize<nvf::UnaryOp>);
+      serde::ExprType::Unary, nvf::IrBuilder::deserializeExpr<nvf::UnaryOp>);
   registerParser(
-      serde::ExprType::View, nvf::IrBuilder::deserialize<nvf::ViewAsScalar>);
+      serde::ExprType::View,
+      nvf::IrBuilder::deserializeExpr<nvf::ViewAsScalar>);
   registerParser(
       serde::ExprType::ViewAsScalar,
-      nvf::IrBuilder::deserialize<nvf::ViewAsScalar>);
+      nvf::IrBuilder::deserializeExpr<nvf::ViewAsScalar>);
   registerParser(
-      serde::ExprType::Welford, nvf::IrBuilder::deserialize<nvf::WelfordOp>);
+      serde::ExprType::Welford,
+      nvf::IrBuilder::deserializeExpr<nvf::WelfordOp>);
 
   // kir
   registerParser(
       serde::ExprType::Allocate,
-      nvf::IrBuilder::deserialize<nvf::kir::Allocate>);
+      nvf::IrBuilder::deserializeExpr<nvf::kir::Allocate>);
   registerParser(
       serde::ExprType::AllocateFusedReduction,
-      nvf::IrBuilder::deserialize<nvf::kir::AllocateFusedReduction>);
+      nvf::IrBuilder::deserializeExpr<nvf::kir::AllocateFusedReduction>);
   registerParser(
-      serde::ExprType::Asm, nvf::IrBuilder::deserialize<nvf::kir::Asm>);
+      serde::ExprType::Asm, nvf::IrBuilder::deserializeExpr<nvf::kir::Asm>);
   registerParser(
       serde::ExprType::AsyncCommit,
-      nvf::IrBuilder::deserialize<nvf::kir::AsyncCommit>);
+      nvf::IrBuilder::deserializeExpr<nvf::kir::AsyncCommit>);
   registerParser(
       serde::ExprType::AsyncWait,
-      nvf::IrBuilder::deserialize<nvf::kir::AsyncWait>);
+      nvf::IrBuilder::deserializeExpr<nvf::kir::AsyncWait>);
   registerParser(
       serde::ExprType::BlockSerializeRelease,
-      nvf::IrBuilder::deserialize<nvf::kir::BlockSerializeRelease>);
+      nvf::IrBuilder::deserializeExpr<nvf::kir::BlockSerializeRelease>);
   registerParser(
       serde::ExprType::BlockSerializeWait,
-      nvf::IrBuilder::deserialize<nvf::kir::BlockSerializeWait>);
+      nvf::IrBuilder::deserializeExpr<nvf::kir::BlockSerializeWait>);
   registerParser(
       serde::ExprType::BlockSync,
-      nvf::IrBuilder::deserialize<nvf::kir::BlockSync>);
+      nvf::IrBuilder::deserializeExpr<nvf::kir::BlockSync>);
   registerParser(
       serde::ExprType::EncodeTensorMapTiled,
-      nvf::IrBuilder::deserialize<nvf::kir::EncodeTensorMapTiled>);
+      nvf::IrBuilder::deserializeExpr<nvf::kir::EncodeTensorMapTiled>);
   registerParser(
-      serde::ExprType::ForLoop, nvf::IrBuilder::deserialize<nvf::kir::ForLoop>);
+      serde::ExprType::ForLoop,
+      nvf::IrBuilder::deserializeExpr<nvf::kir::ForLoop>);
   registerParser(
       serde::ExprType::GetRNGSeedAndOffsetFromHost,
-      nvf::IrBuilder::deserialize<nvf::kir::GetRNGSeedAndOffsetFromHost>);
+      nvf::IrBuilder::deserializeExpr<nvf::kir::GetRNGSeedAndOffsetFromHost>);
   registerParser(
       serde::ExprType::GridBroadcast,
-      nvf::IrBuilder::deserialize<nvf::kir::GridBroadcast>);
+      nvf::IrBuilder::deserializeExpr<nvf::kir::GridBroadcast>);
   registerParser(
       serde::ExprType::GridSync,
-      nvf::IrBuilder::deserialize<nvf::kir::GridSync>);
+      nvf::IrBuilder::deserializeExpr<nvf::kir::GridSync>);
   registerParser(
       serde::ExprType::GridWelford,
-      nvf::IrBuilder::deserialize<nvf::kir::GridWelford>);
+      nvf::IrBuilder::deserializeExpr<nvf::kir::GridWelford>);
   registerParser(
       serde::ExprType::IfThenElse,
-      nvf::IrBuilder::deserialize<nvf::kir::IfThenElse>);
+      nvf::IrBuilder::deserializeExpr<nvf::kir::IfThenElse>);
   registerParser(
       serde::ExprType::InitMagicZero,
-      nvf::IrBuilder::deserialize<nvf::kir::InitMagicZero>);
+      nvf::IrBuilder::deserializeExpr<nvf::kir::InitMagicZero>);
   registerParser(
       serde::ExprType::MBarrierArrive,
-      nvf::IrBuilder::deserialize<nvf::kir::MBarrierArrive>);
+      nvf::IrBuilder::deserializeExpr<nvf::kir::MBarrierArrive>);
   registerParser(
       serde::ExprType::MBarrierInit,
-      nvf::IrBuilder::deserialize<nvf::kir::MBarrierInit>);
+      nvf::IrBuilder::deserializeExpr<nvf::kir::MBarrierInit>);
   registerParser(
       serde::ExprType::MBarrierWait,
-      nvf::IrBuilder::deserialize<nvf::kir::MBarrierWait>);
+      nvf::IrBuilder::deserializeExpr<nvf::kir::MBarrierWait>);
   registerParser(
       serde::ExprType::UpdateMagicZero,
-      nvf::IrBuilder::deserialize<nvf::kir::UpdateMagicZero>);
+      nvf::IrBuilder::deserializeExpr<nvf::kir::UpdateMagicZero>);
 
   // multidevice
   registerParser(
       serde::ExprType::PipelineCommunication,
-      nvf::IrBuilder::deserialize<nvf::PipelineCommunication>);
+      nvf::IrBuilder::deserializeExpr<nvf::PipelineCommunication>);
   registerParser(
       serde::ExprType::PipelineStage,
-      nvf::IrBuilder::deserialize<nvf::PipelineStage>);
+      nvf::IrBuilder::deserializeExpr<nvf::PipelineStage>);
 
   // Expression Simplifier
   auto deserialize_unsupported =

@@ -55,7 +55,7 @@ class IrBuilder {
   static T* clone(const T* src, IrCloner* ir_cloner);
 
   template <class ExprType>
-  static ExprType* deserialize(const serde::Expression* buffer) {
+  static ExprType* deserializeExpr(const serde::Expression* buffer) {
     NVF_CHECK(buffer != nullptr, "serde::Expression is nullptr");
 
     Fusion* container = FusionGuard::getCurFusion();
@@ -68,6 +68,20 @@ class IrBuilder {
         container->getStatements(buffer->attributes_stmts());
     ExprType* node = IrBuilder::create<ExprType>(
         buffer->type(), inputs, outputs, attributes);
+    container->registerStmt(IrBuilderPasskey(container), node);
+    return node;
+  }
+
+  template <class ValType>
+  static ValType* deserializeVal(const serde::Value* buffer) {
+    NVF_CHECK(buffer != nullptr, "serde::Expression is nullptr");
+
+    Fusion* container = FusionGuard::getCurFusion();
+    NVF_ERROR(container != nullptr, "Need an active container to build IR.");
+
+    ValType* node = IrBuilder::create<ValType>(
+        container, IrBuilderPasskey(container), buffer);
+
     container->registerStmt(IrBuilderPasskey(container), node);
     return node;
   }

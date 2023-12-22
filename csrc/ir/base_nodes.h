@@ -265,6 +265,10 @@ class Val : public Statement {
         dtype_(src->dtype_),
         value_(src->value_){};
 
+  Val(IrContainer* container,
+      IrBuilderPasskey passkey,
+      const serde::Value* buffer);
+
   std::string toString(int indent_size = 0) const override;
 
   std::string toInlineString(int indent_size = 0) const override;
