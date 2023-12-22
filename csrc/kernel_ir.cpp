@@ -73,11 +73,13 @@ Predicate::Predicate(
     IrBuilderPasskey passkey,
     const serde::Value* buffer,
     const serde::Predicate* data)
-    : Predicate(passkey, container->getVal<Val>(data->thread_pred())) {
+    : Predicate(passkey, container->getVal<Val>(data->value())) {
   // CLANGTIDY expects ptype_ to be in member initializer list but we are using
   // delegating constructor.
-  // NOLINTNEXTLINE(cppcoreguidelines-prefer-member-initializer)
+  //! NOLINTBEGIN(cppcoreguidelines-prefer-member-initializer)
   ptype_ = static_cast<PredicateType>(data->predicate_type_enum());
+  thread_pred_ = container->getVal<Val>(data->thread_pred_val());
+  //! NOLINTEND(cppcoreguidelines-prefer-member-initializer)
 }
 
 std::string Predicate::toString(int indent_size) const {
@@ -135,8 +137,8 @@ TensorIndex::TensorIndex(
     const serde::TensorIndex* data)
     : TensorIndex(
           passkey,
-          container->getVal<TensorView>(data->view()),
-          container->getVal<Val>(data->index()),
+          container->getVal<TensorView>(data->tensorview()),
+          container->getVal<Val>(data->index_val()),
           serde::mapToDtypeStruct(buffer->dtype_enum())) {}
 
 std::string TensorIndex::toString(int indent_size) const {

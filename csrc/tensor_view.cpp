@@ -206,7 +206,7 @@ TensorView::TensorView(
   cpu_scalar_ = data->cpu_scalar();
   has_swizzle_op_ = data->has_swizzle_op();
   compute_with_consumers_ =
-      container->getValues<TensorView>(data->compute_with_consumers());
+      container->getValues<TensorView>(data->compute_with_consumers_tvs());
   compute_with_pos_ = data->compute_with_pos();
   maybe_max_producer_pos_ = data->max_producer_pos();
   promote_reuse_ = data->promote_reuse();
