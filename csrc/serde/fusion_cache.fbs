@@ -410,21 +410,21 @@ table Vector {
 //
 
 table Predicate {
-    predicate_type_enum: long;
-    expr: long;
-    thread_pred: long;
-    unrolled_loop: long;
-    value: long;
+  predicate_type_enum: long;
+  expr: long;
+  thread_pred_val: long;
+  unrolled_loop_expr: long;
+  value: long;
 }
 
 table TensorIndex {
-  view: long;
-  index: long;
+  tensorview: long;
+  index_val: long;
 }
 
 table PipelineVal {
-  original_val: long;
-  stage: long;
+  value: long;
+  stage_expr: long;
 }
 
 table NamedScalar {
@@ -462,7 +462,7 @@ table TensorView {
   circular_buffer_stage: ulong;
   cpu_scalar: bool;
   has_swizzle_op: bool;
-  compute_with_consumers: [long];
+  compute_with_consumers_tvs: [long];
   compute_with_pos: ulong;
   maybe_max_producer_pos: ulong;
   promote_reuse: bool;

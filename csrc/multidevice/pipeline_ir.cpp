@@ -110,7 +110,7 @@ PipelineVal::PipelineVal(
     IrBuilderPasskey passkey,
     const serde::Value* buffer,
     const serde::PipelineVal* data)
-    : PipelineVal(passkey, container->getVal<Val>(data->original_val())) {}
+    : PipelineVal(passkey, container->getVal<Val>(data->value())) {}
 
 bool PipelineVal::sameAs(const Statement* other) const {
   if (!Val::sameAs(other)) {
