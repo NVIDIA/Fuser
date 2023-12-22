@@ -105,6 +105,19 @@ std::pair<serde::ValData, flatbuffers::Offset<void>> Val::serializeData(
   return {serde::ValData::NONE, flatbuffers::Offset<void>()};
 }
 
+void Val::deserializeExpr(IrContainer* container, const serde::Value* buffer) {
+  NVF_ERROR(container != nullptr, "IrContainer is nullptr.");
+  NVF_ERROR(buffer != nullptr, "serde::Val is nullptr.");
+  setDefinition(container->getExpr(buffer->definition_expr()));
+
+  uses_.reserve(buffer->uses_expr()->size());
+  std::transform(
+      buffer->uses_expr()->begin(),
+      buffer->uses_expr()->end(),
+      std::back_inserter(uses_),
+      [&](int64_t index) { return container->getExpr(index); });
+}
+
 flatbuffers::Offset<serde::Value> Val::serialize(
     const IrSerde& container,
     flatbuffers::FlatBufferBuilder& builder) const {

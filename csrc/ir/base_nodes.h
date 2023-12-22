@@ -281,6 +281,11 @@ class Val : public Statement {
       const IrSerde& container,
       flatbuffers::FlatBufferBuilder& builder) const;
 
+  // setExpr updates the nvf::Val expression fields such as definition_ and
+  // uses_. These fields are set after construction of all nvf::Val and
+  // nvf::Expr nodes.
+  void deserializeExpr(IrContainer* container, const serde::Value* buffer);
+
   // Dispatch functions, definitions in dispatch.cpp
   template <typename T>
   static void dispatch(T handler, Val*);

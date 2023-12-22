@@ -45,6 +45,8 @@ class IrContainer : public PolymorphicBase {
 
   ~IrContainer() override;
 
+  IrContainer(const serde::IrContainer* buffer);
+
   flatbuffers::Offset<serde::IrContainer> serialize(
       const IrSerde& container,
       flatbuffers::FlatBufferBuilder& builder) const;
