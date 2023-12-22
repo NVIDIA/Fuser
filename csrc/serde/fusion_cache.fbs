@@ -455,7 +455,7 @@ table TensorDomain {
 table TensorView {
   domain: long;
   compute_at_pos: ulong;
-  max_producer_pos_:  ulong;
+  max_producer_pos:  ulong;
   memory_type_enum: long;
   is_double_buffered: bool;
   is_circular_buffered: bool;
