@@ -58,13 +58,20 @@ class IrContainer : public PolymorphicBase {
         inContainer(stmt), msg, " it was not found in the active container.");
   }
 
-  Expr* getExpr(int64_t index) {
+  template <typename NvfuserExprType>
+  NvfuserExprType* getExpr(int64_t index) {
     NVF_CHECK(
         index < (int64_t)exprs_up_.size(), "Out of bounds expression index.");
     if (index < 0) {
       return nullptr;
     }
-    return exprs_up_.at(index).get();
+    Expr* e = exprs_up_.at(index).get();
+    if constexpr (std::is_same_v<Expr, NvfuserExprType>) {
+      return e;
+    }
+    NVF_CHECK(
+        e->isA<NvfuserExprType>(), "nvf::Expr* does not have desired type.");
+    return e->as<NvfuserExprType>();
   }
 
   template <typename NvfuserValType>

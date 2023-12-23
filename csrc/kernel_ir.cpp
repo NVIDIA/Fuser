@@ -108,6 +108,18 @@ std::pair<serde::ValData, flatbuffers::Offset<void>> Predicate::serializeData(
   return {serde::ValData::Predicate, data.Union()};
 }
 
+void Predicate::deserializeExpr(
+    IrContainer* container,
+    const serde::Value* buffer) {
+  NVF_ERROR(container != nullptr, "IrContainer is nullptr.");
+  NVF_ERROR(buffer != nullptr, "serde::Value is nullptr.");
+  const serde::Predicate* data = buffer->data_as_Predicate();
+  NVF_ERROR(data != nullptr);
+  Val::deserializeExpr(container, buffer);
+  expr_ = container->getExpr<Expr>(data->expr());
+  unrolled_loop_ = container->getExpr<ForLoop>(data->unrolled_loop_expr());
+}
+
 TensorIndex::TensorIndex(
     IrBuilderPasskey passkey,
     const TensorView* view,

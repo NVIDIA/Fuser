@@ -519,8 +519,8 @@ table Fusion {
   container: IrContainer;
 
   // Fusion inputs and outputs Val
-  inputs_vals: [long];
-  outputs_vals: [long];
+  input_vals: [long];
+  output_vals: [long];
 
   // I/O alias pointing from output to input
   io_alias_keys: [long];

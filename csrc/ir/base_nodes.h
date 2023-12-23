@@ -284,7 +284,9 @@ class Val : public Statement {
   // setExpr updates the nvf::Val expression fields such as definition_ and
   // uses_. These fields are set after construction of all nvf::Val and
   // nvf::Expr nodes.
-  void deserializeExpr(IrContainer* container, const serde::Value* buffer);
+  virtual void deserializeExpr(
+      IrContainer* container,
+      const serde::Value* buffer);
 
   // Dispatch functions, definitions in dispatch.cpp
   template <typename T>
