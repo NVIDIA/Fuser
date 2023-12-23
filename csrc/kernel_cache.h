@@ -264,6 +264,10 @@ class FusionKernelRuntime {
   //! Executors holding compiled kernels
   std::vector<FusionExecutor> executors_;
 
+  //! The scheduled fusions corresponding to each executor.
+  //! Stored for serialization
+  std::vector<std::unique_ptr<Fusion>> scheduled_fusions_;
+
   // A metadata copy of initial arguments used to contruct this
   // FusionKernelRuntime. Used during deserialization to schedule the fusion
   // rather than storing the scheduled fusion directly.
