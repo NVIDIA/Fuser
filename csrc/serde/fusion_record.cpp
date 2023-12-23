@@ -32,6 +32,8 @@ python_frontend::RecordFunctor* deserializeOpRecord(
     RecordType record_type,
     const RecordFunctor* buffer) {
   NVF_ERROR(
+      buffer != nullptr, "serde::RecordType record_data field is nullptr.");
+  NVF_ERROR(
       str_to_func_map.find(buffer->name()->str()) != str_to_func_map.end(),
       "Missing mapping from operation string to nvfuser function in serde deserialization.");
   return new python_frontend::OpRecord<Signature...>(
@@ -50,6 +52,8 @@ python_frontend::RecordFunctor* deserializeReductionRecord(
         nvf::DataType)> fusion_op,
     RecordType record_type,
     const RecordFunctor* buffer) {
+  NVF_ERROR(
+      buffer != nullptr, "serde::RecordType record_data field is nullptr.");
   auto data = buffer->data_as_Reduction();
   return new python_frontend::ReductionOpRecord(
       parseStateArgs(buffer->args()),
@@ -330,6 +334,8 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeBatchNormRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_BatchNorm();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::BatchNormOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
@@ -339,24 +345,32 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(RecordType::BatchNormOp, deserializeBatchNormRecord);
 
   auto deserializeBroadcastRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Broadcast();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::BroadcastOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         buffer->name()->str(),
-        parseBoolVector(buffer->data_as_Broadcast()->broadcast_dims()));
+        parseBoolVector(data->broadcast_dims()));
   };
   registerParser(RecordType::BroadcastOp, deserializeBroadcastRecord);
 
   auto deserializeCatRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Dimension();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::CatOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        buffer->data_as_Dimension()->dim());
+        data->dim());
   };
   registerParser(RecordType::CatOp, deserializeCatRecord);
 
   auto deserializeBroadcastInDimRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_BroadcastInDim();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::BroadcastInDimOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
@@ -366,6 +380,9 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(RecordType::BroadcastInDim, deserializeBroadcastInDimRecord);
 
   auto deserializeCastTvRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Dtype();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     std::function<nvf::TensorView*(nvf::DataType, nvf::TensorView*)> fusion_op =
         static_cast<nvf::TensorView* (*)(nvf::DataType, nvf::TensorView*)>(
             castOp);
@@ -376,11 +393,14 @@ void RecordFunctorFactory::registerAllParsers() {
             buffer->name()->str(),
             RecordType::CastTv,
             fusion_op,
-            mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()));
+            mapToNvfuserDtype(data->dtype()));
   };
   registerParser(RecordType::CastTv, deserializeCastTvRecord);
 
   auto deserializeCastValRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Dtype();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     std::function<nvf::Val*(nvf::DataType, nvf::Val*)> fusion_op =
         static_cast<nvf::Val* (*)(nvf::DataType, nvf::Val*)>(castOp);
     return new python_frontend::CastOpRecord<nvf::Val*, nvf::Val*>(
@@ -389,20 +409,25 @@ void RecordFunctorFactory::registerAllParsers() {
         buffer->name()->str(),
         RecordType::CastVal,
         fusion_op,
-        mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()));
+        mapToNvfuserDtype(data->dtype()));
   };
   registerParser(RecordType::CastVal, deserializeCastValRecord);
 
   auto deserializeScalarRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Scalar();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::ScalarRecord(
         parseStateArgs(buffer->outputs()),
-        deserializePolymorphicValue(buffer->data_as_Scalar()),
-        mapToNvfuserDtype(buffer->data_as_Scalar()->dtype()));
+        deserializePolymorphicValue(data),
+        mapToNvfuserDtype(data->dtype()));
   };
   registerParser(RecordType::Scalar, deserializeScalarRecord);
 
   auto deserializeFullRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_TensorCreationSymbolic();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::FullOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
@@ -411,39 +436,53 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(RecordType::FullOp, deserializeFullRecord);
 
   auto deserializeIotaRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Dtype();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::IotaOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        mapToNvfuserDtype(buffer->data_as_Dtype()->dtype()));
+        mapToNvfuserDtype(data->dtype()));
   };
   registerParser(RecordType::IotaOp, deserializeIotaRecord);
 
   auto deserializeTorchGatherRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Dimension();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::TorchGatherOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        buffer->data_as_Dimension()->dim());
+        data->dim());
   };
   registerParser(RecordType::TorchGatherOp, deserializeTorchGatherRecord);
 
   auto deserializeTakeAlongAxisRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Dimension();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::TakeAlongAxisOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        buffer->data_as_Dimension()->dim());
+        data->dim());
   };
   registerParser(RecordType::TakeAlongAxisOp, deserializeTakeAlongAxisRecord);
 
   auto deserializeIndexSelectRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Dimension();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::IndexSelectOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        buffer->data_as_Dimension()->dim());
+        data->dim());
   };
   registerParser(RecordType::IndexSelectOp, deserializeIndexSelectRecord);
 
   auto deserializeOutputTvRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Output();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::OutputRecord<nvf::TensorView>(
         parseStateArgs(buffer->args()),
         RecordType::OutputTv,
@@ -453,6 +492,8 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeOutputValRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Output();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::OutputRecord<nvf::Val>(
         parseStateArgs(buffer->args()),
         RecordType::OutputVal,
@@ -461,33 +502,44 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(RecordType::OutputVal, deserializeOutputValRecord);
 
   auto deserializePadRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Pad();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::PadOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        parseVector(buffer->data_as_Pad()->pad_widths()));
+        parseVector(data->pad_widths()));
   };
   registerParser(RecordType::PadOp, deserializePadRecord);
 
   auto deserializePermuteRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Dims();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::DimsOpRecord<RecordType::PermuteOp>(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        parseVector(buffer->data_as_Dims()->dims()),
+        parseVector(data->dims()),
         buffer->name()->str());
   };
   registerParser(RecordType::PermuteOp, deserializePermuteRecord);
 
   auto deserializeStrideOrderRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Dims();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::DimsOpRecord<RecordType::StrideOrderOp>(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        parseVector(buffer->data_as_Dims()->dims()),
+        parseVector(data->dims()),
         buffer->name()->str());
   };
   registerParser(RecordType::StrideOrderOp, deserializeStrideOrderRecord);
 
   auto deserializeNormalDistRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_TensorCreationSymbolic();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::RandomDistOpRecord<RecordType::NormalDistOp>(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
@@ -497,6 +549,8 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeUniformDistRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_TensorCreationSymbolic();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::RandomDistOpRecord<RecordType::UniformDistOp>(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
@@ -512,6 +566,8 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeSliceRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Slice();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::SliceOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
@@ -523,6 +579,8 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeSqueezeRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Squeeze();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::SqueezeOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
@@ -532,6 +590,8 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeTensorRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Tensor();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
 
     std::vector<std::optional<bool>> contiguity =
         mapSerdeContiguityEnum(data->contiguity());
@@ -560,6 +620,8 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeSizeOpRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Size();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::SizeOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
@@ -569,6 +631,8 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeAtOpRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_At();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::AtOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
@@ -578,6 +642,8 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeVarianceRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Norm();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::VarianceOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
@@ -589,6 +655,8 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeVarianceMeanRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Norm();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::VarianceMeanOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
@@ -600,6 +668,8 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeVectorRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_Vector();
+    NVF_ERROR(
+        data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::VectorRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),

@@ -42,6 +42,9 @@ class Factory {
 
   template <typename SerdeEnum>
   BaseTypePtr parse(SerdeEnum serde_type, const SerdeBuffer* buffer) {
+    NVF_ERROR(
+        buffer != nullptr,
+        "Attempting to parse SerdeBuffer but encountered a nullptr.");
     auto serde_integer = nvfuser::toUnderlying(serde_type);
     NVF_ERROR(
         serde_integer >= 0 && serde_integer < (int)parsers_.size(),
