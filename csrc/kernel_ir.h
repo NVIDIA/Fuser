@@ -89,6 +89,9 @@ class Predicate final : public Val {
       const IrSerde& container,
       flatbuffers::FlatBufferBuilder& builder) const override;
 
+  void deserializeExpr(IrContainer* container, const serde::Value* buffer)
+      override;
+
   PredicateType predicate_type() const {
     return ptype_;
   }

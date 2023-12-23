@@ -124,7 +124,7 @@ std::vector<Expr*> IrContainer::getExpressions(
       buffer->begin(),
       buffer->end(),
       std::back_inserter(result),
-      [&](int64_t index) { return getExpr(index); });
+      [&](int64_t index) { return getExpr<Expr>(index); });
   return result;
 }
 
@@ -141,7 +141,7 @@ std::vector<Statement*> IrContainer::getStatements(
         if (stmt->is_val()) {
           return getVal<Val>(stmt->index());
         } else {
-          return getExpr(stmt->index());
+          return getExpr<Expr>(stmt->index());
         }
       });
   return result;
@@ -187,7 +187,7 @@ IrContainer::IrContainer(const serde::IrContainer* buffer) {
   for (size_t index : c10::irange(buffer->metadata_keys()->size())) {
     Val* key = getVal<Val>(buffer->metadata_keys()->Get(index));
     Val* val_lhs = getVal<Val>(buffer->metadata_values_lhs()->Get(index));
-    Expr* val_rhs = getExpr(buffer->metadata_values_rhs()->Get(index));
+    Expr* val_rhs = getExpr<Expr>(buffer->metadata_values_rhs()->Get(index));
     metadata_.emplace(key, std::make_pair(val_lhs, val_rhs));
   }
 }

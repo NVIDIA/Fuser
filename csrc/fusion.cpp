@@ -160,10 +160,10 @@ Fusion::Fusion(const serde::Fusion* buffer) : IrContainer(buffer->container()) {
         this, buffer->container()->vals()->Get(index));
   }
 
-  inputs_.reserve(buffer->inputs_vals()->size());
+  inputs_.reserve(buffer->input_vals()->size());
   std::transform(
-      buffer->inputs_vals()->begin(),
-      buffer->inputs_vals()->end(),
+      buffer->input_vals()->begin(),
+      buffer->input_vals()->end(),
       std::back_inserter(inputs_),
       [&](int64_t index) {
         auto inp = getVal<Val>(index);
@@ -171,10 +171,10 @@ Fusion::Fusion(const serde::Fusion* buffer) : IrContainer(buffer->container()) {
         return inp;
       });
 
-  outputs_.reserve(buffer->outputs_vals()->size());
+  outputs_.reserve(buffer->output_vals()->size());
   std::transform(
-      buffer->outputs_vals()->begin(),
-      buffer->outputs_vals()->end(),
+      buffer->output_vals()->begin(),
+      buffer->output_vals()->end(),
       std::back_inserter(outputs_),
       [&](int64_t index) {
         auto out = getVal<Val>(index);

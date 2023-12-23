@@ -145,4 +145,15 @@ std::pair<serde::ValData, flatbuffers::Offset<void>> PipelineVal::serializeData(
   return {serde::ValData::PipelineVal, data.Union()};
 }
 
+void PipelineVal::deserializeExpr(
+    IrContainer* container,
+    const serde::Value* buffer) {
+  NVF_ERROR(container != nullptr, "IrContainer is nullptr.");
+  NVF_ERROR(buffer != nullptr, "serde::Value is nullptr.");
+  const serde::PipelineVal* data = buffer->data_as_PipelineVal();
+  NVF_ERROR(data != nullptr);
+  Val::deserializeExpr(container, buffer);
+  stage_ = container->getExpr<PipelineStage>(data->stage_expr());
+}
+
 } // namespace nvfuser

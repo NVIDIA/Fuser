@@ -86,6 +86,9 @@ class PipelineVal : public Val {
       const IrSerde& container,
       flatbuffers::FlatBufferBuilder& builder) const override;
 
+  void deserializeExpr(IrContainer* container, const serde::Value* buffer)
+      override;
+
   // returns the Val from which this PipelineVal has been created
   Val* getOriginalVal() const {
     return original_val_;
