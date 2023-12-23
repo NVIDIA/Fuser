@@ -837,6 +837,7 @@ table FusionKernelRuntime {
   concrete_id: long;
   runtime_id: long;
   args: KernelArgumentHolder;
+  scheduled_fusions: [Fusion];
   executors: [FusionExecutor];
   segmented_fusion: SegmentedFusion;
 }
