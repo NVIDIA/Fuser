@@ -74,7 +74,7 @@ class IrBuilder {
 
   template <class ValType, class SerdeType, serde::ValData SerdeEnum>
   static ValType* deserializeVal(const serde::Value* buffer) {
-    NVF_CHECK(buffer != nullptr, "serde::Expression is nullptr");
+    NVF_CHECK(buffer != nullptr, "serde::Value is nullptr");
 
     Fusion* container = FusionGuard::getCurFusion();
     NVF_ERROR(container != nullptr, "Need an active container to build IR.");
@@ -88,6 +88,7 @@ class IrBuilder {
           buffer->data_type() == SerdeEnum,
           "SerdeEnum template argument does not match serde::Value data_type.");
       auto data = static_cast<const SerdeType*>(buffer->data());
+      NVF_CHECK(buffer != nullptr, "serde::Value data is nullptr");
       node = new ValType(container, IrBuilderPasskey(container), buffer, data);
     }
 
