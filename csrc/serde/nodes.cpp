@@ -15,9 +15,12 @@ namespace nvf = nvfuser;
 namespace nvfuser::serde {
 
 void ValueFactory::registerAllParsers() {
-  registerParser(
-      serde::ValData::NONE,
-      nvf::IrBuilder::deserializeVal<nvf::Val, void, serde::ValData::NONE>);
+  auto deserialize_unsupported =
+      [](const nvf::serde::Value* buffer) -> nvf::Val* {
+    NVF_ERROR(buffer != nullptr, "serde::Value is nullptr.");
+    NVF_ERROR(false, "serde::ValData::NONE is not supported.");
+  };
+  registerParser(serde::ValData::NONE, deserialize_unsupported);
 
   registerParser(
       serde::ValData::NamedScalar,
@@ -39,6 +42,13 @@ void ValueFactory::registerAllParsers() {
           nvf::PipelineVal,
           serde::PipelineVal,
           serde::ValData::PipelineVal>);
+
+  registerParser(
+      serde::ValData::PolymorphicValue,
+      nvf::IrBuilder::deserializeVal<
+          nvf::Val,
+          serde::PolymorphicValue,
+          serde::ValData::PolymorphicValue>);
 
   registerParser(
       serde::ValData::Predicate,

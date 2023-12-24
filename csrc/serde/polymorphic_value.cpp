@@ -69,6 +69,24 @@ nvfuser::PolymorphicValue deserializePolymorphicValue(const Scalar* c) {
 }
 
 void PolymorphicValueFactory::registerAllParsers() {
+  auto deserialize_unsupported =
+      [](const serde::PolymorphicValue* buffer) -> nvfuser::PolymorphicValue {
+    NVF_ERROR(buffer != nullptr, "serde::Value is nullptr.");
+    NVF_ERROR(
+        false,
+        "Unsupported PolymorphicValueData\t",
+        static_cast<int64_t>(toUnderlying(buffer->data_type())));
+    return nvfuser::PolymorphicValue();
+  };
+  registerParser(PolymorphicValueData::NONE, deserialize_unsupported);
+  registerParser(PolymorphicValueData::Array, deserialize_unsupported);
+  registerParser(PolymorphicValueData::AsmOptions, deserialize_unsupported);
+  registerParser(PolymorphicValueData::OpaqueEnum, deserialize_unsupported);
+  registerParser(
+      PolymorphicValueData::ParallelTypeBitmap, deserialize_unsupported);
+  registerParser(PolymorphicValueData::RNGAttributes, deserialize_unsupported);
+  registerParser(PolymorphicValueData::Scope, deserialize_unsupported);
+
   auto deserializeScalar = [](const PolymorphicValue* buffer) {
     return deserializePolymorphicValue(buffer->data_as_Scalar());
   };
@@ -121,6 +139,12 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::Scalar, data.Union());
   }
+}
+
+nvfuser::PolymorphicValue deserializePolymorphicValue(
+    const PolymorphicValue* pv) {
+  PolymorphicValueFactory pv_factory;
+  return pv_factory.parse(pv->data_type(), pv);
 }
 
 // TODO Refactor

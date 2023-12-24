@@ -35,6 +35,9 @@ class PolymorphicValueFactory
 
 nvfuser::PolymorphicValue deserializePolymorphicValue(const Scalar* c);
 
+nvfuser::PolymorphicValue deserializePolymorphicValue(
+    const PolymorphicValue* c);
+
 flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::PolymorphicValue& v);
