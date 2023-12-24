@@ -33,7 +33,8 @@ namespace nvfuser {
 
 IrSerde::IrSerde(const IrContainer* container)
     : container_{container},
-      vals_to_id_map_{container->deterministic_vals_map()},
+      vals_to_id_map_{container->deterministic_vals_map(
+          /*include_persistent_values=*/true)},
       exprs_to_id_map_{container->deterministic_exprs_map()} {}
 
 int64_t IrSerde::map(Statement* stmt) const {
@@ -52,7 +53,11 @@ int64_t IrSerde::map(Val* v) const {
   if (v == nullptr) {
     return -1;
   }
-  NVF_ERROR(vals_to_id_map_.count(v) > 0, "Missing value from vals_to_id_map");
+  NVF_ERROR(
+      vals_to_id_map_.count(v) > 0,
+      "Missing value: ",
+      v->toString(),
+      " from vals_to_id_map");
   return vals_to_id_map_.at(v);
 }
 
@@ -65,7 +70,11 @@ int64_t IrSerde::map(Expr* e) const {
   if (e == nullptr) {
     return -1;
   }
-  NVF_ERROR(exprs_to_id_map_.count(e) > 0, "Missing value from vals_to_id_map");
+  NVF_ERROR(
+      exprs_to_id_map_.count(e) > 0,
+      "Missing expr: ",
+      e->toString(),
+      " from exprs_to_id_map");
   return exprs_to_id_map_.at(e);
 }
 

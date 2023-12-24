@@ -115,6 +115,100 @@ IrContainer::~IrContainer() {
   clear();
 }
 
+std::unordered_map<Val*, int64_t> IrContainer::deterministic_vals_map(
+    bool include_persistent_values) const noexcept {
+  std::unordered_map<Val*, int64_t> vals_map;
+  int64_t count = 0;
+
+  if (include_persistent_values) {
+    if (zero_val_ != nullptr) {
+      vals_map.emplace(zero_val_.get(), count++);
+    }
+
+    if (one_val_ != nullptr) {
+      vals_map.emplace(one_val_.get(), count++);
+    }
+
+    if (true_val_ != nullptr) {
+      vals_map.emplace(true_val_.get(), count++);
+    }
+
+    if (false_val_ != nullptr) {
+      vals_map.emplace(false_val_.get(), count++);
+    }
+
+    if (magic_zero_val_ != nullptr) {
+      vals_map.emplace(magic_zero_val_.get()->as<Val>(), count++);
+    }
+  }
+
+  std::transform(
+      vals_up_.begin(),
+      vals_up_.end(),
+      std::inserter(vals_map, vals_map.end()),
+      [&count](const std::unique_ptr<Val>& val_up) {
+        return std::make_pair(val_up.get(), count++);
+      });
+  return vals_map;
+}
+
+std::unordered_map<Expr*, int64_t> IrContainer::deterministic_exprs_map()
+    const noexcept {
+  std::unordered_map<Expr*, int64_t> exprs_map;
+  int64_t count = 0;
+  std::transform(
+      exprs_up_.begin(),
+      exprs_up_.end(),
+      std::inserter(exprs_map, exprs_map.end()),
+      [&count](const std::unique_ptr<Expr>& expr_up) {
+        return std::make_pair(expr_up.get(), count++);
+      });
+  return exprs_map;
+}
+
+std::deque<Val*> IrContainer::deterministic_vals(
+    bool include_persistent_values) const noexcept {
+  std::deque<Val*> vals_deque;
+  if (include_persistent_values) {
+    if (zero_val_ != nullptr) {
+      vals_deque.emplace_back(zero_val_.get());
+    }
+
+    if (one_val_ != nullptr) {
+      vals_deque.emplace_back(one_val_.get());
+    }
+
+    if (true_val_ != nullptr) {
+      vals_deque.emplace_back(true_val_.get());
+    }
+
+    if (false_val_ != nullptr) {
+      vals_deque.emplace_back(false_val_.get());
+    }
+
+    if (magic_zero_val_ != nullptr) {
+      vals_deque.emplace_back(magic_zero_val_.get()->as<Val>());
+    }
+  }
+
+  std::transform(
+      vals_up_.begin(),
+      vals_up_.end(),
+      std::back_inserter(vals_deque),
+      [](const std::unique_ptr<Val>& val_up) { return val_up.get(); });
+  return vals_deque;
+}
+
+std::deque<Expr*> IrContainer::deterministic_exprs() const noexcept {
+  std::deque<Expr*> exprs_deque;
+  std::transform(
+      exprs_up_.begin(),
+      exprs_up_.end(),
+      std::back_inserter(exprs_deque),
+      [](const std::unique_ptr<Expr>& expr_up) { return expr_up.get(); });
+  return exprs_deque;
+}
+
 std::vector<Expr*> IrContainer::getExpressions(
     const flatbuffers::Vector<int64_t>* buffer) {
   NVF_CHECK(buffer != nullptr, "Expressions buffer is nullptr");
