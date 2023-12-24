@@ -37,7 +37,11 @@ nvfuser::PolymorphicValue deserializePolymorphicValue(const Scalar* c);
 
 flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
     flatbuffers::FlatBufferBuilder& builder,
-    std::shared_ptr<nvfuser::PolymorphicValue> v);
+    const nvfuser::PolymorphicValue& v);
+
+flatbuffers::Offset<PolymorphicValue> serializeTensor(
+    flatbuffers::FlatBufferBuilder& builder,
+    const at::Tensor& tensor);
 
 flatbuffers::Offset<Scalar> serializeScalarCpu(
     flatbuffers::FlatBufferBuilder& builder,

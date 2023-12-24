@@ -164,6 +164,23 @@ enum ExprType: int {
   Welford,
 }
 
+enum NvFuserEnum : int {
+  AsyncOpType,
+  DoubleBufferLoopStage,
+  LoadStoreOpType,
+  MemoryType,
+  MmaMacro,
+  ScatterOpType,
+  SwizzleMode,
+  SwizzleType,
+  Swizzle2DType,
+  TensorMapInterleave,
+  TensorMapL2Promotion,
+  TensorMapFloatOOBFill,
+  TernaryOpType,
+  UnaryOpType,
+}
+
 // =====================================================================================
 // Union definitions
 
@@ -191,8 +208,14 @@ union RecordData {
 
 // The PolymorphicValueData union holds the attribute information for each PolymorphicValue.
 union PolymorphicValueData {
+  Array,
+  AsmOptions,
+  OpaqueEnum,
+  ParallelTypeBitmap,
+  RNGAttributes,
   Scalar,
   ScalarCpu,
+  Scope,
   TensorArg,
 }
 
@@ -247,6 +270,35 @@ table TensorArg {
   sizes: [long];
   strides: [long];
   dtype: long;
+}
+
+table AsmOptions {
+  volatile: bool;
+  memory: bool;
+  readable_outputs: [long];
+}
+
+table RNGAttributes {
+  rng_op_type_enum: long;
+  dtype_enum: long;
+  num_parameters: ulong;
+}
+
+table ParallelTypeBitmap {
+  value: ulong;
+}
+
+table Scope {
+  exprs: [long];
+}
+
+table OpaqueEnum {
+  data_attribute_enum: NvFuserEnum;
+  value: long;
+}
+
+table Array {
+  items: [PolymorphicValue];
 }
 
 // This table corresponds with a given PolymorphicValue object.

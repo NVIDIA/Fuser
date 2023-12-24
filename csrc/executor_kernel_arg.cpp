@@ -139,7 +139,8 @@ flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::
   std::vector<fb_poly_value> arguments_fb;
   arguments_fb.reserve(arguments_.size());
   for (auto& arg : arguments_) {
-    arguments_fb.push_back(serde::serializePolymorphicValue(builder, arg));
+    NVF_ERROR(arg != nullptr);
+    arguments_fb.push_back(serde::serializePolymorphicValue(builder, *arg));
   }
 
   return serde::CreateKernelArgumentHolderDirect(

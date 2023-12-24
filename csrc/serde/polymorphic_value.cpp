@@ -87,6 +87,82 @@ void PolymorphicValueFactory::registerAllParsers() {
   registerParser(PolymorphicValueData::TensorArg, deserializeTensorArg);
 }
 
+flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
+    flatbuffers::FlatBufferBuilder& builder,
+    const nvfuser::PolymorphicValue& v) {
+  NVF_ERROR(
+      !v.is<nvfuser::Pointer>(), "Serialization of pointer is not allowed.");
+
+  if (v.is<std::monostate>()) {
+    return CreatePolymorphicValue(builder, PolymorphicValueData::NONE);
+  } else if (v.is<std::vector>()) {
+    auto vec = v.as<std::vector>();
+    std::vector<flatbuffers::Offset<serde::PolymorphicValue>> fb_items;
+    fb_items.reserve(vec.size());
+    for (const auto& item : vec) {
+      fb_items.push_back(serializePolymorphicValue(builder, item));
+    }
+    return CreatePolymorphicValue(
+        builder,
+        PolymorphicValueData::Array,
+        CreateArrayDirect(builder, &fb_items).Union());
+  } else if (v.is<nvfuser::Opaque>()) {
+    NVF_ERROR(
+        !v.is<nvfuser::Opaque>(),
+        "Serialization of arbitrary opaque value is not implemented.");
+    return CreatePolymorphicValue(builder, PolymorphicValueData::OpaqueEnum);
+
+  } else if (v.is<StructHandle>()) {
+    NVF_ERROR(
+        !v.is<StructHandle>(),
+        "Serialization of arbitrary struct is not implemented.");
+    return CreatePolymorphicValue(builder, PolymorphicValueData::NONE);
+
+  } else if (v.is<at::Tensor>()) {
+    return serializeTensor(builder, v.as<at::Tensor>());
+  } else {
+    auto data = serializeScalar(builder, v, getDataType(v));
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::Scalar, data.Union());
+  }
+}
+
+flatbuffers::Offset<PolymorphicValue> serializeTensor(
+    flatbuffers::FlatBufferBuilder& builder,
+    const at::Tensor& tensor) {
+  if (tensor.is_cpu() && tensor.numel() == 1) {
+    // CPU Scalar
+    auto fb_scalar_data = serializeScalarCpu(builder, tensor);
+    auto data = CreateScalarCpu(builder, fb_scalar_data);
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::ScalarCpu, data.Union());
+  } else {
+    // GPU Tensor
+    // Convert IntArrayRef to std::vector for flatbuffer compatibility
+    std::vector<int64_t> sizes_fb;
+    sizes_fb.reserve(tensor.ndimension());
+    for (auto dim : c10::irange(tensor.ndimension())) {
+      sizes_fb.push_back(tensor.size(dim));
+    }
+
+    // Convert IntArrayRef to std::vector for flatbuffer compatibility
+    std::vector<int64_t> strides_fb;
+    strides_fb.reserve(tensor.ndimension());
+    for (auto dim : c10::irange(tensor.ndimension())) {
+      strides_fb.push_back(tensor.stride(dim));
+    }
+
+    auto data = CreateTensorArg(
+        builder,
+        (size_t)tensor.data_ptr(),
+        builder.CreateVector(sizes_fb),
+        builder.CreateVector(strides_fb),
+        nvfuser::toUnderlying(tensor.scalar_type()));
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::TensorArg, data.Union());
+  }
+}
+
 flatbuffers::Offset<Scalar> serializeScalarCpu(
     flatbuffers::FlatBufferBuilder& builder,
     const at::Tensor& tensor) {
@@ -114,62 +190,6 @@ flatbuffers::Offset<Scalar> serializeScalarCpu(
     }
     default:
       NVF_ERROR(false, "Unsupported scalar type.");
-  }
-}
-
-flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
-    flatbuffers::FlatBufferBuilder& builder,
-    std::shared_ptr<nvfuser::PolymorphicValue> v) {
-  NVF_ERROR(!v->is<std::monostate>(), "PolymorphicValue is a std::monostate.");
-  NVF_ERROR(
-      !v->is<StructHandle>(),
-      "Serialization of arbitrary struct is not implemented.");
-  NVF_ERROR(
-      !v->is<nvfuser::Opaque>(),
-      "Serialization of arbitrary opaque value is not implemented.");
-  NVF_ERROR(
-      !v->is<nvfuser::Pointer>(), "Serialization of pointer is not allowed.");
-  NVF_ERROR(
-      !v->is<std::vector>(), "Serialization of vector is not implemented.");
-
-  if (v->is<at::Tensor>()) {
-    const auto& tensor = v->as<at::Tensor>();
-
-    if (tensor.is_cpu() && tensor.numel() == 1) {
-      // CPU Scalar
-      auto fb_scalar_data = serializeScalarCpu(builder, tensor);
-      auto data = CreateScalarCpu(builder, fb_scalar_data);
-      return CreatePolymorphicValue(
-          builder, PolymorphicValueData::ScalarCpu, data.Union());
-    } else {
-      // GPU Tensor
-      // Convert IntArrayRef to std::vector for flatbuffer compatibility
-      std::vector<int64_t> sizes_fb;
-      sizes_fb.reserve(tensor.ndimension());
-      for (auto dim : c10::irange(tensor.ndimension())) {
-        sizes_fb.push_back(tensor.size(dim));
-      }
-
-      // Convert IntArrayRef to std::vector for flatbuffer compatibility
-      std::vector<int64_t> strides_fb;
-      strides_fb.reserve(tensor.ndimension());
-      for (auto dim : c10::irange(tensor.ndimension())) {
-        strides_fb.push_back(tensor.stride(dim));
-      }
-
-      auto data = CreateTensorArg(
-          builder,
-          (size_t)tensor.data_ptr(),
-          builder.CreateVector(sizes_fb),
-          builder.CreateVector(strides_fb),
-          nvfuser::toUnderlying(tensor.scalar_type()));
-      return CreatePolymorphicValue(
-          builder, PolymorphicValueData::TensorArg, data.Union());
-    }
-  } else {
-    auto data = serializeScalar(builder, *v, getDataType(*v));
-    return CreatePolymorphicValue(
-        builder, PolymorphicValueData::Scalar, data.Union());
   }
 }
 
