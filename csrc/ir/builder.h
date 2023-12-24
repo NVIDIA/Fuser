@@ -79,18 +79,13 @@ class IrBuilder {
     Fusion* container = FusionGuard::getCurFusion();
     NVF_ERROR(container != nullptr, "Need an active container to build IR.");
 
-    ValType* node = nullptr;
-
-    if constexpr (std::is_same_v<Val, ValType>) {
-      node = new Val(container, IrBuilderPasskey(container), buffer);
-    } else {
-      NVF_ERROR(
-          buffer->data_type() == SerdeEnum,
-          "SerdeEnum template argument does not match serde::Value data_type.");
-      auto data = static_cast<const SerdeType*>(buffer->data());
-      NVF_CHECK(buffer != nullptr, "serde::Value data is nullptr");
-      node = new ValType(container, IrBuilderPasskey(container), buffer, data);
-    }
+    NVF_ERROR(
+        buffer->data_type() == SerdeEnum,
+        "SerdeEnum template argument does not match serde::Value data_type.");
+    auto data = static_cast<const SerdeType*>(buffer->data());
+    NVF_CHECK(buffer != nullptr, "serde::Value data is nullptr");
+    ValType* node =
+        new ValType(container, IrBuilderPasskey(container), buffer, data);
 
     container->registerStmt(IrBuilderPasskey(container), node);
     return node;

@@ -95,8 +95,9 @@ NVFUSER_DEFINE_CLONE(Val)
 Val::Val(
     IrContainer* container,
     IrBuilderPasskey passkey,
-    const serde::Value* buffer)
-    : Val(passkey, ValType::Others) {}
+    const serde::Value* buffer,
+    const serde::PolymorphicValue* data)
+    : Val(passkey, serde::deserializePolymorphicValue(data)) {}
 
 std::pair<serde::ValData, flatbuffers::Offset<void>> Val::serializeData(
     const IrSerde& container,
