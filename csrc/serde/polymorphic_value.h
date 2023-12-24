@@ -39,6 +39,10 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::PolymorphicValue& v);
 
+flatbuffers::Offset<PolymorphicValue> serializeOpaque(
+    flatbuffers::FlatBufferBuilder& builder,
+    const nvfuser::Opaque& v);
+
 flatbuffers::Offset<PolymorphicValue> serializeTensor(
     flatbuffers::FlatBufferBuilder& builder,
     const at::Tensor& tensor);

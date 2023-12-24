@@ -166,6 +166,8 @@ enum ExprType: int {
 
 enum NvFuserEnum : int {
   AsyncOpType,
+  BinaryOpType,
+  CacheOp,
   DoubleBufferLoopStage,
   LoadStoreOpType,
   MemoryType,

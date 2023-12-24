@@ -9,6 +9,7 @@
 #include <polymorphic_value.h>
 #include <serde/polymorphic_value.h>
 #include <serde/utils.h>
+#include <typeinfo>
 
 namespace nvfuser::serde {
 
@@ -107,17 +108,12 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
         PolymorphicValueData::Array,
         CreateArrayDirect(builder, &fb_items).Union());
   } else if (v.is<nvfuser::Opaque>()) {
-    NVF_ERROR(
-        !v.is<nvfuser::Opaque>(),
-        "Serialization of arbitrary opaque value is not implemented.");
-    return CreatePolymorphicValue(builder, PolymorphicValueData::OpaqueEnum);
-
+    return serializeOpaque(builder, v.as<nvfuser::Opaque>());
   } else if (v.is<StructHandle>()) {
     NVF_ERROR(
         !v.is<StructHandle>(),
         "Serialization of arbitrary struct is not implemented.");
     return CreatePolymorphicValue(builder, PolymorphicValueData::NONE);
-
   } else if (v.is<at::Tensor>()) {
     return serializeTensor(builder, v.as<at::Tensor>());
   } else {
@@ -125,6 +121,85 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::Scalar, data.Union());
   }
+}
+
+// TODO Refactor
+flatbuffers::Offset<PolymorphicValue> serializeOpaque(
+    flatbuffers::FlatBufferBuilder& builder,
+    const nvfuser::Opaque& v) {
+  flatbuffers::Offset<OpaqueEnum> data = 0;
+  if (v.any().type() == typeid(AsyncOpType)) {
+    data = CreateOpaqueEnum(
+        builder, NvFuserEnum::AsyncOpType, toUnderlying(v.as<AsyncOpType>()));
+  } else if (v.any().type() == typeid(DoubleBufferLoopStage)) {
+    data = CreateOpaqueEnum(
+        builder,
+        NvFuserEnum::DoubleBufferLoopStage,
+        toUnderlying(v.as<DoubleBufferLoopStage>()));
+  } else if (v.any().type() == typeid(BinaryOpType)) {
+    data = CreateOpaqueEnum(
+        builder, NvFuserEnum::BinaryOpType, toUnderlying(v.as<BinaryOpType>()));
+  } else if (v.any().type() == typeid(CacheOp)) {
+    data = CreateOpaqueEnum(
+        builder, NvFuserEnum::CacheOp, toUnderlying(v.as<CacheOp>()));
+  } else if (v.any().type() == typeid(LoadStoreOpType)) {
+    data = CreateOpaqueEnum(
+        builder,
+        NvFuserEnum::LoadStoreOpType,
+        toUnderlying(v.as<LoadStoreOpType>()));
+  } else if (v.any().type() == typeid(MemoryType)) {
+    data = CreateOpaqueEnum(
+        builder, NvFuserEnum::MemoryType, toUnderlying(v.as<MemoryType>()));
+  } else if (v.any().type() == typeid(MmaMacro)) {
+    data = CreateOpaqueEnum(
+        builder,
+        NvFuserEnum::MmaMacro,
+        (int64_t)toUnderlying(v.as<MmaMacro>()));
+  } else if (v.any().type() == typeid(ScatterOpType)) {
+    data = CreateOpaqueEnum(
+        builder,
+        NvFuserEnum::ScatterOpType,
+        toUnderlying(v.as<ScatterOpType>()));
+  } else if (v.any().type() == typeid(SwizzleMode)) {
+    data = CreateOpaqueEnum(
+        builder, NvFuserEnum::SwizzleMode, toUnderlying(v.as<SwizzleMode>()));
+  } else if (v.any().type() == typeid(SwizzleType)) {
+    data = CreateOpaqueEnum(
+        builder, NvFuserEnum::SwizzleType, toUnderlying(v.as<SwizzleType>()));
+  } else if (v.any().type() == typeid(Swizzle2DType)) {
+    data = CreateOpaqueEnum(
+        builder,
+        NvFuserEnum::Swizzle2DType,
+        toUnderlying(v.as<Swizzle2DType>()));
+  } else if (v.any().type() == typeid(tma::TensorMapInterleave)) {
+    data = CreateOpaqueEnum(
+        builder,
+        NvFuserEnum::TensorMapInterleave,
+        toUnderlying(v.as<tma::TensorMapInterleave>()));
+  } else if (v.any().type() == typeid(tma::TensorMapL2Promotion)) {
+    data = CreateOpaqueEnum(
+        builder,
+        NvFuserEnum::TensorMapL2Promotion,
+        toUnderlying(v.as<tma::TensorMapL2Promotion>()));
+  } else if (v.any().type() == typeid(tma::TensorMapFloatOOBFill)) {
+    data = CreateOpaqueEnum(
+        builder,
+        NvFuserEnum::TensorMapFloatOOBFill,
+        toUnderlying(v.as<tma::TensorMapFloatOOBFill>()));
+  } else if (v.any().type() == typeid(TernaryOpType)) {
+    data = CreateOpaqueEnum(
+        builder,
+        NvFuserEnum::TernaryOpType,
+        toUnderlying(v.as<TernaryOpType>()));
+  } else if (v.any().type() == typeid(UnaryOpType)) {
+    data = CreateOpaqueEnum(
+        builder, NvFuserEnum::UnaryOpType, toUnderlying(v.as<UnaryOpType>()));
+  } else {
+    NVF_ERROR(
+        false, "Serialization of arbitrary opaque value is not implemented.");
+  }
+  return CreatePolymorphicValue(
+      builder, PolymorphicValueData::OpaqueEnum, data.Union());
 }
 
 flatbuffers::Offset<PolymorphicValue> serializeTensor(

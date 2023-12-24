@@ -16,6 +16,7 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <serde/polymorphic_value.h>
 #include <serde/utils.h>
 
 #include <torch/csrc/jit/ir/ir.h>
@@ -95,14 +96,14 @@ Val::Val(
     IrContainer* container,
     IrBuilderPasskey passkey,
     const serde::Value* buffer)
-    : Val(passkey,
-          ValType::Others,
-          serde::mapToDtypeStruct(buffer->dtype_enum())) {}
+    : Val(passkey, ValType::Others) {}
 
 std::pair<serde::ValData, flatbuffers::Offset<void>> Val::serializeData(
     const IrSerde& container,
     flatbuffers::FlatBufferBuilder& builder) const {
-  return {serde::ValData::NONE, flatbuffers::Offset<void>()};
+  return {
+      serde::ValData::PolymorphicValue,
+      serde::serializePolymorphicValue(builder, value_).Union()};
 }
 
 void Val::deserializeExpr(IrContainer* container, const serde::Value* buffer) {
@@ -123,9 +124,12 @@ flatbuffers::Offset<serde::Value> Val::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   auto&& [val_data_type, val_data] = serializeData(container, builder);
   auto fb_uses = container.map(uses_);
+  int64_t dtype_enum = std::holds_alternative<PrimDataType>(dtype_.type)
+      ? toUnderlying(std::get<PrimDataType>(dtype_.type))
+      : -1;
   return serde::CreateValueDirect(
       builder,
-      toUnderlying(std::get<PrimDataType>(dtype_.type)),
+      dtype_enum,
       is_fusion_input_,
       is_fusion_output_,
       container.map(definition_),
