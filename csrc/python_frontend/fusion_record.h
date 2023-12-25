@@ -1854,7 +1854,7 @@ struct ScalarRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData::Scalar,
-        serde::serializeScalar(builder, value_, dtype_).Union()};
+        serde::serializeScalarRecord(builder, value_, dtype_).Union()};
   }
 
   inline std::pair<serde::RecordData, flatbuffers::Offset<void>> valueRecordData(

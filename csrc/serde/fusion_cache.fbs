@@ -212,10 +212,13 @@ union RecordData {
 union PolymorphicValueData {
   Array,
   AsmOptions,
+  Bool,
+  ComplexDouble,
+  Double,
+  Long,
   OpaqueEnum,
   ParallelTypeBitmap,
   RNGAttributes,
-  Scalar,
   ScalarCpu,
   Scope,
   TensorArg,
@@ -241,6 +244,23 @@ union ValData {
 struct State {
   index: int;
   type: StateType;
+}
+
+table Bool {
+  value: bool;
+}
+
+table ComplexDouble {
+  real: double;
+  imag: double;
+}
+
+table Double {
+  value: double;
+}
+
+table Long {
+  value: long;
 }
 
 // Data for Scalar
