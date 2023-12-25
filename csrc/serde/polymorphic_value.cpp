@@ -16,13 +16,26 @@ namespace nvfuser::serde {
 
 namespace {
 
-nvfuser::PolymorphicValue makeCpuScalarTensor(const ScalarCpu* scalar_cpu) {
+nvfuser::PolymorphicValue deserializeMonostate(
+    const serde::PolymorphicValue* buffer) {
+  NVF_ERROR(buffer != nullptr, "serde::Value is nullptr.");
+  return nvfuser::PolymorphicValue();
+}
+
+nvfuser::PolymorphicValue deserializeScalarCpu(const PolymorphicValue* buffer) {
+  NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
+  const ScalarCpu* scalar_cpu = buffer->data_as_ScalarCpu();
   NVF_ERROR(scalar_cpu != nullptr, "serde::ScalarCpu is nullptr.");
   auto scalar = makeScalar(scalar_cpu->scalar_value());
   return nvfuser::PolymorphicValue_functions::toTensor(scalar, at::kCPU);
 }
 
-nvfuser::PolymorphicValue makeMetaTensorArg(const TensorArg* tensor) {
+// TODO Encode ptr field which corresponds to the aten tensor's data pointer.
+// It is used during scheduling for vectorization. A meta aten tensor assumes
+// that the pointer address is zero.
+nvfuser::PolymorphicValue deserializeTensorArg(const PolymorphicValue* buffer) {
+  NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
+  const TensorArg* tensor = buffer->data_as_TensorArg();
   NVF_ERROR(tensor != nullptr, "serde::TensorArg is nullptr.");
   if (tensor->strides() != nullptr) {
     auto meta_tensor = at::detail::empty_strided_meta(
@@ -41,6 +54,20 @@ nvfuser::PolymorphicValue makeMetaTensorArg(const TensorArg* tensor) {
       c10::Device(c10::DeviceType::Meta, 0),
       c10::nullopt,
       c10::nullopt);
+}
+
+template <typename T>
+serde::ArrayType getArrayType(T item) {
+  if constexpr (std::is_same_v<T, std::complex<double>>) {
+    return serde::ArrayType::ComplexDouble;
+  }
+  if constexpr (std::is_same_v<T, double>) {
+    return serde::ArrayType::Double;
+  }
+  if constexpr (std::is_same_v<T, int64_t>) {
+    return serde::ArrayType::Long;
+  }
+  NVF_ERROR(false, "Cannot serialize a vector of this polymorphic value type.")
 }
 
 } // namespace
@@ -100,6 +127,41 @@ nvfuser::PolymorphicValue makeScalar(const Scalar* c) {
   }
 }
 
+template <typename T>
+std::vector<T> PolymorphicValueFactory::makeArray(const serde::Array* data) {
+  NVF_ERROR(data != nullptr, "serde::Array is nullptr.");
+  std::vector<T> array;
+  array.reserve(data->items()->size());
+  std::transform(
+      data->items()->begin(),
+      data->items()->end(),
+      std::back_inserter(array),
+      [this](const serde::PolymorphicValue* fb_pv) {
+        return parse(fb_pv->data_type(), fb_pv).as<T>();
+      });
+  return array;
+}
+
+nvfuser::PolymorphicValue PolymorphicValueFactory::makeArray(
+    const serde::Array* data) {
+  NVF_ERROR(data != nullptr, "serde::Array is nullptr.");
+  return nvfuser::PolymorphicValue();
+  switch (data->type()) {
+    case serde::ArrayType::ComplexDouble: {
+      return nvfuser::PolymorphicValue(makeArray<std::complex<double>>(data));
+    }
+    case serde::ArrayType::Double: {
+      return nvfuser::PolymorphicValue(makeArray<double>(data));
+    }
+    case serde::ArrayType::Long: {
+      return nvfuser::PolymorphicValue(makeArray<int64_t>(data));
+    }
+    default: {
+      NVF_ERROR(false, "Unsupported Array Type.");
+    }
+  }
+}
+
 void PolymorphicValueFactory::registerAllParsers() {
   auto deserialize_unsupported =
       [](const serde::PolymorphicValue* buffer) -> nvfuser::PolymorphicValue {
@@ -110,7 +172,7 @@ void PolymorphicValueFactory::registerAllParsers() {
         static_cast<int64_t>(toUnderlying(buffer->data_type())));
     return nvfuser::PolymorphicValue();
   };
-  registerParser(PolymorphicValueData::Array, deserialize_unsupported);
+
   registerParser(PolymorphicValueData::AsmOptions, deserialize_unsupported);
   registerParser(PolymorphicValueData::OpaqueEnum, deserialize_unsupported);
   registerParser(
@@ -118,29 +180,16 @@ void PolymorphicValueFactory::registerAllParsers() {
   registerParser(PolymorphicValueData::RNGAttributes, deserialize_unsupported);
   registerParser(PolymorphicValueData::Scope, deserialize_unsupported);
 
-  auto deserialize_monostate =
-      [](const serde::PolymorphicValue* buffer) -> nvfuser::PolymorphicValue {
-    NVF_ERROR(buffer != nullptr, "serde::Value is nullptr.");
-    return nvfuser::PolymorphicValue();
+  auto deserialize_array = [this](const PolymorphicValue* buffer) {
+    return makeArray(buffer->data_as_Array());
   };
-  registerParser(PolymorphicValueData::NONE, deserialize_monostate);
-
+  registerParser(PolymorphicValueData::Array, deserialize_array);
+  registerParser(PolymorphicValueData::NONE, deserializeMonostate);
   registerParser(PolymorphicValueData::Bool, deserializeBool);
-  registerParser(PolymorphicValueData::Double, deserializeDouble);
   registerParser(PolymorphicValueData::ComplexDouble, deserializeComplexDouble);
+  registerParser(PolymorphicValueData::Double, deserializeDouble);
   registerParser(PolymorphicValueData::Long, deserializeLong);
-
-  auto deserializeScalarCpu = [](const PolymorphicValue* buffer) {
-    return makeCpuScalarTensor(buffer->data_as_ScalarCpu());
-  };
   registerParser(PolymorphicValueData::ScalarCpu, deserializeScalarCpu);
-
-  // TODO Encode ptr field which corresponds to the aten tensor's data pointer.
-  // It is used during scheduling for vectorization. A meta aten tensor assumes
-  // that the pointer address is zero.
-  auto deserializeTensorArg = [](const PolymorphicValue* buffer) {
-    return makeMetaTensorArg(buffer->data_as_TensorArg());
-  };
   registerParser(PolymorphicValueData::TensorArg, deserializeTensorArg);
 }
 
@@ -160,6 +209,7 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
     return CreatePolymorphicValue(builder, PolymorphicValueData::NONE);
   } else if (v.is<std::vector>()) {
     auto vec = v.as<std::vector>();
+    NVF_CHECK(!vec.empty(), "Empty array is not supported");
     std::vector<flatbuffers::Offset<serde::PolymorphicValue>> fb_items;
     fb_items.reserve(vec.size());
     for (const auto& item : vec) {
@@ -168,7 +218,8 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
     return CreatePolymorphicValue(
         builder,
         PolymorphicValueData::Array,
-        CreateArrayDirect(builder, &fb_items).Union());
+        CreateArrayDirect(builder, getArrayType(vec.front()), &fb_items)
+            .Union());
   } else if (v.is<nvfuser::Opaque>()) {
     return serializeOpaque(builder, v.as<nvfuser::Opaque>());
   } else if (v.is<StructHandle>()) {

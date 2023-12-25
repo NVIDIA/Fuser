@@ -31,6 +31,11 @@ class PolymorphicValueFactory
 
  private:
   void registerAllParsers();
+
+  template <typename T>
+  std::vector<T> makeArray(const serde::Array* data);
+
+  nvfuser::PolymorphicValue makeArray(const serde::Array* data);
 };
 
 nvfuser::PolymorphicValue deserializePolymorphicValue(
