@@ -222,6 +222,10 @@ class ParallelTypeBitmap {
 
   std::string toString() const;
 
+  uint64_t toUlong() const {
+    return bitset_.to_ulong();
+  }
+
  private:
   explicit constexpr ParallelTypeBitmap(
       const std::bitset<kNumParallelTypes>& bs)

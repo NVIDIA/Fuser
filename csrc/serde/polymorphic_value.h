@@ -33,14 +33,18 @@ class PolymorphicValueFactory
   void registerAllParsers();
 };
 
-nvfuser::PolymorphicValue deserializePolymorphicValue(const Scalar* c);
-
 nvfuser::PolymorphicValue deserializePolymorphicValue(
     const PolymorphicValue* c);
+
+nvfuser::PolymorphicValue makeScalar(const Scalar* c);
 
 flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::PolymorphicValue& v);
+
+flatbuffers::Offset<PolymorphicValue> serializeStruct(
+    flatbuffers::FlatBufferBuilder& builder,
+    const nvfuser::StructHandle& v);
 
 flatbuffers::Offset<PolymorphicValue> serializeOpaque(
     flatbuffers::FlatBufferBuilder& builder,
