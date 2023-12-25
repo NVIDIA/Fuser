@@ -50,10 +50,10 @@ def is_pre_ampere():
 
 
 def setUpModule():
-    from nvfuser import enable_automatic_serialization
+    # from nvfuser import enable_automatic_serialization
 
     # Turn on default serialization upon program exit
-    enable_automatic_serialization()
+    # enable_automatic_serialization()
     # Automatically load common workplace
     fc = FusionCache.get()
     # Clear FusionCache because the tests expect a new fusion to be generated.

@@ -164,7 +164,7 @@ enum ExprType: int {
   Welford,
 }
 
-enum NvFuserEnum : int {
+enum NvFuserEnum: int {
   AsyncOpType,
   BinaryOpType,
   CacheOp,
@@ -181,6 +181,12 @@ enum NvFuserEnum : int {
   TensorMapFloatOOBFill,
   TernaryOpType,
   UnaryOpType,
+}
+
+enum ArrayType: int {
+  ComplexDouble,
+  Double,
+  Long,
 }
 
 // =====================================================================================
@@ -321,6 +327,7 @@ table OpaqueEnum {
 }
 
 table Array {
+  type: ArrayType;
   items: [PolymorphicValue];
 }
 
