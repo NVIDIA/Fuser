@@ -419,7 +419,7 @@ void RecordFunctorFactory::registerAllParsers() {
         data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::ScalarRecord(
         parseStateArgs(buffer->outputs()),
-        deserializePolymorphicValue(data),
+        makeScalar(data),
         mapToNvfuserDtype(data->dtype()));
   };
   registerParser(RecordType::Scalar, deserializeScalarRecord);

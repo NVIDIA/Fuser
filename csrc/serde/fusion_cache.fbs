@@ -292,6 +292,7 @@ table ParallelTypeBitmap {
 
 table Scope {
   exprs: [long];
+  owner_expr: long;
 }
 
 table OpaqueEnum {

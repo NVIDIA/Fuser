@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <ATen/EmptyTensor.h>
+#include <kernel_ir.h>
 #include <polymorphic_value.h>
 #include <serde/polymorphic_value.h>
 #include <serde/utils.h>
@@ -16,13 +17,13 @@ namespace nvfuser::serde {
 namespace {
 
 nvfuser::PolymorphicValue makeCpuScalarTensor(const ScalarCpu* scalar_cpu) {
-  NVF_ERROR(scalar_cpu != nullptr);
-  auto scalar = deserializePolymorphicValue(scalar_cpu->scalar_value());
+  NVF_ERROR(scalar_cpu != nullptr, "serde::ScalarCpu is nullptr.");
+  auto scalar = makeScalar(scalar_cpu->scalar_value());
   return nvfuser::PolymorphicValue_functions::toTensor(scalar, at::kCPU);
 }
 
-nvfuser::PolymorphicValue getMetaTensorArg(const TensorArg* tensor) {
-  NVF_ERROR(tensor != nullptr);
+nvfuser::PolymorphicValue makeMetaTensorArg(const TensorArg* tensor) {
+  NVF_ERROR(tensor != nullptr, "serde::TensorArg is nullptr.");
   if (tensor->strides() != nullptr) {
     auto meta_tensor = at::detail::empty_strided_meta(
         parseVector(tensor->sizes()),
@@ -44,7 +45,8 @@ nvfuser::PolymorphicValue getMetaTensorArg(const TensorArg* tensor) {
 
 } // namespace
 
-nvfuser::PolymorphicValue deserializePolymorphicValue(const Scalar* c) {
+nvfuser::PolymorphicValue makeScalar(const Scalar* c) {
+  NVF_CHECK(c != nullptr, "serde::Scalar is nullptr.");
   if (!c->has_value()) {
     return {};
   }
@@ -88,7 +90,7 @@ void PolymorphicValueFactory::registerAllParsers() {
   registerParser(PolymorphicValueData::Scope, deserialize_unsupported);
 
   auto deserializeScalar = [](const PolymorphicValue* buffer) {
-    return deserializePolymorphicValue(buffer->data_as_Scalar());
+    return makeScalar(buffer->data_as_Scalar());
   };
   registerParser(PolymorphicValueData::Scalar, deserializeScalar);
 
@@ -101,9 +103,15 @@ void PolymorphicValueFactory::registerAllParsers() {
   // It is used during scheduling for vectorization. A meta aten tensor assumes
   // that the pointer address is zero.
   auto deserializeTensorArg = [](const PolymorphicValue* buffer) {
-    return getMetaTensorArg(buffer->data_as_TensorArg());
+    return makeMetaTensorArg(buffer->data_as_TensorArg());
   };
   registerParser(PolymorphicValueData::TensorArg, deserializeTensorArg);
+}
+
+nvfuser::PolymorphicValue deserializePolymorphicValue(
+    const PolymorphicValue* pv) {
+  PolymorphicValueFactory pv_factory;
+  return pv_factory.parse(pv->data_type(), pv);
 }
 
 flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
@@ -128,10 +136,7 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
   } else if (v.is<nvfuser::Opaque>()) {
     return serializeOpaque(builder, v.as<nvfuser::Opaque>());
   } else if (v.is<StructHandle>()) {
-    NVF_ERROR(
-        !v.is<StructHandle>(),
-        "Serialization of arbitrary struct is not implemented.");
-    return CreatePolymorphicValue(builder, PolymorphicValueData::NONE);
+    return serializeStruct(builder, v.as<nvfuser::StructHandle>());
   } else if (v.is<at::Tensor>()) {
     return serializeTensor(builder, v.as<at::Tensor>());
   } else {
@@ -141,10 +146,52 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
   }
 }
 
-nvfuser::PolymorphicValue deserializePolymorphicValue(
-    const PolymorphicValue* pv) {
-  PolymorphicValueFactory pv_factory;
-  return pv_factory.parse(pv->data_type(), pv);
+// TODO Refactor
+flatbuffers::Offset<PolymorphicValue> serializeStruct(
+    flatbuffers::FlatBufferBuilder& builder,
+    const nvfuser::StructHandle& v) {
+  flatbuffers::Offset<void> data = 0;
+  if (v.is<nvfuser::kir::AsmOptions>()) {
+    nvfuser::kir::AsmOptions& options = v.as<nvfuser::kir::AsmOptions>();
+    std::vector<int64_t> fb_readable_outputs(
+        options.readable_outputs.begin(), options.readable_outputs.end());
+    data = serde::CreateAsmOptionsDirect(
+               builder, options.volatile_, options.memory, &fb_readable_outputs)
+               .Union();
+  } else if (v.is<nvfuser::ParallelTypeBitmap>()) {
+    nvfuser::ParallelTypeBitmap& pt_bitmap =
+        v.as<nvfuser::ParallelTypeBitmap>();
+    data =
+        serde::CreateParallelTypeBitmap(builder, pt_bitmap.toUlong()).Union();
+  } else if (v.is<nvfuser::RNGOp::Attributes>()) {
+    nvfuser::RNGOp::Attributes& attributes = v.as<nvfuser::RNGOp::Attributes>();
+    data = serde::CreateRNGAttributes(
+               builder,
+               toUnderlying(attributes.rtype),
+               toUnderlying(std::get<PrimDataType>(attributes.dtype.type)),
+               attributes.num_parameters)
+               .Union();
+  } else if (v.is<nvfuser::kir::Scope>()) {
+    nvfuser::kir::Scope& kir_scope = v.as<nvfuser::kir::Scope>();
+    nvfuser::kir::Kernel* kernel = kir_scope.owner()->kernel();
+
+    // TODO Refactor to use IrSerde determinstic_exprs_map
+    auto exprs_to_id_map = kernel->deterministic_exprs_map();
+
+    std::vector<int64_t> fb_exprs;
+    fb_exprs.reserve(kir_scope.size());
+    for (Expr* e : kir_scope.exprs()) {
+      fb_exprs.push_back(exprs_to_id_map.at(e));
+    }
+    data = serde::CreateScopeDirect(
+               builder, &fb_exprs, exprs_to_id_map.at(kir_scope.owner()))
+               .Union();
+  } else {
+    NVF_ERROR(
+        false, "Serialization of arbitrary struct handle is not implemented.");
+  }
+  return CreatePolymorphicValue(
+      builder, PolymorphicValueData::OpaqueEnum, data);
 }
 
 // TODO Refactor
