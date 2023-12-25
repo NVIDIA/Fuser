@@ -45,6 +45,36 @@ nvfuser::PolymorphicValue makeMetaTensorArg(const TensorArg* tensor) {
 
 } // namespace
 
+nvfuser::PolymorphicValue deserializeBool(const PolymorphicValue* buffer) {
+  NVF_CHECK(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
+  auto bool_data = buffer->data_as_Bool();
+  NVF_CHECK(bool_data != nullptr, "serde::Bool is nullptr.");
+  return nvfuser::PolymorphicValue(bool_data->value());
+}
+
+nvfuser::PolymorphicValue deserializeComplexDouble(
+    const PolymorphicValue* buffer) {
+  NVF_CHECK(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
+  auto complex_data = buffer->data_as_ComplexDouble();
+  NVF_CHECK(complex_data != nullptr, "serde::ComplexDouble is nullptr.");
+  return nvfuser::PolymorphicValue(
+      std::complex<double>(complex_data->real(), complex_data->imag()));
+}
+
+nvfuser::PolymorphicValue deserializeDouble(const PolymorphicValue* buffer) {
+  NVF_CHECK(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
+  auto double_data = buffer->data_as_Double();
+  NVF_CHECK(double_data != nullptr, "serde::Double is nullptr.");
+  return nvfuser::PolymorphicValue(double_data->value());
+}
+
+nvfuser::PolymorphicValue deserializeLong(const PolymorphicValue* buffer) {
+  NVF_CHECK(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
+  auto long_data = buffer->data_as_Long();
+  NVF_CHECK(long_data != nullptr, "serde::Long is nullptr.");
+  return nvfuser::PolymorphicValue(long_data->value());
+}
+
 nvfuser::PolymorphicValue makeScalar(const Scalar* c) {
   NVF_CHECK(c != nullptr, "serde::Scalar is nullptr.");
   if (!c->has_value()) {
@@ -80,7 +110,6 @@ void PolymorphicValueFactory::registerAllParsers() {
         static_cast<int64_t>(toUnderlying(buffer->data_type())));
     return nvfuser::PolymorphicValue();
   };
-  registerParser(PolymorphicValueData::NONE, deserialize_unsupported);
   registerParser(PolymorphicValueData::Array, deserialize_unsupported);
   registerParser(PolymorphicValueData::AsmOptions, deserialize_unsupported);
   registerParser(PolymorphicValueData::OpaqueEnum, deserialize_unsupported);
@@ -89,10 +118,17 @@ void PolymorphicValueFactory::registerAllParsers() {
   registerParser(PolymorphicValueData::RNGAttributes, deserialize_unsupported);
   registerParser(PolymorphicValueData::Scope, deserialize_unsupported);
 
-  auto deserializeScalar = [](const PolymorphicValue* buffer) {
-    return makeScalar(buffer->data_as_Scalar());
+  auto deserialize_monostate =
+      [](const serde::PolymorphicValue* buffer) -> nvfuser::PolymorphicValue {
+    NVF_ERROR(buffer != nullptr, "serde::Value is nullptr.");
+    return nvfuser::PolymorphicValue();
   };
-  registerParser(PolymorphicValueData::Scalar, deserializeScalar);
+  registerParser(PolymorphicValueData::NONE, deserialize_monostate);
+
+  registerParser(PolymorphicValueData::Bool, deserializeBool);
+  registerParser(PolymorphicValueData::Double, deserializeDouble);
+  registerParser(PolymorphicValueData::ComplexDouble, deserializeComplexDouble);
+  registerParser(PolymorphicValueData::Long, deserializeLong);
 
   auto deserializeScalarCpu = [](const PolymorphicValue* buffer) {
     return makeCpuScalarTensor(buffer->data_as_ScalarCpu());
@@ -140,9 +176,7 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
   } else if (v.is<at::Tensor>()) {
     return serializeTensor(builder, v.as<at::Tensor>());
   } else {
-    auto data = serializeScalar(builder, v, getDataType(v));
-    return CreatePolymorphicValue(
-        builder, PolymorphicValueData::Scalar, data.Union());
+    return serializeScalar(builder, v);
   }
 }
 
@@ -319,27 +353,56 @@ flatbuffers::Offset<Scalar> serializeScalarCpu(
   switch (tensor.scalar_type()) {
     case at::ScalarType::Bool: {
       nvfuser::PolymorphicValue pv(*tensor.data_ptr<bool>());
-      return serializeScalar(builder, pv, nvfuser::DataType::Bool);
+      return serializeScalarRecord(builder, pv, nvfuser::DataType::Bool);
     }
     case at::ScalarType::Double: {
       nvfuser::PolymorphicValue pv(*tensor.data_ptr<double>());
-      return serializeScalar(builder, pv, nvfuser::DataType::Double);
+      return serializeScalarRecord(builder, pv, nvfuser::DataType::Double);
     }
     case at::ScalarType::Long: {
       nvfuser::PolymorphicValue pv(*tensor.data_ptr<int64_t>());
-      return serializeScalar(builder, pv, nvfuser::DataType::Int);
+      return serializeScalarRecord(builder, pv, nvfuser::DataType::Int);
     }
     case at::ScalarType::ComplexDouble: {
       auto at_complex = *tensor.data_ptr<c10::complex<double>>();
       nvfuser::PolymorphicValue pv((std::complex<double>)at_complex);
-      return serializeScalar(builder, pv, nvfuser::DataType::ComplexDouble);
+      return serializeScalarRecord(
+          builder, pv, nvfuser::DataType::ComplexDouble);
     }
     default:
       NVF_ERROR(false, "Unsupported scalar type.");
   }
 }
 
-flatbuffers::Offset<Scalar> serializeScalar(
+flatbuffers::Offset<PolymorphicValue> serializeScalar(
+    flatbuffers::FlatBufferBuilder& builder,
+    const nvfuser::PolymorphicValue& v) {
+  if (v.is<std::monostate>()) {
+    return serde::CreatePolymorphicValue(
+        builder, PolymorphicValueData::NONE, 0);
+  } else if (v.is<double>()) {
+    auto scalar = serde::CreateDouble(builder, v.as<double>());
+    return serde::CreatePolymorphicValue(
+        builder, PolymorphicValueData::Double, scalar.Union());
+  } else if (v.is<int64_t>()) {
+    auto scalar = serde::CreateLong(builder, v.as<int64_t>());
+    return serde::CreatePolymorphicValue(
+        builder, PolymorphicValueData::Long, scalar.Union());
+  } else if (v.is<bool>()) {
+    auto scalar = serde::CreateBool(builder, v.as<bool>());
+    return serde::CreatePolymorphicValue(
+        builder, PolymorphicValueData::Bool, scalar.Union());
+  } else if (v.is<std::complex<double>>()) {
+    auto c = v.as<std::complex<double>>();
+    auto scalar =
+        serde::CreateComplexDouble(builder, std::real(c), std::imag(c));
+    return serde::CreatePolymorphicValue(
+        builder, PolymorphicValueData::ComplexDouble, scalar.Union());
+  }
+  NVF_ERROR(false, "Unable to convert ", v.type().name(), " to Scalar.");
+}
+
+flatbuffers::Offset<Scalar> serializeScalarRecord(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::PolymorphicValue& v,
     nvfuser::DataType t) {

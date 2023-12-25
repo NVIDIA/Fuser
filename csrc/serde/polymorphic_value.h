@@ -58,7 +58,11 @@ flatbuffers::Offset<Scalar> serializeScalarCpu(
     flatbuffers::FlatBufferBuilder& builder,
     const at::Tensor& tensor);
 
-flatbuffers::Offset<Scalar> serializeScalar(
+flatbuffers::Offset<PolymorphicValue> serializeScalar(
+    flatbuffers::FlatBufferBuilder& builder,
+    const nvfuser::PolymorphicValue& v);
+
+flatbuffers::Offset<Scalar> serializeScalarRecord(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::PolymorphicValue& v,
     nvfuser::DataType t);
