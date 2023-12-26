@@ -247,6 +247,8 @@ IrContainer::IrContainer(const serde::IrContainer* buffer) {
 
   serde::ValueFactory value_factory;
   for (auto fb_val : *buffer->vals()) {
+    std::cout << static_cast<int64_t>(toUnderlying(fb_val->data_type()))
+              << std::endl;
     vals_.insert(value_factory.parse(fb_val->data_type(), fb_val));
   }
 

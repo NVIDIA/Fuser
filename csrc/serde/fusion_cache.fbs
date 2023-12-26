@@ -232,10 +232,12 @@ union PolymorphicValueData {
 
 // The ValData union holds the attribute information for each Val class.
 union ValData {
+  Dtype,
   IterDomain,
   NamedScalar,
   PipelineVal,
   PolymorphicValue,
+  PolymorphicValueDtype,
   Predicate,
   TensorDomain,
   TensorIndex,
@@ -329,6 +331,11 @@ table OpaqueEnum {
 table Array {
   type: ArrayType;
   items: [PolymorphicValue];
+}
+
+table PolymorphicValueDtype {
+  pv: PolymorphicValue;
+  dtype_enum: long;
 }
 
 // This table corresponds with a given PolymorphicValue object.
