@@ -431,6 +431,8 @@ inline DataType getDataType(const PolymorphicValue& value) {
         dtype = DataType(OpaqueType{
             .type_info = opaque.any().type(), .size = opaque.size()});
       }
+    } else if (value.is<std::monostate>()) {
+      dtype = DataType::Null;
     }
   });
   NVF_CHECK(dtype.has_value(), "Unknown dtype for ", value.type().name());
