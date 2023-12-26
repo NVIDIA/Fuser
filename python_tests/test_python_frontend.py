@@ -2995,6 +2995,165 @@ class TestNvFuserFrontend(TestCase):
         torch_ref = inputs[0] * (inputs[1] * inputs[2]).unsqueeze(-1)
         self.assertEqual(nvf_out[0], torch_ref)
 
+    # This tests no dead code at definition does not cause a problem due to
+    # removal of empty tensors
+    # See https://github.com/NVIDIA/Fuser/pull/1270
+    def test_issue1277(self):
+        inputs = [
+            0.5,
+            0.5,
+            torch.randn((20,), dtype=torch.float32, device="cuda:0").as_strided(
+                (5, 4, 5, 4), (0, 0, 4, 1)
+            ),
+            torch.randn((20,), dtype=torch.float32, device="cuda:0").as_strided(
+                (5, 4, 5, 4), (0, 0, 4, 1)
+            ),
+            torch.randn((20,), dtype=torch.float32, device="cuda:0").as_strided(
+                (5, 4, 5, 4), (0, 0, 4, 1)
+            ),
+            torch.randn((20,), dtype=torch.float32, device="cuda:0").as_strided(
+                (5, 4, 5, 4), (0, 0, 4, 1)
+            ),
+            torch.randn((1600,), dtype=torch.float32, device="cuda:0").as_strided(
+                (5, 4, 5, 16), (320, 80, 16, 1)
+            ),
+            torch.randn((1600,), dtype=torch.float32, device="cuda:0").as_strided(
+                (5, 4, 16, 5), (320, 80, 5, 1)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            S0 = fd.define_scalar(None, dtype=DataType.Double)
+            S1 = fd.define_scalar(None, dtype=DataType.Double)
+            T2 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[None, None, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            T3 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[None, None, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            T4 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[None, None, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            T5 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[None, None, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            T6 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            T7 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            T8 = fd.ops.mul(T6, S0)
+            T9 = fd.ops.slice(
+                T8,
+                start_indices=[0, 0, 0, 0],
+                end_indices=[5, 4, 5, 4],
+                strides=[1, 1, 1, 1],
+            )
+            T10 = fd.ops.slice(
+                T8,
+                start_indices=[0, 0, 0, 4],
+                end_indices=[5, 4, 5, 16],
+                strides=[1, 1, 1, 1],
+            )
+            S11 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T12 = fd.ops.pad(T10, [4, 0, 0, 0, 0, 0, 0, 0], S11)
+            S13 = fd.define_scalar(1.00000, dtype=DataType.Double)
+            T14 = fd.ops.mul(S13, T9)
+            S15 = fd.define_scalar(1.00000, dtype=DataType.Double)
+            T16 = fd.ops.mul(S15, T9)
+            T17 = fd.ops.mul(T16, T3)
+            T18 = fd.ops.mul(T14, T2)
+            T19 = fd.ops.slice(
+                T17,
+                start_indices=[0, 0, 0, 0],
+                end_indices=[5, 4, 5, 2],
+                strides=[1, 1, 1, 1],
+            )
+            T20 = fd.ops.slice(
+                T17,
+                start_indices=[0, 0, 0, 2],
+                end_indices=[5, 4, 5, 4],
+                strides=[1, 1, 1, 1],
+            )
+            T21 = fd.ops.neg(T19)
+            S22 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T23 = fd.ops.pad(T21, [2, 0, 0, 0, 0, 0, 0, 0], S22)
+            T24 = fd.ops.add(T18, T23)
+            S25 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T26 = fd.ops.pad(T20, [0, 2, 0, 0, 0, 0, 0, 0], S25)
+            T27 = fd.ops.add(T24, T26)
+            S28 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T29 = fd.ops.pad(T27, [0, 12, 0, 0, 0, 0, 0, 0], S28)
+            T30 = fd.ops.add(T12, T29)
+            T31 = fd.ops.mul(T7, S1)
+            T32 = fd.ops.permute(T31, dims=[0, 1, 3, 2])
+            T33 = fd.ops.slice(
+                T32,
+                start_indices=[0, 0, 0, 0],
+                end_indices=[5, 4, 5, 4],
+                strides=[1, 1, 1, 1],
+            )
+            T34 = fd.ops.slice(
+                T32,
+                start_indices=[0, 0, 0, 4],
+                end_indices=[5, 4, 5, 16],
+                strides=[1, 1, 1, 1],
+            )
+            S35 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T36 = fd.ops.pad(T34, [4, 0, 0, 0, 0, 0, 0, 0], S35)
+            S37 = fd.define_scalar(1.00000, dtype=DataType.Double)
+            T38 = fd.ops.mul(S37, T33)
+            S39 = fd.define_scalar(1.00000, dtype=DataType.Double)
+            T40 = fd.ops.mul(S39, T33)
+            T41 = fd.ops.mul(T40, T5)
+            T42 = fd.ops.mul(T38, T4)
+            T43 = fd.ops.slice(
+                T41,
+                start_indices=[0, 0, 0, 0],
+                end_indices=[5, 4, 5, 2],
+                strides=[1, 1, 1, 1],
+            )
+            T44 = fd.ops.slice(
+                T41,
+                start_indices=[0, 0, 0, 2],
+                end_indices=[5, 4, 5, 4],
+                strides=[1, 1, 1, 1],
+            )
+            T45 = fd.ops.neg(T43)
+            S46 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T47 = fd.ops.pad(T45, [2, 0, 0, 0, 0, 0, 0, 0], S46)
+            T48 = fd.ops.add(T42, T47)
+            S49 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T50 = fd.ops.pad(T44, [0, 2, 0, 0, 0, 0, 0, 0], S49)
+            T51 = fd.ops.add(T48, T50)
+            S52 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T53 = fd.ops.pad(T51, [0, 12, 0, 0, 0, 0, 0, 0], S52)
+            T54 = fd.ops.add(T36, T53)
+            fd.add_output(T54)
+            fd.add_output(T30)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        # self.assertEqual(nvf_out[0], t24)
+
 
 if __name__ == "__main__":
     run_tests()

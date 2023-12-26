@@ -12,7 +12,7 @@
 #include <fusion.h>
 #include <ir/interface_nodes.h>
 
-namespace nvfuser::optimization {
+namespace nvfuser {
 
 struct Layout {
   std::vector<IterDomain*> allocation_domain;
@@ -111,4 +111,4 @@ AliasAnalysisResult findAliases(
     Fusion* fusion,
     bool can_override_empty_allocation_domain = true);
 
-} // namespace nvfuser::optimization
+} // namespace nvfuser

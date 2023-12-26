@@ -383,11 +383,15 @@ class LogParserPyTest(LogParser):
     def compile_regex(self):
         super().compile_regex()
 
+        self.itemlist_re = re.compile(r"Running \d+ items in this shard: (.*)$")
+
+        self.wildcard_testname_re = re.compile(r"^(?P<testname>\S+::\S+) (?P<line>.*)$")
+
         self.all_test_names: list[str] | None = None
 
     def parse_line(self, line):
         if self.all_test_names is None:
-            m = re.match(r"Running \d+ items in this shard: (.*)$", line)
+            m = re.match(self.itemlist_re, line)
             if m is not None:
                 # grab the test list
                 self.all_test_names = m.groups()[0].split(", ")
@@ -409,6 +413,14 @@ class LogParserPyTest(LogParser):
                     line = testrest[1]
                 else:
                     return True
+        else:
+            # Less reliable: match any line having at least one double colon
+            # and interpret that as test name
+            m = re.match(self.wildcard_testname_re, line)
+            if m is not None:
+                d = m.groupdict()
+                self.current_test = d["testname"]
+                line = d["line"]
 
         if line == "PASSED":
             self.finalize_test(True)

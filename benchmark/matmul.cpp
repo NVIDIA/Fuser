@@ -16,6 +16,7 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>
+#include <utils.h>
 
 #include <benchmark/benchmark.h>
 
@@ -121,14 +122,12 @@ static void SingleMatmulBase(
     benchmark::State& benchmark_state,
     MmaLayout layout,
     MatmulParams params) {
-  std::vector<int64_t> input_mnk{
-      benchmark_state.range(0),
-      benchmark_state.range(1),
-      benchmark_state.range(2)};
+  int64_t m = benchmark_state.range(0);
+  int64_t n = benchmark_state.range(1);
+  int64_t k = benchmark_state.range(2);
 
   // Tensor inputs
-  auto inputs =
-      matmulAtInput(input_mnk.at(0), input_mnk.at(1), input_mnk.at(2), layout);
+  auto inputs = matmulAtInput(m, n, k, layout);
   auto expected_output = atMatmul(
       inputs.first.to(at::kDouble), inputs.second.to(at::kDouble), layout);
 
@@ -155,8 +154,16 @@ static void SingleMatmulBase(
   // Disable magic zero
   CompileParams cparams;
   cparams.enable_magic_zero = false;
-  // Always use 32b indexing mode for now.
-  cparams.index_type = PrimDataType::Int32;
+  KernelIndexTypeCompute index_type_helper;
+  index_type_helper.addDim(m, k); // A
+  index_type_helper.addDim(n, k); // B
+  index_type_helper.addDim(m, n); // D
+  cparams.index_type = index_type_helper.getType();
+  if (cparams.index_type == DataType::Int) {
+    // Notify as this can have a slight perf impact, but is necessary for large
+    // inputs
+    debug() << "Using int64_t as index type" << std::endl;
+  }
 
   // Compile kernel
   auto launch_constraints = LaunchParams();
@@ -172,7 +179,7 @@ static void SingleMatmulBase(
 
   // Warm up run
   auto outputs = fe.runFusion(aten_inputs);
-  checkMatch(expected_output, outputs.at(0).to(at::kDouble), input_mnk.at(2));
+  checkMatch(expected_output, outputs.at(0).to(at::kDouble), k);
 
   runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
 
@@ -671,7 +678,11 @@ static void MatmulShapeWarpStageAutoSplitK(benchmark::internal::Benchmark* b) {
 
 ForAllLayouts(EagerModeBenchmark);
 ForAllLayouts(NvfuserMatmulBenchmark);
-ForAllLayouts(AutoSplitKBenchmark);
+// Disable split-K benchmarks due to slow compilation.
+// See https://github.com/NVIDIA/Fuser/issues/1389.
+// These benchmarks should be enabled again after merging
+// https://github.com/NVIDIA/Fuser/pull/1510
+// ForAllLayouts(AutoSplitKBenchmark);
 ForAllLayouts(AutoPartitionedKBenchmark);
 
 // Note: SplitK Reduction benchmarks are parametrized only by M, N. The splitk
