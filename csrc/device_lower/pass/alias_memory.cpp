@@ -1202,11 +1202,10 @@ class ReusableAllocationFinder : private kir::IrVisitor {
           auto this_tv = alloc_info->alloc_expr->buffer()->as<TensorView>();
           auto reuse_tv =
               alloc_to_reuse->alloc_expr->buffer()->as<TensorView>();
-          // Check that either both tv's are vectorized acceses, or neither are.
-          // Vectorized allocations require correct alignment so they can only
-          // alias with other allocations with the right alignment
+          // Vectorized allocations require correct alignment so if [this_tv]
+          // is vectorized, the [reuse_tv] must also be vectorized.
           const auto& va = GpuLower::current()->vectorizedAccesses();
-          if ((va.find(this_tv) == va.end()) !=
+          if ((va.find(this_tv) != va.end()) &&
               (va.find(reuse_tv) == va.end())) {
             return false;
           }
@@ -1341,7 +1340,7 @@ class ReusableAllocationFinder : private kir::IrVisitor {
         }
         if (!ir_utils::isPointwiseTvOp(tv_def) &&
             !ir_utils::isReductionTvOp(tv_def)) {
-          if (isBroadcastTvOp(tv_def)) {
+          if (isBroadcastExpandTvOp(tv_def)) {
             info.has_broadcast_between = true;
           } else {
             info.has_unsupported_op = true;
@@ -1381,12 +1380,12 @@ class ReusableAllocationFinder : private kir::IrVisitor {
     }
   }
 
-  // Utility to capture broadcast ops
-  bool isBroadcastTvOp(const Expr* expr) {
+  // Utility to capture broadcast and expand ops
+  bool isBroadcastExpandTvOp(const Expr* expr) {
     if (!ir_utils::isTvOp(expr)) {
       return false;
     }
-    return expr->isA<BroadcastOp>();
+    return expr->isA<BroadcastOp>() || expr->isA<ExpandOp>();
   }
 
  private:
