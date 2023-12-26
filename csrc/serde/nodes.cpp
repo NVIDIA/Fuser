@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <expr_simplifier.h>
 #include <ir/builder.h>
 #include <serde/nodes.h>
 #include <serde/utils.h>
@@ -23,11 +24,9 @@ void ValueFactory::registerAllParsers() {
   registerParser(serde::ValData::NONE, deserialize_unsupported);
 
   registerParser(
-      serde::ValData::NamedScalar,
-      nvf::IrBuilder::deserializeVal<
-          nvf::NamedScalar,
-          serde::NamedScalar,
-          serde::ValData::NamedScalar>);
+      serde::ValData::Dtype,
+      nvf::IrBuilder::
+          deserializeVal<nvf::Val, serde::Dtype, serde::ValData::Dtype>);
 
   registerParser(
       serde::ValData::IterDomain,
@@ -35,6 +34,13 @@ void ValueFactory::registerAllParsers() {
           nvf::IterDomain,
           serde::IterDomain,
           serde::ValData::IterDomain>);
+
+  registerParser(
+      serde::ValData::NamedScalar,
+      nvf::IrBuilder::deserializeVal<
+          nvf::NamedScalar,
+          serde::NamedScalar,
+          serde::ValData::NamedScalar>);
 
   registerParser(
       serde::ValData::PipelineVal,
@@ -51,6 +57,13 @@ void ValueFactory::registerAllParsers() {
           serde::ValData::PolymorphicValue>);
 
   registerParser(
+      serde::ValData::PolymorphicValueDtype,
+      nvf::IrBuilder::deserializeVal<
+          nvf::Val,
+          serde::PolymorphicValueDtype,
+          serde::ValData::PolymorphicValueDtype>);
+
+  registerParser(
       serde::ValData::Predicate,
       nvf::IrBuilder::deserializeVal<
           nvf::kir::Predicate,
@@ -58,18 +71,18 @@ void ValueFactory::registerAllParsers() {
           serde::ValData::Predicate>);
 
   registerParser(
-      serde::ValData::TensorIndex,
-      nvf::IrBuilder::deserializeVal<
-          nvf::kir::TensorIndex,
-          serde::TensorIndex,
-          serde::ValData::TensorIndex>);
-
-  registerParser(
       serde::ValData::TensorDomain,
       nvf::IrBuilder::deserializeVal<
           nvf::TensorDomain,
           serde::TensorDomain,
           serde::ValData::TensorDomain>);
+
+  registerParser(
+      serde::ValData::TensorIndex,
+      nvf::IrBuilder::deserializeVal<
+          nvf::kir::TensorIndex,
+          serde::TensorIndex,
+          serde::ValData::TensorIndex>);
 
   registerParser(
       serde::ValData::TensorView,
@@ -243,12 +256,9 @@ void ExpressionFactory::registerAllParsers() {
       nvf::IrBuilder::deserializeExpr<nvf::PipelineStage>);
 
   // Expression Simplifier
-  auto deserialize_unsupported =
-      [](const nvf::serde::Expression* buffer) -> nvf::Expr* {
-    NVF_ERROR(buffer != nullptr, "serde::Expression is nullptr.");
-    NVF_ERROR(false, "FlattenedAssocComm is not supported.");
-  };
-  registerParser(serde::ExprType::FlattenedAssocComm, deserialize_unsupported);
+  registerParser(
+      serde::ExprType::FlattenedAssocComm,
+      nvf::IrBuilder::deserializeExpr<nvf::assoc_comm::FlattenedAssocCommOp>);
 }
 
 } // namespace nvfuser::serde

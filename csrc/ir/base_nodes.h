@@ -268,6 +268,16 @@ class Val : public Statement {
   Val(IrContainer* container,
       IrBuilderPasskey passkey,
       const serde::Value* buffer,
+      const serde::Dtype* data);
+
+  Val(IrContainer* container,
+      IrBuilderPasskey passkey,
+      const serde::Value* buffer,
+      const serde::PolymorphicValueDtype* data);
+
+  Val(IrContainer* container,
+      IrBuilderPasskey passkey,
+      const serde::Value* buffer,
       const serde::PolymorphicValue* data);
 
   std::string toString(int indent_size = 0) const override;
