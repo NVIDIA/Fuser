@@ -721,17 +721,11 @@ class PersistentBufferProjector {
         project_to_inputs_(project_to_inputs) {}
 
   const std::vector<TensorView*>& project() {
-    std::cout << "Before project persistent buffers to "
-              << (project_to_inputs_ ? "inputs" : "producers") << std::endl;
-    fusion_->printMath();
     if (project_to_inputs_) {
       projectToInputs();
     } else {
       projectToProducers();
     }
-    std::cout << "\nAfter project persistent buffers to "
-              << (project_to_inputs_ ? "inputs" : "producers") << std::endl;
-    fusion_->printMath();
     return dummy_outputs_;
   }
 
