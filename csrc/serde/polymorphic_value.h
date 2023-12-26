@@ -47,10 +47,6 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::PolymorphicValue& v);
 
-flatbuffers::Offset<PolymorphicValue> serializeStruct(
-    flatbuffers::FlatBufferBuilder& builder,
-    const nvfuser::StructHandle& v);
-
 flatbuffers::Offset<PolymorphicValue> serializeOpaque(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::Opaque& v);
