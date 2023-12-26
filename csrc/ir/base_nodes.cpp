@@ -118,9 +118,37 @@ Val::Val(
 std::pair<serde::ValData, flatbuffers::Offset<void>> Val::serializeData(
     const IrSerde& container,
     flatbuffers::FlatBufferBuilder& builder) const {
-  return {
-      serde::ValData::PolymorphicValue,
-      serde::serializePolymorphicValue(builder, value_).Union()};
+  // nvfuser::Val has four constructors, but serialization only supports
+  // constructors 2-4 because we do not support the DataType class. Constructor
+  // 1 only holds nvfuser::DataType while the PolymorphicValue is initialized
+  // with std::monostate.
+  bool has_prim_dtype = std::holds_alternative<PrimDataType>(dtype_.type);
+  bool is_pv_monostate = value_.is<std::monostate>();
+  if (has_prim_dtype) {
+    int64_t dtype_enum = toUnderlying(std::get<PrimDataType>(dtype_.type));
+    if (is_pv_monostate) {
+      // Constructor 2 - PrimDataType only.
+      return {
+          serde::ValData::Dtype,
+          serde::CreateDtype(builder, dtype_enum).Union()};
+    } else {
+      // Constructor 4 - PolymorphicValue with DataType where the
+      // PolymorphicValue is cast to the dtype argument.
+      return {
+          serde::ValData::PolymorphicValueDtype,
+          serde::CreatePolymorphicValueDtype(
+              builder,
+              serde::serializePolymorphicValue(builder, value_),
+              dtype_enum)
+              .Union()};
+    }
+  } else {
+    // Constructor 3 - PolymorphicValue only where the DataType is derived from
+    // PolymorphicValue.
+    return {
+        serde::ValData::PolymorphicValue,
+        serde::serializePolymorphicValue(builder, value_).Union()};
+  }
 }
 
 void Val::deserializeExpr(IrContainer* container, const serde::Value* buffer) {
@@ -140,39 +168,12 @@ flatbuffers::Offset<serde::Value> Val::serialize(
     const IrSerde& container,
     flatbuffers::FlatBufferBuilder& builder) const {
   bool has_prim_dtype = std::holds_alternative<PrimDataType>(dtype_.type);
-  bool is_pv_monostate = value_.is<std::monostate>();
-
-  // nvfuser::Val has four constructors, but serialization only supports
-  // constructors 2-4 because we do not support the DataType class. Constructor
-  // 1 only holds nvfuser::DataType while the PolymorphicValue is initialized
-  // with std::monostate.
   int64_t dtype_enum =
       (has_prim_dtype) ? toUnderlying(std::get<PrimDataType>(dtype_.type)) : -1;
-  serde::ValData val_data_type = serde::ValData::NONE;
-  flatbuffers::Offset<void> val_data = 0;
 
-  if (has_prim_dtype) {
-    if (is_pv_monostate) {
-      // Constructor 2 - PrimDataType only.
-      val_data_type = serde::ValData::Dtype;
-      val_data = serde::CreateDtype(builder, dtype_enum).Union();
-    } else {
-      // Constructor 4 - PolymorphicValue with DataType where the
-      // PolymorphicValue is cast to the dtype argument.
-      val_data_type = serde::ValData::PolymorphicValueDtype;
-      val_data = serde::CreatePolymorphicValueDtype(
-                     builder,
-                     serde::serializePolymorphicValue(builder, value_),
-                     dtype_enum)
-                     .Union();
-    }
-  } else {
-    // Constructor 3 - PolymorphicValue only where the DataType is derived from
-    // PolymorphicValue.
-    auto&& [pv_data_type, pv_data] = serializeData(container, builder);
-    val_data_type = pv_data_type;
-    val_data = pv_data;
-  }
+  // serializeData is a virtual function overriden by child classes.
+  // It saves the appropriate information for those classes.
+  auto&& [val_data_type, val_data] = serializeData(container, builder);
 
   auto fb_uses = container.map(uses_);
   return serde::CreateValueDirect(
