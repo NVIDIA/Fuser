@@ -241,53 +241,6 @@ std::vector<Statement*> IrContainer::getStatements(
   return result;
 }
 
-IrContainer::IrContainer(const serde::IrContainer* buffer) {
-  FUSER_PERF_SCOPE("IrContainer constructor deserialize");
-  NVF_ERROR(buffer != nullptr, "serde::IrContainer is nullptr.");
-
-  serde::ValueFactory value_factory;
-  for (auto fb_val : *buffer->vals()) {
-    std::cout << static_cast<int64_t>(toUnderlying(fb_val->data_type()))
-              << std::endl;
-    vals_.insert(value_factory.parse(fb_val->data_type(), fb_val));
-  }
-
-  serde::ExpressionFactory expr_factory;
-  for (auto fb_expr : *buffer->exprs()) {
-    exprs_.insert(expr_factory.parse(fb_expr->type(), fb_expr));
-  }
-
-  NVF_ERROR(
-      buffer->val_type_name_map_keys()->size() ==
-      buffer->val_type_name_map_values()->size());
-  for (size_t index : c10::irange(buffer->val_type_name_map_keys()->size())) {
-    ValType key_enum =
-        static_cast<ValType>(buffer->val_type_name_map_keys()->Get(index));
-    StmtNameType val = buffer->val_type_name_map_values()->Get(index);
-    val_type_name_map_.emplace(key_enum, val);
-  }
-
-  expr_name_counter_ = buffer->expr_name_counter();
-
-  if (buffer->axioms() != nullptr) {
-    axioms_ = std::make_unique<std::vector<Val*>>();
-    for (auto index : *buffer->axioms()) {
-      axioms_->emplace_back(getVal<Val>(index));
-    }
-  }
-
-  NVF_ERROR(
-      buffer->metadata_keys()->size() == buffer->metadata_values_lhs()->size());
-  NVF_ERROR(
-      buffer->metadata_keys()->size() == buffer->metadata_values_rhs()->size());
-  for (size_t index : c10::irange(buffer->metadata_keys()->size())) {
-    Val* key = getVal<Val>(buffer->metadata_keys()->Get(index));
-    Val* val_lhs = getVal<Val>(buffer->metadata_values_lhs()->Get(index));
-    Expr* val_rhs = getExpr<Expr>(buffer->metadata_values_rhs()->Get(index));
-    metadata_.emplace(key, std::make_pair(val_lhs, val_rhs));
-  }
-}
-
 flatbuffers::Offset<serde::IrContainer> IrContainer::serialize(
     const IrSerde& container,
     flatbuffers::FlatBufferBuilder& builder) const {
@@ -352,6 +305,51 @@ flatbuffers::Offset<serde::IrContainer> IrContainer::serialize(
       &fb_metadata_keys,
       &fb_metadata_values_lhs,
       &fb_metadata_values_rhs);
+}
+
+void IrContainer::deserialize(const serde::IrContainer* buffer) {
+  FUSER_PERF_SCOPE("IrContainer constructor deserialize");
+  NVF_ERROR(buffer != nullptr, "serde::IrContainer is nullptr.");
+
+  serde::ValueFactory value_factory;
+  for (auto fb_val : *buffer->vals()) {
+    vals_.insert(value_factory.parse(fb_val->data_type(), fb_val));
+  }
+
+  serde::ExpressionFactory expr_factory;
+  for (auto fb_expr : *buffer->exprs()) {
+    exprs_.insert(expr_factory.parse(fb_expr->type(), fb_expr));
+  }
+
+  NVF_ERROR(
+      buffer->val_type_name_map_keys()->size() ==
+      buffer->val_type_name_map_values()->size());
+  for (size_t index : c10::irange(buffer->val_type_name_map_keys()->size())) {
+    ValType key_enum =
+        static_cast<ValType>(buffer->val_type_name_map_keys()->Get(index));
+    StmtNameType val = buffer->val_type_name_map_values()->Get(index);
+    val_type_name_map_.emplace(key_enum, val);
+  }
+
+  expr_name_counter_ = buffer->expr_name_counter();
+
+  if (buffer->axioms() != nullptr) {
+    axioms_ = std::make_unique<std::vector<Val*>>();
+    for (auto index : *buffer->axioms()) {
+      axioms_->emplace_back(getVal<Val>(index));
+    }
+  }
+
+  NVF_ERROR(
+      buffer->metadata_keys()->size() == buffer->metadata_values_lhs()->size());
+  NVF_ERROR(
+      buffer->metadata_keys()->size() == buffer->metadata_values_rhs()->size());
+  for (size_t index : c10::irange(buffer->metadata_keys()->size())) {
+    Val* key = getVal<Val>(buffer->metadata_keys()->Get(index));
+    Val* val_lhs = getVal<Val>(buffer->metadata_values_lhs()->Get(index));
+    Expr* val_rhs = getExpr<Expr>(buffer->metadata_values_rhs()->Get(index));
+    metadata_.emplace(key, std::make_pair(val_lhs, val_rhs));
+  }
 }
 
 //! Register the Statement with this container
