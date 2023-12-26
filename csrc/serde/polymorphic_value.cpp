@@ -337,7 +337,8 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
   } else if (v.is<nvfuser::Opaque>()) {
     return serializeOpaque(builder, v.as<nvfuser::Opaque>());
   } else if (v.is<StructHandle>()) {
-    NVF_ERROR(false, "The StructHandle PolymorphicValue type is not supported.");
+    NVF_ERROR(
+        false, "The StructHandle PolymorphicValue type is not supported.");
   } else if (v.is<at::Tensor>()) {
     return serializeTensor(builder, v.as<at::Tensor>());
   } else {
@@ -346,32 +347,37 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
 }
 
 // TODO Refactor
-flatbuffers::Offset<PolymorphicValue> serializeStruct(
+flatbuffers::Offset<PolymorphicValue> serializeOpaque(
     flatbuffers::FlatBufferBuilder& builder,
-    const nvfuser::StructHandle& v) {
-  flatbuffers::Offset<void> data = 0;
-  if (v.is<nvfuser::kir::AsmOptions>()) {
-    nvfuser::kir::AsmOptions& options = v.as<nvfuser::kir::AsmOptions>();
+    const nvfuser::Opaque& v) {
+  if (v.any().type() == typeid(nvfuser::kir::AsmOptions)) {
+    const auto& options = v.as<nvfuser::kir::AsmOptions>();
     std::vector<int64_t> fb_readable_outputs(
         options.readable_outputs.begin(), options.readable_outputs.end());
-    data = serde::CreateAsmOptionsDirect(
-               builder, options.volatile_, options.memory, &fb_readable_outputs)
-               .Union();
-  } else if (v.is<nvfuser::ParallelTypeBitmap>()) {
-    nvfuser::ParallelTypeBitmap& pt_bitmap =
-        v.as<nvfuser::ParallelTypeBitmap>();
-    data =
+    auto data =
+        serde::CreateAsmOptionsDirect(
+            builder, options.volatile_, options.memory, &fb_readable_outputs)
+            .Union();
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::AsmOptions, data);
+  } else if (v.any().type() == typeid(nvfuser::ParallelTypeBitmap)) {
+    const auto& pt_bitmap = v.as<nvfuser::ParallelTypeBitmap>();
+    auto data =
         serde::CreateParallelTypeBitmap(builder, pt_bitmap.toUlong()).Union();
-  } else if (v.is<nvfuser::RNGOp::Attributes>()) {
-    nvfuser::RNGOp::Attributes& attributes = v.as<nvfuser::RNGOp::Attributes>();
-    data = serde::CreateRNGAttributes(
-               builder,
-               toUnderlying(attributes.rtype),
-               toUnderlying(std::get<PrimDataType>(attributes.dtype.type)),
-               attributes.num_parameters)
-               .Union();
-  } else if (v.is<nvfuser::kir::Scope>()) {
-    nvfuser::kir::Scope& kir_scope = v.as<nvfuser::kir::Scope>();
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::ParallelTypeBitmap, data);
+  } else if (v.any().type() == typeid(nvfuser::RNGOp::Attributes)) {
+    const auto& attributes = v.as<nvfuser::RNGOp::Attributes>();
+    auto data = serde::CreateRNGAttributes(
+                    builder,
+                    toUnderlying(attributes.rtype),
+                    toUnderlying(std::get<PrimDataType>(attributes.dtype.type)),
+                    attributes.num_parameters)
+                    .Union();
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::RNGAttributes, data);
+  } else if (v.any().type() == typeid(nvfuser::kir::Scope)) {
+    const auto& kir_scope = v.as<nvfuser::kir::Scope>();
     nvfuser::kir::Kernel* kernel = kir_scope.owner()->kernel();
 
     // TODO Refactor to use IrSerde determinstic_exprs_map
@@ -382,22 +388,11 @@ flatbuffers::Offset<PolymorphicValue> serializeStruct(
     for (Expr* e : kir_scope.exprs()) {
       fb_exprs.push_back(exprs_to_id_map.at(e));
     }
-    data = serde::CreateScopeDirect(
-               builder, &fb_exprs, exprs_to_id_map.at(kir_scope.owner()))
-               .Union();
-  } else {
-    NVF_ERROR(
-        false, "Serialization of arbitrary struct handle is not implemented.");
-  }
-  return CreatePolymorphicValue(
-      builder, PolymorphicValueData::OpaqueEnum, data);
-}
-
-// TODO Refactor
-flatbuffers::Offset<PolymorphicValue> serializeOpaque(
-    flatbuffers::FlatBufferBuilder& builder,
-    const nvfuser::Opaque& v) {
-  if (v.any().type() == typeid(AsyncOpType)) {
+    auto data = serde::CreateScopeDirect(
+                    builder, &fb_exprs, exprs_to_id_map.at(kir_scope.owner()))
+                    .Union();
+    return CreatePolymorphicValue(builder, PolymorphicValueData::Scope, data);
+  } else if (v.any().type() == typeid(AsyncOpType)) {
     auto data = CreateOpaqueEnum(
         builder, NvFuserEnum::AsyncOpType, toUnderlying(v.as<AsyncOpType>()));
     return CreatePolymorphicValue(
