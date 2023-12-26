@@ -22,6 +22,121 @@ nvfuser::PolymorphicValue deserializeMonostate(
   return nvfuser::PolymorphicValue();
 }
 
+nvfuser::PolymorphicValue deserializeAsmOptions(
+    const PolymorphicValue* buffer) {
+  NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
+  const AsmOptions* data = buffer->data_as_AsmOptions();
+  NVF_ERROR(data != nullptr, "serde::AsmOptions is nullptr.");
+  std::unordered_set<int64_t> readable_outputs;
+  std::copy(
+      data->readable_outputs()->begin(),
+      data->readable_outputs()->end(),
+      std::inserter(readable_outputs, readable_outputs.begin()));
+  nvfuser::kir::AsmOptions options{
+      data->volatile_(), data->memory(), std::move(readable_outputs)};
+  return nvfuser::PolymorphicValue(nvfuser::Opaque(std::move(options)));
+}
+
+// TODO Refactor
+nvfuser::PolymorphicValue deserializeOpaqueEnum(
+    const PolymorphicValue* buffer) {
+  NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
+  const OpaqueEnum* data = buffer->data_as_OpaqueEnum();
+  NVF_ERROR(data != nullptr, "serde::OpaqueEnum is nullptr.");
+
+  switch (data->data_attribute_enum()) {
+    case NvFuserEnum::AsyncOpType: {
+      return nvfuser::PolymorphicValue(
+          nvfuser::Opaque(static_cast<nvfuser::AsyncOpType>(data->value())));
+    }
+    case NvFuserEnum::BinaryOpType: {
+      return nvfuser::PolymorphicValue(
+          nvfuser::Opaque(static_cast<nvfuser::BinaryOpType>(data->value())));
+    }
+    case NvFuserEnum::CacheOp: {
+      return nvfuser::PolymorphicValue(
+          nvfuser::Opaque(static_cast<nvfuser::CacheOp>(data->value())));
+    }
+    case NvFuserEnum::DoubleBufferLoopStage: {
+      return nvfuser::PolymorphicValue(nvfuser::Opaque(
+          static_cast<nvfuser::DoubleBufferLoopStage>(data->value())));
+    }
+    case NvFuserEnum::LoadStoreOpType: {
+      return nvfuser::PolymorphicValue(nvfuser::Opaque(
+          static_cast<nvfuser::LoadStoreOpType>(data->value())));
+    }
+    case NvFuserEnum::MemoryType: {
+      return nvfuser::PolymorphicValue(
+          nvfuser::Opaque(static_cast<nvfuser::MemoryType>(data->value())));
+    }
+    case NvFuserEnum::MmaMacro: {
+      return nvfuser::PolymorphicValue(
+          nvfuser::Opaque(static_cast<nvfuser::MmaMacro>(data->value())));
+    }
+    case NvFuserEnum::ScatterOpType: {
+      return nvfuser::PolymorphicValue(
+          nvfuser::Opaque(static_cast<nvfuser::ScatterOpType>(data->value())));
+    }
+    case NvFuserEnum::SwizzleMode: {
+      return nvfuser::PolymorphicValue(
+          nvfuser::Opaque(static_cast<nvfuser::SwizzleMode>(data->value())));
+    }
+    case NvFuserEnum::SwizzleType: {
+      return nvfuser::PolymorphicValue(
+          nvfuser::Opaque(static_cast<nvfuser::SwizzleType>(data->value())));
+    }
+    case NvFuserEnum::Swizzle2DType: {
+      return nvfuser::PolymorphicValue(
+          nvfuser::Opaque(static_cast<nvfuser::Swizzle2DType>(data->value())));
+    }
+    case NvFuserEnum::TensorMapInterleave: {
+      return nvfuser::PolymorphicValue(nvfuser::Opaque(
+          static_cast<nvfuser::tma::TensorMapInterleave>(data->value())));
+    }
+    case NvFuserEnum::TensorMapL2Promotion: {
+      return nvfuser::PolymorphicValue(nvfuser::Opaque(
+          static_cast<nvfuser::tma::TensorMapL2Promotion>(data->value())));
+    }
+    case NvFuserEnum::TensorMapFloatOOBFill: {
+      return nvfuser::PolymorphicValue(nvfuser::Opaque(
+          static_cast<nvfuser::tma::TensorMapFloatOOBFill>(data->value())));
+    }
+    case NvFuserEnum::TernaryOpType: {
+      return nvfuser::PolymorphicValue(
+          nvfuser::Opaque(static_cast<nvfuser::TernaryOpType>(data->value())));
+    }
+    case NvFuserEnum::UnaryOpType: {
+      return nvfuser::PolymorphicValue(
+          nvfuser::Opaque(static_cast<nvfuser::UnaryOpType>(data->value())));
+    }
+    default: {
+      NVF_ERROR(
+          false, "Serialization of arbitrary opaque value is not implemented.");
+    }
+  }
+}
+
+nvfuser::PolymorphicValue deserializeParallelTypeBitmap(
+    const PolymorphicValue* buffer) {
+  NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
+  const ParallelTypeBitmap* data = buffer->data_as_ParallelTypeBitmap();
+  NVF_ERROR(data != nullptr, "serde::ParallelTypeBitmap is nullptr.");
+  nvfuser::ParallelTypeBitmap bitmap{data->value()};
+  return nvfuser::PolymorphicValue(nvfuser::Opaque(bitmap));
+}
+
+nvfuser::PolymorphicValue deserializeRNGAttributes(
+    const PolymorphicValue* buffer) {
+  NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
+  const RNGAttributes* data = buffer->data_as_RNGAttributes();
+  NVF_ERROR(data != nullptr, "serde::RNGAttributes is nullptr.");
+  nvfuser::RNGOp::Attributes attributes{
+      static_cast<RNGOpType>(data->rng_op_type_enum()),
+      serde::mapToDtypeStruct(data->dtype_enum()),
+      data->num_parameters()};
+  return nvfuser::PolymorphicValue(nvfuser::Opaque(std::move(attributes)));
+}
+
 nvfuser::PolymorphicValue deserializeScalarCpu(const PolymorphicValue* buffer) {
   NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
   const ScalarCpu* scalar_cpu = buffer->data_as_ScalarCpu();
@@ -172,23 +287,22 @@ void PolymorphicValueFactory::registerAllParsers() {
         static_cast<int64_t>(toUnderlying(buffer->data_type())));
     return nvfuser::PolymorphicValue();
   };
-
-  registerParser(PolymorphicValueData::AsmOptions, deserialize_unsupported);
-  registerParser(PolymorphicValueData::OpaqueEnum, deserialize_unsupported);
-  registerParser(
-      PolymorphicValueData::ParallelTypeBitmap, deserialize_unsupported);
-  registerParser(PolymorphicValueData::RNGAttributes, deserialize_unsupported);
   registerParser(PolymorphicValueData::Scope, deserialize_unsupported);
 
   auto deserialize_array = [this](const PolymorphicValue* buffer) {
     return makeArray(buffer->data_as_Array());
   };
   registerParser(PolymorphicValueData::Array, deserialize_array);
-  registerParser(PolymorphicValueData::NONE, deserializeMonostate);
+  registerParser(PolymorphicValueData::AsmOptions, deserializeAsmOptions);
   registerParser(PolymorphicValueData::Bool, deserializeBool);
   registerParser(PolymorphicValueData::ComplexDouble, deserializeComplexDouble);
   registerParser(PolymorphicValueData::Double, deserializeDouble);
   registerParser(PolymorphicValueData::Long, deserializeLong);
+  registerParser(PolymorphicValueData::NONE, deserializeMonostate);
+  registerParser(PolymorphicValueData::OpaqueEnum, deserializeOpaqueEnum);
+  registerParser(
+      PolymorphicValueData::ParallelTypeBitmap, deserializeParallelTypeBitmap);
+  registerParser(PolymorphicValueData::RNGAttributes, deserializeRNGAttributes);
   registerParser(PolymorphicValueData::ScalarCpu, deserializeScalarCpu);
   registerParser(PolymorphicValueData::TensorArg, deserializeTensorArg);
 }
@@ -223,7 +337,7 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
   } else if (v.is<nvfuser::Opaque>()) {
     return serializeOpaque(builder, v.as<nvfuser::Opaque>());
   } else if (v.is<StructHandle>()) {
-    return serializeStruct(builder, v.as<nvfuser::StructHandle>());
+    NVF_ERROR(false, "The StructHandle PolymorphicValue type is not supported.");
   } else if (v.is<at::Tensor>()) {
     return serializeTensor(builder, v.as<at::Tensor>());
   } else {
@@ -283,79 +397,108 @@ flatbuffers::Offset<PolymorphicValue> serializeStruct(
 flatbuffers::Offset<PolymorphicValue> serializeOpaque(
     flatbuffers::FlatBufferBuilder& builder,
     const nvfuser::Opaque& v) {
-  flatbuffers::Offset<OpaqueEnum> data = 0;
   if (v.any().type() == typeid(AsyncOpType)) {
-    data = CreateOpaqueEnum(
+    auto data = CreateOpaqueEnum(
         builder, NvFuserEnum::AsyncOpType, toUnderlying(v.as<AsyncOpType>()));
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::OpaqueEnum, data.Union());
   } else if (v.any().type() == typeid(DoubleBufferLoopStage)) {
-    data = CreateOpaqueEnum(
+    auto data = CreateOpaqueEnum(
         builder,
         NvFuserEnum::DoubleBufferLoopStage,
         toUnderlying(v.as<DoubleBufferLoopStage>()));
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::OpaqueEnum, data.Union());
   } else if (v.any().type() == typeid(BinaryOpType)) {
-    data = CreateOpaqueEnum(
+    auto data = CreateOpaqueEnum(
         builder, NvFuserEnum::BinaryOpType, toUnderlying(v.as<BinaryOpType>()));
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::OpaqueEnum, data.Union());
   } else if (v.any().type() == typeid(CacheOp)) {
-    data = CreateOpaqueEnum(
+    auto data = CreateOpaqueEnum(
         builder, NvFuserEnum::CacheOp, toUnderlying(v.as<CacheOp>()));
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::OpaqueEnum, data.Union());
   } else if (v.any().type() == typeid(LoadStoreOpType)) {
-    data = CreateOpaqueEnum(
+    auto data = CreateOpaqueEnum(
         builder,
         NvFuserEnum::LoadStoreOpType,
         toUnderlying(v.as<LoadStoreOpType>()));
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::OpaqueEnum, data.Union());
   } else if (v.any().type() == typeid(MemoryType)) {
-    data = CreateOpaqueEnum(
+    auto data = CreateOpaqueEnum(
         builder, NvFuserEnum::MemoryType, toUnderlying(v.as<MemoryType>()));
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::OpaqueEnum, data.Union());
   } else if (v.any().type() == typeid(MmaMacro)) {
-    data = CreateOpaqueEnum(
+    auto data = CreateOpaqueEnum(
         builder,
         NvFuserEnum::MmaMacro,
         (int64_t)toUnderlying(v.as<MmaMacro>()));
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::OpaqueEnum, data.Union());
   } else if (v.any().type() == typeid(ScatterOpType)) {
-    data = CreateOpaqueEnum(
+    auto data = CreateOpaqueEnum(
         builder,
         NvFuserEnum::ScatterOpType,
         toUnderlying(v.as<ScatterOpType>()));
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::OpaqueEnum, data.Union());
   } else if (v.any().type() == typeid(SwizzleMode)) {
-    data = CreateOpaqueEnum(
+    auto data = CreateOpaqueEnum(
         builder, NvFuserEnum::SwizzleMode, toUnderlying(v.as<SwizzleMode>()));
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::OpaqueEnum, data.Union());
   } else if (v.any().type() == typeid(SwizzleType)) {
-    data = CreateOpaqueEnum(
+    auto data = CreateOpaqueEnum(
         builder, NvFuserEnum::SwizzleType, toUnderlying(v.as<SwizzleType>()));
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::OpaqueEnum, data.Union());
   } else if (v.any().type() == typeid(Swizzle2DType)) {
-    data = CreateOpaqueEnum(
+    auto data = CreateOpaqueEnum(
         builder,
         NvFuserEnum::Swizzle2DType,
         toUnderlying(v.as<Swizzle2DType>()));
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::OpaqueEnum, data.Union());
   } else if (v.any().type() == typeid(tma::TensorMapInterleave)) {
-    data = CreateOpaqueEnum(
+    auto data = CreateOpaqueEnum(
         builder,
         NvFuserEnum::TensorMapInterleave,
         toUnderlying(v.as<tma::TensorMapInterleave>()));
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::OpaqueEnum, data.Union());
   } else if (v.any().type() == typeid(tma::TensorMapL2Promotion)) {
-    data = CreateOpaqueEnum(
+    auto data = CreateOpaqueEnum(
         builder,
         NvFuserEnum::TensorMapL2Promotion,
         toUnderlying(v.as<tma::TensorMapL2Promotion>()));
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::OpaqueEnum, data.Union());
   } else if (v.any().type() == typeid(tma::TensorMapFloatOOBFill)) {
-    data = CreateOpaqueEnum(
+    auto data = CreateOpaqueEnum(
         builder,
         NvFuserEnum::TensorMapFloatOOBFill,
         toUnderlying(v.as<tma::TensorMapFloatOOBFill>()));
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::OpaqueEnum, data.Union());
   } else if (v.any().type() == typeid(TernaryOpType)) {
-    data = CreateOpaqueEnum(
+    auto data = CreateOpaqueEnum(
         builder,
         NvFuserEnum::TernaryOpType,
         toUnderlying(v.as<TernaryOpType>()));
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::OpaqueEnum, data.Union());
   } else if (v.any().type() == typeid(UnaryOpType)) {
-    data = CreateOpaqueEnum(
+    auto data = CreateOpaqueEnum(
         builder, NvFuserEnum::UnaryOpType, toUnderlying(v.as<UnaryOpType>()));
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::OpaqueEnum, data.Union());
   } else {
     NVF_ERROR(
         false, "Serialization of arbitrary opaque value is not implemented.");
   }
-  return CreatePolymorphicValue(
-      builder, PolymorphicValueData::OpaqueEnum, data.Union());
 }
 
 flatbuffers::Offset<PolymorphicValue> serializeTensor(

@@ -83,6 +83,8 @@ class ParallelTypeBitmap {
     }
   }
 
+  explicit ParallelTypeBitmap(uint64_t value) : bitset_{value} {}
+
   //! Return true if pt is included
   bool get(ParallelType pt) const {
     auto offset = getParallelTypeBitMapOffset(pt);
