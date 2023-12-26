@@ -45,11 +45,11 @@ class IrContainer : public PolymorphicBase {
 
   ~IrContainer() override;
 
-  IrContainer(const serde::IrContainer* buffer);
-
   flatbuffers::Offset<serde::IrContainer> serialize(
       const IrSerde& container,
       flatbuffers::FlatBufferBuilder& builder) const;
+
+  void deserialize(const serde::IrContainer* buffer);
 
   bool inContainer(const Statement* stmt) const;
 
@@ -76,7 +76,13 @@ class IrContainer : public PolymorphicBase {
 
   template <typename NvfuserValType>
   NvfuserValType* getVal(int64_t index) {
-    NVF_CHECK(index < (int64_t)vals_up_.size(), "Out of bounds value index.");
+    NVF_CHECK(
+        index < (int64_t)vals_up_.size(),
+        "Out of bounds value index. Desired index ",
+        index,
+        " but there are only ",
+        vals_up_.size(),
+        " values.");
     if (index < 0) {
       return nullptr;
     }
