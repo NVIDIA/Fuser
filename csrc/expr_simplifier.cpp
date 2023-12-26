@@ -149,8 +149,6 @@ namespace assoc_comm {
 Val* flatten(Val* value);
 } // namespace assoc_comm
 
-namespace {
-
 // An ordered mapping of variable -> VarInfo
 class Context {
  public:
@@ -249,6 +247,8 @@ class Context {
   std::vector<std::pair<Val*, Val*>> less_than_;
   std::vector<std::pair<Val*, Val*>> less_equal_;
 };
+
+namespace {
 
 bool hasSimilarType(DataType t1, DataType t2) {
   if (t1 == t2) {
@@ -547,242 +547,223 @@ asInverseOfAssocCommOp(BinaryOpType op, DataType rhs_dtype) {
 //     inputs: [a, b, 3, c, 5]
 //     outputs: [out]
 //   }
-class FlattenedAssocCommOp : public Expr {
- public:
-  using Expr::Expr;
-
-  FlattenedAssocCommOp(
-      IrBuilderPasskey passkey,
-      BinaryOpType op,
-      Val* out,
-      std::vector<Val*> terms)
-      : Expr(passkey, serde::ExprType::FlattenedAssocComm) {
+FlattenedAssocCommOp::FlattenedAssocCommOp(
+    IrBuilderPasskey passkey,
+    BinaryOpType op,
+    Val* out,
+    std::vector<Val*> terms)
+    : Expr(passkey, serde::ExprType::FlattenedAssocComm) {
+  NVF_CHECK(
+      isAssociativeAndCommutative(op),
+      "Can only flatten associative and commutative ops");
+  addDataAttribute(op);
+  addOutput(out);
+  for (auto v : terms) {
     NVF_CHECK(
-        isAssociativeAndCommutative(op),
-        "Can only flatten associative and commutative ops");
-    addDataAttribute(op);
-    addOutput(out);
-    for (auto v : terms) {
-      NVF_CHECK(
-          hasSimilarType(dtype(), *v->getDataType()),
-          "Input types should be similar, but got: ",
-          dtype(),
-          ", and ",
-          *v->getDataType());
-      addInput(v);
-    }
+        hasSimilarType(dtype(), *v->getDataType()),
+        "Input types should be similar, but got: ",
+        dtype(),
+        ", and ",
+        *v->getDataType());
+    addInput(v);
   }
+}
 
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    switch (getOpType()) {
-      case BinaryOpType::Add:
-        return "FlattenedAdd";
-      case BinaryOpType::Mul:
-        return "FlattenedMul";
-      case BinaryOpType::LogicalAnd:
-        return "FlattenedLogicalAnd";
-      case BinaryOpType::LogicalOr:
-        return "FlattenedLogicalOr";
-      case BinaryOpType::BitwiseAnd:
-        return "FlattenedBitwiseAnd";
-      case BinaryOpType::BitwiseOr:
-        return "FlattenedBitwiseOr";
-      case BinaryOpType::BitwiseXor:
-        return "FlattenedBitwiseXor";
-      case BinaryOpType::Max:
-        return "FlattenedMax";
-      case BinaryOpType::Min:
-        return "FlattenedMin";
-      default:
-        NVF_ERROR(false, "Unknown operator type ", getOpType());
-    }
+const char* FlattenedAssocCommOp::getOpString() const {
+  switch (getOpType()) {
+    case BinaryOpType::Add:
+      return "FlattenedAdd";
+    case BinaryOpType::Mul:
+      return "FlattenedMul";
+    case BinaryOpType::LogicalAnd:
+      return "FlattenedLogicalAnd";
+    case BinaryOpType::LogicalOr:
+      return "FlattenedLogicalOr";
+    case BinaryOpType::BitwiseAnd:
+      return "FlattenedBitwiseAnd";
+    case BinaryOpType::BitwiseOr:
+      return "FlattenedBitwiseOr";
+    case BinaryOpType::BitwiseXor:
+      return "FlattenedBitwiseXor";
+    case BinaryOpType::Max:
+      return "FlattenedMax";
+    case BinaryOpType::Min:
+      return "FlattenedMin";
+    default:
+      NVF_ERROR(false, "Unknown operator type ", getOpType());
   }
+}
 
-  // FlattenedAssocCommOp is unordered, so we should have
-  // FlattenedAdd(a, b)->sameAs(FlattenedAdd(b, a))
-  bool sameAs(const Statement* other) const override {
-    if (this == other) {
+// FlattenedAssocCommOp is unordered, so we should have
+// FlattenedAdd(a, b)->sameAs(FlattenedAdd(b, a))
+bool FlattenedAssocCommOp::sameAs(const Statement* other) const {
+  if (this == other) {
+    return true;
+  }
+  if (!other->isA<FlattenedAssocCommOp>()) {
+    return false;
+  }
+  auto other_fop = other->as<FlattenedAssocCommOp>();
+  if (getOpType() != other_fop->getOpType()) {
+    return false;
+  }
+  // check if we can establish a 1:1 mapping between inputs() and
+  // other_fop->inputs()
+  std::list<Val*> other_inputs(
+      other_fop->inputs().begin(), other_fop->inputs().end());
+  for (const auto inp : inputs()) {
+    auto it =
+        std::find_if(other_inputs.begin(), other_inputs.end(), [inp](Val* v) {
+          return v->sameAs(inp);
+        });
+    if (it == other_inputs.end()) {
+      return false;
+    }
+    other_inputs.erase(it);
+  }
+  return other_inputs.empty();
+}
+
+std::string FlattenedAssocCommOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << getOpString() << "(";
+  bool needs_comma = false;
+  for (auto v : inputs()) {
+    if (needs_comma) {
+      ss << ", ";
+    }
+    ss << v->toString();
+    needs_comma = true;
+  }
+  ss << ")\n";
+  return ss.str();
+}
+
+std::string FlattenedAssocCommOp::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << getOpString() << "(";
+  bool needs_comma = false;
+  for (auto v : inputs()) {
+    if (needs_comma) {
+      ss << ", ";
+    }
+    ss << v->toInlineString();
+    needs_comma = true;
+  }
+  ss << ")";
+  return ss.str();
+}
+
+// Get a vector of inputs, sorted as the order given by `variables`. Note that
+// the sorting key is the rightmost variable that an input depends on. For
+// example, if I have two inputs.
+// v1 = a * c
+// v2 = b
+// and variables is [a, b, c], then v2 < v1 because the rightmost depending
+// variable of v2 is b, and the rightmost depending variable of v1 is c,
+// and b < c. So in this example, this function will return [v2, v1].
+// Tensors are always considered as variables and they are always considered
+// as the rightmost.
+std::vector<Val*> FlattenedAssocCommOp::sortedInputs(const Context& context) {
+  std::vector<Val*> sorted_inputs(inputs().begin(), inputs().end());
+  std::unordered_map<Val*, std::unordered_set<Val*>> dependency;
+  dependency.reserve(sorted_inputs.size());
+  for (auto v : sorted_inputs) {
+    dependency[v] = getSubexprDependency(v, context.variableSet());
+  }
+  auto compare = [&](Val* v1, Val* v2) {
+    // Find all variables in context that v1 and v2 depends on. The input (v1
+    // or v2) that exclusively has the right most variable in context.order()
+    // will be to the right of the other input.
+    bool v1_is_left_of_v2 = false;
+    auto deps1 = dependency.at(v1);
+    auto deps2 = dependency.at(v2);
+    auto hasTensorIndex = [](const auto& deps) {
+      return std::any_of(deps.begin(), deps.end(), [](auto val) {
+        return val->template isA<kir::TensorIndex>();
+      });
+    };
+    if (hasTensorIndex(deps2)) {
       return true;
     }
-    if (!other->isA<FlattenedAssocCommOp>()) {
+    if (hasTensorIndex(deps1)) {
       return false;
     }
-    auto other_fop = other->as<FlattenedAssocCommOp>();
-    if (getOpType() != other_fop->getOpType()) {
-      return false;
-    }
-    // check if we can establish a 1:1 mapping between inputs() and
-    // other_fop->inputs()
-    std::list<Val*> other_inputs(
-        other_fop->inputs().begin(), other_fop->inputs().end());
-    for (const auto inp : inputs()) {
-      auto it =
-          std::find_if(other_inputs.begin(), other_inputs.end(), [inp](Val* v) {
-            return v->sameAs(inp);
-          });
-      if (it == other_inputs.end()) {
-        return false;
+    for (auto v : context.variableOrder()) {
+      if (deps1.count(v) > 0 && deps2.count(v) == 0) {
+        v1_is_left_of_v2 = false;
+      } else if (deps2.count(v) > 0 && deps1.count(v) == 0) {
+        v1_is_left_of_v2 = true;
       }
-      other_inputs.erase(it);
     }
-    return other_inputs.empty();
-  }
+    return v1_is_left_of_v2;
+  };
+  std::sort(sorted_inputs.begin(), sorted_inputs.end(), compare);
+  return sorted_inputs;
+}
 
-  std::string toString(int indent_size = 0) const override {
-    std::stringstream ss;
-    indent(ss, indent_size) << getOpString() << "(";
-    bool needs_comma = false;
-    for (auto v : inputs()) {
-      if (needs_comma) {
-        ss << ", ";
+std::vector<PolymorphicValue> FlattenedAssocCommOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  using namespace PolymorphicValue_functions;
+  std::vector<PolymorphicValue> inputs_ = inputs;
+  PolymorphicValue result;
+  result = inputs_.back();
+  inputs_.pop_back();
+  switch (getOpType()) {
+    case BinaryOpType::Add:
+      for (const auto& i : inputs_) {
+        result += i;
       }
-      ss << v->toString();
-      needs_comma = true;
-    }
-    ss << ")\n";
-    return ss.str();
-  }
-
-  std::string toInlineString(int = 0) const override {
-    std::stringstream ss;
-    ss << getOpString() << "(";
-    bool needs_comma = false;
-    for (auto v : inputs()) {
-      if (needs_comma) {
-        ss << ", ";
+      break;
+    case BinaryOpType::Mul:
+      for (const auto& i : inputs_) {
+        result *= i;
       }
-      ss << v->toInlineString();
-      needs_comma = true;
-    }
-    ss << ")";
-    return ss.str();
-  }
-
-  DataType dtype() const {
-    return *output(0)->getDataType();
-  }
-
-  BinaryOpType getOpType() const {
-    return attribute<BinaryOpType>(0);
-  }
-
-  // Get a vector of inputs, sorted as the order given by `variables`. Note that
-  // the sorting key is the rightmost variable that an input depends on. For
-  // example, if I have two inputs.
-  // v1 = a * c
-  // v2 = b
-  // and variables is [a, b, c], then v2 < v1 because the rightmost depending
-  // variable of v2 is b, and the rightmost depending variable of v1 is c,
-  // and b < c. So in this example, this function will return [v2, v1].
-  // Tensors are always considered as variables and they are always considered
-  // as the rightmost.
-  std::vector<Val*> sortedInputs(const Context& context) {
-    std::vector<Val*> sorted_inputs(inputs().begin(), inputs().end());
-    std::unordered_map<Val*, std::unordered_set<Val*>> dependency;
-    dependency.reserve(sorted_inputs.size());
-    for (auto v : sorted_inputs) {
-      dependency[v] = getSubexprDependency(v, context.variableSet());
-    }
-    auto compare = [&](Val* v1, Val* v2) {
-      // Find all variables in context that v1 and v2 depends on. The input (v1
-      // or v2) that exclusively has the right most variable in context.order()
-      // will be to the right of the other input.
-      bool v1_is_left_of_v2 = false;
-      auto deps1 = dependency.at(v1);
-      auto deps2 = dependency.at(v2);
-      auto hasTensorIndex = [](const auto& deps) {
-        return std::any_of(deps.begin(), deps.end(), [](auto val) {
-          return val->template isA<kir::TensorIndex>();
-        });
-      };
-      if (hasTensorIndex(deps2)) {
-        return true;
+      break;
+    case BinaryOpType::LogicalAnd:
+      for (const auto& i : inputs_) {
+        result = result && i;
       }
-      if (hasTensorIndex(deps1)) {
-        return false;
+      break;
+    case BinaryOpType::LogicalOr:
+      for (const auto& i : inputs_) {
+        result = result || i;
       }
-      for (auto v : context.variableOrder()) {
-        if (deps1.count(v) > 0 && deps2.count(v) == 0) {
-          v1_is_left_of_v2 = false;
-        } else if (deps2.count(v) > 0 && deps1.count(v) == 0) {
-          v1_is_left_of_v2 = true;
-        }
+      break;
+    case BinaryOpType::BitwiseAnd:
+      for (const auto& i : inputs_) {
+        result = result & i;
       }
-      return v1_is_left_of_v2;
-    };
-    std::sort(sorted_inputs.begin(), sorted_inputs.end(), compare);
-    return sorted_inputs;
+      break;
+    case BinaryOpType::BitwiseOr:
+      for (const auto& i : inputs_) {
+        result = result | i;
+      }
+      break;
+    case BinaryOpType::BitwiseXor:
+      for (const auto& i : inputs_) {
+        result = result ^ i;
+      }
+      break;
+    case BinaryOpType::Min:
+      for (const auto& i : inputs_) {
+        result = min(result, i);
+      }
+      break;
+    case BinaryOpType::Max:
+      for (const auto& i : inputs_) {
+        result = max(result, i);
+      }
+      break;
+    default:
+      NVF_ERROR(
+          "Unexpected operator type encountered"
+          "in PolymorphicValue::evaluate: ",
+          getOpType());
   }
-
-  bool isTrivial() const {
-    return inputs().size() == 1;
-  }
-
-  std::vector<PolymorphicValue> evaluate(
-      const ExpressionEvaluator& ee,
-      const std::vector<PolymorphicValue>& inputs) const override {
-    using namespace PolymorphicValue_functions;
-    std::vector<PolymorphicValue> inputs_ = inputs;
-    PolymorphicValue result;
-    result = inputs_.back();
-    inputs_.pop_back();
-    switch (getOpType()) {
-      case BinaryOpType::Add:
-        for (const auto& i : inputs_) {
-          result += i;
-        }
-        break;
-      case BinaryOpType::Mul:
-        for (const auto& i : inputs_) {
-          result *= i;
-        }
-        break;
-      case BinaryOpType::LogicalAnd:
-        for (const auto& i : inputs_) {
-          result = result && i;
-        }
-        break;
-      case BinaryOpType::LogicalOr:
-        for (const auto& i : inputs_) {
-          result = result || i;
-        }
-        break;
-      case BinaryOpType::BitwiseAnd:
-        for (const auto& i : inputs_) {
-          result = result & i;
-        }
-        break;
-      case BinaryOpType::BitwiseOr:
-        for (const auto& i : inputs_) {
-          result = result | i;
-        }
-        break;
-      case BinaryOpType::BitwiseXor:
-        for (const auto& i : inputs_) {
-          result = result ^ i;
-        }
-        break;
-      case BinaryOpType::Min:
-        for (const auto& i : inputs_) {
-          result = min(result, i);
-        }
-        break;
-      case BinaryOpType::Max:
-        for (const auto& i : inputs_) {
-          result = max(result, i);
-        }
-        break;
-      default:
-        NVF_ERROR(
-            "Unexpected operator type encountered"
-            "in PolymorphicValue::evaluate: ",
-            getOpType());
-    }
-    return {result};
-  }
-};
+  return {result};
+}
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(FlattenedAssocCommOp)
 
