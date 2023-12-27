@@ -178,6 +178,17 @@ void InnerPersistentKernelScheduler::computeHeuristics(
 namespace {
 // get heuristics for pattern [I,R], here 2D means we only need to process one
 // iter dim and on reduction dim.
+// The reduction dim is parallelized by:
+// [vectorization_unroll_val], [persistent_val], and [bimdx_val].
+// The iter dim is parallelized by:
+// [bdimy_val], [gdimx_val] and [gdimy_val].
+
+// How it works?
+// (1) set [vectorization_unroll_val] to max_vectorize_factor
+// (2) Loop over all possible [persistent_val]
+//     calculate a heuristic para for each [persistent_val]
+//     save all the heuristic paras to [all_h_params]
+// (3) Find the best heuristic para in [all_h_params]
 std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
@@ -190,12 +201,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     const bool has_rng_ops,
     const bool has_exp_ops) {
   // Some checks:
-  NVF_ERROR(
-      total_reduction_numel % max_vectorize_factor == 0,
-      "Reduction dim can't be fully vectorized. total_reduction_numel= ",
-      total_reduction_numel,
-      ", max_vectorize_factor= ",
-      max_vectorize_factor);
   bool is_vectorization = max_vectorize_factor > 1;
   NVF_ERROR(
       is_vectorization,
@@ -217,37 +222,28 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // If [n_waves_max > 1] use at least four warps per warp as recommended by the
   // cuda-c-best-practices-guide. Otherwise, one SM only has 1 block to process,
   // so use as many threads as possible to increase occupancy.
-  const int64_t min_threads_per_block = [&]() {
-    if (n_waves_max == 1l) {
-      return (int64_t)dev_prop->maxThreadsPerBlock;
-    } else {
-      // softmax, a100, 2k x 10k, 256 threads is 10% faster than 128 threads.
-      if (total_reduction_numel < 10240l) {
-        return 128l;
-      } else {
-        return 256l;
-      }
-    }
-  }();
-
-  // limit to half of maxThreadsPerBlock to avoid the use of small persistent
-  // size, hbwise will use 4 at 17K.
-  const int64_t max_threads_per_block =
-      has_rng_ops ? dev_prop->maxThreadsPerBlock : dev_prop->maxThreadsPerBlock;
+  const int64_t min_threads_per_block =
+      n_waves_max > 1l ? 128l : (int64_t)dev_prop->maxThreadsPerBlock;
+  const int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
 
   // target 50% occupancy based on experiments
   // at 14K, prefer persistent_val= 4, bdimx_val= 448, warp_per_sm= 28
   // at 20736, prefer persistent_val= 3, bdimx_val= 864, warp_per_sm= 27
   // at 23K, perfer persistent_val= 4, bdimx_val= 736, warp_per_sm= 23
   const int64_t target_warps_per_sm =
-      max_persistent_buffer_size >= 14l * 1024l * 4l ? 24l : 32l;
+      max_persistent_buffer_size >= 14l * 1024l * 4l ? 22l : 32l;
 
+  // hint for register usage based on experiments
   // allows to reduce estimated register usage for higher occupancy.
   constexpr int64_t max_adjust_count = 8;
+  auto estimateRegisterPerThread = [](int64_t buffer_per_thread) {
+    return 24l +
+        ceilDiv(buffer_per_thread, scheduler_utils::bytes_per_register);
+  };
 
   // when may do multi reductions per block (mrpb)
   // Ideally, reduction_numel_threshold depends on n_waves_max.
-  const int64_t mrpb_reduction_numel_threshold = has_rng_ops ? 1024l : 1024l;
+  const int64_t mrpb_reduction_numel_threshold = has_rng_ops ? 1024l : 2048l;
   const int64_t optimal_mrpb_threads_per_block = 128l;
   const int64_t mrpb_wave_threshold = 4l;
   const bool may_use_mrpb =
@@ -255,13 +251,13 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       n_waves_max > mrpb_wave_threshold;
 
   // hint for max persistent size based on experiments.
+  // needs this to help the search. e.g. at 4K, we can use persistent_val of
+  // 1, 2, 4. All values are divisible and lead to same occupancy and fully
+  // used all registers. However, test shows persistent_val = 2 is the best.
   const auto [persistent_experiment_min, persistent_experiment_max] = [&]() {
-    int64_t experiment_min = 1l;
-    int64_t experiment_max = 6l;
+    int64_t experiment_min = -1l;
+    int64_t experiment_max = -1l;
     if (has_rng_ops) {
-      // needs this to help the search. e.g. at 4K, we can use persistent_val of
-      // 1, 2, 4. All values are divisible and lead to same occupancy and fully
-      // used all registers. However, test shows persistent_val = 2.
       if (total_reduction_numel >= 20480) {
         experiment_min = 4l;
         experiment_max = 7l;
@@ -279,28 +275,92 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         experiment_max = 1l;
       }
     } else {
-      if (total_reduction_numel <= 6144l) {
-        experiment_max = 5l;
-      } else {
+      if (total_reduction_numel >= 20480) {
+        experiment_min = 7l;
+        experiment_max = 10l;
+      } else if (total_reduction_numel >= 6144l) {
         experiment_min = 3l;
         experiment_max = 10l;
+      } else if (total_reduction_numel >= 3072l) {
+        experiment_min = 3l;
+        experiment_max = 6l;
+      } else if (total_reduction_numel >= 2048l) {
+        experiment_min = 2l;
+        experiment_max = 3l;
+      } else {
+        experiment_min = 2l;
+        experiment_max = 8l;
       }
     }
     return std::make_pair(experiment_min, experiment_max);
   }();
 
-  // hint for register usage based on experiments
-  auto estimateRegisterPerThread = [](int64_t buffer_per_thread) {
-    return 24l +
-        ceilDiv(buffer_per_thread, scheduler_utils::bytes_per_register);
+  // parameters we need to set: [persistent_val], [bdimx_val], [bdimy_val],
+  // [nvrtc_register_per_thread]
+  struct HeuristicParas {
+    // free parameter
+    int64_t persistent_val = -1l;
+    // derived parameters based on assumptions and free parameters
+    int64_t bdimx_val = -1l;
+    int64_t bdimy_val = -1l;
+    int64_t nvrtc_register_per_thread = -1l;
+    // quantities reflecting the quality of the heuristic
+    int64_t warps_per_sm = -1l;
+    int64_t warps_per_block = -1l;
+    int64_t n_waves = -1l;
+    int64_t n_persistent_tails = -1l;
+    int64_t n_threads_tails = -1l;
+    // print to string
+    std::string toString() const {
+      std::stringstream ss;
+      ss << "persistent_val= " << persistent_val << ", bdimx_val= " << bdimx_val
+         << ", bdimy_val= " << bdimy_val
+         << ", nvrtc_register_per_thread= " << nvrtc_register_per_thread
+         << ", n_waves= " << n_waves << ", n_threads_tails= " << n_threads_tails
+         << ", warps_per_sm= " << warps_per_sm
+         << ", n_persistent_tails= " << n_persistent_tails
+         << ", registers= " << warps_per_sm * 32 * nvrtc_register_per_thread;
+      return ss.str();
+    }
   };
-  // calculate register usage, waves, and occupancy (warps per sm).
+
+  // Given [persistent_val], calculate [bdimx_val]
+  auto calculateBdimx = [&](int64_t persistent_val_x) {
+    int64_t bdimx_val = ceilDiv(after_vect, persistent_val_x);
+    if (bdimx_val > 16 && bdimx_val % threads_per_warp != 0) {
+      bdimx_val = ceilDiv(bdimx_val, threads_per_warp) * threads_per_warp;
+    }
+    return bdimx_val;
+  };
+
+  // Given [bdimx_val], calculate [bdimy_val]
+  auto calculateBdimy = [&](int64_t bdimx_val, bool may_use_mrpb) {
+    int64_t bdimy_val = 1l;
+    if (may_use_mrpb) {
+      // Compute maximum number of reductions we could
+      // do in the same kernel based on persistent buffer size. Bounded by the
+      // wave count for utilization of SMs.
+      const int64_t max_multi_reduction_factor = std::min(
+          scheduler_utils::safeDiv(
+              scheduler_utils::register_file_size, max_persistent_buffer_size),
+          n_waves_max);
+      bdimy_val = std::min(
+          scheduler_utils::safeDiv(optimal_mrpb_threads_per_block, bdimx_val),
+          max_multi_reduction_factor);
+    }
+    return bdimy_val;
+  };
+
+  // Given [persistent_val], [bdimx_val], and [bdimy_val]
+  // calculate [nvrtc_register_per_thread], [warps_per_sm], [n_waves],
   auto calculateRegWaveOccupancy = [&](int64_t persistent_val_x,
                                        int64_t bdimx_val,
                                        int64_t bdimy_val) {
     int64_t nvrtc_register_per_thread = -1l;
     int64_t blocks_per_sm = -1l;
 
+    // calculate [target_blocks_per_sm] and [target_reg_per_thread]
+    // using [target_warps_per_sm]
     int64_t threads_per_block = bdimx_val * bdimy_val;
     int64_t warps_per_block = ceilDiv(threads_per_block, threads_per_warp);
     int64_t target_blocks_per_sm =
@@ -316,7 +376,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     if (has_exp_ops) {
       // Try to maximize occupancy.
       // calc blocks_per_sm using estimated register usage, if lower than
-      // expected, try to increase it by reducing register usage.
+      // target, try to increase occupancy by reducing register usage.
       blocks_per_sm =
           getThreadsPerSMGivenRegPerThread(estimated_reg_per_thread) /
           threads_per_block;
@@ -338,94 +398,37 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
             blocks_per_sm * warps_per_block * threads_per_warp);
       }
     }
-
     int64_t warps_per_sm =
         std::min(blocks_per_sm * warps_per_block, max_warps_per_sm);
-    // get the maximum register without reducing occupancy.
     int64_t n_waves = ceilDiv(
-        total_iteration_numel,
-        (int64_t)dev_prop->multiProcessorCount * blocks_per_sm * bdimy_val);
-    int64_t n_adjusted_register =
-        std::max(0l, estimated_reg_per_thread - nvrtc_register_per_thread);
-    return std::make_tuple(
-        nvrtc_register_per_thread, warps_per_sm, n_waves, n_adjusted_register);
+        ceilDiv(total_iteration_numel, bdimy_val),
+        (int64_t)dev_prop->multiProcessorCount * blocks_per_sm);
+    return std::make_tuple(nvrtc_register_per_thread, warps_per_sm, n_waves);
   };
 
-  auto calculateBdimx = [&](int64_t persistent_val_x) {
-    int64_t bdimx_val = ceilDiv(after_vect, persistent_val_x);
-    if (bdimx_val > 16 && bdimx_val % threads_per_warp != 0) {
-      bdimx_val = ceilDiv(bdimx_val, threads_per_warp) * threads_per_warp;
-    }
-    return bdimx_val;
-  };
-
-  auto calculateBdimy = [&](int64_t bdimx_val, bool may_use_mrpb) {
-    int64_t bdimy_val = 1l;
-    if (may_use_mrpb) {
-      // Compute maximum number of reductions we could
-      // do in the same kernel based on persistent buffer size. Bounded by the
-      // wave count for utilization of SMs.
-      const int64_t max_multi_reduction_factor = std::min(
-          scheduler_utils::safeDiv(
-              scheduler_utils::register_file_size, max_persistent_buffer_size),
-          n_waves_max);
-      bdimy_val = std::min(
-          scheduler_utils::safeDiv(optimal_mrpb_threads_per_block, bdimx_val),
-          max_multi_reduction_factor);
-    }
-    return bdimy_val;
-  };
-
-  struct HeuristicParas {
-    int64_t warp_size;
-    int64_t persistent_val = -1l;
-    int64_t bdimx_val = -1l;
-    int64_t bdimy_val = -1l;
-    int64_t nvrtc_register_per_thread = -1l;
-    int64_t warps_per_sm = -1l;
-    int64_t warps_per_block = -1l;
-    int64_t n_waves = -1l;
-    int64_t n_persistent_tails = -1l;
-    int64_t n_threads_tails =
-        -1l; // unused threads in the last persistent batch
-    int64_t n_adjusted_register = -1l;
-    // print to string
-    std::string toString() const {
-      std::stringstream ss;
-      ss << "persistent_val= " << persistent_val << ", bdimx_val= " << bdimx_val
-         << ", bdimy_val= " << bdimy_val
-         << ", nvrtc_register_per_thread= " << nvrtc_register_per_thread
-         << ", n_waves= " << n_waves << ", n_threads_tails= " << n_threads_tails
-         << ", warps_per_sm= " << warps_per_sm
-         << ", n_persistent_tails= " << n_persistent_tails
-         << ", registers= " << warps_per_sm * 32 * nvrtc_register_per_thread;
-      return ss.str();
-    }
-  };
-
+  // Given [persistent_val], calculate heuristic parameters following 3 steps:
+  // (1) calculate [bdimx_val] using calculateBdimx
+  // (2) calculate [bdimy_val] using calculateBdimy
+  // (3) calculate [nvrtc_register_per_thread] using calculateRegWaveOccupancy
   auto getHeuristicParas = [&](int64_t persistent_val) {
     int64_t bdimx_val = calculateBdimx(persistent_val);
     int64_t bdimy_val = calculateBdimy(bdimx_val, may_use_mrpb);
     int64_t warps_per_block = ceilDiv(bdimx_val * bdimy_val, threads_per_warp);
-    auto
-        [nvrtc_register_per_thread,
-         warps_per_sm,
-         n_waves,
-         n_adjusted_register] =
-            calculateRegWaveOccupancy(persistent_val, bdimx_val, bdimy_val);
+    auto [nvrtc_register_per_thread, warps_per_sm, n_waves] =
+        calculateRegWaveOccupancy(persistent_val, bdimx_val, bdimy_val);
 
     // after_vect is split into multiple persistent batches, the last batch may
-    // not be full. for each persistent loop, bimdx is padded full warps, want
-    // to minimize this padding to reduce wasted registers. prefer
-    // n_persistent_tails = 0 and n_threads_tails = 0. n_threads_tails == 0 is
-    // more important than n_persistent_tails == 0 since it is in the inner
-    // loop.
+    // not be fully utilized, the wasted threads in the last batch is quantified
+    // as [n_persistent_tails]. Prefer 0 to avoid warp divergence and unused warps.
     auto n_persistent_tails =
         ceilDiv(after_vect, persistent_val) * persistent_val - after_vect;
+    
+    // For each persistent batch, [bdimx_val] is usually padded to full warps
+    // The padded threads are quantified as [n_threads_tails]. Prefer 0 to avoid
+    // warp divergence.
     auto n_threads_tails = bdimx_val - ceilDiv(after_vect, persistent_val);
 
     return HeuristicParas{
-        .warp_size = threads_per_warp,
         .persistent_val = persistent_val,
         .bdimx_val = bdimx_val,
         .bdimy_val = bdimy_val,
@@ -434,8 +437,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         .warps_per_block = warps_per_block,
         .n_waves = n_waves,
         .n_persistent_tails = n_persistent_tails,
-        .n_threads_tails = n_threads_tails,
-        .n_adjusted_register = n_adjusted_register};
+        .n_threads_tails = n_threads_tails};
   };
 
   // a better heuristic is a heuristic with:
@@ -451,54 +453,21 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       }
       return 0;
     };
-    // 22k and 23k, occupancy is more important than n_threads_tails.
+    // prefer 0 to avoid warp divergence in each persistent batch.
     auto threads_tails_score =
         compare(ha.n_threads_tails == 0, hb.n_threads_tails == 0);
-    // divisible split
+    
+    // prefer 0 to avoid unused warps and warp divergence in the last persistent batch.
     auto persistent_tails_score =
         compare(ha.n_persistent_tails == 0, hb.n_persistent_tails == 0);
 
-    // 9472
-    // persistent_val= 4, bdimx_val= 320, bdimy_val= 1,
-    // nvrtc_register_per_thread= 48, n_waves= 63, n_threads_tails= 24,
-    // warps_per_sm= 40, n_persistent_tails= 0, registers= 61440 persistent_val=
-    // 3, bdimx_val= 416, bdimy_val= 1, nvrtc_register_per_thread= 48, n_waves=
-    // 83, n_threads_tails= 21, warps_per_sm= 39, n_persistent_tails= 1,
-    // registers= 59904 persistent_val= 2, bdimx_val= 608, bdimy_val= 1,
-    // nvrtc_register_per_thread= 48, n_waves= 125, n_threads_tails= 16,
-    // warps_per_sm= 38, n_persistent_tails= 0, registers= 58368
-
-    // 11008
-    // persistent_val= 3, bdimx_val= 480, bdimy_val= 1,
-    // nvrtc_register_per_thread= 40, n_waves= 83, n_threads_tails= 21,
-    // warps_per_sm= 45, n_persistent_tails= 1, registers= 57600 persistent_val=
-    // 2, bdimx_val= 704, bdimy_val= 1, nvrtc_register_per_thread= 40, n_waves=
-    // 125, n_threads_tails= 16, warps_per_sm= 44, n_persistent_tails= 0,
-    // registers= 56320 persistent_val= 4, bdimx_val= 352, bdimy_val= 1,
-    // nvrtc_register_per_thread= 56, n_waves= 83, n_threads_tails= 8,
-    // warps_per_sm= 33, n_persistent_tails= 0, registers= 59136
-
-    // 22528
-    // ersistent_val= 5, bdimx_val= 576, bdimy_val= 1,
-    // nvrtc_register_per_thread= 56, n_waves= 125, n_threads_tails= 12,
-    // warps_per_sm= 36, n_persistent_tails= 4, registers= 64512 persistent_val=
-    // 3, bdimx_val= 960, bdimy_val= 1, nvrtc_register_per_thread= 64, n_waves=
-    // 249, n_threads_tails= 21, warps_per_sm= 30, n_persistent_tails= 1,
-    // registers= 61440 persistent_val= 6, bdimx_val= 480, bdimy_val= 1,
-    // nvrtc_register_per_thread= 64, n_waves= 125, n_threads_tails= 10,
-    // warps_per_sm= 30, n_persistent_tails= 4, registers= 61440 persistent_val=
-    // 7, bdimx_val= 416, bdimy_val= 1, nvrtc_register_per_thread= 72, n_waves=
-    // 125, n_threads_tails= 13, warps_per_sm= 26, n_persistent_tails= 5,
-    // registers= 59904 persistent_val= 4, bdimx_val= 704, bdimy_val= 1,
-    // nvrtc_register_per_thread= 80, n_waves= 249, n_threads_tails= 0,
-    // warps_per_sm= 22, n_persistent_tails= 0, registers= 56320
+    // prefer larger [warps_per_sm]
     auto occupancy_score = compare(ha.warps_per_sm, hb.warps_per_sm);
     auto register_usage = compare(
         ha.warps_per_sm * ha.nvrtc_register_per_thread * 32l,
         hb.warps_per_sm * hb.nvrtc_register_per_thread * 32l);
     auto single_warp_reduction_score = compare(
         ha.bdimx_val == threads_per_warp, hb.bdimx_val == threads_per_warp);
-    auto n_bdimx_score = compare(ha.bdimx_val > 0, hb.bdimx_val > 0);
     // auto persistent_val_score = compare(ha.persistent_val,
     // hb.persistent_val);
     std::cout << "pa:" << ha.persistent_val << ", pb:" << hb.persistent_val
@@ -508,9 +477,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
               << ", occupancy_score: " << occupancy_score
               << ", single_warp_reduction_score: "
               << single_warp_reduction_score << std::endl;
-    auto first_priority = persistent_tails_score;
-    auto second_priority = threads_tails_score;
-    auto third_priority = occupancy_score;
+    auto first_priority = single_warp_reduction_score  ;
+    auto second_priority = threads_tails_score  ;
+    auto third_priority = persistent_tails_score ;
     if (has_rng_ops) {
       first_priority = threads_tails_score;
       second_priority = persistent_tails_score;
@@ -526,22 +495,15 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       } else if (second_priority < 0) {
         return false;
       } else {
-        // at 6K, prefer 3 not 1 or 2.
-        // at 21K, prefer 6 not 7.
-        if (ha.n_threads_tails == 0 && ha.n_persistent_tails == 0) {
-          // // at 7K, prefer 2 not 1.
-          // if (total_reduction_numel >= 7168l) {
-          //   if(hb.persistent_val == 1){
-          //     return true;
-          //   }else if(ha.persistent_val == 1){
-          //   return false;
-          //   }
-          // }
-          third_priority = register_usage;
-        } else {
-          return ha.persistent_val < hb.persistent_val;
+        if(has_rng_ops){
+          // at 6K, prefer 3 not 1 or 2.
+          // at 21K, prefer 6 not 7.
+          if (ha.n_threads_tails == 0 && ha.n_persistent_tails == 0) {
+            third_priority = register_usage;
+          } else {
+            return ha.persistent_val < hb.persistent_val;
+          }
         }
-
         if (third_priority > 0) {
           return true;
         } else if (third_priority < 0) {
@@ -552,11 +514,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
           } else if (single_warp_reduction_score < 0) {
             return false;
           } else {
-            if (n_bdimx_score > 0) {
-              return true;
-            } else if (n_bdimx_score < 0) {
-              return false;
-            } else {
               // If wasted threads number is non-zero, perfer small
               // [persistent], it leads to larger [bdimx], means wasted fraction
               // of threads is smaller. e.g. at 10496, prefer persistent = 3
@@ -564,18 +521,13 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
               return ha.n_threads_tails != 0
                   ? ha.persistent_val < hb.persistent_val
                   : ha.persistent_val > hb.persistent_val;
-            }
           }
         }
       }
     }
   };
 
-  // (2) reduction dim, split [after_vect] between [persistent] and [bimdx]
-  // (2.1) set [bdimx_min] and [bdimx_max]
-  // if may use mrpb, set [bdimx_min] to warpSize, allowing more space for
-  // [bdimy_val]
-
+  // set [bdimx_min] and [bdimx_max]
   const int64_t bdimx_min = [=]() {
     int64_t tmp = std::min((int64_t)after_vect, min_threads_per_block);
     if (may_use_mrpb) {
@@ -585,23 +537,19 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   }();
   const int64_t bdimx_max = max_threads_per_block;
 
-  // (2.2) set [persistent_min] and [persistent_max]
+  // set [persistent_min] and [persistent_max]
   const int64_t persistent_min_hardware = ceilDiv(after_vect, bdimx_max);
   const int64_t persistent_min =
       std::max(persistent_experiment_min, persistent_min_hardware);
-  const int64_t persistent_max = std::min(
-      std::max(persistent_experiment_max, persistent_min),
-      ceilDiv(after_vect, bdimx_min));
+  const int64_t persistent_max = std::max(persistent_min,
+      std::min(persistent_experiment_max, ceilDiv(after_vect, bdimx_min)));
   std::cout << "persistent_min: " << persistent_min
             << ", persistent_max: " << persistent_max
             << ", bdimx_min: " << bdimx_min << std::endl;
-  // (2.3) init [bimdx] to [bdimx_min], calculate [persistent_val]
-  // int64_t bdimx_val = bdimx_min;
-  // int64_t persistent_val = ceilDiv(after_vect, bdimx_val);
-  // persistent_val =
-  //     std::max(persistent_min, std::min(persistent_max, persistent_val));
 
-  // (2.4) get our first [h_params] using [persistent_val]
+  // Loop over all possible [persistent_val] and save all possible heuristics.
+  // allow extra search space for cases don't have divisible split, e.g. 20736
+  // needs a persistent batch of 3.
   int64_t selected_item = 0;
   bool has_divisible_split = false;
   std::vector<HeuristicParas> all_h_params;
@@ -613,15 +561,16 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     }
     all_h_params.emplace_back(h_params);
   }
-  // extra search space for cases don't have divisible split, e.g. 20736 needs
-  // a persistent batch of 3.
-  if (!has_divisible_split) {
+  if (has_exp_ops && !has_divisible_split) {
     for (auto pb = persistent_min - 1; pb >= persistent_min_hardware; pb--) {
       all_h_params.emplace_back(getHeuristicParas(pb));
     }
   }
 
-  // sort by occupancy and only further process those with occupancy >= 50%.
+  // Find the best heuristic.
+  // sort by occupancy and only further process those higher than [target_warps_per_sm].
+  // e.g. at 22K, want to use [persistent_val= 5] which is the only size leading
+  // to occupancy >= 50%. But it is not a divisible split.  
   std::stable_sort(
       all_h_params.begin(),
       all_h_params.end(),
@@ -634,9 +583,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       [target_warps_per_sm](const auto& h_params) {
         return h_params.warps_per_sm >= target_warps_per_sm;
       });
-
-  // e.g. at 22K, want to use [persistent_val= 5] which is the only size leading
-  // to occupancy >= 50%. But it is not a divisible split.
   if (n_items > 1) {
     std::stable_sort(
         all_h_params.begin(), all_h_params.begin() + n_items, isBetterThan);
@@ -645,89 +591,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   for (auto it = all_h_params.begin(); it != all_h_params.end(); it++) {
     std::cout << it->toString() << std::endl;
   }
-  // std::cout << "selected_item: " << selected_item << " n_items: " << n_items
-  // << std::endl;
   HeuristicParas h_params = all_h_params[selected_item];
 
-  // Evaluate this [h_params] focus on [occupancy] and [n_waves]
-  // (2.4) Up to this point, [persistent_val] * [bdimx_val]  >= [after_vect].
-  // Let [tailing] = [persistent_val] * [bdimx_val] - [after_vect].
-  // Adjust [persistent_val] to minimize tailing.
-  // if (h_params.n_threads_tails > 0) {
-  // int64_t persistent_old = h_params.persistent_val;
-  // for (auto x : mayChangePersistentValBy) {
-  //   auto persistent_tmp = persistent_old + x;
-  //   if (persistent_tmp < persistent_min || persistent_tmp > persistent_max) {
-  //     continue;
-  //   }
-  //   HeuristicParas h_params_tmp = getHeuristicParas(persistent_tmp);
-  //   std::cout << "h_params_tmp: " << h_params_tmp.toString() << std::endl;
-  //   if (h_params_tmp.isBetterThan(h_params)) {
-  //     h_params = h_params_tmp;
-  //     // if (h_params.n_threads_tails == 0) {
-  //     //   break;
-  //     // }
-  //   }
-  // }
-  // }
-  // if has rng and [persistent_val] is not divisible, use [persistent_min] to
-  // reduce workload of each thread.
-  // bool rng_and_nondivisible = has_rng_ops && n_threads_tails;
-  // if (rng_and_nondivisible) {
-  //   persistent_val = persistent_min;
-  // }
-
-  // adjust register usage to achieve target occupancy.
-  // set [nvrtc_register_per_thread], [blocks_per_sm], [warps_per_sm]
-  // if occupancy is lower than 50%, search for [persistent_val] for higher
-  // occupancy. The code in this if block increased bandwidth for
-  // bias_dropout_add_layer_norm around 18 to 20K by 5%.
-  // if (rng_and_nondivisible && warps_per_sm < target_min_warps_per_sm) {
-  //   for (auto p = persistent_min + 1; p <= persistent_max; p++) {
-  //     auto
-  //         [bdimx_val_tmp,
-  //          bdimy_val_tmp,
-  //          nvrtc_register_per_thread_tmp,
-  //          blocks_per_sm_tmp,
-  //          warps_per_sm_tmp] = getParasUsingPersistentVal(p);
-  //     if (warps_per_sm_tmp > warps_per_sm) {
-  //       persistent_val = p;
-  //       // std::cout << "higher occupancy found. old warps_per_sm = " <<
-  //       // warps_per_sm << ", new= " << warps_per_sm_tmp << std::endl;
-  //       bdimx_val = bdimx_val_tmp;
-  //       bdimy_val = bdimy_val_tmp;
-  //       nvrtc_register_per_thread = nvrtc_register_per_thread_tmp;
-  //       blocks_per_sm = blocks_per_sm_tmp;
-  //       warps_per_sm = warps_per_sm_tmp;
-  //     }
-  //   }
-  // }
-
-  // deal with regression for layer_norm around 32K.
-  // if (blocks_per_sm == 1 && n_waves_max > 1) {
-  //   for (auto p = persistent_val + 1; p <= persistent_max * 2; p++) {
-  //     auto [bdimx_val_tmp, bdimy_val_tmp] = calculateBdimxBdimy(p);
-  //     auto
-  //         [nvrtc_register_per_thread_tmp, blocks_per_sm_tmp,
-  //         warps_per_sm_tmp] =
-  //             calculateOccupancy(p, bdimx_val_tmp * bdimy_val_tmp);
-  //     if (warps_per_sm_tmp > warps_per_sm) {
-  //       persistent_val = p;
-  //       bdimx_val = bdimx_val_tmp;
-  //       bdimy_val = bdimy_val_tmp;
-  //       nvrtc_register_per_thread = nvrtc_register_per_thread_tmp;
-  //       blocks_per_sm = blocks_per_sm_tmp;
-  //       warps_per_sm = warps_per_sm_tmp;
-  //       std::cout << "debug_blocks_per_sm increased to " << blocks_per_sm
-  //                 << std::endl;
-  //       if (blocks_per_sm > 1) {
-  //         break;
-  //       }
-  //     }
-  //   }
-  // }
-
-  // (5) iteration dim, set [gdimx] and maybe also [gdimy]
+  // iteration dim, set [gdimx] and maybe also [gdimy]
   int64_t gdimx_val = ceilDiv(total_iteration_numel, h_params.bdimy_val);
   int64_t gdimy_val = LaunchParams::UNINITIALIZED_VAL;
   if (gdimx_val > scheduler_utils::x_grid_limit) {
