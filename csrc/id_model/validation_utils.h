@@ -40,6 +40,8 @@ class IdModelValidator {
 
   void checkAlmostExactGraphEquivalence(const ValGraph& almost_exact_graph);
 
+  void checkPermissiveGraphEquivalence(const ValGraph& permissive_graph);
+
  private:
   // Propagate mappings in a ComputeAtMap as is done in IdModel
   static void fullyPropagateMappings(DisjointSets<IterDomain*>& id_sets);
