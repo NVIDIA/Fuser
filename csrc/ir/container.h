@@ -144,9 +144,11 @@ class IrContainer : public PolymorphicBase {
   //! Return expression in insertion order
   std::deque<Expr*> deterministic_exprs() const noexcept;
 
-  //! Return mapping from value to integer id
-  std::unordered_map<Val*, int64_t> deterministic_vals_map(
-      bool include_persistent_values = false) const noexcept;
+  //! Return mapping from value to integer id in deterministic order
+  std::unordered_map<Val*, int64_t> deterministic_vals_map() const noexcept;
+
+  //! Return mapping from value to integer id in topological sorted order
+  std::unordered_map<Val*, int64_t> toposort_vals_map() const noexcept;
 
   //! Return mapping from expression to integer id
   std::unordered_map<Expr*, int64_t> deterministic_exprs_map() const noexcept;
@@ -225,6 +227,8 @@ class IrContainer : public PolymorphicBase {
   void clear() noexcept;
 
   void lazyInitAxioms();
+
+  std::vector<Val*> topologicalSortValues(const std::deque<Val*>& values) const;
 
   // Deque of unique pointer is the memory owning data structure
   std::deque<std::unique_ptr<Val>> vals_up_;

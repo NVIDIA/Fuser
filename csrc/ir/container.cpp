@@ -13,6 +13,68 @@
 
 namespace nvfuser {
 
+// A generic utility then ensures that all of a value's dependencies should have
+// indicies less than its index.
+std::vector<Val*> IrContainer::topologicalSortValues(
+    const std::deque<Val*>& values) const {
+  std::unordered_set<Val*> to_sort;
+  std::copy(
+      values.begin(), values.end(), std::inserter(to_sort, to_sort.end()));
+  std::unordered_set<const Val*> visited;
+  std::vector<Val*> sorted;
+
+  if (zero_val_ != nullptr) {
+    visited.insert(zero_val_.get());
+  }
+
+  if (one_val_ != nullptr) {
+    visited.insert(one_val_.get());
+  }
+
+  if (false_val_ != nullptr) {
+    visited.insert(false_val_.get());
+  }
+
+  if (true_val_ != nullptr) {
+    visited.insert(true_val_.get());
+  }
+
+  if (magic_zero_val_ != nullptr) {
+    visited.insert(magic_zero_val_.get());
+  }
+
+  int64_t deleted = 1;
+
+  // Topological Sort
+  while (!to_sort.empty()) {
+    --deleted;
+    for (auto top_val : to_sort) {
+      if (visited.count(top_val)) {
+        to_sort.erase(top_val);
+        ++deleted;
+        break;
+      } else {
+        bool ready_to_pop = true;
+        for (const auto producer : top_val->inputs()) {
+          if (!visited.count(producer)) {
+            ready_to_pop = false;
+          }
+        }
+
+        if (ready_to_pop) {
+          visited.insert(top_val);
+          sorted.push_back(top_val);
+        }
+      }
+    }
+
+    NVF_ERROR(
+        deleted >= 0,
+        "Failed to remove value from to_sort, so we are stopping to break infinite loop.");
+  }
+  return sorted;
+}
+
 void swap(IrContainer& a, IrContainer& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 
@@ -115,35 +177,10 @@ IrContainer::~IrContainer() {
   clear();
 }
 
-std::unordered_map<Val*, int64_t> IrContainer::deterministic_vals_map(
-    bool include_persistent_values) const noexcept {
+std::unordered_map<Val*, int64_t> IrContainer::deterministic_vals_map()
+    const noexcept {
   std::unordered_map<Val*, int64_t> vals_map;
   int64_t count = 0;
-
-  vals_map.emplace(nullptr, -1);
-
-  if (include_persistent_values) {
-    if (zero_val_ != nullptr) {
-      vals_map.emplace(zero_val_.get(), -2);
-    }
-
-    if (one_val_ != nullptr) {
-      vals_map.emplace(one_val_.get(), -3);
-    }
-
-    if (true_val_ != nullptr) {
-      vals_map.emplace(true_val_.get(), -4);
-    }
-
-    if (false_val_ != nullptr) {
-      vals_map.emplace(false_val_.get(), -5);
-    }
-
-    if (magic_zero_val_ != nullptr) {
-      vals_map.emplace(magic_zero_val_.get()->as<Val>(), -6);
-    }
-  }
-
   std::transform(
       vals_up_.begin(),
       vals_up_.end(),
@@ -151,6 +188,42 @@ std::unordered_map<Val*, int64_t> IrContainer::deterministic_vals_map(
       [&count](const std::unique_ptr<Val>& val_up) {
         return std::make_pair(val_up.get(), count++);
       });
+  return vals_map;
+}
+
+std::unordered_map<Val*, int64_t> IrContainer::toposort_vals_map()
+    const noexcept {
+  std::unordered_map<Val*, int64_t> vals_map;
+  int64_t count = 0;
+
+  vals_map.emplace(nullptr, -1);
+
+  if (zero_val_ != nullptr) {
+    vals_map.emplace(zero_val_.get(), -2);
+  }
+
+  if (one_val_ != nullptr) {
+    vals_map.emplace(one_val_.get(), -3);
+  }
+
+  if (true_val_ != nullptr) {
+    vals_map.emplace(true_val_.get(), -4);
+  }
+
+  if (false_val_ != nullptr) {
+    vals_map.emplace(false_val_.get(), -5);
+  }
+
+  if (magic_zero_val_ != nullptr) {
+    vals_map.emplace(magic_zero_val_.get()->as<Val>(), -6);
+  }
+
+  auto sorted_vals = topologicalSortValues(deterministic_vals());
+  std::transform(
+      sorted_vals.begin(),
+      sorted_vals.end(),
+      std::inserter(vals_map, vals_map.end()),
+      [&count](Val* val) { return std::make_pair(val, count++); });
   return vals_map;
 }
 
@@ -228,7 +301,7 @@ flatbuffers::Offset<serde::IrContainer> IrContainer::serialize(
   // that are not registered in the container.
   std::vector<flatbuffers::Offset<serde::Value>> fb_vals;
   fb_vals.reserve(vals().size());
-  for (auto val : deterministic_vals()) {
+  for (auto val : topologicalSortValues(deterministic_vals())) {
     if (vals().count(val) > 0) {
       fb_vals.push_back(val->serialize(container, builder));
     }

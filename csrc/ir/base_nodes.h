@@ -394,6 +394,10 @@ class Val : public Statement {
   //! using Val definitions.
   const std::vector<Expr*>& uses() const;
 
+  virtual std::vector<const Val*> inputs() const {
+    return {};
+  }
+
   bool isFusionInput() const {
     return is_fusion_input_;
   }

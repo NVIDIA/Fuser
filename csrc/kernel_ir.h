@@ -92,6 +92,10 @@ class Predicate final : public Val {
   void deserializeExpr(IrContainer* container, const serde::Value* buffer)
       override;
 
+  std::vector<const Val*> inputs() const override {
+    return {thread_pred_};
+  }
+
   PredicateType predicate_type() const {
     return ptype_;
   }
@@ -190,6 +194,10 @@ class TensorIndex final : public Val {
   std::pair<serde::ValData, flatbuffers::Offset<void>> serializeData(
       const IrSerde& container,
       flatbuffers::FlatBufferBuilder& builder) const override;
+
+  std::vector<const Val*> inputs() const override {
+    return {view_->as<const Val>(), index_->asVal()};
+  }
 
  private:
   const TensorView* view_ = nullptr;
