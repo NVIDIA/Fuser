@@ -943,8 +943,9 @@ struct CastOpRecord : RecordFunctor {
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
-        serde::RecordData::Dtype,
-        serde::CreateDtype(builder, nvfuser::toUnderlying(dtype_)).Union()};
+        serde::RecordData::PrimDataType,
+        serde::CreatePrimDataType(builder, nvfuser::toUnderlying(dtype_))
+            .Union()};
   }
 
  private:
@@ -2553,8 +2554,9 @@ struct IotaOpRecord : RecordFunctor {
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
-        serde::RecordData::Dtype,
-        serde::CreateDtype(builder, nvfuser::toUnderlying(dtype_)).Union()};
+        serde::RecordData::PrimDataType,
+        serde::CreatePrimDataType(builder, nvfuser::toUnderlying(dtype_))
+            .Union()};
   }
 
  private:

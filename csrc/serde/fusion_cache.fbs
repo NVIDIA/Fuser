@@ -183,7 +183,7 @@ enum NvFuserEnum: int {
   UnaryOpType,
 }
 
-enum ArrayType: int {
+enum PrimArrayType: int {
   ComplexDouble,
   Double,
   Long,
@@ -199,7 +199,7 @@ union RecordData {
   Broadcast,
   BroadcastInDim,
   Dimension,
-  Dtype,
+  PrimDataType,
   Norm,
   Output,
   Pad,
@@ -232,7 +232,7 @@ union PolymorphicValueData {
 
 // The ValData union holds the attribute information for each Val class.
 union ValData {
-  Dtype,
+  PrimDataType,
   IterDomain,
   NamedScalar,
   PipelineVal,
@@ -329,7 +329,7 @@ table OpaqueEnum {
 }
 
 table Array {
-  type: ArrayType;
+  type: PrimArrayType;
   items: [PolymorphicValue];
 }
 
@@ -419,11 +419,6 @@ table BroadcastInDim {
   broadcast_dims: [long];
 }
 
-// Data for CastOpRecord, ScalarRecord, and IotaOpRecord
-table Dtype {
-  dtype: long;
-}
-
 // Data for TorchGatherOpRecord, TakeAlongAxisOpRecord, and IndexSelectOpRecord
 table Dimension {
   dim: long;
@@ -493,6 +488,48 @@ table TensorCreationSymbolic {
 // Data for Vector
 table Vector {
   dtype: long;
+}
+
+// =====================================================================================
+// These tables represent the DataType struct which represents the
+// std:: variant<PrimDataType, ArrayType, PointerType, StructType, OpaqueType.
+// OpaqueType is not supported since it requires a runtime object.
+// e.g., std::type_info ti = typeid(object)
+
+union DataTypeVariant {
+  ArrayType,
+  PointerType,
+  PrimDataType,
+  StructType,
+}
+
+table DataType {
+  data: DataTypeVariant;
+}
+
+table ArrayType {
+  type: DataType;
+  size: ulong;
+}
+
+table PointerType {
+  type: DataType;
+}
+
+// Data for CastOpRecord and IotaOpRecord
+table PrimDataType {
+  dtype_enum: long;
+}
+
+table FieldInfo {
+  name: string;
+  type: DataType;
+  used_in_kernel: bool;
+}
+
+table StructType {
+  name: string;
+  fields: [FieldInfo];
 }
 
 // =====================================================================================
@@ -567,16 +604,16 @@ table Value {
   data: ValData;
 }
 
-table Statement {
-  index: long;
-  is_val: bool;
-}
-
 table Expression {
   type: ExprType;
   input_vals: [long];
   output_vals: [long];
   attributes_stmts: [Statement];
+}
+
+table Statement {
+  index: long;
+  is_val: bool;
 }
 
 table IrContainer {

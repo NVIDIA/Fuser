@@ -103,8 +103,8 @@ Val::Val(
     IrContainer* container,
     IrBuilderPasskey passkey,
     const serde::Value* buffer,
-    const serde::Dtype* data)
-    : Val(passkey, serde::mapToDtypeStruct(data->dtype())) {}
+    const serde::PrimDataType* data)
+    : Val(passkey, serde::mapToDtypeStruct(data->dtype_enum())) {}
 
 Val::Val(
     IrContainer* container,
@@ -129,8 +129,8 @@ std::pair<serde::ValData, flatbuffers::Offset<void>> Val::serializeData(
     if (is_pv_monostate) {
       // Constructor 2 - PrimDataType only.
       return {
-          serde::ValData::Dtype,
-          serde::CreateDtype(builder, dtype_enum).Union()};
+          serde::ValData::PrimDataType,
+          serde::CreatePrimDataType(builder, dtype_enum).Union()};
     } else {
       // Constructor 4 - PolymorphicValue with DataType where the
       // PolymorphicValue is cast to the dtype argument.

@@ -24,9 +24,11 @@ void ValueFactory::registerAllParsers() {
   registerParser(serde::ValData::NONE, deserialize_unsupported);
 
   registerParser(
-      serde::ValData::Dtype,
-      nvf::IrBuilder::
-          deserializeVal<nvf::Val, serde::Dtype, serde::ValData::Dtype>);
+      serde::ValData::PrimDataType,
+      nvf::IrBuilder::deserializeVal<
+          nvf::Val,
+          serde::PrimDataType,
+          serde::ValData::PrimDataType>);
 
   registerParser(
       serde::ValData::IterDomain,

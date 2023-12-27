@@ -268,7 +268,7 @@ class Val : public Statement {
   Val(IrContainer* container,
       IrBuilderPasskey passkey,
       const serde::Value* buffer,
-      const serde::Dtype* data);
+      const serde::PrimDataType* data);
 
   Val(IrContainer* container,
       IrBuilderPasskey passkey,
