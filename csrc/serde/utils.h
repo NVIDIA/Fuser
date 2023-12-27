@@ -13,7 +13,7 @@
 namespace nvfuser::serde {
 
 //! A function to map the serde dtype to its corresponding nvfuser prim dtype
-PrimDataType mapToNvfuserDtype(long data_type);
+nvfuser::PrimDataType mapToNvfuserDtype(long data_type);
 
 //! A function to map the serde dtype to its corresponding nvfuser datatype
 nvfuser::DataType mapToDtypeStruct(long data_type);

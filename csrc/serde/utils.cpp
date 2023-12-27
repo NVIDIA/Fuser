@@ -11,8 +11,8 @@ nvfuser::DataType mapToDtypeStruct(long data_type) {
   return nvfuser::DataType(mapToNvfuserDtype(data_type));
 }
 
-PrimDataType mapToNvfuserDtype(long data_type) {
-  return static_cast<PrimDataType>(data_type);
+nvfuser::PrimDataType mapToNvfuserDtype(long data_type) {
+  return static_cast<nvfuser::PrimDataType>(data_type);
 }
 
 std::vector<bool> parseBoolVector(

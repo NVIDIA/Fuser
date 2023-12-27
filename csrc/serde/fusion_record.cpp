@@ -380,7 +380,7 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(RecordType::BroadcastInDim, deserializeBroadcastInDimRecord);
 
   auto deserializeCastTvRecord = [](const RecordFunctor* buffer) {
-    auto data = buffer->data_as_Dtype();
+    auto data = buffer->data_as_PrimDataType();
     NVF_ERROR(
         data != nullptr, "serde::RecordType record_data field is nullptr.");
     std::function<nvf::TensorView*(nvf::DataType, nvf::TensorView*)> fusion_op =
@@ -393,12 +393,12 @@ void RecordFunctorFactory::registerAllParsers() {
             buffer->name()->str(),
             RecordType::CastTv,
             fusion_op,
-            mapToNvfuserDtype(data->dtype()));
+            mapToNvfuserDtype(data->dtype_enum()));
   };
   registerParser(RecordType::CastTv, deserializeCastTvRecord);
 
   auto deserializeCastValRecord = [](const RecordFunctor* buffer) {
-    auto data = buffer->data_as_Dtype();
+    auto data = buffer->data_as_PrimDataType();
     NVF_ERROR(
         data != nullptr, "serde::RecordType record_data field is nullptr.");
     std::function<nvf::Val*(nvf::DataType, nvf::Val*)> fusion_op =
@@ -409,7 +409,7 @@ void RecordFunctorFactory::registerAllParsers() {
         buffer->name()->str(),
         RecordType::CastVal,
         fusion_op,
-        mapToNvfuserDtype(data->dtype()));
+        mapToNvfuserDtype(data->dtype_enum()));
   };
   registerParser(RecordType::CastVal, deserializeCastValRecord);
 
@@ -436,13 +436,13 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(RecordType::FullOp, deserializeFullRecord);
 
   auto deserializeIotaRecord = [](const RecordFunctor* buffer) {
-    auto data = buffer->data_as_Dtype();
+    auto data = buffer->data_as_PrimDataType();
     NVF_ERROR(
         data != nullptr, "serde::RecordType record_data field is nullptr.");
     return new python_frontend::IotaOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        mapToNvfuserDtype(data->dtype()));
+        mapToNvfuserDtype(data->dtype_enum()));
   };
   registerParser(RecordType::IotaOp, deserializeIotaRecord);
 
