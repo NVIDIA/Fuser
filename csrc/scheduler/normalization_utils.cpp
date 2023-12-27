@@ -983,7 +983,18 @@ PersistentKernelProperties getPersistentKernelProperties(
     max_dtype_size = std::max(
         max_dtype_size,
         dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
-    n_tensor_inputs++;
+    // bool has_broadcast_consumer = false;
+    // const auto& deps = DependencyCheck::getAllValsBetween({tv},{fusion->outputs().begin(), fusion->outputs().end()});
+    // for(auto consumer : ir_utils::consumerTvsOf(tv)){
+    //   if(consumer->definition()->isA<BroadcastOp>()){
+    //     has_broadcast_consumer = true;
+    //     break;
+    //   }
+    // }
+    // if(!has_broadcast_consumer){
+    //     n_tensor_inputs++;
+    // }
+        n_tensor_inputs++;
   }
   // To prevent division by zero, ensure that n_tensor_inputs is not equal to
   // zero.
