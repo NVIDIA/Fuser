@@ -121,6 +121,17 @@ class IterDomain : public Val {
       const IrSerde& container,
       flatbuffers::FlatBufferBuilder& builder) const override;
 
+  std::vector<const Val*> inputs() const override {
+    std::vector<const Val*> inputs;
+    inputs.push_back(start());
+    inputs.push_back(extent());
+    if (hasExpandedExtent()) {
+      inputs.push_back(expandedExtent());
+    }
+    inputs.push_back(stopOffset());
+    return inputs;
+  }
+
   //! Returns a new IterDomain matching properties of this
   //!
   //! This does NOT copy the is_rfactor_domain flag.
@@ -532,6 +543,36 @@ class TensorDomain : public Val {
   std::pair<serde::ValData, flatbuffers::Offset<void>> serializeData(
       const IrSerde& container,
       flatbuffers::FlatBufferBuilder& builder) const override;
+
+  std::vector<const Val*> inputs() const override {
+    std::vector<const Val*> inputs;
+
+    std::transform(
+        root_domain_.begin(),
+        root_domain_.end(),
+        std::back_inserter(inputs),
+        [](IterDomain* id) { return id->asVal(); });
+
+    std::transform(
+        rfactor_domain_.begin(),
+        rfactor_domain_.end(),
+        std::back_inserter(inputs),
+        [](IterDomain* id) { return id->asVal(); });
+
+    std::transform(
+        allocation_domain_.begin(),
+        allocation_domain_.end(),
+        std::back_inserter(inputs),
+        [](IterDomain* id) { return id->asVal(); });
+
+    std::transform(
+        leaf_domain_.begin(),
+        leaf_domain_.end(),
+        std::back_inserter(inputs),
+        [](IterDomain* id) { return id->asVal(); });
+
+    return inputs;
+  }
 
   // Note: [Contiguity]
   // Contiguity is a vector of optional<bool> which has the same number of

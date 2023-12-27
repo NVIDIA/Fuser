@@ -33,8 +33,7 @@ namespace nvfuser {
 
 IrSerde::IrSerde(const IrContainer* container)
     : container_{container},
-      vals_to_id_map_{container->deterministic_vals_map(
-          /*include_persistent_values=*/true)},
+      vals_to_id_map_{container->toposort_vals_map()},
       exprs_to_id_map_{container->deterministic_exprs_map()} {}
 
 int64_t IrSerde::map(Statement* stmt) const {
