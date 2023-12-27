@@ -12,18 +12,19 @@
 #include <serde/utils.h>
 #include <typeinfo>
 
+namespace nvf = nvfuser;
+
 namespace nvfuser::serde {
 
 namespace {
 
-nvfuser::PolymorphicValue deserializeMonostate(
+nvf::PolymorphicValue deserializeMonostate(
     const serde::PolymorphicValue* buffer) {
   NVF_ERROR(buffer != nullptr, "serde::Value is nullptr.");
-  return nvfuser::PolymorphicValue();
+  return nvf::PolymorphicValue();
 }
 
-nvfuser::PolymorphicValue deserializeAsmOptions(
-    const PolymorphicValue* buffer) {
+nvf::PolymorphicValue deserializeAsmOptions(const PolymorphicValue* buffer) {
   NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
   const AsmOptions* data = buffer->data_as_AsmOptions();
   NVF_ERROR(data != nullptr, "serde::AsmOptions is nullptr.");
@@ -32,82 +33,81 @@ nvfuser::PolymorphicValue deserializeAsmOptions(
       data->readable_outputs()->begin(),
       data->readable_outputs()->end(),
       std::inserter(readable_outputs, readable_outputs.begin()));
-  nvfuser::kir::AsmOptions options{
+  nvf::kir::AsmOptions options{
       data->volatile_(), data->memory(), std::move(readable_outputs)};
-  return nvfuser::PolymorphicValue(nvfuser::Opaque(std::move(options)));
+  return nvf::PolymorphicValue(nvf::Opaque(std::move(options)));
 }
 
 // TODO Refactor
-nvfuser::PolymorphicValue deserializeOpaqueEnum(
-    const PolymorphicValue* buffer) {
+nvf::PolymorphicValue deserializeOpaqueEnum(const PolymorphicValue* buffer) {
   NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
   const OpaqueEnum* data = buffer->data_as_OpaqueEnum();
   NVF_ERROR(data != nullptr, "serde::OpaqueEnum is nullptr.");
 
   switch (data->data_attribute_enum()) {
     case NvFuserEnum::AsyncOpType: {
-      return nvfuser::PolymorphicValue(
-          nvfuser::Opaque(static_cast<nvfuser::AsyncOpType>(data->value())));
+      return nvf::PolymorphicValue(
+          nvf::Opaque(static_cast<nvf::AsyncOpType>(data->value())));
     }
     case NvFuserEnum::BinaryOpType: {
-      return nvfuser::PolymorphicValue(
-          nvfuser::Opaque(static_cast<nvfuser::BinaryOpType>(data->value())));
+      return nvf::PolymorphicValue(
+          nvf::Opaque(static_cast<nvf::BinaryOpType>(data->value())));
     }
     case NvFuserEnum::CacheOp: {
-      return nvfuser::PolymorphicValue(
-          nvfuser::Opaque(static_cast<nvfuser::CacheOp>(data->value())));
+      return nvf::PolymorphicValue(
+          nvf::Opaque(static_cast<nvf::CacheOp>(data->value())));
     }
     case NvFuserEnum::DoubleBufferLoopStage: {
-      return nvfuser::PolymorphicValue(nvfuser::Opaque(
-          static_cast<nvfuser::DoubleBufferLoopStage>(data->value())));
+      return nvf::PolymorphicValue(
+          nvf::Opaque(static_cast<nvf::DoubleBufferLoopStage>(data->value())));
     }
     case NvFuserEnum::LoadStoreOpType: {
-      return nvfuser::PolymorphicValue(nvfuser::Opaque(
-          static_cast<nvfuser::LoadStoreOpType>(data->value())));
+      return nvf::PolymorphicValue(
+          nvf::Opaque(static_cast<nvf::LoadStoreOpType>(data->value())));
     }
     case NvFuserEnum::MemoryType: {
-      return nvfuser::PolymorphicValue(
-          nvfuser::Opaque(static_cast<nvfuser::MemoryType>(data->value())));
+      return nvf::PolymorphicValue(
+          nvf::Opaque(static_cast<nvf::MemoryType>(data->value())));
     }
     case NvFuserEnum::MmaMacro: {
-      return nvfuser::PolymorphicValue(
-          nvfuser::Opaque(static_cast<nvfuser::MmaMacro>(data->value())));
+      return nvf::PolymorphicValue(
+          nvf::Opaque(static_cast<nvf::MmaMacro>(data->value())));
     }
     case NvFuserEnum::ScatterOpType: {
-      return nvfuser::PolymorphicValue(
-          nvfuser::Opaque(static_cast<nvfuser::ScatterOpType>(data->value())));
+      return nvf::PolymorphicValue(
+          nvf::Opaque(static_cast<nvf::ScatterOpType>(data->value())));
     }
     case NvFuserEnum::SwizzleMode: {
-      return nvfuser::PolymorphicValue(
-          nvfuser::Opaque(static_cast<nvfuser::SwizzleMode>(data->value())));
+      return nvf::PolymorphicValue(
+          nvf::Opaque(static_cast<nvf::SwizzleMode>(data->value())));
     }
     case NvFuserEnum::SwizzleType: {
-      return nvfuser::PolymorphicValue(
-          nvfuser::Opaque(static_cast<nvfuser::SwizzleType>(data->value())));
+      return nvf::PolymorphicValue(
+          nvf::Opaque(static_cast<nvf::SwizzleType>(data->value())));
     }
     case NvFuserEnum::Swizzle2DType: {
-      return nvfuser::PolymorphicValue(
-          nvfuser::Opaque(static_cast<nvfuser::Swizzle2DType>(data->value())));
+      return nvf::PolymorphicValue(
+          nvf::Opaque(static_cast<nvf::Swizzle2DType>(data->value())));
     }
     case NvFuserEnum::TensorMapInterleave: {
-      return nvfuser::PolymorphicValue(nvfuser::Opaque(
-          static_cast<nvfuser::tma::TensorMapInterleave>(data->value())));
+      return nvf::PolymorphicValue(nvf::Opaque(
+          static_cast<nvf::tma::TensorMapInterleave>(data->value())));
     }
     case NvFuserEnum::TensorMapL2Promotion: {
-      return nvfuser::PolymorphicValue(nvfuser::Opaque(
-          static_cast<nvfuser::tma::TensorMapL2Promotion>(data->value())));
+      return nvf::PolymorphicValue(nvf::Opaque(
+          static_cast<nvf::tma::TensorMapL2Promotion>(data->value())));
     }
     case NvFuserEnum::TensorMapFloatOOBFill: {
-      return nvfuser::PolymorphicValue(nvfuser::Opaque(
-          static_cast<nvfuser::tma::TensorMapFloatOOBFill>(data->value())));
+      return nvf::PolymorphicValue(nvf::Opaque(
+          static_cast<nvf::tma::TensorMapFloatOOBFill>(data->value())));
     }
     case NvFuserEnum::TernaryOpType: {
-      return nvfuser::PolymorphicValue(
-          nvfuser::Opaque(static_cast<nvfuser::TernaryOpType>(data->value())));
+      return nvf::PolymorphicValue(
+          nvf::Opaque(static_cast<nvf::TernaryOpType>(data->value())));
     }
     case NvFuserEnum::UnaryOpType: {
-      return nvfuser::PolymorphicValue(
-          nvfuser::Opaque(static_cast<nvfuser::UnaryOpType>(data->value())));
+      return nvf::PolymorphicValue(
+          nvf::Opaque(static_cast<nvf::UnaryOpType>(data->value())));
     }
     default: {
       NVF_ERROR(
@@ -116,39 +116,38 @@ nvfuser::PolymorphicValue deserializeOpaqueEnum(
   }
 }
 
-nvfuser::PolymorphicValue deserializeParallelTypeBitmap(
+nvf::PolymorphicValue deserializeParallelTypeBitmap(
     const PolymorphicValue* buffer) {
   NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
   const ParallelTypeBitmap* data = buffer->data_as_ParallelTypeBitmap();
   NVF_ERROR(data != nullptr, "serde::ParallelTypeBitmap is nullptr.");
-  nvfuser::ParallelTypeBitmap bitmap{data->value()};
-  return nvfuser::PolymorphicValue(nvfuser::Opaque(bitmap));
+  nvf::ParallelTypeBitmap bitmap{data->value()};
+  return nvf::PolymorphicValue(nvf::Opaque(bitmap));
 }
 
-nvfuser::PolymorphicValue deserializeRNGAttributes(
-    const PolymorphicValue* buffer) {
+nvf::PolymorphicValue deserializeRNGAttributes(const PolymorphicValue* buffer) {
   NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
   const RNGAttributes* data = buffer->data_as_RNGAttributes();
   NVF_ERROR(data != nullptr, "serde::RNGAttributes is nullptr.");
-  nvfuser::RNGOp::Attributes attributes{
+  nvf::RNGOp::Attributes attributes{
       static_cast<RNGOpType>(data->rng_op_type_enum()),
       serde::mapToDtypeStruct(data->dtype_enum()),
       data->num_parameters()};
-  return nvfuser::PolymorphicValue(nvfuser::Opaque(std::move(attributes)));
+  return nvf::PolymorphicValue(nvf::Opaque(std::move(attributes)));
 }
 
-nvfuser::PolymorphicValue deserializeScalarCpu(const PolymorphicValue* buffer) {
+nvf::PolymorphicValue deserializeScalarCpu(const PolymorphicValue* buffer) {
   NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
   const ScalarCpu* scalar_cpu = buffer->data_as_ScalarCpu();
   NVF_ERROR(scalar_cpu != nullptr, "serde::ScalarCpu is nullptr.");
   auto scalar = makeScalar(scalar_cpu->scalar_value());
-  return nvfuser::PolymorphicValue_functions::toTensor(scalar, at::kCPU);
+  return nvf::PolymorphicValue_functions::toTensor(scalar, at::kCPU);
 }
 
 // TODO Encode ptr field which corresponds to the aten tensor's data pointer.
 // It is used during scheduling for vectorization. A meta aten tensor assumes
 // that the pointer address is zero.
-nvfuser::PolymorphicValue deserializeTensorArg(const PolymorphicValue* buffer) {
+nvf::PolymorphicValue deserializeTensorArg(const PolymorphicValue* buffer) {
   NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
   const TensorArg* tensor = buffer->data_as_TensorArg();
   NVF_ERROR(tensor != nullptr, "serde::TensorArg is nullptr.");
@@ -187,53 +186,52 @@ serde::PrimArrayType getPrimArrayType(T item) {
 
 } // namespace
 
-nvfuser::PolymorphicValue deserializeBool(const PolymorphicValue* buffer) {
+nvf::PolymorphicValue deserializeBool(const PolymorphicValue* buffer) {
   NVF_CHECK(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
   auto bool_data = buffer->data_as_Bool();
   NVF_CHECK(bool_data != nullptr, "serde::Bool is nullptr.");
-  return nvfuser::PolymorphicValue(bool_data->value());
+  return nvf::PolymorphicValue(bool_data->value());
 }
 
-nvfuser::PolymorphicValue deserializeComplexDouble(
-    const PolymorphicValue* buffer) {
+nvf::PolymorphicValue deserializeComplexDouble(const PolymorphicValue* buffer) {
   NVF_CHECK(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
   auto complex_data = buffer->data_as_ComplexDouble();
   NVF_CHECK(complex_data != nullptr, "serde::ComplexDouble is nullptr.");
-  return nvfuser::PolymorphicValue(
+  return nvf::PolymorphicValue(
       std::complex<double>(complex_data->real(), complex_data->imag()));
 }
 
-nvfuser::PolymorphicValue deserializeDouble(const PolymorphicValue* buffer) {
+nvf::PolymorphicValue deserializeDouble(const PolymorphicValue* buffer) {
   NVF_CHECK(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
   auto double_data = buffer->data_as_Double();
   NVF_CHECK(double_data != nullptr, "serde::Double is nullptr.");
-  return nvfuser::PolymorphicValue(double_data->value());
+  return nvf::PolymorphicValue(double_data->value());
 }
 
-nvfuser::PolymorphicValue deserializeLong(const PolymorphicValue* buffer) {
+nvf::PolymorphicValue deserializeLong(const PolymorphicValue* buffer) {
   NVF_CHECK(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
   auto long_data = buffer->data_as_Long();
   NVF_CHECK(long_data != nullptr, "serde::Long is nullptr.");
-  return nvfuser::PolymorphicValue(long_data->value());
+  return nvf::PolymorphicValue(long_data->value());
 }
 
-nvfuser::PolymorphicValue makeScalar(const Scalar* c) {
+nvf::PolymorphicValue makeScalar(const Scalar* c) {
   NVF_CHECK(c != nullptr, "serde::Scalar is nullptr.");
   if (!c->has_value()) {
     return {};
   }
   switch (mapToNvfuserDtype(c->value_type())) {
-    case nvfuser::PrimDataType::Double: {
-      return nvfuser::PolymorphicValue(c->double_value());
+    case nvf::PrimDataType::Double: {
+      return nvf::PolymorphicValue(c->double_value());
     }
-    case nvfuser::PrimDataType::Int: {
-      return nvfuser::PolymorphicValue(c->long_value());
+    case nvf::PrimDataType::Int: {
+      return nvf::PolymorphicValue(c->long_value());
     }
-    case nvfuser::PrimDataType::Bool: {
-      return nvfuser::PolymorphicValue(c->bool_value());
+    case nvf::PrimDataType::Bool: {
+      return nvf::PolymorphicValue(c->bool_value());
     }
-    case nvfuser::PrimDataType::ComplexDouble: {
-      return nvfuser::PolymorphicValue(
+    case nvf::PrimDataType::ComplexDouble: {
+      return nvf::PolymorphicValue(
           std::complex<double>(c->real_value(), c->imag_value()));
     }
     default:
@@ -257,19 +255,19 @@ std::vector<T> PolymorphicValueFactory::makeArray(const serde::Array* data) {
   return array;
 }
 
-nvfuser::PolymorphicValue PolymorphicValueFactory::makeArray(
+nvf::PolymorphicValue PolymorphicValueFactory::makeArray(
     const serde::Array* data) {
   NVF_ERROR(data != nullptr, "serde::Array is nullptr.");
-  return nvfuser::PolymorphicValue();
+  return nvf::PolymorphicValue();
   switch (data->type()) {
     case serde::PrimArrayType::ComplexDouble: {
-      return nvfuser::PolymorphicValue(makeArray<std::complex<double>>(data));
+      return nvf::PolymorphicValue(makeArray<std::complex<double>>(data));
     }
     case serde::PrimArrayType::Double: {
-      return nvfuser::PolymorphicValue(makeArray<double>(data));
+      return nvf::PolymorphicValue(makeArray<double>(data));
     }
     case serde::PrimArrayType::Long: {
-      return nvfuser::PolymorphicValue(makeArray<int64_t>(data));
+      return nvf::PolymorphicValue(makeArray<int64_t>(data));
     }
     default: {
       NVF_ERROR(false, "Unsupported Array Type.");
@@ -279,13 +277,13 @@ nvfuser::PolymorphicValue PolymorphicValueFactory::makeArray(
 
 void PolymorphicValueFactory::registerAllParsers() {
   auto deserialize_unsupported =
-      [](const serde::PolymorphicValue* buffer) -> nvfuser::PolymorphicValue {
+      [](const serde::PolymorphicValue* buffer) -> nvf::PolymorphicValue {
     NVF_ERROR(buffer != nullptr, "serde::Value is nullptr.");
     NVF_ERROR(
         false,
         "Unsupported PolymorphicValueData\t",
         static_cast<int64_t>(toUnderlying(buffer->data_type())));
-    return nvfuser::PolymorphicValue();
+    return nvf::PolymorphicValue();
   };
   registerParser(PolymorphicValueData::Scope, deserialize_unsupported);
 
@@ -307,17 +305,15 @@ void PolymorphicValueFactory::registerAllParsers() {
   registerParser(PolymorphicValueData::TensorArg, deserializeTensorArg);
 }
 
-nvfuser::PolymorphicValue deserializePolymorphicValue(
-    const PolymorphicValue* pv) {
+nvf::PolymorphicValue deserializePolymorphicValue(const PolymorphicValue* pv) {
   PolymorphicValueFactory pv_factory;
   return pv_factory.parse(pv->data_type(), pv);
 }
 
 flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
     flatbuffers::FlatBufferBuilder& builder,
-    const nvfuser::PolymorphicValue& v) {
-  NVF_ERROR(
-      !v.is<nvfuser::Pointer>(), "Serialization of pointer is not allowed.");
+    const nvf::PolymorphicValue& v) {
+  NVF_ERROR(!v.is<nvf::Pointer>(), "Serialization of pointer is not allowed.");
 
   if (v.is<std::monostate>()) {
     return CreatePolymorphicValue(builder, PolymorphicValueData::NONE);
@@ -334,9 +330,9 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
         PolymorphicValueData::Array,
         CreateArrayDirect(builder, getPrimArrayType(vec.front()), &fb_items)
             .Union());
-  } else if (v.is<nvfuser::Opaque>()) {
-    return serializeOpaque(builder, v.as<nvfuser::Opaque>());
-  } else if (v.is<nvfuser::StructHandle>()) {
+  } else if (v.is<nvf::Opaque>()) {
+    return serializeOpaque(builder, v.as<nvf::Opaque>());
+  } else if (v.is<nvf::StructHandle>()) {
     NVF_ERROR(
         false, "The StructHandle PolymorphicValue type is not supported.");
   } else if (v.is<at::Tensor>()) {
@@ -349,9 +345,9 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
 // TODO Refactor
 flatbuffers::Offset<PolymorphicValue> serializeOpaque(
     flatbuffers::FlatBufferBuilder& builder,
-    const nvfuser::Opaque& v) {
-  if (v.any().type() == typeid(nvfuser::kir::AsmOptions)) {
-    const auto& options = v.as<nvfuser::kir::AsmOptions>();
+    const nvf::Opaque& v) {
+  if (v.any().type() == typeid(nvf::kir::AsmOptions)) {
+    const auto& options = v.as<nvf::kir::AsmOptions>();
     std::vector<int64_t> fb_readable_outputs(
         options.readable_outputs.begin(), options.readable_outputs.end());
     auto data =
@@ -360,26 +356,26 @@ flatbuffers::Offset<PolymorphicValue> serializeOpaque(
             .Union();
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::AsmOptions, data);
-  } else if (v.any().type() == typeid(nvfuser::ParallelTypeBitmap)) {
-    const auto& pt_bitmap = v.as<nvfuser::ParallelTypeBitmap>();
+  } else if (v.any().type() == typeid(nvf::ParallelTypeBitmap)) {
+    const auto& pt_bitmap = v.as<nvf::ParallelTypeBitmap>();
     auto data =
         serde::CreateParallelTypeBitmap(builder, pt_bitmap.toUlong()).Union();
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::ParallelTypeBitmap, data);
-  } else if (v.any().type() == typeid(nvfuser::RNGOp::Attributes)) {
-    const auto& attributes = v.as<nvfuser::RNGOp::Attributes>();
-    auto data = serde::CreateRNGAttributes(
-                    builder,
-                    toUnderlying(attributes.rtype),
-                    toUnderlying(
-                        std::get<nvfuser::PrimDataType>(attributes.dtype.type)),
-                    attributes.num_parameters)
-                    .Union();
+  } else if (v.any().type() == typeid(nvf::RNGOp::Attributes)) {
+    const auto& attributes = v.as<nvf::RNGOp::Attributes>();
+    auto data =
+        serde::CreateRNGAttributes(
+            builder,
+            toUnderlying(attributes.rtype),
+            toUnderlying(std::get<nvf::PrimDataType>(attributes.dtype.type)),
+            attributes.num_parameters)
+            .Union();
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::RNGAttributes, data);
-  } else if (v.any().type() == typeid(nvfuser::kir::Scope)) {
-    const auto& kir_scope = v.as<nvfuser::kir::Scope>();
-    nvfuser::kir::Kernel* kernel = kir_scope.owner()->kernel();
+  } else if (v.any().type() == typeid(nvf::kir::Scope)) {
+    const auto& kir_scope = v.as<nvf::kir::Scope>();
+    nvf::kir::Kernel* kernel = kir_scope.owner()->kernel();
 
     // TODO Refactor to use IrSerde determinstic_exprs_map
     auto exprs_to_id_map = kernel->deterministic_exprs_map();
@@ -527,7 +523,7 @@ flatbuffers::Offset<PolymorphicValue> serializeTensor(
         (size_t)tensor.data_ptr(),
         builder.CreateVector(sizes_fb),
         builder.CreateVector(strides_fb),
-        nvfuser::toUnderlying(tensor.scalar_type()));
+        nvf::toUnderlying(tensor.scalar_type()));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::TensorArg, data.Union());
   }
@@ -542,22 +538,21 @@ flatbuffers::Offset<Scalar> serializeScalarCpu(
 
   switch (tensor.scalar_type()) {
     case at::ScalarType::Bool: {
-      nvfuser::PolymorphicValue pv(*tensor.data_ptr<bool>());
-      return serializeScalarRecord(builder, pv, nvfuser::DataType::Bool);
+      nvf::PolymorphicValue pv(*tensor.data_ptr<bool>());
+      return serializeScalarRecord(builder, pv, nvf::DataType::Bool);
     }
     case at::ScalarType::Double: {
-      nvfuser::PolymorphicValue pv(*tensor.data_ptr<double>());
-      return serializeScalarRecord(builder, pv, nvfuser::DataType::Double);
+      nvf::PolymorphicValue pv(*tensor.data_ptr<double>());
+      return serializeScalarRecord(builder, pv, nvf::DataType::Double);
     }
     case at::ScalarType::Long: {
-      nvfuser::PolymorphicValue pv(*tensor.data_ptr<int64_t>());
-      return serializeScalarRecord(builder, pv, nvfuser::DataType::Int);
+      nvf::PolymorphicValue pv(*tensor.data_ptr<int64_t>());
+      return serializeScalarRecord(builder, pv, nvf::DataType::Int);
     }
     case at::ScalarType::ComplexDouble: {
       auto at_complex = *tensor.data_ptr<c10::complex<double>>();
-      nvfuser::PolymorphicValue pv((std::complex<double>)at_complex);
-      return serializeScalarRecord(
-          builder, pv, nvfuser::DataType::ComplexDouble);
+      nvf::PolymorphicValue pv((std::complex<double>)at_complex);
+      return serializeScalarRecord(builder, pv, nvf::DataType::ComplexDouble);
     }
     default:
       NVF_ERROR(false, "Unsupported scalar type.");
@@ -566,7 +561,7 @@ flatbuffers::Offset<Scalar> serializeScalarCpu(
 
 flatbuffers::Offset<PolymorphicValue> serializeScalar(
     flatbuffers::FlatBufferBuilder& builder,
-    const nvfuser::PolymorphicValue& v) {
+    const nvf::PolymorphicValue& v) {
   if (v.is<std::monostate>()) {
     return serde::CreatePolymorphicValue(
         builder, PolymorphicValueData::NONE, 0);
@@ -594,32 +589,32 @@ flatbuffers::Offset<PolymorphicValue> serializeScalar(
 
 flatbuffers::Offset<Scalar> serializeScalarRecord(
     flatbuffers::FlatBufferBuilder& builder,
-    const nvfuser::PolymorphicValue& v,
-    nvfuser::DataType t) {
+    const nvf::PolymorphicValue& v,
+    nvf::DataType t) {
   ScalarBuilder builder_(builder);
-  builder_.add_dtype(toUnderlying(std::get<nvfuser::PrimDataType>(t.type)));
+  builder_.add_dtype(toUnderlying(std::get<nvf::PrimDataType>(t.type)));
   if (v.is<std::monostate>()) {
     builder_.add_has_value(false);
     return builder_.Finish();
   } else if (v.is<double>()) {
     builder_.add_has_value(true);
-    builder_.add_value_type(toUnderlying(nvfuser::PrimDataType::Double));
+    builder_.add_value_type(toUnderlying(nvf::PrimDataType::Double));
     builder_.add_double_value(v.as<double>());
     return builder_.Finish();
   } else if (v.is<int64_t>()) {
     builder_.add_has_value(true);
-    builder_.add_value_type(toUnderlying(nvfuser::PrimDataType::Int));
+    builder_.add_value_type(toUnderlying(nvf::PrimDataType::Int));
     builder_.add_long_value(v.as<int64_t>());
     return builder_.Finish();
   } else if (v.is<bool>()) {
     builder_.add_has_value(true);
-    builder_.add_value_type(toUnderlying(nvfuser::PrimDataType::Bool));
+    builder_.add_value_type(toUnderlying(nvf::PrimDataType::Bool));
     builder_.add_bool_value(v.as<bool>());
     return builder_.Finish();
   } else if (v.is<std::complex<double>>()) {
     builder_.add_has_value(true);
     auto c = v.as<std::complex<double>>();
-    builder_.add_value_type(toUnderlying(nvfuser::PrimDataType::ComplexDouble));
+    builder_.add_value_type(toUnderlying(nvf::PrimDataType::ComplexDouble));
     builder_.add_real_value(std::real(c));
     builder_.add_imag_value(std::imag(c));
     return builder_.Finish();
