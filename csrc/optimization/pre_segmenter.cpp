@@ -11,6 +11,7 @@
 #include <optimization/consecutive_cast.h>
 #include <optimization/optimize_layout.h>
 #include <optimization/remove_empty.h>
+#include <optimization/segment_resize.h>
 
 namespace nvfuser::optimization {
 
@@ -21,6 +22,7 @@ void PreSegmenter::runPass(Fusion* fusion) {
   OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
   OptimizationPass<AddAxiomsPass>::runPass(fusion);
   OptimizationPass<OptimizeLayoutPass>::runPass(fusion);
+  OptimizationPass<ResizeSegmentPass>::runPass(fusion);
 }
 
 } // namespace nvfuser::optimization

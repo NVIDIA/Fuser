@@ -3154,6 +3154,212 @@ class TestNvFuserFrontend(TestCase):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         # self.assertEqual(nvf_out[0], t24)
 
+    # Test that slice does not fail to segment due to forwarded unary ops
+    # See https://github.com/NVIDIA/Fuser/pull/1541
+    def test_simple_slice_fusion(self):
+        inputs = [torch.randn((10,), dtype=torch.float32, device="cuda:0")]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float)
+            T1 = fd.ops.neg(T0)
+            T2 = fd.ops.slice(T1, start_indices=[0], end_indices=[5])
+            fd.add_output(T2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        ref = -inputs[0][:5]
+
+        torch.testing.assert_close(nvf_out[0], ref)
+
+    # Test that pad does not fail to segment due to forwarded unary ops
+    # See https://github.com/NVIDIA/Fuser/pull/1553
+    def test_simple_pad_fusion(self):
+        inputs = [torch.randn((10,), dtype=torch.float32, device="cuda:0")]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float)
+            T1 = fd.ops.neg(T0)
+            T2 = fd.ops.pad(T1, [0, 2])
+            fd.add_output(T2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        ref = F.pad(-inputs[0], [0, 2])
+
+        torch.testing.assert_close(nvf_out[0], ref)
+
+    # Similar to test_simple_pad_fusion. This is the complete repro.
+    # See https://github.com/NVIDIA/Fuser/pull/1553
+    def test_issue1553(self):
+        inputs = [
+            torch.randn((4768,), dtype=torch.float32, device="cuda:0").as_strided(
+                (5, 4, 5, 16), (960, 48, 192, 1)
+            ),
+            torch.randn((4760,), dtype=torch.float32, device="cuda:0").as_strided(
+                (5, 4, 5, 8), (960, 48, 192, 1)
+            ),
+            torch.randn((4760,), dtype=torch.float32, device="cuda:0").as_strided(
+                (5, 4, 5, 8), (960, 48, 192, 1)
+            ),
+            torch.randn((80,), dtype=torch.float32, device="cuda:0").as_strided(
+                (5, 4, 5, 16), (0, 0, 16, 1)
+            ),
+            torch.randn((80,), dtype=torch.float32, device="cuda:0").as_strided(
+                (5, 4, 5, 16), (0, 0, 16, 1)
+            ),
+            torch.randn((4768,), dtype=torch.float32, device="cuda:0").as_strided(
+                (5, 4, 5, 16), (960, 48, 192, 1)
+            ),
+            torch.randn((4760,), dtype=torch.float32, device="cuda:0").as_strided(
+                (5, 4, 5, 8), (960, 48, 192, 1)
+            ),
+            torch.randn((4760,), dtype=torch.float32, device="cuda:0").as_strided(
+                (5, 4, 5, 8), (960, 48, 192, 1)
+            ),
+            torch.randn((80,), dtype=torch.float32, device="cuda:0").as_strided(
+                (5, 4, 5, 16), (0, 0, 16, 1)
+            ),
+            torch.randn((80,), dtype=torch.float32, device="cuda:0").as_strided(
+                (5, 4, 5, 16), (0, 0, 16, 1)
+            ),
+            torch.randn((0,), dtype=torch.float32, device="cuda:0").as_strided(
+                (5, 4, 5, 0), (960, 48, 192, 1)
+            ),
+            torch.randn((0,), dtype=torch.float32, device="cuda:0").as_strided(
+                (5, 4, 5, 0), (960, 48, 192, 1)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, False, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 1, 2, 0],
+            )
+            T1 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, False, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 1, 2, 0],
+            )
+            T2 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, False, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 1, 2, 0],
+            )
+            T3 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[None, None, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            T4 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[None, None, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            T5 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, False, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 1, 2, 0],
+            )
+            T6 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, False, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 1, 2, 0],
+            )
+            T7 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, False, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 1, 2, 0],
+            )
+            T8 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[None, None, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            T9 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[None, None, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            T10 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, False, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 1, 2, 0],
+            )
+            T11 = fd.define_tensor(
+                shape=[-1, -1, -1, -1],
+                contiguity=[True, True, False, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 1, 2, 0],
+            )
+            T12 = fd.ops.neg(T2)
+            T13 = fd.ops.cat([T12, T1], dim=-1)
+            T14 = fd.ops.mul(T0, T3)
+            T15 = fd.ops.mul(T13, T4)
+            T16 = fd.ops.add(T14, T15)
+            T17 = fd.ops.neg(T7)
+            T18 = fd.ops.cat([T17, T6], dim=-1)
+            T19 = fd.ops.mul(T5, T8)
+            T20 = fd.ops.mul(T18, T9)
+            T21 = fd.ops.add(T19, T20)
+            T22 = fd.ops.cat([T16, T10], dim=-1)
+            T23 = fd.ops.cat([T21, T11], dim=-1)
+            S24 = fd.define_scalar(0.500000, dtype=DataType.Double)
+            T25 = fd.ops.mul(T22, S24)
+            T26 = fd.ops.permute(T23, dims=[0, 1, 3, 2])
+            S27 = fd.define_scalar(0.500000, dtype=DataType.Double)
+            T28 = fd.ops.mul(T26, S27)
+            fd.add_output(T13)
+            fd.add_output(T18)
+            fd.add_output(T25)
+            fd.add_output(T28)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        t12 = -inputs[2]
+        t13 = torch.cat([t12, inputs[1]], dim=-1)
+        t14 = inputs[0] * inputs[3]
+        t15 = t13 * inputs[4]
+        t16 = t14 + t15
+        t17 = -inputs[7]
+        t18 = torch.cat([t17, inputs[6]], dim=-1)
+        t19 = inputs[5] * inputs[8]
+        t20 = t18 * inputs[9]
+        t21 = t19 + t20
+        t22 = torch.cat([t16, inputs[10]], dim=-1)
+        t23 = torch.cat([t21, inputs[11]], dim=-1)
+        t25 = t22 * 0.5
+        t26 = torch.permute(t23, [0, 1, 3, 2])
+        t28 = t26 * 0.5
+
+        torch.testing.assert_close(nvf_out[0], t13)
+        torch.testing.assert_close(nvf_out[1], t18)
+        torch.testing.assert_close(nvf_out[2], t25)
+        torch.testing.assert_close(nvf_out[3], t28)
+
 
 if __name__ == "__main__":
     run_tests()
