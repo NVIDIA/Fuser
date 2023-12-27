@@ -120,25 +120,27 @@ std::unordered_map<Val*, int64_t> IrContainer::deterministic_vals_map(
   std::unordered_map<Val*, int64_t> vals_map;
   int64_t count = 0;
 
+  vals_map.emplace(nullptr, -1);
+
   if (include_persistent_values) {
     if (zero_val_ != nullptr) {
-      vals_map.emplace(zero_val_.get(), count++);
+      vals_map.emplace(zero_val_.get(), -2);
     }
 
     if (one_val_ != nullptr) {
-      vals_map.emplace(one_val_.get(), count++);
+      vals_map.emplace(one_val_.get(), -3);
     }
 
     if (true_val_ != nullptr) {
-      vals_map.emplace(true_val_.get(), count++);
+      vals_map.emplace(true_val_.get(), -4);
     }
 
     if (false_val_ != nullptr) {
-      vals_map.emplace(false_val_.get(), count++);
+      vals_map.emplace(false_val_.get(), -5);
     }
 
     if (magic_zero_val_ != nullptr) {
-      vals_map.emplace(magic_zero_val_.get()->as<Val>(), count++);
+      vals_map.emplace(magic_zero_val_.get()->as<Val>(), -6);
     }
   }
 
@@ -166,31 +168,8 @@ std::unordered_map<Expr*, int64_t> IrContainer::deterministic_exprs_map()
   return exprs_map;
 }
 
-std::deque<Val*> IrContainer::deterministic_vals(
-    bool include_persistent_values) const noexcept {
+std::deque<Val*> IrContainer::deterministic_vals() const noexcept {
   std::deque<Val*> vals_deque;
-  if (include_persistent_values) {
-    if (zero_val_ != nullptr) {
-      vals_deque.emplace_back(zero_val_.get());
-    }
-
-    if (one_val_ != nullptr) {
-      vals_deque.emplace_back(one_val_.get());
-    }
-
-    if (true_val_ != nullptr) {
-      vals_deque.emplace_back(true_val_.get());
-    }
-
-    if (false_val_ != nullptr) {
-      vals_deque.emplace_back(false_val_.get());
-    }
-
-    if (magic_zero_val_ != nullptr) {
-      vals_deque.emplace_back(magic_zero_val_.get()->as<Val>());
-    }
-  }
-
   std::transform(
       vals_up_.begin(),
       vals_up_.end(),

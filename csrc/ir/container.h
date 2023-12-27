@@ -83,9 +83,33 @@ class IrContainer : public PolymorphicBase {
         " but there are only ",
         vals_up_.size(),
         " values.");
-    if (index < 0) {
-      return nullptr;
+
+    if constexpr (!std::is_same_v<Val, NvfuserValType>) {
+      if (index < 0) {
+        return nullptr;
+      }
     }
+
+    if constexpr (std::is_same_v<Val, NvfuserValType>) {
+      if (index == -1) {
+        return nullptr;
+      } else if (index == -2) {
+        return zeroVal();
+      } else if (index == -3) {
+        return oneVal();
+      } else if (index == -4) {
+        return falseVal();
+      } else if (index == -5) {
+        return trueVal();
+      }
+    }
+
+    if constexpr (std::is_same_v<NamedScalar, NvfuserValType>) {
+      if (index == -6) {
+        return magicZeroVal();
+      }
+    }
+
     Val* v = vals_up_.at(index).get();
     if constexpr (std::is_same_v<Val, NvfuserValType>) {
       return v;
@@ -115,8 +139,7 @@ class IrContainer : public PolymorphicBase {
       const flatbuffers::Vector<flatbuffers::Offset<serde::Statement>>* buffer);
 
   //! Return values in insertion order
-  std::deque<Val*> deterministic_vals(
-      bool include_persistent_values = false) const noexcept;
+  std::deque<Val*> deterministic_vals() const noexcept;
 
   //! Return expression in insertion order
   std::deque<Expr*> deterministic_exprs() const noexcept;
