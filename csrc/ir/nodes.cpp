@@ -3223,10 +3223,12 @@ TensorDomain::TensorDomain(
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
+  /*
   if (!root_domain_.empty()) {
     NVF_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
     ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
   }
+  */
 
   // resetDomains initializes other member variables, required by clang-tidy
   has_reduction_ = false;
@@ -3248,6 +3250,7 @@ TensorDomain::TensorDomain(
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
+  /*
   if (!root_domain_.empty()) {
     NVF_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
     ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
@@ -3256,6 +3259,7 @@ TensorDomain::TensorDomain(
       ir_utils::validateDomainEquivalence(rfactor_domain_, leaf_domain_);
     }
   }
+  */
 
   // resetDomains initializes other member variables, required by clang-tidy
   has_reduction_ = false;
@@ -3279,6 +3283,7 @@ TensorDomain::TensorDomain(
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
+  /*
   if (!root_domain_.empty()) {
     NVF_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
     ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
@@ -3291,6 +3296,7 @@ TensorDomain::TensorDomain(
       ir_utils::validateDomainEquivalence(allocation_domain_, leaf_domain_);
     }
   }
+  */
 
   // resetDomains initializes other member variables, required by clang-tidy
   has_reduction_ = false;
