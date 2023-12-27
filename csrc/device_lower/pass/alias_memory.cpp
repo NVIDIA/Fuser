@@ -1202,20 +1202,19 @@ class ReusableAllocationFinder : private kir::IrVisitor {
           auto this_tv = alloc_info->alloc_expr->buffer()->as<TensorView>();
           auto reuse_tv =
               alloc_to_reuse->alloc_expr->buffer()->as<TensorView>();
-          // Vectorized allocations require correct alignment so if [this_tv]
-          // is vectorized, the [reuse_tv] must also be vectorized.
-          const auto& va = GpuLower::current()->vectorizedAccesses();
-          if ((va.find(this_tv) != va.end()) &&
-              (va.find(reuse_tv) == va.end())) {
-            return false;
-          }
 
-          // Shared memory is all aligned to 128 bits, local memory might not be
-          if (this_tv->getMemoryType() == MemoryType::Local &&
-              va.find(this_tv) != va.end()) {
-            // Make sure alignment matches
-            if (va.at(this_tv) != va.at(reuse_tv)) {
-              return false;
+          // Vectorized allocations require correct alignment so if [this_tv]
+          // is vectorized, the [reuse_tv] must be vectorized with the same
+          // factor.
+          // No need to check shared memory since it is always aligned to 16
+          // Bytes which is also the maximum vectorization width.
+          if (this_tv->getMemoryType() == MemoryType::Local) {
+            const auto& va = GpuLower::current()->vectorizedAccesses();
+            if ((va.find(this_tv) != va.end())) {
+              if ((va.find(reuse_tv) == va.end()) ||
+                  va.at(this_tv) != va.at(reuse_tv)) {
+                return false;
+              }
             }
           }
         }
