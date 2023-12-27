@@ -214,8 +214,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       dev_prop->maxThreadsPerMultiProcessor / threads_per_warp;
 
   // Some assumptions:
-  const bool has_multiple_inputs =
-      max_persistent_buffer_size / total_reduction_numel > 2;
+  const bool has_multiple_inputs = has_rng_ops;// n_tensor_inputs > 1l ;
+  const int64_t buffer_per_element = max_persistent_buffer_size / total_reduction_numel;
+      // max_persistent_buffer_size / total_reduction_numel > 2;
   // maximize vectorization even if it leads to less than 1 warp.
   // Tested on H100 using layer_norm, fp16, batch_size= 32K.
   // reduction_dim = 32, (vect = 1, 557 GB/s), (vect = 8, 1100 GB/s)
@@ -243,16 +244,26 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
 
   // hint for register usage based on experiments
   // allows to reduce estimated register usage for higher occupancy.
-  constexpr int64_t max_adjust_count = 8;
+  const int64_t max_adjust_count = buffer_per_element == 2l ? 0l : 8l;
   auto estimateRegisterPerThread = [](int64_t buffer_per_thread) {
     return 24l +
         ceilDiv(buffer_per_thread, scheduler_utils::bytes_per_register);
   };
 
-  // when may do multi reductions per block (mrpb)
-  // Ideally, reduction_numel_threshold depends on n_waves_max.
-  const int64_t mrpb_reduction_numel_threshold =
-      has_multiple_inputs ? 1024l : 3072l;
+  // threshold to do multi reductions per block (mrpb)
+  const int64_t mrpb_reduction_numel_threshold = [&](){
+    int64_t threshold = 0;
+    if(has_multiple_inputs){
+      threshold = 1024l;
+    }else{
+      if(buffer_per_element <= 2l){
+        threshold = 2048l;
+      }else{
+        threshold = 2816l;
+      }
+    }
+    return threshold;
+  }();
   const int64_t optimal_mrpb_threads_per_block = 128l;
   const int64_t mrpb_wave_threshold = 4l;
   const bool may_use_mrpb =
@@ -285,12 +296,12 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       }
     } else {
       if (total_reduction_numel >= 20480) {
-        experiment_min = 7l;
+        experiment_min = 6l;
         experiment_max = 10l;
       } else if (total_reduction_numel >= 6144l) {
         experiment_min = 3l;
         experiment_max = 10l;
-      } else if (total_reduction_numel >= 3072l) {
+      } else if (total_reduction_numel >= mrpb_reduction_numel_threshold) {
         experiment_min = 3l;
         experiment_max = 6l;
       } else {
@@ -379,7 +390,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     int64_t target_reg_per_thread = getRegPerThreadGivenThreadsPerSM(
         target_blocks_per_sm * threads_per_block);
 
-    if (has_exp_ops) {
+    if (false && has_exp_ops) {
       // Try to maximize occupancy.
       // calc blocks_per_sm using estimated register usage, if lower than
       // target, try to increase occupancy by reducing register usage.
@@ -486,12 +497,14 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
               << ", single_warp_reduction_score: "
               << single_warp_reduction_score << std::endl;
     auto first_priority = single_warp_reduction_score;
-    auto second_priority = threads_tails_score;
-    auto third_priority = persistent_tails_score;
+    auto second_priority = register_usage;
+    auto third_priority = threads_tails_score;
+    auto forth_priority = persistent_tails_score;
     if (has_multiple_inputs) {
       first_priority = threads_tails_score;
       second_priority = persistent_tails_score;
       third_priority = occupancy_score;
+      forth_priority = register_usage;
     }
     if (first_priority > 0) {
       return true;
@@ -517,16 +530,16 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         } else if (third_priority < 0) {
           return false;
         } else {
-          if (single_warp_reduction_score > 0) {
+          if (forth_priority > 0) {
             return true;
-          } else if (single_warp_reduction_score < 0) {
+          } else if (forth_priority < 0) {
             return false;
           } else {
             // If wasted threads number is non-zero, perfer small
             // [persistent], it leads to larger [bdimx], means wasted fraction
             // of threads is smaller. e.g. at 10496, prefer persistent = 3
             // instead of 6., bandwidth is 1.24x
-            return ha.n_threads_tails != 0
+            return ha.n_threads_tails != 0 && has_multiple_inputs
                 ? ha.persistent_val < hb.persistent_val
                 : ha.persistent_val > hb.persistent_val;
           }
@@ -554,31 +567,33 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       std::min(persistent_experiment_max, ceilDiv(after_vect, bdimx_min)));
   std::cout << "persistent_min: " << persistent_min
             << ", persistent_max: " << persistent_max
+            << ", persistent_experiment_min: " << persistent_experiment_min
+            << ", persistent_min_hardware: " << persistent_min_hardware
             << ", bdimx_min: " << bdimx_min << std::endl;
 
   // Loop over all possible [persistent_val] and save all possible heuristics.
   // allow extra search space for cases don't have divisible split, e.g. 20736
   // needs a persistent batch of 3.
   int64_t selected_item = -1l;
-  bool has_divisible_split = false;
+  // bool has_divisible_split = false;
   // bool has_multiple_blocks_per_sm = false;
   std::vector<HeuristicParas> all_h_params;
   all_h_params.reserve(persistent_max - persistent_min + 1);
   for (auto pb = persistent_min; pb <= persistent_max; pb++) {
     auto h_params = getHeuristicParas(pb);
     if (h_params.n_threads_tails == 0 && h_params.n_persistent_tails == 0) {
-      has_divisible_split = true;
+      // has_divisible_split = true;
     }
     // if(h_params.warps_per_sm > h_params.warps_per_block){
     //   has_multiple_blocks_per_sm = true;
     // }
     all_h_params.emplace_back(h_params);
   }
-  if (has_exp_ops && !has_divisible_split) {
-    for (auto pb = persistent_min - 1; pb >= persistent_min_hardware; pb--) {
-      all_h_params.emplace_back(getHeuristicParas(pb));
-    }
-  }
+  // if (false && has_exp_ops && !has_divisible_split) {
+  //   for (auto pb = persistent_min - 1; pb >= persistent_min_hardware; pb--) {
+  //     all_h_params.emplace_back(getHeuristicParas(pb));
+  //   }
+  // }
   // // fix low perf when feature size is larger than 24K
   // // about 5% improvement around 25K to 26K
   // if(!has_rng_ops && has_multiple_inputs && !has_multiple_blocks_per_sm){
@@ -614,10 +629,11 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
           all_h_params.begin(), all_h_params.begin() + n_items, isBetterThan);
     }
     selected_item = 0;
-  }
 
-  for (auto it = all_h_params.begin(); it != all_h_params.end(); it++) {
-    std::cout << it->toString() << std::endl;
+    std::cout << "n_items: " << n_items << std::endl;
+    for (auto it = all_h_params.begin(); it != all_h_params.end(); it++) {
+      std::cout << it->toString() << std::endl;
+    }
   }
   HeuristicParas h_params = all_h_params[selected_item];
 
