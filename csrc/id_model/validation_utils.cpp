@@ -35,8 +35,9 @@ bool exprsMap(
   }
 
   NVF_ERROR(
-      first->isA<Merge>() || first->isA<Split>() || first->isA<Resize>(),
-      "Merge, split and resize are the only expressions supported through rfactor operations in compute at map, but found:\n",
+      first->isA<Merge>() || first->isA<Split>() || first->isA<Resize>() ||
+          first->isA<Swizzle>(),
+      "Merge, split, resize and swizzle are the only expressions supported here, but found:\n",
       first->toString());
 
   auto first_ids = ir_utils::filterByType<IterDomain>(
@@ -100,6 +101,14 @@ bool exprsMap(
     auto second_resize = second->as<Resize>();
     if (!first_resize->leftExpand()->sameAs(second_resize->leftExpand()) ||
         !first_resize->rightExpand()->sameAs(second_resize->rightExpand())) {
+      return false;
+    }
+  }
+
+  if (first->isA<Swizzle>()) {
+    auto swizzle_1 = first->as<Swizzle>();
+    auto swizzle_2 = first->as<Swizzle>();
+    if (swizzle_1->swizzleType() != swizzle_2->swizzleType()) {
       return false;
     }
   }
