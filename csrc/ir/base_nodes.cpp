@@ -479,12 +479,12 @@ flatbuffers::Offset<serde::Expression> Expr::serialize(
   auto fb_inputs = container.map(inputs());
   auto fb_outputs = container.map(outputs());
 
-  std::vector<flatbuffers::Offset<serde::Statement>> fb_attributes;
+  std::vector<flatbuffers::Offset<serde::StatementIndex>> fb_attributes;
   fb_attributes.reserve(attributes().size());
   for (auto stmt : attributes()) {
-    bool is_val = (stmt == nullptr) ? true : stmt->isVal();
+    bool is_val = (stmt != nullptr) ? stmt->isVal() : true;
     fb_attributes.push_back(
-        serde::CreateStatement(builder, container.map(stmt), is_val));
+        serde::CreateStatementIndex(builder, container.map(stmt), is_val));
   }
 
   return serde::CreateExpressionDirect(

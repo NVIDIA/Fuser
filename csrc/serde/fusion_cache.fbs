@@ -609,10 +609,10 @@ table Expression {
   type: ExprType;
   input_vals: [long];
   output_vals: [long];
-  attributes_stmts: [Statement];
+  attributes_stmts: [StatementIndex];
 }
 
-table Statement {
+table StatementIndex {
   index: long;
   is_val: bool;
 }

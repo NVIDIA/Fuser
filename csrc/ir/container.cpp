@@ -275,7 +275,8 @@ std::vector<Expr*> IrContainer::getExpressions(
 }
 
 std::vector<Statement*> IrContainer::getStatements(
-    const flatbuffers::Vector<flatbuffers::Offset<serde::Statement>>* buffer) {
+    const flatbuffers::Vector<flatbuffers::Offset<serde::StatementIndex>>*
+        buffer) {
   NVF_CHECK(buffer != nullptr, "Statements buffer is nullptr");
   std::vector<Statement*> result;
   result.reserve(buffer->size());
