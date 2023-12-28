@@ -1205,14 +1205,20 @@ class ReusableAllocationFinder : private kir::IrVisitor {
 
           // Vectorized allocations require correct alignment so if [this_tv]
           // is vectorized, the [reuse_tv] must be vectorized with the same
-          // factor.
+          // or smaller factor.
           // No need to check shared memory since it is always aligned to 16
           // Bytes which is also the maximum vectorization width.
           if (this_tv->getMemoryType() == MemoryType::Local) {
             const auto& va = GpuLower::current()->vectorizedAccesses();
-            if ((va.find(this_tv) != va.end())) {
-              if ((va.find(reuse_tv) == va.end()) ||
-                  va.at(this_tv) != va.at(reuse_tv)) {
+            bool this_tv_vectorized = va.find(this_tv) != va.end();
+            if (this_tv_vectorized) {
+              bool reuse_tv_vectorized = va.find(reuse_tv) != va.end();
+              if (!reuse_tv_vectorized) {
+              return false;
+              }
+              int this_tv_alignment = va.at(this_tv);
+              int reuse_tv_alignment = va.at(reuse_tv);
+              if (this_tv_alignment > reuse_tv_alignment) {
                 return false;
               }
             }
