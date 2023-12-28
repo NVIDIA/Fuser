@@ -1321,6 +1321,8 @@ std::string typePrefix(const DataType data_type) {
     case DataType::ComplexFloat:
     case DataType::ComplexDouble:
       return "c";
+    case DataType::Null:
+      return "n";
     default:
       NVF_ERROR(false, "No data type found for scalar type.");
   }
