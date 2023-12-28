@@ -3762,6 +3762,9 @@ void SegmentCandidateFinder::findSegments() {
 
   {
     auto cur_groups = segmented_fusion_->groups();
+    // Not necessary but to minimize the difference with the current ordering
+    std::vector<SegmentedGroup*> ordered_groups;
+    ordered_groups.reserve(cur_groups.size());
     for (auto group : cur_groups) {
       std::vector<Val*> to_visit;
       std::unordered_set<Val*> visited;
@@ -3778,6 +3781,7 @@ void SegmentCandidateFinder::findSegments() {
       }
 
       if (to_visit.empty()) {
+        ordered_groups.push_back(group);
         continue;
       }
 
@@ -3834,10 +3838,15 @@ void SegmentCandidateFinder::findSegments() {
         to_merge_.push_back(input_group);
         to_merge_.push_back(group);
         mergeNodes();
+        ordered_groups.push_back(segmented_fusion_->groups().back());
       } else {
-        // Not possible to merge. Leave the input group as a separate segment
+        // Not possible to merge. Leave the input group as a separate
+        // segment
+        ordered_groups.push_back(input_group);
+        ordered_groups.push_back(group);
       }
     }
+    segmented_fusion_->groups() = ordered_groups;
   }
 
   // Forwarded input groups are no longer used. Clean them up.
