@@ -72,7 +72,7 @@ class IrBuilder {
     return node;
   }
 
-  template <class ValType, class SerdeType, serde::ValData SerdeEnum>
+  template <class ValType, class SerdeType, serde::ValueData SerdeEnum>
   static ValType* deserializeVal(const serde::Value* buffer) {
     NVF_CHECK(buffer != nullptr, "serde::Value is nullptr");
 

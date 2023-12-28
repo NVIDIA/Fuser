@@ -230,8 +230,8 @@ union PolymorphicValueData {
   TensorArg,
 }
 
-// The ValData union holds the attribute information for each Val class.
-union ValData {
+// The ValueData union holds the attribute information for each nvf::Val class.
+union ValueData {
   DataType,
   IterDomain,
   NamedScalar,
@@ -243,6 +243,12 @@ union ValData {
   TensorDomain,
   TensorIndex,
   TensorView,
+}
+
+// The StatementData union hold whether the statement is a value or expression.
+union StatementData {
+  Value,
+  Expression
 }
 
 // =====================================================================================
@@ -602,7 +608,7 @@ table Value {
   definition_expr: long;
   uses_expr: [long];
   evaluator_index: int;
-  data: ValData;
+  data: ValueData;
 }
 
 table Expression {
@@ -615,6 +621,10 @@ table Expression {
 table StatementIndex {
   index: long;
   is_val: bool;
+}
+
+table Statement {
+  data: StatementData;
 }
 
 table IrContainer {

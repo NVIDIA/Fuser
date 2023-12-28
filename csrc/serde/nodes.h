@@ -17,7 +17,7 @@ class Val;
 
 class ValueFactory : public Factory<serde::Value, nvfuser::Val*> {
  public:
-  ValueFactory() : Factory((nvfuser::toUnderlying(ValData::MAX) + 1)) {
+  ValueFactory() : Factory((nvfuser::toUnderlying(ValueData::MAX) + 1)) {
     registerAllParsers();
   }
 

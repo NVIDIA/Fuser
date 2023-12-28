@@ -82,7 +82,7 @@ class PipelineVal : public Val {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  std::pair<serde::ValData, flatbuffers::Offset<void>> serializeData(
+  std::pair<serde::ValueData, flatbuffers::Offset<void>> serializeData(
       const IrSerde& container,
       flatbuffers::FlatBufferBuilder& builder) const override;
 

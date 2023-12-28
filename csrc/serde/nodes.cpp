@@ -19,84 +19,86 @@ void ValueFactory::registerAllParsers() {
   auto deserialize_unsupported =
       [](const nvf::serde::Value* buffer) -> nvf::Val* {
     NVF_ERROR(buffer != nullptr, "serde::Value is nullptr.");
-    NVF_ERROR(false, "serde::ValData::NONE is not supported.");
+    NVF_ERROR(false, "serde::ValueData::NONE is not supported.");
   };
-  registerParser(serde::ValData::NONE, deserialize_unsupported);
+  registerParser(serde::ValueData::NONE, deserialize_unsupported);
 
   registerParser(
-      serde::ValData::DataType,
-      nvf::IrBuilder::
-          deserializeVal<nvf::Val, serde::DataType, serde::ValData::DataType>);
+      serde::ValueData::DataType,
+      nvf::IrBuilder::deserializeVal<
+          nvf::Val,
+          serde::DataType,
+          serde::ValueData::DataType>);
 
   registerParser(
-      serde::ValData::IterDomain,
+      serde::ValueData::IterDomain,
       nvf::IrBuilder::deserializeVal<
           nvf::IterDomain,
           serde::IterDomain,
-          serde::ValData::IterDomain>);
+          serde::ValueData::IterDomain>);
 
   registerParser(
-      serde::ValData::NamedScalar,
+      serde::ValueData::NamedScalar,
       nvf::IrBuilder::deserializeVal<
           nvf::NamedScalar,
           serde::NamedScalar,
-          serde::ValData::NamedScalar>);
+          serde::ValueData::NamedScalar>);
 
   registerParser(
-      serde::ValData::PipelineVal,
+      serde::ValueData::PipelineVal,
       nvf::IrBuilder::deserializeVal<
           nvf::PipelineVal,
           serde::PipelineVal,
-          serde::ValData::PipelineVal>);
+          serde::ValueData::PipelineVal>);
 
   registerParser(
-      serde::ValData::PolymorphicValue,
+      serde::ValueData::PolymorphicValue,
       nvf::IrBuilder::deserializeVal<
           nvf::Val,
           serde::PolymorphicValue,
-          serde::ValData::PolymorphicValue>);
+          serde::ValueData::PolymorphicValue>);
 
   registerParser(
-      serde::ValData::PolymorphicValueDtype,
+      serde::ValueData::PolymorphicValueDtype,
       nvf::IrBuilder::deserializeVal<
           nvf::Val,
           serde::PolymorphicValueDtype,
-          serde::ValData::PolymorphicValueDtype>);
+          serde::ValueData::PolymorphicValueDtype>);
 
   registerParser(
-      serde::ValData::Predicate,
+      serde::ValueData::Predicate,
       nvf::IrBuilder::deserializeVal<
           nvf::kir::Predicate,
           serde::Predicate,
-          serde::ValData::Predicate>);
+          serde::ValueData::Predicate>);
 
   registerParser(
-      serde::ValData::PrimDataType,
+      serde::ValueData::PrimDataType,
       nvf::IrBuilder::deserializeVal<
           nvf::Val,
           serde::PrimDataType,
-          serde::ValData::PrimDataType>);
+          serde::ValueData::PrimDataType>);
 
   registerParser(
-      serde::ValData::TensorDomain,
+      serde::ValueData::TensorDomain,
       nvf::IrBuilder::deserializeVal<
           nvf::TensorDomain,
           serde::TensorDomain,
-          serde::ValData::TensorDomain>);
+          serde::ValueData::TensorDomain>);
 
   registerParser(
-      serde::ValData::TensorIndex,
+      serde::ValueData::TensorIndex,
       nvf::IrBuilder::deserializeVal<
           nvf::kir::TensorIndex,
           serde::TensorIndex,
-          serde::ValData::TensorIndex>);
+          serde::ValueData::TensorIndex>);
 
   registerParser(
-      serde::ValData::TensorView,
+      serde::ValueData::TensorView,
       nvf::IrBuilder::deserializeVal<
           nvf::TensorView,
           serde::TensorView,
-          serde::ValData::TensorView>);
+          serde::ValueData::TensorView>);
 }
 
 void ExpressionFactory::registerAllParsers() {

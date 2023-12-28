@@ -2684,9 +2684,10 @@ std::string IterDomain::toInlineString(int indent_size) const {
   return toString(indent_size);
 }
 
-std::pair<serde::ValData, flatbuffers::Offset<void>> IterDomain::serializeData(
-    const IrSerde& container,
-    flatbuffers::FlatBufferBuilder& builder) const {
+std::pair<serde::ValueData, flatbuffers::Offset<void>> IterDomain::
+    serializeData(
+        const IrSerde& container,
+        flatbuffers::FlatBufferBuilder& builder) const {
   flatbuffers::Offset<serde::IterDomain> data = serde::CreateIterDomain(
       builder,
       container.map(start_),
@@ -2699,7 +2700,7 @@ std::pair<serde::ValData, flatbuffers::Offset<void>> IterDomain::serializeData(
       is_padded_dimension_,
       (padded_to_size_.has_value()) ? padded_to_size_.value() : -1,
       is_mma_swizzled_);
-  return {serde::ValData::IterDomain, data.Union()};
+  return {serde::ValueData::IterDomain, data.Union()};
 }
 
 // Returns a new IterDomain matching properties of this except for
@@ -3471,7 +3472,7 @@ std::string TensorDomain::toInlineString(int indent_size) const {
   return toString(indent_size);
 }
 
-std::pair<serde::ValData, flatbuffers::Offset<void>> TensorDomain::
+std::pair<serde::ValueData, flatbuffers::Offset<void>> TensorDomain::
     serializeData(
         const IrSerde& container,
         flatbuffers::FlatBufferBuilder& builder) const {
@@ -3488,7 +3489,7 @@ std::pair<serde::ValData, flatbuffers::Offset<void>> TensorDomain::
           &fb_allocation_domain,
           &fb_leaf_domain,
           &fb_contiguity);
-  return {serde::ValData::TensorDomain, data.Union()};
+  return {serde::ValueData::TensorDomain, data.Union()};
 }
 
 void TensorDomain::setContiguity(
@@ -4147,11 +4148,12 @@ bool NamedScalar::sameAs(const Statement* other) const {
   return other->as<NamedScalar>()->name().compare(name()) == 0;
 }
 
-std::pair<serde::ValData, flatbuffers::Offset<void>> NamedScalar::serializeData(
-    const IrSerde& container,
-    flatbuffers::FlatBufferBuilder& builder) const {
+std::pair<serde::ValueData, flatbuffers::Offset<void>> NamedScalar::
+    serializeData(
+        const IrSerde& container,
+        flatbuffers::FlatBufferBuilder& builder) const {
   return {
-      serde::ValData::NamedScalar,
+      serde::ValueData::NamedScalar,
       serde::CreateNamedScalarDirect(builder, name_.c_str()).Union()};
 }
 

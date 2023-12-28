@@ -2016,7 +2016,7 @@ class NamedScalar : public Val {
     return name_;
   }
 
-  std::pair<serde::ValData, flatbuffers::Offset<void>> serializeData(
+  std::pair<serde::ValueData, flatbuffers::Offset<void>> serializeData(
       const IrSerde& container,
       flatbuffers::FlatBufferBuilder& builder) const override;
 
