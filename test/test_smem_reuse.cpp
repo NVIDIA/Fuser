@@ -598,7 +598,6 @@ TEST_F(SmemReuseTest, RegisterReuseWithDifferentVectorizationFactor) {
         if (expr->isA<kir::Allocate>()) {
           auto alloc = expr->as<kir::Allocate>();
           if (alloc->buffer()->name() == 3) {
-            std::cout << "alloc: " << alloc->toString() << std::endl;
             if (alloc->alias() && alloc->alias()->buffer()->name() == 1) {
               t3_alias_t1 = true;
             } else {
