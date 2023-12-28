@@ -136,7 +136,8 @@ class IrContainer : public PolymorphicBase {
   std::vector<Expr*> getExpressions(const flatbuffers::Vector<int64_t>* buffer);
 
   std::vector<Statement*> getStatements(
-      const flatbuffers::Vector<flatbuffers::Offset<serde::Statement>>* buffer);
+      const flatbuffers::Vector<flatbuffers::Offset<serde::StatementIndex>>*
+          buffer);
 
   //! Return values in insertion order
   std::deque<Val*> deterministic_vals() const noexcept;
