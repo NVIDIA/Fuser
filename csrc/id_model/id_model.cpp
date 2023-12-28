@@ -785,8 +785,6 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
   for (auto expr : exprs) {
     // Multiple outputs are already mapped, we can ignore all but the first
     // consumer given they have to be replayed in the same exact way
-    // Multiple outputs are already mapped, we can ignore all but the first
-    // consumer given they have to be replayed in the same exact way
     TensorView* c_tv = ir_utils::getTvOutput(expr);
 
     auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
@@ -797,7 +795,6 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
         idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
       }
 
-      // TODO: Should this just get rolled up in the forwarding map now?
       for (const auto& entry : permissive_forwarding.producer_compliment_map) {
         for (auto entry_2 : entry.second) {
           if (getenv("COMP")) {
@@ -810,8 +807,6 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
         idGraph(IdMappingMode::PERMISSIVE).mapVals(entry.first, entry.second);
       }
 
-      // TODO: Should this just get rolled up in the forwarding map now?
-      // TODO: Why should IDs be mapped to their compliments? Is this right?
       for (const auto& entry : permissive_forwarding.consumer_compliment_map) {
         for (auto entry_2 : entry.second) {
           if (getenv("COMP")) {
@@ -1079,7 +1074,7 @@ void IdModel::build(
     validator->checkPermissiveGraphEquivalence(
         idGraph(IdMappingMode::PERMISSIVE));
   }
-
+  
   // Permissive graph needs the trivial exprs from the almost exact graph to
   // build correctly. Once built though we can remove the trivial expressions
   // from the almost exact graph.
@@ -1127,7 +1122,7 @@ void IdModel::build(
     */
   }
 
-  // Debug, make sure there's no self mapping in TensorView's during lowering
+  // Make sure there's no self mapping in TensorView's during lowering
   // that would invalidate lowering assumptions.
   self_mapping_info_ = findFirstSelfMapping(all_tvs.vector(), *this);
 }

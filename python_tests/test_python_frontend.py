@@ -2995,9 +2995,9 @@ class TestNvFuserFrontend(TestCase):
         torch_ref = inputs[0] * (inputs[1] * inputs[2]).unsqueeze(-1)
         self.assertEqual(nvf_out[0], torch_ref)
 
-    # This tests no dead code at definition does not cause a problem due to
-    # removal of empty tensors
-    # See https://github.com/NVIDIA/Fuser/pull/1270
+    # Test that expand+pad does not cause indexing error, and that no scalars
+    # are lost during segmentation.
+    # See https://github.com/NVIDIA/Fuser/issues/1277
     def test_issue1277(self):
         inputs = [
             0.5,
