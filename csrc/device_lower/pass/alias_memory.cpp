@@ -1214,7 +1214,7 @@ class ReusableAllocationFinder : private kir::IrVisitor {
             if (this_tv_vectorized) {
               bool reuse_tv_vectorized = va.find(reuse_tv) != va.end();
               if (!reuse_tv_vectorized) {
-              return false;
+                return false;
               }
               int this_tv_alignment = va.at(this_tv);
               int reuse_tv_alignment = va.at(reuse_tv);
