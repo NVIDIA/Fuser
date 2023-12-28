@@ -148,9 +148,6 @@ class IrContainer : public PolymorphicBase {
   //! Return mapping from value to integer id in deterministic order
   std::unordered_map<Val*, int64_t> deterministic_vals_map() const noexcept;
 
-  //! Return mapping from value to integer id in topological sorted order
-  std::unordered_map<Val*, int64_t> toposort_vals_map() const noexcept;
-
   //! Return mapping from expression to integer id
   std::unordered_map<Expr*, int64_t> deterministic_exprs_map() const noexcept;
 
@@ -184,6 +181,14 @@ class IrContainer : public PolymorphicBase {
   Val* zeroVal(DataType dtype);
   Val* oneVal(DataType dtype);
   Val* metadataOf(Val*);
+
+  // These const methods will return a nullptr if the special values do not
+  // exist.
+  Val* getZeroVal() const;
+  Val* getOneVal() const;
+  Val* getFalseVal() const;
+  Val* getTrueVal() const;
+  NamedScalar* getMagicZeroVal() const;
 
   // Axioms about CUDA programming, for example: threadIdx.x < blockDim.x
   const std::vector<Val*>& axioms() {
@@ -228,8 +233,6 @@ class IrContainer : public PolymorphicBase {
   void clear() noexcept;
 
   void lazyInitAxioms();
-
-  std::vector<Val*> topologicalSortValues(const std::deque<Val*>& values) const;
 
   // Deque of unique pointer is the memory owning data structure
   std::deque<std::unique_ptr<Val>> vals_up_;
