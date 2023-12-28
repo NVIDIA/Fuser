@@ -272,9 +272,10 @@ std::string TensorView::toInlineString(int indent_size) const {
   return toString(indent_size);
 }
 
-std::pair<serde::ValData, flatbuffers::Offset<void>> TensorView::serializeData(
-    const IrSerde& container,
-    flatbuffers::FlatBufferBuilder& builder) const {
+std::pair<serde::ValueData, flatbuffers::Offset<void>> TensorView::
+    serializeData(
+        const IrSerde& container,
+        flatbuffers::FlatBufferBuilder& builder) const {
   auto fb_compute_with_consumers = container.map(compute_with_consumers_);
   flatbuffers::Offset<serde::TensorView> data = serde::CreateTensorViewDirect(
       builder,
@@ -291,7 +292,7 @@ std::pair<serde::ValData, flatbuffers::Offset<void>> TensorView::serializeData(
       compute_with_pos_,
       maybe_max_producer_pos_,
       promote_reuse_);
-  return {serde::ValData::TensorView, data.Union()};
+  return {serde::ValueData::TensorView, data.Union()};
 }
 
 TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)

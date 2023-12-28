@@ -123,7 +123,7 @@ Val::Val(
           serde::deserializePolymorphicValue(data->pv()),
           serde::mapToDtypeStruct(data->dtype_enum())) {}
 
-std::pair<serde::ValData, flatbuffers::Offset<void>> Val::serializeData(
+std::pair<serde::ValueData, flatbuffers::Offset<void>> Val::serializeData(
     const IrSerde& container,
     flatbuffers::FlatBufferBuilder& builder) const {
   bool has_prim_dtype = std::holds_alternative<PrimDataType>(dtype_.type);
@@ -133,13 +133,13 @@ std::pair<serde::ValData, flatbuffers::Offset<void>> Val::serializeData(
     if (is_pv_monostate) {
       // Constructor 2 - PrimDataType only.
       return {
-          serde::ValData::PrimDataType,
+          serde::ValueData::PrimDataType,
           serde::CreatePrimDataType(builder, dtype_enum).Union()};
     } else {
       // Constructor 4 - PolymorphicValue with DataType where the
       // PolymorphicValue is cast to the dtype argument.
       return {
-          serde::ValData::PolymorphicValueDtype,
+          serde::ValueData::PolymorphicValueDtype,
           serde::CreatePolymorphicValueDtype(
               builder,
               serde::serializePolymorphicValue(builder, value_),
@@ -150,13 +150,13 @@ std::pair<serde::ValData, flatbuffers::Offset<void>> Val::serializeData(
   if (is_pv_monostate) {
     // Constructor 1 - DataType only.
     return {
-        serde::ValData::DataType,
+        serde::ValueData::DataType,
         serde::serializeDataType(builder, dtype_).Union()};
   } else {
     // Constructor 3 - PolymorphicValue only where the DataType is derived from
     // PolymorphicValue.
     return {
-        serde::ValData::PolymorphicValue,
+        serde::ValueData::PolymorphicValue,
         serde::serializePolymorphicValue(builder, value_).Union()};
   }
 }
