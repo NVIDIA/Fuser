@@ -511,4 +511,123 @@ TEST_F(SmemReuseTest, SkippedSyncInterval) {
   }
 }
 
+TEST_F(SmemReuseTest, SmemReuseWithDifferentVectorizationFactor) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int n_element = 16;
+  auto tv0 = makeContigConcreteTensor({n_element});
+  fusion->addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  auto tv4 = set(tv3);
+  fusion->addOutput(tv4);
+
+  tv1->split(-1, 2);
+  tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv1->setMemoryType(MemoryType::Shared);
+
+  tv2->split(-1, 4);
+
+  tv3->split(-1, 4);
+  tv3->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv3->setMemoryType(MemoryType::Shared);
+
+  inlineMost();
+
+  // T1 and T3 are vectorized by 2 and 4, respectively.
+  // However, T3 is still able to reuse T1's memory since the shared memory is
+  // aligned to 16 bytes which is the largest vectorization width.
+  // check T3 alias T1.
+  {
+    bool t3_alias_t1 = false;
+    GpuLower gpulw(fusion.get());
+    for (auto alloc : gpulw.run()->summary().dynamic_smem_allocations) {
+      EXPECT_NE(alloc->buffer(), nullptr);
+      if (alloc->buffer()->name() == 3) {
+        EXPECT_NE(alloc->alias(), nullptr);
+        EXPECT_EQ(alloc->alias()->buffer()->name(), 1);
+        t3_alias_t1 = true;
+      }
+    }
+    EXPECT_TRUE(t3_alias_t1);
+  }
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({n_element}, options);
+  FusionExecutor fe;
+  fe.compileFusion(fusion.get());
+  auto cg_outputs = fe.runFusion({t0});
+  testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(SmemReuseTest, RegisterReuseWithDifferentVectorizationFactor) {
+  auto testRegisterReuse = [](int vect_factor_1, int vect_factor_2) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    constexpr int n_element = 16;
+    auto tv0 = makeContigConcreteTensor({n_element});
+    fusion->addInput(tv0);
+
+    auto tv1 = set(tv0);
+    auto tv2 = set(tv1);
+    auto tv3 = set(tv2);
+    auto tv4 = set(tv3);
+    fusion->addOutput(tv4);
+
+    tv1->split(-1, vect_factor_1);
+    if (vect_factor_1 > 1) {
+      tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+
+    tv2->split(-1, vect_factor_2);
+
+    tv3->split(-1, vect_factor_2);
+    if (vect_factor_2 > 1) {
+      tv3->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+
+    // T1 and T3 are vectorized by factor_1 and factor_2, respectively.
+    // T3 alias T1 when vect_factor_2 <= vect_factor_1.
+    {
+      bool t3_alias_t1 = false;
+      GpuLower gpulw(fusion.get());
+      for (auto expr : gpulw.run()->topLevelExprs()) {
+        if (expr->isA<kir::Allocate>()) {
+          auto alloc = expr->as<kir::Allocate>();
+          if (alloc->buffer()->name() == 3) {
+            std::cout << "alloc: " << alloc->toString() << std::endl;
+            if (alloc->alias() && alloc->alias()->buffer()->name() == 1) {
+              t3_alias_t1 = true;
+            } else {
+              t3_alias_t1 = false;
+            }
+          }
+        }
+      }
+      if (vect_factor_2 <= vect_factor_1) {
+        EXPECT_TRUE(t3_alias_t1);
+      } else {
+        EXPECT_FALSE(t3_alias_t1);
+      }
+    }
+
+    // run the fusion
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    auto t0 = at::randn({n_element}, options);
+    FusionExecutor fe;
+    fe.compileFusion(fusion.get());
+    auto cg_outputs = fe.runFusion({t0});
+    testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
+  };
+
+  // test different vectorization factors, max is 4 since float is used.
+  for (int vect_factor_1 : {1, 2, 4}) {
+    for (int vect_factor_2 : {1, 2, 4}) {
+      testRegisterReuse(vect_factor_1, vect_factor_2);
+    }
+  }
+}
 } // namespace nvfuser
