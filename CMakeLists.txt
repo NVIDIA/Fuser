@@ -159,8 +159,9 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/predicate_compute.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/root_domain_map.cpp
-  ${NVFUSER_SRCS_DIR}/serde/polymorphic_value.cpp
+  ${NVFUSER_SRCS_DIR}/serde/datatype.cpp
   ${NVFUSER_SRCS_DIR}/serde/nodes.cpp
+  ${NVFUSER_SRCS_DIR}/serde/polymorphic_value.cpp
   ${NVFUSER_SRCS_DIR}/serde/utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/cache_policy_refiner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic_types.cpp
