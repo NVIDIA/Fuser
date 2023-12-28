@@ -206,7 +206,7 @@ class IdModel : public PolymorphicBase {
   // Fills disjoint_ids_[IdMappingMode::PERMISSIVE]. Initialize it as
   // Exact entries, then map through broadcasts
   void buildPermissiveMap(const std::vector<Expr*>& exprs);
-  
+
   // Make sure only leaf nodes of tensor views are parallelized
   void validatePTypes(const std::vector<TensorView*>& all_tvs) const;
 

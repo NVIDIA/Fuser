@@ -1074,7 +1074,7 @@ void IdModel::build(
     validator->checkPermissiveGraphEquivalence(
         idGraph(IdMappingMode::PERMISSIVE));
   }
-  
+
   // Permissive graph needs the trivial exprs from the almost exact graph to
   // build correctly. Once built though we can remove the trivial expressions
   // from the almost exact graph.
