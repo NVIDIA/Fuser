@@ -399,7 +399,7 @@ class Val : public Statement {
   //! using Val definitions.
   const std::vector<Expr*>& uses() const;
 
-  virtual std::vector<const Val*> inputs() const {
+  virtual std::vector<const Val*> serdeDependencies() const {
     return {};
   }
 
