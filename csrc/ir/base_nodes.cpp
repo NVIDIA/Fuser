@@ -16,6 +16,7 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <serde/datatype.h>
 #include <serde/polymorphic_value.h>
 #include <serde/utils.h>
 
@@ -96,6 +97,13 @@ Val::Val(
     IrContainer* container,
     IrBuilderPasskey passkey,
     const serde::Value* buffer,
+    const serde::DataType* data)
+    : Val(passkey, serde::deserializeDataType(data)) {}
+
+Val::Val(
+    IrContainer* container,
+    IrBuilderPasskey passkey,
+    const serde::Value* buffer,
     const serde::PolymorphicValue* data)
     : Val(passkey, serde::deserializePolymorphicValue(data)) {}
 
@@ -118,10 +126,6 @@ Val::Val(
 std::pair<serde::ValData, flatbuffers::Offset<void>> Val::serializeData(
     const IrSerde& container,
     flatbuffers::FlatBufferBuilder& builder) const {
-  // nvfuser::Val has four constructors, but serialization only supports
-  // constructors 2-4 because we do not support the DataType class. Constructor
-  // 1 only holds nvfuser::DataType while the PolymorphicValue is initialized
-  // with std::monostate.
   bool has_prim_dtype = std::holds_alternative<PrimDataType>(dtype_.type);
   bool is_pv_monostate = value_.is<std::monostate>();
   if (has_prim_dtype) {
@@ -142,6 +146,12 @@ std::pair<serde::ValData, flatbuffers::Offset<void>> Val::serializeData(
               dtype_enum)
               .Union()};
     }
+  }
+  if (is_pv_monostate) {
+    // Constructor 1 - DataType only.
+    return {
+        serde::ValData::DataType,
+        serde::serializeDataType(builder, dtype_).Union()};
   } else {
     // Constructor 3 - PolymorphicValue only where the DataType is derived from
     // PolymorphicValue.
