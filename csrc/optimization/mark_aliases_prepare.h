@@ -9,10 +9,11 @@
 
 namespace nvfuser::optimization {
 
-// Updates layouts to enable aliases.
-// TODO(wujingyue): Rename. It also inserts segment_set to help segmentation.
-class OptimizeLayoutPass : public OptimizationPass<OptimizeLayoutPass> {
-  friend class OptimizationPass<OptimizeLayoutPass>;
+// Prepares the input fusion for marking aliases. It currently updates layouts
+// to enable aliases, and inserts `SegmenterSet`s so segmentation will separate
+// out alias-only regions.
+class MarkAliasesPreparePass : public OptimizationPass<MarkAliasesPreparePass> {
+  friend class OptimizationPass<MarkAliasesPreparePass>;
 
  protected:
   static void runPass(Fusion* fusion);

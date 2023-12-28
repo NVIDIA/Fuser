@@ -66,10 +66,6 @@ struct StatefulLoweringInfo;
 // IdMappingMode::EXACT
 //   Don't map any broadcast axes to non-broadcast axes
 //   Do not forward through any broadcast IDs
-// IdMappingMode::LOOP
-//   Forward broadcast axes in replay
-//   Denotes groups of IterDomains that are considered promoted to a common iter
-//   domain size
 // IdMappingMode::PERMISSIVE
 //   Forward broadcast axes in replay
 //   Map all iteration domains
@@ -81,6 +77,10 @@ struct StatefulLoweringInfo;
 //          id{i1*i0}, id{i0} are not mapped (this part is the difference from
 //          PERMISSIVE)
 //   Forward through split one axes, i.e. id{ceilDiv(i0, 1)}, id{i0} are mapped
+// IdMappingMode::LOOP
+//   Forward broadcast axes in replay
+//   Denotes groups of IterDomains that are considered promoted to a common iter
+//   domain size
 //
 class IdModel : public PolymorphicBase {
  public:
@@ -203,8 +203,8 @@ class IdModel : public PolymorphicBase {
   // split by a size-1 dimension.
   void buildAlmostExactMap();
 
-  // Fills disjoint_ids_[IdMappingMode::PERMISSIVE]. Initialize PermissiveMap as
-  // AlmostExact entries, then map through broadcasts
+  // Fills disjoint_ids_[IdMappingMode::PERMISSIVE]. Initialize it as
+  // Exact entries, then map through broadcasts
   void buildPermissiveMap(const std::vector<Expr*>& exprs);
 
   // Make sure only leaf nodes of tensor views are parallelized
