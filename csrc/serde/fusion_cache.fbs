@@ -624,12 +624,13 @@ table StatementIndex {
 }
 
 table Statement {
+  name: ulong;
+  index: long;
   data: StatementData;
 }
 
 table IrContainer {
-  vals: [Value];
-  exprs: [Expression];
+  stmts: [Statement];
   val_type_name_map_keys: [long];
   val_type_name_map_values: [ulong];
   expr_name_counter: ulong;

@@ -89,7 +89,7 @@ class PipelineVal : public Val {
   void deserializeExpr(IrContainer* container, const serde::Value* buffer)
       override;
 
-  std::vector<const Val*> serdeDependencies() const override {
+  std::vector<const Statement*> serdeDependencies() const override {
     return {original_val_};
   }
 

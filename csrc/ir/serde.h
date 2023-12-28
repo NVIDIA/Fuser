@@ -25,8 +25,8 @@ class IrSerde {
  public:
   IrSerde(const IrContainer* container);
 
-  const std::vector<Val*>& topologicalSortedValues() const {
-    return toposorted_vals_;
+  const std::vector<Statement*>& topologicalSortedStatements() const {
+    return toposorted_stmts_;
   }
 
   int64_t map(Statement* v) const;
@@ -46,12 +46,16 @@ class IrSerde {
   std::vector<int64_t> map(const std::vector<TensorView*>& vals) const;
 
  private:
-  std::vector<Val*> topologicalSortValues(const std::deque<Val*>& values) const;
+  std::vector<Statement*> topologicalSortStatements(
+      const std::deque<Val*>& values,
+      const std::deque<Expr*>& exprs);
   std::unordered_map<Val*, int64_t> createToposortValuesMap() const noexcept;
+  std::unordered_map<Expr*, int64_t> createToposortExpressionsMap()
+      const noexcept;
 
   const IrContainer* container_;
 
-  const std::vector<Val*> toposorted_vals_;
+  const std::vector<Statement*> toposorted_stmts_;
 
   //! Return mapping from value to integer id in topological sorted order
   const std::unordered_map<Val*, int64_t> vals_to_id_map_;

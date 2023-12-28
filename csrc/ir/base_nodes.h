@@ -179,6 +179,10 @@ class Statement : public NonCopyable, public PolymorphicBase {
 
   virtual Statement* clone(IrCloner* ir_cloner) const;
 
+  virtual std::vector<const Statement*> serdeDependencies() const {
+    return {};
+  }
+
  protected:
   Statement(IrBuilderPasskey);
 
@@ -399,10 +403,6 @@ class Val : public Statement {
   //! using Val definitions.
   const std::vector<Expr*>& uses() const;
 
-  virtual std::vector<const Val*> serdeDependencies() const {
-    return {};
-  }
-
   bool isFusionInput() const {
     return is_fusion_input_;
   }
@@ -567,6 +567,14 @@ class Expr : public Statement {
   flatbuffers::Offset<serde::Expression> serialize(
       const IrSerde& container,
       flatbuffers::FlatBufferBuilder& builder) const;
+
+  std::vector<const Statement*> serdeDependencies() const override {
+    std::vector<const Statement*> deps;
+    std::copy(inputs_.begin(), inputs_.end(), std::back_inserter(deps));
+    std::copy(outputs_.begin(), outputs_.end(), std::back_inserter(deps));
+    std::copy(attributes_.begin(), attributes_.end(), std::back_inserter(deps));
+    return deps;
+  }
 
   virtual std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
