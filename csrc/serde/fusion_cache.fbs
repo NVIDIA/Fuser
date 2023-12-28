@@ -232,13 +232,14 @@ union PolymorphicValueData {
 
 // The ValData union holds the attribute information for each Val class.
 union ValData {
-  PrimDataType,
+  DataType,
   IterDomain,
   NamedScalar,
   PipelineVal,
   PolymorphicValue,
   PolymorphicValueDtype,
   Predicate,
+  PrimDataType,
   TensorDomain,
   TensorIndex,
   TensorView,
