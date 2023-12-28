@@ -72,7 +72,7 @@ std::vector<Val*> IrSerde::topologicalSortValues(
         break;
       } else {
         bool ready_to_pop = true;
-        for (const auto producer : top_val->inputs()) {
+        for (const auto producer : top_val->serdeDependencies()) {
           if (!visited.count(producer)) {
             ready_to_pop = false;
           }

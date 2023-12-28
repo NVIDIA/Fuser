@@ -131,7 +131,7 @@ class TensorView : public Val {
       const IrSerde& container,
       flatbuffers::FlatBufferBuilder& builder) const override;
 
-  std::vector<const Val*> inputs() const override {
+  std::vector<const Val*> serdeDependencies() const override {
     return {domain_->asVal()};
   }
 

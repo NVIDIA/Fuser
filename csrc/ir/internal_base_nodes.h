@@ -121,15 +121,15 @@ class IterDomain : public Val {
       const IrSerde& container,
       flatbuffers::FlatBufferBuilder& builder) const override;
 
-  std::vector<const Val*> inputs() const override {
-    std::vector<const Val*> inputs;
-    inputs.push_back(start());
-    inputs.push_back(extent());
+  std::vector<const Val*> serdeDependencies() const override {
+    std::vector<const Val*> deps;
+    deps.push_back(start());
+    deps.push_back(extent());
     if (hasExpandedExtent()) {
-      inputs.push_back(expandedExtent());
+      deps.push_back(expandedExtent());
     }
-    inputs.push_back(stopOffset());
-    return inputs;
+    deps.push_back(stopOffset());
+    return deps;
   }
 
   //! Returns a new IterDomain matching properties of this
@@ -544,34 +544,34 @@ class TensorDomain : public Val {
       const IrSerde& container,
       flatbuffers::FlatBufferBuilder& builder) const override;
 
-  std::vector<const Val*> inputs() const override {
-    std::vector<const Val*> inputs;
+  std::vector<const Val*> serdeDependencies() const override {
+    std::vector<const Val*> deps;
 
     std::transform(
         root_domain_.begin(),
         root_domain_.end(),
-        std::back_inserter(inputs),
+        std::back_inserter(deps),
         [](IterDomain* id) { return id->asVal(); });
 
     std::transform(
         rfactor_domain_.begin(),
         rfactor_domain_.end(),
-        std::back_inserter(inputs),
+        std::back_inserter(deps),
         [](IterDomain* id) { return id->asVal(); });
 
     std::transform(
         allocation_domain_.begin(),
         allocation_domain_.end(),
-        std::back_inserter(inputs),
+        std::back_inserter(deps),
         [](IterDomain* id) { return id->asVal(); });
 
     std::transform(
         leaf_domain_.begin(),
         leaf_domain_.end(),
-        std::back_inserter(inputs),
+        std::back_inserter(deps),
         [](IterDomain* id) { return id->asVal(); });
 
-    return inputs;
+    return deps;
   }
 
   // Note: [Contiguity]
