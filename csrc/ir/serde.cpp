@@ -38,19 +38,25 @@ namespace nvfuser {
 
 IrSerde::IrSerde(const IrContainer* container)
     : container_{container},
-      toposorted_vals_{topologicalSortValues(container->deterministic_vals())},
+      toposorted_stmts_{topologicalSortStatements(
+          container->deterministic_vals(),
+          container->deterministic_exprs())},
       vals_to_id_map_{createToposortValuesMap()},
-      exprs_to_id_map_{container->deterministic_exprs_map()} {}
+      exprs_to_id_map_{createToposortExpressionsMap()} {}
 
 // A generic utility then ensures that all of a value's dependencies should have
 // indicies less than its index.
-std::vector<Val*> IrSerde::topologicalSortValues(
-    const std::deque<Val*>& values) const {
-  std::unordered_set<Val*> to_sort;
+std::vector<Statement*> IrSerde::topologicalSortStatements(
+    const std::deque<Val*>& values,
+    const std::deque<Expr*>& exprs) {
+  std::unordered_set<Statement*> to_sort;
+
   std::copy(
       values.begin(), values.end(), std::inserter(to_sort, to_sort.end()));
-  std::unordered_set<const Val*> visited;
-  std::vector<Val*> sorted;
+  std::copy(exprs.begin(), exprs.end(), std::inserter(to_sort, to_sort.end()));
+
+  std::unordered_set<const Statement*> visited;
+  std::vector<Statement*> sorted;
 
   // Insert special values immediately
   visited.insert(nullptr);
@@ -65,22 +71,22 @@ std::vector<Val*> IrSerde::topologicalSortValues(
   // Topological Sort
   while (!to_sort.empty()) {
     --deleted;
-    for (auto top_val : to_sort) {
-      if (visited.count(top_val)) {
-        to_sort.erase(top_val);
+    for (auto top_stmt : to_sort) {
+      if (visited.count(top_stmt)) {
+        to_sort.erase(top_stmt);
         ++deleted;
         break;
       } else {
         bool ready_to_pop = true;
-        for (const auto producer : top_val->serdeDependencies()) {
+        for (const auto producer : top_stmt->serdeDependencies()) {
           if (!visited.count(producer)) {
             ready_to_pop = false;
           }
         }
 
         if (ready_to_pop) {
-          visited.insert(top_val);
-          sorted.push_back(top_val);
+          visited.insert(top_stmt);
+          sorted.push_back(top_stmt);
         }
       }
     }
@@ -104,12 +110,39 @@ std::unordered_map<Val*, int64_t> IrSerde::createToposortValuesMap()
   vals_map.try_emplace(container_->getTrueVal(), -5);
   vals_map.try_emplace(container_->getMagicZeroVal(), -6);
 
+  std::vector<Statement*> vals_stmts;
+  std::copy_if(
+      toposorted_stmts_.begin(),
+      toposorted_stmts_.end(),
+      std::back_inserter(vals_stmts),
+      [](Statement* s) { return s != nullptr && s->isVal(); });
   std::transform(
-      toposorted_vals_.begin(),
-      toposorted_vals_.end(),
+      vals_stmts.begin(),
+      vals_stmts.end(),
       std::inserter(vals_map, vals_map.end()),
-      [&count](Val* val) { return std::make_pair(val, count++); });
+      [&count](Statement* stmt) {
+        return std::make_pair(stmt->asVal(), count++);
+      });
   return vals_map;
+}
+
+std::unordered_map<Expr*, int64_t> IrSerde::createToposortExpressionsMap()
+    const noexcept {
+  std::unordered_map<Expr*, int64_t> exprs_map;
+  int64_t count = 0;
+
+  std::vector<Statement*> exprs_stmts;
+  std::copy_if(
+      toposorted_stmts_.begin(),
+      toposorted_stmts_.end(),
+      std::back_inserter(exprs_stmts),
+      [](Statement* s) { return s != nullptr && s->isExpr(); });
+  std::transform(
+      exprs_stmts.begin(),
+      exprs_stmts.end(),
+      std::inserter(exprs_map, exprs_map.end()),
+      [&count](Statement* s) { return std::make_pair(s->asExpr(), count++); });
+  return exprs_map;
 }
 
 int64_t IrSerde::map(Statement* stmt) const {

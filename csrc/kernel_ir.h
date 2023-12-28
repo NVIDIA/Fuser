@@ -92,7 +92,7 @@ class Predicate final : public Val {
   void deserializeExpr(IrContainer* container, const serde::Value* buffer)
       override;
 
-  std::vector<const Val*> serdeDependencies() const override {
+  std::vector<const Statement*> serdeDependencies() const override {
     return {thread_pred_};
   }
 
@@ -195,8 +195,8 @@ class TensorIndex final : public Val {
       const IrSerde& container,
       flatbuffers::FlatBufferBuilder& builder) const override;
 
-  std::vector<const Val*> serdeDependencies() const override {
-    return {view_->as<const Val>(), index_->asVal()};
+  std::vector<const Statement*> serdeDependencies() const override {
+    return {view_, index_};
   }
 
  private:

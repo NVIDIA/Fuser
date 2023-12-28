@@ -202,20 +202,26 @@ flatbuffers::Offset<serde::IrContainer> IrContainer::serialize(
   // Copy values in deterministic order
   // deterministic_vals can contain special values like one_val_, zero_val_, etc
   // that are not registered in the container.
-  std::vector<flatbuffers::Offset<serde::Value>> fb_vals;
-  fb_vals.reserve(vals().size());
-  for (auto val : container.topologicalSortedValues()) {
-    if (vals().count(val) > 0) {
-      fb_vals.push_back(val->serialize(container, builder));
-    }
-  }
-
-  // Copy expressions in deterministic order
-  std::vector<flatbuffers::Offset<serde::Expression>> fb_exprs;
-  fb_exprs.reserve(unordered_exprs().size());
-  for (auto expr : deterministic_exprs()) {
-    if (unordered_exprs().count(expr) > 0) {
-      fb_exprs.push_back(expr->serialize(container, builder));
+  std::vector<flatbuffers::Offset<serde::Statement>> fb_stmts;
+  fb_stmts.reserve(container.topologicalSortedStatements().size());
+  for (auto stmt : container.topologicalSortedStatements()) {
+    NVF_CHECK(stmt != nullptr);
+    if (inContainer(stmt)) {
+      if (stmt->isVal()) {
+        fb_stmts.push_back(serde::CreateStatement(
+            builder,
+            stmt->name(),
+            container.map(stmt),
+            serde::StatementData::Value,
+            stmt->asVal()->serialize(container, builder).Union()));
+      } else {
+        fb_stmts.push_back(serde::CreateStatement(
+            builder,
+            stmt->name(),
+            container.map(stmt),
+            serde::StatementData::Expression,
+            stmt->asExpr()->serialize(container, builder).Union()));
+      }
     }
   }
 
@@ -251,8 +257,7 @@ flatbuffers::Offset<serde::IrContainer> IrContainer::serialize(
 
   return serde::CreateIrContainerDirect(
       builder,
-      &fb_vals,
-      &fb_exprs,
+      &fb_stmts,
       &fb_val_type_name_map_keys,
       &fb_val_type_name_map_values,
       expr_name_counter_,
@@ -267,13 +272,18 @@ void IrContainer::deserialize(const serde::IrContainer* buffer) {
   NVF_ERROR(buffer != nullptr, "serde::IrContainer is nullptr.");
 
   serde::ValueFactory value_factory;
-  for (auto fb_val : *buffer->vals()) {
-    vals_.insert(value_factory.parse(fb_val->data_type(), fb_val));
-  }
-
   serde::ExpressionFactory expr_factory;
-  for (auto fb_expr : *buffer->exprs()) {
-    exprs_.insert(expr_factory.parse(fb_expr->type(), fb_expr));
+  for (auto fb_stmt : *buffer->stmts()) {
+    NVF_ERROR(fb_stmt != nullptr, "serde::Statement is nullptr.");
+    if (fb_stmt->data_type() == serde::StatementData::Value) {
+      auto fb_val = fb_stmt->data_as_Value();
+      vals_.insert(value_factory.parse(fb_val->data_type(), fb_val));
+    } else if (fb_stmt->data_type() == serde::StatementData::Expression) {
+      auto fb_expr = fb_stmt->data_as_Expression();
+      exprs_.insert(expr_factory.parse(fb_expr->type(), fb_expr));
+    } else {
+      NVF_ERROR(false, "Unexpected StatementData.");
+    }
   }
 
   NVF_ERROR(

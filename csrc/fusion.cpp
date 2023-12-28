@@ -220,10 +220,11 @@ void Fusion::deserialize(const serde::Fusion* buffer) {
   FusionGuard fg(this);
   IrContainer::deserialize(buffer->container());
 
-  for (int64_t index :
-       c10::irange((int64_t)buffer->container()->vals()->size())) {
-    getVal<Val>(index)->deserializeExpr(
-        this, buffer->container()->vals()->Get(index));
+  for (auto fb_stmt : *buffer->container()->stmts()) {
+    if (fb_stmt->data_type() == serde::StatementData::Value) {
+      getVal<Val>(fb_stmt->index())
+          ->deserializeExpr(this, fb_stmt->data_as_Value());
+    }
   }
 
   inputs_.reserve(buffer->input_vals()->size());
