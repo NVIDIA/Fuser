@@ -38,8 +38,79 @@ namespace nvfuser {
 
 IrSerde::IrSerde(const IrContainer* container)
     : container_{container},
-      vals_to_id_map_{container->toposort_vals_map()},
+      toposorted_vals_{topologicalSortValues(container->deterministic_vals())},
+      vals_to_id_map_{createToposortValuesMap()},
       exprs_to_id_map_{container->deterministic_exprs_map()} {}
+
+// A generic utility then ensures that all of a value's dependencies should have
+// indicies less than its index.
+std::vector<Val*> IrSerde::topologicalSortValues(
+    const std::deque<Val*>& values) const {
+  std::unordered_set<Val*> to_sort;
+  std::copy(
+      values.begin(), values.end(), std::inserter(to_sort, to_sort.end()));
+  std::unordered_set<const Val*> visited;
+  std::vector<Val*> sorted;
+
+  // Insert special values immediately
+  visited.insert(nullptr);
+  visited.insert(container_->getZeroVal());
+  visited.insert(container_->getOneVal());
+  visited.insert(container_->getFalseVal());
+  visited.insert(container_->getTrueVal());
+  visited.insert(container_->getMagicZeroVal());
+
+  int64_t deleted = 1;
+
+  // Topological Sort
+  while (!to_sort.empty()) {
+    --deleted;
+    for (auto top_val : to_sort) {
+      if (visited.count(top_val)) {
+        to_sort.erase(top_val);
+        ++deleted;
+        break;
+      } else {
+        bool ready_to_pop = true;
+        for (const auto producer : top_val->inputs()) {
+          if (!visited.count(producer)) {
+            ready_to_pop = false;
+          }
+        }
+
+        if (ready_to_pop) {
+          visited.insert(top_val);
+          sorted.push_back(top_val);
+        }
+      }
+    }
+
+    NVF_ERROR(
+        deleted >= 0,
+        "Failed to remove value from to_sort, so we are stopping to break infinite loop.");
+  }
+  return sorted;
+}
+
+std::unordered_map<Val*, int64_t> IrSerde::createToposortValuesMap()
+    const noexcept {
+  std::unordered_map<Val*, int64_t> vals_map;
+  int64_t count = 0;
+
+  vals_map.emplace(nullptr, -1);
+  vals_map.try_emplace(container_->getZeroVal(), -2);
+  vals_map.try_emplace(container_->getOneVal(), -3);
+  vals_map.try_emplace(container_->getFalseVal(), -4);
+  vals_map.try_emplace(container_->getTrueVal(), -5);
+  vals_map.try_emplace(container_->getMagicZeroVal(), -6);
+
+  std::transform(
+      toposorted_vals_.begin(),
+      toposorted_vals_.end(),
+      std::inserter(vals_map, vals_map.end()),
+      [&count](Val* val) { return std::make_pair(val, count++); });
+  return vals_map;
+}
 
 int64_t IrSerde::map(Statement* stmt) const {
   if (stmt == nullptr) {
