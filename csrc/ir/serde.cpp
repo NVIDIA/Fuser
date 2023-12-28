@@ -23,7 +23,12 @@ std::vector<V> convertContainer(
       selected_keys.begin(),
       selected_keys.end(),
       std::back_inserter(result),
-      [&](K key) { return all_values.at(key); });
+      [&](K key) {
+        if (key == nullptr) {
+          return -1l;
+        }
+        return all_values.at(key);
+      });
   return result;
 }
 
@@ -37,6 +42,9 @@ IrSerde::IrSerde(const IrContainer* container)
       exprs_to_id_map_{container->deterministic_exprs_map()} {}
 
 int64_t IrSerde::map(Statement* stmt) const {
+  if (stmt == nullptr) {
+    return -1;
+  }
   if (stmt->isVal()) {
     return map(stmt->asVal());
   } else {
@@ -45,6 +53,9 @@ int64_t IrSerde::map(Statement* stmt) const {
 }
 
 int64_t IrSerde::map(const Statement* stmt) const {
+  if (stmt == nullptr) {
+    return -1;
+  }
   return map((Statement*)stmt);
 }
 
@@ -62,6 +73,9 @@ int64_t IrSerde::map(Val* v) const {
 
 int64_t IrSerde::map(const Val* v) const {
   // TODO use const Val* key with unordered_map to avoid const cast to Val*
+  if (v == nullptr) {
+    return -1;
+  }
   return map((Val*)v);
 }
 
@@ -79,6 +93,9 @@ int64_t IrSerde::map(Expr* e) const {
 
 int64_t IrSerde::map(const Expr* e) const {
   // TODO use const Expr* key with unordered_map to avoid const cast to Expr*
+  if (e == nullptr) {
+    return -1;
+  }
   return map((Expr*)e);
 }
 
