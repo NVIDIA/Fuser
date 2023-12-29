@@ -104,19 +104,6 @@ class IdModel : public PolymorphicBase {
   const ValGraph& idGraph(IdMappingMode mode) const;
   ValGraph& idGraph(IdMappingMode mode);
 
-  // IterDomains from the original fusion are only allowed to be used once in
-  // the IterDomain graph, id->uses() are not directly used as there's no bounds
-  // check that would prevent a use from being defined that's not part of the
-  // actual fusion definition.
-  //
-  // Note, any iter domains used during something like loop or concrete id
-  // resolution could actually have multiple Expr* uses, and uses on disjoint id
-  // sets should be used, not this.
-  //
-  // TODO: Refactor or remove?
-  Expr* idUse(IterDomain* id) const;
-  Expr* idDef(IterDomain* id) const;
-
   // TODO: Seems a bit unfortunate that this isn't IterDomain local information.
   const std::unordered_set<IterDomain*>& viewRfactorIds() const {
     return view_rfactor_ids_;
@@ -190,8 +177,8 @@ class IdModel : public PolymorphicBase {
   void buildIterDomainDefinitionsAndUses(
       const std::vector<TensorView*>& all_tvs);
 
-  // Iterates over all IterDomains in id_definitions_ and calls initializeID on
-  // a new IdGraph and returns it.
+  // Iterates over all IterDomains in id_definitions_ and calls initializeVal on
+  // a new ValGraph and returns it.
   ValGraph initializeIdGraph(bool propagate_through_exprs = true);
 
   // Fills disjoint_ids_[IdMappingMode::EXACT] for relationships between inputs
@@ -272,7 +259,7 @@ class IdModel : public PolymorphicBase {
   // Errors if self mapping occurs
   void assertNoSelfMapping();
 
-  // Keeps a disjoint set entry for all IterDomain for all mapping mode types.
+  // Keeps ValGraphs containing all IterDomains for all mapping mode types.
   //
   // Using an array here might be nice, but it seems hard to use an enum as an
   // array key
