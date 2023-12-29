@@ -1254,8 +1254,10 @@ def squeeze_generator(
         ((1, 1, 1), ()),
         ((1, 1, 1), (0, 1, 2)),
         ((1, 1, 1), (-3, -2, -1)),
+        # No-op test cases
         ((5, 5, 5), (0, 1, 2)),
         ((5, 5, 5), (-3, -2, -1)),
+        ((), ()),
     )
 
     for shape, squeeze_dims in cases:
@@ -1271,18 +1273,30 @@ def squeeze_error_generator(
     )
 
     # shape, start_indices, end_indices
-    cases = (
+    out_of_range_cases = (
         ((5, 1, 1), (-4, -5)),  # Dims are completely outside of tensor dims
         ((5, 1, 1), (3, 4)),
         ((5, 1, 1), (-3, -4)),  # One dim in range, one dim out of range
         ((5, 1, 1), (2, 3)),
-        ((), (0,)),  # Try an empty tensor
-        ((), (-1,)),
     )
 
     error_type = RuntimeError
     error_str = "Squeeze dim is outside of Tensor size!"
-    for shape, squeeze_dims in cases:
+    for shape, squeeze_dims in out_of_range_cases:
+        a = make_arg(shape)
+        yield SampleInput(a, squeeze_dims), error_type, error_str
+
+    # shape, start_indices, end_indices
+    too_many_indices_cases = (
+        ((5, 1, 1), (1, 2, 3, 4)),
+        ((5, 1, 1), (-1, -2, -3, -4)),
+        ((), (0,)),
+        ((), (-1,)),
+    )
+
+    error_type = RuntimeError
+    error_str = "The dims to squeeze must be <= the number of dims of the input tensor"
+    for shape, squeeze_dims in too_many_indices_cases:
         a = make_arg(shape)
         yield SampleInput(a, squeeze_dims), error_type, error_str
 

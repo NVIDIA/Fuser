@@ -212,7 +212,7 @@ TensorView* squeeze(TensorView* x, const std::vector<int64_t>& dims) {
 
   NVF_ERROR(
       (int)dims.size() <= ndims,
-      "The dims to squeeze must be <= the number of dims of the input tensorx. ",
+      "The dims to squeeze must be <= the number of dims of the input tensor. ",
       "Squeeze dims: ",
       dims.size(),
       " Input Tensor dims: ",
@@ -239,9 +239,10 @@ TensorView* squeeze(TensorView* x, const std::vector<int64_t>& dims) {
     if (to_squeeze[idx]) {
       if (!id->isSymbolic()) {
         // If a squeeze is attempted on a non-broadcast dimension
-        // just don't do it!  This confirms with Pytorch.
+        // just don't do it!  This conforms with Pytorch.
         if (!id->isBroadcast()) {
           to_squeeze[idx] = false;
+          out_domain.push_back(id->cloneWithoutRFactor());
           continue;
         }
         NVF_CHECK(
@@ -260,7 +261,13 @@ TensorView* squeeze(TensorView* x, const std::vector<int64_t>& dims) {
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       *x->getDataType());
 
-  IrBuilder::create<SqueezeOp>(x->container(), out, x, to_squeeze);
+  std::vector<bool> all_false(to_squeeze.size(), false);
+  // If a squeeze does not perform a squeeze, create a no-op
+  if (to_squeeze == all_false) {
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, x);
+  } else {
+    IrBuilder::create<SqueezeOp>(x->container(), out, x, to_squeeze);
+  }
 
   return out;
 }
