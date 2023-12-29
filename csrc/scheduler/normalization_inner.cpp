@@ -216,7 +216,6 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // Some assumptions:
   const bool has_multiple_inputs = has_rng_ops;// n_tensor_inputs > 1l ;
   const int64_t buffer_per_element = max_persistent_buffer_size / total_reduction_numel;
-      // max_persistent_buffer_size / total_reduction_numel > 2;
   // maximize vectorization even if it leads to less than 1 warp.
   // Tested on H100 using layer_norm, fp16, batch_size= 32K.
   // reduction_dim = 32, (vect = 1, 557 GB/s), (vect = 8, 1100 GB/s)
@@ -244,7 +243,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
 
   // hint for register usage based on experiments
   // allows to reduce estimated register usage for higher occupancy.
-  const int64_t max_adjust_count = buffer_per_element == 2l ? 0l : 8l;
+  const int64_t max_adjust_count = buffer_per_element == 2l ? 8l : 8l;
   auto estimateRegisterPerThread = [](int64_t buffer_per_thread) {
     return 24l +
         ceilDiv(buffer_per_thread, scheduler_utils::bytes_per_register);
@@ -259,7 +258,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       if(buffer_per_element <= 2l){
         threshold = 2048l;
       }else{
-        threshold = 2816l;
+        threshold = 2048l;
       }
     }
     return threshold;
@@ -295,15 +294,12 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         experiment_max = 1l;
       }
     } else {
-      if (total_reduction_numel >= 20480) {
+      if (total_reduction_numel > 10240) {
         experiment_min = 6l;
-        experiment_max = 10l;
-      } else if (total_reduction_numel >= 6144l) {
-        experiment_min = 3l;
-        experiment_max = 10l;
+        experiment_max = 11l;
       } else if (total_reduction_numel >= mrpb_reduction_numel_threshold) {
         experiment_min = 3l;
-        experiment_max = 6l;
+        experiment_max = 10l;
       } else {
         experiment_min = 1l;
         experiment_max = 12l;
@@ -327,6 +323,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     int64_t n_waves = -1l;
     int64_t n_persistent_tails = -1l;
     int64_t n_threads_tails = -1l;
+    int64_t effective_used_regs = -1l;
     // print to string
     std::string toString() const {
       std::stringstream ss;
@@ -336,7 +333,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
          << ", n_waves= " << n_waves << ", n_threads_tails= " << n_threads_tails
          << ", warps_per_sm= " << warps_per_sm
          << ", n_persistent_tails= " << n_persistent_tails
-         << ", registers= " << warps_per_sm * 32 * nvrtc_register_per_thread;
+         << ", registers= " << effective_used_regs;
       return ss.str();
     }
   };
@@ -446,6 +443,14 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     // warp divergence.
     auto n_threads_tails = bdimx_val - ceilDiv(after_vect, persistent_val);
 
+    // How many registers are used. Don't need to consider [n_threads_tails]
+    // since all the threads are participating in the reduction and broadcast.
+    // auto blocks_per_sm = warps_per_sm / warps_per_block;
+    // auto reg_per_block = (bdimx_val - n_threads_tails) * bdimy_val *
+    //       nvrtc_register_per_thread;
+    // auto effective_used_regs = blocks_per_sm * reg_per_block;
+    auto effective_used_regs = warps_per_sm * threads_per_warp * nvrtc_register_per_thread;
+
     return HeuristicParas{
         .persistent_val = persistent_val,
         .bdimx_val = bdimx_val,
@@ -455,7 +460,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         .warps_per_block = warps_per_block,
         .n_waves = n_waves,
         .n_persistent_tails = n_persistent_tails,
-        .n_threads_tails = n_threads_tails};
+        .n_threads_tails = n_threads_tails,
+        .effective_used_regs = effective_used_regs,};
   };
 
   // a better heuristic is a heuristic with:
@@ -473,18 +479,18 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     };
     // prefer 0 to avoid warp divergence in each persistent batch.
     auto threads_tails_score =
-        compare(ha.n_threads_tails == 0, hb.n_threads_tails == 0);
+        -1*compare(ha.n_threads_tails, hb.n_threads_tails);
 
     // prefer 0 to avoid unused warps and warp divergence in the last persistent
     // batch.
     auto persistent_tails_score =
         compare(ha.n_persistent_tails == 0, hb.n_persistent_tails == 0);
 
-    // prefer larger [warps_per_sm]
+    // prefer larger occupancy, [warps_per_sm]
     auto occupancy_score = compare(ha.warps_per_sm, hb.warps_per_sm);
-    auto register_usage = compare(
-        ha.warps_per_sm * ha.nvrtc_register_per_thread * 32l,
-        hb.warps_per_sm * hb.nvrtc_register_per_thread * 32l);
+
+    // prefer larger register usage
+    auto register_usage = compare(ha.effective_used_regs,hb.effective_used_regs);
     auto single_warp_reduction_score = compare(
         ha.bdimx_val == threads_per_warp, hb.bdimx_val == threads_per_warp);
     // auto persistent_val_score = compare(ha.persistent_val,
