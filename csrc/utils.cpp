@@ -137,7 +137,9 @@ int8_t getCommonDeviceCUDA(
     if (device.is_cpu() && is_cpu_scalar(input.toTensor())) {
       continue;
     }
-    NVF_CHECK(device.is_cuda(), "nvfuser only supports cuda device");
+    if (device.is_meta()) {
+      continue;
+    }
     auto cur_index = device.index();
     if (found_device && index != cur_index) {
       return -1;

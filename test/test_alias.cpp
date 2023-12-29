@@ -780,4 +780,41 @@ TEST_F(AliasTest, Issue1502) {
   EXPECT_EQ(out_tensors[1].data_ptr(), out_tensors[2].data_ptr());
 }
 
+TEST_F(AliasTest, ConcatToSlice) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* slice_in0 = makeContigConcreteTensor({2, -1});
+  TensorView* slice_in1 = makeContigConcreteTensor({2, -1});
+  TensorView* cat_in = makeContigConcreteTensor({2, -1});
+  Val* size0 = size(slice_in0, -1);
+  TensorView* slice_out0 =
+      slice(cat_in, {{nullptr, nullptr}, {nullptr, size0}});
+  TensorView* slice_out1 =
+      slice(cat_in, {{nullptr, nullptr}, {size0, nullptr}});
+
+  fusion->addInput(slice_in0);
+  fusion->addInput(slice_in1);
+  fusion->addInput(cat_in);
+  fusion->addOutput(slice_out0);
+  fusion->addOutput(slice_out1);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor slice_in_tensor = at::randn({2, 2}).meta();
+  at::Tensor cat_in_tensor = at::randn({2, 5}).cuda();
+  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs(
+      {slice_in_tensor, slice_in_tensor, cat_in_tensor});
+
+  testValidate(
+      fec.fusion(),
+      out_tensors,
+      {slice_in_tensor, slice_in_tensor, cat_in_tensor},
+      {cat_in_tensor.slice(-1, 0, 2), cat_in_tensor.slice(-1, 2, 5)},
+      __LINE__,
+      __FILE__);
+
+  EXPECT_TRUE(out_tensors[0].is_alias_of(cat_in_tensor));
+  EXPECT_TRUE(out_tensors[1].is_alias_of(cat_in_tensor));
+}
+
 } // namespace nvfuser
