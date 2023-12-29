@@ -238,12 +238,12 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // at 20736, prefer persistent_val= 3, bdimx_val= 864, warp_per_sm= 27
   // at 23K, perfer persistent_val= 4, bdimx_val= 736, warp_per_sm= 23
   const bool high_register_pressure =
-      max_persistent_buffer_size >= 14l * 1024l * 4l;
+      max_persistent_buffer_size >= 25l * 1024l * 2l;
   const int64_t target_warps_per_sm = high_register_pressure ? 22l : 32l;
 
   // hint for register usage based on experiments
   // allows to reduce estimated register usage for higher occupancy.
-  const int64_t max_adjust_count = buffer_per_element == 2l ? 8l : 8l;
+  const int64_t max_adjust_count = buffer_per_element == 2l ? 0l : 8l;
   auto estimateRegisterPerThread = [](int64_t buffer_per_thread) {
     return 24l +
         ceilDiv(buffer_per_thread, scheduler_utils::bytes_per_register);
@@ -294,10 +294,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         experiment_max = 1l;
       }
     } else {
-      if (total_reduction_numel > 10240) {
-        experiment_min = 6l;
-        experiment_max = 11l;
-      } else if (total_reduction_numel >= mrpb_reduction_numel_threshold) {
+      if (total_reduction_numel >= mrpb_reduction_numel_threshold) {
         experiment_min = 3l;
         experiment_max = 10l;
       } else {
@@ -479,7 +476,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     };
     // prefer 0 to avoid warp divergence in each persistent batch.
     auto threads_tails_score =
-        -1*compare(ha.n_threads_tails, hb.n_threads_tails);
+        compare(ha.n_threads_tails == 0, hb.n_threads_tails == 0);
 
     // prefer 0 to avoid unused warps and warp divergence in the last persistent
     // batch.
@@ -491,19 +488,27 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
 
     // prefer larger register usage
     auto register_usage = compare(ha.effective_used_regs,hb.effective_used_regs);
+
+    // prefer single warp reduction
     auto single_warp_reduction_score = compare(
         ha.bdimx_val == threads_per_warp, hb.bdimx_val == threads_per_warp);
+
+    // prefer bdimx_val close to 128, 256, 512
+    auto ha_distance_to_pow2 = scheduler_utils::roundUpPow2(ha.bdimx_val) - ha.bdimx_val;
+    auto hb_distance_to_pow2 = scheduler_utils::roundUpPow2(hb.bdimx_val) - hb.bdimx_val;
+    auto distance_to_pow2_score = -1*compare(ha_distance_to_pow2, hb_distance_to_pow2);
     // auto persistent_val_score = compare(ha.persistent_val,
     // hb.persistent_val);
     std::cout << "pa:" << ha.persistent_val << ", pb:" << hb.persistent_val
               << ", persistent_tails_score:" << persistent_tails_score
               << ", threads_tails_score:" << threads_tails_score
               << ", register_usage: " << register_usage
+              << ", distance_to_pow2_score: " << distance_to_pow2_score
               << ", occupancy_score: " << occupancy_score
               << ", single_warp_reduction_score: "
               << single_warp_reduction_score << std::endl;
     auto first_priority = single_warp_reduction_score;
-    auto second_priority = register_usage;
+    auto second_priority = distance_to_pow2_score;
     auto third_priority = threads_tails_score;
     auto forth_priority = persistent_tails_score;
     if (has_multiple_inputs) {
