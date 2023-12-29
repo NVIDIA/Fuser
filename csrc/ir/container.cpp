@@ -279,6 +279,11 @@ void IrContainer::deserialize(const serde::IrContainer* buffer) {
     } else if (fb_stmt->data_type() == serde::StatementData::Expression) {
       auto fb_expr = fb_stmt->data_as_Expression();
       exprs_.insert(expr_factory.parse(fb_expr->type(), fb_expr));
+
+      Expr* last_expr = exprs_up_.back().get();
+      for (auto output : last_expr->outputs()) {
+        output->setDefinition(last_expr);
+      }
     } else {
       NVF_ERROR(false, "Unexpected StatementData.");
     }

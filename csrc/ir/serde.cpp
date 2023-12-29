@@ -46,6 +46,12 @@ IrSerde::IrSerde(const IrContainer* container)
 
 // A generic utility then ensures that all of a value's dependencies should have
 // indicies less than its index.
+//
+// For a given Value, all its Val dependencies require a valid definition
+// Expr. Initially, we create a Val without definition expression. This Val
+// is only valid for Expr. Then, we create an Expr that requires inputs,
+// outputs, and attribute Vals. After creating an Expr, we assign the Expr to
+// output Vals' definition. Now, output Val are valid for other Vals.
 std::vector<Statement*> IrSerde::topologicalSortStatements(
     const std::deque<Val*>& values,
     const std::deque<Expr*>& exprs) {
@@ -55,46 +61,79 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
       values.begin(), values.end(), std::inserter(to_sort, to_sort.end()));
   std::copy(exprs.begin(), exprs.end(), std::inserter(to_sort, to_sort.end()));
 
-  std::unordered_set<const Statement*> visited;
   std::vector<Statement*> sorted;
 
+  // val_visited holds all statements available for value dependencies.
+  // Expressions require output values in their constructor, so output values
+  // are created without their definition expression. All values must have their
+  // definition expression before they are available as a value dependency.
+  std::unordered_set<const Statement*> val_visited;
+
   // Insert special values immediately
-  visited.insert(nullptr);
-  visited.insert(container_->getZeroVal());
-  visited.insert(container_->getOneVal());
-  visited.insert(container_->getFalseVal());
-  visited.insert(container_->getTrueVal());
-  visited.insert(container_->getMagicZeroVal());
+  val_visited.insert(nullptr);
+  val_visited.insert(container_->getZeroVal());
+  val_visited.insert(container_->getOneVal());
+  val_visited.insert(container_->getFalseVal());
+  val_visited.insert(container_->getTrueVal());
+  val_visited.insert(container_->getMagicZeroVal());
 
-  int64_t deleted = 1;
+  // expr_visited holds all statements available for expr dependencies.
+  std::unordered_set<const Statement*> expr_visited(val_visited);
+  NVF_ERROR(val_visited.size() == expr_visited.size());
 
+  bool removed_any_statment_from_to_sort = false;
+  bool any_ready_to_pop = false;
   // Topological Sort
   while (!to_sort.empty()) {
-    --deleted;
+    removed_any_statment_from_to_sort = false;
     for (auto top_stmt : to_sort) {
-      if (visited.count(top_stmt)) {
+      const auto& visited = (top_stmt->isVal()) ? val_visited : expr_visited;
+      if (visited.count(top_stmt) > 0) {
         to_sort.erase(top_stmt);
-        ++deleted;
+        removed_any_statment_from_to_sort = true;
         break;
       } else {
+        // Check if a statements dependencies are satisfied.
         bool ready_to_pop = true;
         for (const auto producer : top_stmt->serdeDependencies()) {
-          if (!visited.count(producer)) {
+          if (visited.count(producer) == 0) {
             ready_to_pop = false;
           }
         }
 
+        any_ready_to_pop |= ready_to_pop;
         if (ready_to_pop) {
-          visited.insert(top_stmt);
+          if (top_stmt->isVal()) {
+            // 1) Create Val without definition expression.
+            // It is only valid for expressions.
+            expr_visited.insert(top_stmt);
+            if (top_stmt->asVal()->definition() == nullptr) {
+              val_visited.insert(top_stmt);
+            }
+          } else {
+            // 2) Create Expr that requires inputs, outputs, and attribute Vals.
+            // Expr is valid for both expressions and vals.
+            expr_visited.insert(top_stmt);
+            val_visited.insert(top_stmt);
+
+            // 3) After creating Expr, assign Expr to output definition.
+            // Output Val are now valid.
+            for (const auto output_val : top_stmt->asExpr()->outputs()) {
+              val_visited.insert(output_val);
+            }
+          }
           sorted.push_back(top_stmt);
         }
       }
     }
 
     NVF_ERROR(
-        deleted >= 0,
-        "Failed to remove value from to_sort, so we are stopping to break infinite loop.");
+        removed_any_statment_from_to_sort || any_ready_to_pop,
+        "Failed to remove any statement from to_sort",
+        " and none of the statements are ready to be removed in the next iteration,"
+        " so we are stopping here to break infinite loop.");
   }
+  NVF_ERROR(val_visited.size() == expr_visited.size());
   return sorted;
 }
 
