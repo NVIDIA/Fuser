@@ -602,6 +602,7 @@ table TensorView {
 }
 
 table Value {
+  name: ulong;
   dtype_enum: long;
   is_fusion_input: bool;
   is_fusion_output: bool;
@@ -612,6 +613,7 @@ table Value {
 }
 
 table Expression {
+  name: ulong;
   type: ExprType;
   input_vals: [long];
   output_vals: [long];
@@ -624,7 +626,6 @@ table StatementIndex {
 }
 
 table Statement {
-  name: ulong;
   index: long;
   data: StatementData;
 }

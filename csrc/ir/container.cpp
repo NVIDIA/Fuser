@@ -210,14 +210,12 @@ flatbuffers::Offset<serde::IrContainer> IrContainer::serialize(
       if (stmt->isVal()) {
         fb_stmts.push_back(serde::CreateStatement(
             builder,
-            stmt->name(),
             container.map(stmt),
             serde::StatementData::Value,
             stmt->asVal()->serialize(container, builder).Union()));
       } else {
         fb_stmts.push_back(serde::CreateStatement(
             builder,
-            stmt->name(),
             container.map(stmt),
             serde::StatementData::Expression,
             stmt->asExpr()->serialize(container, builder).Union()));
