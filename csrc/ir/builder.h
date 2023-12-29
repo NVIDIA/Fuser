@@ -69,6 +69,10 @@ class IrBuilder {
     ExprType* node = IrBuilder::create<ExprType>(
         buffer->type(), inputs, outputs, attributes);
     container->registerStmt(IrBuilderPasskey(container), node);
+    // We do deserialize according to toposort order instead of original order.
+    // The statement name will be differnet so we set it according to the value
+    // stored in serde buffer.
+    node->setName(IrBuilderPasskey(container), buffer->name());
     return node;
   }
 
@@ -86,8 +90,11 @@ class IrBuilder {
     NVF_CHECK(buffer != nullptr, "serde::Value data is nullptr");
     ValType* node =
         new ValType(container, IrBuilderPasskey(container), buffer, data);
-
     container->registerStmt(IrBuilderPasskey(container), node);
+    // We do deserialize according to toposort order instead of original order.
+    // The statement name will be differnet so we set it according to the value
+    // stored in serde buffer.
+    node->setName(IrBuilderPasskey(container), buffer->name());
     return node;
   }
 

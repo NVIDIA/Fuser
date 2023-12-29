@@ -188,6 +188,7 @@ flatbuffers::Offset<serde::Value> Val::serialize(
   auto fb_uses = container.map(uses_);
   return serde::CreateValueDirect(
       builder,
+      name(),
       dtype_enum,
       is_fusion_input_,
       is_fusion_output_,
@@ -488,7 +489,12 @@ flatbuffers::Offset<serde::Expression> Expr::serialize(
   }
 
   return serde::CreateExpressionDirect(
-      builder, serde_expr_type_, &fb_inputs, &fb_outputs, &fb_attributes);
+      builder,
+      name(),
+      serde_expr_type_,
+      &fb_inputs,
+      &fb_outputs,
+      &fb_attributes);
 }
 
 kir::Predicate* Expr::predicate() const {
