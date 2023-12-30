@@ -96,13 +96,28 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
       } else {
         // Check if a statements dependencies are satisfied.
         bool ready_to_pop = true;
-        const auto& dependency_set =
-            (top_stmt->isVal()) ? valid_value_dependencies : created_statements;
-        for (const auto producer : top_stmt->serdeDependencies()) {
-          if (dependency_set.count(producer) == 0) {
-            ready_to_pop = false;
+
+        if (top_stmt->isVal()) {
+          for (const auto producer : top_stmt->serdeDependencies()) {
+            if (valid_value_dependencies.count(producer) == 0) {
+              ready_to_pop = false;
+            }
+          }
+        } else {
+          // expression input values must be valid.
+          for (const auto producer : top_stmt->asExpr()->inputs()) {
+            if (valid_value_dependencies.count(producer) == 0) {
+              ready_to_pop = false;
+            }
+          }
+          // serdeDependencies == outputs and attributes
+          for (const auto producer : top_stmt->serdeDependencies()) {
+            if (created_statements.count(producer) == 0) {
+              ready_to_pop = false;
+            }
           }
         }
+
 
         any_ready_to_pop |= ready_to_pop;
         if (ready_to_pop) {
