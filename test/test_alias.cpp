@@ -800,7 +800,7 @@ TEST_F(AliasTest, ConcatToSlice) {
   fusion->addOutput(slice_out1);
 
   FusionExecutorCache fec(std::move(fusion));
-  at::Tensor slice_in_tensor = at::randn({2, 2}).meta();
+  at::Tensor slice_in_tensor = at::empty({2, 2}).meta();
   at::Tensor cat_in_tensor = at::randn({2, 5}).cuda();
   std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs(
       {slice_in_tensor, slice_in_tensor, cat_in_tensor});
