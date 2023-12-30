@@ -118,7 +118,6 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
           }
         }
 
-
         any_ready_to_pop |= ready_to_pop;
         if (ready_to_pop) {
           if (top_stmt->isVal()) {

@@ -184,6 +184,7 @@ enum NvFuserEnum: int {
 }
 
 enum PrimArrayType: int {
+  Bool,
   ComplexDouble,
   Double,
   Long,
@@ -336,6 +337,7 @@ table OpaqueEnum {
 }
 
 table Array {
+  is_opaque: bool;
   type: PrimArrayType;
   items: [PolymorphicValue];
 }
