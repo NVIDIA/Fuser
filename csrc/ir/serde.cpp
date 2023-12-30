@@ -63,23 +63,25 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
 
   std::vector<Statement*> sorted;
 
-  // val_visited holds all statements available for value dependencies.
-  // Expressions require output values in their constructor, so output values
-  // are created without their definition expression. All values must have their
-  // definition expression before they are available as a value dependency.
-  std::unordered_set<const Statement*> val_visited;
+  // valid_value_dependencies holds all statements available for value
+  // dependencies. Expressions require output values in their constructor, so
+  // output values are created without their definition expression. All values
+  // must have their definition expression before they are available as a value
+  // dependency.
+  std::unordered_set<const Statement*> valid_value_dependencies;
 
   // Insert special values immediately
-  val_visited.insert(nullptr);
-  val_visited.insert(container_->getZeroVal());
-  val_visited.insert(container_->getOneVal());
-  val_visited.insert(container_->getFalseVal());
-  val_visited.insert(container_->getTrueVal());
-  val_visited.insert(container_->getMagicZeroVal());
+  valid_value_dependencies.insert(nullptr);
+  valid_value_dependencies.insert(container_->getZeroVal());
+  valid_value_dependencies.insert(container_->getOneVal());
+  valid_value_dependencies.insert(container_->getFalseVal());
+  valid_value_dependencies.insert(container_->getTrueVal());
+  valid_value_dependencies.insert(container_->getMagicZeroVal());
 
-  // expr_visited holds all statements available for expr dependencies.
-  std::unordered_set<const Statement*> expr_visited(val_visited);
-  NVF_ERROR(val_visited.size() == expr_visited.size());
+  // created_statements holds all statements available for expr dependencies.
+  std::unordered_set<const Statement*> created_statements(
+      valid_value_dependencies);
+  NVF_ERROR(valid_value_dependencies.size() == created_statements.size());
 
   bool removed_any_statment_from_to_sort = false;
   bool any_ready_to_pop = false;
@@ -87,16 +89,17 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
   while (!to_sort.empty()) {
     removed_any_statment_from_to_sort = false;
     for (auto top_stmt : to_sort) {
-      const auto& visited = (top_stmt->isVal()) ? val_visited : expr_visited;
-      if (visited.count(top_stmt) > 0) {
+      if (created_statements.count(top_stmt) > 0) {
         to_sort.erase(top_stmt);
         removed_any_statment_from_to_sort = true;
         break;
       } else {
         // Check if a statements dependencies are satisfied.
         bool ready_to_pop = true;
+        const auto& dependency_set =
+            (top_stmt->isVal()) ? valid_value_dependencies : created_statements;
         for (const auto producer : top_stmt->serdeDependencies()) {
-          if (visited.count(producer) == 0) {
+          if (dependency_set.count(producer) == 0) {
             ready_to_pop = false;
           }
         }
@@ -106,20 +109,20 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
           if (top_stmt->isVal()) {
             // 1) Create Val without definition expression.
             // It is only valid for expressions.
-            expr_visited.insert(top_stmt);
+            created_statements.insert(top_stmt);
             if (top_stmt->asVal()->definition() == nullptr) {
-              val_visited.insert(top_stmt);
+              valid_value_dependencies.insert(top_stmt);
             }
           } else {
             // 2) Create Expr that requires inputs, outputs, and attribute Vals.
             // Expr is valid for both expressions and vals.
-            expr_visited.insert(top_stmt);
-            val_visited.insert(top_stmt);
+            created_statements.insert(top_stmt);
+            valid_value_dependencies.insert(top_stmt);
 
             // 3) After creating Expr, assign Expr to output definition.
             // Output Val are now valid.
             for (const auto output_val : top_stmt->asExpr()->outputs()) {
-              val_visited.insert(output_val);
+              valid_value_dependencies.insert(output_val);
             }
           }
           sorted.push_back(top_stmt);
@@ -133,7 +136,8 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
         " and none of the statements are ready to be removed in the next iteration,"
         " so we are stopping here to break infinite loop.");
   }
-  NVF_ERROR(val_visited.size() == expr_visited.size());
+  NVF_ERROR(valid_value_dependencies.size() == created_statements.size());
+  NVF_ERROR(sorted.size() == (values.size() + exprs.size()));
   return sorted;
 }
 
@@ -170,6 +174,7 @@ std::unordered_map<Expr*, int64_t> IrSerde::createToposortExpressionsMap()
   std::unordered_map<Expr*, int64_t> exprs_map;
   int64_t count = 0;
 
+  exprs_map.emplace(nullptr, -1);
   std::vector<Statement*> exprs_stmts;
   std::copy_if(
       toposorted_stmts_.begin(),
@@ -180,7 +185,9 @@ std::unordered_map<Expr*, int64_t> IrSerde::createToposortExpressionsMap()
       exprs_stmts.begin(),
       exprs_stmts.end(),
       std::inserter(exprs_map, exprs_map.end()),
-      [&count](Statement* s) { return std::make_pair(s->asExpr(), count++); });
+      [&count](Statement* stmt) {
+        return std::make_pair(stmt->asExpr(), count++);
+      });
   return exprs_map;
 }
 
@@ -196,16 +203,10 @@ int64_t IrSerde::map(Statement* stmt) const {
 }
 
 int64_t IrSerde::map(const Statement* stmt) const {
-  if (stmt == nullptr) {
-    return -1;
-  }
   return map((Statement*)stmt);
 }
 
 int64_t IrSerde::map(Val* v) const {
-  if (v == nullptr) {
-    return -1;
-  }
   NVF_ERROR(
       vals_to_id_map_.count(v) > 0,
       "Missing value: ",
@@ -216,16 +217,10 @@ int64_t IrSerde::map(Val* v) const {
 
 int64_t IrSerde::map(const Val* v) const {
   // TODO use const Val* key with unordered_map to avoid const cast to Val*
-  if (v == nullptr) {
-    return -1;
-  }
   return map((Val*)v);
 }
 
 int64_t IrSerde::map(Expr* e) const {
-  if (e == nullptr) {
-    return -1;
-  }
   NVF_ERROR(
       exprs_to_id_map_.count(e) > 0,
       "Missing expr: ",
@@ -236,9 +231,6 @@ int64_t IrSerde::map(Expr* e) const {
 
 int64_t IrSerde::map(const Expr* e) const {
   // TODO use const Expr* key with unordered_map to avoid const cast to Expr*
-  if (e == nullptr) {
-    return -1;
-  }
   return map((Expr*)e);
 }
 
