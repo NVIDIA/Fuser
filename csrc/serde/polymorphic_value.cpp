@@ -172,6 +172,9 @@ nvf::PolymorphicValue deserializeTensorArg(const PolymorphicValue* buffer) {
 
 template <typename T>
 serde::PrimArrayType getPrimArrayType(T item) {
+  if constexpr (std::is_same_v<T, bool>) {
+    return serde::PrimArrayType::Bool;
+  }
   if constexpr (std::is_same_v<T, std::complex<double>>) {
     return serde::PrimArrayType::ComplexDouble;
   }
@@ -182,6 +185,34 @@ serde::PrimArrayType getPrimArrayType(T item) {
     return serde::PrimArrayType::Long;
   }
   NVF_ERROR(false, "Cannot serialize a vector of this polymorphic value type.")
+}
+
+template <typename T, serde::PrimArrayType array_type>
+flatbuffers::Offset<PolymorphicValue> serializeArray(
+    flatbuffers::FlatBufferBuilder& builder,
+    const nvfuser::Opaque& v) {
+  auto vec = v.as<std::vector<T>>();
+  NVF_CHECK(!vec.empty(), "Empty array is not supported");
+  std::vector<flatbuffers::Offset<serde::PolymorphicValue>> fb_items;
+  fb_items.reserve(vec.size());
+
+  std::transform(
+      vec.begin(),
+      vec.end(),
+      std::back_inserter(fb_items),
+      [&builder](const T& item) {
+        return serializePolymorphicValue(builder, item);
+      });
+
+  return CreatePolymorphicValue(
+      builder,
+      PolymorphicValueData::Array,
+      CreateArrayDirect(
+          builder,
+          /*is_opaque=*/true,
+          array_type,
+          &fb_items)
+          .Union());
 }
 
 } // namespace
@@ -221,18 +252,18 @@ nvf::PolymorphicValue makeScalar(const Scalar* c) {
     return {};
   }
   switch (mapToNvfuserDtype(c->value_type())) {
-    case nvf::PrimDataType::Double: {
-      return nvf::PolymorphicValue(c->double_value());
-    }
-    case nvf::PrimDataType::Int: {
-      return nvf::PolymorphicValue(c->long_value());
-    }
     case nvf::PrimDataType::Bool: {
       return nvf::PolymorphicValue(c->bool_value());
     }
     case nvf::PrimDataType::ComplexDouble: {
       return nvf::PolymorphicValue(
           std::complex<double>(c->real_value(), c->imag_value()));
+    }
+    case nvf::PrimDataType::Double: {
+      return nvf::PolymorphicValue(c->double_value());
+    }
+    case nvf::PrimDataType::Int: {
+      return nvf::PolymorphicValue(c->long_value());
     }
     default:
       NVF_ERROR(
@@ -258,15 +289,31 @@ std::vector<T> PolymorphicValueFactory::makeArray(const serde::Array* data) {
 nvf::PolymorphicValue PolymorphicValueFactory::makeArray(
     const serde::Array* data) {
   NVF_ERROR(data != nullptr, "serde::Array is nullptr.");
-  return nvf::PolymorphicValue();
   switch (data->type()) {
+    case serde::PrimArrayType::Bool: {
+      if (data->is_opaque()) {
+        return nvf::PolymorphicValue(nvf::Opaque(makeArray<bool>(data)));
+      }
+      NVF_ERROR(
+          false, "dynamic_type::Containers<std::vector> does not type bool.");
+    }
     case serde::PrimArrayType::ComplexDouble: {
+      if (data->is_opaque()) {
+        return nvf::PolymorphicValue(
+            nvf::Opaque(makeArray<std::complex<double>>(data)));
+      }
       return nvf::PolymorphicValue(makeArray<std::complex<double>>(data));
     }
     case serde::PrimArrayType::Double: {
+      if (data->is_opaque()) {
+        return nvf::PolymorphicValue(nvf::Opaque(makeArray<double>(data)));
+      }
       return nvf::PolymorphicValue(makeArray<double>(data));
     }
     case serde::PrimArrayType::Long: {
+      if (data->is_opaque()) {
+        return nvf::PolymorphicValue(nvf::Opaque(makeArray<int64_t>(data)));
+      }
       return nvf::PolymorphicValue(makeArray<int64_t>(data));
     }
     default: {
@@ -318,6 +365,7 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
   if (v.is<std::monostate>()) {
     return CreatePolymorphicValue(builder, PolymorphicValueData::NONE);
   } else if (v.is<std::vector>()) {
+    // TODO Refactor
     auto vec = v.as<std::vector>();
     NVF_CHECK(!vec.empty(), "Empty array is not supported");
     std::vector<flatbuffers::Offset<serde::PolymorphicValue>> fb_items;
@@ -328,7 +376,11 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
     return CreatePolymorphicValue(
         builder,
         PolymorphicValueData::Array,
-        CreateArrayDirect(builder, getPrimArrayType(vec.front()), &fb_items)
+        CreateArrayDirect(
+            builder,
+            /*is_opaque=*/false,
+            getPrimArrayType(vec.front()),
+            &fb_items)
             .Union());
   } else if (v.is<nvf::Opaque>()) {
     return serializeOpaque(builder, v.as<nvf::Opaque>());
@@ -487,6 +539,14 @@ flatbuffers::Offset<PolymorphicValue> serializeOpaque(
         builder, NvFuserEnum::UnaryOpType, toUnderlying(v.as<UnaryOpType>()));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::OpaqueEnum, data.Union());
+  } else if (v.any().type() == typeid(std::vector<bool>)) {
+    return serializeArray<bool, PrimArrayType::Bool>(builder, v);
+  } else if (v.any().type() == typeid(std::vector<std::complex<double>>)) {
+    return serializeArray<double, PrimArrayType::ComplexDouble>(builder, v);
+  } else if (v.any().type() == typeid(std::vector<double>)) {
+    return serializeArray<double, PrimArrayType::Double>(builder, v);
+  } else if (v.any().type() == typeid(std::vector<int64_t>)) {
+    return serializeArray<int64_t, PrimArrayType::Long>(builder, v);
   } else {
     NVF_ERROR(
         false, "Serialization of arbitrary opaque value is not implemented.");
