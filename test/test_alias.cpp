@@ -784,37 +784,37 @@ TEST_F(AliasTest, ConcatToSlice) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
+  // The original fusion.
   TensorView* slice_in0 = makeContigConcreteTensor({2, -1});
   TensorView* slice_in1 = makeContigConcreteTensor({2, -1});
-  TensorView* cat_in = makeContigConcreteTensor({2, -1});
-  Val* size0 = size(slice_in0, -1);
-  TensorView* slice_out0 =
-      slice(cat_in, {{nullptr, nullptr}, {nullptr, size0}});
-  TensorView* slice_out1 =
-      slice(cat_in, {{nullptr, nullptr}, {size0, nullptr}});
-
+  TensorView* cat_out = cat({slice_in0, slice_in1}, /*cat_dim=*/-1);
   fusion->addInput(slice_in0);
   fusion->addInput(slice_in1);
-  fusion->addInput(cat_in);
-  fusion->addOutput(slice_out0);
-  fusion->addOutput(slice_out1);
+  fusion->addOutput(cat_out);
 
+  // The epilogue that we add for alias computation.
+  Val* size0 = size(slice_in0, -1);
+  TensorView* slice_out0 =
+      slice(cat_out, {{nullptr, nullptr}, {nullptr, size0}});
+  TensorView* slice_out1 =
+      slice(cat_out, {{nullptr, nullptr}, {size0, nullptr}});
+
+  // The original fusion can still be executed.
+  at::Tensor slice_in0_tensor = at::empty({2, 2}).cuda();
+  at::Tensor slice_in1_tensor = at::empty({2, 3}).cuda();
   FusionExecutorCache fec(std::move(fusion));
-  at::Tensor slice_in_tensor = at::empty({2, 2}).meta();
-  at::Tensor cat_in_tensor = at::randn({2, 5}).cuda();
-  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs(
-      {slice_in_tensor, slice_in_tensor, cat_in_tensor});
+  fec.runFusionWithInputs({slice_in0_tensor, slice_in1_tensor});
 
-  testValidate(
-      fec.fusion(),
-      out_tensors,
-      {slice_in_tensor, slice_in_tensor, cat_in_tensor},
-      {cat_in_tensor.slice(-1, 0, 2), cat_in_tensor.slice(-1, 2, 5)},
-      __LINE__,
-      __FILE__);
-
-  EXPECT_TRUE(out_tensors[0].is_alias_of(cat_in_tensor));
-  EXPECT_TRUE(out_tensors[1].is_alias_of(cat_in_tensor));
+  // The epilogue can be evaluated with inputs being meta tensors.
+  at::Tensor cat_out_tensor = at::randn({2, 5}).cuda();
+  ExpressionEvaluator ee;
+  ee.bind(slice_in0, slice_in0_tensor.meta());
+  ee.bind(slice_in1, slice_in1_tensor.meta());
+  ee.bind(cat_out, cat_out_tensor);
+  at::Tensor slice_out0_tensor = ee.evaluate(slice_out0).as<at::Tensor>();
+  at::Tensor slice_out1_tensor = ee.evaluate(slice_out1).as<at::Tensor>();
+  EXPECT_TRUE(slice_out0_tensor.is_alias_of(cat_out_tensor));
+  EXPECT_TRUE(slice_out1_tensor.is_alias_of(cat_out_tensor));
 }
 
 } // namespace nvfuser
