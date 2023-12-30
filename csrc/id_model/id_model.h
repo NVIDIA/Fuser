@@ -21,11 +21,20 @@ namespace nvfuser {
 
 class ValGraph;
 
-namespace {
-// Convenience to store some intermediate data across a few lowering build
-// passes.
-struct StatefulLoweringInfo;
-} // namespace
+struct StatefulInliningInfo {
+  // All producer ids within (including dependencies of) inlined leaf domains,
+  // used for deterministic order
+  VectorOfUniqueEntries<IterDomain*> ordered_p_ca_ids;
+
+  // Broadcast resolution map for root domains
+  std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
+      p2c_root_broadcast_resolution_map;
+
+  // p2c mappings through the fusion within (including dependencies of) inlined
+  // leaf domains.
+  std::unordered_map<IterDomain*, VectorOfUniqueEntries<Val*>>
+      p2c_ca_permissive_maps;
+};
 
 // A collection of ValGraphs that are built from a fusion or series of
 // expressions. These graphs are related, but have some distinct features based
@@ -160,8 +169,7 @@ class IdModel : public PolymorphicBase {
     return loop_promotion_map_;
   }
 
-  // TODO: Should this not be private?
- protected:
+ private:
   // Sometimes fusion inputs or outputs are disconnected from expressions, in
   // those cases we still may want to send in some additional tensor views from
   // the Fusion that don't have expressions associated with them.
@@ -194,6 +202,31 @@ class IdModel : public PolymorphicBase {
   // Exact entries, then map through broadcasts
   void buildPermissiveMap(const std::vector<Expr*>& exprs);
 
+  // Fills disjoint_ids_[IdMappingMode::LOOP]. Map only inlined
+  // domains that are mapped in the permissive graph
+  void buildLoopMap(const std::vector<Expr*>& exprs);
+
+  // Start loop map by grouping inlined iter domains
+  void initializeLoopMap(const StatefulInliningInfo& info);
+
+  std::unordered_map<ValGroup, IterDomain*> buildInlineRootPromotions(
+      const ValGraph& iel_graph,
+      const StatefulInliningInfo& info);
+
+  // Returns map of ValGroups in the loop map to a representative IterDomain
+  // that contains all resolved transformations that the terminal IterDomains
+  // should be promoted to. The returned promotions are valid only for inlined
+  // iter domains.
+  std::unordered_map<ValGroup, IterDomain*> buildInlinePromotions(
+      const StatefulInliningInfo& info);
+
+  // Returns a similar thing to buildInlinePromotions but also includes iter
+  // domains that are not inlined.
+  std::unordered_map<ValGroup, IterDomain*> buildLoopPromotionMap(
+      const std::vector<Expr*>& exprs,
+      const StatefulInliningInfo& info,
+      const std::unordered_map<ValGroup, IterDomain*>& stale_promotion_map);
+
   // Make sure only leaf nodes of tensor views are parallelized
   void validatePTypes(const std::vector<TensorView*>& all_tvs) const;
 
@@ -210,7 +243,7 @@ class IdModel : public PolymorphicBase {
   //    is also in the same loop group
   // 2) Don't have a direct IterDomain consumer within the group
   VectorOfUniqueEntries<IterDomain*> computeTerminalLoopIds(
-      const StatefulLoweringInfo info);
+      const StatefulInliningInfo info);
 
   // Returns an IdGraph with all Id's mapped that are mapped both in graph0 and
   // graph1.
@@ -221,30 +254,13 @@ class IdModel : public PolymorphicBase {
 
   // !! END Helper functions to build loop promotion and index map!!
 
-  // Start loop map by grouping inlined iter domains
-  void initializeLoopMap(StatefulLoweringInfo& info);
-
-  // Returns map of ValGroups in the loop map to a representative IterDomain
-  // that contains all resolved transformations that the terminal IterDomains
-  // should be promoted to. The returned promotions are valid only for inlined
-  // iter domains.
-  std::unordered_map<ValGroup, IterDomain*> buildInlinePromotions(
-      StatefulLoweringInfo& info);
-
-  // Returns a similar thing to buildInlinePromotions but also includes iter
-  // domains that are not inlined.
-  std::unordered_map<ValGroup, IterDomain*> buildLoopPromotionMap(
-      const std::vector<Expr*>& exprs,
-      StatefulLoweringInfo& info,
-      const std::unordered_map<ValGroup, IterDomain*>& stale_promotion_map);
-
   // Builds idGraph(IdMappingMode::INDEX) and returns the iter domain promotion
   // map to go from leaf domains of each (consumer only?) tensor to their
   // corresponding leaf domain in the index graph.
   std::unordered_map<IterDomain*, IterDomain*> buildIndexGraph(
       const std::vector<Expr*>& exprs,
       const std::vector<TensorView*>& all_tvs,
-      StatefulLoweringInfo& info,
+      StatefulInliningInfo& info,
       std::unordered_map<ValGroup, IterDomain*> stale_promotion_map);
 
   // Returns the terminal rfactor or input iter domains each group in the almost
@@ -259,6 +275,7 @@ class IdModel : public PolymorphicBase {
   // Errors if self mapping occurs
   void assertNoSelfMapping();
 
+ private:
   // Keeps ValGraphs containing all IterDomains for all mapping mode types.
   //
   // Using an array here might be nice, but it seems hard to use an enum as an
@@ -281,6 +298,9 @@ class IdModel : public PolymorphicBase {
   // Debug information to hold if a self mapping in a TensorView is found.
   std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
       self_mapping_info_ = std::nullopt;
+
+  // Loop promotion map for inlined root broadcast domains
+  std::unordered_map<ValGroup, IterDomain*> iel_root_promotion_map_;
 
   // Promotion domain for each loop group
   std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_;

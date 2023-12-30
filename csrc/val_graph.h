@@ -141,8 +141,8 @@ class ValGraph {
   ExprGroups getExprsBetween(const ValGroups& from, const ValGroups& to) const;
 
   // Supports one to many mappings, uses the disjoint sets of the provided mode
-  // to produce mappings between from and to. If multiple IterDomains in to map
-  // to a single iter domain in from, the order of the IterDomains in value of
+  // to produce mappings between from and to. If multiple Vals in to map
+  // to a single Val in from, the order of the Vals in value of
   // the map is preserved to be the order provided in to.
   std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> buildMapBetween(
       const std::vector<Val*>& from,

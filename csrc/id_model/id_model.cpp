@@ -809,6 +809,129 @@ void IdModel::buildPermissiveMap(const std::vector<Expr*>& exprs) {
   }
 }
 
+namespace {
+
+// Returns the root producer iteration domains that are resolved by provided
+// consumer
+std::unordered_map<IterDomain*, IterDomain*> resolvedRootBroadcasts(
+    TensorView* producer,
+    TensorView* consumer) {
+  auto p2c_map = PairwiseRootDomainMap(producer, consumer)
+                     .mapBroadcast(true)
+                     .mapProducerToConsumer();
+
+  std::unordered_map<IterDomain*, IterDomain*> resolved_bcast_map;
+  for (const auto& [p_id, c_id] : p2c_map) {
+    // Look for a broadcast producer and non-broadcast consumer
+
+    // Ignore non-broadcast producer and broadcast consumer dims
+    if (!p_id->isBroadcast() || c_id->isBroadcast()) {
+      continue;
+    }
+
+    if (c_id->isReduction()) {
+      // This should only happen with expanded broadcast
+      // domains. Otherwise, squeeze should be used
+      NVF_ERROR(
+          p_id->hasExpandedExtent(), "Unexpected domain: ", c_id->toString());
+      continue;
+    }
+
+    resolved_bcast_map[p_id] = c_id;
+  }
+  return resolved_bcast_map;
+}
+
+// Grab inlining relationships
+StatefulInliningInfo buildStatefulInliningInfo(
+    const std::vector<Expr*>& exprs,
+    const ValGraph& exact_graph,
+    const ValGraph& permissive_graph) {
+  StatefulInliningInfo info;
+  for (auto expr : exprs) {
+    for (auto producer_tv :
+         ir_utils::filterByType<TensorView>(expr->inputs())) {
+      const auto& producer_root = producer_tv->getMaybeRFactorDomain();
+      const auto& producer_domain = producer_tv->domain()->leaf();
+
+      // Grab all iteration domains in producer that its compute at iter domains
+      // depend on.
+      auto ca_dep_vals = DependencyCheck::getAllValsBetween(
+          {producer_root.begin(), producer_root.end()},
+          {producer_domain.begin(),
+           producer_domain.begin() + producer_tv->getComputeAtPosition()});
+      auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
+      VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps(
+          ca_deps_filter.begin(), ca_deps_filter.end());
+
+      info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
+
+      // Gather info on and producer-consumer
+      // mappings of CA domains and broadcast resolution
+      for (auto consumer_tv :
+           ir_utils::filterByType<TensorView>(expr->outputs())) {
+        auto all_producer_ids = ir_utils::allIDsOf(producer_tv);
+        auto all_consumer_ids = ir_utils::allIDsOf(consumer_tv);
+
+        auto p2c_permissive_map = permissive_graph.buildMapBetween(
+            all_producer_ids, all_consumer_ids);
+
+        for (const auto& [p_id, c_ids] : p2c_permissive_map) {
+          if (!c_ids.empty() &&
+              all_producer_ca_deps.has(p_id->as<IterDomain>())) {
+            info.p2c_ca_permissive_maps[p_id->as<IterDomain>()].pushBack(c_ids);
+          }
+        }
+
+        std::unordered_map<IterDomain*, IterDomain*> resolved_bcast_map =
+            resolvedRootBroadcasts(producer_tv, consumer_tv);
+
+        for (const auto& [p_root_id, c_root_id] : resolved_bcast_map) {
+          info.p2c_root_broadcast_resolution_map[p_root_id].pushBack(c_root_id);
+        }
+      }
+    }
+  }
+  return info;
+}
+
+} // namespace
+
+void IdModel::buildLoopMap(const std::vector<Expr*>& exprs) {
+  const StatefulInliningInfo info = buildStatefulInliningInfo(
+      exprs, idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::PERMISSIVE));
+
+  initializeLoopMap(info);
+
+  // Initial propagation of parallel types for inlined iter domains. Each time
+  // new expressions are replayed this needs to be run. The disjoint sets in
+  // the loop graph can only be joined after this point.
+  // propagateLoopPTypes();
+
+  auto iel_promotion_map = buildInlinePromotions(info);
+  // propagateLoopPTypes();
+
+  // Find loops that need to be promoted because of broadcast resolution,
+  // figure out what that resolution should look like, compute IDs for it if
+  // necessary.
+  iel_promotion_map = buildLoopPromotionMap(exprs, info, iel_promotion_map);
+  // Loop map potentialy changed changed, as we could have replayed
+  // expressions. Re-propagate parallel types.
+  // propagateLoopPTypes();
+
+  // This pass still doesn't work, disable for now in case it's disruptive to
+  // tests.
+  /*
+  // Find loops that need to be promoted because of broadcast resolution,
+  // figure out what that resolution should look like, compute IDs for it if
+  // necessary.
+  auto leaf_id_promo_map =
+  buildIndexGraph(tv_exprs, all_tvs, info, iel_promotion_map);
+  // Make sure we update ptypes onto the index leaf iter domains
+  propagateLoopPTypes();
+  */
+}
+
 // TODO: Reenable after reenabling parallel propagation.
 //        propagateLoopPTypes
 void IdModel::validatePTypes(const std::vector<TensorView*>& all_tvs) const {
@@ -854,146 +977,6 @@ void IdModel::propagateLoopPTypes() const {
     }
   }
 }
-
-namespace {
-struct StatefulLoweringInfo {
-  // Tracks all p2c mappings in permissive maps even those not inlined between
-  // producer and consumer
-  std::unordered_map<IterDomain*, VectorOfUniqueEntries<Val*>>
-      p2c_permissive_maps;
-
-  // All consumer ids in a deterministic order (ignores fusion->inputs())
-  VectorOfUniqueEntries<IterDomain*> ordered_c_ids;
-
-  // p2c mappings through the fusion within (including dependencies of) inlined
-  // leaf domains.
-  std::unordered_map<IterDomain*, VectorOfUniqueEntries<Val*>>
-      p2c_ca_permissive_maps;
-
-  // All producer ids within (including dependencies of) inlined leaf domains,
-  // used for deterministic order
-  VectorOfUniqueEntries<IterDomain*> ordered_p_ca_ids;
-
-  std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
-      p2c_root_broadcast_resolution_map;
-};
-
-// Returns the root producer iteration domains that are resolved by provided
-// consumer
-std::unordered_map<IterDomain*, IterDomain*> resolvedRootBroadcasts(
-    TensorView* producer,
-    TensorView* consumer) {
-  auto p2c_map =
-      PairwiseRootDomainMap(producer, consumer).mapProducerToConsumer();
-
-  std::unordered_map<IterDomain*, IterDomain*> resolved_bcast_map;
-  for (const auto& [p_id, c_id] : p2c_map) {
-    // Look for a broadcast producer and non-broadcast consumer
-
-    // Ignore non-broadcast producer and broadcast consumer dims
-    if (!p_id->isBroadcast() || c_id->isBroadcast()) {
-      continue;
-    }
-
-    if (c_id->isReduction()) {
-      // This should only happen with expanded broadcast
-      // domains. Otherwise, squeeze should be used
-      NVF_ERROR(
-          p_id->hasExpandedExtent(), "Unexpected domain: ", c_id->toString());
-      continue;
-    }
-
-    resolved_bcast_map[p_id] = c_id;
-  }
-  return resolved_bcast_map;
-}
-
-StatefulLoweringInfo buildInfo(
-    const std::vector<Expr*>& exprs,
-    const ValGraph& exact_graph,
-    const ValGraph& permissive_graph) {
-  StatefulLoweringInfo info;
-  // Grab inlining relationships
-  for (auto expr : exprs) {
-    for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      auto producer_root = producer->getMaybeRFactorDomain();
-      auto producer_domain = producer->domain()->leaf();
-
-      // Grab all iteration domains in producer that its compute at iter domains
-      // depend on.
-      VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps;
-      {
-        auto ca_dep_vals = DependencyCheck::getAllValsBetween(
-            {producer_root.begin(), producer_root.end()},
-            {producer_domain.begin(),
-             producer_domain.begin() + producer->getComputeAtPosition()});
-        auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
-
-        all_producer_ca_deps.insert(
-            ca_deps_filter.begin(), ca_deps_filter.end());
-      }
-
-      info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
-      for (auto consumer :
-           ir_utils::filterByType<TensorView>(expr->outputs())) {
-        auto resolved_bcast_map = resolvedRootBroadcasts(producer, consumer);
-
-        for (const auto& [p_id, c_id] : resolved_bcast_map) {
-          info.p2c_root_broadcast_resolution_map[p_id].pushBack(c_id);
-          for (auto other_exact_bcast : *(exact_graph.toGroup(p_id))) {
-            if (p_id == other_exact_bcast) {
-              continue;
-            }
-            if (all_producer_ca_deps.has(other_exact_bcast->as<IterDomain>())) {
-              // TODO-NM: Why is this here? Can be removed?
-              NVF_ERROR(
-                  false,
-                  "Can this happen? Adding other exact: ",
-                  other_exact_bcast->name(),
-                  " in addition to ",
-                  p_id->name(),
-                  " of ",
-                  producer->toString());
-              info.p2c_root_broadcast_resolution_map[other_exact_bcast
-                                                         ->as<IterDomain>()]
-                  .pushBack(c_id);
-            }
-          }
-        }
-
-        auto all_producer_ids = ir_utils::allIDsOf(producer);
-        auto all_consumer_ids = ir_utils::allIDsOf(consumer);
-        info.ordered_c_ids.pushBack(all_consumer_ids);
-
-        auto p2c_permissive_map = permissive_graph.buildMapBetween(
-            all_producer_ids, all_consumer_ids);
-
-        for (const auto& entry : p2c_permissive_map) {
-          if (entry.second.empty()) {
-            continue;
-          }
-          if (all_producer_ca_deps.has(entry.first->as<IterDomain>())) {
-            info.p2c_ca_permissive_maps[entry.first->as<IterDomain>()].pushBack(
-                entry.second);
-          }
-          info.p2c_permissive_maps[entry.first->as<IterDomain>()].pushBack(
-              entry.second);
-        }
-
-        for (const auto& entry : p2c_permissive_map) {
-          if (entry.second.empty()) {
-            continue;
-          }
-          info.p2c_permissive_maps[entry.first->as<IterDomain>()].pushBack(
-              entry.second);
-        }
-      }
-    }
-  }
-  return info;
-}
-
-} // namespace
 
 void IdModel::build(
     const std::vector<Expr*>& exprs,
@@ -1064,47 +1047,7 @@ void IdModel::build(
   // from the almost exact graph.
   idGraph(IdMappingMode::ALMOSTEXACT).removeTrivialExprs();
 
-  // Only build loop map during lowering
-  // TODO: make this configurable
-  if (true || FusionGuard::getCurFusion()->isA<kir::Kernel>()) {
-    validatePTypes(all_tvs.vector());
-
-    StatefulLoweringInfo info = buildInfo(
-        tv_exprs,
-        idGraph(IdMappingMode::EXACT),
-        idGraph(IdMappingMode::PERMISSIVE));
-
-    initializeLoopMap(info);
-
-    // Initial propagation of parallel types for inlined iter domains. Each time
-    // new expressions are replayed this needs to be run. The disjoint sets in
-    // the loop graph can only be joined after this point.
-    // propagateLoopPTypes();
-
-    auto iel_promotion_map = buildInlinePromotions(info);
-    // propagateLoopPTypes();
-
-    // Find loops that need to be promoted because of broadcast resolution,
-    // figure out what that resolution should look like, compute IDs for it if
-    // necessary.
-    iel_promotion_map =
-        buildLoopPromotionMap(tv_exprs, info, iel_promotion_map);
-    // Loop map potentialy changed changed, as we could have replayed
-    // expressions. Re-propagate parallel types.
-    // propagateLoopPTypes();
-
-    // This pass still doesn't work, disable for now in case it's disruptive to
-    // tests.
-    /*
-    // Find loops that need to be promoted because of broadcast resolution,
-    // figure out what that resolution should look like, compute IDs for it if
-    // necessary.
-    auto leaf_id_promo_map =
-        buildIndexGraph(tv_exprs, all_tvs, info, iel_promotion_map);
-    // Make sure we update ptypes onto the index leaf iter domains
-    propagateLoopPTypes();
-    */
-  }
+  buildLoopMap(tv_exprs);
 
   // Make sure there's no self mapping in TensorView's during lowering
   // that would invalidate lowering assumptions.
@@ -1112,7 +1055,7 @@ void IdModel::build(
 }
 
 VectorOfUniqueEntries<IterDomain*> IdModel::computeTerminalLoopIds(
-    const StatefulLoweringInfo info) {
+    const StatefulInliningInfo info) {
   VectorOfUniqueEntries<IterDomain*> terminal_loop_ids;
   for (const ValGroup& group :
        idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
@@ -1157,15 +1100,15 @@ ValGraph IdModel::buildIntersection(
     const ValGraph& graph0,
     const ValGraph& graph1,
     bool propagate_exprs) {
-  auto intersection = initializeIdGraph(propagate_exprs);
-  for (const auto& group0 : graph0.disjointValSets().disjointSets()) {
+  ValGraph intersection = initializeIdGraph(propagate_exprs);
+  for (const ValGroup& group0 : graph0.disjointValSets().disjointSets()) {
     auto set_size = group0->size();
     for (auto id0_i : c10::irange(set_size)) {
-      auto id0 = group0->vector()[id0_i];
+      Val* id0 = group0->vector()[id0_i];
       for (auto id1_i = id0_i; id1_i < set_size; id1_i++) {
-        auto id1 = group0->vector()[id1_i];
+        Val* id1 = group0->vector()[id1_i];
         // id0 and id1 map in group0. If they also map in the group1,
-        // add the mapping to the inersection.
+        // add the mapping to the intersection.
         if (graph1.disjointValSets().strictAreMapped(id0, id1)) {
           intersection.mapVals(id0, id1);
         }
@@ -1175,7 +1118,7 @@ ValGraph IdModel::buildIntersection(
   return intersection;
 }
 
-void IdModel::initializeLoopMap(StatefulLoweringInfo& info) {
+void IdModel::initializeLoopMap(const StatefulInliningInfo& info) {
   // See Indexing20 example for why we shouldn't propagate when generating loop
   // groups
   idGraph(IdMappingMode::LOOP) = initializeIdGraph(false);
@@ -1193,8 +1136,9 @@ void IdModel::initializeLoopMap(StatefulLoweringInfo& info) {
   }
 }
 
-std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlinePromotions(
-    StatefulLoweringInfo& info) {
+std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlineRootPromotions(
+    const ValGraph& iel_graph,
+    const StatefulInliningInfo& info) {
   // Make an intersection of the exact and loop map. This will group together
   // entries in each loop group that are exact with each other. This provides a
   // better graph to do promotion and replays.
@@ -1218,9 +1162,6 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlinePromotions(
   // map as the one we iterate on to reduce complexity as it hopefully has
   // smaller groups and this algorithm scales with the number of groups *
   // (number of entries in groups ^ 2)
-
-  ValGraph intersection_exact_loop_graph = buildIntersection(
-      idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false);
 
   // Promotion logic is going to be on the intersection of the exact and loop
   // graph. We will generate a map on the entries of this graph so it's
@@ -1255,11 +1196,12 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlinePromotions(
   // Note again this process is only done for root domains. Once we
   // find promotion relationships for root domains, we propagate the
   // mappings to derived domains
-  for (const ValGroup& iel_group :
-       intersection_exact_loop_graph.disjointValSets().disjointSets()) {
+  for (const ValGroup& iel_group : iel_graph.disjointValSets().disjointSets()) {
     NVF_ERROR(!iel_group->empty());
 
-    if (!iel_group->front()->as<IterDomain>()->isBroadcast()) {
+    IterDomain* iel_group_id = iel_group->front()->as<IterDomain>();
+
+    if (!iel_group_id->isBroadcast()) {
       continue;
     }
 
@@ -1277,54 +1219,64 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlinePromotions(
       }
     }
 
-    // Collect all the exact groups in the loop set containing this iel_group
-    auto loop_group = idGraph(IdMappingMode::LOOP).toGroup(iel_group->front());
-    auto loop_covered_exact_groups =
-        idGraph(IdMappingMode::EXACT).toGroups(*loop_group);
-
-    // The intersection of the exact groups that the broadcast domains can be
-    // broadcasted to, and those that exist within the same loop groop are is
-    // the promotion needed for this iel_group.
-    ValGroups loop_exact_resolved_intersection =
-        resolved_exact_groups.computeIntersect(loop_covered_exact_groups);
-
-    if (loop_exact_resolved_intersection.empty()) {
+    if (resolved_exact_groups.empty()) {
       // No resolution
       continue;
     }
 
-    if (loop_exact_resolved_intersection.size() > 1) {
-      std::stringstream err_msg;
+    // Collect all the exact groups in the loop set containing this iel_group
+    const ValGroup& loop_group =
+        idGraph(IdMappingMode::LOOP).toGroup(iel_group_id);
+    ValGroups loop_covered_exact_groups =
+        idGraph(IdMappingMode::EXACT).toGroups(*loop_group);
 
+    // The intersection of the exact groups that the broadcast domains can be
+    // broadcasted to, and those that exist within the same loop groop are is
+    // the promotion needed for this iel_group. The promotion should
+    // be none or unique.
+    ValGroups loop_exact_resolved_intersection =
+        resolved_exact_groups.computeIntersect(loop_covered_exact_groups);
+
+    if (loop_exact_resolved_intersection.empty()) {
+      // No promotion
+      continue;
+    }
+
+    if (loop_exact_resolved_intersection.size() > 1) {
+      // Ambiguous promotion. This should not happen.
+      std::stringstream err_msg;
       err_msg
           << "Invalid multiple broadcast resolution within shared loops detected, group:\n  "
           << iel_group->toString() << "\nIs being broadcasted to:";
-
       for (const ValGroup& entry : loop_exact_resolved_intersection) {
         err_msg << "\n  " << entry->toString();
       }
       NVF_ERROR(false, err_msg.str());
     }
 
-    // loop_exact_resolved_intersection.size() must be 1 at this point
-    ValGroup exact_resolution_group = loop_exact_resolved_intersection.front();
+    const ValGroup& exact_resolution_group =
+        loop_exact_resolved_intersection.front();
 
+    // Within the loop group, find the IDs that the broadcast IDs are
+    // resolved to
     VectorOfUniqueEntries<Val*> resolved_ids =
         exact_resolution_group->computeIntersect(*loop_group);
-    auto promoted_iel_groups =
-        intersection_exact_loop_graph.toGroups(resolved_ids);
 
-    if (promoted_iel_groups.empty()) {
-      continue;
-    }
+    NVF_ERROR(!resolved_ids.empty());
+
+    // All the IDs in resolved_ids are mapped with both of the exact
+    // and loop graphs, so any of them can be used as an IEL promotion
+    // ID. Just to make it extra clear, look for corresponding
+    // groups in the IEL graph and make sure there's only one such group.
+    ValGroups promoted_iel_groups = iel_graph.toGroups(resolved_ids);
+
+    NVF_ERROR(!promoted_iel_groups.empty());
 
     if (promoted_iel_groups.size() > 1) {
       std::stringstream err_msg;
-
       err_msg
           << "Invalid multiple broadcast resolution within shared loops detected, group:\n  "
           << iel_group->toString() << "\nIs being broadcasted to:";
-
       for (const ValGroup& entry : promoted_iel_groups) {
         err_msg << "\n  " << entry->toString();
       }
@@ -1334,6 +1286,54 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlinePromotions(
     iel_promotion_map[iel_group] =
         promoted_iel_groups.front()->front()->as<IterDomain>();
   }
+
+  return iel_promotion_map;
+}
+
+std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlinePromotions(
+    const StatefulInliningInfo& info) {
+  // Make an intersection of the exact and loop map. This will group together
+  // entries in each loop group that are exact with each other. This provides a
+  // better graph to do promotion and replays.
+
+  // It's tempting to use the intersection of the almost exact and loop, but we
+  // need to model broadcast promotion, and if we have two tensors like:
+  //
+  // T1[i0, b1] = T0[i0]
+  // T2[i0, b2] = T0[i0]
+  // Then resolution of:
+  // T4 = T1[i0, b1] + T3[i0, i1]
+  // T6 = T2[i0, b2] + T5[i0, i2]
+  //
+  // Then merge(0, 1) with all tensors except for T0
+  //
+  // The almost exact map will map i0, i0*b1, and i0*b2 together, but b1 and b2
+  // are being resolved to i1 and i2 respectively. So we want to have separate
+  // entries so we can have an easy to process promotion map.
+  //
+  // Loop is a permissive like map, it could have many entries, use the exact
+  // map as the one we iterate on to reduce complexity as it hopefully has
+  // smaller groups and this algorithm scales with the number of groups *
+  // (number of entries in groups ^ 2)
+
+  ValGraph iel_graph = buildIntersection(
+      idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::LOOP), false);
+
+  // Promotion logic is going to be on the intersection of the exact and loop
+  // graph. We will generate a map on the entries of this graph so it's
+  // important to not modify this graph moving forward, as that would invalidate
+  // the map.
+  //
+  // iel stands for Intersection of the Exact and Loop graphs.
+  std::unordered_map<ValGroup, IterDomain*> iel_promotion_map =
+      buildInlineRootPromotions(iel_graph, info);
+
+  // This should probably work just on terminating inputs, as we shouldn't be
+  // able to modify a broadcast domain between root and rfactor which would be
+  // required to resolve a non input broadcast domain. But for now leaving it as
+  // traversal on all broadcast groups.
+  //
+  // TODO-NM: The ordering appears to be non-deterministic
 
   // Propagate promotion mappings from root domains to derived domains
   // by traversing IEL exprs. For each expr, if an input is promoted,
@@ -1345,12 +1345,11 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlinePromotions(
   // In order to make
   // this traversal work, the traversal order must be toplogically
   // sorted.
-  IdGraphStmtSort iel_stmt_sort(intersection_exact_loop_graph);
+  IdGraphStmtSort iel_stmt_sort(iel_graph);
 
   for (const ExprGroup& iel_expr : iel_stmt_sort.exprs()) {
     NVF_ERROR(!iel_expr->empty());
-    std::vector<ValGroup> input_groups =
-        intersection_exact_loop_graph.inputGroups(iel_expr);
+    std::vector<ValGroup> input_groups = iel_graph.inputGroups(iel_expr);
 
     // Check if any inputs need promotion indicating this expr group needs to
     // be replayed with promoted inputs
@@ -1374,9 +1373,8 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlinePromotions(
 
     ValGroups promoted_input_groups;
     for (auto inp_id : promoted_inputs) {
-      if (intersection_exact_loop_graph.hasGroup(inp_id)) {
-        promoted_input_groups.pushBack(
-            intersection_exact_loop_graph.toGroup(inp_id));
+      if (iel_graph.hasGroup(inp_id)) {
+        promoted_input_groups.pushBack(iel_graph.toGroup(inp_id));
       }
     }
 
@@ -1404,7 +1402,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlinePromotions(
     ExprGroups non_promoted_input_uses;
     for (const ValGroup& iel_group :
          promoted_input_groups.computeIntersect(input_groups)) {
-      const ExprGroups* uses = intersection_exact_loop_graph.getUses(iel_group);
+      const ExprGroups* uses = iel_graph.getUses(iel_group);
       NVF_ERROR(uses);
       non_promoted_input_uses.pushBack(*uses);
     }
@@ -1427,7 +1425,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlinePromotions(
         bool inps_match = true;
         for (auto inp_i : c10::irange(use_inps.size())) {
           inps_match = inps_match &&
-              intersection_exact_loop_graph.disjointValSets().strictAreMapped(
+              iel_graph.disjointValSets().strictAreMapped(
                   use_inps[inp_i], promoted_inputs[inp_i]);
         }
         if (inps_match) {
@@ -1442,8 +1440,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildInlinePromotions(
       replay = addReplayAs(promoted_inputs, iel_expr->front());
     }
 
-    std::vector<ValGroup> out_groups =
-        intersection_exact_loop_graph.outputGroups(iel_expr);
+    std::vector<ValGroup> out_groups = iel_graph.outputGroups(iel_expr);
 
     // Mark outputs as having a promoted iter domain
     auto replay_out_ids =
@@ -1556,7 +1553,7 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
 
 std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
     const std::vector<Expr*>& exprs,
-    StatefulLoweringInfo& info,
+    const StatefulInliningInfo& info,
     const std::unordered_map<ValGroup, IterDomain*>& stale_promotion_map) {
   // Non-ca domains may also need to be promoted if parent domains are
   // promoted.
@@ -2006,7 +2003,7 @@ std::unordered_map<ValGroup, IterDomain*> IdModel::buildLoopPromotionMap(
 std::unordered_map<IterDomain*, IterDomain*> IdModel::buildIndexGraph(
     const std::vector<Expr*>& exprs,
     const std::vector<TensorView*>& all_tvs,
-    StatefulLoweringInfo& info,
+    StatefulInliningInfo& info,
     std::unordered_map<ValGroup, IterDomain*> stale_promotion_map) {
   NVF_ERROR(false, "Not implemented yet.");
 }

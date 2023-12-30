@@ -442,48 +442,36 @@ ExprGroups ValGraph::getExprsBetween(const ValGroups& from, const ValGroups& to)
 std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> ValGraph::buildMapBetween(
     const std::vector<Val*>& from,
     const std::vector<Val*>& to) const {
-  std::unordered_map<Val*, ValGroup> from_ids2set;
+  // Map from the sets associated with the Vals in to, to those Vals
+  std::unordered_map<ValGroup, VectorOfUniqueEntries<Val*>> set2to_vals;
 
-  for (auto from_id : from) {
-    if (!hasGroup(from_id)) {
+  for (auto to_val : to) {
+    if (!hasGroup(to_val)) {
       continue;
     }
-    from_ids2set[from_id] = toGroup(from_id);
+    const auto& to_set = toGroup(to_val);
+    set2to_vals[to_set].pushBack(to_val);
   }
 
-  // Map from the sets associated with the IterDomains in to, to those iter
-  // domains
-  std::unordered_map<ValGroup, VectorOfUniqueEntries<Val*>> set2to_ids;
+  std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> from_vals2to_vals;
+  for (auto from_val : from) {
+    // Initialize in case no to val is mapped
+    from_vals2to_vals[from_val] = VectorOfUniqueEntries<Val*>();
 
-  for (auto to_id : to) {
-    if (!hasGroup(to_id)) {
+    if (!hasGroup(from_val)) {
       continue;
     }
-    auto to_set = toGroup(to_id);
-    auto set2to_ids_it = set2to_ids.find(to_set);
 
-    if (set2to_ids_it == set2to_ids.end()) {
-      set2to_ids[to_set] = {to_id};
-    } else {
-      set2to_ids[to_set].pushBack(to_id);
-    }
-  }
+    const ValGroup& from_set = toGroup(from_val);
 
-  std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> from_ids2to_ids;
-  for (auto from_id : from) {
-    from_ids2to_ids[from_id] = VectorOfUniqueEntries<Val*>();
-
-    auto from_it = from_ids2set.find(from_id);
-    NVF_ERROR(from_it != from_ids2set.end());
-
-    auto from_set = from_it->second;
-    auto to_entry_it = set2to_ids.find(from_set);
-    if (to_entry_it == set2to_ids.end()) {
+    auto to_entry_it = set2to_vals.find(from_set);
+    if (to_entry_it == set2to_vals.end()) {
       continue;
     }
-    from_ids2to_ids[from_id] = to_entry_it->second;
+
+    from_vals2to_vals[from_val] = to_entry_it->second;
   }
-  return from_ids2to_ids;
+  return from_vals2to_vals;
 }
 
 std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> ValGraph::buildMapBetween(
