@@ -366,22 +366,7 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
     return CreatePolymorphicValue(builder, PolymorphicValueData::NONE);
   } else if (v.is<std::vector>()) {
     // TODO Refactor
-    auto vec = v.as<std::vector>();
-    NVF_CHECK(!vec.empty(), "Empty array is not supported");
-    std::vector<flatbuffers::Offset<serde::PolymorphicValue>> fb_items;
-    fb_items.reserve(vec.size());
-    for (const auto& item : vec) {
-      fb_items.push_back(serializePolymorphicValue(builder, item));
-    }
-    return CreatePolymorphicValue(
-        builder,
-        PolymorphicValueData::Array,
-        CreateArrayDirect(
-            builder,
-            /*is_opaque=*/false,
-            getPrimArrayType(vec.front()),
-            &fb_items)
-            .Union());
+    NVF_ERROR(false, "The general vector type is not supported.");
   } else if (v.is<nvf::Opaque>()) {
     return serializeOpaque(builder, v.as<nvf::Opaque>());
   } else if (v.is<nvf::StructHandle>()) {
