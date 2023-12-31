@@ -120,6 +120,19 @@ class ValGraph {
 
   bool hasUses(const ValGroup& val_group) const;
 
+  // Supports one to many mappings, uses the Valgraph to produce
+  // mappings between from and to. If multiple Vals in to map
+  // to a single Val in from, the order of the Vals in value of
+  // the map is preserved to be the order provided in to.
+  std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> buildMapBetween(
+      const std::vector<Val*>& from,
+      const std::vector<Val*>& to) const;
+
+  // Alias of the above on unique vector entries
+  std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> buildMapBetween(
+      const VectorOfUniqueEntries<Val*>& from,
+      const VectorOfUniqueEntries<Val*>& to) const;
+
   std::string toString() const;
 
   // Initializes entries for the provided Val with its definitions and

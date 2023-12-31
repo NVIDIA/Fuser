@@ -21,6 +21,17 @@ namespace nvfuser {
 
 class ValGraph;
 
+struct StatefulInliningInfo {
+  // All producer ids within (including dependencies of) inlined leaf domains,
+  // used for deterministic order
+  VectorOfUniqueEntries<IterDomain*> ordered_p_ca_ids;
+
+  // p2c mappings through the fusion within (including dependencies of) inlined
+  // leaf domains.
+  std::unordered_map<IterDomain*, VectorOfUniqueEntries<Val*>>
+      p2c_ca_permissive_maps;
+};
+
 // A collection of ValGraphs that are built from a fusion or series of
 // expressions. These graphs are related, but have some distinct features based
 // on the IdMappingMode.
@@ -129,6 +140,13 @@ class IdModel : public PolymorphicBase {
   // Fills disjoint_ids_[IdMappingMode::PERMISSIVE]. Initialize it as
   // Exact entries, then map through broadcasts
   void buildPermissiveMap(const std::vector<Expr*>& exprs);
+
+  // Fills disjoint_ids_[IdMappingMode::LOOP]. Map only inlined
+  // domains that are mapped in the permissive graph
+  void buildLoopMap(const std::vector<Expr*>& exprs);
+
+  /// Start loop map by grouping inlined iter domains
+  void initializeLoopMap(const StatefulInliningInfo& info);
 
   // Errors if self mapping occurs
   void assertNoSelfMapping();
