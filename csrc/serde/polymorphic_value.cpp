@@ -170,23 +170,6 @@ nvf::PolymorphicValue deserializeTensorArg(const PolymorphicValue* buffer) {
       c10::nullopt);
 }
 
-template <typename T>
-serde::PrimArrayType getPrimArrayType(T item) {
-  if constexpr (std::is_same_v<T, bool>) {
-    return serde::PrimArrayType::Bool;
-  }
-  if constexpr (std::is_same_v<T, std::complex<double>>) {
-    return serde::PrimArrayType::ComplexDouble;
-  }
-  if constexpr (std::is_same_v<T, double>) {
-    return serde::PrimArrayType::Double;
-  }
-  if constexpr (std::is_same_v<T, int64_t>) {
-    return serde::PrimArrayType::Long;
-  }
-  NVF_ERROR(false, "Cannot serialize a vector of this polymorphic value type.")
-}
-
 template <typename T, serde::PrimArrayType array_type>
 flatbuffers::Offset<PolymorphicValue> serializeArray(
     flatbuffers::FlatBufferBuilder& builder,
@@ -195,15 +178,13 @@ flatbuffers::Offset<PolymorphicValue> serializeArray(
   NVF_CHECK(!vec.empty(), "Empty array is not supported");
   std::vector<flatbuffers::Offset<serde::PolymorphicValue>> fb_items;
   fb_items.reserve(vec.size());
-
   std::transform(
       vec.begin(),
       vec.end(),
       std::back_inserter(fb_items),
       [&builder](const T& item) {
-        return serializePolymorphicValue(builder, item);
+        return serializeBasicPolymorphicValue(builder, item);
       });
-
   return CreatePolymorphicValue(
       builder,
       PolymorphicValueData::Array,
@@ -322,6 +303,18 @@ nvf::PolymorphicValue PolymorphicValueFactory::makeArray(
   }
 }
 
+nvf::PolymorphicValue PolymorphicValueFactory::makeScope(const Scope* data) {
+  NVF_ERROR(data != nullptr, "serde::Scope is nullptr.");
+  NVF_ERROR(
+      container_ != nullptr,
+      "IrContainer is required for deserializing nvf::kir::Scope.");
+  nvf::kir::Scope scope(container_->getExpr<nvf::Expr>(data->owner_expr()));
+  for (int64_t fb_expr : *data->exprs()) {
+    scope.push_back(container_->getExpr<nvf::Expr>(fb_expr));
+  }
+  return nvf::PolymorphicValue(nvf::Opaque(std::move(scope)));
+}
+
 void PolymorphicValueFactory::registerAllParsers() {
   auto deserialize_unsupported =
       [](const serde::PolymorphicValue* buffer) -> nvf::PolymorphicValue {
@@ -349,39 +342,26 @@ void PolymorphicValueFactory::registerAllParsers() {
       PolymorphicValueData::ParallelTypeBitmap, deserializeParallelTypeBitmap);
   registerParser(PolymorphicValueData::RNGAttributes, deserializeRNGAttributes);
   registerParser(PolymorphicValueData::ScalarCpu, deserializeScalarCpu);
+  auto deserialize_scope = [this](const PolymorphicValue* buffer) {
+    return makeScope(buffer->data_as_Scope());
+  };
+  registerParser(PolymorphicValueData::Scope, deserialize_scope);
   registerParser(PolymorphicValueData::TensorArg, deserializeTensorArg);
 }
 
-nvf::PolymorphicValue deserializePolymorphicValue(const PolymorphicValue* pv) {
-  PolymorphicValueFactory pv_factory;
+nvf::PolymorphicValue deserializePolymorphicValue(
+    nvf::IrContainer* container,
+    const PolymorphicValue* pv) {
+  PolymorphicValueFactory pv_factory(container);
   return pv_factory.parse(pv->data_type(), pv);
 }
 
-flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
-    flatbuffers::FlatBufferBuilder& builder,
-    const nvf::PolymorphicValue& v) {
-  NVF_ERROR(!v.is<nvf::Pointer>(), "Serialization of pointer is not allowed.");
-
-  if (v.is<std::monostate>()) {
-    return CreatePolymorphicValue(builder, PolymorphicValueData::NONE);
-  } else if (v.is<std::vector>()) {
-    // TODO Refactor
-    NVF_ERROR(false, "The general vector type is not supported.");
-  } else if (v.is<nvf::Opaque>()) {
-    return serializeOpaque(builder, v.as<nvf::Opaque>());
-  } else if (v.is<nvf::StructHandle>()) {
-    NVF_ERROR(
-        false, "The StructHandle PolymorphicValue type is not supported.");
-  } else if (v.is<at::Tensor>()) {
-    return serializeTensor(builder, v.as<at::Tensor>());
-  } else {
-    return serializeScalar(builder, v);
-  }
-}
+namespace {
 
 // TODO Refactor
 flatbuffers::Offset<PolymorphicValue> serializeOpaque(
     flatbuffers::FlatBufferBuilder& builder,
+    const IrSerde& container,
     const nvf::Opaque& v) {
   if (v.any().type() == typeid(nvf::kir::AsmOptions)) {
     const auto& options = v.as<nvf::kir::AsmOptions>();
@@ -412,18 +392,15 @@ flatbuffers::Offset<PolymorphicValue> serializeOpaque(
         builder, PolymorphicValueData::RNGAttributes, data);
   } else if (v.any().type() == typeid(nvf::kir::Scope)) {
     const auto& kir_scope = v.as<nvf::kir::Scope>();
-    nvf::kir::Kernel* kernel = kir_scope.owner()->kernel();
-
-    // TODO Refactor to use IrSerde determinstic_exprs_map
-    auto exprs_to_id_map = kernel->deterministic_exprs_map();
-
     std::vector<int64_t> fb_exprs;
     fb_exprs.reserve(kir_scope.size());
-    for (Expr* e : kir_scope.exprs()) {
-      fb_exprs.push_back(exprs_to_id_map.at(e));
-    }
+    std::transform(
+        kir_scope.exprs().begin(),
+        kir_scope.exprs().end(),
+        std::back_inserter(fb_exprs),
+        [&container](nvf::Expr* e) { return container.map(e); });
     auto data = serde::CreateScopeDirect(
-                    builder, &fb_exprs, exprs_to_id_map.at(kir_scope.owner()))
+                    builder, &fb_exprs, container.map(kir_scope.owner()))
                     .Union();
     return CreatePolymorphicValue(builder, PolymorphicValueData::Scope, data);
   } else if (v.any().type() == typeid(AsyncOpType)) {
@@ -537,6 +514,8 @@ flatbuffers::Offset<PolymorphicValue> serializeOpaque(
         false, "Serialization of arbitrary opaque value is not implemented.");
   }
 }
+
+} // namespace
 
 flatbuffers::Offset<PolymorphicValue> serializeTensor(
     flatbuffers::FlatBufferBuilder& builder,
@@ -665,6 +644,46 @@ flatbuffers::Offset<Scalar> serializeScalarRecord(
     return builder_.Finish();
   }
   NVF_ERROR(false, "Unable to convert ", v.type().name(), " to Scalar.");
+}
+
+flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
+    flatbuffers::FlatBufferBuilder& builder,
+    const IrSerde& container,
+    const nvf::PolymorphicValue& v) {
+  NVF_ERROR(!v.is<nvf::Pointer>(), "Serialization of pointer is not allowed.");
+  NVF_ERROR(!v.is<std::vector>(), "The general vector type is not supported.");
+  NVF_ERROR(
+      !v.is<nvf::StructHandle>(),
+      "The StructHandle PolymorphicValue type is not supported.");
+
+  if (v.is<std::monostate>()) {
+    return CreatePolymorphicValue(builder, PolymorphicValueData::NONE);
+  } else if (v.is<nvf::Opaque>()) {
+    return serializeOpaque(builder, container, v.as<nvf::Opaque>());
+  } else {
+    return serializeBasicPolymorphicValue(builder, v);
+  }
+}
+
+flatbuffers::Offset<PolymorphicValue> serializeBasicPolymorphicValue(
+    flatbuffers::FlatBufferBuilder& builder,
+    const nvf::PolymorphicValue& v) {
+  NVF_ERROR(!v.is<nvf::Pointer>(), "Serialization of pointer is not allowed.");
+  NVF_ERROR(!v.is<std::vector>(), "The general vector type is not supported.");
+  NVF_ERROR(
+      !v.is<nvf::Opaque>(),
+      "Serializing Opaque PolymorphicValue without IrSerde container is not supported.");
+  NVF_ERROR(
+      !v.is<nvf::StructHandle>(),
+      "The StructHandle PolymorphicValue type is not supported.");
+
+  if (v.is<std::monostate>()) {
+    return CreatePolymorphicValue(builder, PolymorphicValueData::NONE);
+  } else if (v.is<at::Tensor>()) {
+    return serializeTensor(builder, v.as<at::Tensor>());
+  } else {
+    return serializeScalar(builder, v);
+  }
 }
 
 } // namespace nvfuser::serde
