@@ -113,16 +113,20 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
   // When a fusion output is non-contiguous, currently there's no
   // way to obtain its strides. This is an interface problem and
   // should be fixed.
-  if (tv->isFusionOutput() && non_contig) {
-    return PrimDataType::Int;
-  }
+  if (non_contig) {
+    if (tv->isFusionOutput()) {
+      return PrimDataType::Int;
+    }
 
-  // This function should not be used for fusion inputs, so any
-  // non-contig tensor means a fusion intermediate tensor. However,
-  // since we don't support non-contiguous intermediates, there must be
-  // something wrong.
-  NVF_ERROR(
-      !non_contig, "Unexpected non-contiguous tensor found: ", tv->toString());
+    Expr* def = tv->definition();
+    if (def != nullptr && def->isA<LoadStoreOp>() &&
+        def->as<LoadStoreOp>()->opType() == LoadStoreOpType::SegmenterSet) {
+      return PrimDataType::Int;
+    }
+
+    NVF_ERROR(
+        false, "Unexpected non-contiguous tensor found: ", tv->toString());
+  }
 
   // Note that at this point tensors are not scheduled yet. Each
   // tensor may end up being inlined, stored on Shared or Local, but

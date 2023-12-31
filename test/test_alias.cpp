@@ -817,4 +817,88 @@ TEST_F(AliasTest, ConcatToSlice) {
   EXPECT_TRUE(slice_out1_tensor.is_alias_of(cat_out_tensor));
 }
 
+TEST_F(AliasTest, SegmentConcat) {
+  auto fusion = []() -> std::unique_ptr<Fusion> {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    std::vector<TensorView*> in_tvs;
+    for (int i = 0; i < 3; i++) {
+      in_tvs.push_back(makeContigConcreteTensor(
+          {16, 12, 128, 64}, /*dtype=*/DataType::BFloat16));
+    }
+
+    std::vector<TensorView*> reshaped_tvs;
+    for (auto* in : in_tvs) {
+      TensorView* transposed = permute(in, {0, 2, 1, 3});
+      TensorView* reshaped =
+          reshape(transposed, {16, 12, 128, 64}, {16, 128, 768});
+      reshaped = segment_set(reshaped);
+      reshaped_tvs.push_back(reshaped);
+    }
+
+    TensorView* concated = cat(reshaped_tvs, /*dim=*/-1);
+    concated = segment_set(concated);
+
+    // Set the `segment_set`s to non-contiguous and verify later their
+    // contiguities are preserved.
+    for (auto* reshaped : reshaped_tvs) {
+      reshaped->setAllocationDomain(
+          {reshaped->axis(0), reshaped->axis(1), reshaped->axis(2)}, false);
+    }
+    concated->setAllocationDomain(
+        {concated->axis(0), concated->axis(1), concated->axis(2)}, false);
+
+    TensorView* sum_out = castOp(
+        DataType::BFloat16, sum(castOp(DataType::Float, concated), {0, 1}));
+    TensorView* view_out = reshape(concated, {16, 128, 2304}, {2048, 2304});
+    TensorView* permute_out = permute(view_out, {1, 0});
+
+    for (auto* in : in_tvs) {
+      fusion->addInput(in);
+    }
+    fusion->addOutput(sum_out);
+    fusion->addOutput(view_out);
+    fusion->addOutput(permute_out);
+    return fusion;
+  }();
+
+  FusionExecutorCache fec(std::move(fusion));
+  std::vector<c10::IValue> in_tensors;
+  for (auto in : fec.fusion()->inputs()) {
+    std::ignore = in;
+    in_tensors.push_back(at::randn({16, 12, 128, 64}, at::kBFloat16).cuda());
+  }
+  fec.runFusionWithInputs(in_tensors);
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+  EXPECT_EQ(runtime->fusionSegments()->groups().size(), 6);
+
+  auto has_concat = [](Fusion* fusion) -> bool {
+    std::vector<Expr*> exprs = fusion->exprs();
+    return std::any_of(exprs.begin(), exprs.end(), [](Expr* expr) {
+      return expr->isA<CatOp>();
+    });
+  };
+
+  Fusion* concat_segment = nullptr;
+  for (const FusionExecutor& fe : runtime->executors()) {
+    Fusion* segment = fe.kernel()->as<Fusion>();
+    if (has_concat(segment)) {
+      concat_segment = segment;
+      break;
+    }
+  }
+  ASSERT_TRUE(concat_segment != nullptr);
+
+  for (Val* concat_in : concat_segment->inputs()) {
+    EXPECT_THAT(
+        concat_in->as<TensorView>()->getContiguity(),
+        ElementsAre(false, false, false));
+  }
+  ASSERT_EQ(concat_segment->outputs().size(), 1);
+  TensorView* concat_out = concat_segment->outputs()[0]->as<TensorView>();
+  EXPECT_THAT(concat_out->getContiguity(), ElementsAre(false, false, false));
+}
+
 } // namespace nvfuser
