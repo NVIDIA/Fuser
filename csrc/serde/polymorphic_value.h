@@ -8,6 +8,8 @@
 #pragma once
 #include <exceptions.h>
 #include <executor_kernel_arg.h>
+#include <ir/container.h>
+#include <ir/serde.h>
 #include <serde/factory.h>
 #include <serde/fusion_cache_generated.h>
 #include <functional>
@@ -24,7 +26,14 @@ class PolymorphicValueFactory
     : public Factory<PolymorphicValue, nvfuser::PolymorphicValue> {
  public:
   PolymorphicValueFactory()
-      : Factory((nvfuser::toUnderlying(PolymorphicValueData::MAX) + 1)) {
+      : Factory((nvfuser::toUnderlying(PolymorphicValueData::MAX) + 1)),
+        container_{nullptr} {
+    registerAllParsers();
+  }
+
+  PolymorphicValueFactory(nvfuser::IrContainer* container)
+      : Factory((nvfuser::toUnderlying(PolymorphicValueData::MAX) + 1)),
+        container_{container} {
     registerAllParsers();
   }
 
@@ -35,20 +44,25 @@ class PolymorphicValueFactory
   std::vector<T> makeArray(const serde::Array* data);
 
   nvfuser::PolymorphicValue makeArray(const serde::Array* data);
+  nvfuser::PolymorphicValue makeScope(const Scope* data);
+
+  nvfuser::IrContainer* container_;
 };
 
 nvfuser::PolymorphicValue deserializePolymorphicValue(
+    nvfuser::IrContainer* container,
     const PolymorphicValue* c);
 
 nvfuser::PolymorphicValue makeScalar(const Scalar* c);
 
 flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
     flatbuffers::FlatBufferBuilder& builder,
+    const IrSerde& container,
     const nvfuser::PolymorphicValue& v);
 
-flatbuffers::Offset<PolymorphicValue> serializeOpaque(
+flatbuffers::Offset<PolymorphicValue> serializeBasicPolymorphicValue(
     flatbuffers::FlatBufferBuilder& builder,
-    const nvfuser::Opaque& v);
+    const nvfuser::PolymorphicValue& v);
 
 flatbuffers::Offset<PolymorphicValue> serializeTensor(
     flatbuffers::FlatBufferBuilder& builder,
