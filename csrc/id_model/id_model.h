@@ -68,6 +68,9 @@ struct StatefulInliningInfo {
 //          id{i1*i0}, id{i0} are not mapped (this part is the difference from
 //          PERMISSIVE)
 //   Forward through split one axes, i.e. id{ceilDiv(i0, 1)}, id{i0} are mapped
+// IdMappingMode::LOOP
+//   Subgraph of the permissive graph. Maps only CA and their
+//   dependent domains
 //
 class IdModel : public PolymorphicBase {
  public:

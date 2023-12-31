@@ -516,13 +516,6 @@ StatefulInliningInfo buildStatefulInliningInfo(
 
 } // namespace
 
-void IdModel::buildLoopMap(const std::vector<Expr*>& exprs) {
-  const StatefulInliningInfo info = buildStatefulInliningInfo(
-      exprs, idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::PERMISSIVE));
-
-  initializeLoopMap(info);
-}
-
 void IdModel::initializeLoopMap(const StatefulInliningInfo& info) {
   // In the case of the Loop graph, we do not propagate mappings but
   // explicitly set which domains to map based on the permissive graph
@@ -540,6 +533,13 @@ void IdModel::initializeLoopMap(const StatefulInliningInfo& info) {
       }
     }
   }
+}
+
+void IdModel::buildLoopMap(const std::vector<Expr*>& exprs) {
+  const StatefulInliningInfo info = buildStatefulInliningInfo(
+      exprs, idGraph(IdMappingMode::EXACT), idGraph(IdMappingMode::PERMISSIVE));
+
+  initializeLoopMap(info);
 }
 
 void IdModel::build(
