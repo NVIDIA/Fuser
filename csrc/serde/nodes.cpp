@@ -186,8 +186,7 @@ void ExpressionFactory::registerAllParsers() {
   registerParser(
       serde::ExprType::Unary, nvf::IrBuilder::deserializeExpr<nvf::UnaryOp>);
   registerParser(
-      serde::ExprType::View,
-      nvf::IrBuilder::deserializeExpr<nvf::ViewAsScalar>);
+      serde::ExprType::View, nvf::IrBuilder::deserializeExpr<nvf::ViewOp>);
   registerParser(
       serde::ExprType::ViewAsScalar,
       nvf::IrBuilder::deserializeExpr<nvf::ViewAsScalar>);
