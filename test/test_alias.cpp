@@ -739,45 +739,86 @@ TEST_F(AliasTest, DuplicateInputs) {
 }
 
 TEST_F(AliasTest, Issue1502) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+  auto create_fusion = []() -> std::unique_ptr<Fusion> {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
 
-  std::vector<TensorView*> in_tvs;
-  for (int i = 0; i < 3; i++) {
-    in_tvs.push_back(makeContigConcreteTensor(
-        {16, 12, 128, 64}, /*dtype=*/DataType::BFloat16));
+    std::vector<TensorView*> in_tvs;
+    for (int i = 0; i < 3; i++) {
+      in_tvs.push_back(makeContigConcreteTensor(
+          {16, 12, 128, 64}, /*dtype=*/DataType::BFloat16));
+    }
+
+    std::vector<TensorView*> reshaped_tvs;
+    for (TensorView* in : in_tvs) {
+      TensorView* transposed = permute(in, {0, 2, 1, 3});
+      TensorView* reshaped =
+          reshape(transposed, {16, 12, 128, 64}, {16, 128, 768});
+      reshaped_tvs.push_back(reshaped);
+    }
+
+    TensorView* concated = cat(reshaped_tvs, /*dim=*/-1);
+
+    TensorView* sum_out = castOp(
+        DataType::BFloat16, sum(castOp(DataType::Float, concated), {0, 1}));
+    TensorView* view_out = reshape(concated, {16, 128, 2304}, {2048, 2304});
+    TensorView* permute_out = permute(view_out, {1, 0});
+
+    for (auto* in : in_tvs) {
+      fusion->addInput(in);
+    }
+    fusion->addOutput(sum_out);
+    fusion->addOutput(view_out);
+    fusion->addOutput(permute_out);
+    return fusion;
+  };
+
+  // The reference model below shows what I believe the optimal code should look
+  // like. The input tensors should be produced directly into `concated` so the
+  // concatenation is free. This way, only cast-sum-cast needs GPU compute while
+  // other ops are all meta.
+  auto ref =
+      [](const std::vector<at::Tensor>& in_tensors) -> std::vector<at::Tensor> {
+    at::Tensor concated =
+        at::empty({16 * 36 * 128 * 64})
+            .as_strided({16, 36, 128, 64}, {128 * 36 * 64, 64, 36 * 64, 1})
+            .cuda();
+    concated.copy_(at::cat(in_tensors, /*dim=*/1));
+
+    concated = concated.permute({0, 2, 1, 3}).view({16, 128, 2304});
+
+    at::Tensor sum_out = concated.to(at::kFloat)
+                             .sum(std::vector<int64_t>({0LL, 1LL}))
+                             .to(at::kBFloat16);
+    at::Tensor view_out = concated.view({2048, 2304});
+    at::Tensor permute_out = view_out.permute({1, 0});
+    return std::vector<at::Tensor>({sum_out, view_out, permute_out});
+  };
+
+  auto fusion = create_fusion();
+  std::vector<at::Tensor> ref_in_tensors;
+  for (auto in : fusion->inputs()) {
+    std::ignore = in;
+    ref_in_tensors.push_back(
+        at::randn({16, 12, 128, 64}, at::kBFloat16).cuda());
   }
-
-  std::vector<TensorView*> reshaped_tvs;
-  for (TensorView* in : in_tvs) {
-    TensorView* transposed = permute(in, {0, 2, 1, 3});
-    TensorView* reshaped =
-        reshape(transposed, {16, 12, 128, 64}, {16, 128, 768});
-    reshaped_tvs.push_back(reshaped);
+  std::vector<at::Tensor> ref_out_tensors = ref(ref_in_tensors);
+  std::vector<c10::IValue> in_tensors;
+  for (const auto& ref_in_tensor : ref_in_tensors) {
+    in_tensors.push_back(ref_in_tensor);
   }
-
-  TensorView* concated = cat(reshaped_tvs, /*dim=*/-1);
-
-  TensorView* sum_out = castOp(
-      DataType::BFloat16, sum(castOp(DataType::Float, concated), {0, 1}));
-  TensorView* view_out = reshape(concated, {16, 128, 2304}, {2048, 2304});
-  TensorView* permute_out = permute(view_out, {1, 0});
-
-  for (auto* in : in_tvs) {
-    fusion->addInput(in);
-  }
-  fusion->addOutput(sum_out);
-  fusion->addOutput(view_out);
-  fusion->addOutput(permute_out);
 
   FusionExecutorCache fec(std::move(fusion));
-  std::vector<c10::IValue> in_tensors;
-  for (auto in : in_tvs) {
-    std::ignore = in;
-    in_tensors.push_back(at::randn({16, 12, 128, 64}, at::kBFloat16).cuda());
-  }
   std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs(in_tensors);
-  EXPECT_EQ(out_tensors[1].data_ptr(), out_tensors[2].data_ptr());
+  testValidate(
+      fec.fusion(),
+      out_tensors,
+      in_tensors,
+      ref_out_tensors,
+      __LINE__,
+      __FILE__);
+
+  // EXPECT_EQ(out_tensors[1].data_ptr(), out_tensors[2].data_ptr());
 }
 
 TEST_F(AliasTest, ConcatToSlice) {
