@@ -57,6 +57,35 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
     const std::deque<Expr*>& exprs) {
   std::unordered_set<Statement*> to_sort;
 
+  // During segmentation, intermediate TensorViews can become new global
+  // TensorViews. A new TensorDomain is created for the new global TensorView
+  // but its original TensorDomain remains in container. The values of the
+  // original TensorDomain are altered and reused making the original
+  // TensorDomain invalid. A solution is to prune the unused TensorDomain from
+  // the Container.
+  std::vector<Val*> all_tensorviews;
+  std::copy_if(
+      values.begin(),
+      values.end(),
+      std::back_inserter(all_tensorviews),
+      [](Val* v) { return v->isA<TensorView>(); });
+
+  // Collect TensorDomains that are used in a TensorView
+  std::unordered_set<Val*> valid_tensor_domains;
+  std::copy_if(
+      values.begin(),
+      values.end(),
+      std::inserter(valid_tensor_domains, valid_tensor_domains.end()),
+      [&all_tensorviews](Val* v) {
+        if (!v->isA<TensorDomain>()) {
+          return false;
+        }
+        return std::any_of(
+            all_tensorviews.begin(), all_tensorviews.end(), [&v](Val* tv) {
+              return tv->as<TensorView>()->domain() == v->as<TensorDomain>();
+            });
+      });
+
   std::copy(
       values.begin(), values.end(), std::inserter(to_sort, to_sort.end()));
   std::copy(exprs.begin(), exprs.end(), std::inserter(to_sort, to_sort.end()));
@@ -85,6 +114,7 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
 
   bool removed_any_statment_from_to_sort = false;
   bool any_ready_to_pop = false;
+  int64_t invalid_tensor_domains = 0;
   // Topological Sort
   while (!to_sort.empty()) {
     removed_any_statment_from_to_sort = false;
@@ -139,7 +169,16 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
               valid_value_dependencies.insert(output_val);
             }
           }
-          sorted.push_back(top_stmt);
+          // Only add TensorDomain statements if they are used by a TensorView.
+          if (top_stmt->isA<TensorDomain>()) {
+            if (valid_tensor_domains.count(top_stmt->as<Val>()) > 0) {
+              sorted.push_back(top_stmt);
+            } else {
+              ++invalid_tensor_domains;
+            }
+          } else {
+            sorted.push_back(top_stmt);
+          }
         }
       }
     }
@@ -151,7 +190,9 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
         " so we are stopping here to break infinite loop.");
   }
   NVF_ERROR(valid_value_dependencies.size() == created_statements.size());
-  NVF_ERROR(sorted.size() == (values.size() + exprs.size()));
+  NVF_ERROR(
+      (sorted.size() + invalid_tensor_domains) ==
+      (values.size() + exprs.size()));
   return sorted;
 }
 
