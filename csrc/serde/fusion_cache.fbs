@@ -222,13 +222,16 @@ union PolymorphicValueData {
   Bool,
   ComplexDouble,
   Double,
+  DynamicTransformInitialInfo,
   Long,
+  LoopRotationParam,
   OpaqueEnum,
   ParallelTypeBitmap,
   RNGAttributes,
   ScalarCpu,
   Scope,
   TensorArg,
+  TensorViewVector,
 }
 
 // The ValueData union holds the attribute information for each nvf::Val class.
@@ -345,6 +348,24 @@ table Array {
 table PolymorphicValueDtype {
   pv: PolymorphicValue;
   dtype_enum: long;
+}
+
+table DynamicTransformInitialInfo {
+  dynamic_reshape_tvs: [long];
+  dynamic_resized_ids: [long];
+  maybe_zero_extents_set: [long];
+  maybe_zero_extents: [long];
+  root_dynamic_vals_set: [long];
+}
+
+table LoopRotationParam {
+  tv: long;
+  axis: long;
+  selection_stmt_set: [long];
+}
+
+table TensorViewVector {
+  tvs: long;
 }
 
 // This table corresponds with a given PolymorphicValue object.
@@ -655,6 +676,15 @@ table Permutation {
   value: [long];
 }
 
+table ManagedData {
+  items: [PolymorphicValue];
+}
+
+table NamedManagedData {
+  keys: [string];
+  items: [PolymorphicValue];
+}
+
 // Managed Data is not supported
 table Fusion {
   container: IrContainer;
@@ -674,6 +704,9 @@ table Fusion {
   //  the states are either all valid or all invalid
   all_tv_uses_valid: bool;
   is_during_update_uses: bool;
+
+  managed_data: ManagedData;
+  named_managed_data: NamedManagedData;
 }
 
 // Table represents kir::Allocate node
