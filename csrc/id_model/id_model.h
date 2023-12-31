@@ -127,43 +127,7 @@ class IdModel : public PolymorphicBase {
     return self_mapping_info_.has_value();
   }
 
-  // Update the LOOP ID disjoint sets with resolved computeWith
-  void updateComputeWith(TensorView* compute_with_tv);
-
   std::string toString() const;
-
-  // Replay Expr but with the inputs provided. IterDomainGraphss will be updated
-  // for all maps that have entries, adding the output iter domains of the
-  // replayed expression and adding potential mappings through the expression.
-  Expr* addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr);
-
-  // Similar to addReplayAs, but clones the expr exactly instead of replaying it
-  // forward. It's up to the calling code to make sure the replacements are
-  // valid for the provided expr. It's generally recommended that the
-  // IterDomains exactly match those in the expr.
-  //
-  // "forward" dictates the same argument for mapThroughExpr. If forward the
-  // function will apply mapThroughExpr forward if inputs map in each
-  // initialized map. Else does the same but backwards through the expression
-  // from outputs.
-  Expr* addExprWithReplacement(
-      const std::unordered_map<IterDomain*, IterDomain*>& old_2_new_ids,
-      Expr* old_expr);
-
-  // Make a new expr matching that provided but using the outputs provided.
-  // IterDomainGraphss will be updated for all maps that have entries. Adding
-  // the input iter domains of the replayed expression and adding potential
-  // mappings through the expressions. Input domains will match exactly in all
-  // properties as those in expr. This is unlike addReplayAs which will produce
-  // new outputs using transformations directly.
-  Expr* addBackwardsReplayAs(
-      const std::vector<IterDomain*>& new_outputs,
-      Expr* expr);
-
-  // Make an exact copy of provided IterDomain (without rfactor set), and map
-  // the copy to the original in all registered IdModel. IterDomain copy will
-  // not have any registered uses or definitions.
-  IterDomain* cloneIterDomain(IterDomain* id);
 
   const std::unordered_map<ValGroup, IterDomain*> loopPromotionMap() const {
     return loop_promotion_map_;
@@ -274,6 +238,43 @@ class IdModel : public PolymorphicBase {
 
   // Errors if self mapping occurs
   void assertNoSelfMapping();
+
+  // TODO:
+  // Update the LOOP ID disjoint sets with resolved computeWith
+  void updateComputeWith(TensorView* compute_with_tv);
+
+  // Replay Expr but with the inputs provided. IterDomainGraphss will be updated
+  // for all maps that have entries, adding the output iter domains of the
+  // replayed expression and adding potential mappings through the expression.
+  Expr* addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr);
+
+  // Similar to addReplayAs, but clones the expr exactly instead of replaying it
+  // forward. It's up to the calling code to make sure the replacements are
+  // valid for the provided expr. It's generally recommended that the
+  // IterDomains exactly match those in the expr.
+  //
+  // "forward" dictates the same argument for mapThroughExpr. If forward the
+  // function will apply mapThroughExpr forward if inputs map in each
+  // initialized map. Else does the same but backwards through the expression
+  // from outputs.
+  Expr* addExprWithReplacement(
+      const std::unordered_map<IterDomain*, IterDomain*>& old_2_new_ids,
+      Expr* old_expr);
+
+  // Make a new expr matching that provided but using the outputs provided.
+  // IterDomainGraphss will be updated for all maps that have entries. Adding
+  // the input iter domains of the replayed expression and adding potential
+  // mappings through the expressions. Input domains will match exactly in all
+  // properties as those in expr. This is unlike addReplayAs which will produce
+  // new outputs using transformations directly.
+  Expr* addBackwardsReplayAs(
+      const std::vector<IterDomain*>& new_outputs,
+      Expr* expr);
+
+  // Make an exact copy of provided IterDomain (without rfactor set), and map
+  // the copy to the original in all registered IdModel. IterDomain copy will
+  // not have any registered uses or definitions.
+  IterDomain* cloneIterDomain(IterDomain* id);
 
  private:
   // Keeps ValGraphs containing all IterDomains for all mapping mode types.

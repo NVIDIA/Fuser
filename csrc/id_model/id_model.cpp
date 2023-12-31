@@ -1119,8 +1119,9 @@ ValGraph IdModel::buildIntersection(
 }
 
 void IdModel::initializeLoopMap(const StatefulInliningInfo& info) {
-  // See Indexing20 example for why we shouldn't propagate when generating loop
-  // groups
+  // In the case of the Loop graph, we do not propagate mappings but
+  // explicitly set which domains to map based on the permissive graph
+  // and the CA positions.
   idGraph(IdMappingMode::LOOP) = initializeIdGraph(false);
 
   // Make sure this is called in a deterministic order. Build all inlined
