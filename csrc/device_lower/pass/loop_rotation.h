@@ -143,8 +143,9 @@ namespace nvfuser {
 // vector of (tv, dim, selection)
 // For each entry in the vector, the selected tv/expr in loop tv->axis(dim)
 // will be rotated
-using LoopRotationParam = std::vector<
-    std::tuple<TensorView*, int64_t, std::unordered_set<Statement*>>>;
+using LoopRotationTuple =
+    std::tuple<TensorView*, int64_t, std::unordered_set<Statement*>>;
+using LoopRotationParam = std::vector<LoopRotationTuple>;
 
 std::vector<Expr*> rotateLoops(const std::vector<Expr*>& exprs);
 
