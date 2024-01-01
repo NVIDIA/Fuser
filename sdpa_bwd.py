@@ -32,7 +32,12 @@ def test_torch_sdpa_backward():
     philox_seed = torch.randint(10, ())
     philox_offset = torch.randint(10, ())
 
-    torch.ops.aten._scaled_dot_product_efficient_attention_backward(
+    (
+        dq_tensor,
+        dk_tensor,
+        dv_tensor,
+        _,
+    ) = torch.ops.aten._scaled_dot_product_efficient_attention_backward(
         do_tensor,
         q_tensor,
         k_tensor,
@@ -46,6 +51,13 @@ def test_torch_sdpa_backward():
         [False, False, False, False],
     )
     torch.cuda.synchronize()
+
+    assert dq_tensor.dtype == torch.bfloat16
+    assert dk_tensor.dtype == torch.bfloat16
+    assert dv_tensor.dtype == torch.bfloat16
+    assert dq_tensor.size() == qkv_shape
+    assert dk_tensor.size() == qkv_shape
+    assert dv_tensor.size() == qkv_shape
 
 
 def test_cudnn_sdpa_backward():
