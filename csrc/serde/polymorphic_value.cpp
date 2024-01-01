@@ -231,32 +231,6 @@ nvf::PolymorphicValue deserializeTensorArg(const PolymorphicValue* buffer) {
       c10::nullopt);
 }
 
-template <typename T, serde::PrimArrayType array_type>
-flatbuffers::Offset<PolymorphicValue> serializeArray(
-    flatbuffers::FlatBufferBuilder& builder,
-    const nvfuser::Opaque& v) {
-  auto vec = v.as<std::vector<T>>();
-  NVF_CHECK(!vec.empty(), "Empty array is not supported");
-  std::vector<flatbuffers::Offset<serde::PolymorphicValue>> fb_items;
-  fb_items.reserve(vec.size());
-  std::transform(
-      vec.begin(),
-      vec.end(),
-      std::back_inserter(fb_items),
-      [&builder](const T& item) {
-        return serializeBasicPolymorphicValue(builder, item);
-      });
-  return CreatePolymorphicValue(
-      builder,
-      PolymorphicValueData::Array,
-      CreateArrayDirect(
-          builder,
-          /*is_opaque=*/true,
-          array_type,
-          &fb_items)
-          .Union());
-}
-
 } // namespace
 
 nvf::PolymorphicValue deserializeBool(const PolymorphicValue* buffer) {
@@ -451,6 +425,31 @@ void deserializeManagedNamedData(
 }
 
 namespace {
+
+template <typename T, serde::PrimArrayType array_type>
+flatbuffers::Offset<PolymorphicValue> serializeArray(
+    flatbuffers::FlatBufferBuilder& builder,
+    const nvfuser::Opaque& v) {
+  auto vec = v.as<std::vector<T>>();
+  std::vector<flatbuffers::Offset<serde::PolymorphicValue>> fb_items;
+  fb_items.reserve(vec.size());
+  std::transform(
+      vec.begin(),
+      vec.end(),
+      std::back_inserter(fb_items),
+      [&builder](const T& item) {
+        return serializeBasicPolymorphicValue(builder, item);
+      });
+  return CreatePolymorphicValue(
+      builder,
+      PolymorphicValueData::Array,
+      CreateArrayDirect(
+          builder,
+          /*is_opaque=*/true,
+          array_type,
+          &fb_items)
+          .Union());
+}
 
 // TODO Refactor
 flatbuffers::Offset<PolymorphicValue> serializeOpaque(
