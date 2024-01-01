@@ -122,6 +122,14 @@ nvf::PolymorphicValue deserializeOpaqueEnum(const PolymorphicValue* buffer) {
       return nvf::PolymorphicValue(
           nvf::Opaque(static_cast<nvf::MemoryType>(data->value())));
     }
+    case NvFuserEnum::MmaLayout: {
+      if (data->value() == -1) {
+        return nvf::PolymorphicValue(nvf::Opaque(nvf::MmaOp::MmaLayoutOpt()));
+      }
+      auto enum_value = static_cast<nvf::MmaLayout>(data->value());
+      return nvf::PolymorphicValue(
+          nvf::Opaque(nvf::MmaOp::MmaLayoutOpt(enum_value)));
+    }
     case NvFuserEnum::MmaMacro: {
       return nvf::PolymorphicValue(
           nvf::Opaque(static_cast<nvf::MmaMacro>(data->value())));
@@ -489,102 +497,122 @@ flatbuffers::Offset<PolymorphicValue> serializeOpaque(
                     builder, &fb_exprs, container.map(kir_scope.owner()))
                     .Union();
     return CreatePolymorphicValue(builder, PolymorphicValueData::Scope, data);
-  } else if (v.any().type() == typeid(AsyncOpType)) {
+  } else if (v.any().type() == typeid(nvf::AsyncOpType)) {
     auto data = CreateOpaqueEnum(
-        builder, NvFuserEnum::AsyncOpType, toUnderlying(v.as<AsyncOpType>()));
+        builder,
+        NvFuserEnum::AsyncOpType,
+        toUnderlying(v.as<nvf::AsyncOpType>()));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::OpaqueEnum, data.Union());
-  } else if (v.any().type() == typeid(DoubleBufferLoopStage)) {
+  } else if (v.any().type() == typeid(nvf::DoubleBufferLoopStage)) {
     auto data = CreateOpaqueEnum(
         builder,
         NvFuserEnum::DoubleBufferLoopStage,
-        toUnderlying(v.as<DoubleBufferLoopStage>()));
+        toUnderlying(v.as<nvf::DoubleBufferLoopStage>()));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::OpaqueEnum, data.Union());
-  } else if (v.any().type() == typeid(BinaryOpType)) {
+  } else if (v.any().type() == typeid(nvf::BinaryOpType)) {
     auto data = CreateOpaqueEnum(
-        builder, NvFuserEnum::BinaryOpType, toUnderlying(v.as<BinaryOpType>()));
+        builder,
+        NvFuserEnum::BinaryOpType,
+        toUnderlying(v.as<nvf::BinaryOpType>()));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::OpaqueEnum, data.Union());
-  } else if (v.any().type() == typeid(CacheOp)) {
+  } else if (v.any().type() == typeid(nvf::CacheOp)) {
     auto data = CreateOpaqueEnum(
-        builder, NvFuserEnum::CacheOp, toUnderlying(v.as<CacheOp>()));
+        builder, NvFuserEnum::CacheOp, toUnderlying(v.as<nvf::CacheOp>()));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::OpaqueEnum, data.Union());
-  } else if (v.any().type() == typeid(LoadStoreOpType)) {
+  } else if (v.any().type() == typeid(nvf::LoadStoreOpType)) {
     auto data = CreateOpaqueEnum(
         builder,
         NvFuserEnum::LoadStoreOpType,
-        toUnderlying(v.as<LoadStoreOpType>()));
+        toUnderlying(v.as<nvf::LoadStoreOpType>()));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::OpaqueEnum, data.Union());
-  } else if (v.any().type() == typeid(MemoryType)) {
+  } else if (v.any().type() == typeid(nvf::MemoryType)) {
     auto data = CreateOpaqueEnum(
-        builder, NvFuserEnum::MemoryType, toUnderlying(v.as<MemoryType>()));
+        builder,
+        NvFuserEnum::MemoryType,
+        toUnderlying(v.as<nvf::MemoryType>()));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::OpaqueEnum, data.Union());
-  } else if (v.any().type() == typeid(MmaMacro)) {
+  } else if (v.any().type() == typeid(nvf::MmaOp::MmaLayoutOpt)) {
+    auto enum_value = v.as<nvf::MmaOp::MmaLayoutOpt>();
+    int64_t fb_enum_value =
+        enum_value.has_value() ? toUnderlying(enum_value.value()) : -1;
+    auto data =
+        CreateOpaqueEnum(builder, NvFuserEnum::MmaLayout, fb_enum_value);
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::OpaqueEnum, data.Union());
+  } else if (v.any().type() == typeid(nvf::MmaMacro)) {
     auto data = CreateOpaqueEnum(
         builder,
         NvFuserEnum::MmaMacro,
-        (int64_t)toUnderlying(v.as<MmaMacro>()));
+        (int64_t)toUnderlying(v.as<nvf::MmaMacro>()));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::OpaqueEnum, data.Union());
-  } else if (v.any().type() == typeid(ScatterOpType)) {
+  } else if (v.any().type() == typeid(nvf::ScatterOpType)) {
     auto data = CreateOpaqueEnum(
         builder,
         NvFuserEnum::ScatterOpType,
-        toUnderlying(v.as<ScatterOpType>()));
+        toUnderlying(v.as<nvf::ScatterOpType>()));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::OpaqueEnum, data.Union());
-  } else if (v.any().type() == typeid(SwizzleMode)) {
+  } else if (v.any().type() == typeid(nvf::SwizzleMode)) {
     auto data = CreateOpaqueEnum(
-        builder, NvFuserEnum::SwizzleMode, toUnderlying(v.as<SwizzleMode>()));
+        builder,
+        NvFuserEnum::SwizzleMode,
+        toUnderlying(v.as<nvf::SwizzleMode>()));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::OpaqueEnum, data.Union());
-  } else if (v.any().type() == typeid(SwizzleType)) {
+  } else if (v.any().type() == typeid(nvf::SwizzleType)) {
     auto data = CreateOpaqueEnum(
-        builder, NvFuserEnum::SwizzleType, toUnderlying(v.as<SwizzleType>()));
+        builder,
+        NvFuserEnum::SwizzleType,
+        toUnderlying(v.as<nvf::SwizzleType>()));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::OpaqueEnum, data.Union());
-  } else if (v.any().type() == typeid(Swizzle2DType)) {
+  } else if (v.any().type() == typeid(nvf::Swizzle2DType)) {
     auto data = CreateOpaqueEnum(
         builder,
         NvFuserEnum::Swizzle2DType,
-        toUnderlying(v.as<Swizzle2DType>()));
+        toUnderlying(v.as<nvf::Swizzle2DType>()));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::OpaqueEnum, data.Union());
-  } else if (v.any().type() == typeid(tma::TensorMapInterleave)) {
+  } else if (v.any().type() == typeid(nvf::tma::TensorMapInterleave)) {
     auto data = CreateOpaqueEnum(
         builder,
         NvFuserEnum::TensorMapInterleave,
-        toUnderlying(v.as<tma::TensorMapInterleave>()));
+        toUnderlying(v.as<nvf::tma::TensorMapInterleave>()));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::OpaqueEnum, data.Union());
-  } else if (v.any().type() == typeid(tma::TensorMapL2Promotion)) {
+  } else if (v.any().type() == typeid(nvf::tma::TensorMapL2Promotion)) {
     auto data = CreateOpaqueEnum(
         builder,
         NvFuserEnum::TensorMapL2Promotion,
-        toUnderlying(v.as<tma::TensorMapL2Promotion>()));
+        toUnderlying(v.as<nvf::tma::TensorMapL2Promotion>()));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::OpaqueEnum, data.Union());
-  } else if (v.any().type() == typeid(tma::TensorMapFloatOOBFill)) {
+  } else if (v.any().type() == typeid(nvf::tma::TensorMapFloatOOBFill)) {
     auto data = CreateOpaqueEnum(
         builder,
         NvFuserEnum::TensorMapFloatOOBFill,
-        toUnderlying(v.as<tma::TensorMapFloatOOBFill>()));
+        toUnderlying(v.as<nvf::tma::TensorMapFloatOOBFill>()));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::OpaqueEnum, data.Union());
-  } else if (v.any().type() == typeid(TernaryOpType)) {
+  } else if (v.any().type() == typeid(nvf::TernaryOpType)) {
     auto data = CreateOpaqueEnum(
         builder,
         NvFuserEnum::TernaryOpType,
-        toUnderlying(v.as<TernaryOpType>()));
+        toUnderlying(v.as<nvf::TernaryOpType>()));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::OpaqueEnum, data.Union());
-  } else if (v.any().type() == typeid(UnaryOpType)) {
+  } else if (v.any().type() == typeid(nvf::UnaryOpType)) {
     auto data = CreateOpaqueEnum(
-        builder, NvFuserEnum::UnaryOpType, toUnderlying(v.as<UnaryOpType>()));
+        builder,
+        NvFuserEnum::UnaryOpType,
+        toUnderlying(v.as<nvf::UnaryOpType>()));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::OpaqueEnum, data.Union());
   } else if (v.any().type() == typeid(std::vector<bool>)) {

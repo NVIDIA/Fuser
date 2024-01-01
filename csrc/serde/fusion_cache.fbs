@@ -171,6 +171,7 @@ enum NvFuserEnum: int {
   DoubleBufferLoopStage,
   LoadStoreOpType,
   MemoryType,
+  MmaLayout,
   MmaMacro,
   ScatterOpType,
   SwizzleMode,
