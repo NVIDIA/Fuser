@@ -371,7 +371,6 @@ class FusionExecutor : public NonCopyable {
   //! Deserialize Fusion Executor using flatbuffers
   void deserialize(
       const serde::FusionExecutor* buffer,
-      Fusion* fusion,
       CompileParams compile_params,
       ScheduleHeuristic heuristic,
       int64_t fusion_id,
@@ -531,6 +530,9 @@ class FusionExecutor : public NonCopyable {
 
   // Kernel name for fusion executor
   std::string kernel_id_;
+
+  //! The scheduled fusion stored for serialization
+  std::unique_ptr<Fusion> scheduled_fusion_;
 
   std::unique_ptr<GpuLower> lowered_;
   // Copy of lowered_->kernel()
