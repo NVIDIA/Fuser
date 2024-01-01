@@ -224,7 +224,7 @@ union PolymorphicValueData {
   Double,
   DynamicTransformInitialInfo,
   Long,
-  LoopRotationParam,
+  LoopRotation,
   OpaqueEnum,
   ParallelTypeBitmap,
   RNGAttributes,
@@ -361,7 +361,11 @@ table DynamicTransformInitialInfo {
 table LoopRotationParam {
   tv: long;
   axis: long;
-  selection_stmt_set: [long];
+  selection_stmt_set: [StatementIndex];
+}
+
+table LoopRotation {
+  items: [LoopRotationParam];
 }
 
 table TensorViewVector {

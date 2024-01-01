@@ -39,7 +39,7 @@ class IrSerde {
   int64_t map(Expr* e) const;
   int64_t map(const Expr* e) const;
 
-  std::vector<int64_t> map(const std::vector<Statement*>& vals) const;
+  std::vector<int64_t> map(const std::vector<Statement*>& stmts) const;
   std::vector<int64_t> map(const std::vector<Val*>& vals) const;
   std::vector<int64_t> map(const std::vector<Expr*>& exprs) const;
 

@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <ATen/EmptyTensor.h>
+#include <device_lower/pass/loop_rotation.h>
 #include <dynamic_transform.h>
 #include <fusion.h>
 #include <ir/cloner.h>
@@ -14,6 +15,7 @@
 #include <serde/polymorphic_value.h>
 #include <serde/utils.h>
 #include <optional>
+#include <tuple>
 #include <typeinfo>
 #include <variant>
 
@@ -57,6 +59,36 @@ nvf::PolymorphicValue deserializeDynamicTransformInitialInfo(
   NVF_ERROR(data != nullptr, "serde::DynamicTransformInitialInfo is nullptr.");
   return nvf::PolymorphicValue(nvf::Opaque(
       nvf::DynamicTransformInitialInfo(FusionGuard::getCurFusion(), data)));
+}
+
+nvf::PolymorphicValue deserializeLoopRotation(const PolymorphicValue* buffer) {
+  NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
+  const LoopRotation* data = buffer->data_as_LoopRotation();
+  NVF_ERROR(data != nullptr, "serde::LoopRotation is nullptr.");
+
+  nvf::Fusion* fusion = FusionGuard::getCurFusion();
+
+  std::vector<nvf::LoopRotationTuple> loop_rotation;
+  loop_rotation.reserve(data->items()->size());
+  for (auto loop_rotation_param : *data->items()) {
+    std::unordered_set<nvf::Statement*> nvf_selection_stmt_set;
+    nvf_selection_stmt_set.reserve(
+        loop_rotation_param->selection_stmt_set()->size());
+    std::transform(
+        loop_rotation_param->selection_stmt_set()->begin(),
+        loop_rotation_param->selection_stmt_set()->end(),
+        std::inserter(nvf_selection_stmt_set, nvf_selection_stmt_set.end()),
+        [&fusion](const StatementIndex* stmt_index) {
+          return stmt_index->is_val()
+              ? fusion->getVal<nvf::Statement>(stmt_index->index())
+              : fusion->getExpr<nvf::Statement>(stmt_index->index());
+        });
+    loop_rotation.emplace_back(nvf::LoopRotationTuple(
+        fusion->getVal<nvf::TensorView>(loop_rotation_param->tv()),
+        loop_rotation_param->axis(),
+        nvf_selection_stmt_set));
+  }
+  return nvf::PolymorphicValue(nvf::Opaque(loop_rotation));
 }
 
 // TODO Refactor
@@ -359,6 +391,7 @@ void PolymorphicValueFactory::registerAllParsers() {
   registerParser(
       PolymorphicValueData::DynamicTransformInitialInfo,
       deserializeDynamicTransformInitialInfo);
+  registerParser(PolymorphicValueData::LoopRotation, deserializeLoopRotation);
   registerParser(PolymorphicValueData::Long, deserializeLong);
   registerParser(PolymorphicValueData::NONE, deserializeMonostate);
   registerParser(PolymorphicValueData::OpaqueEnum, deserializeOpaqueEnum);
@@ -386,6 +419,9 @@ void deserializeManagedData(
   std::any a = deserializePolymorphicValue(fusion, pv).as<nvf::Opaque>().any();
   if (a.type() == typeid(nvf::DynamicTransformInitialInfo)) {
     fusion->manage(a, cloneDynamicTransformInitialInfo);
+  } else if (a.type() == typeid(nvf::LoopRotationParam)) {
+    fusion->manage<nvf::LoopRotationParam>(
+        std::any_cast<nvf::LoopRotationParam>(a));
   } else {
     NVF_ERROR(false, "Unsupported managed data type");
   }
@@ -398,6 +434,9 @@ void deserializeManagedNamedData(
   std::any a = deserializePolymorphicValue(fusion, pv).as<nvf::Opaque>().any();
   if (a.type() == typeid(nvf::DynamicTransformInitialInfo)) {
     fusion->manage(name, a, cloneDynamicTransformInitialInfo);
+  } else if (a.type() == typeid(nvf::LoopRotationParam)) {
+    fusion->manage<nvf::LoopRotationParam>(
+        name, std::any_cast<nvf::LoopRotationParam>(a));
   } else {
     NVF_ERROR(false, "Unsupported managed named data type");
   }
@@ -563,6 +602,36 @@ flatbuffers::Offset<PolymorphicValue> serializeOpaque(
         builder,
         PolymorphicValueData::DynamicTransformInitialInfo,
         data.Union());
+  } else if (v.any().type() == typeid(nvf::LoopRotationParam)) {
+    auto nvf_data = v.as<nvf::LoopRotationParam>();
+    std::vector<flatbuffers::Offset<LoopRotationParam>> fb_items;
+    fb_items.reserve(nvf_data.size());
+    std::transform(
+        nvf_data.begin(),
+        nvf_data.end(),
+        std::back_inserter(fb_items),
+        [&container, &builder](const nvf::LoopRotationTuple& item) {
+          const auto& selection_stmt_set =
+              std::get<std::unordered_set<nvf::Statement*>>(item);
+
+          std::vector<flatbuffers::Offset<StatementIndex>>
+              fb_selection_stmt_set;
+          fb_selection_stmt_set.reserve(selection_stmt_set.size());
+          for (auto stmt : selection_stmt_set) {
+            bool is_val = (stmt != nullptr) ? stmt->isVal() : true;
+            fb_selection_stmt_set.push_back(serde::CreateStatementIndex(
+                builder, container.map(stmt), is_val));
+          }
+
+          return CreateLoopRotationParamDirect(
+              builder,
+              container.map(std::get<nvf::TensorView*>(item)->asVal()),
+              std::get<int64_t>(item),
+              &fb_selection_stmt_set);
+        });
+    auto data = CreateLoopRotationDirect(builder, &fb_items);
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::LoopRotation, data.Union());
   } else {
     NVF_ERROR(
         false, "Serialization of arbitrary opaque value is not implemented.");
