@@ -21,6 +21,7 @@
 #include <iter_visitor.h>
 #include <kernel.h>
 #include <ops/arith.h>
+#include <serde/polymorphic_value.h>
 
 #include <iterator>
 
@@ -152,12 +153,6 @@ Fusion::~Fusion() {
 
 flatbuffers::Offset<serde::Fusion> Fusion::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
-  NVF_ERROR(
-      managed_data_.empty(), "Serialization does not support managed_data");
-  NVF_ERROR(
-      managed_named_data_.empty(),
-      "Serialization does not support managed_named_data");
-
   IrSerde container(this);
 
   std::vector<int64_t> fb_inputs_vals;
@@ -200,6 +195,33 @@ flatbuffers::Offset<serde::Fusion> Fusion::serialize(
         serde::CreatePermutationDirect(builder, entry.first, &entry.second));
   }
 
+  std::vector<flatbuffers::Offset<serde::PolymorphicValue>>
+      fb_managed_data_items;
+  fb_managed_data_items.reserve(managed_data_.size());
+  std::transform(
+      managed_data_.begin(),
+      managed_data_.end(),
+      std::back_inserter(fb_managed_data_items),
+      [&builder, &container](const std::pair<std::any, CloneFn>& item) {
+        return serde::serializePolymorphicValue(
+            builder, container, Opaque(item.first));
+      });
+  auto fb_managed_data =
+      serde::CreateManagedDataDirect(builder, &fb_managed_data_items);
+
+  std::vector<flatbuffers::Offset<flatbuffers::String>> fb_named_managed_keys;
+  std::vector<flatbuffers::Offset<serde::PolymorphicValue>>
+      fb_named_managed_items;
+  fb_named_managed_keys.reserve(managed_named_data_.size());
+  fb_named_managed_items.reserve(managed_named_data_.size());
+  for (const auto& item : managed_named_data_) {
+    fb_named_managed_items.push_back(serde::serializePolymorphicValue(
+        builder, container, Opaque(item.second.first)));
+    fb_named_managed_keys.push_back(builder.CreateString(item.first));
+  }
+  auto fb_named_managed_data = serde::CreateNamedManagedDataDirect(
+      builder, &fb_named_managed_keys, &fb_named_managed_items);
+
   return serde::CreateFusionDirect(
       builder,
       IrContainer::serialize(container, builder),
@@ -210,7 +232,9 @@ flatbuffers::Offset<serde::Fusion> Fusion::serialize(
       &fb_permuted_input_map,
       &fb_permuted_output_map,
       all_tv_uses_valid_,
-      is_during_update_uses_);
+      is_during_update_uses_,
+      fb_managed_data,
+      fb_named_managed_data);
 }
 
 void Fusion::deserialize(const serde::Fusion* buffer) {
@@ -286,6 +310,17 @@ void Fusion::deserialize(const serde::Fusion* buffer) {
 
   all_tv_uses_valid_ = buffer->all_tv_uses_valid();
   is_during_update_uses_ = buffer->is_during_update_uses();
+
+  for (const serde::PolymorphicValue* pv : *buffer->managed_data()->items()) {
+    serde::deserializeManagedData(this, pv);
+  }
+
+  for (size_t index :
+       c10::irange(buffer->named_managed_data()->keys()->size())) {
+    std::string key = buffer->named_managed_data()->keys()->Get(index)->str();
+    auto pv = buffer->named_managed_data()->items()->Get(index);
+    serde::deserializeManagedNamedData(this, key, pv);
+  }
 }
 
 void Fusion::clear() noexcept {

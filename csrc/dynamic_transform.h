@@ -13,6 +13,7 @@
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
+#include <ir/serde.h>
 #include <iter_visitor.h>
 #include <transform_view.h>
 #include <utils.h>
@@ -90,6 +91,14 @@ class DynamicTransformInitialInfo {
   std::string toString() const;
 
   DynamicTransformInitialInfo clone(IrCloner& ir_cloner) const;
+
+  DynamicTransformInitialInfo(
+      Fusion* fusion,
+      const serde::DynamicTransformInitialInfo* buffer);
+
+  flatbuffers::Offset<serde::DynamicTransformInitialInfo> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const IrSerde& container) const;
 
   //! Return a set containing positions in inputs() holding any scalar input
   //! that would affect the structure of the concretized Fusion.

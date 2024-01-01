@@ -6,17 +6,28 @@
  */
 // clang-format on
 #include <ATen/EmptyTensor.h>
+#include <dynamic_transform.h>
+#include <fusion.h>
+#include <ir/cloner.h>
 #include <kernel_ir.h>
 #include <polymorphic_value.h>
 #include <serde/polymorphic_value.h>
 #include <serde/utils.h>
+#include <optional>
 #include <typeinfo>
+#include <variant>
 
 namespace nvf = nvfuser;
 
 namespace nvfuser::serde {
 
 namespace {
+
+std::any cloneDynamicTransformInitialInfo(
+    nvf::IrCloner& ir_cloner,
+    std::any data) {
+  return std::any_cast<nvf::DynamicTransformInitialInfo>(data).clone(ir_cloner);
+}
 
 nvf::PolymorphicValue deserializeMonostate(
     const serde::PolymorphicValue* buffer) {
@@ -36,6 +47,16 @@ nvf::PolymorphicValue deserializeAsmOptions(const PolymorphicValue* buffer) {
   nvf::kir::AsmOptions options{
       data->volatile_(), data->memory(), std::move(readable_outputs)};
   return nvf::PolymorphicValue(nvf::Opaque(std::move(options)));
+}
+
+nvf::PolymorphicValue deserializeDynamicTransformInitialInfo(
+    const PolymorphicValue* buffer) {
+  NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
+  const DynamicTransformInitialInfo* data =
+      buffer->data_as_DynamicTransformInitialInfo();
+  NVF_ERROR(data != nullptr, "serde::DynamicTransformInitialInfo is nullptr.");
+  return nvf::PolymorphicValue(nvf::Opaque(
+      nvf::DynamicTransformInitialInfo(FusionGuard::getCurFusion(), data)));
 }
 
 // TODO Refactor
@@ -335,6 +356,9 @@ void PolymorphicValueFactory::registerAllParsers() {
   registerParser(PolymorphicValueData::Bool, deserializeBool);
   registerParser(PolymorphicValueData::ComplexDouble, deserializeComplexDouble);
   registerParser(PolymorphicValueData::Double, deserializeDouble);
+  registerParser(
+      PolymorphicValueData::DynamicTransformInitialInfo,
+      deserializeDynamicTransformInitialInfo);
   registerParser(PolymorphicValueData::Long, deserializeLong);
   registerParser(PolymorphicValueData::NONE, deserializeMonostate);
   registerParser(PolymorphicValueData::OpaqueEnum, deserializeOpaqueEnum);
@@ -354,6 +378,29 @@ nvf::PolymorphicValue deserializePolymorphicValue(
     const PolymorphicValue* pv) {
   PolymorphicValueFactory pv_factory(container);
   return pv_factory.parse(pv->data_type(), pv);
+}
+
+void deserializeManagedData(
+    nvfuser::Fusion* fusion,
+    const PolymorphicValue* pv) {
+  std::any a = deserializePolymorphicValue(fusion, pv).as<nvf::Opaque>().any();
+  if (a.type() == typeid(nvf::DynamicTransformInitialInfo)) {
+    fusion->manage(a, cloneDynamicTransformInitialInfo);
+  } else {
+    NVF_ERROR(false, "Unsupported managed data type");
+  }
+}
+
+void deserializeManagedNamedData(
+    nvfuser::Fusion* fusion,
+    const std::string& name,
+    const PolymorphicValue* pv) {
+  std::any a = deserializePolymorphicValue(fusion, pv).as<nvf::Opaque>().any();
+  if (a.type() == typeid(nvf::DynamicTransformInitialInfo)) {
+    fusion->manage(name, a, cloneDynamicTransformInitialInfo);
+  } else {
+    NVF_ERROR(false, "Unsupported managed named data type");
+  }
 }
 
 namespace {
@@ -509,6 +556,13 @@ flatbuffers::Offset<PolymorphicValue> serializeOpaque(
     return serializeArray<double, PrimArrayType::Double>(builder, v);
   } else if (v.any().type() == typeid(std::vector<int64_t>)) {
     return serializeArray<int64_t, PrimArrayType::Long>(builder, v);
+  } else if (v.any().type() == typeid(nvf::DynamicTransformInitialInfo)) {
+    auto data =
+        v.as<nvf::DynamicTransformInitialInfo>().serialize(builder, container);
+    return CreatePolymorphicValue(
+        builder,
+        PolymorphicValueData::DynamicTransformInitialInfo,
+        data.Union());
   } else {
     NVF_ERROR(
         false, "Serialization of arbitrary opaque value is not implemented.");

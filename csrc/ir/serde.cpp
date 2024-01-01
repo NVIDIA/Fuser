@@ -316,4 +316,8 @@ std::vector<int64_t> IrSerde::map(const std::vector<TensorView*>& vals) const {
   return convertContainer<Val*, int64_t>(vals_to_id_map_, vals);
 }
 
+std::vector<int64_t> IrSerde::map(const std::unordered_set<Val*>& vals) const {
+  return convertContainer<Val*, int64_t>(vals_to_id_map_, vals);
+}
+
 } // namespace nvfuser

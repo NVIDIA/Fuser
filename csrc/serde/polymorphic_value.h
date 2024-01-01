@@ -53,6 +53,15 @@ nvfuser::PolymorphicValue deserializePolymorphicValue(
     nvfuser::IrContainer* container,
     const PolymorphicValue* c);
 
+void deserializeManagedData(
+    nvfuser::Fusion* fusion,
+    const PolymorphicValue* pv);
+
+void deserializeManagedNamedData(
+    nvfuser::Fusion* fusion,
+    const std::string& name,
+    const PolymorphicValue* pv);
+
 nvfuser::PolymorphicValue makeScalar(const Scalar* c);
 
 flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(

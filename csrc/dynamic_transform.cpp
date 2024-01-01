@@ -22,6 +22,58 @@
 
 namespace nvfuser {
 
+DynamicTransformInitialInfo::DynamicTransformInitialInfo(
+    Fusion* fusion,
+    const serde::DynamicTransformInitialInfo* buffer)
+    : fusion_{fusion} {
+  dynamic_reshaped_tvs_.reserve(buffer->dynamic_reshape_tvs()->size());
+  for (int64_t index : *buffer->dynamic_reshape_tvs()) {
+    dynamic_reshaped_tvs_.push_back(fusion->getVal<TensorView>(index));
+  }
+
+  dynamic_resized_ids_.reserve(buffer->dynamic_resized_ids()->size());
+  for (int64_t index : *buffer->dynamic_resized_ids()) {
+    dynamic_resized_ids_.push_back(fusion->getVal<IterDomain>(index));
+  }
+
+  maybe_zero_extents_set_.reserve(buffer->maybe_zero_extents_set()->size());
+  for (int64_t index : *buffer->maybe_zero_extents_set()) {
+    maybe_zero_extents_set_.insert(fusion->getVal<Val>(index));
+  }
+
+  maybe_zero_extents_.reserve(buffer->maybe_zero_extents()->size());
+  for (int64_t index : *buffer->maybe_zero_extents()) {
+    maybe_zero_extents_.push_back(fusion->getVal<Val>(index));
+  }
+
+  root_dynamic_vals_.reserve(buffer->root_dynamic_vals_set()->size());
+  for (int64_t index : *buffer->root_dynamic_vals_set()) {
+    root_dynamic_vals_.insert(fusion->getVal<Val>(index));
+  }
+}
+
+flatbuffers::Offset<serde::DynamicTransformInitialInfo>
+DynamicTransformInitialInfo::serialize(
+    flatbuffers::FlatBufferBuilder& builder,
+    const IrSerde& container) const {
+  std::vector<int64_t> fb_dynamic_reshape_tvs =
+      container.map(dynamic_reshaped_tvs_);
+  std::vector<int64_t> fb_resized_ids = container.map(dynamic_resized_ids_);
+  std::vector<int64_t> fb_maybe_zero_extents_set =
+      container.map(maybe_zero_extents_set_);
+  std::vector<int64_t> fb_maybe_zero_extents =
+      container.map(maybe_zero_extents_);
+  std::vector<int64_t> fb_root_dynamic_vals_set =
+      container.map(root_dynamic_vals_);
+  return serde::CreateDynamicTransformInitialInfoDirect(
+      builder,
+      &fb_dynamic_reshape_tvs,
+      &fb_resized_ids,
+      &fb_maybe_zero_extents_set,
+      &fb_maybe_zero_extents,
+      &fb_root_dynamic_vals_set);
+}
+
 DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
     IrCloner& ir_cloner) const {
   DynamicTransformInitialInfo cloned_info(

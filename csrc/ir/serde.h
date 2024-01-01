@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <deque>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace nvfuser {
@@ -44,6 +45,8 @@ class IrSerde {
 
   std::vector<int64_t> map(const std::vector<IterDomain*>& vals) const;
   std::vector<int64_t> map(const std::vector<TensorView*>& vals) const;
+
+  std::vector<int64_t> map(const std::unordered_set<Val*>& vals) const;
 
  private:
   std::vector<Statement*> topologicalSortStatements(
