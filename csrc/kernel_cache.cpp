@@ -1015,7 +1015,6 @@ FusionKernelRuntime::FusionKernelRuntime(
   heuristics_ = segmented_fusion_->makeInitialHeuristics(args, runtime_info);
 
   executors_ = std::vector<FusionExecutor>(segmented_fusion_->groups().size());
-  scheduled_fusions_.reserve(segmented_fusion_->groups().size());
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
     segmented_fusion_->print();
@@ -1035,14 +1034,6 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See table definition for FusionKernelRuntime in serde/fusion_cache.fbs
 
-  NVF_ERROR(executors_.size() == scheduled_fusions_.size());
-  // 0. Serialize Scheduled Fusion objects
-  std::vector<flatbuffers::Offset<serde::Fusion>> scheduled_fusions_fb;
-  scheduled_fusions_fb.reserve(scheduled_fusions_.size());
-  for (auto& fusion : scheduled_fusions_) {
-    scheduled_fusions_fb.push_back(fusion->serialize(builder));
-  }
-
   // 1. Serialize FusionExecutor objects
   std::vector<flatbuffers::Offset<serde::FusionExecutor>> executors_fb;
   executors_fb.reserve(executors_.size());
@@ -1061,7 +1052,6 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
       concrete_id_,
       runtime_id_,
       args_metadata_.serialize(builder),
-      &scheduled_fusions_fb,
       &executors_fb,
       segmented_fusion_fb);
 }
@@ -1082,7 +1072,6 @@ void FusionKernelRuntime::deserialize(
       runtime_id_ == buffer->runtime_id(),
       "Expected FusionKernelRuntime runtime_id to match serde runtime_id.");
 
-  NVF_ERROR(buffer->executors()->size() == buffer->scheduled_fusions()->size());
   // 1. Deserialize FusionExecutor objects
   for (auto idx : c10::irange(buffer->executors()->size())) {
     auto sg = runtime_workspace_.group_run_order.at(idx);
@@ -1093,13 +1082,9 @@ void FusionKernelRuntime::deserialize(
     NVF_ERROR(
         !sg || scheduler_entry->heuristic() == sg->heuristic(),
         "Heuristics do not match.");
-    scheduled_fusions_.emplace_back(std::make_unique<Fusion>());
-    scheduled_fusions_.back()->deserialize(
-        buffer->scheduled_fusions()->Get(idx));
 
     executors_.at(group_id).deserialize(
         buffer->executors()->Get(group_id),
-        scheduled_fusions_.back().get(),
         scheduler_entry->params()->cparams,
         scheduler_entry->heuristic(),
         fusion_id_,
@@ -1340,8 +1325,7 @@ void FusionKernelRuntime::compileKernel(
 
   // Running a segment group as a single kernel,
   // make a fusion to run from segmented fusion
-  scheduled_fusions_.push_back(segmented_fusion_->makeFusion(sg));
-  auto& fusion_to_run = scheduled_fusions_.back();
+  auto fusion_to_run = segmented_fusion_->makeFusion(sg);
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPresched)) {
     fusion_to_run->printMath();
   }
