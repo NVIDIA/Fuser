@@ -151,9 +151,13 @@ Val* flatten(Val* value);
 
 namespace {
 
+class LevelGuard;
+
 // An ordered mapping of variable -> VarInfo
 class Context {
  public:
+  friend class LevelGuard;
+
   Context() = default;
 
   Context(
@@ -248,6 +252,25 @@ class Context {
   std::unordered_set<Val*> unrolled_loop_index_;
   std::vector<std::pair<Val*, Val*>> less_than_;
   std::vector<std::pair<Val*, Val*>> less_equal_;
+  int level_ = 0;
+};
+
+class LevelGuard {
+ public:
+  LevelGuard(Context& context) : context_(context) {
+    context_.level_++;
+  }
+
+  ~LevelGuard() {
+    context_.level_--;
+  }
+
+  int level() const {
+    return context_.level_;
+  }
+
+ private:
+  Context& context_;
 };
 
 bool hasSimilarType(DataType t1, DataType t2) {
@@ -920,9 +943,9 @@ Val* flatten(Val* value) {
 
 // Recursively convert expressions like FlattenedAdd(a, b, c, d) into
 // AddOp(AddOp(AddOp(a, b), c), d))
-Val* unflatten(Val* value, const Context& context);
+Val* unflatten(Val* value, Context& context);
 
-Val* unflattenRule(Val* value, const Context& context) {
+Val* unflattenRule(Val* value, Context& context) {
   auto def = value->definition();
   if (def == nullptr) {
     return value;
@@ -970,7 +993,7 @@ Val* unflattenRule(Val* value, const Context& context) {
   return value;
 }
 
-Val* unflatten(Val* value, const Context& context) {
+Val* unflatten(Val* value, Context& context) {
   return recurseDown(
       value, [&context](Val* val) { return unflattenRule(val, context); });
 }
@@ -1363,7 +1386,7 @@ Val* factorize(Val* x) {
 } // namespace sym_algebra
 
 namespace {
-bool isValidDenominator(Val* denominator, const Context& context);
+bool isValidDenominator(Val* denominator, Context& context);
 }
 
 namespace prove {
@@ -1379,28 +1402,28 @@ namespace prove {
 // - x can be either zero or non-zero, it is just a symbolic number that depends
 // - x is zero
 
-bool lessThan(Val* x, Val* y, const Context& context);
-bool lessEqual(Val* x, Val* y, const Context& context);
+bool lessThan(Val* x, Val* y, Context& context);
+bool lessEqual(Val* x, Val* y, Context& context);
 
-bool greaterThan(Val* x, Val* y, const Context& context) {
+bool greaterThan(Val* x, Val* y, Context& context) {
   return lessThan(y, x, context);
 }
 
-bool greaterEqual(Val* x, Val* y, const Context& context) {
+bool greaterEqual(Val* x, Val* y, Context& context) {
   return lessEqual(y, x, context);
 }
 
-bool isPositive(Val* value, const Context& context) {
+bool isPositive(Val* value, Context& context) {
   auto zero = IrBuilder::create<Val>(0L, *value->getDataType());
   return greaterThan(value, zero, context);
 }
 
-bool isNonNegative(Val* value, const Context& context) {
+bool isNonNegative(Val* value, Context& context) {
   auto zero = IrBuilder::create<Val>(0L, *value->getDataType());
   return greaterEqual(value, zero, context);
 }
 
-bool isNonNegativeHelper(Val* value, const Context& context) {
+bool isNonNegativeHelper(Val* value, Context& context) {
   if (ir_utils::isTensorSize(value) || ir_utils::isTensorStride(value)) {
     return true;
   }
@@ -1436,7 +1459,7 @@ bool isNonNegativeHelper(Val* value, const Context& context) {
   return false;
 }
 
-bool isPositiveHelper(Val* value, const Context& context) {
+bool isPositiveHelper(Val* value, Context& context) {
   if (ir_utils::isTensorSize(value)) {
     return true;
   }
@@ -1476,7 +1499,7 @@ bool isPositiveHelper(Val* value, const Context& context) {
   return false;
 }
 
-bool isNonZero(Val* value, const Context& context) {
+bool isNonZero(Val* value, Context& context) {
   value = foldConstants(value);
   if (value->value().hasValue() && value->value() != 0) {
     return true;
@@ -1503,11 +1526,11 @@ bool isMultipleOf(Val* x, Val* y) {
   return sym_algebra::divideFactorized(lhs, rhs) != nullptr;
 }
 
-bool hasCompatibleSign(Val* x, Val* y, const Context& context) {
+bool hasCompatibleSign(Val* x, Val* y, Context& context) {
   return isNonNegative(x, context) && isNonNegative(y, context);
 }
 
-bool lessThan(Val* x, Val* y, const Context& context) {
+bool lessThan(Val* x, Val* y, Context& context) {
   x = foldConstants(x);
   y = foldConstants(y);
   if (x->value().hasValue() && y->value().hasValue()) {
@@ -1536,7 +1559,10 @@ bool lessThan(Val* x, Val* y, const Context& context) {
   return false;
 }
 
-bool lessEqual(Val* x, Val* y, const Context& context) {
+bool lessEqual(Val* x, Val* y, Context& context) {
+  LevelGuard lg(context);
+  NVF_ERROR(lg.level() < 100);
+
   x = foldConstants(x);
   y = foldConstants(y);
   if (x->value().hasValue() && y->value().hasValue()) {
@@ -1645,7 +1671,7 @@ namespace {
 // are sure that there will be an error, then we don't remove the error. That
 // is, if we don't know if there will be an error, we procceed assuming no
 // error. If we are sure there will be an error, then don't procceed.
-bool isValidDenominator(Val* denominator, const Context& context) {
+bool isValidDenominator(Val* denominator, Context& context) {
   // We ask two questions:
   // Q1: Can we prove the denominato is nonzero?
   // Q2: Can we prove the denominato is zero?
@@ -1709,7 +1735,7 @@ Val* canonicalizeVariables(Val* value, const Context& context) {
 // -(-x) -> x
 // !(!x) -> x
 // ...
-Val* eliminateTrivialComputation(Val* value, const Context& context) {
+Val* eliminateTrivialComputation(Val* value, Context& context) {
   auto folded = foldConstants(value);
   if (folded != value) {
     return folded;
@@ -1912,7 +1938,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
 // If x can be proved to be nonzero, then replace x != 0 as true, replace x == 0
 // as false
 // if x->sameAs(y), then replace x == y as true, replace x != y as false
-Val* eliminateTrivialPredicate(Val* value, const Context& context) {
+Val* eliminateTrivialPredicate(Val* value, Context& context) {
   if (!value->isABool()) {
     return value;
   }
@@ -1970,7 +1996,7 @@ Val* eliminateTrivialPredicate(Val* value, const Context& context) {
 
 // Apply rule 1 in [Simplification of boolean predicates] to convert
 // i / d < D into i < d * D
-Val* convertDivToMulInPredicate(Val* value, const Context& context) {
+Val* convertDivToMulInPredicate(Val* value, Context& context) {
   auto bop = dynamic_cast<BinaryOp*>(value->definition());
   if (!bop) {
     return value;
@@ -2003,7 +2029,7 @@ Val* convertDivToMulInPredicate(Val* value, const Context& context) {
 // Apply rule L to replace x % y with 0 if x can be proved to be a multiple of y
 // Also, according to rule M, if x can be factorized as x = k * y, then x / y
 // can be simplified as x / y = (k * y) / y = k * (y / y) = k
-Val* simplifyDivisibleDivMod(Val* value, const Context& context) {
+Val* simplifyDivisibleDivMod(Val* value, Context& context) {
   auto bop = dynamic_cast<BinaryOp*>(value->definition());
   if (!bop) {
     return value;
@@ -2038,7 +2064,7 @@ Val* simplifyDivisibleDivMod(Val* value, const Context& context) {
 // Let y = gcd(x, y) * y' and x = gcd(x, y) * x'
 // If gcd is nonzero, then we can simplify x % y as:
 // x' % y' * gcd(x, y)
-Val* cancelDivMod(Val* value, const Context& context) {
+Val* cancelDivMod(Val* value, Context& context) {
   auto divmod = toDivModOp(value->definition());
   if (!divmod) {
     return value;
@@ -2073,7 +2099,7 @@ Val* cancelDivMod(Val* value, const Context& context) {
 // If compatible_sign(a, b), and a is a multiple of c, then:
 //  (a + b) / c = a/c + b/c
 //  (a + b) % c = b % c
-Val* distributeDivisibleDivMod(Val* value, const Context& context) {
+Val* distributeDivisibleDivMod(Val* value, Context& context) {
   auto divmod = toDivModOp(value->definition());
   if (!divmod) {
     return value;
@@ -2145,7 +2171,7 @@ Val* distributeDivisibleDivMod(Val* value, const Context& context) {
 // Therefore:
 // (a + b) % c = (a % c + b % c) % c = a % c + b % c = a % c + b
 // (a + b) / c = a/c + b/c = a / c
-Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
+Val* distributeGcdRemainderDivMod(Val* value, Context& context) {
   auto divmod = toDivModOp(value->definition());
   if (!divmod) {
     return value;
@@ -2297,7 +2323,7 @@ Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
 }
 
 // a * (b + c) -> a * b + a * c
-Val* distributeMul(Val* value, const Context& context) {
+Val* distributeMul(Val* value, Context& context) {
   auto fop = toFlattenedMul(value->definition());
   if (!fop) {
     return value;
@@ -2455,9 +2481,7 @@ Val* reducePredicateRegisterUsage(Val* value, const Context& context) {
 // This pass do merges of the following patterns:
 // Pattern 1: a / b * b + a % b -> a
 // Pattern 2: a / b * (b*c) + a % b * c -> a * c
-Val* fundamentalDivisionWithRemainderProperty(
-    Val* value,
-    const Context& context) {
+Val* fundamentalDivisionWithRemainderProperty(Val* value, Context& context) {
   auto fadd = toFlattenedAdd(value->definition());
   if (!fadd) {
     return value;
@@ -2688,7 +2712,7 @@ Val* simplifyExpr(
     std::vector<Val*> assumptions,
     bool preserve_error) {
   FusionGuard fg(value->fusion());
-  const Context context(variables, assumptions, preserve_error);
+  Context context(variables, assumptions, preserve_error);
   auto logger = debug_print::createLogger(value);
 
   // nullptr -> disable nothing
