@@ -1561,7 +1561,17 @@ bool lessThan(Val* x, Val* y, Context& context) {
 
 bool lessEqual(Val* x, Val* y, Context& context) {
   LevelGuard lg(context);
-  NVF_ERROR(lg.level() < 100);
+  if (lg.level() >= 100) {
+    for (const auto& [a, b] : context.getKnownLessThan()) {
+      std::cerr << "known: " << a->toString() << " < " << b->toString()
+                << std::endl;
+    }
+    for (const auto& [a, b] : context.getKnownLessEqual()) {
+      std::cerr << "known: " << a->toString() << " <= " << b->toString()
+                << std::endl;
+    }
+    NVF_ERROR(false);
+  }
 
   x = foldConstants(x);
   y = foldConstants(y);
