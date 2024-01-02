@@ -75,14 +75,14 @@ std::unordered_map<Val*, c10::IValue> MultiDeviceExecutor::allocateRecvBuffers(
   if (fusion_copy->outputs().empty()) {
     return {};
   }
-  FusionExecutor fe;
-  fe.compileFusion(fusion_copy.get(), global_inputs_IValues);
-  auto buffers = fe.allocOutputSpace(global_inputs_IValues);
+  unshard(fusion_copy.get());
+  FusionExecutorCache fec(std::move(fusion_copy));
+  auto buffers = fec.allocOutputSpace(global_inputs_IValues);
 
   std::unordered_map<Val*, c10::IValue> allocations;
   for (auto i : c10::irange(buffers.size())) {
     allocations.emplace(
-        copy_to_original_map[fusion_copy->outputs().at(i)], buffers.at(i));
+        copy_to_original_map[fec.fusion()->outputs().at(i)], buffers.at(i));
   }
 
   return allocations;
