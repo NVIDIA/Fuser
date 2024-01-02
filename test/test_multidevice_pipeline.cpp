@@ -128,7 +128,7 @@ TEST_F(PipelineTest, Pipeline) {
       at::randn(input_shape1, tensor_options),
       at::randn(input_shape2, tensor_options)};
 
-  validate();
+  executeAndValidate();
 }
 
 //(backend type, first stage's mesh, second stage's mesh (if not null), is first stage sharded?, is second
@@ -194,7 +194,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
 
   inputs = {at::ones(input_sizes, tensor_options) * communicator->deviceId()};
 
-  validate();
+  executeAndValidate();
 }
 
 namespace {
@@ -378,7 +378,7 @@ TEST_F(PipelineTest, Overlap) {
   // inputs = {at::ones(input_extents, tensor_options) *
   // (communicator->deviceId() + 1)};
 
-  // validate();
+  // executeAndValidate();
 }
 
 TensorView* MatrixMultiplication(TensorView* a, TensorView* b) {

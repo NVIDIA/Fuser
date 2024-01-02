@@ -8,6 +8,7 @@
 #ifdef USE_DISTRIBUTED
 #pragma once
 
+#include <chrono>
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <multidevice/executor.h>
@@ -33,20 +34,29 @@ class MultiDeviceEnvironment : public testing::Environment {
     return do_barrier_at_test_;
   }
 
+  bool timePrint() const {
+    return time_print_;
+  }
+
  private:
   std::unique_ptr<Communicator> communicator_ = nullptr;
   bool debug_print_ = false;
   bool do_barrier_at_test_ = false;
+  bool time_print_ = false;
 };
 
 class MultiDeviceTest : public NVFuserTest {
  protected:
   void SetUp() override;
   void TearDown() override;
+  void printTimes();
+  void recordEvent(std::string);
   Communicator* communicator;
   c10::TensorOptions tensor_options;
   bool debug_print;
   bool do_barrier_at_test;
+  bool time_print;
+  std::vector<std::pair<const std::string, std::chrono::time_point<std::chrono::high_resolution_clock>>> times;
 };
 
 class CommunicationTest
@@ -68,10 +78,16 @@ class CommunicationTest
 class PipelineTest : public MultiDeviceTest {
  protected:
   void SetUp() override;
-  void validate();
+  void validate(DeviceIdxType tester = 0, bool auto_schedule = true);
+  void execute();
+  void executeAndValidate() {
+    execute();
+    validate();
+  }
   std::unique_ptr<MultiDeviceExecutor> runtime;
   std::unique_ptr<Fusion> fusion;
   std::vector<c10::IValue> inputs;
+  std::vector<at::Tensor> outputs;
 };
 
 } // namespace nvfuser
