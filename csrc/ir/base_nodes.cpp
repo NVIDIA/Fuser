@@ -164,12 +164,17 @@ std::pair<serde::ValueData, flatbuffers::Offset<void>> Val::serializeData(
 void Val::deserializeExpr(IrContainer* container, const serde::Value* buffer) {
   NVF_ERROR(container != nullptr, "IrContainer is nullptr.");
   NVF_ERROR(buffer != nullptr, "serde::Value is nullptr.");
+  // TODO Workaround because uses_ is not empty, which creates false use
+  // expressions in future serde iterations.
+  uses_.clear();
+  NVF_ERROR(uses().empty());
   uses_.reserve(buffer->uses_expr()->size());
   std::transform(
       buffer->uses_expr()->begin(),
       buffer->uses_expr()->end(),
       std::back_inserter(uses_),
       [&](int64_t index) { return container->getExpr<Expr>(index); });
+  NVF_ERROR(uses().size() == buffer->uses_expr()->size());
 }
 
 flatbuffers::Offset<serde::Value> Val::serialize(
