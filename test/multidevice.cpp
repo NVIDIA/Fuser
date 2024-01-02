@@ -77,7 +77,6 @@ void MultiDeviceTest::printTimes() {
   ss << "Rank " << communicator->deviceId()
      << " -- test " << test_info->test_suite_name() << "." << test_info->name()
      << " -- Timestamps: {\n";
-  // auto t0 = times.at(0).second;
   for (auto i: c10::irange(times.size() - 1)) {
     auto [event_name, time] = times[i];
     auto [_, next_time] = times[i+1];
@@ -114,14 +113,6 @@ void CommunicationTest::resetDstBuffers() {
 }
 
 namespace {
-
-void unshardTv(TensorView* tv) {
-  for (IterDomain* id : tv->getLeafDomain()) {
-    if (id->isDeviceDim()) {
-      id->parallelize(ParallelType::Serial);
-    }
-  }
-}
 
 void doSendRecv(
     DeviceIdxType sender,
@@ -209,28 +200,23 @@ void PipelineTest::validate(DeviceIdxType tester, bool auto_schedule) {
         debug_print);
   }
 
-  recordEvent("gather outputs at tester");
+  std::unique_ptr<FusionExecutorCache> unsharded_fec;
   // allocate output buffers for the tester
   std::vector<at::Tensor> unsharded_outputs;
+  std::unique_ptr<Fusion> fusion_copy;
   if (runtime->comm()->deviceId() == tester) {
-    std::unique_ptr<Fusion> fusion_copy = std::make_unique<Fusion>();
-    auto original_to_copy_cloner =
-        Fusion::copy(runtime->fusion(), fusion_copy.get());
-
-    for (auto tv : ir_utils::filterByType<TensorView>(fusion_copy->vals())) {
-      unshardTv(tv);
-      tv->setMemoryType(MemoryType::Global);
-    }
-
-    FusionExecutor fe;
-    fe.compileFusion(fusion_copy.get(), unsharded_inputs);
-    unsharded_outputs = fe.allocOutputSpace(unsharded_inputs);
+    recordEvent("compile unsharded fusion and alloc output");
+    fusion_copy = std::make_unique<Fusion>(*runtime->fusion());
+    unshard(fusion_copy.get());
+    unsharded_fec = std::make_unique<FusionExecutorCache>(std::move(fusion_copy));
+    unsharded_outputs = unsharded_fec->allocOutputSpace(unsharded_inputs);
   } else {
     // On non-tester devices, these tensors won't be used.
     // we copy the local outputs for convenience
     unsharded_outputs = outputs;
   }
 
+  recordEvent("gather outputs at tester");
   // gathering all the outputs at tester
   for (auto i : c10::irange(outputs.size())) {
     SendToTester(
@@ -259,22 +245,15 @@ void PipelineTest::validate(DeviceIdxType tester, bool auto_schedule) {
       std::cout << ss.str() << std::endl;
     }
 
-    recordEvent("compile unsharded fusion");
-    auto fusion_ptr = runtime->fusion();
-    for (auto tv : ir_utils::filterByType<TensorView>(fusion_ptr->vals())) {
-      unshardTv(tv);
-    }
-
     // execute the fusion on one device without pipeline scheduling
     std::vector<at::Tensor> ref_outputs;
     if (auto_schedule) {
-      auto fusion_unique_ptr = std::make_unique<Fusion>(*fusion_ptr);
-      FusionExecutorCache fec(std::move(fusion_unique_ptr));
       recordEvent("run unsharded fusion");
-      ref_outputs = fec.runFusionWithInputs(unsharded_inputs);
+      ref_outputs = unsharded_fec->runFusionWithInputs(unsharded_inputs);
     } else {
+      recordEvent("compile unsharded fusion");
       FusionExecutor fe;
-      fe.compileFusion(fusion_ptr, unsharded_inputs);
+      fe.compileFusion(unsharded_fec->fusion(), unsharded_inputs);
       recordEvent("run unsharded fusion");
       ref_outputs = fe.runFusion(unsharded_inputs);
     }
@@ -292,7 +271,7 @@ void PipelineTest::validate(DeviceIdxType tester, bool auto_schedule) {
 
     recordEvent("validate unsharded fusion");
     testValidate(
-        fusion_ptr,
+        unsharded_fec->fusion(),
         unsharded_outputs,
         unsharded_inputs,
         ref_outputs,
