@@ -863,6 +863,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // [... M,N,K]
   mma_utils::makeTile(mma_result, gemm_tile.cta_tile.toVector());
+  // [..., Mo, No, Ko, Mi, Ni, Ki]
 
   // Swizzle block tiles:
   if (params.grid_swizzle_factor != 1) {
@@ -885,15 +886,15 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     }
   }
 
-  // [..., Mo, No, Koo, Mi, Ni, Ki]
+  // [..., Mo, No, Ko, Mi, Ni, Ki]
   int num_splitk_dims = 0;
   TensorView* splitk_sum = nullptr;
   if (params.splitk_factor != 1) {
-    // Split Koo -> [Kf, Ko]
+    // Split Ko -> [rKf, rKg]
     mma_result->split(-4, params.splitk_factor, /*inner*/ false);
-    // After split [..., Mo, No, Kf, Ko, Mi, Ni, Ki]
+    // After split [..., Mo, No, Kf, Kg, Mi, Ni, Ki]
     // rFactor converts
-    //   mma_result = mma(A, B, {/*Kf*/-5, /*Ko*/-4, /*Ki*/-1});
+    //   mma_result = mma(A, B, {/*Kf*/-5, /*Kg*/-4, /*Ki*/-1});
     // to
     //   intermediate = mma(A, B, {-4, -1});
     //   final_sum = sum(intermediate, {/*Kf*/-3});
@@ -902,18 +903,42 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
     splitk_sum = mma_result;
     mma_result = splitk_sum->rFactor({-4, -1});
 
+    // mma_result = [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
+    // splitk_sum = [..., iMo, iNo, rKf, iMi, iNi]
+
     if (params.use_smem_epilogue) {
       //   splitk_sum = sum(mma_result)
       // becomes
       //   smem_epilogue = set(mma_result)
       //   splitk_sum = sum(smem_epilogue)
       smem_epilogue = mma_result->cacheAfter();
+
+      // smem_epilogue = [..., iMo, iNo, iKf, iMi, iNi]
     }
 
     splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
 
     num_splitk_dims = 1;
   }
+
+  // No split-K
+  //   mma_result      [..., iMo, iNo, rKo, iMi, iNi, rKi]
+  //   smem_epilogue   (unscheduled, same as original mma_result)
+  //   splitk_sum      (nullptr)
+  //
+  // With split-K & no smem epilogue
+  //   mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
+  //   smem_epilogue   (mma_result)
+  //   splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
+  //
+  // With split-K & smem epilogue
+  //   mma_result      [..., iMo, iNo, iKf, rKg, iMi, iNi, rKi]
+  //   smem_epilogue   [..., iMo, iNo, iKf, iMi, iNi]
+  //   splitk_sum      [..., iMo, iNo, rKf, iMi, iNi]
+  std::cout << "  After split-K split:\n";
+  std::cout << "    mma_result " << mma_result->toString() << std::endl;
+  std::cout << "    smem_epilogue " << smem_epilogue->toString() << std::endl;
+  std::cout << "    splitk_sum " << (splitk_sum != nullptr ? splitk_sum->toString() : "nullptr") << std::endl;
 
   // Propagate tiling globally
   scheduler_utils::transformPropagateToAllFrom(mma_result, -1);
@@ -1005,13 +1030,13 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   //  with splitk:
   // nbatch +   1   2   3   4    5    6    7    8     9    10    11   12
   //      -13 -12 -11 -10  -9   -8   -7   -6   -5    -4    -3    -2   -1
-  // [..., Mo, No, Kf, Ko, Kw, Mwo, Nwo, Mwi, Nwi, MNi1, MNi2, MNi3,  Ki]
+  // [..., Mo, No, Kf, Kg, Kw, Mwo, Nwo, Mwi, Nwi, MNi1, MNi2, MNi3,  Ki]
   //  (iS) iBx iBy rBz rS  rS  iTz  iTy   iS   iS  iMMA   iTx  iMMA rMMA
   //
   //  without splitk:
   // nbatch +   1       2   3    4    5    6    7     8     9    10   11
   //      -12 -11     -10  -9   -8   -7   -6   -5    -4    -3    -2   -1
-  // [..., Mo, No,     Ko, Kw, Mwo, Nwo, Mwi, Nwi, MNi1, MNi2, MNi3,  Ki]
+  // [..., Mo, No,     Kg, Kw, Mwo, Nwo, Mwi, Nwi, MNi1, MNi2, MNi3,  Ki]
   // (iBz) iBx iBy     rS  rS  iTz  iTy   iS   iS  iMMA   iTx  iMMA rMMA
 
   // When we have both batch dims and splitk, parallelize splitk only.
@@ -1159,7 +1184,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   if (params.double_buffer_options.double_buffer_smem_read &&
       params.double_buffer_options.double_buffer_smem_write) {
-    // rotate Ko loop
+    // rotate Kg loop
     scheduler_utils::rotateLoop(
         mma_result, num_batch_dims + 2 + num_splitk_dims, {acr, bcr});
   }
