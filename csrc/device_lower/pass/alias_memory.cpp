@@ -1344,8 +1344,8 @@ class ReusableAllocationFinder : private kir::IrVisitor {
           continue;
         }
         if (!ir_utils::isPointwiseTvOp(tv_def) &&
-            !ir_utils::isReductionTvOp(tv_def)) {
-          if (isBroadcastExpandTvOp(tv_def)) {
+            !ir_utils::isReductionTvOp(tv_def) && !tv_def->isA<ExpandOp>()) {
+          if (isBroadcastTvOp(tv_def)) {
             info.has_broadcast_between = true;
           } else {
             info.has_unsupported_op = true;
@@ -1386,11 +1386,11 @@ class ReusableAllocationFinder : private kir::IrVisitor {
   }
 
   // Utility to capture broadcast and expand ops
-  bool isBroadcastExpandTvOp(const Expr* expr) {
+  bool isBroadcastTvOp(const Expr* expr) {
     if (!ir_utils::isTvOp(expr)) {
       return false;
     }
-    return expr->isA<BroadcastOp>() || expr->isA<ExpandOp>();
+    return expr->isA<BroadcastOp>();
   }
 
  private:

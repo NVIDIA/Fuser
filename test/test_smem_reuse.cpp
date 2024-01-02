@@ -629,4 +629,63 @@ TEST_F(SmemReuseTest, RegisterReuseWithDifferentVectorizationFactor) {
     }
   }
 }
+
+TEST_F(SmemReuseTest, ExpandInterferes) {
+  auto testExpand = [](bool is_concrete) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    auto x = 3L;
+    auto y = 4L;
+    auto tv0 =
+        is_concrete ? makeContigConcreteTensor({y}) : makeSymbolicTensor(1);
+    fusion->addInput(tv0);
+
+    auto tv1 = set(tv0);
+    auto tv2 = broadcast(tv1, {true, false});
+    auto tv3 =
+        expand(tv2, {IrBuilder::create<Val>(x), IrBuilder::create<Val>(y)});
+    auto tv4 = set(tv3);
+    fusion->addOutput(tv4);
+
+    for (auto tv : {tv1, tv2, tv3}) {
+      tv->setMemoryType(MemoryType::Shared);
+    }
+
+    // tv3 is trying to reuse tv1's memory. however it has a concrete size.
+    // The reuse only happens when tv1 is also concrete.
+    {
+      bool t3_alias_t1 = false;
+      GpuLower gpulw(fusion.get());
+      for (auto expr : gpulw.run()->topLevelExprs()) {
+        if (expr->isA<kir::Allocate>()) {
+          auto alloc = expr->as<kir::Allocate>();
+          if (alloc->buffer()->name() == 3) {
+            if (alloc->alias() && alloc->alias()->buffer()->name() == 1) {
+              t3_alias_t1 = true;
+            } else {
+              t3_alias_t1 = false;
+            }
+          }
+        }
+      }
+      if (is_concrete) {
+        EXPECT_TRUE(t3_alias_t1);
+      } else {
+        EXPECT_FALSE(t3_alias_t1);
+      }
+    }
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    at::Tensor t0 = at::randn({y}, options);
+    FusionExecutor fe;
+    fe.compileFusion(fusion.get());
+    auto cg_outputs = fe.runFusion({t0});
+    testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
+  };
+
+  testExpand(true);
+  testExpand(false);
+}
+
 } // namespace nvfuser
