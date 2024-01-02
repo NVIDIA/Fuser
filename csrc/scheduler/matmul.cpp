@@ -789,7 +789,7 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
   // Note that if we are using split-K, we will set up this buffer after
   // rfactoring the matmul, between the MmaOp and the ReductionOp, in order to
   // take advantage of unswizzling during the grid reduction
-  auto smem_epilogue = (params.use_smem_epilogue && params.splitk_factor == 0)
+  auto smem_epilogue = (params.use_smem_epilogue && params.splitk_factor == 1)
     ? mma_result->cacheAfter() : mma_result;
 
   // Clear MmaOp pointer, it's not needed from now on
