@@ -20,4 +20,7 @@ bool isSharded(TensorView*);
 // device meshes in the Fusion
 int64_t requestedNumberOfDevices(Fusion*);
 
+void unshard(Fusion*);
+void unshard(TensorView*);
+
 } // namespace nvfuser
