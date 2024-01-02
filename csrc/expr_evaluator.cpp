@@ -34,7 +34,7 @@ void validateValWithConcreteValue(
         concrete_value.type().name());
     const auto& t = concrete_value.as<at::Tensor>();
     auto expect_dim =
-      (int64_t) TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
+      (int64_t)TensorDomain::noReductions(tv->getMaybeRFactorDomain()).size();
     NVF_CHECK(
         t.dim() == expect_dim,
         "Expected ",

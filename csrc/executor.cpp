@@ -854,8 +854,6 @@ at::Tensor transformOutputFromAllocationToRFactor( //maybe it is brutal to compl
   // Ignore reductions because reductions does not exist in tensor's definition
   auto rfactor = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
   auto alloc = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-  // auto rfactor = TensorDomain::noDevices(TensorDomain::noReductions(tv->getMaybeRFactorDomain()));
-  // auto alloc = TensorDomain::noDevices(TensorDomain::noReductions(tv->getMaybeAllocationDomain()));
   // Traverse all affine transformations from allocation domain. Because
   // allocation domain can be before or after the rFactor domain, we need both a
   // forward and a backward traverse.

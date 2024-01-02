@@ -48,19 +48,9 @@ TEST_F(MultiDeviceTest, ShardOuterAxisConcrete) {
   auto x = at::randn({num_devices, 3}, tensor_options);
   std::vector<c10::IValue> inputs = {x};
   auto ref_outputs = at::sum(x*4, {0});
-  if (communicator->deviceId() == 0) {
-    fusion->printKernel();
-    fusion->printMath();
-    std::cout << "Inputs " << x << std::endl;
-    std::cout << "Expected " << ref_outputs << std::endl;
-  }
   
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
-  std::cout << "Outputs: " << std::endl;
-  for (auto i : outputs)
-    std::cout << i << std::endl;
-
   testValidate(runtime.fusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
 }
 TEST_F(MultiDeviceTest, ShardOuterAxis) {
@@ -93,18 +83,9 @@ TEST_F(MultiDeviceTest, ShardOuterAxis) {
   auto x = at::randn({num_devices, 3}, tensor_options);
   std::vector<c10::IValue> inputs = {x};
   auto ref_outputs = at::sum(x*4, {0});
-  if (communicator->deviceId() == 0) {
-    fusion->printKernel();
-    fusion->printMath();
-    std::cout << "Inputs " << x << std::endl;
-    std::cout << "Expected " << ref_outputs << std::endl;
-  }
   
   MultiDeviceExecutor runtime(std::move(fusion), *communicator);
   auto outputs = runtime.runWithInput(inputs);
-  std::cout << "Outputs: " << std::endl;
-  for (auto i : outputs)
-    std::cout << i << std::endl;
   testValidate(runtime.fusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
 }
 }

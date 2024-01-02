@@ -186,7 +186,6 @@ class AllocationInserter : public kir::ExprMutator {
       }
       alloc_dims.emplace_back(extent);
     }
-    std::cout << "Allocation info" << alloc_dims << std::endl;
 
     return alloc_dims;
   }
