@@ -104,9 +104,9 @@ class AliasAnalysisResult {
 // implement given the current infrastructure.
 //
 // Therefore, I chose to run alias analysis both before segmentation and in
-// schedulers. The former, used by OptimizeLayoutPass, updates layouts to enable
-// aliases; the latter, used by NoOpScheduler, calls Fusion::aliasOutputToInput
-// to mark aliases.
+// schedulers. The former, used by MarkAliasesPreparePass, updates layouts to
+// enable aliases; the latter, used by NoOpScheduler, calls
+// Fusion::aliasOutputToInput to mark aliases.
 AliasAnalysisResult findAliases(
     Fusion* fusion,
     bool can_override_empty_allocation_domain = true);
