@@ -239,15 +239,18 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // at 14K, prefer persistent_val= 4, bdimx_val= 448, warp_per_sm= 28
   // at 20736, prefer persistent_val= 3, bdimx_val= 864, warp_per_sm= 27
   // at 23K, perfer persistent_val= 4, bdimx_val= 736, warp_per_sm= 23
-  const bool high_register_pressure =
-      max_persistent_buffer_size >= 25l * 1024l * 2l;
-  const int64_t target_warps_per_sm = high_register_pressure ? 22l : 32l;
+  const int64_t target_warps_per_sm = [&](){
+    const bool high_register_pressure =
+        max_persistent_buffer_size >= 25l * 1024l * 2l;
+    int64_t res = has_multiple_inputs ? 32l : 32l;
+    return high_register_pressure ? 22l : res;
+  }();
 
   // allows to reduce estimated register usage for higher occupancy.
   // Only used when occupancy is very important, e.g. when fused with dropout.
   // Otherwise, will cause regression, e.g. layer norm at 21K, reducing from 48
   // to 40 regs per thread.
-  const int64_t max_adjust_count = buffer_per_element > 2l ? 8l : 0l;
+  const int64_t max_adjust_count = has_multiple_inputs ? 8l : 0l;
   auto estimateRegisterPerThread = [](int64_t buffer_per_thread) {
     return 24l +
         ceilDiv(buffer_per_thread, scheduler_utils::bytes_per_register);
@@ -389,7 +392,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     int64_t target_reg_per_thread = getRegPerThreadGivenThreadsPerSM(
         target_blocks_per_sm * threads_per_block);
 
-    if (!has_multiple_inputs) {
+    // softmax is considered as expensive ops, so prefer to use more registers
+    // and don't require very high occupancy.
+    if (!has_multiple_inputs && !has_exp_ops) {
       // Try to maximize occupancy.
       // calc blocks_per_sm using estimated register usage, if lower than
       // target, try to increase occupancy by reducing register usage.
