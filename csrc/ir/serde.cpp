@@ -118,6 +118,7 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
   // Topological Sort
   while (!to_sort.empty()) {
     removed_any_statment_from_to_sort = false;
+    any_ready_to_pop = false;
     for (auto top_stmt : to_sort) {
       if (created_statements.count(top_stmt) > 0) {
         to_sort.erase(top_stmt);
@@ -150,17 +151,16 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
 
         any_ready_to_pop |= ready_to_pop;
         if (ready_to_pop) {
+          created_statements.insert(top_stmt);
           if (top_stmt->isVal()) {
             // 1) Create Val without definition expression.
             // It is only valid for expressions.
-            created_statements.insert(top_stmt);
             if (top_stmt->asVal()->definition() == nullptr) {
               valid_value_dependencies.insert(top_stmt);
             }
           } else {
             // 2) Create Expr that requires inputs, outputs, and attribute Vals.
             // Expr is valid for both expressions and vals.
-            created_statements.insert(top_stmt);
             valid_value_dependencies.insert(top_stmt);
 
             // 3) After creating Expr, assign Expr to output definition.
