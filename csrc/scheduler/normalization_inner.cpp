@@ -239,11 +239,10 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
   // at 14K, prefer persistent_val= 4, bdimx_val= 448, warp_per_sm= 28
   // at 20736, prefer persistent_val= 3, bdimx_val= 864, warp_per_sm= 27
   // at 23K, perfer persistent_val= 4, bdimx_val= 736, warp_per_sm= 23
-  const int64_t target_warps_per_sm = [&](){
-    const bool high_register_pressure =
-        max_persistent_buffer_size >= 25l * 1024l * 2l;
-    int64_t res = has_multiple_inputs ? 32l : 32l;
-    return high_register_pressure ? 22l : res;
+  const int64_t target_warps_per_sm = [&]() {
+    int64_t res = 32l;
+    res = max_persistent_buffer_size >= 25l * 1024l * 2l ? 22l : res;
+    return res;
   }();
 
   // allows to reduce estimated register usage for higher occupancy.
@@ -288,6 +287,9 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       if (total_reduction_numel >= 20480) {
         experiment_min = 4l;
         experiment_max = 7l;
+      } else if (total_reduction_numel >= 16*1024l) {
+        experiment_min = 4l;
+        experiment_max = 4l;
       } else if (total_reduction_numel >= 6144l) {
         experiment_min = 2l;
         experiment_max = 4l;
@@ -299,7 +301,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         experiment_max = 2l;
       } else {
         experiment_min = 1l;
-        experiment_max = 1l;
+        experiment_max = 2l;
       }
     } else {
       if (total_reduction_numel >= mrpb_reduction_numel_threshold) {
@@ -310,7 +312,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
         experiment_max = 4l;
       }
     }
-    return std::make_pair(experiment_min, experiment_max); 
+    return std::make_pair(experiment_min, experiment_max);
   }();
 
   // parameters we need to set: [persistent_val], [bdimx_val], [bdimy_val],
@@ -530,8 +532,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     if (has_multiple_inputs) {
       first_priority = threads_tails_score;
       second_priority = persistent_tails_score;
-      third_priority = occupancy_score;
-      forth_priority = register_usage;
+      third_priority = distance_to_pow2_score;
+      forth_priority = occupancy_score;
     }
     if (first_priority > 0) {
       return true;
@@ -543,14 +545,17 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       } else if (second_priority < 0) {
         return false;
       } else {
-        if (has_multiple_inputs) {
+        if (has_multiple_inputs && ha.n_threads_tails == 0 &&
+            ha.n_persistent_tails == 0) {
+          // at 1536, prioritize pow2.
+          // at 1600, prioritize higher occupancy.
           // at 6K, prefer 3 not 1 or 2.
           // at 21K, prefer 6 not 7.
-          if (ha.n_threads_tails == 0 && ha.n_persistent_tails == 0) {
-            third_priority = register_usage;
-          } else {
-            return ha.persistent_val < hb.persistent_val;
-          }
+          third_priority = distance_to_pow2_score;
+          forth_priority = occupancy_score;
+        } else {
+          third_priority = occupancy_score;
+          forth_priority = distance_to_pow2_score;
         }
         if (third_priority > 0) {
           return true;
