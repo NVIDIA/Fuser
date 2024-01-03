@@ -191,6 +191,8 @@ class Context {
     }
 
     // Check for obvious contradictions. Could have helped debugging #1572.
+    // Let me know if there's a subquadratic way to check this. `Val*` equality
+    // was't sufficient, so I had to call `sameAs` instead.
     for (const auto& [a, b] : getKnownLessThan()) {
       for (const auto& [x, y] : getKnownLessEqual()) {
         // a < b && b <= a is impossible.
