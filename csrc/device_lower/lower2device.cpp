@@ -283,7 +283,8 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"instrumentKernel", instrumentKernel},
            {"lowerToInlinePtx", lowerToInlinePtx}}),
       cparams_(cparams) {
-  analysis(fusion);
+  create(fusion);
+  analysis();
 }
 
 namespace {
@@ -328,12 +329,11 @@ kir::Kernel* GpuLower::run() {
   return kernel_.get();
 }
 
-void GpuLower::analysis(Fusion* fusion) {
-  FUSER_PERF_SCOPE("GpuLower::lower");
+void GpuLower::create(Fusion* fusion) {
+  FUSER_PERF_SCOPE("GpuLower::create");
   NVF_ERROR(fusion != nullptr);
   NVF_ERROR(
       active_gpu_lower == nullptr, "Nested lowering passes are not supported");
-
   LowerGuard lower_guard(this);
 
   // Use int64 by default as the kernel index type
@@ -345,6 +345,19 @@ void GpuLower::analysis(Fusion* fusion) {
   kernel_ = std::make_unique<kir::Kernel>(fusion, indexType());
   // Alias the fusion kernel caries around as a view of itself.
   fusion_ = kernel_.get();
+  FusionGuard fg(fusion_);
+
+  // Replaces integers that are tensor sizes by named scalars as "T0.size[0]"
+  replaceSymbolicSizes(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "replaceSymbolicSizes");
+}
+
+void GpuLower::analysis() {
+  FUSER_PERF_SCOPE("GpuLower::analysis");
+  NVF_ERROR(fusion_ != nullptr);
+  NVF_ERROR(kernel_ != nullptr);
+
+  LowerGuard lower_guard(this);
 
   segmenterHintCleanup(fusion_);
   FusionGuard fg(fusion_);
@@ -367,10 +380,6 @@ void GpuLower::analysis(Fusion* fusion) {
   // determine the padding is explicitly a single warp.
   collectPaddedParallelDims();
   dumpExprsIfEnabled(fusion_->exprs(), "collectPaddedParallelDims");
-
-  // Replaces integers that are tensor sizes by named scalars as "T0.size[0]"
-  replaceSymbolicSizes(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "replaceSymbolicSizes");
 
   // Build what's refered to as the compute at map. This map contains the
   // mappings of all iteration domains across the fusion. There are three types
