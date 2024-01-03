@@ -64,6 +64,10 @@ class GpuLower : public NonCopyable {
       Fusion* fusion,
       const CompileParams& cparams = CompileParams());
 
+  explicit GpuLower(
+      const serde::Fusion* fusion,
+      const CompileParams& cparams = CompileParams());
+
   kir::Kernel* kernel() const;
 
   //! Returns the currently active lowering object.
@@ -232,6 +236,7 @@ class GpuLower : public NonCopyable {
 
  private:
   void create(Fusion* fusion);
+  void create(const serde::Fusion* fusion);
 
   void analysis();
 

@@ -2052,7 +2052,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
 
   return serde::CreateFusionExecutorDirect(
       builder,
-      scheduled_fusion_->serialize(builder),
+      fusion_->serialize(builder),
       device_smem_limit_,
       block_size_high_water_mark_,
       maxrregcount_high_water_mark_,
@@ -2209,10 +2209,6 @@ void FusionExecutor::deserialize(
       "Expected given group_id to match serde group_id.");
   NVF_ERROR(toUnderlying(heuristic) == buffer->heuristic());
 
-  scheduled_fusion_ = std::make_unique<Fusion>();
-  FusionGuard fg(scheduled_fusion_.get());
-  scheduled_fusion_->deserialize(buffer->scheduled_fusion());
-
   // Initialize internal fields
   device_smem_limit_ = buffer->device_smem_limit();
   block_size_high_water_mark_ = buffer->block_size_high_water_mark();
@@ -2227,7 +2223,7 @@ void FusionExecutor::deserialize(
 
   // Get lowered fusion
   lowered_ =
-      std::make_unique<GpuLower>(scheduled_fusion_.get(), compile_params);
+      std::make_unique<GpuLower>(buffer->lowered_fusion(), compile_params);
   lowered_->run();
 
   // Replace integers that are tensor sizes by named scalars like "T0.size[0]"

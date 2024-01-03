@@ -287,6 +287,12 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
   analysis();
 }
 
+GpuLower::GpuLower(const serde::Fusion* fusion, const CompileParams& cparams)
+    : cparams_(cparams) {
+  create(fusion);
+  analysis();
+}
+
 namespace {
 struct LowerGuard {
   LowerGuard(GpuLower* gpu_lower) {
@@ -350,6 +356,28 @@ void GpuLower::create(Fusion* fusion) {
   // Replaces integers that are tensor sizes by named scalars as "T0.size[0]"
   replaceSymbolicSizes(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "replaceSymbolicSizes");
+}
+
+void GpuLower::create(const serde::Fusion* fusion) {
+  FUSER_PERF_SCOPE("GpuLower::serde::create");
+  NVF_ERROR(fusion != nullptr);
+  NVF_ERROR(
+      active_gpu_lower == nullptr, "Nested lowering passes are not supported");
+  LowerGuard lower_guard(this);
+
+  // Use int64 by default as the kernel index type
+  if (!cparams_.index_type.has_value()) {
+    cparams_.index_type = PrimDataType::Int;
+  }
+
+  std::unique_ptr<Fusion> lowered_fusion = std::make_unique<Fusion>();
+  FusionGuard fg(lowered_fusion.get());
+  lowered_fusion->deserialize(fusion);
+
+  // Copy fusion into a new kernel for processing
+  kernel_ = std::make_unique<kir::Kernel>(lowered_fusion.get(), indexType());
+  // Alias the fusion kernel caries around as a view of itself.
+  fusion_ = kernel_.get();
 }
 
 void GpuLower::analysis() {

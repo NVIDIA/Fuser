@@ -721,45 +721,6 @@ table AllocateBuffer {
   zero_init: bool;
 }
 
-// This table stores the KernelSummary value necessary for running compiled fusion.
-table KernelSummary {
-  has_cooperative_grid_reduction: bool;
-  has_dynamic_local_memory_allocations: bool;
-  has_block_reductions: bool;
-  has_grid_reductions: bool;
-  has_block_broadcasts: bool;
-  has_grid_broadcasts: bool;
-  has_block_welford: bool;
-  has_grid_welford: bool;
-  has_outer_grouped_grid_welford: bool;
-  largest_smem_data_type: long;
-  outer_grouped_grid_welford_largest_smem_size: int = 0;
-  global_allocations: [AllocateBuffer];
-  dynamic_smem_allocations: [AllocateBuffer];
-  static_smem_allocations: [AllocateBuffer];
-}
-
-table Kernel {
-  fusion: Fusion;
-  top_level_exprs: [long];
-  summary: KernelSummary;
-
-  // Is this kernel being compiled with int32 or int64 indexing?
-  index_type: long;
-
-  // Parameters of the kernel. The parameters contain the inputs and outputs of
-  // the kernel, intermediate buffers, and special items such as RNG state and
-  // tensor map for TMA support, etc. The parameters are not required to have no
-  // definition. If a parameter has a definition, its definition will be
-  // evaluated before the kernel is executed.
-  parameters: [long];
-
-  // Data members for WarpPaddedParallelInfo
-  is_tidx_padded: bool;
-  is_tidx_single_warp: bool;
-  has_warp_reduction: bool;
-}
-
 // Each CudaKernel represents a single, compiled kernel.
 table CudaKernel {
   kernel_name: string;
@@ -776,7 +737,7 @@ table CudaKernel {
 
 // Each Fusion Executor maps to a lowered and compiled kernel.
 table FusionExecutor {
-  scheduled_fusion: Fusion;
+  lowered_fusion: Fusion;
   device_smem_limit: long;
   block_size_high_water_mark: long;
   maxrregcount_high_water_mark: long;
