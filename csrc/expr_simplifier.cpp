@@ -1563,12 +1563,10 @@ bool lessEqual(Val* x, Val* y, Context& context) {
   LevelGuard lg(context);
   if (lg.level() >= 100) {
     for (const auto& [a, b] : context.getKnownLessThan()) {
-      std::cerr << "known: " << a->toString() << " < " << b->toString()
-                << std::endl;
+      std::cerr << "known: " << a << " < " << b << std::endl;
     }
     for (const auto& [a, b] : context.getKnownLessEqual()) {
-      std::cerr << "known: " << a->toString() << " <= " << b->toString()
-                << std::endl;
+      std::cerr << "known: " << a << " <= " << b << std::endl;
     }
     NVF_ERROR(false);
   }
