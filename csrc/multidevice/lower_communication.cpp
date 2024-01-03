@@ -22,6 +22,8 @@ template <typename T>
 inline T getInitialValue(BinaryOpType op) {
   switch (op) {
     case BinaryOpType::Add:
+    case BinaryOpType::BitwiseOr:
+    case BinaryOpType::BitwiseXor:
       return 0;
     case BinaryOpType::Mul:
       return 1;
@@ -30,9 +32,6 @@ inline T getInitialValue(BinaryOpType op) {
     case BinaryOpType::Max:
     case BinaryOpType::BitwiseAnd:
       return std::numeric_limits<T>::max();
-    case BinaryOpType::BitwiseOr:
-    case BinaryOpType::BitwiseXor:
-      return 0;
     default:
       NVF_ERROR(false, "invalid binary op type");
       return 0;
