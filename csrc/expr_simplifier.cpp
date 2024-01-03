@@ -23,6 +23,7 @@
 #include <memory>
 #include <numeric>
 #include <regex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <unordered_set>
@@ -186,6 +187,24 @@ class Context {
       } else {
         assumptions.push_back(bop->lhs());
         assumptions.push_back(bop->rhs());
+      }
+    }
+
+    // Check for obvious contradictions. Could have helped debugging #1572.
+    for (const auto& [a, b] : getKnownLessThan()) {
+      for (const auto& [x, y] : getKnownLessEqual()) {
+        // a < b && b <= a is impossible.
+        NVF_ERROR(
+            !(x->sameAs(b) && y->sameAs(a)),
+            "Found two contradicting assumptions: ",
+            a->toString(),
+            " <= ",
+            b->toString(),
+            " and ",
+            x->toString(),
+            " < ",
+            y->toString(),
+            " both exist.");
       }
     }
   }
