@@ -231,7 +231,9 @@ class GpuLower : public NonCopyable {
   }
 
  private:
-  void analysis(Fusion* fusion);
+  void create(Fusion* fusion);
+
+  void analysis();
 
   // Goes through the parallelized iterdomains of the used TVs and find
   //  the parallel dimensions that need to be padded to a multiples of
