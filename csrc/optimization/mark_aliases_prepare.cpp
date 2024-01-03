@@ -8,16 +8,16 @@
 #include <alias_analysis.h>
 #include <debug.h>
 #include <ir/utils.h>
-#include <optimization/optimize_layout.h>
+#include <optimization/mark_aliases_prepare.h>
 #include <options.h>
 
 namespace nvfuser::optimization {
 
-void OptimizeLayoutPass::runPass(Fusion* fusion) {
+void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   const AliasAnalysisResult analysis =
       findAliases(fusion, /*can_override_empty_allocation_domain=*/true);
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-    debug() << "Fusion before OptimizeLayoutPass:" << std::endl;
+    debug() << "Fusion before MarkAliasesPreparePass:" << std::endl;
     fusion->printMath();
     debug() << "Alias analysis result:" << std::endl;
     debug() << analysis.toString(/*indent_size=*/1) << std::endl;
@@ -105,7 +105,7 @@ void OptimizeLayoutPass::runPass(Fusion* fusion) {
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-    debug() << "Fusion after OptimizeLayoutPass:" << std::endl;
+    debug() << "Fusion after MarkAliasesPreparePass:" << std::endl;
     fusion->printMath();
     fusion->printTransforms();
   }
