@@ -2891,10 +2891,9 @@ std::string IterDomain::toString(int indent_size) const {
   if (stop() != extent()) {
     ss << stop()->toInlineString() << " : ";
   }
-  // TODO: before merging, undo this debug style or hide behind an option
   ss << extent()->toInlineString();
   if (hasExpandedExtent()) {
-    ss << " expanded to " << expandedExtent()->toInlineString();
+    ss << " ex " << expandedExtent()->toInlineString();
   }
   ss << "}";
   if (isRFactorProduct()) {
