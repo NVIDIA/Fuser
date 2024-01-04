@@ -848,7 +848,8 @@ TEST_F(NVFuserTest, FusionIndexing19_CUDA) {
 
   auto promotion_map_it = promotion_map.find(merge_loop_group);
   ASSERT_TRUE(promotion_map_it != promotion_map.end())
-      << "Loop promotion not found for merge loop group";
+      << "Loop promotion not found for merge loop group: "
+      << nvfuser::toString(merge_loop_group);
   auto merge_out_promotion_id = promotion_map_it->second;
   ASSERT_EQ(
       id_model.idGraph(IdMappingMode::EXACT).toGroup(merge_out_promotion_id),
