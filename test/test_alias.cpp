@@ -886,4 +886,21 @@ TEST_F(AliasTest, Broadcast) {
   EXPECT_EQ(out_tensor.data_ptr(), in_tensor.data_ptr());
 }
 
+TEST_F(AliasTest, Squeeze) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({-1, 1, -1});
+  TensorView* out = squeeze(in, std::vector<bool>({false, true, false}));
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  FusionExecutorCache fec(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 1, 3}).cuda();
+  at::Tensor out_tensor = fec.runFusionWithInputs({in_tensor})[0];
+  testValidate(fec.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+
+  EXPECT_EQ(out_tensor.data_ptr(), in_tensor.data_ptr());
+}
+
 } // namespace nvfuser
