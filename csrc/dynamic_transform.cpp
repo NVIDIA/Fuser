@@ -693,7 +693,8 @@ void DynamicTransformConcretizer::concretizeExpand() {
       TensorView* inp_tv =
           symbolic_out_tv->definition()->input(0)->as<TensorView>();
       TensorView* concretized_tv = set(inp_tv);
-      ir_utils::replaceVal(symbolic_out_tv, concretized_tv);
+      ir_utils::replaceValInAllExprInputsAndFusionOutputs(
+          symbolic_out_tv, concretized_tv);
     }
 
     // We do not need to replace the ExpandOp, but we do need to mutate all of
