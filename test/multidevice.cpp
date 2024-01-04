@@ -158,6 +158,21 @@ void SendToTester(
   }
 }
 
+c10::IValue allocate_unsharded_input(DeviceIdxType tester, TensorView* tv, at::Tensor sharded_input) {
+  // TODO: Extend to multi-dimension mesh
+  std::vector<int64_t> unsharded_sizes;
+  for (size_t i = 0; i < tv->nDims(); i++) {
+    if (tv->axis(i)->isDeviceDim()) {
+      unsharded_sizes.push_back(tv->getDeviceMesh().vector().size());
+    } else {
+      unsharded_sizes.push_back(sharded_input.size(i));
+    }
+  }
+  at::Tensor unsharded_input = at::rand(unsharded_sizes, sharded_input.options());
+  unsharded_input.index_put_({tester, "..."}, sharded_input.index({0, "..."}));
+  return unsharded_input;
+}
+
 // Utility function used for validation in the tests
 // It compares the given (possibly sharded) output with the result of the Fusion
 // run on a single device with the given (possibly sharded) inputs
@@ -172,10 +187,14 @@ void testValidateMultidevice(
   // gathering all the inputs at tester
   std::vector<c10::IValue> unsharded_inputs;
   for (auto i : c10::irange(inputs.size())) {
-    c10::IValue unsharded_input = inputs.at(i).deepcopy();
+    TensorView* tv = runtime.fusion()->inputs().at(i)->as<TensorView>();
+    c10::IValue unsharded_input = isSharded(tv) ? 
+        allocate_unsharded_input(tester, tv, inputs.at(i).toTensor()) : 
+        inputs.at(i).deepcopy();
     unsharded_inputs.push_back(unsharded_input);
+
     SendToTester(
-        runtime.fusion()->inputs().at(i)->as<TensorView>(),
+        tv,
         inputs.at(i).toTensor(),
         unsharded_inputs.at(i).toTensor(),
         tester,
@@ -333,7 +352,7 @@ void PipelineTestTwoStages::SetUp() {
   } else if (is_stage1_sharded) {
     first_axis_extent = mesh1.vector().size();
   }
-  const std::vector<int64_t> input_sizes = {first_axis_extent, 4, 3, 5};
+  std::vector<int64_t> input_sizes = {first_axis_extent, 4, 3, 5};
 
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeConcreteTensor(input_sizes);
@@ -356,6 +375,9 @@ void PipelineTestTwoStages::SetUp() {
     tv3->axis(0)->parallelize(ParallelType::DIDx);
   }
 
+  if (is_stage0_sharded) {
+    input_sizes[0] = 1;
+  }
   inputs = {at::ones(input_sizes, tensor_options) * communicator->deviceId()};
 
   validate();

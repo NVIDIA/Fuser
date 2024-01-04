@@ -22,10 +22,12 @@ TEST_F(MultiDeviceTest, ShardOuterAxisConcrete) {
   int sharded_dim = 0;
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  DeviceMesh mesh({0, 1});
-  int num_devices = 2;
+  int num_devices = communicator->size();
+  std::vector<int64_t> ranks(num_devices);
+  std::iota(ranks.begin(), ranks.end(), 0);
+  DeviceMesh mesh(ranks);
 
-  TensorView* tv0 = makeConcreteTensor({2, 3});
+  TensorView* tv0 = makeConcreteTensor({num_devices, 3});
   TensorView* tv1 = add(tv0, tv0);
   TensorView* tv2 = set(tv1);
   TensorView* tv3 = add(tv2, tv2);
@@ -57,8 +59,10 @@ TEST_F(MultiDeviceTest, ShardOuterAxis) {
   int sharded_dim = 0;
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  DeviceMesh mesh({0, 1});
-  int num_devices = 2;
+  int num_devices = communicator->size();
+  std::vector<int64_t> ranks(num_devices);
+  std::iota(ranks.begin(), ranks.end(), 0);
+  DeviceMesh mesh(ranks);
 
   TensorView* tv0 = makeContigTensor(2);
   TensorView* tv1 = add(tv0, tv0);
@@ -88,5 +92,84 @@ TEST_F(MultiDeviceTest, ShardOuterAxis) {
   auto outputs = runtime.runWithInput(inputs);
   testValidate(runtime.fusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
 }
+
+/*TEST_F(MultiDeviceTest, ShardReplicateOp) {
+  int sharded_dim = 0;
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  int num_devices = communicator->size();
+  std::vector<int64_t> ranks(num_devices);
+  std::iota(ranks.begin(), ranks.end(), 0);
+  DeviceMesh mesh(ranks);
+
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = makeContigTensor(2);
+  TensorView* tv2 = add(tv0, tv1);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  // tv0 sharded, tv1 replicated, tv2 sharded
+  tv0->axis(sharded_dim)->parallelize(ParallelType::DIDx);
+  tv2->axis(sharded_dim)->parallelize(ParallelType::DIDx);
+
+  if (communicator->deviceId() == 0) {
+    fusion->printKernel();
+  }
+
+  std::vector<TensorView*> tvs = {tv0, tv1};
+  for (auto tv : tvs) {
+    tv->setDeviceMesh(mesh);
+  }
+
+  auto x = at::randn({num_devices, 3}, tensor_options);
+  std::cout << "Whole input tensor " << x << std::endl;
+  std::cout << "Input tensor " << communicator->deviceId() << " " << x.index({communicator->deviceId(), "..."}) << std::endl;
+  // std::vector<c10::IValue> inputs = {x.index({communicator->deviceId(), "..."})};
+  std::vector<c10::IValue> inputs = {x};
+  auto ref_outputs = x + x;
+  
+  MultiDeviceExecutor runtime(std::move(fusion), *communicator);
+  auto outputs = runtime.runWithInput(inputs);
+  testValidate(runtime.fusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
+}
+*/
+
+inline at::Tensor shardInputTensor(at::Tensor tensor, int deviceId) {
+  return tensor.index({deviceId, "..."}).unsqueeze(0);
+}
+
+// AllReduce
+TEST_F(MultiDeviceTest, ShardGlobalInput) {
+  int sharded_dim = 0;
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  int num_devices = communicator->size();
+  std::vector<int64_t> ranks(num_devices);
+  std::iota(ranks.begin(), ranks.end(), 0);
+  DeviceMesh mesh(ranks);
+
+  TensorView* tv0 = makeContigTensor(3);
+  TensorView* tv1 = sum(tv0, {0});
+  TensorView* tv2 = add(tv1, tv1);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv2);
+
+  tv0->axis(sharded_dim)->parallelize(ParallelType::DIDx);
+
+  std::vector<TensorView*> tvs = {tv0, tv1, tv2};
+  for (auto tv : tvs) {
+    tv->setDeviceMesh(mesh);
+  }
+
+  auto x = at::randn({num_devices, 3, 2}, tensor_options);
+  // Sharded input shape [1, 3, 2]
+  std::vector<c10::IValue> inputs = {shardInputTensor(x, communicator->deviceId())};
+  auto ref_outputs = at::sum(x, {0}) * 2;
+  
+  MultiDeviceExecutor runtime(std::move(fusion), *communicator);
+  auto outputs = runtime.runWithInput(inputs);
+  testValidate(runtime.fusion(), outputs, inputs, {ref_outputs}, __LINE__, __FILE__);
+}
+
 }
 #endif

@@ -115,15 +115,15 @@ CommParams createParamsForGatherScatter(
 
   if (my_device_index == root) {
     for (auto i : c10::irange(mesh.vector().size())) {
-      auto x = root_buf.index({static_cast<int>(i), "..."}).view(buf.sizes());
-      ((is_scatter)? params.src_bufs : params.dst_bufs).push_back(x);
+      auto sliced_buf = root_buf.index({static_cast<int>(i), "..."}).unsqueeze(0);
+      ((is_scatter)? params.src_bufs : params.dst_bufs).push_back(sliced_buf);
     }
     // The scatter/gather semantics imposes the root to be both
     // sender and receiver. If the root is not in the mesh, we thus
     // have to artificially make it send and receive a dummy buffer
     // Since it is an "inplace" operation, this should not cause any overhead
     if (!is_root_in_mesh) {
-      at::Tensor dummy = createDummyTensor(buf);
+      at::Tensor dummy = createDummyTensor(root_buf.index({0, "..."}).unsqueeze(0));
       params.src_bufs.push_back(dummy);
       params.dst_bufs.push_back(dummy);
     }
@@ -304,8 +304,7 @@ CommParams createParamsForReduce(
   }
 
   if (mesh.has(my_device_index)) {
-    auto sliced_buf = input_tensor.index({0, "..."});
-    params.src_bufs = {sliced_buf};
+    params.src_bufs = {input_tensor.squeeze(0)};
   }
 
   if (my_device_index == root) {
@@ -359,8 +358,7 @@ void lowerToAllreduce(
   params.redOp = getC10dReduceOpType(op_type);
   params.team = mesh.vector();
   params.dst_bufs = {output_tensor};
-  auto sliced_buf = input_tensor.index({0, "..."});
-  params.src_bufs = {sliced_buf};
+  params.src_bufs = {input_tensor.view(output_tensor.sizes())};
 
   comms.push_back(std::make_shared<Allreduce>(params));
 }
@@ -378,9 +376,9 @@ void lowerToReduceScatter(
   CommParams params;
   params.redOp = getC10dReduceOpType(op_type);
   params.team = mesh.vector();
-  params.dst_bufs = {output_tensor.index({0, "..."})};
+  params.dst_bufs = {output_tensor};
   for (int i : params.team) {
-    auto sliced_buf = input_tensor.index({0, i, "..."});
+    auto sliced_buf = input_tensor.index({0, i, "..."}).view(output_tensor.sizes());
     params.src_bufs.push_back(sliced_buf);
   }
 
@@ -429,23 +427,16 @@ std::vector<std::shared_ptr<Communication>> lowerCommunication(
       " to communication is not supported");
   bool is_reduction = original_expr->isA<ReductionOp>();
 
-  // TODO: Check for sharding of the right size.
-  // NVF_ERROR(
-  //     !is_input_sharded || !input_tensor.numel() ||
-  //         sender_mesh.vector().size() ==
-  //             static_cast<size_t>(input_tensor.size(0)),
-  //     "the size of the mesh ",
-  //     sender_mesh.vector().size(),
-  //     " doesn't match the size of the tensor ",
-  //     input_tensor.size(0));
-  // NVF_ERROR(
-  //     !is_output_sharded || !output_tensor.numel() || is_reduction ||
-  //         receiver_mesh.vector().size() ==
-  //             static_cast<size_t>(output_tensor.size(0)),
-  //     "the size of the mesh",
-  //     receiver_mesh.vector().size(),
-  //     " doesn't match the size of the tensor ",
-  //     output_tensor.size(0));
+  NVF_ERROR(
+      !is_input_sharded || !input_tensor.numel() ||
+          static_cast<size_t>(input_tensor.size(0)) == 1,
+      "Sharded dimension should have allocation size 1, but is ",
+      input_tensor.size(0));
+  NVF_ERROR(
+      !is_output_sharded || !output_tensor.numel() || is_reduction ||
+          static_cast<size_t>(output_tensor.size(0)) == 1,
+      "Sharded dimension should have allocation size 1, but is ",
+      output_tensor.size(0));
   if (is_reduction) {
     BinaryOpType op_type =
         output_tv->definition()->as<ReductionOp>()->getReductionOpType();

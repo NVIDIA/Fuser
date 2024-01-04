@@ -188,6 +188,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST_F(PipelineTest, Pipeline_Reduce) {
   const std::vector<int64_t> input_shape = {4, 3, 1, 2};
+  const std::vector<int64_t> sharded_input_shape = {1, 3, 1, 2};
 
   FusionGuard fg(fusion.get());
 
@@ -209,13 +210,14 @@ TEST_F(PipelineTest, Pipeline_Reduce) {
   tv1->axis(0)->parallelize(ParallelType::DIDx);
 
   inputs = {
-      at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
+      at::ones(sharded_input_shape, tensor_options) * (communicator->deviceId() + 1)};
 
   validate();
 }
 
 TEST_F(PipelineTest, Pipeline_ReduceToExternalRoot) {
   const std::vector<int64_t> input_shape = {2, 3, 1, 2};
+  const std::vector<int64_t> sharded_input_shape = {1, 3, 1, 2};
 
   FusionGuard fg(fusion.get());
 
@@ -237,16 +239,17 @@ TEST_F(PipelineTest, Pipeline_ReduceToExternalRoot) {
   tv1->axis(0)->parallelize(ParallelType::DIDx);
 
   inputs = {
-      at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
+      at::ones(sharded_input_shape, tensor_options) * (communicator->deviceId() + 1)};
 
   validate();
 }
 
 TEST_F(PipelineTest, Pipeline_Allreduce) {
-  const std::vector<int64_t> input_shape = {4, 3, 1, 2};
+  const std::vector<int64_t> unsharded_input_shape = {4, 3, 1, 2};
+  const std::vector<int64_t> input_shape = {1, 3, 1, 2};
   FusionGuard fg(fusion.get());
 
-  TensorView* tv0 = makeConcreteTensor(input_shape);
+  TensorView* tv0 = makeConcreteTensor(unsharded_input_shape);
   fusion->addInput(tv0);
   TensorView* tv1 = sum(tv0, {1});
   TensorView* tv2 = sum(tv1, {0});
@@ -263,14 +266,14 @@ TEST_F(PipelineTest, Pipeline_Allreduce) {
   tv0->axis(0)->parallelize(ParallelType::DIDx);
   tv1->axis(0)->parallelize(ParallelType::DIDx);
 
-  inputs = {
-      at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
-
+  inputs = {at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
+  
   validate();
 }
 
 TEST_F(PipelineTest, Pipeline_ReduceScatter) {
   const std::vector<int64_t> input_shape = {4, 4, 1, 2};
+  const std::vector<int64_t> sharded_input_shape = {1, 4, 1, 2};
 
   FusionGuard fg(fusion.get());
 
@@ -294,9 +297,8 @@ TEST_F(PipelineTest, Pipeline_ReduceScatter) {
       ParallelType::DIDx); // axis(0) is the "reduce" axis from previous tensor
   tv3->axis(0)->parallelize(ParallelType::DIDx);
 
-  inputs = {
-      at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
-
+  inputs = {at::ones(sharded_input_shape, tensor_options) * (communicator->deviceId() + 1)};
+      
   validate();
 }
 
