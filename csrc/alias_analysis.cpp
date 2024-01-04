@@ -27,10 +27,6 @@ namespace {
 // The current implementation does the bare minimum to detect some aliasing
 // that the codegen can use to generate a kernel skipping unnecessary
 // computation.
-//
-// Many improvements are to be made. For example,
-// 1. It should handle more op types such as `Slice`.
-// 2. It should detect alias between non-packed tensors.
 class AliasFinder : public OptOutConstDispatch {
  public:
   AliasFinder(AliasAnalysisResult& analysis) : analysis_(analysis) {}
@@ -140,8 +136,8 @@ void AliasFinder::handle(const ViewOp* view) {
   LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
   for (const auto i : c10::irange(in_layout.allocation_domain.size())) {
     IterDomain* in_allocation_id = in_layout.allocation_domain[i];
-    if (!in_rfactor_to_out_root.count(in_allocation_id)) {
-      // `in_allocation_id` is a reduction product.
+    if (in_allocation_id->isReduction()) {
+      // Reduction IterDomains won't appear in `out_root`.
       continue;
     }
     allocation_to_contiguity.pushBack(
@@ -246,8 +242,8 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
   Layout out_layout;
   for (const auto i : c10::irange(in_layout.allocation_domain.size())) {
     IterDomain* in_allocation_id = in_layout.allocation_domain[i];
-    if (!in_rfactor_to_out_root.count(in_allocation_id)) {
-      // `in_allocation_id` is a reduction product.
+    if (in_allocation_id->isReduction()) {
+      // Reduction IterDomains won't appear in `out_root`.
       continue;
     }
     out_layout.allocation_domain.push_back(
@@ -289,8 +285,8 @@ void AliasFinder::handle(const SliceOp* slice) {
   Layout out_layout;
   out_layout.allocation_domain.reserve(out_rank);
   for (IterDomain* in_allocation_id : in_layout.allocation_domain) {
-    if (!in_rfactor_to_out_root.count(in_allocation_id)) {
-      // `in_allocation_id` is a reduction product.
+    if (in_allocation_id->isReduction()) {
+      // Reduction IterDomains won't appear in `out_root`.
       continue;
     }
     IterDomain* out_root_id = in_rfactor_to_out_root.at(in_allocation_id);

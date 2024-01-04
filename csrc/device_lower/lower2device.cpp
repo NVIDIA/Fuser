@@ -251,7 +251,8 @@ void dumpExprsIfEnabled(
   if (force_enable || enabled_by_env()) {
     debug() << "After " << pass_name << ":" << std::endl;
     for (auto exp : exprs) {
-      debug() << exp->toString() << std::endl;
+      // `Expr::toString()` already ends with a new line.
+      debug() << exp->toString();
     }
   }
 }

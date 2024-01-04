@@ -1,7 +1,7 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark
+from .core import run_benchmark, clear_cuda_cache
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES
 
@@ -65,6 +65,8 @@ def test_softmax_bwd_benchmark(
     disable_validation: bool,
     disable_benchmarking: bool,
 ):
+    clear_cuda_cache()
+
     inputs = [
         torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True),
         torch.randn(*size, device="cuda", dtype=dtype),
@@ -80,5 +82,3 @@ def test_softmax_bwd_benchmark(
 
     if not disable_benchmarking:
         run_benchmark(benchmark, fd.execute, inputs)
-
-    torch.cuda.empty_cache()
