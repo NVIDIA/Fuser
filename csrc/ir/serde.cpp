@@ -36,11 +36,12 @@ std::vector<V> convertContainer(
 
 namespace nvfuser {
 
-IrSerde::IrSerde(const IrContainer* container)
+IrSerde::IrSerde(const IrContainer* container, bool deterministic_order)
     : container_{container},
       toposorted_stmts_{topologicalSortStatements(
           container->deterministic_vals(),
-          container->deterministic_exprs())},
+          container->deterministic_exprs(),
+          deterministic_order)},
       vals_to_id_map_{createToposortValuesMap()},
       exprs_to_id_map_{createToposortExpressionsMap()} {}
 
@@ -54,8 +55,14 @@ IrSerde::IrSerde(const IrContainer* container)
 // output Vals' definition. Now, output Val are valid for other Vals.
 std::vector<Statement*> IrSerde::topologicalSortStatements(
     const std::deque<Val*>& values,
-    const std::deque<Expr*>& exprs) {
-  std::unordered_set<Statement*> to_sort;
+    const std::deque<Expr*>& exprs,
+    bool deterministic_order) {
+  std::vector<Statement*> sorted;
+  if (deterministic_order) {
+    std::copy(values.begin(), values.end(), std::back_inserter(sorted));
+    std::copy(exprs.begin(), exprs.end(), std::back_inserter(sorted));
+    return sorted;
+  }
 
   // During segmentation, intermediate TensorViews can become new global
   // TensorViews. A new TensorDomain is created for the new global TensorView
@@ -86,11 +93,10 @@ std::vector<Statement*> IrSerde::topologicalSortStatements(
             });
       });
 
+  std::unordered_set<Statement*> to_sort;
   std::copy(
       values.begin(), values.end(), std::inserter(to_sort, to_sort.end()));
   std::copy(exprs.begin(), exprs.end(), std::inserter(to_sort, to_sort.end()));
-
-  std::vector<Statement*> sorted;
 
   // valid_value_dependencies holds all statements available for value
   // dependencies. Expressions require output values in their constructor, so

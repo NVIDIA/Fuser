@@ -2052,7 +2052,7 @@ flatbuffers::Offset<serde::FusionExecutor> FusionExecutor::serialize(
 
   return serde::CreateFusionExecutorDirect(
       builder,
-      fusion_->serialize(builder),
+      fusion_->serialize(builder, /*deterministic_order=*/true),
       device_smem_limit_,
       block_size_high_water_mark_,
       maxrregcount_high_water_mark_,
