@@ -350,7 +350,7 @@ void AliasFinder::handle(const BroadcastOp* bcast) {
   }
 
   std::unordered_map<IterDomain*, IterDomain*> in_rfactor_to_out_root =
-      PairwiseRootDomainMap(in, out).mapBroadcast(true).mapProducerToConsumer();
+      PairwiseRootDomainMap(in, out).mapProducerToConsumer();
 
   Layout out_layout;
   // Preserve the allocation order of existing dimensions.
