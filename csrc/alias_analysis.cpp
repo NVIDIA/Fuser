@@ -140,8 +140,8 @@ void AliasFinder::handle(const ViewOp* view) {
   LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
   for (const auto i : c10::irange(in_layout.allocation_domain.size())) {
     IterDomain* in_allocation_id = in_layout.allocation_domain[i];
-    if (!in_rfactor_to_out_root.count(in_allocation_id)) {
-      // `in_allocation_id` is a reduction product.
+    if (in_allocation_id->isReduction()) {
+      // Reduction IterDomains won't appear in `out_root`.
       continue;
     }
     allocation_to_contiguity.pushBack(
@@ -246,8 +246,8 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
   Layout out_layout;
   for (const auto i : c10::irange(in_layout.allocation_domain.size())) {
     IterDomain* in_allocation_id = in_layout.allocation_domain[i];
-    if (!in_rfactor_to_out_root.count(in_allocation_id)) {
-      // `in_allocation_id` is a reduction product.
+    if (in_allocation_id->isReduction()) {
+      // Reduction IterDomains won't appear in `out_root`.
       continue;
     }
     out_layout.allocation_domain.push_back(
@@ -289,8 +289,8 @@ void AliasFinder::handle(const SliceOp* slice) {
   Layout out_layout;
   out_layout.allocation_domain.reserve(out_rank);
   for (IterDomain* in_allocation_id : in_layout.allocation_domain) {
-    if (!in_rfactor_to_out_root.count(in_allocation_id)) {
-      // `in_allocation_id` is a reduction product.
+    if (in_allocation_id->isReduction()) {
+      // Reduction IterDomains won't appear in `out_root`.
       continue;
     }
     IterDomain* out_root_id = in_rfactor_to_out_root.at(in_allocation_id);
