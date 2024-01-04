@@ -1202,21 +1202,25 @@ class ReusableAllocationFinder : private kir::IrVisitor {
           auto this_tv = alloc_info->alloc_expr->buffer()->as<TensorView>();
           auto reuse_tv =
               alloc_to_reuse->alloc_expr->buffer()->as<TensorView>();
-          // Check that either both tv's are vectorized acceses, or neither are.
-          // Vectorized allocations require correct alignment so they can only
-          // alias with other allocations with the right alignment
-          const auto& va = GpuLower::current()->vectorizedAccesses();
-          if ((va.find(this_tv) == va.end()) !=
-              (va.find(reuse_tv) == va.end())) {
-            return false;
-          }
 
-          // Shared memory is all aligned to 128 bits, local memory might not be
-          if (this_tv->getMemoryType() == MemoryType::Local &&
-              va.find(this_tv) != va.end()) {
-            // Make sure alignment matches
-            if (va.at(this_tv) != va.at(reuse_tv)) {
-              return false;
+          // Vectorized allocations require correct alignment so if [this_tv]
+          // is vectorized, the [reuse_tv] must be vectorized with the same
+          // or smaller factor.
+          // No need to check shared memory since it is always aligned to 16
+          // Bytes which is also the maximum vectorization width.
+          if (this_tv->getMemoryType() == MemoryType::Local) {
+            const auto& va = GpuLower::current()->vectorizedAccesses();
+            bool this_tv_vectorized = va.find(this_tv) != va.end();
+            if (this_tv_vectorized) {
+              bool reuse_tv_vectorized = va.find(reuse_tv) != va.end();
+              if (!reuse_tv_vectorized) {
+                return false;
+              }
+              int this_tv_alignment = va.at(this_tv);
+              int reuse_tv_alignment = va.at(reuse_tv);
+              if (this_tv_alignment > reuse_tv_alignment) {
+                return false;
+              }
             }
           }
         }
@@ -1340,7 +1344,7 @@ class ReusableAllocationFinder : private kir::IrVisitor {
           continue;
         }
         if (!ir_utils::isPointwiseTvOp(tv_def) &&
-            !ir_utils::isReductionTvOp(tv_def)) {
+            !ir_utils::isReductionTvOp(tv_def) && !tv_def->isA<ExpandOp>()) {
           if (isBroadcastTvOp(tv_def)) {
             info.has_broadcast_between = true;
           } else {
