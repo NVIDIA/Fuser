@@ -364,8 +364,7 @@ TensorView* AliasAnalysisResult::findNearestAliasedIo(
 
 TensorView* AliasAnalysisResult::getNearestAliasedIo(
     const TensorView* fusion_out) const {
-  const auto i = out_to_root_.find(fusion_out);
-  return i == out_to_root_.end() ? nullptr : i->second;
+  return out_to_root_.at(fusion_out);
 }
 
 namespace {
@@ -385,8 +384,12 @@ void AliasAnalysisResult::finalize(
     const bool can_override_empty_allocation_domain) {
   for (TensorView* out :
        ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    TensorView* root = findNearestAliasedIo(out);
-    if (root == nullptr) {
+    // Even a non-aliasing output gets a null entry in the map for
+    // toString() to debug print.
+    TensorView*& root = out_to_root_[out];
+
+    TensorView* candidate = findNearestAliasedIo(out);
+    if (candidate == nullptr) {
       continue;
     }
 
@@ -396,7 +399,7 @@ void AliasAnalysisResult::finalize(
       continue;
     }
 
-    out_to_root_[out] = root;
+    root = candidate;
   }
 }
 
@@ -426,12 +429,17 @@ std::string AliasAnalysisResult::toString(const int indent_size) const {
         << layout.toString() << std::endl;
   }
   indent(ss, indent_size) << "Output aliases only:"
-                          << (out_to_root_.empty() ? " <empty>" : "")
+                          << (out_to_root_.empty() ? " <no outputs>" : "")
                           << std::endl;
   for (const auto& [out, root] : out_to_root_) {
     indent(ss, indent_size + 1)
-        << ir_utils::varName(out) << " is a transitive alias of "
-        << ir_utils::varName(root) << std::endl;
+        << ir_utils::varName(out) << " of allocation domain ["
+        << toDelimitedString(out->getAllocationDomain())
+        << "] and rfactor domain ["
+        << toDelimitedString(out->getMaybeRFactorDomain())
+        << "] is a transitive alias of "
+        << (root == nullptr ? "no input/output" : ir_utils::varName(root))
+        << std::endl;
   }
   return ss.str();
 }
