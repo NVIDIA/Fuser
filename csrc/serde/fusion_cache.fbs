@@ -231,6 +231,7 @@ union PolymorphicValueData {
   RNGAttributes,
   ScalarCpu,
   Scope,
+  String,
   TensorArg,
   TensorViewVector,
 }
@@ -281,6 +282,10 @@ table Double {
 
 table Long {
   value: long;
+}
+
+table String {
+  value: string;
 }
 
 // Data for Scalar
