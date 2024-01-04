@@ -129,9 +129,9 @@ void AliasFinder::handle(const ViewOp* view) {
   }
 
   std::unordered_map<IterDomain*, IterDomain*> in_rfactor_to_out_root =
-      PairwiseRootDomainMap(in, out).mapBroadcast(true).mapProducerToConsumer();
+      PairwiseRootDomainMap(in, out).mapProducerToConsumer();
   std::unordered_map<IterDomain*, IterDomain*> out_root_to_in_rfactor =
-      PairwiseRootDomainMap(in, out).mapBroadcast(true).mapConsumerToProducer();
+      PairwiseRootDomainMap(in, out).mapConsumerToProducer();
 
   // Collect the allocation order of `in`'s rfactor domain and thus `out`'s root
   // domain.
@@ -239,7 +239,7 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
   // {i0->i3,i1->i4,i2->i5}.
   // 2. Apply the map to `in`'s allocation and get [i5,i3,i4].
   std::unordered_map<IterDomain*, IterDomain*> in_rfactor_to_out_root =
-      PairwiseRootDomainMap(in, out).mapBroadcast(true).mapProducerToConsumer();
+      PairwiseRootDomainMap(in, out).mapProducerToConsumer();
 
   Layout out_layout;
   for (const auto i : c10::irange(in_layout.allocation_domain.size())) {
@@ -266,7 +266,7 @@ void AliasFinder::handle(const SliceOp* slice) {
   const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
 
   std::unordered_map<IterDomain*, IterDomain*> in_rfactor_to_out_root =
-      PairwiseRootDomainMap(in, out).mapBroadcast(true).mapProducerToConsumer();
+      PairwiseRootDomainMap(in, out).mapProducerToConsumer();
 
   const auto out_rank = out_rfactor.size();
   std::unordered_map<IterDomain*, IterDomain*> out_root_to_rfactor;
