@@ -99,37 +99,37 @@ static void NvFuserScheduler_RMSNorm_BWD(
 
 //------------------------------------------------------------------------------
 
-NVFUSER_BENCHMARK_DEFINE(
-    NvFuserScheduler_RMSNorm_BWD_fp16,
-    setupRMSNorm_BWD,
-    NvFuserScheduler_RMSNorm_BWD,
-    DataType::Half);
+// NVFUSER_BENCHMARK_DEFINE(
+//     NvFuserScheduler_RMSNorm_BWD_fp16,
+//     setupRMSNorm_BWD,
+//     NvFuserScheduler_RMSNorm_BWD,
+//     DataType::Half);
 
-NVFUSER_BENCHMARK_DEFINE(
-    NvFuserScheduler_RMSNorm_BWD_fp32,
-    setupRMSNorm_BWD,
-    NvFuserScheduler_RMSNorm_BWD,
-    DataType::Float);
+// NVFUSER_BENCHMARK_DEFINE(
+//     NvFuserScheduler_RMSNorm_BWD_fp32,
+//     setupRMSNorm_BWD,
+//     NvFuserScheduler_RMSNorm_BWD,
+//     DataType::Float);
 
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp16)
-    ->Apply(addCasesOneWave128To32K)
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp16)
+//     ->Apply(addCasesOneWave128To32K)
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp16)
-    ->Apply(addCases16Wave128To32K)
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp16)
+//     ->Apply(addCases16Wave128To32K)
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp32)
-    ->Apply(addCasesOneWave128To32K)
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp32)
+//     ->Apply(addCasesOneWave128To32K)
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp32)
-    ->Apply(addCases16Wave128To32K)
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// NVFUSER_BENCHMARK_RUN(NvFuserScheduler_RMSNorm_BWD_fp32)
+//     ->Apply(addCases16Wave128To32K)
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
 // TODO: Automatically disable/enable if bf16 is supported
 // NVFUSER_BENCHMARK_DEFINE(

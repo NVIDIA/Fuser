@@ -250,53 +250,53 @@ NVFUSER_BENCHMARK_DEFINE(
     DataType::Half,
     1);
 
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Outer_fp32)
-    // ->RangeMultiplier(2)
-    ->Ranges({{1, 1024 * 1024}, {160, 320}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Outer_fp32)
+//     // ->RangeMultiplier(2)
+//     ->Ranges({{1, 1024 * 1024}, {160, 320}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Outer_fp32)
-    // ->RangeMultiplier(2)
-    ->Ranges({{32768, 32 * 1024 * 1024}, {2, 16}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Outer_fp32)
+//     // ->RangeMultiplier(2)
+//     ->Ranges({{32768, 32 * 1024 * 1024}, {2, 16}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Outer_fp32)
-    // ->RangeMultiplier(2)
-    ->Ranges({{2, 16}, {32768, 32 * 1024 * 1024}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Outer_fp32)
+//     // ->RangeMultiplier(2)
+//     ->Ranges({{2, 16}, {32768, 32 * 1024 * 1024}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Outer_fp32)
-    // ->RangeMultiplier(2)
-    ->Ranges({{128, 1024 * 16}, {128, 1024 * 16}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Outer_fp32)
+//     // ->RangeMultiplier(2)
+//     ->Ranges({{128, 1024 * 16}, {128, 1024 * 16}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Outer_fp16)
-    // ->RangeMultiplier(2)
-    ->Ranges({{1, 1024 * 1024}, {160, 320}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Outer_fp16)
+//     // ->RangeMultiplier(2)
+//     ->Ranges({{1, 1024 * 1024}, {160, 320}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Outer_fp16)
-    // ->RangeMultiplier(2)
-    ->Ranges({{32768, 32 * 1024 * 1024}, {2, 16}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Outer_fp16)
+//     // ->RangeMultiplier(2)
+//     ->Ranges({{32768, 32 * 1024 * 1024}, {2, 16}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Outer_fp16)
-    // ->RangeMultiplier(2)
-    ->Ranges({{2, 16}, {32768, 32 * 1024 * 1024}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Outer_fp16)
+//     // ->RangeMultiplier(2)
+//     ->Ranges({{2, 16}, {32768, 32 * 1024 * 1024}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
-NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Outer_fp16)
-    // ->RangeMultiplier(2)
-    ->Ranges({{128, 1024 * 16}, {128, 1024 * 16}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Outer_fp16)
+//     // ->RangeMultiplier(2)
+//     ->Ranges({{128, 1024 * 16}, {128, 1024 * 16}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
 NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Inner_fp32)
     // ->RangeMultiplier(2)
@@ -369,53 +369,53 @@ NVFUSER_BENCHMARK_RUN(NvFuserScheduler_Softmax_Inner_fp16)
     ->UseManualTime();
 //------------------------------------------------------------------------------
 
-BENCHMARK(Baseline_Softmax_Outer_fp32)
-    // ->RangeMultiplier(2)
-    ->Ranges({{1, 1024 * 1024}, {160, 320}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// BENCHMARK(Baseline_Softmax_Outer_fp32)
+//     // ->RangeMultiplier(2)
+//     ->Ranges({{1, 1024 * 1024}, {160, 320}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
-BENCHMARK(Baseline_Softmax_Outer_fp32)
-    // ->RangeMultiplier(2)
-    ->Ranges({{32768, 32 * 1024 * 1024}, {2, 16}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// BENCHMARK(Baseline_Softmax_Outer_fp32)
+//     // ->RangeMultiplier(2)
+//     ->Ranges({{32768, 32 * 1024 * 1024}, {2, 16}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
-BENCHMARK(Baseline_Softmax_Outer_fp32)
-    // ->RangeMultiplier(2)
-    ->Ranges({{2, 16}, {32768, 32 * 1024 * 1024}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// BENCHMARK(Baseline_Softmax_Outer_fp32)
+//     // ->RangeMultiplier(2)
+//     ->Ranges({{2, 16}, {32768, 32 * 1024 * 1024}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
-BENCHMARK(Baseline_Softmax_Outer_fp32)
-    // ->RangeMultiplier(2)
-    ->Ranges({{128, 1024 * 16}, {128, 1024 * 16}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// BENCHMARK(Baseline_Softmax_Outer_fp32)
+//     // ->RangeMultiplier(2)
+//     ->Ranges({{128, 1024 * 16}, {128, 1024 * 16}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
-BENCHMARK(Baseline_Softmax_Outer_fp16)
-    // ->RangeMultiplier(2)
-    ->Ranges({{1, 1024 * 1024}, {160, 320}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// BENCHMARK(Baseline_Softmax_Outer_fp16)
+//     // ->RangeMultiplier(2)
+//     ->Ranges({{1, 1024 * 1024}, {160, 320}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
-BENCHMARK(Baseline_Softmax_Outer_fp16)
-    // ->RangeMultiplier(2)
-    ->Ranges({{32768, 32 * 1024 * 1024}, {2, 16}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// BENCHMARK(Baseline_Softmax_Outer_fp16)
+//     // ->RangeMultiplier(2)
+//     ->Ranges({{32768, 32 * 1024 * 1024}, {2, 16}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
-BENCHMARK(Baseline_Softmax_Outer_fp16)
-    // ->RangeMultiplier(2)
-    ->Ranges({{2, 16}, {32768, 32 * 1024 * 1024}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// BENCHMARK(Baseline_Softmax_Outer_fp16)
+//     // ->RangeMultiplier(2)
+//     ->Ranges({{2, 16}, {32768, 32 * 1024 * 1024}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
-BENCHMARK(Baseline_Softmax_Outer_fp16)
-    // ->RangeMultiplier(2)
-    ->Ranges({{128, 1024 * 16}, {128, 1024 * 16}})
-    ->Unit(benchmark::kMicrosecond)
-    ->UseManualTime();
+// BENCHMARK(Baseline_Softmax_Outer_fp16)
+//     // ->RangeMultiplier(2)
+//     ->Ranges({{128, 1024 * 16}, {128, 1024 * 16}})
+//     ->Unit(benchmark::kMicrosecond)
+//     ->UseManualTime();
 
 BENCHMARK(Baseline_Softmax_Inner_fp32)
     // ->RangeMultiplier(2)
