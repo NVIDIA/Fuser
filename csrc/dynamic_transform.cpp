@@ -28,39 +28,27 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
       static_cast<Fusion*>(ir_cloner.container()));
   cloned_info.dynamic_reshaped_tvs_.reserve(dynamic_reshaped_tvs_.size());
   for (const auto tv : dynamic_reshaped_tvs_) {
-    if (tv) {
-      cloned_info.dynamic_reshaped_tvs_.push_back(ir_cloner.clone(tv));
-    }
+    cloned_info.dynamic_reshaped_tvs_.push_back(ir_cloner.clone(tv));
   }
   cloned_info.dynamic_resized_ids_.reserve(dynamic_resized_ids_.size());
   for (const auto id : dynamic_resized_ids_) {
-    if (id) {
-      cloned_info.dynamic_resized_ids_.push_back(ir_cloner.clone(id));
-    }
+    cloned_info.dynamic_resized_ids_.push_back(ir_cloner.clone(id));
   }
   cloned_info.dynamic_expanded_tvs_.reserve(dynamic_expanded_tvs_.size());
   for (const auto tv : dynamic_expanded_tvs_) {
-    if (tv) {
-      cloned_info.dynamic_expanded_tvs_.push_back(ir_cloner.clone(tv));
-    }
+    cloned_info.dynamic_expanded_tvs_.push_back(ir_cloner.clone(tv));
   }
   cloned_info.maybe_zero_extents_set_.reserve(maybe_zero_extents_set_.size());
   for (const auto v : maybe_zero_extents_set_) {
-    if (v) {
-      cloned_info.maybe_zero_extents_set_.insert(ir_cloner.clone(v));
-    }
+    cloned_info.maybe_zero_extents_set_.insert(ir_cloner.clone(v));
   }
   cloned_info.maybe_zero_extents_.reserve(maybe_zero_extents_.size());
   for (const auto v : maybe_zero_extents_) {
-    if (v) {
-      cloned_info.maybe_zero_extents_.push_back(ir_cloner.clone(v));
-    }
+    cloned_info.maybe_zero_extents_.push_back(ir_cloner.clone(v));
   }
   cloned_info.root_dynamic_vals_.reserve(root_dynamic_vals_.size());
   for (const auto v : root_dynamic_vals_) {
-    if (v) {
-      cloned_info.root_dynamic_vals_.insert(ir_cloner.clone(v));
-    }
+    cloned_info.root_dynamic_vals_.insert(ir_cloner.clone(v));
   }
   return cloned_info;
 }
