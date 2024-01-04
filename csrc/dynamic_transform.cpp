@@ -653,7 +653,8 @@ void DynamicTransformConcretizer::concretizeReshape() {
       }
     }
 
-    ir_utils::replaceVal(incomplete_out_tv, concrete_reshape_out_tv);
+    ir_utils::replaceValInAllExprInputsAndFusionOutputs(
+        incomplete_out_tv, concrete_reshape_out_tv);
 
     info_->fusion()->removeVal(incomplete_out_tv);
   }

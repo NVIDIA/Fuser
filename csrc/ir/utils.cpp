@@ -198,7 +198,7 @@ Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute) {
       expr, reference, substitute);
 }
 
-void replaceVal(Val* old_val, Val* new_val) {
+void replaceValInAllExprInputsAndFusionOutputs(Val* old_val, Val* new_val) {
   auto uses = old_val->uses();
   for (auto use_of_old_val : uses) {
     ir_utils::replaceValInExprInputs(use_of_old_val, old_val, new_val);
