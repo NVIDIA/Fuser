@@ -24,7 +24,7 @@ class IrContainer;
 
 class IrSerde {
  public:
-  IrSerde(const IrContainer* container);
+  IrSerde(const IrContainer* container, bool deterministic_order = false);
 
   const std::vector<Statement*>& topologicalSortedStatements() const {
     return toposorted_stmts_;
@@ -51,7 +51,8 @@ class IrSerde {
  private:
   std::vector<Statement*> topologicalSortStatements(
       const std::deque<Val*>& values,
-      const std::deque<Expr*>& exprs);
+      const std::deque<Expr*>& exprs,
+      bool deterministic_order);
   std::unordered_map<Val*, int64_t> createToposortValuesMap() const noexcept;
   std::unordered_map<Expr*, int64_t> createToposortExpressionsMap()
       const noexcept;
