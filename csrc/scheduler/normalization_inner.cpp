@@ -231,7 +231,9 @@ class HeuristicCalculator {
     // Some facts:
     const auto dev_prop = at::cuda::getCurrentDeviceProperties();
     threads_per_warp_ = (int64_t)dev_prop->warpSize;
-    has_multiple_inputs_ = has_rng_ops; // n_tensor_inputs > 1l ;
+    has_multiple_inputs_ =
+        max_persistent_buffer_size / total_reduction_numel > 2l;
+    has_rng_ops_ = has_rng_ops;
     has_exp_ops_ = has_exp_ops;
     max_warps_per_sm_ =
         dev_prop->maxThreadsPerMultiProcessor / threads_per_warp_;
@@ -260,9 +262,16 @@ class HeuristicCalculator {
     // Only used when occupancy is very important, e.g. when fused with dropout.
     // Otherwise, will cause regression, e.g. layer norm at 21K, reducing from
     // 48 to 40 regs per thread.
-    // max_persistent_buffer_size <24l*1024l*4l avoids low perf of softmax dropout at 24K on H100
-    max_adjust_count_ = has_multiple_inputs_ && max_persistent_buffer_size <24l*1024l*4l ? 8l : 0l;
-
+    max_adjust_count_ = [this]() {
+      if (!has_multiple_inputs_) {
+        return 0l;
+      }
+      // avoids low perf of softmax dropout at 24K on H100
+      if (has_exp_ops_ && max_persistent_buffer_size_ >= 24l * 1024l * 4l) {
+        return 0l;
+      }
+      return 8l;
+    }();
     // If [n_waves_max > 1] use at least four warps per warp as recommended by
     // the cuda-c-best-practices-guide. Otherwise, one SM only has 1 block to
     // process, so use as many threads as possible to increase occupancy.
@@ -287,12 +296,72 @@ class HeuristicCalculator {
     const int64_t mrpb_wave_threshold = 4l;
     may_use_mrpb_ = total_reduction_numel < mrpb_reduction_numel_threshold &&
         n_waves_max_ > mrpb_wave_threshold;
+
+    // set a reasonable range of [persistent_val]
+    // hint for max persistent size based on experiments.
+    // needs this to help the search. e.g. at 4K, we can use persistent_val of
+    // 1, 2, 4. All values are divisible and lead to same occupancy and fully
+    // used all registers. However, test shows persistent_val = 2 is the best.
+    const auto [persistent_experiment_min, persistent_experiment_max] = [&]() {
+      int64_t experiment_min = -1l;
+      int64_t experiment_max = -1l;
+      if (has_multiple_inputs_) {
+        if (total_reduction_numel_ >= 20480) {
+          experiment_min = 4l;
+          experiment_max = 7l;
+        } else if (total_reduction_numel_ >= 16 * 1024l) {
+          experiment_min = 4l;
+          experiment_max = 4l;
+        } else if (total_reduction_numel_ >= 6144l) {
+          experiment_min = 2l;
+          experiment_max = 4l;
+        } else if (total_reduction_numel_ >= 3072l) {
+          experiment_min = 1l;
+          experiment_max = 3l;
+        } else if (total_reduction_numel_ >= 2048l) {
+          experiment_min = 1l;
+          experiment_max = 2l;
+        } else {
+          experiment_min = 1l;
+          experiment_max = 2l;
+        }
+      } else {
+        if (may_use_mrpb_) {
+          experiment_min = 1l;
+          experiment_max = 4l;
+
+        } else {
+          experiment_min = 1l;
+          experiment_max = 10l;
+        }
+      }
+      return std::make_pair(experiment_min, experiment_max);
+    }();
+
+    // set [bdimx_min] and [bdimx_max]
+    const int64_t bdimx_min = [=]() {
+      int64_t tmp = std::min((int64_t)after_vect_, min_threads_per_block_);
+      if (may_use_mrpb_) {
+        tmp = std::min(tmp, (int64_t)threads_per_warp_);
+      }
+      return tmp;
+    }();
+    const int64_t bdimx_max = max_threads_per_block_;
+
+    const int64_t persistent_min_hardware = ceilDiv(after_vect_, bdimx_max);
+    persistent_min_ =
+        std::max(persistent_experiment_min, persistent_min_hardware);
+    persistent_max_ = std::max(
+        persistent_min_,
+        std::min(persistent_experiment_max, ceilDiv(after_vect_, bdimx_min)));
+    std::cout << "persistent_min: " << persistent_min_
+              << ", persistent_max: " << persistent_max_
+              << ", persistent_experiment_min: " << persistent_experiment_min
+              << ", persistent_min_hardware: " << persistent_min_hardware
+              << ", bdimx_min: " << bdimx_min << std::endl;
   }
 
   HeuristicParas getBestPara() {
-    // set a reasonable range of [persistent_val]
-    setPersistentValRange();
-
     // Loop over all possible [persistent_val] and save all possible heuristics.
     // allow extra search space for cases don't have divisible split, e.g. 20736
     // needs a persistent batch of 3.
@@ -322,7 +391,8 @@ class HeuristicCalculator {
           all_h_params.begin(),
           all_h_params.begin() + n_items,
           [this](const HeuristicParas& a, const HeuristicParas& b) {
-            return isBetterThan(this->has_multiple_inputs_, this->threads_per_warp_, a, b);
+            return isBetterThan(
+                this->has_rng_ops_, this->threads_per_warp_, a, b);
           });
     }
 
@@ -370,7 +440,7 @@ class HeuristicCalculator {
 
   // Method to compare two HeuristicParas objects
   static bool isBetterThan(
-      bool has_multiple_inputs_s,
+      bool has_rng_ops,
       int64_t threads_per_warp_s,
       const HeuristicParas& ha,
       const HeuristicParas& hb) {
@@ -417,7 +487,7 @@ class HeuristicCalculator {
     auto second_priority = distance_to_pow2_score;
     auto third_priority = threads_tails_score;
     auto forth_priority = persistent_tails_score;
-    if (has_multiple_inputs_s) {
+    if (has_rng_ops) {
       first_priority = threads_tails_score;
       second_priority = persistent_tails_score;
       third_priority = 0;
@@ -433,7 +503,7 @@ class HeuristicCalculator {
       } else if (second_priority < 0) {
         return false;
       } else {
-        if (has_multiple_inputs_s) {
+        if (has_rng_ops) {
           if (ha.n_threads_tails == 0 && ha.n_persistent_tails == 0) {
             // at 1536, prioritize pow2.
             // at 1600, prioritize higher occupancy.
@@ -460,7 +530,7 @@ class HeuristicCalculator {
             // [persistent], it leads to larger [bdimx], means wasted fraction
             // of threads is smaller. e.g. at 10496, prefer persistent = 3
             // instead of 6., bandwidth is 1.24x
-            return ha.n_threads_tails != 0 && has_multiple_inputs_s
+            return ha.n_threads_tails != 0 && has_rng_ops
                 ? ha.persistent_val < hb.persistent_val
                 : ha.persistent_val > hb.persistent_val;
           }
@@ -477,6 +547,7 @@ class HeuristicCalculator {
   // facts of hardward and fusion
   bool has_multiple_inputs_;
   bool has_exp_ops_;
+  bool has_rng_ops_;
   int64_t n_waves_max_;
   int64_t total_reduction_numel_;
   int64_t max_persistent_buffer_size_;
@@ -577,71 +648,6 @@ class HeuristicCalculator {
     int64_t warps_per_sm =
         std::min(blocks_per_sm * warps_per_block, max_warps_per_sm_);
     return std::make_tuple(nvrtc_register_per_thread, warps_per_sm);
-  }
-
-  void setPersistentValRange() {
-    // hint for max persistent size based on experiments.
-    // needs this to help the search. e.g. at 4K, we can use persistent_val of
-    // 1, 2, 4. All values are divisible and lead to same occupancy and fully
-    // used all registers. However, test shows persistent_val = 2 is the best.
-    const auto [persistent_experiment_min, persistent_experiment_max] = [&]() {
-      int64_t experiment_min = -1l;
-      int64_t experiment_max = -1l;
-      if (has_multiple_inputs_) {
-        if (total_reduction_numel_ >= 20480) {
-          experiment_min = 4l;
-          experiment_max = 7l;
-        } else if (total_reduction_numel_ >= 16 * 1024l) {
-          experiment_min = 4l;
-          experiment_max = 4l;
-        } else if (total_reduction_numel_ >= 6144l) {
-          experiment_min = 2l;
-          experiment_max = 4l;
-        } else if (total_reduction_numel_ >= 3072l) {
-          experiment_min = 1l;
-          experiment_max = 3l;
-        } else if (total_reduction_numel_ >= 2048l) {
-          experiment_min = 1l;
-          experiment_max = 2l;
-        } else {
-          experiment_min = 1l;
-          experiment_max = 2l;
-        }
-      } else {
-        if (may_use_mrpb_) {
-          experiment_min = 1l;
-          experiment_max = 4l;
-
-        } else {
-          experiment_min = 1l;
-          experiment_max = 10l;
-        }
-      }
-      return std::make_pair(experiment_min, experiment_max);
-    }();
-
-    // set [bdimx_min] and [bdimx_max]
-    const int64_t bdimx_min = [=]() {
-      int64_t tmp = std::min((int64_t)after_vect_, min_threads_per_block_);
-      if (may_use_mrpb_) {
-        tmp = std::min(tmp, (int64_t)threads_per_warp_);
-      }
-      return tmp;
-    }();
-    const int64_t bdimx_max = max_threads_per_block_;
-
-    // set [persistent_min] and [persistent_max]
-    const int64_t persistent_min_hardware = ceilDiv(after_vect_, bdimx_max);
-    persistent_min_ =
-        std::max(persistent_experiment_min, persistent_min_hardware);
-    persistent_max_ = std::max(
-        persistent_min_,
-        std::min(persistent_experiment_max, ceilDiv(after_vect_, bdimx_min)));
-    std::cout << "persistent_min: " << persistent_min_
-              << ", persistent_max: " << persistent_max_
-              << ", persistent_experiment_min: " << persistent_experiment_min
-              << ", persistent_min_hardware: " << persistent_min_hardware
-              << ", bdimx_min: " << bdimx_min << std::endl;
   }
 };
 
