@@ -287,7 +287,7 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       if (total_reduction_numel >= 20480) {
         experiment_min = 4l;
         experiment_max = 7l;
-      } else if (total_reduction_numel >= 16*1024l) {
+      } else if (total_reduction_numel >= 16 * 1024l) {
         experiment_min = 4l;
         experiment_max = 4l;
       } else if (total_reduction_numel >= 6144l) {
@@ -532,8 +532,8 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
     if (has_multiple_inputs) {
       first_priority = threads_tails_score;
       second_priority = persistent_tails_score;
-      third_priority = distance_to_pow2_score;
-      forth_priority = occupancy_score;
+      third_priority = 0;
+      forth_priority = 0;
     }
     if (first_priority > 0) {
       return true;
@@ -545,17 +545,18 @@ std::shared_ptr<ReductionParams> innerPersistentHeuristic2D(
       } else if (second_priority < 0) {
         return false;
       } else {
-        if (has_multiple_inputs && ha.n_threads_tails == 0 &&
-            ha.n_persistent_tails == 0) {
-          // at 1536, prioritize pow2.
-          // at 1600, prioritize higher occupancy.
-          // at 6K, prefer 3 not 1 or 2.
-          // at 21K, prefer 6 not 7.
-          third_priority = distance_to_pow2_score;
-          forth_priority = occupancy_score;
-        } else {
-          third_priority = occupancy_score;
-          forth_priority = distance_to_pow2_score;
+        if (has_multiple_inputs) {
+          if (ha.n_threads_tails == 0 && ha.n_persistent_tails == 0) {
+            // at 1536, prioritize pow2.
+            // at 1600, prioritize higher occupancy.
+            // at 6K, prefer 3 not 1 or 2.
+            // at 21K, prefer 6 not 7.
+            third_priority = distance_to_pow2_score;
+            forth_priority = occupancy_score;
+          } else {
+            third_priority = occupancy_score;
+            forth_priority = distance_to_pow2_score;
+          }
         }
         if (third_priority > 0) {
           return true;
