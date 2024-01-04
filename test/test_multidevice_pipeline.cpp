@@ -156,13 +156,13 @@ TEST_P(PipelineTestTwoStages, Communication) {
     mesh1 = mesh0;
   }
 
-  int first_axis_extent = 16;
+  int first_axis_extent = 3;
   if (is_stage0_sharded) {
     first_axis_extent = mesh0.vector().size();
   } else if (is_stage1_sharded) {
     first_axis_extent = mesh1.vector().size();
   }
-  int second_axis_extent = 32;
+  int second_axis_extent = 2;
   if (is_stage1_sharded && do_reduction) {
     GTEST_ASSERT_EQ(mesh0.vector().size(), mesh1.vector().size());
     second_axis_extent = mesh1.vector().size();
