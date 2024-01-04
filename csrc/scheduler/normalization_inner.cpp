@@ -260,7 +260,8 @@ class HeuristicCalculator {
     // Only used when occupancy is very important, e.g. when fused with dropout.
     // Otherwise, will cause regression, e.g. layer norm at 21K, reducing from
     // 48 to 40 regs per thread.
-    max_adjust_count_ = has_multiple_inputs_ ? 8l : 0l;
+    // max_persistent_buffer_size <24l*1024l*4l avoids low perf of softmax dropout at 24K on H100
+    max_adjust_count_ = has_multiple_inputs_ && max_persistent_buffer_size <24l*1024l*4l ? 8l : 0l;
 
     // If [n_waves_max > 1] use at least four warps per warp as recommended by
     // the cuda-c-best-practices-guide. Otherwise, one SM only has 1 block to
