@@ -2393,6 +2393,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
   int M = 504, N = 136, K = 8096;
 
   for (auto layout : kAllSupportedMmaLayout) {
+  for (int splitk_factor : {1, 2}) {
+  for (int use_smem_epilogue : {false, true}) {
     Fusion fusion;
     FusionGuard fg(&fusion);
     auto tv0 = makeContigTensor(2, DataType::Half);
@@ -2413,7 +2415,10 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
     MatmulParams params;
     params.mma_macro = MmaMacro::Ampere_16_8_16;
     params.tile_sizes = gemm_tile;
-    params.splitk_factor = 2;
+    params.splitk_factor = splitk_factor;
+    params.use_smem_epilogue = use_smem_epilogue;
+
+    std::cout << "\n\n#####    layout=" << toString(layout) << " use_smem_epilogue=" << use_smem_epilogue << " splitk_factor=" << splitk_factor << std::endl;
     scheduleMatmul(&fusion, params);
 
     auto inputs = matmulAtInput(M, N, K, layout);
@@ -2428,6 +2433,8 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
 
     // Relax tolerance for larger sum due to large K
     NVF_CHECK(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
+  }
+  }
   }
 }
 
