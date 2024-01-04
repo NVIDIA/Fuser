@@ -655,17 +655,11 @@ void IndexLowering::handleSerialGridReduction(
   auto work_buffer_tv = IrBuilder::create<TensorView>(
       new_domain, out_tv->dtype(), MemoryType::Global);
 
-  // TODO: expose this in ir_utils instead of hidden in index_compute.cpp
-  const auto sumVals = [](const std::vector<Val*> vals) -> Val* {
-    Val* result_index = GpuLower::current()->kernel()->zeroVal();
-    for (auto v : vals) {
-      result_index = SimplifyingIrBuilder::addExpr(result_index, v);
-    }
-    return result_index;
-  };
-
-  Val* work_buffer_idx_val =
-      sumVals(Index::getGlobalConsumerStridedIndices(out_tv, for_loops_, {}));
+  Val* work_buffer_idx_val = nullptr;
+  for (auto v :
+       Index::getGlobalConsumerStridedIndices(out_tv, for_loops_, {})) {
+    work_buffer_idx_val = SimplifyingIrBuilder::addExpr(work_buffer_idx_val, v);
+  }
 
   auto work_buffer_idx = IrBuilder::create<kir::TensorIndex>(
       work_buffer_tv,
