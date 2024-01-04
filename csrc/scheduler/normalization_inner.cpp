@@ -318,12 +318,12 @@ class HeuristicCalculator {
         } else if (total_reduction_numel_ >= 3072l) {
           experiment_min = 1l;
           experiment_max = 3l;
-        } else if (total_reduction_numel_ >= 2048l) {
+        } else if (total_reduction_numel_ >= 1024l) {
           experiment_min = 1l;
           experiment_max = 2l;
         } else {
           experiment_min = 1l;
-          experiment_max = 2l;
+          experiment_max = 1l;
         }
       } else {
         if (may_use_mrpb_) {
@@ -391,8 +391,9 @@ class HeuristicCalculator {
           all_h_params.begin(),
           all_h_params.begin() + n_items,
           [this](const HeuristicParas& a, const HeuristicParas& b) {
+            // prioritize divisible split may lead to a persistent val of 1, which is not good if hidden size is large, cut off at 5K.
             return isBetterThan(
-                this->has_rng_ops_, this->threads_per_warp_, a, b);
+                this->has_rng_ops_ || (this->has_multiple_inputs_ && this->max_persistent_buffer_size_ <= 5l*4l*1024l), this->threads_per_warp_, a, b);
           });
     }
 
@@ -440,7 +441,7 @@ class HeuristicCalculator {
 
   // Method to compare two HeuristicParas objects
   static bool isBetterThan(
-      bool has_rng_ops,
+      bool prioritize_divisible_split,
       int64_t threads_per_warp_s,
       const HeuristicParas& ha,
       const HeuristicParas& hb) {
@@ -487,7 +488,7 @@ class HeuristicCalculator {
     auto second_priority = distance_to_pow2_score;
     auto third_priority = threads_tails_score;
     auto forth_priority = persistent_tails_score;
-    if (has_rng_ops) {
+    if (prioritize_divisible_split) {
       first_priority = threads_tails_score;
       second_priority = persistent_tails_score;
       third_priority = 0;
@@ -503,7 +504,7 @@ class HeuristicCalculator {
       } else if (second_priority < 0) {
         return false;
       } else {
-        if (has_rng_ops) {
+        if (prioritize_divisible_split) {
           if (ha.n_threads_tails == 0 && ha.n_persistent_tails == 0) {
             // at 1536, prioritize pow2.
             // at 1600, prioritize higher occupancy.
@@ -530,7 +531,7 @@ class HeuristicCalculator {
             // [persistent], it leads to larger [bdimx], means wasted fraction
             // of threads is smaller. e.g. at 10496, prefer persistent = 3
             // instead of 6., bandwidth is 1.24x
-            return ha.n_threads_tails != 0 && has_rng_ops
+            return ha.n_threads_tails != 0 && prioritize_divisible_split
                 ? ha.persistent_val < hb.persistent_val
                 : ha.persistent_val > hb.persistent_val;
           }
