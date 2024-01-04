@@ -15,6 +15,7 @@
 #include <serde/polymorphic_value.h>
 #include <serde/utils.h>
 #include <optional>
+#include <string>
 #include <tuple>
 #include <typeinfo>
 #include <variant>
@@ -205,6 +206,13 @@ nvf::PolymorphicValue deserializeScalarCpu(const PolymorphicValue* buffer) {
   return nvf::PolymorphicValue_functions::toTensor(scalar, at::kCPU);
 }
 
+nvf::PolymorphicValue deserializeString(const PolymorphicValue* buffer) {
+  NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
+  auto data = buffer->data_as_String();
+  NVF_ERROR(data != nullptr, "flatbuffer::String is nullptr.");
+  return nvf::PolymorphicValue(nvf::Opaque(data->value()->str()));
+}
+
 // TODO Encode ptr field which corresponds to the aten tensor's data pointer.
 // It is used during scheduling for vectorization. A meta aten tensor assumes
 // that the pointer address is zero.
@@ -363,6 +371,7 @@ void PolymorphicValueFactory::registerAllParsers() {
   registerParser(PolymorphicValueData::Scope, deserialize_unsupported);
 
   auto deserialize_array = [this](const PolymorphicValue* buffer) {
+    NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
     return makeArray(buffer->data_as_Array());
   };
   registerParser(PolymorphicValueData::Array, deserialize_array);
@@ -382,9 +391,11 @@ void PolymorphicValueFactory::registerAllParsers() {
   registerParser(PolymorphicValueData::RNGAttributes, deserializeRNGAttributes);
   registerParser(PolymorphicValueData::ScalarCpu, deserializeScalarCpu);
   auto deserialize_scope = [this](const PolymorphicValue* buffer) {
+    NVF_ERROR(buffer != nullptr, "serde::PolymorphicValue is nullptr.");
     return makeScope(buffer->data_as_Scope());
   };
   registerParser(PolymorphicValueData::Scope, deserialize_scope);
+  registerParser(PolymorphicValueData::String, deserializeString);
   registerParser(PolymorphicValueData::TensorArg, deserializeTensorArg);
 }
 
@@ -659,6 +670,11 @@ flatbuffers::Offset<PolymorphicValue> serializeOpaque(
     auto data = CreateLoopRotationDirect(builder, &fb_items);
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::LoopRotation, data.Union());
+  } else if (v.any().type() == typeid(std::string)) {
+    const auto& nvf_string = v.as<std::string>();
+    auto data = serde::CreateStringDirect(builder, nvf_string.c_str());
+    return CreatePolymorphicValue(
+        builder, PolymorphicValueData::String, data.Union());
   } else {
     NVF_ERROR(
         false, "Serialization of arbitrary opaque value is not implemented.");
