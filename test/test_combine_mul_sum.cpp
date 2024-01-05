@@ -211,14 +211,23 @@ TEST_F(CombineMulSumAsMmaTest, UseMatmulScheduler) {
     FusionExecutorCache executor_cache(std::move(fusion));
     auto outputs = executor_cache.runFusionWithInputs({t0, t1});
     // Ensure there's a mma op.
+    // If there's no mma op present, then stop the test.
     ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(
                      executor_cache.getMostRecentKernelRuntime()
                          ->executors()
                          .at(0)
                          .kernel())
                      .empty());
+    // Ensure that the matmul scheduler ran.
+    EXPECT_TRUE(
+        dynamic_cast<MatmulScheduler*>(
+            executor_cache.getMostRecentKernelRuntime()
+                ->schedulerHeuristics()
+                ->heuristicsList()
+                .at(0)
+                .get()) != nullptr);
 
-    ASSERT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+    EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 
     testValidate(
         executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
