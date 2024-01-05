@@ -370,15 +370,12 @@ void GpuLower::create(const serde::Kernel* kernel) {
     cparams_.index_type = PrimDataType::Int;
   }
 
-  std::unique_ptr<Fusion> lowered_fusion = std::make_unique<Fusion>();
-  FusionGuard fg(lowered_fusion.get());
-  lowered_fusion->deserialize(kernel->fusion());
-
   // Copy fusion into a new kernel for processing
-  kernel_ = std::make_unique<kir::Kernel>(lowered_fusion.get(), indexType());
-  kernel_->deserialize(kernel);
+  kernel_ = std::make_unique<kir::Kernel>(indexType());
   // Alias the fusion kernel caries around as a view of itself.
   fusion_ = kernel_.get();
+  FusionGuard fg(fusion_);
+  kernel_->deserialize(kernel);
 }
 
 void GpuLower::analysis() {

@@ -73,12 +73,13 @@ Predicate::Predicate(
     IrBuilderPasskey passkey,
     const serde::Value* buffer,
     const serde::Predicate* data)
-    : Predicate(passkey, container->getVal<Val>(data->value())) {
+    : Val(passkey, ValType::Predicate, DataType::Bool) {
   // CLANGTIDY expects ptype_ to be in member initializer list but we are using
   // delegating constructor.
   //! NOLINTBEGIN(cppcoreguidelines-prefer-member-initializer)
   ptype_ = static_cast<PredicateType>(data->predicate_type_enum());
   thread_pred_ = container->getVal<Val>(data->thread_pred_val());
+  value_ = container->getVal<Val>(data->value());
   //! NOLINTEND(cppcoreguidelines-prefer-member-initializer)
 }
 
