@@ -2393,48 +2393,57 @@ TEST_F(NVFuserTest, FusionAmpereMatmulSplitK_CUDA) {
   int M = 504, N = 136, K = 8096;
 
   for (auto layout : kAllSupportedMmaLayout) {
-  for (int splitk_factor : {1, 2}) {
-  for (int use_smem_epilogue : {false, true}) {
-    Fusion fusion;
-    FusionGuard fg(&fusion);
-    auto tv0 = makeContigTensor(2, DataType::Half);
-    auto tv1 = makeContigTensor(2, DataType::Half);
+    for (int splitk_factor : {1, 2}) {
+      for (int use_smem_epilogue : {false, true}) {
+        Fusion fusion;
+        FusionGuard fg(&fusion);
+        auto tv0 = makeContigTensor(2, DataType::Half);
+        auto tv1 = makeContigTensor(2, DataType::Half);
 
-    fusion.addInput(tv0);
-    fusion.addInput(tv1);
+        fusion.addInput(tv0);
+        fusion.addInput(tv1);
 
-    auto tv2 = matmul(tv0, tv1, layout, true);
+        auto tv2 = matmul(tv0, tv1, layout, true);
 
-    fusion.addOutput(tv2);
+        fusion.addOutput(tv2);
 
-    MatMulTileOptions gemm_tile;
-    gemm_tile.cta_tile = GemmTile(128, 128, 32);
-    gemm_tile.warp_tile = GemmTile(64, 64, 32);
-    gemm_tile.instruction_tile = GemmTile(16, 8, 16);
+        MatMulTileOptions gemm_tile;
+        gemm_tile.cta_tile = GemmTile(128, 128, 32);
+        gemm_tile.warp_tile = GemmTile(64, 64, 32);
+        gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
-    MatmulParams params;
-    params.mma_macro = MmaMacro::Ampere_16_8_16;
-    params.tile_sizes = gemm_tile;
-    params.splitk_factor = splitk_factor;
-    params.use_smem_epilogue = use_smem_epilogue;
+        MatmulParams params;
+        params.mma_macro = MmaMacro::Ampere_16_8_16;
+        params.tile_sizes = gemm_tile;
+        params.splitk_factor = splitk_factor;
+        params.use_smem_epilogue = use_smem_epilogue;
+        params.promote_prologue_smem_reuse = true;
 
-    std::cout << "\n\n#####    layout=" << toString(layout) << " use_smem_epilogue=" << use_smem_epilogue << " splitk_factor=" << splitk_factor << std::endl;
-    scheduleMatmul(&fusion, params);
+        std::cout << "\n\n#####    layout=" << toString(layout)
+                  << " use_smem_epilogue=" << use_smem_epilogue
+                  << " splitk_factor=" << splitk_factor << std::endl;
+        scheduleMatmul(&fusion, params);
 
-    auto inputs = matmulAtInput(M, N, K, layout);
+        auto inputs = matmulAtInput(M, N, K, layout);
 
-    FusionExecutor fe;
-    NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-        7, 5, fe.compileFusion(&fusion, {inputs.first, inputs.second}));
-    ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
-    auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
-    auto tref = atMatmul(
-        inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
+        FusionExecutor fe;
+        NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+            7, 5, fe.compileFusion(&fusion, {inputs.first, inputs.second}));
+        EXPECT_TRUE(getBankConflictInfo(fe.kernel()).empty());
+        std::cout << "BankConflictInfo:" << std::endl;
+        for (auto [expr, conflictways] : getBankConflictInfo(fe.kernel())) {
+          std::cout << "  " << expr->toString();
+          std::cout << "    " << conflictways.first << "  "
+                    << conflictways.second << std::endl;
+        }
+        auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+        auto tref = atMatmul(
+            inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
 
-    // Relax tolerance for larger sum due to large K
-    NVF_CHECK(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
-  }
-  }
+        // Relax tolerance for larger sum due to large K
+        NVF_CHECK(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
+      }
+    }
   }
 }
 
