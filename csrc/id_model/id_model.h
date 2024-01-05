@@ -46,6 +46,17 @@ class ValGraph;
 // IdMappingMode::EXACT
 //   Don't map any broadcast axes to non-broadcast axes
 //   Do not forward through any broadcast IDs
+// IdMappingMode::PERMISSIVE
+//   Forward broadcast axes in replay
+//   Map all iteration domains
+//   Always contain root mappings (otherwise they could have been forwarded in
+//   broadcast)
+// IdMappingMode::AlmostExact
+//   Forward through broadcast axes, but not through to a non-broadcast axis
+//     i.e. id{b1*i0}, id{i0} are mapped
+//          id{i1*i0}, id{i0} are not mapped (this part is the difference from
+//          PERMISSIVE)
+//   Forward through split one axes, i.e. id{ceilDiv(i0, 1)}, id{i0} are mapped
 //
 class IdModel : public PolymorphicBase {
  public:
@@ -114,6 +125,10 @@ class IdModel : public PolymorphicBase {
   // Exact entries, then map anything that's either merged with a size-1 or
   // split by a size-1 dimension.
   void buildAlmostExactMap();
+
+  // Fills disjoint_ids_[IdMappingMode::PERMISSIVE]. Initialize it as
+  // Exact entries, then map through broadcasts
+  void buildPermissiveMap(const std::vector<Expr*>& exprs);
 
   // Errors if self mapping occurs
   void assertNoSelfMapping();

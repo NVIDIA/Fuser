@@ -15,6 +15,109 @@
 
 namespace nvfuser {
 
+namespace {
+
+// Same as IterDomain::exprsMap but uses
+// ValGraph::mapMergeBackward. Copying the funciton here isn't ideal,
+// but it doesn't make sense to change the ComputeAtMap code just for
+// this validation.
+bool exprsMap(
+    Expr* first,
+    Expr* second,
+    bool forward,
+    const DisjointSets<IterDomain*>& id_map) {
+  if (first == nullptr || second == nullptr) {
+    return false;
+  }
+
+  if (typeid(*first) != typeid(*second)) {
+    return false;
+  }
+
+  NVF_ERROR(
+      first->isA<Merge>() || first->isA<Split>() || first->isA<Resize>() ||
+          first->isA<Swizzle>(),
+      "Merge, split, resize and swizzle are the only expressions supported here, but found:\n",
+      first->toString());
+
+  auto first_ids = ir_utils::filterByType<IterDomain>(
+                       forward ? first->inputs() : first->outputs())
+                       .vector();
+
+  auto second_ids = ir_utils::filterByType<IterDomain>(
+                        forward ? second->inputs() : second->outputs())
+                        .vector();
+
+  NVF_ERROR(
+      first_ids.size() == second_ids.size(),
+      "Expected number of ",
+      (forward ? "inputs" : "outputs"),
+      " to match for\n",
+      first->toString(),
+      second->toString());
+
+  {
+    std::vector<std::pair<IterDomain*, IterDomain*>> zipped_ids;
+
+    std::transform(
+        first_ids.begin(),
+        first_ids.end(),
+        second_ids.begin(),
+        std::back_inserter(zipped_ids),
+        [](IterDomain* first, IterDomain* second) {
+          return std::make_pair(first, second);
+        });
+
+    if (std::any_of(
+            zipped_ids.begin(),
+            zipped_ids.end(),
+            [&](std::pair<IterDomain*, IterDomain*> id_pair) {
+              return !id_map.strictAreMapped(id_pair.first, id_pair.second);
+            })) {
+      return false;
+    }
+  }
+
+  if (first->isA<Merge>() && !forward) {
+    if (!ValGraph::shouldMapMergeBackward<IterDomain>(
+            first->as<Merge>(), second->as<Merge>(), id_map)) {
+      return false;
+    }
+  }
+
+  if (first->isA<Split>()) {
+    auto first_split = first->as<Split>();
+    auto second_split = second->as<Split>();
+    if (!first_split->factor()->sameAs(second_split->factor()) ||
+        first_split->innerSplit() != second_split->innerSplit() ||
+        !first_split->startOffset()->sameAs(second_split->startOffset()) ||
+        !first_split->stopOffset()->sameAs(second_split->stopOffset())) {
+      return false;
+    }
+  }
+
+  if (first->isA<Resize>()) {
+    auto first_resize = first->as<Resize>();
+    auto second_resize = second->as<Resize>();
+    if (!first_resize->leftExpand()->sameAs(second_resize->leftExpand()) ||
+        !first_resize->rightExpand()->sameAs(second_resize->rightExpand())) {
+      return false;
+    }
+  }
+
+  if (first->isA<Swizzle>()) {
+    auto swizzle_1 = first->as<Swizzle>();
+    auto swizzle_2 = first->as<Swizzle>();
+    if (swizzle_1->swizzleType() != swizzle_2->swizzleType()) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+} // namespace
+
 IdModelValidator::IdModelValidator(Fusion* fusion) : ca_map_(fusion) {
   for (auto tv : ir_utils::allTvs(fusion)) {
     for (auto id : ir_utils::allIDsOf(tv)) {
@@ -55,7 +158,9 @@ void IdModelValidator::fullyPropagateMappings(
               }
             }
           } else {
-            all_exprs.push_back(id->definition());
+            if (id->definition()) {
+              all_exprs.push_back(id->definition());
+            }
           }
         }
 
@@ -68,8 +173,7 @@ void IdModelValidator::fullyPropagateMappings(
           auto expr_i = all_exprs.at(i);
           for (size_t j = i + 1; j < count; ++j) {
             auto expr_j = all_exprs.at(j);
-            if (!IterDomainGraph::exprsMap(
-                    expr_i, expr_j, is_forward, id_sets)) {
+            if (!exprsMap(expr_i, expr_j, is_forward, id_sets)) {
               continue;
             }
             const auto& prop_target_i =
@@ -194,6 +298,25 @@ void IdModelValidator::checkAlmostExactGraphEquivalence(
   fullyPropagateMappings(ca_map_sets);
 
   compareDisjointSets(ca_map_sets, almost_exact_graph.disjointValSets());
+}
+
+void IdModelValidator::checkPermissiveGraphEquivalence(
+    const ValGraph& permissive_graph) {
+  if (has_swizzle_) {
+    // Ignoring a fusion with swizzle
+    return;
+  }
+
+  // Empty graph
+  if (permissive_graph.disjointValSets().disjointSets().empty()) {
+    return;
+  }
+
+  DisjointSets<IterDomain*> ca_map_sets = ca_map_.id_graph_.permissive_nodes_;
+
+  fullyPropagateMappings(ca_map_sets);
+
+  compareDisjointSets(ca_map_sets, permissive_graph.disjointValSets());
 }
 
 } // namespace nvfuser

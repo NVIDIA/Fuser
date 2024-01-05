@@ -2,7 +2,7 @@ from nvfuser import FusionDefinition, DataType
 from .global_params import PROMOTE_DTYPES
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 import torch
-from .core import run_benchmark
+from .core import run_benchmark, clear_cuda_cache
 
 
 def norm_fwd_fusion(
@@ -201,6 +201,9 @@ def norm_fwd_benchmark(
     """
     Common benchmark setup for batchnorm/instance forward call in training mode.
     """
+
+    clear_cuda_cache()
+
     assert norm in ["batch_norm", "instance_norm"], NotImplementedError
 
     # Size is assumed to be in the order N, C, ...
@@ -271,8 +274,6 @@ def norm_fwd_benchmark(
             benchmark, fd.execute, [inputs, weight, bias, running_mean, running_var]
         )
 
-    torch.cuda.empty_cache()
-
 
 def norm_bwd_benchmark(
     benchmark,
@@ -287,6 +288,8 @@ def norm_bwd_benchmark(
     """
     Common benchmark setup for batchnorm/instance forward call in training mode.
     """
+
+    clear_cuda_cache()
 
     assert norm in ["batch_norm", "instance_norm"], NotImplementedError
 
@@ -371,5 +374,3 @@ def norm_bwd_benchmark(
             fd.execute,
             [inputs, grads, weight, running_mean, running_var, mean, invstd],
         )
-
-    torch.cuda.empty_cache()

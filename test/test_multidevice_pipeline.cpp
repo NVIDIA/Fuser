@@ -128,23 +128,91 @@ TEST_F(PipelineTest, Pipeline) {
       at::randn(input_shape1, tensor_options),
       at::randn(input_shape2, tensor_options)};
 
-  validate();
+  executeAndValidate();
+}
+
+//(backend type, first stage's mesh, second stage's mesh (if not null), is first stage sharded?, is second
+// stage sharded?, do_reduction?)
+using PipelineTestTwoStagesParams =
+    std::tuple<CommunicatorBackend, DeviceMesh, DeviceMesh, bool, bool, bool>;
+class PipelineTestTwoStages
+    : public PipelineTest,
+      public ::testing::WithParamInterface<PipelineTestTwoStagesParams> {};
+
+TEST_P(PipelineTestTwoStages, Communication) {
+  auto
+      [backend,
+       mesh0,
+       mesh1,
+       is_stage0_sharded,
+       is_stage1_sharded,
+       do_reduction] = GetParam();
+  if (!communicator->isBackendAvailable(backend)) {
+    GTEST_SKIP() << "Backend not available";
+  }
+  communicator->setDefaultBackend(backend);
+
+  if (mesh1.vector().empty()) {
+    mesh1 = mesh0;
+  }
+
+  int first_axis_extent = 3;
+  if (is_stage0_sharded) {
+    first_axis_extent = mesh0.vector().size();
+  } else if (is_stage1_sharded) {
+    first_axis_extent = mesh1.vector().size();
+  }
+  int second_axis_extent = 2;
+  if (is_stage1_sharded && do_reduction) {
+    GTEST_ASSERT_EQ(mesh0.vector().size(), mesh1.vector().size());
+    second_axis_extent = mesh1.vector().size();
+  }
+  std::vector<int64_t> input_sizes = {first_axis_extent, second_axis_extent, 3, 5};
+
+  FusionGuard fg(fusion.get());
+  TensorView* tv0 = makeConcreteTensor(input_sizes);
+  TensorView* tv1 = sum(tv0, {3});
+  TensorView* tv2 = do_reduction ? sum(tv1, {0}) : set(tv1);
+  TensorView* tv3 = sum(tv2, {1});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv3);
+
+  tv0->setDeviceMesh(mesh0);
+  tv1->setDeviceMesh(mesh0);
+  tv2->setDeviceMesh(mesh1);
+  tv3->setDeviceMesh(mesh1);
+  if (is_stage0_sharded) {
+    tv0->axis(0)->parallelize(ParallelType::DIDx);
+    tv1->axis(0)->parallelize(ParallelType::DIDx);
+    // Shard outermost-axis of input
+    input_sizes[0] = 1;
+  }
+  if (is_stage1_sharded) {
+    // in case of reduction, axis(0) of tv2 is a reduction axis, except if it was initially of size 1, in which case it is simply removed.
+    int tv2_outmost_axis = (do_reduction && second_axis_extent > 1) ? 1 : 0; 
+    tv2->axis(tv2_outmost_axis)->parallelize(ParallelType::DIDx);
+    tv3->axis(0)->parallelize(ParallelType::DIDx);
+  }
+
+  inputs = {at::ones(input_sizes, tensor_options) * communicator->deviceId()};
+
+  executeAndValidate();
 }
 
 namespace {
 auto all_backends =
     ::testing::Values(CommunicatorBackend::nccl, CommunicatorBackend::ucc);
 
+DeviceMesh mesh_null;
 DeviceMesh mesh0({0});
 DeviceMesh mesh1({1});
 DeviceMesh mesh2({0, 1, 2, 3});
 DeviceMesh mesh3({0, 2, 3});
 DeviceMesh mesh4({1, 0, 2});
 auto all_meshes = ::testing::Values(mesh0, mesh1, mesh2, mesh3, mesh4);
+auto all_nontrivial_meshes = ::testing::Values(mesh2, mesh3, mesh4);
 
 } // namespace
-
-TEST_P(PipelineTestTwoStages, Communication) {}
 
 INSTANTIATE_TEST_SUITE_P(
     Gather,
@@ -154,6 +222,7 @@ INSTANTIATE_TEST_SUITE_P(
         all_meshes,
         all_meshes,
         ::testing::Values(true),
+        ::testing::Values(false),
         ::testing::Values(false)));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -164,7 +233,8 @@ INSTANTIATE_TEST_SUITE_P(
         all_meshes,
         all_meshes,
         ::testing::Values(false),
-        ::testing::Values(true)));
+        ::testing::Values(true),
+        ::testing::Values(false)));
 
 INSTANTIATE_TEST_SUITE_P(
     Bcast,
@@ -174,6 +244,7 @@ INSTANTIATE_TEST_SUITE_P(
         all_meshes,
         all_meshes,
         ::testing::Values(false),
+        ::testing::Values(false),
         ::testing::Values(false)));
 
 INSTANTIATE_TEST_SUITE_P(
@@ -181,126 +252,44 @@ INSTANTIATE_TEST_SUITE_P(
     PipelineTestTwoStages,
     ::testing::Combine(
         all_backends,
-        ::testing::Values(mesh3),
-        ::testing::Values(mesh4),
+        ::testing::Values(mesh3, mesh4),
+        ::testing::Values(mesh3, mesh4),
         ::testing::Values(true),
+        ::testing::Values(true),
+        ::testing::Values(false)));
+
+INSTANTIATE_TEST_SUITE_P(
+    Bcast_sharded_same_mesh,
+    PipelineTestTwoStages,
+    ::testing::Combine(
+        all_backends,
+        ::testing::Values(mesh0, mesh1),
+        ::testing::Values(mesh_null), // the same mesh is used for all tensors
+        ::testing::Values(true),
+        ::testing::Values(true),
+        ::testing::Values(false)));
+
+INSTANTIATE_TEST_SUITE_P(
+    Reduce,
+    PipelineTestTwoStages,
+    ::testing::Combine(
+        all_backends,
+        all_nontrivial_meshes,
+        all_meshes,
+        ::testing::Values(true),
+        ::testing::Values(false),
         ::testing::Values(true)));
 
-TEST_F(PipelineTest, Pipeline_Reduce) {
-  const std::vector<int64_t> input_shape = {4, 3, 1, 2};
-  const std::vector<int64_t> sharded_input_shape = {1, 3, 1, 2};
-
-  FusionGuard fg(fusion.get());
-
-  TensorView* tv0 = makeConcreteTensor(input_shape);
-  fusion->addInput(tv0);
-  TensorView* tv1 = sum(tv0, {1});
-  TensorView* tv2 = sum(tv1, {0});
-  TensorView* tv3 = sum(tv2, {0});
-  fusion->addOutput(tv3);
-
-  DeviceMesh mesh0({0, 1, 2, 3});
-  DeviceMesh mesh1({0, 1});
-  tv0->setDeviceMesh(mesh0);
-  tv1->setDeviceMesh(mesh0);
-  tv2->setDeviceMesh(mesh1);
-  tv3->setDeviceMesh(mesh1);
-
-  tv0->axis(0)->parallelize(ParallelType::DIDx);
-  tv1->axis(0)->parallelize(ParallelType::DIDx);
-
-  inputs = {
-      at::ones(sharded_input_shape, tensor_options) * (communicator->deviceId() + 1)};
-
-  validate();
-}
-
-TEST_F(PipelineTest, Pipeline_ReduceToExternalRoot) {
-  const std::vector<int64_t> input_shape = {2, 3, 1, 2};
-  const std::vector<int64_t> sharded_input_shape = {1, 3, 1, 2};
-
-  FusionGuard fg(fusion.get());
-
-  TensorView* tv0 = makeConcreteTensor(input_shape);
-  fusion->addInput(tv0);
-  TensorView* tv1 = sum(tv0, {1});
-  TensorView* tv2 = sum(tv1, {0});
-  TensorView* tv3 = sum(tv2, {0});
-  fusion->addOutput(tv3);
-
-  DeviceMesh mesh0({0, 1});
-  DeviceMesh mesh1({2});
-  tv0->setDeviceMesh(mesh0);
-  tv1->setDeviceMesh(mesh0);
-  tv2->setDeviceMesh(mesh1);
-  tv3->setDeviceMesh(mesh1);
-
-  tv0->axis(0)->parallelize(ParallelType::DIDx);
-  tv1->axis(0)->parallelize(ParallelType::DIDx);
-
-  inputs = {
-      at::ones(sharded_input_shape, tensor_options) * (communicator->deviceId() + 1)};
-
-  validate();
-}
-
-TEST_F(PipelineTest, Pipeline_Allreduce) {
-  const std::vector<int64_t> unsharded_input_shape = {4, 3, 1, 2};
-  const std::vector<int64_t> input_shape = {1, 3, 1, 2};
-  FusionGuard fg(fusion.get());
-
-  TensorView* tv0 = makeConcreteTensor(unsharded_input_shape);
-  fusion->addInput(tv0);
-  TensorView* tv1 = sum(tv0, {1});
-  TensorView* tv2 = sum(tv1, {0});
-  TensorView* tv3 = sum(tv2, {0});
-  fusion->addOutput(tv3);
-
-  DeviceMesh mesh0({0, 1, 2, 3});
-  DeviceMesh mesh1({0, 1});
-  tv0->setDeviceMesh(mesh0);
-  tv1->setDeviceMesh(mesh0);
-  tv2->setDeviceMesh(mesh1);
-  tv3->setDeviceMesh(mesh1);
-
-  tv0->axis(0)->parallelize(ParallelType::DIDx);
-  tv1->axis(0)->parallelize(ParallelType::DIDx);
-
-  inputs = {at::ones(input_shape, tensor_options) * (communicator->deviceId() + 1)};
-  
-  validate();
-}
-
-TEST_F(PipelineTest, Pipeline_ReduceScatter) {
-  const std::vector<int64_t> input_shape = {4, 4, 1, 2};
-  const std::vector<int64_t> sharded_input_shape = {1, 4, 1, 2};
-
-  FusionGuard fg(fusion.get());
-
-  TensorView* tv0 = makeConcreteTensor(input_shape);
-  fusion->addInput(tv0);
-  TensorView* tv1 = sum(tv0, {3});
-  TensorView* tv2 = sum(tv1, {0});
-  TensorView* tv3 = sum(tv2, {1});
-  fusion->addOutput(tv3);
-
-  DeviceMesh mesh0({0, 1, 2, 3});
-  DeviceMesh mesh1({0, 1, 2, 3});
-  tv0->setDeviceMesh(mesh0);
-  tv1->setDeviceMesh(mesh0);
-  tv2->setDeviceMesh(mesh1);
-  tv3->setDeviceMesh(mesh1);
-
-  tv0->axis(0)->parallelize(ParallelType::DIDx);
-  tv1->axis(0)->parallelize(ParallelType::DIDx);
-  tv2->axis(1)->parallelize(
-      ParallelType::DIDx); // axis(0) is the "reduce" axis from previous tensor
-  tv3->axis(0)->parallelize(ParallelType::DIDx);
-
-  inputs = {at::ones(sharded_input_shape, tensor_options) * (communicator->deviceId() + 1)};
-      
-  validate();
-}
+INSTANTIATE_TEST_SUITE_P(
+    ReduceScatter,
+    PipelineTestTwoStages,
+    ::testing::Combine(
+        all_backends,
+        all_nontrivial_meshes,
+        ::testing::Values(mesh_null), // the same mesh is used for all tensors
+        ::testing::Values(true),
+        ::testing::Values(true),
+        ::testing::Values(true)));
 
 TEST_F(PipelineTest, Overlap) {
   // In this example we demonstrate how we can apply the optimization
@@ -391,7 +380,7 @@ TEST_F(PipelineTest, Overlap) {
   // inputs = {at::ones(input_extents, tensor_options) *
   // (communicator->deviceId() + 1)};
 
-  // validate();
+  // executeAndValidate();
 }
 
 TensorView* MatrixMultiplication(TensorView* a, TensorView* b) {
