@@ -305,6 +305,14 @@ Kernel::Kernel(Fusion* fusion, PrimDataType index_type)
       index_type_);
 }
 
+Kernel::Kernel(PrimDataType index_type) : index_type_(index_type) {
+  // Index type must be resolved to either int32 or int64
+  NVF_ERROR(
+      index_type_ == PrimDataType::Int || index_type_ == PrimDataType::Int32 ||
+          "Invalid index type: ",
+      index_type_);
+}
+
 flatbuffers::Offset<serde::Kernel> Kernel::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   IrSerde container(this, /*deterministic_order=*/true);
@@ -322,7 +330,29 @@ flatbuffers::Offset<serde::Kernel> Kernel::serialize(
 }
 
 void Kernel::deserialize(const serde::Kernel* buffer) {
-  NVF_ERROR(scopes_.size() == buffer->scopes()->size());
+  NVF_ERROR(buffer != nullptr, "serde::Kernel is nullptr.");
+  Fusion::deserialize(buffer->fusion());
+
+  // Refactor: Manually add scopes for kir::ForLoop and kir::IfThenElse
+  for (auto& e : exprs_up_) {
+    if (e->isA<kir::ForLoop>()) {
+      kir::ForLoop* loop = e->as<kir::ForLoop>();
+      addScope(&(loop->body()));
+    } else if (e->isA<kir::IfThenElse>()) {
+      kir::IfThenElse* ite = e->as<kir::IfThenElse>();
+      addScope(&(ite->thenBody()));
+      addScope(&(ite->elseBody()));
+    }
+  }
+
+  NVF_ERROR(
+      scopes_.size() == buffer->scopes()->size(),
+      "Expected ",
+      buffer->scopes()->size(),
+      " but there are only ",
+      scopes_.size(),
+      " scopes in this kernel.");
+
   int64_t scope_index = 0;
   for (auto fb_scope : *buffer->scopes()) {
     NVF_ERROR(fb_scope != nullptr, "serde::Scope is nullptr.");
@@ -332,6 +362,7 @@ void Kernel::deserialize(const serde::Kernel* buffer) {
       Expr* expr = getExpr<Expr>(expr_index);
       scope->push_back(expr);
     }
+    ++scope_index;
   }
 }
 

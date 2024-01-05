@@ -93,7 +93,7 @@ class Predicate final : public Val {
       override;
 
   std::vector<const Statement*> serdeDependencies() const override {
-    return {thread_pred_};
+    return {value_, thread_pred_};
   }
 
   PredicateType predicate_type() const {
