@@ -954,23 +954,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
 
   // Schedule warp tile
   mma_utils::scheduleWarpTileWithReduction(mma_result, gemm_tile);
-  // Single warp k:
   //          -8   -7   -6  -5  -4  -3  -2  -1
   //   [... rKwo iMwo iNwo iMw iNw iMi iNi rKi]
-  // If instead K is split across warps (unused):
-  //           -8  -7  -6  -5  -4  -3  -2  -1
-  //   [... iMNwo rKo iMw iNw rKw iMi iNi rKi]
-  // Note the positions of the reduction dimensions has changed
 
   // Propagate warp tile to main loop and epilog/output tvs
-  std::vector<TensorView*> warp_tile_prop_tvs;
-  if (splitk_sum != nullptr) {
-    warp_tile_prop_tvs.push_back(splitk_sum);
-  } else if (smem_epilogue != nullptr) {
-    warp_tile_prop_tvs.push_back(smem_epilogue);
-  }
   scheduler_utils::BoundedDirectionalTransformPropagator::bothWays(
-      mma_result, -1, {acw_smem, bcw_smem}, warp_tile_prop_tvs);
+      mma_result, -1, {acw_smem, bcw_smem}, {smem_epilogue});
 
   // No (cross-CTA) split-K
   //   mma_result      [..., iMo iNo rKo rKwo iMwo iNwo iMw iNw iMi iNi rKi]
