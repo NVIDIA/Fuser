@@ -924,6 +924,9 @@ TEST_F(AliasTest, SegmentBoundary) {
 
   TensorView* in = makeContigConcreteTensor({2, 3});
   TensorView* out = permute(in, {1, 0});
+  // With the current segmentation algorithm, `slice` has to be the start of a
+  // fusion. So we expect `permute` to form a meta-op-only segment and the rest
+  // a pointwise segment.
   out = slice(out, {0, 0}, {2, 2});
   out = add(out, out);
   fusion->addInput(in);
