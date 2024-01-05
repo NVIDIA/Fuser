@@ -201,6 +201,15 @@ class IdModel : public PolymorphicBase {
       const StatefulInliningInfo& info,
       const std::unordered_map<ValGroup, IterDomain*>& stale_promotion_map);
 
+  // Helper function for buildLoopPromotionMap. Propagate root
+  // promotions to intermediate and leaf domains
+  void propagatePromotions(
+      const ValGraph& iel_graph,
+      std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
+      const ValGraph& loop_graph,
+      const std::unordered_map<ValGroup, IterDomain*>&
+          loop_graph_promotion_map);
+
   // Find a promoted iter domain of a given loop group that covers all
   // the exact groups representative of the resolved transformations
   // within the loop group. It doesn't have to be in the loop
