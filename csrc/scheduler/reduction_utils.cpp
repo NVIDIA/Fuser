@@ -899,10 +899,10 @@ class PersistentBufferProjector {
       // domain. But adding `T7 = T1 + T6` creates a new propagation path
       // `T2->T1->T7->T6->T4->T5` which has all root domain information.
       // See FusionBroadcastPersistentReduction_CUDA for an example
-      dummy_outputs_.emplace_back(add(buffer_replicate, buffer));
       // avoid replacing the use with itself, see
       // https://github.com/NVIDIA/Fuser/issues/1533
       if (buffer != buffer_replicate) {
+        dummy_outputs_.emplace_back(add(buffer_replicate, buffer));
         ir_utils::replaceValInExprInputs(
             use->definition(), buffer, buffer_replicate);
       }
