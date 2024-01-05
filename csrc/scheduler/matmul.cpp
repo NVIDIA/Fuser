@@ -701,15 +701,12 @@ void scheduleMatmul(Fusion* fusion, const MatmulParams& params) {
       scheduler_utils::cacheAndForkOutputs(fusion, should_unroll);
 
   mma_utils::CombineMulSum combiner(fusion);
-  std::vector<mma_utils::MulSumProperties> mulSum =
-      combiner.generateMulSumCanidates();
-
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
   if (combiner.isValid() && mma_ops.empty()) {
     combiner.replaceWithMmaOp();
+    mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
   }
 
-  mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
   NVF_ERROR(
       mma_ops.size() == 1,
       "scheduleMatmul supports fusion with single mma op in definition, got ",

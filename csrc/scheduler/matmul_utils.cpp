@@ -137,7 +137,7 @@ inline bool initCoreHeuristics(
 
 //! A helper for getting problem shape from fusion and runtime info.
 ProblemShape getProblemShape(
-    mma_utils::MulSumProperties::InputsOutputs props,
+    const mma_utils::MulSumProperties::InputsOutputs& props,
     SchedulerRuntimeInfo& runtime_info) {
   const auto mma_output_domains = mma_utils::getProblemIterDomains({props});
   if (!mma_output_domains.isValid()) {
@@ -168,7 +168,7 @@ ProblemShape getProblemShape(
 
 std::string isMatmulFusionDefinitionSupported(
     Fusion* fusion,
-    mma_utils::MulSumProperties::InputsOutputs props) {
+    const mma_utils::MulSumProperties::InputsOutputs& props) {
   const auto& fusion_inputs = fusion->inputs();
   const auto& fusion_outputs = fusion->outputs();
   std::vector<TensorView*> mma_inputs = {props.a, props.b};
@@ -304,10 +304,11 @@ std::string getMatmulRunTimeRejectReason(
 }
 
 // The analysis is based on mul-sum pair pattern, detected in the provided
-// fusion definition. If detected and properties of an instance of such
-// pattern are valid then it will be later replaced with MmaOp in
-// fusion definition. For the time being a direct instance of MmaOp is
-// also accepted and handled by the analysis.
+//  fusion definition. If detected and properties of an instance of such
+//  pattern are valid then it will be later replaced with MmaOp in
+//  fusion definition.
+// For the time being a direct instance of MmaOp is also accepted and handled
+//  by the analysis.
 std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // The plan:
   // 1. Check if there is exactly one MmaOp or suitable mul sum pair
@@ -318,12 +319,9 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // scheduler.
 
   // #1
-  auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
   // Initializing the machinery to check if there's a Mul-Sum pair
   // can be replaced by a Mma Op.
   mma_utils::CombineMulSum combiner(fusion);
-  std::vector<mma_utils::MulSumProperties> mma_from_mul_sums =
-      combiner.generateMulSumCanidates();
   if (!combiner.isValid()) {
     std::stringstream ss;
     ss << "Matmul scheduler supports fusions only with a single mma op"
@@ -331,6 +329,8 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     return ss.str();
   }
 
+  const std::vector<mma_utils::MulSumProperties>& mma_from_mul_sums =
+      combiner.getMulSumCanidates();
   // #2
   {
     const auto input_layout_opt =
@@ -364,12 +364,12 @@ std::shared_ptr<MatmulParams> getMatmulHeuristics(
   // Check initial conditions
   auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion);
   mma_utils::CombineMulSum combiner(fusion);
-  std::vector<mma_utils::MulSumProperties> mulSum =
-      combiner.generateMulSumCanidates();
   NVF_ERROR(
       combiner.isValid(),
       "There's no (single) mma op or mul-sum op which mma op can replace")
 
+  const std::vector<mma_utils::MulSumProperties>& mulSum =
+      combiner.getMulSumCanidates();
   const auto problem_shape =
       getProblemShape(mulSum.front().insouts, runtime_info);
 

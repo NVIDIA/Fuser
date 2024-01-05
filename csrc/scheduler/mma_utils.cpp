@@ -1434,11 +1434,7 @@ void CombineMulSum::handle(ReductionOp* stmt) {
   }
 };
 
-std::vector<MulSumProperties> CombineMulSum::generateMulSumCanidates(
-    bool use_cached_results) {
-  if (use_cached_results && !mul_sum_props_.empty()) {
-    return mul_sum_props_;
-  }
+void CombineMulSum::generateMulSumCanidates() {
   auto mma_exprs = ir_utils::getOpsOfType<MmaOp>(fusion_);
   if (mma_exprs.size() == 1) {
     mma_utils::MulSumProperties props;
@@ -1451,6 +1447,14 @@ std::vector<MulSumProperties> CombineMulSum::generateMulSumCanidates(
     traverse(fusion_);
   }
   is_valid_ = (mul_sum_props_.size() == 1) ? true : false;
+}
+
+const std::vector<MulSumProperties>& CombineMulSum::getMulSumCanidates(
+    const bool refresh_data) {
+  if (refresh_data) {
+    mul_sum_props_.clear();
+    generateMulSumCanidates();
+  }
   return mul_sum_props_;
 }
 

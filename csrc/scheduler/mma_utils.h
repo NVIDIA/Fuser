@@ -292,6 +292,9 @@ using DependenciesMap = std::map<TensorView*, DomainsDesc>;
 MatmulProblemLayoutOpt getMmaLayout(
     Fusion* fusion,
     const mma_utils::MulSumProperties::InputsOutputs& props);
+
+//! This overloaded version is just a wrapper on the above function, where
+//! the mma_utils::MulSumProperties::InputsOutputs is extracted from the fusion.
 MatmulProblemLayoutOpt getMmaLayout(Fusion* fusion);
 
 //! Returns wrapped collection of IterDomains that can be used to get
@@ -350,21 +353,24 @@ std::pair<bool, bool> generateSharedMemoryEpilogueHeuristics(
 //! the mul-sum pair. It then exposes a function to replace with mma ops.
 class CombineMulSum : public IterVisitor {
  public:
-  CombineMulSum(Fusion* fusion) : IterVisitor(), fusion_(fusion){};
+  CombineMulSum(Fusion* fusion) : IterVisitor(), fusion_(fusion) {
+    generateMulSumCanidates();
+  };
+
+  const std::vector<MulSumProperties>& getMulSumCanidates(
+      const bool refresh_data = false);
 
   //! Goes through the fusion to find mul-sum pairs.
   //! If user sets the caching flags and properties have been previously
   //! computed, then just return cached results.
-  std::vector<MulSumProperties> generateMulSumCanidates(
-      bool use_cached_results = false);
+  void generateMulSumCanidates();
 
   //! Replaces the candidate mul-sum pairs with mma ops.
   //! Please not this will run generateMulSumCandidates again.
   void replaceWithMmaOp();
 
-  //! Check if the fusion has a mul-sum pair
-  //! than can be replaced by a mma op, or has a single mma op.
-  //! This should be run after generaateMulSumCandidates is run.
+  //! Check if the fusion has a mma-op or a mul-sum pair
+  //! that can be replaced by a mma op.
   bool isValid() {
     return is_valid_;
   }
