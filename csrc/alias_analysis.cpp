@@ -27,17 +27,15 @@ namespace {
 // The current implementation does the bare minimum to detect some aliasing
 // that the codegen can use to generate a kernel skipping unnecessary
 // computation.
-//
-// Many improvements are to be made. For example,
-// 1. It should handle more op types such as `Slice`.
-// 2. It should detect alias between non-packed tensors.
 class AliasFinder : public OptOutConstDispatch {
  public:
   AliasFinder(AliasAnalysisResult& analysis) : analysis_(analysis) {}
 
-  void handle(const ViewOp* view) override;
-  void handle(const LoadStoreOp* ldst) override;
-  void handle(const SliceOp* slice) override;
+  void handle(const ViewOp*) override;
+  void handle(const LoadStoreOp*) override;
+  void handle(const SliceOp*) override;
+  void handle(const BroadcastOp*) override;
+  void handle(const SqueezeOp*) override;
 
  private:
   AliasAnalysisResult& analysis_;
@@ -131,17 +129,17 @@ void AliasFinder::handle(const ViewOp* view) {
   }
 
   std::unordered_map<IterDomain*, IterDomain*> in_rfactor_to_out_root =
-      PairwiseRootDomainMap(in, out).mapBroadcast(true).mapProducerToConsumer();
+      PairwiseRootDomainMap(in, out).mapProducerToConsumer();
   std::unordered_map<IterDomain*, IterDomain*> out_root_to_in_rfactor =
-      PairwiseRootDomainMap(in, out).mapBroadcast(true).mapConsumerToProducer();
+      PairwiseRootDomainMap(in, out).mapConsumerToProducer();
 
   // Collect the allocation order of `in`'s rfactor domain and thus `out`'s root
   // domain.
   LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
   for (const auto i : c10::irange(in_layout.allocation_domain.size())) {
     IterDomain* in_allocation_id = in_layout.allocation_domain[i];
-    if (!in_rfactor_to_out_root.count(in_allocation_id)) {
-      // `in_allocation_id` is a reduction product.
+    if (in_allocation_id->isReduction()) {
+      // Reduction IterDomains won't appear in `out_root`.
       continue;
     }
     allocation_to_contiguity.pushBack(
@@ -241,13 +239,13 @@ void AliasFinder::handle(const LoadStoreOp* permute) {
   // {i0->i3,i1->i4,i2->i5}.
   // 2. Apply the map to `in`'s allocation and get [i5,i3,i4].
   std::unordered_map<IterDomain*, IterDomain*> in_rfactor_to_out_root =
-      PairwiseRootDomainMap(in, out).mapBroadcast(true).mapProducerToConsumer();
+      PairwiseRootDomainMap(in, out).mapProducerToConsumer();
 
   Layout out_layout;
   for (const auto i : c10::irange(in_layout.allocation_domain.size())) {
     IterDomain* in_allocation_id = in_layout.allocation_domain[i];
-    if (!in_rfactor_to_out_root.count(in_allocation_id)) {
-      // `in_allocation_id` is a reduction product.
+    if (in_allocation_id->isReduction()) {
+      // Reduction IterDomains won't appear in `out_root`.
       continue;
     }
     out_layout.allocation_domain.push_back(
@@ -268,7 +266,7 @@ void AliasFinder::handle(const SliceOp* slice) {
   const std::vector<IterDomain*>& out_rfactor = out->getMaybeRFactorDomain();
 
   std::unordered_map<IterDomain*, IterDomain*> in_rfactor_to_out_root =
-      PairwiseRootDomainMap(in, out).mapBroadcast(true).mapProducerToConsumer();
+      PairwiseRootDomainMap(in, out).mapProducerToConsumer();
 
   const auto out_rank = out_rfactor.size();
   std::unordered_map<IterDomain*, IterDomain*> out_root_to_rfactor;
@@ -289,8 +287,8 @@ void AliasFinder::handle(const SliceOp* slice) {
   Layout out_layout;
   out_layout.allocation_domain.reserve(out_rank);
   for (IterDomain* in_allocation_id : in_layout.allocation_domain) {
-    if (!in_rfactor_to_out_root.count(in_allocation_id)) {
-      // `in_allocation_id` is a reduction product.
+    if (in_allocation_id->isReduction()) {
+      // Reduction IterDomains won't appear in `out_root`.
       continue;
     }
     IterDomain* out_root_id = in_rfactor_to_out_root.at(in_allocation_id);
@@ -332,6 +330,83 @@ void AliasFinder::handle(const SliceOp* slice) {
   analysis_.add(out, in, std::move(out_layout));
 }
 
+void AliasFinder::handle(const BroadcastOp* bcast) {
+  TensorView* in = dynamic_cast<TensorView*>(bcast->in());
+  if (in == nullptr) {
+    return;
+  }
+  auto* out = bcast->out()->as<TensorView>();
+
+  // Look at the preferred layout not `in`'s current layout.
+  Layout in_layout = analysis_.preferredLayout(in);
+  if (!ir_utils::computePermutation(
+           in->getMaybeRFactorDomain(), in_layout.allocation_domain)
+           .has_value()) {
+    // Give up when `in`'s allocation domain is not an rfactor permutation.
+    return;
+  }
+
+  std::unordered_map<IterDomain*, IterDomain*> in_rfactor_to_out_root =
+      PairwiseRootDomainMap(in, out).mapProducerToConsumer();
+
+  Layout out_layout;
+  // Preserve the allocation order of existing dimensions.
+  for (const auto i : c10::irange(in_layout.allocation_domain.size())) {
+    IterDomain* in_allocation_id = in_layout.allocation_domain[i];
+    if (in_allocation_id->isReduction()) {
+      // Reduction IterDomains won't appear in `out_root`.
+      continue;
+    }
+    out_layout.allocation_domain.push_back(
+        in_rfactor_to_out_root.at(in_allocation_id));
+    out_layout.contiguity.push_back(in_layout.contiguity[i]);
+  }
+  // Put new, broadcast dimensions to the end.
+  const std::vector<IterDomain*> out_rfactor = out->getMaybeRFactorDomain();
+  for (const auto i : c10::irange(out_rfactor.size())) {
+    if (bcast->isBroadcastDim(i)) {
+      out_layout.allocation_domain.push_back(out_rfactor[i]);
+      out_layout.contiguity.emplace_back(std::nullopt);
+    }
+  }
+
+  analysis_.add(out, in, std::move(out_layout));
+}
+
+void AliasFinder::handle(const SqueezeOp* squeeze) {
+  TensorView* in = dynamic_cast<TensorView*>(squeeze->in());
+  if (in == nullptr) {
+    return;
+  }
+  auto* out = squeeze->out()->as<TensorView>();
+
+  // Look at the preferred layout not `in`'s current layout.
+  Layout in_layout = analysis_.preferredLayout(in);
+  if (!ir_utils::computePermutation(
+           in->getMaybeRFactorDomain(), in_layout.allocation_domain)
+           .has_value()) {
+    // Give up when `in`'s allocation domain is not an rfactor permutation.
+    return;
+  }
+
+  std::unordered_map<IterDomain*, IterDomain*> in_rfactor_to_out_root =
+      PairwiseRootDomainMap(in, out).mapProducerToConsumer();
+
+  Layout out_layout;
+  // Preserve the allocation order of existing dimensions.
+  for (const auto i : c10::irange(in_layout.allocation_domain.size())) {
+    IterDomain* in_allocation_id = in_layout.allocation_domain[i];
+    if (in_rfactor_to_out_root.count(in_allocation_id) == 0) {
+      continue;
+    }
+    out_layout.allocation_domain.push_back(
+        in_rfactor_to_out_root.at(in_allocation_id));
+    out_layout.contiguity.push_back(in_layout.contiguity[i]);
+  }
+
+  analysis_.add(out, in, std::move(out_layout));
+}
+
 } // namespace
 
 void AliasAnalysisResult::add(
@@ -344,11 +419,11 @@ void AliasAnalysisResult::add(
       inserted,
       "The current implementation of alias analysis shouldn't find two "
       "sources for an alias. However, it's trying to make ",
-      alias->toString(),
+      alias,
       " an alias of ",
-      source->toString(),
+      source,
       " while it's already an alias of ",
-      i->second.first->toString());
+      i->second.first);
 }
 
 TensorView* AliasAnalysisResult::findNearestAliasedIo(
@@ -402,10 +477,7 @@ void AliasAnalysisResult::finalize(
 
 Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
   const TensorView* tv = dynamic_cast<const TensorView*>(v);
-  NVF_ERROR(
-      tv != nullptr,
-      "`v` is expected to be a TensorView. Found: ",
-      v == nullptr ? "<null>" : v->toString());
+  NVF_ERROR(tv != nullptr, "`v` is expected to be a TensorView. Found: ", v);
 
   if (auto i = alias_to_source_.find(tv); i != alias_to_source_.end()) {
     return i->second.second;
